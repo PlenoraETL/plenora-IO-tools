@@ -603,6 +603,11 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
         let mut geom_seen = false;
         while let Some(fk) = map.next_key_seed(FeatKeySeed)? {
             match fk {
+                FeatKey::Geom if geom_seen => {
+                    // "geometry" duplicata nella stessa feature: consuma e ignora
+                    // (tiene la 1ª, evita una seconda append → colonne disallineate).
+                    map.next_value::<IgnoredAny>()?;
+                }
                 FeatKey::Geom => {
                     let g = map.next_value::<Option<GjGeometry>>()?;
                     match g {
@@ -706,13 +711,16 @@ impl<'a, 'de> Visitor<'de> for PropsSink<'a> {
             col_idx: &self.sink.col_idx,
         })? {
             match hit {
-                Some(idx) => {
+                // Chiave nota e non ancora vista in questa feature: append.
+                Some(idx) if !self.sink.seen[idx] => {
                     map.next_value_seed(ValueSink {
                         b: &mut self.sink.builders[idx],
                     })?;
                     self.sink.seen[idx] = true;
                 }
-                None => {
+                // Chiave duplicata (o sconosciuta): consuma e ignora il valore.
+                // La 1ª occorrenza vince; niente doppia append → colonne allineate.
+                _ => {
                     map.next_value::<IgnoredAny>()?;
                 }
             }
@@ -839,6 +847,54 @@ fn finish_batch(
         arrays.push(b.finish());
     }
     RecordBatch::try_new(schema.clone(), arrays).map_err(|e| format!("record batch: {e}"))
+}
+
+/// Entry point per il fuzzer (NON API stabile): esegue pass-1 + pass-2 in modo
+/// **sincrono** (niente thread → un panic è catturabile dal fuzzer) su `bytes`,
+/// con un unico batch finale. JSON invalido → `Err` (rifiuto pulito). Un
+/// disallineamento delle colonne fa fallire `try_new` → panic via `expect`,
+/// segnalato come bug del bookkeeping per-feature.
+#[doc(hidden)]
+pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
+    use std::io::Cursor;
+    // pass-1: schema
+    let mut accs: BTreeMap<String, KeyAcc> = BTreeMap::new();
+    serde_json::Deserializer::from_reader(Cursor::new(bytes))
+        .deserialize_map(TopVisitor { accs: &mut accs })
+        .map_err(|e| e.to_string())?;
+    let cols: Vec<(String, ColType)> =
+        accs.iter().map(|(k, a)| (k.clone(), a.coltype())).collect();
+    let mut fields = vec![geometry_field(GEOMETRY, OGC_CRS84)];
+    for (k, ct) in &cols {
+        fields.push(Field::new(k, coltype_to_dt(*ct), true));
+    }
+    let schema: SchemaRef = Arc::new(Schema::new(fields));
+    // pass-2 sincrono: batch_size enorme → nessun flush intermedio sul canale.
+    let ncols = cols.len();
+    let col_idx: HashMap<String, usize> =
+        cols.iter().enumerate().map(|(i, (k, _))| (k.clone(), i)).collect();
+    let (tx, _rx) = sync_channel::<std::result::Result<RecordBatch, String>>(1);
+    let mut sink = RowSink {
+        schema: schema.clone(),
+        col_idx,
+        tx,
+        geom: BinaryBuilder::new(),
+        wkb_buf: Vec::new(),
+        builders: cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect(),
+        seen: vec![false; ncols],
+        n: 0,
+        batch_size: usize::MAX,
+        aborted: false,
+    };
+    serde_json::Deserializer::from_reader(Cursor::new(bytes))
+        .deserialize_map(TopSink { sink: &mut sink })
+        .map_err(|e| e.to_string())?;
+    if sink.n > 0 {
+        let batch = finish_batch(&schema, &mut sink.geom, &mut sink.builders)
+            .expect("colonne disallineate dopo pass-2 (bug bookkeeping)");
+        return Ok(batch.num_rows());
+    }
+    Ok(0)
 }
 
 enum ColBuilder {
@@ -990,7 +1046,8 @@ fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<(
     } else if let Some(a) = col.as_any().downcast_ref::<Float64Array>() {
         let v = a.value(row);
         if v.is_finite() {
-            write!(w, "{}", v)?;
+            // serde_json (ryu): round-trippabile anche per f64 estremi.
+            serde_json::to_writer(&mut *w, &v).map_err(|e| err(e.to_string()))?;
         } else {
             w.write_all(b"null")?; // NaN/Inf non sono JSON validi
         }
@@ -1007,7 +1064,8 @@ fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<(
 /// Emette WKB 2D little-endian da una `geojson::Value` (lettura), senza passare
 /// da geo_types: evita l'allocazione dei `Vec<Coord>` intermedi per linee e
 /// poligoni. Formato identico a quello letto da `plenora_core::wkb::from_wkb`.
-fn wkb_from_gj_value(v: &geojson::Value, out: &mut Vec<u8>) -> std::result::Result<(), String> {
+#[doc(hidden)] // esposto anche per il fuzzer (plenora-fuzz)
+pub fn wkb_from_gj_value(v: &geojson::Value, out: &mut Vec<u8>) -> std::result::Result<(), String> {
     use geojson::Value::*;
     fn hdr(out: &mut Vec<u8>, code: u32) {
         out.push(1);
@@ -1083,7 +1141,8 @@ fn wkb_from_gj_value(v: &geojson::Value, out: &mut Vec<u8>) -> std::result::Resu
 
 /// Scrive una geometria geo_types come oggetto GeoJSON DIRETTAMENTE nel writer
 /// (scrittura), senza costruire un `geojson::Value` intermedio.
-fn write_geo_geojson<W: Write>(w: &mut W, g: &geo_types::Geometry<f64>) -> Result<()> {
+#[doc(hidden)] // esposto anche per il fuzzer (plenora-fuzz)
+pub fn write_geo_geojson<W: Write>(w: &mut W, g: &geo_types::Geometry<f64>) -> Result<()> {
     use geo_types::Geometry as G;
     match g {
         G::Point(p) => {
@@ -1150,7 +1209,14 @@ fn write_pos<W: Write>(w: &mut W, x: f64, y: f64) -> Result<()> {
     if !x.is_finite() || !y.is_finite() {
         return Err(err("coordinata non finita non rappresentabile in GeoJSON"));
     }
-    write!(w, "[{x},{y}]")?;
+    // Formattazione via serde_json (ryu): sempre ri-leggibile. `write!("{}", f64)`
+    // per valori estremi (es. f64::MAX) produrrebbe un decimale che serde_json
+    // rifiuta in rilettura ("number out of range") — trovato dal fuzzer.
+    w.write_all(b"[")?;
+    serde_json::to_writer(&mut *w, &x).map_err(|e| err(e.to_string()))?;
+    w.write_all(b",")?;
+    serde_json::to_writer(&mut *w, &y).map_err(|e| err(e.to_string()))?;
+    w.write_all(b"]")?;
     Ok(())
 }
 fn write_line<W: Write>(w: &mut W, ls: &geo_types::LineString<f64>) -> Result<()> {
@@ -1321,6 +1387,43 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_keys_read_without_error() {
+        // Regressione (trovato dal fuzzer): chiavi duplicate in una feature
+        // (JSON malformato ma accettato da molti parser). La 1ª occorrenza vince
+        // e la lettura NON deve fallire con "colonne disallineate".
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("dup.geojson");
+        std::fs::write(
+            &src,
+            r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"geometry":{"type":"Point","coordinates":[9,9]},"properties":{"c":1,"b":"x","c":true}}
+            ]}"#,
+        )
+        .unwrap();
+        let driver = GeoJsonDriver;
+        let (batch, _layer) = read_all(&driver, &src);
+        assert_eq!(batch.num_rows(), 1);
+        // geometry duplicata → vince la 1ª: Point(1,2).
+        let geom = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        match from_wkb(geom.value(0), &WkbLimits::default()).unwrap() {
+            geo_types::Geometry::Point(p) => assert!((p.x() - 1.0).abs() < 1e-9),
+            other => panic!("atteso Point(1,2), {other:?}"),
+        }
+        // 'c' compare due volte (int poi bool → colonna Text): vince "1".
+        let schema = batch.schema();
+        let c = batch
+            .column(schema.index_of("c").unwrap())
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(c.value(0), "1");
+    }
+
+    #[test]
     fn polygon_and_multipolygon_round_trip() {
         // Esercita la conversione geometria DIRETTA in entrambe le direzioni:
         // lettura geojson→WKB (wkb_from_gj_value) e scrittura WKB→JSON
@@ -1388,6 +1491,24 @@ mod tests {
         match &feats[1].geometry.as_ref().unwrap().value {
             geojson::Value::MultiPolygon(polys) => assert_eq!(polys.len(), 2),
             other => panic!("atteso MultiPolygon, {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extreme_coordinate_survives_geojson_write() {
+        // Regressione (trovato dal fuzzer): una coordinata f64 estrema deve
+        // produrre JSON RI-LEGGIBILE (serde_json/ryu), non un decimale che
+        // serde_json rifiuta in rilettura ("number out of range").
+        let mut buf = Vec::new();
+        let g = geo_types::Geometry::Point(geo_types::Point::new(f64::MAX, -1.5));
+        write_geo_geojson(&mut buf, &g).unwrap();
+        let parsed: geojson::Geometry = serde_json::from_slice(&buf).unwrap();
+        match parsed.value {
+            geojson::Value::Point(c) => {
+                assert_eq!(c[0], f64::MAX);
+                assert!((c[1] + 1.5).abs() < 1e-9);
+            }
+            other => panic!("atteso Point, {other:?}"),
         }
     }
 

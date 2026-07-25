@@ -1287,6 +1287,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "plenora-fuzz"
+version = "0.0.0"
+dependencies = [
+ "driver-geojson",
+ "driver-geoparquet",
+ "geo-types",
+ "geojson",
+ "plenora-core",
+ "plenora-io-core",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "plenora-io-cli"
 version = "0.0.0"
 dependencies = [

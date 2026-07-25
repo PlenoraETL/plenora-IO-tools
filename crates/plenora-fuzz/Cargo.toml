@@ -1,0 +1,20 @@
+[package]
+name = "plenora-fuzz"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "plenora-fuzz"
+path = "src/main.rs"
+
+[dependencies]
+plenora-core = { path = "../plenora-core" }
+plenora-io-core = { path = "../plenora-io-core" }
+driver-geojson = { path = "../driver-geojson" }
+driver-geoparquet = { path = "../driver-geoparquet" }
+geo-types.workspace = true
+geojson.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

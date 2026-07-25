@@ -6,3 +6,6 @@
 
 # Log temporanei
 *.log
+
+# Artefatti del fuzzer (input che riproducono un finding, container-locali)
+/fuzz-findings/

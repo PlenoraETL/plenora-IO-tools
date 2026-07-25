@@ -645,7 +645,8 @@ fn scan_wkb(b: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<
 
 /// Bounding box 2D da WKB senza costruire geometrie. `None` se non-2D o malformato
 /// (robusto al fuzzing: nessun panic, nessun loop illimitato).
-fn wkb_bbox(bytes: &[u8]) -> Option<[f64; 4]> {
+#[doc(hidden)] // esposto solo per il fuzzer (plenora-fuzz)
+pub fn wkb_bbox(bytes: &[u8]) -> Option<[f64; 4]> {
     let mut bb = [
         f64::INFINITY,
         f64::INFINITY,
