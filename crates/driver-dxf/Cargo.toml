@@ -1,0 +1,17 @@
+[package]
+name = "driver-dxf"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+plenora-core = { path = "../plenora-core" }
+plenora-io-core = { path = "../plenora-io-core" }
+driver-common = { path = "../driver-common" }
+arrow-array.workspace = true
+arrow-schema.workspace = true
+dxf.workspace = true
+geo-types.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

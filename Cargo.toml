@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.92"
+publish = false
+
+# Pin comune con plenora-data-tools (ADR/D0): i RecordBatch passano fra le due
+# librerie senza conversione solo se la versione Arrow coincide.
+[workspace.dependencies]
+arrow-array = "=59.1.0"
+arrow-schema = "=59.1.0"
+arrow-ipc = "=59.1.0"
+arrow-select = "=59.1.0"
+arrow-buffer = "=59.1.0"
+parquet = { version = "=59.1.0", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4"] }
+geo-types = "0.7"
+geojson = { version = "=0.24.2", features = ["geo-types"] }
+csv = "=1.4.0"
+wkt = "=0.14.0"
+rusqlite = { version = "=0.39.0", features = ["bundled"] }
+shapefile = { version = "0.6", features = ["geo-types"] }
+kml = { version = "0.8", features = ["geo-types"] }
+calamine = "0.26"
+rust_xlsxwriter = "0.79"
+dxf = "=0.6.1"
+gdal = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"

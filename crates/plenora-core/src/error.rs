@@ -1,0 +1,53 @@
+use std::fmt;
+
+pub type Result<T> = std::result::Result<T, PlenoraError>;
+
+/// Errore base condiviso da IO-tools e data-tools. Mai valori di cella:
+/// contesto (driver, motivo), non contenuti.
+#[derive(Debug)]
+pub enum PlenoraError {
+    Contract(String),
+    Unsupported(String),
+    Schema(String),
+    Format {
+        driver: &'static str,
+        reason: String,
+    },
+    Crs(String),
+    Wkb(String),
+    LimitExceeded(String),
+    OutputExists(String),
+    Io(std::io::Error),
+    Json(serde_json::Error),
+}
+
+impl fmt::Display for PlenoraError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Contract(m) => write!(f, "contratto: {m}"),
+            Self::Unsupported(m) => write!(f, "non supportato: {m}"),
+            Self::Schema(m) => write!(f, "schema: {m}"),
+            Self::Format { driver, reason } => write!(f, "formato {driver}: {reason}"),
+            Self::Crs(m) => write!(f, "crs: {m}"),
+            Self::Wkb(m) => write!(f, "wkb: {m}"),
+            Self::LimitExceeded(m) => write!(f, "limite superato: {m}"),
+            Self::OutputExists(m) => write!(f, "output esistente: {m}"),
+            Self::Io(e) => write!(f, "io: {e}"),
+            Self::Json(e) => write!(f, "json: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for PlenoraError {}
+
+impl From<std::io::Error> for PlenoraError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+
+impl From<serde_json::Error> for PlenoraError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
+}

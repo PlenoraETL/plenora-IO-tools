@@ -1,0 +1,29 @@
+[package]
+name = "plenora-io-cli"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "plenora-io"
+path = "src/main.rs"
+
+[dependencies]
+plenora-io-core = { path = "../plenora-io-core" }
+plenora-core = { path = "../plenora-core" }
+driver-geoparquet = { path = "../driver-geoparquet" }
+driver-geojson = { path = "../driver-geojson" }
+driver-csv = { path = "../driver-csv" }
+driver-gpkg = { path = "../driver-gpkg" }
+driver-shp = { path = "../driver-shp" }
+driver-kml = { path = "../driver-kml" }
+driver-xls = { path = "../driver-xls" }
+driver-dxf = { path = "../driver-dxf" }
+driver-filegdb = { path = "../driver-filegdb" }
+driver-ipc = { path = "../driver-ipc" }
+serde_json.workspace = true
+
+[features]
+# Abilita il tier GDB (FileGDB via GDAL) nel binario.
+gdal-backend = ["driver-filegdb/gdal-backend"]

@@ -1,0 +1,19 @@
+[package]
+name = "driver-filegdb"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+plenora-core = { path = "../plenora-core" }
+plenora-io-core = { path = "../plenora-io-core" }
+driver-common = { path = "../driver-common" }
+arrow-array.workspace = true
+arrow-schema.workspace = true
+serde_json.workspace = true
+gdal = { workspace = true, optional = true }
+
+[features]
+# "tier GDB": FileGDB via GDAL (dipendenza C). Assente di default → stub.
+gdal-backend = ["dep:gdal"]

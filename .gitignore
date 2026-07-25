@@ -1,0 +1,8 @@
+# Artefatti di build Rust (grandi, rigenerabili)
+/target/
+
+# Fixture di benchmark container-locali
+/bench-fix/
+
+# Log temporanei
+*.log

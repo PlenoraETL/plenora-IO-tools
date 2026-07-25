@@ -1,0 +1,4 @@
+# Normalizza tutto a LF nel repo e in checkout (cross-platform: Rust + bash).
+* text=auto eol=lf
+*.sh text eol=lf
+*.rs text eol=lf
