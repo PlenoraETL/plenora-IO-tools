@@ -1,7 +1,8 @@
 //! driver-geoparquet — GeoParquet ⇄ RecordBatch (Fase 1). La geometria è WKB:
 //! in lettura la colonna binaria viene ri-etichettata `geoarrow.wkb` + `crs`
 //! SENZA decodifica (pass-through, V4); in scrittura si emette il metadato `geo`
-//! dal contratto. zstd rifiutato in lettura (build puro-Rust).
+//! dal contratto. Compressione configurabile (`format_options["compression"]`:
+//! snappy default, oppure zstd/gzip/brotli/lz4) — zstd via zstd-sys.
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeSet, HashMap};
@@ -71,7 +72,6 @@ impl FormatDriver for GeoParquetDriver {
         let Source::Path(path) = source;
         let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
             .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))?;
-        reject_zstd(&builder)?;
         let parquet_schema = builder.schema().clone();
         let geo = read_geo_meta(&builder);
         let (geom_name, crs) = resolve_geometry_and_crs(&parquet_schema, geo.as_ref())?;
@@ -149,7 +149,7 @@ impl FormatDriver for GeoParquetDriver {
         // Row group da 64k righe: statistiche min/max abbastanza granulari da
         // rendere efficace il row-group pruning in lettura (Fase 2C).
         let props = WriterProperties::builder()
-            .set_compression(Compression::SNAPPY)
+            .set_compression(compression_from(opts))
             .set_max_row_group_row_count(Some(65_536))
             .build();
         let writer = ArrowWriter::try_new(temp.reopen()?, write_schema.clone(), Some(props))
@@ -473,22 +473,17 @@ fn apply_spatial_pruning(
     builder.with_row_groups(keep)
 }
 
-fn reject_zstd(builder: &ParquetRecordBatchReaderBuilder<File>) -> Result<()> {
-    let pm = builder.metadata();
-    for g in 0..pm.num_row_groups() {
-        for c in 0..pm.row_group(g).num_columns() {
-            if matches!(
-                pm.row_group(g).column(c).compression(),
-                Compression::ZSTD(_)
-            ) {
-                return Err(PlenoraError::Unsupported(
-                    "compressione zstd non supportata (build puro-Rust): ricomprimere in snappy/gzip/brotli/lz4"
-                        .to_owned(),
-                ));
-            }
-        }
+/// Compressione dal `format_options["compression"]` (default snappy). zstd via
+/// zstd-sys (unica dep C oltre a GDAL/filegdb), sia in lettura che scrittura.
+fn compression_from(opts: &WriteOptions) -> Compression {
+    match opts.format_options.get("compression").map(String::as_str) {
+        Some("zstd") => Compression::ZSTD(Default::default()),
+        Some("gzip") => Compression::GZIP(Default::default()),
+        Some("brotli") => Compression::BROTLI(Default::default()),
+        Some("lz4") => Compression::LZ4,
+        Some("none") | Some("uncompressed") => Compression::UNCOMPRESSED,
+        _ => Compression::SNAPPY,
     }
-    Ok(())
 }
 
 fn read_geo_meta(builder: &ParquetRecordBatchReaderBuilder<File>) -> Option<serde_json::Value> {
@@ -1200,5 +1195,70 @@ mod tests {
         // Pruning: legge meno di tutto ma include tutte le ~10000 righe con x in [190,200].
         assert!(total < n, "spatial pruning deve saltare row group, letti {total}");
         assert!(total >= 10_000, "under-return vietato, letti {total}");
+    }
+
+    #[test]
+    fn zstd_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("z.parquet");
+        let wkb: Vec<u8> = to_wkb(&Geometry::Point(Point::new(12.5, 45.9))).unwrap();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true)
+                .with_metadata(geometry_field_meta("EPSG:4326")),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())])),
+                Arc::new(Int64Array::from(vec![42i64])),
+            ],
+        )
+        .unwrap();
+
+        let driver = GeoParquetDriver;
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema: schema.clone(),
+                    geometry: None,
+                },
+            }],
+        };
+        // Scrive compresso zstd.
+        let wopts = WriteOptions {
+            durable: false,
+            format_options: [("compression".to_owned(), "zstd".to_owned())]
+                .into_iter()
+                .collect(),
+        };
+        let mut w = driver.create(Sink::Path(path.clone()), &plan, &wopts).unwrap();
+        w.write(&batch).unwrap();
+        w.finish().unwrap();
+
+        // Rilegge il file zstd (prima veniva RIFIUTATO).
+        let ds = driver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let mut reader = ds
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+            })
+            .unwrap();
+        let out = reader.next_batch().unwrap().unwrap();
+        assert_eq!(out.num_rows(), 1);
+        let col = out
+            .column_by_name("geometry")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        assert_eq!(col.value(0), wkb.as_slice());
     }
 }

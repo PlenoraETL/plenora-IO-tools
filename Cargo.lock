@@ -1229,6 +1229,7 @@ dependencies = [
  "seq-macro",
  "snap",
  "twox-hash",
+ "zstd",
 ]
 
 [[package]]
