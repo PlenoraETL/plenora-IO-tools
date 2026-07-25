@@ -11,11 +11,11 @@
 //! `serde_json::Value` per colonna). La scrittura resta bufferizzante nella v1.
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{sync_channel, Receiver};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 
 use arrow_array::builder::{
@@ -23,8 +23,12 @@ use arrow_array::builder::{
 };
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use geojson::{Feature, FeatureReader, Geometry as GjGeometry, JsonObject};
-use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
+use geojson::{Feature, Geometry as GjGeometry, JsonObject};
+use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
+use serde::de::{
+    DeserializeSeed, Deserializer, Error as DeError, IgnoredAny, MapAccess, SeqAccess, Visitor,
+};
+use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 use driver_common::{geometry_field, json_from_array, ColType, OGC_CRS84};
@@ -268,11 +272,6 @@ fn coltype_to_dt(ct: ColType) -> DataType {
     }
 }
 
-fn feature_reader(path: &Path) -> Result<FeatureReader<BufReader<File>>> {
-    let file = File::open(path)?;
-    Ok(FeatureReader::from_reader(BufReader::new(file)))
-}
-
 /// Pass 1: unione chiavi proprietà + tipo, con un deserializer serde **streaming**
 /// che legge SOLO le chiavi e la classe di tipo dei valori — niente DOM, niente
 /// geometria, niente valori materializzati (allocazioni ~ solo le chiavi nuove).
@@ -430,7 +429,8 @@ struct PropsSeed<'a> {
 impl<'a, 'de> DeserializeSeed<'de> for PropsSeed<'a> {
     type Value = ();
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
-        d.deserialize_map(PropsVisitor { accs: self.accs })
+        // `deserialize_any`: le properties possono essere `null` (oltre a oggetto).
+        d.deserialize_any(PropsVisitor { accs: self.accs })
     }
 }
 struct PropsVisitor<'a> {
@@ -439,7 +439,16 @@ struct PropsVisitor<'a> {
 impl<'a, 'de> Visitor<'de> for PropsVisitor<'a> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str("le properties di un Feature")
+        f.write_str("le properties di un Feature (oggetto o null)")
+    }
+    fn visit_unit<E>(self) -> std::result::Result<(), E> {
+        Ok(())
+    }
+    fn visit_none<E>(self) -> std::result::Result<(), E> {
+        Ok(())
+    }
+    fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_any(self)
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
         while let Some(key) = map.next_key::<String>()? {
@@ -468,43 +477,37 @@ fn spawn_parser(
     let (tx, rx) = sync_channel::<std::result::Result<RecordBatch, String>>(2);
     std::thread::spawn(move || {
         let run = || -> std::result::Result<(), String> {
-            let reader = feature_reader(&path).map_err(|e| e.to_string())?;
-            let mut geom = BinaryBuilder::new();
-            let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per feature: 0 alloc WKB nel loop
-            let mut builders: Vec<ColBuilder> =
-                cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect();
-            let mut n = 0usize;
-            for feat in reader.features() {
-                let f = feat.map_err(|e| format!("GeoJSON non valido: {e}"))?;
-                let Feature {
-                    geometry,
-                    properties,
-                    ..
-                } = f;
-                match geometry {
-                    None => geom.append_null(),
-                    Some(g) => {
-                        let gt = geo_types::Geometry::<f64>::try_from(g.value)
-                            .map_err(|e| format!("geometria non convertibile: {e}"))?;
-                        to_wkb_into(&gt, &mut wkb_buf).map_err(|e| e.to_string())?;
-                        geom.append_value(&wkb_buf);
-                    }
-                }
-                for (i, (k, _)) in cols.iter().enumerate() {
-                    builders[i].append(properties.as_ref().and_then(|p| p.get(k)));
-                }
-                n += 1;
-                if n >= batch_size {
-                    let batch = finish_batch(&schema, &mut geom, &mut builders)?;
-                    if tx.send(Ok(batch)).is_err() {
-                        return Ok(()); // consumatore andato via
-                    }
-                    n = 0;
-                }
+            let file = File::open(&path).map_err(|e| e.to_string())?;
+            let ncols = cols.len();
+            let col_idx: HashMap<String, usize> = cols
+                .iter()
+                .enumerate()
+                .map(|(i, (k, _))| (k.clone(), i))
+                .collect();
+            let mut sink = RowSink {
+                schema: schema.clone(),
+                col_idx,
+                tx: tx.clone(),
+                geom: BinaryBuilder::new(),
+                wkb_buf: Vec::new(),
+                builders: cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect(),
+                seen: vec![false; ncols],
+                n: 0,
+                batch_size,
+                aborted: false,
+            };
+            // Deserializer serde streaming: scrive i feature DIRETTAMENTE nei
+            // builder (chiavi via key-seed = 0 alloc, valori scalari appesi
+            // diretti = 0 alloc). Niente DOM Feature/JsonObject per feature.
+            let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
+            let res = de.deserialize_map(TopSink { sink: &mut sink });
+            if sink.aborted {
+                return Ok(()); // consumatore andato via: stop pulito
             }
-            if n > 0 {
-                let batch = finish_batch(&schema, &mut geom, &mut builders)?;
-                let _ = tx.send(Ok(batch));
+            res.map_err(|e| format!("GeoJSON non valido: {e}"))?;
+            if sink.n > 0 {
+                let batch = finish_batch(&sink.schema, &mut sink.geom, &mut sink.builders)?;
+                let _ = sink.tx.send(Ok(batch));
             }
             Ok(())
         };
@@ -513,6 +516,316 @@ fn spawn_parser(
         }
     });
     rx
+}
+
+/// Stato del pass-2: builder tipizzati + bookkeeping per feature. Possiede tutto
+/// (schema/tx/col_idx sono clonati, cheap) così i seed serde lo passano come
+/// `&mut RowSink` senza parametri di lifetime.
+struct RowSink {
+    schema: SchemaRef,
+    col_idx: HashMap<String, usize>,
+    tx: SyncSender<std::result::Result<RecordBatch, String>>,
+    geom: BinaryBuilder,
+    wkb_buf: Vec<u8>,
+    builders: Vec<ColBuilder>,
+    seen: Vec<bool>,
+    n: usize,
+    batch_size: usize,
+    aborted: bool,
+}
+
+// --- pass-2: catena di seed/visitor che scrivono nei builder ----------------
+
+/// Top: FeatureCollection; interessa solo "features".
+struct TopSink<'a> {
+    sink: &'a mut RowSink,
+}
+impl<'a, 'de> Visitor<'de> for TopSink<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("un oggetto GeoJSON")
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        while let Some(key) = map.next_key::<String>()? {
+            if key == "features" {
+                map.next_value_seed(FeaturesSink { sink: self.sink })?;
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct FeaturesSink<'a> {
+    sink: &'a mut RowSink,
+}
+impl<'a, 'de> DeserializeSeed<'de> for FeaturesSink<'a> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_seq(self)
+    }
+}
+impl<'a, 'de> Visitor<'de> for FeaturesSink<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("un array di feature")
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<(), A::Error> {
+        while seq
+            .next_element_seed(FeatureSink { sink: self.sink })?
+            .is_some()
+        {}
+        Ok(())
+    }
+}
+
+struct FeatureSink<'a> {
+    sink: &'a mut RowSink,
+}
+impl<'a, 'de> DeserializeSeed<'de> for FeatureSink<'a> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_map(self)
+    }
+}
+impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("un Feature")
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        for s in self.sink.seen.iter_mut() {
+            *s = false;
+        }
+        let mut geom_seen = false;
+        while let Some(fk) = map.next_key_seed(FeatKeySeed)? {
+            match fk {
+                FeatKey::Geom => {
+                    let g = map.next_value::<Option<GjGeometry>>()?;
+                    match g {
+                        None => self.sink.geom.append_null(),
+                        Some(gj) => {
+                            let gt = geo_types::Geometry::<f64>::try_from(gj.value).map_err(|e| {
+                                <A::Error as DeError>::custom(format!("geometria non convertibile: {e}"))
+                            })?;
+                            to_wkb_into(&gt, &mut self.sink.wkb_buf)
+                                .map_err(|e| <A::Error as DeError>::custom(e.to_string()))?;
+                            self.sink.geom.append_value(&self.sink.wkb_buf);
+                        }
+                    }
+                    geom_seen = true;
+                }
+                FeatKey::Props => {
+                    map.next_value_seed(PropsSink { sink: self.sink })?;
+                }
+                FeatKey::Other => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        // Allinea le colonne: una append per builder per feature.
+        if !geom_seen {
+            self.sink.geom.append_null();
+        }
+        for i in 0..self.sink.builders.len() {
+            if !self.sink.seen[i] {
+                self.sink.builders[i].append_null();
+            }
+        }
+        self.sink.n += 1;
+        if self.sink.n >= self.sink.batch_size {
+            match finish_batch(&self.sink.schema, &mut self.sink.geom, &mut self.sink.builders) {
+                Ok(batch) => {
+                    if self.sink.tx.send(Ok(batch)).is_err() {
+                        self.sink.aborted = true;
+                        return Err(<A::Error as DeError>::custom("consumatore chiuso"));
+                    }
+                }
+                Err(e) => return Err(<A::Error as DeError>::custom(e)),
+            }
+            self.sink.n = 0;
+        }
+        Ok(())
+    }
+}
+
+/// Chiave a livello di Feature, riconosciuta senza allocare la stringa.
+enum FeatKey {
+    Geom,
+    Props,
+    Other,
+}
+struct FeatKeySeed;
+impl<'de> DeserializeSeed<'de> for FeatKeySeed {
+    type Value = FeatKey;
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<FeatKey, D::Error> {
+        d.deserialize_str(self)
+    }
+}
+impl<'de> Visitor<'de> for FeatKeySeed {
+    type Value = FeatKey;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("una chiave di Feature")
+    }
+    fn visit_str<E>(self, s: &str) -> std::result::Result<FeatKey, E> {
+        Ok(match s {
+            "geometry" => FeatKey::Geom,
+            "properties" => FeatKey::Props,
+            _ => FeatKey::Other,
+        })
+    }
+}
+
+struct PropsSink<'a> {
+    sink: &'a mut RowSink,
+}
+impl<'a, 'de> DeserializeSeed<'de> for PropsSink<'a> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        // properties può essere null (→ tutte le colonne restano non-viste = null).
+        d.deserialize_any(self)
+    }
+}
+impl<'a, 'de> Visitor<'de> for PropsSink<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("le properties di un Feature (oggetto o null)")
+    }
+    fn visit_unit<E>(self) -> std::result::Result<(), E> {
+        Ok(())
+    }
+    fn visit_none<E>(self) -> std::result::Result<(), E> {
+        Ok(())
+    }
+    fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_any(self)
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        while let Some(hit) = map.next_key_seed(PropKeySeed {
+            col_idx: &self.sink.col_idx,
+        })? {
+            match hit {
+                Some(idx) => {
+                    map.next_value_seed(ValueSink {
+                        b: &mut self.sink.builders[idx],
+                    })?;
+                    self.sink.seen[idx] = true;
+                }
+                None => {
+                    map.next_value::<IgnoredAny>()?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Chiave di proprietà → indice di colonna (o None se non è nello schema).
+/// La stringa non viene allocata: la lookup avviene dentro `visit_str`.
+struct PropKeySeed<'a> {
+    col_idx: &'a HashMap<String, usize>,
+}
+impl<'a, 'de> DeserializeSeed<'de> for PropKeySeed<'a> {
+    type Value = Option<usize>;
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<Option<usize>, D::Error> {
+        d.deserialize_str(self)
+    }
+}
+impl<'a, 'de> Visitor<'de> for PropKeySeed<'a> {
+    type Value = Option<usize>;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("una chiave di proprietà")
+    }
+    fn visit_str<E>(self, s: &str) -> std::result::Result<Option<usize>, E> {
+        Ok(self.col_idx.get(s).copied())
+    }
+}
+
+/// Appende il valore di una proprietà DIRETTAMENTE nel builder tipizzato,
+/// senza materializzare un `serde_json::Value` per gli scalari (il caso caldo).
+struct ValueSink<'a> {
+    b: &'a mut ColBuilder,
+}
+impl<'a, 'de> DeserializeSeed<'de> for ValueSink<'a> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_any(self)
+    }
+}
+impl<'a, 'de> Visitor<'de> for ValueSink<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("un valore di proprietà")
+    }
+    fn visit_i64<E>(self, v: i64) -> std::result::Result<(), E> {
+        match self.b {
+            ColBuilder::I64(b) => b.append_value(v),
+            ColBuilder::F64(b) => b.append_value(v as f64),
+            ColBuilder::Bool(b) => b.append_null(),
+            ColBuilder::Str(b) => b.append_value(v.to_string()),
+        }
+        Ok(())
+    }
+    fn visit_u64<E>(self, v: u64) -> std::result::Result<(), E> {
+        match self.b {
+            ColBuilder::I64(b) => b.append_option(i64::try_from(v).ok()),
+            ColBuilder::F64(b) => b.append_value(v as f64),
+            ColBuilder::Bool(b) => b.append_null(),
+            ColBuilder::Str(b) => b.append_value(v.to_string()),
+        }
+        Ok(())
+    }
+    fn visit_f64<E>(self, v: f64) -> std::result::Result<(), E> {
+        match self.b {
+            ColBuilder::I64(b) => b.append_null(),
+            ColBuilder::F64(b) => b.append_value(v),
+            ColBuilder::Bool(b) => b.append_null(),
+            ColBuilder::Str(b) => b.append_value(v.to_string()),
+        }
+        Ok(())
+    }
+    fn visit_bool<E>(self, v: bool) -> std::result::Result<(), E> {
+        match self.b {
+            ColBuilder::Bool(b) => b.append_value(v),
+            ColBuilder::Str(b) => b.append_value(v.to_string()),
+            ColBuilder::I64(b) => b.append_null(),
+            ColBuilder::F64(b) => b.append_null(),
+        }
+        Ok(())
+    }
+    fn visit_str<E>(self, s: &str) -> std::result::Result<(), E> {
+        match self.b {
+            ColBuilder::Str(b) => b.append_value(s), // caso caldo: 0 alloc extra
+            ColBuilder::I64(b) => b.append_null(),
+            ColBuilder::F64(b) => b.append_null(),
+            ColBuilder::Bool(b) => b.append_null(),
+        }
+        Ok(())
+    }
+    fn visit_none<E>(self) -> std::result::Result<(), E> {
+        self.b.append_null();
+        Ok(())
+    }
+    fn visit_unit<E>(self) -> std::result::Result<(), E> {
+        self.b.append_null();
+        Ok(())
+    }
+    fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_any(self)
+    }
+    // Valori composti (array/oggetto) in colonna Text: rari → via DOM + stringa,
+    // esattamente come faceva il percorso precedente (`ColBuilder::append`).
+    fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> std::result::Result<(), A::Error> {
+        let v = JsonValue::deserialize(SeqAccessDeserializer::new(seq))?;
+        self.b.append(Some(&v));
+        Ok(())
+    }
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> std::result::Result<(), A::Error> {
+        let v = JsonValue::deserialize(MapAccessDeserializer::new(map))?;
+        self.b.append(Some(&v));
+        Ok(())
+    }
 }
 
 fn finish_batch(
@@ -554,6 +867,14 @@ impl ColBuilder {
                 Some(JsonValue::String(s)) => b.append_value(s),
                 Some(other) => b.append_value(other.to_string()),
             },
+        }
+    }
+    fn append_null(&mut self) {
+        match self {
+            ColBuilder::I64(b) => b.append_null(),
+            ColBuilder::F64(b) => b.append_null(),
+            ColBuilder::Bool(b) => b.append_null(),
+            ColBuilder::Str(b) => b.append_null(),
         }
     }
     fn finish(&mut self) -> ArrayRef {
@@ -733,6 +1054,65 @@ mod tests {
             geojson::Value::Point(c) => assert!((c[0] - 12.5).abs() < 1e-9),
             other => panic!("atteso Point, {other:?}"),
         }
+    }
+
+    #[test]
+    fn heterogeneous_features_align_columns() {
+        // Feature con proprietà disomogenee: chiave mancante, properties null,
+        // chiave sconosciuta, geometria null. Il deserializer custom deve
+        // mantenere una append per builder per feature (colonne allineate).
+        use arrow_array::{Int64Array, StringArray};
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("het.geojson");
+        std::fs::write(
+            &src,
+            r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[1,1]},"properties":{"a":1,"b":"x"}},
+            {"type":"Feature","geometry":null,"properties":{"a":2}},
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[3,3]},"properties":null},
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[4,4]},"properties":{"b":"y","c":99}}
+            ]}"#,
+        )
+        .unwrap();
+
+        let driver = GeoJsonDriver;
+        let (batch, _layer) = read_all(&driver, &src);
+        assert_eq!(batch.num_rows(), 4);
+        let schema = batch.schema();
+
+        let geom = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        assert!(!geom.is_null(0) && geom.is_null(1) && !geom.is_null(2) && !geom.is_null(3));
+
+        let col = |name: &str| schema.index_of(name).unwrap();
+        let a = batch
+            .column(col("a"))
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert_eq!(a.value(0), 1);
+        assert_eq!(a.value(1), 2);
+        assert!(a.is_null(2) && a.is_null(3));
+
+        let b = batch
+            .column(col("b"))
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(b.value(0), "x");
+        assert!(b.is_null(1) && b.is_null(2));
+        assert_eq!(b.value(3), "y");
+
+        let c = batch
+            .column(col("c"))
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        assert!(c.is_null(0) && c.is_null(1) && c.is_null(2));
+        assert_eq!(c.value(3), 99);
     }
 
     #[test]
