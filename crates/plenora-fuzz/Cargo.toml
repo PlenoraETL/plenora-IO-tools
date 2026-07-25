@@ -18,3 +18,4 @@ geo-types.workspace = true
 geojson.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+wkt.workspace = true

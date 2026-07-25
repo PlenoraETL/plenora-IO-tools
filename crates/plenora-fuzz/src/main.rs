@@ -25,6 +25,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use geo_types::Geometry;
 use plenora_core::limits::WkbLimits;
 use plenora_core::wkb::{from_wkb, to_wkb};
+use wkt::TryFromWkt;
 
 // --- PRNG deterministico (xorshift64) --------------------------------------
 
@@ -98,6 +99,23 @@ fn geojson_seeds() -> Vec<Vec<u8>> {
         r#"{"type":"MultiPoint","coordinates":[[0,0],[5,5]]}"#,
         r#"{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0,0]]]]}"#,
         r#"{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[7,8]}]}"#,
+    ]
+    .iter()
+    .map(|s| s.as_bytes().to_vec())
+    .collect()
+}
+
+/// WKT valido dei 7 tipi: percorso geometria di csv/xls (`try_from_wkt_str`,
+/// crate `wkt` di terze parti — il parser più esposto a panic su input ostile).
+fn wkt_seeds() -> Vec<Vec<u8>> {
+    [
+        "POINT (1 2)",
+        "LINESTRING (0 0, 1 1, 2 2)",
+        "POLYGON ((0 0, 4 0, 4 4, 0 0), (1 1, 2 1, 2 2, 1 1))",
+        "MULTIPOINT ((0 0), (5 5))",
+        "MULTILINESTRING ((0 0, 1 1), (2 2, 3 3))",
+        "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))",
+        "GEOMETRYCOLLECTION (POINT (7 8), LINESTRING (0 0, 1 1))",
     ]
     .iter()
     .map(|s| s.as_bytes().to_vec())
@@ -302,6 +320,16 @@ fn check_gj_value(v: &geojson::Value) -> Result<(), String> {
     Ok(())
 }
 
+/// `try_from_wkt_str` (percorso csv/xls) non deve MAI panic; se accetta, la
+/// geometria dev'essere codificabile in WKB e ri-decodificabile.
+fn check_wkt(s: &str) -> Result<(), String> {
+    if let Ok(g) = geo_types::Geometry::<f64>::try_from_wkt_str(s) {
+        let enc = to_wkb(&g).map_err(|e| format!("to_wkb dopo WKT OK fallisce: {e}"))?;
+        from_wkb(&enc, &LIM).map_err(|e| format!("WKB da WKT non ri-decodificabile: {e}"))?;
+    }
+    Ok(())
+}
+
 /// geojson::Value casuale, profondità limitata (≤4, come il limite serde reale).
 fn rand_gj_value(rng: &mut Rng, depth: usize) -> geojson::Value {
     use geojson::Value::*;
@@ -403,6 +431,7 @@ fn main() {
     let wkb = wkb_seeds();
     let gj = geojson_seeds();
     let fc = fc_seeds();
+    let wkt = wkt_seeds();
     let deadline = Duration::from_secs(secs);
     let start = Instant::now();
     let mut seen: HashSet<u64> = HashSet::new();
@@ -415,9 +444,11 @@ fn main() {
     while start.elapsed() < deadline {
         for _ in 0..20_000 {
             iters += 1;
+            // Distribuzione sbilanciata verso le superfici meno sature (il
+            // codec WKB ha già retto 13G iterazioni pulite su 2 chunk).
             match rng.below(10) {
-                // ~40%: WKB (mutato o casuale)
-                0..=3 => {
+                // ~30%: WKB (mutato o casuale)
+                0..=2 => {
                     let input = if rng.below(5) == 0 {
                         let n = rng.below(80);
                         (0..n).map(|_| rng.byte()).collect::<Vec<u8>>()
@@ -429,17 +460,30 @@ fn main() {
                         report(&out, "wkb", &input, &why, &mut seen, &mut findings);
                     }
                 }
-                // ~20%: geojson::Value sintetico
-                4..=5 => {
-                    let v = rand_gj_value(&mut rng, 0);
-                    let bytes = serde_json::to_vec(&geojson::Geometry::new(v.clone()))
-                        .unwrap_or_default();
-                    if let Err(why) = run(|| check_gj_value(&v)) {
-                        report(&out, "gjval", &bytes, &why, &mut seen, &mut findings);
+                // ~20%: FeatureCollection TEXT → deserializer completo (pass-1+2
+                // sincrono: cattura panic e disallineamenti colonne).
+                3..=4 => {
+                    let idx = rng.below(fc.len());
+                    let input = mutate(&mut rng, &fc[idx]);
+                    // Err = JSON invalido (rifiuto legittimo). Solo un PANIC è bug.
+                    if let Err(why) = run(|| {
+                        let _ = driver_geojson::__fuzz_read_geojson(&input);
+                        Ok(())
+                    }) {
+                        report(&out, "fc", &input, &why, &mut seen, &mut findings);
                     }
                 }
-                // ~20%: geojson geometria TEXT (mutato) — percorso realistico
-                6..=7 => {
+                // ~20%: WKT (mutato) — percorso geometria csv/xls
+                5..=6 => {
+                    let idx = rng.below(wkt.len());
+                    let input = mutate(&mut rng, &wkt[idx]);
+                    let s = String::from_utf8_lossy(&input);
+                    if let Err(why) = run(|| check_wkt(s.as_ref())) {
+                        report(&out, "wkt", &input, &why, &mut seen, &mut findings);
+                    }
+                }
+                // ~20%: geojson geometria TEXT (mutato)
+                7..=8 => {
                     let idx = rng.below(gj.len());
                     let input = mutate(&mut rng, &gj[idx]);
                     if let Err(why) = run(|| {
@@ -451,18 +495,13 @@ fn main() {
                         report(&out, "gjtext", &input, &why, &mut seen, &mut findings);
                     }
                 }
-                // ~20%: FeatureCollection TEXT (mutato) → deserializer completo
-                // pass-1+pass-2 sincrono (cattura panic e disallineamenti colonne)
+                // ~10%: geojson::Value sintetico
                 _ => {
-                    let idx = rng.below(fc.len());
-                    let input = mutate(&mut rng, &fc[idx]);
-                    // Err = JSON invalido (rifiuto legittimo, ignorato). Solo un
-                    // PANIC (disallineamento colonne / bug logico) è un finding.
-                    if let Err(why) = run(|| {
-                        let _ = driver_geojson::__fuzz_read_geojson(&input);
-                        Ok(())
-                    }) {
-                        report(&out, "fc", &input, &why, &mut seen, &mut findings);
+                    let v = rand_gj_value(&mut rng, 0);
+                    let bytes = serde_json::to_vec(&geojson::Geometry::new(v.clone()))
+                        .unwrap_or_default();
+                    if let Err(why) = run(|| check_gj_value(&v)) {
+                        report(&out, "gjval", &bytes, &why, &mut seen, &mut findings);
                     }
                 }
             }
