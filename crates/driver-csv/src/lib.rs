@@ -30,7 +30,7 @@ use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, Laye
 use plenora_core::crs::{CrsKind, ResolvedCrs};
 use plenora_core::geometry::is_geometry_field;
 use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{from_wkb, to_wkb};
+use plenora_core::wkb::{from_wkb, to_wkb_into};
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -410,6 +410,7 @@ fn spawn_parser(
             let mut rdr = csv_reader(&path, delim).map_err(|e| e.to_string())?;
             let mut rec = csv::StringRecord::new();
             let mut geom_b = BinaryBuilder::new();
+            let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per riga: 0 alloc WKB nel loop
             let mut builders: Vec<ColBuilder> =
                 attrs.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect();
             let mut n = 0usize;
@@ -420,7 +421,7 @@ fn spawn_parser(
                 if !more {
                     break;
                 }
-                append_geometry(&mut geom_b, geom, &rec)?;
+                append_geometry(&mut geom_b, geom, &rec, &mut wkb_buf)?;
                 for (k, (ci, _)) in attrs.iter().enumerate() {
                     builders[k].append(rec.get(*ci).unwrap_or(""));
                 }
@@ -450,6 +451,7 @@ fn append_geometry(
     geom_b: &mut BinaryBuilder,
     geom: GeomSpec,
     rec: &csv::StringRecord,
+    buf: &mut Vec<u8>,
 ) -> std::result::Result<(), String> {
     match geom {
         GeomSpec::Wkt(wi) => {
@@ -459,7 +461,8 @@ fn append_geometry(
             } else {
                 let g = geo_types::Geometry::<f64>::try_from_wkt_str(cell)
                     .map_err(|e| format!("WKT non valido: {e}"))?;
-                geom_b.append_value(to_wkb(&g).map_err(|e| e.to_string())?);
+                to_wkb_into(&g, buf).map_err(|e| e.to_string())?;
+                geom_b.append_value(&buf);
             }
         }
         GeomSpec::Xy(xi, yi) => {
@@ -468,7 +471,8 @@ fn append_geometry(
             match (x, y) {
                 (Ok(x), Ok(y)) => {
                     let g = geo_types::Geometry::Point(geo_types::Point::new(x, y));
-                    geom_b.append_value(to_wkb(&g).map_err(|e| e.to_string())?);
+                    to_wkb_into(&g, buf).map_err(|e| e.to_string())?;
+                    geom_b.append_value(&buf);
                 }
                 _ => geom_b.append_null(),
             }

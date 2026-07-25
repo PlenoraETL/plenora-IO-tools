@@ -91,12 +91,21 @@ fn write_geom(out: &mut Vec<u8>, geom: &Geometry<f64>) -> Result<()> {
     Ok(())
 }
 
-/// Serializza una geometria in WKB 2D little-endian.
-pub fn to_wkb(geom: &Geometry<f64>) -> Result<Vec<u8>> {
+/// Serializza in un buffer riusabile (lo **svuota** prima di scrivere). Evita
+/// un'allocazione per riga nei loop di lettura streaming: il chiamante tiene un
+/// solo `Vec` e ne appende il contenuto a un `BinaryBuilder` Arrow a ogni giro.
+pub fn to_wkb_into(geom: &Geometry<f64>, out: &mut Vec<u8>) -> Result<()> {
     #[cfg(feature = "metrics")]
     crate::metrics::inc_encode();
+    out.clear();
+    write_geom(out, geom)
+}
+
+/// Serializza una geometria in WKB 2D little-endian (alloca un `Vec` nuovo).
+/// Per i loop caldi preferire [`to_wkb_into`] con un buffer riusato.
+pub fn to_wkb(geom: &Geometry<f64>) -> Result<Vec<u8>> {
     let mut out = Vec::new();
-    write_geom(&mut out, geom)?;
+    to_wkb_into(geom, &mut out)?;
     Ok(out)
 }
 

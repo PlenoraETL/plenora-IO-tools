@@ -32,7 +32,7 @@ use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, Laye
 use plenora_core::crs::ResolvedCrs;
 use plenora_core::geometry::is_geometry_field;
 use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{from_wkb, to_wkb};
+use plenora_core::wkb::{from_wkb, to_wkb_into};
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -470,6 +470,7 @@ fn spawn_parser(
         let run = || -> std::result::Result<(), String> {
             let reader = feature_reader(&path).map_err(|e| e.to_string())?;
             let mut geom = BinaryBuilder::new();
+            let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per feature: 0 alloc WKB nel loop
             let mut builders: Vec<ColBuilder> =
                 cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect();
             let mut n = 0usize;
@@ -485,7 +486,8 @@ fn spawn_parser(
                     Some(g) => {
                         let gt = geo_types::Geometry::<f64>::try_from(g.value)
                             .map_err(|e| format!("geometria non convertibile: {e}"))?;
-                        geom.append_value(to_wkb(&gt).map_err(|e| e.to_string())?);
+                        to_wkb_into(&gt, &mut wkb_buf).map_err(|e| e.to_string())?;
+                        geom.append_value(&wkb_buf);
                     }
                 }
                 for (i, (k, _)) in cols.iter().enumerate() {

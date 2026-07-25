@@ -30,7 +30,7 @@ use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, Laye
 use plenora_core::crs::{CrsKind, ResolvedCrs};
 use plenora_core::geometry::{is_geometry_field, GEO_CRS_KEY};
 use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{from_wkb, to_wkb};
+use plenora_core::wkb::{from_wkb, to_wkb_into};
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -555,13 +555,17 @@ fn spawn_parser(
         let run = || -> std::result::Result<(), String> {
             let mut reader = shapefile::Reader::from_path(&path).map_err(|e| e.to_string())?;
             let mut geom = BinaryBuilder::new();
+            let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per record: 0 alloc WKB nel loop
             let mut builders: Vec<ShpColBuilder> =
                 cols.iter().map(|(_, ct)| ShpColBuilder::new(*ct)).collect();
             let mut n = 0usize;
             for pair in reader.iter_shapes_and_records() {
                 let (shape, record) = pair.map_err(|e| e.to_string())?;
                 match geo_types::Geometry::<f64>::try_from(shape) {
-                    Ok(g) => geom.append_value(to_wkb(&g).map_err(|e| e.to_string())?),
+                    Ok(g) => {
+                        to_wkb_into(&g, &mut wkb_buf).map_err(|e| e.to_string())?;
+                        geom.append_value(&wkb_buf);
+                    }
                     Err(_) => geom.append_null(),
                 }
                 // Lookup per nome (l'ordine di iterazione del Record non è garantito).
@@ -687,6 +691,7 @@ fn fv_string(v: &FieldValue) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use plenora_core::wkb::to_wkb;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
 
