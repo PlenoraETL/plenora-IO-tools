@@ -115,11 +115,36 @@ fn coord(k: usize) -> (f64, f64) {
     (6.0 + (k % 1000) as f64 * 0.001, 45.0 + (k % 777) as f64 * 0.001)
 }
 
+/// Se `PLENORA_BENCH_GEOM=polygon`, i benchmark usano poligoni (un quadratino)
+/// invece di punti: così le metriche riflettono il costo del percorso geometria
+/// (che con soli Point è quasi nullo).
+fn use_polygon() -> bool {
+    std::env::var("PLENORA_BENCH_GEOM").map(|v| v == "polygon").unwrap_or(false)
+}
+
+/// Anello quadrato (chiuso) attorno a `coord(k)`.
+fn poly_ring(k: usize) -> Vec<[f64; 2]> {
+    let (x, y) = coord(k);
+    let d = 0.0005;
+    vec![[x, y], [x + d, y], [x + d, y + d], [x, y + d], [x, y]]
+}
+
 fn wkb_pool() -> Vec<Vec<u8>> {
+    let poly = use_polygon();
     (0..POOL)
         .map(|k| {
-            let (x, y) = coord(k);
-            to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(x, y))).unwrap()
+            let g = if poly {
+                let ring: Vec<geo_types::Coord<f64>> =
+                    poly_ring(k).into_iter().map(|p| geo_types::Coord { x: p[0], y: p[1] }).collect();
+                geo_types::Geometry::Polygon(geo_types::Polygon::new(
+                    geo_types::LineString(ring),
+                    vec![],
+                ))
+            } else {
+                let (x, y) = coord(k);
+                geo_types::Geometry::Point(geo_types::Point::new(x, y))
+            };
+            to_wkb(&g).unwrap()
         })
         .collect()
 }
@@ -235,14 +260,24 @@ fn write_geojson_fixture(path: &Path, total: usize) {
     let f = std::fs::File::create(path).unwrap();
     let mut w = BufWriter::new(f);
     w.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[").unwrap();
+    let poly = use_polygon();
     for i in 0..total {
-        let (x, y) = coord(i);
         if i > 0 {
             w.write_all(b",").unwrap();
         }
+        let geom = if poly {
+            let r = poly_ring(i);
+            format!(
+                "{{\"type\":\"Polygon\",\"coordinates\":[[[{},{}],[{},{}],[{},{}],[{},{}],[{},{}]]]}}",
+                r[0][0], r[0][1], r[1][0], r[1][1], r[2][0], r[2][1], r[3][0], r[3][1], r[4][0], r[4][1]
+            )
+        } else {
+            let (x, y) = coord(i);
+            format!("{{\"type\":\"Point\",\"coordinates\":[{x},{y}]}}")
+        };
         write!(
             w,
-            "{{\"type\":\"Feature\",\"geometry\":{{\"type\":\"Point\",\"coordinates\":[{x},{y}]}},\"properties\":{{\"id\":{i},\"name\":\"f{}\",\"val\":{}}}}}",
+            "{{\"type\":\"Feature\",\"geometry\":{geom},\"properties\":{{\"id\":{i},\"name\":\"f{}\",\"val\":{}}}}}",
             i % POOL,
             i as f64 * 1.5
         )

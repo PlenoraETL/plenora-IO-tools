@@ -38,7 +38,7 @@ use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, Laye
 use plenora_core::crs::ResolvedCrs;
 use plenora_core::geometry::is_geometry_field;
 use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{from_wkb, to_wkb_into};
+use plenora_core::wkb::from_wkb;
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -608,11 +608,9 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
                     match g {
                         None => self.sink.geom.append_null(),
                         Some(gj) => {
-                            let gt = geo_types::Geometry::<f64>::try_from(gj.value).map_err(|e| {
-                                <A::Error as DeError>::custom(format!("geometria non convertibile: {e}"))
-                            })?;
-                            to_wkb_into(&gt, &mut self.sink.wkb_buf)
-                                .map_err(|e| <A::Error as DeError>::custom(e.to_string()))?;
+                            self.sink.wkb_buf.clear();
+                            wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf)
+                                .map_err(<A::Error as DeError>::custom)?;
                             self.sink.geom.append_value(&self.sink.wkb_buf);
                         }
                     }
@@ -957,9 +955,7 @@ fn write_feature<W: Write>(
         w.write_all(b"null")?;
     } else {
         let geom = from_wkb(geom_col.value(row), limits)?;
-        // Il wrapper Geometry serializza l'oggetto completo {type,coordinates}.
-        let gj = GjGeometry::new(geojson::Value::from(&geom));
-        serde_json::to_writer(&mut *w, &gj).map_err(|e| err(e.to_string()))?;
+        write_geo_geojson(w, &geom)?;
     }
     w.write_all(b",\"properties\":{")?;
     let mut first_prop = true;
@@ -1003,6 +999,179 @@ fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<(
     } else {
         serde_json::to_writer(&mut *w, &json_from_array(col, row)).map_err(|e| err(e.to_string()))?;
     }
+    Ok(())
+}
+
+// --- geometria: conversione diretta senza intermedio geo_types/Value --------
+
+/// Emette WKB 2D little-endian da una `geojson::Value` (lettura), senza passare
+/// da geo_types: evita l'allocazione dei `Vec<Coord>` intermedi per linee e
+/// poligoni. Formato identico a quello letto da `plenora_core::wkb::from_wkb`.
+fn wkb_from_gj_value(v: &geojson::Value, out: &mut Vec<u8>) -> std::result::Result<(), String> {
+    use geojson::Value::*;
+    fn hdr(out: &mut Vec<u8>, code: u32) {
+        out.push(1);
+        out.extend_from_slice(&code.to_le_bytes());
+    }
+    fn pos(out: &mut Vec<u8>, p: &[f64]) -> std::result::Result<(), String> {
+        let x = *p.first().ok_or("posizione GeoJSON senza x")?;
+        let y = *p.get(1).ok_or("posizione GeoJSON senza y")?;
+        out.extend_from_slice(&x.to_le_bytes());
+        out.extend_from_slice(&y.to_le_bytes());
+        Ok(())
+    }
+    fn ring(out: &mut Vec<u8>, r: &[Vec<f64>]) -> std::result::Result<(), String> {
+        out.extend_from_slice(&(r.len() as u32).to_le_bytes());
+        for p in r {
+            pos(out, p)?;
+        }
+        Ok(())
+    }
+    match v {
+        Point(p) => {
+            hdr(out, 1);
+            pos(out, p)?;
+        }
+        LineString(ls) => {
+            hdr(out, 2);
+            ring(out, ls)?;
+        }
+        Polygon(rings) => {
+            hdr(out, 3);
+            out.extend_from_slice(&(rings.len() as u32).to_le_bytes());
+            for r in rings {
+                ring(out, r)?;
+            }
+        }
+        MultiPoint(pts) => {
+            hdr(out, 4);
+            out.extend_from_slice(&(pts.len() as u32).to_le_bytes());
+            for p in pts {
+                hdr(out, 1);
+                pos(out, p)?;
+            }
+        }
+        MultiLineString(lss) => {
+            hdr(out, 5);
+            out.extend_from_slice(&(lss.len() as u32).to_le_bytes());
+            for ls in lss {
+                hdr(out, 2);
+                ring(out, ls)?;
+            }
+        }
+        MultiPolygon(polys) => {
+            hdr(out, 6);
+            out.extend_from_slice(&(polys.len() as u32).to_le_bytes());
+            for poly in polys {
+                hdr(out, 3);
+                out.extend_from_slice(&(poly.len() as u32).to_le_bytes());
+                for r in poly {
+                    ring(out, r)?;
+                }
+            }
+        }
+        GeometryCollection(gs) => {
+            hdr(out, 7);
+            out.extend_from_slice(&(gs.len() as u32).to_le_bytes());
+            for g in gs {
+                wkb_from_gj_value(&g.value, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Scrive una geometria geo_types come oggetto GeoJSON DIRETTAMENTE nel writer
+/// (scrittura), senza costruire un `geojson::Value` intermedio.
+fn write_geo_geojson<W: Write>(w: &mut W, g: &geo_types::Geometry<f64>) -> Result<()> {
+    use geo_types::Geometry as G;
+    match g {
+        G::Point(p) => {
+            w.write_all(b"{\"type\":\"Point\",\"coordinates\":")?;
+            write_pos(w, p.x(), p.y())?;
+            w.write_all(b"}")?;
+        }
+        G::LineString(ls) => {
+            w.write_all(b"{\"type\":\"LineString\",\"coordinates\":")?;
+            write_line(w, ls)?;
+            w.write_all(b"}")?;
+        }
+        G::Polygon(pl) => {
+            w.write_all(b"{\"type\":\"Polygon\",\"coordinates\":")?;
+            write_poly(w, pl)?;
+            w.write_all(b"}")?;
+        }
+        G::MultiPoint(mp) => {
+            w.write_all(b"{\"type\":\"MultiPoint\",\"coordinates\":[")?;
+            for (i, p) in mp.0.iter().enumerate() {
+                if i > 0 {
+                    w.write_all(b",")?;
+                }
+                write_pos(w, p.x(), p.y())?;
+            }
+            w.write_all(b"]}")?;
+        }
+        G::MultiLineString(ml) => {
+            w.write_all(b"{\"type\":\"MultiLineString\",\"coordinates\":[")?;
+            for (i, ls) in ml.0.iter().enumerate() {
+                if i > 0 {
+                    w.write_all(b",")?;
+                }
+                write_line(w, ls)?;
+            }
+            w.write_all(b"]}")?;
+        }
+        G::MultiPolygon(mp) => {
+            w.write_all(b"{\"type\":\"MultiPolygon\",\"coordinates\":[")?;
+            for (i, pl) in mp.0.iter().enumerate() {
+                if i > 0 {
+                    w.write_all(b",")?;
+                }
+                write_poly(w, pl)?;
+            }
+            w.write_all(b"]}")?;
+        }
+        G::GeometryCollection(gc) => {
+            w.write_all(b"{\"type\":\"GeometryCollection\",\"geometries\":[")?;
+            for (i, gg) in gc.0.iter().enumerate() {
+                if i > 0 {
+                    w.write_all(b",")?;
+                }
+                write_geo_geojson(w, gg)?;
+            }
+            w.write_all(b"]}")?;
+        }
+        _ => return Err(err("geometria con Z/M non rappresentabile in GeoJSON 2D")),
+    }
+    Ok(())
+}
+
+fn write_pos<W: Write>(w: &mut W, x: f64, y: f64) -> Result<()> {
+    if !x.is_finite() || !y.is_finite() {
+        return Err(err("coordinata non finita non rappresentabile in GeoJSON"));
+    }
+    write!(w, "[{x},{y}]")?;
+    Ok(())
+}
+fn write_line<W: Write>(w: &mut W, ls: &geo_types::LineString<f64>) -> Result<()> {
+    w.write_all(b"[")?;
+    for (i, c) in ls.0.iter().enumerate() {
+        if i > 0 {
+            w.write_all(b",")?;
+        }
+        write_pos(w, c.x, c.y)?;
+    }
+    w.write_all(b"]")?;
+    Ok(())
+}
+fn write_poly<W: Write>(w: &mut W, pl: &geo_types::Polygon<f64>) -> Result<()> {
+    w.write_all(b"[")?;
+    write_line(w, pl.exterior())?;
+    for r in pl.interiors() {
+        w.write_all(b",")?;
+        write_line(w, r)?;
+    }
+    w.write_all(b"]")?;
     Ok(())
 }
 
@@ -1149,6 +1318,77 @@ mod tests {
             .unwrap();
         assert!(c.is_null(0) && c.is_null(1) && c.is_null(2));
         assert_eq!(c.value(3), 99);
+    }
+
+    #[test]
+    fn polygon_and_multipolygon_round_trip() {
+        // Esercita la conversione geometria DIRETTA in entrambe le direzioni:
+        // lettura geojson→WKB (wkb_from_gj_value) e scrittura WKB→JSON
+        // (write_geo_geojson), su Polygon-con-buco e MultiPolygon.
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("poly.geojson");
+        std::fs::write(
+            &src,
+            r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[0,0],[4,0],[4,4],[0,4],[0,0]],[[1,1],[2,1],[2,2],[1,2],[1,1]]]},"properties":{"k":1}},
+            {"type":"Feature","geometry":{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0,0]]],[[[5,5],[6,5],[6,6],[5,5]]]]},"properties":{"k":2}}
+            ]}"#,
+        )
+        .unwrap();
+
+        let driver = GeoJsonDriver;
+        let (batch, layer) = read_all(&driver, &src);
+        assert_eq!(batch.num_rows(), 2);
+
+        // Lettura: geojson→WKB deve dare un WKB decodificabile da from_wkb.
+        let geom = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        let limits = WkbLimits::default();
+        match from_wkb(geom.value(0), &limits).unwrap() {
+            geo_types::Geometry::Polygon(pl) => {
+                assert_eq!(pl.exterior().0.len(), 5);
+                assert_eq!(pl.interiors().len(), 1);
+                assert_eq!(pl.interiors()[0].0.len(), 5);
+            }
+            other => panic!("atteso Polygon, {other:?}"),
+        }
+        match from_wkb(geom.value(1), &limits).unwrap() {
+            geo_types::Geometry::MultiPolygon(mp) => assert_eq!(mp.0.len(), 2),
+            other => panic!("atteso MultiPolygon, {other:?}"),
+        }
+
+        // Scrittura: WKB→JSON diretto; rileggendo la geometria deve sopravvivere.
+        let out = dir.path().join("poly-out.geojson");
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: layer.contract.clone(),
+            }],
+        };
+        let mut w = driver
+            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        w.write(&batch).unwrap();
+        w.finish().unwrap();
+
+        let feats = parse_features(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!(feats.len(), 2);
+        match &feats[0].geometry.as_ref().unwrap().value {
+            geojson::Value::Polygon(rings) => {
+                assert_eq!(rings.len(), 2); // esterno + 1 buco
+                assert_eq!(rings[0].len(), 5);
+                assert_eq!(rings[1].len(), 5);
+                assert!((rings[1][0][0] - 1.0).abs() < 1e-9); // il buco parte da x=1
+            }
+            other => panic!("atteso Polygon, {other:?}"),
+        }
+        match &feats[1].geometry.as_ref().unwrap().value {
+            geojson::Value::MultiPolygon(polys) => assert_eq!(polys.len(), 2),
+            other => panic!("atteso MultiPolygon, {other:?}"),
+        }
     }
 
     #[test]
