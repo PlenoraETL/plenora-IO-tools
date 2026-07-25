@@ -12,6 +12,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Receiver};
@@ -20,7 +21,9 @@ use std::sync::Arc;
 use arrow_array::builder::{
     BinaryBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringBuilder,
 };
-use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch};
+use arrow_array::{
+    Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
+};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use serde_json::Value as JsonValue;
 use wkt::{ToWkt, TryFromWkt};
@@ -586,34 +589,41 @@ impl FormatWriter for CsvWriter {
             self.header_written = true;
         }
 
-        let mut rec: Vec<String> = Vec::new();
+        // Scrittura per-campo DIRETTA (niente Vec<String> né serde_json::Value
+        // per cella): `fbuf` è riusato per formattare numeri/bool.
+        let mut fbuf = String::new();
         for row in 0..batch.num_rows() {
-            rec.clear();
             for (i, _) in schema.fields().iter().enumerate() {
                 if i != geom_idx {
-                    rec.push(cell_string(&json_from_array(batch.column(i), row)));
+                    write_cell(w, batch.column(i), row, &mut fbuf).map_err(|e| err(e.to_string()))?;
                 }
             }
             if geom_col.is_null(row) {
-                rec.push(String::new());
+                w.write_field("").map_err(|e| err(e.to_string()))?;
                 if xy {
-                    rec.push(String::new());
+                    w.write_field("").map_err(|e| err(e.to_string()))?;
                 }
             } else {
                 let geom = from_wkb(geom_col.value(row), &limits)?;
                 if xy {
                     match geom {
                         geo_types::Geometry::Point(p) => {
-                            rec.push(p.x().to_string());
-                            rec.push(p.y().to_string());
+                            fbuf.clear();
+                            let _ = write!(fbuf, "{}", p.x());
+                            w.write_field(&fbuf).map_err(|e| err(e.to_string()))?;
+                            fbuf.clear();
+                            let _ = write!(fbuf, "{}", p.y());
+                            w.write_field(&fbuf).map_err(|e| err(e.to_string()))?;
                         }
                         _ => return Err(err("encoding xy richiede geometrie Point")),
                     }
                 } else {
-                    rec.push(geom.wkt_string());
+                    w.write_field(geom.wkt_string())
+                        .map_err(|e| err(e.to_string()))?;
                 }
             }
-            w.write_record(&rec).map_err(|e| err(e.to_string()))?;
+            // Termina il record (dopo i write_field).
+            w.write_record(None::<&[u8]>).map_err(|e| err(e.to_string()))?;
         }
         Ok(())
     }
@@ -629,6 +639,36 @@ impl FormatWriter for CsvWriter {
             loss: LossReport::default(),
             outcome,
         })
+    }
+}
+
+/// Scrive una cella attributo DIRETTAMENTE nel writer CSV, senza passare per
+/// `serde_json::Value`: stringhe dritte (0 alloc), numeri/bool formattati nel
+/// buffer riusato `fbuf`. I tipi non comuni ricadono sul convertitore generico.
+fn write_cell<W: std::io::Write>(
+    w: &mut csv::Writer<W>,
+    col: &ArrayRef,
+    row: usize,
+    fbuf: &mut String,
+) -> csv::Result<()> {
+    if col.is_null(row) {
+        return w.write_field("");
+    }
+    if let Some(a) = col.as_any().downcast_ref::<StringArray>() {
+        w.write_field(a.value(row))
+    } else if let Some(a) = col.as_any().downcast_ref::<Int64Array>() {
+        fbuf.clear();
+        let _ = write!(fbuf, "{}", a.value(row));
+        w.write_field(&*fbuf)
+    } else if let Some(a) = col.as_any().downcast_ref::<Float64Array>() {
+        fbuf.clear();
+        let _ = write!(fbuf, "{}", a.value(row));
+        w.write_field(&*fbuf)
+    } else if let Some(a) = col.as_any().downcast_ref::<BooleanArray>() {
+        w.write_field(if a.value(row) { "true" } else { "false" })
+    } else {
+        // Tipo non comune (Date, ecc.): fallback via il convertitore generico.
+        w.write_field(cell_string(&json_from_array(col, row)))
     }
 }
 

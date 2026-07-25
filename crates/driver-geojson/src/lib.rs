@@ -21,9 +21,11 @@ use std::sync::Arc;
 use arrow_array::builder::{
     BinaryBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringBuilder,
 };
-use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch};
+use arrow_array::{
+    Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
+};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use geojson::{Feature, Geometry as GjGeometry, JsonObject};
+use geojson::Geometry as GjGeometry;
 use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
 use serde::de::{
     DeserializeSeed, Deserializer, Error as DeError, IgnoredAny, MapAccess, SeqAccess, Visitor,
@@ -914,12 +916,11 @@ impl FormatWriter for GeoJsonWriter {
         let w = self.writer.as_mut().ok_or_else(|| err("writer chiuso"))?;
         let mut first = self.first;
         for row in 0..batch.num_rows() {
-            let feature = row_to_feature(&schema, geom_idx, geom_col, batch, row, &limits)?;
             if !first {
                 w.write_all(b",")?;
             }
             first = false;
-            serde_json::to_writer(&mut *w, &feature)?;
+            write_feature(w, &schema, geom_idx, geom_col, batch, row, &limits)?;
         }
         self.first = first;
         Ok(())
@@ -939,40 +940,75 @@ impl FormatWriter for GeoJsonWriter {
     }
 }
 
-/// Un feature dalla riga `row` (geometria da WKB, proprietà da colonne Arrow).
-fn row_to_feature(
+/// Serializza un Feature DIRETTAMENTE nel writer, senza costruire il DOM
+/// `Feature`/`JsonObject`: le chiavi/valori scalari vanno dritti nel buffer
+/// (0 alloc), solo la geometria passa ancora da un `geojson::Value`.
+fn write_feature<W: Write>(
+    w: &mut W,
     schema: &SchemaRef,
     geom_idx: usize,
     geom_col: &BinaryArray,
     batch: &RecordBatch,
     row: usize,
     limits: &WkbLimits,
-) -> Result<Feature> {
-    let geometry = if geom_col.is_null(row) {
-        None
+) -> Result<()> {
+    w.write_all(b"{\"type\":\"Feature\",\"geometry\":")?;
+    if geom_col.is_null(row) {
+        w.write_all(b"null")?;
     } else {
         let geom = from_wkb(geom_col.value(row), limits)?;
-        Some(GjGeometry::new(geojson::Value::from(&geom)))
-    };
-    let mut props = JsonObject::new();
+        // Il wrapper Geometry serializza l'oggetto completo {type,coordinates}.
+        let gj = GjGeometry::new(geojson::Value::from(&geom));
+        serde_json::to_writer(&mut *w, &gj).map_err(|e| err(e.to_string()))?;
+    }
+    w.write_all(b",\"properties\":{")?;
+    let mut first_prop = true;
     for (i, field) in schema.fields().iter().enumerate() {
         if i == geom_idx {
             continue;
         }
-        props.insert(field.name().clone(), json_from_array(batch.column(i), row));
+        if !first_prop {
+            w.write_all(b",")?;
+        }
+        first_prop = false;
+        // `to_writer` di uno `&str` scrive la chiave JSON quotata/escapata direct.
+        serde_json::to_writer(&mut *w, field.name()).map_err(|e| err(e.to_string()))?;
+        w.write_all(b":")?;
+        write_json_value(w, batch.column(i), row)?;
     }
-    Ok(Feature {
-        bbox: None,
-        geometry,
-        id: None,
-        properties: Some(props),
-        foreign_members: None,
-    })
+    w.write_all(b"}}")?;
+    Ok(())
+}
+
+/// Valore di proprietà scritto DIRETTAMENTE: scalari senza `serde_json::Value`,
+/// stringhe escapate via `to_writer(&str)`, tipi non comuni via fallback.
+fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<()> {
+    if col.is_null(row) {
+        w.write_all(b"null")?;
+        return Ok(());
+    }
+    if let Some(a) = col.as_any().downcast_ref::<StringArray>() {
+        serde_json::to_writer(&mut *w, a.value(row)).map_err(|e| err(e.to_string()))?;
+    } else if let Some(a) = col.as_any().downcast_ref::<Int64Array>() {
+        write!(w, "{}", a.value(row))?;
+    } else if let Some(a) = col.as_any().downcast_ref::<Float64Array>() {
+        let v = a.value(row);
+        if v.is_finite() {
+            write!(w, "{}", v)?;
+        } else {
+            w.write_all(b"null")?; // NaN/Inf non sono JSON validi
+        }
+    } else if let Some(a) = col.as_any().downcast_ref::<BooleanArray>() {
+        w.write_all(if a.value(row) { b"true" } else { b"false" })?;
+    } else {
+        serde_json::to_writer(&mut *w, &json_from_array(col, row)).map_err(|e| err(e.to_string()))?;
+    }
+    Ok(())
 }
 
 // Solo per i test: parse completo (documenti piccoli).
 #[cfg(test)]
-fn parse_features(text: &str) -> Result<Vec<Feature>> {
+fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
     let gj: geojson::GeoJson = text.parse().map_err(|e| err(format!("GeoJSON: {e}")))?;
     match gj {
         geojson::GeoJson::FeatureCollection(c) => Ok(c.features),
