@@ -24,6 +24,7 @@ use arrow_array::builder::{
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use geojson::{Feature, FeatureReader, Geometry as GjGeometry, JsonObject};
+use serde::de::{DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde_json::Value as JsonValue;
 
 use driver_common::{geometry_field, json_from_array, ColType, OGC_CRS84};
@@ -217,17 +218,20 @@ impl Default for KeyAcc {
 }
 
 impl KeyAcc {
-    fn observe(&mut self, v: &JsonValue) {
-        match v {
-            JsonValue::Null => {}
-            JsonValue::Number(n) => {
+    /// Classe del valore: 0 null, 1 int, 2 float, 3 bool, 4 testo/altro.
+    fn observe_class(&mut self, class: u8) {
+        match class {
+            0 => {}
+            1 => {
                 self.any = true;
                 self.all_bool = false;
-                if !n.is_i64() && !n.is_u64() {
-                    self.all_int = false;
-                }
             }
-            JsonValue::Bool(_) => {
+            2 => {
+                self.any = true;
+                self.all_int = false;
+                self.all_bool = false;
+            }
+            3 => {
                 self.any = true;
                 self.all_int = false;
                 self.all_num = false;
@@ -269,17 +273,15 @@ fn feature_reader(path: &Path) -> Result<FeatureReader<BufReader<File>>> {
     Ok(FeatureReader::from_reader(BufReader::new(file)))
 }
 
-/// Pass 1: unione delle chiavi proprietà e loro tipo, senza costruire il DOM.
+/// Pass 1: unione chiavi proprietà + tipo, con un deserializer serde **streaming**
+/// che legge SOLO le chiavi e la classe di tipo dei valori — niente DOM, niente
+/// geometria, niente valori materializzati (allocazioni ~ solo le chiavi nuove).
 fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
+    let file = File::open(path)?;
     let mut accs: BTreeMap<String, KeyAcc> = BTreeMap::new();
-    for feat in feature_reader(path)?.features() {
-        let f = feat.map_err(|e| err(format!("GeoJSON non valido: {e}")))?;
-        if let Some(props) = &f.properties {
-            for (k, v) in props {
-                accs.entry(k.clone()).or_default().observe(v);
-            }
-        }
-    }
+    let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
+    de.deserialize_map(TopVisitor { accs: &mut accs })
+        .map_err(|e| err(format!("GeoJSON non valido: {e}")))?;
     let cols: Vec<(String, ColType)> =
         accs.iter().map(|(k, a)| (k.clone(), a.coltype())).collect();
     let mut fields = vec![geometry_field(GEOMETRY, OGC_CRS84)];
@@ -287,6 +289,172 @@ fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
         fields.push(Field::new(k, coltype_to_dt(*ct), true));
     }
     Ok((Arc::new(Schema::new(fields)), cols))
+}
+
+// --- pass-1: visitor serde streaming (chiavi + tipo, zero valori) ----------
+
+/// Classe di tipo di un valore JSON, letta senza allocare il valore.
+struct TypeTag(u8);
+
+impl<'de> serde::Deserialize<'de> for TypeTag {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        d.deserialize_any(TagVisitor)
+    }
+}
+
+struct TagVisitor;
+impl<'de> Visitor<'de> for TagVisitor {
+    type Value = TypeTag;
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("un valore JSON")
+    }
+    fn visit_i64<E>(self, _: i64) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(1))
+    }
+    fn visit_u64<E>(self, _: u64) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(1))
+    }
+    fn visit_i128<E>(self, _: i128) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(1))
+    }
+    fn visit_u128<E>(self, _: u128) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(1))
+    }
+    fn visit_f64<E>(self, _: f64) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(2))
+    }
+    fn visit_bool<E>(self, _: bool) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(3))
+    }
+    fn visit_str<E>(self, _: &str) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(4))
+    }
+    fn visit_none<E>(self) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(0))
+    }
+    fn visit_unit<E>(self) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(0))
+    }
+    fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<TypeTag, D::Error> {
+        d.deserialize_any(TagVisitor)
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<TypeTag, A::Error> {
+        while seq.next_element::<IgnoredAny>()?.is_some() {}
+        Ok(TypeTag(4))
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<TypeTag, A::Error> {
+        while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
+        Ok(TypeTag(4))
+    }
+}
+
+/// Livello top: FeatureCollection; interessa solo la chiave "features".
+struct TopVisitor<'a> {
+    accs: &'a mut BTreeMap<String, KeyAcc>,
+}
+impl<'a, 'de> Visitor<'de> for TopVisitor<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("un oggetto GeoJSON")
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        while let Some(key) = map.next_key::<String>()? {
+            if key == "features" {
+                map.next_value_seed(FeaturesSeed { accs: self.accs })?;
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct FeaturesSeed<'a> {
+    accs: &'a mut BTreeMap<String, KeyAcc>,
+}
+impl<'a, 'de> DeserializeSeed<'de> for FeaturesSeed<'a> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_seq(FeaturesVisitor { accs: self.accs })
+    }
+}
+struct FeaturesVisitor<'a> {
+    accs: &'a mut BTreeMap<String, KeyAcc>,
+}
+impl<'a, 'de> Visitor<'de> for FeaturesVisitor<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("un array di feature")
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<(), A::Error> {
+        while seq
+            .next_element_seed(FeatureSeed { accs: self.accs })?
+            .is_some()
+        {}
+        Ok(())
+    }
+}
+
+struct FeatureSeed<'a> {
+    accs: &'a mut BTreeMap<String, KeyAcc>,
+}
+impl<'a, 'de> DeserializeSeed<'de> for FeatureSeed<'a> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_map(FeatureVisitor { accs: self.accs })
+    }
+}
+struct FeatureVisitor<'a> {
+    accs: &'a mut BTreeMap<String, KeyAcc>,
+}
+impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("un Feature")
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        while let Some(key) = map.next_key::<String>()? {
+            if key == "properties" {
+                map.next_value_seed(PropsSeed { accs: self.accs })?;
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct PropsSeed<'a> {
+    accs: &'a mut BTreeMap<String, KeyAcc>,
+}
+impl<'a, 'de> DeserializeSeed<'de> for PropsSeed<'a> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_map(PropsVisitor { accs: self.accs })
+    }
+}
+struct PropsVisitor<'a> {
+    accs: &'a mut BTreeMap<String, KeyAcc>,
+}
+impl<'a, 'de> Visitor<'de> for PropsVisitor<'a> {
+    type Value = ();
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("le properties di un Feature")
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        while let Some(key) = map.next_key::<String>()? {
+            let tag = map.next_value::<TypeTag>()?.0;
+            // Alloca la chiave solo se nuova (dopo il 1° feature, nessuna alloc).
+            if let Some(acc) = self.accs.get_mut(&key) {
+                acc.observe_class(tag);
+            } else {
+                let mut acc = KeyAcc::default();
+                acc.observe_class(tag);
+                self.accs.insert(key, acc);
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Pass 2: thread che produce batch da `batch_size` righe via canale bounded

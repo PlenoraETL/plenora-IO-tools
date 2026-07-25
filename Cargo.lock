@@ -483,6 +483,7 @@ dependencies = [
  "geojson",
  "plenora-core",
  "plenora-io-core",
+ "serde",
  "serde_json",
  "tempfile",
 ]
