@@ -69,8 +69,10 @@ Risultati locali con Rust `1.92.0` in container Linux x86_64:
 - build release superata;
 - FileGDB/GDAL: 21 test superati, 2 helper ignorati.
 
-La CI Linux/Windows/macOS/coverage associata al commit resta l’evidenza remota
-da acquisire.
+Evidenza remota acquisita per il commit di implementazione
+`98ee65dc764578b5876c48432a4ca974ca5d29b5`: GitHub Actions run
+`30283970910`, conclusione `success` per i job `rust`, `windows`,
+`macos-publish` e `coverage`.
 
 ## Residui
 
