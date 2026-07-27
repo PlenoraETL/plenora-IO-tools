@@ -17,13 +17,11 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use arrow_array::builder::{
-    BinaryBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringBuilder,
-};
+use arrow_array::builder::BinaryBuilder;
 use arrow_array::{
     Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
 };
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::{Field, Schema, SchemaRef};
 use geojson::Geometry as GjGeometry;
 use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
 use serde::de::{
@@ -32,7 +30,10 @@ use serde::de::{
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-use driver_common::{geometry_field, json_from_array, ColType, OGC_CRS84};
+use driver_common::{
+    classify_i64, classify_u64, geometry_field, json_from_array, ColType, InferredColumnBuilder,
+    ObservedValueClass, TypeAccumulator, OGC_CRS84,
+};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -213,90 +214,22 @@ impl OpenDatasetHandle for GeoJsonDataset {
     }
 }
 
-/// Accumulatore d'inferenza per chiave (stessa semantica di
-/// `driver_common::infer_column`, ma incrementale per lo streaming).
-struct KeyAcc {
-    any: bool,
-    all_int: bool,
-    all_num: bool,
-    all_bool: bool,
-}
-
-impl Default for KeyAcc {
-    fn default() -> Self {
-        KeyAcc {
-            any: false,
-            all_int: true,
-            all_num: true,
-            all_bool: true,
-        }
-    }
-}
-
-impl KeyAcc {
-    /// Classe del valore: 0 null, 1 int, 2 float, 3 bool, 4 testo/altro.
-    fn observe_class(&mut self, class: u8) {
-        match class {
-            0 => {}
-            1 => {
-                self.any = true;
-                self.all_bool = false;
-            }
-            2 => {
-                self.any = true;
-                self.all_int = false;
-                self.all_bool = false;
-            }
-            3 => {
-                self.any = true;
-                self.all_int = false;
-                self.all_num = false;
-            }
-            _ => {
-                self.any = true;
-                self.all_int = false;
-                self.all_num = false;
-                self.all_bool = false;
-            }
-        }
-    }
-    fn coltype(&self) -> ColType {
-        if !self.any {
-            ColType::Text
-        } else if self.all_int {
-            ColType::Integer
-        } else if self.all_bool {
-            ColType::Boolean
-        } else if self.all_num {
-            ColType::Number
-        } else {
-            ColType::Text
-        }
-    }
-}
-
-fn coltype_to_dt(ct: ColType) -> DataType {
-    match ct {
-        ColType::Integer => DataType::Int64,
-        ColType::Number => DataType::Float64,
-        ColType::Boolean => DataType::Boolean,
-        ColType::Text => DataType::Utf8,
-    }
-}
-
 /// Pass 1: unione chiavi proprietà + tipo, con un deserializer serde **streaming**
 /// che legge SOLO le chiavi e la classe di tipo dei valori — niente DOM, niente
 /// geometria, niente valori materializzati (allocazioni ~ solo le chiavi nuove).
 fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
     let file = File::open(path)?;
-    let mut accs: BTreeMap<String, KeyAcc> = BTreeMap::new();
+    let mut accs: BTreeMap<String, TypeAccumulator> = BTreeMap::new();
     let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
     de.deserialize_map(TopVisitor { accs: &mut accs })
         .map_err(|e| err(format!("GeoJSON non valido: {e}")))?;
-    let cols: Vec<(String, ColType)> = accs.iter().map(|(k, a)| (k.clone(), a.coltype())).collect();
+    let cols: Vec<(String, ColType)> = accs
+        .iter()
+        .map(|(key, accumulator)| (key.clone(), accumulator.column_type()))
+        .collect();
     let mut fields = vec![geometry_field(GEOMETRY, OGC_CRS84)];
     for (k, ct) in &cols {
-        fields.push(Field::new(k, coltype_to_dt(*ct), true));
+        fields.push(Field::new(k, ct.arrow_data_type(), true));
     }
     Ok((Arc::new(Schema::new(fields)), cols))
 }
@@ -304,7 +237,7 @@ fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
 // --- pass-1: visitor serde streaming (chiavi + tipo, zero valori) ----------
 
 /// Classe di tipo di un valore JSON, letta senza allocare il valore.
-struct TypeTag(u8);
+struct TypeTag(ObservedValueClass);
 
 impl<'de> serde::Deserialize<'de> for TypeTag {
     fn deserialize<D: Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
@@ -318,49 +251,53 @@ impl<'de> Visitor<'de> for TagVisitor {
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un valore JSON")
     }
-    fn visit_i64<E>(self, _: i64) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(1))
+    fn visit_i64<E>(self, value: i64) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(classify_i64(value)))
     }
-    fn visit_u64<E>(self, _: u64) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(1))
+    fn visit_u64<E>(self, value: u64) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(classify_u64(value)))
     }
-    fn visit_i128<E>(self, _: i128) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(1))
+    fn visit_i128<E>(self, value: i128) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(
+            i64::try_from(value).map_or(ObservedValueClass::Text, classify_i64),
+        ))
     }
-    fn visit_u128<E>(self, _: u128) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(1))
+    fn visit_u128<E>(self, value: u128) -> std::result::Result<TypeTag, E> {
+        Ok(TypeTag(
+            u64::try_from(value).map_or(ObservedValueClass::Text, classify_u64),
+        ))
     }
     fn visit_f64<E>(self, _: f64) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(2))
+        Ok(TypeTag(ObservedValueClass::Number))
     }
     fn visit_bool<E>(self, _: bool) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(3))
+        Ok(TypeTag(ObservedValueClass::Boolean))
     }
     fn visit_str<E>(self, _: &str) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(4))
+        Ok(TypeTag(ObservedValueClass::Text))
     }
     fn visit_none<E>(self) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(0))
+        Ok(TypeTag(ObservedValueClass::Null))
     }
     fn visit_unit<E>(self) -> std::result::Result<TypeTag, E> {
-        Ok(TypeTag(0))
+        Ok(TypeTag(ObservedValueClass::Null))
     }
     fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<TypeTag, D::Error> {
         d.deserialize_any(TagVisitor)
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<TypeTag, A::Error> {
         while seq.next_element::<IgnoredAny>()?.is_some() {}
-        Ok(TypeTag(4))
+        Ok(TypeTag(ObservedValueClass::Text))
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<TypeTag, A::Error> {
         while map.next_entry::<IgnoredAny, IgnoredAny>()?.is_some() {}
-        Ok(TypeTag(4))
+        Ok(TypeTag(ObservedValueClass::Text))
     }
 }
 
 /// Livello top: FeatureCollection; interessa solo la chiave "features".
 struct TopVisitor<'a> {
-    accs: &'a mut BTreeMap<String, KeyAcc>,
+    accs: &'a mut BTreeMap<String, TypeAccumulator>,
 }
 impl<'a, 'de> Visitor<'de> for TopVisitor<'a> {
     type Value = ();
@@ -380,7 +317,7 @@ impl<'a, 'de> Visitor<'de> for TopVisitor<'a> {
 }
 
 struct FeaturesSeed<'a> {
-    accs: &'a mut BTreeMap<String, KeyAcc>,
+    accs: &'a mut BTreeMap<String, TypeAccumulator>,
 }
 impl<'a, 'de> DeserializeSeed<'de> for FeaturesSeed<'a> {
     type Value = ();
@@ -389,7 +326,7 @@ impl<'a, 'de> DeserializeSeed<'de> for FeaturesSeed<'a> {
     }
 }
 struct FeaturesVisitor<'a> {
-    accs: &'a mut BTreeMap<String, KeyAcc>,
+    accs: &'a mut BTreeMap<String, TypeAccumulator>,
 }
 impl<'a, 'de> Visitor<'de> for FeaturesVisitor<'a> {
     type Value = ();
@@ -406,7 +343,7 @@ impl<'a, 'de> Visitor<'de> for FeaturesVisitor<'a> {
 }
 
 struct FeatureSeed<'a> {
-    accs: &'a mut BTreeMap<String, KeyAcc>,
+    accs: &'a mut BTreeMap<String, TypeAccumulator>,
 }
 impl<'a, 'de> DeserializeSeed<'de> for FeatureSeed<'a> {
     type Value = ();
@@ -415,7 +352,7 @@ impl<'a, 'de> DeserializeSeed<'de> for FeatureSeed<'a> {
     }
 }
 struct FeatureVisitor<'a> {
-    accs: &'a mut BTreeMap<String, KeyAcc>,
+    accs: &'a mut BTreeMap<String, TypeAccumulator>,
 }
 impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
     type Value = ();
@@ -435,7 +372,7 @@ impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
 }
 
 struct PropsSeed<'a> {
-    accs: &'a mut BTreeMap<String, KeyAcc>,
+    accs: &'a mut BTreeMap<String, TypeAccumulator>,
 }
 impl<'a, 'de> DeserializeSeed<'de> for PropsSeed<'a> {
     type Value = ();
@@ -445,7 +382,7 @@ impl<'a, 'de> DeserializeSeed<'de> for PropsSeed<'a> {
     }
 }
 struct PropsVisitor<'a> {
-    accs: &'a mut BTreeMap<String, KeyAcc>,
+    accs: &'a mut BTreeMap<String, TypeAccumulator>,
 }
 impl<'a, 'de> Visitor<'de> for PropsVisitor<'a> {
     type Value = ();
@@ -466,10 +403,10 @@ impl<'a, 'de> Visitor<'de> for PropsVisitor<'a> {
             let tag = map.next_value::<TypeTag>()?.0;
             // Alloca la chiave solo se nuova (dopo il 1° feature, nessuna alloc).
             if let Some(acc) = self.accs.get_mut(&key) {
-                acc.observe_class(tag);
+                acc.observe(tag);
             } else {
-                let mut acc = KeyAcc::default();
-                acc.observe_class(tag);
+                let mut acc = TypeAccumulator::default();
+                acc.observe(tag);
                 self.accs.insert(key, acc);
             }
         }
@@ -500,7 +437,10 @@ fn spawn_parser(
             output: RowOutput::Worker(emitter),
             geom: BinaryBuilder::new(),
             wkb_buf: Vec::new(),
-            builders: cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect(),
+            builders: cols
+                .iter()
+                .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
+                .collect(),
             seen: vec![false; ncols],
             n: 0,
             batch_size,
@@ -549,7 +489,7 @@ struct RowSink {
     output: RowOutput,
     geom: BinaryBuilder,
     wkb_buf: Vec<u8>,
-    builders: Vec<ColBuilder>,
+    builders: Vec<InferredColumnBuilder>,
     seen: Vec<bool>,
     n: usize,
     batch_size: usize,
@@ -780,7 +720,7 @@ impl<'a, 'de> Visitor<'de> for PropKeySeed<'a> {
 /// Appende il valore di una proprietà DIRETTAMENTE nel builder tipizzato,
 /// senza materializzare un `serde_json::Value` per gli scalari (il caso caldo).
 struct ValueSink<'a> {
-    b: &'a mut ColBuilder,
+    b: &'a mut InferredColumnBuilder,
 }
 impl<'a, 'de> DeserializeSeed<'de> for ValueSink<'a> {
     type Value = ();
@@ -793,50 +733,20 @@ impl<'a, 'de> Visitor<'de> for ValueSink<'a> {
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un valore di proprietà")
     }
-    fn visit_i64<E>(self, v: i64) -> std::result::Result<(), E> {
-        match self.b {
-            ColBuilder::I64(b) => b.append_value(v),
-            ColBuilder::F64(b) => b.append_value(v as f64),
-            ColBuilder::Bool(b) => b.append_null(),
-            ColBuilder::Str(b) => b.append_value(v.to_string()),
-        }
-        Ok(())
+    fn visit_i64<E: DeError>(self, v: i64) -> std::result::Result<(), E> {
+        self.b.append_i64(v).map_err(E::custom)
     }
-    fn visit_u64<E>(self, v: u64) -> std::result::Result<(), E> {
-        match self.b {
-            ColBuilder::I64(b) => b.append_option(i64::try_from(v).ok()),
-            ColBuilder::F64(b) => b.append_value(v as f64),
-            ColBuilder::Bool(b) => b.append_null(),
-            ColBuilder::Str(b) => b.append_value(v.to_string()),
-        }
-        Ok(())
+    fn visit_u64<E: DeError>(self, v: u64) -> std::result::Result<(), E> {
+        self.b.append_u64(v).map_err(E::custom)
     }
-    fn visit_f64<E>(self, v: f64) -> std::result::Result<(), E> {
-        match self.b {
-            ColBuilder::I64(b) => b.append_null(),
-            ColBuilder::F64(b) => b.append_value(v),
-            ColBuilder::Bool(b) => b.append_null(),
-            ColBuilder::Str(b) => b.append_value(v.to_string()),
-        }
-        Ok(())
+    fn visit_f64<E: DeError>(self, v: f64) -> std::result::Result<(), E> {
+        self.b.append_f64(v).map_err(E::custom)
     }
-    fn visit_bool<E>(self, v: bool) -> std::result::Result<(), E> {
-        match self.b {
-            ColBuilder::Bool(b) => b.append_value(v),
-            ColBuilder::Str(b) => b.append_value(v.to_string()),
-            ColBuilder::I64(b) => b.append_null(),
-            ColBuilder::F64(b) => b.append_null(),
-        }
-        Ok(())
+    fn visit_bool<E: DeError>(self, v: bool) -> std::result::Result<(), E> {
+        self.b.append_bool(v).map_err(E::custom)
     }
-    fn visit_str<E>(self, s: &str) -> std::result::Result<(), E> {
-        match self.b {
-            ColBuilder::Str(b) => b.append_value(s), // caso caldo: 0 alloc extra
-            ColBuilder::I64(b) => b.append_null(),
-            ColBuilder::F64(b) => b.append_null(),
-            ColBuilder::Bool(b) => b.append_null(),
-        }
-        Ok(())
+    fn visit_str<E: DeError>(self, s: &str) -> std::result::Result<(), E> {
+        self.b.append_str(s).map_err(E::custom) // caso caldo: 0 alloc extra
     }
     fn visit_none<E>(self) -> std::result::Result<(), E> {
         self.b.append_null();
@@ -850,23 +760,21 @@ impl<'a, 'de> Visitor<'de> for ValueSink<'a> {
         d.deserialize_any(self)
     }
     // Valori composti (array/oggetto) in colonna Text: rari → via DOM + stringa,
-    // esattamente come faceva il percorso precedente (`ColBuilder::append`).
+    // esattamente come il percorso `append_json` condiviso.
     fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> std::result::Result<(), A::Error> {
         let v = JsonValue::deserialize(SeqAccessDeserializer::new(seq))?;
-        self.b.append(Some(&v));
-        Ok(())
+        self.b.append_json(Some(&v)).map_err(A::Error::custom)
     }
     fn visit_map<A: MapAccess<'de>>(self, map: A) -> std::result::Result<(), A::Error> {
         let v = JsonValue::deserialize(MapAccessDeserializer::new(map))?;
-        self.b.append(Some(&v));
-        Ok(())
+        self.b.append_json(Some(&v)).map_err(A::Error::custom)
     }
 }
 
 fn finish_batch(
     schema: &SchemaRef,
     geom: &mut BinaryBuilder,
-    builders: &mut [ColBuilder],
+    builders: &mut [InferredColumnBuilder],
 ) -> std::result::Result<RecordBatch, String> {
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
     arrays.push(Arc::new(geom.finish()));
@@ -883,14 +791,17 @@ fn finish_batch(
 pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     use std::io::Cursor;
     // pass-1: schema
-    let mut accs: BTreeMap<String, KeyAcc> = BTreeMap::new();
+    let mut accs: BTreeMap<String, TypeAccumulator> = BTreeMap::new();
     serde_json::Deserializer::from_reader(Cursor::new(bytes))
         .deserialize_map(TopVisitor { accs: &mut accs })
         .map_err(|e| e.to_string())?;
-    let cols: Vec<(String, ColType)> = accs.iter().map(|(k, a)| (k.clone(), a.coltype())).collect();
+    let cols: Vec<(String, ColType)> = accs
+        .iter()
+        .map(|(key, accumulator)| (key.clone(), accumulator.column_type()))
+        .collect();
     let mut fields = vec![geometry_field(GEOMETRY, OGC_CRS84)];
     for (k, ct) in &cols {
-        fields.push(Field::new(k, coltype_to_dt(*ct), true));
+        fields.push(Field::new(k, ct.arrow_data_type(), true));
     }
     let schema: SchemaRef = Arc::new(Schema::new(fields));
     // pass-2 sincrono: batch_size enorme → nessun flush intermedio sul canale.
@@ -906,7 +817,10 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         output: RowOutput::Discard,
         geom: BinaryBuilder::new(),
         wkb_buf: Vec::new(),
-        builders: cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect(),
+        builders: cols
+            .iter()
+            .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
+            .collect(),
         seen: vec![false; ncols],
         n: 0,
         batch_size: usize::MAX,
@@ -920,52 +834,6 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         return Ok(batch.num_rows());
     }
     Ok(0)
-}
-
-enum ColBuilder {
-    I64(Int64Builder),
-    F64(Float64Builder),
-    Bool(BooleanBuilder),
-    Str(StringBuilder),
-}
-
-impl ColBuilder {
-    fn new(ct: ColType) -> Self {
-        match ct {
-            ColType::Integer => ColBuilder::I64(Int64Builder::new()),
-            ColType::Number => ColBuilder::F64(Float64Builder::new()),
-            ColType::Boolean => ColBuilder::Bool(BooleanBuilder::new()),
-            ColType::Text => ColBuilder::Str(StringBuilder::new()),
-        }
-    }
-    fn append(&mut self, v: Option<&JsonValue>) {
-        match self {
-            ColBuilder::I64(b) => b.append_option(v.and_then(JsonValue::as_i64)),
-            ColBuilder::F64(b) => b.append_option(v.and_then(JsonValue::as_f64)),
-            ColBuilder::Bool(b) => b.append_option(v.and_then(JsonValue::as_bool)),
-            ColBuilder::Str(b) => match v {
-                None | Some(JsonValue::Null) => b.append_null(),
-                Some(JsonValue::String(s)) => b.append_value(s),
-                Some(other) => b.append_value(other.to_string()),
-            },
-        }
-    }
-    fn append_null(&mut self) {
-        match self {
-            ColBuilder::I64(b) => b.append_null(),
-            ColBuilder::F64(b) => b.append_null(),
-            ColBuilder::Bool(b) => b.append_null(),
-            ColBuilder::Str(b) => b.append_null(),
-        }
-    }
-    fn finish(&mut self) -> ArrayRef {
-        match self {
-            ColBuilder::I64(b) => Arc::new(b.finish()),
-            ColBuilder::F64(b) => Arc::new(b.finish()),
-            ColBuilder::Bool(b) => Arc::new(b.finish()),
-            ColBuilder::Str(b) => Arc::new(b.finish()),
-        }
-    }
 }
 
 // --- scrittura (bufferizzante nella v1) -----------------------------------
@@ -1606,6 +1474,28 @@ mod tests {
             geojson::Value::Point(c) => assert!((c[0] - 12.5).abs() < 1e-9),
             other => panic!("atteso Point, {other:?}"),
         }
+    }
+
+    #[test]
+    fn integer_outside_i64_is_preserved_as_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("wide-integer.geojson");
+        std::fs::write(
+            &source,
+            r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":null,"properties":{"identifier":18446744073709551615}}
+            ]}"#,
+        )
+        .unwrap();
+
+        let (batch, _) = read_all(&GeoJsonDriver, &source);
+        let identifier = batch
+            .column(batch.schema().index_of("identifier").unwrap())
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+
+        assert_eq!(identifier.value(0), "18446744073709551615");
     }
 
     #[test]

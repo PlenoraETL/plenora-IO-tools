@@ -18,17 +18,18 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use arrow_array::builder::{
-    BinaryBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringBuilder,
-};
+use arrow_array::builder::BinaryBuilder;
 use arrow_array::{
     Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
 };
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::{Field, Schema, SchemaRef};
 use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt};
-use driver_common::{geometry_field, json_from_array, ColType};
+use driver_common::{
+    classify_i64, geometry_field, json_from_array, ColType, InferredColumnBuilder,
+    ObservedValueClass, TypeAccumulator,
+};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -199,7 +200,7 @@ impl FormatDriver for CsvDriver {
             &geometry_contract,
         )];
         for (ci, ct) in &attrs {
-            fields.push(Field::new(&headers[*ci], coltype_to_dt(*ct), true));
+            fields.push(Field::new(&headers[*ci], ct.arrow_data_type(), true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
         let contract = DataContract {
@@ -317,92 +318,27 @@ impl OpenDatasetHandle for CsvDataset {
     }
 }
 
-/// Classe di una cella per l'inferenza (stessa semantica di `cell_to_json` +
-/// `infer_column`): 0 null, 1 int, 2 float, 3 bool, 4 testo.
-fn classify(cell: &str) -> u8 {
+/// Classe di una cella per l'inferenza, prima della promozione condivisa.
+fn classify(cell: &str) -> ObservedValueClass {
     let t = cell.trim();
     if t.is_empty() {
-        return 0;
+        return ObservedValueClass::Null;
     }
-    if t.parse::<i64>().is_ok() {
-        return 1;
+    if let Ok(value) = t.parse::<i64>() {
+        return classify_i64(value);
     }
-    if t.parse::<f64>().is_ok() {
-        return 2;
+    // Un intero sintattico fuori da i64 resta testo: passare prima da f64
+    // ne altererebbe le cifre meno significative.
+    if t.parse::<i128>().is_ok() || t.parse::<u128>().is_ok() {
+        return ObservedValueClass::Text;
+    }
+    if t.parse::<f64>().is_ok_and(f64::is_finite) {
+        return ObservedValueClass::Number;
     }
     if t.eq_ignore_ascii_case("true") || t.eq_ignore_ascii_case("false") {
-        return 3;
+        return ObservedValueClass::Boolean;
     }
-    4
-}
-
-#[derive(Clone, Copy)]
-struct Acc {
-    any: bool,
-    all_int: bool,
-    all_num: bool,
-    all_bool: bool,
-}
-
-impl Default for Acc {
-    fn default() -> Self {
-        Acc {
-            any: false,
-            all_int: true,
-            all_num: true,
-            all_bool: true,
-        }
-    }
-}
-
-impl Acc {
-    fn observe(&mut self, class: u8) {
-        match class {
-            0 => {}
-            1 => {
-                self.any = true;
-                self.all_bool = false;
-            }
-            2 => {
-                self.any = true;
-                self.all_int = false;
-                self.all_bool = false;
-            }
-            3 => {
-                self.any = true;
-                self.all_int = false;
-                self.all_num = false;
-            }
-            _ => {
-                self.any = true;
-                self.all_int = false;
-                self.all_num = false;
-                self.all_bool = false;
-            }
-        }
-    }
-    fn coltype(&self) -> ColType {
-        if !self.any {
-            ColType::Text
-        } else if self.all_int {
-            ColType::Integer
-        } else if self.all_bool {
-            ColType::Boolean
-        } else if self.all_num {
-            ColType::Number
-        } else {
-            ColType::Text
-        }
-    }
-}
-
-fn coltype_to_dt(ct: ColType) -> DataType {
-    match ct {
-        ColType::Integer => DataType::Int64,
-        ColType::Number => DataType::Float64,
-        ColType::Boolean => DataType::Boolean,
-        ColType::Text => DataType::Utf8,
-    }
+    ObservedValueClass::Text
 }
 
 fn infer_types(
@@ -414,7 +350,7 @@ fn infer_types(
     let attr_idx: Vec<usize> = (0..headers.len())
         .filter(|i| !geom_cols.contains(i))
         .collect();
-    let mut accs = vec![Acc::default(); attr_idx.len()];
+    let mut accs = vec![TypeAccumulator::default(); attr_idx.len()];
     let mut rdr = csv_reader(path, delim)?;
     let mut rec = csv::StringRecord::new();
     while rdr
@@ -428,7 +364,7 @@ fn infer_types(
     Ok(attr_idx
         .into_iter()
         .zip(accs)
-        .map(|(ci, a)| (ci, a.coltype()))
+        .map(|(ci, accumulator)| (ci, accumulator.column_type()))
         .collect())
 }
 
@@ -479,8 +415,10 @@ fn spawn_parser(
         let mut rec = csv::StringRecord::new();
         let mut geom_b = BinaryBuilder::new();
         let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per riga: 0 alloc WKB nel loop
-        let mut builders: Vec<ColBuilder> =
-            attrs.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect();
+        let mut builders: Vec<InferredColumnBuilder> = attrs
+            .iter()
+            .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
+            .collect();
         let mut n = 0usize;
         loop {
             let more = rdr
@@ -491,7 +429,7 @@ fn spawn_parser(
             }
             append_geometry(&mut geom_b, geom, &rec, &mut wkb_buf)?;
             for (k, (ci, _)) in attrs.iter().enumerate() {
-                builders[k].append(required_cell(&rec, *ci)?);
+                builders[k].append_csv_cell(required_cell(&rec, *ci)?)?;
             }
             n += 1;
             if n >= batch_size {
@@ -575,7 +513,7 @@ fn required_cell(record: &csv::StringRecord, index: usize) -> Result<&str> {
 fn finish_batch(
     schema: &SchemaRef,
     geom_b: &mut BinaryBuilder,
-    builders: &mut [ColBuilder],
+    builders: &mut [InferredColumnBuilder],
 ) -> Result<RecordBatch> {
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
     arrays.push(Arc::new(geom_b.finish()));
@@ -584,53 +522,6 @@ fn finish_batch(
     }
     RecordBatch::try_new(schema.clone(), arrays)
         .map_err(|error| err(format!("record batch: {error}")))
-}
-
-enum ColBuilder {
-    I64(Int64Builder),
-    F64(Float64Builder),
-    Bool(BooleanBuilder),
-    Str(StringBuilder),
-}
-
-impl ColBuilder {
-    fn new(ct: ColType) -> Self {
-        match ct {
-            ColType::Integer => ColBuilder::I64(Int64Builder::new()),
-            ColType::Number => ColBuilder::F64(Float64Builder::new()),
-            ColType::Boolean => ColBuilder::Bool(BooleanBuilder::new()),
-            ColType::Text => ColBuilder::Str(StringBuilder::new()),
-        }
-    }
-    fn append(&mut self, cell: &str) {
-        let t = cell.trim();
-        match self {
-            ColBuilder::I64(b) => b.append_option(if t.is_empty() { None } else { t.parse().ok() }),
-            ColBuilder::F64(b) => b.append_option(if t.is_empty() { None } else { t.parse().ok() }),
-            ColBuilder::Bool(b) => b.append_option(if t.eq_ignore_ascii_case("true") {
-                Some(true)
-            } else if t.eq_ignore_ascii_case("false") {
-                Some(false)
-            } else {
-                None
-            }),
-            ColBuilder::Str(b) => {
-                if t.is_empty() {
-                    b.append_null();
-                } else {
-                    b.append_value(cell); // stringa originale (non trimmata)
-                }
-            }
-        }
-    }
-    fn finish(&mut self) -> ArrayRef {
-        match self {
-            ColBuilder::I64(b) => Arc::new(b.finish()),
-            ColBuilder::F64(b) => Arc::new(b.finish()),
-            ColBuilder::Bool(b) => Arc::new(b.finish()),
-            ColBuilder::Str(b) => Arc::new(b.finish()),
-        }
-    }
 }
 
 // --- scrittura streaming ---------------------------------------------------
@@ -854,6 +745,29 @@ mod tests {
         let text = std::fs::read_to_string(&out).unwrap();
         assert!(text.contains("POINT"));
         assert!(text.contains("nome"));
+    }
+
+    #[test]
+    fn integer_outside_i64_is_preserved_as_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("wide-integer.csv");
+        std::fs::write(&source, "identifier,x,y\n18446744073709551615,12.5,45.9\n").unwrap();
+
+        let dataset = CsvDriver
+            .open(
+                Source::Path(source),
+                &read_opts(&[("x_column", "x"), ("y_column", "y")]),
+            )
+            .unwrap();
+        let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        let identifier = batch
+            .column(batch.schema().index_of("identifier").unwrap())
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+
+        assert_eq!(identifier.value(0), "18446744073709551615");
     }
 
     #[test]

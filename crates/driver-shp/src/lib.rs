@@ -11,17 +11,18 @@
 //! per WGS84; nessuna riproiezione (ADR-IO 4).
 #![forbid(unsafe_code)]
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use arrow_array::builder::{
-    BinaryBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringBuilder,
-};
+use arrow_array::builder::BinaryBuilder;
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch};
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+#[cfg(test)]
+use arrow_schema::DataType;
+use arrow_schema::{Field, Schema, SchemaRef};
 use serde_json::Value as JsonValue;
 use shapefile::dbase::{FieldValue, Record, TableWriterBuilder};
 use shapefile::{
@@ -29,7 +30,10 @@ use shapefile::{
     PolygonZ, Polyline, PolylineM, PolylineZ, Shape, Writer, NO_DATA,
 };
 
-use driver_common::{geometry_field, json_from_array, ColType};
+use driver_common::{
+    geometry_field, json_from_array, ColType, InferredColumnBuilder, ObservedValueClass,
+    TypeAccumulator,
+};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -225,7 +229,7 @@ impl FormatDriver for ShpDriver {
             with_geometry_contract_metadata(&geometry_field(GEOMETRY, crs_id), &geometry_contract);
         let mut fields = vec![geometry_field];
         for (n, ct) in &cols {
-            fields.push(Field::new(n, coltype_to_dt(*ct), true));
+            fields.push(Field::new(n, ct.arrow_data_type(), true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
         let contract = DataContract {
@@ -934,83 +938,16 @@ fn crs_kind(id: &str, definition: Option<&str>) -> CrsKind {
     }
 }
 
-fn coltype_to_dt(ct: ColType) -> DataType {
-    match ct {
-        ColType::Integer => DataType::Int64,
-        ColType::Number => DataType::Float64,
-        ColType::Boolean => DataType::Boolean,
-        ColType::Text => DataType::Utf8,
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Acc {
-    any: bool,
-    all_int: bool,
-    all_num: bool,
-    all_bool: bool,
-}
-
-impl Default for Acc {
-    fn default() -> Self {
-        Acc {
-            any: false,
-            all_int: true,
-            all_num: true,
-            all_bool: true,
-        }
-    }
-}
-
-impl Acc {
-    fn observe(&mut self, class: u8) {
-        match class {
-            0 => {}
-            1 => {
-                self.any = true;
-                self.all_bool = false;
-            }
-            2 => {
-                self.any = true;
-                self.all_int = false;
-                self.all_bool = false;
-            }
-            3 => {
-                self.any = true;
-                self.all_int = false;
-                self.all_num = false;
-            }
-            _ => {
-                self.any = true;
-                self.all_int = false;
-                self.all_num = false;
-                self.all_bool = false;
-            }
-        }
-    }
-    fn coltype(&self) -> ColType {
-        if !self.any {
-            ColType::Text
-        } else if self.all_int {
-            ColType::Integer
-        } else if self.all_bool {
-            ColType::Boolean
-        } else if self.all_num {
-            ColType::Number
-        } else {
-            ColType::Text
-        }
-    }
-}
-
 /// Classe dbf per l'inferenza (Numeric/Double/Float=numero, Integer=int).
-fn classify(v: &FieldValue) -> u8 {
+fn classify(v: &FieldValue) -> ObservedValueClass {
     match v {
-        FieldValue::Integer(_) => 1,
-        FieldValue::Numeric(Some(_)) | FieldValue::Double(_) | FieldValue::Float(Some(_)) => 2,
-        FieldValue::Logical(Some(_)) => 3,
-        FieldValue::Character(Some(_)) | FieldValue::Date(Some(_)) => 4,
-        _ => 0,
+        FieldValue::Integer(_) => ObservedValueClass::Integer,
+        FieldValue::Numeric(Some(_)) | FieldValue::Double(_) | FieldValue::Float(Some(_)) => {
+            ObservedValueClass::Number
+        }
+        FieldValue::Logical(Some(_)) => ObservedValueClass::Boolean,
+        FieldValue::Character(Some(_)) | FieldValue::Date(Some(_)) => ObservedValueClass::Text,
+        _ => ObservedValueClass::Null,
     }
 }
 
@@ -1317,7 +1254,7 @@ fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryI
     let mut reader =
         shapefile::Reader::from_path(path).map_err(|e| err(format!("apertura shapefile: {e}")))?;
     let mut order: Vec<String> = Vec::new();
-    let mut accs: HashMap<String, Acc> = HashMap::new();
+    let mut accs: HashMap<String, TypeAccumulator> = HashMap::new();
     let mut shape_type = None;
     let mut geometry_types = BTreeSet::new();
     let mut z_has_measure = false;
@@ -1346,7 +1283,9 @@ fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryI
             match accs.entry(name.clone()) {
                 std::collections::hash_map::Entry::Vacant(entry) => {
                     order.push(name);
-                    entry.insert(Acc::default()).observe(classify(&value));
+                    entry
+                        .insert(TypeAccumulator::default())
+                        .observe(classify(&value));
                 }
                 std::collections::hash_map::Entry::Occupied(mut entry) => {
                     entry.get_mut().observe(classify(&value));
@@ -1360,7 +1299,7 @@ fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryI
             let column_type = accs
                 .get(&name)
                 .ok_or_else(|| err(format!("schema DBF senza accumulatore per '{name}'")))?
-                .coltype();
+                .column_type();
             Ok((name, column_type))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -1387,8 +1326,10 @@ fn spawn_parser(
         let mut reader = shapefile::Reader::from_path(&path)
             .map_err(|error| err(format!("shapefile non valido: {error}")))?;
         let mut geom = BinaryBuilder::new();
-        let mut builders: Vec<ShpColBuilder> =
-            cols.iter().map(|(_, ct)| ShpColBuilder::new(*ct)).collect();
+        let mut builders: Vec<InferredColumnBuilder> = cols
+            .iter()
+            .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
+            .collect();
         let mut n = 0usize;
         for pair in reader.iter_shapes_and_records() {
             let (shape, record) =
@@ -1403,7 +1344,12 @@ fn spawn_parser(
             // Lookup per nome (l'ordine di iterazione del Record non è garantito).
             let map: HashMap<String, FieldValue> = record.into_iter().collect();
             for (k, (name, _)) in cols.iter().enumerate() {
-                builders[k].append(map.get(name));
+                let value = map
+                    .get(name)
+                    .filter(|value| classify(value) != ObservedValueClass::Null);
+                builders[k].append_converted(value, fv_i64, fv_f64, fv_bool, |value| {
+                    fv_string(value).map(Cow::Owned)
+                })?;
             }
             n += 1;
             if n >= batch_size {
@@ -1427,7 +1373,7 @@ fn spawn_parser(
 fn finish_batch(
     schema: &SchemaRef,
     geom: &mut BinaryBuilder,
-    builders: &mut [ShpColBuilder],
+    builders: &mut [InferredColumnBuilder],
 ) -> Result<RecordBatch> {
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
     arrays.push(Arc::new(geom.finish()));
@@ -1435,43 +1381,6 @@ fn finish_batch(
         arrays.push(b.finish());
     }
     RecordBatch::try_new(schema.clone(), arrays).map_err(|error| err(format!("batch: {error}")))
-}
-
-enum ShpColBuilder {
-    I64(Int64Builder),
-    F64(Float64Builder),
-    Bool(BooleanBuilder),
-    Str(StringBuilder),
-}
-
-impl ShpColBuilder {
-    fn new(ct: ColType) -> Self {
-        match ct {
-            ColType::Integer => ShpColBuilder::I64(Int64Builder::new()),
-            ColType::Number => ShpColBuilder::F64(Float64Builder::new()),
-            ColType::Boolean => ShpColBuilder::Bool(BooleanBuilder::new()),
-            ColType::Text => ShpColBuilder::Str(StringBuilder::new()),
-        }
-    }
-    fn append(&mut self, v: Option<&FieldValue>) {
-        match self {
-            ShpColBuilder::I64(b) => b.append_option(v.and_then(fv_i64)),
-            ShpColBuilder::F64(b) => b.append_option(v.and_then(fv_f64)),
-            ShpColBuilder::Bool(b) => b.append_option(v.and_then(fv_bool)),
-            ShpColBuilder::Str(b) => match v.and_then(fv_string) {
-                Some(s) => b.append_value(s),
-                None => b.append_null(),
-            },
-        }
-    }
-    fn finish(&mut self) -> ArrayRef {
-        match self {
-            ShpColBuilder::I64(b) => Arc::new(b.finish()),
-            ShpColBuilder::F64(b) => Arc::new(b.finish()),
-            ShpColBuilder::Bool(b) => Arc::new(b.finish()),
-            ShpColBuilder::Str(b) => Arc::new(b.finish()),
-        }
-    }
 }
 
 fn fv_i64(v: &FieldValue) -> Option<i64> {
