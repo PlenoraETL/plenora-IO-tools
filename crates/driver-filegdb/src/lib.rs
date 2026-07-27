@@ -43,7 +43,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 2,
+    driver_version: 3,
     descriptor_version: 4,
 };
 
@@ -458,11 +458,7 @@ mod backend {
                 geometry: Some(GeometryColumnContract::wkb_passthrough(
                     FieldId(0),
                     GEOMETRY,
-                    ResolvedCrs {
-                        id: crs,
-                        kind: CrsKind::Unknown,
-                        definition: None,
-                    },
+                    ResolvedCrs::new(crs, CrsKind::Unknown, None),
                     true,
                 )),
             };

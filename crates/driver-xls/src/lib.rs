@@ -77,7 +77,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 3,
+    driver_version: 4,
     descriptor_version: 4,
 };
 
@@ -440,11 +440,7 @@ fn build_batch(
     let mut geometry_contract = GeometryColumnContract::wkb_xy(
         FieldId(0),
         GEOMETRY,
-        ResolvedCrs {
-            id: Some(crs.to_owned()),
-            kind,
-            definition: None,
-        },
+        ResolvedCrs::new(Some(crs.to_owned()), kind, None),
         true,
     );
     geometry_contract.dimensions = dimensions;

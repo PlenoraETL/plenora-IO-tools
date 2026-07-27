@@ -23,7 +23,7 @@ use plenora_core::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_core::crs::{CrsKind, ResolvedCrs};
+use plenora_core::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_core::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
 use plenora_core::limits::WkbLimits;
 use plenora_core::wkb::decode_wkb;
@@ -79,7 +79,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 3,
+    driver_version: 4,
     descriptor_version: 4,
 };
 
@@ -646,17 +646,17 @@ fn resolve_geometry_and_crs(
                 .map(|s| s.to_string())
         })
         .ok_or_else(|| fmt_err("nessuna colonna geometria: non è GeoParquet"))?;
-    let crs = crs_from(geo, &primary);
+    let crs = crs_from(geo, &primary)?;
     Ok((primary, crs))
 }
 
-fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> ResolvedCrs {
+fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> Result<ResolvedCrs> {
     let crs = geo
         .and_then(|g| g.get("columns"))
         .and_then(|c| c.get(primary))
         .and_then(|c| c.get("crs"));
     match crs {
-        None | Some(serde_json::Value::Null) => ResolvedCrs::wgs84(),
+        None | Some(serde_json::Value::Null) => Ok(ResolvedCrs::wgs84()),
         Some(v) => {
             let id = v.get("id").and_then(|i| {
                 let a = i.get("authority").and_then(|a| a.as_str())?;
@@ -667,15 +667,31 @@ fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> ResolvedCrs {
                 })?;
                 Some(format!("{a}:{code}"))
             });
-            ResolvedCrs {
-                id: id.clone().or(Some("PROJJSON".to_owned())),
-                kind: if matches!(id.as_deref(), Some("OGC:CRS84") | Some("EPSG:4326")) {
-                    CrsKind::Geographic
-                } else {
-                    CrsKind::Unknown
-                },
-                definition: Some(v.to_string()),
-            }
+            let definition = v.to_string();
+            let Some(id) = id else {
+                return Err(PlenoraError::CrsUnresolved {
+                    driver: "geoparquet",
+                    raw: RawCrs {
+                        definition,
+                        authority_hint: v
+                            .get("id")
+                            .and_then(|i| i.get("authority"))
+                            .and_then(|a| a.as_str())
+                            .map(str::to_owned),
+                    },
+                });
+            };
+            let kind = if id.eq_ignore_ascii_case("OGC:CRS84")
+                || id.eq_ignore_ascii_case("EPSG:4326")
+                || v.get("type").and_then(|t| t.as_str()) == Some("GeographicCRS")
+            {
+                CrsKind::Geographic
+            } else if v.get("type").and_then(|t| t.as_str()) == Some("ProjectedCRS") {
+                CrsKind::Projected
+            } else {
+                CrsKind::Unknown
+            };
+            Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
         }
     }
 }
@@ -1061,6 +1077,39 @@ mod tests {
     }
 
     #[test]
+    fn default_crs_is_crs84_with_longitude_latitude_axis_order() {
+        let crs = crs_from(None, "geometry").unwrap();
+        assert_eq!(crs.id.as_deref(), Some("OGC:CRS84"));
+        assert_eq!(
+            crs.axis_order,
+            plenora_core::crs::AxisOrder::LongitudeLatitude
+        );
+    }
+
+    #[test]
+    fn projjson_without_identifier_is_a_typed_unresolved_crs() {
+        let geo = serde_json::json!({
+            "columns": {
+                "geometry": {
+                    "crs": {
+                        "type": "ProjectedCRS",
+                        "name": "survey-grid-secret"
+                    }
+                }
+            }
+        });
+        let error = crs_from(Some(&geo), "geometry").unwrap_err();
+        match &error {
+            PlenoraError::CrsUnresolved { driver, raw } => {
+                assert_eq!(*driver, "geoparquet");
+                assert!(raw.definition.contains("survey-grid-secret"));
+            }
+            other => panic!("errore inatteso: {other}"),
+        }
+        assert!(!error.to_string().contains("survey-grid-secret"));
+    }
+
+    #[test]
     fn pruning_predicates_preserve_integer_precision_and_fail_open() {
         let exact = 9_007_199_254_740_993_i64;
         assert_eq!(
@@ -1204,11 +1253,7 @@ mod tests {
         let mut geometry = GeometryColumnContract::wkb_passthrough(
             FieldId(0),
             "geometry",
-            ResolvedCrs {
-                id: Some("EPSG:4326".to_owned()),
-                kind: CrsKind::Geographic,
-                definition: None,
-            },
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
             true,
         );
         geometry.dimensions = CoordinateDimensions::Xyz;

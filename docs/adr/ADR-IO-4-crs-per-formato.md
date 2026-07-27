@@ -73,11 +73,27 @@ CRS non è `Resolved`; il `RawCrs` finisce nell'errore/diagnostica, non nel dato
   del CRS su gpkg/shp/geoparquet/DXF; DXF senza GEODATA e senza
   `--assume-crs` → errore.
 
-**Nota di implementazione corrente.** Il gate di conformità attraversa ogni
-descrittore scrivibile: le capability `Embedded` rifiutano un CRS mancante e le
-capability `Fixed` rifiutano un CRS incompatibile con
-`ReprojectionRequired`. Restano da uniformare sul lato lettura la conservazione
-del `RawCrs` non risolto e i test sull'ordine degli assi.
+**Nota di implementazione corrente.** `ResolvedCrs` espone un `AxisOrder`
+tipizzato: `OGC:CRS84` è `LongitudeLatitude`, `EPSG:4326` è
+`LatitudeLongitude` e un CRS proiettato riconosciuto è `EastingNorthing`.
+KML, GeoJSON, GeoParquet, GeoPackage e Shapefile hanno test che impediscono di
+confondere questi casi.
+
+I percorsi pure-Rust embedded non costruiscono più identificativi sintetici:
+un `.prj` arbitrario, un `srs_id` GeoPackage assente/undefined, un PROJJSON
+senza identificatore e un GEODATA DXF non risolvibile producono
+`CrsUnresolved { raw: RawCrs }`. Il messaggio CLI stabile è
+`CRS_UNRESOLVED` e non espone la definizione grezza. Arrow IPC rappresenta
+esplicitamente come `Missing` un campo geometrico privo del metadato CRS.
+In scrittura GeoPackage non usa più WGS84 come fallback per un CRS assente o
+non interpretabile.
+
+Il gate di conformità attraversa inoltre ogni descrittore scrivibile: le
+capability `Embedded` rifiutano un CRS mancante e le capability `Fixed`
+rifiutano un CRS incompatibile con `ReprojectionRequired`. Rimane da
+uniformare il backend FileGDB feature-on con GDAL e da ampliare la risoluzione
+di authority/axis order oltre gli identificativi e WKT riconosciuti senza
+introdurre euristiche silenziose.
 
 ## Alternative scartate
 

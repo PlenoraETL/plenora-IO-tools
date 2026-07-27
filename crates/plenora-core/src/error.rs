@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::Serialize;
 
+use crate::crs::RawCrs;
+
 pub type Result<T> = std::result::Result<T, PlenoraError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -42,6 +44,10 @@ pub enum PlenoraError {
         reason: String,
     },
     Crs(String),
+    CrsUnresolved {
+        driver: &'static str,
+        raw: RawCrs,
+    },
     Wkb(String),
     LimitExceeded(String),
     ReaderBusy {
@@ -76,6 +82,14 @@ impl fmt::Display for PlenoraError {
             Self::Schema(m) => write!(f, "schema: {m}"),
             Self::Format { driver, reason } => write!(f, "formato {driver}: {reason}"),
             Self::Crs(m) => write!(f, "crs: {m}"),
+            Self::CrsUnresolved { driver, raw } => {
+                write!(
+                    f,
+                    "crs non risolto: driver {driver}, authority_hint_bytes={}, definition_bytes={}",
+                    raw.authority_hint.as_ref().map_or(0, String::len),
+                    raw.definition.len()
+                )
+            }
             Self::Wkb(m) => write!(f, "wkb: {m}"),
             Self::LimitExceeded(m) => write!(f, "limite superato: {m}"),
             Self::ReaderBusy { driver, layer } => {

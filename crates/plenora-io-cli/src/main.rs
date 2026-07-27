@@ -46,6 +46,7 @@ fn map_err(e: plenora_core::PlenoraError) -> (i32, Value) {
         E::LimitExceeded(_) => (7, "LIMIT_EXCEEDED"),
         E::ReaderBusy { .. } => (8, "READER_BUSY"),
         E::ProjectionUnsupported { .. } => (8, "PROJECTION_UNSUPPORTED"),
+        E::CrsUnresolved { .. } => (8, "CRS_UNRESOLVED"),
         _ => (1, "FORMAT_ERROR"),
     };
     (exit, err_doc(code, e.to_string()))
@@ -578,6 +579,20 @@ mod tests {
             map_err(plenora_core::PlenoraError::ProjectionUnsupported { driver: "csv" });
         assert_eq!(exit, 8);
         assert_eq!(document["error"]["code"], "PROJECTION_UNSUPPORTED");
+    }
+
+    #[test]
+    fn unresolved_crs_has_stable_redacted_cli_error() {
+        let (_, document) = map_err(plenora_core::PlenoraError::CrsUnresolved {
+            driver: "shp",
+            raw: plenora_core::crs::RawCrs {
+                definition: "LOCAL_CS[\"survey-grid-secret\"]".to_owned(),
+                authority_hint: Some("authority-secret".to_owned()),
+            },
+        });
+        assert_eq!(document["error"]["code"], "CRS_UNRESOLVED");
+        assert!(!document.to_string().contains("survey-grid-secret"));
+        assert!(!document.to_string().contains("authority-secret"));
     }
 
     #[test]

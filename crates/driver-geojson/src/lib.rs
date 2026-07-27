@@ -93,7 +93,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 4,
+    driver_version: 5,
     descriptor_version: 4,
 };
 
@@ -1571,6 +1571,17 @@ mod tests {
         assert_eq!(
             layer.contract.geometry.as_ref().unwrap().crs.id(),
             Some("OGC:CRS84")
+        );
+        assert_eq!(
+            layer
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .resolved_crs()
+                .unwrap()
+                .axis_order,
+            plenora_core::crs::AxisOrder::LongitudeLatitude
         );
         assert_eq!(batch.num_rows(), 2);
         assert!(is_geometry_field(

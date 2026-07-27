@@ -168,7 +168,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 3,
+    driver_version: 4,
     descriptor_version: 4,
 };
 
@@ -747,6 +747,17 @@ mod tests {
         let ds = driver
             .open(Source::Path(path), &ReadOptions::default())
             .unwrap();
+        assert_eq!(
+            ds.layers()[0]
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .resolved_crs()
+                .unwrap()
+                .axis_order,
+            plenora_core::crs::AxisOrder::LongitudeLatitude
+        );
         let mut r = ds
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),

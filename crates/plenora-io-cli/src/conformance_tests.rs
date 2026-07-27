@@ -42,11 +42,11 @@ fn drivers() -> Vec<Box<dyn FormatDriver>> {
 }
 
 fn resolved(id: &str) -> CrsResolution {
-    CrsResolution::resolved(ResolvedCrs {
-        id: Some(id.to_owned()),
-        kind: CrsKind::Geographic,
-        definition: Some(WGS84_WKT.to_owned()),
-    })
+    CrsResolution::resolved(ResolvedCrs::new(
+        Some(id.to_owned()),
+        CrsKind::Geographic,
+        Some(WGS84_WKT.to_owned()),
+    ))
 }
 
 fn valid_crs(descriptor: &FormatDescriptor) -> CrsResolution {

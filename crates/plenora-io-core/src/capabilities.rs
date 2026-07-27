@@ -365,11 +365,7 @@ mod tests {
         let geometry = GeometryColumnContract::wkb_xy(
             FieldId(0),
             "geom",
-            ResolvedCrs {
-                id: Some("EPSG:3857".to_owned()),
-                kind: CrsKind::Projected,
-                definition: None,
-            },
+            ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
             true,
         );
         let p = plan(

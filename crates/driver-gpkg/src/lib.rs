@@ -27,7 +27,7 @@ use plenora_core::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_core::crs::{CrsKind, ResolvedCrs};
+use plenora_core::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_core::geometry::is_geometry_field;
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
@@ -83,7 +83,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 4,
+    driver_version: 5,
     descriptor_version: 4,
 };
 
@@ -662,34 +662,53 @@ fn gpkg_geometry_type(name: &str) -> Option<GeometryType> {
 }
 
 fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
-    if srs_id == 4326 {
-        return Ok(ResolvedCrs {
-            id: Some("EPSG:4326".to_owned()),
-            kind: CrsKind::Geographic,
-            definition: None,
-        });
-    }
     let row: rusqlite::Result<(String, i64, String)> = conn.query_row(
         "SELECT organization, organization_coordsys_id, definition FROM gpkg_spatial_ref_sys WHERE srs_id = ?1",
         [srs_id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
     );
-    Ok(match row {
-        Ok((org, code, def)) => ResolvedCrs {
-            id: Some(format!("{}:{}", org.to_uppercase(), code)),
-            kind: CrsKind::Unknown,
-            definition: if def == "undefined" || def.is_empty() {
+    match row {
+        Ok((org, code, def)) => {
+            let id = format!("{}:{}", org.to_uppercase(), code);
+            if org.eq_ignore_ascii_case("NONE") {
+                return Err(PlenoraError::CrsUnresolved {
+                    driver: "gpkg",
+                    raw: RawCrs {
+                        definition: format!("GeoPackage srs_id={srs_id}; definition={def}"),
+                        authority_hint: Some(id),
+                    },
+                });
+            }
+            let kind = if id.eq_ignore_ascii_case("EPSG:4326") {
+                CrsKind::Geographic
+            } else if id.eq_ignore_ascii_case("EPSG:3857")
+                || def.to_ascii_uppercase().contains("PROJCS[")
+                || def.to_ascii_uppercase().contains("PROJCRS[")
+            {
+                CrsKind::Projected
+            } else if def.to_ascii_uppercase().contains("GEOGCS[")
+                || def.to_ascii_uppercase().contains("GEOGCRS[")
+            {
+                CrsKind::Geographic
+            } else {
+                CrsKind::Unknown
+            };
+            let definition = if def == "undefined" || def.is_empty() {
                 None
             } else {
                 Some(def)
+            };
+            Ok(ResolvedCrs::new(Some(id), kind, definition))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err(PlenoraError::CrsUnresolved {
+            driver: "gpkg",
+            raw: RawCrs {
+                definition: format!("GeoPackage srs_id={srs_id}"),
+                authority_hint: None,
             },
-        },
-        Err(_) => ResolvedCrs {
-            id: Some(format!("srs_id:{srs_id}")),
-            kind: CrsKind::Unknown,
-            definition: None,
-        },
-    })
+        }),
+        Err(error) => Err(err(format!("lettura gpkg_spatial_ref_sys: {error}"))),
+    }
 }
 
 fn sqlite_declared_to_arrow(t: &str) -> DataType {
@@ -835,9 +854,13 @@ fn layer_crs(
 fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Result<i32> {
     let id = match id {
         Some(s) => s,
-        None => return Ok(4326),
+        None => {
+            return Err(PlenoraError::Crs(
+                "GeoPackage richiede un CRS esplicito; nessun default implicito".to_owned(),
+            ))
+        }
     };
-    if id.eq_ignore_ascii_case("EPSG:4326") || id.eq_ignore_ascii_case("OGC:CRS84") {
+    if id.eq_ignore_ascii_case("EPSG:4326") {
         return Ok(4326);
     }
     if let Some((auth, code)) = id.split_once(':') {
@@ -859,7 +882,13 @@ fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Resul
             return Ok(code_i);
         }
     }
-    Ok(4326) // id non parseable: fallback WGS84
+    Err(PlenoraError::CrsUnresolved {
+        driver: "gpkg",
+        raw: RawCrs {
+            definition: def.unwrap_or(id).to_owned(),
+            authority_hint: Some(id.to_owned()),
+        },
+    })
 }
 
 fn create_feature_table(
@@ -944,6 +973,58 @@ mod tests {
     use plenora_core::wkb::{encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+
+    #[test]
+    fn undefined_and_dangling_srs_ids_fail_closed_with_raw_crs() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_gpkg(&conn).unwrap();
+
+        for srs_id in [0, -1, 999_999] {
+            let error = crs_for(&conn, srs_id).unwrap_err();
+            match error {
+                PlenoraError::CrsUnresolved { driver, raw } => {
+                    assert_eq!(driver, "gpkg");
+                    assert!(raw.definition.contains(&srs_id.to_string()));
+                }
+                other => panic!("errore inatteso per srs_id {srs_id}: {other}"),
+            }
+        }
+
+        conn.execute("DELETE FROM gpkg_spatial_ref_sys WHERE srs_id = 4326", [])
+            .unwrap();
+        assert!(matches!(
+            crs_for(&conn, 4326),
+            Err(PlenoraError::CrsUnresolved { .. })
+        ));
+    }
+
+    #[test]
+    fn writer_does_not_relabel_crs84_as_epsg_4326() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_gpkg(&conn).unwrap();
+        assert!(matches!(
+            register_srs(&conn, Some("OGC:CRS84"), None),
+            Err(PlenoraError::CrsUnresolved { .. })
+        ));
+    }
+
+    #[test]
+    fn gpkg_epsg_axis_orders_are_explicit() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_gpkg(&conn).unwrap();
+        register_srs(&conn, Some("EPSG:3857"), None).unwrap();
+
+        let geographic = crs_for(&conn, 4326).unwrap();
+        let projected = crs_for(&conn, 3857).unwrap();
+        assert_eq!(
+            geographic.axis_order,
+            plenora_core::crs::AxisOrder::LatitudeLongitude
+        );
+        assert_eq!(
+            projected.axis_order,
+            plenora_core::crs::AxisOrder::EastingNorthing
+        );
+    }
 
     fn ids_with_spatial_hint(
         dataset: &dyn OpenDatasetHandle,
@@ -1204,11 +1285,7 @@ mod tests {
         let mut geometry = GeometryColumnContract::wkb_passthrough(
             FieldId(0),
             "geom",
-            ResolvedCrs {
-                id: Some("EPSG:4326".to_owned()),
-                kind: CrsKind::Geographic,
-                definition: None,
-            },
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
             true,
         );
         geometry.dimensions = CoordinateDimensions::Xyzm;

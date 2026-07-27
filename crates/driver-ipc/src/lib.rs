@@ -18,7 +18,7 @@ use arrow_schema::{Schema, SchemaRef};
 use plenora_core::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
-use plenora_core::crs::{CrsKind, ResolvedCrs};
+use plenora_core::crs::{CrsKind, CrsResolution, ResolvedCrs};
 use plenora_core::geometry::{
     is_geometry_field, read_geometry_contract_metadata, with_geometry_contract_metadata,
     GEO_CRS_KEY,
@@ -73,7 +73,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 2,
+    driver_version: 3,
     descriptor_version: 4,
 };
 
@@ -95,14 +95,23 @@ impl FormatDriver for IpcDriver {
             .position(|f| is_geometry_field(f))
             .map(|i| {
                 let f = schema.field(i);
+                let crs = match f.metadata().get(GEO_CRS_KEY).cloned() {
+                    Some(id) => {
+                        let kind = if id.eq_ignore_ascii_case("OGC:CRS84")
+                            || id.eq_ignore_ascii_case("EPSG:4326")
+                        {
+                            CrsKind::Geographic
+                        } else {
+                            CrsKind::Unknown
+                        };
+                        CrsResolution::resolved(ResolvedCrs::new(Some(id), kind, None))
+                    }
+                    None => CrsResolution::Missing,
+                };
                 let mut contract = GeometryColumnContract::wkb_passthrough(
                     FieldId(i as u32),
                     f.name(),
-                    ResolvedCrs {
-                        id: f.metadata().get(GEO_CRS_KEY).cloned(),
-                        kind: CrsKind::Unknown,
-                        definition: None,
-                    },
+                    crs,
                     f.is_nullable(),
                 );
                 read_geometry_contract_metadata(f, &mut contract);
@@ -338,6 +347,34 @@ mod tests {
     use plenora_io_core::WriteLayer;
 
     #[test]
+    fn geometry_without_crs_metadata_is_explicitly_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("missing-crs.arrow");
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+            [(
+                plenora_core::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                plenora_core::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let schema = Schema::new(vec![field]);
+        {
+            let file = File::create(&path).unwrap();
+            let mut writer = FileWriter::try_new(file, &schema).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let dataset = IpcDriver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        assert!(matches!(
+            &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
+            CrsResolution::Missing
+        ));
+    }
+
+    #[test]
     fn round_trip_ipc_preserves_geometry_metadata() {
         use driver_common_geometry_field as geometry_field;
 
@@ -513,11 +550,7 @@ mod tests {
         let mut geometry = GeometryColumnContract::wkb_passthrough(
             FieldId(0),
             "geometry",
-            ResolvedCrs {
-                id: Some("EPSG:4326".to_owned()),
-                kind: CrsKind::Geographic,
-                definition: None,
-            },
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
             true,
         );
         geometry.encoding = GeometryEncoding::Ewkb;

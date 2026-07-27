@@ -90,7 +90,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 4,
+    driver_version: 5,
     descriptor_version: 4,
 };
 
@@ -180,11 +180,7 @@ impl FormatDriver for CsvDriver {
         let mut geometry_contract = GeometryColumnContract::wkb_xy(
             FieldId(0),
             GEOMETRY,
-            ResolvedCrs {
-                id: Some(crs.clone()),
-                kind,
-                definition: None,
-            },
+            ResolvedCrs::new(Some(crs.clone()), kind, None),
             true,
         );
         geometry_contract.dimensions = dimensions;

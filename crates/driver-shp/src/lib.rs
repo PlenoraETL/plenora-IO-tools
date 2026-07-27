@@ -35,7 +35,7 @@ use plenora_core::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_core::crs::{CrsKind, ResolvedCrs};
+use plenora_core::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata, GEO_CRS_KEY};
 use plenora_core::limits::WkbLimits;
 use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
@@ -186,7 +186,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 5,
+    driver_version: 6,
     descriptor_version: 4,
 };
 
@@ -935,21 +935,65 @@ fn resolve_prj(
 fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
     let prj = path.with_extension("prj");
     if let Ok(wkt) = std::fs::read_to_string(&prj) {
-        return Ok(ResolvedCrs {
-            id: opts.assume_crs.clone(),
-            kind: CrsKind::Unknown,
-            definition: Some(wkt),
-        });
+        let id = opts
+            .assume_crs
+            .clone()
+            .or_else(|| authority_id_from_wkt(&wkt));
+        let Some(id) = id else {
+            return Err(PlenoraError::CrsUnresolved {
+                driver: "shp",
+                raw: RawCrs {
+                    definition: wkt,
+                    authority_hint: None,
+                },
+            });
+        };
+        let kind = crs_kind(&id, Some(&wkt));
+        return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)));
     }
     match &opts.assume_crs {
-        Some(id) => Ok(ResolvedCrs {
-            id: Some(id.clone()),
-            kind: CrsKind::Unknown,
-            definition: None,
-        }),
+        Some(id) => Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None)),
         None => Err(PlenoraError::Crs(
             "Shapefile senza .prj: fornire --assume-crs".to_owned(),
         )),
+    }
+}
+
+fn authority_id_from_wkt(wkt: &str) -> Option<String> {
+    let upper = wkt.to_ascii_uppercase();
+    if upper.trim() == "OGC:CRS84" {
+        return Some("OGC:CRS84".to_owned());
+    }
+    // Il writer Shapefile emette questa forma ESRI WKT1 canonica, che non
+    // contiene AUTHORITY ma identifica senza ambiguità WGS 84.
+    if upper.contains("GEOGCS[\"WGS 84\"") && upper.contains("DATUM[\"WGS_1984\"") {
+        return Some("EPSG:4326".to_owned());
+    }
+    let epsg = upper.rfind("\"EPSG\"")?;
+    let tail = &upper[epsg + "\"EPSG\"".len()..];
+    let start = tail.find(char::is_numeric)?;
+    let code: String = tail[start..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    (!code.is_empty()).then(|| format!("EPSG:{code}"))
+}
+
+fn crs_kind(id: &str, definition: Option<&str>) -> CrsKind {
+    let definition = definition.unwrap_or_default().to_ascii_uppercase();
+    if id.eq_ignore_ascii_case("OGC:CRS84")
+        || id.eq_ignore_ascii_case("EPSG:4326")
+        || definition.contains("GEOGCS[")
+        || definition.contains("GEOGCRS[")
+    {
+        CrsKind::Geographic
+    } else if definition.contains("PROJCS[")
+        || definition.contains("PROJCRS[")
+        || id.eq_ignore_ascii_case("EPSG:3857")
+    {
+        CrsKind::Projected
+    } else {
+        CrsKind::Unknown
     }
 }
 
@@ -1557,6 +1601,58 @@ mod tests {
             spatial_pruning_hint: None,
             batch_target: BatchTarget::default(),
         }
+    }
+
+    #[test]
+    fn prj_authority_is_resolved_and_keeps_epsg_axis_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("roads.shp");
+        std::fs::write(
+            path.with_extension("prj"),
+            "GEOGCS[\"WGS 84\",AUTHORITY[\"EPSG\",\"4326\"]]",
+        )
+        .unwrap();
+
+        let crs = resolve_crs(&path, &ReadOptions::default()).unwrap();
+        assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
+        assert_eq!(
+            crs.axis_order,
+            plenora_core::crs::AxisOrder::LatitudeLongitude
+        );
+    }
+
+    #[test]
+    fn unresolved_prj_is_preserved_in_typed_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("local.shp");
+        let definition = "LOCAL_CS[\"survey-grid-secret\"]";
+        std::fs::write(path.with_extension("prj"), definition).unwrap();
+
+        let error = resolve_crs(&path, &ReadOptions::default()).unwrap_err();
+        match &error {
+            PlenoraError::CrsUnresolved { driver, raw } => {
+                assert_eq!(*driver, "shp");
+                assert_eq!(raw.definition, definition);
+            }
+            other => panic!("errore inatteso: {other}"),
+        }
+        assert!(!error.to_string().contains("survey-grid-secret"));
+    }
+
+    #[test]
+    fn assumed_unknown_epsg_does_not_invent_an_axis_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("no-prj.shp");
+        let crs = resolve_crs(
+            &path,
+            &ReadOptions {
+                assume_crs: Some("EPSG:4258".to_owned()),
+                ..ReadOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(crs.kind, CrsKind::Unknown);
+        assert_eq!(crs.axis_order, plenora_core::crs::AxisOrder::Unknown);
     }
 
     #[test]

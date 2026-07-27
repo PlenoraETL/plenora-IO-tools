@@ -140,28 +140,20 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
             let id = embedded_id.or_else(|| options.assume_crs.clone());
             let Some(id) = id else {
                 let raw = RawCrs {
-                    definition: definition.clone(),
+                    definition,
                     authority_hint: None,
                 };
-                return Err(PlenoraError::Crs(format!(
-                    "DXF con GEODATA dichiarato ma non risolvibile: {raw:?}; fornire --assume-crs"
-                )));
+                return Err(PlenoraError::CrsUnresolved { driver: "dxf", raw });
             };
-            Ok(ResolvedCrs {
-                kind: crs_kind(Some(&id), Some(&definition)),
-                id: Some(id),
-                definition: Some(definition),
-            })
+            let kind = crs_kind(Some(&id), Some(&definition));
+            Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
         }
         None => {
             let id = options.assume_crs.clone().ok_or_else(|| {
                 PlenoraError::Crs("DXF senza GEODATA risolvibile: fornire --assume-crs".to_owned())
             })?;
-            Ok(ResolvedCrs {
-                kind: crs_kind(Some(&id), None),
-                id: Some(id),
-                definition: None,
-            })
+            let kind = crs_kind(Some(&id), None);
+            Ok(ResolvedCrs::new(Some(id), kind, None))
         }
     }
 }
@@ -222,7 +214,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 3,
+    driver_version: 4,
     descriptor_version: 4,
 };
 
@@ -1256,11 +1248,7 @@ pub fn __fuzz_read_dxf(bytes: &[u8]) -> Result<usize> {
     }
     let drawing = Drawing::load(&mut Cursor::new(bytes))
         .map_err(|error| err(format!("DXF invalido: {error}")))?;
-    let crs = ResolvedCrs {
-        id: Some("EPSG:4326".to_owned()),
-        kind: CrsKind::Geographic,
-        definition: None,
-    };
+    let crs = ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None);
     let (batch, _, _) = build_batch(&drawing, crs, &Limits::default())?;
     Ok(batch.num_rows())
 }
@@ -1274,11 +1262,11 @@ mod tests {
     use plenora_io_core::WriteLayer;
 
     fn resolved_wgs84() -> ResolvedCrs {
-        ResolvedCrs {
-            id: Some("EPSG:4326".to_owned()),
-            kind: CrsKind::Geographic,
-            definition: Some(WGS84_ESRI_WKT.to_owned()),
-        }
+        ResolvedCrs::new(
+            Some("EPSG:4326".to_owned()),
+            CrsKind::Geographic,
+            Some(WGS84_ESRI_WKT.to_owned()),
+        )
     }
 
     fn wkb(value: WkbValue, dimensions: CoordinateDimensions) -> Vec<u8> {
@@ -1512,6 +1500,27 @@ mod tests {
         assert_eq!(resolved.id.as_deref(), Some("EPSG:4326"));
         assert_eq!(resolved.kind, CrsKind::Geographic);
         assert_eq!(resolved.definition.as_deref(), Some(WGS84_ESRI_WKT));
+    }
+
+    #[test]
+    fn unresolved_geodata_is_preserved_in_typed_error() {
+        let definition = "LOCAL_CS[\"survey-grid-secret\"]";
+        let mut drawing = Drawing::new();
+        drawing.add_object(Object::new(ObjectType::GeoData(GeoData {
+            coordinate_system_definition: definition.to_owned(),
+            ..Default::default()
+        })));
+
+        let error = resolve_dxf_crs(&drawing, &ReadOptions::default()).unwrap_err();
+        match &error {
+            PlenoraError::CrsUnresolved { driver, raw } => {
+                assert_eq!(*driver, "dxf");
+                assert_eq!(raw.definition, definition);
+                assert_eq!(raw.authority_hint, None);
+            }
+            other => panic!("errore inatteso: {other}"),
+        }
+        assert!(!error.to_string().contains("survey-grid-secret"));
     }
 
     #[test]
