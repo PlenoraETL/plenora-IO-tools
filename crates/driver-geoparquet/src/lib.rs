@@ -367,13 +367,16 @@ impl FormatWriter for GeoParquetWriter {
             .map_err(|e| fmt_err(format!("augment bbox: {e}")))?;
         self.writer
             .as_mut()
-            .expect("writer vivo")
+            .ok_or_else(|| fmt_err("writer Parquet non disponibile"))?
             .write(&aug)
             .map_err(|e| fmt_err(format!("write: {e}")))
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        let mut writer = self.writer.take().expect("writer vivo");
+        let mut writer = self
+            .writer
+            .take()
+            .ok_or_else(|| fmt_err("writer Parquet non disponibile al finish"))?;
         let geo = build_geo_metadata(
             &self.geom_name,
             &self.geometry_types,
@@ -381,7 +384,10 @@ impl FormatWriter for GeoParquetWriter {
         );
         writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo));
         writer.close().map_err(|e| fmt_err(format!("close: {e}")))?;
-        let temp = self.temp.take().expect("temp vivo");
+        let temp = self
+            .temp
+            .take()
+            .ok_or_else(|| fmt_err("tempfile Parquet non disponibile al finish"))?;
         let (bytes, outcome) =
             publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
         Ok(Published {
@@ -745,7 +751,10 @@ fn apply_geo_column_metadata(
         }
     }
     if dimensions.len() == 1 {
-        contract.dimensions = *dimensions.first().expect("una dimensione");
+        contract.dimensions = dimensions
+            .first()
+            .copied()
+            .unwrap_or(CoordinateDimensions::Unknown);
     }
     contract.srid = contract
         .crs

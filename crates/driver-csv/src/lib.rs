@@ -474,7 +474,11 @@ fn infer_wkt_geometry(
         geometry_types.insert(geometry.geometry_type());
     }
     let dimensions = if dimensions.len() == 1 {
-        *dimensions.iter().next().expect("una dimensione")
+        dimensions
+            .iter()
+            .next()
+            .copied()
+            .unwrap_or(CoordinateDimensions::Unknown)
     } else {
         CoordinateDimensions::Unknown
     };

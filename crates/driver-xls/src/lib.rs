@@ -428,7 +428,11 @@ fn build_batch(
         };
 
     let dimensions = if detected_dimensions.len() == 1 {
-        *detected_dimensions.iter().next().expect("una dimensione")
+        detected_dimensions
+            .iter()
+            .next()
+            .copied()
+            .unwrap_or(CoordinateDimensions::Unknown)
     } else {
         CoordinateDimensions::Unknown
     };

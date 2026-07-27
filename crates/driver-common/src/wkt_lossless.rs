@@ -295,7 +295,7 @@ fn geometry_to_wkt(geometry: &WkbGeometry) -> Result<Wkt<f64>> {
                             Some(coordinate_to_wkt(coordinate, geometry.dimensions)?),
                             dim,
                         )),
-                        _ => unreachable!("geometry_type verificato"),
+                        _ => Err(error("MultiPoint con membro non-Point")),
                     },
                 )
                 .collect::<Result<Vec<_>>>()?,
@@ -310,7 +310,7 @@ fn geometry_to_wkt(geometry: &WkbGeometry) -> Result<Wkt<f64>> {
                             coordinates_to_wkt(coordinates, geometry.dimensions)?,
                             dim,
                         )),
-                        _ => unreachable!("geometry_type verificato"),
+                        _ => Err(error("MultiLineString con membro non-LineString")),
                     },
                 )
                 .collect::<Result<Vec<_>>>()?,
@@ -333,7 +333,7 @@ fn geometry_to_wkt(geometry: &WkbGeometry) -> Result<Wkt<f64>> {
                                 .collect::<Result<Vec<_>>>()?,
                             dim,
                         )),
-                        _ => unreachable!("geometry_type verificato"),
+                        _ => Err(error("MultiPolygon con membro non-Polygon")),
                     },
                 )
                 .collect::<Result<Vec<_>>>()?,

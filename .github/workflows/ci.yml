@@ -23,6 +23,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Enforce safety lints on library code
+        run: >-
+          cargo clippy --workspace --lib --all-features --locked --
+          -D warnings
+          -D unsafe-code
+          -D clippy::unwrap_used
+          -D clippy::expect_used
+          -D clippy::panic
+          -D clippy::unreachable
+          -D clippy::todo
+          -D clippy::unimplemented
       - run: cargo test --workspace --all-targets --locked
       - name: Test FileGDB crash recovery
         run: cargo test -p driver-filegdb --features gdal-backend --locked
@@ -32,7 +43,11 @@ jobs:
         run: cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo build --workspace --release --locked
       - uses: taiki-e/install-action@cargo-audit
-      - run: cargo audit --deny warnings
+      - name: Audit locked dependencies
+        run: >-
+          cargo audit --deny warnings
+          --ignore RUSTSEC-2023-0089
+          --ignore RUSTSEC-2024-0436
 
   windows:
     runs-on: windows-latest

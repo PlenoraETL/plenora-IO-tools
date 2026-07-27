@@ -888,10 +888,8 @@ fn finish_batch(
 }
 
 /// Entry point per il fuzzer (NON API stabile): esegue pass-1 + pass-2 in modo
-/// **sincrono** (niente thread → un panic è catturabile dal fuzzer) su `bytes`,
-/// con un unico batch finale. JSON invalido → `Err` (rifiuto pulito). Un
-/// disallineamento delle colonne fa fallire `try_new` → panic via `expect`,
-/// segnalato come bug del bookkeeping per-feature.
+/// **sincrono** su `bytes`, con un unico batch finale. JSON invalido o colonne
+/// disallineate producono `Err`, senza panic.
 #[doc(hidden)]
 pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     use std::io::Cursor;
@@ -930,8 +928,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         .deserialize_map(TopSink { sink: &mut sink })
         .map_err(|e| e.to_string())?;
     if sink.n > 0 {
-        let batch = finish_batch(&schema, &mut sink.geom, &mut sink.builders)
-            .expect("colonne disallineate dopo pass-2 (bug bookkeeping)");
+        let batch = finish_batch(&schema, &mut sink.geom, &mut sink.builders)?;
         return Ok(batch.num_rows());
     }
     Ok(0)
@@ -1170,14 +1167,23 @@ pub fn wkb_from_gj_value(v: &geojson::Value, out: &mut Vec<u8>) -> std::result::
         Ok(())
     }
 
-    fn hdr(out: &mut Vec<u8>, code: u32, dimensions: CoordinateDimensions) {
+    fn hdr(
+        out: &mut Vec<u8>,
+        code: u32,
+        dimensions: CoordinateDimensions,
+    ) -> std::result::Result<(), String> {
         out.push(1);
         let dimensional_code = match dimensions {
             CoordinateDimensions::Xy => code,
             CoordinateDimensions::Xyz => code + 1000,
-            _ => unreachable!("la scansione GeoJSON produce solo XY/XYZ"),
+            unsupported => {
+                return Err(format!(
+                    "dimensionalità GeoJSON non serializzabile: {unsupported:?}"
+                ))
+            }
         };
         out.extend_from_slice(&dimensional_code.to_le_bytes());
+        Ok(())
     }
 
     fn pos(
@@ -1218,41 +1224,41 @@ pub fn wkb_from_gj_value(v: &geojson::Value, out: &mut Vec<u8>) -> std::result::
     ) -> std::result::Result<(), String> {
         match value {
             Point(p) => {
-                hdr(out, 1, dimensions);
+                hdr(out, 1, dimensions)?;
                 pos(out, p, dimensions)?;
             }
             LineString(ls) => {
-                hdr(out, 2, dimensions);
+                hdr(out, 2, dimensions)?;
                 ring(out, ls, dimensions)?;
             }
             Polygon(rings) => {
-                hdr(out, 3, dimensions);
+                hdr(out, 3, dimensions)?;
                 out.extend_from_slice(&(rings.len() as u32).to_le_bytes());
                 for r in rings {
                     ring(out, r, dimensions)?;
                 }
             }
             MultiPoint(pts) => {
-                hdr(out, 4, dimensions);
+                hdr(out, 4, dimensions)?;
                 out.extend_from_slice(&(pts.len() as u32).to_le_bytes());
                 for p in pts {
-                    hdr(out, 1, dimensions);
+                    hdr(out, 1, dimensions)?;
                     pos(out, p, dimensions)?;
                 }
             }
             MultiLineString(lss) => {
-                hdr(out, 5, dimensions);
+                hdr(out, 5, dimensions)?;
                 out.extend_from_slice(&(lss.len() as u32).to_le_bytes());
                 for ls in lss {
-                    hdr(out, 2, dimensions);
+                    hdr(out, 2, dimensions)?;
                     ring(out, ls, dimensions)?;
                 }
             }
             MultiPolygon(polys) => {
-                hdr(out, 6, dimensions);
+                hdr(out, 6, dimensions)?;
                 out.extend_from_slice(&(polys.len() as u32).to_le_bytes());
                 for poly in polys {
-                    hdr(out, 3, dimensions);
+                    hdr(out, 3, dimensions)?;
                     out.extend_from_slice(&(poly.len() as u32).to_le_bytes());
                     for r in poly {
                         ring(out, r, dimensions)?;
@@ -1260,7 +1266,7 @@ pub fn wkb_from_gj_value(v: &geojson::Value, out: &mut Vec<u8>) -> std::result::
                 }
             }
             GeometryCollection(gs) => {
-                hdr(out, 7, dimensions);
+                hdr(out, 7, dimensions)?;
                 out.extend_from_slice(&(gs.len() as u32).to_le_bytes());
                 for geometry in gs {
                     write_value(&geometry.value, out, dimensions)?;

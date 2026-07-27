@@ -4,6 +4,13 @@ Verifica aggiornata al 2026-07-27. La tabella distingue ciò che è nel codice d
 ciò che resta una decisione architetturale: “parziale” non significa che il
 driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 
+Il profilo safety per un possibile impiego aeronautico è definito in
+[`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
+requisiti, hazard, prove e gap nella
+[`assurance/TRACEABILITY.md`](assurance/TRACEABILITY.md). È una baseline di
+assurance, non una dichiarazione DO-178C/ED-12C. La CI vieta ora `unsafe` e le
+primitive esplicite di panic in tutti i target di libreria.
+
 | ADR | Stato corrente | Implementato | Gap principali |
 |---|---|---|---|
 | ADR-IO 1 — lifecycle e `WritePlan` | Parziale avanzato | Trait e ciclo `open`/reader, `create`/writer/`finish`; handle esplicitamente `Send + Sync`; writer multi-layer; nomi layer obbligatori e unici validati in comune; `SingleActiveReader` imposto con lease atomico ed errore tipizzato su KML/DXF/XLSX e backend FileGDB; matrice reale single/multiple inclusa la concorrenza FileGDB feature-on; gate trasversale su piano vuoto/multi-layer/duplicati; ogni errore di write invalida il writer e vieta `finish`; abort senza publish né residui verificato sui writer pure-Rust e su FileGDB/GDAL | Alcuni `open` materializzano righe; restano da uniformare cancellazione e streaming dei parser che materializzano |

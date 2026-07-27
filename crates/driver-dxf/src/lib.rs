@@ -461,11 +461,10 @@ fn add_polyline(
             polyline.set_is_closed(closed);
             polyline.set_is_3d_polyline(true);
             for coordinate in coordinates {
-                let mut vertex = Vertex::new(DxfPoint::new(
-                    coordinate.x,
-                    coordinate.y,
-                    coordinate.z.expect("XYZ validato"),
-                ));
+                let z = coordinate
+                    .z
+                    .ok_or_else(|| err("coordinata XYZ senza ordinata Z"))?;
+                let mut vertex = Vertex::new(DxfPoint::new(coordinate.x, coordinate.y, z));
                 vertex.set_is_3d_polyline_vertex(true);
                 polyline.add_vertex(drawing, vertex);
             }

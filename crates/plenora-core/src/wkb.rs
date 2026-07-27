@@ -124,25 +124,37 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn remaining(&self) -> usize {
-        self.bytes.len() - self.pos
+        self.bytes.len().saturating_sub(self.pos)
     }
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        if self.remaining() < n {
-            return Err(wkb_err("WKB troncato"));
-        }
-        let s = &self.bytes[self.pos..self.pos + n];
-        self.pos += n;
-        Ok(s)
+        let end = self
+            .pos
+            .checked_add(n)
+            .ok_or_else(|| wkb_err("overflow nella posizione WKB"))?;
+        let bytes = self
+            .bytes
+            .get(self.pos..end)
+            .ok_or_else(|| wkb_err("WKB troncato"))?;
+        self.pos = end;
+        Ok(bytes)
     }
     fn byte_order(&mut self) -> Result<bool> {
-        match self.take(1)?[0] {
+        match self
+            .take(1)?
+            .first()
+            .copied()
+            .ok_or_else(|| wkb_err("WKB senza byte-order"))?
+        {
             0 => Ok(false),
             1 => Ok(true),
             o => Err(wkb_err(format!("byte-order WKB non valido: {o}"))),
         }
     }
     fn u32(&mut self, le: bool) -> Result<u32> {
-        let b: [u8; 4] = self.take(4)?.try_into().expect("4");
+        let b: [u8; 4] = self
+            .take(4)?
+            .try_into()
+            .map_err(|_| wkb_err("WKB troncato durante la lettura di u32"))?;
         Ok(if le {
             u32::from_le_bytes(b)
         } else {
@@ -150,7 +162,10 @@ impl<'a> Reader<'a> {
         })
     }
     fn f64(&mut self, le: bool) -> Result<f64> {
-        let b: [u8; 8] = self.take(8)?.try_into().expect("8");
+        let b: [u8; 8] = self
+            .take(8)?
+            .try_into()
+            .map_err(|_| wkb_err("WKB troncato durante la lettura di f64"))?;
         Ok(if le {
             f64::from_le_bytes(b)
         } else {

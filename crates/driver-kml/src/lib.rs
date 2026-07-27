@@ -433,8 +433,8 @@ fn collect(k: &Kml, out: &mut Vec<Placemark>) {
                 collect(e, out);
             }
         }
-        Kml::Folder { elements, .. } => {
-            for e in elements {
+        Kml::Folder(folder) => {
+            for e in &folder.elements {
                 collect(e, out);
             }
         }
@@ -672,7 +672,10 @@ fn build_batch(placemarks: &[Placemark]) -> Result<(RecordBatch, DataContract)> 
     let mut geometry_contract =
         GeometryColumnContract::wkb_passthrough(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
     geometry_contract.dimensions = if dimensions.len() == 1 {
-        *dimensions.first().unwrap()
+        dimensions
+            .first()
+            .copied()
+            .unwrap_or(CoordinateDimensions::Unknown)
     } else {
         CoordinateDimensions::Unknown
     };

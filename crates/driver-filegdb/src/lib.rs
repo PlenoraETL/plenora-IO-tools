@@ -453,7 +453,11 @@ mod backend {
                 CapabilityReason::CoordinateDimensions,
                 "FileGDB richiede dimensionalità XY o XYZ dichiarata",
             )),
-            (G::GeometryCollection, _) => unreachable!("rifiutata sopra"),
+            (G::GeometryCollection, _) => Err(geometry_capability(
+                &geometry.name,
+                CapabilityReason::GeometryNotSupported,
+                "GeometryCollection non rappresentabile nel profilo FileGDB corrente",
+            )),
         }
     }
 
@@ -995,7 +999,11 @@ mod backend {
                 .id
                 .as_deref()
                 .or(crs.definition.as_deref())
-                .expect("un CRS risolto da GDAL ha sempre id o WKT")
+                .ok_or_else(|| {
+                    PlenoraError::Crs(
+                        "CRS FileGDB risolto senza identificativo né definizione".to_owned(),
+                    )
+                })?
                 .to_owned();
             let ogr_geometry_type = layer
                 .defn()

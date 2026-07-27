@@ -593,7 +593,7 @@ fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
             for child in children {
                 match ensure_child(child, geometry, GeometryType::Point)? {
                     WkbValue::Point(coordinate) => coordinates.push(*coordinate),
-                    _ => unreachable!("geometry_type verificato"),
+                    _ => return Err(err("MultiPoint con membro non-Point")),
                 }
             }
             Ok(ShpTopology::Multipoint(coordinates))
@@ -623,7 +623,7 @@ fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
                             "parte LineString con meno di due coordinate in Shapefile",
                         ))
                     }
-                    _ => unreachable!("geometry_type verificato"),
+                    _ => return Err(err("MultiLineString con membro non-LineString")),
                 }
             }
             Ok(ShpTopology::Polyline(parts))
@@ -641,7 +641,7 @@ fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
             for child in children {
                 match ensure_child(child, geometry, GeometryType::Polygon)? {
                     WkbValue::Polygon(rings) => polygon_rings(rings, &mut destination)?,
-                    _ => unreachable!("geometry_type verificato"),
+                    _ => return Err(err("MultiPolygon con membro non-Polygon")),
                 }
             }
             Ok(ShpTopology::Polygon(destination))
@@ -652,27 +652,64 @@ fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
     }
 }
 
+fn point_m(coordinate: WkbCoordinate) -> Result<PointM> {
+    let measure = coordinate
+        .m
+        .ok_or_else(|| err("coordinata XYM senza ordinata M"))?;
+    Ok(PointM::new(coordinate.x, coordinate.y, measure))
+}
+
+fn point_z(coordinate: WkbCoordinate, require_measure: bool) -> Result<PointZ> {
+    let z = coordinate
+        .z
+        .ok_or_else(|| err("coordinata XYZ senza ordinata Z"))?;
+    let measure = if require_measure {
+        coordinate
+            .m
+            .ok_or_else(|| err("coordinata XYZM senza ordinata M"))?
+    } else {
+        NO_DATA
+    };
+    Ok(PointZ::new(coordinate.x, coordinate.y, z, measure))
+}
+
+fn convert_parts<T, F>(parts: Vec<Vec<WkbCoordinate>>, convert: F) -> Result<Vec<Vec<T>>>
+where
+    F: Fn(WkbCoordinate) -> Result<T> + Copy,
+{
+    parts
+        .into_iter()
+        .map(|part| part.into_iter().map(convert).collect())
+        .collect()
+}
+
+fn convert_rings<T, F>(
+    rings: Vec<(bool, Vec<WkbCoordinate>)>,
+    convert: F,
+) -> Result<Vec<PolygonRing<T>>>
+where
+    F: Fn(WkbCoordinate) -> Result<T> + Copy,
+{
+    rings
+        .into_iter()
+        .map(|(outer, ring)| {
+            let points = ring.into_iter().map(convert).collect::<Result<Vec<_>>>()?;
+            Ok(if outer {
+                PolygonRing::Outer(points)
+            } else {
+                PolygonRing::Inner(points)
+            })
+        })
+        .collect()
+}
+
 fn shape_from_wkb(geometry: &WkbGeometry) -> Result<Shape> {
     let topology = topology_from_wkb(geometry)?;
     match (geometry.dimensions, topology) {
         (CoordinateDimensions::Xy, ShpTopology::Point(c)) => Ok(Shape::Point(Point::new(c.x, c.y))),
-        (CoordinateDimensions::Xym, ShpTopology::Point(c)) => Ok(Shape::PointM(PointM::new(
-            c.x,
-            c.y,
-            c.m.expect("coordinata XYM"),
-        ))),
-        (CoordinateDimensions::Xyz, ShpTopology::Point(c)) => Ok(Shape::PointZ(PointZ::new(
-            c.x,
-            c.y,
-            c.z.expect("coordinata XYZ"),
-            NO_DATA,
-        ))),
-        (CoordinateDimensions::Xyzm, ShpTopology::Point(c)) => Ok(Shape::PointZ(PointZ::new(
-            c.x,
-            c.y,
-            c.z.expect("coordinata XYZM"),
-            c.m.expect("coordinata XYZM"),
-        ))),
+        (CoordinateDimensions::Xym, ShpTopology::Point(c)) => Ok(Shape::PointM(point_m(c)?)),
+        (CoordinateDimensions::Xyz, ShpTopology::Point(c)) => Ok(Shape::PointZ(point_z(c, false)?)),
+        (CoordinateDimensions::Xyzm, ShpTopology::Point(c)) => Ok(Shape::PointZ(point_z(c, true)?)),
         (CoordinateDimensions::Xy, ShpTopology::Multipoint(coordinates)) => {
             Ok(Shape::Multipoint(Multipoint::new(
                 coordinates
@@ -682,35 +719,25 @@ fn shape_from_wkb(geometry: &WkbGeometry) -> Result<Shape> {
             )))
         }
         (CoordinateDimensions::Xym, ShpTopology::Multipoint(coordinates)) => {
-            Ok(Shape::MultipointM(MultipointM::new(
-                coordinates
-                    .into_iter()
-                    .map(|c| PointM::new(c.x, c.y, c.m.expect("coordinata XYM")))
-                    .collect(),
-            )))
+            let points = coordinates
+                .into_iter()
+                .map(point_m)
+                .collect::<Result<Vec<_>>>()?;
+            Ok(Shape::MultipointM(MultipointM::new(points)))
         }
         (CoordinateDimensions::Xyz, ShpTopology::Multipoint(coordinates)) => {
-            Ok(Shape::MultipointZ(MultipointZ::new(
-                coordinates
-                    .into_iter()
-                    .map(|c| PointZ::new(c.x, c.y, c.z.expect("coordinata XYZ"), NO_DATA))
-                    .collect(),
-            )))
+            let points = coordinates
+                .into_iter()
+                .map(|coordinate| point_z(coordinate, false))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(Shape::MultipointZ(MultipointZ::new(points)))
         }
         (CoordinateDimensions::Xyzm, ShpTopology::Multipoint(coordinates)) => {
-            Ok(Shape::MultipointZ(MultipointZ::new(
-                coordinates
-                    .into_iter()
-                    .map(|c| {
-                        PointZ::new(
-                            c.x,
-                            c.y,
-                            c.z.expect("coordinata XYZM"),
-                            c.m.expect("coordinata XYZM"),
-                        )
-                    })
-                    .collect(),
-            )))
+            let points = coordinates
+                .into_iter()
+                .map(|coordinate| point_z(coordinate, true))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(Shape::MultipointZ(MultipointZ::new(points)))
         }
         (CoordinateDimensions::Xy, ShpTopology::Polyline(parts)) => {
             Ok(Shape::Polyline(Polyline::with_parts(
@@ -720,49 +747,19 @@ fn shape_from_wkb(geometry: &WkbGeometry) -> Result<Shape> {
                     .collect(),
             )))
         }
-        (CoordinateDimensions::Xym, ShpTopology::Polyline(parts)) => {
-            Ok(Shape::PolylineM(PolylineM::with_parts(
-                parts
-                    .into_iter()
-                    .map(|part| {
-                        part.into_iter()
-                            .map(|c| PointM::new(c.x, c.y, c.m.expect("coordinata XYM")))
-                            .collect()
-                    })
-                    .collect(),
-            )))
-        }
-        (CoordinateDimensions::Xyz, ShpTopology::Polyline(parts)) => {
-            Ok(Shape::PolylineZ(PolylineZ::with_parts(
-                parts
-                    .into_iter()
-                    .map(|part| {
-                        part.into_iter()
-                            .map(|c| PointZ::new(c.x, c.y, c.z.expect("coordinata XYZ"), NO_DATA))
-                            .collect()
-                    })
-                    .collect(),
-            )))
-        }
-        (CoordinateDimensions::Xyzm, ShpTopology::Polyline(parts)) => {
-            Ok(Shape::PolylineZ(PolylineZ::with_parts(
-                parts
-                    .into_iter()
-                    .map(|part| {
-                        part.into_iter()
-                            .map(|c| {
-                                PointZ::new(
-                                    c.x,
-                                    c.y,
-                                    c.z.expect("coordinata XYZM"),
-                                    c.m.expect("coordinata XYZM"),
-                                )
-                            })
-                            .collect()
-                    })
-                    .collect(),
-            )))
-        }
+        (CoordinateDimensions::Xym, ShpTopology::Polyline(parts)) => Ok(Shape::PolylineM(
+            PolylineM::with_parts(convert_parts(parts, point_m)?),
+        )),
+        (CoordinateDimensions::Xyz, ShpTopology::Polyline(parts)) => Ok(Shape::PolylineZ(
+            PolylineZ::with_parts(convert_parts(parts, |coordinate| {
+                point_z(coordinate, false)
+            })?),
+        )),
+        (CoordinateDimensions::Xyzm, ShpTopology::Polyline(parts)) => Ok(Shape::PolylineZ(
+            PolylineZ::with_parts(convert_parts(parts, |coordinate| {
+                point_z(coordinate, true)
+            })?),
+        )),
         (CoordinateDimensions::Xy, ShpTopology::Polygon(rings)) => {
             Ok(Shape::Polygon(Polygon::with_rings(
                 rings
@@ -778,67 +775,19 @@ fn shape_from_wkb(geometry: &WkbGeometry) -> Result<Shape> {
                     .collect(),
             )))
         }
-        (CoordinateDimensions::Xym, ShpTopology::Polygon(rings)) => {
-            Ok(Shape::PolygonM(PolygonM::with_rings(
-                rings
-                    .into_iter()
-                    .map(|(outer, ring)| {
-                        let points = ring
-                            .into_iter()
-                            .map(|c| PointM::new(c.x, c.y, c.m.expect("coordinata XYM")))
-                            .collect();
-                        if outer {
-                            PolygonRing::Outer(points)
-                        } else {
-                            PolygonRing::Inner(points)
-                        }
-                    })
-                    .collect(),
-            )))
-        }
-        (CoordinateDimensions::Xyz, ShpTopology::Polygon(rings)) => {
-            Ok(Shape::PolygonZ(PolygonZ::with_rings(
-                rings
-                    .into_iter()
-                    .map(|(outer, ring)| {
-                        let points = ring
-                            .into_iter()
-                            .map(|c| PointZ::new(c.x, c.y, c.z.expect("coordinata XYZ"), NO_DATA))
-                            .collect();
-                        if outer {
-                            PolygonRing::Outer(points)
-                        } else {
-                            PolygonRing::Inner(points)
-                        }
-                    })
-                    .collect(),
-            )))
-        }
-        (CoordinateDimensions::Xyzm, ShpTopology::Polygon(rings)) => {
-            Ok(Shape::PolygonZ(PolygonZ::with_rings(
-                rings
-                    .into_iter()
-                    .map(|(outer, ring)| {
-                        let points = ring
-                            .into_iter()
-                            .map(|c| {
-                                PointZ::new(
-                                    c.x,
-                                    c.y,
-                                    c.z.expect("coordinata XYZM"),
-                                    c.m.expect("coordinata XYZM"),
-                                )
-                            })
-                            .collect();
-                        if outer {
-                            PolygonRing::Outer(points)
-                        } else {
-                            PolygonRing::Inner(points)
-                        }
-                    })
-                    .collect(),
-            )))
-        }
+        (CoordinateDimensions::Xym, ShpTopology::Polygon(rings)) => Ok(Shape::PolygonM(
+            PolygonM::with_rings(convert_rings(rings, point_m)?),
+        )),
+        (CoordinateDimensions::Xyz, ShpTopology::Polygon(rings)) => Ok(Shape::PolygonZ(
+            PolygonZ::with_rings(convert_rings(rings, |coordinate| {
+                point_z(coordinate, false)
+            })?),
+        )),
+        (CoordinateDimensions::Xyzm, ShpTopology::Polygon(rings)) => Ok(Shape::PolygonZ(
+            PolygonZ::with_rings(convert_rings(rings, |coordinate| {
+                point_z(coordinate, true)
+            })?),
+        )),
         (CoordinateDimensions::Unknown, _) => {
             Err(err("dimensionalità WKB ignota non scrivibile in Shapefile"))
         }
@@ -1406,20 +1355,27 @@ fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryI
             geometry_types.insert(geometry_type);
         }
         for (name, value) in record {
-            if !accs.contains_key(&name) {
-                order.push(name.clone());
-                accs.insert(name.clone(), Acc::default());
+            match accs.entry(name.clone()) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    order.push(name);
+                    entry.insert(Acc::default()).observe(classify(&value));
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().observe(classify(&value));
+                }
             }
-            accs.get_mut(&name).unwrap().observe(classify(&value));
         }
     }
     let columns = order
         .into_iter()
-        .map(|n| {
-            let ct = accs[&n].coltype();
-            (n, ct)
+        .map(|name| {
+            let column_type = accs
+                .get(&name)
+                .ok_or_else(|| err(format!("schema DBF senza accumulatore per '{name}'")))?
+                .coltype();
+            Ok((name, column_type))
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
     Ok((
         columns,
         ShpGeometryInfo {
@@ -2136,5 +2092,32 @@ mod tests {
             srid: None,
         };
         assert!(shape_from_wkb(&geometry).is_err());
+    }
+
+    #[test]
+    fn declared_dimensions_without_required_ordinates_are_rejected() {
+        let missing_z = WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 1.0,
+                y: 2.0,
+                z: None,
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xyz,
+            srid: None,
+        };
+        let missing_m = WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 1.0,
+                y: 2.0,
+                z: Some(3.0),
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xyzm,
+            srid: None,
+        };
+
+        assert!(shape_from_wkb(&missing_z).is_err());
+        assert!(shape_from_wkb(&missing_m).is_err());
     }
 }

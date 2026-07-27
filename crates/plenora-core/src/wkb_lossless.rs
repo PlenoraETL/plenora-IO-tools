@@ -132,20 +132,29 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn remaining(&self) -> usize {
-        self.bytes.len() - self.pos
+        self.bytes.len().saturating_sub(self.pos)
     }
 
     fn take(&mut self, count: usize) -> Result<&'a [u8]> {
-        if self.remaining() < count {
-            return Err(error("WKB troncato"));
-        }
-        let bytes = &self.bytes[self.pos..self.pos + count];
-        self.pos += count;
+        let end = self
+            .pos
+            .checked_add(count)
+            .ok_or_else(|| error("overflow nella posizione WKB"))?;
+        let bytes = self
+            .bytes
+            .get(self.pos..end)
+            .ok_or_else(|| error("WKB troncato"))?;
+        self.pos = end;
         Ok(bytes)
     }
 
     fn byte_order(&mut self) -> Result<bool> {
-        match self.take(1)?[0] {
+        match self
+            .take(1)?
+            .first()
+            .copied()
+            .ok_or_else(|| error("WKB senza byte-order"))?
+        {
             0 => Ok(false),
             1 => Ok(true),
             other => Err(error(format!("byte-order WKB non valido: {other}"))),
@@ -153,7 +162,10 @@ impl<'a> Reader<'a> {
     }
 
     fn u32(&mut self, little_endian: bool) -> Result<u32> {
-        let bytes: [u8; 4] = self.take(4)?.try_into().expect("quattro byte");
+        let bytes: [u8; 4] = self
+            .take(4)?
+            .try_into()
+            .map_err(|_| error("WKB troncato durante la lettura di u32"))?;
         Ok(if little_endian {
             u32::from_le_bytes(bytes)
         } else {
@@ -162,7 +174,10 @@ impl<'a> Reader<'a> {
     }
 
     fn f64(&mut self, little_endian: bool) -> Result<f64> {
-        let bytes: [u8; 8] = self.take(8)?.try_into().expect("otto byte");
+        let bytes: [u8; 8] = self
+            .take(8)?
+            .try_into()
+            .map_err(|_| error("WKB troncato durante la lettura di f64"))?;
         Ok(if little_endian {
             f64::from_le_bytes(bytes)
         } else {
@@ -322,10 +337,18 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
                 4 => return Err(error("MultiPoint con membro non-Point")),
                 5 => return Err(error("MultiLineString con membro non-LineString")),
                 6 => return Err(error("MultiPolygon con membro non-Polygon")),
-                _ => unreachable!(),
+                aggregate_type => {
+                    return Err(error(format!(
+                        "tipo WKB aggregato non supportato: {aggregate_type}"
+                    )))
+                }
             }
         }
-        _ => unreachable!(),
+        unsupported_type => {
+            return Err(error(format!(
+                "tipo WKB non supportato: {unsupported_type}"
+            )))
+        }
     };
 
     Ok(WkbGeometry {

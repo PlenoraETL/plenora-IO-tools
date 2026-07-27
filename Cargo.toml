@@ -22,9 +22,9 @@ csv = "=1.4.0"
 wkt = "=0.14.0"
 rusqlite = { version = "=0.39.0", features = ["bundled"] }
 shapefile = { version = "0.6", features = ["geo-types"] }
-kml = { version = "0.8", features = ["geo-types"] }
-quick-xml = "=0.37.5"
-calamine = "0.26"
+kml = { version = "=0.14.0", features = ["geo-types"] }
+quick-xml = "=0.41.0"
+calamine = "=0.36.1"
 rust_xlsxwriter = "0.79"
 dxf = "=0.6.1"
 gdal = "0.17"
