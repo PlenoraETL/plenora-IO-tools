@@ -405,4 +405,59 @@ mod tests {
             Err(PlenoraError::LimitExceeded(_))
         ));
     }
+
+    #[test]
+    fn attribute_none_rejects_every_non_geometry_field() {
+        let mut descriptor = descriptor(CrsWriteSupport::None);
+        let mut capabilities = descriptor.write_capabilities.unwrap();
+        capabilities.attributes = AttributeWriteSupport::None;
+        descriptor.write_capabilities = Some(capabilities);
+        let p = plan(vec![Field::new("attribute", DataType::Utf8, false)], None);
+
+        assert!(matches!(
+            validate_write(&descriptor, &p, &Limits::default()),
+            Err(PlenoraError::Capability {
+                reason: CapabilityReason::TypeNotRepresentable,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn named_attribute_subset_accepts_only_the_declared_names() {
+        static ALLOWED: &[&str] = &["name"];
+        let mut descriptor = descriptor(CrsWriteSupport::None);
+        let mut capabilities = descriptor.write_capabilities.unwrap();
+        capabilities.attributes = AttributeWriteSupport::NamedSubset(ALLOWED);
+        descriptor.write_capabilities = Some(capabilities);
+
+        let accepted = plan(vec![Field::new("name", DataType::Utf8, false)], None);
+        assert!(validate_write(&descriptor, &accepted, &Limits::default()).is_ok());
+
+        let rejected = plan(vec![Field::new("secret", DataType::Utf8, false)], None);
+        assert!(matches!(
+            validate_write(&descriptor, &rejected, &Limits::default()),
+            Err(PlenoraError::Capability {
+                reason: CapabilityReason::TypeNotRepresentable,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn no_nulls_rejects_nullable_contract_fields() {
+        let mut descriptor = descriptor(CrsWriteSupport::None);
+        let mut capabilities = descriptor.write_capabilities.unwrap();
+        capabilities.nullability = NullabilitySupport::NoNulls;
+        descriptor.write_capabilities = Some(capabilities);
+        let p = plan(vec![Field::new("required", DataType::Utf8, true)], None);
+
+        assert!(matches!(
+            validate_write(&descriptor, &p, &Limits::default()),
+            Err(PlenoraError::Capability {
+                reason: CapabilityReason::Nullability,
+                ..
+            })
+        ));
+    }
 }

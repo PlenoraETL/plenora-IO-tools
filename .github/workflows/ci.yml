@@ -22,6 +22,8 @@ jobs:
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev
       - run: cargo fmt --all -- --check
+      - name: Verify reviewed semantic fallbacks
+        run: bash scripts/check_assurance_fallbacks.sh
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Enforce safety lints on library code
         run: >-
@@ -73,6 +75,29 @@ jobs:
           $env:PLENORA_CROSS_FS_TEST_ROOT = $crossRoot
           cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo test --workspace --all-targets --locked
+
+  macos-publish:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: "1.92.0"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Test exclusive file and directory publish
+        run: cargo test -p plenora-io-core publish::tests --locked
+      - name: Check safety lints on the macOS publish implementation
+        run: >-
+          cargo clippy -p plenora-io-core --lib --locked --
+          -D warnings
+          -D unsafe-code
+          -D clippy::unwrap_used
+          -D clippy::expect_used
+          -D clippy::panic
+          -D clippy::unreachable
+          -D clippy::todo
+          -D clippy::unimplemented
 
   coverage:
     runs-on: ubuntu-latest

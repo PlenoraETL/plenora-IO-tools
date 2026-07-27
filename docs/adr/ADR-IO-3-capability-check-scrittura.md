@@ -85,8 +85,8 @@ casi dai descrittori di tutti i driver reali e copre limiti di colonne e nomi,
 tipi non rappresentabili, encoding e dimensioni geometriche, semantica,
 geometrie miste, lifecycle dei layer e CRS. I rami relativi a capability non
 presenti nel catalogo corrente (`AttributeWriteSupport::{None, NamedSubset}` e
-`NoNulls`) sono già condizionali nel gate e diventeranno obbligatori appena un
-driver li dichiarerà.
+`NoNulls`) hanno test unitari diretti nel validatore; quando un driver li
+dichiarerà entreranno anche nella matrice derivata dai descrittori reali.
 
 ## Alternative scartate
 

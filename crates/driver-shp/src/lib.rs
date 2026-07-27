@@ -219,10 +219,9 @@ impl FormatDriver for ShpDriver {
                 .native_metadata
                 .insert("shp.measure_no_data".to_owned(), NO_DATA.to_string());
         }
-        let geometry_field = with_geometry_contract_metadata(
-            &geometry_field(GEOMETRY, crs.id.as_deref().unwrap_or("unknown")),
-            &geometry_contract,
-        );
+        let crs_id = resolved_crs_id(&crs)?;
+        let geometry_field =
+            with_geometry_contract_metadata(&geometry_field(GEOMETRY, crs_id), &geometry_contract);
         let mut fields = vec![geometry_field];
         for (n, ct) in &cols {
             fields.push(Field::new(n, coltype_to_dt(*ct), true));
@@ -906,6 +905,15 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
             "Shapefile senza .prj: fornire --assume-crs".to_owned(),
         )),
     }
+}
+
+fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
+    crs.id.as_deref().ok_or_else(|| {
+        PlenoraError::Crs(
+            "Shapefile: CRS risolto senza identificatore; vietato inventare un'etichetta Arrow"
+                .to_owned(),
+        )
+    })
 }
 
 fn authority_id_from_wkt(wkt: &str) -> Option<String> {
@@ -1619,6 +1627,17 @@ mod tests {
         .unwrap();
         assert_eq!(crs.kind, CrsKind::Unknown);
         assert_eq!(crs.axis_order, plenora_core::crs::AxisOrder::Unknown);
+    }
+
+    #[test]
+    fn resolved_crs_without_id_cannot_be_relabelled_as_unknown() {
+        let crs = ResolvedCrs::new(
+            None,
+            CrsKind::Unknown,
+            Some("LOCAL_CS[\"private\"]".to_owned()),
+        );
+
+        assert!(matches!(resolved_crs_id(&crs), Err(PlenoraError::Crs(_))));
     }
 
     #[test]

@@ -1204,7 +1204,11 @@ fn build_batch(
         "dxf.z_inference".to_owned(),
         "xyz_if_any_nonzero_z_else_xy".to_owned(),
     );
-    let crs_label = crs.id.as_deref().unwrap_or("DXF:GEODATA");
+    let crs_label = crs.id.as_deref().ok_or_else(|| {
+        PlenoraError::Crs(
+            "DXF: CRS risolto senza identificatore; vietato inventare DXF:GEODATA".to_owned(),
+        )
+    })?;
     let fields = vec![
         with_geometry_contract_metadata(&geometry_field(GEOMETRY, crs_label), &geometry_contract),
         Field::new("layer", DataType::Utf8, true),

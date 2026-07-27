@@ -17,7 +17,7 @@ use plenora_core::geometry::{
 };
 use plenora_core::{CapabilityReason, PlenoraError};
 use plenora_io_core::{
-    validate_write, AttributeWriteSupport, CrsWriteSupport, Direction, FormatDescriptor,
+    validate_write, AttributeWriteSupport, CrsWriteSupport, Direction, Fidelity, FormatDescriptor,
     FormatDriver, NullabilitySupport, PredicatePruningSupport, ProjectionSupport, ReadOptions,
     ReaderConcurrency, Runtime, Sink, Source, SpatialPruningSupport, TypeCoercionPolicy,
     WriteLayer, WriteOptions, WritePlan,
@@ -600,6 +600,53 @@ fn materialize_empty_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
         .finish()
         .unwrap_or_else(|error| panic!("{}: finish dataset vuoto: {error}", descriptor.id));
     output
+}
+
+#[test]
+fn conditional_writers_remain_conditional_when_no_loss_is_observed() {
+    let mut checked = 0;
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.runtime != Runtime::PureRust
+            || descriptor.fidelity_class != Fidelity::Conditional
+            || descriptor.write_capabilities.is_none()
+        {
+            continue;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let output = output_path(&directory, descriptor.id);
+        let plan = valid_geometry_plan(descriptor);
+        let batch = RecordBatch::new_empty(plan.layers[0].contract.schema.clone());
+        let mut writer = driver
+            .create(Sink::Path(output), &plan, &WriteOptions::default())
+            .unwrap_or_else(|error| panic!("{}: create: {error}", descriptor.id));
+
+        assert_eq!(
+            writer.fidelity_assessment().level,
+            Fidelity::Conditional,
+            "{}: assessment preventivo",
+            descriptor.id
+        );
+        writer
+            .write(&batch)
+            .unwrap_or_else(|error| panic!("{}: write: {error}", descriptor.id));
+        let published = writer
+            .finish()
+            .unwrap_or_else(|error| panic!("{}: finish: {error}", descriptor.id));
+        assert!(
+            published.loss.is_empty(),
+            "{}: loss inattesa",
+            descriptor.id
+        );
+        assert_eq!(
+            published.fidelity.level,
+            Fidelity::Conditional,
+            "{}: LossReport vuoto non deve diventare Lossless",
+            descriptor.id
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 5, "catalogo Conditional pure Rust inatteso");
 }
 
 fn read_options(driver: &str) -> ReadOptions {

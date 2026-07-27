@@ -163,10 +163,14 @@ fn rename_noclobber(source: &Path, destination: &Path) -> Result<()> {
         .map_err(|error| publish_rename_error(error, destination))
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
 fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
     use rustix::fs::{renameat_with, RenameFlags, CWD};
 
+    // Linux/Android usano renameat2(RENAME_NOREPLACE); sulle piattaforme Apple
+    // rustix traduce la stessa API in renameatx_np(RENAME_EXCL). Entrambe le
+    // primitive sono atomiche anche per directory e rifiutano un nome apparso
+    // dopo il preflight.
     renameat_with(CWD, source, CWD, destination, RenameFlags::NOREPLACE).map_err(Into::into)
 }
 
@@ -175,7 +179,12 @@ fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()>
     atomicwrites::move_atomic(source, destination)
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_vendor = "apple",
+    windows
+)))]
 fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
     let metadata = std::fs::symlink_metadata(source)?;
     if !metadata.is_file() {
@@ -322,7 +331,12 @@ mod tests {
         assert!(!destination.exists());
     }
 
-    #[cfg(any(target_os = "linux", target_os = "android", windows))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        windows
+    ))]
     #[test]
     fn directory_dataset_is_published_with_one_rename() {
         let root = tempfile::tempdir().unwrap();
@@ -380,7 +394,12 @@ mod tests {
         assert_eq!(std::fs::read(&source).unwrap(), b"new");
     }
 
-    #[cfg(any(target_os = "linux", target_os = "android", windows))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        windows
+    ))]
     #[test]
     fn atomic_noclobber_refuses_a_directory_created_after_preflight() {
         let root = tempfile::tempdir().unwrap();

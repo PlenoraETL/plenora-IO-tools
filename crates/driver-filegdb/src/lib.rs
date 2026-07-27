@@ -1010,7 +1010,7 @@ mod backend {
                 .geom_fields()
                 .next()
                 .map(|field| field.field_type())
-                .unwrap_or(OGRwkbGeometryType::wkbUnknown);
+                .ok_or_else(|| err(format!("layer '{}' senza campo geometrico", layer.name())))?;
             let geometry = geometry_contract_from_ogr(ogr_geometry_type, crs);
             let native_fields: Vec<(String, DataType, HashMap<String, String>)> = layer
                 .defn()

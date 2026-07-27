@@ -106,7 +106,7 @@ fn csv_reader(path: &Path, delim: u8) -> Result<csv::Reader<File>> {
     csv::ReaderBuilder::new()
         .delimiter(delim)
         .has_headers(true) // salta l'intestazione automaticamente
-        .flexible(true)
+        .flexible(false)
         .from_path(path)
         .map_err(|e| err(format!("apertura CSV: {e}")))
 }
@@ -442,7 +442,7 @@ fn infer_types(
         .map_err(|e| err(format!("riga CSV non valida: {e}")))?
     {
         for (j, &ci) in attr_idx.iter().enumerate() {
-            accs[j].observe(classify(rec.get(ci).unwrap_or("")));
+            accs[j].observe(classify(required_cell(&rec, ci)?));
         }
     }
     Ok(attr_idx
@@ -465,7 +465,7 @@ fn infer_wkt_geometry(
         .read_record(&mut record)
         .map_err(|error| err(format!("riga CSV non valida: {error}")))?
     {
-        let text = record.get(wkt_index).unwrap_or("").trim();
+        let text = required_cell(&record, wkt_index)?.trim();
         if text.is_empty() {
             continue;
         }
@@ -512,7 +512,8 @@ fn spawn_parser(
                 }
                 append_geometry(&mut geom_b, geom, &rec, &mut wkb_buf)?;
                 for (k, (ci, _)) in attrs.iter().enumerate() {
-                    builders[k].append(rec.get(*ci).unwrap_or(""));
+                    let cell = required_cell(&rec, *ci).map_err(|error| error.to_string())?;
+                    builders[k].append(cell);
                 }
                 n += 1;
                 if n >= batch_size {
@@ -544,7 +545,9 @@ fn append_geometry(
 ) -> std::result::Result<(), String> {
     match geom {
         GeomSpec::Wkt(wi) => {
-            let cell = rec.get(wi).unwrap_or("").trim();
+            let cell = required_cell(rec, wi)
+                .map_err(|error| error.to_string())?
+                .trim();
             if cell.is_empty() {
                 geom_b.append_null();
             } else {
@@ -554,29 +557,50 @@ fn append_geometry(
             }
         }
         GeomSpec::Xy(xi, yi) => {
-            let x = rec.get(xi).unwrap_or("").trim().parse::<f64>();
-            let y = rec.get(yi).unwrap_or("").trim().parse::<f64>();
-            match (x, y) {
-                (Ok(x), Ok(y)) => {
-                    let geometry = WkbGeometry {
-                        value: WkbValue::Point(WkbCoordinate {
-                            x,
-                            y,
-                            z: None,
-                            m: None,
-                        }),
-                        dimensions: CoordinateDimensions::Xy,
-                        srid: None,
-                    };
-                    *buf =
-                        encode_wkb(&geometry, WkbFlavor::Iso).map_err(|error| error.to_string())?;
-                    geom_b.append_value(&buf);
-                }
-                _ => geom_b.append_null(),
+            let x_text = required_cell(rec, xi)
+                .map_err(|error| error.to_string())?
+                .trim();
+            let y_text = required_cell(rec, yi)
+                .map_err(|error| error.to_string())?
+                .trim();
+            if x_text.is_empty() && y_text.is_empty() {
+                geom_b.append_null();
+                return Ok(());
             }
+            if x_text.is_empty() || y_text.is_empty() {
+                return Err(
+                    "coordinate CSV incomplete: X e Y devono essere entrambe presenti".to_owned(),
+                );
+            }
+            let x = x_text
+                .parse::<f64>()
+                .map_err(|error| format!("coordinata X CSV non valida: {error}"))?;
+            let y = y_text
+                .parse::<f64>()
+                .map_err(|error| format!("coordinata Y CSV non valida: {error}"))?;
+            let geometry = WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x,
+                    y,
+                    z: None,
+                    m: None,
+                }),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            };
+            *buf = encode_wkb(&geometry, WkbFlavor::Iso).map_err(|error| error.to_string())?;
+            geom_b.append_value(&buf);
         }
     }
     Ok(())
+}
+
+fn required_cell(record: &csv::StringRecord, index: usize) -> Result<&str> {
+    record.get(index).ok_or_else(|| {
+        err(format!(
+            "riga CSV senza la colonna {index} dichiarata nell'intestazione"
+        ))
+    })
 }
 
 fn finish_batch(
@@ -997,5 +1021,35 @@ mod tests {
                 .dimensions,
             CoordinateDimensions::Xym
         );
+    }
+
+    #[test]
+    fn ragged_rows_are_rejected_instead_of_inventing_empty_cells() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("ragged.csv");
+        std::fs::write(&source, "id,x,y\n1,12.5\n").unwrap();
+
+        assert!(CsvDriver
+            .open(
+                Source::Path(source),
+                &read_opts(&[("x_column", "x"), ("y_column", "y")]),
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn malformed_xy_is_rejected_instead_of_becoming_null_geometry() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("invalid-xy.csv");
+        std::fs::write(&source, "id,x,y\n1,not-a-number,45.0\n").unwrap();
+        let dataset = CsvDriver
+            .open(
+                Source::Path(source),
+                &read_opts(&[("x_column", "x"), ("y_column", "y")]),
+            )
+            .unwrap();
+        let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
+
+        assert!(reader.next_batch().is_err());
     }
 }

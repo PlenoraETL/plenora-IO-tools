@@ -56,6 +56,10 @@ riguardare warning non vulnerabili, avere esposizione e criterio di chiusura
 documentati in [`DEPENDENCY_EXCEPTIONS.md`](DEPENDENCY_EXCEPTIONS.md), ed essere
 ignorate in CI per ID esatto.
 
+I fallback semantici che non generano panic sono censiti separatamente in
+[`FALLBACK_REGISTER.md`](FALLBACK_REGISTER.md). La CI ne blocca l'aumento anche
+quando Clippy non li considera pericolosi.
+
 ## Change impact analysis
 
 Ogni modifica deve indicare:

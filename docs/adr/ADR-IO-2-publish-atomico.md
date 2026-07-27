@@ -142,8 +142,13 @@ di `FlushFileBuffers` su Windows, prima di rinominarli. Su Windows l'impossibili
 di confermare separatamente la persistenza del nome nella directory padre viene
 propagata come `PublishedButDurabilityUnconfirmed`, non assorbita come successo.
 Il job Linux installa inoltre GDAL ed esegue la suite FileGDB feature-on.
-Resta da validare FileGDB/GDAL nativamente su Windows, estendere la primitiva
-directory no-replace oltre Linux/Windows e ampliare la matrice di durabilità a
+macOS usa la primitiva safe di `rustix`, che traduce `RenameFlags::NOREPLACE`
+in `renameatx_np(RENAME_EXCL)`, ed è coperto da un job dedicato sui casi file,
+directory e destinazione concorrente. Su FreeBSD/NetBSD/OpenBSD il fallback
+hard-link resta valido soltanto per file regolari: il directory publish fallisce
+esplicitamente come `Unsupported` e non è una capability disponibile. Resta da
+validare FileGDB/GDAL nativamente su Windows, aggiungere una primitiva
+no-replace autorevole per i BSD supportati e ampliare la matrice di durabilità a
 più filesystem reali.
 
 ## Alternative scartate

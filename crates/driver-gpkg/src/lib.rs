@@ -764,10 +764,12 @@ fn build_schema(
         }
         attrs.push((name, sqlite_declared_to_arrow(&decl)));
     }
-    let mut fields = vec![geometry_field(
-        geom_col,
-        crs.id.as_deref().unwrap_or("OGC:CRS84"),
-    )];
+    let crs_id = crs.id.as_deref().ok_or_else(|| {
+        PlenoraError::Crs(
+            "GeoPackage: CRS risolto senza identificatore; vietato assumere OGC:CRS84".to_owned(),
+        )
+    })?;
+    let mut fields = vec![geometry_field(geom_col, crs_id)];
     for (n, dt) in &attrs {
         fields.push(Field::new(n, dt.clone(), true));
     }

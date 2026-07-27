@@ -233,9 +233,10 @@ fn write_cell(
             sheet.write_boolean(r, c, b).map_err(xls_err)?;
         }
         JsonValue::Number(n) => {
-            sheet
-                .write_number(r, c, n.as_f64().unwrap_or(0.0))
-                .map_err(xls_err)?;
+            let value = n
+                .as_f64()
+                .ok_or_else(|| err(format!("numero XLSX non rappresentabile come f64: {n}")))?;
+            sheet.write_number(r, c, value).map_err(xls_err)?;
         }
         JsonValue::String(s) => {
             sheet.write_string(r, c, &s).map_err(xls_err)?;
