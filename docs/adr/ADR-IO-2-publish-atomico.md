@@ -111,8 +111,16 @@ rename e subito dopo il rename: nei primi due casi la destinazione resta
 assente e lo staging orfano è recuperato al tentativo successivo; nel terzo la
 destinazione è completa e leggibile e resta da recuperare soltanto il sidecar.
 Un test concorrente cross-process verifica inoltre che il recupero non cancelli
-un writer attivo. Restano i test cross-filesystem e la validazione delle
-garanzie su più filesystem/piattaforme.
+un writer attivo. Il publish condiviso esegue ora un preflight esplicito del
+filesystem per file singoli, directory-dataset e loose set: su Unix confronta
+il device id, su Windows il prefisso volume/UNC dei percorsi canonici; il rename
+resta in ogni caso la seconda barriera fail-closed. La CI Linux esercita davvero
+il rifiuto tra il filesystem del runner e `/dev/shm`, verificando che nessuna
+destinazione diventi visibile; la CI Windows compila ed esegue lo stesso
+contratto e prova un secondo volume scrivibile quando il runner lo espone.
+Il job Linux installa inoltre GDAL ed esegue la suite FileGDB feature-on.
+Resta da validare FileGDB/GDAL nativamente su Windows e da estendere la matrice
+di durabilità a più filesystem reali.
 
 ## Alternative scartate
 

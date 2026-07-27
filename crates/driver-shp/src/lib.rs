@@ -1153,7 +1153,12 @@ fn native_coordinate<P: NativePoint>(
             let z = point
                 .z()
                 .ok_or_else(|| err("coordinata ShapeZ senza quota"))?;
-            if point.m().is_some_and(|measure| !(measure <= NO_DATA)) {
+            if point.m().is_some_and(|measure| {
+                !matches!(
+                    measure.partial_cmp(&NO_DATA),
+                    Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                )
+            }) {
                 return Err(err(
                     "misura valida trovata in un dataset ShapeZ dichiarato XYZ",
                 ));
@@ -1321,7 +1326,12 @@ fn shape_to_wkb(shape: &Shape, dimensions: CoordinateDimensions) -> Result<Optio
 }
 
 fn shape_has_valid_measure(shape: &Shape) -> bool {
-    let valid = |measure: f64| !(measure <= NO_DATA);
+    let valid = |measure: f64| {
+        !matches!(
+            measure.partial_cmp(&NO_DATA),
+            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+        )
+    };
     match shape {
         Shape::PointZ(point) => valid(point.m),
         Shape::PolylineZ(polyline) => polyline
@@ -1756,8 +1766,10 @@ mod tests {
                 },
             }],
         };
-        let mut options = WriteOptions::default();
-        options.durable = true;
+        let mut options = WriteOptions {
+            durable: true,
+            ..WriteOptions::default()
+        };
         options
             .format_options
             .insert("publish_mode".to_owned(), DIRECTORY_DATASET_MODE.to_owned());

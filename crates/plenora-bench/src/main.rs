@@ -78,6 +78,7 @@ fn reset_alloc() {
 
 // --- metriche di sistema ---------------------------------------------------
 
+#[cfg(unix)]
 fn cpu_ms() -> f64 {
     let mut u: libc::rusage = unsafe { std::mem::zeroed() };
     unsafe {
@@ -85,6 +86,12 @@ fn cpu_ms() -> f64 {
     }
     let s = |t: libc::timeval| t.tv_sec as f64 * 1000.0 + t.tv_usec as f64 / 1000.0;
     s(u.ru_utime) + s(u.ru_stime)
+}
+
+#[cfg(not(unix))]
+fn cpu_ms() -> f64 {
+    // `getrusage` non è disponibile: la metrica resta esplicitamente n/a.
+    0.0
 }
 
 fn peak_rss_bytes() -> u64 {

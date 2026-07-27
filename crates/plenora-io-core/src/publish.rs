@@ -25,6 +25,7 @@ pub fn publish_file_atomic(
     if dest.exists() {
         return Err(PlenoraError::OutputExists(dest.display().to_string()));
     }
+    ensure_same_filesystem(temp.path(), destination_parent(dest))?;
     // 1. fsync del file, prima del rename.
     if durable {
         temp.as_file().sync_all()?;
@@ -60,6 +61,7 @@ pub fn publish_dir_atomic(staging: &Path, dest: &Path, durable: bool) -> Result<
     if dest.exists() {
         return Err(PlenoraError::OutputExists(dest.display().to_string()));
     }
+    ensure_same_filesystem(staging, destination_parent(dest))?;
     // 1-2. fsync di tutti i file e delle directory della staging prima del
     // rename. Qualunque errore pre-publish è fail-closed.
     if durable {
@@ -84,13 +86,14 @@ pub fn publish_files_ordered_limited(
     let Some((first_source, first_destination)) = files.first() else {
         return Err(PlenoraError::Unsupported("set di publish vuoto".to_owned()));
     };
-    let source_parent = first_source.parent();
-    let destination_parent = first_destination.parent();
+    let source_parent_path = first_source.parent();
+    let destination_parent_path = first_destination.parent();
     let mut bytes = 0_u64;
 
     // Preflight completo prima di rendere visibile qualunque companion.
     for (source, destination) in files {
-        if source.parent() != source_parent || destination.parent() != destination_parent {
+        if source.parent() != source_parent_path || destination.parent() != destination_parent_path
+        {
             return Err(PlenoraError::Unsupported(
                 "il set di publish deve usare una sola staging e una sola destinazione".to_owned(),
             ));
@@ -116,12 +119,13 @@ pub fn publish_files_ordered_limited(
             "output da {bytes} byte oltre il limite di {max_output_bytes}"
         )));
     }
+    ensure_same_filesystem(first_source, destination_parent(first_destination))?;
 
     if durable {
         for (source, _) in files {
             File::open(source)?.sync_all()?;
         }
-        if let Some(staging) = source_parent {
+        if let Some(staging) = source_parent_path {
             fsync_dir(staging)?;
         }
     }
@@ -130,6 +134,56 @@ pub fn publish_files_ordered_limited(
         std::fs::rename(source, destination)?;
     }
     Ok((bytes, finalize_durability(first_destination, durable)))
+}
+
+fn destination_parent(dest: &Path) -> &Path {
+    dest.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn ensure_same_filesystem(staging: &Path, destination_parent: &Path) -> Result<()> {
+    if same_filesystem(staging, destination_parent)? {
+        return Ok(());
+    }
+    Err(PlenoraError::Unsupported(format!(
+        "publish cross-filesystem vietato: staging '{}' e destinazione '{}' sono su filesystem diversi",
+        staging.display(),
+        destination_parent.display()
+    )))
+}
+
+#[cfg(unix)]
+fn same_filesystem(left: &Path, right: &Path) -> std::io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+
+    Ok(std::fs::metadata(left)?.dev() == std::fs::metadata(right)?.dev())
+}
+
+#[cfg(windows)]
+fn same_filesystem(left: &Path, right: &Path) -> std::io::Result<bool> {
+    Ok(windows_volume_root(left)? == windows_volume_root(right)?)
+}
+
+#[cfg(windows)]
+fn windows_volume_root(path: &Path) -> std::io::Result<String> {
+    use std::path::Component;
+
+    let canonical = std::fs::canonicalize(path)?;
+    match canonical.components().next() {
+        Some(Component::Prefix(prefix)) => Ok(prefix.as_os_str().to_string_lossy().to_lowercase()),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("percorso Windows senza volume: {}", canonical.display()),
+        )),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn same_filesystem(_left: &Path, _right: &Path) -> std::io::Result<bool> {
+    // Non esiste un identificatore portabile del filesystem: su piattaforme
+    // diverse da Unix/Windows resta autorevole il fallimento atomico di rename.
+    Ok(true)
 }
 
 fn sync_tree(path: &Path) -> std::io::Result<()> {
@@ -275,5 +329,61 @@ mod tests {
         assert_eq!(outcome, PublishOutcome::Published);
         assert_eq!(std::fs::read(destination_dbf).unwrap(), b"dbf");
         assert_eq!(std::fs::read(destination_shp).unwrap(), b"shape");
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn cross_filesystem_publish_is_rejected_before_any_output_is_visible() {
+        let Some(cross_root) = std::env::var_os("PLENORA_CROSS_FS_TEST_ROOT") else {
+            return;
+        };
+        let source_root = tempfile::tempdir_in(cross_root).unwrap();
+        let destination_root = tempfile::tempdir().unwrap();
+        assert!(
+            !same_filesystem(source_root.path(), destination_root.path()).unwrap(),
+            "PLENORA_CROSS_FS_TEST_ROOT deve indicare un filesystem distinto"
+        );
+
+        let staging = tempfile::Builder::new()
+            .prefix("directory-")
+            .tempdir_in(source_root.path())
+            .unwrap();
+        std::fs::write(staging.path().join("data"), b"directory").unwrap();
+        let directory_destination = destination_root.path().join("dataset");
+        let directory_result = publish_dir_atomic(staging.path(), &directory_destination, false);
+        assert!(matches!(
+            directory_result,
+            Err(PlenoraError::Unsupported(message))
+                if message.contains("cross-filesystem")
+        ));
+        assert!(staging.path().join("data").exists());
+        assert!(!directory_destination.exists());
+
+        let mut temp = NamedTempFile::new_in(source_root.path()).unwrap();
+        temp.write_all(b"single-file").unwrap();
+        let file_destination = destination_root.path().join("output.bin");
+        let file_result = publish_file_atomic(temp, &file_destination, false);
+        assert!(matches!(
+            file_result,
+            Err(PlenoraError::Unsupported(message))
+                if message.contains("cross-filesystem")
+        ));
+        assert!(!file_destination.exists());
+
+        let loose_source = source_root.path().join("data.shp");
+        std::fs::write(&loose_source, b"shape").unwrap();
+        let loose_destination = destination_root.path().join("data.shp");
+        let loose_result = publish_files_ordered_limited(
+            &[(loose_source.clone(), loose_destination.clone())],
+            false,
+            u64::MAX,
+        );
+        assert!(matches!(
+            loose_result,
+            Err(PlenoraError::Unsupported(message))
+                if message.contains("cross-filesystem")
+        ));
+        assert!(loose_source.exists());
+        assert!(!loose_destination.exists());
     }
 }

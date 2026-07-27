@@ -543,9 +543,9 @@ fn de_boor4(p: usize, knots: &[f64], control: &[[f64; 4]], u: f64) -> [f64; 4] {
             } else {
                 0.0
             };
-            for ordinate in 0..4 {
-                values[index][ordinate] =
-                    (1.0 - alpha) * values[index - 1][ordinate] + alpha * values[index][ordinate];
+            let previous = values[index - 1];
+            for (ordinate, previous_ordinate) in values[index].iter_mut().zip(previous) {
+                *ordinate = (1.0 - alpha) * previous_ordinate + alpha * *ordinate;
             }
         }
     }

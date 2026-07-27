@@ -19,9 +19,17 @@ jobs:
           toolchain: "1.92.0"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install GDAL
+        run: sudo apt-get update && sudo apt-get install --yes libgdal-dev
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo test --workspace --all-targets --locked
+      - name: Test FileGDB crash recovery
+        run: cargo test -p driver-filegdb --features gdal-backend --locked
+      - name: Test cross-filesystem publish rejection
+        env:
+          PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
+        run: cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo build --workspace --release --locked
       - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit --deny warnings
@@ -35,6 +43,21 @@ jobs:
           toolchain: "1.92.0"
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --all-targets --locked
+      - name: Test cross-volume publish rejection
+        shell: pwsh
+        run: |
+          $tempDrive = (Get-Item $env:RUNNER_TEMP).PSDrive.Root
+          $crossRoot = @($env:USERPROFILE, (Get-Location).Path) |
+            Where-Object {
+              (Test-Path $_) -and ((Get-Item $_).PSDrive.Root -ne $tempDrive)
+            } |
+            Select-Object -First 1
+          if ($null -eq $crossRoot) {
+            Write-Host "No second writable volume available; skipping cross-volume test."
+            exit 0
+          }
+          $env:PLENORA_CROSS_FS_TEST_ROOT = $crossRoot
+          cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
 
   coverage:
     runs-on: ubuntu-latest
@@ -45,7 +68,10 @@ jobs:
           toolchain: "1.92.0"
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - run: cargo llvm-cov --workspace --all-targets --locked --fail-under-lines 85 --lcov --output-path lcov.info
+      - name: Measure coverage
+        env:
+          PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
+        run: cargo llvm-cov --workspace --all-targets --locked --fail-under-lines 85 --lcov --output-path lcov.info
       - uses: actions/upload-artifact@v4
         with:
           name: rust-coverage-lcov
