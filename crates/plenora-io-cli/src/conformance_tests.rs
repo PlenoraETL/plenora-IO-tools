@@ -5,10 +5,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field, Schema};
 use plenora_core::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryEncoding,
-    GeometryType, SpatialSemantics,
+    GeometryType, LayerId, SpatialSemantics,
 };
 use plenora_core::crs::{CrsKind, CrsResolution, ResolvedCrs};
 use plenora_core::geometry::{
@@ -17,9 +18,10 @@ use plenora_core::geometry::{
 use plenora_core::{CapabilityReason, PlenoraError};
 use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsWriteSupport, Direction, FormatDescriptor,
-    FormatDriver, NullabilitySupport, Runtime, Sink, TypeCoercionPolicy, WriteLayer, WriteOptions,
-    WritePlan,
+    FormatDriver, NullabilitySupport, ReadOptions, ReaderConcurrency, Runtime, Sink, Source,
+    TypeCoercionPolicy, WriteLayer, WriteOptions, WritePlan,
 };
+use plenora_io_core::{BatchTarget, ProjectionMode, ReadRequest};
 
 const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
@@ -501,6 +503,101 @@ fn output_path(directory: &tempfile::TempDir, driver: &str) -> PathBuf {
     directory
         .path()
         .join(format!("conformance.{}", extension(driver)))
+}
+
+fn read_request() -> ReadRequest {
+    ReadRequest {
+        layer: LayerId(0),
+        projected_fields: None,
+        projection_mode: ProjectionMode::BestEffort,
+        pruning_predicate: None,
+        spatial_pruning_hint: None,
+        batch_target: BatchTarget::default(),
+    }
+}
+
+fn materialize_empty_dataset(driver: &dyn FormatDriver, directory: &tempfile::TempDir) -> PathBuf {
+    let descriptor = driver.descriptor();
+    let output = output_path(directory, descriptor.id);
+    let plan = valid_geometry_plan(descriptor);
+    let batch = RecordBatch::new_empty(plan.layers[0].contract.schema.clone());
+    let mut writer = driver
+        .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+        .unwrap_or_else(|error| panic!("{}: create dataset vuoto: {error}", descriptor.id));
+    writer
+        .write(&batch)
+        .unwrap_or_else(|error| panic!("{}: write dataset vuoto: {error}", descriptor.id));
+    writer
+        .finish()
+        .unwrap_or_else(|error| panic!("{}: finish dataset vuoto: {error}", descriptor.id));
+    output
+}
+
+fn read_options(driver: &str) -> ReadOptions {
+    let mut options = ReadOptions::default();
+    if matches!(driver, "dxf" | "xls") {
+        options.assume_crs = Some("EPSG:4326".to_owned());
+    }
+    if driver == "xls" {
+        options
+            .format_options
+            .insert("wkt_column".to_owned(), "geometry".to_owned());
+    }
+    options
+}
+
+#[test]
+fn single_active_reader_is_enforced_by_every_pure_rust_descriptor() {
+    let mut checked = 0;
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.runtime != Runtime::PureRust
+            || descriptor.reader_concurrency != ReaderConcurrency::SingleActiveReader
+        {
+            continue;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let output = materialize_empty_dataset(driver.as_ref(), &directory);
+        let dataset = driver
+            .open(Source::Path(output), &read_options(descriptor.id))
+            .unwrap_or_else(|error| panic!("{}: open dataset vuoto: {error}", descriptor.id));
+        let first = dataset
+            .open_layer_reader(&read_request())
+            .unwrap_or_else(|error| panic!("{}: primo reader: {error}", descriptor.id));
+        assert!(
+            matches!(
+                dataset.open_layer_reader(&read_request()),
+                Err(PlenoraError::ReaderBusy { driver, layer: 0 })
+                    if driver == descriptor.id
+            ),
+            "{}: secondo reader concorrente non respinto",
+            descriptor.id
+        );
+        drop(first);
+        dataset
+            .open_layer_reader(&read_request())
+            .unwrap_or_else(|error| panic!("{}: reader dopo drop: {error}", descriptor.id));
+        checked += 1;
+    }
+    assert_eq!(checked, 3, "catalogo SingleActiveReader inatteso");
+}
+
+#[test]
+fn independent_reader_descriptor_allows_two_live_readers() {
+    let driver = driver_ipc::IpcDriver;
+    assert_eq!(
+        driver.descriptor().reader_concurrency,
+        ReaderConcurrency::MultipleIndependentReaders
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let output = materialize_empty_dataset(&driver, &directory);
+    let dataset = driver
+        .open(Source::Path(output), &ReadOptions::default())
+        .unwrap();
+
+    let first = dataset.open_layer_reader(&read_request()).unwrap();
+    let second = dataset.open_layer_reader(&read_request()).unwrap();
+    drop((first, second));
 }
 
 #[test]

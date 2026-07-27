@@ -39,8 +39,8 @@ use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
-    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
+    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader as XmlReader;
@@ -198,6 +198,7 @@ impl FormatDriver for KmlDriver {
                 contract,
             }],
             batch,
+            reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
         }))
     }
 
@@ -244,6 +245,7 @@ impl FormatDriver for KmlDriver {
 struct KmlDataset {
     layers: Vec<LayerContract>,
     batch: RecordBatch,
+    reader_gate: SingleReaderGate,
 }
 
 impl OpenDatasetHandle for KmlDataset {
@@ -253,11 +255,13 @@ impl OpenDatasetHandle for KmlDataset {
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
     }
-    fn open_layer_reader(&self, _request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
-        Ok(Box::new(KmlReader {
-            batch: Some(self.batch.clone()),
-            layer: self.layers[0].clone(),
-        }))
+    fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        self.reader_gate.open(request.layer, || {
+            Ok(Box::new(KmlReader {
+                batch: Some(self.batch.clone()),
+                layer: self.layers[0].clone(),
+            }))
+        })
     }
 }
 

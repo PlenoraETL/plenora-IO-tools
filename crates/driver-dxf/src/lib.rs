@@ -49,8 +49,8 @@ use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
-    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
+    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 
 const GEOMETRY: &str = "geometry";
@@ -248,6 +248,7 @@ impl FormatDriver for DxfDriver {
             }],
             batch,
             loss,
+            reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
         }))
     }
 
@@ -548,6 +549,7 @@ struct DxfDataset {
     layers: Vec<LayerContract>,
     batch: RecordBatch,
     loss: LossReport,
+    reader_gate: SingleReaderGate,
 }
 
 impl OpenDatasetHandle for DxfDataset {
@@ -558,12 +560,14 @@ impl OpenDatasetHandle for DxfDataset {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
             .with_loss_report(&self.loss)
     }
-    fn open_layer_reader(&self, _request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
-        Ok(Box::new(DxfReader {
-            batch: Some(self.batch.clone()),
-            layer: self.layers[0].clone(),
-            loss: self.loss.clone(),
-        }))
+    fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        self.reader_gate.open(request.layer, || {
+            Ok(Box::new(DxfReader {
+                batch: Some(self.batch.clone()),
+                layer: self.layers[0].clone(),
+                loss: self.loss.clone(),
+            }))
+        })
     }
 }
 

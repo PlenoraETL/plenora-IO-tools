@@ -23,7 +23,7 @@ pub use descriptor::{
 };
 pub use driver::{
     with_write_limits, with_write_validation, FormatDriver, FormatWriter, LayerReader,
-    OpenDatasetHandle, Published, ReadOptions, Sink, Source, WriteOptions,
+    OpenDatasetHandle, Published, ReadOptions, SingleReaderGate, Sink, Source, WriteOptions,
 };
 pub use loss::{
     FidelityAssessment, FidelityReason, FidelityReasonCode, LossExample, LossReport,

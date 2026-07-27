@@ -128,7 +128,7 @@ mod backend {
     use plenora_io_core::driver::{FormatWriter, Published, WriteOptions};
     use plenora_io_core::loss::LossReport;
     use plenora_io_core::publish::publish_dir_atomic;
-    use plenora_io_core::{WriteLayer, WritePlan};
+    use plenora_io_core::{SingleReaderGate, WriteLayer, WritePlan};
     use serde_json::Value as JsonValueW;
 
     #[derive(Clone, Copy)]
@@ -478,6 +478,7 @@ mod backend {
             path: path.to_owned(),
             layers,
             metas,
+            reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
         }))
     }
 
@@ -502,6 +503,7 @@ mod backend {
         path: PathBuf,
         layers: Vec<LayerContract>,
         metas: Vec<LayerMeta>,
+        reader_gate: SingleReaderGate,
     }
 
     impl OpenDatasetHandle for GdbDataset {
@@ -522,17 +524,19 @@ mod backend {
                 .ok_or_else(|| err(format!("layer {} inesistente", request.layer.0)))?;
             let m = &self.metas[idx];
             let batch_size = request.batch_target.max_rows.max(1);
-            let rx = spawn_reader(
-                self.path.clone(),
-                m.gdal_idx,
-                m.schema.clone(),
-                m.fields.clone(),
-                batch_size,
-            );
-            Ok(Box::new(GdbReader {
-                rx,
-                layer: self.layers[idx].clone(),
-            }))
+            self.reader_gate.open(request.layer, || {
+                let rx = spawn_reader(
+                    self.path.clone(),
+                    m.gdal_idx,
+                    m.schema.clone(),
+                    m.fields.clone(),
+                    batch_size,
+                );
+                Ok(Box::new(GdbReader {
+                    rx,
+                    layer: self.layers[idx].clone(),
+                }))
+            })
         }
     }
 

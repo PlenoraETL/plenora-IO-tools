@@ -39,8 +39,8 @@ use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
-    UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
+    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 
 const GEOMETRY: &str = "geometry";
@@ -109,6 +109,7 @@ impl FormatDriver for XlsDriver {
                 contract,
             }],
             batch,
+            reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
         }))
     }
 
@@ -162,6 +163,7 @@ impl FormatDriver for XlsDriver {
 struct XlsDataset {
     layers: Vec<LayerContract>,
     batch: RecordBatch,
+    reader_gate: SingleReaderGate,
 }
 
 impl OpenDatasetHandle for XlsDataset {
@@ -171,11 +173,13 @@ impl OpenDatasetHandle for XlsDataset {
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
     }
-    fn open_layer_reader(&self, _request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
-        Ok(Box::new(XlsReader {
-            batch: Some(self.batch.clone()),
-            layer: self.layers[0].clone(),
-        }))
+    fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        self.reader_gate.open(request.layer, || {
+            Ok(Box::new(XlsReader {
+                batch: Some(self.batch.clone()),
+                layer: self.layers[0].clone(),
+            }))
+        })
     }
 }
 

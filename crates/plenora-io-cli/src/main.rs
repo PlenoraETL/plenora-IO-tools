@@ -44,6 +44,7 @@ fn map_err(e: plenora_core::PlenoraError) -> (i32, Value) {
         E::Crs(_) => (5, "CRS_REQUIRED"),
         E::Contract(_) | E::Schema(_) => (6, "CONTRACT"),
         E::LimitExceeded(_) => (7, "LIMIT_EXCEEDED"),
+        E::ReaderBusy { .. } => (8, "READER_BUSY"),
         _ => (1, "FORMAT_ERROR"),
     };
     (exit, err_doc(code, e.to_string()))
@@ -558,6 +559,16 @@ mod tests {
     fn kv_split() {
         assert_eq!(kv("a=b").unwrap(), ("a".to_owned(), "b".to_owned()));
         assert!(kv("nope").is_err());
+    }
+
+    #[test]
+    fn reader_busy_has_stable_cli_error() {
+        let (exit, document) = map_err(plenora_core::PlenoraError::ReaderBusy {
+            driver: "kml",
+            layer: 0,
+        });
+        assert_eq!(exit, 8);
+        assert_eq!(document["error"]["code"], "READER_BUSY");
     }
 
     #[test]

@@ -29,5 +29,6 @@ serde_json.workspace = true
 gdal-backend = ["driver-filegdb/gdal-backend"]
 
 [dev-dependencies]
+arrow-array.workspace = true
 arrow-schema.workspace = true
 tempfile.workspace = true

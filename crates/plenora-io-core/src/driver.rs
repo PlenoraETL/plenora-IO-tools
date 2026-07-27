@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
 use plenora_core::contract::{
@@ -101,7 +103,7 @@ pub trait FormatDriver: Send + Sync {
     ) -> Result<Box<dyn FormatWriter>>;
 }
 
-pub trait OpenDatasetHandle {
+pub trait OpenDatasetHandle: Send + Sync {
     fn layers(&self) -> &[LayerContract];
     /// Valutazione di fedeltà concreta per il dataset aperto (ADR-IO 5).
     fn fidelity_assessment(&self) -> FidelityAssessment;
@@ -119,6 +121,90 @@ pub trait LayerReader {
     /// Report di perdita (vuoto per i driver Lossless) — ADR-IO 5.
     fn loss_report(&self) -> LossReport {
         LossReport::default()
+    }
+}
+
+/// Enforcement runtime di `ReaderConcurrency::SingleActiveReader` (ADR-IO 1).
+/// Il lease è per-handle: viene rilasciato a EOF/errore o al drop anticipato.
+#[derive(Clone)]
+pub struct SingleReaderGate {
+    active: Arc<AtomicBool>,
+    driver: &'static str,
+}
+
+impl SingleReaderGate {
+    pub fn new(driver: &'static str) -> Self {
+        Self {
+            active: Arc::new(AtomicBool::new(false)),
+            driver,
+        }
+    }
+
+    pub fn open<F>(&self, layer: LayerId, create: F) -> Result<Box<dyn LayerReader>>
+    where
+        F: FnOnce() -> Result<Box<dyn LayerReader>>,
+    {
+        self.active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| PlenoraError::ReaderBusy {
+                driver: self.driver,
+                layer: layer.0,
+            })?;
+
+        let lease = ReaderLease {
+            active: self.active.clone(),
+            released: false,
+        };
+        match create() {
+            Ok(inner) => Ok(Box::new(SingleActiveLayerReader { inner, lease })),
+            Err(error) => {
+                drop(lease);
+                Err(error)
+            }
+        }
+    }
+}
+
+struct ReaderLease {
+    active: Arc<AtomicBool>,
+    released: bool,
+}
+
+impl ReaderLease {
+    fn release(&mut self) {
+        if !self.released {
+            self.active.store(false, Ordering::Release);
+            self.released = true;
+        }
+    }
+}
+
+impl Drop for ReaderLease {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+struct SingleActiveLayerReader {
+    inner: Box<dyn LayerReader>,
+    lease: ReaderLease,
+}
+
+impl LayerReader for SingleActiveLayerReader {
+    fn contract(&self) -> &LayerContract {
+        self.inner.contract()
+    }
+
+    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+        let result = self.inner.next_batch();
+        if !matches!(result, Ok(Some(_))) {
+            self.lease.release();
+        }
+        result
+    }
+
+    fn loss_report(&self) -> LossReport {
+        self.inner.loss_report()
     }
 }
 
@@ -582,6 +668,74 @@ mod tests {
         };
         let result = Source::Path(file.path().to_owned()).into_path_checked(&limits);
         assert!(matches!(result, Err(PlenoraError::LimitExceeded(_))));
+    }
+
+    struct TestReader {
+        layer: LayerContract,
+        batches: usize,
+        fail: bool,
+    }
+
+    impl LayerReader for TestReader {
+        fn contract(&self) -> &LayerContract {
+            &self.layer
+        }
+
+        fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+            if self.fail {
+                self.fail = false;
+                return Err(PlenoraError::Contract("errore terminale".to_owned()));
+            }
+            if self.batches == 0 {
+                return Ok(None);
+            }
+            self.batches -= 1;
+            Ok(Some(RecordBatch::new_empty(Arc::new(Schema::empty()))))
+        }
+    }
+
+    fn test_reader(batches: usize, fail: bool) -> Box<dyn LayerReader> {
+        Box::new(TestReader {
+            layer: LayerContract {
+                id: LayerId(0),
+                name: "layer".to_owned(),
+                contract: plenora_core::contract::DataContract {
+                    schema: Arc::new(Schema::empty()),
+                    geometry: None,
+                },
+            },
+            batches,
+            fail,
+        })
+    }
+
+    #[test]
+    fn single_reader_gate_releases_on_drop_eof_and_error() {
+        let gate = SingleReaderGate::new("test");
+        let first = gate.open(LayerId(0), || Ok(test_reader(1, false))).unwrap();
+        assert!(matches!(
+            gate.open(LayerId(0), || Ok(test_reader(1, false))),
+            Err(PlenoraError::ReaderBusy {
+                driver: "test",
+                layer: 0
+            })
+        ));
+
+        drop(first);
+        assert!(gate
+            .open(LayerId(0), || {
+                Err(PlenoraError::Contract("costruzione fallita".to_owned()))
+            })
+            .is_err());
+        let mut exhausted = gate.open(LayerId(0), || Ok(test_reader(1, false))).unwrap();
+        assert!(exhausted.next_batch().unwrap().is_some());
+        assert!(exhausted.next_batch().unwrap().is_none());
+        let after_eof = gate.open(LayerId(0), || Ok(test_reader(1, false))).unwrap();
+        drop(after_eof);
+
+        let mut failed = gate.open(LayerId(0), || Ok(test_reader(0, true))).unwrap();
+        assert!(failed.next_batch().is_err());
+        assert!(gate.open(LayerId(0), || Ok(test_reader(1, false))).is_ok());
     }
 
     fn geometry_batch(bytes: Option<&[u8]>) -> RecordBatch {

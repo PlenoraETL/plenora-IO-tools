@@ -82,8 +82,13 @@ toccata. Il publish avviene **esclusivamente** in `finish`, e solo a successo.
 tutti i descrittori reali e, per i nove writer pure-Rust, verifica con una
 creazione effettiva sia il no-clobber sia il drop senza `finish`: la destinazione
 non viene pubblicata e lo staging non lascia residui. Valida inoltre piani vuoti,
-multi-layer non supportati e nomi duplicati. L'enforcement runtime di
-`SingleActiveReader` e i test di concorrenza restano aperti.
+multi-layer non supportati e nomi duplicati. Gli handle sono `Send + Sync` e il
+lease atomico comune di `SingleActiveReader` restituisce `ReaderBusy` a un
+secondo reader sullo stesso handle, rilasciandosi a EOF, errore o drop
+anticipato. La matrice apre due reader reali sui driver pure-Rust single
+(KML/DXF/XLSX) e sul caso independent IPC; il backend FileGDB usa lo stesso gate
+ma richiede ancora il test feature-on in un ambiente GDAL. Restano da eliminare
+le materializzazioni anticipate in alcuni `open`.
 
 ## Alternative scartate
 

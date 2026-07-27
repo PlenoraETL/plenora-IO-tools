@@ -44,6 +44,10 @@ pub enum PlenoraError {
     Crs(String),
     Wkb(String),
     LimitExceeded(String),
+    ReaderBusy {
+        driver: &'static str,
+        layer: u32,
+    },
     OutputExists(String),
     Io(std::io::Error),
     Json(serde_json::Error),
@@ -71,6 +75,9 @@ impl fmt::Display for PlenoraError {
             Self::Crs(m) => write!(f, "crs: {m}"),
             Self::Wkb(m) => write!(f, "wkb: {m}"),
             Self::LimitExceeded(m) => write!(f, "limite superato: {m}"),
+            Self::ReaderBusy { driver, layer } => {
+                write!(f, "reader già attivo: driver {driver}, layer {layer}")
+            }
             Self::OutputExists(m) => write!(f, "output esistente: {m}"),
             Self::Io(e) => write!(f, "io: {e}"),
             Self::Json(e) => write!(f, "json: {e}"),
