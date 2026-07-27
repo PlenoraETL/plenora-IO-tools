@@ -318,7 +318,7 @@ impl FormatDriver for ShpDriver {
         let writer = Writer::from_path(&shp_path, table)
             .map_err(|e| err(format!("creazione shapefile: {e}")))?;
 
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(ShpWriter {
                 staging: Some(staging),
                 writer: Some(writer),
@@ -335,7 +335,7 @@ impl FormatDriver for ShpDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 

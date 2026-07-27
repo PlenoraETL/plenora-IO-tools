@@ -102,7 +102,7 @@ impl FormatDriver for FileGdbDriver {
         #[cfg(feature = "gdal-backend")]
         {
             let Sink::Path(path) = sink;
-            return backend::create(&path, plan, opts).map(|writer| {
+            return backend::create(&path, plan, opts).and_then(|writer| {
                 plenora_io_core::with_write_validation(writer, self.descriptor(), plan, opts.limits)
             });
         }

@@ -55,10 +55,15 @@ primitive esplicite di panic in tutti i target di libreria.
   Anche `LineString` e `Polygon` sono fail-closed perché il feature class li
   normalizza rispettivamente a `MultiLineString` e `MultiPolygon`.
   Una pre-validazione XML limitata protegge
-  inoltre il parser KML da token malformati che possono impedirne l'avanzamento.
+  inoltre il parser KML da token malformati che possono impedirne l’avanzamento
+  e da `Point` privi di coordinate, sui quali la dipendenza `kml 0.14.0`
+  eseguirebbe una rimozione indicizzata panicking.
   Una guardia runtime comune decodifica i
   payload prima dei writer e rifiuta dimensioni, SRID, tipo o nullability diversi
-  dal contratto, inclusi i vecchi contratti con il solo marker GeoArrow. CSV e
+  dal contratto, inclusi i vecchi contratti con il solo marker GeoArrow. Il
+  parser dei metadati geometrici distingue ora l’assenza dal valore esplicito
+  `unknown`, rifiuta valori non canonici senza mutare parzialmente il contratto
+  e impedisce che più campi GeoArrow disattivino silenziosamente la guardia. CSV e
   XLSX convertono ora il WKT direttamente nell'AST WKB lossless e conservano
   XY/XYZ/XYM/XYZM, tipo geometrico e precisione `f64`; dichiarano la dimensione
   esatta per colonne omogenee e `Unknown` per colonne miste. Le colonne X/Y

@@ -278,7 +278,7 @@ impl FormatDriver for DxfDriver {
                 err("DXF richiede un contratto geometrico esplicito con CRS risolto")
             })?;
         embed_dxf_crs(&mut drawing, geometry)?;
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(DxfWriterState {
                 drawing,
                 path,
@@ -293,7 +293,7 @@ impl FormatDriver for DxfDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 

@@ -16,21 +16,21 @@ arrow-ipc = "=59.1.0"
 arrow-select = "=59.1.0"
 arrow-buffer = "=59.1.0"
 parquet = { version = "=59.1.0", default-features = false, features = ["arrow", "snap", "brotli", "flate2-rust_backend", "lz4", "zstd"] }
-geo-types = "0.7"
+geo-types = "=0.7.19"
 geojson = { version = "=0.24.2", features = ["geo-types"] }
 csv = "=1.4.0"
 wkt = "=0.14.0"
 rusqlite = { version = "=0.39.0", features = ["bundled"] }
-shapefile = { version = "0.6", features = ["geo-types"] }
+shapefile = { version = "=0.6.0", features = ["geo-types"] }
 kml = { version = "=0.14.0", features = ["geo-types"] }
 quick-xml = "=0.41.0"
 calamine = "=0.36.1"
-rust_xlsxwriter = "0.79"
+rust_xlsxwriter = "=0.79.4"
 dxf = "=0.6.1"
-gdal = "0.17"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-sha2 = "0.10"
-tempfile = "3"
+gdal = "=0.17.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+tempfile = "=3.27.0"
+libc = "=0.2.189"
 rustix = { version = "=1.1.4", features = ["fs"] }
 atomicwrites = "=0.4.4"

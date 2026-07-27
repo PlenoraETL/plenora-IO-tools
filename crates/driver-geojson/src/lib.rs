@@ -167,7 +167,7 @@ impl FormatDriver for GeoJsonDriver {
         let temp = tempfile::NamedTempFile::new_in(&parent)?;
         let mut writer = BufWriter::new(temp.reopen()?);
         writer.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[")?;
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(GeoJsonWriter {
                 temp: Some(temp),
                 writer: Some(writer),
@@ -180,7 +180,7 @@ impl FormatDriver for GeoJsonDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 

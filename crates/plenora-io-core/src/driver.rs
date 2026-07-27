@@ -308,50 +308,61 @@ pub fn with_write_limits(writer: Box<dyn FormatWriter>, limits: Limits) -> Box<d
 ///
 /// È una seconda guardia runtime: impedisce che un batch dichiarato XY contenga
 /// in realtà WKB Z/M o EWKB e venga normalizzato silenziosamente dal driver.
+fn geometry_contracts_for_validation(
+    plan: &WritePlan,
+) -> Result<Vec<Option<GeometryColumnContract>>> {
+    plan.layers
+        .iter()
+        .map(|layer| -> Result<Option<GeometryColumnContract>> {
+            if let Some(geometry) = &layer.contract.geometry {
+                return Ok(Some(geometry.clone()));
+            }
+            let mut fields = layer
+                .contract
+                .schema
+                .fields()
+                .iter()
+                .enumerate()
+                .filter(|(_, field)| is_geometry_field(field));
+            let Some((index, field)) = fields.next() else {
+                return Ok(None);
+            };
+            if fields.next().is_some() {
+                return Err(PlenoraError::Contract(format!(
+                    "layer '{}': più colonne GeoArrow senza contratto geometrico esplicito",
+                    layer.name
+                )));
+            }
+            // Compatibilità con i contratti v1 che marcavano solo il campo
+            // GeoArrow: in assenza dei nuovi metadati, WKB XY è il default
+            // storico e viene comunque verificato contro i byte runtime.
+            let mut geometry = GeometryColumnContract::wkb_xy(
+                FieldId(index as u32),
+                field.name(),
+                CrsResolution::Missing,
+                field.is_nullable(),
+            );
+            let presence = read_geometry_contract_metadata(field, &mut geometry)?;
+            if !presence.has_dimensions() {
+                geometry.dimensions = CoordinateDimensions::Xy;
+            }
+            Ok(Some(geometry))
+        })
+        .collect()
+}
+
 pub fn with_write_validation(
     writer: Box<dyn FormatWriter>,
     descriptor: &FormatDescriptor,
     plan: &WritePlan,
     limits: Limits,
-) -> Box<dyn FormatWriter> {
+) -> Result<Box<dyn FormatWriter>> {
     let geometry_support = descriptor
         .write_capabilities
         .as_ref()
         .map(|capabilities| capabilities.geometry);
-    let layers = plan
-        .layers
-        .iter()
-        .map(|layer| {
-            layer.contract.geometry.clone().or_else(|| {
-                let mut fields = layer
-                    .contract
-                    .schema
-                    .fields()
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, field)| is_geometry_field(field));
-                let (index, field) = fields.next()?;
-                if fields.next().is_some() {
-                    return None;
-                }
-                // Compatibilità con i contratti v1 che marcavano solo il campo
-                // GeoArrow: in assenza dei nuovi metadati, WKB XY è il default
-                // storico e viene comunque verificato contro i byte runtime.
-                let mut geometry = GeometryColumnContract::wkb_xy(
-                    FieldId(index as u32),
-                    field.name(),
-                    CrsResolution::Missing,
-                    field.is_nullable(),
-                );
-                read_geometry_contract_metadata(field, &mut geometry);
-                if geometry.dimensions == CoordinateDimensions::Unknown {
-                    geometry.dimensions = CoordinateDimensions::Xy;
-                }
-                Some(geometry)
-            })
-        })
-        .collect();
-    Box::new(LimitedWriter {
+    let layers = geometry_contracts_for_validation(plan)?;
+    Ok(Box::new(LimitedWriter {
         inner: writer,
         driver: descriptor.id,
         limits,
@@ -363,7 +374,7 @@ pub fn with_write_validation(
             support,
             layers,
         }),
-    })
+    }))
 }
 
 fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> FidelityAssessment {
@@ -734,6 +745,7 @@ pub struct Published {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     use std::io::Write;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -742,6 +754,9 @@ mod tests {
     use arrow_schema::{DataType, Field, Schema};
     use plenora_core::contract::{CoordinateDimensions, FieldId, GeometryColumnContract};
     use plenora_core::crs::CrsResolution;
+    use plenora_core::geometry::{
+        ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_DIMENSIONS_KEY,
+    };
     use plenora_core::wkb::{encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
 
     use super::*;
@@ -1039,6 +1054,69 @@ mod tests {
                 reason: CapabilityReason::Nullability,
                 ..
             })
+        ));
+    }
+
+    fn geoarrow_field(name: &str, dimensions: Option<&str>) -> Field {
+        let mut metadata = HashMap::from([(
+            ARROW_EXTENSION_NAME_KEY.to_owned(),
+            GEOARROW_WKB_EXTENSION.to_owned(),
+        )]);
+        if let Some(dimensions) = dimensions {
+            metadata.insert(PLENORA_DIMENSIONS_KEY.to_owned(), dimensions.to_owned());
+        }
+        Field::new(name, DataType::Binary, true).with_metadata(metadata)
+    }
+
+    fn legacy_plan(fields: Vec<Field>) -> WritePlan {
+        WritePlan {
+            layers: vec![crate::request::WriteLayer {
+                name: "layer".to_owned(),
+                contract: plenora_core::contract::DataContract {
+                    schema: Arc::new(Schema::new(fields)),
+                    geometry: None,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn legacy_geometry_defaults_xy_only_when_dimensions_are_absent() {
+        let absent =
+            geometry_contracts_for_validation(&legacy_plan(vec![geoarrow_field("geometry", None)]))
+                .unwrap();
+        let explicit_unknown =
+            geometry_contracts_for_validation(&legacy_plan(vec![geoarrow_field(
+                "geometry",
+                Some("unknown"),
+            )]))
+            .unwrap();
+
+        assert_eq!(
+            absent[0].as_ref().unwrap().dimensions,
+            CoordinateDimensions::Xy
+        );
+        assert_eq!(
+            explicit_unknown[0].as_ref().unwrap().dimensions,
+            CoordinateDimensions::Unknown
+        );
+    }
+
+    #[test]
+    fn ambiguous_or_invalid_legacy_geometry_metadata_is_rejected() {
+        let ambiguous = legacy_plan(vec![
+            geoarrow_field("geometry_a", None),
+            geoarrow_field("geometry_b", None),
+        ]);
+        let invalid = legacy_plan(vec![geoarrow_field("geometry", Some("future"))]);
+
+        assert!(matches!(
+            geometry_contracts_for_validation(&ambiguous),
+            Err(PlenoraError::Contract(_))
+        ));
+        assert!(matches!(
+            geometry_contracts_for_validation(&invalid),
+            Err(PlenoraError::Contract(_))
         ));
     }
 }

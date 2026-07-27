@@ -264,7 +264,7 @@ impl FormatDriver for CsvDriver {
         let writer = csv::WriterBuilder::new()
             .delimiter(delimiter(&opts.format_options))
             .from_writer(temp.reopen()?);
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(CsvWriter {
                 temp: Some(temp),
                 writer: Some(writer),
@@ -278,7 +278,7 @@ impl FormatDriver for CsvDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 

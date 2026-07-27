@@ -147,7 +147,7 @@ impl FormatDriver for XlsDriver {
                 .map(String::as_str),
             Some("xy")
         );
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(XlsWriterState {
                 path,
                 durable: opts.durable,
@@ -159,7 +159,7 @@ impl FormatDriver for XlsDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 

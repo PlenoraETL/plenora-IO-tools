@@ -15,12 +15,12 @@ mkdir -p "${log_dir}" /work/fuzz-findings
 targets=(from_wkb geojson_reader wkt_parse kml_reader shp_wkb dxf_reader)
 
 echo "=== build e seed corpus ==="
-cargo +"${toolchain}" build --release -p plenora-fuzz
+cargo +"${toolchain}" build --release -p plenora-fuzz --locked
 ./target/release/plenora-fuzz --export-corpus /work/fuzz/corpus
 mkdir -p /work/fuzz/corpus/dxf_reader
 cp /work/fuzz/seeds/dxf_reader/* /work/fuzz/corpus/dxf_reader/
 for target in "${targets[@]}"; do
-    cargo +"${toolchain}" fuzz build "${target}"
+    cargo +"${toolchain}" --locked fuzz build "${target}"
 done
 
 declare -A pids=()
@@ -31,7 +31,7 @@ start_target() {
     local log="${log_dir}/${target}.log"
     logs["${target}"]="${log}"
     echo "=== start ${target}: ${duration}s ==="
-    cargo +"${toolchain}" fuzz run "${target}" -- \
+    cargo +"${toolchain}" --locked fuzz run "${target}" -- \
         "-max_total_time=${duration}" \
         "-rss_limit_mb=${rss_limit_mb}" \
         "-max_len=${max_len}" \

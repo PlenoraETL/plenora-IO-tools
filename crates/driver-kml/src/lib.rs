@@ -84,11 +84,42 @@ fn validate_element(event: &BytesStart<'_>) -> Result<()> {
     Ok(())
 }
 
+fn local_xml_name(name: &[u8]) -> &[u8] {
+    match name.iter().rposition(|byte| *byte == b':') {
+        Some(separator) => &name[separator + 1..],
+        None => name,
+    }
+}
+
+fn observe_point_coordinate_text(
+    stack: &[Vec<u8>],
+    open_points_with_coordinates: &mut [bool],
+    text: &[u8],
+) -> Result<()> {
+    let mut ancestors = stack.iter().rev();
+    let direct_point_coordinates = matches!(
+        (ancestors.next(), ancestors.next()),
+        (Some(child), Some(parent))
+            if local_xml_name(child) == b"coordinates"
+                && local_xml_name(parent) == b"Point"
+    );
+    if direct_point_coordinates && text.iter().any(|byte| !byte.is_ascii_whitespace()) {
+        let Some(point_has_coordinates) = open_points_with_coordinates.last_mut() else {
+            return Err(err("coordinate Point KML fuori contesto"));
+        };
+        *point_has_coordinates = true;
+    }
+    Ok(())
+}
+
 /// Il parser `kml` è permissivo su alcuni token XML malformati e può non
-/// avanzare. Una scansione XML limitata evita di consegnargli input ambigui.
+/// avanzare; inoltre `kml 0.14.0` rimuove senza controllo la prima coordinata
+/// di un `Point`. Una scansione XML limitata evita di consegnargli input
+/// ambigui o punti senza coordinate.
 fn validate_kml_xml(text: &str) -> Result<()> {
     let mut reader = XmlReader::from_str(text);
     let mut stack = Vec::<Vec<u8>>::new();
+    let mut open_points_with_coordinates = Vec::<bool>::new();
     let mut previous_position = 0_u64;
     let mut events_left = text.len().saturating_add(1);
 
@@ -117,9 +148,31 @@ fn validate_kml_xml(text: &str) -> Result<()> {
                         "profondità XML oltre il limite di {MAX_XML_DEPTH}"
                     )));
                 }
+                if element.local_name().as_ref() == b"Point" {
+                    open_points_with_coordinates.push(false);
+                }
                 stack.push(element.name().as_ref().to_vec());
             }
-            Event::Empty(element) => validate_element(&element)?,
+            Event::Empty(element) => {
+                validate_element(&element)?;
+                if element.local_name().as_ref() == b"Point" {
+                    return Err(err("Point KML senza coordinate"));
+                }
+            }
+            Event::Text(text) => {
+                observe_point_coordinate_text(
+                    &stack,
+                    &mut open_points_with_coordinates,
+                    text.as_ref(),
+                )?;
+            }
+            Event::CData(text) => {
+                observe_point_coordinate_text(
+                    &stack,
+                    &mut open_points_with_coordinates,
+                    text.as_ref(),
+                )?;
+            }
             Event::End(element) => {
                 if !valid_xml_name(element.name().as_ref()) {
                     return Err(err("nome di chiusura XML non valido"));
@@ -129,6 +182,14 @@ fn validate_kml_xml(text: &str) -> Result<()> {
                 };
                 if opened.as_slice() != element.name().as_ref() {
                     return Err(err("elementi XML annidati in modo non valido"));
+                }
+                if element.local_name().as_ref() == b"Point" {
+                    let Some(has_coordinates) = open_points_with_coordinates.pop() else {
+                        return Err(err("chiusura Point KML senza apertura"));
+                    };
+                    if !has_coordinates {
+                        return Err(err("Point KML senza coordinate"));
+                    }
                 }
             }
             Event::DocType(_) => return Err(err("DOCTYPE non ammesso nei documenti KML")),
@@ -230,7 +291,7 @@ impl FormatDriver for KmlDriver {
                 "KML: un solo layer per file".to_owned(),
             ));
         }
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(KmlWriterState {
                 path,
                 durable: opts.durable,
@@ -241,7 +302,7 @@ impl FormatDriver for KmlDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 
@@ -733,12 +794,27 @@ mod tests {
     </Document></kml>"#;
 
     const FUZZ_TIMEOUT_REGRESSION: &[u8] = br#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><MultiGeomgis.net/kml/2.2"><Placemark><MultiGeometry>></LikeString></MultiGww.opengis.net/kml/2.2etry>></LikeString></MultiGww.opengis.net/kml/2.2"><>"#;
+    const FUZZ_EMPTY_POINT_REGRESSION: &[u8] =
+        br#"<kml xmlns="httpw.opengis.net/kml/2.2"><Placemark><Point></Point></Placemark></kml>"#;
 
     #[test]
     fn rejects_malformed_xml_that_stalled_the_kml_parser() {
         let started = std::time::Instant::now();
         assert!(__fuzz_read_kml(FUZZ_TIMEOUT_REGRESSION).is_err());
         assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn rejects_empty_point_before_dependency_parser() {
+        assert!(__fuzz_read_kml(FUZZ_EMPTY_POINT_REGRESSION).is_err());
+        assert!(__fuzz_read_kml(
+            br#"<kml><Placemark><Point><coordinates> </coordinates></Point></Placemark></kml>"#
+        )
+        .is_err());
+        assert!(__fuzz_read_kml(
+            br#"<kml><Placemark><Point><coordinates><![CDATA[ ]]></coordinates></Point></Placemark></kml>"#
+        )
+        .is_err());
     }
 
     #[test]

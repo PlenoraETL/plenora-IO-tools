@@ -1,14 +1,19 @@
-# Baseline provvisoria dei contratti trasversali
+# Riferimento ai contratti trasversali
 
-Questa directory conserva temporaneamente l’ICD trasversale mentre viene
-preparato il repository autonomo `plenora-contracts` prescritto dal §15.
+La fonte autorevole è il repository autonomo
+[`PlenoraETL/plenora-contracts`](https://github.com/PlenoraETL/plenora-contracts).
+Questo repository non conserva una copia dell’ICD, per evitare due documenti
+divergenti che sembrino entrambi normativi.
 
-- sorgente acquisita: `C:\tmp\PLENORA-CONTRATTI-TRASVERSALI.md`;
-- SHA-256 della sorgente: `F5C0BEC0C53448824A7CD72A3794881DF578B917634B9346800EB332C900F425`;
-- condizione di rientro: migrare documento e cronologia nel repository
-  condiviso, quindi sostituire questa copia con un riferimento al relativo tag;
-- autorità: valgono esclusivamente le sezioni indicate come ratificate nel
-  registro interno al documento.
+Baseline consultata per la CIA del 2026-07-27:
 
-La collocazione in IO-tools non attribuisce a questo repository autorità
-unilaterale sul contratto comune.
+- tag annotato `v2.0-rc1`;
+- commit `d9547b7ca9d1cb4172c95e61ae9a6e79df874b76`;
+- il registro di ratifica interno all’ICD resta l’unica autorità sullo stato
+  delle singole sezioni.
+
+È stata inoltre ispezionata una working copy locale dichiarata `2.0-rc2`
+(SHA-256 del documento
+`4AA714D1F18658956FB922D974FB21815B0553BDD86C884E8BB2F3D90ADC0311`), ma non
+essendo committata né taggata non è una baseline normativa e non viene usata
+come dipendenza.

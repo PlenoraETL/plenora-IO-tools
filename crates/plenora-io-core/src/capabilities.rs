@@ -261,6 +261,19 @@ pub fn validate_write(
                     "il formato richiede un solo tipo geometrico",
                 ));
             }
+            let unique_geometry_types = geometry
+                .geometry_types
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            if unique_geometry_types.len() != geometry.geometry_types.len() {
+                return Err(violation(
+                    driver,
+                    Some(&geometry.name),
+                    CapabilityReason::MixedGeometry,
+                    "il contratto geometrico contiene tipi duplicati",
+                ));
+            }
             match caps.crs {
                 CrsWriteSupport::Embedded if geometry.resolved_crs().is_none() => {
                     return Err(violation(
@@ -290,7 +303,7 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::{DataType, Field, Schema};
-    use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract};
+    use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, GeometryType};
     use plenora_core::crs::{CrsKind, ResolvedCrs};
 
     use super::*;
@@ -456,6 +469,33 @@ mod tests {
             validate_write(&descriptor, &p, &Limits::default()),
             Err(PlenoraError::Capability {
                 reason: CapabilityReason::Nullability,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn duplicate_geometry_types_are_rejected() {
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geom",
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+            true,
+        );
+        geometry.geometry_types = vec![GeometryType::Point, GeometryType::Point];
+        let p = plan(
+            vec![Field::new("geom", DataType::Binary, true)],
+            Some(geometry),
+        );
+
+        assert!(matches!(
+            validate_write(
+                &descriptor(CrsWriteSupport::Embedded),
+                &p,
+                &Limits::default()
+            ),
+            Err(PlenoraError::Capability {
+                reason: CapabilityReason::MixedGeometry,
                 ..
             })
         ));

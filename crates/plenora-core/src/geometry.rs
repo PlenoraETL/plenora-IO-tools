@@ -4,6 +4,7 @@ use crate::contract::{
     CoordinateDimensions, CoordinatePrecision, GeometryColumnContract, GeometryEncoding,
     GeometryType, SpatialSemantics,
 };
+use crate::{PlenoraError, Result};
 
 /// Nome dell'estensione GeoArrow per una colonna geometria WKB.
 pub const GEOARROW_WKB_EXTENSION: &str = "geoarrow.wkb";
@@ -20,6 +21,19 @@ pub const PLENORA_SRID_KEY: &str = "plenora.geometry.srid";
 pub const PLENORA_PRECISION_KEY: &str = "plenora.geometry.precision";
 pub const PLENORA_GEOMETRY_TYPES_KEY: &str = "plenora.geometry.types";
 pub const PLENORA_NATIVE_PREFIX: &str = "plenora.geometry.native.";
+
+/// Indica quali parti opzionali del contratto erano realmente dichiarate nel
+/// campo Arrow. Serve a distinguere un default legacy da un valore esplicito.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GeometryMetadataPresence {
+    dimensions: bool,
+}
+
+impl GeometryMetadataPresence {
+    pub fn has_dimensions(self) -> bool {
+        self.dimensions
+    }
+}
 
 /// True se il campo Arrow è marcato come colonna geometria `geoarrow.wkb`.
 pub fn is_geometry_field(field: &arrow_schema::Field) -> bool {
@@ -93,58 +107,172 @@ pub fn with_geometry_contract_metadata(
     field.clone().with_metadata(metadata)
 }
 
+fn invalid_metadata(field: &arrow_schema::Field, key: &str) -> PlenoraError {
+    PlenoraError::Contract(format!(
+        "campo geometria '{}': metadato {key} non valido",
+        field.name()
+    ))
+}
+
 /// Applica al contratto base gli eventuali metadati namespaced del campo.
+///
+/// I metadati assenti non modificano il contratto base; i metadati presenti ma
+/// non riconosciuti sono un errore di contratto. Questo evita di trasformare
+/// input corrotti o futuri in valori di comodo.
 pub fn read_geometry_contract_metadata(
     field: &arrow_schema::Field,
     contract: &mut GeometryColumnContract,
-) {
+) -> Result<GeometryMetadataPresence> {
     let metadata = field.metadata();
-    contract.encoding = match metadata.get(PLENORA_ENCODING_KEY).map(String::as_str) {
-        Some("ewkb") => GeometryEncoding::Ewkb,
-        _ => GeometryEncoding::Wkb,
-    };
-    contract.dimensions = match metadata.get(PLENORA_DIMENSIONS_KEY).map(String::as_str) {
-        Some("xy") => CoordinateDimensions::Xy,
-        Some("xyz") => CoordinateDimensions::Xyz,
-        Some("xym") => CoordinateDimensions::Xym,
-        Some("xyzm") => CoordinateDimensions::Xyzm,
-        _ => CoordinateDimensions::Unknown,
-    };
-    contract.spatial_semantics = match metadata
-        .get(PLENORA_SPATIAL_SEMANTICS_KEY)
-        .map(String::as_str)
-    {
-        Some("geography") => SpatialSemantics::Geography,
-        _ => SpatialSemantics::Geometry,
-    };
-    contract.precision = match metadata.get(PLENORA_PRECISION_KEY).map(String::as_str) {
-        Some("float32") => CoordinatePrecision::Float32,
-        Some("native") => CoordinatePrecision::Native,
-        _ => CoordinatePrecision::Float64,
-    };
-    contract.srid = metadata
-        .get(PLENORA_SRID_KEY)
-        .and_then(|value| value.parse().ok());
-    contract.geometry_types = metadata
-        .get(PLENORA_GEOMETRY_TYPES_KEY)
-        .into_iter()
-        .flat_map(|value| value.split(','))
-        .filter_map(|value| match value {
-            "Point" => Some(GeometryType::Point),
-            "LineString" => Some(GeometryType::LineString),
-            "Polygon" => Some(GeometryType::Polygon),
-            "MultiPoint" => Some(GeometryType::MultiPoint),
-            "MultiLineString" => Some(GeometryType::MultiLineString),
-            "MultiPolygon" => Some(GeometryType::MultiPolygon),
-            "GeometryCollection" => Some(GeometryType::GeometryCollection),
-            _ => None,
-        })
-        .collect();
-    contract.native_metadata = metadata
-        .iter()
-        .filter_map(|(key, value)| {
-            key.strip_prefix(PLENORA_NATIVE_PREFIX)
-                .map(|key| (key.to_owned(), value.clone()))
-        })
-        .collect();
+    let mut parsed = contract.clone();
+    let mut presence = GeometryMetadataPresence::default();
+
+    if let Some(value) = metadata.get(PLENORA_ENCODING_KEY) {
+        parsed.encoding = match value.as_str() {
+            "wkb" => GeometryEncoding::Wkb,
+            "ewkb" => GeometryEncoding::Ewkb,
+            _ => return Err(invalid_metadata(field, PLENORA_ENCODING_KEY)),
+        };
+    }
+    if let Some(value) = metadata.get(PLENORA_DIMENSIONS_KEY) {
+        presence.dimensions = true;
+        parsed.dimensions = match value.as_str() {
+            "xy" => CoordinateDimensions::Xy,
+            "xyz" => CoordinateDimensions::Xyz,
+            "xym" => CoordinateDimensions::Xym,
+            "xyzm" => CoordinateDimensions::Xyzm,
+            "unknown" => CoordinateDimensions::Unknown,
+            _ => return Err(invalid_metadata(field, PLENORA_DIMENSIONS_KEY)),
+        };
+    }
+    if let Some(value) = metadata.get(PLENORA_SPATIAL_SEMANTICS_KEY) {
+        parsed.spatial_semantics = match value.as_str() {
+            "geometry" => SpatialSemantics::Geometry,
+            "geography" => SpatialSemantics::Geography,
+            _ => return Err(invalid_metadata(field, PLENORA_SPATIAL_SEMANTICS_KEY)),
+        };
+    }
+    if let Some(value) = metadata.get(PLENORA_PRECISION_KEY) {
+        parsed.precision = match value.as_str() {
+            "float64" => CoordinatePrecision::Float64,
+            "float32" => CoordinatePrecision::Float32,
+            "native" => CoordinatePrecision::Native,
+            _ => return Err(invalid_metadata(field, PLENORA_PRECISION_KEY)),
+        };
+    }
+    if let Some(value) = metadata.get(PLENORA_SRID_KEY) {
+        parsed.srid = Some(
+            value
+                .parse()
+                .map_err(|_| invalid_metadata(field, PLENORA_SRID_KEY))?,
+        );
+    }
+    if let Some(value) = metadata.get(PLENORA_GEOMETRY_TYPES_KEY) {
+        let mut geometry_types = Vec::new();
+        if !value.is_empty() {
+            for value in value.split(',') {
+                let geometry_type = match value {
+                    "Point" => GeometryType::Point,
+                    "LineString" => GeometryType::LineString,
+                    "Polygon" => GeometryType::Polygon,
+                    "MultiPoint" => GeometryType::MultiPoint,
+                    "MultiLineString" => GeometryType::MultiLineString,
+                    "MultiPolygon" => GeometryType::MultiPolygon,
+                    "GeometryCollection" => GeometryType::GeometryCollection,
+                    _ => {
+                        return Err(invalid_metadata(field, PLENORA_GEOMETRY_TYPES_KEY));
+                    }
+                };
+                if geometry_types.contains(&geometry_type) {
+                    return Err(invalid_metadata(field, PLENORA_GEOMETRY_TYPES_KEY));
+                }
+                geometry_types.push(geometry_type);
+            }
+        }
+        parsed.geometry_types = geometry_types;
+    }
+    for (key, value) in metadata {
+        if let Some(key) = key.strip_prefix(PLENORA_NATIVE_PREFIX) {
+            if key.is_empty() {
+                return Err(invalid_metadata(field, PLENORA_NATIVE_PREFIX));
+            }
+            parsed.native_metadata.insert(key.to_owned(), value.clone());
+        }
+    }
+
+    *contract = parsed;
+    Ok(presence)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use arrow_schema::{DataType, Field};
+
+    use super::*;
+    use crate::contract::FieldId;
+    use crate::crs::CrsResolution;
+
+    fn contract() -> GeometryColumnContract {
+        GeometryColumnContract::wkb_xy(FieldId(0), "geometry", CrsResolution::Missing, true)
+    }
+
+    fn field_with(key: &str, value: &str) -> Field {
+        Field::new("geometry", DataType::Binary, true)
+            .with_metadata(HashMap::from([(key.to_owned(), value.to_owned())]))
+    }
+
+    #[test]
+    fn missing_dimensions_preserve_base_and_report_absence() {
+        let field = Field::new("geometry", DataType::Binary, true);
+        let mut geometry = contract();
+
+        let presence = read_geometry_contract_metadata(&field, &mut geometry).unwrap();
+
+        assert!(!presence.has_dimensions());
+        assert_eq!(geometry.dimensions, CoordinateDimensions::Xy);
+    }
+
+    #[test]
+    fn explicit_unknown_dimensions_are_preserved() {
+        let field = field_with(PLENORA_DIMENSIONS_KEY, "unknown");
+        let mut geometry = contract();
+
+        let presence = read_geometry_contract_metadata(&field, &mut geometry).unwrap();
+
+        assert!(presence.has_dimensions());
+        assert_eq!(geometry.dimensions, CoordinateDimensions::Unknown);
+    }
+
+    #[test]
+    fn invalid_metadata_is_rejected_without_partial_mutation() {
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([
+            (PLENORA_ENCODING_KEY.to_owned(), "ewkb".to_owned()),
+            (PLENORA_PRECISION_KEY.to_owned(), "binary128".to_owned()),
+        ]));
+        let mut geometry = contract();
+        let original = geometry.clone();
+
+        assert!(matches!(
+            read_geometry_contract_metadata(&field, &mut geometry),
+            Err(PlenoraError::Contract(_))
+        ));
+        assert_eq!(geometry.encoding, original.encoding);
+        assert_eq!(geometry.precision, original.precision);
+    }
+
+    #[test]
+    fn invalid_srid_and_geometry_types_are_rejected() {
+        for field in [
+            field_with(PLENORA_SRID_KEY, "not-an-i32"),
+            field_with(PLENORA_GEOMETRY_TYPES_KEY, "Point,FutureGeometry"),
+            field_with(PLENORA_GEOMETRY_TYPES_KEY, "Point,Point"),
+        ] {
+            assert!(matches!(
+                read_geometry_contract_metadata(&field, &mut contract()),
+                Err(PlenoraError::Contract(_))
+            ));
+        }
+    }
 }

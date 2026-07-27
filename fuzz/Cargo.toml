@@ -14,7 +14,7 @@ cargo-fuzz = true
 [workspace]
 
 [dependencies]
-libfuzzer-sys = "0.4"
+libfuzzer-sys = "=0.4.13"
 plenora-core = { path = "../crates/plenora-core" }
 driver-common = { path = "../crates/driver-common" }
 driver-dxf = { path = "../crates/driver-dxf" }
@@ -22,9 +22,9 @@ driver-geojson = { path = "../crates/driver-geojson" }
 driver-geoparquet = { path = "../crates/driver-geoparquet" }
 driver-kml = { path = "../crates/driver-kml" }
 driver-shp = { path = "../crates/driver-shp" }
-geo-types = "0.7"
+geo-types = "=0.7.19"
 geojson = { version = "=0.24.2", features = ["geo-types"] }
-serde_json = "1"
+serde_json = "=1.0.151"
 
 [[bin]]
 name = "from_wkb"

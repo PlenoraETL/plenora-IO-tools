@@ -22,4 +22,4 @@ arrow-schema.workspace = true
 geo-types.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-libc = "0.2"
+libc.workspace = true

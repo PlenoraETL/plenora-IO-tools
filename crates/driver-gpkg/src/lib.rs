@@ -220,7 +220,7 @@ impl FormatDriver for GpkgDriver {
             return Err(err("WritePlan senza layer"));
         }
         conn.execute_batch("BEGIN").map_err(sql_err)?;
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(GpkgWriter {
                 temp: Some(temp),
                 conn: Some(conn),
@@ -232,7 +232,7 @@ impl FormatDriver for GpkgDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 

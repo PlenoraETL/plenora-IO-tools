@@ -22,6 +22,12 @@ jobs:
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev
       - run: cargo fmt --all -- --check
+      - name: Verify exact dependency pins
+        run: python3 scripts/check_dependency_pins.py
+      - name: Verify locked workspace and fuzz dependency graphs
+        run: |
+          cargo metadata --locked --format-version 1 > /dev/null
+          cargo metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 > /dev/null
       - name: Verify reviewed semantic fallbacks
         run: bash scripts/check_assurance_fallbacks.sh
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings

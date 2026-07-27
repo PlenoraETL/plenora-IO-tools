@@ -89,11 +89,19 @@ impl FormatDriver for IpcDriver {
         let reader = FileReader::try_new(File::open(&path)?, None)
             .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
         let schema = reader.schema();
-        let geometry = schema
+        let mut geometry_fields = schema
             .fields()
             .iter()
-            .position(|f| is_geometry_field(f))
-            .map(|i| {
+            .enumerate()
+            .filter(|(_, field)| is_geometry_field(field));
+        let geometry = match geometry_fields.next() {
+            None => None,
+            Some((i, _)) => {
+                if geometry_fields.next().is_some() {
+                    return Err(PlenoraError::Contract(
+                        "Arrow IPC contiene più colonne GeoArrow nel contratto v1".to_owned(),
+                    ));
+                }
                 let f = schema.field(i);
                 let crs = match f.metadata().get(GEO_CRS_KEY).cloned() {
                     Some(id) => {
@@ -114,9 +122,10 @@ impl FormatDriver for IpcDriver {
                     crs,
                     f.is_nullable(),
                 );
-                read_geometry_contract_metadata(f, &mut contract);
-                contract
-            });
+                read_geometry_contract_metadata(f, &mut contract)?;
+                Some(contract)
+            }
+        };
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -183,7 +192,7 @@ impl FormatDriver for IpcDriver {
         let temp = tempfile::NamedTempFile::new_in(&parent)?;
         let writer = FileWriter::try_new(BufWriter::new(temp.reopen()?), &schema)
             .map_err(|e| err(format!("writer IPC: {e}")))?;
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(IpcWriter {
                 temp: Some(temp),
                 writer: Some(writer),
@@ -195,7 +204,7 @@ impl FormatDriver for IpcDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 
@@ -371,6 +380,36 @@ mod tests {
         assert!(matches!(
             &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
             CrsResolution::Missing
+        ));
+    }
+
+    #[test]
+    fn multiple_geoarrow_fields_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ambiguous.arrow");
+        let geometry_field = |name| {
+            Field::new(name, DataType::Binary, true).with_metadata(
+                [(
+                    plenora_core::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                    plenora_core::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+                )]
+                .into_iter()
+                .collect(),
+            )
+        };
+        let schema = Schema::new(vec![
+            geometry_field("geometry_a"),
+            geometry_field("geometry_b"),
+        ]);
+        {
+            let file = File::create(&path).unwrap();
+            let mut writer = FileWriter::try_new(file, &schema).unwrap();
+            writer.finish().unwrap();
+        }
+
+        assert!(matches!(
+            IpcDriver.open(Source::Path(path), &ReadOptions::default()),
+            Err(PlenoraError::Contract(_))
         ));
     }
 

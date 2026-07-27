@@ -181,7 +181,7 @@ impl FormatDriver for GeoParquetDriver {
             .build();
         let writer = ArrowWriter::try_new(temp.reopen()?, write_schema.clone(), Some(props))
             .map_err(|e| fmt_err(format!("writer: {e}")))?;
-        Ok(with_write_validation(
+        with_write_validation(
             Box::new(GeoParquetWriter {
                 temp: Some(temp),
                 writer: Some(writer),
@@ -198,7 +198,7 @@ impl FormatDriver for GeoParquetDriver {
             self.descriptor(),
             plan,
             opts.limits,
-        ))
+        )
     }
 }
 
