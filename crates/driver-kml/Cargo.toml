@@ -12,6 +12,7 @@ driver-common = { path = "../driver-common" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
 kml.workspace = true
+quick-xml.workspace = true
 geo-types.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

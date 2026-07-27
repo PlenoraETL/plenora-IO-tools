@@ -1,6 +1,28 @@
 use std::fmt;
 
+use serde::Serialize;
+
 pub type Result<T> = std::result::Result<T, PlenoraError>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityReason {
+    EmptyWritePlan,
+    MultipleLayers,
+    DuplicateLayerName,
+    FieldNameTooLong,
+    FieldNameEncoding,
+    FieldNameCollision,
+    TypeNotRepresentable,
+    GeometryNotSupported,
+    MixedGeometry,
+    GeometryEncoding,
+    CoordinateDimensions,
+    SpatialSemantics,
+    CrsUnresolved,
+    ReprojectionRequired,
+    Nullability,
+}
 
 /// Errore base condiviso da IO-tools e data-tools. Mai valori di cella:
 /// contesto (driver, motivo), non contenuti.
@@ -8,6 +30,12 @@ pub type Result<T> = std::result::Result<T, PlenoraError>;
 pub enum PlenoraError {
     Contract(String),
     Unsupported(String),
+    Capability {
+        driver: &'static str,
+        field: Option<String>,
+        reason: CapabilityReason,
+        detail: String,
+    },
     Schema(String),
     Format {
         driver: &'static str,
@@ -26,6 +54,18 @@ impl fmt::Display for PlenoraError {
         match self {
             Self::Contract(m) => write!(f, "contratto: {m}"),
             Self::Unsupported(m) => write!(f, "non supportato: {m}"),
+            Self::Capability {
+                driver,
+                field,
+                reason,
+                detail,
+            } => {
+                write!(f, "capability {driver}")?;
+                if let Some(field) = field {
+                    write!(f, " campo '{field}'")?;
+                }
+                write!(f, " ({reason:?}): {detail}")
+            }
             Self::Schema(m) => write!(f, "schema: {m}"),
             Self::Format { driver, reason } => write!(f, "formato {driver}: {reason}"),
             Self::Crs(m) => write!(f, "crs: {m}"),

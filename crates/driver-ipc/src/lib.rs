@@ -8,14 +8,21 @@
 use std::fs::File;
 use std::io::{BufWriter, Write as _};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::FileReader;
 use arrow_ipc::writer::FileWriter;
+use arrow_schema::SchemaRef;
 
-use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId};
+use plenora_core::contract::{
+    DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+};
 use plenora_core::crs::{CrsKind, ResolvedCrs};
-use plenora_core::geometry::{is_geometry_field, GEO_CRS_KEY};
+use plenora_core::geometry::{
+    is_geometry_field, read_geometry_contract_metadata, with_geometry_contract_metadata,
+    GEO_CRS_KEY,
+};
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -26,9 +33,13 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic;
+use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
-use plenora_io_core::WritePlan;
+use plenora_io_core::{
+    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES,
+    UTF8_FIELD_NAMES, WKB_EWKB_PASSTHROUGH_GEOMETRY,
+};
 
 fn err(reason: impl Into<String>) -> PlenoraError {
     PlenoraError::Format {
@@ -48,9 +59,19 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     crs_handling: CrsHandling::Embedded, // il CRS viaggia nei metadati del campo
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::PureRust,
+    write_capabilities: Some(FormatWriteCapabilities {
+        field_names: UTF8_FIELD_NAMES,
+        allowed_types: ALL_ARROW_TYPES,
+        type_coercion: TypeCoercionPolicy::Reject,
+        attributes: AttributeWriteSupport::All,
+        geometry: WKB_EWKB_PASSTHROUGH_GEOMETRY,
+        crs: CrsWriteSupport::Embedded,
+        nullability: NullabilitySupport::Preserve,
+        multi_layer: false,
+    }),
     semantic_version: 1,
     driver_version: 1,
-    descriptor_version: 1,
+    descriptor_version: 2,
 };
 
 pub struct IpcDriver;
@@ -60,24 +81,30 @@ impl FormatDriver for IpcDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, _opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let Source::Path(path) = source;
+    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = source.into_path_checked(&opts.limits)?;
         let reader = FileReader::try_new(File::open(&path)?, None)
             .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
         let schema = reader.schema();
-        let geometry = schema.fields().iter().position(|f| is_geometry_field(f)).map(|i| {
-            let f = schema.field(i);
-            GeometryColumnContract {
-                field_id: FieldId(i as u32),
-                name: f.name().clone(),
-                crs: ResolvedCrs {
-                    id: f.metadata().get(GEO_CRS_KEY).cloned(),
-                    kind: CrsKind::Unknown,
-                    definition: None,
-                },
-                nullable: f.is_nullable(),
-            }
-        });
+        let geometry = schema
+            .fields()
+            .iter()
+            .position(|f| is_geometry_field(f))
+            .map(|i| {
+                let f = schema.field(i);
+                let mut contract = GeometryColumnContract::wkb_passthrough(
+                    FieldId(i as u32),
+                    f.name(),
+                    ResolvedCrs {
+                        id: f.metadata().get(GEO_CRS_KEY).cloned(),
+                        kind: CrsKind::Unknown,
+                        definition: None,
+                    },
+                    f.is_nullable(),
+                );
+                read_geometry_contract_metadata(f, &mut contract);
+                contract
+            });
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -99,6 +126,7 @@ impl FormatDriver for IpcDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraError::OutputExists(path.display().to_string()));
@@ -117,7 +145,24 @@ impl FormatDriver for IpcDriver {
                 "Arrow IPC: un solo layer per file".to_owned(),
             ));
         }
-        let schema = plan.layers[0].contract.schema.clone();
+        let layer = &plan.layers[0].contract;
+        let fields = layer
+            .schema
+            .fields()
+            .iter()
+            .map(|field| {
+                layer
+                    .geometry
+                    .as_ref()
+                    .filter(|geometry| geometry.name.as_str() == field.name().as_str())
+                    .map(|geometry| with_geometry_contract_metadata(field, geometry))
+                    .unwrap_or_else(|| field.as_ref().clone())
+            })
+            .collect::<Vec<_>>();
+        let schema = Arc::new(arrow_schema::Schema::new_with_metadata(
+            fields,
+            layer.schema.metadata().clone(),
+        ));
         let parent = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -126,12 +171,19 @@ impl FormatDriver for IpcDriver {
         let temp = tempfile::NamedTempFile::new_in(&parent)?;
         let writer = FileWriter::try_new(BufWriter::new(temp.reopen()?), &schema)
             .map_err(|e| err(format!("writer IPC: {e}")))?;
-        Ok(Box::new(IpcWriter {
-            temp: Some(temp),
-            writer: Some(writer),
-            path,
-            durable: opts.durable,
-        }))
+        Ok(with_write_validation(
+            Box::new(IpcWriter {
+                temp: Some(temp),
+                writer: Some(writer),
+                path,
+                durable: opts.durable,
+                schema,
+                max_output_bytes: opts.limits.max_output_bytes,
+            }),
+            self.descriptor(),
+            plan,
+            opts.limits,
+        ))
     }
 }
 
@@ -177,25 +229,32 @@ struct IpcWriter {
     writer: Option<FileWriter<BufWriter<File>>>,
     path: PathBuf,
     durable: bool,
+    schema: SchemaRef,
+    max_output_bytes: u64,
 }
 
 impl FormatWriter for IpcWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        let batch = RecordBatch::try_new(self.schema.clone(), batch.columns().to_vec())
+            .map_err(|e| err(format!("retag contratto IPC: {e}")))?;
         self.writer
             .as_mut()
             .ok_or_else(|| err("writer chiuso"))?
-            .write(batch)
+            .write(&batch)
             .map_err(|e| err(format!("write IPC: {e}")))
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
         let mut w = self.writer.take().ok_or_else(|| err("writer già chiuso"))?;
         w.finish().map_err(|e| err(format!("finish IPC: {e}")))?;
-        let mut inner = w.into_inner().map_err(|e| err(format!("into_inner: {e}")))?;
+        let mut inner = w
+            .into_inner()
+            .map_err(|e| err(format!("into_inner: {e}")))?;
         inner.flush()?;
         drop(inner);
         let temp = self.temp.take().ok_or_else(|| err("temp mancante"))?;
-        let (bytes, outcome) = publish_file_atomic(temp, &self.path, self.durable)?;
+        let (bytes, outcome) =
+            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),
@@ -211,7 +270,10 @@ mod tests {
 
     use arrow_array::{BinaryArray, Int64Array};
     use arrow_schema::{DataType, Field, Schema, SchemaRef};
-    use plenora_core::wkb::to_wkb;
+    use plenora_core::contract::{
+        CoordinateDimensions, CoordinatePrecision, GeometryEncoding, GeometryType, SpatialSemantics,
+    };
+    use plenora_core::wkb::{encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
 
@@ -221,7 +283,10 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("t.arrow");
-        let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(12.5, 45.9))).unwrap();
+        let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
+            12.5, 45.9,
+        )))
+        .unwrap();
         let schema: SchemaRef = Arc::new(Schema::new(vec![
             geometry_field("geometry", "EPSG:4326"),
             Field::new("id", DataType::Int64, false),
@@ -257,7 +322,7 @@ mod tests {
         // Il CRS e la geometria sopravvivono nei metadati Arrow (pass-through).
         let g = ds.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(g.name, "geometry");
-        assert_eq!(g.crs.id.as_deref(), Some("EPSG:4326"));
+        assert_eq!(g.crs.id(), Some("EPSG:4326"));
         let mut r = ds
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),
@@ -281,6 +346,105 @@ mod tests {
             .unwrap();
         assert_eq!(col.value(0), wkb.as_slice());
         assert!(r.next_batch().unwrap().is_none());
+    }
+
+    #[test]
+    fn round_trip_ipc_preserves_ewkb_zm_contract_and_bytes() {
+        use driver_common_geometry_field as geometry_field;
+
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("zm.arrow");
+        let ewkb = encode_wkb(
+            &WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x: 1.0,
+                    y: 2.0,
+                    z: Some(3.0),
+                    m: Some(4.0),
+                }),
+                dimensions: CoordinateDimensions::Xyzm,
+                srid: Some(4326),
+            },
+            WkbFlavor::Ewkb,
+        )
+        .unwrap();
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![geometry_field("geometry", "EPSG:4326")]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![Some(ewkb.as_slice())]))],
+        )
+        .unwrap();
+        let mut geometry = GeometryColumnContract::wkb_passthrough(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs {
+                id: Some("EPSG:4326".to_owned()),
+                kind: CrsKind::Geographic,
+                definition: None,
+            },
+            true,
+        );
+        geometry.encoding = GeometryEncoding::Ewkb;
+        geometry.dimensions = CoordinateDimensions::Xyzm;
+        geometry.spatial_semantics = SpatialSemantics::Geography;
+        geometry.srid = Some(4326);
+        geometry.precision = CoordinatePrecision::Native;
+        geometry.geometry_types = vec![GeometryType::Point];
+        geometry.native_metadata.insert(
+            "postgis.typmod".to_owned(),
+            "geography(PointZM,4326)".to_owned(),
+        );
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometry),
+                },
+            }],
+        };
+        let driver = IpcDriver;
+        let mut writer = driver
+            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        let dataset = driver
+            .open(Source::Path(out), &ReadOptions::default())
+            .unwrap();
+        let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+        assert_eq!(geometry.encoding, GeometryEncoding::Ewkb);
+        assert_eq!(geometry.dimensions, CoordinateDimensions::Xyzm);
+        assert_eq!(geometry.spatial_semantics, SpatialSemantics::Geography);
+        assert_eq!(geometry.srid, Some(4326));
+        assert_eq!(geometry.precision, CoordinatePrecision::Native);
+        assert_eq!(geometry.geometry_types, vec![GeometryType::Point]);
+        assert_eq!(
+            geometry
+                .native_metadata
+                .get("postgis.typmod")
+                .map(String::as_str),
+            Some("geography(PointZM,4326)")
+        );
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+            })
+            .unwrap();
+        let read = reader.next_batch().unwrap().unwrap();
+        let geometry_array = read
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        assert_eq!(geometry_array.value(0), ewkb);
     }
 
     // geometry_field locale (evita la dipendenza driver-common nei test).

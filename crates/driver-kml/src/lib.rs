@@ -1,24 +1,30 @@
-//! driver-kml — KML → RecordBatch (Fase 1, read-only). KML è WGS84 per specifica
-//! (`OGC:CRS84`). I Placemark diventano feature: geometria → WKB `geoarrow.wkb`,
-//! `name`/`description` come proprietà. KMZ e scrittura: incrementi successivi.
+//! driver-kml — KML ⇄ RecordBatch. KML è WGS84 per specifica (`OGC:CRS84`).
+//! I Placemark diventano feature con geometria WKB `geoarrow.wkb` XY/XYZ e
+//! `name`/`description` come proprietà. KMZ resta un incremento successivo.
 #![forbid(unsafe_code)]
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use kml::types::{Element, Geometry as KmlGeometry, Placemark};
+use kml::types::{
+    Coord as KmlCoord, Element, Geometry as KmlGeometry, LineString as KmlLineString, LinearRing,
+    MultiGeometry, Placemark, Point as KmlPoint, Polygon as KmlPolygon,
+};
 use kml::{Kml, KmlDocument, KmlVersion, KmlWriter};
 
 use driver_common::{geometry_field, json_from_array, OGC_CRS84};
-use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId};
+use plenora_core::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
 use plenora_core::crs::ResolvedCrs;
-use plenora_core::geometry::is_geometry_field;
+use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata};
 use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{from_wkb, to_wkb};
+use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -29,16 +35,111 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic;
+use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
-use plenora_io_core::WritePlan;
+use plenora_io_core::{
+    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
+    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+};
+use quick_xml::events::{BytesStart, Event};
+use quick_xml::Reader as XmlReader;
 
 const GEOMETRY: &str = "geometry";
+const MAX_XML_DEPTH: usize = 256;
 
 fn err(reason: impl Into<String>) -> PlenoraError {
     PlenoraError::Format {
         driver: "kml",
         reason: reason.into(),
+    }
+}
+
+fn valid_xml_name(name: &[u8]) -> bool {
+    let mut parts = name.split(|byte| *byte == b':');
+    let valid_part = |part: &[u8]| {
+        !part.is_empty()
+            && (part[0].is_ascii_alphabetic() || part[0] == b'_')
+            && part[1..]
+                .iter()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    };
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    valid_part(first) && parts.next().is_none_or(valid_part) && parts.next().is_none()
+}
+
+fn validate_element(event: &BytesStart<'_>) -> Result<()> {
+    if !valid_xml_name(event.name().as_ref()) {
+        return Err(err("nome di elemento XML non valido"));
+    }
+    for attribute in event.attributes().with_checks(true) {
+        let attribute =
+            attribute.map_err(|error| err(format!("attributo XML non valido: {error}")))?;
+        if !valid_xml_name(attribute.key.as_ref()) {
+            return Err(err("nome di attributo XML non valido"));
+        }
+    }
+    Ok(())
+}
+
+/// Il parser `kml` è permissivo su alcuni token XML malformati e può non
+/// avanzare. Una scansione XML limitata evita di consegnargli input ambigui.
+fn validate_kml_xml(text: &str) -> Result<()> {
+    let mut reader = XmlReader::from_str(text);
+    let mut stack = Vec::<Vec<u8>>::new();
+    let mut previous_position = 0_u64;
+    let mut events_left = text.len().saturating_add(1);
+
+    loop {
+        if events_left == 0 {
+            return Err(err(
+                "numero di eventi XML incoerente con la dimensione dell'input",
+            ));
+        }
+        events_left -= 1;
+
+        let event = reader
+            .read_event()
+            .map_err(|error| err(format!("XML KML non valido: {error}")))?;
+        let position = reader.buffer_position();
+        if !matches!(event, Event::Eof) && position <= previous_position {
+            return Err(err("parser XML senza avanzamento"));
+        }
+        previous_position = position;
+
+        match event {
+            Event::Start(element) => {
+                validate_element(&element)?;
+                if stack.len() >= MAX_XML_DEPTH {
+                    return Err(err(format!(
+                        "profondità XML oltre il limite di {MAX_XML_DEPTH}"
+                    )));
+                }
+                stack.push(element.name().as_ref().to_vec());
+            }
+            Event::Empty(element) => validate_element(&element)?,
+            Event::End(element) => {
+                if !valid_xml_name(element.name().as_ref()) {
+                    return Err(err("nome di chiusura XML non valido"));
+                }
+                let Some(opened) = stack.pop() else {
+                    return Err(err("chiusura XML senza elemento aperto"));
+                };
+                if opened.as_slice() != element.name().as_ref() {
+                    return Err(err("elementi XML annidati in modo non valido"));
+                }
+            }
+            Event::DocType(_) => return Err(err("DOCTYPE non ammesso nei documenti KML")),
+            Event::Eof => {
+                if !stack.is_empty() {
+                    return Err(err("documento XML troncato"));
+                }
+                return Ok(());
+            }
+            _ => {}
+        }
     }
 }
 
@@ -53,9 +154,19 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     crs_handling: CrsHandling::FixedWgs84,
     fidelity_class: Fidelity::Conditional,
     runtime: Runtime::PureRust,
+    write_capabilities: Some(FormatWriteCapabilities {
+        field_names: UTF8_FIELD_NAMES,
+        allowed_types: SCALAR_TYPES,
+        type_coercion: TypeCoercionPolicy::Reject,
+        attributes: AttributeWriteSupport::All,
+        geometry: WKB_XY_XYZ_GEOMETRY,
+        crs: CrsWriteSupport::Fixed("OGC:CRS84"),
+        nullability: NullabilitySupport::FormatDefined,
+        multi_layer: false,
+    }),
     semantic_version: 1,
-    driver_version: 1,
-    descriptor_version: 1,
+    driver_version: 2,
+    descriptor_version: 2,
 };
 
 pub struct KmlDriver;
@@ -65,9 +176,10 @@ impl FormatDriver for KmlDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, _opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let Source::Path(path) = source;
+    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = source.into_path_checked(&opts.limits)?;
         let text = std::fs::read_to_string(&path)?;
+        validate_kml_xml(&text)?;
         let root: Kml = text
             .parse()
             .map_err(|e| err(format!("KML non valido: {e}")))?;
@@ -95,6 +207,7 @@ impl FormatDriver for KmlDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraError::OutputExists(path.display().to_string()));
@@ -113,11 +226,18 @@ impl FormatDriver for KmlDriver {
                 "KML: un solo layer per file".to_owned(),
             ));
         }
-        Ok(Box::new(KmlWriterState {
-            path,
-            durable: opts.durable,
-            placemarks: Vec::new(),
-        }))
+        Ok(with_write_validation(
+            Box::new(KmlWriterState {
+                path,
+                durable: opts.durable,
+                placemarks: Vec::new(),
+                wkb_limits: opts.limits.effective_wkb(),
+                max_output_bytes: opts.limits.max_output_bytes,
+            }),
+            self.descriptor(),
+            plan,
+            opts.limits,
+        ))
     }
 }
 
@@ -158,6 +278,8 @@ struct KmlWriterState {
     path: PathBuf,
     durable: bool,
     placemarks: Vec<Placemark>,
+    wkb_limits: WkbLimits,
+    max_output_bytes: u64,
 }
 
 impl FormatWriter for KmlWriterState {
@@ -173,7 +295,7 @@ impl FormatWriter for KmlWriterState {
             .as_any()
             .downcast_ref::<BinaryArray>()
             .ok_or_else(|| err("colonna geometria non binaria"))?;
-        let limits = WkbLimits::default();
+        let limits = self.wkb_limits;
         let name_idx = schema.index_of("name").ok();
         let desc_idx = schema.index_of("description").ok();
 
@@ -181,8 +303,8 @@ impl FormatWriter for KmlWriterState {
             let geometry = if geom_col.is_null(row) {
                 None
             } else {
-                let g = from_wkb(geom_col.value(row), &limits)?;
-                Some(KmlGeometry::from(g))
+                let geometry = decode_wkb(geom_col.value(row), &limits)?;
+                Some(kml_geometry_from_wkb(&geometry)?)
             };
             let name = name_idx.and_then(|i| cell_string(batch.column(i), row));
             let description = desc_idx.and_then(|i| cell_string(batch.column(i), row));
@@ -243,7 +365,8 @@ impl FormatWriter for KmlWriterState {
         }
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
-        let (bytes, outcome) = publish_file_atomic(temp, &self.path, self.durable)?;
+        let (bytes, outcome) =
+            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),
@@ -304,24 +427,242 @@ fn collect(k: &Kml, out: &mut Vec<Placemark>) {
     }
 }
 
+fn dimensions_for_kml_coords(coords: &[KmlCoord]) -> Result<CoordinateDimensions> {
+    let mut has_z = None;
+    for coordinate in coords {
+        let current = coordinate.z.is_some();
+        if has_z.is_some_and(|known| known != current) {
+            return Err(err("coordinate KML con dimensionalità Z non uniforme"));
+        }
+        has_z = Some(current);
+    }
+    Ok(if has_z.unwrap_or(false) {
+        CoordinateDimensions::Xyz
+    } else {
+        CoordinateDimensions::Xy
+    })
+}
+
+fn wkb_coords_from_kml(coords: &[KmlCoord]) -> Result<(Vec<WkbCoordinate>, CoordinateDimensions)> {
+    let dimensions = dimensions_for_kml_coords(coords)?;
+    Ok((
+        coords
+            .iter()
+            .map(|coordinate| WkbCoordinate {
+                x: coordinate.x,
+                y: coordinate.y,
+                z: coordinate.z,
+                m: None,
+            })
+            .collect(),
+        dimensions,
+    ))
+}
+
+fn wkb_geometry_from_kml(geometry: &KmlGeometry) -> Result<WkbGeometry> {
+    let (value, dimensions) = match geometry {
+        KmlGeometry::Point(point) => (
+            WkbValue::Point(WkbCoordinate {
+                x: point.coord.x,
+                y: point.coord.y,
+                z: point.coord.z,
+                m: None,
+            }),
+            if point.coord.z.is_some() {
+                CoordinateDimensions::Xyz
+            } else {
+                CoordinateDimensions::Xy
+            },
+        ),
+        KmlGeometry::LineString(line) => {
+            let (coordinates, dimensions) = wkb_coords_from_kml(&line.coords)?;
+            (WkbValue::LineString(coordinates), dimensions)
+        }
+        KmlGeometry::LinearRing(ring) => {
+            let (coordinates, dimensions) = wkb_coords_from_kml(&ring.coords)?;
+            (WkbValue::LineString(coordinates), dimensions)
+        }
+        KmlGeometry::Polygon(polygon) => {
+            let (outer, dimensions) = wkb_coords_from_kml(&polygon.outer.coords)?;
+            let mut rings = Vec::with_capacity(1 + polygon.inner.len());
+            rings.push(outer);
+            for inner in &polygon.inner {
+                let (ring, inner_dimensions) = wkb_coords_from_kml(&inner.coords)?;
+                if inner_dimensions != dimensions {
+                    return Err(err("anelli KML con dimensionalità Z non uniforme"));
+                }
+                rings.push(ring);
+            }
+            (WkbValue::Polygon(rings), dimensions)
+        }
+        KmlGeometry::MultiGeometry(multi) => {
+            let values = multi
+                .geometries
+                .iter()
+                .map(wkb_geometry_from_kml)
+                .collect::<Result<Vec<_>>>()?;
+            let dimensions = values
+                .first()
+                .map(|value| value.dimensions)
+                .unwrap_or(CoordinateDimensions::Xy);
+            if values.iter().any(|value| value.dimensions != dimensions) {
+                return Err(err("MultiGeometry KML con dimensionalità Z non uniforme"));
+            }
+            let value = if values
+                .iter()
+                .all(|value| matches!(value.value, WkbValue::Point(_)))
+            {
+                WkbValue::MultiPoint(values)
+            } else if values
+                .iter()
+                .all(|value| matches!(value.value, WkbValue::LineString(_)))
+            {
+                WkbValue::MultiLineString(values)
+            } else if values
+                .iter()
+                .all(|value| matches!(value.value, WkbValue::Polygon(_)))
+            {
+                WkbValue::MultiPolygon(values)
+            } else {
+                WkbValue::GeometryCollection(values)
+            };
+            (value, dimensions)
+        }
+        KmlGeometry::Element(_) => {
+            return Err(err(
+                "elemento geometrico KML generico non rappresentabile in WKB",
+            ))
+        }
+        _ => return Err(err("tipo geometrico KML non supportato")),
+    };
+    Ok(WkbGeometry {
+        value,
+        dimensions,
+        srid: None,
+    })
+}
+
+fn kml_coord_from_wkb(
+    coordinate: &WkbCoordinate,
+    dimensions: CoordinateDimensions,
+) -> Result<KmlCoord> {
+    if coordinate.m.is_some() {
+        return Err(err("KML non rappresenta l’ordinata M"));
+    }
+    let z = match dimensions {
+        CoordinateDimensions::Xy if coordinate.z.is_none() => None,
+        CoordinateDimensions::Xyz => Some(
+            coordinate
+                .z
+                .ok_or_else(|| err("coordinata WKB XYZ senza z"))?,
+        ),
+        CoordinateDimensions::Xy => return Err(err("coordinata WKB XY con z inattesa")),
+        CoordinateDimensions::Xym | CoordinateDimensions::Xyzm => {
+            return Err(err("KML non rappresenta l’ordinata M"))
+        }
+        CoordinateDimensions::Unknown => {
+            return Err(err("dimensionalità WKB ignota non scrivibile in KML"))
+        }
+    };
+    Ok(KmlCoord::new(coordinate.x, coordinate.y, z))
+}
+
+fn kml_coords_from_wkb(
+    coordinates: &[WkbCoordinate],
+    dimensions: CoordinateDimensions,
+) -> Result<Vec<KmlCoord>> {
+    coordinates
+        .iter()
+        .map(|coordinate| kml_coord_from_wkb(coordinate, dimensions))
+        .collect()
+}
+
+fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
+    if geometry.srid.is_some() {
+        return Err(err("SRID EWKB non rappresentabile nel payload KML"));
+    }
+    let dimensions = geometry.dimensions;
+    match &geometry.value {
+        WkbValue::Point(coordinate) => Ok(KmlGeometry::Point(KmlPoint::from(kml_coord_from_wkb(
+            coordinate, dimensions,
+        )?))),
+        WkbValue::LineString(coordinates) => Ok(KmlGeometry::LineString(KmlLineString::from(
+            kml_coords_from_wkb(coordinates, dimensions)?,
+        ))),
+        WkbValue::Polygon(rings) => {
+            let (outer, inner) = rings.split_first().ok_or_else(|| {
+                err("Polygon WKB senza anello esterno non rappresentabile in KML")
+            })?;
+            let outer = LinearRing::from(kml_coords_from_wkb(outer, dimensions)?);
+            let inner = inner
+                .iter()
+                .map(|ring| kml_coords_from_wkb(ring, dimensions).map(LinearRing::from))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(KmlGeometry::Polygon(KmlPolygon::new(outer, inner)))
+        }
+        WkbValue::MultiPoint(values)
+        | WkbValue::MultiLineString(values)
+        | WkbValue::MultiPolygon(values) => Ok(KmlGeometry::MultiGeometry(MultiGeometry::new(
+            values
+                .iter()
+                .map(kml_geometry_from_wkb)
+                .collect::<Result<Vec<_>>>()?,
+        ))),
+        WkbValue::GeometryCollection(values) => {
+            let homogeneous = values
+                .first()
+                .map(|first| {
+                    let first_type = first.geometry_type();
+                    values
+                        .iter()
+                        .all(|value| value.geometry_type() == first_type)
+                })
+                .unwrap_or(false);
+            if homogeneous {
+                return Err(err(
+                    "GeometryCollection omogenea ambigua in KML: usare il tipo Multi* corrispondente",
+                ));
+            }
+            Ok(KmlGeometry::MultiGeometry(MultiGeometry::new(
+                values
+                    .iter()
+                    .map(kml_geometry_from_wkb)
+                    .collect::<Result<Vec<_>>>()?,
+            )))
+        }
+    }
+}
+
 fn build_batch(placemarks: &[Placemark]) -> Result<(RecordBatch, DataContract)> {
     let mut wkb: Vec<Option<Vec<u8>>> = Vec::with_capacity(placemarks.len());
     let mut names: Vec<Option<String>> = Vec::with_capacity(placemarks.len());
     let mut descs: Vec<Option<String>> = Vec::with_capacity(placemarks.len());
+    let mut dimensions = BTreeSet::new();
+    let mut geometry_types = BTreeSet::new();
     for p in placemarks {
         match &p.geometry {
             None => wkb.push(None),
-            Some(g) => match geo_types::Geometry::<f64>::try_from(g.clone()) {
-                Ok(geom) => wkb.push(Some(to_wkb(&geom)?)),
-                Err(_) => wkb.push(None),
-            },
+            Some(geometry) => {
+                let geometry = wkb_geometry_from_kml(geometry)?;
+                dimensions.insert(geometry.dimensions);
+                geometry_types.insert(geometry.geometry_type());
+                wkb.push(Some(encode_wkb(&geometry, WkbFlavor::Iso)?));
+            }
         }
         names.push(p.name.clone());
         descs.push(p.description.clone());
     }
 
+    let mut geometry_contract =
+        GeometryColumnContract::wkb_passthrough(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
+    geometry_contract.dimensions = if dimensions.len() == 1 {
+        *dimensions.first().unwrap()
+    } else {
+        CoordinateDimensions::Unknown
+    };
+    geometry_contract.geometry_types = geometry_types.into_iter().collect::<Vec<GeometryType>>();
     let fields = vec![
-        geometry_field(GEOMETRY, OGC_CRS84),
+        with_geometry_contract_metadata(&geometry_field(GEOMETRY, OGC_CRS84), &geometry_contract),
         Field::new("name", DataType::Utf8, true),
         Field::new("description", DataType::Utf8, true),
     ];
@@ -337,20 +678,32 @@ fn build_batch(placemarks: &[Placemark]) -> Result<(RecordBatch, DataContract)> 
         RecordBatch::try_new(schema.clone(), arrays).map_err(|e| err(format!("batch: {e}")))?;
     let contract = DataContract {
         schema,
-        geometry: Some(GeometryColumnContract {
-            field_id: FieldId(0),
-            name: GEOMETRY.to_owned(),
-            crs: ResolvedCrs::wgs84(),
-            nullable: true,
-        }),
+        geometry: Some(geometry_contract),
     };
     Ok((batch, contract))
+}
+
+/// Entry point non stabile per libFuzzer: parser KML e conversione diretta
+/// KML→WKB devono rifiutare input ostili senza panic.
+#[doc(hidden)]
+pub fn __fuzz_read_kml(bytes: &[u8]) -> Result<usize> {
+    let text = std::str::from_utf8(bytes).map_err(|error| err(format!("UTF-8 KML: {error}")))?;
+    validate_kml_xml(text)?;
+    let document: Kml = text
+        .parse()
+        .map_err(|error| err(format!("KML non valido: {error}")))?;
+    let mut placemarks = Vec::new();
+    collect(&document, &mut placemarks);
+    let (batch, _) = build_batch(&placemarks)?;
+    Ok(batch.num_rows())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use plenora_core::wkb::to_wkb;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::WriteLayer;
 
     const SAMPLE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
     <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
@@ -359,6 +712,15 @@ mod tests {
       <Placemark><name>B</name>
         <LineString><coordinates>0,0,0 1,1,0</coordinates></LineString></Placemark>
     </Document></kml>"#;
+
+    const FUZZ_TIMEOUT_REGRESSION: &[u8] = br#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><MultiGeomgis.net/kml/2.2"><Placemark><MultiGeometry>></LikeString></MultiGww.opengis.net/kml/2.2etry>></LikeString></MultiGww.opengis.net/kml/2.2"><>"#;
+
+    #[test]
+    fn rejects_malformed_xml_that_stalled_the_kml_parser() {
+        let started = std::time::Instant::now();
+        assert!(__fuzz_read_kml(FUZZ_TIMEOUT_REGRESSION).is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
 
     #[test]
     fn reads_kml_placemarks() {
@@ -382,14 +744,30 @@ mod tests {
         let batch = r.next_batch().unwrap().unwrap();
         assert_eq!(batch.num_rows(), 2);
         assert_eq!(batch.num_columns(), 3);
+        assert_eq!(
+            r.contract().contract.geometry.as_ref().unwrap().dimensions,
+            CoordinateDimensions::Xyz
+        );
+        let geometries = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        let point = decode_wkb(geometries.value(0), &WkbLimits::default()).unwrap();
+        assert!(matches!(
+            point.value,
+            WkbValue::Point(WkbCoordinate { z: Some(0.0), .. })
+        ));
     }
 
     #[test]
     fn write_then_read_round_trip() {
-        use plenora_io_core::WriteLayer;
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("out.kml");
-        let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(12.5, 45.9))).unwrap();
+        let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
+            12.5, 45.9,
+        )))
+        .unwrap();
         let schema: SchemaRef = Arc::new(Schema::new(vec![
             geometry_field(GEOMETRY, OGC_CRS84),
             Field::new("name", DataType::Utf8, true),
@@ -421,7 +799,9 @@ mod tests {
         w.write(&batch).unwrap();
         w.finish().unwrap();
 
-        let ds = driver.open(Source::Path(out), &ReadOptions::default()).unwrap();
+        let ds = driver
+            .open(Source::Path(out), &ReadOptions::default())
+            .unwrap();
         let mut r = ds
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),
@@ -441,5 +821,174 @@ mod tests {
             .downcast_ref::<StringArray>()
             .unwrap();
         assert_eq!(name.value(0), "Roma");
+    }
+
+    #[test]
+    fn xyz_round_trip_preserves_altitude() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("xyz.kml");
+        let geometry = WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 12.5,
+                y: 45.9,
+                z: Some(123.25),
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xyz,
+            srid: None,
+        };
+        let wkb = encode_wkb(&geometry, WkbFlavor::Iso).unwrap();
+        let mut geometry_contract =
+            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
+        geometry_contract.dimensions = CoordinateDimensions::Xyz;
+        geometry_contract.geometry_types = vec![GeometryType::Point];
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, OGC_CRS84),
+                &geometry_contract,
+            ),
+            Field::new("name", DataType::Utf8, true),
+            Field::new("description", DataType::Utf8, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())])),
+                Arc::new(StringArray::from(vec!["Quota"])),
+                Arc::new(StringArray::from(vec!["XYZ"])),
+            ],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "xyz".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometry_contract),
+                },
+            }],
+        };
+
+        let driver = KmlDriver;
+        let mut writer = driver
+            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+        assert!(std::fs::read_to_string(&out)
+            .unwrap()
+            .contains("12.5,45.9,123.25"));
+
+        let dataset = driver
+            .open(Source::Path(out), &ReadOptions::default())
+            .unwrap();
+        assert_eq!(
+            dataset.layers()[0]
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .dimensions,
+            CoordinateDimensions::Xyz
+        );
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+            })
+            .unwrap();
+        let round_trip = reader.next_batch().unwrap().unwrap();
+        let geometries = round_trip
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        let decoded = decode_wkb(geometries.value(0), &WkbLimits::default()).unwrap();
+        assert!(matches!(
+            decoded.value,
+            WkbValue::Point(WkbCoordinate {
+                z: Some(123.25),
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn xym_contract_is_rejected_before_output_creation() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("m.kml");
+        let mut geometry =
+            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
+        geometry.dimensions = CoordinateDimensions::Xym;
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(&geometry_field(GEOMETRY, OGC_CRS84), &geometry),
+            Field::new("name", DataType::Utf8, true),
+            Field::new("description", DataType::Utf8, true),
+        ]));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "m".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometry),
+                },
+            }],
+        };
+        let driver = KmlDriver;
+        assert!(driver
+            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .is_err());
+        assert!(!out.exists());
+    }
+
+    #[test]
+    fn direct_conversion_preserves_xyz_multipolygon() {
+        let coordinate = |x, y, z| WkbCoordinate {
+            x,
+            y,
+            z: Some(z),
+            m: None,
+        };
+        let polygon = WkbGeometry {
+            value: WkbValue::Polygon(vec![vec![
+                coordinate(0.0, 0.0, 10.0),
+                coordinate(1.0, 0.0, 11.0),
+                coordinate(1.0, 1.0, 12.0),
+                coordinate(0.0, 0.0, 10.0),
+            ]]),
+            dimensions: CoordinateDimensions::Xyz,
+            srid: None,
+        };
+        let geometry = WkbGeometry {
+            value: WkbValue::MultiPolygon(vec![polygon]),
+            dimensions: CoordinateDimensions::Xyz,
+            srid: None,
+        };
+        let kml = kml_geometry_from_wkb(&geometry).unwrap();
+        assert_eq!(wkb_geometry_from_kml(&kml).unwrap(), geometry);
+    }
+
+    #[test]
+    fn homogeneous_geometry_collection_is_rejected_as_ambiguous() {
+        let point = |x| WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x,
+                y: 2.0,
+                z: None,
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let geometry = WkbGeometry {
+            value: WkbValue::GeometryCollection(vec![point(1.0), point(3.0)]),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        assert!(kml_geometry_from_wkb(&geometry).is_err());
     }
 }

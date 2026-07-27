@@ -14,5 +14,6 @@ pub mod limits;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 pub mod wkb;
+mod wkb_lossless;
 
-pub use error::{PlenoraError, Result};
+pub use error::{CapabilityReason, PlenoraError, Result};

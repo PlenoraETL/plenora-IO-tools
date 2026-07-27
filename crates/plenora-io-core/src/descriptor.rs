@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 
+use plenora_core::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Direction {
@@ -60,6 +62,206 @@ pub enum CrsHandling {
     None,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextEncoding {
+    Utf8,
+    Ascii,
+    FormatDefined,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NameNormalization {
+    None,
+    Nfc,
+    FormatDefined,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct FieldNamePolicy {
+    pub max_bytes: Option<usize>,
+    pub max_chars: Option<usize>,
+    pub encoding: TextEncoding,
+    pub case_sensitive: bool,
+    pub normalization: NameNormalization,
+    pub reserved_names: &'static [&'static str],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArrowTypeClass {
+    Boolean,
+    SignedInteger,
+    UnsignedInteger,
+    Floating,
+    Utf8,
+    Binary,
+    Temporal,
+    Decimal,
+    Nested,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TypeCoercionPolicy {
+    Reject,
+    ExplicitText,
+    LossReported,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttributeWriteSupport {
+    All,
+    NamedSubset(&'static [&'static str]),
+    None,
+    LossReported,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct GeometryWriteSupport {
+    pub supported: bool,
+    pub encodings: &'static [GeometryEncoding],
+    pub dimensions: &'static [CoordinateDimensions],
+    pub spatial_semantics: &'static [SpatialSemantics],
+    pub mixed_types: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CrsWriteSupport {
+    Embedded,
+    Fixed(&'static str),
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NullabilitySupport {
+    Preserve,
+    FormatDefined,
+    NoNulls,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct FormatWriteCapabilities {
+    pub field_names: FieldNamePolicy,
+    pub allowed_types: &'static [ArrowTypeClass],
+    pub type_coercion: TypeCoercionPolicy,
+    pub attributes: AttributeWriteSupport,
+    pub geometry: GeometryWriteSupport,
+    pub crs: CrsWriteSupport,
+    pub nullability: NullabilitySupport,
+    pub multi_layer: bool,
+}
+
+pub const UTF8_FIELD_NAMES: FieldNamePolicy = FieldNamePolicy {
+    max_bytes: None,
+    max_chars: None,
+    encoding: TextEncoding::Utf8,
+    case_sensitive: true,
+    normalization: NameNormalization::None,
+    reserved_names: &[],
+};
+
+pub const DBF_FIELD_NAMES: FieldNamePolicy = FieldNamePolicy {
+    max_bytes: Some(10),
+    max_chars: Some(10),
+    encoding: TextEncoding::Ascii,
+    case_sensitive: false,
+    normalization: NameNormalization::FormatDefined,
+    reserved_names: &[],
+};
+
+pub const SCALAR_TYPES: &[ArrowTypeClass] = &[
+    ArrowTypeClass::Boolean,
+    ArrowTypeClass::SignedInteger,
+    ArrowTypeClass::UnsignedInteger,
+    ArrowTypeClass::Floating,
+    ArrowTypeClass::Utf8,
+    ArrowTypeClass::Binary,
+    ArrowTypeClass::Temporal,
+    ArrowTypeClass::Decimal,
+];
+
+pub const ALL_ARROW_TYPES: &[ArrowTypeClass] = &[
+    ArrowTypeClass::Boolean,
+    ArrowTypeClass::SignedInteger,
+    ArrowTypeClass::UnsignedInteger,
+    ArrowTypeClass::Floating,
+    ArrowTypeClass::Utf8,
+    ArrowTypeClass::Binary,
+    ArrowTypeClass::Temporal,
+    ArrowTypeClass::Decimal,
+    ArrowTypeClass::Nested,
+    ArrowTypeClass::Other,
+];
+
+pub const WKB_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    supported: true,
+    encodings: &[GeometryEncoding::Wkb],
+    dimensions: &[CoordinateDimensions::Xy],
+    spatial_semantics: &[SpatialSemantics::Geometry],
+    mixed_types: true,
+};
+
+/// GeoJSON/KML-like geometry support: XY plus an interoperable altitude Z.
+/// M is deliberately excluded because these formats do not assign it a stable
+/// round-trip semantic.
+pub const WKB_XY_XYZ_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    supported: true,
+    encodings: &[GeometryEncoding::Wkb],
+    dimensions: &[
+        CoordinateDimensions::Xy,
+        CoordinateDimensions::Xyz,
+        CoordinateDimensions::Unknown,
+    ],
+    spatial_semantics: &[SpatialSemantics::Geometry],
+    mixed_types: true,
+};
+
+pub const WKB_SINGLE_TYPE_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    mixed_types: false,
+    ..WKB_XY_GEOMETRY
+};
+
+/// Shapefile-like support: one native shape family per dataset, with the
+/// dimensional variants represented by the format itself.
+pub const WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    mixed_types: false,
+    ..WKB_PASSTHROUGH_GEOMETRY
+};
+
+pub const WKB_PASSTHROUGH_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    supported: true,
+    encodings: &[GeometryEncoding::Wkb],
+    dimensions: &[
+        CoordinateDimensions::Xy,
+        CoordinateDimensions::Xyz,
+        CoordinateDimensions::Xym,
+        CoordinateDimensions::Xyzm,
+        CoordinateDimensions::Unknown,
+    ],
+    spatial_semantics: &[SpatialSemantics::Geometry],
+    mixed_types: true,
+};
+
+pub const WKB_EWKB_PASSTHROUGH_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    encodings: &[GeometryEncoding::Wkb, GeometryEncoding::Ewkb],
+    spatial_semantics: &[SpatialSemantics::Geometry, SpatialSemantics::Geography],
+    ..WKB_PASSTHROUGH_GEOMETRY
+};
+
+pub const NO_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    supported: false,
+    encodings: &[],
+    dimensions: &[],
+    spatial_semantics: &[],
+    mixed_types: false,
+};
+
 #[derive(Clone, Debug, Serialize)]
 pub struct FormatDescriptor {
     pub id: &'static str,
@@ -74,6 +276,7 @@ pub struct FormatDescriptor {
     /// Capacità generale di fedeltà; la valutazione per-contratto è in open/create.
     pub fidelity_class: Fidelity,
     pub runtime: Runtime,
+    pub write_capabilities: Option<FormatWriteCapabilities>,
     // Versioni esplicite: il fingerprint del catalogo deriva da queste (D17).
     pub semantic_version: u32,
     pub driver_version: u32,

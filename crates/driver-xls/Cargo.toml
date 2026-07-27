@@ -13,7 +13,5 @@ arrow-array.workspace = true
 arrow-schema.workspace = true
 calamine.workspace = true
 rust_xlsxwriter.workspace = true
-geo-types.workspace = true
-wkt.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

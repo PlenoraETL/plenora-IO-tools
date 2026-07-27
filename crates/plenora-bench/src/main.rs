@@ -112,14 +112,19 @@ fn bench_schema() -> SchemaRef {
 }
 
 fn coord(k: usize) -> (f64, f64) {
-    (6.0 + (k % 1000) as f64 * 0.001, 45.0 + (k % 777) as f64 * 0.001)
+    (
+        6.0 + (k % 1000) as f64 * 0.001,
+        45.0 + (k % 777) as f64 * 0.001,
+    )
 }
 
 /// Se `PLENORA_BENCH_GEOM=polygon`, i benchmark usano poligoni (un quadratino)
 /// invece di punti: così le metriche riflettono il costo del percorso geometria
 /// (che con soli Point è quasi nullo).
 fn use_polygon() -> bool {
-    std::env::var("PLENORA_BENCH_GEOM").map(|v| v == "polygon").unwrap_or(false)
+    std::env::var("PLENORA_BENCH_GEOM")
+        .map(|v| v == "polygon")
+        .unwrap_or(false)
 }
 
 /// Anello quadrato (chiuso) attorno a `coord(k)`.
@@ -134,8 +139,10 @@ fn wkb_pool() -> Vec<Vec<u8>> {
     (0..POOL)
         .map(|k| {
             let g = if poly {
-                let ring: Vec<geo_types::Coord<f64>> =
-                    poly_ring(k).into_iter().map(|p| geo_types::Coord { x: p[0], y: p[1] }).collect();
+                let ring: Vec<geo_types::Coord<f64>> = poly_ring(k)
+                    .into_iter()
+                    .map(|p| geo_types::Coord { x: p[0], y: p[1] })
+                    .collect();
                 geo_types::Geometry::Polygon(geo_types::Polygon::new(
                     geo_types::LineString(ring),
                     vec![],
@@ -165,7 +172,11 @@ fn gen_chunk(pool: &[Vec<u8>], names: &[String], start: usize, count: usize) -> 
             .map(|j| names[(start + j) % POOL].as_str())
             .collect::<Vec<_>>(),
     );
-    let vals = Float64Array::from((0..count).map(|j| (start + j) as f64 * 1.5).collect::<Vec<_>>());
+    let vals = Float64Array::from(
+        (0..count)
+            .map(|j| (start + j) as f64 * 1.5)
+            .collect::<Vec<_>>(),
+    );
     RecordBatch::try_new(
         bench_schema(),
         vec![Arc::new(geom), Arc::new(ids), Arc::new(nm), Arc::new(vals)],
@@ -259,7 +270,8 @@ fn feed_write(
 fn write_geojson_fixture(path: &Path, total: usize) {
     let f = std::fs::File::create(path).unwrap();
     let mut w = BufWriter::new(f);
-    w.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[").unwrap();
+    w.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[")
+        .unwrap();
     let poly = use_polygon();
     for i in 0..total {
         if i > 0 {
@@ -294,7 +306,13 @@ fn write_csv_fixture(path: &Path, total: usize) {
     w.write_all(b"id,name,val,geometry\n").unwrap();
     for i in 0..total {
         let (x, y) = coord(i);
-        writeln!(w, "{i},f{},{},\"POINT ({x} {y})\"", i % POOL, i as f64 * 1.5).unwrap();
+        writeln!(
+            w,
+            "{i},f{},{},\"POINT ({x} {y})\"",
+            i % POOL,
+            i as f64 * 1.5
+        )
+        .unwrap();
     }
     w.flush().unwrap();
 }

@@ -3,6 +3,8 @@
 //! conversione array Arrow → JSON. Nessuna logica di formato qui.
 #![forbid(unsafe_code)]
 
+pub mod wkt_lossless;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

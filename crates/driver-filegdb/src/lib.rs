@@ -12,7 +12,11 @@ use plenora_io_core::descriptor::{
 use plenora_io_core::driver::{
     FormatDriver, FormatWriter, OpenDatasetHandle, ReadOptions, Sink, Source, WriteOptions,
 };
-use plenora_io_core::WritePlan;
+use plenora_io_core::{
+    validate_write, AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities,
+    NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES,
+    WKB_PASSTHROUGH_GEOMETRY,
+};
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "filegdb",
@@ -25,9 +29,19 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     crs_handling: CrsHandling::Embedded,
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::Gdal,
+    write_capabilities: Some(FormatWriteCapabilities {
+        field_names: UTF8_FIELD_NAMES,
+        allowed_types: SCALAR_TYPES,
+        type_coercion: TypeCoercionPolicy::Reject,
+        attributes: AttributeWriteSupport::All,
+        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        crs: CrsWriteSupport::Embedded,
+        nullability: NullabilitySupport::Preserve,
+        multi_layer: true,
+    }),
     semantic_version: 1,
     driver_version: 1,
-    descriptor_version: 1,
+    descriptor_version: 2,
 };
 
 pub struct FileGdbDriver;
@@ -43,7 +57,7 @@ impl FormatDriver for FileGdbDriver {
     fn open(&self, source: Source, _opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
-            let Source::Path(path) = source;
+            let path = source.into_path_checked(&_opts.limits)?;
             return backend::open(&path);
         }
         #[cfg(not(feature = "gdal-backend"))]
@@ -62,10 +76,13 @@ impl FormatDriver for FileGdbDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        validate_write(self.descriptor(), plan, &opts.limits)?;
         #[cfg(feature = "gdal-backend")]
         {
             let Sink::Path(path) = sink;
-            return backend::create(&path, plan, opts);
+            return backend::create(&path, plan, opts).map(|writer| {
+                plenora_io_core::with_write_validation(writer, self.descriptor(), plan, opts.limits)
+            });
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
@@ -125,10 +142,14 @@ mod backend {
     impl FieldKind {
         fn from(dt: &DataType) -> Self {
             match dt {
-                DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64
-                | DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
-                    FieldKind::Int
-                }
+                DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::UInt16
+                | DataType::UInt32
+                | DataType::UInt64 => FieldKind::Int,
                 DataType::Float16 | DataType::Float32 | DataType::Float64 => FieldKind::Real,
                 DataType::Boolean => FieldKind::Bool,
                 _ => FieldKind::Str,
@@ -157,12 +178,17 @@ mod backend {
         staging: PathBuf,
         dest: PathBuf,
         durable: bool,
+        max_output_bytes: u64,
         layers: Vec<PlanLayer>,
         next_gdal_idx: usize,
     }
 
     fn layer_epsg(l: &WriteLayer) -> Option<u32> {
-        let id = l.contract.geometry.as_ref().and_then(|g| g.crs.id.clone())?;
+        let id = l
+            .contract
+            .geometry
+            .as_ref()
+            .and_then(|g| g.crs.id().map(str::to_owned))?;
         if id.eq_ignore_ascii_case("OGC:CRS84") {
             return Some(4326);
         }
@@ -282,6 +308,7 @@ mod backend {
             staging,
             dest: path.to_owned(),
             durable: opts.durable,
+            max_output_bytes: opts.limits.max_output_bytes,
             layers: infos,
             next_gdal_idx: 0,
         }))
@@ -369,10 +396,16 @@ mod backend {
                 staging,
                 dest,
                 durable,
+                max_output_bytes,
                 ..
             } = *self;
             drop(ds); // chiude e flush della .gdb
             let bytes = dir_size(&staging);
+            if bytes > max_output_bytes {
+                return Err(PlenoraError::LimitExceeded(format!(
+                    "output FileGDB da {bytes} byte oltre il limite di {max_output_bytes}"
+                )));
+            }
             let outcome = publish_dir_atomic(&staging, &dest, durable)?;
             Ok(Published {
                 bytes,
@@ -408,24 +441,26 @@ mod backend {
                 .fields()
                 .map(|f| (f.name(), ogr_to_arrow(f.field_type())))
                 .collect();
-            let mut arrow_fields =
-                vec![geometry_field(GEOMETRY, crs.as_deref().unwrap_or("unknown"))];
+            let mut arrow_fields = vec![geometry_field(
+                GEOMETRY,
+                crs.as_deref().unwrap_or("unknown"),
+            )];
             for (n, dt) in &fields {
                 arrow_fields.push(Field::new(n, dt.clone(), true));
             }
             let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
             let contract = DataContract {
                 schema: schema.clone(),
-                geometry: Some(GeometryColumnContract {
-                    field_id: FieldId(0),
-                    name: GEOMETRY.to_owned(),
-                    crs: ResolvedCrs {
+                geometry: Some(GeometryColumnContract::wkb_passthrough(
+                    FieldId(0),
+                    GEOMETRY,
+                    ResolvedCrs {
                         id: crs,
                         kind: CrsKind::Unknown,
                         definition: None,
                     },
-                    nullable: true,
-                }),
+                    true,
+                )),
             };
             layers.push(LayerContract {
                 id: LayerId(i as u32),

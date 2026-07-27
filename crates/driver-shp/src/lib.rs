@@ -1,5 +1,6 @@
-//! driver-shp — Shapefile ⇄ RecordBatch. Le shape diventano WKB `geoarrow.wkb`;
-//! il dbf fornisce gli attributi; il `.prj` (o `assume_crs`) il CRS.
+//! driver-shp — Shapefile ⇄ RecordBatch. Le shape XY/M/Z diventano WKB
+//! `geoarrow.wkb` XY/XYM/XYZ/XYZM senza passare da `geo-types`; il dbf fornisce
+//! gli attributi e il `.prj` (o `assume_crs`) il CRS.
 //!
 //! Scrittura (Fase 2B): capability-check fail-closed (ADR-IO 3) — nomi campo dbf
 //! ≤10 char (imposto da `FieldName`), tipo geometria unico per file (imposto da
@@ -10,6 +11,7 @@
 //! c'è una definizione WKT o per WGS84; nessuna riproiezione (ADR-IO 4).
 #![forbid(unsafe_code)]
 
+use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -23,14 +25,20 @@ use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use serde_json::Value as JsonValue;
 use shapefile::dbase::{FieldValue, Record, TableWriterBuilder};
-use shapefile::{Shape, Writer};
+use shapefile::{
+    Multipoint, MultipointM, MultipointZ, Point, PointM, PointZ, Polygon, PolygonM, PolygonRing,
+    PolygonZ, Polyline, PolylineM, PolylineZ, Shape, Writer, NO_DATA,
+};
 
 use driver_common::{geometry_field, json_from_array, ColType};
-use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId};
+use plenora_core::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
 use plenora_core::crs::{CrsKind, ResolvedCrs};
-use plenora_core::geometry::{is_geometry_field, GEO_CRS_KEY};
+use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata, GEO_CRS_KEY};
 use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{from_wkb, to_wkb_into};
+use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -43,7 +51,11 @@ use plenora_io_core::driver::{
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::PublishOutcome;
 use plenora_io_core::request::ReadRequest;
-use plenora_io_core::WritePlan;
+use plenora_io_core::{
+    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES,
+    SCALAR_TYPES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
+};
 
 const GEOMETRY: &str = "geometry";
 
@@ -69,9 +81,19 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     crs_handling: CrsHandling::Embedded,
     fidelity_class: Fidelity::Conditional,
     runtime: Runtime::PureRust,
+    write_capabilities: Some(FormatWriteCapabilities {
+        field_names: DBF_FIELD_NAMES,
+        allowed_types: SCALAR_TYPES,
+        type_coercion: TypeCoercionPolicy::ExplicitText,
+        attributes: AttributeWriteSupport::All,
+        geometry: WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
+        crs: CrsWriteSupport::Embedded,
+        nullability: NullabilitySupport::FormatDefined,
+        multi_layer: false,
+    }),
     semantic_version: 1,
-    driver_version: 3,
-    descriptor_version: 1,
+    driver_version: 4,
+    descriptor_version: 2,
 };
 
 pub struct ShpDriver;
@@ -82,23 +104,39 @@ impl FormatDriver for ShpDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let Source::Path(path) = source;
+        let path = source.into_path_checked(&opts.limits)?;
         let crs = resolve_crs(&path, opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
-        let cols = infer_shp_schema(&path)?;
-        let mut fields = vec![geometry_field(GEOMETRY, crs.id.as_deref().unwrap_or("unknown"))];
+        let (cols, geometry_info) = infer_shp_schema(&path)?;
+        let mut geometry_contract =
+            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs.clone(), true);
+        geometry_contract.dimensions = geometry_info.dimensions;
+        geometry_contract.geometry_types = geometry_info.geometry_types;
+        if let Some(shape_type) = geometry_info.shape_type {
+            geometry_contract
+                .native_metadata
+                .insert("shp.shape_type".to_owned(), shape_type.to_owned());
+        }
+        if matches!(
+            geometry_contract.dimensions,
+            CoordinateDimensions::Xym | CoordinateDimensions::Xyzm
+        ) {
+            geometry_contract
+                .native_metadata
+                .insert("shp.measure_no_data".to_owned(), NO_DATA.to_string());
+        }
+        let geometry_field = with_geometry_contract_metadata(
+            &geometry_field(GEOMETRY, crs.id.as_deref().unwrap_or("unknown")),
+            &geometry_contract,
+        );
+        let mut fields = vec![geometry_field];
         for (n, ct) in &cols {
             fields.push(Field::new(n, coltype_to_dt(*ct), true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
         let contract = DataContract {
             schema: schema.clone(),
-            geometry: Some(GeometryColumnContract {
-                field_id: FieldId(0),
-                name: GEOMETRY.to_owned(),
-                crs: crs.clone(),
-                nullable: true,
-            }),
+            geometry: Some(geometry_contract.clone()),
         };
         let name = path
             .file_stem()
@@ -109,6 +147,7 @@ impl FormatDriver for ShpDriver {
             path,
             schema,
             cols,
+            dimensions: geometry_contract.dimensions,
             layers: vec![LayerContract {
                 id: LayerId(0),
                 name,
@@ -123,6 +162,7 @@ impl FormatDriver for ShpDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(dest) = sink;
         if !dest
             .extension()
@@ -181,19 +221,26 @@ impl FormatDriver for ShpDriver {
             .unwrap_or_else(|| PathBuf::from("."));
         let staging = tempfile::Builder::new().tempdir_in(&parent)?;
         let shp_path = staging.path().join("data.shp");
-        let writer =
-            Writer::from_path(&shp_path, table).map_err(|e| err(format!("creazione shapefile: {e}")))?;
+        let writer = Writer::from_path(&shp_path, table)
+            .map_err(|e| err(format!("creazione shapefile: {e}")))?;
 
-        Ok(Box::new(ShpWriter {
-            staging: Some(staging),
-            writer: Some(writer),
-            dest,
-            durable: opts.durable,
-            attrs,
-            geom_idx,
-            prj: resolve_prj(layer, schema, geom_idx),
-            shape_type: None,
-        }))
+        Ok(with_write_validation(
+            Box::new(ShpWriter {
+                staging: Some(staging),
+                writer: Some(writer),
+                dest,
+                durable: opts.durable,
+                attrs,
+                geom_idx,
+                prj: resolve_prj(layer, schema, geom_idx),
+                shape_type: None,
+                wkb_limits: opts.limits.effective_wkb(),
+                max_output_bytes: opts.limits.max_output_bytes,
+            }),
+            self.descriptor(),
+            plan,
+            opts.limits,
+        ))
     }
 }
 
@@ -203,6 +250,7 @@ struct ShpDataset {
     path: PathBuf,
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
+    dimensions: CoordinateDimensions,
     layers: Vec<LayerContract>,
 }
 
@@ -216,6 +264,7 @@ impl OpenDatasetHandle for ShpDataset {
             self.path.clone(),
             self.schema.clone(),
             self.cols.clone(),
+            self.dimensions,
             batch_size,
         );
         Ok(Box::new(ShpReader {
@@ -257,7 +306,13 @@ impl DbfKind {
     fn from(dt: &arrow_schema::DataType) -> Self {
         use arrow_schema::DataType as D;
         match dt {
-            D::Int8 | D::Int16 | D::Int32 | D::Int64 | D::UInt8 | D::UInt16 | D::UInt32
+            D::Int8
+            | D::Int16
+            | D::Int32
+            | D::Int64
+            | D::UInt8
+            | D::UInt16
+            | D::UInt32
             | D::UInt64 => DbfKind::Int,
             D::Float16 | D::Float32 | D::Float64 => DbfKind::Float,
             D::Boolean => DbfKind::Logical,
@@ -275,6 +330,8 @@ struct ShpWriter {
     geom_idx: usize,
     prj: Option<String>,
     shape_type: Option<&'static str>,
+    wkb_limits: WkbLimits,
+    max_output_bytes: u64,
 }
 
 impl FormatWriter for ShpWriter {
@@ -284,22 +341,20 @@ impl FormatWriter for ShpWriter {
             .as_any()
             .downcast_ref::<BinaryArray>()
             .ok_or_else(|| err("colonna geometria non binaria"))?;
-        let limits = WkbLimits::default();
+        let limits = self.wkb_limits;
         let w = self.writer.as_mut().ok_or_else(|| err("writer chiuso"))?;
         let mut st = self.shape_type;
         for row in 0..batch.num_rows() {
             let shape = if geom_col.is_null(row) {
                 Shape::NullShape
             } else {
-                let g = from_wkb(geom_col.value(row), &limits)?;
-                Shape::try_from(g).map_err(|_| {
-                    err("geometria non rappresentabile in Shapefile (es. GeometryCollection)")
-                })?
+                let geometry = decode_wkb(geom_col.value(row), &limits)?;
+                shape_from_wkb(&geometry)?
             };
             // Capability-check (ADR-IO 3): un unico tipo di geometria per file.
             let tag = shape_tag(&shape);
             if tag == "unsupported" {
-                return Err(err("tipo geometria non supportato da Shapefile (M/Z)"));
+                return Err(err("tipo geometria non supportato da Shapefile"));
             }
             if !tag.is_empty() {
                 match st {
@@ -332,6 +387,25 @@ impl FormatWriter for ShpWriter {
             std::fs::write(staging.path().join("data.prj"), wkt)?;
         }
 
+        let staged_bytes = ["dbf", "shx", "prj", "shp"]
+            .into_iter()
+            .map(|ext| staging.path().join(format!("data.{ext}")))
+            .filter(|path| path.exists())
+            .try_fold(0_u64, |total, path| {
+                let bytes = std::fs::metadata(path)?.len();
+                total.checked_add(bytes).ok_or_else(|| {
+                    PlenoraError::LimitExceeded(
+                        "overflow nel conteggio dell'output Shapefile".to_owned(),
+                    )
+                })
+            })?;
+        if staged_bytes > self.max_output_bytes {
+            return Err(PlenoraError::LimitExceeded(format!(
+                "output Shapefile da {staged_bytes} byte oltre il limite di {}",
+                self.max_output_bytes
+            )));
+        }
+
         // Publish LooseShapefileSet: rename ordinato, .shp per ultimo.
         let mut bytes = 0u64;
         for ext in ["dbf", "shx", "prj", "shp"] {
@@ -359,14 +433,330 @@ impl FormatWriter for ShpWriter {
     }
 }
 
+enum ShpTopology {
+    Point(WkbCoordinate),
+    Multipoint(Vec<WkbCoordinate>),
+    Polyline(Vec<Vec<WkbCoordinate>>),
+    /// `true` marks an exterior ring, `false` an interior ring.
+    Polygon(Vec<(bool, Vec<WkbCoordinate>)>),
+}
+
+fn ensure_child<'a>(
+    child: &'a WkbGeometry,
+    parent: &WkbGeometry,
+    expected: GeometryType,
+) -> Result<&'a WkbValue> {
+    if child.srid.is_some()
+        || child.dimensions != parent.dimensions
+        || child.geometry_type() != expected
+    {
+        return Err(err("geometria WKB annidata incoerente per Shapefile"));
+    }
+    Ok(&child.value)
+}
+
+fn polygon_rings(
+    rings: &[Vec<WkbCoordinate>],
+    destination: &mut Vec<(bool, Vec<WkbCoordinate>)>,
+) -> Result<()> {
+    if rings.is_empty() {
+        return Err(err("poligono vuoto non rappresentabile in Shapefile"));
+    }
+    for (index, ring) in rings.iter().enumerate() {
+        if ring.len() < 4 || ring.first() != ring.last() {
+            return Err(err(
+                "anello WKB non chiuso o con meno di quattro coordinate",
+            ));
+        }
+        destination.push((index == 0, ring.clone()));
+    }
+    Ok(())
+}
+
+fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
+    if geometry.srid.is_some() {
+        return Err(err(
+            "SRID embedded non rappresentabile nel payload Shapefile; usare il CRS del layer",
+        ));
+    }
+    match &geometry.value {
+        WkbValue::Point(coordinate) => Ok(ShpTopology::Point(*coordinate)),
+        WkbValue::MultiPoint(children) => {
+            if children.is_empty() {
+                return Err(err("MultiPoint vuoto non rappresentabile in Shapefile"));
+            }
+            let mut coordinates = Vec::with_capacity(children.len());
+            for child in children {
+                match ensure_child(child, geometry, GeometryType::Point)? {
+                    WkbValue::Point(coordinate) => coordinates.push(*coordinate),
+                    _ => unreachable!("geometry_type verificato"),
+                }
+            }
+            Ok(ShpTopology::Multipoint(coordinates))
+        }
+        WkbValue::LineString(coordinates) => {
+            if coordinates.len() < 2 {
+                return Err(err(
+                    "LineString con meno di due coordinate non rappresentabile in Shapefile",
+                ));
+            }
+            Ok(ShpTopology::Polyline(vec![coordinates.clone()]))
+        }
+        WkbValue::MultiLineString(children) => {
+            if children.is_empty() {
+                return Err(err(
+                    "MultiLineString vuoto non rappresentabile in Shapefile",
+                ));
+            }
+            let mut parts = Vec::with_capacity(children.len());
+            for child in children {
+                match ensure_child(child, geometry, GeometryType::LineString)? {
+                    WkbValue::LineString(coordinates) if coordinates.len() >= 2 => {
+                        parts.push(coordinates.clone());
+                    }
+                    WkbValue::LineString(_) => {
+                        return Err(err(
+                            "parte LineString con meno di due coordinate in Shapefile",
+                        ))
+                    }
+                    _ => unreachable!("geometry_type verificato"),
+                }
+            }
+            Ok(ShpTopology::Polyline(parts))
+        }
+        WkbValue::Polygon(rings) => {
+            let mut destination = Vec::with_capacity(rings.len());
+            polygon_rings(rings, &mut destination)?;
+            Ok(ShpTopology::Polygon(destination))
+        }
+        WkbValue::MultiPolygon(children) => {
+            if children.is_empty() {
+                return Err(err("MultiPolygon vuoto non rappresentabile in Shapefile"));
+            }
+            let mut destination = Vec::new();
+            for child in children {
+                match ensure_child(child, geometry, GeometryType::Polygon)? {
+                    WkbValue::Polygon(rings) => polygon_rings(rings, &mut destination)?,
+                    _ => unreachable!("geometry_type verificato"),
+                }
+            }
+            Ok(ShpTopology::Polygon(destination))
+        }
+        WkbValue::GeometryCollection(_) => {
+            Err(err("GeometryCollection non rappresentabile in Shapefile"))
+        }
+    }
+}
+
+fn shape_from_wkb(geometry: &WkbGeometry) -> Result<Shape> {
+    let topology = topology_from_wkb(geometry)?;
+    match (geometry.dimensions, topology) {
+        (CoordinateDimensions::Xy, ShpTopology::Point(c)) => Ok(Shape::Point(Point::new(c.x, c.y))),
+        (CoordinateDimensions::Xym, ShpTopology::Point(c)) => Ok(Shape::PointM(PointM::new(
+            c.x,
+            c.y,
+            c.m.expect("coordinata XYM"),
+        ))),
+        (CoordinateDimensions::Xyz, ShpTopology::Point(c)) => Ok(Shape::PointZ(PointZ::new(
+            c.x,
+            c.y,
+            c.z.expect("coordinata XYZ"),
+            NO_DATA,
+        ))),
+        (CoordinateDimensions::Xyzm, ShpTopology::Point(c)) => Ok(Shape::PointZ(PointZ::new(
+            c.x,
+            c.y,
+            c.z.expect("coordinata XYZM"),
+            c.m.expect("coordinata XYZM"),
+        ))),
+        (CoordinateDimensions::Xy, ShpTopology::Multipoint(coordinates)) => {
+            Ok(Shape::Multipoint(Multipoint::new(
+                coordinates
+                    .into_iter()
+                    .map(|c| Point::new(c.x, c.y))
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xym, ShpTopology::Multipoint(coordinates)) => {
+            Ok(Shape::MultipointM(MultipointM::new(
+                coordinates
+                    .into_iter()
+                    .map(|c| PointM::new(c.x, c.y, c.m.expect("coordinata XYM")))
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xyz, ShpTopology::Multipoint(coordinates)) => {
+            Ok(Shape::MultipointZ(MultipointZ::new(
+                coordinates
+                    .into_iter()
+                    .map(|c| PointZ::new(c.x, c.y, c.z.expect("coordinata XYZ"), NO_DATA))
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xyzm, ShpTopology::Multipoint(coordinates)) => {
+            Ok(Shape::MultipointZ(MultipointZ::new(
+                coordinates
+                    .into_iter()
+                    .map(|c| {
+                        PointZ::new(
+                            c.x,
+                            c.y,
+                            c.z.expect("coordinata XYZM"),
+                            c.m.expect("coordinata XYZM"),
+                        )
+                    })
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xy, ShpTopology::Polyline(parts)) => {
+            Ok(Shape::Polyline(Polyline::with_parts(
+                parts
+                    .into_iter()
+                    .map(|part| part.into_iter().map(|c| Point::new(c.x, c.y)).collect())
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xym, ShpTopology::Polyline(parts)) => {
+            Ok(Shape::PolylineM(PolylineM::with_parts(
+                parts
+                    .into_iter()
+                    .map(|part| {
+                        part.into_iter()
+                            .map(|c| PointM::new(c.x, c.y, c.m.expect("coordinata XYM")))
+                            .collect()
+                    })
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xyz, ShpTopology::Polyline(parts)) => {
+            Ok(Shape::PolylineZ(PolylineZ::with_parts(
+                parts
+                    .into_iter()
+                    .map(|part| {
+                        part.into_iter()
+                            .map(|c| PointZ::new(c.x, c.y, c.z.expect("coordinata XYZ"), NO_DATA))
+                            .collect()
+                    })
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xyzm, ShpTopology::Polyline(parts)) => {
+            Ok(Shape::PolylineZ(PolylineZ::with_parts(
+                parts
+                    .into_iter()
+                    .map(|part| {
+                        part.into_iter()
+                            .map(|c| {
+                                PointZ::new(
+                                    c.x,
+                                    c.y,
+                                    c.z.expect("coordinata XYZM"),
+                                    c.m.expect("coordinata XYZM"),
+                                )
+                            })
+                            .collect()
+                    })
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xy, ShpTopology::Polygon(rings)) => {
+            Ok(Shape::Polygon(Polygon::with_rings(
+                rings
+                    .into_iter()
+                    .map(|(outer, ring)| {
+                        let points = ring.into_iter().map(|c| Point::new(c.x, c.y)).collect();
+                        if outer {
+                            PolygonRing::Outer(points)
+                        } else {
+                            PolygonRing::Inner(points)
+                        }
+                    })
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xym, ShpTopology::Polygon(rings)) => {
+            Ok(Shape::PolygonM(PolygonM::with_rings(
+                rings
+                    .into_iter()
+                    .map(|(outer, ring)| {
+                        let points = ring
+                            .into_iter()
+                            .map(|c| PointM::new(c.x, c.y, c.m.expect("coordinata XYM")))
+                            .collect();
+                        if outer {
+                            PolygonRing::Outer(points)
+                        } else {
+                            PolygonRing::Inner(points)
+                        }
+                    })
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xyz, ShpTopology::Polygon(rings)) => {
+            Ok(Shape::PolygonZ(PolygonZ::with_rings(
+                rings
+                    .into_iter()
+                    .map(|(outer, ring)| {
+                        let points = ring
+                            .into_iter()
+                            .map(|c| PointZ::new(c.x, c.y, c.z.expect("coordinata XYZ"), NO_DATA))
+                            .collect();
+                        if outer {
+                            PolygonRing::Outer(points)
+                        } else {
+                            PolygonRing::Inner(points)
+                        }
+                    })
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Xyzm, ShpTopology::Polygon(rings)) => {
+            Ok(Shape::PolygonZ(PolygonZ::with_rings(
+                rings
+                    .into_iter()
+                    .map(|(outer, ring)| {
+                        let points = ring
+                            .into_iter()
+                            .map(|c| {
+                                PointZ::new(
+                                    c.x,
+                                    c.y,
+                                    c.z.expect("coordinata XYZM"),
+                                    c.m.expect("coordinata XYZM"),
+                                )
+                            })
+                            .collect();
+                        if outer {
+                            PolygonRing::Outer(points)
+                        } else {
+                            PolygonRing::Inner(points)
+                        }
+                    })
+                    .collect(),
+            )))
+        }
+        (CoordinateDimensions::Unknown, _) => {
+            Err(err("dimensionalità WKB ignota non scrivibile in Shapefile"))
+        }
+    }
+}
+
 fn shape_tag(s: &Shape) -> &'static str {
     match s {
-        Shape::Point(_) => "point",
-        Shape::Polyline(_) => "polyline",
-        Shape::Polygon(_) => "polygon",
-        Shape::Multipoint(_) => "multipoint",
+        Shape::Point(_) => "point-xy",
+        Shape::PointM(_) => "point-m",
+        Shape::PointZ(_) => "point-z",
+        Shape::Polyline(_) => "polyline-xy",
+        Shape::PolylineM(_) => "polyline-m",
+        Shape::PolylineZ(_) => "polyline-z",
+        Shape::Polygon(_) => "polygon-xy",
+        Shape::PolygonM(_) => "polygon-m",
+        Shape::PolygonZ(_) => "polygon-z",
+        Shape::Multipoint(_) => "multipoint-xy",
+        Shape::MultipointM(_) => "multipoint-m",
+        Shape::MultipointZ(_) => "multipoint-z",
         Shape::NullShape => "",
-        _ => "unsupported",
+        Shape::Multipatch(_) => "unsupported",
     }
 }
 
@@ -375,11 +765,19 @@ fn write_shape(w: &mut Writer<BufWriter<File>>, shape: Shape, rec: &Record) -> R
     let me = |e| err(format!("scrittura record shapefile: {e}"));
     match shape {
         Shape::Point(s) => w.write_shape_and_record(&s, rec).map_err(me),
+        Shape::PointM(s) => w.write_shape_and_record(&s, rec).map_err(me),
+        Shape::PointZ(s) => w.write_shape_and_record(&s, rec).map_err(me),
         Shape::Polyline(s) => w.write_shape_and_record(&s, rec).map_err(me),
+        Shape::PolylineM(s) => w.write_shape_and_record(&s, rec).map_err(me),
+        Shape::PolylineZ(s) => w.write_shape_and_record(&s, rec).map_err(me),
         Shape::Polygon(s) => w.write_shape_and_record(&s, rec).map_err(me),
+        Shape::PolygonM(s) => w.write_shape_and_record(&s, rec).map_err(me),
+        Shape::PolygonZ(s) => w.write_shape_and_record(&s, rec).map_err(me),
         Shape::Multipoint(s) => w.write_shape_and_record(&s, rec).map_err(me),
-        Shape::NullShape => Err(err("geometria nulla non supportata in scrittura Shapefile (v1)")),
-        _ => Err(err("tipo geometria non supportato da Shapefile (M/Z)")),
+        Shape::MultipointM(s) => w.write_shape_and_record(&s, rec).map_err(me),
+        Shape::MultipointZ(s) => w.write_shape_and_record(&s, rec).map_err(me),
+        Shape::NullShape => Err(err("geometria nulla non supportata in scrittura Shapefile")),
+        Shape::Multipatch(_) => Err(err("Multipatch non supportato in scrittura Shapefile")),
     }
 }
 
@@ -407,16 +805,24 @@ fn wkt_for_id(id: Option<&str>) -> Option<String> {
     }
 }
 
-fn resolve_prj(layer: &plenora_io_core::WriteLayer, schema: &Schema, geom_idx: usize) -> Option<String> {
+fn resolve_prj(
+    layer: &plenora_io_core::WriteLayer,
+    schema: &Schema,
+    geom_idx: usize,
+) -> Option<String> {
     if let Some(g) = &layer.contract.geometry {
-        if let Some(def) = &g.crs.definition {
-            return Some(def.clone());
+        if let Some(def) = g.crs.definition() {
+            return Some(def.to_owned());
         }
-        if let Some(wkt) = wkt_for_id(g.crs.id.as_deref()) {
+        if let Some(wkt) = wkt_for_id(g.crs.id()) {
             return Some(wkt);
         }
     }
-    let id = schema.field(geom_idx).metadata().get(GEO_CRS_KEY).map(String::as_str);
+    let id = schema
+        .field(geom_idx)
+        .metadata()
+        .get(GEO_CRS_KEY)
+        .map(String::as_str);
     wkt_for_id(id)
 }
 
@@ -462,7 +868,12 @@ struct Acc {
 
 impl Default for Acc {
     fn default() -> Self {
-        Acc { any: false, all_int: true, all_num: true, all_bool: true }
+        Acc {
+            any: false,
+            all_int: true,
+            all_num: true,
+            all_bool: true,
+        }
     }
 }
 
@@ -518,14 +929,324 @@ fn classify(v: &FieldValue) -> u8 {
     }
 }
 
-/// Pass 1: nomi campo (in ordine dbf) + tipo inferito, a RAM O(ncol).
-fn infer_shp_schema(path: &Path) -> Result<Vec<(String, ColType)>> {
+struct ShpGeometryInfo {
+    dimensions: CoordinateDimensions,
+    geometry_types: Vec<GeometryType>,
+    shape_type: Option<&'static str>,
+}
+
+trait NativePoint {
+    fn x(&self) -> f64;
+    fn y(&self) -> f64;
+    fn z(&self) -> Option<f64>;
+    fn m(&self) -> Option<f64>;
+}
+
+impl NativePoint for Point {
+    fn x(&self) -> f64 {
+        self.x
+    }
+    fn y(&self) -> f64 {
+        self.y
+    }
+    fn z(&self) -> Option<f64> {
+        None
+    }
+    fn m(&self) -> Option<f64> {
+        None
+    }
+}
+
+impl NativePoint for PointM {
+    fn x(&self) -> f64 {
+        self.x
+    }
+    fn y(&self) -> f64 {
+        self.y
+    }
+    fn z(&self) -> Option<f64> {
+        None
+    }
+    fn m(&self) -> Option<f64> {
+        Some(self.m)
+    }
+}
+
+impl NativePoint for PointZ {
+    fn x(&self) -> f64 {
+        self.x
+    }
+    fn y(&self) -> f64 {
+        self.y
+    }
+    fn z(&self) -> Option<f64> {
+        Some(self.z)
+    }
+    fn m(&self) -> Option<f64> {
+        Some(self.m)
+    }
+}
+
+fn native_coordinate<P: NativePoint>(
+    point: &P,
+    dimensions: CoordinateDimensions,
+) -> Result<WkbCoordinate> {
+    let (z, m) = match dimensions {
+        CoordinateDimensions::Xy if point.z().is_none() && point.m().is_none() => (None, None),
+        CoordinateDimensions::Xym if point.z().is_none() => (
+            None,
+            Some(
+                point
+                    .m()
+                    .ok_or_else(|| err("coordinata ShapeM senza misura"))?,
+            ),
+        ),
+        CoordinateDimensions::Xyz => {
+            let z = point
+                .z()
+                .ok_or_else(|| err("coordinata ShapeZ senza quota"))?;
+            if point.m().is_some_and(|measure| !(measure <= NO_DATA)) {
+                return Err(err(
+                    "misura valida trovata in un dataset ShapeZ dichiarato XYZ",
+                ));
+            }
+            (Some(z), None)
+        }
+        CoordinateDimensions::Xyzm => (
+            Some(
+                point
+                    .z()
+                    .ok_or_else(|| err("coordinata ShapeZ senza quota"))?,
+            ),
+            Some(
+                point
+                    .m()
+                    .ok_or_else(|| err("coordinata ShapeZ senza misura nativa"))?,
+            ),
+        ),
+        CoordinateDimensions::Unknown => {
+            return Err(err("dimensionalità Shapefile non determinata"))
+        }
+        _ => {
+            return Err(err(
+                "variante Shape incoerente con la dimensionalità del layer",
+            ))
+        }
+    };
+    Ok(WkbCoordinate {
+        x: point.x(),
+        y: point.y(),
+        z,
+        m,
+    })
+}
+
+fn native_coordinates<P: NativePoint>(
+    points: &[P],
+    dimensions: CoordinateDimensions,
+) -> Result<Vec<WkbCoordinate>> {
+    points
+        .iter()
+        .map(|point| native_coordinate(point, dimensions))
+        .collect()
+}
+
+fn polyline_wkb<P: NativePoint>(
+    parts: &[Vec<P>],
+    dimensions: CoordinateDimensions,
+) -> Result<WkbGeometry> {
+    let children = parts
+        .iter()
+        .map(|part| {
+            Ok(WkbGeometry {
+                value: WkbValue::LineString(native_coordinates(part, dimensions)?),
+                dimensions,
+                srid: None,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(WkbGeometry {
+        value: WkbValue::MultiLineString(children),
+        dimensions,
+        srid: None,
+    })
+}
+
+fn polygon_wkb<P: NativePoint>(
+    rings: &[PolygonRing<P>],
+    dimensions: CoordinateDimensions,
+) -> Result<WkbGeometry> {
+    let mut polygons = Vec::<WkbGeometry>::new();
+    let mut current = None::<Vec<Vec<WkbCoordinate>>>;
+    for ring in rings {
+        match ring {
+            PolygonRing::Outer(points) => {
+                if let Some(rings) = current.take() {
+                    polygons.push(WkbGeometry {
+                        value: WkbValue::Polygon(rings),
+                        dimensions,
+                        srid: None,
+                    });
+                }
+                current = Some(vec![native_coordinates(points, dimensions)?]);
+            }
+            PolygonRing::Inner(points) => {
+                let current = current
+                    .as_mut()
+                    .ok_or_else(|| err("anello interno Shapefile senza anello esterno"))?;
+                current.push(native_coordinates(points, dimensions)?);
+            }
+        }
+    }
+    if let Some(rings) = current {
+        polygons.push(WkbGeometry {
+            value: WkbValue::Polygon(rings),
+            dimensions,
+            srid: None,
+        });
+    }
+    if polygons.is_empty() {
+        return Err(err("Polygon Shapefile senza anelli esterni"));
+    }
+    Ok(WkbGeometry {
+        value: WkbValue::MultiPolygon(polygons),
+        dimensions,
+        srid: None,
+    })
+}
+
+fn multipoint_wkb<P: NativePoint>(
+    points: &[P],
+    dimensions: CoordinateDimensions,
+) -> Result<WkbGeometry> {
+    let children = points
+        .iter()
+        .map(|point| {
+            Ok(WkbGeometry {
+                value: WkbValue::Point(native_coordinate(point, dimensions)?),
+                dimensions,
+                srid: None,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(WkbGeometry {
+        value: WkbValue::MultiPoint(children),
+        dimensions,
+        srid: None,
+    })
+}
+
+fn shape_to_wkb(shape: &Shape, dimensions: CoordinateDimensions) -> Result<Option<WkbGeometry>> {
+    let geometry = match shape {
+        Shape::NullShape => return Ok(None),
+        Shape::Point(point) => WkbGeometry {
+            value: WkbValue::Point(native_coordinate(point, dimensions)?),
+            dimensions,
+            srid: None,
+        },
+        Shape::PointM(point) => WkbGeometry {
+            value: WkbValue::Point(native_coordinate(point, dimensions)?),
+            dimensions,
+            srid: None,
+        },
+        Shape::PointZ(point) => WkbGeometry {
+            value: WkbValue::Point(native_coordinate(point, dimensions)?),
+            dimensions,
+            srid: None,
+        },
+        Shape::Polyline(polyline) => polyline_wkb(polyline.parts(), dimensions)?,
+        Shape::PolylineM(polyline) => polyline_wkb(polyline.parts(), dimensions)?,
+        Shape::PolylineZ(polyline) => polyline_wkb(polyline.parts(), dimensions)?,
+        Shape::Polygon(polygon) => polygon_wkb(polygon.rings(), dimensions)?,
+        Shape::PolygonM(polygon) => polygon_wkb(polygon.rings(), dimensions)?,
+        Shape::PolygonZ(polygon) => polygon_wkb(polygon.rings(), dimensions)?,
+        Shape::Multipoint(multipoint) => multipoint_wkb(multipoint.points(), dimensions)?,
+        Shape::MultipointM(multipoint) => multipoint_wkb(multipoint.points(), dimensions)?,
+        Shape::MultipointZ(multipoint) => multipoint_wkb(multipoint.points(), dimensions)?,
+        Shape::Multipatch(_) => {
+            return Err(err(
+                "Multipatch non ha una conversione WKB univoca ed è rifiutato",
+            ))
+        }
+    };
+    Ok(Some(geometry))
+}
+
+fn shape_has_valid_measure(shape: &Shape) -> bool {
+    let valid = |measure: f64| !(measure <= NO_DATA);
+    match shape {
+        Shape::PointZ(point) => valid(point.m),
+        Shape::PolylineZ(polyline) => polyline
+            .parts()
+            .iter()
+            .flatten()
+            .any(|point| valid(point.m)),
+        Shape::PolygonZ(polygon) => polygon
+            .rings()
+            .iter()
+            .flat_map(PolygonRing::points)
+            .any(|point| valid(point.m)),
+        Shape::MultipointZ(multipoint) => multipoint.points().iter().any(|point| valid(point.m)),
+        _ => false,
+    }
+}
+
+fn geometry_type_for_shape(shape: &Shape) -> Option<GeometryType> {
+    match shape {
+        Shape::Point(_) | Shape::PointM(_) | Shape::PointZ(_) => Some(GeometryType::Point),
+        Shape::Polyline(_) | Shape::PolylineM(_) | Shape::PolylineZ(_) => {
+            Some(GeometryType::MultiLineString)
+        }
+        Shape::Polygon(_) | Shape::PolygonM(_) | Shape::PolygonZ(_) => {
+            Some(GeometryType::MultiPolygon)
+        }
+        Shape::Multipoint(_) | Shape::MultipointM(_) | Shape::MultipointZ(_) => {
+            Some(GeometryType::MultiPoint)
+        }
+        Shape::NullShape | Shape::Multipatch(_) => None,
+    }
+}
+
+fn dimensions_for_shape_tag(shape_type: Option<&str>, z_has_measure: bool) -> CoordinateDimensions {
+    match shape_type {
+        Some(tag) if tag.ends_with("-xy") => CoordinateDimensions::Xy,
+        Some(tag) if tag.ends_with("-m") => CoordinateDimensions::Xym,
+        Some(tag) if tag.ends_with("-z") && z_has_measure => CoordinateDimensions::Xyzm,
+        Some(tag) if tag.ends_with("-z") => CoordinateDimensions::Xyz,
+        _ => CoordinateDimensions::Unknown,
+    }
+}
+
+/// Pass 1: nomi campo, tipo DBF e contratto geometrico nativo, a RAM O(ncol).
+fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryInfo)> {
     let mut reader =
         shapefile::Reader::from_path(path).map_err(|e| err(format!("apertura shapefile: {e}")))?;
     let mut order: Vec<String> = Vec::new();
-    let mut accs: std::collections::HashMap<String, Acc> = std::collections::HashMap::new();
+    let mut accs: HashMap<String, Acc> = HashMap::new();
+    let mut shape_type = None;
+    let mut geometry_types = BTreeSet::new();
+    let mut z_has_measure = false;
     for pair in reader.iter_shapes_and_records() {
-        let (_, record) = pair.map_err(|e| err(format!("record shapefile: {e}")))?;
+        let (shape, record) = pair.map_err(|e| err(format!("record shapefile: {e}")))?;
+        let tag = shape_tag(&shape);
+        if tag == "unsupported" {
+            return Err(err("Multipatch Shapefile non supportato"));
+        }
+        if !tag.is_empty() {
+            match shape_type {
+                None => shape_type = Some(tag),
+                Some(existing) if existing != tag => {
+                    return Err(err(format!(
+                        "tipi Shape incoerenti nel file: '{existing}' e '{tag}'"
+                    )))
+                }
+                _ => {}
+            }
+        }
+        z_has_measure |= shape_has_valid_measure(&shape);
+        if let Some(geometry_type) = geometry_type_for_shape(&shape) {
+            geometry_types.insert(geometry_type);
+        }
         for (name, value) in record {
             if !accs.contains_key(&name) {
                 order.push(name.clone());
@@ -534,13 +1255,21 @@ fn infer_shp_schema(path: &Path) -> Result<Vec<(String, ColType)>> {
             accs.get_mut(&name).unwrap().observe(classify(&value));
         }
     }
-    Ok(order
+    let columns = order
         .into_iter()
         .map(|n| {
             let ct = accs[&n].coltype();
             (n, ct)
         })
-        .collect())
+        .collect();
+    Ok((
+        columns,
+        ShpGeometryInfo {
+            dimensions: dimensions_for_shape_tag(shape_type, z_has_measure),
+            geometry_types: geometry_types.into_iter().collect(),
+            shape_type,
+        },
+    ))
 }
 
 /// Pass 2: thread che scorre i record e produce batch da `batch_size` righe.
@@ -548,6 +1277,7 @@ fn spawn_parser(
     path: PathBuf,
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
+    dimensions: CoordinateDimensions,
     batch_size: usize,
 ) -> Receiver<std::result::Result<RecordBatch, String>> {
     let (tx, rx) = sync_channel::<std::result::Result<RecordBatch, String>>(2);
@@ -555,22 +1285,21 @@ fn spawn_parser(
         let run = || -> std::result::Result<(), String> {
             let mut reader = shapefile::Reader::from_path(&path).map_err(|e| e.to_string())?;
             let mut geom = BinaryBuilder::new();
-            let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per record: 0 alloc WKB nel loop
             let mut builders: Vec<ShpColBuilder> =
                 cols.iter().map(|(_, ct)| ShpColBuilder::new(*ct)).collect();
             let mut n = 0usize;
             for pair in reader.iter_shapes_and_records() {
                 let (shape, record) = pair.map_err(|e| e.to_string())?;
-                match geo_types::Geometry::<f64>::try_from(shape) {
-                    Ok(g) => {
-                        to_wkb_into(&g, &mut wkb_buf).map_err(|e| e.to_string())?;
-                        geom.append_value(&wkb_buf);
+                match shape_to_wkb(&shape, dimensions).map_err(|e| e.to_string())? {
+                    Some(geometry) => {
+                        let bytes =
+                            encode_wkb(&geometry, WkbFlavor::Iso).map_err(|e| e.to_string())?;
+                        geom.append_value(bytes);
                     }
-                    Err(_) => geom.append_null(),
+                    None => geom.append_null(),
                 }
                 // Lookup per nome (l'ordine di iterazione del Record non è garantito).
-                let map: std::collections::HashMap<String, FieldValue> =
-                    record.into_iter().collect();
+                let map: HashMap<String, FieldValue> = record.into_iter().collect();
                 for (k, (name, _)) in cols.iter().enumerate() {
                     builders[k].append(map.get(name));
                 }
@@ -688,6 +1417,18 @@ fn fv_string(v: &FieldValue) -> Option<String> {
     }
 }
 
+/// Entry point non stabile per libFuzzer: decodifica WKB dimensionale,
+/// conversione nella shape ESRI concreta e ritorno a WKB.
+#[doc(hidden)]
+pub fn __fuzz_wkb_roundtrip(bytes: &[u8]) -> Result<usize> {
+    let geometry = decode_wkb(bytes, &WkbLimits::default())?;
+    let dimensions = geometry.dimensions;
+    let shape = shape_from_wkb(&geometry)?;
+    let round_trip = shape_to_wkb(&shape, dimensions)?
+        .ok_or_else(|| err("la conversione di una geometria ha prodotto NullShape"))?;
+    Ok(encode_wkb(&round_trip, WkbFlavor::Iso)?.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -699,6 +1440,7 @@ mod tests {
         ReadOptions {
             assume_crs: Some("EPSG:4326".to_owned()),
             format_options: Default::default(),
+            ..ReadOptions::default()
         }
     }
 
@@ -721,8 +1463,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("pts.shp");
 
-        let wkb1 = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(12.5, 45.9))).unwrap();
-        let wkb2 = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(9.19, 45.46))).unwrap();
+        let wkb1 = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
+            12.5, 45.9,
+        )))
+        .unwrap();
+        let wkb2 = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
+            9.19, 45.46,
+        )))
+        .unwrap();
         let schema: SchemaRef = Arc::new(Schema::new(vec![
             geometry_field(GEOMETRY, "EPSG:4326"),
             Field::new("nome", DataType::Utf8, true),
@@ -802,7 +1550,13 @@ mod tests {
             )
             .map(|_| ())
             .unwrap_err();
-        assert!(matches!(e, PlenoraError::Unsupported(_)));
+        assert!(matches!(
+            e,
+            PlenoraError::Capability {
+                reason: plenora_core::CapabilityReason::FieldNameTooLong,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -814,8 +1568,10 @@ mod tests {
         let out = dir.path().join("many.shp");
         let wkb: Vec<Vec<u8>> = (0..10)
             .map(|i| {
-                to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(i as f64, i as f64)))
-                    .unwrap()
+                to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
+                    i as f64, i as f64,
+                )))
+                .unwrap()
             })
             .collect();
         let schema: SchemaRef = Arc::new(Schema::new(vec![
@@ -868,6 +1624,191 @@ mod tests {
             batches += 1;
         }
         assert_eq!(total, 10);
-        assert!(batches >= 3, "atteso streaming multi-batch, avuti {batches}");
+        assert!(
+            batches >= 3,
+            "atteso streaming multi-batch, avuti {batches}"
+        );
+    }
+
+    fn dimensional_point(
+        dimensions: CoordinateDimensions,
+        z: Option<f64>,
+        m: Option<f64>,
+    ) -> WkbGeometry {
+        WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 12.5,
+                y: 45.9,
+                z,
+                m,
+            }),
+            dimensions,
+            srid: None,
+        }
+    }
+
+    fn round_trip_dimensional_point(
+        dimensions: CoordinateDimensions,
+        geometry: WkbGeometry,
+    ) -> WkbGeometry {
+        use arrow_array::Int64Array;
+
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join(format!("{dimensions:?}.shp"));
+        let bytes = encode_wkb(&geometry, WkbFlavor::Iso).unwrap();
+        let mut geometry_contract =
+            GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
+        geometry_contract.dimensions = dimensions;
+        geometry_contract.geometry_types = vec![GeometryType::Point];
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            with_geometry_contract_metadata(
+                &geometry_field(GEOMETRY, "EPSG:4326"),
+                &geometry_contract,
+            ),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(bytes.as_slice())])),
+                Arc::new(Int64Array::from(vec![1_i64])),
+            ],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "points".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometry_contract),
+                },
+            }],
+        };
+
+        let driver = ShpDriver;
+        let mut writer = driver
+            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        let mut native = shapefile::Reader::from_path(&out).unwrap();
+        let (shape, _) = native.iter_shapes_and_records().next().unwrap().unwrap();
+        match dimensions {
+            CoordinateDimensions::Xym => assert!(matches!(shape, Shape::PointM(_))),
+            CoordinateDimensions::Xyz | CoordinateDimensions::Xyzm => {
+                assert!(matches!(shape, Shape::PointZ(_)))
+            }
+            _ => unreachable!("test solo dimensionale"),
+        }
+
+        let dataset = driver.open(Source::Path(out), &read_opts()).unwrap();
+        let layer = &dataset.layers()[0];
+        let output_contract = layer.contract.geometry.as_ref().unwrap();
+        assert_eq!(output_contract.dimensions, dimensions);
+        assert_eq!(output_contract.geometry_types, vec![GeometryType::Point]);
+        assert!(output_contract
+            .native_metadata
+            .contains_key("shp.shape_type"));
+        let mut reader = dataset.open_layer_reader(&req()).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        let geometry = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap()
+    }
+
+    #[test]
+    fn round_trip_preserves_xyz_xym_and_xyzm_points() {
+        let cases = [
+            dimensional_point(CoordinateDimensions::Xyz, Some(123.25), None),
+            dimensional_point(CoordinateDimensions::Xym, None, Some(7.5)),
+            dimensional_point(CoordinateDimensions::Xyzm, Some(123.25), Some(7.5)),
+        ];
+        for expected in cases {
+            let actual = round_trip_dimensional_point(expected.dimensions, expected.clone());
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn direct_conversion_preserves_xyzm_multiline_and_no_data_measure() {
+        let dimensions = CoordinateDimensions::Xyzm;
+        let line = WkbGeometry {
+            value: WkbValue::MultiLineString(vec![WkbGeometry {
+                value: WkbValue::LineString(vec![
+                    WkbCoordinate {
+                        x: 0.0,
+                        y: 1.0,
+                        z: Some(2.0),
+                        m: Some(NO_DATA),
+                    },
+                    WkbCoordinate {
+                        x: 3.0,
+                        y: 4.0,
+                        z: Some(5.0),
+                        m: Some(6.0),
+                    },
+                ]),
+                dimensions,
+                srid: None,
+            }]),
+            dimensions,
+            srid: None,
+        };
+        let shape = shape_from_wkb(&line).unwrap();
+        assert!(matches!(shape, Shape::PolylineZ(_)));
+        let decoded = shape_to_wkb(&shape, dimensions).unwrap().unwrap();
+        assert_eq!(decoded, line);
+    }
+
+    #[test]
+    fn direct_conversion_preserves_xyzm_multipolygon_rings() {
+        let dimensions = CoordinateDimensions::Xyzm;
+        let coordinate = |x, y, z, m| WkbCoordinate {
+            x,
+            y,
+            z: Some(z),
+            m: Some(m),
+        };
+        let exterior = vec![
+            coordinate(0.0, 0.0, 1.0, 10.0),
+            coordinate(0.0, 5.0, 2.0, 11.0),
+            coordinate(5.0, 5.0, 3.0, 12.0),
+            coordinate(5.0, 0.0, 4.0, 13.0),
+            coordinate(0.0, 0.0, 1.0, 10.0),
+        ];
+        let interior = vec![
+            coordinate(1.0, 1.0, 5.0, 14.0),
+            coordinate(4.0, 1.0, 6.0, 15.0),
+            coordinate(4.0, 4.0, 7.0, 16.0),
+            coordinate(1.0, 4.0, 8.0, 17.0),
+            coordinate(1.0, 1.0, 5.0, 14.0),
+        ];
+        let polygon = WkbGeometry {
+            value: WkbValue::MultiPolygon(vec![WkbGeometry {
+                value: WkbValue::Polygon(vec![exterior, interior]),
+                dimensions,
+                srid: None,
+            }]),
+            dimensions,
+            srid: None,
+        };
+        let shape = shape_from_wkb(&polygon).unwrap();
+        assert!(matches!(shape, Shape::PolygonZ(_)));
+        let decoded = shape_to_wkb(&shape, dimensions).unwrap().unwrap();
+        assert_eq!(decoded, polygon);
+    }
+
+    #[test]
+    fn geometry_collection_is_rejected_without_xy_normalization() {
+        let geometry = WkbGeometry {
+            value: WkbValue::GeometryCollection(Vec::new()),
+            dimensions: CoordinateDimensions::Xyz,
+            srid: None,
+        };
+        assert!(shape_from_wkb(&geometry).is_err());
     }
 }

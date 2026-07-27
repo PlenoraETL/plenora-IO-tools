@@ -1,9 +1,12 @@
 //! `DataContract` e affini (scheletro Fase 0). La v1 ammette al massimo una
 //! colonna geometria (Architetture §2.2, D16 data-tools).
 
-use arrow_schema::SchemaRef;
+use std::collections::BTreeMap;
 
-use crate::crs::ResolvedCrs;
+use arrow_schema::SchemaRef;
+use serde::Serialize;
+
+use crate::crs::{CrsResolution, ResolvedCrs};
 
 /// Identità logica stabile di un campo nel grafo (namespace globale).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -12,13 +15,111 @@ pub struct FieldId(pub u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct LayerId(pub u32);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeometryEncoding {
+    Wkb,
+    Ewkb,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinateDimensions {
+    Xy,
+    Xyz,
+    Xym,
+    Xyzm,
+    /// Il driver preserva i byte ma non ha ancora risolto la dimensionalità.
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpatialSemantics {
+    Geometry,
+    Geography,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CoordinatePrecision {
+    Float64,
+    Float32,
+    /// Precisione delegata al formato/database e descritta in
+    /// `native_metadata`.
+    Native,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GeometryType {
+    Point,
+    LineString,
+    Polygon,
+    MultiPoint,
+    MultiLineString,
+    MultiPolygon,
+    GeometryCollection,
+}
+
 /// Contratto di una colonna geometrica.
 #[derive(Clone, Debug)]
 pub struct GeometryColumnContract {
     pub field_id: FieldId,
     pub name: String,
-    pub crs: ResolvedCrs,
+    pub crs: CrsResolution,
     pub nullable: bool,
+    pub encoding: GeometryEncoding,
+    pub dimensions: CoordinateDimensions,
+    pub spatial_semantics: SpatialSemantics,
+    /// SRID nativo quando è distinto o aggiuntivo rispetto al CRS risolto.
+    pub srid: Option<i32>,
+    pub precision: CoordinatePrecision,
+    /// Tipi noti staticamente. Vuoto significa non ancora determinato; non
+    /// equivale a "nessuna geometria".
+    pub geometry_types: Vec<GeometryType>,
+    /// Metadati nativi namespaced, per esempio `postgis.typmod`,
+    /// `gpkg.geometry_type_name`, `sql.type_name`.
+    pub native_metadata: BTreeMap<String, String>,
+}
+
+impl GeometryColumnContract {
+    pub fn wkb_xy(
+        field_id: FieldId,
+        name: impl Into<String>,
+        crs: impl Into<CrsResolution>,
+        nullable: bool,
+    ) -> Self {
+        Self {
+            field_id,
+            name: name.into(),
+            crs: crs.into(),
+            nullable,
+            encoding: GeometryEncoding::Wkb,
+            dimensions: CoordinateDimensions::Xy,
+            spatial_semantics: SpatialSemantics::Geometry,
+            srid: None,
+            precision: CoordinatePrecision::Float64,
+            geometry_types: Vec::new(),
+            native_metadata: BTreeMap::new(),
+        }
+    }
+
+    pub fn wkb_passthrough(
+        field_id: FieldId,
+        name: impl Into<String>,
+        crs: impl Into<CrsResolution>,
+        nullable: bool,
+    ) -> Self {
+        Self {
+            dimensions: CoordinateDimensions::Unknown,
+            ..Self::wkb_xy(field_id, name, crs, nullable)
+        }
+    }
+
+    pub fn resolved_crs(&self) -> Option<&ResolvedCrs> {
+        self.crs.as_resolved()
+    }
 }
 
 /// Contratto dei dati che attraversano un arco / un layer.

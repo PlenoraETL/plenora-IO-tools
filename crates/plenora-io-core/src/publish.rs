@@ -36,6 +36,23 @@ pub fn publish_file_atomic(
     Ok((bytes, finalize_durability(dest, durable)))
 }
 
+/// Variante bounded: verifica la dimensione del tempfile prima del rename, così
+/// un superamento non rende mai visibile l'output.
+pub fn publish_file_atomic_limited(
+    temp: NamedTempFile,
+    dest: &Path,
+    durable: bool,
+    max_output_bytes: u64,
+) -> Result<(u64, PublishOutcome)> {
+    let bytes = temp.as_file().metadata()?.len();
+    if bytes > max_output_bytes {
+        return Err(PlenoraError::LimitExceeded(format!(
+            "output da {bytes} byte oltre il limite di {max_output_bytes}"
+        )));
+    }
+    publish_file_atomic(temp, dest, durable)
+}
+
 /// Pubblica una directory-dataset (multi-file / multi-layer) con un unico rename
 /// atomico (staging dir -> destinazione), sullo stesso filesystem. I singoli
 /// file nella staging sono già stati fsyncati dal driver (passo 1).
@@ -73,4 +90,22 @@ fn fsync_dir(_dir: &Path) -> std::io::Result<()> {
     // Il fsync di directory non è disponibile in modo portabile su Windows:
     // la durabilità del nome si affida alle garanzie del filesystem.
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use super::*;
+
+    #[test]
+    fn output_limit_is_checked_before_publish() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("output.bin");
+        let mut temp = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+        temp.write_all(&[0_u8; 8]).unwrap();
+        let result = publish_file_atomic_limited(temp, &destination, false, 7);
+        assert!(matches!(result, Err(PlenoraError::LimitExceeded(_))));
+        assert!(!destination.exists());
+    }
 }

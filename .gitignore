@@ -9,3 +9,7 @@
 
 # Artefatti del fuzzer (input che riproducono un finding, container-locali)
 /fuzz-findings/
+/fuzz/artifacts/
+/fuzz/corpus/
+/fuzz/logs/
+/fuzz/target/

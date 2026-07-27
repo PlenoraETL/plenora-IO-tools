@@ -1,6 +1,7 @@
 //! driver-csv — CSV ⇄ RecordBatch. La geometria è dichiarata via
-//! `format_options`: `x_column`+`y_column` (Point) oppure `wkt_column` (qualsiasi
-//! tipo). CSV non porta CRS: `assume_crs` è obbligatorio (ADR-IO 4).
+//! `format_options`: `x_column`+`y_column` (Point XY) oppure `wkt_column`
+//! (WKT XY/XYZ/XYM/XYZM). CSV non porta CRS: `assume_crs` è obbligatorio
+//! (ADR-IO 4).
 //!
 //! Lettura **streaming** (Fase 2A): righe scorse via `csv::StringRecord` riusato
 //! (i campi sono `&str`, niente String per cella). Due passate: pass-1 (`open`)
@@ -11,7 +12,7 @@
 //! per righe (niente buffering dei batch).
 #![forbid(unsafe_code)]
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -26,14 +27,17 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use serde_json::Value as JsonValue;
-use wkt::{ToWkt, TryFromWkt};
 
+use driver_common::wkt_lossless::{format_wkt, parse_wkt};
 use driver_common::{geometry_field, json_from_array, ColType};
-use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId};
+use plenora_core::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
 use plenora_core::crs::{CrsKind, ResolvedCrs};
-use plenora_core::geometry::is_geometry_field;
+use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata};
 use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{from_wkb, to_wkb_into};
+use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -44,9 +48,13 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic;
+use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
-use plenora_io_core::WritePlan;
+use plenora_io_core::{
+    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
+    UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+};
 
 const GEOMETRY: &str = "geometry";
 
@@ -68,9 +76,19 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     crs_handling: CrsHandling::None,
     fidelity_class: Fidelity::Conditional,
     runtime: Runtime::PureRust,
+    write_capabilities: Some(FormatWriteCapabilities {
+        field_names: UTF8_FIELD_NAMES,
+        allowed_types: SCALAR_TYPES,
+        type_coercion: TypeCoercionPolicy::ExplicitText,
+        attributes: AttributeWriteSupport::All,
+        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        crs: CrsWriteSupport::None,
+        nullability: NullabilitySupport::FormatDefined,
+        multi_layer: false,
+    }),
     semantic_version: 1,
-    driver_version: 2,
-    descriptor_version: 1,
+    driver_version: 3,
+    descriptor_version: 2,
 };
 
 pub struct CsvDriver;
@@ -102,7 +120,7 @@ impl FormatDriver for CsvDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let Source::Path(path) = source;
+        let path = source.into_path_checked(&opts.limits)?;
         let delim = delimiter(&opts.format_options);
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraError::Crs("CSV con geometria richiede --assume-crs".to_owned())
@@ -131,9 +149,10 @@ impl FormatDriver for CsvDriver {
             if let Some(w) = opts.format_options.get("wkt_column") {
                 let wi = idx(w).ok_or_else(|| err(format!("colonna WKT '{w}' assente")))?;
                 (GeomSpec::Wkt(wi), HashSet::from([wi]))
-            } else if let (Some(x), Some(y)) =
-                (opts.format_options.get("x_column"), opts.format_options.get("y_column"))
-            {
+            } else if let (Some(x), Some(y)) = (
+                opts.format_options.get("x_column"),
+                opts.format_options.get("y_column"),
+            ) {
                 let xi = idx(x).ok_or_else(|| err(format!("colonna X '{x}' assente")))?;
                 let yi = idx(y).ok_or_else(|| err(format!("colonna Y '{y}' assente")))?;
                 (GeomSpec::Xy(xi, yi), HashSet::from([xi, yi]))
@@ -146,28 +165,46 @@ impl FormatDriver for CsvDriver {
         // Pass 1: inferenza tipi (RAM O(ncol), nessuna String per cella).
         let attrs = infer_types(&path, delim, &headers, &geom_cols)?;
 
-        let mut fields = vec![geometry_field(GEOMETRY, &crs)];
-        for (ci, ct) in &attrs {
-            fields.push(Field::new(&headers[*ci], coltype_to_dt(*ct), true));
-        }
-        let schema: SchemaRef = Arc::new(Schema::new(fields));
+        let (dimensions, geometry_types) = match geom {
+            GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi)?,
+            GeomSpec::Xy(_, _) => (CoordinateDimensions::Xy, vec![GeometryType::Point]),
+        };
         let kind = if crs == "OGC:CRS84" || crs == "EPSG:4326" {
             CrsKind::Geographic
         } else {
             CrsKind::Unknown
         };
+        let mut geometry_contract = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            GEOMETRY,
+            ResolvedCrs {
+                id: Some(crs.clone()),
+                kind,
+                definition: None,
+            },
+            true,
+        );
+        geometry_contract.dimensions = dimensions;
+        geometry_contract.geometry_types = geometry_types;
+        let native_encoding = match geom {
+            GeomSpec::Wkt(_) => "wkt",
+            GeomSpec::Xy(_, _) => "xy_columns",
+        };
+        geometry_contract.native_metadata.insert(
+            "csv.geometry_encoding".to_owned(),
+            native_encoding.to_owned(),
+        );
+        let mut fields = vec![with_geometry_contract_metadata(
+            &geometry_field(GEOMETRY, &crs),
+            &geometry_contract,
+        )];
+        for (ci, ct) in &attrs {
+            fields.push(Field::new(&headers[*ci], coltype_to_dt(*ct), true));
+        }
+        let schema: SchemaRef = Arc::new(Schema::new(fields));
         let contract = DataContract {
             schema: schema.clone(),
-            geometry: Some(GeometryColumnContract {
-                field_id: FieldId(0),
-                name: GEOMETRY.to_owned(),
-                crs: ResolvedCrs {
-                    id: Some(crs.clone()),
-                    kind,
-                    definition: None,
-                },
-                nullable: true,
-            }),
+            geometry: Some(geometry_contract),
         };
         let name = path
             .file_stem()
@@ -194,6 +231,7 @@ impl FormatDriver for CsvDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraError::OutputExists(path.display().to_string()));
@@ -213,7 +251,9 @@ impl FormatDriver for CsvDriver {
             ));
         }
         let xy = matches!(
-            opts.format_options.get("geometry_encoding").map(String::as_str),
+            opts.format_options
+                .get("geometry_encoding")
+                .map(String::as_str),
             Some("xy")
         );
         let parent = path
@@ -225,14 +265,21 @@ impl FormatDriver for CsvDriver {
         let writer = csv::WriterBuilder::new()
             .delimiter(delimiter(&opts.format_options))
             .from_writer(temp.reopen()?);
-        Ok(Box::new(CsvWriter {
-            temp: Some(temp),
-            writer: Some(writer),
-            path,
-            durable: opts.durable,
-            xy,
-            header_written: false,
-        }))
+        Ok(with_write_validation(
+            Box::new(CsvWriter {
+                temp: Some(temp),
+                writer: Some(writer),
+                path,
+                durable: opts.durable,
+                xy,
+                header_written: false,
+                wkb_limits: opts.limits.effective_wkb(),
+                max_output_bytes: opts.limits.max_output_bytes,
+            }),
+            self.descriptor(),
+            plan,
+            opts.limits,
+        ))
     }
 }
 
@@ -380,7 +427,9 @@ fn infer_types(
     headers: &[String],
     geom_cols: &HashSet<usize>,
 ) -> Result<Vec<(usize, ColType)>> {
-    let attr_idx: Vec<usize> = (0..headers.len()).filter(|i| !geom_cols.contains(i)).collect();
+    let attr_idx: Vec<usize> = (0..headers.len())
+        .filter(|i| !geom_cols.contains(i))
+        .collect();
     let mut accs = vec![Acc::default(); attr_idx.len()];
     let mut rdr = csv_reader(path, delim)?;
     let mut rec = csv::StringRecord::new();
@@ -397,6 +446,35 @@ fn infer_types(
         .zip(accs)
         .map(|(ci, a)| (ci, a.coltype()))
         .collect())
+}
+
+fn infer_wkt_geometry(
+    path: &Path,
+    delim: u8,
+    wkt_index: usize,
+) -> Result<(CoordinateDimensions, Vec<GeometryType>)> {
+    let mut reader = csv_reader(path, delim)?;
+    let mut record = csv::StringRecord::new();
+    let mut dimensions = BTreeSet::new();
+    let mut geometry_types = BTreeSet::new();
+    while reader
+        .read_record(&mut record)
+        .map_err(|error| err(format!("riga CSV non valida: {error}")))?
+    {
+        let text = record.get(wkt_index).unwrap_or("").trim();
+        if text.is_empty() {
+            continue;
+        }
+        let geometry = parse_wkt(text)?;
+        dimensions.insert(geometry.dimensions);
+        geometry_types.insert(geometry.geometry_type());
+    }
+    let dimensions = if dimensions.len() == 1 {
+        *dimensions.iter().next().expect("una dimensione")
+    } else {
+        CoordinateDimensions::Unknown
+    };
+    Ok((dimensions, geometry_types.into_iter().collect()))
 }
 
 fn spawn_parser(
@@ -462,9 +540,8 @@ fn append_geometry(
             if cell.is_empty() {
                 geom_b.append_null();
             } else {
-                let g = geo_types::Geometry::<f64>::try_from_wkt_str(cell)
-                    .map_err(|e| format!("WKT non valido: {e}"))?;
-                to_wkb_into(&g, buf).map_err(|e| e.to_string())?;
+                let geometry = parse_wkt(cell).map_err(|error| error.to_string())?;
+                *buf = encode_wkb(&geometry, WkbFlavor::Iso).map_err(|error| error.to_string())?;
                 geom_b.append_value(&buf);
             }
         }
@@ -473,8 +550,18 @@ fn append_geometry(
             let y = rec.get(yi).unwrap_or("").trim().parse::<f64>();
             match (x, y) {
                 (Ok(x), Ok(y)) => {
-                    let g = geo_types::Geometry::Point(geo_types::Point::new(x, y));
-                    to_wkb_into(&g, buf).map_err(|e| e.to_string())?;
+                    let geometry = WkbGeometry {
+                        value: WkbValue::Point(WkbCoordinate {
+                            x,
+                            y,
+                            z: None,
+                            m: None,
+                        }),
+                        dimensions: CoordinateDimensions::Xy,
+                        srid: None,
+                    };
+                    *buf =
+                        encode_wkb(&geometry, WkbFlavor::Iso).map_err(|error| error.to_string())?;
                     geom_b.append_value(&buf);
                 }
                 _ => geom_b.append_null(),
@@ -553,6 +640,8 @@ struct CsvWriter {
     durable: bool,
     xy: bool,
     header_written: bool,
+    wkb_limits: WkbLimits,
+    max_output_bytes: u64,
 }
 
 impl FormatWriter for CsvWriter {
@@ -568,7 +657,7 @@ impl FormatWriter for CsvWriter {
             .as_any()
             .downcast_ref::<BinaryArray>()
             .ok_or_else(|| err("colonna geometria non binaria"))?;
-        let limits = WkbLimits::default();
+        let limits = self.wkb_limits;
         let xy = self.xy;
         let w = self.writer.as_mut().ok_or_else(|| err("writer chiuso"))?;
 
@@ -595,7 +684,8 @@ impl FormatWriter for CsvWriter {
         for row in 0..batch.num_rows() {
             for (i, _) in schema.fields().iter().enumerate() {
                 if i != geom_idx {
-                    write_cell(w, batch.column(i), row, &mut fbuf).map_err(|e| err(e.to_string()))?;
+                    write_cell(w, batch.column(i), row, &mut fbuf)
+                        .map_err(|e| err(e.to_string()))?;
                 }
             }
             if geom_col.is_null(row) {
@@ -604,26 +694,29 @@ impl FormatWriter for CsvWriter {
                     w.write_field("").map_err(|e| err(e.to_string()))?;
                 }
             } else {
-                let geom = from_wkb(geom_col.value(row), &limits)?;
+                let geom = decode_wkb(geom_col.value(row), &limits)?;
                 if xy {
-                    match geom {
-                        geo_types::Geometry::Point(p) => {
+                    match geom.value {
+                        WkbValue::Point(point) if geom.dimensions == CoordinateDimensions::Xy => {
                             fbuf.clear();
-                            let _ = write!(fbuf, "{}", p.x());
+                            let _ = write!(fbuf, "{}", point.x);
                             w.write_field(&fbuf).map_err(|e| err(e.to_string()))?;
                             fbuf.clear();
-                            let _ = write!(fbuf, "{}", p.y());
+                            let _ = write!(fbuf, "{}", point.y);
                             w.write_field(&fbuf).map_err(|e| err(e.to_string()))?;
                         }
-                        _ => return Err(err("encoding xy richiede geometrie Point")),
+                        _ => {
+                            return Err(err("encoding xy richiede geometrie Point strettamente XY"))
+                        }
                     }
                 } else {
-                    w.write_field(geom.wkt_string())
+                    w.write_field(format_wkt(&geom)?)
                         .map_err(|e| err(e.to_string()))?;
                 }
             }
             // Termina il record (dopo i write_field).
-            w.write_record(None::<&[u8]>).map_err(|e| err(e.to_string()))?;
+            w.write_record(None::<&[u8]>)
+                .map_err(|e| err(e.to_string()))?;
         }
         Ok(())
     }
@@ -633,7 +726,8 @@ impl FormatWriter for CsvWriter {
         w.flush().map_err(|e| err(e.to_string()))?;
         drop(w);
         let temp = self.temp.take().ok_or_else(|| err("temp mancante"))?;
-        let (bytes, outcome) = publish_file_atomic(temp, &self.path, self.durable)?;
+        let (bytes, outcome) =
+            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),
@@ -700,6 +794,7 @@ mod tests {
         ReadOptions {
             assume_crs: Some("EPSG:4326".to_owned()),
             format_options: opts(pairs),
+            ..ReadOptions::default()
         }
     }
 
@@ -731,7 +826,7 @@ mod tests {
             )
             .unwrap();
         let geom = ds.layers()[0].contract.geometry.as_ref().unwrap();
-        assert_eq!(geom.crs.id.as_deref(), Some("EPSG:4326"));
+        assert_eq!(geom.crs.id(), Some("EPSG:4326"));
         let mut reader = ds.open_layer_reader(&req(65_536)).unwrap();
         let batch = reader.next_batch().unwrap().unwrap();
         assert_eq!(batch.num_rows(), 2);
@@ -779,6 +874,120 @@ mod tests {
             batches += 1;
         }
         assert_eq!(total, 10);
-        assert!(batches >= 3, "atteso streaming multi-batch, avuti {batches}");
+        assert!(
+            batches >= 3,
+            "atteso streaming multi-batch, avuti {batches}"
+        );
+    }
+
+    #[test]
+    fn wkt_xyzm_round_trip_preserves_payload_and_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("xyzm.csv");
+        std::fs::write(
+            &source,
+            "id,geom\n1,\"MULTIPOLYGON ZM (((0 0 1 10,0 2 2 11,2 0 3 12,0 0 1 10)))\"\n",
+        )
+        .unwrap();
+
+        let driver = CsvDriver;
+        let dataset = driver
+            .open(Source::Path(source), &read_opts(&[("wkt_column", "geom")]))
+            .unwrap();
+        let contract = dataset.layers()[0].contract.clone();
+        let geometry_contract = contract.geometry.as_ref().unwrap();
+        assert_eq!(geometry_contract.dimensions, CoordinateDimensions::Xyzm);
+        assert_eq!(
+            geometry_contract.geometry_types,
+            vec![GeometryType::MultiPolygon]
+        );
+        let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        let input_geometry = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        let expected = decode_wkb(input_geometry.value(0), &WkbLimits::default()).unwrap();
+
+        let output = dir.path().join("xyzm-out.csv");
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "layer".to_owned(),
+                contract,
+            }],
+        };
+        let mut writer = driver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        let reopened = driver
+            .open(
+                Source::Path(output),
+                &read_opts(&[("wkt_column", "geometry")]),
+            )
+            .unwrap();
+        assert_eq!(
+            reopened.layers()[0]
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .dimensions,
+            CoordinateDimensions::Xyzm
+        );
+        let mut reader = reopened.open_layer_reader(&req(65_536)).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        let output_geometry = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        let actual = decode_wkb(output_geometry.value(0), &WkbLimits::default()).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn mixed_wkt_dimensions_are_declared_unknown_without_normalization() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("mixed.csv");
+        std::fs::write(
+            &source,
+            "id,geom\n1,\"POINT Z (1 2 3)\"\n2,\"POINT M (4 5 6)\"\n",
+        )
+        .unwrap();
+        let dataset = CsvDriver
+            .open(Source::Path(source), &read_opts(&[("wkt_column", "geom")]))
+            .unwrap();
+        assert_eq!(
+            dataset.layers()[0]
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .dimensions,
+            CoordinateDimensions::Unknown
+        );
+        let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        let geometries = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        assert_eq!(
+            decode_wkb(geometries.value(0), &WkbLimits::default())
+                .unwrap()
+                .dimensions,
+            CoordinateDimensions::Xyz
+        );
+        assert_eq!(
+            decode_wkb(geometries.value(1), &WkbLimits::default())
+                .unwrap()
+                .dimensions,
+            CoordinateDimensions::Xym
+        );
     }
 }

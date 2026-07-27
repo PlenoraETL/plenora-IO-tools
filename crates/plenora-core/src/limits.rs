@@ -41,3 +41,32 @@ impl Default for Limits {
         }
     }
 }
+
+impl Limits {
+    /// Limiti effettivi del decoder geometrico: `max_vertices` è un tetto
+    /// globale aggiuntivo rispetto al limite WKB più specifico.
+    pub fn effective_wkb(&self) -> WkbLimits {
+        WkbLimits {
+            max_components: self.wkb.max_components.min(self.max_vertices),
+            ..self.wkb
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_vertex_limit_tightens_wkb_components() {
+        let limits = Limits {
+            max_vertices: 3,
+            wkb: WkbLimits {
+                max_components: 10,
+                ..WkbLimits::default()
+            },
+            ..Limits::default()
+        };
+        assert_eq!(limits.effective_wkb().max_components, 3);
+    }
+}

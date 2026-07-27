@@ -26,7 +26,9 @@ use geometry::{
 };
 
 use driver_common::{geometry_field, json_from_array};
-use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId};
+use plenora_core::contract::{
+    DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+};
 use plenora_core::crs::{CrsKind, ResolvedCrs};
 use plenora_core::geometry::is_geometry_field;
 use plenora_core::limits::WkbLimits;
@@ -41,9 +43,13 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic;
+use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::ReadRequest;
-use plenora_io_core::WritePlan;
+use plenora_io_core::{
+    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
+    UTF8_FIELD_NAMES, WKB_XY_GEOMETRY,
+};
 
 const GEOMETRY: &str = "geometry";
 /// Segmenti per un giro intero (archi, cerchi, ellissi, bulge).
@@ -71,9 +77,19 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     crs_handling: CrsHandling::None, // CRS embedded non ancora estratto: via assume_crs
     fidelity_class: Fidelity::Approximating,
     runtime: Runtime::PureRust,
+    write_capabilities: Some(FormatWriteCapabilities {
+        field_names: UTF8_FIELD_NAMES,
+        allowed_types: SCALAR_TYPES,
+        type_coercion: TypeCoercionPolicy::LossReported,
+        attributes: AttributeWriteSupport::LossReported,
+        geometry: WKB_XY_GEOMETRY,
+        crs: CrsWriteSupport::None,
+        nullability: NullabilitySupport::FormatDefined,
+        multi_layer: false,
+    }),
     semantic_version: 1,
     driver_version: 1,
-    descriptor_version: 1,
+    descriptor_version: 2,
 };
 
 pub struct DxfDriver;
@@ -84,7 +100,7 @@ impl FormatDriver for DxfDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let Source::Path(path) = source;
+        let path = source.into_path_checked(&opts.limits)?;
         let drawing = Drawing::load_file(&path).map_err(|e| err(format!("apertura DXF: {e}")))?;
         let crs = opts
             .assume_crs
@@ -113,6 +129,7 @@ impl FormatDriver for DxfDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraError::OutputExists(path.display().to_string()));
@@ -131,15 +148,22 @@ impl FormatDriver for DxfDriver {
                 "DXF: un solo layer per file".to_owned(),
             ));
         }
-        Ok(Box::new(DxfWriterState {
-            drawing: Drawing::new(),
-            path,
-            durable: opts.durable,
-            loss: LossReport::default(),
-            dropped_cols: Vec::new(),
-            rows: 0,
-            first: true,
-        }))
+        Ok(with_write_validation(
+            Box::new(DxfWriterState {
+                drawing: Drawing::new(),
+                path,
+                durable: opts.durable,
+                loss: LossReport::default(),
+                dropped_cols: Vec::new(),
+                rows: 0,
+                first: true,
+                wkb_limits: opts.limits.effective_wkb(),
+                max_output_bytes: opts.limits.max_output_bytes,
+            }),
+            self.descriptor(),
+            plan,
+            opts.limits,
+        ))
     }
 }
 
@@ -153,6 +177,8 @@ struct DxfWriterState {
     dropped_cols: Vec<String>,
     rows: u64,
     first: bool,
+    wkb_limits: WkbLimits,
+    max_output_bytes: u64,
 }
 
 impl FormatWriter for DxfWriterState {
@@ -177,7 +203,7 @@ impl FormatWriter for DxfWriterState {
             }
             self.first = false;
         }
-        let limits = WkbLimits::default();
+        let limits = self.wkb_limits;
         for row in 0..batch.num_rows() {
             self.rows += 1;
             if geom_col.is_null(row) {
@@ -193,8 +219,10 @@ impl FormatWriter for DxfWriterState {
     fn finish(mut self: Box<Self>) -> Result<Published> {
         // Gli attributi non rappresentabili in DXF sono dichiarati come perdita.
         for c in &self.dropped_cols {
-            self.loss
-                .record(&format!("attributo non rappresentato in DXF: {c}"), self.rows);
+            self.loss.record(
+                &format!("attributo non rappresentato in DXF: {c}"),
+                self.rows,
+            );
         }
         let parent = self
             .path
@@ -209,7 +237,8 @@ impl FormatWriter for DxfWriterState {
             .map_err(|e| err(format!("serializzazione DXF: {e}")))?;
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
-        let (bytes, outcome) = publish_file_atomic(temp, &self.path, self.durable)?;
+        let (bytes, outcome) =
+            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
         Ok(Published {
             bytes,
             loss: self.loss,
@@ -264,7 +293,10 @@ fn add_geometry(dr: &mut Drawing, g: &Geometry<f64>, layer: Option<&str>, loss: 
         Geometry::Polygon(pl) => {
             add_entity(dr, lwpolyline(pl.exterior(), true), layer);
             if !pl.interiors().is_empty() {
-                loss.record("anelli interni Polygon scartati (DXF)", pl.interiors().len() as u64);
+                loss.record(
+                    "anelli interni Polygon scartati (DXF)",
+                    pl.interiors().len() as u64,
+                );
             }
         }
         Geometry::MultiPoint(mp) => {
@@ -430,8 +462,11 @@ impl<'a> Walker<'a> {
             }
             EntityType::LwPolyline(p) => {
                 let t = transform.then(ocs_of(&p.extrusion_direction));
-                let verts: Vec<([f64; 2], f64)> =
-                    p.vertices.iter().map(|v| (t.apply([v.x, v.y]), v.bulge)).collect();
+                let verts: Vec<([f64; 2], f64)> = p
+                    .vertices
+                    .iter()
+                    .map(|v| (t.apply([v.x, v.y]), v.bulge))
+                    .collect();
                 self.emit_polyline(&layer, &verts, p.flags & 1 == 1)?;
             }
             EntityType::Polyline(p) => {
@@ -444,7 +479,8 @@ impl<'a> Walker<'a> {
             }
             EntityType::Circle(cir) => {
                 let t = transform.then(ocs_of(&cir.normal));
-                let local = tessellate_circle([cir.center.x, cir.center.y], cir.radius, ARC_SEGMENTS);
+                let local =
+                    tessellate_circle([cir.center.x, cir.center.y], cir.radius, ARC_SEGMENTS);
                 if local.len() < 4 {
                     self.loss.record("CIRCLE degenere", 1);
                 } else {
@@ -479,7 +515,12 @@ impl<'a> Walker<'a> {
             EntityType::ModelPoint(pt) => {
                 let t = transform.then(ocs_of(&pt.extrusion_direction));
                 let m = t.apply([pt.location.x, pt.location.y]);
-                self.push(Geometry::Point(Point::new(m[0], m[1])), &layer, "POINT", None)?;
+                self.push(
+                    Geometry::Point(Point::new(m[0], m[1])),
+                    &layer,
+                    "POINT",
+                    None,
+                )?;
             }
             EntityType::Text(txt) => {
                 let t = transform.then(ocs_of(&txt.normal));
@@ -532,7 +573,12 @@ impl<'a> Walker<'a> {
                             None,
                         )?;
                     } else {
-                        self.push(Geometry::LineString(LineString(coords)), &layer, "ELLIPSE", None)?;
+                        self.push(
+                            Geometry::LineString(LineString(coords)),
+                            &layer,
+                            "ELLIPSE",
+                            None,
+                        )?;
                     }
                 }
             }
@@ -568,7 +614,12 @@ impl<'a> Walker<'a> {
                             self.loss.record("SPLINE degenere", 1);
                         }
                     } else {
-                        self.push(Geometry::LineString(LineString(coords)), &layer, "SPLINE", None)?;
+                        self.push(
+                            Geometry::LineString(LineString(coords)),
+                            &layer,
+                            "SPLINE",
+                            None,
+                        )?;
                     }
                 }
             }
@@ -615,7 +666,12 @@ impl<'a> Walker<'a> {
                 None,
             )?;
         } else {
-            self.push(Geometry::LineString(LineString(positions)), layer, "LWPOLYLINE", None)?;
+            self.push(
+                Geometry::LineString(LineString(positions)),
+                layer,
+                "LWPOLYLINE",
+                None,
+            )?;
         }
         Ok(())
     }
@@ -665,8 +721,10 @@ impl<'a> Walker<'a> {
                 "INSERT",
                 Some(insert.name.clone()),
             )?;
-            self.loss
-                .record("valori attributi INSERT non rappresentati come colonne", tags);
+            self.loss.record(
+                "valori attributi INSERT non rappresentati come colonne",
+                tags,
+            );
         }
 
         if !visiting.insert(insert.name.clone()) {
@@ -750,16 +808,16 @@ fn build_batch(drawing: &Drawing, crs: &str) -> Result<(RecordBatch, LossReport,
         RecordBatch::try_new(schema.clone(), arrays).map_err(|e| err(format!("batch: {e}")))?;
     let contract = DataContract {
         schema,
-        geometry: Some(GeometryColumnContract {
-            field_id: FieldId(0),
-            name: GEOMETRY.to_owned(),
-            crs: ResolvedCrs {
+        geometry: Some(GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            GEOMETRY,
+            ResolvedCrs {
                 id: Some(crs.to_owned()),
                 kind: CrsKind::Unknown,
                 definition: None,
             },
-            nullable: true,
-        }),
+            true,
+        )),
     };
     Ok((batch, walker.loss, contract))
 }
@@ -816,6 +874,7 @@ mod tests {
                 &ReadOptions {
                     assume_crs: Some("EPSG:4326".to_owned()),
                     format_options: Default::default(),
+                    ..ReadOptions::default()
                 },
             )
             .unwrap();

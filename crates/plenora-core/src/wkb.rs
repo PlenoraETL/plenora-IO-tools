@@ -12,6 +12,10 @@ use geo_types::{
 use crate::error::{PlenoraError, Result};
 use crate::limits::WkbLimits;
 
+pub use crate::wkb_lossless::{
+    decode_wkb, encode_wkb, encode_wkb_into, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+};
+
 fn wkb_err(m: impl Into<String>) -> PlenoraError {
     PlenoraError::Wkb(m.into())
 }
@@ -169,13 +173,23 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn decode_type(raw: u32) -> (u32, bool, bool) {
+fn decode_type(raw: u32) -> Result<(u32, bool, bool, bool)> {
     if raw & 0xE000_0000 != 0 {
-        return (raw & 0xFF, raw & 0x8000_0000 != 0, raw & 0x4000_0000 != 0);
+        return Ok((
+            raw & 0x1FFF_FFFF,
+            raw & 0x8000_0000 != 0,
+            raw & 0x4000_0000 != 0,
+            raw & 0x2000_0000 != 0,
+        ));
     }
     let base = raw % 1000;
     let dim = raw / 1000;
-    (base, dim == 1 || dim == 3, dim == 2 || dim == 3)
+    if dim > 3 {
+        return Err(wkb_err(format!(
+            "codice dimensionale WKB non valido: {dim}"
+        )));
+    }
+    Ok((base, dim == 1 || dim == 3, dim == 2 || dim == 3, false))
 }
 
 fn read_coord(r: &mut Reader, le: bool, z: bool, m: bool) -> Result<Coord<f64>> {
@@ -224,7 +238,10 @@ fn read_geom(r: &mut Reader, depth: usize) -> Result<Geometry<f64>> {
         return Err(wkb_err("WKB annidato troppo in profondità"));
     }
     let le = r.byte_order()?;
-    let (base, z, m) = decode_type(r.u32(le)?);
+    let (base, z, m, has_srid) = decode_type(r.u32(le)?)?;
+    if has_srid {
+        r.u32(le)?;
+    }
     match base {
         1 => Ok(Geometry::Point(Point(read_coord(r, le, z, m)?))),
         2 => Ok(Geometry::LineString(read_ring(r, le, z, m)?)),
@@ -349,5 +366,91 @@ mod tests {
         ])))
         .unwrap();
         assert!(from_wkb(&line, &tight).is_err());
+    }
+
+    #[test]
+    fn ewkb_z_srid_roundtrips_without_loss() {
+        // POINT Z SRID=4326 (PostGIS EWKB).
+        let mut ewkb = vec![1];
+        ewkb.extend_from_slice(&0xA000_0001u32.to_le_bytes());
+        ewkb.extend_from_slice(&4326u32.to_le_bytes());
+        ewkb.extend_from_slice(&1.0f64.to_le_bytes());
+        ewkb.extend_from_slice(&2.0f64.to_le_bytes());
+        ewkb.extend_from_slice(&3.0f64.to_le_bytes());
+
+        let decoded = decode_wkb(&ewkb, &WkbLimits::default()).unwrap();
+        assert_eq!(
+            decoded.dimensions,
+            crate::contract::CoordinateDimensions::Xyz
+        );
+        assert_eq!(decoded.srid, Some(4326));
+        assert_eq!(
+            decoded.value,
+            WkbValue::Point(WkbCoordinate {
+                x: 1.0,
+                y: 2.0,
+                z: Some(3.0),
+                m: None,
+            })
+        );
+        assert_eq!(encode_wkb(&decoded, WkbFlavor::Ewkb).unwrap(), ewkb);
+        assert_eq!(
+            from_wkb(&ewkb, &WkbLimits::default()).unwrap(),
+            Geometry::Point(Point::new(1.0, 2.0))
+        );
+    }
+
+    #[test]
+    fn iso_xym_and_xyzm_roundtrip_without_loss() {
+        for (dimensions, coordinate) in [
+            (
+                crate::contract::CoordinateDimensions::Xym,
+                WkbCoordinate {
+                    x: 10.0,
+                    y: 20.0,
+                    z: None,
+                    m: Some(7.0),
+                },
+            ),
+            (
+                crate::contract::CoordinateDimensions::Xyzm,
+                WkbCoordinate {
+                    x: 10.0,
+                    y: 20.0,
+                    z: Some(30.0),
+                    m: Some(7.0),
+                },
+            ),
+        ] {
+            let geometry = WkbGeometry {
+                value: WkbValue::Point(coordinate),
+                dimensions,
+                srid: None,
+            };
+            let encoded = encode_wkb(&geometry, WkbFlavor::Iso).unwrap();
+            assert_eq!(
+                decode_wkb(&encoded, &WkbLimits::default()).unwrap(),
+                geometry
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_trailing_bytes_and_incoherent_ordinates() {
+        let mut bytes = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        bytes.push(0);
+        assert!(decode_wkb(&bytes, &WkbLimits::default()).is_err());
+
+        let invalid = WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 1.0,
+                y: 2.0,
+                z: None,
+                m: None,
+            }),
+            dimensions: crate::contract::CoordinateDimensions::Xyz,
+            srid: None,
+        };
+        assert!(encode_wkb(&invalid, WkbFlavor::Iso).is_err());
     }
 }

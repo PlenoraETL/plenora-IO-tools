@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 
 use plenora_core::contract::{DataContract, LayerContract};
 use plenora_core::geometry::is_geometry_field;
+use plenora_core::limits::Limits;
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
 use plenora_io_core::publish::PublishOutcome;
 use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest};
@@ -92,12 +93,27 @@ struct Cli {
     opts: BTreeMap<String, String>,
     in_opts: BTreeMap<String, String>,
     out_opts: BTreeMap<String, String>,
+    limits: Limits,
 }
 
 fn kv(s: &str) -> Result<(String, String), (i32, Value)> {
     s.split_once('=')
         .map(|(k, v)| (k.to_owned(), v.to_owned()))
         .ok_or_else(|| usage_err(format!("opzione '{s}' non è nel formato chiave=valore")))
+}
+
+fn parse_usize(value: Option<&String>, flag: &str) -> Result<usize, (i32, Value)> {
+    value
+        .ok_or_else(|| usage_err(format!("{flag} richiede un valore")))?
+        .parse()
+        .map_err(|_| usage_err(format!("{flag} richiede un intero non negativo")))
+}
+
+fn parse_u64(value: Option<&String>, flag: &str) -> Result<u64, (i32, Value)> {
+    value
+        .ok_or_else(|| usage_err(format!("{flag} richiede un valore")))?
+        .parse()
+        .map_err(|_| usage_err(format!("{flag} richiede un intero non negativo")))
 }
 
 fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
@@ -113,26 +129,64 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
                 )
             }
             "--layer" => {
-                let v = it.next().ok_or_else(|| usage_err("--layer richiede un valore"))?;
-                cli.layer = Some(v.parse().map_err(|_| usage_err("--layer richiede un intero"))?);
+                let v = it
+                    .next()
+                    .ok_or_else(|| usage_err("--layer richiede un valore"))?;
+                cli.layer = Some(
+                    v.parse()
+                        .map_err(|_| usage_err("--layer richiede un intero"))?,
+                );
             }
             "--limit" => {
-                let v = it.next().ok_or_else(|| usage_err("--limit richiede un valore"))?;
-                cli.limit = Some(v.parse().map_err(|_| usage_err("--limit richiede un intero"))?);
+                let v = it
+                    .next()
+                    .ok_or_else(|| usage_err("--limit richiede un valore"))?;
+                cli.limit = Some(
+                    v.parse()
+                        .map_err(|_| usage_err("--limit richiede un intero"))?,
+                );
+            }
+            "--max-input-bytes" => {
+                cli.limits.max_input_bytes = parse_u64(it.next(), "--max-input-bytes")?;
+            }
+            "--max-output-bytes" => {
+                cli.limits.max_output_bytes = parse_u64(it.next(), "--max-output-bytes")?;
+            }
+            "--max-rows" => {
+                cli.limits.max_rows = parse_usize(it.next(), "--max-rows")?;
+            }
+            "--max-columns" => {
+                cli.limits.max_columns = parse_usize(it.next(), "--max-columns")?;
+            }
+            "--max-vertices" => {
+                cli.limits.max_vertices = parse_usize(it.next(), "--max-vertices")?;
+            }
+            "--max-wkb-cell-bytes" => {
+                cli.limits.wkb.max_cell_bytes = parse_usize(it.next(), "--max-wkb-cell-bytes")?;
+            }
+            "--max-wkb-components" => {
+                cli.limits.wkb.max_components = parse_usize(it.next(), "--max-wkb-components")?;
+            }
+            "--max-wkb-depth" => {
+                cli.limits.wkb.max_depth = parse_usize(it.next(), "--max-wkb-depth")?;
             }
             "--durable" => cli.durable = true,
             "--opt" => {
-                let (k, v) = kv(it.next().ok_or_else(|| usage_err("--opt richiede chiave=valore"))?)?;
+                let (k, v) = kv(it
+                    .next()
+                    .ok_or_else(|| usage_err("--opt richiede chiave=valore"))?)?;
                 cli.opts.insert(k, v);
             }
             "--in-opt" => {
-                let (k, v) =
-                    kv(it.next().ok_or_else(|| usage_err("--in-opt richiede chiave=valore"))?)?;
+                let (k, v) = kv(it
+                    .next()
+                    .ok_or_else(|| usage_err("--in-opt richiede chiave=valore"))?)?;
                 cli.in_opts.insert(k, v);
             }
             "--out-opt" => {
-                let (k, v) =
-                    kv(it.next().ok_or_else(|| usage_err("--out-opt richiede chiave=valore"))?)?;
+                let (k, v) = kv(it
+                    .next()
+                    .ok_or_else(|| usage_err("--out-opt richiede chiave=valore"))?)?;
                 cli.out_opts.insert(k, v);
             }
             other if other.starts_with("--") => {
@@ -164,8 +218,12 @@ fn layer_json(l: &LayerContract) -> Value {
     let geom = l.contract.geometry.as_ref().map(|g| {
         json!({
             "name": g.name,
-            "crs": g.crs.id,
-            "kind": format!("{:?}", g.crs.kind),
+            "crs": g.crs.id(),
+            "crs_resolution": &g.crs,
+            "kind": g
+                .resolved_crs()
+                .map(|crs| format!("{:?}", crs.kind))
+                .unwrap_or_else(|| "Unresolved".to_owned()),
         })
     });
     json!({
@@ -180,6 +238,7 @@ fn read_options(cli: &Cli) -> ReadOptions {
     ReadOptions {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.opts.clone(),
+        limits: cli.limits,
     }
 }
 
@@ -243,7 +302,11 @@ fn cmd_layers(cli: &Cli) -> CliResult {
             json!({
                 "id": l.id.0,
                 "name": l.name,
-                "geometry_crs": l.contract.geometry.as_ref().and_then(|g| g.crs.id.clone()),
+                "geometry_crs": l
+                    .contract
+                    .geometry
+                    .as_ref()
+                    .and_then(|g| g.crs.id().map(str::to_owned)),
                 "field_count": l.contract.schema.fields().len(),
             })
         })
@@ -278,9 +341,16 @@ fn cmd_read(cli: &Cli) -> CliResult {
         .layers()
         .iter()
         .find(|l| l.id.0 == layer_id)
-        .ok_or_else(|| (1, err_doc("NO_LAYER", format!("layer {layer_id} inesistente"))))?
+        .ok_or_else(|| {
+            (
+                1,
+                err_doc("NO_LAYER", format!("layer {layer_id} inesistente")),
+            )
+        })?
         .clone();
-    let mut reader = ds.open_layer_reader(&read_request(layer_id)).map_err(map_err)?;
+    let mut reader = ds
+        .open_layer_reader(&read_request(layer_id))
+        .map_err(map_err)?;
     let (mut rows, mut batches) = (0usize, 0usize);
     while let Some(batch) = reader.next_batch().map_err(map_err)? {
         rows += batch.num_rows();
@@ -313,6 +383,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let ropts = ReadOptions {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.in_opts.clone(),
+        limits: cli.limits,
     };
     let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
 
@@ -359,14 +430,19 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let wopts = WriteOptions {
         durable: cli.durable,
         format_options: cli.out_opts.clone(),
+        limits: cli.limits,
     };
-    let mut writer = dst.create(Sink::Path(out_path), &plan, &wopts).map_err(map_err)?;
+    let mut writer = dst
+        .create(Sink::Path(out_path), &plan, &wopts)
+        .map_err(map_err)?;
 
     // L'i-esimo layer sorgente scrive nel LayerId(i) del piano di destinazione.
     let mut layer_reports = Vec::new();
     let mut total_rows = 0usize;
     for (sink_idx, l) in selected.iter().enumerate() {
-        let mut reader = ds.open_layer_reader(&read_request(l.id.0)).map_err(map_err)?;
+        let mut reader = ds
+            .open_layer_reader(&read_request(l.id.0))
+            .map_err(map_err)?;
         let (mut rows, mut batches) = (0usize, 0usize);
         while let Some(batch) = reader.next_batch().map_err(map_err)? {
             rows += batch.num_rows();
@@ -444,6 +520,10 @@ mod tests {
             "--durable",
             "--layer",
             "2",
+            "--max-rows",
+            "123",
+            "--max-wkb-depth",
+            "9",
         ]
         .map(String::from)
         .to_vec();
@@ -453,6 +533,8 @@ mod tests {
         assert_eq!(cli.opts.get("wkt_column").map(String::as_str), Some("g"));
         assert!(cli.durable);
         assert_eq!(cli.layer, Some(2));
+        assert_eq!(cli.limits.max_rows, 123);
+        assert_eq!(cli.limits.wkb.max_depth, 9);
     }
 
     #[test]
@@ -464,15 +546,24 @@ mod tests {
     #[test]
     fn ext_to_driver() {
         assert_eq!(
-            driver_for_path(Path::new("x.geojson")).unwrap().descriptor().id,
+            driver_for_path(Path::new("x.geojson"))
+                .unwrap()
+                .descriptor()
+                .id,
             "geojson"
         );
         assert_eq!(
-            driver_for_path(Path::new("x.gpkg")).unwrap().descriptor().id,
+            driver_for_path(Path::new("x.gpkg"))
+                .unwrap()
+                .descriptor()
+                .id,
             "gpkg"
         );
         assert_eq!(
-            driver_for_path(Path::new("x.parquet")).unwrap().descriptor().id,
+            driver_for_path(Path::new("x.parquet"))
+                .unwrap()
+                .descriptor()
+                .id,
             "geoparquet"
         );
         assert!(driver_for_path(Path::new("x.zzz")).is_err());

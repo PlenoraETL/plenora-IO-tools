@@ -14,6 +14,7 @@
 //! Uso:
 //!   plenora-fuzz                      # campagna (PLENORA_FUZZ_SECONDS, def 60)
 //!   plenora-fuzz <file>               # replay: esegue i check su un artefatto
+//!   plenora-fuzz --export-corpus DIR  # seed per i target cargo-fuzz
 //! Env: PLENORA_FUZZ_SECONDS, PLENORA_FUZZ_SEED, PLENORA_FUZZ_OUT.
 
 use std::collections::HashSet;
@@ -22,10 +23,12 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use driver_common::wkt_lossless::{format_wkt, parse_wkt};
 use geo_types::Geometry;
 use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{from_wkb, to_wkb};
-use wkt::TryFromWkt;
+use plenora_core::wkb::{
+    decode_wkb, encode_wkb, from_wkb, to_wkb, WkbFlavor, WkbGeometry, WkbValue,
+};
 
 // --- PRNG deterministico (xorshift64) --------------------------------------
 
@@ -65,6 +68,28 @@ impl Rng {
 
 // --- corpus di semi validi -------------------------------------------------
 
+fn raw_point_seed(le: bool, raw_type: u32, srid: Option<u32>, ordinates: &[f64]) -> Vec<u8> {
+    let mut out = vec![u8::from(le)];
+    if le {
+        out.extend_from_slice(&raw_type.to_le_bytes());
+        if let Some(srid) = srid {
+            out.extend_from_slice(&srid.to_le_bytes());
+        }
+        for value in ordinates {
+            out.extend_from_slice(&value.to_le_bytes());
+        }
+    } else {
+        out.extend_from_slice(&raw_type.to_be_bytes());
+        if let Some(srid) = srid {
+            out.extend_from_slice(&srid.to_be_bytes());
+        }
+        for value in ordinates {
+            out.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    out
+}
+
 fn wkb_seeds() -> Vec<Vec<u8>> {
     use geo_types::{
         Coord, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point,
@@ -78,7 +103,10 @@ fn wkb_seeds() -> Vec<Vec<u8>> {
         Geometry::LineString(LineString(vec![c(0., 0.), c(1., 1.), c(2., 3.)])),
         Geometry::Polygon(Polygon::new(ext.clone(), vec![hole.clone()])),
         Geometry::MultiPoint(MultiPoint(vec![Point::new(0., 0.), Point::new(5., 5.)])),
-        Geometry::MultiLineString(MultiLineString(vec![LineString(vec![c(0., 0.), c(9., 9.)])])),
+        Geometry::MultiLineString(MultiLineString(vec![LineString(vec![
+            c(0., 0.),
+            c(9., 9.),
+        ])])),
         Geometry::MultiPolygon(MultiPolygon(vec![Polygon::new(ext, vec![])])),
         Geometry::GeometryCollection(GeometryCollection(vec![
             Geometry::Point(Point::new(7., 8.)),
@@ -88,7 +116,33 @@ fn wkb_seeds() -> Vec<Vec<u8>> {
             )),
         ])),
     ];
-    gs.iter().map(|g| to_wkb(g).unwrap()).collect()
+    let mut seeds: Vec<Vec<u8>> = gs.iter().map(|g| to_wkb(g).unwrap()).collect();
+
+    // Endian e codifiche dimensionali accettate dalla v1: Z/M vengono
+    // consumate, poi normalizzate esplicitamente a XY.
+    seeds.push(raw_point_seed(false, 1, None, &[1.0, 2.0]));
+    seeds.push(raw_point_seed(true, 1001, None, &[1.0, 2.0, 3.0]));
+    seeds.push(raw_point_seed(true, 2001, None, &[1.0, 2.0, 9.0]));
+    seeds.push(raw_point_seed(true, 3001, None, &[1.0, 2.0, 3.0, 9.0]));
+    seeds.push(raw_point_seed(true, 0x8000_0001, None, &[1.0, 2.0, 3.0]));
+    seeds.push(raw_point_seed(true, 0x4000_0001, None, &[1.0, 2.0, 9.0]));
+    seeds.push(raw_point_seed(
+        true,
+        0xC000_0001,
+        None,
+        &[1.0, 2.0, 3.0, 9.0],
+    ));
+
+    // EWKB con SRID: il decoder lossless deve conservarlo e l'adattatore XY
+    // legacy deve consumarlo correttamente prima delle coordinate.
+    seeds.push(raw_point_seed(true, 0x2000_0001, Some(4326), &[1.0, 2.0]));
+    seeds.push(raw_point_seed(
+        true,
+        0xA000_0001,
+        Some(4326),
+        &[1.0, 2.0, 3.0],
+    ));
+    seeds
 }
 
 fn geojson_seeds() -> Vec<Vec<u8>> {
@@ -105,17 +159,27 @@ fn geojson_seeds() -> Vec<Vec<u8>> {
     .collect()
 }
 
-/// WKT valido dei 7 tipi: percorso geometria di csv/xls (`try_from_wkt_str`,
-/// crate `wkt` di terze parti — il parser più esposto a panic su input ostile).
+/// WKT dei 7 tipi e di tutte le dimensioni: percorso geometria condiviso di
+/// CSV/XLSX (il parser di terze parti resta esposto a input ostile).
 fn wkt_seeds() -> Vec<Vec<u8>> {
     [
         "POINT (1 2)",
+        "POINT EMPTY",
+        "POINT Z (1 2 3)",
+        "POINT M (1 2 9)",
+        "POINT ZM (1 2 3 9)",
+        "POINT (1e308 -1e-308)",
         "LINESTRING (0 0, 1 1, 2 2)",
+        "LINESTRING EMPTY",
         "POLYGON ((0 0, 4 0, 4 4, 0 0), (1 1, 2 1, 2 2, 1 1))",
         "MULTIPOINT ((0 0), (5 5))",
         "MULTILINESTRING ((0 0, 1 1), (2 2, 3 3))",
         "MULTIPOLYGON (((0 0, 1 0, 1 1, 0 0)))",
         "GEOMETRYCOLLECTION (POINT (7 8), LINESTRING (0 0, 1 1))",
+        "POINT Z (1 2 3)",
+        "LINESTRING M (0 0 10, 1 1 11)",
+        "MULTIPOLYGON ZM (((0 0 1 10, 0 2 2 11, 2 0 3 12, 0 0 1 10)))",
+        "GEOMETRYCOLLECTION Z (POINT Z (7 8 9), LINESTRING Z (0 0 0, 1 1 1))",
     ]
     .iter()
     .map(|s| s.as_bytes().to_vec())
@@ -126,13 +190,59 @@ fn wkt_seeds() -> Vec<Vec<u8>> {
 /// null e properties null — per stressare pass-1 + pass-2 (allineamento colonne).
 fn fc_seeds() -> Vec<Vec<u8>> {
     [
+        r#"{"type":"FeatureCollection","features":[]}"#,
         r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"properties":{"a":1,"b":"x","c":true}}]}"#,
         r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":null,"properties":{"a":2}},{"type":"Feature","geometry":{"type":"Point","coordinates":[3,3]},"properties":null},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[0,0],[1,1]]},"properties":{"b":"y","d":9.5}}]}"#,
         r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]},"properties":{"n":-3,"arr":[1,2,3],"obj":{"k":1}}}]}"#,
+        r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"MultiPoint","coordinates":[[0,0],[1,1]]},"properties":{"n":1}},{"type":"Feature","geometry":{"type":"MultiLineString","coordinates":[[[0,0],[1,1]],[[2,2],[3,3]]]},"properties":{"n":2}},{"type":"Feature","geometry":{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0,0]]]]},"properties":{"n":3}},{"type":"Feature","geometry":{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[7,8]}]},"properties":{"n":4}}]}"#,
+        r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2,3]},"properties":{"precise":0.12345678901234567,"huge":1.7976931348623157e308}}]}"#,
+        r#"{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"geometry":{"type":"Point","coordinates":[9,9]},"properties":{"c":1,"b":"x","c":true}}]}"#,
     ]
     .iter()
     .map(|s| s.as_bytes().to_vec())
     .collect()
+}
+
+fn kml_seeds() -> Vec<Vec<u8>> {
+    [
+        r#"<?xml version="1.0"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document/></kml>"#,
+        r#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><Point><coordinates>12.5,45.9</coordinates></Point></Placemark></kml>"#,
+        r#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><LineString><coordinates>0,0,10 1,1,20</coordinates></LineString></Placemark></kml>"#,
+        r#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0,10 1,0,11 1,1,12 0,0,10</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></kml>"#,
+        r#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><MultiGeometry><Point><coordinates>1,2,3</coordinates></Point><LineString><coordinates>0,0,0 1,1,1</coordinates></LineString></MultiGeometry></Placemark></kml>"#,
+    ]
+    .iter()
+    .map(|s| s.as_bytes().to_vec())
+    .collect()
+}
+
+fn export_seed_set(root: &Path, target: &str, extension: &str, seeds: &[Vec<u8>]) {
+    let dir = root.join(target);
+    std::fs::create_dir_all(&dir).expect("creazione directory corpus");
+    for (index, seed) in seeds.iter().enumerate() {
+        let path = dir.join(format!("seed-{index:02}.{extension}"));
+        std::fs::write(path, seed).expect("scrittura seed corpus");
+    }
+}
+
+fn export_corpus(root: &Path) {
+    let wkb = wkb_seeds();
+    let fc = fc_seeds();
+    let wkt = wkt_seeds();
+    let kml = kml_seeds();
+    export_seed_set(root, "from_wkb", "wkb", &wkb);
+    export_seed_set(root, "shp_wkb", "wkb", &wkb);
+    export_seed_set(root, "geojson_reader", "geojson", &fc);
+    export_seed_set(root, "wkt_parse", "wkt", &wkt);
+    export_seed_set(root, "kml_reader", "kml", &kml);
+    println!(
+        "corpus esportato in {}: WKB={} (core+SHP), GeoJSON={}, WKT={}, KML={}",
+        root.display(),
+        wkb.len(),
+        fc.len(),
+        wkt.len(),
+        kml.len()
+    );
 }
 
 // --- mutazione di byte -----------------------------------------------------
@@ -231,6 +341,24 @@ fn all_finite(g: &Geometry<f64>) -> bool {
     v.iter().all(|(x, y)| x.is_finite() && y.is_finite())
 }
 
+fn lossless_finite(geometry: &WkbGeometry) -> bool {
+    let coordinate = |coordinate: &plenora_core::wkb::WkbCoordinate| {
+        coordinate.x.is_finite()
+            && coordinate.y.is_finite()
+            && coordinate.z.is_none_or(f64::is_finite)
+            && coordinate.m.is_none_or(f64::is_finite)
+    };
+    match &geometry.value {
+        WkbValue::Point(value) => coordinate(value),
+        WkbValue::LineString(values) => values.iter().all(coordinate),
+        WkbValue::Polygon(rings) => rings.iter().flatten().all(coordinate),
+        WkbValue::MultiPoint(values)
+        | WkbValue::MultiLineString(values)
+        | WkbValue::MultiPolygon(values)
+        | WkbValue::GeometryCollection(values) => values.iter().all(lossless_finite),
+    }
+}
+
 // --- i check (ognuno ritorna Err(descrizione) su violazione) ---------------
 
 const LIM: WkbLimits = WkbLimits {
@@ -241,6 +369,21 @@ const LIM: WkbLimits = WkbLimits {
 
 /// Invarianti sul codec WKB e sullo scanner bbox, da byte grezzi.
 fn check_wkb(data: &[u8]) -> Result<(), String> {
+    if let Ok(lossless) = decode_wkb(data, &LIM) {
+        let encoded = encode_wkb(&lossless, WkbFlavor::Ewkb)
+            .map_err(|e| format!("encode lossless dopo decode OK fallisce: {e}"))?;
+        let decoded = decode_wkb(&encoded, &LIM)
+            .map_err(|e| format!("re-decode EWKB lossless fallisce: {e}"))?;
+        if lossless.geometry_type() != decoded.geometry_type()
+            || lossless.dimensions != decoded.dimensions
+            || lossless.srid != decoded.srid
+        {
+            return Err("round-trip lossless altera tipo/dimensioni/SRID".to_owned());
+        }
+        if lossless_finite(&lossless) && lossless != decoded {
+            return Err("round-trip lossless altera ordinate Z/M".to_owned());
+        }
+    }
     let g = match from_wkb(data, &LIM) {
         Ok(g) => g,
         Err(_) => return Ok(()), // rifiuto pulito: ok
@@ -256,12 +399,21 @@ fn check_wkb(data: &[u8]) -> Result<(), String> {
     if let Some(bb) = driver_geoparquet::wkb_bbox(data) {
         let mut cs = Vec::new();
         collect_coords(&g, &mut cs);
-        let finite: Vec<_> = cs.iter().filter(|(x, y)| x.is_finite() && y.is_finite()).collect();
+        let finite: Vec<_> = cs
+            .iter()
+            .filter(|(x, y)| x.is_finite() && y.is_finite())
+            .collect();
         if !finite.is_empty() {
             let minx = finite.iter().map(|(x, _)| *x).fold(f64::INFINITY, f64::min);
             let miny = finite.iter().map(|(_, y)| *y).fold(f64::INFINITY, f64::min);
-            let maxx = finite.iter().map(|(x, _)| *x).fold(f64::NEG_INFINITY, f64::max);
-            let maxy = finite.iter().map(|(_, y)| *y).fold(f64::NEG_INFINITY, f64::max);
+            let maxx = finite
+                .iter()
+                .map(|(x, _)| *x)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let maxy = finite
+                .iter()
+                .map(|(_, y)| *y)
+                .fold(f64::NEG_INFINITY, f64::max);
             let e = 1e-6 * (1.0 + minx.abs() + miny.abs() + maxx.abs() + maxy.abs());
             if bb[0] > minx + e || bb[1] > miny + e || bb[2] < maxx - e || bb[3] < maxy - e {
                 return Err(format!(
@@ -320,12 +472,24 @@ fn check_gj_value(v: &geojson::Value) -> Result<(), String> {
     Ok(())
 }
 
-/// `try_from_wkt_str` (percorso csv/xls) non deve MAI panic; se accetta, la
-/// geometria dev'essere codificabile in WKB e ri-decodificabile.
+/// L'adattatore WKT dimensionale di CSV/XLSX non deve mai panic; se accetta,
+/// deve produrre WKT e WKB rileggibili senza cambiare tipo o dimensioni.
 fn check_wkt(s: &str) -> Result<(), String> {
-    if let Ok(g) = geo_types::Geometry::<f64>::try_from_wkt_str(s) {
-        let enc = to_wkb(&g).map_err(|e| format!("to_wkb dopo WKT OK fallisce: {e}"))?;
-        from_wkb(&enc, &LIM).map_err(|e| format!("WKB da WKT non ri-decodificabile: {e}"))?;
+    if let Ok(geometry) = parse_wkt(s) {
+        let text = format_wkt(&geometry)
+            .map_err(|e| format!("serializzazione WKT dopo parse OK fallisce: {e}"))?;
+        let reparsed =
+            parse_wkt(&text).map_err(|e| format!("WKT prodotto non rileggibile: {e}"))?;
+        if geometry != reparsed {
+            return Err("round-trip WKT altera geometria o ordinate".to_owned());
+        }
+        let encoded = encode_wkb(&geometry, WkbFlavor::Iso)
+            .map_err(|e| format!("WKB dopo WKT OK fallisce: {e}"))?;
+        let decoded = decode_wkb(&encoded, &LIM)
+            .map_err(|e| format!("WKB da WKT non ri-decodificabile: {e}"))?;
+        if geometry != decoded {
+            return Err("round-trip WKT→WKB altera geometria o ordinate".to_owned());
+        }
     }
     Ok(())
 }
@@ -335,8 +499,13 @@ fn rand_gj_value(rng: &mut Rng, depth: usize) -> geojson::Value {
     use geojson::Value::*;
     let pos = |rng: &mut Rng| -> Vec<f64> { (0..rng.below(4)).map(|_| rng.f64()).collect() };
     let ring = |rng: &mut Rng| -> Vec<Vec<f64>> { (0..rng.below(6)).map(|_| pos(rng)).collect() };
-    let poly = |rng: &mut Rng| -> Vec<Vec<Vec<f64>>> { (0..rng.below(3)).map(|_| ring(rng)).collect() };
-    let n = if depth >= 4 { rng.below(6) } else { rng.below(7) };
+    let poly =
+        |rng: &mut Rng| -> Vec<Vec<Vec<f64>>> { (0..rng.below(3)).map(|_| ring(rng)).collect() };
+    let n = if depth >= 4 {
+        rng.below(6)
+    } else {
+        rng.below(7)
+    };
     match n {
         0 => Point(pos(rng)),
         1 => MultiPoint((0..rng.below(5)).map(|_| pos(rng)).collect()),
@@ -369,7 +538,10 @@ fn save(dir: &Path, target: &str, input: &[u8], why: &str) {
     let _ = std::fs::write(base.with_extension("bin"), input);
     let _ = std::fs::write(
         base.with_extension("txt"),
-        format!("target: {target}\nviolazione: {why}\nlen: {}\n", input.len()),
+        format!(
+            "target: {target}\nviolazione: {why}\nlen: {}\n",
+            input.len()
+        ),
     );
 }
 
@@ -396,12 +568,24 @@ fn replay(path: &str) {
         let r = catch_unwind(AssertUnwindSafe(|| check_gj_value(&geom.value)));
         println!("  check_gj_value(parsed) → {r:?}");
     }
+    if let Ok(text) = std::str::from_utf8(&data) {
+        let r = catch_unwind(AssertUnwindSafe(|| check_wkt(text)));
+        println!("  check_wkt(utf8) → {r:?}");
+    }
     println!("  from_wkb → {:?}", from_wkb(&data, &LIM).map(|_| "Ok"));
     println!("  wkb_bbox → {:?}", driver_geoparquet::wkb_bbox(&data));
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--export-corpus") {
+        let root = args
+            .get(2)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/work/fuzz/corpus"));
+        export_corpus(&root);
+        return;
+    }
     if let Some(path) = args.get(1) {
         replay(path);
         return;
@@ -421,7 +605,9 @@ fn main() {
                 .unwrap_or(0x9E3779B97F4A7C15)
                 | 1
         });
-    let out = PathBuf::from(std::env::var("PLENORA_FUZZ_OUT").unwrap_or_else(|_| "/work/fuzz-findings".to_owned()));
+    let out = PathBuf::from(
+        std::env::var("PLENORA_FUZZ_OUT").unwrap_or_else(|_| "/work/fuzz-findings".to_owned()),
+    );
     std::fs::create_dir_all(&out).ok();
 
     // Silenzia l'hook di panic di default: le catturiamo noi.
@@ -439,7 +625,10 @@ fn main() {
     let mut findings: u64 = 0;
     let mut last_report = Instant::now();
 
-    println!("plenora-fuzz: seed={seed} durata={secs}s out={}", out.display());
+    println!(
+        "plenora-fuzz: seed={seed} durata={secs}s out={}",
+        out.display()
+    );
 
     while start.elapsed() < deadline {
         for _ in 0..20_000 {
@@ -498,8 +687,8 @@ fn main() {
                 // ~10%: geojson::Value sintetico
                 _ => {
                     let v = rand_gj_value(&mut rng, 0);
-                    let bytes = serde_json::to_vec(&geojson::Geometry::new(v.clone()))
-                        .unwrap_or_default();
+                    let bytes =
+                        serde_json::to_vec(&geojson::Geometry::new(v.clone())).unwrap_or_default();
                     if let Err(why) = run(|| check_gj_value(&v)) {
                         report(&out, "gjval", &bytes, &why, &mut seen, &mut findings);
                     }

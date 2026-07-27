@@ -20,10 +20,13 @@ use parquet::file::properties::WriterProperties;
 use parquet::file::statistics::Statistics;
 
 use plenora_core::contract::{
-    DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
 };
 use plenora_core::crs::{CrsKind, ResolvedCrs};
 use plenora_core::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
+use plenora_core::limits::WkbLimits;
+use plenora_core::wkb::decode_wkb;
 use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -34,9 +37,13 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic;
+use plenora_io_core::publish::publish_file_atomic_limited;
 use plenora_io_core::request::{Bbox, ProjectionMode, PruningPredicate, ReadRequest};
-use plenora_io_core::WritePlan;
+use plenora_io_core::{
+    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES,
+    UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+};
 
 fn fmt_err(reason: impl Into<String>) -> PlenoraError {
     PlenoraError::Format {
@@ -56,9 +63,19 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     crs_handling: CrsHandling::Embedded,
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::PureRust,
+    write_capabilities: Some(FormatWriteCapabilities {
+        field_names: UTF8_FIELD_NAMES,
+        allowed_types: ALL_ARROW_TYPES,
+        type_coercion: TypeCoercionPolicy::Reject,
+        attributes: AttributeWriteSupport::All,
+        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        crs: CrsWriteSupport::Embedded,
+        nullability: NullabilitySupport::Preserve,
+        multi_layer: false,
+    }),
     semantic_version: 1,
     driver_version: 1,
-    descriptor_version: 1,
+    descriptor_version: 2,
 };
 
 pub struct GeoParquetDriver;
@@ -68,8 +85,8 @@ impl FormatDriver for GeoParquetDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, _opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let Source::Path(path) = source;
+    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = source.into_path_checked(&opts.limits)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
             .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))?;
         let parquet_schema = builder.schema().clone();
@@ -80,14 +97,16 @@ impl FormatDriver for GeoParquetDriver {
         let geom_idx = out_schema
             .index_of(&geom_name)
             .map_err(|e| fmt_err(format!("colonna geometria: {e}")))?;
+        let mut geometry = GeometryColumnContract::wkb_passthrough(
+            FieldId(geom_idx as u32),
+            geom_name.clone(),
+            crs.clone(),
+            out_schema.field(geom_idx).is_nullable(),
+        );
+        apply_geo_column_metadata(&mut geometry, geo.as_ref(), &geom_name);
         let contract = DataContract {
             schema: out_schema.clone(),
-            geometry: Some(GeometryColumnContract {
-                field_id: FieldId(geom_idx as u32),
-                name: geom_name.clone(),
-                crs: crs.clone(),
-                nullable: out_schema.field(geom_idx).is_nullable(),
-            }),
+            geometry: Some(geometry),
         };
         let name = path
             .file_stem()
@@ -113,6 +132,7 @@ impl FormatDriver for GeoParquetDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
+        validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraError::OutputExists(path.display().to_string()));
@@ -138,8 +158,10 @@ impl FormatDriver for GeoParquetDriver {
         let mut aug_fields: Vec<Field> =
             schema.fields().iter().map(|f| f.as_ref().clone()).collect();
         aug_fields.extend(bbox_fields());
-        let write_schema: SchemaRef =
-            Arc::new(Schema::new_with_metadata(aug_fields, schema.metadata().clone()));
+        let write_schema: SchemaRef = Arc::new(Schema::new_with_metadata(
+            aug_fields,
+            schema.metadata().clone(),
+        ));
         let parent = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -154,17 +176,24 @@ impl FormatDriver for GeoParquetDriver {
             .build();
         let writer = ArrowWriter::try_new(temp.reopen()?, write_schema.clone(), Some(props))
             .map_err(|e| fmt_err(format!("writer: {e}")))?;
-        Ok(Box::new(GeoParquetWriter {
-            temp: Some(temp),
-            writer: Some(writer),
-            write_schema,
-            path,
-            durable: opts.durable,
-            geom_idx,
-            geom_name,
-            crs_meta,
-            geometry_types: BTreeSet::new(),
-        }))
+        Ok(with_write_validation(
+            Box::new(GeoParquetWriter {
+                temp: Some(temp),
+                writer: Some(writer),
+                write_schema,
+                path,
+                durable: opts.durable,
+                geom_idx,
+                geom_name,
+                crs_meta,
+                geometry_types: BTreeSet::new(),
+                wkb_limits: opts.limits.effective_wkb(),
+                max_output_bytes: opts.limits.max_output_bytes,
+            }),
+            self.descriptor(),
+            plan,
+            opts.limits,
+        ))
     }
 }
 
@@ -231,10 +260,13 @@ impl OpenDatasetHandle for GeoParquetDataset {
                 layer.contract = DataContract {
                     schema: projected.clone(),
                     geometry: layer.contract.geometry.and_then(|g| {
-                        projected.index_of(&g.name).ok().map(|i| GeometryColumnContract {
-                            field_id: FieldId(i as u32),
-                            ..g
-                        })
+                        projected
+                            .index_of(&g.name)
+                            .ok()
+                            .map(|i| GeometryColumnContract {
+                                field_id: FieldId(i as u32),
+                                ..g
+                            })
                     }),
                 };
                 (builder.with_projection(mask), projected, layer)
@@ -247,8 +279,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
         // min/max (mai filtering riga-per-riga; over-return, mai under-return).
         let builder = apply_pruning(builder, &request.pruning_predicate);
         // Spatial pruning (2C): salta i row group il cui bbox non interseca l'hint.
-        let builder =
-            apply_spatial_pruning(builder, &request.spatial_pruning_hint, self.has_bbox);
+        let builder = apply_spatial_pruning(builder, &request.spatial_pruning_hint, self.has_bbox);
 
         let reader = builder
             .build()
@@ -297,13 +328,15 @@ struct GeoParquetWriter {
     geom_idx: usize,
     geom_name: String,
     crs_meta: Option<String>,
-    geometry_types: BTreeSet<&'static str>,
+    geometry_types: BTreeSet<String>,
+    wkb_limits: WkbLimits,
+    max_output_bytes: u64,
 }
 
 impl FormatWriter for GeoParquetWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let geom = batch.column(self.geom_idx);
-        accumulate_geometry_types(geom, &mut self.geometry_types);
+        accumulate_geometry_types(geom, &mut self.geometry_types, &self.wkb_limits)?;
         // Aggiunge le 4 colonne bbox covering per il pruning spaziale.
         let bbox_cols = match geom.as_any().downcast_ref::<BinaryArray>() {
             Some(g) => build_bbox_columns(g),
@@ -333,7 +366,8 @@ impl FormatWriter for GeoParquetWriter {
         writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo));
         writer.close().map_err(|e| fmt_err(format!("close: {e}")))?;
         let temp = self.temp.take().expect("temp vivo");
-        let (bytes, outcome) = publish_file_atomic(temp, &self.path, self.durable)?;
+        let (bytes, outcome) =
+            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),
@@ -417,7 +451,12 @@ fn apply_pruning(
     let md = builder.metadata();
     let mut keep = Vec::new();
     for rg in 0..md.num_row_groups() {
-        let keep_it = match md.row_group(rg).column(cidx).statistics().and_then(stat_range) {
+        let keep_it = match md
+            .row_group(rg)
+            .column(cidx)
+            .statistics()
+            .and_then(stat_range)
+        {
             Some((min, max)) => range_matches(min, max, op, val),
             None => true,
         };
@@ -454,10 +493,22 @@ fn apply_spatial_pruning(
         let g = md.row_group(rg);
         // Estensione del row group: min(minx),min(miny) .. max(maxx),max(maxy).
         let ext = (
-            g.column(cminx).statistics().and_then(stat_range).map(|(a, _)| a),
-            g.column(cminy).statistics().and_then(stat_range).map(|(a, _)| a),
-            g.column(cmaxx).statistics().and_then(stat_range).map(|(_, b)| b),
-            g.column(cmaxy).statistics().and_then(stat_range).map(|(_, b)| b),
+            g.column(cminx)
+                .statistics()
+                .and_then(stat_range)
+                .map(|(a, _)| a),
+            g.column(cminy)
+                .statistics()
+                .and_then(stat_range)
+                .map(|(a, _)| a),
+            g.column(cmaxx)
+                .statistics()
+                .and_then(stat_range)
+                .map(|(_, b)| b),
+            g.column(cmaxy)
+                .statistics()
+                .and_then(stat_range)
+                .map(|(_, b)| b),
         );
         let keep_it = match ext {
             (Some(minx), Some(miny), Some(maxx), Some(maxy)) => {
@@ -545,6 +596,64 @@ fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> ResolvedCrs {
     }
 }
 
+fn parse_geo_type_label(label: &str) -> Option<(GeometryType, CoordinateDimensions)> {
+    let (name, dimensions) = if let Some(name) = label.strip_suffix(" ZM") {
+        (name, CoordinateDimensions::Xyzm)
+    } else if let Some(name) = label.strip_suffix(" Z") {
+        (name, CoordinateDimensions::Xyz)
+    } else if let Some(name) = label.strip_suffix(" M") {
+        (name, CoordinateDimensions::Xym)
+    } else {
+        (label, CoordinateDimensions::Xy)
+    };
+    let geometry_type = match name {
+        "Point" => GeometryType::Point,
+        "LineString" => GeometryType::LineString,
+        "Polygon" => GeometryType::Polygon,
+        "MultiPoint" => GeometryType::MultiPoint,
+        "MultiLineString" => GeometryType::MultiLineString,
+        "MultiPolygon" => GeometryType::MultiPolygon,
+        "GeometryCollection" => GeometryType::GeometryCollection,
+        _ => return None,
+    };
+    Some((geometry_type, dimensions))
+}
+
+fn apply_geo_column_metadata(
+    contract: &mut GeometryColumnContract,
+    geo: Option<&serde_json::Value>,
+    primary: &str,
+) {
+    let Some(column) = geo
+        .and_then(|value| value.get("columns"))
+        .and_then(|columns| columns.get(primary))
+    else {
+        return;
+    };
+    contract
+        .native_metadata
+        .insert("geoparquet.column".to_owned(), column.to_string());
+    let mut dimensions = BTreeSet::new();
+    if let Some(labels) = column.get("geometry_types").and_then(|v| v.as_array()) {
+        for label in labels.iter().filter_map(|value| value.as_str()) {
+            if let Some((geometry_type, dimension)) = parse_geo_type_label(label) {
+                if !contract.geometry_types.contains(&geometry_type) {
+                    contract.geometry_types.push(geometry_type);
+                }
+                dimensions.insert(dimension);
+            }
+        }
+    }
+    if dimensions.len() == 1 {
+        contract.dimensions = *dimensions.first().expect("una dimensione");
+    }
+    contract.srid = contract
+        .crs
+        .id()
+        .and_then(|id| id.strip_prefix("EPSG:"))
+        .and_then(|code| code.parse().ok());
+}
+
 // --- bbox covering (spatial pruning, 2C) -----------------------------------
 
 /// Colonne bbox interne (covering "plenora"): 4 f64 flat per row, con statistiche
@@ -604,21 +713,55 @@ fn scan_wkb(b: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<
     if depth > 32 {
         return None;
     }
-    let le = *b.get(*off)? == 1;
+    let le = match *b.get(*off)? {
+        0 => false,
+        1 => true,
+        _ => return None,
+    };
     *off += 1;
     let raw = rd_u32(b, off, le)?;
-    match raw {
+    let (base, z, m, srid) = if raw & 0xE000_0000 != 0 {
+        (
+            raw & 0x1FFF_FFFF,
+            raw & 0x8000_0000 != 0,
+            raw & 0x4000_0000 != 0,
+            raw & 0x2000_0000 != 0,
+        )
+    } else {
+        let dimension = raw / 1000;
+        if dimension > 3 {
+            return None;
+        }
+        (
+            raw % 1000,
+            dimension == 1 || dimension == 3,
+            dimension == 2 || dimension == 3,
+            false,
+        )
+    };
+    if srid {
+        rd_u32(b, off, le)?;
+    }
+    let scan_coord = |off: &mut usize, bb: &mut [f64; 4]| -> Option<()> {
+        let x = rd_f64(b, off, le)?;
+        let y = rd_f64(b, off, le)?;
+        if z {
+            rd_f64(b, off, le)?;
+        }
+        if m {
+            rd_f64(b, off, le)?;
+        }
+        upd(bb, x, y);
+        Some(())
+    };
+    match base {
         1 => {
-            let x = rd_f64(b, off, le)?;
-            let y = rd_f64(b, off, le)?;
-            upd(bb, x, y);
+            scan_coord(off, bb)?;
         }
         2 => {
             let n = rd_u32(b, off, le)?;
             for _ in 0..n {
-                let x = rd_f64(b, off, le)?;
-                let y = rd_f64(b, off, le)?;
-                upd(bb, x, y);
+                scan_coord(off, bb)?;
             }
         }
         3 => {
@@ -626,9 +769,7 @@ fn scan_wkb(b: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<
             for _ in 0..rings {
                 let npts = rd_u32(b, off, le)?;
                 for _ in 0..npts {
-                    let x = rd_f64(b, off, le)?;
-                    let y = rd_f64(b, off, le)?;
-                    upd(bb, x, y);
+                    scan_coord(off, bb)?;
                 }
             }
         }
@@ -638,7 +779,7 @@ fn scan_wkb(b: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<
                 scan_wkb(b, off, bb, depth + 1)?;
             }
         }
-        _ => return None, // Z/M/EWKB o tipo ignoto → niente bbox (conservativo)
+        _ => return None,
     }
     Some(())
 }
@@ -655,6 +796,9 @@ pub fn wkb_bbox(bytes: &[u8]) -> Option<[f64; 4]> {
     ];
     let mut off = 0usize;
     scan_wkb(bytes, &mut off, &mut bb, 0)?;
+    if off != bytes.len() {
+        return None;
+    }
     if bb.iter().all(|v| v.is_finite()) {
         Some(bb)
     } else {
@@ -739,58 +883,55 @@ fn geometry_field(schema: &Schema) -> Result<(usize, String, Option<String>)> {
     ))
 }
 
-fn wkb_type_name(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.len() < 5 {
-        return None;
+fn geometry_type_name(geometry_type: GeometryType) -> &'static str {
+    match geometry_type {
+        GeometryType::Point => "Point",
+        GeometryType::LineString => "LineString",
+        GeometryType::Polygon => "Polygon",
+        GeometryType::MultiPoint => "MultiPoint",
+        GeometryType::MultiLineString => "MultiLineString",
+        GeometryType::MultiPolygon => "MultiPolygon",
+        GeometryType::GeometryCollection => "GeometryCollection",
     }
-    let le = bytes[0] == 1;
-    let raw = if le {
-        u32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])
-    } else {
-        u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])
-    };
-    let base = if raw & 0xE000_0000 != 0 {
-        raw & 0xFF
-    } else {
-        raw % 1000
-    };
-    Some(match base {
-        1 => "Point",
-        2 => "LineString",
-        3 => "Polygon",
-        4 => "MultiPoint",
-        5 => "MultiLineString",
-        6 => "MultiPolygon",
-        7 => "GeometryCollection",
-        _ => return None,
-    })
 }
 
-fn accumulate_geometry_types(col: &dyn Array, out: &mut BTreeSet<&'static str>) {
+fn geometry_type_label(bytes: &[u8], limits: &WkbLimits) -> Result<String> {
+    let geometry = decode_wkb(bytes, limits)?;
+    let suffix = match geometry.dimensions {
+        CoordinateDimensions::Xy => "",
+        CoordinateDimensions::Xyz => " Z",
+        CoordinateDimensions::Xym => " M",
+        CoordinateDimensions::Xyzm => " ZM",
+        CoordinateDimensions::Unknown => return Err(fmt_err("dimensionalità WKB ignota")),
+    };
+    Ok(format!(
+        "{}{suffix}",
+        geometry_type_name(geometry.geometry_type())
+    ))
+}
+
+fn accumulate_geometry_types(
+    col: &dyn Array,
+    out: &mut BTreeSet<String>,
+    limits: &WkbLimits,
+) -> Result<()> {
     if let Some(a) = col.as_any().downcast_ref::<BinaryArray>() {
         for i in 0..a.len() {
             if !a.is_null(i) {
-                if let Some(t) = wkb_type_name(a.value(i)) {
-                    out.insert(t);
-                }
+                out.insert(geometry_type_label(a.value(i), limits)?);
             }
         }
     } else if let Some(a) = col.as_any().downcast_ref::<LargeBinaryArray>() {
         for i in 0..a.len() {
             if !a.is_null(i) {
-                if let Some(t) = wkb_type_name(a.value(i)) {
-                    out.insert(t);
-                }
+                out.insert(geometry_type_label(a.value(i), limits)?);
             }
         }
     }
+    Ok(())
 }
 
-fn build_geo_metadata(
-    geom_name: &str,
-    types: &BTreeSet<&'static str>,
-    crs: Option<&str>,
-) -> String {
+fn build_geo_metadata(geom_name: &str, types: &BTreeSet<String>, crs: Option<&str>) -> String {
     let mut column = serde_json::json!({
         "encoding": "WKB",
         "geometry_types": types.iter().collect::<Vec<_>>(),
@@ -821,7 +962,7 @@ mod tests {
     use arrow_array::Int64Array;
     use arrow_schema::DataType;
     use geo_types::{Geometry, Point};
-    use plenora_core::wkb::to_wkb;
+    use plenora_core::wkb::{encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
     use plenora_io_core::request::BatchTarget;
     use plenora_io_core::WriteLayer;
 
@@ -878,7 +1019,7 @@ mod tests {
         let layer = &ds.layers()[0];
         let geom_c = layer.contract.geometry.as_ref().unwrap();
         assert_eq!(geom_c.name, "geometry");
-        assert_eq!(geom_c.crs.id.as_deref(), Some("EPSG:4326"));
+        assert_eq!(geom_c.crs.id(), Some("EPSG:4326"));
 
         let mut reader = ds
             .open_layer_reader(&ReadRequest {
@@ -904,6 +1045,90 @@ mod tests {
             .unwrap();
         assert_eq!(col.value(0), wkb.as_slice());
         assert!(reader.next_batch().unwrap().is_none());
+    }
+
+    #[test]
+    fn geoparquet_preserves_xyz_and_emits_dimensional_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("z.parquet");
+        let wkb = encode_wkb(
+            &WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x: 12.5,
+                    y: 45.9,
+                    z: Some(123.0),
+                    m: None,
+                }),
+                dimensions: CoordinateDimensions::Xyz,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+        )
+        .unwrap();
+        let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )
+        .with_metadata(geometry_field_meta("EPSG:4326"))]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+        )
+        .unwrap();
+        let mut geometry = GeometryColumnContract::wkb_passthrough(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs {
+                id: Some("EPSG:4326".to_owned()),
+                kind: CrsKind::Geographic,
+                definition: None,
+            },
+            true,
+        );
+        geometry.dimensions = CoordinateDimensions::Xyz;
+        geometry.geometry_types = vec![GeometryType::Point];
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "z".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometry),
+                },
+            }],
+        };
+        let driver = GeoParquetDriver;
+        let mut writer = driver
+            .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        assert_eq!(wkb_bbox(&wkb), Some([12.5, 45.9, 12.5, 45.9]));
+        let dataset = driver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+        assert_eq!(geometry.dimensions, CoordinateDimensions::Xyz);
+        assert_eq!(geometry.geometry_types, vec![GeometryType::Point]);
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+            })
+            .unwrap();
+        let output = reader.next_batch().unwrap().unwrap();
+        let geometry_array = output
+            .column_by_name("geometry")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        assert_eq!(geometry_array.value(0), wkb);
     }
 
     /// Conformità alla spec GeoParquet 1.0.0, verificata riaprendo il file
@@ -1118,7 +1343,10 @@ mod tests {
         }
         // Over-return: legge solo i row group che POSSONO contenere id>150000
         // (meno di tutte le 200k righe, ma tutte le righe matchanti sono incluse).
-        assert!(total < n, "il pruning deve saltare row group, letti {total}");
+        assert!(
+            total < n,
+            "il pruning deve saltare row group, letti {total}"
+        );
         assert!(total >= n - 150_000, "under-return vietato, letti {total}");
     }
 
@@ -1194,7 +1422,10 @@ mod tests {
             total += b.num_rows();
         }
         // Pruning: legge meno di tutto ma include tutte le ~10000 righe con x in [190,200].
-        assert!(total < n, "spatial pruning deve saltare row group, letti {total}");
+        assert!(
+            total < n,
+            "spatial pruning deve saltare row group, letti {total}"
+        );
         assert!(total >= 10_000, "under-return vietato, letti {total}");
     }
 
@@ -1233,8 +1464,11 @@ mod tests {
             format_options: [("compression".to_owned(), "zstd".to_owned())]
                 .into_iter()
                 .collect(),
+            ..WriteOptions::default()
         };
-        let mut w = driver.create(Sink::Path(path.clone()), &plan, &wopts).unwrap();
+        let mut w = driver
+            .create(Sink::Path(path.clone()), &plan, &wopts)
+            .unwrap();
         w.write(&batch).unwrap();
         w.finish().unwrap();
 
