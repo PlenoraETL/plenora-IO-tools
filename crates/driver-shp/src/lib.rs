@@ -15,7 +15,6 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::Arc;
 
 use arrow_array::builder::{
@@ -36,8 +35,8 @@ use plenora_io_core::descriptor::{
     WriteMode,
 };
 use plenora_io_core::driver::{
-    FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions, Sink,
-    Source, WriteOptions,
+    spawn_batch_reader, BatchEmitter, FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle,
+    Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::{publish_dir_atomic, publish_files_ordered_limited};
@@ -362,35 +361,14 @@ impl OpenDatasetHandle for ShpDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let batch_size =
             plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
-        let rx = spawn_parser(
+        spawn_parser(
             self.path.clone(),
             self.schema.clone(),
             self.cols.clone(),
             self.dimensions,
             batch_size,
-        );
-        Ok(Box::new(ShpReader {
-            rx,
-            layer: self.layers[0].clone(),
-        }))
-    }
-}
-
-struct ShpReader {
-    rx: Receiver<std::result::Result<RecordBatch, String>>,
-    layer: LayerContract,
-}
-
-impl LayerReader for ShpReader {
-    fn contract(&self) -> &LayerContract {
-        &self.layer
-    }
-    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        match self.rx.recv() {
-            Ok(Ok(b)) => Ok(Some(b)),
-            Ok(Err(e)) => Err(err(e)),
-            Err(_) => Ok(None),
-        }
+            self.layers[0].clone(),
+        )
     }
 }
 
@@ -1403,63 +1381,60 @@ fn spawn_parser(
     cols: Vec<(String, ColType)>,
     dimensions: CoordinateDimensions,
     batch_size: usize,
-) -> Receiver<std::result::Result<RecordBatch, String>> {
-    let (tx, rx) = sync_channel::<std::result::Result<RecordBatch, String>>(2);
-    std::thread::spawn(move || {
-        let run = || -> std::result::Result<(), String> {
-            let mut reader = shapefile::Reader::from_path(&path).map_err(|e| e.to_string())?;
-            let mut geom = BinaryBuilder::new();
-            let mut builders: Vec<ShpColBuilder> =
-                cols.iter().map(|(_, ct)| ShpColBuilder::new(*ct)).collect();
-            let mut n = 0usize;
-            for pair in reader.iter_shapes_and_records() {
-                let (shape, record) = pair.map_err(|e| e.to_string())?;
-                match shape_to_wkb(&shape, dimensions).map_err(|e| e.to_string())? {
-                    Some(geometry) => {
-                        let bytes =
-                            encode_wkb(&geometry, WkbFlavor::Iso).map_err(|e| e.to_string())?;
-                        geom.append_value(bytes);
-                    }
-                    None => geom.append_null(),
+    layer: LayerContract,
+) -> Result<Box<dyn LayerReader>> {
+    spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
+        let mut reader = shapefile::Reader::from_path(&path)
+            .map_err(|error| err(format!("shapefile non valido: {error}")))?;
+        let mut geom = BinaryBuilder::new();
+        let mut builders: Vec<ShpColBuilder> =
+            cols.iter().map(|(_, ct)| ShpColBuilder::new(*ct)).collect();
+        let mut n = 0usize;
+        for pair in reader.iter_shapes_and_records() {
+            let (shape, record) =
+                pair.map_err(|error| err(format!("record shapefile non valido: {error}")))?;
+            match shape_to_wkb(&shape, dimensions)? {
+                Some(geometry) => {
+                    let bytes = encode_wkb(&geometry, WkbFlavor::Iso)?;
+                    geom.append_value(bytes);
                 }
-                // Lookup per nome (l'ordine di iterazione del Record non è garantito).
-                let map: HashMap<String, FieldValue> = record.into_iter().collect();
-                for (k, (name, _)) in cols.iter().enumerate() {
-                    builders[k].append(map.get(name));
-                }
-                n += 1;
-                if n >= batch_size {
-                    let batch = finish_batch(&schema, &mut geom, &mut builders)?;
-                    if tx.send(Ok(batch)).is_err() {
-                        return Ok(());
-                    }
-                    n = 0;
-                }
+                None => geom.append_null(),
             }
-            if n > 0 {
+            // Lookup per nome (l'ordine di iterazione del Record non è garantito).
+            let map: HashMap<String, FieldValue> = record.into_iter().collect();
+            for (k, (name, _)) in cols.iter().enumerate() {
+                builders[k].append(map.get(name));
+            }
+            n += 1;
+            if n >= batch_size {
                 let batch = finish_batch(&schema, &mut geom, &mut builders)?;
-                let _ = tx.send(Ok(batch));
+                if !emitter.send(batch) {
+                    return Ok(());
+                }
+                n = 0;
             }
-            Ok(())
-        };
-        if let Err(e) = run() {
-            let _ = tx.send(Err(e));
         }
-    });
-    rx
+        if n > 0 {
+            let batch = finish_batch(&schema, &mut geom, &mut builders)?;
+            if !emitter.send(batch) {
+                return Ok(());
+            }
+        }
+        Ok(())
+    })
 }
 
 fn finish_batch(
     schema: &SchemaRef,
     geom: &mut BinaryBuilder,
     builders: &mut [ShpColBuilder],
-) -> std::result::Result<RecordBatch, String> {
+) -> Result<RecordBatch> {
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
     arrays.push(Arc::new(geom.finish()));
     for b in builders.iter_mut() {
         arrays.push(b.finish());
     }
-    RecordBatch::try_new(schema.clone(), arrays).map_err(|e| format!("batch: {e}"))
+    RecordBatch::try_new(schema.clone(), arrays).map_err(|error| err(format!("batch: {error}")))
 }
 
 enum ShpColBuilder {

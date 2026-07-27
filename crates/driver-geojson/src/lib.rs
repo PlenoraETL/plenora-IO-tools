@@ -15,7 +15,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::Arc;
 
 use arrow_array::builder::{
@@ -39,8 +38,8 @@ use plenora_io_core::descriptor::{
     WriteMode,
 };
 use plenora_io_core::driver::{
-    FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions, Sink,
-    Source, WriteOptions,
+    spawn_batch_reader, BatchEmitter, FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle,
+    Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::publish_file_atomic_limited;
@@ -204,34 +203,13 @@ impl OpenDatasetHandle for GeoJsonDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let batch_size =
             plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
-        let rx = spawn_parser(
+        spawn_parser(
             self.path.clone(),
             self.schema.clone(),
             self.cols.clone(),
             batch_size,
-        );
-        Ok(Box::new(GeoJsonReader {
-            rx,
-            layer: self.layers[0].clone(),
-        }))
-    }
-}
-
-struct GeoJsonReader {
-    rx: Receiver<std::result::Result<RecordBatch, String>>,
-    layer: LayerContract,
-}
-
-impl LayerReader for GeoJsonReader {
-    fn contract(&self) -> &LayerContract {
-        &self.layer
-    }
-    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        match self.rx.recv() {
-            Ok(Ok(batch)) => Ok(Some(batch)),
-            Ok(Err(e)) => Err(err(e)),
-            Err(_) => Ok(None), // canale chiuso = fine stream
-        }
+            self.layers[0].clone(),
+        )
     }
 }
 
@@ -506,49 +484,60 @@ fn spawn_parser(
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
     batch_size: usize,
-) -> Receiver<std::result::Result<RecordBatch, String>> {
-    let (tx, rx) = sync_channel::<std::result::Result<RecordBatch, String>>(2);
-    std::thread::spawn(move || {
-        let run = || -> std::result::Result<(), String> {
-            let file = File::open(&path).map_err(|e| e.to_string())?;
-            let ncols = cols.len();
-            let col_idx: HashMap<String, usize> = cols
-                .iter()
-                .enumerate()
-                .map(|(i, (k, _))| (k.clone(), i))
-                .collect();
-            let mut sink = RowSink {
-                schema: schema.clone(),
-                col_idx,
-                tx: tx.clone(),
-                geom: BinaryBuilder::new(),
-                wkb_buf: Vec::new(),
-                builders: cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect(),
-                seen: vec![false; ncols],
-                n: 0,
-                batch_size,
-                aborted: false,
-            };
-            // Deserializer serde streaming: scrive i feature DIRETTAMENTE nei
-            // builder (chiavi via key-seed = 0 alloc, valori scalari appesi
-            // diretti = 0 alloc). Niente DOM Feature/JsonObject per feature.
-            let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
-            let res = de.deserialize_map(TopSink { sink: &mut sink });
-            if sink.aborted {
-                return Ok(()); // consumatore andato via: stop pulito
-            }
-            res.map_err(|e| format!("GeoJSON non valido: {e}"))?;
-            if sink.n > 0 {
-                let batch = finish_batch(&sink.schema, &mut sink.geom, &mut sink.builders)?;
-                let _ = sink.tx.send(Ok(batch));
-            }
-            Ok(())
+    layer: LayerContract,
+) -> Result<Box<dyn LayerReader>> {
+    spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
+        let file = File::open(&path)?;
+        let ncols = cols.len();
+        let col_idx: HashMap<String, usize> = cols
+            .iter()
+            .enumerate()
+            .map(|(i, (k, _))| (k.clone(), i))
+            .collect();
+        let mut sink = RowSink {
+            schema: schema.clone(),
+            col_idx,
+            output: RowOutput::Worker(emitter),
+            geom: BinaryBuilder::new(),
+            wkb_buf: Vec::new(),
+            builders: cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect(),
+            seen: vec![false; ncols],
+            n: 0,
+            batch_size,
+            aborted: false,
         };
-        if let Err(e) = run() {
-            let _ = tx.send(Err(e));
+        // Deserializer serde streaming: scrive i feature DIRETTAMENTE nei
+        // builder (chiavi via key-seed = 0 alloc, valori scalari appesi
+        // diretti = 0 alloc). Niente DOM Feature/JsonObject per feature.
+        let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
+        let result = de.deserialize_map(TopSink { sink: &mut sink });
+        if sink.aborted {
+            return Ok(()); // consumatore andato via: stop pulito
         }
-    });
-    rx
+        result.map_err(|error| err(format!("GeoJSON non valido: {error}")))?;
+        if sink.n > 0 {
+            let batch =
+                finish_batch(&sink.schema, &mut sink.geom, &mut sink.builders).map_err(err)?;
+            if !sink.output.send(batch) {
+                return Ok(());
+            }
+        }
+        Ok(())
+    })
+}
+
+enum RowOutput {
+    Worker(BatchEmitter),
+    Discard,
+}
+
+impl RowOutput {
+    fn send(&self, batch: RecordBatch) -> bool {
+        match self {
+            Self::Worker(emitter) => emitter.send(batch),
+            Self::Discard => true,
+        }
+    }
 }
 
 /// Stato del pass-2: builder tipizzati + bookkeeping per feature. Possiede tutto
@@ -557,7 +546,7 @@ fn spawn_parser(
 struct RowSink {
     schema: SchemaRef,
     col_idx: HashMap<String, usize>,
-    tx: SyncSender<std::result::Result<RecordBatch, String>>,
+    output: RowOutput,
     geom: BinaryBuilder,
     wkb_buf: Vec<u8>,
     builders: Vec<ColBuilder>,
@@ -677,7 +666,7 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
                 &mut self.sink.builders,
             ) {
                 Ok(batch) => {
-                    if self.sink.tx.send(Ok(batch)).is_err() {
+                    if !self.sink.output.send(batch) {
                         self.sink.aborted = true;
                         return Err(<A::Error as DeError>::custom("consumatore chiuso"));
                     }
@@ -911,11 +900,10 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         .enumerate()
         .map(|(i, (k, _))| (k.clone(), i))
         .collect();
-    let (tx, _rx) = sync_channel::<std::result::Result<RecordBatch, String>>(1);
     let mut sink = RowSink {
         schema: schema.clone(),
         col_idx,
-        tx,
+        output: RowOutput::Discard,
         geom: BinaryBuilder::new(),
         wkb_buf: Vec::new(),
         builders: cols.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect(),

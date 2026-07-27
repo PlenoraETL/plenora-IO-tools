@@ -16,7 +16,6 @@ use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{sync_channel, Receiver};
 use std::sync::Arc;
 
 use arrow_array::builder::{
@@ -35,8 +34,8 @@ use plenora_io_core::descriptor::{
     WriteMode,
 };
 use plenora_io_core::driver::{
-    FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions, Sink,
-    Source, WriteOptions,
+    spawn_batch_reader, BatchEmitter, FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle,
+    Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::publish_file_atomic_limited;
@@ -306,36 +305,15 @@ impl OpenDatasetHandle for CsvDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let batch_size =
             plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
-        let rx = spawn_parser(
+        spawn_parser(
             self.path.clone(),
             self.delim,
             self.geom,
             self.attrs.clone(),
             self.schema.clone(),
             batch_size,
-        );
-        Ok(Box::new(CsvStreamReader {
-            rx,
-            layer: self.layers[0].clone(),
-        }))
-    }
-}
-
-struct CsvStreamReader {
-    rx: Receiver<std::result::Result<RecordBatch, String>>,
-    layer: LayerContract,
-}
-
-impl LayerReader for CsvStreamReader {
-    fn contract(&self) -> &LayerContract {
-        &self.layer
-    }
-    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        match self.rx.recv() {
-            Ok(Ok(batch)) => Ok(Some(batch)),
-            Ok(Err(e)) => Err(err(e)),
-            Err(_) => Ok(None),
-        }
+            self.layers[0].clone(),
+        )
     }
 }
 
@@ -494,49 +472,44 @@ fn spawn_parser(
     attrs: Vec<(usize, ColType)>,
     schema: SchemaRef,
     batch_size: usize,
-) -> Receiver<std::result::Result<RecordBatch, String>> {
-    let (tx, rx) = sync_channel::<std::result::Result<RecordBatch, String>>(2);
-    std::thread::spawn(move || {
-        let run = || -> std::result::Result<(), String> {
-            let mut rdr = csv_reader(&path, delim).map_err(|e| e.to_string())?;
-            let mut rec = csv::StringRecord::new();
-            let mut geom_b = BinaryBuilder::new();
-            let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per riga: 0 alloc WKB nel loop
-            let mut builders: Vec<ColBuilder> =
-                attrs.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect();
-            let mut n = 0usize;
-            loop {
-                let more = rdr
-                    .read_record(&mut rec)
-                    .map_err(|e| format!("riga CSV non valida: {e}"))?;
-                if !more {
-                    break;
-                }
-                append_geometry(&mut geom_b, geom, &rec, &mut wkb_buf)?;
-                for (k, (ci, _)) in attrs.iter().enumerate() {
-                    let cell = required_cell(&rec, *ci).map_err(|error| error.to_string())?;
-                    builders[k].append(cell);
-                }
-                n += 1;
-                if n >= batch_size {
-                    let batch = finish_batch(&schema, &mut geom_b, &mut builders)?;
-                    if tx.send(Ok(batch)).is_err() {
-                        return Ok(());
-                    }
-                    n = 0;
-                }
+    layer: LayerContract,
+) -> Result<Box<dyn LayerReader>> {
+    spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
+        let mut rdr = csv_reader(&path, delim)?;
+        let mut rec = csv::StringRecord::new();
+        let mut geom_b = BinaryBuilder::new();
+        let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per riga: 0 alloc WKB nel loop
+        let mut builders: Vec<ColBuilder> =
+            attrs.iter().map(|(_, ct)| ColBuilder::new(*ct)).collect();
+        let mut n = 0usize;
+        loop {
+            let more = rdr
+                .read_record(&mut rec)
+                .map_err(|error| err(format!("riga CSV non valida: {error}")))?;
+            if !more {
+                break;
             }
-            if n > 0 {
+            append_geometry(&mut geom_b, geom, &rec, &mut wkb_buf)?;
+            for (k, (ci, _)) in attrs.iter().enumerate() {
+                builders[k].append(required_cell(&rec, *ci)?);
+            }
+            n += 1;
+            if n >= batch_size {
                 let batch = finish_batch(&schema, &mut geom_b, &mut builders)?;
-                let _ = tx.send(Ok(batch));
+                if !emitter.send(batch) {
+                    return Ok(());
+                }
+                n = 0;
             }
-            Ok(())
-        };
-        if let Err(e) = run() {
-            let _ = tx.send(Err(e));
         }
-    });
-    rx
+        if n > 0 {
+            let batch = finish_batch(&schema, &mut geom_b, &mut builders)?;
+            if !emitter.send(batch) {
+                return Ok(());
+            }
+        }
+        Ok(())
+    })
 }
 
 fn append_geometry(
@@ -544,42 +517,36 @@ fn append_geometry(
     geom: GeomSpec,
     rec: &csv::StringRecord,
     buf: &mut Vec<u8>,
-) -> std::result::Result<(), String> {
+) -> Result<()> {
     match geom {
         GeomSpec::Wkt(wi) => {
-            let cell = required_cell(rec, wi)
-                .map_err(|error| error.to_string())?
-                .trim();
+            let cell = required_cell(rec, wi)?.trim();
             if cell.is_empty() {
                 geom_b.append_null();
             } else {
-                let geometry = parse_wkt(cell).map_err(|error| error.to_string())?;
-                *buf = encode_wkb(&geometry, WkbFlavor::Iso).map_err(|error| error.to_string())?;
+                let geometry = parse_wkt(cell)?;
+                *buf = encode_wkb(&geometry, WkbFlavor::Iso)?;
                 geom_b.append_value(&buf);
             }
         }
         GeomSpec::Xy(xi, yi) => {
-            let x_text = required_cell(rec, xi)
-                .map_err(|error| error.to_string())?
-                .trim();
-            let y_text = required_cell(rec, yi)
-                .map_err(|error| error.to_string())?
-                .trim();
+            let x_text = required_cell(rec, xi)?.trim();
+            let y_text = required_cell(rec, yi)?.trim();
             if x_text.is_empty() && y_text.is_empty() {
                 geom_b.append_null();
                 return Ok(());
             }
             if x_text.is_empty() || y_text.is_empty() {
-                return Err(
-                    "coordinate CSV incomplete: X e Y devono essere entrambe presenti".to_owned(),
-                );
+                return Err(err(
+                    "coordinate CSV incomplete: X e Y devono essere entrambe presenti",
+                ));
             }
             let x = x_text
                 .parse::<f64>()
-                .map_err(|error| format!("coordinata X CSV non valida: {error}"))?;
+                .map_err(|error| err(format!("coordinata X CSV non valida: {error}")))?;
             let y = y_text
                 .parse::<f64>()
-                .map_err(|error| format!("coordinata Y CSV non valida: {error}"))?;
+                .map_err(|error| err(format!("coordinata Y CSV non valida: {error}")))?;
             let geometry = WkbGeometry {
                 value: WkbValue::Point(WkbCoordinate {
                     x,
@@ -590,7 +557,7 @@ fn append_geometry(
                 dimensions: CoordinateDimensions::Xy,
                 srid: None,
             };
-            *buf = encode_wkb(&geometry, WkbFlavor::Iso).map_err(|error| error.to_string())?;
+            *buf = encode_wkb(&geometry, WkbFlavor::Iso)?;
             geom_b.append_value(&buf);
         }
     }
@@ -609,13 +576,14 @@ fn finish_batch(
     schema: &SchemaRef,
     geom_b: &mut BinaryBuilder,
     builders: &mut [ColBuilder],
-) -> std::result::Result<RecordBatch, String> {
+) -> Result<RecordBatch> {
     let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
     arrays.push(Arc::new(geom_b.finish()));
     for b in builders.iter_mut() {
         arrays.push(b.finish());
     }
-    RecordBatch::try_new(schema.clone(), arrays).map_err(|e| format!("record batch: {e}"))
+    RecordBatch::try_new(schema.clone(), arrays)
+        .map_err(|error| err(format!("record batch: {error}")))
 }
 
 enum ColBuilder {
@@ -1053,5 +1021,23 @@ mod tests {
         let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
 
         assert!(reader.next_batch().is_err());
+    }
+
+    #[test]
+    fn background_reader_preserves_wkb_error_variant() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("invalid-wkt-after-open.csv");
+        std::fs::write(&source, "id,wkt\n1,POINT (12 45)\n").unwrap();
+        let dataset = CsvDriver
+            .open(
+                Source::Path(source.clone()),
+                &read_opts(&[("wkt_column", "wkt")]),
+            )
+            .unwrap();
+
+        std::fs::write(&source, "id,wkt\n1,NOT_A_GEOMETRY\n").unwrap();
+        let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
+
+        assert!(matches!(reader.next_batch(), Err(PlenoraIoError::Wkb(_))));
     }
 }

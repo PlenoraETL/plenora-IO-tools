@@ -23,9 +23,9 @@ pub use descriptor::{
     WKB_XY_XYZ_GEOMETRY,
 };
 pub use driver::{
-    with_batch_target, with_write_limits, with_write_validation, FormatDriver, FormatWriter,
-    LayerReader, OpenDatasetHandle, Published, ReadOptions, SingleReaderGate, Sink, Source,
-    WriteOptions,
+    spawn_batch_reader, with_batch_target, with_write_limits, with_write_validation, BatchEmitter,
+    FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions,
+    SingleReaderGate, Sink, Source, WriteOptions,
 };
 pub use loss::{
     FidelityAssessment, FidelityReason, FidelityReasonCode, LossExample, LossReport,

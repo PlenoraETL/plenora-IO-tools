@@ -124,7 +124,6 @@ mod backend {
     use std::collections::HashMap;
     use std::fs::{File, OpenOptions, TryLockError};
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::mpsc::{sync_channel, Receiver};
     use std::sync::Arc;
 
     use arrow_array::builder::{
@@ -136,7 +135,9 @@ mod backend {
     use gdal::Dataset;
 
     use driver_common::geometry_field;
-    use plenora_io_core::driver::{LayerReader, OpenDatasetHandle};
+    use plenora_io_core::driver::{
+        spawn_batch_reader, BatchEmitter, LayerReader, OpenDatasetHandle,
+    };
     use plenora_io_core::request::ReadRequest;
     use plenora_io_model::contract::{
         CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -1123,36 +1124,15 @@ mod backend {
             let batch_size =
                 plenora_io_core::effective_batch_rows(m.schema.as_ref(), request.batch_target);
             self.reader_gate.open(request.layer, || {
-                let rx = spawn_reader(
+                spawn_reader(
                     self.path.clone(),
                     m.gdal_idx,
                     m.schema.clone(),
                     m.fields.clone(),
                     batch_size,
-                );
-                Ok(Box::new(GdbReader {
-                    rx,
-                    layer: self.layers[idx].clone(),
-                }))
+                    self.layers[idx].clone(),
+                )
             })
-        }
-    }
-
-    struct GdbReader {
-        rx: Receiver<std::result::Result<RecordBatch, String>>,
-        layer: LayerContract,
-    }
-
-    impl LayerReader for GdbReader {
-        fn contract(&self) -> &LayerContract {
-            &self.layer
-        }
-        fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-            match self.rx.recv() {
-                Ok(Ok(b)) => Ok(Some(b)),
-                Ok(Err(e)) => Err(err(e)),
-                Err(_) => Ok(None),
-            }
         }
     }
 
@@ -1164,62 +1144,63 @@ mod backend {
         schema: SchemaRef,
         fields: Vec<(String, DataType)>,
         batch_size: usize,
-    ) -> Receiver<std::result::Result<RecordBatch, String>> {
-        let (tx, rx) = sync_channel::<std::result::Result<RecordBatch, String>>(2);
-        std::thread::spawn(move || {
-            let run = || -> std::result::Result<(), String> {
-                let ds = Dataset::open(&path).map_err(|e| e.to_string())?;
-                let mut layer = ds.layer(gdal_idx).map_err(|e| e.to_string())?;
-                let mut geom = BinaryBuilder::new();
-                let mut builders: Vec<ReadCol> =
-                    fields.iter().map(|(_, dt)| ReadCol::new(dt)).collect();
-                let mut n = 0usize;
-                for feature in layer.features() {
-                    match feature
-                        .geometry_by_index(0)
-                        .ok()
-                        .and_then(|geometry| geometry.wkb().ok())
-                    {
-                        Some(bytes) => geom.append_value(&bytes),
-                        None => geom.append_null(),
-                    }
-                    for (k, (name, _)) in fields.iter().enumerate() {
-                        let value = feature.field(name).map_err(|e| e.to_string())?;
-                        builders[k].append(value)?;
-                    }
-                    n += 1;
-                    if n >= batch_size {
-                        let batch = finish_read_batch(&schema, &mut geom, &mut builders)?;
-                        if tx.send(Ok(batch)).is_err() {
-                            return Ok(());
-                        }
-                        n = 0;
-                    }
+        contract: LayerContract,
+    ) -> Result<Box<dyn LayerReader>> {
+        spawn_batch_reader(DESCRIPTOR.id, contract, 2, move |emitter: BatchEmitter| {
+            let ds =
+                Dataset::open(&path).map_err(|error| err(format!("apertura FileGDB: {error}")))?;
+            let mut layer = ds
+                .layer(gdal_idx)
+                .map_err(|error| err(format!("apertura layer FileGDB: {error}")))?;
+            let mut geom = BinaryBuilder::new();
+            let mut builders: Vec<ReadCol> =
+                fields.iter().map(|(_, dt)| ReadCol::new(dt)).collect();
+            let mut n = 0usize;
+            for feature in layer.features() {
+                match feature
+                    .geometry_by_index(0)
+                    .ok()
+                    .and_then(|geometry| geometry.wkb().ok())
+                {
+                    Some(bytes) => geom.append_value(&bytes),
+                    None => geom.append_null(),
                 }
-                if n > 0 {
+                for (k, (name, _)) in fields.iter().enumerate() {
+                    let value = feature
+                        .field(name)
+                        .map_err(|error| err(format!("lettura campo FileGDB: {error}")))?;
+                    builders[k].append(value)?;
+                }
+                n += 1;
+                if n >= batch_size {
                     let batch = finish_read_batch(&schema, &mut geom, &mut builders)?;
-                    let _ = tx.send(Ok(batch));
+                    if !emitter.send(batch) {
+                        return Ok(());
+                    }
+                    n = 0;
                 }
-                Ok(())
-            };
-            if let Err(e) = run() {
-                let _ = tx.send(Err(e));
             }
-        });
-        rx
+            if n > 0 {
+                let batch = finish_read_batch(&schema, &mut geom, &mut builders)?;
+                if !emitter.send(batch) {
+                    return Ok(());
+                }
+            }
+            Ok(())
+        })
     }
 
     fn finish_read_batch(
         schema: &SchemaRef,
         geom: &mut BinaryBuilder,
         builders: &mut [ReadCol],
-    ) -> std::result::Result<RecordBatch, String> {
+    ) -> Result<RecordBatch> {
         let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
         arrays.push(Arc::new(geom.finish()));
         for b in builders.iter_mut() {
             arrays.push(b.finish());
         }
-        RecordBatch::try_new(schema.clone(), arrays).map_err(|e| format!("batch: {e}"))
+        RecordBatch::try_new(schema.clone(), arrays).map_err(|error| err(format!("batch: {error}")))
     }
 
     enum ReadCol {
@@ -1238,46 +1219,43 @@ mod backend {
                 _ => ReadCol::Str(StringBuilder::new()),
             }
         }
-        fn append(
-            &mut self,
-            v: Option<gdal::vector::FieldValue>,
-        ) -> std::result::Result<(), String> {
+        fn append(&mut self, v: Option<gdal::vector::FieldValue>) -> Result<()> {
             use gdal::vector::FieldValue as F;
             match self {
                 ReadCol::I32(b) => match v {
                     Some(F::IntegerValue(i)) => b.append_value(i),
                     None => b.append_null(),
                     Some(other) => {
-                        return Err(format!(
+                        return Err(err(format!(
                             "campo OGR intero 32-bit ha restituito valore incompatibile {other:?}"
-                        ));
+                        )));
                     }
                 },
                 ReadCol::I64(b) => match v {
                     Some(F::Integer64Value(i)) => b.append_value(i),
                     None => b.append_null(),
                     Some(other) => {
-                        return Err(format!(
+                        return Err(err(format!(
                             "campo OGR intero 64-bit ha restituito valore incompatibile {other:?}"
-                        ));
+                        )));
                     }
                 },
                 ReadCol::F64(b) => match v {
                     Some(F::RealValue(f)) => b.append_value(f),
                     None => b.append_null(),
                     Some(other) => {
-                        return Err(format!(
+                        return Err(err(format!(
                             "campo OGR reale ha restituito valore incompatibile {other:?}"
-                        ));
+                        )));
                     }
                 },
                 ReadCol::Str(b) => match v {
                     Some(F::StringValue(s)) => b.append_value(s),
                     None => b.append_null(),
                     Some(other) => {
-                        return Err(format!(
+                        return Err(err(format!(
                             "campo OGR stringa ha restituito valore incompatibile {other:?}"
-                        ));
+                        )));
                     }
                 },
             }
