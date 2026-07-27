@@ -99,7 +99,10 @@ deve essere coerente con il suffisso e fallisce chiuso altrimenti. Il publish
 durable delle directory sincronizza ricorsivamente file e directory prima
 dell'unico rename; nessun errore pre-publish di `fsync` viene ignorato. Sono
 coperti no-clobber, preflight del loose set, abort senza residui e round-trip
-della directory dataset. Restano fault injection di un crash di processo,
+della directory dataset. FileGDB usa la stessa unità directory e una guardia
+RAII: chiude il dataset GDAL prima della cancellazione e rimuove lo staging su
+drop, errore di write o limite output, senza rendere visibile la destinazione.
+Restano fault injection di un crash di processo,
 test cross-filesystem e validazione delle garanzie su più filesystem/piattaforme.
 
 ## Alternative scartate

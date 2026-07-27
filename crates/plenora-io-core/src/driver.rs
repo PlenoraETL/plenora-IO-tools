@@ -292,8 +292,10 @@ pub trait FormatWriter {
 pub fn with_write_limits(writer: Box<dyn FormatWriter>, limits: Limits) -> Box<dyn FormatWriter> {
     Box::new(LimitedWriter {
         inner: writer,
+        driver: "writer",
         limits,
         rows: 0,
+        failed: false,
         geometry_validation: None,
         fidelity: FidelityAssessment::unassessed(
             "writer con soli limiti globali: assessment di formato non disponibile",
@@ -351,8 +353,10 @@ pub fn with_write_validation(
         .collect();
     Box::new(LimitedWriter {
         inner: writer,
+        driver: descriptor.id,
         limits,
         rows: 0,
+        failed: false,
         fidelity: assess_write_contract(descriptor, plan),
         geometry_validation: geometry_support.map(|support| GeometryValidation {
             driver: descriptor.id,
@@ -444,8 +448,10 @@ struct GeometryValidation {
 
 struct LimitedWriter {
     inner: Box<dyn FormatWriter>,
+    driver: &'static str,
     limits: Limits,
     rows: usize,
+    failed: bool,
     geometry_validation: Option<GeometryValidation>,
     fidelity: FidelityAssessment,
 }
@@ -495,16 +501,44 @@ impl FormatWriter for LimitedWriter {
     }
 
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
-        self.account(0, batch)?;
-        self.inner.write(batch)
+        if self.failed {
+            return Err(PlenoraError::Format {
+                driver: self.driver,
+                reason: "writer invalidato da un precedente errore di scrittura".to_owned(),
+            });
+        }
+        let result = self
+            .account(0, batch)
+            .and_then(|()| self.inner.write(batch));
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
     }
 
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
-        self.account(layer.0 as usize, batch)?;
-        self.inner.write_to_layer(layer, batch)
+        if self.failed {
+            return Err(PlenoraError::Format {
+                driver: self.driver,
+                reason: "writer invalidato da un precedente errore di scrittura".to_owned(),
+            });
+        }
+        let result = self
+            .account(layer.0 as usize, batch)
+            .and_then(|()| self.inner.write_to_layer(layer, batch));
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
     }
 
     fn finish(self: Box<Self>) -> Result<Published> {
+        if self.failed {
+            return Err(PlenoraError::Format {
+                driver: self.driver,
+                reason: "finish vietato dopo un errore di scrittura".to_owned(),
+            });
+        }
         let mut published = self.inner.finish()?;
         published.fidelity = self.fidelity.with_loss_report(&published.loss);
         Ok(published)
@@ -701,6 +735,7 @@ pub struct Published {
 #[cfg(test)]
 mod tests {
     use std::io::Write;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
     use arrow_array::{BinaryArray, Int64Array};
@@ -711,6 +746,59 @@ mod tests {
 
     use super::*;
     use crate::descriptor::WKB_XY_GEOMETRY;
+
+    struct FinishTrackingWriter {
+        finished: Arc<AtomicBool>,
+    }
+
+    impl FormatWriter for FinishTrackingWriter {
+        fn write(&mut self, _batch: &RecordBatch) -> Result<()> {
+            Ok(())
+        }
+
+        fn finish(self: Box<Self>) -> Result<Published> {
+            self.finished.store(true, Ordering::SeqCst);
+            Ok(Published {
+                bytes: 0,
+                loss: LossReport::default(),
+                fidelity: FidelityAssessment::lossless(),
+                outcome: crate::publish::PublishOutcome::Published,
+            })
+        }
+    }
+
+    #[test]
+    fn failed_write_poisons_writer_and_prevents_finish() {
+        let finished = Arc::new(AtomicBool::new(false));
+        let limits = Limits {
+            max_rows: 0,
+            ..Limits::default()
+        };
+        let mut writer = with_write_limits(
+            Box::new(FinishTrackingWriter {
+                finished: finished.clone(),
+            }),
+            limits,
+        );
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            false,
+        )]));
+        let batch =
+            RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1]))]).unwrap();
+
+        assert!(matches!(
+            writer.write(&batch),
+            Err(PlenoraError::LimitExceeded(_))
+        ));
+        assert!(matches!(
+            writer.write(&batch),
+            Err(PlenoraError::Format { .. })
+        ));
+        assert!(matches!(writer.finish(), Err(PlenoraError::Format { .. })));
+        assert!(!finished.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn source_size_is_checked_before_parsing() {

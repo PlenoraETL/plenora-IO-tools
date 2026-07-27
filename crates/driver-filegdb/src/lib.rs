@@ -62,7 +62,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 6,
+    driver_version: 7,
     descriptor_version: 6,
 };
 
@@ -238,13 +238,52 @@ mod backend {
         gdal_idx: usize,
     }
 
+    struct StagingGuard {
+        path: PathBuf,
+        armed: bool,
+    }
+
+    impl StagingGuard {
+        fn new(path: PathBuf) -> Self {
+            Self { path, armed: true }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+
+        fn disarm(&mut self) {
+            self.armed = false;
+        }
+
+        fn cleanup(&mut self) {
+            if self.armed {
+                let _ = std::fs::remove_dir_all(&self.path);
+                self.armed = false;
+            }
+        }
+    }
+
+    impl Drop for StagingGuard {
+        fn drop(&mut self) {
+            self.cleanup();
+        }
+    }
+
     struct GdbWriter {
-        ds: Dataset,
-        staging: PathBuf,
+        ds: Option<Dataset>,
+        staging: StagingGuard,
         dest: PathBuf,
         durable: bool,
         max_output_bytes: u64,
         layers: Vec<PlanLayer>,
+    }
+
+    impl Drop for GdbWriter {
+        fn drop(&mut self) {
+            drop(self.ds.take());
+            self.staging.cleanup();
+        }
     }
 
     fn layer_spatial_ref(layer: &WriteLayer) -> Result<SpatialRef> {
@@ -386,14 +425,10 @@ mod backend {
         let parent = dest.parent().filter(|p| !p.as_os_str().is_empty());
         let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
         let name = format!("{stem}.plenora-tmp.gdb");
-        let p = match parent {
+        match parent {
             Some(pp) => pp.join(name),
             None => PathBuf::from(name),
-        };
-        if p.exists() {
-            let _ = std::fs::remove_dir_all(&p);
         }
-        p
     }
 
     fn field_value(
@@ -501,11 +536,15 @@ mod backend {
             });
         }
 
-        let staging = staging_path(path);
+        let staging_path = staging_path(path);
+        if staging_path.exists() {
+            std::fs::remove_dir_all(&staging_path)?;
+        }
+        let staging = StagingGuard::new(staging_path);
         let driver = DriverManager::get_driver_by_name("OpenFileGDB")
             .map_err(|e| err(format!("driver OpenFileGDB non disponibile: {e}")))?;
         let mut ds = driver
-            .create_vector_only(&staging)
+            .create_vector_only(staging.path())
             .map_err(|e| err(format!("creazione FileGDB: {e}")))?;
 
         // Il contratto basta a creare anche layer vuoti o con sole geometrie
@@ -597,12 +636,11 @@ mod backend {
         })();
         if let Err(error) = layer_result {
             drop(ds);
-            let _ = std::fs::remove_dir_all(&staging);
             return Err(error);
         }
 
         Ok(Box::new(GdbWriter {
-            ds,
+            ds: Some(ds),
             staging,
             dest: path.to_owned(),
             durable: opts.durable,
@@ -632,6 +670,8 @@ mod backend {
             let fields = self.layers[li].fields.clone();
             let gl = self
                 .ds
+                .as_ref()
+                .ok_or_else(|| err("dataset writer già chiuso"))?
                 .layer(gidx)
                 .map_err(|e| err(format!("accesso layer {gidx}: {e}")))?;
             for row in 0..batch.num_rows() {
@@ -661,23 +701,21 @@ mod backend {
             Ok(())
         }
 
-        fn finish(self: Box<Self>) -> Result<Published> {
-            let GdbWriter {
-                ds,
-                staging,
-                dest,
-                durable,
-                max_output_bytes,
-                ..
-            } = *self;
+        fn finish(mut self: Box<Self>) -> Result<Published> {
+            let ds = self
+                .ds
+                .take()
+                .ok_or_else(|| err("dataset writer già chiuso"))?;
             drop(ds); // chiude e flush della .gdb
-            let bytes = dir_size(&staging);
-            if bytes > max_output_bytes {
+            let bytes = dir_size(self.staging.path());
+            if bytes > self.max_output_bytes {
                 return Err(PlenoraError::LimitExceeded(format!(
-                    "output FileGDB da {bytes} byte oltre il limite di {max_output_bytes}"
+                    "output FileGDB da {bytes} byte oltre il limite di {}",
+                    self.max_output_bytes
                 )));
             }
-            let outcome = publish_dir_atomic(&staging, &dest, durable)?;
+            let outcome = publish_dir_atomic(self.staging.path(), &self.dest, self.durable)?;
+            self.staging.disarm();
             Ok(Published {
                 bytes,
                 loss: LossReport::default(),
@@ -1739,6 +1777,98 @@ mod backend {
             assert_eq!(geometry.geometry_types, vec![GeometryType::Point]);
             let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
             assert!(reader.next_batch().unwrap().is_none());
+        }
+
+        #[test]
+        fn filegdb_drop_writer_aborts_and_removes_staging() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("aborted.gdb");
+            let staging = staging_path(&path);
+            let plan = WritePlan {
+                layers: vec![write_layer(ResolvedCrs::new(
+                    Some("EPSG:3857".to_owned()),
+                    CrsKind::Projected,
+                    None,
+                ))],
+            };
+            let writer = super::super::FileGdbDriver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+            assert!(staging.exists());
+            assert!(!path.exists());
+
+            drop(writer);
+            assert!(!staging.exists());
+            assert!(!path.exists());
+        }
+
+        #[test]
+        fn filegdb_failed_batch_poisons_writer_and_prevents_publish() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("failed-write.gdb");
+            let staging = staging_path(&path);
+            let layer = write_layer(ResolvedCrs::new(
+                Some("EPSG:3857".to_owned()),
+                CrsKind::Projected,
+                None,
+            ));
+            let schema = layer.contract.schema.clone();
+            let hidden_z = point_wkb(CoordinateDimensions::Xyz, Some(3.0), None);
+            let batch = RecordBatch::try_new(
+                schema,
+                vec![Arc::new(BinaryArray::from(vec![Some(hidden_z.as_slice())]))],
+            )
+            .unwrap();
+            let plan = WritePlan {
+                layers: vec![layer],
+            };
+            let mut writer = super::super::FileGdbDriver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+
+            assert!(matches!(
+                writer.write(&batch),
+                Err(PlenoraError::Capability {
+                    reason: CapabilityReason::CoordinateDimensions,
+                    ..
+                })
+            ));
+            assert!(staging.exists());
+            assert!(matches!(
+                writer.finish(),
+                Err(PlenoraError::Format {
+                    driver: "filegdb",
+                    ..
+                })
+            ));
+            assert!(!staging.exists());
+            assert!(!path.exists());
+        }
+
+        #[test]
+        fn filegdb_output_limit_failure_removes_staging_without_publish() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("too-large.gdb");
+            let staging = staging_path(&path);
+            let plan = WritePlan {
+                layers: vec![write_layer(ResolvedCrs::new(
+                    Some("EPSG:3857".to_owned()),
+                    CrsKind::Projected,
+                    None,
+                ))],
+            };
+            let mut options = WriteOptions::default();
+            options.limits.max_output_bytes = 0;
+            let writer = super::super::FileGdbDriver
+                .create(Sink::Path(path.clone()), &plan, &options)
+                .unwrap();
+
+            assert!(matches!(
+                writer.finish(),
+                Err(PlenoraError::LimitExceeded(_))
+            ));
+            assert!(!staging.exists());
+            assert!(!path.exists());
         }
 
         #[test]

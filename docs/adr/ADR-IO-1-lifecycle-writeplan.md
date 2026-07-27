@@ -51,6 +51,9 @@ dell'esaurimento è sempre sicuro: nessun side effect osservabile, solo rilascio
 degli handle. In scrittura, **droppare un `FormatWriter` senza chiamare
 `finish`** è un **abort**: la staging viene ripulita, la destinazione non è mai
 toccata. Il publish avviene **esclusivamente** in `finish`, e solo a successo.
+Qualunque errore restituito da `write`/`write_to_layer` invalida definitivamente
+il writer: ulteriori write e `finish` falliscono, così un batch parzialmente
+elaborato non può essere pubblicato.
 
 **4. `WritePlan` (contenitori multi-layer).**
 
@@ -80,9 +83,12 @@ toccata. Il publish avviene **esclusivamente** in `finish`, e solo a successo.
 
 **Nota di implementazione corrente.** Il gate di conformità centrale esercita
 tutti i descrittori reali e, per i nove writer pure-Rust, verifica con una
-creazione effettiva sia il no-clobber sia il drop senza `finish`: la destinazione
-non viene pubblicata e lo staging non lascia residui. Valida inoltre piani vuoti,
-multi-layer non supportati e nomi duplicati. Gli handle sono `Send + Sync` e il
+creazione effettiva sia il no-clobber sia il drop senza `finish`. Il backend
+FileGDB feature-on applica la stessa garanzia con una guardia RAII che chiude
+prima il dataset GDAL e poi rimuove la directory `.gdb` di staging; copre drop,
+batch fallito e limite output prima del publish. Il wrapper comune invalida
+ogni writer dopo il primo errore di scrittura e vieta `finish`. Valida inoltre
+piani vuoti, multi-layer non supportati e nomi duplicati. Gli handle sono `Send + Sync` e il
 lease atomico comune di `SingleActiveReader` restituisce `ReaderBusy` a un
 secondo reader sullo stesso handle, rilasciandosi a EOF, errore o drop
 anticipato. La matrice apre due reader reali sui driver pure-Rust single
