@@ -1760,10 +1760,12 @@ mod tests {
         );
         let published = writer.finish().unwrap();
 
-        assert_eq!(
-            published.outcome,
+        let expected_outcome = if cfg!(unix) {
             plenora_io_core::PublishOutcome::Published
-        );
+        } else {
+            plenora_io_core::PublishOutcome::PublishedButDurabilityUnconfirmed
+        };
+        assert_eq!(published.outcome, expected_outcome);
         assert!(output.is_dir());
         assert!(output.join("data.shp").is_file());
         assert!(output.join("data.shx").is_file());
