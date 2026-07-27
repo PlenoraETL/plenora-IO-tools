@@ -72,18 +72,32 @@ il volume letto, data-tools decide la semantica finale.
 **5. `batch_target`** è un obiettivo best-effort in byte e righe (V7 di
 `Prestazioni.md`); per le geometrie prevale il limite in byte.
 
+## Stato dell'implementazione (2026-07-27)
+
+- Il descrittore v3 espone `projection_support = exact | none`.
+- GeoParquet e Arrow IPC dichiarano `exact` e producono un contratto proiettato;
+  IPC applica la projection direttamente al `FileReader`.
+- I driver non exact rifiutano `ProjectionMode::Required` all'apertura con
+  l'errore tipizzato `ProjectionUnsupported`; `BestEffort` continua a poter
+  restituire lo schema completo.
+- CSV, GeoJSON, GeoPackage, Shapefile, FileGDB e GeoParquet combinano
+  `max_rows` con una stima conservativa di `target_bytes` per scegliere la
+  dimensione dei batch incrementali. La stima non è un limite rigido di memoria.
+- Il pruning conservativo effettivo resta al momento specifico di GeoParquet.
+
 ## Conseguenze
 
 - Il pushdown migliora le prestazioni (meno row group letti) senza duplicare la
   semantica del filtro: nessun rischio di divergenza fra il "filtro" dell'I/O e
   quello del motore.
-- Il consumatore deve leggere lo schema effettivo del reader (la projection è
-  best-effort): contratto onesto.
+- Il consumatore deve leggere lo schema effettivo del reader: con `Required`
+  coincide con la projection, con `BestEffort` può contenere colonne extra.
 - Test obbligatori: Parquet con pruning effettivo (row group saltati > 0) che
   però restituisce falsi positivi corretti; un predicato non supportato che
   viene ignorato (tutte le righe passano); nessun falso negativo su un dataset
-  di riferimento; projection ignorata da un driver non colonnare che comunque
-  espone lo schema reale.
+  di riferimento; `Required` rifiutata fail-closed da ogni driver non exact;
+  matrice catalogo/implementazione e projection esatta sui driver che la
+  dichiarano.
 
 ## Alternative scartate
 

@@ -151,6 +151,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
+    projection_support: plenora_io_core::ProjectionSupport::None,
     crs_handling: CrsHandling::FixedWgs84,
     fidelity_class: Fidelity::Conditional,
     runtime: Runtime::PureRust,
@@ -166,7 +167,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 2,
-    descriptor_version: 2,
+    descriptor_version: 3,
 };
 
 pub struct KmlDriver;
@@ -256,6 +257,7 @@ impl OpenDatasetHandle for KmlDataset {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         self.reader_gate.open(request.layer, || {
             Ok(Box::new(KmlReader {
                 batch: Some(self.batch.clone()),

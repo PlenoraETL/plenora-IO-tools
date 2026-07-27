@@ -73,6 +73,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
+    projection_support: plenora_io_core::ProjectionSupport::None,
     crs_handling: CrsHandling::None,
     fidelity_class: Fidelity::Conditional,
     runtime: Runtime::PureRust,
@@ -88,7 +89,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 3,
-    descriptor_version: 2,
+    descriptor_version: 3,
 };
 
 pub struct CsvDriver;
@@ -302,7 +303,9 @@ impl OpenDatasetHandle for CsvDataset {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
-        let batch_size = request.batch_target.max_rows.max(1);
+        plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
+        let batch_size =
+            plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
         let rx = spawn_parser(
             self.path.clone(),
             self.delim,
@@ -858,7 +861,7 @@ mod tests {
     }
 
     #[test]
-    fn streams_multiple_batches() {
+    fn target_bytes_splits_streaming_batches() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("many.csv");
         let mut s = String::from("id,geom\n");
@@ -871,17 +874,16 @@ mod tests {
         let ds = driver
             .open(Source::Path(src), &read_opts(&[("wkt_column", "geom")]))
             .unwrap();
-        let mut reader = ds.open_layer_reader(&req(4)).unwrap();
+        let mut request = req(100);
+        request.batch_target.target_bytes = 1;
+        let mut reader = ds.open_layer_reader(&request).unwrap();
         let (mut total, mut batches) = (0, 0);
         while let Some(b) = reader.next_batch().unwrap() {
             total += b.num_rows();
             batches += 1;
         }
         assert_eq!(total, 10);
-        assert!(
-            batches >= 3,
-            "atteso streaming multi-batch, avuti {batches}"
-        );
+        assert_eq!(batches, 10, "target byte non applicato: {batches} batch");
     }
 
     #[test]

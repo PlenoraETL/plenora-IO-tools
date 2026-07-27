@@ -309,6 +309,7 @@ mod tests {
             multi_layer: false,
             multi_file: false,
             reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
+            projection_support: crate::descriptor::ProjectionSupport::None,
             crs_handling: crate::descriptor::CrsHandling::Embedded,
             fidelity_class: Fidelity::Conditional,
             runtime: Runtime::PureRust,

@@ -45,6 +45,7 @@ fn map_err(e: plenora_core::PlenoraError) -> (i32, Value) {
         E::Contract(_) | E::Schema(_) => (6, "CONTRACT"),
         E::LimitExceeded(_) => (7, "LIMIT_EXCEEDED"),
         E::ReaderBusy { .. } => (8, "READER_BUSY"),
+        E::ProjectionUnsupported { .. } => (8, "PROJECTION_UNSUPPORTED"),
         _ => (1, "FORMAT_ERROR"),
     };
     (exit, err_doc(code, e.to_string()))
@@ -569,6 +570,14 @@ mod tests {
         });
         assert_eq!(exit, 8);
         assert_eq!(document["error"]["code"], "READER_BUSY");
+    }
+
+    #[test]
+    fn projection_unsupported_has_stable_cli_error() {
+        let (exit, document) =
+            map_err(plenora_core::PlenoraError::ProjectionUnsupported { driver: "csv" });
+        assert_eq!(exit, 8);
+        assert_eq!(document["error"]["code"], "PROJECTION_UNSUPPORTED");
     }
 
     #[test]

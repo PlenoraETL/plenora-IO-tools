@@ -18,8 +18,8 @@ use plenora_core::geometry::{
 use plenora_core::{CapabilityReason, PlenoraError};
 use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsWriteSupport, Direction, FormatDescriptor,
-    FormatDriver, NullabilitySupport, ReadOptions, ReaderConcurrency, Runtime, Sink, Source,
-    TypeCoercionPolicy, WriteLayer, WriteOptions, WritePlan,
+    FormatDriver, NullabilitySupport, ProjectionSupport, ReadOptions, ReaderConcurrency, Runtime,
+    Sink, Source, TypeCoercionPolicy, WriteLayer, WriteOptions, WritePlan,
 };
 use plenora_io_core::{BatchTarget, ProjectionMode, ReadRequest};
 
@@ -147,7 +147,7 @@ fn descriptor_matrix_is_internally_coherent() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
         assert!(
-            descriptor.descriptor_version >= 2,
+            descriptor.descriptor_version >= 3,
             "{}: descriptor legacy",
             descriptor.id
         );
@@ -171,6 +171,40 @@ fn descriptor_matrix_is_internally_coherent() {
             );
         }
     }
+}
+
+#[test]
+fn projection_contract_is_machine_readable_and_fail_closed() {
+    let request = ReadRequest {
+        layer: LayerId(0),
+        projected_fields: Some(vec![FieldId(0)]),
+        projection_mode: ProjectionMode::Required,
+        pruning_predicate: None,
+        spatial_pruning_hint: None,
+        batch_target: BatchTarget::default(),
+    };
+    let mut exact = Vec::new();
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        match descriptor.projection_support {
+            ProjectionSupport::Exact => {
+                plenora_io_core::validate_read_projection(descriptor, &request)
+                    .unwrap_or_else(|error| panic!("{}: exact respinta: {error}", descriptor.id));
+                exact.push(descriptor.id);
+            }
+            ProjectionSupport::None => assert!(
+                matches!(
+                    plenora_io_core::validate_read_projection(descriptor, &request),
+                    Err(PlenoraError::ProjectionUnsupported { driver })
+                        if driver == descriptor.id
+                ),
+                "{}: Required non respinta fail-closed",
+                descriptor.id
+            ),
+        }
+    }
+    exact.sort_unstable();
+    assert_eq!(exact, vec!["geoparquet", "ipc"]);
 }
 
 #[test]
@@ -535,15 +569,52 @@ fn materialize_empty_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
 
 fn read_options(driver: &str) -> ReadOptions {
     let mut options = ReadOptions::default();
-    if matches!(driver, "dxf" | "xls") {
+    if matches!(driver, "csv" | "dxf" | "xls") {
         options.assume_crs = Some("EPSG:4326".to_owned());
     }
-    if driver == "xls" {
+    if matches!(driver, "csv" | "xls") {
         options
             .format_options
             .insert("wkt_column".to_owned(), "geometry".to_owned());
     }
     options
+}
+
+#[test]
+fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
+    let mut checked = 0;
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.runtime != Runtime::PureRust
+            || descriptor.projection_support != ProjectionSupport::None
+        {
+            continue;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let output = materialize_empty_dataset(driver.as_ref(), &directory);
+        let dataset = driver
+            .open(Source::Path(output), &read_options(descriptor.id))
+            .unwrap_or_else(|error| panic!("{}: open dataset vuoto: {error}", descriptor.id));
+        let request = ReadRequest {
+            layer: LayerId(0),
+            projected_fields: Some(vec![FieldId(0)]),
+            projection_mode: ProjectionMode::Required,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            batch_target: BatchTarget::default(),
+        };
+        assert!(
+            matches!(
+                dataset.open_layer_reader(&request),
+                Err(PlenoraError::ProjectionUnsupported { driver })
+                    if driver == descriptor.id
+            ),
+            "{}: Required non respinta all'apertura",
+            descriptor.id
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 7, "catalogo non-exact pure Rust inatteso");
 }
 
 #[test]

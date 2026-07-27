@@ -205,6 +205,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
+    projection_support: plenora_io_core::ProjectionSupport::None,
     crs_handling: CrsHandling::Embedded,
     fidelity_class: Fidelity::Approximating,
     runtime: Runtime::PureRust,
@@ -220,7 +221,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 2,
-    descriptor_version: 2,
+    descriptor_version: 3,
 };
 
 pub struct DxfDriver;
@@ -561,6 +562,7 @@ impl OpenDatasetHandle for DxfDataset {
             .with_loss_report(&self.loss)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         self.reader_gate.open(request.layer, || {
             Ok(Box::new(DxfReader {
                 batch: Some(self.batch.clone()),

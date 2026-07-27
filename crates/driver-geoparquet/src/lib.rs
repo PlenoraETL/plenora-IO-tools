@@ -60,6 +60,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders, // Parquet è seekable
+    projection_support: plenora_io_core::ProjectionSupport::Exact,
     crs_handling: CrsHandling::Embedded,
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::PureRust,
@@ -75,7 +76,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 1,
-    descriptor_version: 2,
+    descriptor_version: 3,
 };
 
 pub struct GeoParquetDriver;
@@ -214,6 +215,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&self.path)?)
             .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))?;
 
@@ -277,8 +279,10 @@ impl OpenDatasetHandle for GeoParquetDataset {
             }
         };
 
-        // Batch sizing adattivo (2C): onora batch_target.max_rows.
-        let builder = builder.with_batch_size(request.batch_target.max_rows.max(1));
+        // Batch sizing adattivo: combina il tetto righe con target_bytes.
+        let batch_size =
+            plenora_io_core::effective_batch_rows(out_schema.as_ref(), request.batch_target);
+        let builder = builder.with_batch_size(batch_size);
         // Row-group pruning (2C): salta i row group esclusi dalle statistiche
         // min/max (mai filtering riga-per-riga; over-return, mai under-return).
         let builder = apply_pruning(builder, &request.pruning_predicate);

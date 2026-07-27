@@ -76,6 +76,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
+    projection_support: plenora_io_core::ProjectionSupport::None,
     crs_handling: CrsHandling::FixedWgs84,
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::PureRust,
@@ -91,7 +92,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 3,
-    descriptor_version: 2,
+    descriptor_version: 3,
 };
 
 pub struct GeoJsonDriver;
@@ -198,7 +199,9 @@ impl OpenDatasetHandle for GeoJsonDataset {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
-        let batch_size = request.batch_target.max_rows.max(1);
+        plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
+        let batch_size =
+            plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
         let rx = spawn_parser(
             self.path.clone(),
             self.schema.clone(),

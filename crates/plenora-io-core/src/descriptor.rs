@@ -262,6 +262,16 @@ pub const NO_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     mixed_types: false,
 };
 
+/// Garanzia offerta dal reader per `ReadRequest::projected_fields` (ADR-IO 6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectionSupport {
+    /// La projection può essere ignorata in modalità `BestEffort`.
+    None,
+    /// Il reader può produrre esattamente e soltanto i campi richiesti.
+    Exact,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct FormatDescriptor {
     pub id: &'static str,
@@ -272,6 +282,8 @@ pub struct FormatDescriptor {
     pub multi_file: bool,
     /// Concorrenza dei reader ammessa dal formato (ADR-IO 1).
     pub reader_concurrency: ReaderConcurrency,
+    /// Garanzia di projection applicabile al `ReadRequest` (ADR-IO 6).
+    pub projection_support: ProjectionSupport,
     pub crs_handling: CrsHandling,
     /// Capacità generale di fedeltà; la valutazione per-contratto è in open/create.
     pub fidelity_class: Fidelity,

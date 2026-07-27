@@ -26,6 +26,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: true,
     multi_file: true, // una .gdb è una directory
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
+    projection_support: plenora_io_core::ProjectionSupport::None,
     crs_handling: CrsHandling::Embedded,
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::Gdal,
@@ -41,7 +42,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 1,
-    descriptor_version: 2,
+    descriptor_version: 3,
 };
 
 pub struct FileGdbDriver;
@@ -517,13 +518,15 @@ mod backend {
             )
         }
         fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+            plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
             let idx = self
                 .layers
                 .iter()
                 .position(|l| l.id.0 == request.layer.0)
                 .ok_or_else(|| err(format!("layer {} inesistente", request.layer.0)))?;
             let m = &self.metas[idx];
-            let batch_size = request.batch_target.max_rows.max(1);
+            let batch_size =
+                plenora_io_core::effective_batch_rows(m.schema.as_ref(), request.batch_target);
             self.reader_gate.open(request.layer, || {
                 let rx = spawn_reader(
                     self.path.clone(),

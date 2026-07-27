@@ -60,6 +60,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false, // primo foglio nella v1; multi-foglio futuro
     multi_file: false,
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
+    projection_support: plenora_io_core::ProjectionSupport::None,
     crs_handling: CrsHandling::None,
     fidelity_class: Fidelity::Conditional,
     runtime: Runtime::PureRust,
@@ -75,7 +76,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 2,
-    descriptor_version: 2,
+    descriptor_version: 3,
 };
 
 pub struct XlsDriver;
@@ -174,6 +175,7 @@ impl OpenDatasetHandle for XlsDataset {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         self.reader_gate.open(request.layer, || {
             Ok(Box::new(XlsReader {
                 batch: Some(self.batch.clone()),

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::FileReader;
 use arrow_ipc::writer::FileWriter;
-use arrow_schema::SchemaRef;
+use arrow_schema::{Schema, SchemaRef};
 
 use plenora_core::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
@@ -56,6 +56,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
+    projection_support: plenora_io_core::ProjectionSupport::Exact,
     crs_handling: CrsHandling::Embedded, // il CRS viaggia nei metadati del campo
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::PureRust,
@@ -71,7 +72,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 1,
-    descriptor_version: 2,
+    descriptor_version: 3,
 };
 
 pub struct IpcDriver;
@@ -199,13 +200,63 @@ impl OpenDatasetHandle for IpcDataset {
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
     }
-    fn open_layer_reader(&self, _request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
-        let reader = FileReader::try_new(File::open(&self.path)?, None)
+    fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
+        plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
+        if request.layer != self.layers[0].id {
+            return Err(err(format!("layer {} inesistente", request.layer.0)));
+        }
+
+        let source_layer = &self.layers[0];
+        let (projection, layer) = match &request.projected_fields {
+            None => (None, source_layer.clone()),
+            Some(field_ids) => {
+                let mut indices = Vec::new();
+                for field_id in field_ids {
+                    let index = field_id.0 as usize;
+                    if index >= source_layer.contract.schema.fields().len() {
+                        if request.projection_mode == plenora_io_core::ProjectionMode::Required {
+                            return Err(PlenoraError::Contract(format!(
+                                "projection Required: field id {} fuori range",
+                                field_id.0
+                            )));
+                        }
+                        continue;
+                    }
+                    if !indices.contains(&index) {
+                        indices.push(index);
+                    }
+                }
+                indices.sort_unstable();
+                let fields = indices
+                    .iter()
+                    .map(|&index| source_layer.contract.schema.field(index).as_ref().clone())
+                    .collect::<Vec<_>>();
+                let schema = Arc::new(Schema::new_with_metadata(
+                    fields,
+                    source_layer.contract.schema.metadata().clone(),
+                ));
+                let geometry = source_layer.contract.geometry.clone().and_then(|geometry| {
+                    schema
+                        .index_of(&geometry.name)
+                        .ok()
+                        .map(|index| GeometryColumnContract {
+                            field_id: FieldId(index as u32),
+                            ..geometry
+                        })
+                });
+                (
+                    Some(indices),
+                    LayerContract {
+                        id: source_layer.id,
+                        name: source_layer.name.clone(),
+                        contract: DataContract { schema, geometry },
+                    },
+                )
+            }
+        };
+        let reader = FileReader::try_new(File::open(&self.path)?, projection)
             .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
-        Ok(Box::new(IpcReader {
-            reader,
-            layer: self.layers[0].clone(),
-        }))
+        Ok(Box::new(IpcReader { reader, layer }))
     }
 }
 
@@ -350,6 +401,31 @@ mod tests {
             .unwrap();
         assert_eq!(col.value(0), wkb.as_slice());
         assert!(r.next_batch().unwrap().is_none());
+
+        let mut projected = ds
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: Some(vec![FieldId(1)]),
+                projection_mode: ProjectionMode::Required,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+            })
+            .unwrap();
+        assert_eq!(projected.contract().contract.schema.fields().len(), 1);
+        assert_eq!(projected.contract().contract.schema.field(0).name(), "id");
+        assert!(projected.contract().contract.geometry.is_none());
+        let projected_batch = projected.next_batch().unwrap().unwrap();
+        assert_eq!(projected_batch.num_columns(), 1);
+        assert_eq!(
+            projected_batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .unwrap()
+                .value(0),
+            7
+        );
     }
 
     #[test]
