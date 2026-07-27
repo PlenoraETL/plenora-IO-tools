@@ -46,6 +46,11 @@ Risultati locali:
 - 1 workflow e 14 riferimenti `uses:` verificati dal gate;
 - validazione `actionlint` superata senza rilievi.
 
+Evidenza remota acquisita per il commit di implementazione
+`a2ea8aee203d759313b0762488e4c631bb095ca1`: GitHub Actions run
+`30278625037`, conclusione `success` per i job `rust`, `windows`,
+`macos-publish` e `coverage`.
+
 ## Residui
 
 - `ubuntu-latest`, `windows-latest` e `macos-latest` identificano immagini

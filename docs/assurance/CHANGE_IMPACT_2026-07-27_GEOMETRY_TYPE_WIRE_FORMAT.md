@@ -53,8 +53,10 @@ Risultati locali con Rust `1.92.0` in container Linux x86_64:
 - safety gate sui crate `lib` superato;
 - formattazione verificata.
 
-La CI Linux/Windows/macOS/coverage associata al commit resta l’evidenza remota
-da acquisire.
+Evidenza remota acquisita per il commit di implementazione
+`0d1b0623490947af1e4a907521280cadaed8e50b`: GitHub Actions run
+`30280993732`, conclusione `success` per i job `rust`, `windows`,
+`macos-publish` e `coverage`.
 
 ## Residui
 
