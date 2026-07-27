@@ -77,6 +77,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
     projection_support: plenora_io_core::ProjectionSupport::None,
+    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
+    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
     crs_handling: CrsHandling::FixedWgs84,
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::PureRust,
@@ -92,7 +94,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 4,
-    descriptor_version: 3,
+    descriptor_version: 4,
 };
 
 pub struct GeoJsonDriver;

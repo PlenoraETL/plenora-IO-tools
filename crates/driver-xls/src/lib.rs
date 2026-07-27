@@ -61,6 +61,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_file: false,
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
     projection_support: plenora_io_core::ProjectionSupport::None,
+    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
+    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
     crs_handling: CrsHandling::None,
     fidelity_class: Fidelity::Conditional,
     runtime: Runtime::PureRust,
@@ -76,7 +78,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 3,
-    descriptor_version: 3,
+    descriptor_version: 4,
 };
 
 pub struct XlsDriver;

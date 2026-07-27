@@ -58,6 +58,21 @@ capacità nativa chiaramente equivalente e documentata (min/max dei row group
 Parquet, indice spaziale/`gpkg_rtree`, partizioni). Altrimenti **ignorati** (il
 reader restituisce tutte le righe del layer).
 
+Il predicato numerico v2 è tipizzato per non affidare la semantica a una stringa
+e per non perdere precisione:
+
+```rust
+PruningPredicate::NumericComparison {
+    field: FieldId,
+    comparison: PruningComparison,
+    value: PruningScalar::Int64(i64) | PruningScalar::Float64(f64),
+}
+```
+
+`Opaque(String)` resta disponibile per compatibilità v1, ma una sintassi, un
+campo, un tipo o un valore non riconosciuti fanno sempre fallback a nessun
+pruning.
+
 **3. Invariante di correttezza del pruning: over-return, mai under-return.** Il
 pruning può **escludere solo blocchi sicuramente incompatibili** dai metadati e
 può quindi restituire **falsi positivi** (righe che poi il filtro esatto
@@ -74,7 +89,11 @@ il volume letto, data-tools decide la semantica finale.
 
 ## Stato dell'implementazione (2026-07-27)
 
-- Il descrittore v3 espone `projection_support = exact | none`.
+- Il descrittore espone `projection_support = exact | none`.
+- Il descrittore v4 espone inoltre `predicate_pruning_support` e
+  `spatial_pruning_support`: GeoParquet dichiara statistiche numeriche min/max e
+  statistiche bbox; GeoPackage dichiara un indice RTree opzionale; gli altri
+  driver dichiarano esplicitamente `none`.
 - GeoParquet e Arrow IPC dichiarano `exact` e producono un contratto proiettato;
   IPC applica la projection direttamente al `FileReader`.
 - I driver non exact rifiutano `ProjectionMode::Required` all'apertura con
@@ -95,6 +114,10 @@ il volume letto, data-tools decide la semantica finale.
   o indici assenti/non registrati vengono ignorati.
 - Il pruning conservativo effettivo è disponibile su GeoParquet e, per i layer
   indicizzati, GeoPackage.
+- GeoParquet applica `NumericComparison` senza convertire `Int64` in `f64`;
+  domini numerici incompatibili, statistiche mancanti e float non finiti
+  conservano il row group. Un indice B-tree GeoPackage non viene usato per
+  questi predicati perché produrrebbe filtering esatto, non pruning a blocchi.
 
 ## Conseguenze
 

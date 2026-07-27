@@ -272,6 +272,21 @@ pub enum ProjectionSupport {
     Exact,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PredicatePruningSupport {
+    None,
+    NumericMinMaxStatistics,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpatialPruningSupport {
+    None,
+    BoundingBoxStatistics,
+    OptionalRtreeIndex,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct FormatDescriptor {
     pub id: &'static str,
@@ -284,6 +299,10 @@ pub struct FormatDescriptor {
     pub reader_concurrency: ReaderConcurrency,
     /// Garanzia di projection applicabile al `ReadRequest` (ADR-IO 6).
     pub projection_support: ProjectionSupport,
+    /// Pruning attributivo disponibile senza filtering riga-per-riga.
+    pub predicate_pruning_support: PredicatePruningSupport,
+    /// Pruning spaziale nativo; può dipendere dal dataset aperto.
+    pub spatial_pruning_support: SpatialPruningSupport,
     pub crs_handling: CrsHandling,
     /// Capacità generale di fedeltà; la valutazione per-contratto è in open/create.
     pub fidelity_class: Fidelity,

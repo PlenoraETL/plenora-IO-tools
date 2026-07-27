@@ -15,9 +15,10 @@ pub use capabilities::{arrow_type_class, validate_write};
 pub use descriptor::{
     ArrowTypeClass, AttributeWriteSupport, CrsHandling, CrsWriteSupport, Direction, Fidelity,
     FieldNamePolicy, FormatDescriptor, FormatWriteCapabilities, GeometryWriteSupport,
-    NameNormalization, NullabilitySupport, ProjectionSupport, ReadMode, ReaderConcurrency, Runtime,
-    TextEncoding, TypeCoercionPolicy, WriteMode, ALL_ARROW_TYPES, DBF_FIELD_NAMES, NO_GEOMETRY,
-    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_EWKB_PASSTHROUGH_GEOMETRY, WKB_PASSTHROUGH_GEOMETRY,
+    NameNormalization, NullabilitySupport, PredicatePruningSupport, ProjectionSupport, ReadMode,
+    ReaderConcurrency, Runtime, SpatialPruningSupport, TextEncoding, TypeCoercionPolicy, WriteMode,
+    ALL_ARROW_TYPES, DBF_FIELD_NAMES, NO_GEOMETRY, SCALAR_TYPES, UTF8_FIELD_NAMES,
+    WKB_EWKB_PASSTHROUGH_GEOMETRY, WKB_PASSTHROUGH_GEOMETRY,
     WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY, WKB_SINGLE_TYPE_XY_GEOMETRY, WKB_XY_GEOMETRY,
     WKB_XY_XYZ_GEOMETRY,
 };
@@ -37,5 +38,5 @@ pub use publish::{
 pub use registry::DriverRegistry;
 pub use request::{
     effective_batch_rows, validate_read_projection, BatchTarget, Bbox, ProjectionMode,
-    PruningPredicate, ReadRequest, WriteLayer, WritePlan,
+    PruningComparison, PruningPredicate, PruningScalar, ReadRequest, WriteLayer, WritePlan,
 };

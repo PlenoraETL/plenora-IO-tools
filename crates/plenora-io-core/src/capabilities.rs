@@ -310,6 +310,8 @@ mod tests {
             multi_file: false,
             reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
             projection_support: crate::descriptor::ProjectionSupport::None,
+            predicate_pruning_support: crate::descriptor::PredicatePruningSupport::None,
+            spatial_pruning_support: crate::descriptor::SpatialPruningSupport::None,
             crs_handling: crate::descriptor::CrsHandling::Embedded,
             fidelity_class: Fidelity::Conditional,
             runtime: Runtime::PureRust,

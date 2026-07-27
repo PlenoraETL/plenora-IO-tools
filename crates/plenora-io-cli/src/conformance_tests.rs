@@ -18,8 +18,9 @@ use plenora_core::geometry::{
 use plenora_core::{CapabilityReason, PlenoraError};
 use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsWriteSupport, Direction, FormatDescriptor,
-    FormatDriver, NullabilitySupport, ProjectionSupport, ReadOptions, ReaderConcurrency, Runtime,
-    Sink, Source, TypeCoercionPolicy, WriteLayer, WriteOptions, WritePlan,
+    FormatDriver, NullabilitySupport, PredicatePruningSupport, ProjectionSupport, ReadOptions,
+    ReaderConcurrency, Runtime, Sink, Source, SpatialPruningSupport, TypeCoercionPolicy,
+    WriteLayer, WriteOptions, WritePlan,
 };
 use plenora_io_core::{BatchTarget, ProjectionMode, ReadRequest};
 
@@ -147,7 +148,7 @@ fn descriptor_matrix_is_internally_coherent() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
         assert!(
-            descriptor.descriptor_version >= 3,
+            descriptor.descriptor_version >= 4,
             "{}: descriptor legacy",
             descriptor.id
         );
@@ -176,6 +177,35 @@ fn descriptor_matrix_is_internally_coherent() {
             );
         }
     }
+}
+
+#[test]
+fn pruning_capabilities_match_the_implemented_native_paths() {
+    let mut predicate = Vec::new();
+    let mut spatial = Vec::new();
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.predicate_pruning_support != PredicatePruningSupport::None {
+            predicate.push((descriptor.id, descriptor.predicate_pruning_support));
+        }
+        if descriptor.spatial_pruning_support != SpatialPruningSupport::None {
+            spatial.push((descriptor.id, descriptor.spatial_pruning_support));
+        }
+    }
+    assert_eq!(
+        predicate,
+        vec![(
+            "geoparquet",
+            PredicatePruningSupport::NumericMinMaxStatistics,
+        )]
+    );
+    assert_eq!(
+        spatial,
+        vec![
+            ("geoparquet", SpatialPruningSupport::BoundingBoxStatistics,),
+            ("gpkg", SpatialPruningSupport::OptionalRtreeIndex),
+        ]
+    );
 }
 
 #[test]

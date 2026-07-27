@@ -38,7 +38,9 @@ use plenora_io_core::driver::{
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::publish_file_atomic_limited;
-use plenora_io_core::request::{Bbox, ProjectionMode, PruningPredicate, ReadRequest};
+use plenora_io_core::request::{
+    Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar, ReadRequest,
+};
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES,
@@ -61,6 +63,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders, // Parquet è seekable
     projection_support: plenora_io_core::ProjectionSupport::Exact,
+    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::NumericMinMaxStatistics,
+    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::BoundingBoxStatistics,
     crs_handling: CrsHandling::Embedded,
     fidelity_class: Fidelity::Lossless,
     runtime: Runtime::PureRust,
@@ -75,8 +79,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 2,
-    descriptor_version: 3,
+    driver_version: 3,
+    descriptor_version: 4,
 };
 
 pub struct GeoParquetDriver;
@@ -285,7 +289,11 @@ impl OpenDatasetHandle for GeoParquetDataset {
         let builder = builder.with_batch_size(batch_size);
         // Row-group pruning (2C): salta i row group esclusi dalle statistiche
         // min/max (mai filtering riga-per-riga; over-return, mai under-return).
-        let builder = apply_pruning(builder, &request.pruning_predicate);
+        let builder = apply_pruning(
+            builder,
+            &request.pruning_predicate,
+            self.out_schema.as_ref(),
+        );
         // Spatial pruning (2C): salta i row group il cui bbox non interseca l'hint.
         let builder = apply_spatial_pruning(builder, &request.spatial_pruning_hint, self.has_bbox);
 
@@ -390,53 +398,104 @@ impl FormatWriter for GeoParquetWriter {
 // --- row-group pruning (2C) ------------------------------------------------
 
 #[derive(Clone, Copy)]
-enum PruneOp {
-    Gt,
-    Ge,
-    Lt,
-    Le,
-    Eq,
+enum NumericRange {
+    Int64(i64, i64),
+    Float64(f64, f64),
 }
 
 /// Predicato opaco "colonna OP valore" (OP: >, >=, <, <=, =/==).
-fn parse_predicate(s: &str) -> Option<(String, PruneOp, f64)> {
-    for (sym, op) in [
-        (">=", PruneOp::Ge),
-        ("<=", PruneOp::Le),
-        ("==", PruneOp::Eq),
-        (">", PruneOp::Gt),
-        ("<", PruneOp::Lt),
-        ("=", PruneOp::Eq),
+fn parse_opaque_predicate(s: &str) -> Option<(String, PruningComparison, PruningScalar)> {
+    for (symbol, comparison) in [
+        (">=", PruningComparison::GreaterThanOrEqual),
+        ("<=", PruningComparison::LessThanOrEqual),
+        ("==", PruningComparison::Equal),
+        (">", PruningComparison::GreaterThan),
+        ("<", PruningComparison::LessThan),
+        ("=", PruningComparison::Equal),
     ] {
-        if let Some((l, r)) = s.split_once(sym) {
-            let col = l.trim().to_owned();
-            if let Ok(val) = r.trim().parse::<f64>() {
-                if !col.is_empty() {
-                    return Some((col, op, val));
-                }
+        if let Some((left, right)) = s.split_once(symbol) {
+            let column = left.trim().to_owned();
+            if column.is_empty() {
+                return None;
             }
+            let literal = right.trim();
+            let value = literal
+                .parse::<i64>()
+                .map(PruningScalar::Int64)
+                .or_else(|_| literal.parse::<f64>().map(PruningScalar::Float64))
+                .ok()?;
+            if matches!(value, PruningScalar::Float64(value) if !value.is_finite()) {
+                return None;
+            }
+            return Some((column, comparison, value));
         }
     }
     None
 }
 
-fn stat_range(stats: &Statistics) -> Option<(f64, f64)> {
+fn stat_range(stats: &Statistics) -> Option<NumericRange> {
     match stats {
-        Statistics::Int32(s) => Some((*s.min_opt()? as f64, *s.max_opt()? as f64)),
-        Statistics::Int64(s) => Some((*s.min_opt()? as f64, *s.max_opt()? as f64)),
-        Statistics::Float(s) => Some((*s.min_opt()? as f64, *s.max_opt()? as f64)),
-        Statistics::Double(s) => Some((*s.min_opt()?, *s.max_opt()?)),
+        Statistics::Int32(stats) => {
+            let min = i64::from(*stats.min_opt()?);
+            let max = i64::from(*stats.max_opt()?);
+            (min <= max).then_some(NumericRange::Int64(min, max))
+        }
+        Statistics::Int64(stats) => {
+            let min = *stats.min_opt()?;
+            let max = *stats.max_opt()?;
+            (min <= max).then_some(NumericRange::Int64(min, max))
+        }
+        Statistics::Float(stats) => {
+            let min = f64::from(*stats.min_opt()?);
+            let max = f64::from(*stats.max_opt()?);
+            (min.is_finite() && max.is_finite() && min <= max)
+                .then_some(NumericRange::Float64(min, max))
+        }
+        Statistics::Double(stats) => {
+            let min = *stats.min_opt()?;
+            let max = *stats.max_opt()?;
+            (min.is_finite() && max.is_finite() && min <= max)
+                .then_some(NumericRange::Float64(min, max))
+        }
         _ => None,
     }
 }
 
-fn range_matches(min: f64, max: f64, op: PruneOp, v: f64) -> bool {
-    match op {
-        PruneOp::Gt => max > v,
-        PruneOp::Ge => max >= v,
-        PruneOp::Lt => min < v,
-        PruneOp::Le => min <= v,
-        PruneOp::Eq => min <= v && v <= max,
+fn stat_f64_range(stats: &Statistics) -> Option<(f64, f64)> {
+    let NumericRange::Float64(min, max) = stat_range(stats)? else {
+        return None;
+    };
+    Some((min, max))
+}
+
+fn range_matches(
+    range: NumericRange,
+    comparison: PruningComparison,
+    value: PruningScalar,
+) -> Option<bool> {
+    match (range, value) {
+        (NumericRange::Int64(min, max), PruningScalar::Int64(value)) => {
+            Some(comparison_matches(min, max, comparison, value))
+        }
+        (NumericRange::Float64(min, max), PruningScalar::Float64(value)) if value.is_finite() => {
+            Some(comparison_matches(min, max, comparison, value))
+        }
+        _ => None,
+    }
+}
+
+fn comparison_matches<T: PartialOrd + Copy>(
+    min: T,
+    max: T,
+    comparison: PruningComparison,
+    value: T,
+) -> bool {
+    match comparison {
+        PruningComparison::GreaterThan => max > value,
+        PruningComparison::GreaterThanOrEqual => max >= value,
+        PruningComparison::LessThan => min < value,
+        PruningComparison::LessThanOrEqual => min <= value,
+        PruningComparison::Equal => min <= value && value <= max,
     }
 }
 
@@ -445,18 +504,34 @@ fn range_matches(min: f64, max: f64, op: PruneOp, v: f64) -> bool {
 fn apply_pruning(
     builder: ParquetRecordBatchReaderBuilder<File>,
     pred: &Option<PruningPredicate>,
+    arrow_schema: &Schema,
 ) -> ParquetRecordBatchReaderBuilder<File> {
-    let Some(PruningPredicate::Opaque(expr)) = pred else {
+    let Some(predicate) = pred else {
         return builder;
     };
-    let Some((col, op, val)) = parse_predicate(expr) else {
+    let resolved = match predicate {
+        PruningPredicate::NumericComparison {
+            field,
+            comparison,
+            value,
+        } => arrow_schema
+            .fields()
+            .get(field.0 as usize)
+            .map(|field| (field.name().clone(), *comparison, *value)),
+        PruningPredicate::Opaque(expression) => parse_opaque_predicate(expression),
+    };
+    let Some((column, comparison, value)) = resolved else {
         return builder;
     };
     let schema = builder.parquet_schema();
-    let cidx = match (0..schema.num_columns()).find(|&i| schema.column(i).name() == col.as_str()) {
-        Some(i) => i,
-        None => return builder,
+    let mut matching =
+        (0..schema.num_columns()).filter(|&i| schema.column(i).name() == column.as_str());
+    let Some(cidx) = matching.next() else {
+        return builder;
     };
+    if matching.next().is_some() {
+        return builder;
+    }
     let md = builder.metadata();
     let mut keep = Vec::new();
     for rg in 0..md.num_row_groups() {
@@ -466,7 +541,7 @@ fn apply_pruning(
             .statistics()
             .and_then(stat_range)
         {
-            Some((min, max)) => range_matches(min, max, op, val),
+            Some(range) => range_matches(range, comparison, value).unwrap_or(true),
             None => true,
         };
         if keep_it {
@@ -504,19 +579,19 @@ fn apply_spatial_pruning(
         let ext = (
             g.column(cminx)
                 .statistics()
-                .and_then(stat_range)
+                .and_then(stat_f64_range)
                 .map(|(a, _)| a),
             g.column(cminy)
                 .statistics()
-                .and_then(stat_range)
+                .and_then(stat_f64_range)
                 .map(|(a, _)| a),
             g.column(cmaxx)
                 .statistics()
-                .and_then(stat_range)
+                .and_then(stat_f64_range)
                 .map(|(_, b)| b),
             g.column(cmaxy)
                 .statistics()
-                .and_then(stat_range)
+                .and_then(stat_f64_range)
                 .map(|(_, b)| b),
         );
         let keep_it = match ext {
@@ -986,6 +1061,47 @@ mod tests {
     }
 
     #[test]
+    fn pruning_predicates_preserve_integer_precision_and_fail_open() {
+        let exact = 9_007_199_254_740_993_i64;
+        assert_eq!(
+            parse_opaque_predicate("id = 9007199254740993"),
+            Some((
+                "id".to_owned(),
+                PruningComparison::Equal,
+                PruningScalar::Int64(exact),
+            ))
+        );
+        assert_eq!(
+            range_matches(
+                NumericRange::Int64(exact, exact),
+                PruningComparison::Equal,
+                PruningScalar::Int64(exact),
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            range_matches(
+                NumericRange::Int64(exact, exact),
+                PruningComparison::Equal,
+                PruningScalar::Float64(exact as f64),
+            ),
+            None,
+            "domini numerici diversi devono tenere il row group"
+        );
+        assert_eq!(
+            range_matches(
+                NumericRange::Float64(0.0, 1.0),
+                PruningComparison::GreaterThan,
+                PruningScalar::Float64(f64::NAN),
+            ),
+            None,
+            "un literal non finito deve tenere il row group"
+        );
+        assert!(parse_opaque_predicate("id > NaN").is_none());
+        assert!(parse_opaque_predicate("espressione arbitraria").is_none());
+    }
+
+    #[test]
     fn round_trip_file_recordbatch_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("out.parquet");
@@ -1334,14 +1450,18 @@ mod tests {
 
         // Pruning "id > 150000": salta i row group con max(id) <= 150000.
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path.clone()), &ReadOptions::default())
             .unwrap();
         let mut reader = ds
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),
                 projected_fields: None,
                 projection_mode: ProjectionMode::BestEffort,
-                pruning_predicate: Some(PruningPredicate::Opaque("id > 150000".to_owned())),
+                pruning_predicate: Some(PruningPredicate::NumericComparison {
+                    field: FieldId(1),
+                    comparison: PruningComparison::GreaterThan,
+                    value: PruningScalar::Int64(150_000),
+                }),
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
             })
@@ -1357,6 +1477,28 @@ mod tests {
             "il pruning deve saltare row group, letti {total}"
         );
         assert!(total >= n - 150_000, "under-return vietato, letti {total}");
+
+        let legacy = driver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let mut legacy_reader = legacy
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: Some(PruningPredicate::Opaque("id > 150000".to_owned())),
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+            })
+            .unwrap();
+        let mut legacy_total = 0;
+        while let Some(batch) = legacy_reader.next_batch().unwrap() {
+            legacy_total += batch.num_rows();
+        }
+        assert_eq!(
+            legacy_total, total,
+            "il formato Opaque v1 deve restare compatibile"
+        );
     }
 
     #[test]

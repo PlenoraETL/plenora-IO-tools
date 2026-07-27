@@ -16,11 +16,32 @@ pub struct Bbox {
     pub maxy: f64,
 }
 
-/// Suggerimento di pruning: opaco nella v1, interpretato dal driver **solo** se
-/// ha una capacità nativa equivalente (min/max row group, indice spaziale).
-/// Non è un filtro: over-return ammesso, under-return vietato (ADR-IO 6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PruningComparison {
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
+    Equal,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PruningScalar {
+    Int64(i64),
+    Float64(f64),
+}
+
+/// Suggerimento di pruning interpretato dal driver **solo** se ha una capacità
+/// nativa equivalente (es. min/max di row group). Non è un filtro:
+/// over-return ammesso, under-return vietato (ADR-IO 6).
 #[derive(Clone, Debug)]
 pub enum PruningPredicate {
+    NumericComparison {
+        field: FieldId,
+        comparison: PruningComparison,
+        value: PruningScalar,
+    },
+    /// Compatibilità v1. Le espressioni non riconosciute vengono ignorate.
     Opaque(String),
 }
 
