@@ -76,17 +76,22 @@ o si declassa a `Approximating` con report, o si corregge. La fedeltà dichiarat
 Il backend FileGDB applica esplicitamente questa regola: il descrittore è
 `Conditional`, il writer accetta soltanto il sottoinsieme verificato
 round-trip dalla versione GDAL supportata (`Int32`, `Float64`, `Utf8`, WKB
-XY/XYZ con un solo tipo geometrico nativo tra `Point`, `MultiPoint`,
+XY/XYZ/XYM/XYZM con un solo tipo geometrico nativo tra `Point`, `MultiPoint`,
 `MultiLineString`, `MultiPolygon` e CRS risolto) e rifiuta prima del publish
 tipi, dimensioni o semantiche non rappresentabili. `LineString` e `Polygon`
 sono rifiutati perché FileGDB li normalizzerebbe nelle rispettive famiglie
 multipart. Il backend non converte valori
 incompatibili in zero/testo e non elimina feature con geometria nulla. Il
 reader ricostruisce tipo e dimensionalità dal geometry field OGR e conserva il
-codice nativo nei metadati namespaced; la nullability dello schema resta
-`FormatDefined`, mentre i valori nulli sono preservati. M/ZM, EWKB,
-`GeometryCollection` e i tipi attributo non verificati restano fail-closed
-finché non esiste un round-trip reale che ne dimostri la fedeltà.
+codice nativo nei metadati namespaced. Anche i campi attributivi espongono e
+riapplicano `ogr_field_type`, `width` e `precision`, fallendo se GDAL li
+normalizza rispetto al contratto; la nullability dello schema resta
+`FormatDefined`, mentre i valori nulli sono preservati. La matrice GDAL 3.6.2
+verifica tutte le 16 combinazioni tra le quattro famiglie native e le quattro
+dimensionalità; include inoltre payload Point XYM/XYZM e MultiLineString XYZM.
+EWKB, `GeometryCollection`, `Int64`, booleani, binari e temporali restano
+fail-closed: in particolare `Date32` viene riclassificato nativamente come
+`DateTime`, quindi non conserva il contratto Arrow.
 
 ## Conseguenze
 
