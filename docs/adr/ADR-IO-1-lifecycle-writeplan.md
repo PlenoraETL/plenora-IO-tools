@@ -90,6 +90,8 @@ batch fallito e limite output prima del publish. Staging univoci e sidecar
 lockati distinguono writer attivi e orfani anche tra processi: la suite termina
 realmente sottoprocessi durante write e finish, recupera gli orfani al tentativo
 successivo e verifica che un writer concorrente attivo non venga cancellato.
+Il writer GeoPackage rilascia esplicitamente la connessione SQLite prima del
+tempfile, preservando l'abort senza residui anche con i lock file di Windows.
 Il wrapper comune invalida ogni writer dopo il primo errore di scrittura e
 vieta `finish`. Valida inoltre
 piani vuoti, multi-layer non supportati e nomi duplicati. Gli handle sono `Send + Sync` e il

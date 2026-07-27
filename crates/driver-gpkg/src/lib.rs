@@ -454,6 +454,15 @@ struct GpkgWriter {
     max_output_bytes: u64,
 }
 
+impl Drop for GpkgWriter {
+    fn drop(&mut self) {
+        // Su Windows il tempfile non può essere rimosso finché SQLite mantiene
+        // aperto il file: l'ordine esplicito garantisce abort senza residui.
+        drop(self.conn.take());
+        drop(self.temp.take());
+    }
+}
+
 impl FormatWriter for GpkgWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         self.write_to_layer(LayerId(0), batch)
