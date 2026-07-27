@@ -71,8 +71,12 @@ jobs:
       - name: Measure coverage
         env:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
-        run: cargo llvm-cov --workspace --all-targets --locked --fail-under-lines 85 --lcov --output-path lcov.info
+        run: cargo llvm-cov --workspace --all-targets --locked --no-report
+      - name: Export LCOV report
+        run: cargo llvm-cov report --lcov --output-path lcov.info
       - uses: actions/upload-artifact@v4
         with:
           name: rust-coverage-lcov
           path: lcov.info
+      - name: Enforce coverage threshold
+        run: cargo llvm-cov report --summary-only --fail-under-lines 85
