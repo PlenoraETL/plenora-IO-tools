@@ -83,6 +83,12 @@ il volume letto, data-tools decide la semantica finale.
 - CSV, GeoJSON, GeoPackage, Shapefile, FileGDB e GeoParquet combinano
   `max_rows` con una stima conservativa di `target_bytes` per scegliere la
   dimensione dei batch incrementali. La stima non è un limite rigido di memoria.
+- Arrow IPC e i reader materializzati KML, DXF e XLSX passano attraverso
+  `with_batch_target`, che suddivide i `RecordBatch` senza copiare né riordinare
+  le righe e conserva il lifecycle del reader sottostante. Lo slicing condivide
+  i buffer Arrow: riduce la cardinalità esposta, non la memoria già allocata.
+- Le versioni dei driver nel catalogo sono state incrementate affinché il
+  fingerprint distingua questa semantica di lettura.
 - Il pruning conservativo effettivo resta al momento specifico di GeoParquet.
 
 ## Conseguenze

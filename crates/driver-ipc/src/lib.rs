@@ -71,7 +71,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 1,
+    driver_version: 2,
     descriptor_version: 3,
 };
 
@@ -256,7 +256,10 @@ impl OpenDatasetHandle for IpcDataset {
         };
         let reader = FileReader::try_new(File::open(&self.path)?, projection)
             .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
-        Ok(Box::new(IpcReader { reader, layer }))
+        Ok(plenora_io_core::with_batch_target(
+            Box::new(IpcReader { reader, layer }),
+            request.batch_target,
+        ))
     }
 }
 
@@ -426,6 +429,56 @@ mod tests {
                 .value(0),
             7
         );
+    }
+
+    #[test]
+    fn batch_target_slices_file_defined_ipc_batches() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("batch-target.arrow");
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int64Array::from(vec![0, 1, 2, 3, 4]))],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "layer".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let driver = IpcDriver;
+        let mut writer = driver
+            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        let dataset = driver
+            .open(Source::Path(out), &ReadOptions::default())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget {
+                    target_bytes: 16,
+                    max_rows: 100,
+                },
+            })
+            .unwrap();
+        let mut sizes = Vec::new();
+        while let Some(batch) = reader.next_batch().unwrap() {
+            sizes.push(batch.num_rows());
+        }
+        assert_eq!(sizes, vec![2, 2, 1]);
     }
 
     #[test]

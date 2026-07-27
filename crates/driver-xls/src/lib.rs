@@ -75,7 +75,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 2,
+    driver_version: 3,
     descriptor_version: 3,
 };
 
@@ -176,12 +176,16 @@ impl OpenDatasetHandle for XlsDataset {
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        self.reader_gate.open(request.layer, || {
+        let reader = self.reader_gate.open(request.layer, || {
             Ok(Box::new(XlsReader {
                 batch: Some(self.batch.clone()),
                 layer: self.layers[0].clone(),
             }))
-        })
+        })?;
+        Ok(plenora_io_core::with_batch_target(
+            reader,
+            request.batch_target,
+        ))
     }
 }
 

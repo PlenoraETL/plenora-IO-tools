@@ -21,7 +21,7 @@ use crate::descriptor::{
     TypeCoercionPolicy,
 };
 use crate::loss::{FidelityAssessment, FidelityReasonCode, LossReport};
-use crate::request::{ReadRequest, WritePlan};
+use crate::request::{effective_batch_rows, BatchTarget, ReadRequest, WritePlan};
 
 /// Sorgente di lettura (scheletro Fase 0).
 pub enum Source {
@@ -121,6 +121,60 @@ pub trait LayerReader {
     /// Report di perdita (vuoto per i driver Lossless) — ADR-IO 5.
     fn loss_report(&self) -> LossReport {
         LossReport::default()
+    }
+}
+
+/// Adatta i batch prodotti da un reader al target comune di ADR-IO 6.
+///
+/// Lo slicing Arrow non copia i buffer e quindi limita la cardinalità esposta,
+/// non la memoria già allocata dal reader sottostante.
+pub fn with_batch_target(
+    reader: Box<dyn LayerReader>,
+    target: BatchTarget,
+) -> Box<dyn LayerReader> {
+    let rows_per_batch = effective_batch_rows(reader.contract().contract.schema.as_ref(), target);
+    Box::new(BatchTargetReader {
+        inner: reader,
+        rows_per_batch,
+        pending: None,
+    })
+}
+
+struct BatchTargetReader {
+    inner: Box<dyn LayerReader>,
+    rows_per_batch: usize,
+    pending: Option<(RecordBatch, usize)>,
+}
+
+impl LayerReader for BatchTargetReader {
+    fn contract(&self) -> &LayerContract {
+        self.inner.contract()
+    }
+
+    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+        loop {
+            if let Some((batch, offset)) = self.pending.take() {
+                let remaining = batch.num_rows() - offset;
+                let take = remaining.min(self.rows_per_batch);
+                let output = batch.slice(offset, take);
+                if take < remaining {
+                    self.pending = Some((batch, offset + take));
+                }
+                return Ok(Some(output));
+            }
+
+            let Some(batch) = self.inner.next_batch()? else {
+                return Ok(None);
+            };
+            if batch.num_rows() <= self.rows_per_batch {
+                return Ok(Some(batch));
+            }
+            self.pending = Some((batch, 0));
+        }
+    }
+
+    fn loss_report(&self) -> LossReport {
+        self.inner.loss_report()
     }
 }
 
@@ -649,7 +703,7 @@ mod tests {
     use std::io::Write;
     use std::sync::Arc;
 
-    use arrow_array::BinaryArray;
+    use arrow_array::{BinaryArray, Int64Array};
     use arrow_schema::{DataType, Field, Schema};
     use plenora_core::contract::{CoordinateDimensions, FieldId, GeometryColumnContract};
     use plenora_core::crs::CrsResolution;
@@ -707,6 +761,78 @@ mod tests {
             batches,
             fail,
         })
+    }
+
+    fn fixed_batch_reader(values: Vec<i64>) -> Box<dyn LayerReader> {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            false,
+        )]));
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(Int64Array::from(values))]).unwrap();
+        Box::new(FixedBatchReader {
+            layer: LayerContract {
+                id: LayerId(0),
+                name: "layer".to_owned(),
+                contract: plenora_core::contract::DataContract {
+                    schema,
+                    geometry: None,
+                },
+            },
+            batch: Some(batch),
+        })
+    }
+
+    struct FixedBatchReader {
+        layer: LayerContract,
+        batch: Option<RecordBatch>,
+    }
+
+    impl LayerReader for FixedBatchReader {
+        fn contract(&self) -> &LayerContract {
+            &self.layer
+        }
+
+        fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+            Ok(self.batch.take())
+        }
+    }
+
+    #[test]
+    fn batch_target_slices_without_reordering_and_releases_gate_at_eof() {
+        let gate = SingleReaderGate::new("test");
+        let inner = gate
+            .open(LayerId(0), || Ok(fixed_batch_reader(vec![0, 1, 2, 3, 4])))
+            .unwrap();
+        let mut reader = with_batch_target(
+            inner,
+            BatchTarget {
+                target_bytes: 16,
+                max_rows: 100,
+            },
+        );
+        assert!(matches!(
+            gate.open(LayerId(0), || Ok(test_reader(1, false))),
+            Err(PlenoraError::ReaderBusy { .. })
+        ));
+
+        let mut sizes = Vec::new();
+        let mut values = Vec::new();
+        while let Some(batch) = reader.next_batch().unwrap() {
+            sizes.push(batch.num_rows());
+            values.extend_from_slice(
+                batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .values(),
+            );
+        }
+        assert_eq!(sizes, vec![2, 2, 1]);
+        assert_eq!(values, vec![0, 1, 2, 3, 4]);
+        assert!(gate.open(LayerId(0), || Ok(test_reader(1, false))).is_ok());
     }
 
     #[test]

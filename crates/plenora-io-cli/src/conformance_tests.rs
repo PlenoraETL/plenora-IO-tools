@@ -151,6 +151,11 @@ fn descriptor_matrix_is_internally_coherent() {
             "{}: descriptor legacy",
             descriptor.id
         );
+        assert!(
+            descriptor.driver_version >= 2,
+            "{}: versione implementazione non aggiornata",
+            descriptor.id
+        );
         assert_eq!(
             descriptor.write_mode.is_some(),
             descriptor.write_capabilities.is_some(),

@@ -75,7 +75,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 1,
+    driver_version: 2,
     descriptor_version: 3,
 };
 

@@ -166,7 +166,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 2,
+    driver_version: 3,
     descriptor_version: 3,
 };
 
@@ -258,12 +258,16 @@ impl OpenDatasetHandle for KmlDataset {
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        self.reader_gate.open(request.layer, || {
+        let reader = self.reader_gate.open(request.layer, || {
             Ok(Box::new(KmlReader {
                 batch: Some(self.batch.clone()),
                 layer: self.layers[0].clone(),
             }))
-        })
+        })?;
+        Ok(plenora_io_core::with_batch_target(
+            reader,
+            request.batch_target,
+        ))
     }
 }
 
@@ -748,11 +752,14 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                batch_target: BatchTarget::default(),
+                batch_target: BatchTarget {
+                    target_bytes: usize::MAX,
+                    max_rows: 1,
+                },
             })
             .unwrap();
         let batch = r.next_batch().unwrap().unwrap();
-        assert_eq!(batch.num_rows(), 2);
+        assert_eq!(batch.num_rows(), 1);
         assert_eq!(batch.num_columns(), 3);
         assert_eq!(
             r.contract().contract.geometry.as_ref().unwrap().dimensions,
@@ -768,6 +775,8 @@ mod tests {
             point.value,
             WkbValue::Point(WkbCoordinate { z: Some(0.0), .. })
         ));
+        assert_eq!(r.next_batch().unwrap().unwrap().num_rows(), 1);
+        assert!(r.next_batch().unwrap().is_none());
     }
 
     #[test]
