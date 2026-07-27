@@ -89,7 +89,12 @@ il volume letto, data-tools decide la semantica finale.
   i buffer Arrow: riduce la cardinalità esposta, non la memoria già allocata.
 - Le versioni dei driver nel catalogo sono state incrementate affinché il
   fingerprint distingua questa semantica di lettura.
-- Il pruning conservativo effettivo resta al momento specifico di GeoParquet.
+- GeoPackage applica `spatial_pruning_hint` tramite `gpkg_rtree_index` solo
+  quando estensione, tabella e colonne RTree sono conformi. La capability
+  effettiva del layer è esposta come metadata `gpkg.rtree_index`; hint invalidi
+  o indici assenti/non registrati vengono ignorati.
+- Il pruning conservativo effettivo è disponibile su GeoParquet e, per i layer
+  indicizzati, GeoPackage.
 
 ## Conseguenze
 

@@ -6,7 +6,9 @@
 //! transazione + `synchronous=OFF`/`journal_mode=MEMORY` (sicuro perché il
 //! tempfile è pubblicato atomicamente solo a `finish`) + statement preparato +
 //! streaming per batch. La lettura è a pagine (keyset su `rowid`) con builder
-//! Arrow tipizzati: memoria O(batch), non O(tabella).
+//! Arrow tipizzati: memoria O(batch), non O(tabella). Uno
+//! `spatial_pruning_hint` usa l'estensione `gpkg_rtree_index` quando registrata
+//! e conforme, senza trasformarsi in filtering geometrico esatto.
 #![forbid(unsafe_code)]
 
 use std::path::PathBuf;
@@ -38,7 +40,7 @@ use plenora_io_core::driver::{
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::publish_file_atomic_limited;
-use plenora_io_core::request::ReadRequest;
+use plenora_io_core::request::{Bbox, ReadRequest};
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
@@ -79,7 +81,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 3,
+    driver_version: 4,
     descriptor_version: 3,
 };
 
@@ -103,6 +105,7 @@ impl FormatDriver for GpkgDriver {
         let mut metas = Vec::new();
         for (i, table_meta) in tables.into_iter().enumerate() {
             let crs = crs_for(&conn, table_meta.srs_id)?;
+            let rtree_table = registered_rtree(&conn, &table_meta.table, &table_meta.geom_col)?;
             let (schema, attrs) =
                 build_schema(&conn, &table_meta.table, &table_meta.geom_col, &crs)?;
             let mut geometry = GeometryColumnContract::wkb_passthrough(
@@ -126,6 +129,10 @@ impl FormatDriver for GpkgDriver {
             geometry
                 .native_metadata
                 .insert("gpkg.m".to_owned(), table_meta.m.to_string());
+            geometry.native_metadata.insert(
+                "gpkg.rtree_index".to_owned(),
+                rtree_table.is_some().to_string(),
+            );
             let contract = DataContract {
                 schema: schema.clone(),
                 geometry: Some(geometry),
@@ -136,6 +143,7 @@ impl FormatDriver for GpkgDriver {
                 contract,
             });
             metas.push(LayerRead {
+                rtree_table,
                 table: table_meta.table,
                 geom_col: table_meta.geom_col,
                 schema,
@@ -231,6 +239,7 @@ impl FormatDriver for GpkgDriver {
 struct LayerRead {
     table: String,
     geom_col: String,
+    rtree_table: Option<String>,
     schema: SchemaRef,
     attrs: Vec<(String, DataType)>,
 }
@@ -258,28 +267,45 @@ impl OpenDatasetHandle for GpkgDataset {
             .ok_or_else(|| err(format!("layer {} inesistente", request.layer.0)))?;
         let m = &self.metas[idx];
         let conn = Connection::open(&self.path).map_err(sql_err)?;
+        let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
         let attr_cols: Vec<String> = m
             .attrs
             .iter()
-            .map(|(n, _)| format!("\"{}\"", n.replace('"', "\"\"")))
+            .map(|(name, _)| format!("t.{}", quote(name)))
             .collect();
         let select = if attr_cols.is_empty() {
-            format!("\"{}\"", m.geom_col.replace('"', "\"\""))
+            format!("t.{}", quote(&m.geom_col))
         } else {
-            format!(
-                "\"{}\", {}",
-                m.geom_col.replace('"', "\"\""),
-                attr_cols.join(", ")
-            )
+            format!("t.{}, {}", quote(&m.geom_col), attr_cols.join(", "))
         };
-        let sql = format!(
-            "SELECT rowid, {} FROM \"{}\" WHERE rowid > ?1 ORDER BY rowid LIMIT ?2",
-            select,
-            m.table.replace('"', "\"\"")
-        );
+        let spatial_hint = request.spatial_pruning_hint.filter(valid_bbox);
+        let (sql, spatial_hint) = match (&m.rtree_table, spatial_hint) {
+            (Some(rtree), Some(bbox)) => (
+                format!(
+                    "SELECT t.rowid, {select} FROM {} AS t
+                     JOIN {} AS r ON r.id = t.rowid
+                     WHERE t.rowid > ?1
+                       AND r.maxx >= ?3 AND r.minx <= ?4
+                       AND r.maxy >= ?5 AND r.miny <= ?6
+                     ORDER BY t.rowid LIMIT ?2",
+                    quote(&m.table),
+                    quote(rtree),
+                ),
+                Some(bbox),
+            ),
+            _ => (
+                format!(
+                    "SELECT t.rowid, {select} FROM {} AS t
+                     WHERE t.rowid > ?1 ORDER BY t.rowid LIMIT ?2",
+                    quote(&m.table),
+                ),
+                None,
+            ),
+        };
         Ok(Box::new(GpkgReader {
             conn,
             sql,
+            spatial_hint,
             schema: m.schema.clone(),
             attrs: m.attrs.clone(),
             batch_size: plenora_io_core::effective_batch_rows(
@@ -295,6 +321,7 @@ impl OpenDatasetHandle for GpkgDataset {
 struct GpkgReader {
     conn: Connection,
     sql: String,
+    spatial_hint: Option<Bbox>,
     schema: SchemaRef,
     attrs: Vec<(String, DataType)>,
     batch_size: i64,
@@ -317,9 +344,18 @@ impl LayerReader for GpkgReader {
             .collect();
         let mut count = 0usize;
         let mut max_rowid = self.last_rowid;
-        let mut rows = stmt
-            .query(rusqlite::params![self.last_rowid, self.batch_size])
-            .map_err(sql_err)?;
+        let mut rows = match self.spatial_hint {
+            Some(bbox) => stmt.query(rusqlite::params![
+                self.last_rowid,
+                self.batch_size,
+                bbox.minx,
+                bbox.maxx,
+                bbox.miny,
+                bbox.maxy,
+            ]),
+            None => stmt.query(rusqlite::params![self.last_rowid, self.batch_size]),
+        }
+        .map_err(sql_err)?;
         while let Some(row) = rows.next().map_err(sql_err)? {
             let rowid: i64 = row.get(0).map_err(sql_err)?;
             max_rowid = max_rowid.max(rowid);
@@ -505,6 +541,71 @@ struct FeatureTable {
     geometry_type_name: String,
     z: i64,
     m: i64,
+}
+
+fn valid_bbox(bbox: &Bbox) -> bool {
+    bbox.minx.is_finite()
+        && bbox.miny.is_finite()
+        && bbox.maxx.is_finite()
+        && bbox.maxy.is_finite()
+        && bbox.minx <= bbox.maxx
+        && bbox.miny <= bbox.maxy
+}
+
+fn registered_rtree(conn: &Connection, table: &str, geom_col: &str) -> Result<Option<String>> {
+    if !sqlite_table_exists(conn, "gpkg_extensions")? {
+        return Ok(None);
+    }
+    let registered = conn.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM gpkg_extensions
+             WHERE table_name = ?1 AND column_name = ?2
+               AND extension_name = 'gpkg_rtree_index'
+         )",
+        rusqlite::params![table, geom_col],
+        |row| row.get::<_, bool>(0),
+    );
+    if !matches!(registered, Ok(true)) {
+        return Ok(None);
+    }
+
+    let rtree = format!("rtree_{table}_{geom_col}");
+    if !sqlite_table_exists(conn, &rtree)? {
+        return Ok(None);
+    }
+    let quoted = format!("\"{}\"", rtree.replace('"', "\"\""));
+    let mut statement = match conn.prepare(&format!("PRAGMA table_info({quoted})")) {
+        Ok(statement) => statement,
+        Err(_) => return Ok(None),
+    };
+    let columns = match statement.query_map([], |row| row.get::<_, String>(1)) {
+        Ok(columns) => columns,
+        Err(_) => return Ok(None),
+    };
+    let mut names = Vec::new();
+    for column in columns {
+        let Ok(column) = column else {
+            return Ok(None);
+        };
+        names.push(column.to_ascii_lowercase());
+    }
+    let expected = ["id", "minx", "maxx", "miny", "maxy"];
+    if expected.iter().all(|name| names.iter().any(|n| n == name)) {
+        Ok(Some(rtree))
+    } else {
+        Ok(None)
+    }
+}
+
+fn sqlite_table_exists(conn: &Connection, table: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1
+         )",
+        [table],
+        |row| row.get(0),
+    )
+    .map_err(sql_err)
 }
 
 fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
@@ -841,6 +942,170 @@ mod tests {
     use plenora_core::wkb::{encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+
+    fn ids_with_spatial_hint(
+        dataset: &dyn OpenDatasetHandle,
+        spatial_pruning_hint: Bbox,
+    ) -> Vec<i64> {
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: Some(spatial_pruning_hint),
+                batch_target: BatchTarget::default(),
+            })
+            .unwrap();
+        let mut ids = Vec::new();
+        while let Some(batch) = reader.next_batch().unwrap() {
+            ids.extend_from_slice(
+                batch
+                    .column_by_name("id")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Int64Array>()
+                    .unwrap()
+                    .values(),
+            );
+        }
+        ids
+    }
+
+    #[test]
+    fn spatial_pruning_uses_only_registered_rtree_and_never_filters_exactly() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rtree.gpkg");
+        let geometries = [
+            to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0))).unwrap(),
+            to_wkb(&geo_types::Geometry::LineString(
+                geo_types::LineString::from(vec![(0.0, 0.0), (10.0, 10.0)]),
+            ))
+            .unwrap(),
+            to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(0.5, 9.5))).unwrap(),
+            to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
+                100.0, 100.0,
+            )))
+            .unwrap(),
+        ];
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            geometry_field("geom", "EPSG:4326"),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(
+                    geometries
+                        .iter()
+                        .map(|geometry| Some(geometry.as_slice()))
+                        .collect::<Vec<_>>(),
+                )),
+                Arc::new(Int64Array::from(vec![1, 2, 3, 4])),
+            ],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "features".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let driver = GpkgDriver;
+        let mut writer = driver
+            .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE gpkg_extensions (
+                 table_name TEXT,
+                 column_name TEXT,
+                 extension_name TEXT NOT NULL,
+                 definition TEXT NOT NULL,
+                 scope TEXT NOT NULL
+             );
+             CREATE VIRTUAL TABLE rtree_features_geom
+                 USING rtree(id, minx, maxx, miny, maxy);
+             INSERT INTO rtree_features_geom VALUES (1, 0, 0, 0, 0);
+             INSERT INTO rtree_features_geom VALUES (2, 0, 10, 0, 10);
+             INSERT INTO rtree_features_geom VALUES (3, 0.5, 0.5, 9.5, 9.5);
+             INSERT INTO rtree_features_geom VALUES (4, 100, 100, 100, 100);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let hint = Bbox {
+            minx: 0.0,
+            miny: 9.0,
+            maxx: 1.0,
+            maxy: 10.0,
+        };
+        let unregistered = driver
+            .open(Source::Path(path.clone()), &ReadOptions::default())
+            .unwrap();
+        assert_eq!(
+            unregistered.layers()[0]
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .native_metadata["gpkg.rtree_index"],
+            "false"
+        );
+        assert_eq!(
+            ids_with_spatial_hint(unregistered.as_ref(), hint),
+            vec![1, 2, 3, 4],
+            "una tabella RTree non registrata deve essere ignorata"
+        );
+        drop(unregistered);
+
+        let conn = Connection::open(&path).unwrap();
+        conn.execute(
+            "INSERT INTO gpkg_extensions
+             VALUES (?1, ?2, 'gpkg_rtree_index',
+                     'http://www.geopackage.org/spec/#extension_rtree', 'write-only')",
+            rusqlite::params!["features", "geom"],
+        )
+        .unwrap();
+        drop(conn);
+
+        let indexed = driver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        assert_eq!(
+            indexed.layers()[0]
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .native_metadata["gpkg.rtree_index"],
+            "true"
+        );
+        assert_eq!(
+            ids_with_spatial_hint(indexed.as_ref(), hint),
+            vec![2, 3],
+            "il vero positivo deve restare e il falso positivo bbox è ammesso"
+        );
+        assert_eq!(
+            ids_with_spatial_hint(
+                indexed.as_ref(),
+                Bbox {
+                    minx: 1.0,
+                    miny: 1.0,
+                    maxx: -1.0,
+                    maxy: -1.0,
+                },
+            ),
+            vec![1, 2, 3, 4],
+            "un hint invalido deve essere ignorato"
+        );
+    }
 
     #[test]
     fn round_trip_gpkg() {
