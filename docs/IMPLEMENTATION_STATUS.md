@@ -10,7 +10,7 @@ driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 | ADR-IO 2 — publish atomico | Parziale | Tempfile same-directory e no-clobber per file singoli; GeoPackage multi-layer pubblicato come singolo file; Shapefile scritto in staging e pubblicato come loose set ordinato; esito di durabilità tipizzato | Manca `ShapefileDirectoryDataset`; il loose set resta deliberatamente non atomico in senso forte; sequenza durable e crash test non sono completi su tutte le piattaforme |
 | ADR-IO 3 — capability-check | Parziale avanzato | `FormatWriteCapabilities` machine-readable su tutti i driver scrivibili; policy nomi/tipi/attributi/geometria/CRS/nullability/multi-layer; validatore statico prima della creazione e guardia runtime comune sui payload WKB; errori `CapabilityReason` tipizzati | Alcuni vincoli dipendenti dai valori restano nel primo `write`; il modello di coercion/report va collegato a una valutazione di fedeltà; matrice negativa per-capability non è ancora completa per ogni driver |
 | ADR-IO 4 — CRS | Parziale avanzato | `CrsResolution::{Resolved, DeclaredButUnresolved, Missing}` e `RawCrs`; CSV/XLSX richiedono `assume_crs`; CRS fissi KML/GeoJSON validati in `create`; GPKG/SHP/GeoParquet/IPC propagano metadati CRS; DXF legge e scrive `GEODATA.coordinate_system_definition`, risolve gli identificativi EPSG riconoscibili e fallisce chiuso senza fallback esplicito | Non tutti i parser conservano ancora il CRS grezzo non risolto nel contratto; la copertura dei casi unresolved e degli ordini assi è incompleta; la serializzazione DXF di un authority id non-WGS84 richiede ancora la definizione WKT/XML completa |
-| ADR-IO 5 — fedeltà | Parziale | `Fidelity` nel descrittore; `LossReport` bounded; DXF registra tassellazioni, esplosioni INSERT, conversioni di testo/solidi, entità non gestite e attributi non rappresentati; round-trip presenti sui driver principali | Manca `FidelityAssessment` per dataset/contratto; molti driver conditional restituiscono ancora report vuoti; oracoli indipendenti e corpus reali non sono uniformi |
+| ADR-IO 5 — fedeltà | Parziale avanzato | `Fidelity` nel descrittore; `FidelityAssessment` bounded e serializzabile restituito da `open`/`create` e nel `Published`; motivi tipizzati per vincoli, attributi, coercion, nullability, struttura, precisione e metadati; il wrapper comune collega il contratto e promuove automaticamente l'esito a `Approximating` quando il `LossReport` osservato non è vuoto; DXF registra tassellazioni, esplosioni INSERT, conversioni di testo/solidi, entità non gestite e attributi non rappresentati | I profili dei driver `Conditional` sono ancora conservativi e vanno raffinati per singolo tipo/valore; alcuni driver conditional producono report operativi vuoti; oracoli indipendenti e corpus reali non sono uniformi |
 | ADR-IO 6 — projection e pruning | Parziale avanzato su GeoParquet, iniziale altrove | Contratto `ReadRequest`, schema effettivo dal reader, projection/pruning e test conservativi GeoParquet | `ProjectionMode::Required` non è fail-closed in tutti i driver; `target_bytes` è poco applicato; IPC e formati non colonnari devono dichiarare/applicare esplicitamente il comportamento |
 
 ## Contratti trasversali introdotti
@@ -55,6 +55,10 @@ driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
   `max_vertices` durante la materializzazione e mantiene limiti separati su
   annidamento ed esplosione degli INSERT.
 - Il catalogo espone le capability di scrittura con `descriptor_version = 2`.
+- I comandi `inspect`, `layers`, `read` e `convert` espongono la valutazione di
+  fedeltà concreta. `create` la rende interrogabile sul writer prima del primo
+  batch; `finish` la aggiorna con le categorie realmente presenti nel
+  `LossReport`. Le motivazioni sono deduplicate e limitate a 64 elementi.
 
 ## Decisione sui fuzz test
 

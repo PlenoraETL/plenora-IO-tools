@@ -168,6 +168,9 @@ impl OpenDatasetHandle for XlsDataset {
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
+    fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
+        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+    }
     fn open_layer_reader(&self, _request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         Ok(Box::new(XlsReader {
             batch: Some(self.batch.clone()),
@@ -325,6 +328,7 @@ impl FormatWriter for XlsWriterState {
         Ok(Published {
             bytes,
             loss: LossReport::default(),
+            fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
     }

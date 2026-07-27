@@ -31,6 +31,12 @@ struct FidelityAssessment {
 }
 ```
 
+Nell'API v1 la valutazione preventiva è esposta dall'`OpenDatasetHandle` e dal
+`FormatWriter`; il risultato `Published` contiene la valutazione finale. Il
+wrapper comune di scrittura analizza il `WritePlan` e incorpora le categorie
+del `LossReport`: una perdita osservata promuove sempre l'esito ad
+`Approximating`. Motivazioni ed esempi sono bounded.
+
 - **Lossless**: round-trip `file → RecordBatch → file` che preserva la semantica
   — geometria secondo l'uguaglianza di **ADR 1 dei data-tools** (confronto
   geometrico, non byte), tutti i tipi, il CRS.

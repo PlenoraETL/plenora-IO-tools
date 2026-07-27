@@ -410,6 +410,7 @@ mod backend {
             Ok(Published {
                 bytes,
                 loss: LossReport::default(),
+                fidelity: plenora_io_core::FidelityAssessment::lossless(),
                 outcome,
             })
         }
@@ -506,6 +507,12 @@ mod backend {
     impl OpenDatasetHandle for GdbDataset {
         fn layers(&self) -> &[LayerContract] {
             &self.layers
+        }
+        fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
+            plenora_io_core::FidelityAssessment::for_format(
+                DESCRIPTOR.id,
+                DESCRIPTOR.fidelity_class,
+            )
         }
         fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
             let idx = self

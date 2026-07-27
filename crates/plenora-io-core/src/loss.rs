@@ -4,14 +4,149 @@
 
 use std::collections::BTreeMap;
 
+use serde::Serialize;
+
+use crate::descriptor::Fidelity;
+
 /// Tetto agli esempi diagnostici conservati (nessun accumulo illimitato).
 pub const MAX_LOSS_EXAMPLES: usize = 64;
+/// Anche le motivazioni della valutazione restano bounded.
+pub const MAX_FIDELITY_REASONS: usize = 64;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct LossExample {
     pub category: String,
     /// Descrizione strutturale, mai il valore sensibile (es. "layer=X row=12").
     pub context: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FidelityReasonCode {
+    AssessmentPending,
+    FormatConstraint,
+    GeometryApproximation,
+    StructureChanged,
+    AttributeLoss,
+    TypeCoercion,
+    PrecisionChanged,
+    NullabilityChanged,
+    NativeMetadataLoss,
+    LossReported,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct FidelityReason {
+    pub code: FidelityReasonCode,
+    pub detail: String,
+}
+
+/// Valutazione concreta restituita da `open`/`create` (ADR-IO 5). Il
+/// descrittore resta la capacità generale; questa struttura porta l'esito
+/// osservato per il dataset o il contratto corrente.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct FidelityAssessment {
+    pub level: Fidelity,
+    pub reasons: Vec<FidelityReason>,
+}
+
+impl FidelityAssessment {
+    pub fn lossless() -> Self {
+        Self {
+            level: Fidelity::Lossless,
+            reasons: Vec::new(),
+        }
+    }
+
+    pub fn for_format(format: &str, class: Fidelity) -> Self {
+        match class {
+            Fidelity::Lossless => Self::lossless(),
+            Fidelity::Conditional => Self {
+                level: Fidelity::Conditional,
+                reasons: vec![FidelityReason {
+                    code: FidelityReasonCode::FormatConstraint,
+                    detail: format!(
+                        "{format}: fedeltà condizionata ai tipi e alle semantiche del contratto"
+                    ),
+                }],
+            },
+            Fidelity::Approximating => Self {
+                level: Fidelity::Approximating,
+                reasons: vec![FidelityReason {
+                    code: FidelityReasonCode::GeometryApproximation,
+                    detail: format!("{format}: il formato può richiedere approssimazioni"),
+                }],
+            },
+        }
+    }
+
+    pub fn unassessed(context: impl Into<String>) -> Self {
+        Self {
+            level: Fidelity::Conditional,
+            reasons: vec![FidelityReason {
+                code: FidelityReasonCode::AssessmentPending,
+                detail: context.into(),
+            }],
+        }
+    }
+
+    pub fn add_reason(&mut self, code: FidelityReasonCode, detail: impl Into<String>) {
+        if self.reasons.len() >= MAX_FIDELITY_REASONS {
+            return;
+        }
+        let reason = FidelityReason {
+            code,
+            detail: detail.into(),
+        };
+        if !self.reasons.contains(&reason) {
+            self.reasons.push(reason);
+        }
+    }
+
+    /// Le perdite osservate prevalgono su una valutazione teorica e rendono
+    /// l'esito concretamente `Approximating`.
+    pub fn with_loss_report(mut self, loss: &LossReport) -> Self {
+        if loss.is_empty() {
+            return self;
+        }
+        self.level = Fidelity::Approximating;
+        for (category, count) in &loss.counts {
+            self.add_reason(
+                reason_code_for_loss(category),
+                format!("{category}: {count} occorrenze"),
+            );
+        }
+        self
+    }
+}
+
+fn reason_code_for_loss(category: &str) -> FidelityReasonCode {
+    let category = category.to_lowercase();
+    if category.contains("tassell")
+        || category.contains("approssim")
+        || category.contains("curv")
+        || category.contains("bulge")
+    {
+        FidelityReasonCode::GeometryApproximation
+    } else if category.contains("esplos")
+        || category.contains("multipart")
+        || category.contains("collection")
+    {
+        FidelityReasonCode::StructureChanged
+    } else if category.contains("attribut")
+        || category.contains("colonn")
+        || category.contains("propriet")
+    {
+        FidelityReasonCode::AttributeLoss
+    } else if category.contains("precision") {
+        FidelityReasonCode::PrecisionChanged
+    } else if category.contains("null") {
+        FidelityReasonCode::NullabilityChanged
+    } else if category.contains("metadata") || category.contains("metadati") {
+        FidelityReasonCode::NativeMetadataLoss
+    } else {
+        FidelityReasonCode::LossReported
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -40,5 +175,34 @@ impl LossReport {
 
     pub fn is_empty(&self) -> bool {
         self.counts.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn observed_loss_promotes_assessment_and_stays_bounded() {
+        let mut report = LossReport::default();
+        for index in 0..(MAX_FIDELITY_REASONS + 10) {
+            report.record(&format!("category-{index}"), 1);
+        }
+        let assessment =
+            FidelityAssessment::for_format("test", Fidelity::Conditional).with_loss_report(&report);
+        assert_eq!(assessment.level, Fidelity::Approximating);
+        assert_eq!(assessment.reasons.len(), MAX_FIDELITY_REASONS);
+        assert!(assessment
+            .reasons
+            .iter()
+            .any(|reason| reason.code == FidelityReasonCode::LossReported));
+    }
+
+    #[test]
+    fn lossless_assessment_has_no_reasons() {
+        assert_eq!(
+            FidelityAssessment::for_format("ipc", Fidelity::Lossless),
+            FidelityAssessment::lossless()
+        );
     }
 }

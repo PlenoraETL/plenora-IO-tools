@@ -376,6 +376,7 @@ impl FormatWriter for DxfWriterState {
         Ok(Published {
             bytes,
             loss: self.loss,
+            fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
     }
@@ -552,6 +553,10 @@ struct DxfDataset {
 impl OpenDatasetHandle for DxfDataset {
     fn layers(&self) -> &[LayerContract] {
         &self.layers
+    }
+    fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
+        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+            .with_loss_report(&self.loss)
     }
     fn open_layer_reader(&self, _request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         Ok(Box::new(DxfReader {
@@ -1358,14 +1363,36 @@ mod tests {
         let mut w = driver
             .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
             .unwrap();
+        let planned_fidelity = w.fidelity_assessment();
+        assert_eq!(
+            planned_fidelity.level,
+            plenora_io_core::Fidelity::Approximating
+        );
+        assert!(planned_fidelity
+            .reasons
+            .iter()
+            .any(|reason| { reason.code == plenora_io_core::FidelityReasonCode::AttributeLoss }));
         w.write(&batch).unwrap();
         let published = w.finish().unwrap();
         // "val" non è rappresentabile in DXF -> dichiarato come perdita (Approximating).
         assert!(!published.loss.is_empty());
+        assert_eq!(
+            published.fidelity.level,
+            plenora_io_core::Fidelity::Approximating
+        );
+        assert!(published
+            .fidelity
+            .reasons
+            .iter()
+            .any(|reason| reason.detail.contains("occorrenze")));
 
         let ds = driver
             .open(Source::Path(out), &ReadOptions::default())
             .unwrap();
+        assert_eq!(
+            ds.fidelity_assessment().level,
+            plenora_io_core::Fidelity::Approximating
+        );
         let output_geometry = ds.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(output_geometry.dimensions, CoordinateDimensions::Xyz);
         assert_eq!(output_geometry.crs.id(), Some("EPSG:4326"));

@@ -280,12 +280,14 @@ fn cmd_inspect(cli: &Cli) -> CliResult {
     let ds = driver
         .open(Source::Path(path), &read_options(cli))
         .map_err(map_err)?;
+    let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds.layers().iter().map(layer_json).collect();
     Ok(json!({
         "status": "ok",
         "protocol_version": 1,
         "contract": "plenora-io-inspect-v1",
         "format": serde_json::to_value(driver.descriptor()).unwrap_or(Value::Null),
+        "fidelity": fidelity,
         "layers": layers,
     }))
 }
@@ -295,6 +297,7 @@ fn cmd_layers(cli: &Cli) -> CliResult {
     let ds = driver
         .open(Source::Path(path), &read_options(cli))
         .map_err(map_err)?;
+    let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds
         .layers()
         .iter()
@@ -316,6 +319,7 @@ fn cmd_layers(cli: &Cli) -> CliResult {
         "protocol_version": 1,
         "contract": "plenora-io-layers-v1",
         "format": driver.descriptor().id,
+        "fidelity": fidelity,
         "layers": layers,
     }))
 }
@@ -336,6 +340,7 @@ fn cmd_read(cli: &Cli) -> CliResult {
     let ds = driver
         .open(Source::Path(path), &read_options(cli))
         .map_err(map_err)?;
+    let fidelity = ds.fidelity_assessment();
     let layer_id = cli.layer.unwrap_or(0);
     let contract = ds
         .layers()
@@ -364,6 +369,7 @@ fn cmd_read(cli: &Cli) -> CliResult {
         "protocol_version": 1,
         "contract": "plenora-io-read-v1",
         "format": driver.descriptor().id,
+        "fidelity": fidelity,
         "layer": layer_json(&contract),
         "rows_read": rows,
         "batches": batches,
@@ -386,6 +392,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         limits: cli.limits,
     };
     let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
+    let read_fidelity = ds.fidelity_assessment();
 
     // Layer da convertire: `--layer` ne sceglie uno, altrimenti tutti.
     let all: Vec<LayerContract> = ds.layers().to_vec();
@@ -470,8 +477,11 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         "total_rows": total_rows,
         "bytes_written": published.bytes,
         "publish_outcome": outcome,
+        "read_fidelity": read_fidelity,
+        "write_fidelity": &published.fidelity,
         "loss": {
-            "lossless": published.loss.is_empty(),
+            "lossless": published.fidelity.level == plenora_io_core::Fidelity::Lossless
+                && published.loss.is_empty(),
             "counts": serde_json::to_value(&published.loss.counts).unwrap_or(Value::Null),
         },
     }))

@@ -196,6 +196,9 @@ impl OpenDatasetHandle for IpcDataset {
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
+    fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
+        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+    }
     fn open_layer_reader(&self, _request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         let reader = FileReader::try_new(File::open(&self.path)?, None)
             .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
@@ -258,6 +261,7 @@ impl FormatWriter for IpcWriter {
         Ok(Published {
             bytes,
             loss: LossReport::default(),
+            fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
     }

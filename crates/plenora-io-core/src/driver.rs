@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
 use plenora_core::contract::{
-    CoordinateDimensions, FieldId, GeometryColumnContract, GeometryEncoding, LayerContract, LayerId,
+    CoordinateDimensions, FieldId, GeometryColumnContract, GeometryEncoding, GeometryType,
+    LayerContract, LayerId,
 };
 use plenora_core::crs::CrsResolution;
 use plenora_core::geometry::{is_geometry_field, read_geometry_contract_metadata};
@@ -13,8 +14,11 @@ use plenora_core::limits::Limits;
 use plenora_core::wkb::{decode_wkb, WkbGeometry, WkbValue};
 use plenora_core::{CapabilityReason, PlenoraError, Result};
 
-use crate::descriptor::{FormatDescriptor, GeometryWriteSupport};
-use crate::loss::LossReport;
+use crate::descriptor::{
+    AttributeWriteSupport, FormatDescriptor, GeometryWriteSupport, NullabilitySupport,
+    TypeCoercionPolicy,
+};
+use crate::loss::{FidelityAssessment, FidelityReasonCode, LossReport};
 use crate::request::{ReadRequest, WritePlan};
 
 /// Sorgente di lettura (scheletro Fase 0).
@@ -99,6 +103,8 @@ pub trait FormatDriver: Send + Sync {
 
 pub trait OpenDatasetHandle {
     fn layers(&self) -> &[LayerContract];
+    /// Valutazione di fedeltà concreta per il dataset aperto (ADR-IO 5).
+    fn fidelity_assessment(&self) -> FidelityAssessment;
     /// Apre un reader indipendente per un layer; lo STATO mutabile vive nel
     /// reader (ADR-IO 1).
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>>;
@@ -117,6 +123,13 @@ pub trait LayerReader {
 }
 
 pub trait FormatWriter {
+    /// Valutazione preventiva prodotta da `create`; il `Published` finale la
+    /// aggiorna con le perdite osservate durante la scrittura.
+    fn fidelity_assessment(&self) -> FidelityAssessment {
+        FidelityAssessment::unassessed(
+            "writer non avvolto dal validatore comune: assessment non disponibile",
+        )
+    }
     /// Scrive un batch nel layer primario (`LayerId(0)`).
     fn write(&mut self, batch: &RecordBatch) -> Result<()>;
     /// Scrive un batch in uno specifico layer (multi-layer). Default: accetta solo
@@ -142,6 +155,9 @@ pub fn with_write_limits(writer: Box<dyn FormatWriter>, limits: Limits) -> Box<d
         limits,
         rows: 0,
         geometry_validation: None,
+        fidelity: FidelityAssessment::unassessed(
+            "writer con soli limiti globali: assessment di formato non disponibile",
+        ),
     })
 }
 
@@ -197,12 +213,87 @@ pub fn with_write_validation(
         inner: writer,
         limits,
         rows: 0,
+        fidelity: assess_write_contract(descriptor, plan),
         geometry_validation: geometry_support.map(|support| GeometryValidation {
             driver: descriptor.id,
             support,
             layers,
         }),
     })
+}
+
+fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> FidelityAssessment {
+    let mut assessment = FidelityAssessment::for_format(descriptor.id, descriptor.fidelity_class);
+    let Some(capabilities) = descriptor.write_capabilities else {
+        return assessment;
+    };
+
+    for layer in &plan.layers {
+        let geometry_name = layer
+            .contract
+            .geometry
+            .as_ref()
+            .map(|geometry| geometry.name.as_str());
+        for field in layer.contract.schema.fields() {
+            let is_geometry = geometry_name == Some(field.name().as_str());
+            if !is_geometry && capabilities.attributes == AttributeWriteSupport::LossReported {
+                assessment.add_reason(
+                    FidelityReasonCode::AttributeLoss,
+                    format!(
+                        "{}: attributo '{}' non nativo o loss-reported",
+                        layer.name,
+                        field.name()
+                    ),
+                );
+            }
+            if !capabilities
+                .allowed_types
+                .contains(&crate::capabilities::arrow_type_class(field.data_type()))
+                && capabilities.type_coercion == TypeCoercionPolicy::LossReported
+            {
+                assessment.add_reason(
+                    FidelityReasonCode::TypeCoercion,
+                    format!(
+                        "{}: tipo {:?} di '{}' richiede coercion",
+                        layer.name,
+                        field.data_type(),
+                        field.name()
+                    ),
+                );
+            }
+            if field.is_nullable() && capabilities.nullability == NullabilitySupport::FormatDefined
+            {
+                assessment.add_reason(
+                    FidelityReasonCode::NullabilityChanged,
+                    format!(
+                        "{}: nullability di '{}' definita dal formato",
+                        layer.name,
+                        field.name()
+                    ),
+                );
+            }
+        }
+
+        if descriptor.id == "dxf"
+            && layer.contract.geometry.as_ref().is_some_and(|geometry| {
+                geometry.geometry_types.iter().any(|geometry_type| {
+                    matches!(
+                        geometry_type,
+                        GeometryType::MultiPoint
+                            | GeometryType::MultiLineString
+                            | GeometryType::MultiPolygon
+                            | GeometryType::GeometryCollection
+                    )
+                })
+            })
+        {
+            assessment.add_reason(
+                FidelityReasonCode::StructureChanged,
+                format!("{}: geometrie multipart esplose in entità DXF", layer.name),
+            );
+        }
+    }
+    assessment
 }
 
 struct GeometryValidation {
@@ -216,6 +307,7 @@ struct LimitedWriter {
     limits: Limits,
     rows: usize,
     geometry_validation: Option<GeometryValidation>,
+    fidelity: FidelityAssessment,
 }
 
 impl LimitedWriter {
@@ -258,6 +350,10 @@ impl LimitedWriter {
 }
 
 impl FormatWriter for LimitedWriter {
+    fn fidelity_assessment(&self) -> FidelityAssessment {
+        self.fidelity.clone()
+    }
+
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         self.account(0, batch)?;
         self.inner.write(batch)
@@ -269,7 +365,9 @@ impl FormatWriter for LimitedWriter {
     }
 
     fn finish(self: Box<Self>) -> Result<Published> {
-        self.inner.finish()
+        let mut published = self.inner.finish()?;
+        published.fidelity = self.fidelity.with_loss_report(&published.loss);
+        Ok(published)
     }
 }
 
@@ -454,6 +552,8 @@ fn validate_geometry_batch(
 pub struct Published {
     pub bytes: u64,
     pub loss: LossReport,
+    /// Valutazione specifica della scrittura conclusa (ADR-IO 5).
+    pub fidelity: FidelityAssessment,
     /// Esito di durabilità del publish (ADR-IO 2).
     pub outcome: crate::publish::PublishOutcome,
 }

@@ -298,6 +298,9 @@ impl OpenDatasetHandle for CsvDataset {
     fn layers(&self) -> &[LayerContract] {
         &self.layers
     }
+    fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
+        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+    }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         let batch_size = request.batch_target.max_rows.max(1);
         let rx = spawn_parser(
@@ -731,6 +734,7 @@ impl FormatWriter for CsvWriter {
         Ok(Published {
             bytes,
             loss: LossReport::default(),
+            fidelity: plenora_io_core::FidelityAssessment::lossless(),
             outcome,
         })
     }

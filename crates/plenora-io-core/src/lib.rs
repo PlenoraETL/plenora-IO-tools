@@ -25,7 +25,10 @@ pub use driver::{
     with_write_limits, with_write_validation, FormatDriver, FormatWriter, LayerReader,
     OpenDatasetHandle, Published, ReadOptions, Sink, Source, WriteOptions,
 };
-pub use loss::{LossExample, LossReport};
+pub use loss::{
+    FidelityAssessment, FidelityReason, FidelityReasonCode, LossExample, LossReport,
+    MAX_FIDELITY_REASONS,
+};
 pub use publish::{
     publish_dir_atomic, publish_file_atomic, publish_file_atomic_limited, PublishOutcome,
 };
