@@ -80,6 +80,14 @@ silenziosa (rimanda a ADR-IO 5).
 - Test obbligatori: per ogni driver, un contratto che viola ciascuna capability
   → errore tipizzato corretto; il caso valido passa.
 
+**Nota di implementazione corrente.** Una matrice negativa centrale deriva i
+casi dai descrittori di tutti i driver reali e copre limiti di colonne e nomi,
+tipi non rappresentabili, encoding e dimensioni geometriche, semantica,
+geometrie miste, lifecycle dei layer e CRS. I rami relativi a capability non
+presenti nel catalogo corrente (`AttributeWriteSupport::{None, NamedSubset}` e
+`NoNulls`) sono già condizionali nel gate e diventeranno obbligatori appena un
+driver li dichiarerà.
+
 ## Alternative scartate
 
 - **Troncamento/mangling automatico e silenzioso dei nomi**: perdita di

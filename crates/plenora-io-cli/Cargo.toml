@@ -27,3 +27,7 @@ serde_json.workspace = true
 [features]
 # Abilita il tier GDB (FileGDB via GDAL) nel binario.
 gdal-backend = ["driver-filegdb/gdal-backend"]
+
+[dev-dependencies]
+arrow-schema.workspace = true
+tempfile.workspace = true

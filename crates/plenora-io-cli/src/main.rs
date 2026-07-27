@@ -579,3 +579,6 @@ mod tests {
         assert!(driver_for_path(Path::new("x.zzz")).is_err());
     }
 }
+
+#[cfg(test)]
+mod conformance_tests;

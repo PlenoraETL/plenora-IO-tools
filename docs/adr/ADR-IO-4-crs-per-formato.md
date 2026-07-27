@@ -73,6 +73,12 @@ CRS non è `Resolved`; il `RawCrs` finisce nell'errore/diagnostica, non nel dato
   del CRS su gpkg/shp/geoparquet/DXF; DXF senza GEODATA e senza
   `--assume-crs` → errore.
 
+**Nota di implementazione corrente.** Il gate di conformità attraversa ogni
+descrittore scrivibile: le capability `Embedded` rifiutano un CRS mancante e le
+capability `Fixed` rifiutano un CRS incompatibile con
+`ReprojectionRequired`. Restano da uniformare sul lato lettura la conservazione
+del `RawCrs` non risolto e i test sull'ordine degli assi.
+
 ## Alternative scartate
 
 - **WGS84 implicito per CSV/XLSX**: assunzione silenziosa e spesso errata.

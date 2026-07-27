@@ -78,6 +78,13 @@ toccata. Il publish avviene **esclusivamente** in `finish`, e solo a successo.
   cursore unico; drop del writer senza `finish` che non lascia residui; ordine
   dei layer deterministico; nomi duplicati respinti.
 
+**Nota di implementazione corrente.** Il gate di conformità centrale esercita
+tutti i descrittori reali e, per i nove writer pure-Rust, verifica con una
+creazione effettiva sia il no-clobber sia il drop senza `finish`: la destinazione
+non viene pubblicata e lo staging non lascia residui. Valida inoltre piani vuoti,
+multi-layer non supportati e nomi duplicati. L'enforcement runtime di
+`SingleActiveReader` e i test di concorrenza restano aperti.
+
 ## Alternative scartate
 
 - **Stato di lettura nell'handle** (`read(&self)`): impedirebbe stream
