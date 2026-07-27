@@ -42,7 +42,6 @@ jobs:
         with:
           toolchain: "1.92.0"
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --all-targets --locked
       - name: Test cross-volume publish rejection
         shell: pwsh
         run: |
@@ -58,6 +57,7 @@ jobs:
           }
           $env:PLENORA_CROSS_FS_TEST_ROOT = $crossRoot
           cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
+      - run: cargo test --workspace --all-targets --locked
 
   coverage:
     runs-on: ubuntu-latest
