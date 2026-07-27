@@ -1,6 +1,7 @@
 //! Publish atomico condiviso (ADR-IO 2). Profilo v1 di default: `AtomicPublish`;
-//! `durable` attiva `DurableAtomicPublish` con la sequenza fsync completa:
-//! fsync file/staging -> rename -> fsync directory padre della destinazione.
+//! `durable` attiva `DurableAtomicPublish`: sincronizza file e directory dove
+//! la piattaforma lo consente e segnala esplicitamente quando la durabilità del
+//! nome pubblicato non può essere confermata.
 
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
@@ -22,9 +23,7 @@ pub fn publish_file_atomic(
     dest: &Path,
     durable: bool,
 ) -> Result<(u64, PublishOutcome)> {
-    if dest.exists() {
-        return Err(PlenoraError::OutputExists(dest.display().to_string()));
-    }
+    ensure_destination_absent(dest)?;
     ensure_same_filesystem(temp.path(), destination_parent(dest))?;
     // 1. fsync del file, prima del rename.
     if durable {
@@ -33,9 +32,9 @@ pub fn publish_file_atomic(
     let bytes = temp.as_file().metadata()?.len();
     // 3. rename atomico no-clobber.
     temp.persist_noclobber(dest)
-        .map_err(|e| PlenoraError::Io(e.error))?;
+        .map_err(|error| publish_rename_error(error.error, dest))?;
     // 4. fsync della directory padre, dopo il rename.
-    Ok((bytes, finalize_durability(dest, durable)))
+    Ok((bytes, finalize_durability(dest, durable, true)))
 }
 
 /// Variante bounded: verifica la dimensione del tempfile prima del rename, così
@@ -58,19 +57,20 @@ pub fn publish_file_atomic_limited(
 /// Pubblica una directory-dataset (multi-file / multi-layer) con un unico rename
 /// atomico (staging dir -> destinazione), sullo stesso filesystem.
 pub fn publish_dir_atomic(staging: &Path, dest: &Path, durable: bool) -> Result<PublishOutcome> {
-    if dest.exists() {
-        return Err(PlenoraError::OutputExists(dest.display().to_string()));
-    }
+    ensure_destination_absent(dest)?;
     ensure_same_filesystem(staging, destination_parent(dest))?;
-    // 1-2. fsync di tutti i file e delle directory della staging prima del
-    // rename. Qualunque errore pre-publish è fail-closed.
-    if durable {
-        sync_tree(staging)?;
-    }
-    // 3. rename.
-    std::fs::rename(staging, dest)?;
+    // La validazione dell'intero tree (incluso il rifiuto dei symlink) è
+    // indipendente da `durable`; in quel profilo sincronizza anche ciò che la
+    // piattaforma permette e conserva se le directory non sono confermabili.
+    let staging_durability_confirmed = prepare_tree(staging, durable)?;
+    // 3. rename atomico e autorevolmente no-clobber.
+    rename_noclobber(staging, dest)?;
     // 4. fsync della directory padre, dopo il rename.
-    Ok(finalize_durability(dest, durable))
+    Ok(finalize_durability(
+        dest,
+        durable,
+        staging_durability_confirmed,
+    ))
 }
 
 /// Pubblica un set di file sciolti nell'ordine fornito. La modalità è
@@ -105,11 +105,7 @@ pub fn publish_files_ordered_limited(
                 source.display()
             )));
         }
-        if destination.exists() {
-            return Err(PlenoraError::OutputExists(
-                destination.display().to_string(),
-            ));
-        }
+        ensure_destination_absent(destination)?;
         bytes = bytes.checked_add(metadata.len()).ok_or_else(|| {
             PlenoraError::LimitExceeded("overflow nel conteggio dell'output".to_owned())
         })?;
@@ -121,25 +117,75 @@ pub fn publish_files_ordered_limited(
     }
     ensure_same_filesystem(first_source, destination_parent(first_destination))?;
 
+    let mut staging_durability_confirmed = true;
     if durable {
         for (source, _) in files {
             sync_file(source)?;
         }
-        if let Some(staging) = source_parent_path {
-            fsync_dir(staging)?;
-        }
+        staging_durability_confirmed =
+            sync_dir(source_parent_path.unwrap_or_else(|| Path::new(".")))?;
     }
 
     for (source, destination) in files {
-        std::fs::rename(source, destination)?;
+        rename_noclobber(source, destination)?;
     }
-    Ok((bytes, finalize_durability(first_destination, durable)))
+    Ok((
+        bytes,
+        finalize_durability(first_destination, durable, staging_durability_confirmed),
+    ))
 }
 
 fn destination_parent(dest: &Path) -> &Path {
     dest.parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
+}
+
+fn ensure_destination_absent(dest: &Path) -> Result<()> {
+    match std::fs::symlink_metadata(dest) {
+        Ok(_) => Err(PlenoraError::OutputExists(dest.display().to_string())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(PlenoraError::Io(error)),
+    }
+}
+
+fn publish_rename_error(error: std::io::Error, dest: &Path) -> PlenoraError {
+    if error.kind() == std::io::ErrorKind::AlreadyExists || std::fs::symlink_metadata(dest).is_ok()
+    {
+        PlenoraError::OutputExists(dest.display().to_string())
+    } else {
+        PlenoraError::Io(error)
+    }
+}
+
+fn rename_noclobber(source: &Path, destination: &Path) -> Result<()> {
+    rename_noclobber_os(source, destination)
+        .map_err(|error| publish_rename_error(error, destination))
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use rustix::fs::{renameat_with, RenameFlags, CWD};
+
+    renameat_with(CWD, source, CWD, destination, RenameFlags::NOREPLACE).map_err(Into::into)
+}
+
+#[cfg(windows)]
+fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
+    atomicwrites::move_atomic(source, destination)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android", windows)))]
+fn rename_noclobber_os(source: &Path, destination: &Path) -> std::io::Result<()> {
+    let metadata = std::fs::symlink_metadata(source)?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "publish directory no-clobber non supportato su questa piattaforma",
+        ));
+    }
+    std::fs::hard_link(source, destination)?;
+    std::fs::remove_file(source)
 }
 
 fn ensure_same_filesystem(staging: &Path, destination_parent: &Path) -> Result<()> {
@@ -186,7 +232,7 @@ fn same_filesystem(_left: &Path, _right: &Path) -> std::io::Result<bool> {
     Ok(true)
 }
 
-fn sync_tree(path: &Path) -> std::io::Result<()> {
+fn prepare_tree(path: &Path, durable: bool) -> std::io::Result<bool> {
     let metadata = std::fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink() {
         return Err(std::io::Error::new(
@@ -195,7 +241,10 @@ fn sync_tree(path: &Path) -> std::io::Result<()> {
         ));
     }
     if metadata.is_file() {
-        return sync_file(path);
+        if durable {
+            sync_file(path)?;
+        }
+        return Ok(true);
     }
     if !metadata.is_dir() {
         return Err(std::io::Error::new(
@@ -203,10 +252,14 @@ fn sync_tree(path: &Path) -> std::io::Result<()> {
             format!("elemento staging non regolare: {}", path.display()),
         ));
     }
+    let mut durability_confirmed = true;
     for entry in std::fs::read_dir(path)? {
-        sync_tree(&entry?.path())?;
+        durability_confirmed &= prepare_tree(&entry?.path(), durable)?;
     }
-    fsync_dir(path)
+    if durable {
+        durability_confirmed &= sync_dir(path)?;
+    }
+    Ok(durability_confirmed)
 }
 
 fn sync_file(path: &Path) -> std::io::Result<()> {
@@ -217,26 +270,31 @@ fn sync_file(path: &Path) -> std::io::Result<()> {
         .sync_all()
 }
 
-fn finalize_durability(dest: &Path, durable: bool) -> PublishOutcome {
+fn finalize_durability(
+    dest: &Path,
+    durable: bool,
+    staging_durability_confirmed: bool,
+) -> PublishOutcome {
     if !durable {
         return PublishOutcome::Published;
     }
-    match dest.parent().map(fsync_dir).unwrap_or(Ok(())) {
-        Ok(()) => PublishOutcome::Published,
-        Err(_) => PublishOutcome::PublishedButDurabilityUnconfirmed,
+    match sync_dir(destination_parent(dest)) {
+        Ok(true) if staging_durability_confirmed => PublishOutcome::Published,
+        Ok(_) | Err(_) => PublishOutcome::PublishedButDurabilityUnconfirmed,
     }
 }
 
 #[cfg(unix)]
-fn fsync_dir(dir: &Path) -> std::io::Result<()> {
-    std::fs::File::open(dir)?.sync_all()
+fn sync_dir(dir: &Path) -> std::io::Result<bool> {
+    std::fs::File::open(dir)?.sync_all()?;
+    Ok(true)
 }
 
 #[cfg(not(unix))]
-fn fsync_dir(_dir: &Path) -> std::io::Result<()> {
+fn sync_dir(_dir: &Path) -> std::io::Result<bool> {
     // Il fsync di directory non è disponibile in modo portabile su Windows:
-    // la durabilità del nome si affida alle garanzie del filesystem.
-    Ok(())
+    // il publish prosegue ma l'esito deve restare non confermato.
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -244,6 +302,14 @@ mod tests {
     use std::io::Write;
 
     use super::*;
+
+    fn expected_durable_outcome() -> PublishOutcome {
+        if cfg!(unix) {
+            PublishOutcome::Published
+        } else {
+            PublishOutcome::PublishedButDurabilityUnconfirmed
+        }
+    }
 
     #[test]
     fn output_limit_is_checked_before_publish() {
@@ -256,6 +322,7 @@ mod tests {
         assert!(!destination.exists());
     }
 
+    #[cfg(any(target_os = "linux", target_os = "android", windows))]
     #[test]
     fn directory_dataset_is_published_with_one_rename() {
         let root = tempfile::tempdir().unwrap();
@@ -267,7 +334,7 @@ mod tests {
 
         let outcome = publish_dir_atomic(staging.path(), &destination, true).unwrap();
 
-        assert_eq!(outcome, PublishOutcome::Published);
+        assert_eq!(outcome, expected_durable_outcome());
         assert_eq!(
             std::fs::read(destination.join("data.shp")).unwrap(),
             b"shape"
@@ -295,6 +362,66 @@ mod tests {
             b"existing"
         );
         assert!(!destination.join("data.shp").exists());
+    }
+
+    #[test]
+    fn atomic_noclobber_refuses_a_file_created_after_preflight() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("staged.dbf");
+        let destination = root.path().join("dataset.dbf");
+        std::fs::write(&source, b"new").unwrap();
+        ensure_destination_absent(&destination).unwrap();
+
+        std::fs::write(&destination, b"concurrent").unwrap();
+        let result = rename_noclobber(&source, &destination);
+
+        assert!(matches!(result, Err(PlenoraError::OutputExists(_))));
+        assert_eq!(std::fs::read(&destination).unwrap(), b"concurrent");
+        assert_eq!(std::fs::read(&source).unwrap(), b"new");
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", windows))]
+    #[test]
+    fn atomic_noclobber_refuses_a_directory_created_after_preflight() {
+        let root = tempfile::tempdir().unwrap();
+        let staging = tempfile::Builder::new().tempdir_in(root.path()).unwrap();
+        std::fs::write(staging.path().join("data"), b"new").unwrap();
+        let destination = root.path().join("dataset");
+        ensure_destination_absent(&destination).unwrap();
+
+        std::fs::create_dir(&destination).unwrap();
+        std::fs::write(destination.join("sentinel"), b"concurrent").unwrap();
+        let result = rename_noclobber(staging.path(), &destination);
+
+        assert!(matches!(result, Err(PlenoraError::OutputExists(_))));
+        assert_eq!(
+            std::fs::read(destination.join("sentinel")).unwrap(),
+            b"concurrent"
+        );
+        assert_eq!(std::fs::read(staging.path().join("data")).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_publish_rejects_symlinks_even_when_not_durable() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let staging = tempfile::Builder::new().tempdir_in(root.path()).unwrap();
+        let target = root.path().join("outside");
+        std::fs::write(&target, b"outside").unwrap();
+        symlink(&target, staging.path().join("link")).unwrap();
+        let destination = root.path().join("dataset");
+
+        let result = publish_dir_atomic(staging.path(), &destination, false);
+
+        assert!(matches!(
+            result,
+            Err(PlenoraError::Io(error))
+                if error.kind() == std::io::ErrorKind::InvalidInput
+        ));
+        assert!(!destination.exists());
+        assert_eq!(std::fs::read(target).unwrap(), b"outside");
     }
 
     #[test]
@@ -334,9 +461,23 @@ mod tests {
         let (bytes, outcome) = publish_files_ordered_limited(&files, true, u64::MAX).unwrap();
 
         assert_eq!(bytes, 8);
-        assert_eq!(outcome, PublishOutcome::Published);
+        assert_eq!(outcome, expected_durable_outcome());
         assert_eq!(std::fs::read(destination_dbf).unwrap(), b"dbf");
         assert_eq!(std::fs::read(destination_shp).unwrap(), b"shape");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn durable_file_publish_reports_unconfirmed_parent_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("output.bin");
+        let mut temp = NamedTempFile::new_in(root.path()).unwrap();
+        temp.write_all(b"durable").unwrap();
+
+        let (_, outcome) = publish_file_atomic(temp, &destination, true).unwrap();
+
+        assert_eq!(outcome, PublishOutcome::PublishedButDurabilityUnconfirmed);
+        assert_eq!(std::fs::read(destination).unwrap(), b"durable");
     }
 
     #[cfg(any(target_os = "linux", windows))]

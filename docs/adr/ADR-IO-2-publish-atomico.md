@@ -35,7 +35,10 @@ destinazione esistente non viene mai sovrascritta.
     ordinato** (companion prima, `.shp` per ultimo). Atomicità **ridotta e
     dichiarata**: un set di file sciolti **non ha atomicità portabile piena**
     (rischio circoscritto — un lettore che chiave sul `.shp` vede il set
-    completo); `DurableAtomicPublish` raccomandato.
+    completo); `DurableAtomicPublish` raccomandato. Ogni singolo passaggio usa
+    comunque una primitiva no-replace autorevole: una destinazione creata dopo
+    il preflight non viene sovrascritta. In caso di conflitto può essere già
+    visibile il prefisso ordinato del set, coerentemente con la garanzia debole.
 
   La modalità forte NON è un rimpiazzo trasparente dello Shapefile classico: la
   scelta è del chiamante, con i due nomi sopra.
@@ -75,17 +78,28 @@ per il chiamante, non un rollback (l'output è già lì).
 divergono, il rename degenera in copia (non atomico) → errore in `create`
 (fail-closed), non un fallback silenzioso.
 
-**5. Destinazioni remote / network fs: fuori scope v1.**
+**5. No-clobber autorevole e staging regolare.** Il controllo anticipato della
+destinazione serve solo per restituire un errore tempestivo; l'operazione che
+pubblica deve essere essa stessa atomica e no-replace. Linux usa
+`renameat2(RENAME_NOREPLACE)` e Windows un move senza
+`MOVEFILE_REPLACE_EXISTING`; una piattaforma priva di una primitiva equivalente
+fallisce chiusa per le directory. File, directory e loose set rifiutano inoltre
+symlink e oggetti non regolari nella staging indipendentemente dal profilo
+`durable`.
+
+**6. Destinazioni remote / network fs: fuori scope v1.**
 
 ## Conseguenze
 
 - I formati multi-file guadagnano atomicità reale scegliendo la **directory**
   come unità di pubblicazione; i file sciolti restano supportati ma con garanzia
   documentata e più debole.
-- **Windows**: rename-over-existing fallisce (coerente col no-clobber, che è
-  voluto); share-lock di antivirus/indexer possono far fallire il rename in modo
-  transitorio → errore `IO_ERROR` retryable, mai output parziale. Comportamento
-  documentato.
+- **Windows**: il move no-replace fallisce se la destinazione esiste; share-lock
+  di antivirus/indexer possono farlo fallire in modo transitorio → errore
+  `IO_ERROR` retryable, mai sovrascrittura. Poiché Rust non espone un `fsync`
+  portabile della directory padre, un publish richiesto come durable restituisce
+  `PublishedButDurabilityUnconfirmed` anche quando i file staged sono stati
+  sincronizzati.
 - Test obbligatori: publish su Linux e Windows; staging su fs diverso →
   respinto; crash simulato tra scrittura e rename → nessun file parziale;
   `DurableAtomicPublish` con verifica di durabilità.
@@ -97,9 +111,14 @@ seleziona il `LooseShapefileSet` interoperabile. L'opzione
 `publish_mode=shapefile_directory_dataset|loose_shapefile_set`, se fornita,
 deve essere coerente con il suffisso e fallisce chiuso altrimenti. Il publish
 durable delle directory sincronizza ricorsivamente file e directory prima
-dell'unico rename; nessun errore pre-publish di `fsync` viene ignorato. Sono
-coperti no-clobber, preflight del loose set, abort senza residui e round-trip
-della directory dataset. FileGDB usa la stessa unità directory e una guardia
+dell'unico rename; nessun errore pre-publish di `fsync` viene ignorato. La
+validazione ricorsiva rifiuta symlink e oggetti non regolari anche quando
+`durable=false`. Il rename finale di directory e ciascun rename del loose set
+sono no-replace atomici su Linux e Windows, quindi il preflight non è la barriera
+contro il clobber; test deterministici creano file e directory concorrenti dopo
+il preflight e verificano che restino intatti. Sono inoltre coperti abort senza
+residui e round-trip della directory dataset. FileGDB usa la stessa unità
+directory e una guardia
 RAII: chiude il dataset GDAL prima della cancellazione e rimuove lo staging su
 drop, errore di write o limite output, senza rendere visibile la destinazione.
 Ogni writer FileGDB possiede uno staging univoco sul filesystem di destinazione
@@ -119,10 +138,13 @@ il rifiuto tra il filesystem del runner e `/dev/shm`, verificando che nessuna
 destinazione diventi visibile; la CI Windows compila ed esegue lo stesso
 contratto e prova un secondo volume scrivibile quando il runner lo espone.
 La sincronizzazione durable apre i file staged in lettura/scrittura, requisito
-di `FlushFileBuffers` su Windows, prima di rinominarli.
+di `FlushFileBuffers` su Windows, prima di rinominarli. Su Windows l'impossibilità
+di confermare separatamente la persistenza del nome nella directory padre viene
+propagata come `PublishedButDurabilityUnconfirmed`, non assorbita come successo.
 Il job Linux installa inoltre GDAL ed esegue la suite FileGDB feature-on.
-Resta da validare FileGDB/GDAL nativamente su Windows e da estendere la matrice
-di durabilità a più filesystem reali.
+Resta da validare FileGDB/GDAL nativamente su Windows, estendere la primitiva
+directory no-replace oltre Linux/Windows e ampliare la matrice di durabilità a
+più filesystem reali.
 
 ## Alternative scartate
 
