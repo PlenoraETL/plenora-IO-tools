@@ -23,7 +23,7 @@ pub enum GeometryEncoding {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
 pub enum CoordinateDimensions {
     Xy,
     Xyz,
@@ -51,7 +51,7 @@ pub enum CoordinatePrecision {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
 pub enum GeometryType {
     Point,
     LineString,
@@ -60,6 +60,35 @@ pub enum GeometryType {
     MultiLineString,
     MultiPolygon,
     GeometryCollection,
+}
+
+impl GeometryType {
+    /// Nome wire canonico ratificato da R3.1.
+    pub const fn canonical_name(self) -> &'static str {
+        match self {
+            Self::Point => "point",
+            Self::LineString => "linestring",
+            Self::Polygon => "polygon",
+            Self::MultiPoint => "multipoint",
+            Self::MultiLineString => "multilinestring",
+            Self::MultiPolygon => "multipolygon",
+            Self::GeometryCollection => "geometrycollection",
+        }
+    }
+
+    /// Risolve esclusivamente un nome wire canonico supportato.
+    pub fn from_canonical_name(value: &str) -> Option<Self> {
+        match value {
+            "point" => Some(Self::Point),
+            "linestring" => Some(Self::LineString),
+            "polygon" => Some(Self::Polygon),
+            "multipoint" => Some(Self::MultiPoint),
+            "multilinestring" => Some(Self::MultiLineString),
+            "multipolygon" => Some(Self::MultiPolygon),
+            "geometrycollection" => Some(Self::GeometryCollection),
+            _ => None,
+        }
+    }
 }
 
 /// Contratto di una colonna geometrica.
@@ -136,4 +165,49 @@ pub struct LayerContract {
     pub id: LayerId,
     pub name: String,
     pub contract: DataContract,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CoordinateDimensions, GeometryType};
+
+    #[test]
+    fn geometry_type_wire_names_match_ratified_r3_1() {
+        let values = [
+            GeometryType::Point,
+            GeometryType::LineString,
+            GeometryType::Polygon,
+            GeometryType::MultiPoint,
+            GeometryType::MultiLineString,
+            GeometryType::MultiPolygon,
+            GeometryType::GeometryCollection,
+        ];
+
+        assert_eq!(
+            serde_json::to_string(&values).unwrap(),
+            r#"["point","linestring","polygon","multipoint","multilinestring","multipolygon","geometrycollection"]"#
+        );
+        for value in values {
+            assert_eq!(
+                GeometryType::from_canonical_name(value.canonical_name()),
+                Some(value)
+            );
+        }
+    }
+
+    #[test]
+    fn coordinate_dimension_wire_names_are_explicitly_lowercase() {
+        let values = [
+            CoordinateDimensions::Xy,
+            CoordinateDimensions::Xyz,
+            CoordinateDimensions::Xym,
+            CoordinateDimensions::Xyzm,
+            CoordinateDimensions::Unknown,
+        ];
+
+        assert_eq!(
+            serde_json::to_string(&values).unwrap(),
+            r#"["xy","xyz","xym","xyzm","unknown"]"#
+        );
+    }
 }

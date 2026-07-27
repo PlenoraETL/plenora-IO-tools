@@ -97,7 +97,7 @@ pub fn with_geometry_contract_metadata(
         contract
             .geometry_types
             .iter()
-            .map(|geometry_type| format!("{geometry_type:?}"))
+            .map(|geometry_type| geometry_type.canonical_name())
             .collect::<Vec<_>>()
             .join(","),
     );
@@ -171,18 +171,8 @@ pub fn read_geometry_contract_metadata(
         let mut geometry_types = Vec::new();
         if !value.is_empty() {
             for value in value.split(',') {
-                let geometry_type = match value {
-                    "Point" => GeometryType::Point,
-                    "LineString" => GeometryType::LineString,
-                    "Polygon" => GeometryType::Polygon,
-                    "MultiPoint" => GeometryType::MultiPoint,
-                    "MultiLineString" => GeometryType::MultiLineString,
-                    "MultiPolygon" => GeometryType::MultiPolygon,
-                    "GeometryCollection" => GeometryType::GeometryCollection,
-                    _ => {
-                        return Err(invalid_metadata(field, PLENORA_GEOMETRY_TYPES_KEY));
-                    }
-                };
+                let geometry_type = GeometryType::from_canonical_name(value)
+                    .ok_or_else(|| invalid_metadata(field, PLENORA_GEOMETRY_TYPES_KEY))?;
                 if geometry_types.contains(&geometry_type) {
                     return Err(invalid_metadata(field, PLENORA_GEOMETRY_TYPES_KEY));
                 }
@@ -266,13 +256,42 @@ mod tests {
     fn invalid_srid_and_geometry_types_are_rejected() {
         for field in [
             field_with(PLENORA_SRID_KEY, "not-an-i32"),
-            field_with(PLENORA_GEOMETRY_TYPES_KEY, "Point,FutureGeometry"),
-            field_with(PLENORA_GEOMETRY_TYPES_KEY, "Point,Point"),
+            field_with(PLENORA_GEOMETRY_TYPES_KEY, "point,futuregeometry"),
+            field_with(PLENORA_GEOMETRY_TYPES_KEY, "point,point"),
+            field_with(PLENORA_GEOMETRY_TYPES_KEY, "line_string"),
+            field_with(PLENORA_GEOMETRY_TYPES_KEY, "LineString"),
         ] {
             assert!(matches!(
                 read_geometry_contract_metadata(&field, &mut contract()),
                 Err(PlenoraError::Contract(_))
             ));
         }
+    }
+
+    #[test]
+    fn geometry_type_metadata_uses_canonical_names_without_separators() {
+        let mut geometry = contract();
+        geometry.geometry_types = vec![
+            GeometryType::LineString,
+            GeometryType::MultiPolygon,
+            GeometryType::GeometryCollection,
+        ];
+
+        let field = with_geometry_contract_metadata(
+            &Field::new("geometry", DataType::Binary, true),
+            &geometry,
+        );
+
+        assert_eq!(
+            field
+                .metadata()
+                .get(PLENORA_GEOMETRY_TYPES_KEY)
+                .map(String::as_str),
+            Some("linestring,multipolygon,geometrycollection")
+        );
+
+        let mut decoded = contract();
+        read_geometry_contract_metadata(&field, &mut decoded).unwrap();
+        assert_eq!(decoded.geometry_types, geometry.geometry_types);
     }
 }

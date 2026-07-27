@@ -7,13 +7,8 @@ divergenti che sembrino entrambi normativi.
 
 Baseline consultata per la CIA del 2026-07-27:
 
-- tag annotato `v2.0-rc1`;
-- commit `d9547b7ca9d1cb4172c95e61ae9a6e79df874b76`;
+- tag annotato `v2.0-rc2`;
+- oggetto tag `6c93d5458e7e4fd216116840732aa0488fef9535`;
+- commit `0faeadbcd34b924430b39647e78e31b34b11bd24`;
 - il registro di ratifica interno all’ICD resta l’unica autorità sullo stato
   delle singole sezioni.
-
-È stata inoltre ispezionata una working copy locale dichiarata `2.0-rc2`
-(SHA-256 del documento
-`4AA714D1F18658956FB922D974FB21815B0553BDD86C884E8BB2F3D90ADC0311`), ma non
-essendo committata né taggata non è una baseline normativa e non viene usata
-come dipendenza.
