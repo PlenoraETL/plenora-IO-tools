@@ -73,6 +73,21 @@ comando (come lo `skipped` di `plenora-dxf-tools` oggi).
 o si declassa a `Approximating` con report, o si corregge. La fedeltà dichiarata
 è un contratto verificato, non un'etichetta.
 
+Il backend FileGDB applica esplicitamente questa regola: il descrittore è
+`Conditional`, il writer accetta soltanto il sottoinsieme verificato
+round-trip dalla versione GDAL supportata (`Int32`, `Float64`, `Utf8`, WKB
+XY/XYZ con un solo tipo geometrico nativo tra `Point`, `MultiPoint`,
+`MultiLineString`, `MultiPolygon` e CRS risolto) e rifiuta prima del publish
+tipi, dimensioni o semantiche non rappresentabili. `LineString` e `Polygon`
+sono rifiutati perché FileGDB li normalizzerebbe nelle rispettive famiglie
+multipart. Il backend non converte valori
+incompatibili in zero/testo e non elimina feature con geometria nulla. Il
+reader ricostruisce tipo e dimensionalità dal geometry field OGR e conserva il
+codice nativo nei metadati namespaced; la nullability dello schema resta
+`FormatDefined`, mentre i valori nulli sono preservati. M/ZM, EWKB,
+`GeometryCollection` e i tipi attributo non verificati restano fail-closed
+finché non esiste un round-trip reale che ne dimostri la fedeltà.
+
 ## Conseguenze
 
 - Chi consuma l'output sa sempre se e quanto è stato approssimato, con numeri.

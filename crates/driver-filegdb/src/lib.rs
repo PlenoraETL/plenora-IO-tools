@@ -4,18 +4,32 @@
 //! tipizzato (il binario di default resta puro-Rust). Multi-layer.
 #![forbid(unsafe_code)]
 
+use plenora_core::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
 use plenora_core::Result;
 use plenora_io_core::descriptor::{
-    CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
-    WriteMode,
+    ArrowTypeClass, CrsHandling, Direction, Fidelity, FormatDescriptor, GeometryWriteSupport,
+    ReadMode, ReaderConcurrency, Runtime, WriteMode,
 };
 use plenora_io_core::driver::{
     FormatDriver, FormatWriter, OpenDatasetHandle, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities,
-    NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES,
-    WKB_PASSTHROUGH_GEOMETRY,
+    NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
+};
+
+const FILEGDB_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
+    ArrowTypeClass::SignedInteger,
+    ArrowTypeClass::Floating,
+    ArrowTypeClass::Utf8,
+];
+
+const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    supported: true,
+    encodings: &[GeometryEncoding::Wkb],
+    dimensions: &[CoordinateDimensions::Xy, CoordinateDimensions::Xyz],
+    spatial_semantics: &[SpatialSemantics::Geometry],
+    mixed_types: false,
 };
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
@@ -30,21 +44,21 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
     spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
     crs_handling: CrsHandling::Embedded,
-    fidelity_class: Fidelity::Lossless,
+    fidelity_class: Fidelity::Conditional,
     runtime: Runtime::Gdal,
     write_capabilities: Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
+        allowed_types: FILEGDB_ATTRIBUTE_TYPES,
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
-        geometry: WKB_PASSTHROUGH_GEOMETRY,
+        geometry: FILEGDB_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
-        nullability: NullabilitySupport::Preserve,
+        nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 4,
-    descriptor_version: 4,
+    driver_version: 5,
+    descriptor_version: 5,
 };
 
 pub struct FileGdbDriver;
@@ -105,18 +119,22 @@ mod backend {
     use std::sync::mpsc::{sync_channel, Receiver};
     use std::sync::Arc;
 
-    use arrow_array::builder::{BinaryBuilder, Float64Builder, Int64Builder, StringBuilder};
-    use arrow_array::{ArrayRef, BinaryArray, RecordBatch};
+    use arrow_array::builder::{
+        BinaryBuilder, Float64Builder, Int32Builder, Int64Builder, StringBuilder,
+    };
+    use arrow_array::{ArrayRef, BinaryArray, Float64Array, Int32Array, RecordBatch, StringArray};
     use arrow_schema::{Field, Schema, SchemaRef};
     use gdal::vector::LayerAccess;
     use gdal::Dataset;
 
-    use driver_common::{geometry_field, json_from_array};
+    use driver_common::geometry_field;
     use plenora_core::contract::{
-        DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+        CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+        LayerContract, LayerId,
     };
     use plenora_core::crs::{AxisOrder, CrsKind, RawCrs, ResolvedCrs};
-    use plenora_core::{PlenoraError, Result};
+    use plenora_core::geometry::with_geometry_contract_metadata;
+    use plenora_core::{CapabilityReason, PlenoraError, Result};
     use plenora_io_core::driver::{LayerReader, OpenDatasetHandle};
     use plenora_io_core::request::ReadRequest;
 
@@ -126,7 +144,7 @@ mod backend {
     use arrow_array::Array;
     use arrow_schema::DataType;
     use gdal::spatial_ref::SpatialRef;
-    use gdal::vector::{Geometry, LayerOptions, OGRwkbGeometryType};
+    use gdal::vector::{Feature, Geometry, LayerOptions, OGRwkbGeometryType};
     use gdal::DriverManager;
 
     use plenora_core::geometry::is_geometry_field;
@@ -134,38 +152,39 @@ mod backend {
     use plenora_io_core::loss::LossReport;
     use plenora_io_core::publish::publish_dir_atomic;
     use plenora_io_core::{SingleReaderGate, WriteLayer, WritePlan};
-    use serde_json::Value as JsonValueW;
 
     #[derive(Clone, Copy)]
     enum FieldKind {
-        Int,
-        Real,
-        Str,
-        Bool,
+        Int32,
+        Float64,
+        Utf8,
     }
 
     impl FieldKind {
-        fn from(dt: &DataType) -> Self {
-            match dt {
-                DataType::Int8
-                | DataType::Int16
-                | DataType::Int32
-                | DataType::Int64
-                | DataType::UInt8
-                | DataType::UInt16
-                | DataType::UInt32
-                | DataType::UInt64 => FieldKind::Int,
-                DataType::Float16 | DataType::Float32 | DataType::Float64 => FieldKind::Real,
-                DataType::Boolean => FieldKind::Bool,
-                _ => FieldKind::Str,
-            }
+        fn from(field: &Field) -> Result<Self> {
+            let kind = match field.data_type() {
+                DataType::Int32 => FieldKind::Int32,
+                DataType::Float64 => FieldKind::Float64,
+                DataType::Utf8 => FieldKind::Utf8,
+                other => {
+                    return Err(PlenoraError::Capability {
+                        driver: "filegdb",
+                        field: Some(field.name().clone()),
+                        reason: CapabilityReason::TypeNotRepresentable,
+                        detail: format!(
+                            "tipo Arrow {other:?} non round-trip nativo; supportati esattamente Int32, Float64 e Utf8"
+                        ),
+                    });
+                }
+            };
+            Ok(kind)
         }
+
         fn ogr(self) -> gdal::vector::OGRFieldType::Type {
             match self {
-                FieldKind::Int => gdal::vector::OGRFieldType::OFTInteger64,
-                FieldKind::Real => gdal::vector::OGRFieldType::OFTReal,
-                FieldKind::Bool => gdal::vector::OGRFieldType::OFTInteger,
-                FieldKind::Str => gdal::vector::OGRFieldType::OFTString,
+                FieldKind::Int32 => gdal::vector::OGRFieldType::OFTInteger,
+                FieldKind::Float64 => gdal::vector::OGRFieldType::OFTReal,
+                FieldKind::Utf8 => gdal::vector::OGRFieldType::OFTString,
             }
         }
     }
@@ -175,7 +194,8 @@ mod backend {
         geom_idx: usize,
         fields: Vec<(String, usize, FieldKind)>,
         srs: SpatialRef,
-        gdal_idx: Option<usize>,
+        ogr_type: OGRwkbGeometryType::Type,
+        gdal_idx: usize,
     }
 
     struct GdbWriter {
@@ -185,7 +205,6 @@ mod backend {
         durable: bool,
         max_output_bytes: u64,
         layers: Vec<PlanLayer>,
-        next_gdal_idx: usize,
     }
 
     fn layer_spatial_ref(layer: &WriteLayer) -> Result<SpatialRef> {
@@ -235,25 +254,83 @@ mod backend {
         Ok(spatial_ref)
     }
 
-    /// Tipo geometria OGR dal codice-tipo WKB (FileGDB richiede un tipo concreto).
-    fn wkb_ogr_type(bytes: &[u8]) -> OGRwkbGeometryType::Type {
-        if bytes.len() < 5 {
-            return OGRwkbGeometryType::wkbPoint;
+    fn geometry_capability(
+        field: &str,
+        reason: CapabilityReason,
+        detail: impl Into<String>,
+    ) -> PlenoraError {
+        PlenoraError::Capability {
+            driver: "filegdb",
+            field: Some(field.to_owned()),
+            reason,
+            detail: detail.into(),
         }
-        let raw = if bytes[0] == 1 {
-            u32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])
-        } else {
-            u32::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]])
+    }
+
+    /// FileGDB richiede tipo e dimensionalità del feature class prima dei dati:
+    /// non li deduciamo dal primo record, che renderebbe vuoti/null dipendenti
+    /// dall'ordine dei batch.
+    fn contract_ogr_type(layer: &WriteLayer) -> Result<OGRwkbGeometryType::Type> {
+        let geometry = layer.contract.geometry.as_ref().ok_or_else(|| {
+            geometry_capability(
+                "geometry",
+                CapabilityReason::GeometryNotSupported,
+                format!("layer '{}' senza contratto geometrico", layer.name),
+            )
+        })?;
+        let geometry_type = match geometry.geometry_types.as_slice() {
+            [geometry_type] => *geometry_type,
+            [] => {
+                return Err(geometry_capability(
+                    &geometry.name,
+                    CapabilityReason::GeometryNotSupported,
+                    "FileGDB richiede un tipo geometrico dichiarato",
+                ));
+            }
+            _ => {
+                return Err(geometry_capability(
+                    &geometry.name,
+                    CapabilityReason::MixedGeometry,
+                    "FileGDB richiede un solo tipo geometrico per layer",
+                ));
+            }
         };
-        match raw % 1000 {
-            1 => OGRwkbGeometryType::wkbPoint,
-            2 => OGRwkbGeometryType::wkbLineString,
-            3 => OGRwkbGeometryType::wkbPolygon,
-            4 => OGRwkbGeometryType::wkbMultiPoint,
-            5 => OGRwkbGeometryType::wkbMultiLineString,
-            6 => OGRwkbGeometryType::wkbMultiPolygon,
-            7 => OGRwkbGeometryType::wkbGeometryCollection,
-            _ => OGRwkbGeometryType::wkbPoint,
+        if geometry_type == GeometryType::GeometryCollection {
+            return Err(geometry_capability(
+                &geometry.name,
+                CapabilityReason::GeometryNotSupported,
+                "GeometryCollection non è un feature-class FileGDB nativo",
+            ));
+        }
+
+        use CoordinateDimensions as D;
+        use GeometryType as G;
+        use OGRwkbGeometryType as O;
+        match (geometry_type, geometry.dimensions) {
+            (G::Point, D::Xy) => Ok(O::wkbPoint),
+            (G::MultiPoint, D::Xy) => Ok(O::wkbMultiPoint),
+            (G::MultiLineString, D::Xy) => Ok(O::wkbMultiLineString),
+            (G::MultiPolygon, D::Xy) => Ok(O::wkbMultiPolygon),
+            (G::Point, D::Xyz) => Ok(O::wkbPoint25D),
+            (G::MultiPoint, D::Xyz) => Ok(O::wkbMultiPoint25D),
+            (G::MultiLineString, D::Xyz) => Ok(O::wkbMultiLineString25D),
+            (G::MultiPolygon, D::Xyz) => Ok(O::wkbMultiPolygon25D),
+            (G::LineString | G::Polygon, D::Xy | D::Xyz) => Err(geometry_capability(
+                &geometry.name,
+                CapabilityReason::GeometryNotSupported,
+                "FileGDB normalizza le famiglie lineari/poligonali native a MultiLineString/MultiPolygon; dichiarare il tipo multipart per un round-trip stabile",
+            )),
+            (_, D::Xym | D::Xyzm) => Err(geometry_capability(
+                &geometry.name,
+                CapabilityReason::CoordinateDimensions,
+                "il backend GDAL 0.17 non espone una creazione FileGDB M/ZM verificata; il writer rifiuta invece di perdere M",
+            )),
+            (_, D::Unknown) => Err(geometry_capability(
+                &geometry.name,
+                CapabilityReason::CoordinateDimensions,
+                "FileGDB richiede dimensionalità XY o XYZ dichiarata",
+            )),
+            (G::GeometryCollection, _) => unreachable!("rifiutata sopra"),
         }
     }
 
@@ -271,17 +348,40 @@ mod backend {
         p
     }
 
-    fn field_value(kind: FieldKind, v: JsonValueW) -> gdal::vector::FieldValue {
+    fn field_value(
+        kind: FieldKind,
+        array: &ArrayRef,
+        row: usize,
+    ) -> Result<Option<gdal::vector::FieldValue>> {
         use gdal::vector::FieldValue as F;
-        match kind {
-            FieldKind::Int => F::Integer64Value(v.as_i64().unwrap_or(0)),
-            FieldKind::Real => F::RealValue(v.as_f64().unwrap_or(0.0)),
-            FieldKind::Bool => F::IntegerValue(i32::from(v.as_bool().unwrap_or(false))),
-            FieldKind::Str => F::StringValue(match v {
-                JsonValueW::String(s) => s,
-                other => other.to_string(),
-            }),
+        if array.is_null(row) {
+            return Ok(None);
         }
+        let value = match kind {
+            FieldKind::Int32 => F::IntegerValue(
+                array
+                    .as_any()
+                    .downcast_ref::<Int32Array>()
+                    .ok_or_else(|| err("schema Int32 ma array runtime differente"))?
+                    .value(row),
+            ),
+            FieldKind::Float64 => F::RealValue(
+                array
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .ok_or_else(|| err("schema Float64 ma array runtime differente"))?
+                    .value(row),
+            ),
+            FieldKind::Utf8 => F::StringValue(
+                array
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or_else(|| err("schema Utf8 ma array runtime differente"))?
+                    .value(row)
+                    .to_owned(),
+            ),
+        };
+        Ok(Some(value))
     }
 
     fn dir_size(p: &Path) -> u64 {
@@ -322,26 +422,92 @@ mod backend {
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| *i != geom_idx)
-                .map(|(i, f)| (f.name().clone(), i, FieldKind::from(f.data_type())))
-                .collect();
+                .map(|(i, f)| FieldKind::from(f).map(|kind| (f.name().clone(), i, kind)))
+                .collect::<Result<Vec<_>>>()?;
             infos.push(PlanLayer {
                 name: l.name.clone(),
                 geom_idx,
                 fields,
                 srs: layer_spatial_ref(l)?,
-                gdal_idx: None,
+                ogr_type: contract_ogr_type(l)?,
+                gdal_idx: infos.len(),
             });
         }
 
         let staging = staging_path(path);
         let driver = DriverManager::get_driver_by_name("OpenFileGDB")
             .map_err(|e| err(format!("driver OpenFileGDB non disponibile: {e}")))?;
-        let ds = driver
+        let mut ds = driver
             .create_vector_only(&staging)
             .map_err(|e| err(format!("creazione FileGDB: {e}")))?;
 
-        // I layer GDAL sono creati PIGRAMENTE al primo write: FileGDB richiede il
-        // tipo geometria concreto, che conosciamo solo vedendo i dati.
+        // Il contratto basta a creare anche layer vuoti o con sole geometrie
+        // nulle, senza dipendere dal primo record osservato. Verifichiamo
+        // subito anche che GDAL non abbia rinominato o riclassificato campi.
+        let layer_result = (|| -> Result<()> {
+            for info in &infos {
+                let definitions: Vec<(&str, gdal::vector::OGRFieldType::Type)> = info
+                    .fields
+                    .iter()
+                    .map(|(name, _, kind)| (name.as_str(), kind.ogr()))
+                    .collect();
+                let layer = ds
+                    .create_layer(LayerOptions {
+                        name: &info.name,
+                        srs: Some(&info.srs),
+                        ty: info.ogr_type,
+                        options: None,
+                    })
+                    .map_err(|e| err(format!("create_layer '{}': {e}", info.name)))?;
+                layer
+                    .create_defn_fields(&definitions)
+                    .map_err(|e| err(format!("definizione campi '{}': {e}", info.name)))?;
+                let actual: Vec<(String, gdal::vector::OGRFieldType::Type)> = layer
+                    .defn()
+                    .fields()
+                    .map(|field| (field.name(), field.field_type()))
+                    .collect();
+                if actual.len() != definitions.len() {
+                    return Err(geometry_capability(
+                        &info.name,
+                        CapabilityReason::TypeNotRepresentable,
+                        "GDAL ha creato un numero di campi diverso dal contratto",
+                    ));
+                }
+                for ((expected_name, _, expected_kind), (actual_name, actual_type)) in
+                    info.fields.iter().zip(actual)
+                {
+                    if expected_name != &actual_name {
+                        return Err(PlenoraError::Capability {
+                            driver: "filegdb",
+                            field: Some(expected_name.clone()),
+                            reason: CapabilityReason::FieldNameCollision,
+                            detail: format!(
+                                "GDAL ha normalizzato il nome in '{actual_name}'; scrittura rifiutata"
+                            ),
+                        });
+                    }
+                    if expected_kind.ogr() != actual_type {
+                        return Err(PlenoraError::Capability {
+                            driver: "filegdb",
+                            field: Some(expected_name.clone()),
+                            reason: CapabilityReason::TypeNotRepresentable,
+                            detail: format!(
+                                "GDAL ha riclassificato il tipo OGR {} in {actual_type}",
+                                expected_kind.ogr()
+                            ),
+                        });
+                    }
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = layer_result {
+            drop(ds);
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+
         Ok(Box::new(GdbWriter {
             ds,
             staging,
@@ -349,7 +515,6 @@ mod backend {
             durable: opts.durable,
             max_output_bytes: opts.limits.max_output_bytes,
             layers: infos,
-            next_gdal_idx: 0,
         }))
     }
 
@@ -370,58 +535,34 @@ mod backend {
                 .downcast_ref::<BinaryArray>()
                 .ok_or_else(|| err("colonna geometria non binaria"))?;
 
-            // Creazione pigra del layer GDAL col tipo geometria dedotto dai dati.
-            if self.layers[li].gdal_idx.is_none() {
-                let ty = (0..batch.num_rows())
-                    .find(|&r| !geom_col.is_null(r))
-                    .map(|r| wkb_ogr_type(geom_col.value(r)))
-                    .unwrap_or(OGRwkbGeometryType::wkbPoint);
-                let lname = self.layers[li].name.clone();
-                let defs_owned: Vec<(String, gdal::vector::OGRFieldType::Type)> = self.layers[li]
-                    .fields
-                    .iter()
-                    .map(|(n, _, k)| (n.clone(), k.ogr()))
-                    .collect();
-                let defs: Vec<(&str, gdal::vector::OGRFieldType::Type)> =
-                    defs_owned.iter().map(|(n, t)| (n.as_str(), *t)).collect();
-                let gl = self
-                    .ds
-                    .create_layer(LayerOptions {
-                        name: &lname,
-                        srs: Some(&self.layers[li].srs),
-                        ty,
-                        options: None,
-                    })
-                    .map_err(|e| err(format!("create_layer '{lname}': {e}")))?;
-                gl.create_defn_fields(&defs)
-                    .map_err(|e| err(format!("definizione campi '{lname}': {e}")))?;
-                self.layers[li].gdal_idx = Some(self.next_gdal_idx);
-                self.next_gdal_idx += 1;
-            }
-
-            let gidx = self.layers[li].gdal_idx.unwrap();
+            let gidx = self.layers[li].gdal_idx;
             let fields = self.layers[li].fields.clone();
-            let mut gl = self
+            let gl = self
                 .ds
                 .layer(gidx)
                 .map_err(|e| err(format!("accesso layer {gidx}: {e}")))?;
             for row in 0..batch.num_rows() {
-                if geom_col.is_null(row) {
-                    continue; // FileGDB: feature senza geometria saltata (v1)
+                let mut feature =
+                    Feature::new(gl.defn()).map_err(|e| err(format!("creazione feature: {e}")))?;
+                if !geom_col.is_null(row) {
+                    let geometry = Geometry::from_wkb(geom_col.value(row))
+                        .map_err(|e| err(format!("WKB->GDAL: {e}")))?;
+                    feature
+                        .set_geometry(geometry)
+                        .map_err(|e| err(format!("geometria feature: {e}")))?;
                 }
-                let geom = Geometry::from_wkb(geom_col.value(row))
-                    .map_err(|e| err(format!("WKB->GDAL: {e}")))?;
-                let mut fnames: Vec<&str> = Vec::new();
-                let mut fvals: Vec<gdal::vector::FieldValue> = Vec::new();
-                for (n, i, kind) in &fields {
-                    let v = json_from_array(batch.column(*i), row);
-                    if v.is_null() {
-                        continue;
+                for (name, index, kind) in &fields {
+                    match field_value(*kind, batch.column(*index), row)? {
+                        Some(value) => feature
+                            .set_field(name, &value)
+                            .map_err(|e| err(format!("campo '{name}': {e}")))?,
+                        None => feature
+                            .set_field_null(name)
+                            .map_err(|e| err(format!("null campo '{name}': {e}")))?,
                     }
-                    fnames.push(n.as_str());
-                    fvals.push(field_value(*kind, v));
                 }
-                gl.create_feature_fields(geom, &fnames, &fvals)
+                feature
+                    .create(&gl)
                     .map_err(|e| err(format!("create_feature: {e}")))?;
             }
             Ok(())
@@ -561,6 +702,45 @@ mod backend {
         Ok(resolved)
     }
 
+    fn geometry_contract_from_ogr(
+        ogr_type: OGRwkbGeometryType::Type,
+        crs: ResolvedCrs,
+    ) -> GeometryColumnContract {
+        let raw = ogr_type;
+        let without_25d = raw & !0x8000_0000;
+        let dimension_code = without_25d / 1000;
+        let dimensions = match (
+            raw & 0x8000_0000 != 0 || matches!(dimension_code, 1 | 3),
+            matches!(dimension_code, 2 | 3),
+        ) {
+            (false, false) => CoordinateDimensions::Xy,
+            (true, false) => CoordinateDimensions::Xyz,
+            (false, true) => CoordinateDimensions::Xym,
+            (true, true) => CoordinateDimensions::Xyzm,
+        };
+        let geometry_types = match without_25d % 1000 {
+            1 => vec![GeometryType::Point],
+            2 => vec![GeometryType::LineString],
+            3 => vec![GeometryType::Polygon],
+            4 => vec![GeometryType::MultiPoint],
+            5 => vec![GeometryType::MultiLineString],
+            6 => vec![GeometryType::MultiPolygon],
+            7 => vec![GeometryType::GeometryCollection],
+            _ => Vec::new(),
+        };
+        let mut geometry = GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs, true);
+        geometry.dimensions = if geometry_types.is_empty() {
+            CoordinateDimensions::Unknown
+        } else {
+            dimensions
+        };
+        geometry.geometry_types = geometry_types;
+        geometry
+            .native_metadata
+            .insert("filegdb.ogr_geometry_type".to_owned(), raw.to_string());
+        geometry
+    }
+
     pub fn open(
         path: &std::path::Path,
         assume_crs: Option<&str>,
@@ -575,25 +755,33 @@ mod backend {
                 .id
                 .as_deref()
                 .or(crs.definition.as_deref())
-                .expect("un CRS risolto da GDAL ha sempre id o WKT");
+                .expect("un CRS risolto da GDAL ha sempre id o WKT")
+                .to_owned();
+            let ogr_geometry_type = layer
+                .defn()
+                .geom_fields()
+                .next()
+                .map(|field| field.field_type())
+                .unwrap_or(OGRwkbGeometryType::wkbUnknown);
+            let geometry = geometry_contract_from_ogr(ogr_geometry_type, crs);
             let fields: Vec<(String, DataType)> = layer
                 .defn()
                 .fields()
-                .map(|f| (f.name(), ogr_to_arrow(f.field_type())))
-                .collect();
-            let mut arrow_fields = vec![geometry_field(GEOMETRY, crs_label)];
+                .map(|field| {
+                    let name = field.name();
+                    ogr_to_arrow(field.field_type(), &name).map(|data_type| (name, data_type))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let geometry_arrow_field =
+                with_geometry_contract_metadata(&geometry_field(GEOMETRY, &crs_label), &geometry);
+            let mut arrow_fields = vec![geometry_arrow_field];
             for (n, dt) in &fields {
                 arrow_fields.push(Field::new(n, dt.clone(), true));
             }
             let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
             let contract = DataContract {
                 schema: schema.clone(),
-                geometry: Some(GeometryColumnContract::wkb_passthrough(
-                    FieldId(0),
-                    GEOMETRY,
-                    crs,
-                    true,
-                )),
+                geometry: Some(geometry),
             };
             layers.push(LayerContract {
                 id: LayerId(i as u32),
@@ -614,14 +802,25 @@ mod backend {
         }))
     }
 
-    fn ogr_to_arrow(ft: gdal::vector::OGRFieldType::Type) -> DataType {
+    fn ogr_to_arrow(ft: gdal::vector::OGRFieldType::Type, name: &str) -> Result<DataType> {
         use gdal::vector::OGRFieldType;
-        if ft == OGRFieldType::OFTInteger || ft == OGRFieldType::OFTInteger64 {
-            DataType::Int64
+        if ft == OGRFieldType::OFTInteger {
+            Ok(DataType::Int32)
+        } else if ft == OGRFieldType::OFTInteger64 {
+            Ok(DataType::Int64)
         } else if ft == OGRFieldType::OFTReal {
-            DataType::Float64
+            Ok(DataType::Float64)
+        } else if ft == OGRFieldType::OFTString || ft == OGRFieldType::OFTWideString {
+            Ok(DataType::Utf8)
         } else {
-            DataType::Utf8
+            Err(PlenoraError::Capability {
+                driver: "filegdb",
+                field: Some(name.to_owned()),
+                reason: CapabilityReason::TypeNotRepresentable,
+                detail: format!(
+                    "tipo campo OGR {ft} non ancora rappresentato senza perdita nel bordo Arrow"
+                ),
+            })
         }
     }
 
@@ -711,12 +910,17 @@ mod backend {
                     fields.iter().map(|(_, dt)| ReadCol::new(dt)).collect();
                 let mut n = 0usize;
                 for feature in layer.features() {
-                    match feature.geometry().and_then(|g| g.wkb().ok()) {
+                    match feature
+                        .geometry_by_index(0)
+                        .ok()
+                        .and_then(|geometry| geometry.wkb().ok())
+                    {
                         Some(bytes) => geom.append_value(&bytes),
                         None => geom.append_null(),
                     }
                     for (k, (name, _)) in fields.iter().enumerate() {
-                        builders[k].append(feature.field(name).ok().flatten());
+                        let value = feature.field(name).map_err(|e| e.to_string())?;
+                        builders[k].append(value)?;
                     }
                     n += 1;
                     if n >= batch_size {
@@ -754,6 +958,7 @@ mod backend {
     }
 
     enum ReadCol {
+        I32(Int32Builder),
         I64(Int64Builder),
         F64(Float64Builder),
         Str(StringBuilder),
@@ -762,37 +967,60 @@ mod backend {
     impl ReadCol {
         fn new(dt: &DataType) -> Self {
             match dt {
+                DataType::Int32 => ReadCol::I32(Int32Builder::new()),
                 DataType::Int64 => ReadCol::I64(Int64Builder::new()),
                 DataType::Float64 => ReadCol::F64(Float64Builder::new()),
                 _ => ReadCol::Str(StringBuilder::new()),
             }
         }
-        fn append(&mut self, v: Option<gdal::vector::FieldValue>) {
+        fn append(
+            &mut self,
+            v: Option<gdal::vector::FieldValue>,
+        ) -> std::result::Result<(), String> {
             use gdal::vector::FieldValue as F;
             match self {
-                ReadCol::I64(b) => b.append_option(match v {
-                    Some(F::IntegerValue(i)) => Some(i as i64),
-                    Some(F::Integer64Value(i)) => Some(i),
-                    Some(F::RealValue(f)) => Some(f as i64),
-                    _ => None,
-                }),
-                ReadCol::F64(b) => b.append_option(match v {
-                    Some(F::RealValue(f)) => Some(f),
-                    Some(F::Integer64Value(i)) => Some(i as f64),
-                    Some(F::IntegerValue(i)) => Some(i as f64),
-                    _ => None,
-                }),
+                ReadCol::I32(b) => match v {
+                    Some(F::IntegerValue(i)) => b.append_value(i),
+                    None => b.append_null(),
+                    Some(other) => {
+                        return Err(format!(
+                            "campo OGR intero 32-bit ha restituito valore incompatibile {other:?}"
+                        ));
+                    }
+                },
+                ReadCol::I64(b) => match v {
+                    Some(F::Integer64Value(i)) => b.append_value(i),
+                    None => b.append_null(),
+                    Some(other) => {
+                        return Err(format!(
+                            "campo OGR intero 64-bit ha restituito valore incompatibile {other:?}"
+                        ));
+                    }
+                },
+                ReadCol::F64(b) => match v {
+                    Some(F::RealValue(f)) => b.append_value(f),
+                    None => b.append_null(),
+                    Some(other) => {
+                        return Err(format!(
+                            "campo OGR reale ha restituito valore incompatibile {other:?}"
+                        ));
+                    }
+                },
                 ReadCol::Str(b) => match v {
                     Some(F::StringValue(s)) => b.append_value(s),
-                    Some(F::IntegerValue(i)) => b.append_value(i.to_string()),
-                    Some(F::Integer64Value(i)) => b.append_value(i.to_string()),
-                    Some(F::RealValue(f)) => b.append_value(f.to_string()),
-                    _ => b.append_null(),
+                    None => b.append_null(),
+                    Some(other) => {
+                        return Err(format!(
+                            "campo OGR stringa ha restituito valore incompatibile {other:?}"
+                        ));
+                    }
                 },
             }
+            Ok(())
         }
         fn finish(&mut self) -> ArrayRef {
             match self {
+                ReadCol::I32(b) => Arc::new(b.finish()),
                 ReadCol::I64(b) => Arc::new(b.finish()),
                 ReadCol::F64(b) => Arc::new(b.finish()),
                 ReadCol::Str(b) => Arc::new(b.finish()),
@@ -806,7 +1034,11 @@ mod backend {
 
         use arrow_array::RecordBatch;
         use plenora_core::contract::GeometryType;
-        use plenora_core::wkb::{encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
+        use plenora_core::limits::WkbLimits;
+        use plenora_core::wkb::{
+            decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+        };
+        use plenora_io_core::descriptor::Fidelity;
         use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source};
         use plenora_io_core::request::{BatchTarget, ProjectionMode};
 
@@ -826,18 +1058,32 @@ mod backend {
                 GEOMETRY,
                 crs.id.as_deref().unwrap_or("custom"),
             )]));
+            let mut geometry = GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs, true);
+            geometry.geometry_types = vec![GeometryType::Point];
             WriteLayer {
                 name: "points".to_owned(),
                 contract: DataContract {
                     schema,
-                    geometry: Some(GeometryColumnContract::wkb_passthrough(
-                        FieldId(0),
-                        GEOMETRY,
-                        crs,
-                        true,
-                    )),
+                    geometry: Some(geometry),
                 },
             }
+        }
+
+        fn point_wkb(dimensions: CoordinateDimensions, z: Option<f64>) -> Vec<u8> {
+            encode_wkb(
+                &WkbGeometry {
+                    value: WkbValue::Point(WkbCoordinate {
+                        x: 10.5,
+                        y: 20.25,
+                        z,
+                        m: None,
+                    }),
+                    dimensions,
+                    srid: None,
+                },
+                WkbFlavor::Iso,
+            )
+            .unwrap()
         }
 
         #[test]
@@ -929,7 +1175,7 @@ mod backend {
                 vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
             )
             .unwrap();
-            let mut geometry = GeometryColumnContract::wkb_passthrough(
+            let mut geometry = GeometryColumnContract::wkb_xy(
                 FieldId(0),
                 GEOMETRY,
                 ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
@@ -977,6 +1223,305 @@ mod backend {
             ));
             drop(first);
             assert!(dataset.open_layer_reader(&read_request()).is_ok());
+        }
+
+        #[test]
+        fn filegdb_round_trip_preserves_null_geometry_and_exact_attributes() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("null-and-attributes.gdb");
+            let geometry_field = geometry_field(GEOMETRY, "EPSG:3857");
+            let schema: SchemaRef = Arc::new(Schema::new(vec![
+                geometry_field,
+                Field::new("count", DataType::Int32, true),
+                Field::new("ratio", DataType::Float64, true),
+                Field::new("label", DataType::Utf8, true),
+            ]));
+            let wkb = point_wkb(CoordinateDimensions::Xy, None);
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![
+                    Arc::new(BinaryArray::from(vec![Some(wkb.as_slice()), None])),
+                    Arc::new(Int32Array::from(vec![Some(i32::MAX), None])),
+                    Arc::new(Float64Array::from(vec![Some(12.5), None])),
+                    Arc::new(StringArray::from(vec![Some("città"), None])),
+                ],
+            )
+            .unwrap();
+            let mut geometry = GeometryColumnContract::wkb_xy(
+                FieldId(0),
+                GEOMETRY,
+                ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                true,
+            );
+            geometry.geometry_types = vec![GeometryType::Point];
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "points".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: Some(geometry),
+                    },
+                }],
+            };
+
+            let driver = super::super::FileGdbDriver;
+            let mut writer = driver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            let published = writer.finish().unwrap();
+            assert_eq!(published.fidelity.level, Fidelity::Conditional);
+            assert!(published.loss.is_empty());
+
+            let dataset = driver
+                .open(Source::Path(path), &ReadOptions::default())
+                .unwrap();
+            let output_geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+            assert_eq!(output_geometry.dimensions, CoordinateDimensions::Xy);
+            assert_eq!(output_geometry.geometry_types, vec![GeometryType::Point]);
+            assert!(output_geometry
+                .native_metadata
+                .contains_key("filegdb.ogr_geometry_type"));
+
+            let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
+            let output = reader.next_batch().unwrap().unwrap();
+            assert_eq!(output.num_rows(), 2);
+            let output_geometry = output
+                .column(0)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap();
+            assert!(!output_geometry.is_null(0));
+            assert!(output_geometry.is_null(1));
+            let counts = output
+                .column(1)
+                .as_any()
+                .downcast_ref::<Int32Array>()
+                .unwrap();
+            assert_eq!(counts.value(0), i32::MAX);
+            assert!(counts.is_null(1));
+            let ratios = output
+                .column(2)
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap();
+            assert_eq!(ratios.value(0), 12.5);
+            assert!(ratios.is_null(1));
+            let labels = output
+                .column(3)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            assert_eq!(labels.value(0), "città");
+            assert!(labels.is_null(1));
+            assert!(reader.next_batch().unwrap().is_none());
+        }
+
+        #[test]
+        fn filegdb_xyz_round_trip_preserves_z_and_contract_metadata() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("xyz.gdb");
+            let schema: SchemaRef =
+                Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
+            let wkb = point_wkb(CoordinateDimensions::Xyz, Some(123.25));
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
+            let mut geometry = GeometryColumnContract::wkb_xy(
+                FieldId(0),
+                GEOMETRY,
+                ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                true,
+            );
+            geometry.dimensions = CoordinateDimensions::Xyz;
+            geometry.geometry_types = vec![GeometryType::Point];
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "points_z".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: Some(geometry),
+                    },
+                }],
+            };
+
+            let driver = super::super::FileGdbDriver;
+            let mut writer = driver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+
+            let dataset = driver
+                .open(Source::Path(path), &ReadOptions::default())
+                .unwrap();
+            let output_contract = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+            assert_eq!(output_contract.dimensions, CoordinateDimensions::Xyz);
+            assert_eq!(output_contract.geometry_types, vec![GeometryType::Point]);
+            let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
+            let output = reader.next_batch().unwrap().unwrap();
+            let geometry = output
+                .column(0)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap();
+            let decoded = decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap();
+            assert_eq!(decoded.dimensions, CoordinateDimensions::Xyz);
+            assert_eq!(
+                decoded.value,
+                WkbValue::Point(WkbCoordinate {
+                    x: 10.5,
+                    y: 20.25,
+                    z: Some(123.25),
+                    m: None,
+                })
+            );
+        }
+
+        #[test]
+        fn filegdb_empty_layer_is_created_from_the_contract() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("empty.gdb");
+            let plan = WritePlan {
+                layers: vec![write_layer(ResolvedCrs::new(
+                    Some("EPSG:3857".to_owned()),
+                    CrsKind::Projected,
+                    None,
+                ))],
+            };
+            let driver = super::super::FileGdbDriver;
+            driver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap()
+                .finish()
+                .unwrap();
+
+            let dataset = driver
+                .open(Source::Path(path), &ReadOptions::default())
+                .unwrap();
+            assert_eq!(dataset.layers().len(), 1);
+            let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+            assert_eq!(geometry.dimensions, CoordinateDimensions::Xy);
+            assert_eq!(geometry.geometry_types, vec![GeometryType::Point]);
+            let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
+            assert!(reader.next_batch().unwrap().is_none());
+        }
+
+        #[test]
+        fn filegdb_empty_layers_preserve_every_declared_geometry_family() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("geometry-families.gdb");
+            let geometry_types = [
+                GeometryType::Point,
+                GeometryType::MultiPoint,
+                GeometryType::MultiLineString,
+                GeometryType::MultiPolygon,
+            ];
+            let layers = geometry_types
+                .iter()
+                .enumerate()
+                .map(|(index, geometry_type)| {
+                    let name = format!("family_{index}");
+                    let schema: SchemaRef =
+                        Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
+                    let mut geometry = GeometryColumnContract::wkb_xy(
+                        FieldId(0),
+                        GEOMETRY,
+                        ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                        true,
+                    );
+                    geometry.geometry_types = vec![*geometry_type];
+                    WriteLayer {
+                        name,
+                        contract: DataContract {
+                            schema,
+                            geometry: Some(geometry),
+                        },
+                    }
+                })
+                .collect();
+            let plan = WritePlan { layers };
+            let driver = super::super::FileGdbDriver;
+            driver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap()
+                .finish()
+                .unwrap();
+
+            let dataset = driver
+                .open(Source::Path(path), &ReadOptions::default())
+                .unwrap();
+            assert_eq!(dataset.layers().len(), geometry_types.len());
+            for (layer, expected) in dataset.layers().iter().zip(geometry_types) {
+                let geometry = layer.contract.geometry.as_ref().unwrap();
+                assert_eq!(geometry.dimensions, CoordinateDimensions::Xy);
+                assert_eq!(geometry.geometry_types, vec![expected]);
+            }
+        }
+
+        #[test]
+        fn filegdb_rejects_geometry_families_normalized_by_the_format() {
+            for geometry_type in [GeometryType::LineString, GeometryType::Polygon] {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("normalized-family.gdb");
+                let mut layer = write_layer(ResolvedCrs::new(
+                    Some("EPSG:3857".to_owned()),
+                    CrsKind::Projected,
+                    None,
+                ));
+                layer.contract.geometry.as_mut().unwrap().geometry_types = vec![geometry_type];
+                let plan = WritePlan {
+                    layers: vec![layer],
+                };
+
+                let result = super::super::FileGdbDriver.create(
+                    Sink::Path(path.clone()),
+                    &plan,
+                    &WriteOptions::default(),
+                );
+                assert!(matches!(
+                    result,
+                    Err(PlenoraError::Capability {
+                        reason: CapabilityReason::GeometryNotSupported,
+                        ..
+                    })
+                ));
+                assert!(!path.exists());
+            }
+        }
+
+        #[test]
+        fn filegdb_rejects_non_round_trip_attribute_type_before_output() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("int64.gdb");
+            let mut layer = write_layer(ResolvedCrs::new(
+                Some("EPSG:3857".to_owned()),
+                CrsKind::Projected,
+                None,
+            ));
+            layer.contract.schema = Arc::new(Schema::new(vec![
+                geometry_field(GEOMETRY, "EPSG:3857"),
+                Field::new("too_wide", DataType::Int64, true),
+            ]));
+            let plan = WritePlan {
+                layers: vec![layer],
+            };
+
+            let result = super::super::FileGdbDriver.create(
+                Sink::Path(path.clone()),
+                &plan,
+                &WriteOptions::default(),
+            );
+            assert!(matches!(
+                result,
+                Err(PlenoraError::Capability {
+                    reason: CapabilityReason::TypeNotRepresentable,
+                    ..
+                })
+            ));
+            assert!(!path.exists());
         }
     }
 }

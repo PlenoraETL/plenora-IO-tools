@@ -10,7 +10,7 @@ driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 | ADR-IO 2 — publish atomico | Parziale avanzato | Tempfile same-directory e no-clobber per file singoli; GeoPackage multi-layer pubblicato come singolo file; Shapefile disponibile come `ShapefileDirectoryDataset` forte (`*.shp.d`, un rename) e come loose set compatibile (`*.shp`, companion ordinati); sequenza durable condivisa con `fsync` fail-closed dell'intero staging tree prima del rename ed esito post-rename tipizzato | Il loose set resta deliberatamente non atomico in senso forte; mancano fault injection del crash di processo, test cross-filesystem e conferma multipiattaforma delle garanzie di durabilità |
 | ADR-IO 3 — capability-check | Parziale avanzato | `FormatWriteCapabilities` machine-readable su tutti i driver scrivibili; policy nomi/tipi/attributi/geometria/CRS/nullability/multi-layer; validatore statico prima della creazione e guardia runtime comune sui payload WKB; errori `CapabilityReason` tipizzati; matrice negativa derivata dai descrittori per limiti, nomi, tipi, encoding, dimensioni, semantica e geometrie miste | Alcuni vincoli dipendenti dai valori restano nel primo `write`; il modello di coercion/report va raffinato; i rami `AttributeWriteSupport::{None, NamedSubset}` e `NoNulls` sono pronti nel gate ma non sono oggi dichiarati da alcun driver reale |
 | ADR-IO 4 — CRS | Parziale avanzato trasversale | `CrsResolution::{Resolved, DeclaredButUnresolved, Missing}`, `RawCrs` e `AxisOrder` esplicito; `OGC:CRS84` lon/lat distinto da `EPSG:4326` lat/lon; CSV/XLSX richiedono `assume_crs`; CRS fissi KML/GeoJSON validati; SHP/DXF/GPKG/GeoParquet conservano il raw e falliscono con `CRS_UNRESOLVED` redatto quando il metadato dichiarato non è risolvibile; IPC rappresenta il CRS assente come `Missing`; GeoPackage non ricade più implicitamente su WGS84; FileGDB feature-on preserva WKT/authority/axis tramite GDAL, supporta `assume_crs`, rifiuta coppie id/definizione incoerenti e non rietichetta CRS84; matrice test raw/axis e gate di scrittura `Embedded`/`Fixed` | L’authority/axis resolver pure-Rust resta intenzionalmente limitato agli identificativi e WKT riconosciuti; DXF non-WGS84 richiede la definizione WKT/XML completa per serializzare senza perdita |
-| ADR-IO 5 — fedeltà | Parziale avanzato | `Fidelity` nel descrittore; `FidelityAssessment` bounded e serializzabile restituito da `open`/`create` e nel `Published`; motivi tipizzati per vincoli, attributi, coercion, nullability, struttura, precisione e metadati; il wrapper comune collega il contratto e promuove automaticamente l'esito a `Approximating` quando il `LossReport` osservato non è vuoto; DXF registra tassellazioni, esplosioni INSERT, conversioni di testo/solidi, entità non gestite e attributi non rappresentati | I profili dei driver `Conditional` sono ancora conservativi e vanno raffinati per singolo tipo/valore; alcuni driver conditional producono report operativi vuoti; oracoli indipendenti e corpus reali non sono uniformi |
+| ADR-IO 5 — fedeltà | Parziale avanzato | `Fidelity` nel descrittore; `FidelityAssessment` bounded e serializzabile restituito da `open`/`create` e nel `Published`; motivi tipizzati per vincoli, attributi, coercion, nullability, struttura, precisione e metadati; il wrapper comune collega il contratto e promuove automaticamente l'esito a `Approximating` quando il `LossReport` osservato non è vuoto; DXF registra tassellazioni, esplosioni INSERT, conversioni di testo/solidi, entità non gestite e attributi non rappresentati; FileGDB è `Conditional` e fail-closed sul profilo GDAL 3.6 verificato (`Int32`/`Float64`/`Utf8`, WKB XY/XYZ nelle famiglie native Point/Multi*), conserva feature con geometria nulla e pubblica tipo/dimensioni OGR nei metadati del contratto | I profili degli altri driver `Conditional` sono ancora conservativi e vanno raffinati per singolo tipo/valore; alcuni driver conditional producono report operativi vuoti; M/ZM, EWKB e tipi nativi estesi FileGDB richiedono test su una matrice di versioni GDAL; oracoli indipendenti e corpus reali non sono uniformi |
 | ADR-IO 6 — projection e pruning | Parziale avanzato trasversale | Contratto `ReadRequest` e schema effettivo; descrittore v4 con capability machine-readable per projection, pruning numerico e spaziale; projection esatta GeoParquet/IPC e `Required` fail-closed sugli altri; `NumericComparison` GeoParquet precision-safe su statistiche min/max, con legacy `Opaque` fail-open; pruning spaziale GeoParquet e GeoPackage tramite RTree registrato/conforme; `target_bytes`/`max_rows` su tutti i reader | Il pruning attributivo resta disponibile solo dove esistono statistiche a blocchi (GeoParquet): usare indici B-tree degli altri formati sarebbe filtering esatto; la stima byte è best-effort e lo slicing Arrow non libera buffer già materializzati |
 
 ## Contratti trasversali introdotti
@@ -35,6 +35,14 @@ driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
   nel contratto. Poiché DXF non distingue formalmente una quota Z esplicita
   uguale a zero da una coordinata 2D, il dataset è dichiarato XYZ se almeno una
   quota è non nulla, altrimenti XY; M ed EWKB con SRID embedded sono rifiutati.
+  FileGDB crea il feature class dal tipo e dalla dimensionalità del contratto,
+  anche per layer vuoti o con sole geometrie nulle; il reader ricostruisce
+  XY/XYZ e il tipo dal geometry field OGR. Il profilo di scrittura verificato
+  con GDAL 3.6.2 conserva esattamente `Int32`, `Float64`, `Utf8`, null
+  attributivi e geometrie nulle; `Int64`, M/ZM, EWKB e
+  `GeometryCollection` sono rifiutati invece di essere coerciti o scartati.
+  Anche `LineString` e `Polygon` sono fail-closed perché il feature class li
+  normalizza rispettivamente a `MultiLineString` e `MultiPolygon`.
   Una pre-validazione XML limitata protegge
   inoltre il parser KML da token malformati che possono impedirne l'avanzamento.
   Una guardia runtime comune decodifica i
@@ -55,7 +63,8 @@ driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
   `max_vertices` durante la materializzazione e mantiene limiti separati su
   annidamento ed esplosione degli INSERT.
 - Il catalogo espone capability di scrittura, concorrenza reader, projection e
-  pruning con `descriptor_version = 4`.
+  pruning con descrittori versionati; FileGDB usa `descriptor_version = 5` per
+  il profilo di fedeltà ristretto e verificato.
 - I comandi `inspect`, `layers`, `read` e `convert` espongono la valutazione di
   fedeltà concreta. `create` la rende interrogabile sul writer prima del primo
   batch; `finish` la aggiorna con le categorie realmente presenti nel
