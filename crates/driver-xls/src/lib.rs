@@ -26,7 +26,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic_limited;
+use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -329,13 +329,7 @@ impl FormatWriter for XlsWriterState {
         }
 
         let buf = wb.save_to_buffer().map_err(xls_err)?;
-        let parent = self
-            .path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let mut temp = tempfile::NamedTempFile::new_in(&parent)?;
+        let mut temp = create_staged_file(&self.path)?;
         temp.as_file_mut().write_all(&buf)?;
         temp.as_file_mut().flush()?;
         let (bytes, outcome) =
@@ -402,8 +396,8 @@ fn build_batch(
             let yi = idx(y).ok_or_else(|| err(format!("colonna Y '{y}' assente")))?;
             let mut out = Vec::new();
             for row in &data_rows {
-                let xv = row.get(xi).and_then(cell_f64);
-                let yv = row.get(yi).and_then(cell_f64);
+                let xv = coordinate_cell(row.get(xi), "X")?;
+                let yv = coordinate_cell(row.get(yi), "Y")?;
                 match (xv, yv) {
                     (Some(x), Some(y)) => {
                         let geometry = WkbGeometry {
@@ -418,7 +412,12 @@ fn build_batch(
                         };
                         out.push(Some(encode_wkb(&geometry, WkbFlavor::Iso)?));
                     }
-                    _ => out.push(None),
+                    (None, None) => out.push(None),
+                    _ => {
+                        return Err(err(
+                            "geometria XY incompleta: X e Y devono essere entrambi presenti",
+                        ))
+                    }
                 }
             }
             detected_dimensions.insert(CoordinateDimensions::Xy);
@@ -492,13 +491,31 @@ fn build_batch(
     Ok((batch, contract))
 }
 
-fn cell_f64(d: &Data) -> Option<f64> {
-    match d {
-        Data::Float(f) => Some(*f),
-        Data::Int(i) => Some(*i as f64),
-        Data::String(s) => s.trim().parse().ok(),
-        _ => None,
-    }
+fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64>> {
+    const MAX_EXACT_F64_INTEGER: i64 = 1_i64 << 53;
+
+    let value = match cell {
+        None | Some(Data::Empty) => return Ok(None),
+        Some(Data::Float(value)) if value.is_finite() => *value,
+        Some(Data::Int(value))
+            if *value >= -MAX_EXACT_F64_INTEGER && *value <= MAX_EXACT_F64_INTEGER =>
+        {
+            *value as f64
+        }
+        Some(Data::String(value)) if value.trim().is_empty() => return Ok(None),
+        Some(Data::String(value)) => value
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite())
+            .ok_or_else(|| err(format!("coordinata {axis} non numerica o non finita")))?,
+        Some(_) => {
+            return Err(err(format!(
+                "coordinata {axis} non numerica, non finita o non rappresentabile senza perdita"
+            )))
+        }
+    };
+    Ok(Some(value))
 }
 
 #[cfg(test)]
@@ -506,6 +523,18 @@ mod tests {
     use super::*;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+
+    #[test]
+    fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {
+        assert!(coordinate_cell(Some(&Data::String("not-a-number".to_owned())), "X").is_err());
+        assert!(coordinate_cell(Some(&Data::Float(f64::INFINITY)), "X").is_err());
+        assert!(coordinate_cell(Some(&Data::Int((1_i64 << 53) + 1)), "X").is_err());
+        assert_eq!(coordinate_cell(Some(&Data::Empty), "X").unwrap(), None);
+        assert_eq!(
+            coordinate_cell(Some(&Data::String(" 12.5 ".to_owned())), "X").unwrap(),
+            Some(12.5)
+        );
+    }
 
     #[test]
     fn write_then_read_round_trip() {

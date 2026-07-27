@@ -5,16 +5,16 @@ set -eu
 # #[cfg(test)] e i target non distribuibili. Ogni nuova occorrenza richiede una
 # revisione H-01 e l'aggiornamento esplicito del registro.
 expected='
-driver-csv 4
-driver-dxf 15
+driver-csv 3
+driver-dxf 14
 driver-filegdb 3
-driver-geojson 3
-driver-geoparquet 5
-driver-gpkg 5
-driver-ipc 3
-driver-kml 6
-driver-shp 3
-driver-xls 4
+driver-geojson 1
+driver-geoparquet 4
+driver-gpkg 4
+driver-ipc 2
+driver-kml 2
+driver-shp 2
+driver-xls 3
 plenora-io-model 1
 plenora-io-core 2
 plenora-io-cli 19
@@ -49,7 +49,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 95 ]; then
+if [ "${actual_total}" -ne 82 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

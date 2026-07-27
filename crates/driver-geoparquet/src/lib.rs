@@ -28,7 +28,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic_limited;
+use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::{
     Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar, ReadRequest,
 };
@@ -167,12 +167,7 @@ impl FormatDriver for GeoParquetDriver {
             aug_fields,
             schema.metadata().clone(),
         ));
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let temp = tempfile::NamedTempFile::new_in(&parent)?;
+        let temp = create_staged_file(&path)?;
         // Row group da 64k righe: statistiche min/max abbastanza granulari da
         // rendere efficace il row-group pruning in lettura (Fase 2C).
         let props = WriterProperties::builder()

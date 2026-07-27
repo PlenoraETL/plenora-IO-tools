@@ -43,7 +43,9 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::{publish_dir_atomic, publish_files_ordered_limited};
+use plenora_io_core::publish::{
+    create_staged_dir, publish_dir_atomic, publish_files_ordered_limited,
+};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -313,12 +315,7 @@ impl FormatDriver for ShpDriver {
             attrs.push((i, f.name().clone(), kind));
         }
 
-        let parent = dest
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let staging = tempfile::Builder::new().tempdir_in(&parent)?;
+        let staging = create_staged_dir(&dest)?;
         let shp_path = staging.path().join("data.shp");
         let writer = Writer::from_path(&shp_path, table)
             .map_err(|e| err(format!("creazione shapefile: {e}")))?;

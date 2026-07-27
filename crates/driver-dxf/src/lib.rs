@@ -37,7 +37,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic_limited;
+use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -358,13 +358,7 @@ impl FormatWriter for DxfWriterState {
                 self.rows,
             );
         }
-        let parent = self
-            .path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let mut temp = tempfile::NamedTempFile::new_in(&parent)?;
+        let mut temp = create_staged_file(&self.path)?;
         let mut buf: Vec<u8> = Vec::new();
         self.drawing
             .save(&mut buf)

@@ -24,7 +24,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic_limited;
+use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -184,12 +184,7 @@ impl FormatDriver for IpcDriver {
             fields,
             layer.schema.metadata().clone(),
         ));
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let temp = tempfile::NamedTempFile::new_in(&parent)?;
+        let temp = create_staged_file(&path)?;
         let writer = FileWriter::try_new(BufWriter::new(temp.reopen()?), &schema)
             .map_err(|e| err(format!("writer IPC: {e}")))?;
         with_write_validation(

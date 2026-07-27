@@ -39,7 +39,7 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic_limited;
+use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -257,12 +257,7 @@ impl FormatDriver for CsvDriver {
                 .map(String::as_str),
             Some("xy")
         );
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let temp = tempfile::NamedTempFile::new_in(&parent)?;
+        let temp = create_staged_file(&path)?;
         let writer = csv::WriterBuilder::new()
             .delimiter(delimiter(&opts.format_options))
             .from_writer(temp.reopen()?);

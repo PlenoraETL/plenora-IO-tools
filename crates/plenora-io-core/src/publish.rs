@@ -7,7 +7,7 @@ use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use plenora_io_model::{PlenoraIoError, Result};
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 
 /// Esito del publish (ADR-IO 2): un errore di `fsync` **dopo** il rename lascia
 /// l'output già visibile ma senza conferma di durabilità.
@@ -15,6 +15,29 @@ use tempfile::NamedTempFile;
 pub enum PublishOutcome {
     Published,
     PublishedButDurabilityUnconfirmed,
+}
+
+/// Crea uno staging file sullo stesso filesystem della destinazione.
+///
+/// Tutti i writer a file singolo devono passare da qui: in questo modo un
+/// percorso relativo e uno assoluto risolvono il parent con la stessa semantica
+/// e il successivo rename atomico non dipende dalla directory temporanea di
+/// sistema.
+pub fn create_staged_file(dest: &Path) -> Result<NamedTempFile> {
+    Ok(NamedTempFile::new_in(destination_parent(dest))?)
+}
+
+/// Come [`create_staged_file`], mantenendo il suffisso richiesto da librerie che
+/// riconoscono il formato dal nome del file temporaneo.
+pub fn create_staged_file_with_suffix(dest: &Path, suffix: &str) -> Result<NamedTempFile> {
+    Ok(tempfile::Builder::new()
+        .suffix(suffix)
+        .tempfile_in(destination_parent(dest))?)
+}
+
+/// Crea una staging directory adiacente alla destinazione del dataset.
+pub fn create_staged_dir(dest: &Path) -> Result<TempDir> {
+    Ok(tempfile::Builder::new().tempdir_in(destination_parent(dest))?)
 }
 
 /// Pubblica un file singolo in modo atomico e no-clobber.
@@ -320,6 +343,21 @@ mod tests {
         } else {
             PublishOutcome::PublishedButDurabilityUnconfirmed
         }
+    }
+
+    #[test]
+    fn staging_helpers_use_destination_parent_and_requested_suffix() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("dataset.gpkg");
+        let file = create_staged_file_with_suffix(&destination, ".gpkg").unwrap();
+        assert_eq!(file.path().parent(), Some(directory.path()));
+        assert_eq!(
+            file.path().extension().and_then(|value| value.to_str()),
+            Some("gpkg")
+        );
+
+        let staging = create_staged_dir(&destination).unwrap();
+        assert_eq!(staging.path().parent(), Some(directory.path()));
     }
 
     #[test]

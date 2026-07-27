@@ -32,7 +32,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic_limited;
+use plenora_io_core::publish::{create_staged_file_with_suffix, publish_file_atomic_limited};
 use plenora_io_core::request::{Bbox, ReadRequest};
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -188,14 +188,7 @@ impl FormatDriver for GpkgDriver {
                 return Err(err(format!("layer '{}' senza colonna geometria", l.name)));
             }
         }
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let temp = tempfile::Builder::new()
-            .suffix(".gpkg")
-            .tempfile_in(&parent)?;
+        let temp = create_staged_file_with_suffix(&path, ".gpkg")?;
         let conn = Connection::open(temp.path()).map_err(sql_err)?;
         // Bulk-load veloce: la durabilità è garantita dal publish atomico, non
         // dal file temporaneo (un crash a metà non pubblica nulla).

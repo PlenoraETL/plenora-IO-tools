@@ -26,7 +26,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::publish_file_atomic_limited;
+use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -428,13 +428,7 @@ impl FormatWriter for KmlWriterState {
                 elements: self.placemarks.into_iter().map(Kml::Placemark).collect(),
             }],
         });
-        let parent = self
-            .path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let mut temp = tempfile::NamedTempFile::new_in(&parent)?;
+        let mut temp = create_staged_file(&self.path)?;
         let mut buf: Vec<u8> = Vec::new();
         {
             let mut w = KmlWriter::from_writer(&mut buf);
@@ -507,6 +501,9 @@ fn collect(k: &Kml, out: &mut Vec<Placemark>) {
 }
 
 fn dimensions_for_kml_coords(coords: &[KmlCoord]) -> Result<CoordinateDimensions> {
+    if coords.is_empty() {
+        return Err(err("geometria KML senza coordinate"));
+    }
     let mut has_z = None;
     for coordinate in coords {
         let current = coordinate.z.is_some();
@@ -515,7 +512,7 @@ fn dimensions_for_kml_coords(coords: &[KmlCoord]) -> Result<CoordinateDimensions
         }
         has_z = Some(current);
     }
-    Ok(if has_z.unwrap_or(false) {
+    Ok(if has_z == Some(true) {
         CoordinateDimensions::Xyz
     } else {
         CoordinateDimensions::Xy
@@ -583,7 +580,7 @@ fn wkb_geometry_from_kml(geometry: &KmlGeometry) -> Result<WkbGeometry> {
             let dimensions = values
                 .first()
                 .map(|value| value.dimensions)
-                .unwrap_or(CoordinateDimensions::Xy);
+                .ok_or_else(|| err("MultiGeometry KML vuota"))?;
             if values.iter().any(|value| value.dimensions != dimensions) {
                 return Err(err("MultiGeometry KML con dimensionalità Z non uniforme"));
             }
@@ -688,15 +685,13 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
                 .collect::<Result<Vec<_>>>()?,
         ))),
         WkbValue::GeometryCollection(values) => {
-            let homogeneous = values
+            let first_type = values
                 .first()
-                .map(|first| {
-                    let first_type = first.geometry_type();
-                    values
-                        .iter()
-                        .all(|value| value.geometry_type() == first_type)
-                })
-                .unwrap_or(false);
+                .map(WkbGeometry::geometry_type)
+                .ok_or_else(|| err("GeometryCollection vuota non rappresentabile in KML"))?;
+            let homogeneous = values
+                .iter()
+                .all(|value| value.geometry_type() == first_type);
             if homogeneous {
                 return Err(err(
                     "GeometryCollection omogenea ambigua in KML: usare il tipo Multi* corrispondente",
@@ -1103,5 +1098,16 @@ mod tests {
             srid: None,
         };
         assert!(kml_geometry_from_wkb(&geometry).is_err());
+    }
+
+    #[test]
+    fn empty_geometry_does_not_invent_xy_dimensions() {
+        assert!(dimensions_for_kml_coords(&[]).is_err());
+        let empty = WkbGeometry {
+            value: WkbValue::GeometryCollection(vec![]),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        assert!(kml_geometry_from_wkb(&empty).is_err());
     }
 }
