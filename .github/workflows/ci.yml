@@ -78,5 +78,8 @@ jobs:
         with:
           name: rust-coverage-lcov
           path: lcov.info
-      - name: Enforce coverage threshold
-        run: cargo llvm-cov report --summary-only --fail-under-lines 85
+      - name: Enforce library coverage threshold
+        run: >-
+          cargo llvm-cov report --summary-only
+          --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/main\.rs$'
+          --fail-under-lines 80

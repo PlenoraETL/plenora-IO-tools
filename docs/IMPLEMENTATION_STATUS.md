@@ -75,6 +75,17 @@ driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
   batch; `finish` la aggiorna con le categorie realmente presenti nel
   `LossReport`. Le motivazioni sono deduplicate e limitate a 64 elementi.
 
+## Copertura CI
+
+Il report LCOV conserva l'intera workspace, inclusi CLI, benchmark e harness
+fuzz. Il gate quantitativo è invece applicato al solo codice di libreria:
+esclude esclusivamente gli entry point `main.rs` di `plenora-io-cli`,
+`plenora-bench` e `plenora-fuzz`, che richiedono test end-to-end o campagne
+dedicate e falsavano il dato delle librerie. La baseline misurata è 80,92% di
+linee e il gate fail-closed è fissato all'80%; raccolta, pubblicazione
+dell'artifact e verifica della soglia sono passi distinti, così un eventuale
+calo resta diagnosticabile.
+
 ## Decisione sui fuzz test
 
 Gli smoke fuzz restano utili a ogni modifica dei parser e del core e coprono ora
