@@ -90,6 +90,18 @@ divergono, il rename degenera in copia (non atomico) → errore in `create`
   respinto; crash simulato tra scrittura e rename → nessun file parziale;
   `DurableAtomicPublish` con verifica di durabilità.
 
+**Nota di implementazione corrente.** Il driver Shapefile distingue le modalità
+anche nel percorso: `*.shp.d` seleziona `ShapefileDirectoryDataset`, contiene
+`data.shp/.shx/.dbf/.prj` ed è leggibile direttamente dal driver; `*.shp`
+seleziona il `LooseShapefileSet` interoperabile. L'opzione
+`publish_mode=shapefile_directory_dataset|loose_shapefile_set`, se fornita,
+deve essere coerente con il suffisso e fallisce chiuso altrimenti. Il publish
+durable delle directory sincronizza ricorsivamente file e directory prima
+dell'unico rename; nessun errore pre-publish di `fsync` viene ignorato. Sono
+coperti no-clobber, preflight del loose set, abort senza residui e round-trip
+della directory dataset. Restano fault injection di un crash di processo,
+test cross-filesystem e validazione delle garanzie su più filesystem/piattaforme.
+
 ## Alternative scartate
 
 - **Rename ordinato come default per i set sciolti**: garanzia troppo debole per

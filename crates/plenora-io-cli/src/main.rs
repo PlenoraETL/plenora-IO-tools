@@ -52,6 +52,13 @@ fn map_err(e: plenora_core::PlenoraError) -> (i32, Value) {
 // --- selezione driver per estensione --------------------------------------
 
 fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".shp.d"))
+    {
+        return Ok(Box::new(driver_shp::ShpDriver));
+    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -575,6 +582,13 @@ mod tests {
                 .descriptor()
                 .id,
             "geoparquet"
+        );
+        assert_eq!(
+            driver_for_path(Path::new("x.shp.d"))
+                .unwrap()
+                .descriptor()
+                .id,
+            "shp"
         );
         assert!(driver_for_path(Path::new("x.zzz")).is_err());
     }

@@ -4,11 +4,11 @@
 //!
 //! Scrittura (Fase 2B): capability-check fail-closed (ADR-IO 3) — nomi campo dbf
 //! ≤10 char (imposto da `FieldName`), tipo geometria unico per file (imposto da
-//! shapefile). Publish **multi-file** del set `.shp/.shx/.dbf/.prj` come
-//! `LooseShapefileSet` (ADR-IO 2): scrittura in staging dir, poi rename ordinato
-//! dei singoli file (il `.shp` per ultimo → la sua presenza segnala il set
-//! completo); atomicità dichiarata più debole del dir-dataset. `.prj` scritto se
-//! c'è una definizione WKT o per WGS84; nessuna riproiezione (ADR-IO 4).
+//! shapefile). Il publish **multi-file** espone entrambe le modalità di ADR-IO 2:
+//! `*.shp.d` è uno `ShapefileDirectoryDataset` pubblicato con un unico rename
+//! atomico; `*.shp` è un `LooseShapefileSet` compatibile, pubblicato con rename
+//! ordinati e `.shp` per ultimo. `.prj` è scritto se c'è una definizione WKT o
+//! per WGS84; nessuna riproiezione (ADR-IO 4).
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeSet, HashMap};
@@ -49,7 +49,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::PublishOutcome;
+use plenora_io_core::publish::{publish_dir_atomic, publish_files_ordered_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -58,6 +58,9 @@ use plenora_io_core::{
 };
 
 const GEOMETRY: &str = "geometry";
+const DIRECTORY_DATASET_SUFFIX: &str = ".shp.d";
+const DIRECTORY_DATASET_MODE: &str = "shapefile_directory_dataset";
+const LOOSE_SET_MODE: &str = "loose_shapefile_set";
 
 /// WKT standard per WGS84 (accettato da GDAL), usato per il `.prj` quando la
 /// sorgente dà solo il codice autorità e non una definizione WKT.
@@ -68,6 +71,94 @@ fn err(reason: impl Into<String>) -> PlenoraError {
         driver: "shp",
         reason: reason.into(),
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShapefilePublishMode {
+    DirectoryDataset,
+    LooseSet,
+}
+
+fn is_directory_dataset_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| {
+            name.to_ascii_lowercase()
+                .ends_with(DIRECTORY_DATASET_SUFFIX)
+        })
+}
+
+fn publish_mode(path: &Path, opts: &WriteOptions) -> Result<ShapefilePublishMode> {
+    let inferred = if is_directory_dataset_path(path) {
+        ShapefilePublishMode::DirectoryDataset
+    } else if path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("shp"))
+    {
+        ShapefilePublishMode::LooseSet
+    } else {
+        return Err(PlenoraError::Unsupported(
+            "l'output Shapefile deve terminare con .shp (loose set) o .shp.d (directory dataset)"
+                .to_owned(),
+        ));
+    };
+    let Some(requested) = opts.format_options.get("publish_mode") else {
+        return Ok(inferred);
+    };
+    let requested = match requested.as_str() {
+        DIRECTORY_DATASET_MODE => ShapefilePublishMode::DirectoryDataset,
+        LOOSE_SET_MODE => ShapefilePublishMode::LooseSet,
+        other => {
+            return Err(PlenoraError::Unsupported(format!(
+                "publish_mode Shapefile '{other}' non valido; usare '{DIRECTORY_DATASET_MODE}' o '{LOOSE_SET_MODE}'"
+            )))
+        }
+    };
+    if requested != inferred {
+        return Err(PlenoraError::Unsupported(format!(
+            "publish_mode '{}' richiede una destinazione {}",
+            requested.name(),
+            requested.destination_suffix()
+        )));
+    }
+    Ok(requested)
+}
+
+impl ShapefilePublishMode {
+    fn name(self) -> &'static str {
+        match self {
+            Self::DirectoryDataset => DIRECTORY_DATASET_MODE,
+            Self::LooseSet => LOOSE_SET_MODE,
+        }
+    }
+
+    fn destination_suffix(self) -> &'static str {
+        match self {
+            Self::DirectoryDataset => "*.shp.d",
+            Self::LooseSet => "*.shp",
+        }
+    }
+}
+
+fn shapefile_source_path(path: PathBuf) -> Result<PathBuf> {
+    if !path.is_dir() {
+        return Ok(path);
+    }
+    if !is_directory_dataset_path(&path) {
+        return Err(PlenoraError::Unsupported(format!(
+            "directory Shapefile non riconosciuta: {} (atteso *.shp.d)",
+            path.display()
+        )));
+    }
+    let source = path.join("data.shp");
+    if !source.is_file() {
+        return Err(err(format!(
+            "directory dataset senza data.shp: {}",
+            path.display()
+        )));
+    }
+    Ok(source)
 }
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
@@ -104,7 +195,7 @@ impl FormatDriver for ShpDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = shapefile_source_path(source.into_path_checked(&opts.limits)?)?;
         let crs = resolve_crs(&path, opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let (cols, geometry_info) = infer_shp_schema(&path)?;
@@ -164,25 +255,26 @@ impl FormatDriver for ShpDriver {
     ) -> Result<Box<dyn FormatWriter>> {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(dest) = sink;
-        if !dest
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("shp"))
-        {
-            return Err(PlenoraError::Unsupported(
-                "l'output deve avere estensione .shp".to_owned(),
-            ));
-        }
+        let publish_mode = publish_mode(&dest, opts)?;
         if plan.layers.len() != 1 {
             return Err(PlenoraError::Unsupported(
                 "Shapefile: un solo layer per file".to_owned(),
             ));
         }
-        // no-clobber sull'intero set.
-        for ext in ["shp", "shx", "dbf", "prj"] {
-            let sib = dest.with_extension(ext);
-            if sib.exists() {
-                return Err(PlenoraError::OutputExists(sib.display().to_string()));
+        match publish_mode {
+            ShapefilePublishMode::DirectoryDataset => {
+                if dest.exists() {
+                    return Err(PlenoraError::OutputExists(dest.display().to_string()));
+                }
+            }
+            ShapefilePublishMode::LooseSet => {
+                // no-clobber sull'intero set.
+                for ext in ["shp", "shx", "dbf", "prj"] {
+                    let sibling = dest.with_extension(ext);
+                    if sibling.exists() {
+                        return Err(PlenoraError::OutputExists(sibling.display().to_string()));
+                    }
+                }
             }
         }
 
@@ -230,6 +322,7 @@ impl FormatDriver for ShpDriver {
                 writer: Some(writer),
                 dest,
                 durable: opts.durable,
+                publish_mode,
                 attrs,
                 geom_idx,
                 prj: resolve_prj(layer, schema, geom_idx),
@@ -329,6 +422,7 @@ struct ShpWriter {
     writer: Option<Writer<BufWriter<File>>>,
     dest: PathBuf,
     durable: bool,
+    publish_mode: ShapefilePublishMode,
     attrs: Vec<(usize, String, DbfKind)>,
     geom_idx: usize,
     prj: Option<String>,
@@ -409,30 +503,31 @@ impl FormatWriter for ShpWriter {
             )));
         }
 
-        // Publish LooseShapefileSet: rename ordinato, .shp per ultimo.
-        let mut bytes = 0u64;
-        for ext in ["dbf", "shx", "prj", "shp"] {
-            let src = staging.path().join(format!("data.{ext}"));
-            if !src.exists() {
-                continue;
+        let (bytes, outcome) = match self.publish_mode {
+            ShapefilePublishMode::DirectoryDataset => {
+                let outcome = publish_dir_atomic(staging.path(), &self.dest, self.durable)?;
+                (staged_bytes, outcome)
             }
-            let d = self.dest.with_extension(ext);
-            if d.exists() {
-                return Err(PlenoraError::OutputExists(d.display().to_string()));
+            ShapefilePublishMode::LooseSet => {
+                // Companion prima, .shp marker per ultimo.
+                let files = ["dbf", "shx", "prj", "shp"]
+                    .into_iter()
+                    .map(|extension| {
+                        (
+                            staging.path().join(format!("data.{extension}")),
+                            self.dest.with_extension(extension),
+                        )
+                    })
+                    .filter(|(source, _)| source.exists())
+                    .collect::<Vec<_>>();
+                publish_files_ordered_limited(&files, self.durable, self.max_output_bytes)?
             }
-            if self.durable {
-                if let Ok(f) = File::open(&src) {
-                    let _ = f.sync_all();
-                }
-            }
-            bytes += std::fs::metadata(&src).map(|m| m.len()).unwrap_or(0);
-            std::fs::rename(&src, &d)?;
-        }
+        };
         Ok(Published {
             bytes,
             loss: LossReport::default(),
             fidelity: plenora_io_core::FidelityAssessment::lossless(),
-            outcome: PublishOutcome::Published,
+            outcome,
         })
     }
 }
@@ -1526,6 +1621,120 @@ mod tests {
             .downcast_ref::<StringArray>()
             .unwrap();
         assert_eq!(nome.value(0), "Roma");
+    }
+
+    #[test]
+    fn directory_dataset_round_trip_uses_atomic_directory_unit() {
+        use arrow_array::Int64Array;
+        use arrow_schema::DataType;
+
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("points.shp.d");
+        let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
+            12.5, 45.9,
+        )))
+        .unwrap();
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            geometry_field(GEOMETRY, "EPSG:4326"),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())])),
+                Arc::new(Int64Array::from(vec![1_i64])),
+            ],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "points".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut options = WriteOptions::default();
+        options.durable = true;
+        options
+            .format_options
+            .insert("publish_mode".to_owned(), DIRECTORY_DATASET_MODE.to_owned());
+
+        let driver = ShpDriver;
+        let mut writer = driver
+            .create(Sink::Path(output.clone()), &plan, &options)
+            .unwrap();
+        writer.write(&batch).unwrap();
+        assert!(
+            !output.exists(),
+            "la directory dataset è diventata visibile prima di finish"
+        );
+        let published = writer.finish().unwrap();
+
+        assert_eq!(
+            published.outcome,
+            plenora_io_core::PublishOutcome::Published
+        );
+        assert!(output.is_dir());
+        assert!(output.join("data.shp").is_file());
+        assert!(output.join("data.shx").is_file());
+        assert!(output.join("data.dbf").is_file());
+        assert!(output.join("data.prj").is_file());
+
+        let dataset = driver.open(Source::Path(output), &read_opts()).unwrap();
+        let mut reader = dataset.open_layer_reader(&req()).unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+    }
+
+    #[test]
+    fn directory_dataset_abort_removes_staging() {
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("aborted.shp.d");
+        let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "points".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+
+        let writer = ShpDriver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        drop(writer);
+
+        assert!(!output.exists());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn publish_mode_must_match_destination_shape() {
+        let root = tempfile::tempdir().unwrap();
+        let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "points".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut options = WriteOptions::default();
+        options
+            .format_options
+            .insert("publish_mode".to_owned(), DIRECTORY_DATASET_MODE.to_owned());
+
+        let result = ShpDriver
+            .create(Sink::Path(root.path().join("points.shp")), &plan, &options)
+            .map(|_| ());
+
+        assert!(matches!(result, Err(PlenoraError::Unsupported(_))));
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     }
 
     #[test]
