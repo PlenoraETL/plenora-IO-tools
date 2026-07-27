@@ -46,6 +46,77 @@ pub struct WkbGeometry {
 }
 
 impl WkbGeometry {
+    /// Adatta una geometria `geo-types` 2D all'AST WKB autoritativo.
+    ///
+    /// L'adattatore è intenzionalmente limitato ai sette tipi WKB classici:
+    /// varianti `geo-types` come `Rect`, `Triangle` e `Line` richiedono una
+    /// scelta di normalizzazione esplicita del chiamante.
+    pub fn from_geo_xy(geometry: &Geometry<f64>) -> Result<Self> {
+        fn coordinate(coordinate: Coord<f64>) -> WkbCoordinate {
+            WkbCoordinate {
+                x: coordinate.x,
+                y: coordinate.y,
+                z: None,
+                m: None,
+            }
+        }
+
+        fn line_string(line: &LineString<f64>) -> Vec<WkbCoordinate> {
+            line.0.iter().copied().map(coordinate).collect()
+        }
+
+        fn polygon(polygon: &Polygon<f64>) -> Vec<Vec<WkbCoordinate>> {
+            std::iter::once(polygon.exterior())
+                .chain(polygon.interiors())
+                .map(line_string)
+                .collect()
+        }
+
+        fn child(value: WkbValue) -> WkbGeometry {
+            WkbGeometry {
+                value,
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            }
+        }
+
+        let value = match geometry {
+            Geometry::Point(point) => WkbValue::Point(coordinate(point.0)),
+            Geometry::LineString(line) => WkbValue::LineString(line_string(line)),
+            Geometry::Polygon(value) => WkbValue::Polygon(polygon(value)),
+            Geometry::MultiPoint(values) => WkbValue::MultiPoint(
+                values
+                    .iter()
+                    .map(|point| child(WkbValue::Point(coordinate(point.0))))
+                    .collect(),
+            ),
+            Geometry::MultiLineString(values) => WkbValue::MultiLineString(
+                values
+                    .iter()
+                    .map(|line| child(WkbValue::LineString(line_string(line))))
+                    .collect(),
+            ),
+            Geometry::MultiPolygon(values) => WkbValue::MultiPolygon(
+                values
+                    .iter()
+                    .map(|value| child(WkbValue::Polygon(polygon(value))))
+                    .collect(),
+            ),
+            Geometry::GeometryCollection(values) => WkbValue::GeometryCollection(
+                values
+                    .iter()
+                    .map(WkbGeometry::from_geo_xy)
+                    .collect::<Result<_>>()?,
+            ),
+            _ => return Err(error("geometria non rappresentabile in WKB standard")),
+        };
+        Ok(Self {
+            value,
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        })
+    }
+
     pub fn geometry_type(&self) -> GeometryType {
         match &self.value {
             WkbValue::Point(_) => GeometryType::Point,
