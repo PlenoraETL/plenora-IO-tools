@@ -23,13 +23,6 @@ use rusqlite::types::{Value, ValueRef};
 use rusqlite::Connection;
 
 use driver_common::geometry_field;
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
-    LayerContract, LayerId,
-};
-use plenora_core::crs::{CrsKind, RawCrs, ResolvedCrs};
-use plenora_core::geometry::is_geometry_field;
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -46,15 +39,22 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
     UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
+use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::geometry::is_geometry_field;
+use plenora_io_model::{PlenoraIoError, Result};
 
-fn err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "gpkg",
         reason: reason.into(),
     }
 }
 
-fn sql_err(e: rusqlite::Error) -> PlenoraError {
+fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
     err(format!("sqlite: {e}"))
 }
 
@@ -168,14 +168,14 @@ impl FormatDriver for GpkgDriver {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "l'output deve avere estensione .gpkg".to_owned(),
             ));
         }
@@ -680,7 +680,7 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
         Ok((org, code, def)) => {
             let id = format!("{}:{}", org.to_uppercase(), code);
             if org.eq_ignore_ascii_case("NONE") {
-                return Err(PlenoraError::CrsUnresolved {
+                return Err(PlenoraIoError::CrsUnresolved {
                     driver: "gpkg",
                     raw: RawCrs {
                         definition: format!("GeoPackage srs_id={srs_id}; definition={def}"),
@@ -709,7 +709,7 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
             };
             Ok(ResolvedCrs::new(Some(id), kind, definition))
         }
-        Err(rusqlite::Error::QueryReturnedNoRows) => Err(PlenoraError::CrsUnresolved {
+        Err(rusqlite::Error::QueryReturnedNoRows) => Err(PlenoraIoError::CrsUnresolved {
             driver: "gpkg",
             raw: RawCrs {
                 definition: format!("GeoPackage srs_id={srs_id}"),
@@ -765,7 +765,7 @@ fn build_schema(
         attrs.push((name, sqlite_declared_to_arrow(&decl)));
     }
     let crs_id = crs.id.as_deref().ok_or_else(|| {
-        PlenoraError::Crs(
+        PlenoraIoError::Crs(
             "GeoPackage: CRS risolto senza identificatore; vietato assumere OGC:CRS84".to_owned(),
         )
     })?;
@@ -854,7 +854,7 @@ fn layer_crs(
         .schema
         .field(geom_idx)
         .metadata()
-        .get(plenora_core::geometry::GEO_CRS_KEY)
+        .get(plenora_io_model::geometry::GEO_CRS_KEY)
         .cloned();
     (id, None)
 }
@@ -866,7 +866,7 @@ fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Resul
     let id = match id {
         Some(s) => s,
         None => {
-            return Err(PlenoraError::Crs(
+            return Err(PlenoraIoError::Crs(
                 "GeoPackage richiede un CRS esplicito; nessun default implicito".to_owned(),
             ))
         }
@@ -893,7 +893,7 @@ fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Resul
             return Ok(code_i);
         }
     }
-    Err(PlenoraError::CrsUnresolved {
+    Err(PlenoraIoError::CrsUnresolved {
         driver: "gpkg",
         raw: RawCrs {
             definition: def.unwrap_or(id).to_owned(),
@@ -981,9 +981,11 @@ fn create_feature_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_core::wkb::{encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::wkb::{
+        encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+    };
 
     #[test]
     fn undefined_and_dangling_srs_ids_fail_closed_with_raw_crs() {
@@ -993,7 +995,7 @@ mod tests {
         for srs_id in [0, -1, 999_999] {
             let error = crs_for(&conn, srs_id).unwrap_err();
             match error {
-                PlenoraError::CrsUnresolved { driver, raw } => {
+                PlenoraIoError::CrsUnresolved { driver, raw } => {
                     assert_eq!(driver, "gpkg");
                     assert!(raw.definition.contains(&srs_id.to_string()));
                 }
@@ -1005,7 +1007,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             crs_for(&conn, 4326),
-            Err(PlenoraError::CrsUnresolved { .. })
+            Err(PlenoraIoError::CrsUnresolved { .. })
         ));
     }
 
@@ -1015,7 +1017,7 @@ mod tests {
         init_gpkg(&conn).unwrap();
         assert!(matches!(
             register_srs(&conn, Some("OGC:CRS84"), None),
-            Err(PlenoraError::CrsUnresolved { .. })
+            Err(PlenoraIoError::CrsUnresolved { .. })
         ));
     }
 
@@ -1029,11 +1031,11 @@ mod tests {
         let projected = crs_for(&conn, 3857).unwrap();
         assert_eq!(
             geographic.axis_order,
-            plenora_core::crs::AxisOrder::LatitudeLongitude
+            plenora_io_model::crs::AxisOrder::LatitudeLongitude
         );
         assert_eq!(
             projected.axis_order,
-            plenora_core::crs::AxisOrder::EastingNorthing
+            plenora_io_model::crs::AxisOrder::EastingNorthing
         );
     }
 

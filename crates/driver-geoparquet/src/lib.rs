@@ -19,15 +19,6 @@ use parquet::file::metadata::KeyValue;
 use parquet::file::properties::WriterProperties;
 use parquet::file::statistics::Statistics;
 
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
-    LayerContract, LayerId,
-};
-use plenora_core::crs::{CrsKind, RawCrs, ResolvedCrs};
-use plenora_core::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
-use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::decode_wkb;
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -46,9 +37,18 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES,
     UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
+use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::decode_wkb;
+use plenora_io_model::{PlenoraIoError, Result};
 
-fn fmt_err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn fmt_err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "geoparquet",
         reason: reason.into(),
     }
@@ -140,19 +140,19 @@ impl FormatDriver for GeoParquetDriver {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("parquet"))
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "l'output deve avere estensione .parquet".to_owned(),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "GeoParquet: un solo layer per dataset nella v1".to_owned(),
             ));
         }
@@ -243,7 +243,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
                     let i = fid.0 as usize;
                     if i >= ncols {
                         if request.projection_mode == ProjectionMode::Required {
-                            return Err(PlenoraError::Unsupported(format!(
+                            return Err(PlenoraIoError::Unsupported(format!(
                                 "projection Required: field id {} fuori range",
                                 fid.0
                             )));
@@ -675,7 +675,7 @@ fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> Result<ResolvedCr
             });
             let definition = v.to_string();
             let Some(id) = id else {
-                return Err(PlenoraError::CrsUnresolved {
+                return Err(PlenoraIoError::CrsUnresolved {
                     driver: "geoparquet",
                     raw: RawCrs {
                         definition,
@@ -982,7 +982,7 @@ fn retag_schema(schema: &Schema, geom_name: &str, crs: &ResolvedCrs) -> SchemaRe
 /// Trova la colonna geometria (`geoarrow.wkb`) in uno schema in scrittura.
 fn geometry_field(schema: &Schema) -> Result<(usize, String, Option<String>)> {
     for (i, f) in schema.fields().iter().enumerate() {
-        if plenora_core::geometry::is_geometry_field(f) {
+        if plenora_io_model::geometry::is_geometry_field(f) {
             let crs = f.metadata().get(GEO_CRS_KEY).cloned();
             return Ok((i, f.name().clone(), crs));
         }
@@ -1071,9 +1071,11 @@ mod tests {
     use arrow_array::Int64Array;
     use arrow_schema::DataType;
     use geo_types::{Geometry, Point};
-    use plenora_core::wkb::{encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
     use plenora_io_core::request::BatchTarget;
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::wkb::{
+        encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+    };
 
     fn geometry_field_meta(crs: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
@@ -1091,7 +1093,7 @@ mod tests {
         assert_eq!(crs.id.as_deref(), Some("OGC:CRS84"));
         assert_eq!(
             crs.axis_order,
-            plenora_core::crs::AxisOrder::LongitudeLatitude
+            plenora_io_model::crs::AxisOrder::LongitudeLatitude
         );
     }
 
@@ -1109,7 +1111,7 @@ mod tests {
         });
         let error = crs_from(Some(&geo), "geometry").unwrap_err();
         match &error {
-            PlenoraError::CrsUnresolved { driver, raw } => {
+            PlenoraIoError::CrsUnresolved { driver, raw } => {
                 assert_eq!(*driver, "geoparquet");
                 assert!(raw.definition.contains("survey-grid-secret"));
             }
@@ -1218,7 +1220,7 @@ mod tests {
         assert_eq!(out.num_rows(), 2);
         // La geometria è marcata geoarrow.wkb nello schema effettivo.
         let field = out.schema().field_with_name("geometry").unwrap().clone();
-        assert!(plenora_core::geometry::is_geometry_field(&field));
+        assert!(plenora_io_model::geometry::is_geometry_field(&field));
         // I byte WKB sono pass-through identici.
         let col = out
             .column_by_name("geometry")
@@ -1395,7 +1397,7 @@ mod tests {
 
     #[test]
     fn projection_pushdown_reads_only_requested() {
-        use plenora_core::contract::FieldId;
+        use plenora_io_model::contract::FieldId;
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("proj.parquet");

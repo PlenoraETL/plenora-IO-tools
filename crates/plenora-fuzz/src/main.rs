@@ -25,8 +25,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt};
 use geo_types::Geometry;
-use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, from_wkb, to_wkb, WkbFlavor, WkbGeometry, WkbValue,
 };
 
@@ -342,7 +342,7 @@ fn all_finite(g: &Geometry<f64>) -> bool {
 }
 
 fn lossless_finite(geometry: &WkbGeometry) -> bool {
-    let coordinate = |coordinate: &plenora_core::wkb::WkbCoordinate| {
+    let coordinate = |coordinate: &plenora_io_model::wkb::WkbCoordinate| {
         coordinate.x.is_finite()
             && coordinate.y.is_finite()
             && coordinate.z.is_none_or(f64::is_finite)

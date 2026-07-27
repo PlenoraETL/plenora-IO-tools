@@ -31,11 +31,11 @@ use arrow_array::{Array, BinaryArray, Float64Array, Int64Array, RecordBatch, Str
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 
 use driver_common::geometry_field;
-use plenora_core::contract::{DataContract, LayerId};
-use plenora_core::wkb::to_wkb;
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
 use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest};
 use plenora_io_core::{WriteLayer, WritePlan};
+use plenora_io_model::contract::{DataContract, LayerId};
+use plenora_io_model::wkb::to_wkb;
 
 const CHUNK: usize = 65_536;
 const POOL: usize = 1024;
@@ -335,7 +335,7 @@ struct ReadStats {
 fn read_drain(
     id: &str,
     path: &Path,
-    projected: Option<Vec<plenora_core::contract::FieldId>>,
+    projected: Option<Vec<plenora_io_model::contract::FieldId>>,
     pruning: Option<String>,
 ) -> ReadStats {
     let has_proj = projected.is_some();
@@ -410,7 +410,7 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
         return serde_json::json!({"prepared": id, "bytes": file_len(&path)});
     }
 
-    plenora_core::metrics::reset();
+    plenora_io_model::metrics::reset();
     reset_alloc();
     let cpu0 = cpu_ms();
     let t0 = Instant::now();
@@ -426,8 +426,8 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
         // read_proj: proietta solo id (1) + val (3), saltando geometria(0) e name(2).
         let proj = if op == "read_proj" {
             Some(vec![
-                plenora_core::contract::FieldId(1),
-                plenora_core::contract::FieldId(3),
+                plenora_io_model::contract::FieldId(1),
+                plenora_io_model::contract::FieldId(3),
             ])
         } else {
             None
@@ -460,7 +460,7 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
 
     let wall_ms = t0.elapsed().as_secs_f64() * 1000.0;
     let cpu = cpu_ms() - cpu0;
-    let (wkb_decode, wkb_encode) = plenora_core::metrics::snapshot();
+    let (wkb_decode, wkb_encode) = plenora_io_model::metrics::snapshot();
     let bytes_alloc = ALLOCATED.load(Ordering::Relaxed);
     let alloc_count = ALLOC_COUNT.load(Ordering::Relaxed);
     let peak_heap = PEAK.load(Ordering::Relaxed);

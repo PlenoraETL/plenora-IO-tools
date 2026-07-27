@@ -390,7 +390,7 @@ version = "0.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
- "plenora-core",
+ "plenora-io-model",
  "serde_json",
  "wkt",
 ]
@@ -403,8 +403,8 @@ dependencies = [
  "arrow-schema",
  "driver-common",
  "dxf",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
 ]
@@ -418,8 +418,8 @@ dependencies = [
  "driver-common",
  "geo-types",
  "geojson",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde",
  "serde_json",
  "tempfile",
@@ -433,8 +433,8 @@ dependencies = [
  "arrow-schema",
  "geo-types",
  "parquet",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
 ]
@@ -448,8 +448,8 @@ dependencies = [
  "driver-common",
  "geo-types",
  "kml",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "quick-xml",
  "serde_json",
  "tempfile",
@@ -463,8 +463,8 @@ dependencies = [
  "arrow-schema",
  "driver-common",
  "geo-types",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "shapefile",
  "tempfile",
@@ -1104,18 +1104,7 @@ dependencies = [
  "geo-types",
  "geojson",
  "libfuzzer-sys",
- "plenora-core",
- "serde_json",
-]
-
-[[package]]
-name = "plenora-core"
-version = "0.0.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "geo-types",
- "serde",
+ "plenora-io-model",
  "serde_json",
 ]
 
@@ -1126,10 +1115,21 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "atomicwrites",
- "plenora-core",
+ "plenora-io-model",
  "rustix 1.1.4",
  "serde",
  "tempfile",
+]
+
+[[package]]
+name = "plenora-io-model"
+version = "0.0.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "geo-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

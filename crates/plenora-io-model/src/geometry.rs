@@ -4,7 +4,7 @@ use crate::contract::{
     CoordinateDimensions, CoordinatePrecision, GeometryColumnContract, GeometryEncoding,
     GeometryType, SpatialSemantics,
 };
-use crate::{PlenoraError, Result};
+use crate::{PlenoraIoError, Result};
 
 /// Nome dell'estensione GeoArrow per una colonna geometria WKB.
 pub const GEOARROW_WKB_EXTENSION: &str = "geoarrow.wkb";
@@ -107,8 +107,8 @@ pub fn with_geometry_contract_metadata(
     field.clone().with_metadata(metadata)
 }
 
-fn invalid_metadata(field: &arrow_schema::Field, key: &str) -> PlenoraError {
-    PlenoraError::Contract(format!(
+fn invalid_metadata(field: &arrow_schema::Field, key: &str) -> PlenoraIoError {
+    PlenoraIoError::Contract(format!(
         "campo geometria '{}': metadato {key} non valido",
         field.name()
     ))
@@ -246,7 +246,7 @@ mod tests {
 
         assert!(matches!(
             read_geometry_contract_metadata(&field, &mut geometry),
-            Err(PlenoraError::Contract(_))
+            Err(PlenoraIoError::Contract(_))
         ));
         assert_eq!(geometry.encoding, original.encoding);
         assert_eq!(geometry.precision, original.precision);
@@ -263,7 +263,7 @@ mod tests {
         ] {
             assert!(matches!(
                 read_geometry_contract_metadata(&field, &mut contract()),
-                Err(PlenoraError::Contract(_))
+                Err(PlenoraIoError::Contract(_))
             ));
         }
     }

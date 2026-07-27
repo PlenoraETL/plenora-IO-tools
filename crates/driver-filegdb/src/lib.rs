@@ -4,8 +4,6 @@
 //! tipizzato (il binario di default resta puro-Rust). Multi-layer.
 #![forbid(unsafe_code)]
 
-use plenora_core::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
-use plenora_core::Result;
 use plenora_io_core::descriptor::{
     ArrowTypeClass, CrsHandling, Direction, Fidelity, FormatDescriptor, GeometryWriteSupport,
     ReadMode, ReaderConcurrency, Runtime, WriteMode,
@@ -17,6 +15,8 @@ use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities,
     NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
 };
+use plenora_io_model::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
+use plenora_io_model::Result;
 
 const FILEGDB_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
     ArrowTypeClass::SignedInteger,
@@ -85,7 +85,7 @@ impl FormatDriver for FileGdbDriver {
         #[cfg(not(feature = "gdal-backend"))]
         {
             let _ = (source, opts);
-            Err(plenora_core::PlenoraError::Unsupported(
+            Err(plenora_io_model::PlenoraIoError::Unsupported(
                 "FileGDB richiede il tier GDB: compilare con --features gdal-backend".to_owned(),
             ))
         }
@@ -109,7 +109,7 @@ impl FormatDriver for FileGdbDriver {
         #[cfg(not(feature = "gdal-backend"))]
         {
             let _ = (sink, plan, opts);
-            Err(plenora_core::PlenoraError::Unsupported(
+            Err(plenora_io_model::PlenoraIoError::Unsupported(
                 "scrittura FileGDB richiede il tier GDB: compilare con --features gdal-backend"
                     .to_owned(),
             ))
@@ -136,15 +136,15 @@ mod backend {
     use gdal::Dataset;
 
     use driver_common::geometry_field;
-    use plenora_core::contract::{
+    use plenora_io_core::driver::{LayerReader, OpenDatasetHandle};
+    use plenora_io_core::request::ReadRequest;
+    use plenora_io_model::contract::{
         CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
         LayerContract, LayerId,
     };
-    use plenora_core::crs::{AxisOrder, CrsKind, RawCrs, ResolvedCrs};
-    use plenora_core::geometry::with_geometry_contract_metadata;
-    use plenora_core::{CapabilityReason, PlenoraError, Result};
-    use plenora_io_core::driver::{LayerReader, OpenDatasetHandle};
-    use plenora_io_core::request::ReadRequest;
+    use plenora_io_model::crs::{AxisOrder, CrsKind, RawCrs, ResolvedCrs};
+    use plenora_io_model::geometry::with_geometry_contract_metadata;
+    use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
 
     // --- scrittura (tier GDB via GDAL OpenFileGDB) --------------------------
     use std::path::{Path, PathBuf};
@@ -155,11 +155,11 @@ mod backend {
     use gdal::vector::{Feature, FieldDefn, Geometry, LayerOptions, OGRwkbGeometryType};
     use gdal::DriverManager;
 
-    use plenora_core::geometry::is_geometry_field;
     use plenora_io_core::driver::{FormatWriter, Published, WriteOptions};
     use plenora_io_core::loss::LossReport;
     use plenora_io_core::publish::publish_dir_atomic;
     use plenora_io_core::{SingleReaderGate, WriteLayer, WritePlan};
+    use plenora_io_model::geometry::is_geometry_field;
 
     const OGR_FIELD_TYPE_KEY: &str = "plenora.filegdb.ogr_field_type";
     const OGR_FIELD_WIDTH_KEY: &str = "plenora.filegdb.width";
@@ -181,7 +181,7 @@ mod backend {
                 DataType::Float64 => FieldKind::Float64,
                 DataType::Utf8 => FieldKind::Utf8,
                 other => {
-                    return Err(PlenoraError::Capability {
+                    return Err(PlenoraIoError::Capability {
                         driver: "filegdb",
                         field: Some(field.name().clone()),
                         reason: CapabilityReason::TypeNotRepresentable,
@@ -207,14 +207,16 @@ mod backend {
         let Some(value) = field.metadata().get(key) else {
             return Ok(None);
         };
-        let parsed = value.parse::<i32>().map_err(|_| PlenoraError::Capability {
-            driver: "filegdb",
-            field: Some(field.name().clone()),
-            reason: CapabilityReason::TypeNotRepresentable,
-            detail: format!("metadato nativo '{key}' non è un intero valido"),
-        })?;
+        let parsed = value
+            .parse::<i32>()
+            .map_err(|_| PlenoraIoError::Capability {
+                driver: "filegdb",
+                field: Some(field.name().clone()),
+                reason: CapabilityReason::TypeNotRepresentable,
+                detail: format!("metadato nativo '{key}' non è un intero valido"),
+            })?;
         if parsed < 0 {
-            return Err(PlenoraError::Capability {
+            return Err(PlenoraIoError::Capability {
                 driver: "filegdb",
                 field: Some(field.name().clone()),
                 reason: CapabilityReason::TypeNotRepresentable,
@@ -329,7 +331,7 @@ mod backend {
             .as_ref()
             .and_then(GeometryColumnContract::resolved_crs)
             .ok_or_else(|| {
-                PlenoraError::Crs(format!(
+                PlenoraIoError::Crs(format!(
                     "FileGDB richiede un CRS risolto per il layer '{}'",
                     layer.name
                 ))
@@ -339,7 +341,7 @@ mod backend {
             .as_deref()
             .filter(|definition| !definition.trim().is_empty())
             .or(resolved.id.as_deref())
-            .ok_or_else(|| PlenoraError::CrsUnresolved {
+            .ok_or_else(|| PlenoraIoError::CrsUnresolved {
                 driver: "filegdb",
                 raw: RawCrs {
                     definition: "ResolvedCrs senza identificatore o definizione".to_owned(),
@@ -347,7 +349,7 @@ mod backend {
                 },
             })?;
         let spatial_ref =
-            SpatialRef::from_definition(definition).map_err(|_| PlenoraError::CrsUnresolved {
+            SpatialRef::from_definition(definition).map_err(|_| PlenoraIoError::CrsUnresolved {
                 driver: "filegdb",
                 raw: RawCrs {
                     definition: definition.to_owned(),
@@ -357,7 +359,7 @@ mod backend {
         if let (Some(expected), Some(actual)) = (resolved.id.as_deref(), authority_id(&spatial_ref))
         {
             if !expected.eq_ignore_ascii_case(&actual) {
-                return Err(PlenoraError::CrsUnresolved {
+                return Err(PlenoraIoError::CrsUnresolved {
                     driver: "filegdb",
                     raw: RawCrs {
                         definition: definition.to_owned(),
@@ -373,8 +375,8 @@ mod backend {
         field: &str,
         reason: CapabilityReason,
         detail: impl Into<String>,
-    ) -> PlenoraError {
-        PlenoraError::Capability {
+    ) -> PlenoraIoError {
+        PlenoraIoError::Capability {
             driver: "filegdb",
             field: Some(field.to_owned()),
             reason,
@@ -598,7 +600,7 @@ mod backend {
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
 
         // Risolvi ogni CRS prima di creare lo staging: un CRS non rappresentabile
@@ -621,7 +623,7 @@ mod backend {
                     if native_i32(field, OGR_FIELD_TYPE_KEY)?
                         .is_some_and(|native_type| native_type != kind.ogr() as i32)
                     {
-                        return Err(PlenoraError::Capability {
+                        return Err(PlenoraIoError::Capability {
                             driver: "filegdb",
                             field: Some(field.name().clone()),
                             reason: CapabilityReason::TypeNotRepresentable,
@@ -703,7 +705,7 @@ mod backend {
                     info.fields.iter().zip(actual)
                 {
                     if expected.name != actual_name {
-                        return Err(PlenoraError::Capability {
+                        return Err(PlenoraIoError::Capability {
                             driver: "filegdb",
                             field: Some(expected.name.clone()),
                             reason: CapabilityReason::FieldNameCollision,
@@ -713,7 +715,7 @@ mod backend {
                         });
                     }
                     if expected.kind.ogr() != actual_type {
-                        return Err(PlenoraError::Capability {
+                        return Err(PlenoraIoError::Capability {
                             driver: "filegdb",
                             field: Some(expected.name.clone()),
                             reason: CapabilityReason::TypeNotRepresentable,
@@ -728,7 +730,7 @@ mod backend {
                             .precision
                             .is_some_and(|precision| precision != actual_precision)
                     {
-                        return Err(PlenoraError::Capability {
+                        return Err(PlenoraIoError::Capability {
                             driver: "filegdb",
                             field: Some(expected.name.clone()),
                             reason: CapabilityReason::TypeNotRepresentable,
@@ -818,7 +820,7 @@ mod backend {
             drop(ds); // chiude e flush della .gdb
             let bytes = dir_size(self.staging.path());
             if bytes > self.max_output_bytes {
-                return Err(PlenoraError::LimitExceeded(format!(
+                return Err(PlenoraIoError::LimitExceeded(format!(
                     "output FileGDB da {bytes} byte oltre il limite di {}",
                     self.max_output_bytes
                 )));
@@ -840,8 +842,8 @@ mod backend {
 
     const GEOMETRY: &str = "geometry";
 
-    fn err(reason: impl Into<String>) -> PlenoraError {
-        PlenoraError::Format {
+    fn err(reason: impl Into<String>) -> PlenoraIoError {
+        PlenoraIoError::Format {
             driver: "filegdb",
             reason: reason.into(),
         }
@@ -912,12 +914,12 @@ mod backend {
             Some(spatial_ref) => spatial_ref,
             None => {
                 let definition = assume_crs.ok_or_else(|| {
-                    PlenoraError::Crs(
+                    PlenoraIoError::Crs(
                         "FileGDB con geometria senza CRS: fornire --assume-crs".to_owned(),
                     )
                 })?;
                 SpatialRef::from_definition(definition).map_err(|_| {
-                    PlenoraError::CrsUnresolved {
+                    PlenoraIoError::CrsUnresolved {
                         driver: "filegdb",
                         raw: RawCrs {
                             definition: definition.to_owned(),
@@ -929,7 +931,7 @@ mod backend {
         };
         let definition = spatial_ref
             .to_wkt()
-            .map_err(|_| PlenoraError::CrsUnresolved {
+            .map_err(|_| PlenoraIoError::CrsUnresolved {
                 driver: "filegdb",
                 raw: RawCrs {
                     definition: "SpatialRef GDAL presente ma WKT non esportabile".to_owned(),
@@ -1000,7 +1002,7 @@ mod backend {
                 .as_deref()
                 .or(crs.definition.as_deref())
                 .ok_or_else(|| {
-                    PlenoraError::Crs(
+                    PlenoraIoError::Crs(
                         "CRS FileGDB risolto senza identificativo né definizione".to_owned(),
                     )
                 })?
@@ -1076,7 +1078,7 @@ mod backend {
         } else if ft == OGRFieldType::OFTString || ft == OGRFieldType::OFTWideString {
             Ok(DataType::Utf8)
         } else {
-            Err(PlenoraError::Capability {
+            Err(PlenoraIoError::Capability {
                 driver: "filegdb",
                 field: Some(name.to_owned()),
                 reason: CapabilityReason::TypeNotRepresentable,
@@ -1296,14 +1298,14 @@ mod backend {
         use super::*;
 
         use arrow_array::RecordBatch;
-        use plenora_core::contract::{GeometryEncoding, GeometryType};
-        use plenora_core::limits::WkbLimits;
-        use plenora_core::wkb::{
-            decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
-        };
         use plenora_io_core::descriptor::Fidelity;
         use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source};
         use plenora_io_core::request::{BatchTarget, ProjectionMode};
+        use plenora_io_model::contract::{GeometryEncoding, GeometryType};
+        use plenora_io_model::limits::WkbLimits;
+        use plenora_io_model::wkb::{
+            decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+        };
         use std::process::{Child, Command, ExitStatus};
         use std::time::{Duration, Instant};
 
@@ -1474,7 +1476,7 @@ mod backend {
             ));
             assert!(matches!(
                 layer_spatial_ref(&layer),
-                Err(PlenoraError::CrsUnresolved { .. })
+                Err(PlenoraIoError::CrsUnresolved { .. })
             ));
         }
 
@@ -1482,11 +1484,11 @@ mod backend {
         fn missing_crs_requires_a_valid_explicit_assumption() {
             assert!(matches!(
                 resolve_layer_crs(None, None),
-                Err(PlenoraError::Crs(_))
+                Err(PlenoraIoError::Crs(_))
             ));
             assert!(matches!(
                 resolve_layer_crs(None, Some("not-a-crs-secret")),
-                Err(PlenoraError::CrsUnresolved { .. })
+                Err(PlenoraIoError::CrsUnresolved { .. })
             ));
             let assumed = resolve_layer_crs(None, Some("EPSG:3857")).unwrap();
             assert_eq!(assumed.id.as_deref(), Some("EPSG:3857"));
@@ -1505,7 +1507,7 @@ mod backend {
                         z: None,
                         m: None,
                     }),
-                    dimensions: plenora_core::contract::CoordinateDimensions::Xy,
+                    dimensions: plenora_io_model::contract::CoordinateDimensions::Xy,
                     srid: None,
                 },
                 WkbFlavor::Iso,
@@ -1559,7 +1561,7 @@ mod backend {
             let first = dataset.open_layer_reader(&read_request()).unwrap();
             assert!(matches!(
                 dataset.open_layer_reader(&read_request()),
-                Err(PlenoraError::ReaderBusy {
+                Err(PlenoraIoError::ReaderBusy {
                     driver: "filegdb",
                     layer: 0
                 })
@@ -2183,7 +2185,7 @@ mod backend {
 
             assert!(matches!(
                 writer.write(&batch),
-                Err(PlenoraError::Capability {
+                Err(PlenoraIoError::Capability {
                     reason: CapabilityReason::CoordinateDimensions,
                     ..
                 })
@@ -2192,7 +2194,7 @@ mod backend {
             assert_eq!(artifacts.len(), 2);
             assert!(matches!(
                 writer.finish(),
-                Err(PlenoraError::Format {
+                Err(PlenoraIoError::Format {
                     driver: "filegdb",
                     ..
                 })
@@ -2223,7 +2225,7 @@ mod backend {
 
             assert!(matches!(
                 writer.finish(),
-                Err(PlenoraError::LimitExceeded(_))
+                Err(PlenoraIoError::LimitExceeded(_))
             ));
             assert!(artifacts.iter().all(|artifact| !artifact.exists()));
             assert!(staging_artifacts(&path).is_empty());
@@ -2321,7 +2323,7 @@ mod backend {
                 );
                 assert!(matches!(
                     result,
-                    Err(PlenoraError::Capability {
+                    Err(PlenoraIoError::Capability {
                         reason: CapabilityReason::GeometryNotSupported,
                         ..
                     })
@@ -2351,7 +2353,7 @@ mod backend {
             );
             assert!(matches!(
                 result,
-                Err(PlenoraError::Capability {
+                Err(PlenoraIoError::Capability {
                     reason: CapabilityReason::GeometryEncoding,
                     ..
                 })
@@ -2389,7 +2391,7 @@ mod backend {
                 );
                 assert!(matches!(
                     result,
-                    Err(PlenoraError::Capability {
+                    Err(PlenoraIoError::Capability {
                         reason: CapabilityReason::TypeNotRepresentable,
                         ..
                     })
@@ -2426,7 +2428,7 @@ mod backend {
             );
             assert!(matches!(
                 result,
-                Err(PlenoraError::Capability {
+                Err(PlenoraIoError::Capability {
                     reason: CapabilityReason::TypeNotRepresentable,
                     ..
                 })
@@ -2447,6 +2449,9 @@ mod tests {
             .open(Source::Path("x.gdb".into()), &ReadOptions::default())
             .map(|_| ())
             .unwrap_err();
-        assert!(matches!(e, plenora_core::PlenoraError::Unsupported(_)));
+        assert!(matches!(
+            e,
+            plenora_io_model::PlenoraIoError::Unsupported(_)
+        ));
     }
 }

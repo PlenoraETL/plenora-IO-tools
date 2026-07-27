@@ -28,14 +28,6 @@ use geometry::{
 };
 
 use driver_common::{geometry_field, json_from_array};
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
-};
-use plenora_core::crs::{CrsKind, RawCrs, ResolvedCrs};
-use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata};
-use plenora_core::limits::{Limits, WkbLimits};
-use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -52,6 +44,16 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+};
+use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
+use plenora_io_model::limits::{Limits, WkbLimits};
+use plenora_io_model::wkb::{
+    decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+};
+use plenora_io_model::{PlenoraIoError, Result};
 
 const GEOMETRY: &str = "geometry";
 /// Segmenti per un giro intero (archi, cerchi, ellissi, bulge).
@@ -62,8 +64,8 @@ const MAX_INSERT_DEPTH: usize = 16;
 const MAX_ENTITIES: usize = 5_000_000;
 const WGS84_ESRI_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]";
 
-fn err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "dxf",
         reason: reason.into(),
     }
@@ -143,14 +145,16 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
                     definition,
                     authority_hint: None,
                 };
-                return Err(PlenoraError::CrsUnresolved { driver: "dxf", raw });
+                return Err(PlenoraIoError::CrsUnresolved { driver: "dxf", raw });
             };
             let kind = crs_kind(Some(&id), Some(&definition));
             Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
         }
         None => {
             let id = options.assume_crs.clone().ok_or_else(|| {
-                PlenoraError::Crs("DXF senza GEODATA risolvibile: fornire --assume-crs".to_owned())
+                PlenoraIoError::Crs(
+                    "DXF senza GEODATA risolvibile: fornire --assume-crs".to_owned(),
+                )
             })?;
             let kind = crs_kind(Some(&id), None);
             Ok(ResolvedCrs::new(Some(id), kind, None))
@@ -159,9 +163,9 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
 }
 
 fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
-    let resolved = geometry
-        .resolved_crs()
-        .ok_or_else(|| PlenoraError::Crs("DXF richiede un CRS risolto nel contratto".to_owned()))?;
+    let resolved = geometry.resolved_crs().ok_or_else(|| {
+        PlenoraIoError::Crs("DXF richiede un CRS risolto nel contratto".to_owned())
+    })?;
     if let Some(definition) = &resolved.definition {
         if !definition.trim().is_empty() {
             return Ok(definition.clone());
@@ -169,10 +173,10 @@ fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
     }
     match resolved.id.as_deref() {
         Some("EPSG:4326") | Some("OGC:CRS84") => Ok(WGS84_ESRI_WKT.to_owned()),
-        Some(id) => Err(PlenoraError::Crs(format!(
+        Some(id) => Err(PlenoraIoError::Crs(format!(
             "DXF richiede la definizione WKT/XML del CRS {id}, non il solo authority id"
         ))),
-        None => Err(PlenoraError::Crs(
+        None => Err(PlenoraIoError::Crs(
             "DXF richiede una definizione WKT/XML del CRS".to_owned(),
         )),
     }
@@ -256,19 +260,19 @@ impl FormatDriver for DxfDriver {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("dxf"))
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "l'output deve avere estensione .dxf".to_owned(),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "DXF: un solo layer per file".to_owned(),
             ));
         }
@@ -657,14 +661,14 @@ impl<'a> Walker<'a> {
         text: Option<String>,
     ) -> Result<()> {
         if self.geometries.len() >= self.max_rows {
-            return Err(PlenoraError::LimitExceeded(format!(
+            return Err(PlenoraIoError::LimitExceeded(format!(
                 "righe DXF oltre il limite di {}",
                 self.max_rows
             )));
         }
         let vertices = value_coordinate_count(&value);
         if vertices > self.remaining_vertices {
-            return Err(PlenoraError::LimitExceeded(format!(
+            return Err(PlenoraIoError::LimitExceeded(format!(
                 "vertici DXF oltre il limite di {}",
                 self.remaining_vertices
             )));
@@ -1160,7 +1164,7 @@ fn build_batch(
 ) -> Result<(RecordBatch, LossReport, DataContract)> {
     const DXF_OUTPUT_COLUMNS: usize = 4;
     if limits.max_columns < DXF_OUTPUT_COLUMNS {
-        return Err(PlenoraError::LimitExceeded(format!(
+        return Err(PlenoraIoError::LimitExceeded(format!(
             "DXF produce {DXF_OUTPUT_COLUMNS} colonne, oltre il limite di {}",
             limits.max_columns
         )));
@@ -1205,7 +1209,7 @@ fn build_batch(
         "xyz_if_any_nonzero_z_else_xy".to_owned(),
     );
     let crs_label = crs.id.as_deref().ok_or_else(|| {
-        PlenoraError::Crs(
+        PlenoraIoError::Crs(
             "DXF: CRS risolto senza identificatore; vietato inventare DXF:GEODATA".to_owned(),
         )
     })?;
@@ -1259,10 +1263,10 @@ pub fn __fuzz_read_dxf(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_core::contract::GeometryType;
-    use plenora_core::crs::CrsResolution;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::contract::GeometryType;
+    use plenora_io_model::crs::CrsResolution;
 
     fn resolved_wgs84() -> ResolvedCrs {
         ResolvedCrs::new(
@@ -1516,7 +1520,7 @@ mod tests {
 
         let error = resolve_dxf_crs(&drawing, &ReadOptions::default()).unwrap_err();
         match &error {
-            PlenoraError::CrsUnresolved { driver, raw } => {
+            PlenoraIoError::CrsUnresolved { driver, raw } => {
                 assert_eq!(*driver, "dxf");
                 assert_eq!(raw.definition, definition);
                 assert_eq!(raw.authority_hint, None);
@@ -1548,7 +1552,7 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(matches!(row_error, PlenoraError::LimitExceeded(_)));
+        assert!(matches!(row_error, PlenoraIoError::LimitExceeded(_)));
 
         let column_error = build_batch(
             &drawing,
@@ -1559,7 +1563,7 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(matches!(column_error, PlenoraError::LimitExceeded(_)));
+        assert!(matches!(column_error, PlenoraIoError::LimitExceeded(_)));
     }
 
     #[test]

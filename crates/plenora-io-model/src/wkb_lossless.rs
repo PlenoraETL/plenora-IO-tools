@@ -4,11 +4,11 @@ use geo_types::{
 };
 
 use crate::contract::{CoordinateDimensions, GeometryType};
-use crate::error::{PlenoraError, Result};
+use crate::error::{PlenoraIoError, Result};
 use crate::limits::WkbLimits;
 
-fn error(message: impl Into<String>) -> PlenoraError {
-    PlenoraError::Wkb(message.into())
+fn error(message: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Wkb(message.into())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

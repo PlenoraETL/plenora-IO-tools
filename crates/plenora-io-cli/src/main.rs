@@ -11,13 +11,13 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use plenora_core::contract::{DataContract, LayerContract};
-use plenora_core::geometry::is_geometry_field;
-use plenora_core::limits::Limits;
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
 use plenora_io_core::publish::PublishOutcome;
 use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest};
 use plenora_io_core::{DriverRegistry, WriteLayer, WritePlan};
+use plenora_io_model::contract::{DataContract, LayerContract};
+use plenora_io_model::geometry::is_geometry_field;
+use plenora_io_model::limits::Limits;
 
 /// Errore CLI: (exit code, documento JSON d'errore).
 type CliResult = Result<Value, (i32, Value)>;
@@ -35,9 +35,9 @@ fn usage_err(message: impl Into<String>) -> (i32, Value) {
     (2, err_doc("CLI_USAGE", message))
 }
 
-/// Mappa un `PlenoraError` a (exit, doc) con codici stabili.
-fn map_err(e: plenora_core::PlenoraError) -> (i32, Value) {
-    use plenora_core::PlenoraError as E;
+/// Mappa un `PlenoraIoError` a (exit, doc) con codici stabili.
+fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
+    use plenora_io_model::PlenoraIoError as E;
     let (exit, code) = match &e {
         E::OutputExists(_) => (3, "OUTPUT_EXISTS"),
         E::Unsupported(_) => (4, "UNSUPPORTED"),
@@ -336,7 +336,7 @@ fn cmd_layers(cli: &Cli) -> CliResult {
 
 fn read_request(layer_id: u32) -> ReadRequest {
     ReadRequest {
-        layer: plenora_core::contract::LayerId(layer_id),
+        layer: plenora_io_model::contract::LayerId(layer_id),
         projected_fields: None,
         projection_mode: ProjectionMode::BestEffort,
         pruning_predicate: None,
@@ -465,7 +465,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
             rows += batch.num_rows();
             batches += 1;
             writer
-                .write_to_layer(plenora_core::contract::LayerId(sink_idx as u32), &batch)
+                .write_to_layer(plenora_io_model::contract::LayerId(sink_idx as u32), &batch)
                 .map_err(map_err)?;
         }
         total_rows += rows;
@@ -565,7 +565,7 @@ mod tests {
 
     #[test]
     fn reader_busy_has_stable_cli_error() {
-        let (exit, document) = map_err(plenora_core::PlenoraError::ReaderBusy {
+        let (exit, document) = map_err(plenora_io_model::PlenoraIoError::ReaderBusy {
             driver: "kml",
             layer: 0,
         });
@@ -576,16 +576,16 @@ mod tests {
     #[test]
     fn projection_unsupported_has_stable_cli_error() {
         let (exit, document) =
-            map_err(plenora_core::PlenoraError::ProjectionUnsupported { driver: "csv" });
+            map_err(plenora_io_model::PlenoraIoError::ProjectionUnsupported { driver: "csv" });
         assert_eq!(exit, 8);
         assert_eq!(document["error"]["code"], "PROJECTION_UNSUPPORTED");
     }
 
     #[test]
     fn unresolved_crs_has_stable_redacted_cli_error() {
-        let (_, document) = map_err(plenora_core::PlenoraError::CrsUnresolved {
+        let (_, document) = map_err(plenora_io_model::PlenoraIoError::CrsUnresolved {
             driver: "shp",
-            raw: plenora_core::crs::RawCrs {
+            raw: plenora_io_model::crs::RawCrs {
                 definition: "LOCAL_CS[\"survey-grid-secret\"]".to_owned(),
                 authority_hint: Some("authority-secret".to_owned()),
             },

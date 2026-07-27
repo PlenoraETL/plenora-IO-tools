@@ -1,16 +1,16 @@
 //! Conversione condivisa fra WKT dimensionale e l'AST WKB lossless.
 
-use plenora_core::contract::{CoordinateDimensions, GeometryType};
-use plenora_core::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
-use plenora_core::{PlenoraError, Result};
+use plenora_io_model::contract::{CoordinateDimensions, GeometryType};
+use plenora_io_model::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
+use plenora_io_model::{PlenoraIoError, Result};
 use wkt::types::{
     Coord, Dimension, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon,
     Point, Polygon,
 };
 use wkt::Wkt;
 
-fn error(message: impl Into<String>) -> PlenoraError {
-    PlenoraError::Wkb(format!("WKT: {}", message.into()))
+fn error(message: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Wkb(format!("WKT: {}", message.into()))
 }
 
 fn contract_dimensions(dimension: Dimension) -> CoordinateDimensions {

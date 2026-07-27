@@ -34,14 +34,6 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 use driver_common::{geometry_field, json_from_array, ColType, OGC_CRS84};
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
-};
-use plenora_core::crs::ResolvedCrs;
-use plenora_core::geometry::is_geometry_field;
-use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{decode_wkb, WkbCoordinate, WkbGeometry, WkbValue};
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -58,11 +50,19 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
     UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+};
+use plenora_io_model::crs::ResolvedCrs;
+use plenora_io_model::geometry::is_geometry_field;
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::{decode_wkb, WkbCoordinate, WkbGeometry, WkbValue};
+use plenora_io_model::{PlenoraIoError, Result};
 
 const GEOMETRY: &str = "geometry";
 
-fn err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "geojson",
         reason: reason.into(),
     }
@@ -143,19 +143,19 @@ impl FormatDriver for GeoJsonDriver {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("geojson") || e.eq_ignore_ascii_case("json"))
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "l'output deve avere estensione .geojson o .json".to_owned(),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "GeoJSON: un solo layer per file nella v1".to_owned(),
             ));
         }
@@ -1536,9 +1536,9 @@ fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_core::wkb::from_wkb;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::wkb::from_wkb;
 
     fn read_all(driver: &GeoJsonDriver, path: &Path) -> (RecordBatch, LayerContract) {
         let ds = driver
@@ -1587,7 +1587,7 @@ mod tests {
                 .resolved_crs()
                 .unwrap()
                 .axis_order,
-            plenora_core::crs::AxisOrder::LongitudeLatitude
+            plenora_io_model::crs::AxisOrder::LongitudeLatitude
         );
         assert_eq!(batch.num_rows(), 2);
         assert!(is_geometry_field(

@@ -26,6 +26,10 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_action_pins
           python3 scripts/check_action_pins.py
+      - name: Verify unique public identities
+        run: |
+          python3 -m unittest scripts.test_check_public_identity
+          python3 scripts/check_public_identity.py
       - name: Verify exact dependency pins
         run: python3 scripts/check_dependency_pins.py
       - name: Verify locked workspace and fuzz dependency graphs

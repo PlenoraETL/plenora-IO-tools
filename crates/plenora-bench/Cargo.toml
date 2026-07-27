@@ -10,7 +10,7 @@ name = "plenora-bench"
 path = "src/main.rs"
 
 [dependencies]
-plenora-core = { path = "../plenora-core", features = ["metrics"] }
+plenora-io-model = { path = "../plenora-io-model", features = ["metrics"] }
 plenora-io-core = { path = "../plenora-io-core" }
 driver-common = { path = "../driver-common" }
 driver-geoparquet = { path = "../driver-geoparquet" }

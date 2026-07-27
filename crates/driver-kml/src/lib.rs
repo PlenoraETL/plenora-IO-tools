@@ -17,15 +17,6 @@ use kml::types::{
 use kml::{Kml, KmlDocument, KmlVersion, KmlWriter};
 
 use driver_common::{geometry_field, json_from_array, OGC_CRS84};
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
-    LayerContract, LayerId,
-};
-use plenora_core::crs::ResolvedCrs;
-use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata};
-use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -42,14 +33,25 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
+use plenora_io_model::crs::ResolvedCrs;
+use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::{
+    decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+};
+use plenora_io_model::{PlenoraIoError, Result};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader as XmlReader;
 
 const GEOMETRY: &str = "geometry";
 const MAX_XML_DEPTH: usize = 256;
 
-fn err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "kml",
         reason: reason.into(),
     }
@@ -275,19 +277,19 @@ impl FormatDriver for KmlDriver {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("kml"))
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "l'output deve avere estensione .kml".to_owned(),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "KML: un solo layer per file".to_owned(),
             ));
         }
@@ -781,9 +783,9 @@ pub fn __fuzz_read_kml(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_core::wkb::to_wkb;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::wkb::to_wkb;
 
     const SAMPLE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
     <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
@@ -835,7 +837,7 @@ mod tests {
                 .resolved_crs()
                 .unwrap()
                 .axis_order,
-            plenora_core::crs::AxisOrder::LongitudeLatitude
+            plenora_io_model::crs::AxisOrder::LongitudeLatitude
         );
         let mut r = ds
             .open_layer_reader(&ReadRequest {

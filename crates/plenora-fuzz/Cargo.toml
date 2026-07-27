@@ -10,7 +10,7 @@ name = "plenora-fuzz"
 path = "src/main.rs"
 
 [dependencies]
-plenora-core = { path = "../plenora-core" }
+plenora-io-model = { path = "../plenora-io-model" }
 plenora-io-core = { path = "../plenora-io-core" }
 driver-geojson = { path = "../driver-geojson" }
 driver-geoparquet = { path = "../driver-geoparquet" }

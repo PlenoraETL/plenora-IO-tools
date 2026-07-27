@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-plenora-core = { path = "../plenora-core" }
+plenora-io-model = { path = "../plenora-io-model" }
 plenora-io-core = { path = "../plenora-io-core" }
 driver-common = { path = "../driver-common" }
 arrow-array.workspace = true

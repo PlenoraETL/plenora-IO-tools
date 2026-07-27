@@ -15,15 +15,6 @@ use arrow_ipc::reader::FileReader;
 use arrow_ipc::writer::FileWriter;
 use arrow_schema::{Schema, SchemaRef};
 
-use plenora_core::contract::{
-    DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
-};
-use plenora_core::crs::{CrsKind, CrsResolution, ResolvedCrs};
-use plenora_core::geometry::{
-    is_geometry_field, read_geometry_contract_metadata, with_geometry_contract_metadata,
-    GEO_CRS_KEY,
-};
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -40,9 +31,18 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES,
     UTF8_FIELD_NAMES, WKB_EWKB_PASSTHROUGH_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+};
+use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
+use plenora_io_model::geometry::{
+    is_geometry_field, read_geometry_contract_metadata, with_geometry_contract_metadata,
+    GEO_CRS_KEY,
+};
+use plenora_io_model::{PlenoraIoError, Result};
 
-fn err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "ipc",
         reason: reason.into(),
     }
@@ -98,7 +98,7 @@ impl FormatDriver for IpcDriver {
             None => None,
             Some((i, _)) => {
                 if geometry_fields.next().is_some() {
-                    return Err(PlenoraError::Contract(
+                    return Err(PlenoraIoError::Contract(
                         "Arrow IPC contiene più colonne GeoArrow nel contratto v1".to_owned(),
                     ));
                 }
@@ -150,19 +150,19 @@ impl FormatDriver for IpcDriver {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("arrow"))
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "l'output deve avere estensione .arrow".to_owned(),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "Arrow IPC: un solo layer per file".to_owned(),
             ));
         }
@@ -235,7 +235,7 @@ impl OpenDatasetHandle for IpcDataset {
                     let index = field_id.0 as usize;
                     if index >= source_layer.contract.schema.fields().len() {
                         if request.projection_mode == plenora_io_core::ProjectionMode::Required {
-                            return Err(PlenoraError::Contract(format!(
+                            return Err(PlenoraIoError::Contract(format!(
                                 "projection Required: field id {} fuori range",
                                 field_id.0
                             )));
@@ -348,12 +348,14 @@ mod tests {
 
     use arrow_array::{BinaryArray, Int64Array};
     use arrow_schema::{DataType, Field, Schema, SchemaRef};
-    use plenora_core::contract::{
-        CoordinateDimensions, CoordinatePrecision, GeometryEncoding, GeometryType, SpatialSemantics,
-    };
-    use plenora_core::wkb::{encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::contract::{
+        CoordinateDimensions, CoordinatePrecision, GeometryEncoding, GeometryType, SpatialSemantics,
+    };
+    use plenora_io_model::wkb::{
+        encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+    };
 
     #[test]
     fn geometry_without_crs_metadata_is_explicitly_missing() {
@@ -361,8 +363,8 @@ mod tests {
         let path = dir.path().join("missing-crs.arrow");
         let field = Field::new("geometry", DataType::Binary, true).with_metadata(
             [(
-                plenora_core::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
-                plenora_core::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+                plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
             )]
             .into_iter()
             .collect(),
@@ -390,8 +392,8 @@ mod tests {
         let geometry_field = |name| {
             Field::new(name, DataType::Binary, true).with_metadata(
                 [(
-                    plenora_core::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
-                    plenora_core::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+                    plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                    plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
                 )]
                 .into_iter()
                 .collect(),
@@ -409,7 +411,7 @@ mod tests {
 
         assert!(matches!(
             IpcDriver.open(Source::Path(path), &ReadOptions::default()),
-            Err(PlenoraError::Contract(_))
+            Err(PlenoraIoError::Contract(_))
         ));
     }
 
@@ -659,8 +661,8 @@ mod tests {
         use std::collections::HashMap;
         let mut md = HashMap::new();
         md.insert(
-            plenora_core::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
-            plenora_core::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+            plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+            plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
         );
         md.insert(GEO_CRS_KEY.to_owned(), crs.to_owned());
         Field::new(name, DataType::Binary, true).with_metadata(md)

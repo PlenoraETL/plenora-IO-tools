@@ -1,5 +1,13 @@
 # plenora-IO-tools — Architettura
 
+> **Nota di baseline (2026-07-27).** Le parti storiche di questo documento che
+> chiamano `plenora-core` un crate già condiviso sono superate dal contratto
+> trasversale `plenora-contracts` `v2.0-rc2`. Il modello oggi interno a questo
+> repository si chiama `plenora-io-model`; il futuro package condiviso si
+> chiamerà `plenora-contracts` e verrà estratto soltanto dopo la ratifica di
+> §15.3. Questa distinzione chiude le collisioni R8.1/R8.4 senza anticipare
+> l’API ancora proposta.
+
 Libreria unica di **I/O** per formati tabellari e geografici. È il layer che
 l'architettura di `plenora-data-tools` lascia esplicitamente fuori scope e
 rimanda a un futuro `plenora-datafile` (§3.5 e Fase 4 di quel documento):

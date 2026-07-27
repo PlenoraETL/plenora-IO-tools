@@ -44,8 +44,10 @@ riportato/scritto.
 ed `EPSG:4326` (ordine assi definito formalmente da EPSG) **non** sono trattati
 come sinonimi: i driver **preservano l'ordine assi previsto dal formato** e non
 convertono silenziosamente l'uno nell'altro. Eventuali equivalenze o
-normalizzazioni sono **esplicite** nel contratto CRS condiviso (`plenora-core`),
-mai affidate a una canonicalizzazione implicita di libreria.
+normalizzazioni sono **esplicite** nel contratto CRS locale
+(`plenora-io-model`), mai affidate a una canonicalizzazione implicita di
+libreria. L’estrazione nel futuro crate condiviso `plenora-contracts` resta
+subordinata alla ratifica della relativa API.
 
 **7. CRS embedded non pienamente risolvibile: diagnostica senza uso.** La
 risoluzione distingue tre casi, così un CRS grezzo dichiarato ma non risolto è

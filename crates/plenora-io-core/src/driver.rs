@@ -6,15 +6,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
-use plenora_core::contract::{
+use plenora_io_model::contract::{
     CoordinateDimensions, FieldId, GeometryColumnContract, GeometryEncoding, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_core::crs::CrsResolution;
-use plenora_core::geometry::{is_geometry_field, read_geometry_contract_metadata};
-use plenora_core::limits::Limits;
-use plenora_core::wkb::{decode_wkb, WkbGeometry, WkbValue};
-use plenora_core::{CapabilityReason, PlenoraError, Result};
+use plenora_io_model::crs::CrsResolution;
+use plenora_io_model::geometry::{is_geometry_field, read_geometry_contract_metadata};
+use plenora_io_model::limits::Limits;
+use plenora_io_model::wkb::{decode_wkb, WkbGeometry, WkbValue};
+use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
 
 use crate::descriptor::{
     AttributeWriteSupport, FormatDescriptor, GeometryWriteSupport, NullabilitySupport,
@@ -39,7 +39,7 @@ impl Source {
         while let Some(candidate) = pending.pop() {
             let metadata = std::fs::symlink_metadata(&candidate)?;
             if metadata.file_type().is_symlink() {
-                return Err(PlenoraError::Unsupported(format!(
+                return Err(PlenoraIoError::Unsupported(format!(
                     "symlink non ammesso nella sorgente: {}",
                     candidate.display()
                 )));
@@ -50,10 +50,10 @@ impl Source {
                 }
             } else if metadata.is_file() {
                 total = total.checked_add(metadata.len()).ok_or_else(|| {
-                    PlenoraError::LimitExceeded("overflow nel conteggio dell'input".to_owned())
+                    PlenoraIoError::LimitExceeded("overflow nel conteggio dell'input".to_owned())
                 })?;
                 if total > limits.max_input_bytes {
-                    return Err(PlenoraError::LimitExceeded(format!(
+                    return Err(PlenoraIoError::LimitExceeded(format!(
                         "input da {total} byte oltre il limite di {}",
                         limits.max_input_bytes
                     )));
@@ -200,7 +200,7 @@ impl SingleReaderGate {
     {
         self.active
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .map_err(|_| PlenoraError::ReaderBusy {
+            .map_err(|_| PlenoraIoError::ReaderBusy {
                 driver: self.driver,
                 layer: layer.0,
             })?;
@@ -277,7 +277,7 @@ pub trait FormatWriter {
     /// un dataset-writer coordina tutti i layer con un unico commit atomico).
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
         if layer.0 != 0 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "questo formato non supporta la scrittura multi-layer".to_owned(),
             ));
         }
@@ -328,7 +328,7 @@ fn geometry_contracts_for_validation(
                 return Ok(None);
             };
             if fields.next().is_some() {
-                return Err(PlenoraError::Contract(format!(
+                return Err(PlenoraIoError::Contract(format!(
                     "layer '{}': più colonne GeoArrow senza contratto geometrico esplicito",
                     layer.name
                 )));
@@ -470,17 +470,17 @@ struct LimitedWriter {
 impl LimitedWriter {
     fn account(&mut self, layer: usize, batch: &RecordBatch) -> Result<()> {
         if batch.num_columns() > self.limits.max_columns {
-            return Err(PlenoraError::LimitExceeded(format!(
+            return Err(PlenoraIoError::LimitExceeded(format!(
                 "batch con {} colonne oltre il limite di {}",
                 batch.num_columns(),
                 self.limits.max_columns
             )));
         }
         self.rows = self.rows.checked_add(batch.num_rows()).ok_or_else(|| {
-            PlenoraError::LimitExceeded("overflow nel conteggio delle righe".to_owned())
+            PlenoraIoError::LimitExceeded("overflow nel conteggio delle righe".to_owned())
         })?;
         if self.rows > self.limits.max_rows {
-            return Err(PlenoraError::LimitExceeded(format!(
+            return Err(PlenoraIoError::LimitExceeded(format!(
                 "{} righe oltre il limite di {}",
                 self.rows, self.limits.max_rows
             )));
@@ -492,7 +492,7 @@ impl LimitedWriter {
                 validation
                     .layers
                     .get(layer)
-                    .ok_or_else(|| PlenoraError::Capability {
+                    .ok_or_else(|| PlenoraIoError::Capability {
                         driver: validation.driver,
                         field: None,
                         reason: CapabilityReason::MultipleLayers,
@@ -513,7 +513,7 @@ impl FormatWriter for LimitedWriter {
 
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         if self.failed {
-            return Err(PlenoraError::Format {
+            return Err(PlenoraIoError::Format {
                 driver: self.driver,
                 reason: "writer invalidato da un precedente errore di scrittura".to_owned(),
             });
@@ -529,7 +529,7 @@ impl FormatWriter for LimitedWriter {
 
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
         if self.failed {
-            return Err(PlenoraError::Format {
+            return Err(PlenoraIoError::Format {
                 driver: self.driver,
                 reason: "writer invalidato da un precedente errore di scrittura".to_owned(),
             });
@@ -545,7 +545,7 @@ impl FormatWriter for LimitedWriter {
 
     fn finish(self: Box<Self>) -> Result<Published> {
         if self.failed {
-            return Err(PlenoraError::Format {
+            return Err(PlenoraIoError::Format {
                 driver: self.driver,
                 reason: "finish vietato dopo un errore di scrittura".to_owned(),
             });
@@ -561,8 +561,8 @@ fn geometry_violation(
     field: &str,
     reason: CapabilityReason,
     detail: impl Into<String>,
-) -> PlenoraError {
-    PlenoraError::Capability {
+) -> PlenoraIoError {
+    PlenoraIoError::Capability {
         driver,
         field: Some(field.to_owned()),
         reason,
@@ -752,12 +752,12 @@ mod tests {
 
     use arrow_array::{BinaryArray, Int64Array};
     use arrow_schema::{DataType, Field, Schema};
-    use plenora_core::contract::{CoordinateDimensions, FieldId, GeometryColumnContract};
-    use plenora_core::crs::CrsResolution;
-    use plenora_core::geometry::{
+    use plenora_io_model::contract::{CoordinateDimensions, FieldId, GeometryColumnContract};
+    use plenora_io_model::crs::CrsResolution;
+    use plenora_io_model::geometry::{
         ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_DIMENSIONS_KEY,
     };
-    use plenora_core::wkb::{encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
+    use plenora_io_model::wkb::{encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
 
     use super::*;
     use crate::descriptor::WKB_XY_GEOMETRY;
@@ -805,13 +805,16 @@ mod tests {
 
         assert!(matches!(
             writer.write(&batch),
-            Err(PlenoraError::LimitExceeded(_))
+            Err(PlenoraIoError::LimitExceeded(_))
         ));
         assert!(matches!(
             writer.write(&batch),
-            Err(PlenoraError::Format { .. })
+            Err(PlenoraIoError::Format { .. })
         ));
-        assert!(matches!(writer.finish(), Err(PlenoraError::Format { .. })));
+        assert!(matches!(
+            writer.finish(),
+            Err(PlenoraIoError::Format { .. })
+        ));
         assert!(!finished.load(Ordering::SeqCst));
     }
 
@@ -824,7 +827,7 @@ mod tests {
             ..Limits::default()
         };
         let result = Source::Path(file.path().to_owned()).into_path_checked(&limits);
-        assert!(matches!(result, Err(PlenoraError::LimitExceeded(_))));
+        assert!(matches!(result, Err(PlenoraIoError::LimitExceeded(_))));
     }
 
     struct TestReader {
@@ -841,7 +844,7 @@ mod tests {
         fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
             if self.fail {
                 self.fail = false;
-                return Err(PlenoraError::Contract("errore terminale".to_owned()));
+                return Err(PlenoraIoError::Contract("errore terminale".to_owned()));
             }
             if self.batches == 0 {
                 return Ok(None);
@@ -856,7 +859,7 @@ mod tests {
             layer: LayerContract {
                 id: LayerId(0),
                 name: "layer".to_owned(),
-                contract: plenora_core::contract::DataContract {
+                contract: plenora_io_model::contract::DataContract {
                     schema: Arc::new(Schema::empty()),
                     geometry: None,
                 },
@@ -878,7 +881,7 @@ mod tests {
             layer: LayerContract {
                 id: LayerId(0),
                 name: "layer".to_owned(),
-                contract: plenora_core::contract::DataContract {
+                contract: plenora_io_model::contract::DataContract {
                     schema,
                     geometry: None,
                 },
@@ -917,7 +920,7 @@ mod tests {
         );
         assert!(matches!(
             gate.open(LayerId(0), || Ok(test_reader(1, false))),
-            Err(PlenoraError::ReaderBusy { .. })
+            Err(PlenoraIoError::ReaderBusy { .. })
         ));
 
         let mut sizes = Vec::new();
@@ -944,7 +947,7 @@ mod tests {
         let first = gate.open(LayerId(0), || Ok(test_reader(1, false))).unwrap();
         assert!(matches!(
             gate.open(LayerId(0), || Ok(test_reader(1, false))),
-            Err(PlenoraError::ReaderBusy {
+            Err(PlenoraIoError::ReaderBusy {
                 driver: "test",
                 layer: 0
             })
@@ -953,7 +956,7 @@ mod tests {
         drop(first);
         assert!(gate
             .open(LayerId(0), || {
-                Err(PlenoraError::Contract("costruzione fallita".to_owned()))
+                Err(PlenoraIoError::Contract("costruzione fallita".to_owned()))
             })
             .is_err());
         let mut exhausted = gate.open(LayerId(0), || Ok(test_reader(1, false))).unwrap();
@@ -1003,7 +1006,7 @@ mod tests {
         );
         assert!(matches!(
             result,
-            Err(PlenoraError::Capability {
+            Err(PlenoraIoError::Capability {
                 reason: CapabilityReason::CoordinateDimensions,
                 ..
             })
@@ -1032,7 +1035,7 @@ mod tests {
         );
         assert!(matches!(
             result,
-            Err(PlenoraError::Capability {
+            Err(PlenoraIoError::Capability {
                 reason: CapabilityReason::GeometryEncoding,
                 ..
             })
@@ -1050,7 +1053,7 @@ mod tests {
         );
         assert!(matches!(
             result,
-            Err(PlenoraError::Capability {
+            Err(PlenoraIoError::Capability {
                 reason: CapabilityReason::Nullability,
                 ..
             })
@@ -1072,7 +1075,7 @@ mod tests {
         WritePlan {
             layers: vec![crate::request::WriteLayer {
                 name: "layer".to_owned(),
-                contract: plenora_core::contract::DataContract {
+                contract: plenora_io_model::contract::DataContract {
                     schema: Arc::new(Schema::new(fields)),
                     geometry: None,
                 },
@@ -1112,11 +1115,11 @@ mod tests {
 
         assert!(matches!(
             geometry_contracts_for_validation(&ambiguous),
-            Err(PlenoraError::Contract(_))
+            Err(PlenoraIoError::Contract(_))
         ));
         assert!(matches!(
             geometry_contracts_for_validation(&invalid),
-            Err(PlenoraError::Contract(_))
+            Err(PlenoraIoError::Contract(_))
         ));
     }
 }

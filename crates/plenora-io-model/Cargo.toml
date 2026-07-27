@@ -1,5 +1,5 @@
 [package]
-name = "plenora-core"
+name = "plenora-io-model"
 version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true

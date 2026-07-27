@@ -15,7 +15,7 @@ driver-ipc 3
 driver-kml 6
 driver-shp 3
 driver-xls 4
-plenora-core 1
+plenora-io-model 1
 plenora-io-core 2
 plenora-io-cli 19
 plenora-bench 16

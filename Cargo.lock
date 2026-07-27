@@ -453,7 +453,7 @@ version = "0.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
- "plenora-core",
+ "plenora-io-model",
  "serde_json",
  "wkt",
 ]
@@ -466,8 +466,8 @@ dependencies = [
  "arrow-schema",
  "csv",
  "driver-common",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
 ]
@@ -480,8 +480,8 @@ dependencies = [
  "arrow-schema",
  "driver-common",
  "dxf",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
 ]
@@ -494,8 +494,8 @@ dependencies = [
  "arrow-schema",
  "driver-common",
  "gdal",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
 ]
@@ -509,8 +509,8 @@ dependencies = [
  "driver-common",
  "geo-types",
  "geojson",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde",
  "serde_json",
  "tempfile",
@@ -524,8 +524,8 @@ dependencies = [
  "arrow-schema",
  "geo-types",
  "parquet",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
 ]
@@ -538,8 +538,8 @@ dependencies = [
  "arrow-schema",
  "driver-common",
  "geo-types",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "rusqlite",
  "serde_json",
  "tempfile",
@@ -553,8 +553,8 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "geo-types",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "tempfile",
 ]
 
@@ -567,8 +567,8 @@ dependencies = [
  "driver-common",
  "geo-types",
  "kml",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "quick-xml",
  "serde_json",
  "tempfile",
@@ -582,8 +582,8 @@ dependencies = [
  "arrow-schema",
  "driver-common",
  "geo-types",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "shapefile",
  "tempfile",
@@ -597,8 +597,8 @@ dependencies = [
  "arrow-schema",
  "calamine",
  "driver-common",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "rust_xlsxwriter",
  "serde_json",
  "tempfile",
@@ -1309,21 +1309,10 @@ dependencies = [
  "driver-gpkg",
  "geo-types",
  "libc",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
-]
-
-[[package]]
-name = "plenora-core"
-version = "0.0.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "geo-types",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1335,8 +1324,8 @@ dependencies = [
  "driver-geoparquet",
  "geo-types",
  "geojson",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
 ]
@@ -1357,8 +1346,8 @@ dependencies = [
  "driver-kml",
  "driver-shp",
  "driver-xls",
- "plenora-core",
  "plenora-io-core",
+ "plenora-io-model",
  "serde_json",
  "tempfile",
 ]
@@ -1370,10 +1359,21 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "atomicwrites",
- "plenora-core",
+ "plenora-io-model",
  "rustix 1.1.4",
  "serde",
  "tempfile",
+]
+
+[[package]]
+name = "plenora-io-model"
+version = "0.0.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "geo-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

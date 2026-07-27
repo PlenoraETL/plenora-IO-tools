@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-use plenora_core::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
+use plenora_io_model::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

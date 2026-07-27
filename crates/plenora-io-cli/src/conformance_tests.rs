@@ -7,15 +7,6 @@ use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field, Schema};
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryEncoding,
-    GeometryType, LayerId, SpatialSemantics,
-};
-use plenora_core::crs::{CrsKind, CrsResolution, ResolvedCrs};
-use plenora_core::geometry::{
-    with_geometry_contract_metadata, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
-};
-use plenora_core::{CapabilityReason, PlenoraError};
 use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsWriteSupport, Direction, Fidelity, FormatDescriptor,
     FormatDriver, NullabilitySupport, PredicatePruningSupport, ProjectionSupport, ReadOptions,
@@ -23,6 +14,15 @@ use plenora_io_core::{
     WriteLayer, WriteOptions, WritePlan,
 };
 use plenora_io_core::{BatchTarget, ProjectionMode, ReadRequest};
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryEncoding,
+    GeometryType, LayerId, SpatialSemantics,
+};
+use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
+use plenora_io_model::geometry::{
+    with_geometry_contract_metadata, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
+};
+use plenora_io_model::{CapabilityReason, PlenoraIoError};
 
 const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
@@ -133,11 +133,15 @@ fn attribute_plan(layer_names: &[&str], field: Field) -> WritePlan {
     }
 }
 
-fn assert_capability(driver: &str, result: plenora_core::Result<()>, expected: CapabilityReason) {
+fn assert_capability(
+    driver: &str,
+    result: plenora_io_model::Result<()>,
+    expected: CapabilityReason,
+) {
     assert!(
         matches!(
             result,
-            Err(PlenoraError::Capability { reason, .. }) if reason == expected
+            Err(PlenoraIoError::Capability { reason, .. }) if reason == expected
         ),
         "{driver}: atteso {expected:?}"
     );
@@ -230,7 +234,7 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
             ProjectionSupport::None => assert!(
                 matches!(
                     plenora_io_core::validate_read_projection(descriptor, &request),
-                    Err(PlenoraError::ProjectionUnsupported { driver })
+                    Err(PlenoraIoError::ProjectionUnsupported { driver })
                         if driver == descriptor.id
                 ),
                 "{}: Required non respinta fail-closed",
@@ -474,7 +478,7 @@ fn field_type_and_limit_matrix_is_enforced() {
             continue;
         };
 
-        let limits = plenora_core::limits::Limits {
+        let limits = plenora_io_model::limits::Limits {
             max_columns: 0,
             ..Default::default()
         };
@@ -484,7 +488,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                 &attribute_plan(&["layer"], Field::new("v", DataType::Utf8, true)),
                 &limits
             ),
-            Err(PlenoraError::LimitExceeded(_))
+            Err(PlenoraIoError::LimitExceeded(_))
         ));
 
         if let Some(max_bytes) = capabilities.field_names.max_bytes {
@@ -688,7 +692,7 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
         assert!(
             matches!(
                 dataset.open_layer_reader(&request),
-                Err(PlenoraError::ProjectionUnsupported { driver })
+                Err(PlenoraIoError::ProjectionUnsupported { driver })
                     if driver == descriptor.id
             ),
             "{}: Required non respinta all'apertura",
@@ -720,7 +724,7 @@ fn single_active_reader_is_enforced_by_every_pure_rust_descriptor() {
         assert!(
             matches!(
                 dataset.open_layer_reader(&read_request()),
-                Err(PlenoraError::ReaderBusy { driver, layer: 0 })
+                Err(PlenoraIoError::ReaderBusy { driver, layer: 0 })
                     if driver == descriptor.id
             ),
             "{}: secondo reader concorrente non respinto",
@@ -769,7 +773,7 @@ fn create_is_no_clobber_for_every_pure_rust_writer() {
             &WriteOptions::default(),
         );
         assert!(
-            matches!(result, Err(PlenoraError::OutputExists(_))),
+            matches!(result, Err(PlenoraIoError::OutputExists(_))),
             "{}: create non ha rispettato no-clobber",
             descriptor.id
         );

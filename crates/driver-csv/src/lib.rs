@@ -30,15 +30,6 @@ use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt};
 use driver_common::{geometry_field, json_from_array, ColType};
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
-    LayerContract, LayerId,
-};
-use plenora_core::crs::{CrsKind, ResolvedCrs};
-use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata};
-use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -55,11 +46,22 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
     UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
+use plenora_io_model::crs::{CrsKind, ResolvedCrs};
+use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::{
+    decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+};
+use plenora_io_model::{PlenoraIoError, Result};
 
 const GEOMETRY: &str = "geometry";
 
-fn err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "csv",
         reason: reason.into(),
     }
@@ -126,7 +128,7 @@ impl FormatDriver for CsvDriver {
         let path = source.into_path_checked(&opts.limits)?;
         let delim = delimiter(&opts.format_options);
         let crs = opts.assume_crs.clone().ok_or_else(|| {
-            PlenoraError::Crs("CSV con geometria richiede --assume-crs".to_owned())
+            PlenoraIoError::Crs("CSV con geometria richiede --assume-crs".to_owned())
         })?;
 
         // Intestazione (nomi colonna).
@@ -233,19 +235,19 @@ impl FormatDriver for CsvDriver {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("csv"))
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "l'output deve avere estensione .csv".to_owned(),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "CSV: un solo layer per file".to_owned(),
             ));
         }

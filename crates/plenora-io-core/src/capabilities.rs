@@ -5,8 +5,8 @@
 use std::collections::BTreeSet;
 
 use arrow_schema::DataType;
-use plenora_core::limits::Limits;
-use plenora_core::{CapabilityReason, PlenoraError, Result};
+use plenora_io_model::limits::Limits;
+use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
 
 use crate::descriptor::{
     ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport, FormatDescriptor, NullabilitySupport,
@@ -19,8 +19,8 @@ fn violation(
     field: Option<&str>,
     reason: CapabilityReason,
     detail: impl Into<String>,
-) -> PlenoraError {
-    PlenoraError::Capability {
+) -> PlenoraIoError {
+    PlenoraIoError::Capability {
         driver,
         field: field.map(str::to_owned),
         reason,
@@ -101,7 +101,7 @@ pub fn validate_write(
             ));
         }
         if layer.contract.schema.fields().len() > limits.max_columns {
-            return Err(PlenoraError::LimitExceeded(format!(
+            return Err(PlenoraIoError::LimitExceeded(format!(
                 "layer '{}' con {} colonne oltre il limite di {}",
                 layer.name,
                 layer.contract.schema.fields().len(),
@@ -303,8 +303,8 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::{DataType, Field, Schema};
-    use plenora_core::contract::{DataContract, FieldId, GeometryColumnContract, GeometryType};
-    use plenora_core::crs::{CrsKind, ResolvedCrs};
+    use plenora_io_model::contract::{DataContract, FieldId, GeometryColumnContract, GeometryType};
+    use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 
     use super::*;
     use crate::descriptor::{
@@ -366,7 +366,7 @@ mod tests {
             validate_write(&descriptor(CrsWriteSupport::None), &p, &Limits::default()).unwrap_err();
         assert!(matches!(
             error,
-            PlenoraError::Capability {
+            PlenoraIoError::Capability {
                 reason: CapabilityReason::FieldNameTooLong,
                 ..
             }
@@ -393,7 +393,7 @@ mod tests {
         .unwrap_err();
         assert!(matches!(
             error,
-            PlenoraError::Capability {
+            PlenoraIoError::Capability {
                 reason: CapabilityReason::ReprojectionRequired,
                 ..
             }
@@ -415,7 +415,7 @@ mod tests {
         };
         assert!(matches!(
             validate_write(&descriptor(CrsWriteSupport::None), &p, &limits),
-            Err(PlenoraError::LimitExceeded(_))
+            Err(PlenoraIoError::LimitExceeded(_))
         ));
     }
 
@@ -429,7 +429,7 @@ mod tests {
 
         assert!(matches!(
             validate_write(&descriptor, &p, &Limits::default()),
-            Err(PlenoraError::Capability {
+            Err(PlenoraIoError::Capability {
                 reason: CapabilityReason::TypeNotRepresentable,
                 ..
             })
@@ -450,7 +450,7 @@ mod tests {
         let rejected = plan(vec![Field::new("secret", DataType::Utf8, false)], None);
         assert!(matches!(
             validate_write(&descriptor, &rejected, &Limits::default()),
-            Err(PlenoraError::Capability {
+            Err(PlenoraIoError::Capability {
                 reason: CapabilityReason::TypeNotRepresentable,
                 ..
             })
@@ -467,7 +467,7 @@ mod tests {
 
         assert!(matches!(
             validate_write(&descriptor, &p, &Limits::default()),
-            Err(PlenoraError::Capability {
+            Err(PlenoraIoError::Capability {
                 reason: CapabilityReason::Nullability,
                 ..
             })
@@ -494,7 +494,7 @@ mod tests {
                 &p,
                 &Limits::default()
             ),
-            Err(PlenoraError::Capability {
+            Err(PlenoraIoError::Capability {
                 reason: CapabilityReason::MixedGeometry,
                 ..
             })

@@ -15,7 +15,7 @@ use arrow_array::{
 use arrow_schema::{DataType, Field};
 use serde_json::{Number, Value as JsonValue};
 
-use plenora_core::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
+use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
 
 /// CRS di default per i formati WGS84 per specifica (GeoJSON, KML).
 pub const OGC_CRS84: &str = "OGC:CRS84";

@@ -22,6 +22,11 @@ primitive esplicite di panic in tutti i target di libreria.
 
 ## Contratti trasversali introdotti
 
+- L’identità locale del modello è `plenora-io-model` e il suo errore pubblico è
+  `PlenoraIoError`: non collidono più con il package `plenora-core` e il
+  `PlenoraError` strutturalmente diverso di data-tools. Un gate CI rende
+  irreversibile la correzione R8.1/R8.4. Il futuro crate condiviso
+  `plenora-contracts` non viene anticipato finché §15.3 resta proposta.
 - Il contratto geometrico distingue `Wkb`/`Ewkb`, `Xy`/`Xyz`/`Xym`/`Xyzm`,
   `Geometry`/`Geography`, SRID, precisione, tipi geometrici e metadati nativi.
   Il core ora decodifica e ricodifica senza perdita WKB ISO ed EWKB, incluse

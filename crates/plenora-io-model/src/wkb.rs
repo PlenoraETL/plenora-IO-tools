@@ -9,15 +9,15 @@ use geo_types::{
     Point, Polygon,
 };
 
-use crate::error::{PlenoraError, Result};
+use crate::error::{PlenoraIoError, Result};
 use crate::limits::WkbLimits;
 
 pub use crate::wkb_lossless::{
     decode_wkb, encode_wkb, encode_wkb_into, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
 
-fn wkb_err(m: impl Into<String>) -> PlenoraError {
-    PlenoraError::Wkb(m.into())
+fn wkb_err(m: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Wkb(m.into())
 }
 
 // --- scrittura (little-endian, 2D) ----------------------------------------

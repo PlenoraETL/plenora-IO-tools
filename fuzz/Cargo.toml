@@ -15,7 +15,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "=0.4.13"
-plenora-core = { path = "../crates/plenora-core" }
+plenora-io-model = { path = "../crates/plenora-io-model" }
 driver-common = { path = "../crates/driver-common" }
 driver-dxf = { path = "../crates/driver-dxf" }
 driver-geojson = { path = "../crates/driver-geojson" }

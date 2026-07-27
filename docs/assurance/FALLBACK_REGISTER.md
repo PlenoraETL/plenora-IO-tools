@@ -37,7 +37,7 @@ change impact analysis.
 | `driver-kml` | 6 | nome/path; collezioni/coordinate vuote non forniscono Z; flag assente=false; eterogeneità dimensionale → `Unknown` |
 | `driver-shp` | 3 | nome/path; stringa vuota usata solo dalla classificazione di una definizione opzionale, non come CRS operativo |
 | `driver-xls` | 4 | path; celle fisicamente assenti diventano blank/null; eterogeneità dimensionale → `Unknown` |
-| `plenora-core` | 1 | metadato GeoArrow assente significa “non è un campo geometrico” |
+| `plenora-io-model` | 1 | metadato GeoArrow assente significa “non è un campo geometrico” |
 | `plenora-io-core` | 2 | un path senza parent esplicito usa la directory corrente, senza modificare dati o contratti |
 
 ## Target non distribuibili

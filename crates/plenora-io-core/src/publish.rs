@@ -6,7 +6,7 @@
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
-use plenora_core::{PlenoraError, Result};
+use plenora_io_model::{PlenoraIoError, Result};
 use tempfile::NamedTempFile;
 
 /// Esito del publish (ADR-IO 2): un errore di `fsync` **dopo** il rename lascia
@@ -47,7 +47,7 @@ pub fn publish_file_atomic_limited(
 ) -> Result<(u64, PublishOutcome)> {
     let bytes = temp.as_file().metadata()?.len();
     if bytes > max_output_bytes {
-        return Err(PlenoraError::LimitExceeded(format!(
+        return Err(PlenoraIoError::LimitExceeded(format!(
             "output da {bytes} byte oltre il limite di {max_output_bytes}"
         )));
     }
@@ -84,7 +84,9 @@ pub fn publish_files_ordered_limited(
     max_output_bytes: u64,
 ) -> Result<(u64, PublishOutcome)> {
     let Some((first_source, first_destination)) = files.first() else {
-        return Err(PlenoraError::Unsupported("set di publish vuoto".to_owned()));
+        return Err(PlenoraIoError::Unsupported(
+            "set di publish vuoto".to_owned(),
+        ));
     };
     let source_parent_path = first_source.parent();
     let destination_parent_path = first_destination.parent();
@@ -94,24 +96,24 @@ pub fn publish_files_ordered_limited(
     for (source, destination) in files {
         if source.parent() != source_parent_path || destination.parent() != destination_parent_path
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "il set di publish deve usare una sola staging e una sola destinazione".to_owned(),
             ));
         }
         let metadata = std::fs::symlink_metadata(source)?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {
-            return Err(PlenoraError::Unsupported(format!(
+            return Err(PlenoraIoError::Unsupported(format!(
                 "file di staging non regolare: {}",
                 source.display()
             )));
         }
         ensure_destination_absent(destination)?;
         bytes = bytes.checked_add(metadata.len()).ok_or_else(|| {
-            PlenoraError::LimitExceeded("overflow nel conteggio dell'output".to_owned())
+            PlenoraIoError::LimitExceeded("overflow nel conteggio dell'output".to_owned())
         })?;
     }
     if bytes > max_output_bytes {
-        return Err(PlenoraError::LimitExceeded(format!(
+        return Err(PlenoraIoError::LimitExceeded(format!(
             "output da {bytes} byte oltre il limite di {max_output_bytes}"
         )));
     }
@@ -143,18 +145,18 @@ fn destination_parent(dest: &Path) -> &Path {
 
 fn ensure_destination_absent(dest: &Path) -> Result<()> {
     match std::fs::symlink_metadata(dest) {
-        Ok(_) => Err(PlenoraError::OutputExists(dest.display().to_string())),
+        Ok(_) => Err(PlenoraIoError::OutputExists(dest.display().to_string())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(PlenoraError::Io(error)),
+        Err(error) => Err(PlenoraIoError::Io(error)),
     }
 }
 
-fn publish_rename_error(error: std::io::Error, dest: &Path) -> PlenoraError {
+fn publish_rename_error(error: std::io::Error, dest: &Path) -> PlenoraIoError {
     if error.kind() == std::io::ErrorKind::AlreadyExists || std::fs::symlink_metadata(dest).is_ok()
     {
-        PlenoraError::OutputExists(dest.display().to_string())
+        PlenoraIoError::OutputExists(dest.display().to_string())
     } else {
-        PlenoraError::Io(error)
+        PlenoraIoError::Io(error)
     }
 }
 
@@ -201,7 +203,7 @@ fn ensure_same_filesystem(staging: &Path, destination_parent: &Path) -> Result<(
     if same_filesystem(staging, destination_parent)? {
         return Ok(());
     }
-    Err(PlenoraError::Unsupported(format!(
+    Err(PlenoraIoError::Unsupported(format!(
         "publish cross-filesystem vietato: staging '{}' e destinazione '{}' sono su filesystem diversi",
         staging.display(),
         destination_parent.display()
@@ -327,7 +329,7 @@ mod tests {
         let mut temp = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
         temp.write_all(&[0_u8; 8]).unwrap();
         let result = publish_file_atomic_limited(temp, &destination, false, 7);
-        assert!(matches!(result, Err(PlenoraError::LimitExceeded(_))));
+        assert!(matches!(result, Err(PlenoraIoError::LimitExceeded(_))));
         assert!(!destination.exists());
     }
 
@@ -370,7 +372,7 @@ mod tests {
 
         let result = publish_dir_atomic(staging.path(), &destination, false);
 
-        assert!(matches!(result, Err(PlenoraError::OutputExists(_))));
+        assert!(matches!(result, Err(PlenoraIoError::OutputExists(_))));
         assert_eq!(
             std::fs::read(destination.join("sentinel")).unwrap(),
             b"existing"
@@ -389,7 +391,7 @@ mod tests {
         std::fs::write(&destination, b"concurrent").unwrap();
         let result = rename_noclobber(&source, &destination);
 
-        assert!(matches!(result, Err(PlenoraError::OutputExists(_))));
+        assert!(matches!(result, Err(PlenoraIoError::OutputExists(_))));
         assert_eq!(std::fs::read(&destination).unwrap(), b"concurrent");
         assert_eq!(std::fs::read(&source).unwrap(), b"new");
     }
@@ -412,7 +414,7 @@ mod tests {
         std::fs::write(destination.join("sentinel"), b"concurrent").unwrap();
         let result = rename_noclobber(staging.path(), &destination);
 
-        assert!(matches!(result, Err(PlenoraError::OutputExists(_))));
+        assert!(matches!(result, Err(PlenoraIoError::OutputExists(_))));
         assert_eq!(
             std::fs::read(destination.join("sentinel")).unwrap(),
             b"concurrent"
@@ -436,7 +438,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(PlenoraError::Io(error))
+            Err(PlenoraIoError::Io(error))
                 if error.kind() == std::io::ErrorKind::InvalidInput
         ));
         assert!(!destination.exists());
@@ -521,7 +523,7 @@ mod tests {
         let directory_result = publish_dir_atomic(staging.path(), &directory_destination, false);
         assert!(matches!(
             directory_result,
-            Err(PlenoraError::Unsupported(message))
+            Err(PlenoraIoError::Unsupported(message))
                 if message.contains("cross-filesystem")
         ));
         assert!(staging.path().join("data").exists());
@@ -533,7 +535,7 @@ mod tests {
         let file_result = publish_file_atomic(temp, &file_destination, false);
         assert!(matches!(
             file_result,
-            Err(PlenoraError::Unsupported(message))
+            Err(PlenoraIoError::Unsupported(message))
                 if message.contains("cross-filesystem")
         ));
         assert!(!file_destination.exists());
@@ -548,7 +550,7 @@ mod tests {
         );
         assert!(matches!(
             loose_result,
-            Err(PlenoraError::Unsupported(message))
+            Err(PlenoraIoError::Unsupported(message))
                 if message.contains("cross-filesystem")
         ));
         assert!(loose_source.exists());

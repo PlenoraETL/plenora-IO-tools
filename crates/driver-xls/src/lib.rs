@@ -17,15 +17,6 @@ use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt};
 use driver_common::{build_property_array, geometry_field, infer_column, json_from_array};
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
-    LayerContract, LayerId,
-};
-use plenora_core::crs::{CrsKind, ResolvedCrs};
-use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata};
-use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -42,11 +33,22 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
+use plenora_io_model::crs::{CrsKind, ResolvedCrs};
+use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::{
+    decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+};
+use plenora_io_model::{PlenoraIoError, Result};
 
 const GEOMETRY: &str = "geometry";
 
-fn err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "xls",
         reason: reason.into(),
     }
@@ -102,7 +104,7 @@ impl FormatDriver for XlsDriver {
             .worksheet_range(&sheet)
             .map_err(|e| err(format!("foglio '{sheet}': {e}")))?;
         let crs = opts.assume_crs.clone().ok_or_else(|| {
-            PlenoraError::Crs("XLSX con geometria richiede --assume-crs".to_owned())
+            PlenoraIoError::Crs("XLSX con geometria richiede --assume-crs".to_owned())
         })?;
         let (batch, contract) = build_batch(&range, &opts.format_options, &crs)?;
         Ok(Box::new(XlsDataset {
@@ -125,19 +127,19 @@ impl FormatDriver for XlsDriver {
         validate_write(self.descriptor(), plan, &opts.limits)?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("xlsx"))
         {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "l'output deve avere estensione .xlsx".to_owned(),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "XLSX: un solo foglio per file nella v1".to_owned(),
             ));
         }
@@ -216,7 +218,7 @@ struct XlsWriterState {
     max_output_bytes: u64,
 }
 
-fn xls_err(e: rust_xlsxwriter::XlsxError) -> PlenoraError {
+fn xls_err(e: rust_xlsxwriter::XlsxError) -> PlenoraIoError {
     err(format!("XLSX: {e}"))
 }
 

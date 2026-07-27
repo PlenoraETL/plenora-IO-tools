@@ -31,15 +31,6 @@ use shapefile::{
 };
 
 use driver_common::{geometry_field, json_from_array, ColType};
-use plenora_core::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
-    LayerContract, LayerId,
-};
-use plenora_core::crs::{CrsKind, RawCrs, ResolvedCrs};
-use plenora_core::geometry::{is_geometry_field, with_geometry_contract_metadata, GEO_CRS_KEY};
-use plenora_core::limits::WkbLimits;
-use plenora_core::wkb::{decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
-use plenora_core::{PlenoraError, Result};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -56,6 +47,17 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES,
     SCALAR_TYPES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
 };
+use plenora_io_model::contract::{
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
+};
+use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata, GEO_CRS_KEY};
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::{
+    decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+};
+use plenora_io_model::{PlenoraIoError, Result};
 
 const GEOMETRY: &str = "geometry";
 const DIRECTORY_DATASET_SUFFIX: &str = ".shp.d";
@@ -66,8 +68,8 @@ const LOOSE_SET_MODE: &str = "loose_shapefile_set";
 /// sorgente dà solo il codice autorità e non una definizione WKT.
 const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
-fn err(reason: impl Into<String>) -> PlenoraError {
-    PlenoraError::Format {
+fn err(reason: impl Into<String>) -> PlenoraIoError {
+    PlenoraIoError::Format {
         driver: "shp",
         reason: reason.into(),
     }
@@ -98,7 +100,7 @@ fn publish_mode(path: &Path, opts: &WriteOptions) -> Result<ShapefilePublishMode
     {
         ShapefilePublishMode::LooseSet
     } else {
-        return Err(PlenoraError::Unsupported(
+        return Err(PlenoraIoError::Unsupported(
             "l'output Shapefile deve terminare con .shp (loose set) o .shp.d (directory dataset)"
                 .to_owned(),
         ));
@@ -110,13 +112,13 @@ fn publish_mode(path: &Path, opts: &WriteOptions) -> Result<ShapefilePublishMode
         DIRECTORY_DATASET_MODE => ShapefilePublishMode::DirectoryDataset,
         LOOSE_SET_MODE => ShapefilePublishMode::LooseSet,
         other => {
-            return Err(PlenoraError::Unsupported(format!(
+            return Err(PlenoraIoError::Unsupported(format!(
                 "publish_mode Shapefile '{other}' non valido; usare '{DIRECTORY_DATASET_MODE}' o '{LOOSE_SET_MODE}'"
             )))
         }
     };
     if requested != inferred {
-        return Err(PlenoraError::Unsupported(format!(
+        return Err(PlenoraIoError::Unsupported(format!(
             "publish_mode '{}' richiede una destinazione {}",
             requested.name(),
             requested.destination_suffix()
@@ -146,7 +148,7 @@ fn shapefile_source_path(path: PathBuf) -> Result<PathBuf> {
         return Ok(path);
     }
     if !is_directory_dataset_path(&path) {
-        return Err(PlenoraError::Unsupported(format!(
+        return Err(PlenoraIoError::Unsupported(format!(
             "directory Shapefile non riconosciuta: {} (atteso *.shp.d)",
             path.display()
         )));
@@ -259,14 +261,14 @@ impl FormatDriver for ShpDriver {
         let Sink::Path(dest) = sink;
         let publish_mode = publish_mode(&dest, opts)?;
         if plan.layers.len() != 1 {
-            return Err(PlenoraError::Unsupported(
+            return Err(PlenoraIoError::Unsupported(
                 "Shapefile: un solo layer per file".to_owned(),
             ));
         }
         match publish_mode {
             ShapefilePublishMode::DirectoryDataset => {
                 if dest.exists() {
-                    return Err(PlenoraError::OutputExists(dest.display().to_string()));
+                    return Err(PlenoraIoError::OutputExists(dest.display().to_string()));
                 }
             }
             ShapefilePublishMode::LooseSet => {
@@ -274,7 +276,7 @@ impl FormatDriver for ShpDriver {
                 for ext in ["shp", "shx", "dbf", "prj"] {
                     let sibling = dest.with_extension(ext);
                     if sibling.exists() {
-                        return Err(PlenoraError::OutputExists(sibling.display().to_string()));
+                        return Err(PlenoraIoError::OutputExists(sibling.display().to_string()));
                     }
                 }
             }
@@ -293,7 +295,7 @@ impl FormatDriver for ShpDriver {
                 continue;
             }
             let fname = shapefile::dbase::FieldName::try_from(f.name().as_str()).map_err(|_| {
-                PlenoraError::Unsupported(format!(
+                PlenoraIoError::Unsupported(format!(
                     "nome campo '{}' non valido per dbf (max 10 caratteri ASCII)",
                     f.name()
                 ))
@@ -495,13 +497,13 @@ impl FormatWriter for ShpWriter {
             .try_fold(0_u64, |total, path| {
                 let bytes = std::fs::metadata(path)?.len();
                 total.checked_add(bytes).ok_or_else(|| {
-                    PlenoraError::LimitExceeded(
+                    PlenoraIoError::LimitExceeded(
                         "overflow nel conteggio dell'output Shapefile".to_owned(),
                     )
                 })
             })?;
         if staged_bytes > self.max_output_bytes {
-            return Err(PlenoraError::LimitExceeded(format!(
+            return Err(PlenoraIoError::LimitExceeded(format!(
                 "output Shapefile da {staged_bytes} byte oltre il limite di {}",
                 self.max_output_bytes
             )));
@@ -888,7 +890,7 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
             .clone()
             .or_else(|| authority_id_from_wkt(&wkt));
         let Some(id) = id else {
-            return Err(PlenoraError::CrsUnresolved {
+            return Err(PlenoraIoError::CrsUnresolved {
                 driver: "shp",
                 raw: RawCrs {
                     definition: wkt,
@@ -901,7 +903,7 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
     }
     match &opts.assume_crs {
         Some(id) => Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None)),
-        None => Err(PlenoraError::Crs(
+        None => Err(PlenoraIoError::Crs(
             "Shapefile senza .prj: fornire --assume-crs".to_owned(),
         )),
     }
@@ -909,7 +911,7 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
 
 fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
     crs.id.as_deref().ok_or_else(|| {
-        PlenoraError::Crs(
+        PlenoraIoError::Crs(
             "Shapefile: CRS risolto senza identificatore; vietato inventare un'etichetta Arrow"
                 .to_owned(),
         )
@@ -1554,9 +1556,9 @@ pub fn __fuzz_wkb_roundtrip(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_core::wkb::to_wkb;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::wkb::to_wkb;
 
     fn read_opts() -> ReadOptions {
         ReadOptions {
@@ -1591,7 +1593,7 @@ mod tests {
         assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
         assert_eq!(
             crs.axis_order,
-            plenora_core::crs::AxisOrder::LatitudeLongitude
+            plenora_io_model::crs::AxisOrder::LatitudeLongitude
         );
     }
 
@@ -1604,7 +1606,7 @@ mod tests {
 
         let error = resolve_crs(&path, &ReadOptions::default()).unwrap_err();
         match &error {
-            PlenoraError::CrsUnresolved { driver, raw } => {
+            PlenoraIoError::CrsUnresolved { driver, raw } => {
                 assert_eq!(*driver, "shp");
                 assert_eq!(raw.definition, definition);
             }
@@ -1626,7 +1628,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(crs.kind, CrsKind::Unknown);
-        assert_eq!(crs.axis_order, plenora_core::crs::AxisOrder::Unknown);
+        assert_eq!(crs.axis_order, plenora_io_model::crs::AxisOrder::Unknown);
     }
 
     #[test]
@@ -1637,7 +1639,7 @@ mod tests {
             Some("LOCAL_CS[\"private\"]".to_owned()),
         );
 
-        assert!(matches!(resolved_crs_id(&crs), Err(PlenoraError::Crs(_))));
+        assert!(matches!(resolved_crs_id(&crs), Err(PlenoraIoError::Crs(_))));
     }
 
     #[test]
@@ -1823,7 +1825,7 @@ mod tests {
             .create(Sink::Path(root.path().join("points.shp")), &plan, &options)
             .map(|_| ());
 
-        assert!(matches!(result, Err(PlenoraError::Unsupported(_))));
+        assert!(matches!(result, Err(PlenoraIoError::Unsupported(_))));
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     }
 
@@ -1855,8 +1857,8 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             e,
-            PlenoraError::Capability {
-                reason: plenora_core::CapabilityReason::FieldNameTooLong,
+            PlenoraIoError::Capability {
+                reason: plenora_io_model::CapabilityReason::FieldNameTooLong,
                 ..
             }
         ));

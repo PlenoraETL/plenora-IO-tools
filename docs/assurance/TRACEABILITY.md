@@ -6,8 +6,8 @@ repository, non compliance DO-178C.
 | ID | Hazard controllato | Requisito | Evidenza | Stato |
 |---|---|---|---|---|
 | PLN-ASR-001 | H-04 arresto del processo | Nessun `unsafe` nel codice distribuibile | `#![forbid(unsafe_code)]`; gate CI `-D unsafe-code` sui target `lib` | Soddisfatto |
-| PLN-ASR-002 | H-04 arresto del processo | Nessuna primitiva esplicita di panic nei target `lib` | Gate Clippy `unwrap/expect/panic/unreachable/todo/unimplemented`; parser e writer restituiscono `PlenoraError` | Soddisfatto |
-| PLN-ASR-003 | H-01 corruzione geometrica | WKB/EWKB troncati, dimensionalmente incoerenti o oltre limite sono rifiutati | `plenora-core::{wkb,wkb_lossless}`; test core e fuzz; regressione Shape Z/M mancanti | Soddisfatto |
+| PLN-ASR-002 | H-04 arresto del processo | Nessuna primitiva esplicita di panic nei target `lib` | Gate Clippy `unwrap/expect/panic/unreachable/todo/unimplemented`; parser e writer restituiscono `PlenoraIoError` | Soddisfatto |
+| PLN-ASR-003 | H-01 corruzione geometrica | WKB/EWKB troncati, dimensionalmente incoerenti o oltre limite sono rifiutati | `plenora-io-model::{wkb,wkb_lossless}`; test core e fuzz; regressione Shape Z/M mancanti | Soddisfatto |
 | PLN-ASR-004 | H-03 esaurimento risorse | Ogni operazione applica limiti caller-controlled prima di crescita non bounded | `Limits`, `WkbLimits`, wrapper reader/writer e test limite | Parziale |
 | PLN-ASR-005 | H-02 sovrascrittura output | Publish atomico, same-filesystem e no-clobber autorevole | ADR-IO 2; test cross-filesystem, TOCTOU, crash e recovery; job macOS su `renameatx_np(RENAME_EXCL)` | Parziale: soddisfatto Linux/Android, Windows e macOS; directory publish non disponibile sui BSD |
 | PLN-ASR-006 | H-05 falsa conferma di durabilità | La durabilità non verificabile è riportata nell'esito | `PublishOutcome`; Windows restituisce `PublishedButDurabilityUnconfirmed` | Parziale: matrice filesystem aperta |
@@ -18,6 +18,7 @@ repository, non compliance DO-178C.
 | PLN-ASR-011 | H-08 verifica insufficiente | Regressioni hanno test deterministici e coverage misurata | CI Linux/Windows/macOS, FileGDB feature-on, LCOV e fuzz target | Parziale: MC/DC assente |
 | PLN-ASR-012 | H-09 modifica non analizzata | Ogni modifica registra impatto ed evidenza | Template PR, questa matrice e change record in `docs/assurance/CHANGE_IMPACT_*.md` | Parziale: revisione indipendente non disponibile |
 | PLN-ASR-013 | H-01 valore inventato | Ogni fallback semantico non-panicking è censito e non può crescere senza review | `FALLBACK_REGISTER.md`; gate `check_assurance_fallbacks.sh`; regressioni CSV/CRS/FileGDB/XLSX | Parziale: registro semantico, non prova formale |
+| PLN-ASR-014 | H-01/H-07 identità di confine ambigua | Package e tipi pubblici locali non collidono con componenti Plenora distinti | package `plenora-io-model`; errore `PlenoraIoError`; gate `check_public_identity.py`; confronto con `plenora-data-tools` | Soddisfatto nel perimetro corrente; crate condiviso subordinato alla ratifica di §15.3 |
 
 ## Hazard
 

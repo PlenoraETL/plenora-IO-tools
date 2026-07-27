@@ -23,7 +23,7 @@ riusabile all'interno di tali processi.
 
 Il confine safety analizzato comprende i crate `lib`:
 
-- `plenora-core` e `plenora-io-core`;
+- `plenora-io-model` e `plenora-io-core`;
 - `driver-common`;
 - tutti i `driver-*`.
 

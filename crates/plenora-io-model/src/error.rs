@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::crs::RawCrs;
 
-pub type Result<T> = std::result::Result<T, PlenoraError>;
+pub type Result<T> = std::result::Result<T, PlenoraIoError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -26,10 +26,10 @@ pub enum CapabilityReason {
     Nullability,
 }
 
-/// Errore base condiviso da IO-tools e data-tools. Mai valori di cella:
-/// contesto (driver, motivo), non contenuti.
+/// Errore specifico del componente IO. Mai valori di cella: soltanto contesto
+/// operativo (driver, motivo), non contenuti.
 #[derive(Debug)]
-pub enum PlenoraError {
+pub enum PlenoraIoError {
     Contract(String),
     Unsupported(String),
     Capability {
@@ -62,7 +62,7 @@ pub enum PlenoraError {
     Json(serde_json::Error),
 }
 
-impl fmt::Display for PlenoraError {
+impl fmt::Display for PlenoraIoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Contract(m) => write!(f, "contratto: {m}"),
@@ -105,15 +105,15 @@ impl fmt::Display for PlenoraError {
     }
 }
 
-impl std::error::Error for PlenoraError {}
+impl std::error::Error for PlenoraIoError {}
 
-impl From<std::io::Error> for PlenoraError {
+impl From<std::io::Error> for PlenoraIoError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
     }
 }
 
-impl From<serde_json::Error> for PlenoraError {
+impl From<serde_json::Error> for PlenoraIoError {
     fn from(e: serde_json::Error) -> Self {
         Self::Json(e)
     }

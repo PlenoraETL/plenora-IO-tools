@@ -2,9 +2,9 @@
 //! (ADR-IO 1).
 
 use arrow_schema::{DataType, Schema};
-use plenora_core::contract::{DataContract, FieldId, LayerId};
-use plenora_core::geometry::is_geometry_field;
-use plenora_core::{PlenoraError, Result};
+use plenora_io_model::contract::{DataContract, FieldId, LayerId};
+use plenora_io_model::geometry::is_geometry_field;
+use plenora_io_model::{PlenoraIoError, Result};
 
 use crate::descriptor::{FormatDescriptor, ProjectionSupport};
 
@@ -90,7 +90,7 @@ pub fn validate_read_projection(
         && request.projected_fields.is_some()
         && descriptor.projection_support != ProjectionSupport::Exact
     {
-        return Err(PlenoraError::ProjectionUnsupported {
+        return Err(PlenoraIoError::ProjectionUnsupported {
             driver: descriptor.id,
         });
     }
@@ -193,8 +193,8 @@ mod tests {
     fn geometry_uses_a_conservative_variable_width_estimate() {
         let field =
             Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([(
-                plenora_core::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
-                plenora_core::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
+                plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
+                plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
             )]));
         let schema = Schema::new(vec![field]);
         assert_eq!(
