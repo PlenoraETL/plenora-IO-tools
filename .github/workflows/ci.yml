@@ -45,7 +45,7 @@ jobs:
       - name: Test cross-volume publish rejection
         shell: pwsh
         run: |
-          $tempDrive = (Get-Item $env:RUNNER_TEMP).PSDrive.Root
+          $tempDrive = (Get-Item $env:TEMP).PSDrive.Root
           $crossRoot = @($env:USERPROFILE, (Get-Location).Path) |
             Where-Object {
               (Test-Path $_) -and ((Get-Item $_).PSDrive.Root -ne $tempDrive)
