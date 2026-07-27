@@ -2,7 +2,7 @@
 //! `durable` attiva `DurableAtomicPublish` con la sequenza fsync completa:
 //! fsync file/staging -> rename -> fsync directory padre della destinazione.
 
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use plenora_core::{PlenoraError, Result};
@@ -123,7 +123,7 @@ pub fn publish_files_ordered_limited(
 
     if durable {
         for (source, _) in files {
-            File::open(source)?.sync_all()?;
+            sync_file(source)?;
         }
         if let Some(staging) = source_parent_path {
             fsync_dir(staging)?;
@@ -195,7 +195,7 @@ fn sync_tree(path: &Path) -> std::io::Result<()> {
         ));
     }
     if metadata.is_file() {
-        return File::open(path)?.sync_all();
+        return sync_file(path);
     }
     if !metadata.is_dir() {
         return Err(std::io::Error::new(
@@ -207,6 +207,14 @@ fn sync_tree(path: &Path) -> std::io::Result<()> {
         sync_tree(&entry?.path())?;
     }
     fsync_dir(path)
+}
+
+fn sync_file(path: &Path) -> std::io::Result<()> {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?
+        .sync_all()
 }
 
 fn finalize_durability(dest: &Path, durable: bool) -> PublishOutcome {

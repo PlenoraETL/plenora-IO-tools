@@ -118,6 +118,8 @@ resta in ogni caso la seconda barriera fail-closed. La CI Linux esercita davvero
 il rifiuto tra il filesystem del runner e `/dev/shm`, verificando che nessuna
 destinazione diventi visibile; la CI Windows compila ed esegue lo stesso
 contratto e prova un secondo volume scrivibile quando il runner lo espone.
+La sincronizzazione durable apre i file staged in lettura/scrittura, requisito
+di `FlushFileBuffers` su Windows, prima di rinominarli.
 Il job Linux installa inoltre GDAL ed esegue la suite FileGDB feature-on.
 Resta da validare FileGDB/GDAL nativamente su Windows e da estendere la matrice
 di durabilità a più filesystem reali.
