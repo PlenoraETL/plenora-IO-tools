@@ -83,7 +83,10 @@ Evidenza locale con Rust `1.92.0` in container Linux x86_64:
 - Clippy workspace `--all-features` superato;
 - safety Clippy sui target `lib`, anche `--all-features`, superato.
 
-L'evidenza CI remota sarà associata al commit dell'incremento dopo il push.
+Evidenza remota acquisita per il commit di implementazione
+`b1e13fa787093d7c9bc5c6ccc5fadfdb4d54d67c`: GitHub Actions run
+`30287966598`, conclusione `success` per i job `rust`, `windows`,
+`macos-publish` e `coverage`.
 
 ## Residui
 
