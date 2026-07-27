@@ -1,4 +1,4 @@
-//! driver-filegdb — FileGDB → RecordBatch (Fase 1, read-only, "tier GDB"). È
+//! driver-filegdb — FileGDB ⇄ RecordBatch (Fase 1, "tier GDB"). È
 //! l'unica eccezione alla policy puro-Rust: FileGDB richiede GDAL. Dietro la
 //! feature `gdal-backend` legge via GDAL; senza feature è uno stub che fallisce
 //! tipizzato (il binario di default resta puro-Rust). Multi-layer.
@@ -43,7 +43,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 3,
+    driver_version: 4,
     descriptor_version: 4,
 };
 
@@ -57,15 +57,15 @@ impl FormatDriver for FileGdbDriver {
     // I `return` cfg-gated servono per il caso feature-on (il blocco feature-off,
     // pur rimosso, segue sintatticamente); clippy non lo coglie.
     #[allow(clippy::needless_return)]
-    fn open(&self, source: Source, _opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
-            let path = source.into_path_checked(&_opts.limits)?;
-            return backend::open(&path);
+            let path = source.into_path_checked(&opts.limits)?;
+            return backend::open(&path, opts.assume_crs.as_deref());
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
-            let _ = source;
+            let _ = (source, opts);
             Err(plenora_core::PlenoraError::Unsupported(
                 "FileGDB richiede il tier GDB: compilare con --features gdal-backend".to_owned(),
             ))
@@ -100,6 +100,8 @@ impl FormatDriver for FileGdbDriver {
 
 #[cfg(feature = "gdal-backend")]
 mod backend {
+    use super::DESCRIPTOR;
+
     use std::sync::mpsc::{sync_channel, Receiver};
     use std::sync::Arc;
 
@@ -113,7 +115,7 @@ mod backend {
     use plenora_core::contract::{
         DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
     };
-    use plenora_core::crs::{CrsKind, ResolvedCrs};
+    use plenora_core::crs::{AxisOrder, CrsKind, RawCrs, ResolvedCrs};
     use plenora_core::{PlenoraError, Result};
     use plenora_io_core::driver::{LayerReader, OpenDatasetHandle};
     use plenora_io_core::request::ReadRequest;
@@ -172,7 +174,7 @@ mod backend {
         name: String,
         geom_idx: usize,
         fields: Vec<(String, usize, FieldKind)>,
-        epsg: Option<u32>,
+        srs: SpatialRef,
         gdal_idx: Option<usize>,
     }
 
@@ -186,20 +188,51 @@ mod backend {
         next_gdal_idx: usize,
     }
 
-    fn layer_epsg(l: &WriteLayer) -> Option<u32> {
-        let id = l
+    fn layer_spatial_ref(layer: &WriteLayer) -> Result<SpatialRef> {
+        let resolved = layer
             .contract
             .geometry
             .as_ref()
-            .and_then(|g| g.crs.id().map(str::to_owned))?;
-        if id.eq_ignore_ascii_case("OGC:CRS84") {
-            return Some(4326);
+            .and_then(GeometryColumnContract::resolved_crs)
+            .ok_or_else(|| {
+                PlenoraError::Crs(format!(
+                    "FileGDB richiede un CRS risolto per il layer '{}'",
+                    layer.name
+                ))
+            })?;
+        let definition = resolved
+            .definition
+            .as_deref()
+            .filter(|definition| !definition.trim().is_empty())
+            .or(resolved.id.as_deref())
+            .ok_or_else(|| PlenoraError::CrsUnresolved {
+                driver: "filegdb",
+                raw: RawCrs {
+                    definition: "ResolvedCrs senza identificatore o definizione".to_owned(),
+                    authority_hint: None,
+                },
+            })?;
+        let spatial_ref =
+            SpatialRef::from_definition(definition).map_err(|_| PlenoraError::CrsUnresolved {
+                driver: "filegdb",
+                raw: RawCrs {
+                    definition: definition.to_owned(),
+                    authority_hint: resolved.id.clone(),
+                },
+            })?;
+        if let (Some(expected), Some(actual)) = (resolved.id.as_deref(), authority_id(&spatial_ref))
+        {
+            if !expected.eq_ignore_ascii_case(&actual) {
+                return Err(PlenoraError::CrsUnresolved {
+                    driver: "filegdb",
+                    raw: RawCrs {
+                        definition: definition.to_owned(),
+                        authority_hint: resolved.id.clone(),
+                    },
+                });
+            }
         }
-        let (auth, code) = id.split_once(':')?;
-        if auth.eq_ignore_ascii_case("EPSG") {
-            return code.parse::<u32>().ok();
-        }
-        None
+        Ok(spatial_ref)
     }
 
     /// Tipo geometria OGR dal codice-tipo WKB (FileGDB richiede un tipo concreto).
@@ -273,15 +306,9 @@ mod backend {
         if path.exists() {
             return Err(PlenoraError::OutputExists(path.display().to_string()));
         }
-        let staging = staging_path(path);
-        let driver = DriverManager::get_driver_by_name("OpenFileGDB")
-            .map_err(|e| err(format!("driver OpenFileGDB non disponibile: {e}")))?;
-        let ds = driver
-            .create_vector_only(&staging)
-            .map_err(|e| err(format!("creazione FileGDB: {e}")))?;
 
-        // I layer GDAL sono creati PIGRAMENTE al primo write: FileGDB richiede il
-        // tipo geometria concreto, che conosciamo solo vedendo i dati.
+        // Risolvi ogni CRS prima di creare lo staging: un CRS non rappresentabile
+        // fallisce senza lasciare output parziali.
         let mut infos = Vec::new();
         for l in &plan.layers {
             let schema = &l.contract.schema;
@@ -301,11 +328,20 @@ mod backend {
                 name: l.name.clone(),
                 geom_idx,
                 fields,
-                epsg: layer_epsg(l),
+                srs: layer_spatial_ref(l)?,
                 gdal_idx: None,
             });
         }
 
+        let staging = staging_path(path);
+        let driver = DriverManager::get_driver_by_name("OpenFileGDB")
+            .map_err(|e| err(format!("driver OpenFileGDB non disponibile: {e}")))?;
+        let ds = driver
+            .create_vector_only(&staging)
+            .map_err(|e| err(format!("creazione FileGDB: {e}")))?;
+
+        // I layer GDAL sono creati PIGRAMENTE al primo write: FileGDB richiede il
+        // tipo geometria concreto, che conosciamo solo vedendo i dati.
         Ok(Box::new(GdbWriter {
             ds,
             staging,
@@ -341,7 +377,6 @@ mod backend {
                     .map(|r| wkb_ogr_type(geom_col.value(r)))
                     .unwrap_or(OGRwkbGeometryType::wkbPoint);
                 let lname = self.layers[li].name.clone();
-                let epsg = self.layers[li].epsg;
                 let defs_owned: Vec<(String, gdal::vector::OGRFieldType::Type)> = self.layers[li]
                     .fields
                     .iter()
@@ -349,12 +384,11 @@ mod backend {
                     .collect();
                 let defs: Vec<(&str, gdal::vector::OGRFieldType::Type)> =
                     defs_owned.iter().map(|(n, t)| (n.as_str(), *t)).collect();
-                let srs = epsg.and_then(|c| SpatialRef::from_epsg(c).ok());
                 let gl = self
                     .ds
                     .create_layer(LayerOptions {
                         name: &lname,
-                        srs: srs.as_ref(),
+                        srs: Some(&self.layers[li].srs),
                         ty,
                         options: None,
                     })
@@ -428,27 +462,126 @@ mod backend {
         }
     }
 
-    pub fn open(path: &std::path::Path) -> Result<Box<dyn OpenDatasetHandle>> {
+    fn authority_id(spatial_ref: &SpatialRef) -> Option<String> {
+        match (spatial_ref.auth_name(), spatial_ref.auth_code()) {
+            (Ok(authority), Ok(code)) => Some(format!("{}:{code}", authority.to_ascii_uppercase())),
+            _ => None,
+        }
+    }
+
+    fn crs_kind(spatial_ref: &SpatialRef) -> CrsKind {
+        if spatial_ref.is_geographic() {
+            CrsKind::Geographic
+        } else if spatial_ref.is_projected() {
+            CrsKind::Projected
+        } else {
+            CrsKind::Unknown
+        }
+    }
+
+    fn has_any(value: &str, needles: &[&str]) -> bool {
+        let value = value.to_ascii_lowercase();
+        needles.iter().any(|needle| value.contains(needle))
+    }
+
+    fn declared_axis_order(spatial_ref: &SpatialRef, kind: CrsKind) -> AxisOrder {
+        let target = match kind {
+            CrsKind::Geographic => "GEOGCS",
+            CrsKind::Projected => "PROJCS",
+            CrsKind::Unknown => return AxisOrder::Unknown,
+        };
+        let Ok(first) = spatial_ref.axis_name(target, 0) else {
+            return AxisOrder::Unknown;
+        };
+        let Ok(second) = spatial_ref.axis_name(target, 1) else {
+            return AxisOrder::Unknown;
+        };
+        match kind {
+            CrsKind::Geographic
+                if has_any(&first, &["longitude", "lon"])
+                    && has_any(&second, &["latitude", "lat"]) =>
+            {
+                AxisOrder::LongitudeLatitude
+            }
+            CrsKind::Geographic
+                if has_any(&first, &["latitude", "lat"])
+                    && has_any(&second, &["longitude", "lon"]) =>
+            {
+                AxisOrder::LatitudeLongitude
+            }
+            CrsKind::Projected
+                if has_any(&first, &["easting", "east"])
+                    && has_any(&second, &["northing", "north"]) =>
+            {
+                AxisOrder::EastingNorthing
+            }
+            CrsKind::Geographic | CrsKind::Projected | CrsKind::Unknown => AxisOrder::Unknown,
+        }
+    }
+
+    fn resolve_layer_crs(
+        embedded: Option<SpatialRef>,
+        assume_crs: Option<&str>,
+    ) -> Result<ResolvedCrs> {
+        let spatial_ref = match embedded {
+            Some(spatial_ref) => spatial_ref,
+            None => {
+                let definition = assume_crs.ok_or_else(|| {
+                    PlenoraError::Crs(
+                        "FileGDB con geometria senza CRS: fornire --assume-crs".to_owned(),
+                    )
+                })?;
+                SpatialRef::from_definition(definition).map_err(|_| {
+                    PlenoraError::CrsUnresolved {
+                        driver: "filegdb",
+                        raw: RawCrs {
+                            definition: definition.to_owned(),
+                            authority_hint: Some(definition.to_owned()),
+                        },
+                    }
+                })?
+            }
+        };
+        let definition = spatial_ref
+            .to_wkt()
+            .map_err(|_| PlenoraError::CrsUnresolved {
+                driver: "filegdb",
+                raw: RawCrs {
+                    definition: "SpatialRef GDAL presente ma WKT non esportabile".to_owned(),
+                    authority_hint: authority_id(&spatial_ref),
+                },
+            })?;
+        let id = authority_id(&spatial_ref);
+        let kind = crs_kind(&spatial_ref);
+        let mut resolved = ResolvedCrs::new(id, kind, Some(definition));
+        let declared_axis_order = declared_axis_order(&spatial_ref, kind);
+        if declared_axis_order != AxisOrder::Unknown {
+            resolved.axis_order = declared_axis_order;
+        }
+        Ok(resolved)
+    }
+
+    pub fn open(
+        path: &std::path::Path,
+        assume_crs: Option<&str>,
+    ) -> Result<Box<dyn OpenDatasetHandle>> {
         // Schema dai def GDAL, SENZA leggere feature (poi il reader streamma).
         let ds = Dataset::open(path).map_err(|e| err(format!("apertura GDAL: {e}")))?;
         let mut layers = Vec::new();
         let mut metas = Vec::new();
         for (i, layer) in ds.layers().enumerate() {
-            let crs = layer
-                .spatial_ref()
-                .and_then(|sr| match (sr.auth_name(), sr.auth_code()) {
-                    (Ok(a), Ok(c)) => Some(format!("{a}:{c}")),
-                    _ => None,
-                });
+            let crs = resolve_layer_crs(layer.spatial_ref(), assume_crs)?;
+            let crs_label = crs
+                .id
+                .as_deref()
+                .or(crs.definition.as_deref())
+                .expect("un CRS risolto da GDAL ha sempre id o WKT");
             let fields: Vec<(String, DataType)> = layer
                 .defn()
                 .fields()
                 .map(|f| (f.name(), ogr_to_arrow(f.field_type())))
                 .collect();
-            let mut arrow_fields = vec![geometry_field(
-                GEOMETRY,
-                crs.as_deref().unwrap_or("unknown"),
-            )];
+            let mut arrow_fields = vec![geometry_field(GEOMETRY, crs_label)];
             for (n, dt) in &fields {
                 arrow_fields.push(Field::new(n, dt.clone(), true));
             }
@@ -458,7 +591,7 @@ mod backend {
                 geometry: Some(GeometryColumnContract::wkb_passthrough(
                     FieldId(0),
                     GEOMETRY,
-                    ResolvedCrs::new(crs, CrsKind::Unknown, None),
+                    crs,
                     true,
                 )),
             };
@@ -666,22 +799,199 @@ mod backend {
             }
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use arrow_array::RecordBatch;
+        use plenora_core::contract::GeometryType;
+        use plenora_core::wkb::{encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
+        use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source};
+        use plenora_io_core::request::{BatchTarget, ProjectionMode};
+
+        fn read_request() -> ReadRequest {
+            ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+            }
+        }
+
+        fn write_layer(crs: ResolvedCrs) -> WriteLayer {
+            let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(
+                GEOMETRY,
+                crs.id.as_deref().unwrap_or("custom"),
+            )]));
+            WriteLayer {
+                name: "points".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(GeometryColumnContract::wkb_passthrough(
+                        FieldId(0),
+                        GEOMETRY,
+                        crs,
+                        true,
+                    )),
+                },
+            }
+        }
+
+        #[test]
+        fn gdal_reports_authority_axis_order_without_canonicalization() {
+            let epsg = resolve_layer_crs(
+                Some(SpatialRef::from_definition("EPSG:4326").unwrap()),
+                None,
+            )
+            .unwrap();
+            let crs84 = resolve_layer_crs(
+                Some(SpatialRef::from_definition("OGC:CRS84").unwrap()),
+                None,
+            )
+            .unwrap();
+            let projected = resolve_layer_crs(
+                Some(SpatialRef::from_definition("EPSG:3857").unwrap()),
+                None,
+            )
+            .unwrap();
+
+            assert_eq!(epsg.axis_order, AxisOrder::LatitudeLongitude);
+            assert_eq!(crs84.axis_order, AxisOrder::LongitudeLatitude);
+            assert_ne!(crs84.id.as_deref(), Some("EPSG:4326"));
+            assert_eq!(projected.axis_order, AxisOrder::EastingNorthing);
+
+            let write_crs84 = resolve_layer_crs(
+                Some(layer_spatial_ref(&write_layer(ResolvedCrs::wgs84())).unwrap()),
+                None,
+            )
+            .unwrap();
+            assert_eq!(write_crs84.axis_order, AxisOrder::LongitudeLatitude);
+            assert_ne!(write_crs84.id.as_deref(), Some("EPSG:4326"));
+        }
+
+        #[test]
+        fn conflicting_id_and_wkt_fail_before_output_creation() {
+            let epsg_4326_wkt = SpatialRef::from_definition("EPSG:4326")
+                .unwrap()
+                .to_wkt()
+                .unwrap();
+            let layer = write_layer(ResolvedCrs::new(
+                Some("EPSG:3857".to_owned()),
+                CrsKind::Projected,
+                Some(epsg_4326_wkt),
+            ));
+            assert!(matches!(
+                layer_spatial_ref(&layer),
+                Err(PlenoraError::CrsUnresolved { .. })
+            ));
+        }
+
+        #[test]
+        fn missing_crs_requires_a_valid_explicit_assumption() {
+            assert!(matches!(
+                resolve_layer_crs(None, None),
+                Err(PlenoraError::Crs(_))
+            ));
+            assert!(matches!(
+                resolve_layer_crs(None, Some("not-a-crs-secret")),
+                Err(PlenoraError::CrsUnresolved { .. })
+            ));
+            let assumed = resolve_layer_crs(None, Some("EPSG:3857")).unwrap();
+            assert_eq!(assumed.id.as_deref(), Some("EPSG:3857"));
+            assert_eq!(assumed.axis_order, AxisOrder::EastingNorthing);
+        }
+
+        #[test]
+        fn filegdb_round_trip_preserves_crs_and_enforces_single_reader() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("round-trip.gdb");
+            let wkb = encode_wkb(
+                &WkbGeometry {
+                    value: WkbValue::Point(WkbCoordinate {
+                        x: 1_113_194.0,
+                        y: 5_621_521.0,
+                        z: None,
+                        m: None,
+                    }),
+                    dimensions: plenora_core::contract::CoordinateDimensions::Xy,
+                    srid: None,
+                },
+                WkbFlavor::Iso,
+            )
+            .unwrap();
+            let schema: SchemaRef =
+                Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
+            let mut geometry = GeometryColumnContract::wkb_passthrough(
+                FieldId(0),
+                GEOMETRY,
+                ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                true,
+            );
+            geometry.geometry_types = vec![GeometryType::Point];
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "points".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: Some(geometry),
+                    },
+                }],
+            };
+
+            let driver = super::super::FileGdbDriver;
+            let mut writer = driver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+
+            let dataset = driver
+                .open(Source::Path(path), &ReadOptions::default())
+                .unwrap();
+            let crs = dataset.layers()[0]
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .resolved_crs()
+                .unwrap();
+            assert_eq!(crs.id.as_deref(), Some("EPSG:3857"));
+            assert_eq!(crs.axis_order, AxisOrder::EastingNorthing);
+            assert!(crs.definition.is_some());
+
+            let first = dataset.open_layer_reader(&read_request()).unwrap();
+            assert!(matches!(
+                dataset.open_layer_reader(&read_request()),
+                Err(PlenoraError::ReaderBusy {
+                    driver: "filegdb",
+                    layer: 0
+                })
+            ));
+            drop(first);
+            assert!(dataset.open_layer_reader(&read_request()).is_ok());
+        }
+    }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "gdal-backend")))]
 mod tests {
     use super::*;
 
     #[test]
     fn open_without_gdal_feature_is_typed() {
         // Nel build di default (senza feature) l'apertura fallisce tipizzata.
-        #[cfg(not(feature = "gdal-backend"))]
-        {
-            let e = FileGdbDriver
-                .open(Source::Path("x.gdb".into()), &ReadOptions::default())
-                .map(|_| ())
-                .unwrap_err();
-            assert!(matches!(e, plenora_core::PlenoraError::Unsupported(_)));
-        }
+        let e = FileGdbDriver
+            .open(Source::Path("x.gdb".into()), &ReadOptions::default())
+            .map(|_| ())
+            .unwrap_err();
+        assert!(matches!(e, plenora_core::PlenoraError::Unsupported(_)));
     }
 }

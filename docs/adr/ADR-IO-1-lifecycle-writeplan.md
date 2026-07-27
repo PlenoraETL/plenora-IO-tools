@@ -86,9 +86,9 @@ multi-layer non supportati e nomi duplicati. Gli handle sono `Send + Sync` e il
 lease atomico comune di `SingleActiveReader` restituisce `ReaderBusy` a un
 secondo reader sullo stesso handle, rilasciandosi a EOF, errore o drop
 anticipato. La matrice apre due reader reali sui driver pure-Rust single
-(KML/DXF/XLSX) e sul caso independent IPC; il backend FileGDB usa lo stesso gate
-ma richiede ancora il test feature-on in un ambiente GDAL. Restano da eliminare
-le materializzazioni anticipate in alcuni `open`.
+(KML/DXF/XLSX) e sul caso independent IPC; un test feature-on con GDAL copre lo
+stesso rilascio del gate anche su FileGDB. Restano da eliminare le
+materializzazioni anticipate in alcuni `open`.
 
 ## Alternative scartate
 

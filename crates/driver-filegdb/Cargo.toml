@@ -14,6 +14,9 @@ arrow-schema.workspace = true
 serde_json.workspace = true
 gdal = { workspace = true, optional = true }
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [features]
 # "tier GDB": FileGDB via GDAL (dipendenza C). Assente di default → stub.
 gdal-backend = ["dep:gdal"]

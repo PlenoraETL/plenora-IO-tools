@@ -79,7 +79,7 @@ tipizzato: `OGC:CRS84` è `LongitudeLatitude`, `EPSG:4326` è
 KML, GeoJSON, GeoParquet, GeoPackage e Shapefile hanno test che impediscono di
 confondere questi casi.
 
-I percorsi pure-Rust embedded non costruiscono più identificativi sintetici:
+I percorsi embedded non costruiscono più identificativi sintetici:
 un `.prj` arbitrario, un `srs_id` GeoPackage assente/undefined, un PROJJSON
 senza identificatore e un GEODATA DXF non risolvibile producono
 `CrsUnresolved { raw: RawCrs }`. Il messaggio CLI stabile è
@@ -88,12 +88,18 @@ esplicitamente come `Missing` un campo geometrico privo del metadato CRS.
 In scrittura GeoPackage non usa più WGS84 come fallback per un CRS assente o
 non interpretabile.
 
+Il backend FileGDB feature-on usa la definizione nativa restituita da GDAL,
+classifica il CRS senza trasformare coordinate e ricava l'ordine assi
+dichiarato. In scrittura passa a GDAL l'intero `SpatialRef`, non il solo codice
+EPSG: CRS custom e `OGC:CRS84` non vengono quindi più scartati o rietichettati.
+CRS mancanti richiedono `assume_crs`; definizioni non valide o coppie
+id/definizione incoerenti falliscono con `CRS_UNRESOLVED` prima dello staging.
+
 Il gate di conformità attraversa inoltre ogni descrittore scrivibile: le
 capability `Embedded` rifiutano un CRS mancante e le capability `Fixed`
-rifiutano un CRS incompatibile con `ReprojectionRequired`. Rimane da
-uniformare il backend FileGDB feature-on con GDAL e da ampliare la risoluzione
-di authority/axis order oltre gli identificativi e WKT riconosciuti senza
-introdurre euristiche silenziose.
+rifiutano un CRS incompatibile con `ReprojectionRequired`. Rimane da ampliare
+la risoluzione di authority/axis order dei driver pure-Rust oltre gli
+identificativi e WKT riconosciuti, senza introdurre euristiche silenziose.
 
 ## Alternative scartate
 

@@ -468,6 +468,7 @@ dependencies = [
  "plenora-core",
  "plenora-io-core",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
