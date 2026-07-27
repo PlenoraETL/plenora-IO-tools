@@ -451,7 +451,6 @@ dependencies = [
  "arrow-schema",
  "driver-common",
  "dxf",
- "geo-types",
  "plenora-core",
  "plenora-io-core",
  "serde_json",

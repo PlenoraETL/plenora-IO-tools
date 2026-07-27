@@ -70,7 +70,8 @@ CRS non è `Resolved`; il `RawCrs` finisce nell'errore/diagnostica, non nel dato
   netta I/O ↔ trasformazione.
 - Test obbligatori: estrazione CRS per ogni formato; CSV con geometria senza
   `--assume-crs` → errore; scrittura KML con CRS ≠ WGS84 → errore; round-trip
-  del CRS su gpkg/shp/geoparquet.
+  del CRS su gpkg/shp/geoparquet/DXF; DXF senza GEODATA e senza
+  `--assume-crs` → errore.
 
 ## Alternative scartate
 

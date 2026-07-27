@@ -12,6 +12,5 @@ driver-common = { path = "../driver-common" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
 dxf.workspace = true
-geo-types.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

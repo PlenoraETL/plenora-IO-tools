@@ -1,5 +1,5 @@
 #!/bin/bash
-# Campagna riproducibile: cinque target libFuzzer coverage-guided più il fuzzer
+# Campagna riproducibile: sei target libFuzzer coverage-guided più il fuzzer
 # strutturato stabile. Pensato per l'immagine definita da fuzz/Dockerfile.
 set -euo pipefail
 
@@ -12,11 +12,14 @@ max_len="${PLENORA_FUZZ_MAX_LEN:-65536}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 log_dir="/work/fuzz/logs/${run_id}"
 mkdir -p "${log_dir}" /work/fuzz-findings
+targets=(from_wkb geojson_reader wkt_parse kml_reader shp_wkb dxf_reader)
 
 echo "=== build e seed corpus ==="
 cargo +"${toolchain}" build --release -p plenora-fuzz
 ./target/release/plenora-fuzz --export-corpus /work/fuzz/corpus
-for target in from_wkb geojson_reader wkt_parse kml_reader shp_wkb; do
+mkdir -p /work/fuzz/corpus/dxf_reader
+cp /work/fuzz/seeds/dxf_reader/* /work/fuzz/corpus/dxf_reader/
+for target in "${targets[@]}"; do
     cargo +"${toolchain}" fuzz build "${target}"
 done
 
@@ -49,13 +52,13 @@ start_structured() {
     pids["${target}"]=$!
 }
 
-for target in from_wkb geojson_reader wkt_parse kml_reader shp_wkb; do
+for target in "${targets[@]}"; do
     start_target "${target}"
 done
 start_structured
 
 failed=0
-for target in from_wkb geojson_reader wkt_parse kml_reader shp_wkb structured; do
+for target in "${targets[@]}" structured; do
     status=0
     wait "${pids[${target}]}" || status=$?
     echo "=== end ${target}: exit ${status} ==="

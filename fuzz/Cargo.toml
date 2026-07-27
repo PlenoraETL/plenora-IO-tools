@@ -17,6 +17,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 plenora-core = { path = "../crates/plenora-core" }
 driver-common = { path = "../crates/driver-common" }
+driver-dxf = { path = "../crates/driver-dxf" }
 driver-geojson = { path = "../crates/driver-geojson" }
 driver-geoparquet = { path = "../crates/driver-geoparquet" }
 driver-kml = { path = "../crates/driver-kml" }
@@ -56,6 +57,13 @@ bench = false
 [[bin]]
 name = "shp_wkb"
 path = "fuzz_targets/shp_wkb.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dxf_reader"
+path = "fuzz_targets/dxf_reader.rs"
 test = false
 doc = false
 bench = false

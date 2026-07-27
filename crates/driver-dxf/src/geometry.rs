@@ -9,8 +9,99 @@
 use std::f64::consts::TAU;
 
 pub type Point = [f64; 2];
+pub type Point3 = [f64; 3];
+
+/// Trasformazione affine 3D usata dal walker DXF. La matrice è memorizzata
+/// per righe e applicata a coordinate omogenee `[x, y, z, 1]`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Transform3 {
+    matrix: [[f64; 4]; 4],
+}
+
+impl Transform3 {
+    pub const IDENTITY: Transform3 = Transform3 {
+        matrix: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+    };
+
+    /// Traslazione, rotazione attorno all'asse Z e scala XYZ di un INSERT.
+    pub fn insert(
+        location: Point3,
+        rotation_degrees: f64,
+        scale_x: f64,
+        scale_y: f64,
+        scale_z: f64,
+    ) -> Transform3 {
+        let theta = rotation_degrees.to_radians();
+        let (sin, cos) = theta.sin_cos();
+        Transform3 {
+            matrix: [
+                [cos * scale_x, -sin * scale_y, 0.0, location[0]],
+                [sin * scale_x, cos * scale_y, 0.0, location[1]],
+                [0.0, 0.0, scale_z, location[2]],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        }
+    }
+
+    /// Composizione `self ∘ other`: applica prima `other`, poi `self`.
+    pub fn then(self, other: Transform3) -> Transform3 {
+        let mut matrix = [[0.0; 4]; 4];
+        for (row, values) in matrix.iter_mut().enumerate() {
+            for (column, value) in values.iter_mut().enumerate() {
+                *value = (0..4)
+                    .map(|index| self.matrix[row][index] * other.matrix[index][column])
+                    .sum();
+            }
+        }
+        Transform3 { matrix }
+    }
+
+    pub fn apply(&self, point: Point3) -> Point3 {
+        [
+            self.matrix[0][0] * point[0]
+                + self.matrix[0][1] * point[1]
+                + self.matrix[0][2] * point[2]
+                + self.matrix[0][3],
+            self.matrix[1][0] * point[0]
+                + self.matrix[1][1] * point[1]
+                + self.matrix[1][2] * point[2]
+                + self.matrix[1][3],
+            self.matrix[2][0] * point[0]
+                + self.matrix[2][1] * point[1]
+                + self.matrix[2][2] * point[2]
+                + self.matrix[2][3],
+        ]
+    }
+
+    /// Arbitrary-axis algorithm DXF completo: le colonne della matrice sono
+    /// gli assi X/Y dell'OCS e la normale Z, tutti espressi in WCS.
+    pub fn ocs(normal: Point3) -> Transform3 {
+        let n = normalize3(normal).unwrap_or([0.0, 0.0, 1.0]);
+        let arbitrary = if n[0].abs() < 1.0 / 64.0 && n[1].abs() < 1.0 / 64.0 {
+            cross3([0.0, 1.0, 0.0], n)
+        } else {
+            cross3([0.0, 0.0, 1.0], n)
+        };
+        let ax = normalize3(arbitrary).unwrap_or([1.0, 0.0, 0.0]);
+        let ay = normalize3(cross3(n, ax)).unwrap_or([0.0, 1.0, 0.0]);
+        Transform3 {
+            matrix: [
+                [ax[0], ay[0], n[0], 0.0],
+                [ax[1], ay[1], n[1], 0.0],
+                [ax[2], ay[2], n[2], 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        }
+    }
+}
 
 /// Trasformazione affine 2D: x' = a·x + c·y + e ; y' = b·x + d·y + f.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transform {
     pub a: f64,
@@ -21,6 +112,7 @@ pub struct Transform {
     pub f: f64,
 }
 
+#[cfg(test)]
 impl Transform {
     pub const IDENTITY: Transform = Transform {
         a: 1.0,
@@ -192,6 +284,7 @@ pub fn tessellate_arc(
 /// i parametri sono angoli (rad) come da specifica DXF. Esatta, non
 /// approssimata oltre il campionamento.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub fn tessellate_ellipse(
     center: Point,
     major: Point,
@@ -234,10 +327,63 @@ pub fn tessellate_ellipse(
     points
 }
 
+/// Variante tridimensionale dell'ellisse DXF. `major` è il vettore
+/// centro→estremo dell'asse maggiore in WCS; la direzione minore è ricavata
+/// dalla normale del piano, così un'ellisse inclinata conserva la quota.
+#[allow(clippy::too_many_arguments)]
+pub fn tessellate_ellipse3(
+    center: Point3,
+    major: Point3,
+    normal: Point3,
+    ratio: f64,
+    start_parameter: f64,
+    end_parameter: f64,
+    full_circle_segments: usize,
+) -> Vec<Point3> {
+    let semi_major = (major[0] * major[0] + major[1] * major[1] + major[2] * major[2]).sqrt();
+    if !semi_major.is_finite() || semi_major <= 0.0 || !ratio.is_finite() {
+        return Vec::new();
+    }
+    let major_direction = [
+        major[0] / semi_major,
+        major[1] / semi_major,
+        major[2] / semi_major,
+    ];
+    let normal = normalize3(normal).unwrap_or([0.0, 0.0, 1.0]);
+    let Some(minor_direction) = normalize3(cross3(normal, major_direction)) else {
+        return Vec::new();
+    };
+    let semi_minor = semi_major * ratio;
+    let mut sweep = end_parameter - start_parameter;
+    if sweep <= 0.0 {
+        sweep += TAU;
+    }
+    let full = (sweep - TAU).abs() < 1e-9;
+    let count = segments_for_angle(sweep, full_circle_segments).max(2);
+    let mut points = Vec::with_capacity(count + 1);
+    for step in 0..=count {
+        let parameter = start_parameter + sweep * (step as f64) / (count as f64);
+        let (sin, cos) = parameter.sin_cos();
+        points.push([
+            center[0] + major[0] * cos + minor_direction[0] * semi_minor * sin,
+            center[1] + major[1] * cos + minor_direction[1] * semi_minor * sin,
+            center[2] + major[2] * cos + minor_direction[2] * semi_minor * sin,
+        ]);
+    }
+    if full {
+        let first = points[0];
+        if let Some(last) = points.last_mut() {
+            *last = first;
+        }
+    }
+    points
+}
+
 /// Campiona una curva spline NURBS con l'algoritmo di de Boor (razionale via
 /// coordinate omogenee). Se il knot vector è incoerente ripiega sul poligono
 /// di controllo, che delimita la curva vera: un'approssimazione grezza ma mai
 /// una geometria inventata.
+#[cfg(test)]
 pub fn tessellate_spline(
     degree: usize,
     knots: &[f64],
@@ -289,6 +435,65 @@ pub fn tessellate_spline(
     out
 }
 
+/// Variante tridimensionale della tassellazione NURBS. Conserva la quota dei
+/// control point usando coordinate omogenee `(x*w, y*w, z*w, w)`.
+pub fn tessellate_spline3(
+    degree: usize,
+    knots: &[f64],
+    control_points: &[Point3],
+    weights: &[f64],
+    samples: usize,
+) -> Vec<Point3> {
+    let n = control_points.len();
+    if n < 2 {
+        return control_points.to_vec();
+    }
+    let p = degree.clamp(1, n - 1);
+    if knots.len() != n + p + 1 {
+        return control_points.to_vec();
+    }
+    let u_min = knots[p];
+    let u_max = knots[n];
+    if u_max <= u_min || !u_max.is_finite() || !u_min.is_finite() {
+        return control_points.to_vec();
+    }
+    let homogeneous: Vec<[f64; 4]> = (0..n)
+        .map(|index| {
+            let weight = weights
+                .get(index)
+                .copied()
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .unwrap_or(1.0);
+            [
+                control_points[index][0] * weight,
+                control_points[index][1] * weight,
+                control_points[index][2] * weight,
+                weight,
+            ]
+        })
+        .collect();
+
+    let count = samples.max(2);
+    let mut output = Vec::with_capacity(count);
+    for step in 0..count {
+        let parameter = u_min + (u_max - u_min) * (step as f64) / ((count - 1) as f64);
+        let point = de_boor4(p, knots, &homogeneous, parameter);
+        if point[3].abs() > 1e-12 {
+            output.push([
+                point[0] / point[3],
+                point[1] / point[3],
+                point[2] / point[3],
+            ]);
+        }
+    }
+    if output.is_empty() {
+        control_points.to_vec()
+    } else {
+        output
+    }
+}
+
+#[cfg(test)]
 fn de_boor(p: usize, knots: &[f64], control: &[[f64; 3]], u: f64) -> [f64; 3] {
     let n = control.len();
     // Indice di span k: knots[k] <= u < knots[k+1], con p <= k <= n-1.
@@ -318,6 +523,33 @@ fn de_boor(p: usize, knots: &[f64], control: &[[f64; 3]], u: f64) -> [f64; 3] {
         }
     }
     d[p]
+}
+
+fn de_boor4(p: usize, knots: &[f64], control: &[[f64; 4]], u: f64) -> [f64; 4] {
+    let n = control.len();
+    let mut k = p;
+    while k < n - 1 && knots[k + 1] <= u {
+        k += 1;
+    }
+    let mut values: Vec<[f64; 4]> = (0..=p)
+        .map(|index| control[(index + k).saturating_sub(p).min(n - 1)])
+        .collect();
+    for iteration in 1..=p {
+        for index in (iteration..=p).rev() {
+            let knot_index = index + k - p;
+            let denominator = knots[knot_index + p + 1 - iteration] - knots[knot_index];
+            let alpha = if denominator.abs() > 1e-12 {
+                (u - knots[knot_index]) / denominator
+            } else {
+                0.0
+            };
+            for ordinate in 0..4 {
+                values[index][ordinate] =
+                    (1.0 - alpha) * values[index - 1][ordinate] + alpha * values[index][ordinate];
+            }
+        }
+    }
+    values[p]
 }
 
 /// Anello chiuso che approssima un cerchio.
@@ -389,6 +621,20 @@ mod tests {
     }
 
     #[test]
+    fn transform3_preserves_z_through_insert_and_ocs() {
+        let insert = Transform3::insert([5.0, 6.0, 7.0], 90.0, 2.0, 3.0, 4.0);
+        let mapped = insert.apply([1.0, 0.0, 2.0]);
+        assert!(close(mapped[0], 5.0));
+        assert!(close(mapped[1], 8.0));
+        assert!(close(mapped[2], 15.0));
+
+        let identity = Transform3::ocs([0.0, 0.0, 1.0]);
+        assert_eq!(identity.apply([1.0, 2.0, 3.0]), [1.0, 2.0, 3.0]);
+        let reversed = Transform3::ocs([0.0, 0.0, -1.0]);
+        assert_eq!(reversed.apply([1.0, 2.0, 3.0]), [-1.0, 2.0, -3.0]);
+    }
+
+    #[test]
     fn semicircle_bulge_follows_the_ccw_convention() {
         // Bulge 1 da (0,0) a (2,0): semicerchio di centro (1,0) raggio 1.
         let center = bulge_center([0.0, 0.0], [2.0, 0.0], 1.0);
@@ -434,6 +680,22 @@ mod tests {
         for p in &ring {
             assert!(close((p[0] / 4.0).powi(2) + (p[1] / 2.0).powi(2), 1.0));
         }
+    }
+
+    #[test]
+    fn ellipse3_preserves_tilted_plane_z() {
+        let ring = tessellate_ellipse3(
+            [1.0, 2.0, 3.0],
+            [2.0, 0.0, 2.0],
+            [-1.0, 0.0, 1.0],
+            0.5,
+            0.0,
+            TAU,
+            24,
+        );
+        assert_eq!(ring.first(), ring.last());
+        assert!(ring.iter().any(|point| (point[2] - 5.0).abs() < 1e-9));
+        assert!(ring.iter().any(|point| (point[2] - 1.0).abs() < 1e-9));
     }
 
     #[test]
