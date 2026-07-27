@@ -62,7 +62,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 7,
+    driver_version: 8,
     descriptor_version: 6,
 };
 
@@ -122,6 +122,8 @@ mod backend {
     use super::DESCRIPTOR;
 
     use std::collections::HashMap;
+    use std::fs::{File, OpenOptions, TryLockError};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc::{sync_channel, Receiver};
     use std::sync::Arc;
 
@@ -162,6 +164,8 @@ mod backend {
     const OGR_FIELD_TYPE_KEY: &str = "plenora.filegdb.ogr_field_type";
     const OGR_FIELD_WIDTH_KEY: &str = "plenora.filegdb.width";
     const OGR_FIELD_PRECISION_KEY: &str = "plenora.filegdb.precision";
+    const STAGING_MARKER: &str = ".plenora-tmp-";
+    static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     #[derive(Clone, Copy)]
     enum FieldKind {
@@ -240,12 +244,40 @@ mod backend {
 
     struct StagingGuard {
         path: PathBuf,
+        lock_path: PathBuf,
+        lock: Option<File>,
         armed: bool,
     }
 
     impl StagingGuard {
-        fn new(path: PathBuf) -> Self {
-            Self { path, armed: true }
+        fn create(dest: &Path) -> Result<Self> {
+            recover_orphaned_staging(dest)?;
+            let parent = dataset_parent(dest);
+            let prefix = staging_prefix(dest);
+            loop {
+                let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                let token = format!("{}-{sequence}", std::process::id());
+                let base = format!("{prefix}{token}");
+                let path = parent.join(format!("{base}.gdb"));
+                let lock_path = parent.join(format!("{base}.lock"));
+                let lock = match OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create_new(true)
+                    .open(&lock_path)
+                {
+                    Ok(lock) => lock,
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                lock.lock()?;
+                return Ok(Self {
+                    path,
+                    lock_path,
+                    lock: Some(lock),
+                    armed: true,
+                });
+            }
         }
 
         fn path(&self) -> &Path {
@@ -253,12 +285,16 @@ mod backend {
         }
 
         fn disarm(&mut self) {
+            drop(self.lock.take());
+            let _ = std::fs::remove_file(&self.lock_path);
             self.armed = false;
         }
 
         fn cleanup(&mut self) {
             if self.armed {
                 let _ = std::fs::remove_dir_all(&self.path);
+                drop(self.lock.take());
+                let _ = std::fs::remove_file(&self.lock_path);
                 self.armed = false;
             }
         }
@@ -421,13 +457,84 @@ mod backend {
         }
     }
 
-    fn staging_path(dest: &Path) -> PathBuf {
-        let parent = dest.parent().filter(|p| !p.as_os_str().is_empty());
+    fn dataset_parent(dest: &Path) -> PathBuf {
+        dest.parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_owned()
+    }
+
+    fn staging_prefix(dest: &Path) -> String {
         let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
-        let name = format!("{stem}.plenora-tmp.gdb");
-        match parent {
-            Some(pp) => pp.join(name),
-            None => PathBuf::from(name),
+        format!("{stem}{STAGING_MARKER}")
+    }
+
+    fn recover_orphaned_staging(dest: &Path) -> Result<usize> {
+        let parent = dataset_parent(dest);
+        let prefix = staging_prefix(dest);
+        let mut recovered = 0;
+        for entry in std::fs::read_dir(&parent)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            let Some(base) = name
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.strip_suffix(".lock"))
+            else {
+                continue;
+            };
+            if base.is_empty() || base.contains(std::path::MAIN_SEPARATOR) {
+                continue;
+            }
+            let lock = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(entry.path())?;
+            match lock.try_lock() {
+                Ok(()) => {
+                    let staging = parent.join(format!("{prefix}{base}.gdb"));
+                    if staging.exists() {
+                        std::fs::remove_dir_all(staging)?;
+                    }
+                    drop(lock);
+                    std::fs::remove_file(entry.path())?;
+                    recovered += 1;
+                }
+                Err(TryLockError::WouldBlock) => {}
+                Err(TryLockError::Error(error)) => return Err(error.into()),
+            }
+        }
+        Ok(recovered)
+    }
+
+    #[cfg(test)]
+    fn staging_artifacts(dest: &Path) -> Vec<PathBuf> {
+        let parent = dataset_parent(dest);
+        let prefix = staging_prefix(dest);
+        let mut artifacts = std::fs::read_dir(parent)
+            .into_iter()
+            .flatten()
+            .filter_map(std::result::Result::ok)
+            .filter_map(|entry| {
+                let name = entry.file_name();
+                let name = name.to_str()?;
+                (name.starts_with(&prefix) && (name.ends_with(".gdb") || name.ends_with(".lock")))
+                    .then(|| entry.path())
+            })
+            .collect::<Vec<_>>();
+        artifacts.sort();
+        artifacts
+    }
+
+    #[cfg(test)]
+    fn crash_failpoint(point: &str) {
+        if std::env::var("PLENORA_FILEGDB_CRASH_POINT").ok().as_deref() == Some(point) {
+            std::process::abort();
         }
     }
 
@@ -536,11 +643,7 @@ mod backend {
             });
         }
 
-        let staging_path = staging_path(path);
-        if staging_path.exists() {
-            std::fs::remove_dir_all(&staging_path)?;
-        }
-        let staging = StagingGuard::new(staging_path);
+        let staging = StagingGuard::create(path)?;
         let driver = DriverManager::get_driver_by_name("OpenFileGDB")
             .map_err(|e| err(format!("driver OpenFileGDB non disponibile: {e}")))?;
         let mut ds = driver
@@ -698,6 +801,8 @@ mod backend {
                     .create(&gl)
                     .map_err(|e| err(format!("create_feature: {e}")))?;
             }
+            #[cfg(test)]
+            crash_failpoint("after_write");
             Ok(())
         }
 
@@ -714,7 +819,11 @@ mod backend {
                     self.max_output_bytes
                 )));
             }
+            #[cfg(test)]
+            crash_failpoint("before_publish");
             let outcome = publish_dir_atomic(self.staging.path(), &self.dest, self.durable)?;
+            #[cfg(test)]
+            crash_failpoint("after_publish");
             self.staging.disarm();
             Ok(Published {
                 bytes,
@@ -1187,6 +1296,8 @@ mod backend {
         use plenora_io_core::descriptor::Fidelity;
         use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source};
         use plenora_io_core::request::{BatchTarget, ProjectionMode};
+        use std::process::{Child, Command, ExitStatus};
+        use std::time::{Duration, Instant};
 
         fn read_request() -> ReadRequest {
             ReadRequest {
@@ -1230,6 +1341,84 @@ mod backend {
                 WkbFlavor::Iso,
             )
             .unwrap()
+        }
+
+        fn point_write_fixture() -> (WritePlan, RecordBatch) {
+            let layer = write_layer(ResolvedCrs::new(
+                Some("EPSG:3857".to_owned()),
+                CrsKind::Projected,
+                None,
+            ));
+            let geometry = point_wkb(CoordinateDimensions::Xy, None, None);
+            let batch = RecordBatch::try_new(
+                layer.contract.schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(geometry.as_slice())]))],
+            )
+            .unwrap();
+            (
+                WritePlan {
+                    layers: vec![layer],
+                },
+                batch,
+            )
+        }
+
+        fn assert_complete_point_dataset(path: PathBuf) {
+            let dataset = super::super::FileGdbDriver
+                .open(Source::Path(path), &ReadOptions::default())
+                .unwrap();
+            let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
+            assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+            assert!(reader.next_batch().unwrap().is_none());
+        }
+
+        fn run_crash_subprocess(dest: &Path, point: &str) -> ExitStatus {
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "backend::tests::filegdb_crash_subprocess_helper",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env("PLENORA_FILEGDB_CRASH_DEST", dest)
+                .env("PLENORA_FILEGDB_CRASH_POINT", point)
+                .env("RUST_BACKTRACE", "0")
+                .status()
+                .unwrap()
+        }
+
+        fn spawn_active_subprocess(dest: &Path, ready: &Path, release: &Path) -> Child {
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "backend::tests::filegdb_active_subprocess_helper",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env("PLENORA_FILEGDB_ACTIVE_DEST", dest)
+                .env("PLENORA_FILEGDB_ACTIVE_READY", ready)
+                .env("PLENORA_FILEGDB_ACTIVE_RELEASE", release)
+                .env("RUST_BACKTRACE", "0")
+                .spawn()
+                .unwrap()
+        }
+
+        fn wait_until_ready(child: &mut Child, ready: &Path) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < deadline {
+                if ready.exists() {
+                    return;
+                }
+                if let Some(status) = child.try_wait().unwrap() {
+                    panic!("il writer attivo è terminato prematuramente: {status}");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("timeout in attesa del writer attivo");
         }
 
         #[test]
@@ -1783,7 +1972,6 @@ mod backend {
         fn filegdb_drop_writer_aborts_and_removes_staging() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("aborted.gdb");
-            let staging = staging_path(&path);
             let plan = WritePlan {
                 layers: vec![write_layer(ResolvedCrs::new(
                     Some("EPSG:3857".to_owned()),
@@ -1794,19 +1982,178 @@ mod backend {
             let writer = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
                 .unwrap();
-            assert!(staging.exists());
+            let artifacts = staging_artifacts(&path);
+            assert_eq!(artifacts.len(), 2);
             assert!(!path.exists());
 
             drop(writer);
-            assert!(!staging.exists());
+            assert!(artifacts.iter().all(|artifact| !artifact.exists()));
+            assert!(staging_artifacts(&path).is_empty());
             assert!(!path.exists());
+        }
+
+        #[test]
+        fn filegdb_concurrent_staging_does_not_delete_active_writer() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("concurrent.gdb");
+            let plan = WritePlan {
+                layers: vec![write_layer(ResolvedCrs::new(
+                    Some("EPSG:3857".to_owned()),
+                    CrsKind::Projected,
+                    None,
+                ))],
+            };
+            let first = super::super::FileGdbDriver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+            let first_artifacts = staging_artifacts(&path);
+            assert_eq!(first_artifacts.len(), 2);
+
+            let second = super::super::FileGdbDriver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+            assert_eq!(staging_artifacts(&path).len(), 4);
+            assert!(first_artifacts.iter().all(|artifact| artifact.exists()));
+
+            drop(second);
+            assert!(first_artifacts.iter().all(|artifact| artifact.exists()));
+            first.finish().unwrap();
+            assert!(path.exists());
+            assert!(staging_artifacts(&path).is_empty());
+        }
+
+        #[test]
+        #[ignore = "helper eseguito dal test di ownership cross-process"]
+        fn filegdb_active_subprocess_helper() {
+            let path = PathBuf::from(
+                std::env::var_os("PLENORA_FILEGDB_ACTIVE_DEST")
+                    .expect("PLENORA_FILEGDB_ACTIVE_DEST mancante"),
+            );
+            let ready = PathBuf::from(
+                std::env::var_os("PLENORA_FILEGDB_ACTIVE_READY")
+                    .expect("PLENORA_FILEGDB_ACTIVE_READY mancante"),
+            );
+            let release = PathBuf::from(
+                std::env::var_os("PLENORA_FILEGDB_ACTIVE_RELEASE")
+                    .expect("PLENORA_FILEGDB_ACTIVE_RELEASE mancante"),
+            );
+            let (plan, batch) = point_write_fixture();
+            let mut writer = super::super::FileGdbDriver
+                .create(Sink::Path(path), &plan, &WriteOptions::default())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            File::create(ready).unwrap();
+
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !release.exists() {
+                assert!(
+                    Instant::now() < deadline,
+                    "timeout in attesa del rilascio dal processo padre"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            writer.finish().unwrap();
+        }
+
+        #[test]
+        fn filegdb_recovery_preserves_active_cross_process_staging() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("cross-process.gdb");
+            let ready = dir.path().join("writer.ready");
+            let release = dir.path().join("writer.release");
+            let mut child = spawn_active_subprocess(&path, &ready, &release);
+            wait_until_ready(&mut child, &ready);
+
+            let active_artifacts = staging_artifacts(&path);
+            let (plan, _) = point_write_fixture();
+            let second = super::super::FileGdbDriver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+            let both_stagings_exist = staging_artifacts(&path).len() == 4;
+            let active_was_preserved = active_artifacts.iter().all(|artifact| artifact.exists());
+            drop(second);
+            let active_survived_second_cleanup =
+                active_artifacts.iter().all(|artifact| artifact.exists());
+
+            File::create(release).unwrap();
+            let status = child.wait().unwrap();
+            assert!(status.success(), "writer attivo fallito: {status}");
+            assert_eq!(active_artifacts.len(), 2);
+            assert!(both_stagings_exist);
+            assert!(active_was_preserved);
+            assert!(active_survived_second_cleanup);
+            assert!(staging_artifacts(&path).is_empty());
+            assert_complete_point_dataset(path);
+        }
+
+        #[test]
+        #[ignore = "helper eseguito dai test di fault injection in un sottoprocesso"]
+        fn filegdb_crash_subprocess_helper() {
+            let path = PathBuf::from(
+                std::env::var_os("PLENORA_FILEGDB_CRASH_DEST")
+                    .expect("PLENORA_FILEGDB_CRASH_DEST mancante"),
+            );
+            let point = std::env::var("PLENORA_FILEGDB_CRASH_POINT")
+                .expect("PLENORA_FILEGDB_CRASH_POINT mancante");
+            assert!(
+                matches!(
+                    point.as_str(),
+                    "after_write" | "before_publish" | "after_publish"
+                ),
+                "failpoint sconosciuto: {point}"
+            );
+
+            let (plan, batch) = point_write_fixture();
+            let mut writer = super::super::FileGdbDriver
+                .create(Sink::Path(path), &plan, &WriteOptions::default())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+            panic!("il failpoint '{point}' non ha terminato il sottoprocesso");
+        }
+
+        #[test]
+        fn filegdb_process_crashes_leave_absent_or_complete_destination() {
+            for point in ["after_write", "before_publish", "after_publish"] {
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join(format!("{point}.gdb"));
+                let status = run_crash_subprocess(&path, point);
+                assert!(!status.success(), "il failpoint '{point}' non è scattato");
+
+                let orphaned = staging_artifacts(&path);
+                if point == "after_publish" {
+                    assert!(path.exists(), "destinazione assente dopo il rename");
+                    assert_eq!(orphaned.len(), 1, "sidecar orfano atteso");
+                    assert_complete_point_dataset(path.clone());
+
+                    assert_eq!(recover_orphaned_staging(&path).unwrap(), 1);
+                    assert!(staging_artifacts(&path).is_empty());
+                    assert_complete_point_dataset(path);
+                } else {
+                    assert!(!path.exists(), "output parziale reso visibile");
+                    assert_eq!(orphaned.len(), 2, "staging orfano atteso");
+
+                    let (plan, batch) = point_write_fixture();
+                    let mut writer = super::super::FileGdbDriver
+                        .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                        .unwrap();
+                    assert!(
+                        orphaned.iter().all(|artifact| !artifact.exists()),
+                        "lo staging orfano non è stato recuperato"
+                    );
+                    writer.write(&batch).unwrap();
+                    writer.finish().unwrap();
+
+                    assert!(staging_artifacts(&path).is_empty());
+                    assert_complete_point_dataset(path);
+                }
+            }
         }
 
         #[test]
         fn filegdb_failed_batch_poisons_writer_and_prevents_publish() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("failed-write.gdb");
-            let staging = staging_path(&path);
             let layer = write_layer(ResolvedCrs::new(
                 Some("EPSG:3857".to_owned()),
                 CrsKind::Projected,
@@ -1833,7 +2180,8 @@ mod backend {
                     ..
                 })
             ));
-            assert!(staging.exists());
+            let artifacts = staging_artifacts(&path);
+            assert_eq!(artifacts.len(), 2);
             assert!(matches!(
                 writer.finish(),
                 Err(PlenoraError::Format {
@@ -1841,7 +2189,8 @@ mod backend {
                     ..
                 })
             ));
-            assert!(!staging.exists());
+            assert!(artifacts.iter().all(|artifact| !artifact.exists()));
+            assert!(staging_artifacts(&path).is_empty());
             assert!(!path.exists());
         }
 
@@ -1849,7 +2198,6 @@ mod backend {
         fn filegdb_output_limit_failure_removes_staging_without_publish() {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("too-large.gdb");
-            let staging = staging_path(&path);
             let plan = WritePlan {
                 layers: vec![write_layer(ResolvedCrs::new(
                     Some("EPSG:3857".to_owned()),
@@ -1862,12 +2210,15 @@ mod backend {
             let writer = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &options)
                 .unwrap();
+            let artifacts = staging_artifacts(&path);
+            assert_eq!(artifacts.len(), 2);
 
             assert!(matches!(
                 writer.finish(),
                 Err(PlenoraError::LimitExceeded(_))
             ));
-            assert!(!staging.exists());
+            assert!(artifacts.iter().all(|artifact| !artifact.exists()));
+            assert!(staging_artifacts(&path).is_empty());
             assert!(!path.exists());
         }
 

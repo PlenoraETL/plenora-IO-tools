@@ -102,8 +102,17 @@ coperti no-clobber, preflight del loose set, abort senza residui e round-trip
 della directory dataset. FileGDB usa la stessa unità directory e una guardia
 RAII: chiude il dataset GDAL prima della cancellazione e rimuove lo staging su
 drop, errore di write o limite output, senza rendere visibile la destinazione.
-Restano fault injection di un crash di processo,
-test cross-filesystem e validazione delle garanzie su più filesystem/piattaforme.
+Ogni writer FileGDB possiede uno staging univoco sul filesystem di destinazione
+e un sidecar lockato per tutta la sua vita. Prima di creare un nuovo writer
+vengono rimossi soltanto gli staging il cui lock è acquisibile; un lock detenuto
+da un altro processo identifica uno staging attivo e non viene toccato. Test in
+sottoprocesso terminano forzatamente il writer dopo una scrittura, prima del
+rename e subito dopo il rename: nei primi due casi la destinazione resta
+assente e lo staging orfano è recuperato al tentativo successivo; nel terzo la
+destinazione è completa e leggibile e resta da recuperare soltanto il sidecar.
+Un test concorrente cross-process verifica inoltre che il recupero non cancelli
+un writer attivo. Restano i test cross-filesystem e la validazione delle
+garanzie su più filesystem/piattaforme.
 
 ## Alternative scartate
 

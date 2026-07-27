@@ -86,8 +86,12 @@ tutti i descrittori reali e, per i nove writer pure-Rust, verifica con una
 creazione effettiva sia il no-clobber sia il drop senza `finish`. Il backend
 FileGDB feature-on applica la stessa garanzia con una guardia RAII che chiude
 prima il dataset GDAL e poi rimuove la directory `.gdb` di staging; copre drop,
-batch fallito e limite output prima del publish. Il wrapper comune invalida
-ogni writer dopo il primo errore di scrittura e vieta `finish`. Valida inoltre
+batch fallito e limite output prima del publish. Staging univoci e sidecar
+lockati distinguono writer attivi e orfani anche tra processi: la suite termina
+realmente sottoprocessi durante write e finish, recupera gli orfani al tentativo
+successivo e verifica che un writer concorrente attivo non venga cancellato.
+Il wrapper comune invalida ogni writer dopo il primo errore di scrittura e
+vieta `finish`. Valida inoltre
 piani vuoti, multi-layer non supportati e nomi duplicati. Gli handle sono `Send + Sync` e il
 lease atomico comune di `SingleActiveReader` restituisce `ReaderBusy` a un
 secondo reader sullo stesso handle, rilasciandosi a EOF, errore o drop
