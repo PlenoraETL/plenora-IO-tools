@@ -7,6 +7,10 @@
 # Log temporanei
 *.log
 
+# Cache locali degli script di assurance
+__pycache__/
+*.py[cod]
+
 # Artefatti del fuzzer (input che riproducono un finding, container-locali)
 /fuzz-findings/
 /fuzz/artifacts/

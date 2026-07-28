@@ -4,6 +4,13 @@ Verifica aggiornata al 2026-07-28. La tabella distingue ciò che è nel codice d
 ciò che resta una decisione architetturale: “parziale” non significa che il
 driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 
+La preparazione della release è dichiarata come **RC del solo componente** in
+[`assurance/RELEASE_CANDIDATE_SCOPE.md`](assurance/RELEASE_CANDIDATE_SCOPE.md).
+Il manifest cita `plenora-contracts@v2.0-rc3` e la revisione esatta, distingue
+la wire version dall'ICD e registra le sezioni candidate e la deroga di
+emissione. Il gate della catena a tre componenti resta esplicitamente
+`not_satisfied`.
+
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
 requisiti, hazard, prove e gap nella
@@ -150,3 +157,10 @@ suite FileGDB termina ora sottoprocessi durante write, prima del rename e subito
 dopo il rename, e verifica recovery degli orfani e protezione dei writer attivi.
 La matrice deterministica `RawCrs`/axis order e il test feature-on FileGDB sono
 parte delle rispettive suite.
+
+La campagna lunga WKB/EWKB non parte come iniziativa isolata. Il protocollo
+condiviso confronta il codec lossless IO con lo scanner del branch
+`database-tools/assurance/ewkb-fuzzing`, usa payload grezzi deduplicati per
+SHA-256, un manifest comune e un oracolo differenziale. Corpus e invarianti
+sono destinati al repository `plenora-contracts` quando i due team approvano
+il protocollo; gli smoke locali restano regressioni del componente.

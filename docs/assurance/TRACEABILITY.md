@@ -22,6 +22,8 @@ repository, non compliance DO-178C.
 | PLN-ASR-015 | H-01/H-06 contratto di scambio incompleto | Versione, stato dei tipi e CRS nativo attraversano il bordo IO senza perdita silenziosa | `plenora.contract.version`; `types_declaration`; cinque chiavi CRS; parser con invarianti e rifiuto delle versioni future; golden test model | Soddisfatto nel perimetro schema corrente |
 | PLN-ASR-016 | H-02/H-03 operazione lunga non interrompibile | Ogni operazione espone cancellazione e deadline ai confini controllati e non pubblica dopo cancellazione | `CancellationToken` in opzioni/richieste; controlli probe/batch/write/finalize; test rilascio lease e pre-publish | Parziale: chiamate sincrone interne ai parser materializzanti non preemptive |
 | PLN-ASR-017 | H-01/H-09 errore ambiguo | Categoria, fase, effetto remoto e retry sono indipendenti e serializzabili | `PlenoraIoError`; test combinazioni timeout/commit/recovery; migrazione workspace e FileGDB all-features | Soddisfatto nel modello locale; convergenza cross-repo da verificare |
+| PLN-ASR-018 | H-07/H-09 dichiarazione di release ambigua | Una RC identifica ICD, revisione, stato normativo, deroghe e perimetro componente/sistema senza promozioni implicite | `release/contract-provenance.json`; `RELEASE_CANDIDATE_SCOPE.md`; gate CI `check_release_contract.py` | Parziale: freeze e revisione indipendente non ancora eseguiti |
+| PLN-ASR-019 | H-01/H-08 codec divergenti non rilevati | WKB/EWKB usa corpus e invarianti condivisi e classifica ogni divergenza fra i due bordi | `WKB_EWKB_FUZZ_COORDINATION.md`; schema manifest condiviso; revisioni IO/database fissate | Aperto: protocollo proposto, replay incrociato e campagna non ancora avviati |
 
 ## Hazard
 

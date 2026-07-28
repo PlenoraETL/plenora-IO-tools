@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plenora.invalid/schemas/wkb-ewkb-corpus-manifest-v1.json",
+  "title": "Plenora shared WKB/EWKB corpus manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "corpus_id",
+    "icd",
+    "producer_revisions",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "corpus_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "icd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag",
+        "revision"
+      ],
+      "properties": {
+        "tag": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "producer_revisions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      }
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sha256",
+          "path",
+          "dialect",
+          "expectation",
+          "invariants"
+        ],
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+          },
+          "dialect": {
+            "enum": [
+              "wkb",
+              "ewkb",
+              "either",
+              "invalid"
+            ]
+          },
+          "expectation": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "implementation_defined"
+            ]
+          },
+          "geometry_type": {
+            "type": "string"
+          },
+          "dimensions": {
+            "enum": [
+              "xy",
+              "xyz",
+              "xym",
+              "xyzm",
+              "unknown"
+            ]
+          },
+          "srid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "metadata_srid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "expected_error_category": {
+            "enum": [
+              "invalid_plan",
+              "invalid_configuration",
+              "schema",
+              "data_mapping",
+              "crs",
+              "unsupported",
+              "not_found",
+              "conflict",
+              "authentication",
+              "authorization",
+              "timeout",
+              "cancelled",
+              "resource_limit",
+              "io",
+              "protocol",
+              "transient",
+              "execution",
+              "internal"
+            ]
+          },
+          "invariants": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "no_panic",
+                "full_consumption",
+                "bounded_components",
+                "bounded_depth",
+                "checked_arithmetic",
+                "roundtrip",
+                "srid_coherence",
+                "stable_with_looser_limits"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

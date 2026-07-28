@@ -1,0 +1,66 @@
+{
+  "manifest_version": 1,
+  "component": "plenora-IO-tools",
+  "release_kind": "component_rc",
+  "freeze_status": "pre_freeze",
+  "implementation_revision": "59369fdfb6dbb5d1d7c97a29865ca39ae21c6f76",
+  "wire_contract_version": 1,
+  "icd": {
+    "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
+    "tag": "v2.0-rc3",
+    "revision": "ef2640348426425585ad228312468e7cf1d0e50f",
+    "tag_form": "annotated_unsigned",
+    "normative_status": "partially_ratified",
+    "conformance_claim": "candidate_implementation_only"
+  },
+  "candidate_sections_adopted": [
+    {
+      "section": "§2",
+      "status": "proposal",
+      "surface": "metadata keys and wire protocol version"
+    },
+    {
+      "section": "§3.4/R3.4.1",
+      "status": "proposal",
+      "surface": "types_declaration and unresolved semantics"
+    },
+    {
+      "section": "§4.3.1-§4.3.3",
+      "status": "proposal",
+      "surface": "CRS definition format, precedence, SRID coherence and axis order"
+    },
+    {
+      "section": "§9",
+      "status": "proposal",
+      "surface": "four-axis error model"
+    },
+    {
+      "section": "§11",
+      "status": "proposal",
+      "surface": "cooperative cancellation"
+    }
+  ],
+  "declared_deviations": [
+    {
+      "rule": "§15.4 step 1",
+      "status": "active",
+      "reason": "The component emits the candidate §2 canonical keys before ratification under explicit local authorization.",
+      "hazard_impact": "Consumers that do not implement the same candidate ICD may reject or discard candidate metadata.",
+      "owner": "IO-tools release owner",
+      "exit_condition": "Ratification of §2 with compatible wire names, or migration of the emitter to the ratified replacement."
+    }
+  ],
+  "claims": {
+    "component_rc": true,
+    "system_rc": false,
+    "avionic_certification": false
+  },
+  "fuzz_coordination": {
+    "state": "protocol_defined_campaign_not_started",
+    "io_tools_revision": "59369fdfb6dbb5d1d7c97a29865ca39ae21c6f76",
+    "database_tools_branch": "assurance/ewkb-fuzzing",
+    "database_tools_revision": "834fff4fbe0c62cc2f02278073e58b0cf2159f8d",
+    "future_corpus_owner": "plenora-contracts",
+    "protocol": "docs/assurance/WKB_EWKB_FUZZ_COORDINATION.md"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "manifest_version": 1,
+  "gate_id": "plenora-system-contract-roundtrip-v1",
+  "status": "not_satisfied",
+  "icd": {
+    "tag": "v2.0-rc3",
+    "revision": "ef2640348426425585ad228312468e7cf1d0e50f"
+  },
+  "components": [
+    {
+      "name": "plenora-IO-tools",
+      "revision": "59369fdfb6dbb5d1d7c97a29865ca39ae21c6f76",
+      "role": "file_boundary"
+    },
+    {
+      "name": "plenora-data-tools",
+      "revision": "40771dec2426ba79dc777b2243a6a16bd4a3072d",
+      "role": "transformation_core"
+    },
+    {
+      "name": "plenora-database-tools",
+      "revision": "834fff4fbe0c62cc2f02278073e58b0cf2159f8d",
+      "role": "database_boundary"
+    }
+  ],
+  "required_directions": [
+    "io_to_data_to_database",
+    "database_to_data_to_io"
+  ],
+  "required_fixtures": [
+    "exact_point_xy_resolved_crs",
+    "exact_multipolygon_xyzm_with_srid",
+    "mixed_geometry_types",
+    "declared_unresolved_crs",
+    "missing_crs",
+    "geography_semantics",
+    "native_metadata_identity_lineage",
+    "conflicting_crs_representations"
+  ],
+  "required_properties": [
+    "contract_version",
+    "types_declaration",
+    "geometry_types",
+    "dimensions",
+    "encoding",
+    "geometry_or_geography",
+    "precision",
+    "srid",
+    "crs_id",
+    "crs_resolution",
+    "crs_definition",
+    "crs_definition_format",
+    "axis_order",
+    "native_metadata"
+  ],
+  "pass_conditions": [
+    "All three revisions and the ICD revision are immutable and recorded.",
+    "Identity-preserving operations preserve every required property byte-for-byte.",
+    "Derived fields reconstruct metadata from the result and never inherit invalid source metadata.",
+    "Conflicting representations fail closed with the same four-axis error semantics.",
+    "Both required directions pass on Linux and Windows without an unreported LossReport entry.",
+    "The evidence bundle includes commands, environment, fixture hashes and results."
+  ],
+  "open_blockers": [
+    "No cross-repository executable harness currently exercises the complete three-component chain.",
+    "The data-tools propagation milestones have not yet supplied evidence for every required fixture.",
+    "The candidate ICD sections used by the wire contract are not all ratified."
+  ]
+}

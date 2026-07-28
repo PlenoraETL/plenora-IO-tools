@@ -7,11 +7,19 @@ Data: 2026-07-28
 Baseline IO-tools: commit
 `1c1ee61e6d87ce2810ec482298b483e90a3abe80`.
 
+Obiettivo ICD candidato: `plenora-contracts@v2.0-rc3`, revisione
+`ef2640348426425585ad228312468e7cf1d0e50f`. Il tag è annotato ma non firmato;
+il registro dichiara §2, §3.4, le estensioni §4.3.1–§4.3.3, §9 e §11 come
+`proposta`.
+
 La modifica adotta localmente i contratti trasversali richiesti per
 `contract.version`, `types_declaration`, CRS, errore a quattro assi e
 cancellazione. Il documento trasversale resta distinto dalla relativa
 ratifica: questa implementazione è autorizzata per IO-tools, ma non dichiara
-da sola la ratifica degli altri componenti Plenora.
+da sola la ratifica degli altri componenti Plenora né conformità completa
+all'ICD. L'emissione delle chiavi candidate prima della ratifica è registrata
+come deroga locale nel manifest di provenienza della RC; la condizione di
+rientro è ratifica compatibile o migrazione alla forma sostitutiva.
 
 ## Modifiche al confine dati
 
