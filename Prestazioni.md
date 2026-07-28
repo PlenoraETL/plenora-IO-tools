@@ -382,3 +382,26 @@ RSS oltre il 5%.
 Il gate comparativo è superato. La baseline versionata è
 `baseline/streaming-before.json`; il post locale è
 `target/paired-after.json`.
+
+---
+
+## 12. Evidenza 2026-07-28 — campagna di ottimizzazione mirata
+
+Baseline di codice `68e4108a7f49d84fd0265c375cee47679a4e25ca`.
+Il dettaglio, inclusi i prototipi rimossi, è in
+`docs/assurance/CHANGE_IMPACT_2026-07-28_OPTIMIZATION_CAMPAIGN.md`.
+
+Gli interventi mantenuti riducono le allocazioni del writer GeoPackage (-75%)
+e del reader CSV nel percorso WKB (-33%). Il visitor strutturale WKB, misurato
+su un milione di Polygon, passa da circa 8,3 a 58,8 milioni di geometrie/s ed
+elimina due allocazioni per geometria rispetto alla costruzione dell'AST.
+
+La projection SQL GeoPackage è stata misurata su 500.000 righe con sette coppie
+alternate full/projected: throughput mediano +6,8%, CPU -21%, allocazioni -72%
+e batch massimo da 3,93 a 1,05 MB. Il batch successivo è dimensionato usando i
+byte Arrow osservati, sempre entro `target_bytes` e `max_rows`.
+
+I prototipi XLSX writer e KML pull-adapter sono stati rimossi perché perdevano
+rispettivamente oltre il 12% e circa il 76% di throughput. DXF progressivo e
+XLSX a una passata restano subordinati a interfacce upstream e a uno
+`schema_hint`; non viene duplicato un parser non qualificato.

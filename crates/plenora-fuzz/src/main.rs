@@ -27,7 +27,7 @@ use driver_common::wkt_lossless::{format_wkt, parse_wkt};
 use geo_types::Geometry;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
-    decode_wkb, encode_wkb, from_wkb, to_wkb, WkbFlavor, WkbGeometry, WkbValue,
+    decode_wkb, encode_wkb, from_wkb, inspect_wkb, to_wkb, WkbFlavor, WkbGeometry, WkbValue,
 };
 
 // --- PRNG deterministico (xorshift64) --------------------------------------
@@ -369,7 +369,30 @@ const LIM: WkbLimits = WkbLimits {
 
 /// Invarianti sul codec WKB e sullo scanner bbox, da byte grezzi.
 fn check_wkb(data: &[u8]) -> Result<(), String> {
-    if let Ok(lossless) = decode_wkb(data, &LIM) {
+    let decoded_lossless = decode_wkb(data, &LIM);
+    let inspected = inspect_wkb(data, &LIM);
+    match (&decoded_lossless, &inspected) {
+        (Ok(decoded), Ok(inspection)) => {
+            if decoded.geometry_type() != inspection.geometry_type
+                || decoded.dimensions != inspection.dimensions
+                || decoded.srid != inspection.srid
+            {
+                return Err("visitor WKB e decoder divergono su tipo/dimensioni/SRID".to_owned());
+            }
+        }
+        (Ok(_), Err(error)) => {
+            return Err(format!(
+                "visitor WKB rifiuta input accettato dal decoder: {error}"
+            ));
+        }
+        (Err(error), Ok(_)) => {
+            return Err(format!(
+                "visitor WKB accetta input rifiutato dal decoder: {error}"
+            ));
+        }
+        (Err(_), Err(_)) => {}
+    }
+    if let Ok(lossless) = decoded_lossless {
         let encoded = encode_wkb(&lossless, WkbFlavor::Ewkb)
             .map_err(|e| format!("encode lossless dopo decode OK fallisce: {e}"))?;
         let decoded = decode_wkb(&encoded, &LIM)

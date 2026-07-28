@@ -10,7 +10,8 @@ use crate::error::Result;
 use crate::limits::WkbLimits;
 
 pub use crate::wkb_lossless::{
-    decode_wkb, encode_wkb, encode_wkb_into, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+    decode_wkb, encode_wkb, encode_wkb_into, inspect_wkb, WkbCoordinate, WkbFlavor, WkbGeometry,
+    WkbInspection, WkbValue,
 };
 
 /// Serializza una geometria `geo-types` in WKB XY little-endian, riusando il
@@ -42,7 +43,7 @@ mod tests {
         Polygon,
     };
 
-    use crate::contract::CoordinateDimensions;
+    use crate::contract::{CoordinateDimensions, GeometryType};
 
     use super::*;
 
@@ -92,6 +93,36 @@ mod tests {
                 encode_wkb(&ast, WkbFlavor::Iso).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn allocation_free_inspection_matches_the_authoritative_decoder() {
+        for geometry in sample_geometries() {
+            let bytes = to_wkb(&geometry).unwrap();
+            let decoded = decode_wkb(&bytes, &WkbLimits::default()).unwrap();
+            let inspected = inspect_wkb(&bytes, &WkbLimits::default()).unwrap();
+            assert_eq!(inspected.geometry_type, decoded.geometry_type());
+            assert_eq!(inspected.dimensions, decoded.dimensions);
+            assert_eq!(inspected.srid, decoded.srid);
+            assert!(inspected.nested_dimensions_coherent);
+            assert!(!inspected.contains_srid);
+        }
+
+        let ewkb = WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 1.0,
+                y: 2.0,
+                z: Some(3.0),
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xyz,
+            srid: Some(4326),
+        };
+        let bytes = encode_wkb(&ewkb, WkbFlavor::Ewkb).unwrap();
+        let inspected = inspect_wkb(&bytes, &WkbLimits::default()).unwrap();
+        assert_eq!(inspected.geometry_type, GeometryType::Point);
+        assert_eq!(inspected.srid, Some(4326));
+        assert!(inspected.contains_srid);
     }
 
     #[test]
@@ -182,6 +213,7 @@ mod tests {
         let mut bytes = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
         bytes.push(0);
         assert!(decode_wkb(&bytes, &WkbLimits::default()).is_err());
+        assert!(inspect_wkb(&bytes, &WkbLimits::default()).is_err());
         assert!(from_wkb(&bytes, &WkbLimits::default()).is_err());
     }
 

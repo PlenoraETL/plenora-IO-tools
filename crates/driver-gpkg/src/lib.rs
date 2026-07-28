@@ -18,12 +18,12 @@ use arrow_array::builder::{BinaryBuilder, Float64Builder, Int64Builder, StringBu
 use arrow_array::{
     Array, ArrayRef, BinaryArray, BinaryViewArray, BooleanArray, FixedSizeBinaryArray,
     Float16Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array,
-    LargeBinaryArray, LargeStringArray, RecordBatch, StringArray, StringViewArray, UInt16Array,
-    UInt32Array, UInt64Array, UInt8Array,
+    LargeBinaryArray, LargeStringArray, RecordBatch, RecordBatchOptions, StringArray,
+    StringViewArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use rusqlite::types::{Value, ValueRef};
-use rusqlite::Connection;
+use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
+use rusqlite::{Connection, Statement};
 
 use driver_common::geometry_field;
 use plenora_io_core::descriptor::{
@@ -36,7 +36,7 @@ use plenora_io_core::driver::{
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
-use plenora_io_core::request::{Bbox, ReadRequest};
+use plenora_io_core::request::{BatchTarget, Bbox, ProjectionMode, ReadRequest};
 use plenora_io_core::{
     validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
@@ -77,7 +77,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: true,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-    projection_support: plenora_io_core::ProjectionSupport::None,
+    projection_support: plenora_io_core::ProjectionSupport::Exact,
     predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
     spatial_pruning_support: plenora_io_core::SpatialPruningSupport::OptionalRtreeIndex,
     crs_handling: CrsHandling::Embedded,
@@ -94,8 +94,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 5,
-    descriptor_version: 5,
+    driver_version: 6,
+    descriptor_version: 6,
 };
 
 pub struct GpkgDriver;
@@ -270,21 +270,28 @@ impl OpenDatasetHandle for GpkgDataset {
         let m = &self.metas[idx];
         let conn = Connection::open(&self.path).map_err(sql_err)?;
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
-        let attr_cols: Vec<String> = m
+        let (selected, schema, layer) = project_gpkg_layer(m, &self.layers[idx], request)?;
+        let attr_cols: Vec<String> = selected
             .attrs
             .iter()
             .map(|(name, _)| format!("t.{}", quote(name)))
             .collect();
-        let select = if attr_cols.is_empty() {
-            format!("t.{}", quote(&m.geom_col))
+        let mut selected_cols =
+            Vec::with_capacity(usize::from(selected.geometry) + attr_cols.len());
+        if selected.geometry {
+            selected_cols.push(format!("t.{}", quote(&m.geom_col)));
+        }
+        selected_cols.extend(attr_cols);
+        let select = if selected_cols.is_empty() {
+            "t.rowid".to_owned()
         } else {
-            format!("t.{}, {}", quote(&m.geom_col), attr_cols.join(", "))
+            format!("t.rowid, {}", selected_cols.join(", "))
         };
         let spatial_hint = request.spatial_pruning_hint.filter(valid_bbox);
         let (sql, spatial_hint) = match (&m.rtree_table, spatial_hint) {
             (Some(rtree), Some(bbox)) => (
                 format!(
-                    "SELECT t.rowid, {select} FROM {} AS t
+                    "SELECT {select} FROM {} AS t
                      JOIN {} AS r ON r.id = t.rowid
                      WHERE t.rowid > ?1
                        AND r.maxx >= ?3 AND r.minx <= ?4
@@ -297,7 +304,7 @@ impl OpenDatasetHandle for GpkgDataset {
             ),
             _ => (
                 format!(
-                    "SELECT t.rowid, {select} FROM {} AS t
+                    "SELECT {select} FROM {} AS t
                      WHERE t.rowid > ?1 ORDER BY t.rowid LIMIT ?2",
                     quote(&m.table),
                 ),
@@ -308,14 +315,16 @@ impl OpenDatasetHandle for GpkgDataset {
             conn,
             sql,
             spatial_hint,
-            schema: m.schema.clone(),
-            attrs: m.attrs.clone(),
+            schema: schema.clone(),
+            include_geometry: selected.geometry,
+            attrs: selected.attrs,
             batch_size: plenora_io_core::effective_batch_rows(
-                m.schema.as_ref(),
+                schema.as_ref(),
                 request.batch_target,
-            ) as i64,
+            ),
+            batch_target: request.batch_target,
             last_rowid: 0,
-            layer: self.layers[idx].clone(),
+            layer,
         });
         Ok(plenora_io_core::with_cancellation(
             reader,
@@ -324,13 +333,85 @@ impl OpenDatasetHandle for GpkgDataset {
     }
 }
 
+struct ProjectedGpkgColumns {
+    geometry: bool,
+    attrs: Vec<(String, DataType)>,
+}
+
+fn project_gpkg_layer(
+    meta: &LayerRead,
+    source_layer: &LayerContract,
+    request: &ReadRequest,
+) -> Result<(ProjectedGpkgColumns, SchemaRef, LayerContract)> {
+    let mut indices = match &request.projected_fields {
+        None => (0..meta.schema.fields().len()).collect::<Vec<_>>(),
+        Some(field_ids) => {
+            let mut indices = Vec::with_capacity(field_ids.len());
+            for field_id in field_ids {
+                let index = field_id.0 as usize;
+                if index >= meta.schema.fields().len() {
+                    if request.projection_mode == ProjectionMode::Required {
+                        return Err(PlenoraIoError::Contract(format!(
+                            "projection Required: field id {} fuori range",
+                            field_id.0
+                        )));
+                    }
+                    continue;
+                }
+                if !indices.contains(&index) {
+                    indices.push(index);
+                }
+            }
+            indices
+        }
+    };
+    indices.sort_unstable();
+
+    let fields = indices
+        .iter()
+        .map(|&index| meta.schema.field(index).as_ref().clone())
+        .collect::<Vec<_>>();
+    let schema = Arc::new(Schema::new_with_metadata(
+        fields,
+        meta.schema.metadata().clone(),
+    ));
+    let geometry = indices.first() == Some(&0);
+    let attrs = indices
+        .iter()
+        .filter_map(|&index| {
+            index
+                .checked_sub(1)
+                .and_then(|attr_index| meta.attrs.get(attr_index))
+                .cloned()
+        })
+        .collect();
+    let mut layer = source_layer.clone();
+    layer.contract = DataContract {
+        schema: schema.clone(),
+        geometry: if geometry {
+            layer
+                .contract
+                .geometry
+                .map(|geometry| GeometryColumnContract {
+                    field_id: FieldId(0),
+                    ..geometry
+                })
+        } else {
+            None
+        },
+    };
+    Ok((ProjectedGpkgColumns { geometry, attrs }, schema, layer))
+}
+
 struct GpkgReader {
     conn: Connection,
     sql: String,
     spatial_hint: Option<Bbox>,
     schema: SchemaRef,
+    include_geometry: bool,
     attrs: Vec<(String, DataType)>,
-    batch_size: i64,
+    batch_size: usize,
+    batch_target: BatchTarget,
     last_rowid: i64,
     layer: LayerContract,
 }
@@ -353,25 +434,29 @@ impl LayerReader for GpkgReader {
         let mut rows = match self.spatial_hint {
             Some(bbox) => stmt.query(rusqlite::params![
                 self.last_rowid,
-                self.batch_size,
+                self.batch_size as i64,
                 bbox.minx,
                 bbox.maxx,
                 bbox.miny,
                 bbox.maxy,
             ]),
-            None => stmt.query(rusqlite::params![self.last_rowid, self.batch_size]),
+            None => stmt.query(rusqlite::params![self.last_rowid, self.batch_size as i64]),
         }
         .map_err(sql_err)?;
         while let Some(row) = rows.next().map_err(sql_err)? {
             let rowid: i64 = row.get(0).map_err(sql_err)?;
             max_rowid = max_rowid.max(rowid);
-            match row.get_ref(1).map_err(sql_err)? {
-                ValueRef::Null => geom.append_null(),
-                ValueRef::Blob(b) => geom.append_value(strip_gpkg_header(b)?),
-                _ => return Err(err("colonna geometria non è un BLOB")),
+            let mut column = 1;
+            if self.include_geometry {
+                match row.get_ref(column).map_err(sql_err)? {
+                    ValueRef::Null => geom.append_null(),
+                    ValueRef::Blob(b) => geom.append_value(strip_gpkg_header(b)?),
+                    _ => return Err(err("colonna geometria non è un BLOB")),
+                }
+                column += 1;
             }
             for (i, b) in attr_builders.iter_mut().enumerate() {
-                b.append(row.get_ref(2 + i).map_err(sql_err)?);
+                b.append(row.get_ref(column + i).map_err(sql_err)?);
             }
             count += 1;
         }
@@ -379,15 +464,30 @@ impl LayerReader for GpkgReader {
             return Ok(None);
         }
         self.last_rowid = max_rowid;
-        let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + attr_builders.len());
-        arrays.push(Arc::new(geom.finish()));
+        let mut arrays: Vec<ArrayRef> =
+            Vec::with_capacity(usize::from(self.include_geometry) + attr_builders.len());
+        if self.include_geometry {
+            arrays.push(Arc::new(geom.finish()));
+        }
         for b in attr_builders {
             arrays.push(b.finish());
         }
-        let batch = RecordBatch::try_new(self.schema.clone(), arrays)
+        let options = RecordBatchOptions::new().with_row_count(Some(count));
+        let batch = RecordBatch::try_new_with_options(self.schema.clone(), arrays, &options)
             .map_err(|e| err(format!("batch: {e}")))?;
+        self.batch_size =
+            adaptive_batch_rows(count, batch.get_array_memory_size(), self.batch_target);
         Ok(Some(batch))
     }
+}
+
+fn adaptive_batch_rows(row_count: usize, batch_bytes: usize, target: BatchTarget) -> usize {
+    if row_count == 0 || batch_bytes == 0 {
+        return target.max_rows.max(1);
+    }
+    let rows_for_bytes =
+        (target.target_bytes.max(1).saturating_mul(row_count) / batch_bytes).max(1);
+    rows_for_bytes.min(target.max_rows.max(1))
 }
 
 enum ColBuilder {
@@ -503,33 +603,72 @@ fn insert_batch(conn: &Connection, a: &ActiveLayer, batch: &RecordBatch) -> Resu
         .filter(|i| *i != a.geom_idx)
         .collect();
     let mut stmt = conn.prepare_cached(&a.insert_sql).map_err(sql_err)?;
+    let mut geometry_blob = Vec::new();
     for row in 0..batch.num_rows() {
-        let mut params: Vec<Value> = Vec::with_capacity(1 + attr_idx.len());
-        if geom_col.is_null(row) {
-            params.push(Value::Null);
+        geometry_blob.clear();
+        let geometry = if geom_col.is_null(row) {
+            None
         } else {
-            let mut blob = gpkg_header(a.srs_id).to_vec();
-            blob.extend_from_slice(geom_col.value(row));
-            params.push(Value::Blob(blob));
-        }
-        for &i in &attr_idx {
-            params.push(arrow_cell_to_sql(batch.column(i), row)?);
-        }
-        stmt.execute(rusqlite::params_from_iter(params.iter()))
-            .map_err(sql_err)?;
+            geometry_blob.extend_from_slice(&gpkg_header(a.srs_id));
+            geometry_blob.extend_from_slice(geom_col.value(row));
+            Some(geometry_blob.as_slice())
+        };
+        execute_insert_row(&mut stmt, batch, &attr_idx, row, geometry)?;
     }
     Ok(())
 }
 
-fn arrow_cell_to_sql(array: &ArrayRef, row: usize) -> Result<Value> {
+fn execute_insert_row(
+    statement: &mut Statement<'_>,
+    batch: &RecordBatch,
+    attribute_indices: &[usize],
+    row: usize,
+    geometry: Option<&[u8]>,
+) -> Result<()> {
+    let mut params = Vec::with_capacity(1 + attribute_indices.len());
+    params.push(match geometry {
+        Some(bytes) => BorrowedSqlValue::Blob(bytes),
+        None => BorrowedSqlValue::Null,
+    });
+    for &index in attribute_indices {
+        params.push(arrow_cell_to_sql_ref(batch.column(index), row)?);
+    }
+    statement
+        .execute(rusqlite::params_from_iter(params.iter()))
+        .map_err(sql_err)?;
+    Ok(())
+}
+
+#[derive(Debug, PartialEq)]
+enum BorrowedSqlValue<'a> {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(&'a str),
+    Blob(&'a [u8]),
+}
+
+impl ToSql for BorrowedSqlValue<'_> {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(match self {
+            Self::Null => ToSqlOutput::Borrowed(ValueRef::Null),
+            Self::Integer(value) => ToSqlOutput::Borrowed(ValueRef::Integer(*value)),
+            Self::Real(value) => ToSqlOutput::Borrowed(ValueRef::Real(*value)),
+            Self::Text(value) => ToSqlOutput::Borrowed(ValueRef::Text(value.as_bytes())),
+            Self::Blob(value) => ToSqlOutput::Borrowed(ValueRef::Blob(value)),
+        })
+    }
+}
+
+fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<BorrowedSqlValue<'a>> {
     if array.is_null(row) {
-        return Ok(Value::Null);
+        return Ok(BorrowedSqlValue::Null);
     }
     let a = array.as_any();
     macro_rules! signed_integer {
         ($array:ty) => {
             if let Some(values) = a.downcast_ref::<$array>() {
-                return Ok(Value::Integer(values.value(row) as i64));
+                return Ok(BorrowedSqlValue::Integer(values.value(row) as i64));
             }
         };
     }
@@ -540,7 +679,7 @@ fn arrow_cell_to_sql(array: &ArrayRef, row: usize) -> Result<Value> {
     macro_rules! unsigned_integer {
         ($array:ty) => {
             if let Some(values) = a.downcast_ref::<$array>() {
-                return Ok(Value::Integer(values.value(row) as i64));
+                return Ok(BorrowedSqlValue::Integer(values.value(row) as i64));
             }
         };
     }
@@ -551,52 +690,52 @@ fn arrow_cell_to_sql(array: &ArrayRef, row: usize) -> Result<Value> {
         let value = i64::try_from(values.value(row)).map_err(|_| {
             err("UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage")
         })?;
-        return Ok(Value::Integer(value));
+        return Ok(BorrowedSqlValue::Integer(value));
     }
     if let Some(x) = a.downcast_ref::<Float16Array>() {
         let value = f64::from(f32::from(x.value(row)));
         if !value.is_finite() {
             return Err(err("Float16 non finito non rappresentabile in GeoPackage"));
         }
-        return Ok(Value::Real(value));
+        return Ok(BorrowedSqlValue::Real(value));
     }
     if let Some(x) = a.downcast_ref::<Float32Array>() {
         let value = f64::from(x.value(row));
         if !value.is_finite() {
             return Err(err("Float32 non finito non rappresentabile in GeoPackage"));
         }
-        return Ok(Value::Real(value));
+        return Ok(BorrowedSqlValue::Real(value));
     }
     if let Some(x) = a.downcast_ref::<Float64Array>() {
         let value = x.value(row);
         if !value.is_finite() {
             return Err(err("Float64 non finito non rappresentabile in GeoPackage"));
         }
-        return Ok(Value::Real(value));
+        return Ok(BorrowedSqlValue::Real(value));
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
-        return Ok(Value::Integer(x.value(row) as i64));
+        return Ok(BorrowedSqlValue::Integer(x.value(row) as i64));
     }
     if let Some(x) = a.downcast_ref::<StringArray>() {
-        return Ok(Value::Text(x.value(row).to_owned()));
+        return Ok(BorrowedSqlValue::Text(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<LargeStringArray>() {
-        return Ok(Value::Text(x.value(row).to_owned()));
+        return Ok(BorrowedSqlValue::Text(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<StringViewArray>() {
-        return Ok(Value::Text(x.value(row).to_owned()));
+        return Ok(BorrowedSqlValue::Text(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<BinaryArray>() {
-        return Ok(Value::Blob(x.value(row).to_vec()));
+        return Ok(BorrowedSqlValue::Blob(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<LargeBinaryArray>() {
-        return Ok(Value::Blob(x.value(row).to_vec()));
+        return Ok(BorrowedSqlValue::Blob(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<BinaryViewArray>() {
-        return Ok(Value::Blob(x.value(row).to_vec()));
+        return Ok(BorrowedSqlValue::Blob(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<FixedSizeBinaryArray>() {
-        return Ok(Value::Blob(x.value(row).to_vec()));
+        return Ok(BorrowedSqlValue::Blob(x.value(row)));
     }
     Err(PlenoraIoError::Unsupported(format!(
         "GeoPackage: tipo Arrow {:?} non rappresentabile senza conversione esplicita",
@@ -1051,8 +1190,11 @@ mod tests {
         let values: ArrayRef = Arc::new(Int32Array::from(vec![7]));
         let overflow: ArrayRef = Arc::new(UInt64Array::from(vec![u64::MAX]));
 
-        assert_eq!(arrow_cell_to_sql(&values, 0).unwrap(), Value::Integer(7));
-        assert!(arrow_cell_to_sql(&overflow, 0).is_err());
+        assert_eq!(
+            arrow_cell_to_sql_ref(&values, 0).unwrap(),
+            BorrowedSqlValue::Integer(7)
+        );
+        assert!(arrow_cell_to_sql_ref(&overflow, 0).is_err());
     }
 
     #[test]
@@ -1334,6 +1476,51 @@ mod tests {
             .unwrap();
         assert_eq!(idcol.value(1), 2);
         assert!(reader.next_batch().unwrap().is_none());
+
+        let mut attributes_only = ds
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: Some(vec![FieldId(1)]),
+                projection_mode: ProjectionMode::Required,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
+            })
+            .unwrap();
+        assert!(attributes_only.contract().contract.geometry.is_none());
+        assert_eq!(attributes_only.contract().contract.schema.fields().len(), 1);
+        let projected = attributes_only.next_batch().unwrap().unwrap();
+        assert_eq!(projected.num_rows(), 2);
+        assert_eq!(projected.num_columns(), 1);
+        assert_eq!(projected.schema().field(0).name(), "id");
+
+        let mut no_columns = ds
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: Some(Vec::new()),
+                projection_mode: ProjectionMode::Required,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
+            })
+            .unwrap();
+        let projected = no_columns.next_batch().unwrap().unwrap();
+        assert_eq!(projected.num_rows(), 2);
+        assert_eq!(projected.num_columns(), 0);
+    }
+
+    #[test]
+    fn adaptive_batch_sizing_respects_both_limits() {
+        let target = BatchTarget {
+            target_bytes: 1_000,
+            max_rows: 100,
+        };
+        assert_eq!(adaptive_batch_rows(20, 4_000, target), 5);
+        assert_eq!(adaptive_batch_rows(20, 10, target), 100);
+        assert_eq!(adaptive_batch_rows(20, usize::MAX, target), 1);
+        assert_eq!(adaptive_batch_rows(0, 0, target), 100);
     }
 
     #[test]

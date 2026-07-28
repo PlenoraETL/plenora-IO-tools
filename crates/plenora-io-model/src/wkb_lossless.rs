@@ -45,6 +45,17 @@ pub struct WkbGeometry {
     pub srid: Option<i32>,
 }
 
+/// Risultato bounded di una visita strutturale WKB/EWKB senza materializzare
+/// coordinate, anelli o geometrie figlie.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WkbInspection {
+    pub geometry_type: GeometryType,
+    pub dimensions: CoordinateDimensions,
+    pub srid: Option<i32>,
+    pub nested_dimensions_coherent: bool,
+    pub contains_srid: bool,
+}
+
 impl WkbGeometry {
     /// Adatta una geometria `geo-types` 2D all'AST WKB autoritativo.
     ///
@@ -271,6 +282,14 @@ impl<'a> Reader<'a> {
         self.components_left -= 1;
         Ok(())
     }
+
+    fn charge_coordinates(&mut self, count: usize) -> Result<()> {
+        if count > self.components_left {
+            return Err(error("troppi componenti nella geometria"));
+        }
+        self.components_left -= count;
+        Ok(())
+    }
 }
 
 fn dimension_flags(dimensions: CoordinateDimensions) -> Result<(bool, bool)> {
@@ -427,6 +446,113 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
         dimensions,
         srid,
     })
+}
+
+fn skip_coordinates(
+    reader: &mut Reader,
+    little_endian: bool,
+    dimensions: CoordinateDimensions,
+) -> Result<()> {
+    let count = reader.u32(little_endian)?;
+    let coordinate_bytes = coordinate_size(dimensions)?;
+    let count = reader.ensure_count(count, coordinate_bytes)?;
+    reader.charge_coordinates(count)?;
+    let bytes = count
+        .checked_mul(coordinate_bytes)
+        .ok_or_else(|| error("overflow nella dimensione delle coordinate WKB"))?;
+    let _ = reader.take(bytes)?;
+    Ok(())
+}
+
+fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> {
+    if depth > reader.max_depth {
+        return Err(error("WKB annidato troppo in profondità"));
+    }
+    let little_endian = reader.byte_order()?;
+    let (base, dimensions, has_srid) = decode_type(reader.u32(little_endian)?)?;
+    let geometry_type = match base {
+        1 => GeometryType::Point,
+        2 => GeometryType::LineString,
+        3 => GeometryType::Polygon,
+        4 => GeometryType::MultiPoint,
+        5 => GeometryType::MultiLineString,
+        6 => GeometryType::MultiPolygon,
+        7 => GeometryType::GeometryCollection,
+        _ => return Err(error(format!("tipo WKB non supportato: {base}"))),
+    };
+    let srid = if has_srid {
+        Some(reader.u32(little_endian)? as i32)
+    } else {
+        None
+    };
+    let mut nested_dimensions_coherent = true;
+    let mut contains_srid = srid.is_some();
+
+    match base {
+        1 => {
+            reader.charge_coordinate()?;
+            let _ = reader.take(coordinate_size(dimensions)?)?;
+        }
+        2 => skip_coordinates(reader, little_endian, dimensions)?,
+        3 => {
+            let ring_count = reader.u32(little_endian)?;
+            let ring_count = reader.ensure_count(ring_count, 4)?;
+            for _ in 0..ring_count {
+                skip_coordinates(reader, little_endian, dimensions)?;
+            }
+        }
+        4..=7 => {
+            let count = reader.u32(little_endian)?;
+            let count = reader.ensure_count(count, 9)?;
+            for _ in 0..count {
+                let child = inspect_geometry(reader, depth + 1)?;
+                let expected_child = match base {
+                    4 => Some(GeometryType::Point),
+                    5 => Some(GeometryType::LineString),
+                    6 => Some(GeometryType::Polygon),
+                    _ => None,
+                };
+                if expected_child.is_some_and(|expected| child.geometry_type != expected) {
+                    return Err(error(format!(
+                        "{geometry_type:?} con membro {:?}",
+                        child.geometry_type
+                    )));
+                }
+                nested_dimensions_coherent &=
+                    child.dimensions == dimensions && child.nested_dimensions_coherent;
+                contains_srid |= child.contains_srid;
+            }
+        }
+        _ => return Err(error("tipo WKB non supportato durante l'ispezione")),
+    }
+
+    Ok(WkbInspection {
+        geometry_type,
+        dimensions,
+        srid,
+        nested_dimensions_coherent,
+        contains_srid,
+    })
+}
+
+/// Valida e ispeziona WKB/EWKB senza allocare l'AST lossless.
+pub fn inspect_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbInspection> {
+    #[cfg(feature = "metrics")]
+    crate::metrics::inc_decode();
+    if bytes.len() > limits.max_cell_bytes {
+        return Err(error("cella WKB oltre il limite di byte"));
+    }
+    let mut reader = Reader {
+        bytes,
+        pos: 0,
+        components_left: limits.max_components,
+        max_depth: limits.max_depth,
+    };
+    let inspection = inspect_geometry(&mut reader, 0)?;
+    if reader.pos != bytes.len() {
+        return Err(error("byte residui dopo la geometria WKB"));
+    }
+    Ok(inspection)
 }
 
 /// Decodifica WKB ISO o EWKB senza perdere Z, M o SRID.

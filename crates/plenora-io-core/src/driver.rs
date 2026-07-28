@@ -12,7 +12,7 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::geometry::{is_geometry_field, read_geometry_contract_metadata};
 use plenora_io_model::limits::Limits;
-use plenora_io_model::wkb::{decode_wkb, WkbGeometry, WkbValue};
+use plenora_io_model::wkb::{inspect_wkb, WkbInspection};
 use plenora_io_model::{
     CancellationReason, CancellationToken, CapabilityReason, ErrorPhase, PlenoraIoError, Result,
 };
@@ -534,30 +534,11 @@ fn geometry_violation(
     PlenoraIoError::capability(driver, Some(field.to_owned()), reason, detail)
 }
 
-fn geometry_nodes_match(
-    geometry: &WkbGeometry,
-    dimensions: CoordinateDimensions,
-    allow_srid: bool,
-) -> bool {
-    if geometry.dimensions != dimensions || (!allow_srid && geometry.srid.is_some()) {
-        return false;
-    }
-    match &geometry.value {
-        WkbValue::MultiPoint(values)
-        | WkbValue::MultiLineString(values)
-        | WkbValue::MultiPolygon(values)
-        | WkbValue::GeometryCollection(values) => values
-            .iter()
-            .all(|value| geometry_nodes_match(value, dimensions, allow_srid)),
-        WkbValue::Point(_) | WkbValue::LineString(_) | WkbValue::Polygon(_) => true,
-    }
-}
-
-fn validate_decoded_geometry(
+fn validate_inspected_geometry(
     driver: &'static str,
     support: GeometryWriteSupport,
     contract: &GeometryColumnContract,
-    geometry: &WkbGeometry,
+    geometry: &WkbInspection,
 ) -> Result<()> {
     let actual_dimensions = geometry.dimensions;
     if contract.dimensions != CoordinateDimensions::Unknown
@@ -583,7 +564,7 @@ fn validate_decoded_geometry(
     }
 
     let allow_srid = contract.encoding == GeometryEncoding::Ewkb;
-    if !geometry_nodes_match(geometry, actual_dimensions, allow_srid) {
+    if !geometry.nested_dimensions_coherent || (!allow_srid && geometry.contains_srid) {
         return Err(geometry_violation(
             driver,
             &contract.name,
@@ -607,7 +588,7 @@ fn validate_decoded_geometry(
         ));
     }
     if !contract.geometry_types.is_empty()
-        && !contract.geometry_types.contains(&geometry.geometry_type())
+        && !contract.geometry_types.contains(&geometry.geometry_type)
     {
         return Err(geometry_violation(
             driver,
@@ -615,7 +596,7 @@ fn validate_decoded_geometry(
             CapabilityReason::MixedGeometry,
             format!(
                 "tipo {:?} assente dai tipi geometrici dichiarati",
-                geometry.geometry_type()
+                geometry.geometry_type
             ),
         ));
     }
@@ -660,8 +641,8 @@ fn validate_geometry_batch(
             }
             return Ok(());
         };
-        let geometry = decode_wkb(bytes, &wkb_limits)?;
-        validate_decoded_geometry(driver, support, contract, &geometry)
+        let geometry = inspect_wkb(bytes, &wkb_limits)?;
+        validate_inspected_geometry(driver, support, contract, &geometry)
     };
 
     if let Some(values) = array.as_any().downcast_ref::<BinaryArray>() {

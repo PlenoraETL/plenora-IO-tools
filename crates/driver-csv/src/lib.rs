@@ -54,7 +54,7 @@ use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
-    decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+    decode_wkb, encode_wkb_into, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
 use plenora_io_model::{PlenoraIoError, Result};
 
@@ -456,8 +456,9 @@ fn append_geometry(
                 geom_b.append_null();
             } else {
                 let geometry = parse_wkt(cell)?;
-                *buf = encode_wkb(&geometry, WkbFlavor::Iso)?;
-                geom_b.append_value(&buf);
+                buf.clear();
+                encode_wkb_into(&geometry, WkbFlavor::Iso, buf)?;
+                geom_b.append_value(buf.as_slice());
             }
         }
         GeomSpec::Xy(xi, yi) => {
@@ -488,8 +489,9 @@ fn append_geometry(
                 dimensions: CoordinateDimensions::Xy,
                 srid: None,
             };
-            *buf = encode_wkb(&geometry, WkbFlavor::Iso)?;
-            geom_b.append_value(&buf);
+            buf.clear();
+            encode_wkb_into(&geometry, WkbFlavor::Iso, buf)?;
+            geom_b.append_value(buf.as_slice());
         }
     }
     Ok(())

@@ -39,7 +39,8 @@ use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, GeometryType, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, ResolvedCrs};
-use plenora_io_model::wkb::to_wkb;
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::{decode_wkb, inspect_wkb, to_wkb};
 
 const CHUNK: usize = 65_536;
 const POOL: usize = 1024;
@@ -461,7 +462,25 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
     let max_bb;
     let total_bb;
     let io_bytes;
-    if op == "read" || op == "read_proj" || op == "read_pruned" {
+    if op == "wkb_decode" || op == "wkb_inspect" {
+        let limits = WkbLimits::default();
+        let mut logical_bytes = 0u64;
+        for index in 0..rows {
+            let bytes = &pool[index % pool.len()];
+            logical_bytes = logical_bytes.saturating_add(bytes.len() as u64);
+            if op == "wkb_decode" {
+                std::hint::black_box(decode_wkb(bytes, &limits).unwrap());
+            } else {
+                std::hint::black_box(inspect_wkb(bytes, &limits).unwrap());
+            }
+        }
+        rows_done = rows;
+        geoms = rows;
+        batches = 0;
+        max_bb = 0;
+        total_bb = 0;
+        io_bytes = logical_bytes;
+    } else if op == "read" || op == "read_proj" || op == "read_pruned" {
         let path = fixture_path(id);
         // read_proj: proietta solo id (1) + val (3), saltando geometria(0) e name(2).
         let proj = if op == "read_proj" {

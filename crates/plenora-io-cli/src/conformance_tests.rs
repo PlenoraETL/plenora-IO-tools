@@ -275,7 +275,7 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
         }
     }
     exact.sort_unstable();
-    assert_eq!(exact, vec!["geoparquet", "ipc"]);
+    assert_eq!(exact, vec!["geoparquet", "gpkg", "ipc"]);
 }
 
 #[test]
@@ -873,7 +873,7 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 7, "catalogo non-exact pure Rust inatteso");
+    assert_eq!(checked, 6, "catalogo non-exact pure Rust inatteso");
 }
 
 #[test]
