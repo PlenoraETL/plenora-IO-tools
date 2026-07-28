@@ -275,7 +275,18 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
         }
     }
     exact.sort_unstable();
-    assert_eq!(exact, vec!["geoparquet", "gpkg", "ipc"]);
+    assert_eq!(
+        exact,
+        vec![
+            "csv",
+            "filegdb",
+            "geojson",
+            "geoparquet",
+            "gpkg",
+            "ipc",
+            "shp"
+        ]
+    );
 }
 
 #[test]
@@ -873,7 +884,51 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 6, "catalogo non-exact pure Rust inatteso");
+    assert_eq!(checked, 3, "catalogo non-exact pure Rust inatteso");
+}
+
+#[test]
+fn every_exact_pure_rust_reader_supports_an_empty_projection() {
+    let mut checked = Vec::new();
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.runtime != Runtime::PureRust
+            || descriptor.projection_support != ProjectionSupport::Exact
+        {
+            continue;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let output = materialize_point_dataset(driver.as_ref(), &directory);
+        let dataset = match driver.open(Source::Path(output), &read_options(descriptor.id)) {
+            Ok(dataset) => dataset,
+            Err(error) => panic!("{}: open projection: {error}", descriptor.id),
+        };
+        let mut reader = match dataset.open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: Some(Vec::new()),
+            projection_mode: ProjectionMode::Required,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            batch_target: BatchTarget::default(),
+            cancellation: Default::default(),
+        }) {
+            Ok(reader) => reader,
+            Err(error) => panic!("{}: projection vuota: {error}", descriptor.id),
+        };
+        let batch = match reader.next_batch() {
+            Ok(Some(batch)) => batch,
+            Ok(None) => panic!("{}: projection ha perso la riga", descriptor.id),
+            Err(error) => panic!("{}: next projection: {error}", descriptor.id),
+        };
+        assert_eq!(batch.num_rows(), 1, "{}", descriptor.id);
+        assert_eq!(batch.num_columns(), 0, "{}", descriptor.id);
+        checked.push(descriptor.id);
+    }
+    checked.sort_unstable();
+    assert_eq!(
+        checked,
+        vec!["csv", "geojson", "geoparquet", "gpkg", "ipc", "shp"]
+    );
 }
 
 #[test]

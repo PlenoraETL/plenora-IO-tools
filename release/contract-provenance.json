@@ -7,8 +7,8 @@
   "wire_contract_version": 1,
   "icd": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "tag": "v2.0-rc3",
-    "revision": "ef2640348426425585ad228312468e7cf1d0e50f",
+    "tag": "v2.0-rc8",
+    "revision": "62b12e3496466d2c908dac3cc098640b99b52e21",
     "tag_form": "annotated_unsigned",
     "normative_status": "partially_ratified",
     "conformance_claim": "candidate_implementation_only"
@@ -42,7 +42,7 @@
   ],
   "declared_deviations": [
     {
-      "rule": "§15.4 step 1",
+      "rule": "§15.4 step 1 / DER-ICD-002",
       "status": "active",
       "reason": "The component emits the candidate §2 canonical keys before ratification under explicit local authorization.",
       "hazard_impact": "Consumers that do not implement the same candidate ICD may reject or discard candidate metadata.",

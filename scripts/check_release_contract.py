@@ -15,8 +15,8 @@ PROVENANCE = ROOT / "release" / "contract-provenance.json"
 SYSTEM_GATE = ROOT / "release" / "system-rc-gate.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
-EXPECTED_ICD_TAG = "v2.0-rc3"
-EXPECTED_ICD_REVISION = "ef2640348426425585ad228312468e7cf1d0e50f"
+EXPECTED_ICD_TAG = "v2.0-rc8"
+EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
 EXPECTED_DATABASE_REVISION = "834fff4fbe0c62cc2f02278073e58b0cf2159f8d"
 REQUIRED_CANDIDATE_SECTIONS = {
     "§2",
@@ -87,7 +87,7 @@ def validate_documents(
     deviations = provenance.get("declared_deviations", [])
     if not any(
         isinstance(deviation, dict)
-        and deviation.get("rule") == "§15.4 step 1"
+        and deviation.get("rule") == "§15.4 step 1 / DER-ICD-002"
         and deviation.get("status") == "active"
         and deviation.get("exit_condition")
         for deviation in deviations

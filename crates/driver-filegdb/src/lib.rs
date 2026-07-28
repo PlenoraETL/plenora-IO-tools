@@ -55,7 +55,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: true,
     multi_file: true, // una .gdb è una directory
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
-    projection_support: plenora_io_core::ProjectionSupport::None,
+    projection_support: plenora_io_core::ProjectionSupport::Exact,
     predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
     spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
     crs_handling: CrsHandling::Embedded,
@@ -72,8 +72,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 8,
-    descriptor_version: 7,
+    driver_version: 9,
+    descriptor_version: 8,
 };
 
 pub struct FileGdbDriver;
@@ -145,7 +145,10 @@ mod backend {
     use arrow_array::builder::{
         BinaryBuilder, Float64Builder, Int32Builder, Int64Builder, StringBuilder,
     };
-    use arrow_array::{ArrayRef, BinaryArray, Float64Array, Int32Array, RecordBatch, StringArray};
+    use arrow_array::{
+        ArrayRef, BinaryArray, Float64Array, Int32Array, RecordBatch, RecordBatchOptions,
+        StringArray,
+    };
     use arrow_schema::{Field, Schema, SchemaRef};
     use gdal::vector::LayerAccess;
     use gdal::Dataset;
@@ -1055,7 +1058,6 @@ mod backend {
             });
             metas.push(LayerMeta {
                 gdal_idx: i,
-                schema,
                 fields,
             });
         }
@@ -1091,7 +1093,6 @@ mod backend {
 
     struct LayerMeta {
         gdal_idx: usize,
-        schema: SchemaRef,
         fields: Vec<(String, DataType)>,
     }
 
@@ -1120,16 +1121,31 @@ mod backend {
                 .position(|l| l.id.0 == request.layer.0)
                 .ok_or_else(|| err(format!("layer {} inesistente", request.layer.0)))?;
             let m = &self.metas[idx];
-            let batch_size =
-                plenora_io_core::effective_batch_rows(m.schema.as_ref(), request.batch_target);
+            let (indices, layer_contract) =
+                plenora_io_core::project_layer_contract(&self.layers[idx], request)?;
+            let include_geometry = indices.binary_search(&0).is_ok();
+            let fields = indices
+                .iter()
+                .filter_map(|&index| {
+                    index
+                        .checked_sub(1)
+                        .and_then(|field_index| m.fields.get(field_index))
+                        .cloned()
+                })
+                .collect();
+            let batch_sizer = plenora_io_core::AdaptiveBatchSizer::new(
+                layer_contract.contract.schema.as_ref(),
+                request.batch_target,
+            );
             let reader = self.reader_gate.open(request.layer, || {
                 spawn_reader(
                     self.path.clone(),
                     m.gdal_idx,
-                    m.schema.clone(),
-                    m.fields.clone(),
-                    batch_size,
-                    self.layers[idx].clone(),
+                    layer_contract.contract.schema.clone(),
+                    fields,
+                    include_geometry,
+                    batch_sizer,
+                    layer_contract,
                 )
             })?;
             Ok(plenora_io_core::with_cancellation(
@@ -1146,7 +1162,8 @@ mod backend {
         gdal_idx: usize,
         schema: SchemaRef,
         fields: Vec<(String, DataType)>,
-        batch_size: usize,
+        include_geometry: bool,
+        mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
         contract: LayerContract,
     ) -> Result<Box<dyn LayerReader>> {
         spawn_batch_reader(DESCRIPTOR.id, contract, 2, move |emitter: BatchEmitter| {
@@ -1155,18 +1172,20 @@ mod backend {
             let mut layer = ds
                 .layer(gdal_idx)
                 .map_err(|error| err(format!("apertura layer FileGDB: {error}")))?;
-            let mut geom = BinaryBuilder::new();
+            let mut geom = include_geometry.then(BinaryBuilder::new);
             let mut builders: Vec<ReadCol> =
                 fields.iter().map(|(_, dt)| ReadCol::new(dt)).collect();
             let mut n = 0usize;
             for feature in layer.features() {
-                match feature
-                    .geometry_by_index(0)
-                    .ok()
-                    .and_then(|geometry| geometry.wkb().ok())
-                {
-                    Some(bytes) => geom.append_value(&bytes),
-                    None => geom.append_null(),
+                if let Some(builder) = &mut geom {
+                    match feature
+                        .geometry_by_index(0)
+                        .ok()
+                        .and_then(|geometry| geometry.wkb().ok())
+                    {
+                        Some(bytes) => builder.append_value(&bytes),
+                        None => builder.append_null(),
+                    }
                 }
                 for (k, (name, _)) in fields.iter().enumerate() {
                     let value = feature
@@ -1175,8 +1194,9 @@ mod backend {
                     builders[k].append(value)?;
                 }
                 n += 1;
-                if n >= batch_size {
-                    let batch = finish_read_batch(&schema, &mut geom, &mut builders)?;
+                if n >= batch_sizer.rows() {
+                    let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
+                    batch_sizer.observe(&batch);
                     if !emitter.send(batch) {
                         return Ok(());
                     }
@@ -1184,7 +1204,7 @@ mod backend {
                 }
             }
             if n > 0 {
-                let batch = finish_read_batch(&schema, &mut geom, &mut builders)?;
+                let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
                 if !emitter.send(batch) {
                     return Ok(());
                 }
@@ -1195,15 +1215,21 @@ mod backend {
 
     fn finish_read_batch(
         schema: &SchemaRef,
-        geom: &mut BinaryBuilder,
+        geom: &mut Option<BinaryBuilder>,
         builders: &mut [ReadCol],
+        row_count: usize,
     ) -> Result<RecordBatch> {
-        let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
-        arrays.push(Arc::new(geom.finish()));
+        let mut arrays: Vec<ArrayRef> =
+            Vec::with_capacity(usize::from(geom.is_some()) + builders.len());
+        if let Some(builder) = geom {
+            arrays.push(Arc::new(builder.finish()));
+        }
         for b in builders.iter_mut() {
             arrays.push(b.finish());
         }
-        RecordBatch::try_new(schema.clone(), arrays).map_err(|error| err(format!("batch: {error}")))
+        let options = RecordBatchOptions::new().with_row_count(Some(row_count));
+        RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
+            .map_err(|error| err(format!("batch: {error}")))
     }
 
     enum ReadCol {
@@ -1654,6 +1680,24 @@ mod backend {
             assert_eq!(labels.value(0), "città");
             assert!(labels.is_null(1));
             assert!(reader.next_batch().unwrap().is_none());
+            drop(reader);
+
+            let mut projected = dataset
+                .open_layer_reader(&ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: Some(vec![FieldId(3)]),
+                    projection_mode: ProjectionMode::Required,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    batch_target: BatchTarget::default(),
+                    cancellation: Default::default(),
+                })
+                .unwrap();
+            assert!(projected.contract().contract.geometry.is_none());
+            let output = projected.next_batch().unwrap().unwrap();
+            assert_eq!(output.num_rows(), 2);
+            assert_eq!(output.num_columns(), 1);
+            assert_eq!(output.schema().field(0).name(), "label");
         }
 
         #[test]

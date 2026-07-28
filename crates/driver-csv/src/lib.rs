@@ -20,7 +20,8 @@ use std::sync::Arc;
 
 use arrow_array::builder::BinaryBuilder;
 use arrow_array::{
-    Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
+    Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch,
+    RecordBatchOptions, StringArray,
 };
 use arrow_schema::{Field, Schema, SchemaRef};
 use serde_json::Value as JsonValue;
@@ -74,7 +75,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-    projection_support: plenora_io_core::ProjectionSupport::None,
+    projection_support: plenora_io_core::ProjectionSupport::Exact,
     predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
     spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
     crs_handling: CrsHandling::None,
@@ -91,8 +92,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 5,
-    descriptor_version: 5,
+    driver_version: 6,
+    descriptor_version: 6,
 };
 
 pub struct CsvDriver;
@@ -213,7 +214,6 @@ impl FormatDriver for CsvDriver {
             delim,
             geom,
             attrs,
-            schema,
             layers: vec![LayerContract {
                 id: LayerId(0),
                 name,
@@ -280,7 +280,6 @@ struct CsvDataset {
     delim: u8,
     geom: GeomSpec,
     attrs: Vec<(usize, ColType)>,
-    schema: SchemaRef,
     layers: Vec<LayerContract>,
 }
 
@@ -293,16 +292,29 @@ impl OpenDatasetHandle for CsvDataset {
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        let batch_size =
-            plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
+        let (indices, layer) = plenora_io_core::project_layer_contract(&self.layers[0], request)?;
+        let include_geometry = indices.binary_search(&0).is_ok();
+        let attrs = indices
+            .iter()
+            .filter_map(|&index| {
+                index
+                    .checked_sub(1)
+                    .and_then(|attr_index| self.attrs.get(attr_index))
+                    .copied()
+            })
+            .collect();
+        let batch_sizer = plenora_io_core::AdaptiveBatchSizer::new(
+            layer.contract.schema.as_ref(),
+            request.batch_target,
+        );
         let reader = spawn_parser(
             self.path.clone(),
             self.delim,
-            self.geom,
-            self.attrs.clone(),
-            self.schema.clone(),
-            batch_size,
-            self.layers[0].clone(),
+            include_geometry.then_some(self.geom),
+            attrs,
+            layer.contract.schema.clone(),
+            batch_sizer,
+            layer,
         )?;
         Ok(plenora_io_core::with_cancellation(
             reader,
@@ -397,16 +409,16 @@ fn infer_wkt_geometry(
 fn spawn_parser(
     path: PathBuf,
     delim: u8,
-    geom: GeomSpec,
+    geom: Option<GeomSpec>,
     attrs: Vec<(usize, ColType)>,
     schema: SchemaRef,
-    batch_size: usize,
+    mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
 ) -> Result<Box<dyn LayerReader>> {
     spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
         let mut rdr = csv_reader(&path, delim)?;
         let mut rec = csv::StringRecord::new();
-        let mut geom_b = BinaryBuilder::new();
+        let mut geom_b = geom.map(|_| BinaryBuilder::new());
         let mut wkb_buf: Vec<u8> = Vec::new(); // riusato per riga: 0 alloc WKB nel loop
         let mut builders: Vec<InferredColumnBuilder> = attrs
             .iter()
@@ -420,13 +432,16 @@ fn spawn_parser(
             if !more {
                 break;
             }
-            append_geometry(&mut geom_b, geom, &rec, &mut wkb_buf)?;
+            if let (Some(builder), Some(spec)) = (&mut geom_b, geom) {
+                append_geometry(builder, spec, &rec, &mut wkb_buf)?;
+            }
             for (k, (ci, _)) in attrs.iter().enumerate() {
                 builders[k].append_csv_cell(required_cell(&rec, *ci)?)?;
             }
             n += 1;
-            if n >= batch_size {
-                let batch = finish_batch(&schema, &mut geom_b, &mut builders)?;
+            if n >= batch_sizer.rows() {
+                let batch = finish_batch(&schema, &mut geom_b, &mut builders, n)?;
+                batch_sizer.observe(&batch);
                 if !emitter.send(batch) {
                     return Ok(());
                 }
@@ -434,7 +449,7 @@ fn spawn_parser(
             }
         }
         if n > 0 {
-            let batch = finish_batch(&schema, &mut geom_b, &mut builders)?;
+            let batch = finish_batch(&schema, &mut geom_b, &mut builders, n)?;
             if !emitter.send(batch) {
                 return Ok(());
             }
@@ -507,15 +522,20 @@ fn required_cell(record: &csv::StringRecord, index: usize) -> Result<&str> {
 
 fn finish_batch(
     schema: &SchemaRef,
-    geom_b: &mut BinaryBuilder,
+    geom_b: &mut Option<BinaryBuilder>,
     builders: &mut [InferredColumnBuilder],
+    row_count: usize,
 ) -> Result<RecordBatch> {
-    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
-    arrays.push(Arc::new(geom_b.finish()));
+    let mut arrays: Vec<ArrayRef> =
+        Vec::with_capacity(usize::from(geom_b.is_some()) + builders.len());
+    if let Some(builder) = geom_b {
+        arrays.push(Arc::new(builder.finish()));
+    }
     for b in builders.iter_mut() {
         arrays.push(b.finish());
     }
-    RecordBatch::try_new(schema.clone(), arrays)
+    let options = RecordBatchOptions::new().with_row_count(Some(row_count));
+    RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
         .map_err(|error| err(format!("record batch: {error}")))
 }
 

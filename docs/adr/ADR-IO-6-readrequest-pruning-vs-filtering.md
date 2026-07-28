@@ -87,21 +87,25 @@ il volume letto, data-tools decide la semantica finale.
 **5. `batch_target`** è un obiettivo best-effort in byte e righe (V7 di
 `Prestazioni.md`); per le geometrie prevale il limite in byte.
 
-## Stato dell'implementazione (2026-07-27)
+## Stato dell'implementazione (2026-07-28)
 
 - Il descrittore espone `projection_support = exact | none`.
 - Il descrittore v4 espone inoltre `predicate_pruning_support` e
   `spatial_pruning_support`: GeoParquet dichiara statistiche numeriche min/max e
   statistiche bbox; GeoPackage dichiara un indice RTree opzionale; gli altri
   driver dichiarano esplicitamente `none`.
-- GeoParquet e Arrow IPC dichiarano `exact` e producono un contratto proiettato;
-  IPC applica la projection direttamente al `FileReader`.
+- CSV, GeoJSON, Shapefile, FileGDB, GeoParquet, Arrow IPC e GeoPackage
+  dichiarano `exact` e producono un contratto proiettato, inclusa la projection
+  vuota. IPC, GeoParquet e GeoPackage applicano il pushdown al backend; gli
+  altri quattro non costruiscono né convertono le colonne escluse.
 - I driver non exact rifiutano `ProjectionMode::Required` all'apertura con
   l'errore tipizzato `ProjectionUnsupported`; `BestEffort` continua a poter
   restituire lo schema completo.
-- CSV, GeoJSON, GeoPackage, Shapefile, FileGDB e GeoParquet combinano
-  `max_rows` con una stima conservativa di `target_bytes` per scegliere la
-  dimensione dei batch incrementali. La stima non è un limite rigido di memoria.
+- CSV, GeoJSON, GeoPackage, Shapefile e FileGDB usano un dimensionatore
+  adattivo comune: il primo batch combina `max_rows` con una stima conservativa
+  di `target_bytes`, i successivi usano i byte Arrow osservati. GeoParquet
+  delega il batching al reader colonnare. L'obiettivo resta best-effort, non un
+  limite rigido di memoria.
 - Arrow IPC e i reader materializzati KML, DXF e XLSX passano attraverso
   `with_batch_target`, che suddivide i `RecordBatch` senza copiare né riordinare
   le righe e conserva il lifecycle del reader sottostante. Lo slicing condivide

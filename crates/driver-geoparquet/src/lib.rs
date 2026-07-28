@@ -10,7 +10,9 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, BinaryArray, Float64Array, LargeBinaryArray, RecordBatch};
+use arrow_array::{
+    Array, ArrayRef, BinaryArray, Float64Array, LargeBinaryArray, RecordBatch, RecordBatchOptions,
+};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use parquet::arrow::arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::{ArrowWriter, ProjectionMask};
@@ -319,9 +321,13 @@ impl LayerReader for GeoParquetReader {
             Some(Ok(batch)) => {
                 // Ri-etichetta lo schema (geometria -> geoarrow.wkb) senza toccare
                 // i buffer: pass-through delle colonne.
-                let retagged =
-                    RecordBatch::try_new(self.out_schema.clone(), batch.columns().to_vec())
-                        .map_err(|e| fmt_err(format!("re-tag schema: {e}")))?;
+                let options = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));
+                let retagged = RecordBatch::try_new_with_options(
+                    self.out_schema.clone(),
+                    batch.columns().to_vec(),
+                    &options,
+                )
+                .map_err(|e| fmt_err(format!("re-tag schema: {e}")))?;
                 Ok(Some(retagged))
             }
         }

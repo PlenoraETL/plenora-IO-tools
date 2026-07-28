@@ -40,6 +40,7 @@ pub use publish::{
 };
 pub use registry::DriverRegistry;
 pub use request::{
-    effective_batch_rows, validate_read_projection, BatchTarget, Bbox, ProjectionMode,
-    PruningComparison, PruningPredicate, PruningScalar, ReadRequest, WriteLayer, WritePlan,
+    effective_batch_rows, project_layer_contract, validate_read_projection, AdaptiveBatchSizer,
+    BatchTarget, Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar,
+    ReadRequest, WriteLayer, WritePlan,
 };

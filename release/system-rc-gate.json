@@ -3,8 +3,8 @@
   "gate_id": "plenora-system-contract-roundtrip-v1",
   "status": "not_satisfied",
   "icd": {
-    "tag": "v2.0-rc3",
-    "revision": "ef2640348426425585ad228312468e7cf1d0e50f"
+    "tag": "v2.0-rc8",
+    "revision": "62b12e3496466d2c908dac3cc098640b99b52e21"
   },
   "components": [
     {

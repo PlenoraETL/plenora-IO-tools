@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
-use std::io::{BufWriter, Write as _};
+use std::io::{BufRead, BufWriter, Write as _};
 use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, StringArray};
@@ -51,6 +51,7 @@ use quick_xml::Reader as XmlReader;
 
 const GEOMETRY: &str = "geometry";
 const MAX_XML_DEPTH: usize = 256;
+const KML_IO_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("kml", reason)
@@ -117,12 +118,13 @@ fn observe_point_coordinate_text(
 /// avanzare; inoltre `kml 0.14.0` rimuove senza controllo la prima coordinata
 /// di un `Point`. Una scansione XML limitata evita di consegnargli input
 /// ambigui o punti senza coordinate.
-fn validate_kml_xml(text: &str) -> Result<()> {
-    let mut reader = XmlReader::from_str(text);
+fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
+    let mut reader = XmlReader::from_reader(input);
+    let mut event_buffer = Vec::new();
     let mut stack = Vec::<Vec<u8>>::new();
     let mut open_points_with_coordinates = Vec::<bool>::new();
     let mut previous_position = 0_u64;
-    let mut events_left = text.len().saturating_add(1);
+    let mut events_left = input_bytes.saturating_add(1);
 
     loop {
         if events_left == 0 {
@@ -133,7 +135,7 @@ fn validate_kml_xml(text: &str) -> Result<()> {
         events_left -= 1;
 
         let event = reader
-            .read_event()
+            .read_event_into(&mut event_buffer)
             .map_err(|error| err(format!("XML KML non valido: {error}")))?;
         let position = reader.buffer_position();
         if !matches!(event, Event::Eof) && position <= previous_position {
@@ -202,6 +204,7 @@ fn validate_kml_xml(text: &str) -> Result<()> {
             }
             _ => {}
         }
+        event_buffer.clear();
     }
 }
 
@@ -247,7 +250,7 @@ impl FormatDriver for KmlDriver {
         let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let text = std::fs::read_to_string(&path)?;
         check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
-        validate_kml_xml(&text)?;
+        validate_kml_xml(text.as_bytes(), text.len())?;
         check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         let root: Kml = text
             .parse()
@@ -299,7 +302,7 @@ impl FormatDriver for KmlDriver {
             ));
         }
         let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
-        let mut output = BufWriter::new(staging.reopen()?);
+        let mut output = BufWriter::with_capacity(KML_IO_BUFFER_BYTES, staging.reopen()?);
         output.write_all(
             br#"<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>"#,
         )?;
@@ -385,8 +388,7 @@ impl FormatWriter for KmlWriterState {
         let limits = self.wkb_limits;
         let name_idx = schema.index_of("name").ok();
         let desc_idx = schema.index_of("description").ok();
-        let mut buffer = Vec::new();
-        let mut writer = KmlWriter::from_writer(&mut buffer);
+        let mut writer = KmlWriter::from_writer(&mut self.output);
 
         for row in 0..batch.num_rows() {
             let geometry = if geom_col.is_null(row) {
@@ -432,7 +434,6 @@ impl FormatWriter for KmlWriterState {
                 .map_err(|error| err(format!("serializzazione KML: {error}")))?;
         }
         drop(writer);
-        self.output.write_all(&buffer)?;
         Ok(())
     }
 
@@ -822,7 +823,7 @@ fn build_batch(placemarks: &[&Placemark]) -> Result<(RecordBatch, DataContract)>
 #[doc(hidden)]
 pub fn __fuzz_read_kml(bytes: &[u8]) -> Result<usize> {
     let text = std::str::from_utf8(bytes).map_err(|error| err(format!("UTF-8 KML: {error}")))?;
-    validate_kml_xml(text)?;
+    validate_kml_xml(bytes, bytes.len())?;
     let document: Kml = text
         .parse()
         .map_err(|error| err(format!("KML non valido: {error}")))?;

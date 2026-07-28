@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arrow_array::builder::BinaryBuilder;
-use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch};
+use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, RecordBatchOptions};
 #[cfg(test)]
 use arrow_schema::DataType;
 use arrow_schema::{Field, Schema, SchemaRef};
@@ -171,7 +171,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: true, // .shp/.shx/.dbf/.prj
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-    projection_support: plenora_io_core::ProjectionSupport::None,
+    projection_support: plenora_io_core::ProjectionSupport::Exact,
     predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
     spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
     crs_handling: CrsHandling::Embedded,
@@ -188,8 +188,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 6,
-    descriptor_version: 5,
+    driver_version: 7,
+    descriptor_version: 6,
 };
 
 pub struct ShpDriver;
@@ -238,7 +238,6 @@ impl FormatDriver for ShpDriver {
             .to_owned();
         Ok(Box::new(ShpDataset {
             path,
-            schema,
             cols,
             dimensions: geometry_contract.dimensions,
             layers: vec![LayerContract {
@@ -339,7 +338,6 @@ impl FormatDriver for ShpDriver {
 
 struct ShpDataset {
     path: PathBuf,
-    schema: SchemaRef,
     cols: Vec<(String, ColType)>,
     dimensions: CoordinateDimensions,
     layers: Vec<LayerContract>,
@@ -354,15 +352,29 @@ impl OpenDatasetHandle for ShpDataset {
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        let batch_size =
-            plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
+        let (indices, layer) = plenora_io_core::project_layer_contract(&self.layers[0], request)?;
+        let include_geometry = indices.binary_search(&0).is_ok();
+        let cols = indices
+            .iter()
+            .filter_map(|&index| {
+                index
+                    .checked_sub(1)
+                    .and_then(|column_index| self.cols.get(column_index))
+                    .cloned()
+            })
+            .collect();
+        let batch_sizer = plenora_io_core::AdaptiveBatchSizer::new(
+            layer.contract.schema.as_ref(),
+            request.batch_target,
+        );
         let reader = spawn_parser(
             self.path.clone(),
-            self.schema.clone(),
-            self.cols.clone(),
+            layer.contract.schema.clone(),
+            cols,
             self.dimensions,
-            batch_size,
-            self.layers[0].clone(),
+            include_geometry,
+            batch_sizer,
+            layer,
         )?;
         Ok(plenora_io_core::with_cancellation(
             reader,
@@ -429,7 +441,7 @@ impl FormatWriter for ShpWriter {
                 Shape::NullShape
             } else {
                 let geometry = decode_wkb(geom_col.value(row), &limits)?;
-                shape_from_wkb(&geometry)?
+                shape_from_wkb(geometry)?
             };
             // Capability-check (ADR-IO 3): un unico tipo di geometria per file.
             let tag = shape_tag(&shape);
@@ -523,54 +535,55 @@ enum ShpTopology {
     Polygon(Vec<(bool, Vec<WkbCoordinate>)>),
 }
 
-fn ensure_child<'a>(
-    child: &'a WkbGeometry,
-    parent: &WkbGeometry,
+fn take_child(
+    child: WkbGeometry,
+    parent_dimensions: CoordinateDimensions,
     expected: GeometryType,
-) -> Result<&'a WkbValue> {
+) -> Result<WkbValue> {
     if child.srid.is_some()
-        || child.dimensions != parent.dimensions
+        || child.dimensions != parent_dimensions
         || child.geometry_type() != expected
     {
         return Err(err("geometria WKB annidata incoerente per Shapefile"));
     }
-    Ok(&child.value)
+    Ok(child.value)
 }
 
 fn polygon_rings(
-    rings: &[Vec<WkbCoordinate>],
+    rings: Vec<Vec<WkbCoordinate>>,
     destination: &mut Vec<(bool, Vec<WkbCoordinate>)>,
 ) -> Result<()> {
     if rings.is_empty() {
         return Err(err("poligono vuoto non rappresentabile in Shapefile"));
     }
-    for (index, ring) in rings.iter().enumerate() {
+    for (index, ring) in rings.into_iter().enumerate() {
         if ring.len() < 4 || ring.first() != ring.last() {
             return Err(err(
                 "anello WKB non chiuso o con meno di quattro coordinate",
             ));
         }
-        destination.push((index == 0, ring.clone()));
+        destination.push((index == 0, ring));
     }
     Ok(())
 }
 
-fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
+fn topology_from_wkb(geometry: WkbGeometry) -> Result<ShpTopology> {
     if geometry.srid.is_some() {
         return Err(err(
             "SRID embedded non rappresentabile nel payload Shapefile; usare il CRS del layer",
         ));
     }
-    match &geometry.value {
-        WkbValue::Point(coordinate) => Ok(ShpTopology::Point(*coordinate)),
+    let dimensions = geometry.dimensions;
+    match geometry.value {
+        WkbValue::Point(coordinate) => Ok(ShpTopology::Point(coordinate)),
         WkbValue::MultiPoint(children) => {
             if children.is_empty() {
                 return Err(err("MultiPoint vuoto non rappresentabile in Shapefile"));
             }
             let mut coordinates = Vec::with_capacity(children.len());
             for child in children {
-                match ensure_child(child, geometry, GeometryType::Point)? {
-                    WkbValue::Point(coordinate) => coordinates.push(*coordinate),
+                match take_child(child, dimensions, GeometryType::Point)? {
+                    WkbValue::Point(coordinate) => coordinates.push(coordinate),
                     _ => return Err(err("MultiPoint con membro non-Point")),
                 }
             }
@@ -582,7 +595,7 @@ fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
                     "LineString con meno di due coordinate non rappresentabile in Shapefile",
                 ));
             }
-            Ok(ShpTopology::Polyline(vec![coordinates.clone()]))
+            Ok(ShpTopology::Polyline(vec![coordinates]))
         }
         WkbValue::MultiLineString(children) => {
             if children.is_empty() {
@@ -592,9 +605,9 @@ fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
             }
             let mut parts = Vec::with_capacity(children.len());
             for child in children {
-                match ensure_child(child, geometry, GeometryType::LineString)? {
+                match take_child(child, dimensions, GeometryType::LineString)? {
                     WkbValue::LineString(coordinates) if coordinates.len() >= 2 => {
-                        parts.push(coordinates.clone());
+                        parts.push(coordinates);
                     }
                     WkbValue::LineString(_) => {
                         return Err(err(
@@ -617,7 +630,7 @@ fn topology_from_wkb(geometry: &WkbGeometry) -> Result<ShpTopology> {
             }
             let mut destination = Vec::new();
             for child in children {
-                match ensure_child(child, geometry, GeometryType::Polygon)? {
+                match take_child(child, dimensions, GeometryType::Polygon)? {
                     WkbValue::Polygon(rings) => polygon_rings(rings, &mut destination)?,
                     _ => return Err(err("MultiPolygon con membro non-Polygon")),
                 }
@@ -681,9 +694,10 @@ where
         .collect()
 }
 
-fn shape_from_wkb(geometry: &WkbGeometry) -> Result<Shape> {
+fn shape_from_wkb(geometry: WkbGeometry) -> Result<Shape> {
+    let dimensions = geometry.dimensions;
     let topology = topology_from_wkb(geometry)?;
-    match (geometry.dimensions, topology) {
+    match (dimensions, topology) {
         (CoordinateDimensions::Xy, ShpTopology::Point(c)) => Ok(Shape::Point(Point::new(c.x, c.y))),
         (CoordinateDimensions::Xym, ShpTopology::Point(c)) => Ok(Shape::PointM(point_m(c)?)),
         (CoordinateDimensions::Xyz, ShpTopology::Point(c)) => Ok(Shape::PointZ(point_z(c, false)?)),
@@ -1309,13 +1323,14 @@ fn spawn_parser(
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
     dimensions: CoordinateDimensions,
-    batch_size: usize,
+    include_geometry: bool,
+    mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
 ) -> Result<Box<dyn LayerReader>> {
     spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
         let mut reader = shapefile::Reader::from_path(&path)
             .map_err(|error| err(format!("shapefile non valido: {error}")))?;
-        let mut geom = BinaryBuilder::new();
+        let mut geom = include_geometry.then(BinaryBuilder::new);
         let mut builders: Vec<InferredColumnBuilder> = cols
             .iter()
             .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
@@ -1324,17 +1339,18 @@ fn spawn_parser(
         for pair in reader.iter_shapes_and_records() {
             let (shape, record) =
                 pair.map_err(|error| err(format!("record shapefile non valido: {error}")))?;
-            match shape_to_wkb(&shape, dimensions)? {
-                Some(geometry) => {
-                    let bytes = encode_wkb(&geometry, WkbFlavor::Iso)?;
-                    geom.append_value(bytes);
+            if let Some(builder) = &mut geom {
+                match shape_to_wkb(&shape, dimensions)? {
+                    Some(geometry) => {
+                        let bytes = encode_wkb(&geometry, WkbFlavor::Iso)?;
+                        builder.append_value(bytes);
+                    }
+                    None => builder.append_null(),
                 }
-                None => geom.append_null(),
             }
             // Lookup per nome (l'ordine di iterazione del Record non è garantito).
-            let map: HashMap<String, FieldValue> = record.into_iter().collect();
             for (k, (name, _)) in cols.iter().enumerate() {
-                let value = map
+                let value = record
                     .get(name)
                     .filter(|value| classify(value) != ObservedValueClass::Null);
                 builders[k].append_converted(value, fv_i64, fv_f64, fv_bool, |value| {
@@ -1342,8 +1358,9 @@ fn spawn_parser(
                 })?;
             }
             n += 1;
-            if n >= batch_size {
-                let batch = finish_batch(&schema, &mut geom, &mut builders)?;
+            if n >= batch_sizer.rows() {
+                let batch = finish_batch(&schema, &mut geom, &mut builders, n)?;
+                batch_sizer.observe(&batch);
                 if !emitter.send(batch) {
                     return Ok(());
                 }
@@ -1351,7 +1368,7 @@ fn spawn_parser(
             }
         }
         if n > 0 {
-            let batch = finish_batch(&schema, &mut geom, &mut builders)?;
+            let batch = finish_batch(&schema, &mut geom, &mut builders, n)?;
             if !emitter.send(batch) {
                 return Ok(());
             }
@@ -1362,15 +1379,21 @@ fn spawn_parser(
 
 fn finish_batch(
     schema: &SchemaRef,
-    geom: &mut BinaryBuilder,
+    geom: &mut Option<BinaryBuilder>,
     builders: &mut [InferredColumnBuilder],
+    row_count: usize,
 ) -> Result<RecordBatch> {
-    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
-    arrays.push(Arc::new(geom.finish()));
+    let mut arrays: Vec<ArrayRef> =
+        Vec::with_capacity(usize::from(geom.is_some()) + builders.len());
+    if let Some(builder) = geom {
+        arrays.push(Arc::new(builder.finish()));
+    }
     for b in builders.iter_mut() {
         arrays.push(b.finish());
     }
-    RecordBatch::try_new(schema.clone(), arrays).map_err(|error| err(format!("batch: {error}")))
+    let options = RecordBatchOptions::new().with_row_count(Some(row_count));
+    RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
+        .map_err(|error| err(format!("batch: {error}")))
 }
 
 fn fv_i64(v: &FieldValue) -> Option<i64> {
@@ -1421,7 +1444,7 @@ fn fv_string(v: &FieldValue) -> Option<String> {
 pub fn __fuzz_wkb_roundtrip(bytes: &[u8]) -> Result<usize> {
     let geometry = decode_wkb(bytes, &WkbLimits::default())?;
     let dimensions = geometry.dimensions;
-    let shape = shape_from_wkb(&geometry)?;
+    let shape = shape_from_wkb(geometry)?;
     let round_trip = shape_to_wkb(&shape, dimensions)?
         .ok_or_else(|| err("la conversione di una geometria ha prodotto NullShape"))?;
     Ok(encode_wkb(&round_trip, WkbFlavor::Iso)?.len())
@@ -1937,7 +1960,7 @@ mod tests {
             dimensions,
             srid: None,
         };
-        let shape = shape_from_wkb(&line).unwrap();
+        let shape = shape_from_wkb(line.clone()).unwrap();
         assert!(matches!(shape, Shape::PolylineZ(_)));
         let decoded = shape_to_wkb(&shape, dimensions).unwrap().unwrap();
         assert_eq!(decoded, line);
@@ -1975,7 +1998,7 @@ mod tests {
             dimensions,
             srid: None,
         };
-        let shape = shape_from_wkb(&polygon).unwrap();
+        let shape = shape_from_wkb(polygon.clone()).unwrap();
         assert!(matches!(shape, Shape::PolygonZ(_)));
         let decoded = shape_to_wkb(&shape, dimensions).unwrap().unwrap();
         assert_eq!(decoded, polygon);
@@ -1988,7 +2011,7 @@ mod tests {
             dimensions: CoordinateDimensions::Xyz,
             srid: None,
         };
-        assert!(shape_from_wkb(&geometry).is_err());
+        assert!(shape_from_wkb(geometry).is_err());
     }
 
     #[test]
@@ -2014,7 +2037,7 @@ mod tests {
             srid: None,
         };
 
-        assert!(shape_from_wkb(&missing_z).is_err());
-        assert!(shape_from_wkb(&missing_m).is_err());
+        assert!(shape_from_wkb(missing_z).is_err());
+        assert!(shape_from_wkb(missing_m).is_err());
     }
 }

@@ -238,6 +238,7 @@ fn driver_by_id(id: &str) -> Box<dyn FormatDriver> {
         "gpkg" => Box::new(driver_gpkg::GpkgDriver),
         "kml" => Box::new(driver_kml::KmlDriver),
         "dxf" => Box::new(driver_dxf::DxfDriver),
+        "shp" => Box::new(driver_shp::ShpDriver),
         "xlsx" => Box::new(driver_xls::XlsDriver),
         other => panic!("driver sconosciuto: {other}"),
     }
@@ -251,6 +252,7 @@ fn ext(id: &str) -> &'static str {
         "gpkg" => "gpkg",
         "kml" => "kml",
         "dxf" => "dxf",
+        "shp" => "shp",
         "xlsx" => "xlsx",
         _ => "bin",
     }
@@ -262,6 +264,16 @@ fn fixture_dir() -> PathBuf {
 
 fn fixture_path(id: &str) -> PathBuf {
     fixture_dir().join(format!("{id}.{}", ext(id)))
+}
+
+fn remove_dataset(id: &str, path: &Path) {
+    if id == "shp" {
+        for extension in ["dbf", "prj", "shp", "shx"] {
+            std::fs::remove_file(path.with_extension(extension)).ok();
+        }
+    } else {
+        std::fs::remove_file(path).ok();
+    }
 }
 
 fn read_opts(id: &str) -> ReadOptions {
@@ -284,9 +296,7 @@ fn feed_write(
     pool: &[Vec<u8>],
     names: &[String],
 ) -> (usize, usize) {
-    if path.exists() {
-        std::fs::remove_file(path).ok();
-    }
+    remove_dataset(id, path);
     let driver = driver_by_id(id);
     let plan = WritePlan {
         layers: vec![WriteLayer {
@@ -433,6 +443,17 @@ fn file_len(p: &Path) -> u64 {
     std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)
 }
 
+fn dataset_len(id: &str, path: &Path) -> u64 {
+    if id == "shp" {
+        ["dbf", "prj", "shp", "shx"]
+            .into_iter()
+            .map(|extension| file_len(&path.with_extension(extension)))
+            .sum()
+    } else {
+        file_len(path)
+    }
+}
+
 fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
     // Pool costruiti PRIMA del reset: i loro 1024 encode non contano.
     let pool = wkb_pool();
@@ -448,7 +469,7 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
                 feed_write(id, &path, rows, &pool, &names);
             }
         }
-        return serde_json::json!({"prepared": id, "bytes": file_len(&path)});
+        return serde_json::json!({"prepared": id, "bytes": dataset_len(id, &path)});
     }
 
     plenora_io_model::metrics::reset();
@@ -503,13 +524,13 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
         batches = s.batches;
         max_bb = s.max_batch_bytes;
         total_bb = s.total_batch_bytes;
-        io_bytes = file_len(&path);
+        io_bytes = dataset_len(id, &path);
     } else {
         let out = fixture_dir().join(format!("{id}-out.{}", ext(id)));
         std::fs::create_dir_all(fixture_dir()).ok();
         let (nb, mbb) = feed_write(id, &out, rows, &pool, &names);
-        io_bytes = file_len(&out);
-        std::fs::remove_file(&out).ok();
+        io_bytes = dataset_len(id, &out);
+        remove_dataset(id, &out);
         rows_done = rows;
         geoms = rows;
         batches = nb;
@@ -797,7 +818,7 @@ fn main() {
         .collect::<Vec<_>>();
     for driver in &drivers {
         match *driver {
-            "geoparquet" | "geojson" | "csv" | "gpkg" | "kml" | "dxf" | "xlsx" => {}
+            "geoparquet" | "geojson" | "csv" | "gpkg" | "kml" | "dxf" | "shp" | "xlsx" => {}
             other => panic!("PLENORA_BENCH_DRIVERS contiene un driver sconosciuto: {other}"),
         }
     }
@@ -832,7 +853,7 @@ fn main() {
             eprintln!("  write: {}", short(&wj));
             results.push(wj);
         }
-        std::fs::remove_file(fixture_path(d)).ok();
+        remove_dataset(d, &fixture_path(d));
     }
 
     let baseline = serde_json::json!({

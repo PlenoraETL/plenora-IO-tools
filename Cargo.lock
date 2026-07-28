@@ -1309,6 +1309,7 @@ dependencies = [
  "driver-geoparquet",
  "driver-gpkg",
  "driver-kml",
+ "driver-shp",
  "driver-xls",
  "geo-types",
  "libc",

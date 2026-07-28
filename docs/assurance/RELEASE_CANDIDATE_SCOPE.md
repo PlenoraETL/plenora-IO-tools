@@ -18,8 +18,8 @@ L'impatto di questa preparazione è registrato nella
 
 - `plenora.contract.version=1` identifica il formato wire emesso negli schemi
   Arrow;
-- `plenora-contracts@v2.0-rc3`, revisione
-  `ef2640348426425585ad228312468e7cf1d0e50f`, identifica la revisione dell'ICD
+- `plenora-contracts@v2.0-rc8`, revisione
+  `62b12e3496466d2c908dac3cc098640b99b52e21`, identifica la revisione dell'ICD
   usata come obiettivo di implementazione.
 
 I due numeri non sono intercambiabili. Il tag ICD è annotato ma non firmato e
@@ -30,9 +30,9 @@ il relativo candidato di ratifica è esplicitamente non ratificato.
 La RC implementa anticipatamente parti candidate di §2, §3.4, §4.3.1–§4.3.3,
 §9 e §11. Questa scelta non ne cambia lo stato normativo. In particolare:
 
-- non viene dichiarata conformità completa a `v2.0-rc3`;
-- l'emissione delle chiavi candidate di §2 prima della ratifica è una deroga
-  locale esplicita rispetto al passo 1 di §15.4;
+- non viene dichiarata conformità completa a `v2.0-rc8`;
+- l'emissione delle chiavi candidate di §2 prima della ratifica è registrata
+  localmente secondo il passo 1 di §15.4 e la deroga `DER-ICD-002`;
 - la condizione di rientro è la ratifica con nomi compatibili oppure la
   migrazione dell'emettitore verso la forma ratificata sostitutiva.
 

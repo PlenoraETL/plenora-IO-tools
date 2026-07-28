@@ -23,7 +23,8 @@ use std::sync::Arc;
 
 use arrow_array::builder::BinaryBuilder;
 use arrow_array::{
-    Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
+    Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch,
+    RecordBatchOptions, StringArray,
 };
 use arrow_schema::{Field, Schema, SchemaRef};
 use geojson::Geometry as GjGeometry;
@@ -79,7 +80,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-    projection_support: plenora_io_core::ProjectionSupport::None,
+    projection_support: plenora_io_core::ProjectionSupport::Exact,
     predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
     spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
     crs_handling: CrsHandling::FixedWgs84,
@@ -96,8 +97,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 5,
-    descriptor_version: 5,
+    driver_version: 6,
+    descriptor_version: 6,
 };
 
 pub struct GeoJsonDriver;
@@ -127,7 +128,6 @@ impl FormatDriver for GeoJsonDriver {
             .to_owned();
         Ok(Box::new(GeoJsonDataset {
             path,
-            schema,
             cols,
             layers: vec![LayerContract {
                 id: LayerId(0),
@@ -184,7 +184,6 @@ impl FormatDriver for GeoJsonDriver {
 
 struct GeoJsonDataset {
     path: PathBuf,
-    schema: SchemaRef,
     cols: Vec<(String, ColType)>,
     layers: Vec<LayerContract>,
 }
@@ -198,14 +197,28 @@ impl OpenDatasetHandle for GeoJsonDataset {
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        let batch_size =
-            plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
+        let (indices, layer) = plenora_io_core::project_layer_contract(&self.layers[0], request)?;
+        let include_geometry = indices.binary_search(&0).is_ok();
+        let cols = indices
+            .iter()
+            .filter_map(|&index| {
+                index
+                    .checked_sub(1)
+                    .and_then(|column_index| self.cols.get(column_index))
+                    .cloned()
+            })
+            .collect();
+        let batch_sizer = plenora_io_core::AdaptiveBatchSizer::new(
+            layer.contract.schema.as_ref(),
+            request.batch_target,
+        );
         let reader = spawn_parser(
             self.path.clone(),
-            self.schema.clone(),
-            self.cols.clone(),
-            batch_size,
-            self.layers[0].clone(),
+            layer.contract.schema.clone(),
+            cols,
+            include_geometry,
+            batch_sizer,
+            layer,
         )?;
         Ok(plenora_io_core::with_cancellation(
             reader,
@@ -420,7 +433,8 @@ fn spawn_parser(
     path: PathBuf,
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
-    batch_size: usize,
+    include_geometry: bool,
+    batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
 ) -> Result<Box<dyn LayerReader>> {
     spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
@@ -435,7 +449,7 @@ fn spawn_parser(
             schema: schema.clone(),
             col_idx,
             output: RowOutput::Worker(emitter),
-            geom: BinaryBuilder::new(),
+            geom: include_geometry.then(BinaryBuilder::new),
             wkb_buf: Vec::new(),
             builders: cols
                 .iter()
@@ -443,7 +457,7 @@ fn spawn_parser(
                 .collect(),
             seen: vec![false; ncols],
             n: 0,
-            batch_size,
+            batch_sizer,
             aborted: false,
         };
         // Deserializer serde streaming: scrive i feature DIRETTAMENTE nei
@@ -456,8 +470,8 @@ fn spawn_parser(
         }
         result.map_err(|error| err(format!("GeoJSON non valido: {error}")))?;
         if sink.n > 0 {
-            let batch =
-                finish_batch(&sink.schema, &mut sink.geom, &mut sink.builders).map_err(err)?;
+            let batch = finish_batch(&sink.schema, &mut sink.geom, &mut sink.builders, sink.n)
+                .map_err(err)?;
             if !sink.output.send(batch) {
                 return Ok(());
             }
@@ -487,12 +501,12 @@ struct RowSink {
     schema: SchemaRef,
     col_idx: HashMap<String, usize>,
     output: RowOutput,
-    geom: BinaryBuilder,
+    geom: Option<BinaryBuilder>,
     wkb_buf: Vec<u8>,
     builders: Vec<InferredColumnBuilder>,
     seen: Vec<bool>,
     n: usize,
-    batch_size: usize,
+    batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     aborted: bool,
 }
 
@@ -569,15 +583,19 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
                     map.next_value::<IgnoredAny>()?;
                 }
                 FeatKey::Geom => {
-                    let g = map.next_value::<Option<GjGeometry>>()?;
-                    match g {
-                        None => self.sink.geom.append_null(),
-                        Some(gj) => {
-                            self.sink.wkb_buf.clear();
-                            wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf)
-                                .map_err(<A::Error as DeError>::custom)?;
-                            self.sink.geom.append_value(&self.sink.wkb_buf);
+                    if let Some(geometry) = &mut self.sink.geom {
+                        let g = map.next_value::<Option<GjGeometry>>()?;
+                        match g {
+                            None => geometry.append_null(),
+                            Some(gj) => {
+                                self.sink.wkb_buf.clear();
+                                wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf)
+                                    .map_err(<A::Error as DeError>::custom)?;
+                                geometry.append_value(&self.sink.wkb_buf);
+                            }
                         }
+                    } else {
+                        map.next_value::<IgnoredAny>()?;
                     }
                     geom_seen = true;
                 }
@@ -591,7 +609,9 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
         }
         // Allinea le colonne: una append per builder per feature.
         if !geom_seen {
-            self.sink.geom.append_null();
+            if let Some(geometry) = &mut self.sink.geom {
+                geometry.append_null();
+            }
         }
         for i in 0..self.sink.builders.len() {
             if !self.sink.seen[i] {
@@ -599,13 +619,15 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
             }
         }
         self.sink.n += 1;
-        if self.sink.n >= self.sink.batch_size {
+        if self.sink.n >= self.sink.batch_sizer.rows() {
             match finish_batch(
                 &self.sink.schema,
                 &mut self.sink.geom,
                 &mut self.sink.builders,
+                self.sink.n,
             ) {
                 Ok(batch) => {
+                    self.sink.batch_sizer.observe(&batch);
                     if !self.sink.output.send(batch) {
                         self.sink.aborted = true;
                         return Err(<A::Error as DeError>::custom("consumatore chiuso"));
@@ -773,15 +795,21 @@ impl<'a, 'de> Visitor<'de> for ValueSink<'a> {
 
 fn finish_batch(
     schema: &SchemaRef,
-    geom: &mut BinaryBuilder,
+    geom: &mut Option<BinaryBuilder>,
     builders: &mut [InferredColumnBuilder],
+    row_count: usize,
 ) -> std::result::Result<RecordBatch, String> {
-    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + builders.len());
-    arrays.push(Arc::new(geom.finish()));
+    let mut arrays: Vec<ArrayRef> =
+        Vec::with_capacity(usize::from(geom.is_some()) + builders.len());
+    if let Some(builder) = geom {
+        arrays.push(Arc::new(builder.finish()));
+    }
     for b in builders.iter_mut() {
         arrays.push(b.finish());
     }
-    RecordBatch::try_new(schema.clone(), arrays).map_err(|e| format!("record batch: {e}"))
+    let options = RecordBatchOptions::new().with_row_count(Some(row_count));
+    RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
+        .map_err(|e| format!("record batch: {e}"))
 }
 
 /// Entry point per il fuzzer (NON API stabile): esegue pass-1 + pass-2 in modo
@@ -815,7 +843,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         schema: schema.clone(),
         col_idx,
         output: RowOutput::Discard,
-        geom: BinaryBuilder::new(),
+        geom: Some(BinaryBuilder::new()),
         wkb_buf: Vec::new(),
         builders: cols
             .iter()
@@ -823,14 +851,20 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
             .collect(),
         seen: vec![false; ncols],
         n: 0,
-        batch_size: usize::MAX,
+        batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
+            schema.as_ref(),
+            plenora_io_core::BatchTarget {
+                target_bytes: usize::MAX,
+                max_rows: usize::MAX,
+            },
+        ),
         aborted: false,
     };
     serde_json::Deserializer::from_reader(Cursor::new(bytes))
         .deserialize_map(TopSink { sink: &mut sink })
         .map_err(|e| e.to_string())?;
     if sink.n > 0 {
-        let batch = finish_batch(&schema, &mut sink.geom, &mut sink.builders)?;
+        let batch = finish_batch(&schema, &mut sink.geom, &mut sink.builders, sink.n)?;
         return Ok(batch.num_rows());
     }
     Ok(0)

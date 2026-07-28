@@ -36,7 +36,7 @@ use plenora_io_core::driver::{
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
-use plenora_io_core::request::{BatchTarget, Bbox, ProjectionMode, ReadRequest};
+use plenora_io_core::request::{Bbox, ProjectionMode, ReadRequest};
 use plenora_io_core::{
     validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
@@ -318,11 +318,10 @@ impl OpenDatasetHandle for GpkgDataset {
             schema: schema.clone(),
             include_geometry: selected.geometry,
             attrs: selected.attrs,
-            batch_size: plenora_io_core::effective_batch_rows(
+            batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
                 schema.as_ref(),
                 request.batch_target,
             ),
-            batch_target: request.batch_target,
             last_rowid: 0,
             layer,
         });
@@ -410,8 +409,7 @@ struct GpkgReader {
     schema: SchemaRef,
     include_geometry: bool,
     attrs: Vec<(String, DataType)>,
-    batch_size: usize,
-    batch_target: BatchTarget,
+    batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     last_rowid: i64,
     layer: LayerContract,
 }
@@ -434,13 +432,16 @@ impl LayerReader for GpkgReader {
         let mut rows = match self.spatial_hint {
             Some(bbox) => stmt.query(rusqlite::params![
                 self.last_rowid,
-                self.batch_size as i64,
+                self.batch_sizer.rows().min(i64::MAX as usize) as i64,
                 bbox.minx,
                 bbox.maxx,
                 bbox.miny,
                 bbox.maxy,
             ]),
-            None => stmt.query(rusqlite::params![self.last_rowid, self.batch_size as i64]),
+            None => stmt.query(rusqlite::params![
+                self.last_rowid,
+                self.batch_sizer.rows().min(i64::MAX as usize) as i64
+            ]),
         }
         .map_err(sql_err)?;
         while let Some(row) = rows.next().map_err(sql_err)? {
@@ -475,19 +476,9 @@ impl LayerReader for GpkgReader {
         let options = RecordBatchOptions::new().with_row_count(Some(count));
         let batch = RecordBatch::try_new_with_options(self.schema.clone(), arrays, &options)
             .map_err(|e| err(format!("batch: {e}")))?;
-        self.batch_size =
-            adaptive_batch_rows(count, batch.get_array_memory_size(), self.batch_target);
+        self.batch_sizer.observe(&batch);
         Ok(Some(batch))
     }
-}
-
-fn adaptive_batch_rows(row_count: usize, batch_bytes: usize, target: BatchTarget) -> usize {
-    if row_count == 0 || batch_bytes == 0 {
-        return target.max_rows.max(1);
-    }
-    let rows_for_bytes =
-        (target.target_bytes.max(1).saturating_mul(row_count) / batch_bytes).max(1);
-    rows_for_bytes.min(target.max_rows.max(1))
 }
 
 enum ColBuilder {
@@ -1509,18 +1500,6 @@ mod tests {
         let projected = no_columns.next_batch().unwrap().unwrap();
         assert_eq!(projected.num_rows(), 2);
         assert_eq!(projected.num_columns(), 0);
-    }
-
-    #[test]
-    fn adaptive_batch_sizing_respects_both_limits() {
-        let target = BatchTarget {
-            target_bytes: 1_000,
-            max_rows: 100,
-        };
-        assert_eq!(adaptive_batch_rows(20, 4_000, target), 5);
-        assert_eq!(adaptive_batch_rows(20, 10, target), 100);
-        assert_eq!(adaptive_batch_rows(20, usize::MAX, target), 1);
-        assert_eq!(adaptive_batch_rows(0, 0, target), 100);
     }
 
     #[test]

@@ -1,8 +1,13 @@
 //! `ReadRequest` (projection + pruning, mai filtering — ADR-IO 6) e `WritePlan`
 //! (ADR-IO 1).
 
+use std::sync::Arc;
+
+use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Schema};
-use plenora_io_model::contract::{DataContract, FieldId, LayerId};
+use plenora_io_model::contract::{
+    DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+};
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::CancellationToken;
 use plenora_io_model::{PlenoraIoError, Result};
@@ -70,6 +75,30 @@ impl Default for BatchTarget {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct AdaptiveBatchSizer {
+    target: BatchTarget,
+    rows: usize,
+}
+
+impl AdaptiveBatchSizer {
+    pub fn new(schema: &Schema, target: BatchTarget) -> Self {
+        Self {
+            target,
+            rows: effective_batch_rows(schema, target),
+        }
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn observe(&mut self, batch: &RecordBatch) {
+        self.rows =
+            observed_batch_rows(batch.num_rows(), batch.get_array_memory_size(), self.target);
+    }
+}
+
 pub struct ReadRequest {
     pub layer: LayerId,
     /// La geometria è inclusa solo se richiesta dalla projection, necessaria per
@@ -97,6 +126,61 @@ pub fn validate_read_projection(
     Ok(())
 }
 
+/// Risolve una projection esatta e costruisce il contratto effettivo.
+///
+/// Gli indici restituiti sono deduplicati e ordinati secondo lo schema nativo.
+/// In `BestEffort` gli ID fuori range vengono ignorati; in `Required` causano
+/// un errore all'apertura del reader.
+pub fn project_layer_contract(
+    source: &LayerContract,
+    request: &ReadRequest,
+) -> Result<(Vec<usize>, LayerContract)> {
+    let mut indices = match &request.projected_fields {
+        None => (0..source.contract.schema.fields().len()).collect::<Vec<_>>(),
+        Some(field_ids) => {
+            let mut indices = Vec::with_capacity(field_ids.len());
+            for field_id in field_ids {
+                let index = field_id.0 as usize;
+                if index >= source.contract.schema.fields().len() {
+                    if request.projection_mode == ProjectionMode::Required {
+                        return Err(PlenoraIoError::Contract(format!(
+                            "projection Required: field id {} fuori range",
+                            field_id.0
+                        )));
+                    }
+                    continue;
+                }
+                if !indices.contains(&index) {
+                    indices.push(index);
+                }
+            }
+            indices
+        }
+    };
+    indices.sort_unstable();
+
+    let fields = indices
+        .iter()
+        .map(|&index| source.contract.schema.field(index).as_ref().clone())
+        .collect::<Vec<_>>();
+    let schema = Arc::new(Schema::new_with_metadata(
+        fields,
+        source.contract.schema.metadata().clone(),
+    ));
+    let geometry = source.contract.geometry.clone().and_then(|geometry| {
+        indices
+            .iter()
+            .position(|&index| index == geometry.field_id.0 as usize)
+            .map(|index| GeometryColumnContract {
+                field_id: FieldId(index as u32),
+                ..geometry
+            })
+    });
+    let mut layer = source.clone();
+    layer.contract = DataContract { schema, geometry };
+    Ok((indices, layer))
+}
+
 /// Traduce il target in byte in un numero di righe conservativo per i reader
 /// che costruiscono batch incrementali. È una stima (ADR-IO 6), non un limite
 /// di memoria: le colonne variabili e la geometria possono avere righe atipiche.
@@ -115,6 +199,15 @@ pub fn effective_batch_rows(schema: &Schema, target: BatchTarget) -> usize {
         .max(1);
     let byte_rows = target.target_bytes.max(1) / estimated_row_bytes;
     target.max_rows.max(1).min(byte_rows.max(1))
+}
+
+fn observed_batch_rows(row_count: usize, batch_bytes: usize, target: BatchTarget) -> usize {
+    if row_count == 0 || batch_bytes == 0 {
+        return target.max_rows.max(1);
+    }
+    let rows_for_bytes =
+        (target.target_bytes.max(1).saturating_mul(row_count) / batch_bytes).max(1);
+    rows_for_bytes.min(target.max_rows.max(1))
 }
 
 fn estimated_type_bytes(data_type: &DataType) -> usize {
@@ -158,6 +251,7 @@ mod tests {
     use std::collections::HashMap;
 
     use arrow_schema::{DataType, Field, Schema};
+    use plenora_io_model::crs::CrsResolution;
 
     use super::*;
 
@@ -206,6 +300,93 @@ mod tests {
                 },
             ),
             2
+        );
+    }
+
+    #[test]
+    fn observed_batch_sizing_respects_both_limits() {
+        let target = BatchTarget {
+            target_bytes: 1_000,
+            max_rows: 100,
+        };
+        assert_eq!(observed_batch_rows(20, 4_000, target), 5);
+        assert_eq!(observed_batch_rows(20, 10, target), 100);
+        assert_eq!(observed_batch_rows(20, usize::MAX, target), 1);
+        assert_eq!(observed_batch_rows(0, 0, target), 100);
+    }
+
+    #[test]
+    fn exact_projection_is_deduplicated_ordered_and_fail_closed() {
+        let source = LayerContract {
+            id: LayerId(7),
+            name: "source".to_owned(),
+            contract: DataContract::new(
+                Arc::new(Schema::new(vec![
+                    Field::new("a", DataType::Int64, false),
+                    Field::new("b", DataType::Utf8, true),
+                    Field::new("c", DataType::Float64, false),
+                ])),
+                None,
+            ),
+        };
+        let request = ReadRequest {
+            layer: source.id,
+            projected_fields: Some(vec![FieldId(2), FieldId(0), FieldId(2)]),
+            projection_mode: ProjectionMode::Required,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        };
+        let (indices, projected) = match project_layer_contract(&source, &request) {
+            Ok(projected) => projected,
+            Err(error) => panic!("projection valida rifiutata: {error}"),
+        };
+        assert_eq!(indices, vec![0, 2]);
+        assert_eq!(projected.contract.schema.field(0).name(), "a");
+        assert_eq!(projected.contract.schema.field(1).name(), "c");
+
+        let invalid = ReadRequest {
+            projected_fields: Some(vec![FieldId(3)]),
+            ..request
+        };
+        assert!(project_layer_contract(&source, &invalid).is_err());
+
+        let geometry_source = LayerContract {
+            contract: DataContract::new(
+                Arc::new(Schema::new(vec![
+                    Field::new("a", DataType::Int64, false),
+                    Field::new("geometry", DataType::Binary, true),
+                    Field::new("c", DataType::Float64, false),
+                ])),
+                Some(GeometryColumnContract::wkb_xy(
+                    FieldId(1),
+                    "geometry",
+                    CrsResolution::Missing,
+                    true,
+                )),
+            ),
+            ..source
+        };
+        let geometry_request = ReadRequest {
+            layer: geometry_source.id,
+            projected_fields: Some(vec![FieldId(2), FieldId(1)]),
+            projection_mode: ProjectionMode::Required,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        };
+        let projected = match project_layer_contract(&geometry_source, &geometry_request) {
+            Ok((_, projected)) => projected,
+            Err(error) => panic!("projection geometrica valida rifiutata: {error}"),
+        };
+        assert_eq!(
+            projected
+                .contract
+                .geometry
+                .map(|geometry| geometry.field_id),
+            Some(FieldId(0))
         );
     }
 }

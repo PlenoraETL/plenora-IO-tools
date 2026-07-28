@@ -10,7 +10,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::io::Write as _;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -316,6 +316,49 @@ struct DxfWriterState {
     max_output_bytes: u64,
 }
 
+struct BoundedOutput<W> {
+    inner: W,
+    written: u64,
+    limit: u64,
+    exceeded: bool,
+}
+
+impl<W> BoundedOutput<W> {
+    fn new(inner: W, limit: u64) -> Self {
+        Self {
+            inner,
+            written: 0,
+            limit,
+            exceeded: false,
+        }
+    }
+
+    fn exceeded(&self) -> bool {
+        self.exceeded
+    }
+
+    fn into_inner(self) -> W {
+        self.inner
+    }
+}
+
+impl<W: Write> Write for BoundedOutput<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let requested = buffer.len() as u64;
+        if requested > self.limit.saturating_sub(self.written) {
+            self.exceeded = true;
+            return Err(std::io::Error::other("limite output DXF superato"));
+        }
+        let written = self.inner.write(buffer)?;
+        self.written = self.written.saturating_add(written as u64);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
 impl FormatWriter for DxfWriterState {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
@@ -363,12 +406,20 @@ impl FormatWriter for DxfWriterState {
             );
         }
         let mut temp = create_staged_file(&self.path)?;
-        let mut buf: Vec<u8> = Vec::new();
-        self.drawing
-            .save(&mut buf)
-            .map_err(|e| err(format!("serializzazione DXF: {e}")))?;
-        temp.as_file_mut().write_all(&buf)?;
-        temp.as_file_mut().flush()?;
+        let buffered = BufWriter::with_capacity(1024 * 1024, temp.as_file_mut());
+        let mut output = BoundedOutput::new(buffered, self.max_output_bytes);
+        let save_result = self.drawing.save(&mut output);
+        if output.exceeded() {
+            return Err(PlenoraIoError::LimitExceeded(format!(
+                "output DXF oltre il limite di {} byte",
+                self.max_output_bytes
+            )));
+        }
+        save_result.map_err(|e| err(format!("serializzazione DXF: {e}")))?;
+        output.flush()?;
+        let mut buffered = output.into_inner();
+        buffered.flush()?;
+        drop(buffered);
         let (bytes, outcome) =
             publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
         Ok(Published {
@@ -1289,6 +1340,15 @@ mod tests {
     use plenora_io_core::WriteLayer;
     use plenora_io_model::contract::GeometryType;
     use plenora_io_model::crs::CrsResolution;
+
+    #[test]
+    fn bounded_output_fails_before_exceeding_the_limit() {
+        let mut output = BoundedOutput::new(Vec::new(), 3);
+        output.write_all(b"ab").unwrap();
+        assert!(output.write_all(b"cd").is_err());
+        assert!(output.exceeded());
+        assert_eq!(output.into_inner(), b"ab");
+    }
 
     fn resolved_wgs84() -> ResolvedCrs {
         ResolvedCrs::new(
