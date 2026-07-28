@@ -117,6 +117,13 @@ prodotti contro una diversa versione glibc.
 - test reale cross-filesystem `/dev/shm`: superato;
 - build workspace release `--locked`: superata.
 
+Evidenza remota acquisita per il commit
+`540297010b36cf3a9a546bbac8e353f498ce0f49`: GitHub Actions run
+`30328069726`, conclusione `success` per i job `rust`, `windows`,
+`macos-publish` e `coverage`. Il job `rust` include Clippy all-features, safety
+lint, test workspace, FileGDB/GDAL, cross-filesystem, build release e audit
+delle dipendenze.
+
 ## Residui
 
 - KML, DXF e XLSX restano materializzanti durante `open`;
