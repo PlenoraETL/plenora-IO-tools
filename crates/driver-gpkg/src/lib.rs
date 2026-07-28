@@ -32,7 +32,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::{create_staged_file_with_suffix, publish_file_atomic_limited};
+use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{Bbox, ReadRequest};
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -188,8 +188,9 @@ impl FormatDriver for GpkgDriver {
                 return Err(err(format!("layer '{}' senza colonna geometria", l.name)));
             }
         }
-        let temp = create_staged_file_with_suffix(&path, ".gpkg")?;
-        let conn = Connection::open(temp.path()).map_err(sql_err)?;
+        let staging =
+            StagedFile::with_suffix(&path, ".gpkg", opts.durable, opts.limits.max_output_bytes)?;
+        let conn = Connection::open(staging.path()?).map_err(sql_err)?;
         // Bulk-load veloce: la durabilità è garantita dal publish atomico, non
         // dal file temporaneo (un crash a metà non pubblica nulla).
         conn.execute_batch("PRAGMA synchronous = OFF; PRAGMA journal_mode = MEMORY;")
@@ -215,12 +216,9 @@ impl FormatDriver for GpkgDriver {
         conn.execute_batch("BEGIN").map_err(sql_err)?;
         with_write_validation(
             Box::new(GpkgWriter {
-                temp: Some(temp),
+                staging,
                 conn: Some(conn),
-                path,
-                durable: opts.durable,
                 layers,
-                max_output_bytes: opts.limits.max_output_bytes,
             }),
             self.descriptor(),
             plan,
@@ -439,12 +437,9 @@ struct ActiveLayer {
 }
 
 struct GpkgWriter {
-    temp: Option<tempfile::NamedTempFile>,
+    staging: StagedFile,
     conn: Option<Connection>,
-    path: PathBuf,
-    durable: bool,
     layers: Vec<ActiveLayer>,
-    max_output_bytes: u64,
 }
 
 impl Drop for GpkgWriter {
@@ -452,7 +447,6 @@ impl Drop for GpkgWriter {
         // Su Windows il tempfile non può essere rimosso finché SQLite mantiene
         // aperto il file: l'ordine esplicito garantisce abort senza residui.
         drop(self.conn.take());
-        drop(self.temp.take());
     }
 }
 
@@ -476,9 +470,7 @@ impl FormatWriter for GpkgWriter {
         let conn = self.conn.take().ok_or_else(|| err("writer già chiuso"))?;
         conn.execute_batch("COMMIT").map_err(sql_err)?;
         drop(conn);
-        let temp = self.temp.take().ok_or_else(|| err("temp mancante"))?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),

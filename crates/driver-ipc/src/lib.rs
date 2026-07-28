@@ -24,7 +24,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
+use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -184,17 +184,14 @@ impl FormatDriver for IpcDriver {
             fields,
             layer.schema.metadata().clone(),
         ));
-        let temp = create_staged_file(&path)?;
-        let writer = FileWriter::try_new(BufWriter::new(temp.reopen()?), &schema)
+        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
+        let writer = FileWriter::try_new(BufWriter::new(staging.reopen()?), &schema)
             .map_err(|e| err(format!("writer IPC: {e}")))?;
         with_write_validation(
             Box::new(IpcWriter {
-                temp: Some(temp),
+                staging,
                 writer: Some(writer),
-                path,
-                durable: opts.durable,
                 schema,
-                max_output_bytes: opts.limits.max_output_bytes,
             }),
             self.descriptor(),
             plan,
@@ -297,12 +294,9 @@ impl LayerReader for IpcReader {
 }
 
 struct IpcWriter {
-    temp: Option<tempfile::NamedTempFile>,
+    staging: StagedFile,
     writer: Option<FileWriter<BufWriter<File>>>,
-    path: PathBuf,
-    durable: bool,
     schema: SchemaRef,
-    max_output_bytes: u64,
 }
 
 impl FormatWriter for IpcWriter {
@@ -324,9 +318,7 @@ impl FormatWriter for IpcWriter {
             .map_err(|e| err(format!("into_inner: {e}")))?;
         inner.flush()?;
         drop(inner);
-        let temp = self.temp.take().ok_or_else(|| err("temp mancante"))?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),

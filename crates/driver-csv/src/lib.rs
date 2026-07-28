@@ -39,7 +39,7 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
+use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -257,20 +257,17 @@ impl FormatDriver for CsvDriver {
                 .map(String::as_str),
             Some("xy")
         );
-        let temp = create_staged_file(&path)?;
+        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
         let writer = csv::WriterBuilder::new()
             .delimiter(delimiter(&opts.format_options))
-            .from_writer(temp.reopen()?);
+            .from_writer(staging.reopen()?);
         with_write_validation(
             Box::new(CsvWriter {
-                temp: Some(temp),
+                staging,
                 writer: Some(writer),
-                path,
-                durable: opts.durable,
                 xy,
                 header_written: false,
                 wkb_limits: opts.limits.effective_wkb(),
-                max_output_bytes: opts.limits.max_output_bytes,
             }),
             self.descriptor(),
             plan,
@@ -522,14 +519,11 @@ fn finish_batch(
 // --- scrittura streaming ---------------------------------------------------
 
 struct CsvWriter {
-    temp: Option<tempfile::NamedTempFile>,
+    staging: StagedFile,
     writer: Option<csv::Writer<File>>,
-    path: PathBuf,
-    durable: bool,
     xy: bool,
     header_written: bool,
     wkb_limits: WkbLimits,
-    max_output_bytes: u64,
 }
 
 impl FormatWriter for CsvWriter {
@@ -613,9 +607,7 @@ impl FormatWriter for CsvWriter {
         let mut w = self.writer.take().ok_or_else(|| err("writer già chiuso"))?;
         w.flush().map_err(|e| err(e.to_string()))?;
         drop(w);
-        let temp = self.temp.take().ok_or_else(|| err("temp mancante"))?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),

@@ -43,7 +43,7 @@ use plenora_io_core::driver::{
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
+use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
@@ -161,18 +161,15 @@ impl FormatDriver for GeoJsonDriver {
                 "GeoJSON: un solo layer per file nella v1".to_owned(),
             ));
         }
-        let temp = create_staged_file(&path)?;
-        let mut writer = BufWriter::new(temp.reopen()?);
+        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
+        let mut writer = BufWriter::new(staging.reopen()?);
         writer.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[")?;
         with_write_validation(
             Box::new(GeoJsonWriter {
-                temp: Some(temp),
+                staging,
                 writer: Some(writer),
-                path,
-                durable: opts.durable,
                 first: true,
                 wkb_limits: opts.limits.effective_wkb(),
-                max_output_bytes: opts.limits.max_output_bytes,
             }),
             self.descriptor(),
             plan,
@@ -836,13 +833,10 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
 // --- scrittura (bufferizzante nella v1) -----------------------------------
 
 struct GeoJsonWriter {
-    temp: Option<tempfile::NamedTempFile>,
+    staging: StagedFile,
     writer: Option<BufWriter<File>>,
-    path: PathBuf,
-    durable: bool,
     first: bool,
     wkb_limits: WkbLimits,
-    max_output_bytes: u64,
 }
 
 impl FormatWriter for GeoJsonWriter {
@@ -876,9 +870,7 @@ impl FormatWriter for GeoJsonWriter {
         w.write_all(b"]}")?;
         w.flush()?;
         drop(w);
-        let temp = self.temp.take().ok_or_else(|| err("temp mancante"))?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),

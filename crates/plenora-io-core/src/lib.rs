@@ -34,7 +34,7 @@ pub use loss::{
 pub use publish::{
     create_staged_dir, create_staged_file, create_staged_file_with_suffix, publish_dir_atomic,
     publish_file_atomic, publish_file_atomic_limited, publish_files_ordered_limited,
-    PublishOutcome,
+    PublishOutcome, StagedFile,
 };
 pub use registry::DriverRegistry;
 pub use request::{

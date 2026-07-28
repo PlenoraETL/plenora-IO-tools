@@ -28,7 +28,7 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
+use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{
     Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar, ReadRequest,
 };
@@ -167,28 +167,25 @@ impl FormatDriver for GeoParquetDriver {
             aug_fields,
             schema.metadata().clone(),
         ));
-        let temp = create_staged_file(&path)?;
+        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
         // Row group da 64k righe: statistiche min/max abbastanza granulari da
         // rendere efficace il row-group pruning in lettura (Fase 2C).
         let props = WriterProperties::builder()
             .set_compression(compression_from(opts))
             .set_max_row_group_row_count(Some(65_536))
             .build();
-        let writer = ArrowWriter::try_new(temp.reopen()?, write_schema.clone(), Some(props))
+        let writer = ArrowWriter::try_new(staging.reopen()?, write_schema.clone(), Some(props))
             .map_err(|e| fmt_err(format!("writer: {e}")))?;
         with_write_validation(
             Box::new(GeoParquetWriter {
-                temp: Some(temp),
+                staging,
                 writer: Some(writer),
                 write_schema,
-                path,
-                durable: opts.durable,
                 geom_idx,
                 geom_name,
                 crs_meta,
                 geometry_types: BTreeSet::new(),
                 wkb_limits: opts.limits.effective_wkb(),
-                max_output_bytes: opts.limits.max_output_bytes,
             }),
             self.descriptor(),
             plan,
@@ -331,17 +328,14 @@ impl LayerReader for GeoParquetReader {
 }
 
 struct GeoParquetWriter {
-    temp: Option<tempfile::NamedTempFile>,
+    staging: StagedFile,
     writer: Option<ArrowWriter<File>>,
     write_schema: SchemaRef,
-    path: PathBuf,
-    durable: bool,
     geom_idx: usize,
     geom_name: String,
     crs_meta: Option<String>,
     geometry_types: BTreeSet<String>,
     wkb_limits: WkbLimits,
-    max_output_bytes: u64,
 }
 
 impl FormatWriter for GeoParquetWriter {
@@ -379,12 +373,7 @@ impl FormatWriter for GeoParquetWriter {
         );
         writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo));
         writer.close().map_err(|e| fmt_err(format!("close: {e}")))?;
-        let temp = self
-            .temp
-            .take()
-            .ok_or_else(|| fmt_err("tempfile Parquet non disponibile al finish"))?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+        let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),

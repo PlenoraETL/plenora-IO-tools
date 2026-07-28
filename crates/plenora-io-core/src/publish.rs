@@ -3,7 +3,7 @@
 //! la piattaforma lo consente e segnala esplicitamente quando la durabilità del
 //! nome pubblicato non può essere confermata.
 
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use plenora_io_model::{PlenoraIoError, Result};
@@ -15,6 +15,77 @@ use tempfile::{NamedTempFile, TempDir};
 pub enum PublishOutcome {
     Published,
     PublishedButDurabilityUnconfirmed,
+}
+
+/// Lifecycle comune di un output a file singolo.
+///
+/// Incapsula staging, destinazione, profilo durable e limite fisico. Il publish
+/// è una transizione terminale: dopo il primo tentativo lo staging non può
+/// essere riutilizzato o pubblicato una seconda volta.
+pub struct StagedFile {
+    temp: Option<NamedTempFile>,
+    destination: PathBuf,
+    durable: bool,
+    max_output_bytes: u64,
+}
+
+impl StagedFile {
+    pub fn new(destination: &Path, durable: bool, max_output_bytes: u64) -> Result<Self> {
+        Ok(Self {
+            temp: Some(create_staged_file(destination)?),
+            destination: destination.to_owned(),
+            durable,
+            max_output_bytes,
+        })
+    }
+
+    pub fn with_suffix(
+        destination: &Path,
+        suffix: &str,
+        durable: bool,
+        max_output_bytes: u64,
+    ) -> Result<Self> {
+        Ok(Self {
+            temp: Some(create_staged_file_with_suffix(destination, suffix)?),
+            destination: destination.to_owned(),
+            durable,
+            max_output_bytes,
+        })
+    }
+
+    pub fn path(&self) -> Result<&Path> {
+        self.temp
+            .as_ref()
+            .map(NamedTempFile::path)
+            .ok_or_else(Self::terminal_state_error)
+    }
+
+    pub fn reopen(&self) -> Result<File> {
+        Ok(self
+            .temp
+            .as_ref()
+            .ok_or_else(Self::terminal_state_error)?
+            .reopen()?)
+    }
+
+    pub fn as_file_mut(&mut self) -> Result<&mut File> {
+        Ok(self
+            .temp
+            .as_mut()
+            .ok_or_else(Self::terminal_state_error)?
+            .as_file_mut())
+    }
+
+    pub fn publish(&mut self) -> Result<(u64, PublishOutcome)> {
+        let temp = self.temp.take().ok_or_else(Self::terminal_state_error)?;
+        publish_file_atomic_limited(temp, &self.destination, self.durable, self.max_output_bytes)
+    }
+
+    fn terminal_state_error() -> PlenoraIoError {
+        PlenoraIoError::Contract(
+            "staging file non disponibile dopo la transizione terminale".to_owned(),
+        )
+    }
 }
 
 /// Crea uno staging file sullo stesso filesystem della destinazione.
@@ -358,6 +429,70 @@ mod tests {
 
         let staging = create_staged_dir(&destination).unwrap();
         assert_eq!(staging.path().parent(), Some(directory.path()));
+    }
+
+    #[test]
+    fn staged_file_owns_publish_lifecycle() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("output.bin");
+        let mut staging = StagedFile::new(&destination, false, 16).unwrap();
+        let staging_path = staging.path().unwrap().to_owned();
+        staging
+            .as_file_mut()
+            .unwrap()
+            .write_all(b"payload")
+            .unwrap();
+
+        let (bytes, outcome) = staging.publish().unwrap();
+
+        assert_eq!(bytes, 7);
+        assert_eq!(outcome, PublishOutcome::Published);
+        assert_eq!(std::fs::read(&destination).unwrap(), b"payload");
+        assert!(!staging_path.exists());
+        assert!(matches!(staging.path(), Err(PlenoraIoError::Contract(_))));
+        assert!(matches!(staging.reopen(), Err(PlenoraIoError::Contract(_))));
+        assert!(matches!(
+            staging.publish(),
+            Err(PlenoraIoError::Contract(_))
+        ));
+    }
+
+    #[test]
+    fn staged_file_limit_failure_is_terminal_and_never_publishes() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("output.bin");
+        let mut staging = StagedFile::new(&destination, false, 7).unwrap();
+        staging
+            .as_file_mut()
+            .unwrap()
+            .write_all(&[0_u8; 8])
+            .unwrap();
+
+        let result = staging.publish();
+
+        assert!(matches!(result, Err(PlenoraIoError::LimitExceeded(_))));
+        assert!(!destination.exists());
+        assert!(matches!(
+            staging.publish(),
+            Err(PlenoraIoError::Contract(_))
+        ));
+    }
+
+    #[test]
+    fn unpublished_staged_file_is_removed_on_drop() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("output.gpkg");
+        let staging = StagedFile::with_suffix(&destination, ".gpkg", false, 16).unwrap();
+        let staging_path = staging.path().unwrap().to_owned();
+        assert_eq!(
+            staging_path.extension().and_then(|value| value.to_str()),
+            Some("gpkg")
+        );
+
+        drop(staging);
+
+        assert!(!staging_path.exists());
+        assert!(!destination.exists());
     }
 
     #[test]
