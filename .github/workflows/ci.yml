@@ -63,6 +63,8 @@ jobs:
         run: cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo build --workspace --release --locked
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-audit
+        with:
+          tool: cargo-audit
       - name: Audit locked dependencies
         run: >-
           cargo audit --deny warnings
@@ -126,6 +128,8 @@ jobs:
           toolchain: "1.92.0"
           components: llvm-tools-preview
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-llvm-cov
+        with:
+          tool: cargo-llvm-cov
       - name: Measure coverage
         env:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm

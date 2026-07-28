@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.check_action_pins import validate_reference
+from scripts.check_action_pins import required_tool_input, validate_reference
 
 
 class ValidateReferenceTests(unittest.TestCase):
@@ -33,6 +33,28 @@ class ValidateReferenceTests(unittest.TestCase):
 
     def test_rejects_mutable_docker_tag(self) -> None:
         self.assertIsNotNone(validate_reference("docker://example.invalid/tool:latest"))
+
+    def test_install_action_sha_requires_explicit_tool(self) -> None:
+        reference = "taiki-e/install-action@" + ("a" * 40)
+        lines = [
+            f"      - uses: {reference}",
+            "      - name: Next step",
+        ]
+        self.assertIsNotNone(required_tool_input(reference, lines, 0))
+
+    def test_install_action_accepts_explicit_tool(self) -> None:
+        reference = "taiki-e/install-action@" + ("a" * 40)
+        lines = [
+            f"      - uses: {reference}",
+            "        with:",
+            "          tool: cargo-llvm-cov",
+            "      - name: Next step",
+        ]
+        self.assertIsNone(required_tool_input(reference, lines, 0))
+
+    def test_other_actions_do_not_require_tool_input(self) -> None:
+        reference = "actions/checkout@" + ("a" * 40)
+        self.assertIsNone(required_tool_input(reference, [f"- uses: {reference}"], 0))
 
 
 if __name__ == "__main__":

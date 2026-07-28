@@ -88,6 +88,12 @@ Tutti i riferimenti restano pin SHA immutabili.
 | `actions-rust-lang/setup-rust-toolchain` | stesso SHA, commento `v1` | stesso SHA, identificato `v1.17.0` | composite; incorpora `rust-cache` sopra |
 | `taiki-e/install-action` | due SHA distinti | `41049aa56687c35e0afa74eed4f09cec4f9afabf` (`v2.85.2`) | composite |
 
+Il riferimento `taiki-e/install-action` non contiene più il nome del tool nel
+tag perché è fissato allo SHA comune. Gli input obbligatori sono quindi
+espliciti: `tool: cargo-audit` e `tool: cargo-llvm-cov`. Il gate dei pin verifica
+anche questa condizione; un pin immutabile privo di `with.tool` fallisce prima
+dell'esecuzione dei job.
+
 Fonti ufficiali ispezionate:
 
 - <https://github.com/actions/checkout/releases/tag/v7.0.1>

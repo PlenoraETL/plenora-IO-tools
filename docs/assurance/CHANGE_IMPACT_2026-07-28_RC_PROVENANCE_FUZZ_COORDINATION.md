@@ -66,3 +66,12 @@ qualifica avionica e non dichiara di farlo.
 
 La campagna fuzz lunga non è stata avviata: l'assenza è una precondizione
 intenzionale finché i due team non accettano protocollo e schema.
+
+## Evidenza CI post-push
+
+La prima esecuzione della baseline `8ad2d99` ha individuato che il passaggio da
+tag specializzati a uno SHA comune di `taiki-e/install-action` rimuoveva il nome
+del tool implicito. Il job coverage è terminato con exit 101 prima della misura.
+La correzione dichiara `with.tool` per `cargo-audit` e `cargo-llvm-cov` e
+aggiunge test negativi al gate action pin. Il finding è attribuito al rinnovo
+Node 24, non ai manifest RC o al codice Rust.

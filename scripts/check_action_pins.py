@@ -13,6 +13,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 USES = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+TOOL_INPUT = re.compile(r"^\s+tool:\s*(\S+)\s*(?:#.*)?$")
 
 
 def validate_reference(reference: str) -> str | None:
@@ -33,15 +34,34 @@ def validate_reference(reference: str) -> str | None:
     return None
 
 
+def required_tool_input(
+    reference: str, workflow_lines: list[str], uses_index: int
+) -> str | None:
+    action = reference.rpartition("@")[0]
+    if action != "taiki-e/install-action":
+        return None
+
+    uses_line = workflow_lines[uses_index]
+    uses_indent = len(uses_line) - len(uses_line.lstrip())
+    for line in workflow_lines[uses_index + 1 :]:
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if stripped and indent <= uses_indent and stripped.startswith("-"):
+            break
+        match = TOOL_INPUT.match(line)
+        if match is not None:
+            return None if match.group(1) else "input tool vuoto"
+    return "taiki-e/install-action fissata a SHA richiede with.tool esplicito"
+
+
 def main() -> int:
     workflows = sorted((*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")))
     errors: list[str] = []
     references = 0
 
     for workflow in workflows:
-        for line_number, line in enumerate(
-            workflow.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        lines = workflow.read_text(encoding="utf-8").splitlines()
+        for line_number, line in enumerate(lines, start=1):
             match = USES.match(line)
             if match is None:
                 continue
@@ -51,6 +71,13 @@ def main() -> int:
             if error is not None:
                 location = workflow.relative_to(ROOT)
                 errors.append(f"{location}:{line_number}: {reference}: {error}")
+                continue
+            input_error = required_tool_input(reference, lines, line_number - 1)
+            if input_error is not None:
+                location = workflow.relative_to(ROOT)
+                errors.append(
+                    f"{location}:{line_number}: {reference}: {input_error}"
+                )
 
     if not workflows:
         errors.append(".github/workflows: nessun workflow trovato")
