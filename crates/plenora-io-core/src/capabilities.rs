@@ -10,7 +10,7 @@ use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
 
 use crate::descriptor::{
     ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport, FormatDescriptor, NullabilitySupport,
-    TextEncoding, TypeCoercionPolicy,
+    TextEncoding, TypeCoercionPolicy, ALL_GEOMETRY_TYPES,
 };
 use crate::request::WritePlan;
 
@@ -248,12 +248,45 @@ pub fn validate_write(
                     format!("semantica {:?} non supportata", geometry.spatial_semantics),
                 ));
             }
-            if !caps.geometry.mixed_types && geometry.geometry_types.len() > 1 {
+            let declared_mixed =
+                geometry.types_declaration == plenora_io_model::contract::TypesDeclaration::Mixed;
+            if !caps.geometry.mixed_types && (declared_mixed || geometry.geometry_types.len() > 1) {
                 return Err(violation(
                     driver,
                     Some(&geometry.name),
                     CapabilityReason::MixedGeometry,
                     "il formato richiede un solo tipo geometrico",
+                ));
+            }
+            let restricts_geometry_types = caps.geometry.geometry_types.len()
+                != ALL_GEOMETRY_TYPES.len()
+                || !ALL_GEOMETRY_TYPES
+                    .iter()
+                    .all(|geometry_type| caps.geometry.geometry_types.contains(geometry_type));
+            if restricts_geometry_types
+                && matches!(
+                    geometry.types_declaration,
+                    plenora_io_model::contract::TypesDeclaration::Unresolved
+                        | plenora_io_model::contract::TypesDeclaration::LegacyUndeclared
+                )
+            {
+                return Err(violation(
+                    driver,
+                    Some(&geometry.name),
+                    CapabilityReason::GeometryNotSupported,
+                    "il formato richiede una dichiarazione preventiva dei tipi geometrici",
+                ));
+            }
+            if let Some(unsupported) = geometry
+                .geometry_types
+                .iter()
+                .find(|geometry_type| !caps.geometry.geometry_types.contains(geometry_type))
+            {
+                return Err(violation(
+                    driver,
+                    Some(&geometry.name),
+                    CapabilityReason::GeometryNotSupported,
+                    format!("tipo geometrico {unsupported:?} non supportato"),
                 ));
             }
             let unique_geometry_types = geometry
@@ -313,7 +346,9 @@ mod tests {
             id: "test",
             direction: Direction::Bidirectional,
             read_mode: ReadMode::StreamingSequential,
+            read_determinism: crate::descriptor::DeterminismLevel::Semantic,
             write_mode: Some(WriteMode::Streaming),
+            write_determinism: Some(crate::descriptor::DeterminismLevel::Semantic),
             multi_layer: false,
             multi_file: false,
             reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,

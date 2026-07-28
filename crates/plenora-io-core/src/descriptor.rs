@@ -2,7 +2,9 @@
 
 use serde::Serialize;
 
-use plenora_io_model::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
+use plenora_io_model::contract::{
+    CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -26,6 +28,20 @@ pub enum ReadMode {
 pub enum WriteMode {
     Streaming,
     Buffered,
+}
+
+/// Livello di determinismo garantito a parità di input, opzioni e versione
+/// dell'implementazione (ICD §12).
+///
+/// `Semantic` è la garanzia minima: stessi valori e stesso insieme di righe,
+/// senza assumere un ordine o una rappresentazione fisica identici.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeterminismLevel {
+    Semantic,
+    Ordered,
+    ByteForByte,
+    Unordered,
 }
 
 /// Fedeltà a tre livelli: dipende dal contratto, non solo dal formato (ADR-IO 5).
@@ -126,6 +142,8 @@ pub struct GeometryWriteSupport {
     pub encodings: &'static [GeometryEncoding],
     pub dimensions: &'static [CoordinateDimensions],
     pub spatial_semantics: &'static [SpatialSemantics],
+    /// Tipi geometrici accettati dal formato nel profilo corrente.
+    pub geometry_types: &'static [GeometryType],
     pub mixed_types: bool,
 }
 
@@ -199,11 +217,31 @@ pub const ALL_ARROW_TYPES: &[ArrowTypeClass] = &[
     ArrowTypeClass::Other,
 ];
 
+pub const ALL_GEOMETRY_TYPES: &[GeometryType] = &[
+    GeometryType::Point,
+    GeometryType::LineString,
+    GeometryType::Polygon,
+    GeometryType::MultiPoint,
+    GeometryType::MultiLineString,
+    GeometryType::MultiPolygon,
+    GeometryType::GeometryCollection,
+];
+
+pub const SHAPEFILE_GEOMETRY_TYPES: &[GeometryType] = &[
+    GeometryType::Point,
+    GeometryType::LineString,
+    GeometryType::Polygon,
+    GeometryType::MultiPoint,
+    GeometryType::MultiLineString,
+    GeometryType::MultiPolygon,
+];
+
 pub const WKB_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     supported: true,
     encodings: &[GeometryEncoding::Wkb],
     dimensions: &[CoordinateDimensions::Xy],
     spatial_semantics: &[SpatialSemantics::Geometry],
+    geometry_types: ALL_GEOMETRY_TYPES,
     mixed_types: true,
 };
 
@@ -219,6 +257,7 @@ pub const WKB_XY_XYZ_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
         CoordinateDimensions::Unknown,
     ],
     spatial_semantics: &[SpatialSemantics::Geometry],
+    geometry_types: ALL_GEOMETRY_TYPES,
     mixed_types: true,
 };
 
@@ -230,6 +269,7 @@ pub const WKB_SINGLE_TYPE_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSuppo
 /// Shapefile-like support: one native shape family per dataset, with the
 /// dimensional variants represented by the format itself.
 pub const WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
+    geometry_types: SHAPEFILE_GEOMETRY_TYPES,
     mixed_types: false,
     ..WKB_PASSTHROUGH_GEOMETRY
 };
@@ -245,6 +285,7 @@ pub const WKB_PASSTHROUGH_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport 
         CoordinateDimensions::Unknown,
     ],
     spatial_semantics: &[SpatialSemantics::Geometry],
+    geometry_types: ALL_GEOMETRY_TYPES,
     mixed_types: true,
 };
 
@@ -259,6 +300,7 @@ pub const NO_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     encodings: &[],
     dimensions: &[],
     spatial_semantics: &[],
+    geometry_types: &[],
     mixed_types: false,
 };
 
@@ -292,7 +334,11 @@ pub struct FormatDescriptor {
     pub id: &'static str,
     pub direction: Direction,
     pub read_mode: ReadMode,
+    /// Garanzia dell'operazione di lettura sul medesimo snapshot locale.
+    pub read_determinism: DeterminismLevel,
     pub write_mode: Option<WriteMode>,
+    /// Garanzia dell'operazione di scrittura; `None` per i driver read-only.
+    pub write_determinism: Option<DeterminismLevel>,
     pub multi_layer: bool,
     pub multi_file: bool,
     /// Concorrenza dei reader ammessa dal formato (ADR-IO 1).

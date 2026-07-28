@@ -180,12 +180,102 @@ pub fn wkb_from_gj_value(
 
 /// Scrive direttamente il modello WKB lossless come GeoJSON, preservando Z.
 pub(crate) fn write_wkb_geojson<W: Write>(writer: &mut W, geometry: &WkbGeometry) -> Result<()> {
+    validate_wkb_geojson_geometry(geometry)?;
+    write_wkb_geojson_unchecked(writer, geometry)
+}
+
+fn validate_wkb_geojson_geometry(geometry: &WkbGeometry) -> Result<()> {
     if !matches!(
         geometry.dimensions,
         CoordinateDimensions::Xy | CoordinateDimensions::Xyz
     ) {
         return Err(format_error("GeoJSON supporta solo coordinate XY o XYZ"));
     }
+    match &geometry.value {
+        WkbValue::Point(coordinate) => validate_wkb_coordinate(coordinate),
+        WkbValue::LineString(coordinates) => {
+            validate_nonempty(coordinates, "LineString WKB vuota")?;
+            coordinates.iter().try_for_each(validate_wkb_coordinate)
+        }
+        WkbValue::Polygon(rings) => {
+            validate_nonempty(rings, "Polygon WKB senza anelli")?;
+            for ring in rings {
+                validate_nonempty(ring, "Polygon WKB con anello vuoto")?;
+                ring.iter().try_for_each(validate_wkb_coordinate)?;
+            }
+            Ok(())
+        }
+        WkbValue::MultiPoint(points) => {
+            validate_nonempty(points, "geometria WKB multipart/collection vuota")?;
+            for point in points {
+                if !matches!(point.value, WkbValue::Point(_)) {
+                    return Err(format_error("MultiPoint WKB con membro non-Point"));
+                }
+                validate_wkb_child(geometry, point)?;
+            }
+            Ok(())
+        }
+        WkbValue::MultiLineString(lines) => {
+            validate_nonempty(lines, "geometria WKB multipart/collection vuota")?;
+            for line in lines {
+                if !matches!(line.value, WkbValue::LineString(_)) {
+                    return Err(format_error(
+                        "MultiLineString WKB con membro non-LineString",
+                    ));
+                }
+                validate_wkb_child(geometry, line)?;
+            }
+            Ok(())
+        }
+        WkbValue::MultiPolygon(polygons) => {
+            validate_nonempty(polygons, "geometria WKB multipart/collection vuota")?;
+            for polygon in polygons {
+                if !matches!(polygon.value, WkbValue::Polygon(_)) {
+                    return Err(format_error("MultiPolygon WKB con membro non-Polygon"));
+                }
+                validate_wkb_child(geometry, polygon)?;
+            }
+            Ok(())
+        }
+        WkbValue::GeometryCollection(geometries) => {
+            validate_nonempty(geometries, "geometria WKB multipart/collection vuota")?;
+            for child in geometries {
+                validate_wkb_child(geometry, child)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_wkb_child(parent: &WkbGeometry, child: &WkbGeometry) -> Result<()> {
+    if child.dimensions != parent.dimensions || child.srid.is_some() {
+        return Err(format_error(
+            "geometria WKB annidata con dimensioni o SRID incoerenti",
+        ));
+    }
+    validate_wkb_geojson_geometry(child)
+}
+
+fn validate_wkb_coordinate(coordinate: &WkbCoordinate) -> Result<()> {
+    if !coordinate.x.is_finite()
+        || !coordinate.y.is_finite()
+        || coordinate.z.is_some_and(|z| !z.is_finite())
+    {
+        return Err(format_error(
+            "coordinata non finita non rappresentabile in GeoJSON",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_nonempty<T>(values: &[T], message: &str) -> Result<()> {
+    if values.is_empty() {
+        return Err(format_error(message));
+    }
+    Ok(())
+}
+
+fn write_wkb_geojson_unchecked<W: Write>(writer: &mut W, geometry: &WkbGeometry) -> Result<()> {
     let dimensions = geometry.dimensions;
     match &geometry.value {
         WkbValue::Point(coordinate) => {
@@ -242,7 +332,7 @@ pub(crate) fn write_wkb_geojson<W: Write>(writer: &mut W, geometry: &WkbGeometry
             writer.write_all(b"{\"type\":\"GeometryCollection\",\"geometries\":[")?;
             for (index, value) in geometries.iter().enumerate() {
                 write_separator(writer, index)?;
-                write_wkb_geojson(writer, value)?;
+                write_wkb_geojson_unchecked(writer, value)?;
             }
             writer.write_all(b"]}")?;
         }
@@ -255,14 +345,6 @@ fn write_wkb_position<W: Write>(
     coordinate: &WkbCoordinate,
     dimensions: CoordinateDimensions,
 ) -> Result<()> {
-    if !coordinate.x.is_finite()
-        || !coordinate.y.is_finite()
-        || coordinate.z.is_some_and(|z| !z.is_finite())
-    {
-        return Err(format_error(
-            "coordinata non finita non rappresentabile in GeoJSON",
-        ));
-    }
     writer.write_all(b"[")?;
     serde_json::to_writer(&mut *writer, &coordinate.x)
         .map_err(|error| format_error(error.to_string()))?;
@@ -317,6 +399,67 @@ pub fn write_geo_geojson<W: Write>(
     writer: &mut W,
     geometry: &geo_types::Geometry<f64>,
 ) -> Result<()> {
+    validate_geo_geometry(geometry)?;
+    write_geo_geojson_unchecked(writer, geometry)
+}
+
+fn validate_geo_geometry(geometry: &geo_types::Geometry<f64>) -> Result<()> {
+    use geo_types::Geometry;
+
+    match geometry {
+        Geometry::Point(point) => validate_xy(point.x(), point.y()),
+        Geometry::LineString(line) => validate_geo_line(line),
+        Geometry::Polygon(polygon) => validate_geo_polygon(polygon),
+        Geometry::MultiPoint(points) => {
+            validate_nonempty(&points.0, "MultiPoint GeoJSON vuota")?;
+            points
+                .0
+                .iter()
+                .try_for_each(|point| validate_xy(point.x(), point.y()))
+        }
+        Geometry::MultiLineString(lines) => {
+            validate_nonempty(&lines.0, "MultiLineString GeoJSON vuota")?;
+            lines.0.iter().try_for_each(validate_geo_line)
+        }
+        Geometry::MultiPolygon(polygons) => {
+            validate_nonempty(&polygons.0, "MultiPolygon GeoJSON vuota")?;
+            polygons.0.iter().try_for_each(validate_geo_polygon)
+        }
+        Geometry::GeometryCollection(collection) => {
+            validate_nonempty(&collection.0, "GeometryCollection GeoJSON vuota")?;
+            collection.0.iter().try_for_each(validate_geo_geometry)
+        }
+        _ => Err(format_error(
+            "geometria con Z/M non rappresentabile in GeoJSON 2D",
+        )),
+    }
+}
+
+fn validate_xy(x: f64, y: f64) -> Result<()> {
+    if !x.is_finite() || !y.is_finite() {
+        return Err(format_error(
+            "coordinata non finita non rappresentabile in GeoJSON",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_geo_line(line: &geo_types::LineString<f64>) -> Result<()> {
+    validate_nonempty(&line.0, "LineString GeoJSON vuota")?;
+    line.0
+        .iter()
+        .try_for_each(|coordinate| validate_xy(coordinate.x, coordinate.y))
+}
+
+fn validate_geo_polygon(polygon: &geo_types::Polygon<f64>) -> Result<()> {
+    validate_geo_line(polygon.exterior())?;
+    polygon.interiors().iter().try_for_each(validate_geo_line)
+}
+
+fn write_geo_geojson_unchecked<W: Write>(
+    writer: &mut W,
+    geometry: &geo_types::Geometry<f64>,
+) -> Result<()> {
     use geo_types::Geometry;
 
     match geometry {
@@ -363,7 +506,7 @@ pub fn write_geo_geojson<W: Write>(
             writer.write_all(b"{\"type\":\"GeometryCollection\",\"geometries\":[")?;
             for (index, geometry) in collection.0.iter().enumerate() {
                 write_separator(writer, index)?;
-                write_geo_geojson(writer, geometry)?;
+                write_geo_geojson_unchecked(writer, geometry)?;
             }
             writer.write_all(b"]}")?;
         }
@@ -377,11 +520,6 @@ pub fn write_geo_geojson<W: Write>(
 }
 
 fn write_position<W: Write>(writer: &mut W, x: f64, y: f64) -> Result<()> {
-    if !x.is_finite() || !y.is_finite() {
-        return Err(format_error(
-            "coordinata non finita non rappresentabile in GeoJSON",
-        ));
-    }
     // Ryu produce numeri JSON round-trippabili anche per gli estremi di f64.
     writer.write_all(b"[")?;
     serde_json::to_writer(&mut *writer, &x).map_err(|error| format_error(error.to_string()))?;
@@ -417,4 +555,47 @@ fn write_separator<W: Write>(writer: &mut W, index: usize) -> Result<()> {
         writer.write_all(b",")?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use geo_types::{
+        Geometry, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon,
+        Polygon,
+    };
+
+    use super::*;
+
+    #[test]
+    fn geo_writer_rejects_empty_geometries_before_emitting_bytes() {
+        let cases = vec![
+            Geometry::LineString(LineString::new(Vec::new())),
+            Geometry::Polygon(Polygon::new(LineString::new(Vec::new()), Vec::new())),
+            Geometry::MultiPoint(MultiPoint(Vec::new())),
+            Geometry::MultiLineString(MultiLineString(Vec::new())),
+            Geometry::MultiPolygon(MultiPolygon(Vec::new())),
+            Geometry::GeometryCollection(GeometryCollection(Vec::new())),
+            Geometry::GeometryCollection(GeometryCollection(vec![Geometry::Polygon(
+                Polygon::new(LineString::new(Vec::new()), Vec::new()),
+            )])),
+        ];
+
+        for geometry in cases {
+            let mut output = Vec::new();
+            assert!(write_geo_geojson(&mut output, &geometry).is_err());
+            assert!(output.is_empty());
+        }
+    }
+
+    #[test]
+    fn wkb_writer_rejects_empty_collection_before_emitting_bytes() {
+        let geometry = WkbGeometry {
+            value: WkbValue::GeometryCollection(Vec::new()),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let mut output = Vec::new();
+        assert!(write_wkb_geojson(&mut output, &geometry).is_err());
+        assert!(output.is_empty());
+    }
 }

@@ -13,19 +13,21 @@ pub mod request;
 
 pub use capabilities::{arrow_type_class, validate_write};
 pub use descriptor::{
-    ArrowTypeClass, AttributeWriteSupport, CrsHandling, CrsWriteSupport, Direction, Fidelity,
-    FieldNamePolicy, FormatDescriptor, FormatWriteCapabilities, GeometryWriteSupport,
-    NameNormalization, NullabilitySupport, PredicatePruningSupport, ProjectionSupport, ReadMode,
-    ReaderConcurrency, Runtime, SpatialPruningSupport, TextEncoding, TypeCoercionPolicy, WriteMode,
-    ALL_ARROW_TYPES, DBF_FIELD_NAMES, NO_GEOMETRY, SCALAR_TYPES, UTF8_FIELD_NAMES,
+    ArrowTypeClass, AttributeWriteSupport, CrsHandling, CrsWriteSupport, DeterminismLevel,
+    Direction, Fidelity, FieldNamePolicy, FormatDescriptor, FormatWriteCapabilities,
+    GeometryWriteSupport, NameNormalization, NullabilitySupport, PredicatePruningSupport,
+    ProjectionSupport, ReadMode, ReaderConcurrency, Runtime, SpatialPruningSupport, TextEncoding,
+    TypeCoercionPolicy, WriteMode, ALL_ARROW_TYPES, ALL_GEOMETRY_TYPES, DBF_FIELD_NAMES,
+    NO_GEOMETRY, SCALAR_TYPES, SHAPEFILE_GEOMETRY_TYPES, UTF8_FIELD_NAMES,
     WKB_EWKB_PASSTHROUGH_GEOMETRY, WKB_PASSTHROUGH_GEOMETRY,
     WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY, WKB_SINGLE_TYPE_XY_GEOMETRY, WKB_XY_GEOMETRY,
     WKB_XY_XYZ_GEOMETRY,
 };
 pub use driver::{
-    check_cancelled, spawn_batch_reader, with_batch_target, with_cancellation, with_write_limits,
-    with_write_validation, BatchEmitter, FormatDriver, FormatWriter, LayerReader,
-    OpenDatasetHandle, Published, ReadOptions, SingleReaderGate, Sink, Source, WriteOptions,
+    check_cancelled, check_cancelled_periodically, spawn_batch_reader, with_batch_target,
+    with_cancellation, with_write_limits, with_write_validation, BatchEmitter, FormatDriver,
+    FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions, SingleReaderGate, Sink,
+    Source, WriteOptions, CANCELLATION_CHECK_INTERVAL,
 };
 pub use loss::{
     FidelityAssessment, FidelityReason, FidelityReasonCode, LossExample, LossReport,

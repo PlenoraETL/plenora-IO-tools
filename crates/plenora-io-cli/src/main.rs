@@ -272,6 +272,7 @@ fn cmd_catalog() -> CliResult {
         "status": "ok",
         "protocol_version": 1,
         "contract": "plenora-io-catalog-v1",
+        "determinism": "byte_for_byte",
         "drivers": drivers,
     }))
 }
@@ -628,6 +629,37 @@ mod tests {
             "shp"
         );
         assert!(driver_for_path(Path::new("x.zzz")).is_err());
+    }
+
+    #[test]
+    fn catalog_is_canonical_and_byte_for_byte_deterministic() {
+        let first = serde_json::to_vec(&cmd_catalog().unwrap()).unwrap();
+        let second = serde_json::to_vec(&cmd_catalog().unwrap()).unwrap();
+        assert_eq!(first, second);
+
+        let document: Value = serde_json::from_slice(&first).unwrap();
+        assert_eq!(document["determinism"], "byte_for_byte");
+        let ids: Vec<_> = document["drivers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|driver| driver["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "csv",
+                "dxf",
+                "filegdb",
+                "geojson",
+                "geoparquet",
+                "gpkg",
+                "ipc",
+                "kml",
+                "shp",
+                "xls",
+            ]
+        );
     }
 }
 

@@ -73,7 +73,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "geojson",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::StreamingSequential, // array `features` scorso in streaming
-    write_mode: Some(WriteMode::Streaming),   // feature-per-feature, niente buffering
+    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
+    write_mode: Some(WriteMode::Streaming), // feature-per-feature, niente buffering
+    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
@@ -95,7 +97,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 5,
-    descriptor_version: 4,
+    descriptor_version: 5,
 };
 
 pub struct GeoJsonDriver;

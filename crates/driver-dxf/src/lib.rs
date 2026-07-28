@@ -40,9 +40,10 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
-    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
+    AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
+    SingleReaderGate, TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES,
+    WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
@@ -53,6 +54,7 @@ use plenora_io_model::limits::{Limits, WkbLimits};
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
+use plenora_io_model::{CancellationToken, ErrorPhase};
 use plenora_io_model::{PlenoraIoError, Result};
 
 const GEOMETRY: &str = "geometry";
@@ -191,7 +193,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "dxf",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::Materializing,
+    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Buffered),
+    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
@@ -213,7 +217,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 4,
-    descriptor_version: 4,
+    descriptor_version: 5,
 };
 
 pub struct DxfDriver;
@@ -226,8 +230,10 @@ impl FormatDriver for DxfDriver {
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let drawing = Drawing::load_file(&path).map_err(|e| err(format!("apertura DXF: {e}")))?;
+        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         let crs = resolve_dxf_crs(&drawing, opts)?;
-        let (batch, loss, contract) = build_batch(&drawing, crs, &opts.limits)?;
+        let (batch, loss, contract) =
+            build_batch_cancellable(&drawing, crs, &opts.limits, &opts.cancellation)?;
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -620,12 +626,23 @@ struct Walker<'a> {
     budget: usize,
     max_rows: usize,
     remaining_vertices: usize,
+    cancellation: CancellationToken,
+    visited_entities: usize,
 }
 
 impl<'a> Walker<'a> {
-    fn new(drawing: &'a Drawing, limits: &Limits) -> Self {
-        Walker {
-            blocks: drawing.blocks().map(|b| (b.name.clone(), b)).collect(),
+    fn new(
+        drawing: &'a Drawing,
+        limits: &Limits,
+        cancellation: &CancellationToken,
+    ) -> Result<Self> {
+        let mut blocks = HashMap::new();
+        for (index, block) in drawing.blocks().enumerate() {
+            check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
+            blocks.insert(block.name.clone(), block);
+        }
+        Ok(Walker {
+            blocks,
             geometries: Vec::new(),
             layers: Vec::new(),
             types: Vec::new(),
@@ -634,7 +651,9 @@ impl<'a> Walker<'a> {
             budget: MAX_ENTITIES,
             max_rows: limits.max_rows,
             remaining_vertices: limits.max_vertices,
-        }
+            cancellation: cancellation.clone(),
+            visited_entities: 0,
+        })
     }
 
     /// Il layer "0" (o vuoto) eredita quello del contesto (blocco padre).
@@ -686,6 +705,8 @@ impl<'a> Walker<'a> {
         depth: usize,
         visiting: &mut HashSet<String>,
     ) -> Result<()> {
+        check_cancelled_periodically(&self.cancellation, ErrorPhase::Read, self.visited_entities)?;
+        self.visited_entities = self.visited_entities.saturating_add(1);
         self.budget = self.budget.saturating_sub(1);
         if self.budget == 0 {
             return Err(err(format!("DXF oltre il limite di {MAX_ENTITIES} entità")));
@@ -1155,6 +1176,16 @@ fn build_batch(
     crs: ResolvedCrs,
     limits: &Limits,
 ) -> Result<(RecordBatch, LossReport, DataContract)> {
+    build_batch_cancellable(drawing, crs, limits, &CancellationToken::new())
+}
+
+fn build_batch_cancellable(
+    drawing: &Drawing,
+    crs: ResolvedCrs,
+    limits: &Limits,
+    cancellation: &CancellationToken,
+) -> Result<(RecordBatch, LossReport, DataContract)> {
+    check_cancelled(cancellation, ErrorPhase::Read)?;
     const DXF_OUTPUT_COLUMNS: usize = 4;
     if limits.max_columns < DXF_OUTPUT_COLUMNS {
         return Err(PlenoraIoError::LimitExceeded(format!(
@@ -1162,7 +1193,7 @@ fn build_batch(
             limits.max_columns
         )));
     }
-    let mut walker = Walker::new(drawing, limits);
+    let mut walker = Walker::new(drawing, limits, cancellation)?;
     let mut visiting: HashSet<String> = HashSet::new();
     for e in drawing.entities() {
         walker.walk_entity(e, Transform3::IDENTITY, "0", 0, &mut visiting)?;
@@ -1180,7 +1211,8 @@ fn build_batch(
     };
     let mut geometry_types = BTreeSet::new();
     let mut encoded = Vec::with_capacity(walker.geometries.len());
-    for geometry in &mut walker.geometries {
+    for (index, geometry) in walker.geometries.iter_mut().enumerate() {
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
         let Some(geometry) = geometry else {
             encoded.push(None);
             continue;

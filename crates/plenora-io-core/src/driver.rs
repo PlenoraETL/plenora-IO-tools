@@ -114,6 +114,23 @@ pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<(
     }
 }
 
+/// Frequenza comune dei controlli cooperativi nei loop che materializzano.
+/// È una potenza di due per mantenere trascurabile il costo del fast path.
+pub const CANCELLATION_CHECK_INTERVAL: usize = 1024;
+
+/// Controlla periodicamente il token senza imporre una lettura atomica per
+/// ogni riga. Il chiamante deve passare un indice monotono a partire da zero.
+pub fn check_cancelled_periodically(
+    token: &CancellationToken,
+    phase: ErrorPhase,
+    index: usize,
+) -> Result<()> {
+    if index & (CANCELLATION_CHECK_INTERVAL - 1) == 0 {
+        check_cancelled(token, phase)?;
+    }
+    Ok(())
+}
+
 pub trait FormatDriver: Send + Sync {
     fn descriptor(&self) -> &FormatDescriptor;
     /// Statico: header/schema/CRS, nessuna riga.
@@ -708,6 +725,25 @@ mod tests {
 
     use super::*;
     use crate::descriptor::WKB_XY_GEOMETRY;
+
+    #[test]
+    fn periodic_cancellation_has_a_bounded_check_interval() {
+        let token = CancellationToken::new();
+        token.cancel();
+        assert!(matches!(
+            check_cancelled_periodically(&token, ErrorPhase::Read, 0),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Cancelled
+        ));
+        assert!(check_cancelled_periodically(&token, ErrorPhase::Read, 1).is_ok());
+        assert!(matches!(
+            check_cancelled_periodically(
+                &token,
+                ErrorPhase::Read,
+                CANCELLATION_CHECK_INTERVAL
+            ),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Cancelled
+        ));
+    }
 
     struct FinishTrackingWriter {
         finished: Arc<AtomicBool>,

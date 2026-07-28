@@ -165,7 +165,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "shp",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::StreamingSequential,
+    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Streaming),
+    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
     multi_layer: false,
     multi_file: true, // .shp/.shx/.dbf/.prj
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
@@ -187,7 +189,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 6,
-    descriptor_version: 4,
+    descriptor_version: 5,
 };
 
 pub struct ShpDriver;
@@ -1836,7 +1838,7 @@ mod tests {
         let mut geometry_contract =
             GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
         geometry_contract.dimensions = dimensions;
-        geometry_contract.geometry_types = vec![GeometryType::Point];
+        geometry_contract.set_exact_geometry_types(vec![GeometryType::Point]);
         let schema: SchemaRef = Arc::new(Schema::new(vec![
             with_geometry_contract_metadata(
                 &geometry_field(GEOMETRY, "EPSG:4326"),

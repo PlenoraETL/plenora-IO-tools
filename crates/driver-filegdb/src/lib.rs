@@ -15,7 +15,9 @@ use plenora_io_core::{
     validate_write, AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities,
     NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
 };
-use plenora_io_model::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
+use plenora_io_model::contract::{
+    CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
+};
 use plenora_io_model::Result;
 
 const FILEGDB_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
@@ -34,6 +36,12 @@ const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
         CoordinateDimensions::Xyzm,
     ],
     spatial_semantics: &[SpatialSemantics::Geometry],
+    geometry_types: &[
+        GeometryType::Point,
+        GeometryType::MultiPoint,
+        GeometryType::MultiLineString,
+        GeometryType::MultiPolygon,
+    ],
     mixed_types: false,
 };
 
@@ -41,7 +49,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "filegdb",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::Materializing,
+    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Streaming),
+    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
     multi_layer: true,
     multi_file: true, // una .gdb è una directory
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
@@ -63,7 +73,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 8,
-    descriptor_version: 6,
+    descriptor_version: 7,
 };
 
 pub struct FileGdbDriver;
@@ -1298,7 +1308,7 @@ mod backend {
                 crs.id.as_deref().unwrap_or("custom"),
             )]));
             let mut geometry = GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs, true);
-            geometry.geometry_types = vec![GeometryType::Point];
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
             WriteLayer {
                 name: "points".to_owned(),
                 contract: DataContract {
@@ -1498,7 +1508,7 @@ mod backend {
                 ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
                 true,
             );
-            geometry.geometry_types = vec![GeometryType::Point];
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "points".to_owned(),
@@ -1578,7 +1588,7 @@ mod backend {
                 ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
                 true,
             );
-            geometry.geometry_types = vec![GeometryType::Point];
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "points".to_owned(),
@@ -1683,7 +1693,7 @@ mod backend {
                 ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
                 false,
             );
-            geometry.geometry_types = vec![GeometryType::Point];
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "float_edges".to_owned(),
@@ -1735,7 +1745,7 @@ mod backend {
                 true,
             );
             geometry.dimensions = CoordinateDimensions::Xyz;
-            geometry.geometry_types = vec![GeometryType::Point];
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "points_z".to_owned(),
@@ -1802,7 +1812,7 @@ mod backend {
                     true,
                 );
                 geometry.dimensions = dimensions;
-                geometry.geometry_types = vec![GeometryType::Point];
+                geometry.set_exact_geometry_types(vec![GeometryType::Point]);
                 let plan = WritePlan {
                     layers: vec![WriteLayer {
                         name: format!("points_{suffix}"),
@@ -1888,7 +1898,7 @@ mod backend {
                 true,
             );
             geometry.dimensions = dimensions;
-            geometry.geometry_types = vec![GeometryType::MultiLineString];
+            geometry.set_exact_geometry_types(vec![GeometryType::MultiLineString]);
             let plan = WritePlan {
                 layers: vec![WriteLayer {
                     name: "multiline_xyzm".to_owned(),
@@ -2239,7 +2249,7 @@ mod backend {
                         true,
                     );
                     geometry.dimensions = *dimensions;
-                    geometry.geometry_types = vec![*geometry_type];
+                    geometry.set_exact_geometry_types(vec![*geometry_type]);
                     WriteLayer {
                         name,
                         contract: DataContract {
@@ -2280,7 +2290,12 @@ mod backend {
                     CrsKind::Projected,
                     None,
                 ));
-                layer.contract.geometry.as_mut().unwrap().geometry_types = vec![geometry_type];
+                layer
+                    .contract
+                    .geometry
+                    .as_mut()
+                    .unwrap()
+                    .set_exact_geometry_types(vec![geometry_type]);
                 let plan = WritePlan {
                     layers: vec![layer],
                 };

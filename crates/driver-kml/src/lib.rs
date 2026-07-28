@@ -29,9 +29,10 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
-    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
+    AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
+    SingleReaderGate, TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES,
+    WKB_XY_XYZ_GEOMETRY,
 };
 #[cfg(test)]
 use plenora_io_model::contract::GeometryType;
@@ -44,7 +45,7 @@ use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader as XmlReader;
 
@@ -208,7 +209,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "kml",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::Materializing,
+    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Streaming),
+    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
@@ -230,7 +233,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 4,
-    descriptor_version: 4,
+    descriptor_version: 5,
 };
 
 pub struct KmlDriver;
@@ -243,13 +246,17 @@ impl FormatDriver for KmlDriver {
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let text = std::fs::read_to_string(&path)?;
+        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         validate_kml_xml(&text)?;
+        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         let root: Kml = text
             .parse()
             .map_err(|e| err(format!("KML non valido: {e}")))?;
+        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         let mut placemarks = Vec::new();
-        collect(&root, &mut placemarks);
-        let (batch, contract) = build_batch(&placemarks)?;
+        let mut visited = 0;
+        collect(&root, &mut placemarks, &opts.cancellation, &mut visited)?;
+        let (batch, contract) = build_batch_cancellable(&placemarks, &opts.cancellation)?;
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -473,28 +480,37 @@ fn extended_data(pairs: &[(String, String)]) -> Element {
     }
 }
 
-fn collect(k: &Kml, out: &mut Vec<Placemark>) {
+fn collect<'a>(
+    k: &'a Kml,
+    out: &mut Vec<&'a Placemark>,
+    cancellation: &CancellationToken,
+    visited: &mut usize,
+) -> Result<()> {
+    check_cancelled_periodically(cancellation, ErrorPhase::Read, *visited)?;
+    *visited = visited.saturating_add(1);
     match k {
         Kml::KmlDocument(d) => {
             for e in &d.elements {
-                collect(e, out);
+                collect(e, out, cancellation, visited)?;
             }
         }
         Kml::Document { elements, .. } => {
             for e in elements {
-                collect(e, out);
+                collect(e, out, cancellation, visited)?;
             }
         }
         Kml::Folder(folder) => {
             for e in &folder.elements {
-                collect(e, out);
+                collect(e, out, cancellation, visited)?;
             }
         }
-        Kml::Placemark(p) => out.push(p.clone()),
+        Kml::Placemark(p) => out.push(p),
         _ => {}
     }
+    Ok(())
 }
 
+#[cfg(test)]
 fn dimensions_for_kml_coords(coords: &[KmlCoord]) -> Result<CoordinateDimensions> {
     if coords.is_empty() {
         return Err(err("geometria KML senza coordinate"));
@@ -514,23 +530,46 @@ fn dimensions_for_kml_coords(coords: &[KmlCoord]) -> Result<CoordinateDimensions
     })
 }
 
-fn wkb_coords_from_kml(coords: &[KmlCoord]) -> Result<(Vec<WkbCoordinate>, CoordinateDimensions)> {
-    let dimensions = dimensions_for_kml_coords(coords)?;
-    Ok((
-        coords
-            .iter()
-            .map(|coordinate| WkbCoordinate {
-                x: coordinate.x,
-                y: coordinate.y,
-                z: coordinate.z,
-                m: None,
-            })
-            .collect(),
-        dimensions,
-    ))
+fn wkb_coords_from_kml_cancellable(
+    coords: &[KmlCoord],
+    cancellation: &CancellationToken,
+    visited: &mut usize,
+) -> Result<(Vec<WkbCoordinate>, CoordinateDimensions)> {
+    if coords.is_empty() {
+        return Err(err("geometria KML senza coordinate"));
+    }
+    let mut has_z = None;
+    let mut coordinates = Vec::with_capacity(coords.len());
+    for coordinate in coords {
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, *visited)?;
+        *visited = visited.saturating_add(1);
+        let current = coordinate.z.is_some();
+        if has_z.is_some_and(|known| known != current) {
+            return Err(err("coordinate KML con dimensionalità Z non uniforme"));
+        }
+        has_z = Some(current);
+        coordinates.push(WkbCoordinate {
+            x: coordinate.x,
+            y: coordinate.y,
+            z: coordinate.z,
+            m: None,
+        });
+    }
+    let dimensions = if has_z == Some(true) {
+        CoordinateDimensions::Xyz
+    } else {
+        CoordinateDimensions::Xy
+    };
+    Ok((coordinates, dimensions))
 }
 
-fn wkb_geometry_from_kml(geometry: &KmlGeometry) -> Result<WkbGeometry> {
+fn wkb_geometry_from_kml_cancellable(
+    geometry: &KmlGeometry,
+    cancellation: &CancellationToken,
+    visited: &mut usize,
+) -> Result<WkbGeometry> {
+    check_cancelled_periodically(cancellation, ErrorPhase::Read, *visited)?;
+    *visited = visited.saturating_add(1);
     let (value, dimensions) = match geometry {
         KmlGeometry::Point(point) => (
             WkbValue::Point(WkbCoordinate {
@@ -546,19 +585,23 @@ fn wkb_geometry_from_kml(geometry: &KmlGeometry) -> Result<WkbGeometry> {
             },
         ),
         KmlGeometry::LineString(line) => {
-            let (coordinates, dimensions) = wkb_coords_from_kml(&line.coords)?;
+            let (coordinates, dimensions) =
+                wkb_coords_from_kml_cancellable(&line.coords, cancellation, visited)?;
             (WkbValue::LineString(coordinates), dimensions)
         }
         KmlGeometry::LinearRing(ring) => {
-            let (coordinates, dimensions) = wkb_coords_from_kml(&ring.coords)?;
+            let (coordinates, dimensions) =
+                wkb_coords_from_kml_cancellable(&ring.coords, cancellation, visited)?;
             (WkbValue::LineString(coordinates), dimensions)
         }
         KmlGeometry::Polygon(polygon) => {
-            let (outer, dimensions) = wkb_coords_from_kml(&polygon.outer.coords)?;
+            let (outer, dimensions) =
+                wkb_coords_from_kml_cancellable(&polygon.outer.coords, cancellation, visited)?;
             let mut rings = Vec::with_capacity(1 + polygon.inner.len());
             rings.push(outer);
             for inner in &polygon.inner {
-                let (ring, inner_dimensions) = wkb_coords_from_kml(&inner.coords)?;
+                let (ring, inner_dimensions) =
+                    wkb_coords_from_kml_cancellable(&inner.coords, cancellation, visited)?;
                 if inner_dimensions != dimensions {
                     return Err(err("anelli KML con dimensionalità Z non uniforme"));
                 }
@@ -567,11 +610,14 @@ fn wkb_geometry_from_kml(geometry: &KmlGeometry) -> Result<WkbGeometry> {
             (WkbValue::Polygon(rings), dimensions)
         }
         KmlGeometry::MultiGeometry(multi) => {
-            let values = multi
-                .geometries
-                .iter()
-                .map(wkb_geometry_from_kml)
-                .collect::<Result<Vec<_>>>()?;
+            let mut values = Vec::with_capacity(multi.geometries.len());
+            for child in &multi.geometries {
+                values.push(wkb_geometry_from_kml_cancellable(
+                    child,
+                    cancellation,
+                    visited,
+                )?);
+            }
             let dimensions = values
                 .first()
                 .map(|value| value.dimensions)
@@ -611,6 +657,11 @@ fn wkb_geometry_from_kml(geometry: &KmlGeometry) -> Result<WkbGeometry> {
         dimensions,
         srid: None,
     })
+}
+
+#[cfg(test)]
+fn wkb_geometry_from_kml(geometry: &KmlGeometry) -> Result<WkbGeometry> {
+    wkb_geometry_from_kml_cancellable(geometry, &CancellationToken::new(), &mut 0)
 }
 
 fn kml_coord_from_wkb(
@@ -702,17 +753,27 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
     }
 }
 
-fn build_batch(placemarks: &[Placemark]) -> Result<(RecordBatch, DataContract)> {
+fn build_batch_cancellable(
+    placemarks: &[&Placemark],
+    cancellation: &CancellationToken,
+) -> Result<(RecordBatch, DataContract)> {
+    check_cancelled(cancellation, ErrorPhase::Read)?;
     let mut wkb: Vec<Option<Vec<u8>>> = Vec::with_capacity(placemarks.len());
     let mut names: Vec<Option<String>> = Vec::with_capacity(placemarks.len());
     let mut descs: Vec<Option<String>> = Vec::with_capacity(placemarks.len());
     let mut dimensions = BTreeSet::new();
     let mut geometry_types = BTreeSet::new();
-    for p in placemarks {
+    let mut visited_geometry_items = 0;
+    for (index, p) in placemarks.iter().enumerate() {
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
         match &p.geometry {
             None => wkb.push(None),
             Some(geometry) => {
-                let geometry = wkb_geometry_from_kml(geometry)?;
+                let geometry = wkb_geometry_from_kml_cancellable(
+                    geometry,
+                    cancellation,
+                    &mut visited_geometry_items,
+                )?;
                 dimensions.insert(geometry.dimensions);
                 geometry_types.insert(geometry.geometry_type());
                 wkb.push(Some(encode_wkb(&geometry, WkbFlavor::Iso)?));
@@ -752,6 +813,10 @@ fn build_batch(placemarks: &[Placemark]) -> Result<(RecordBatch, DataContract)> 
     Ok((batch, contract))
 }
 
+fn build_batch(placemarks: &[&Placemark]) -> Result<(RecordBatch, DataContract)> {
+    build_batch_cancellable(placemarks, &CancellationToken::new())
+}
+
 /// Entry point non stabile per libFuzzer: parser KML e conversione diretta
 /// KML→WKB devono rifiutare input ostili senza panic.
 #[doc(hidden)]
@@ -762,7 +827,9 @@ pub fn __fuzz_read_kml(bytes: &[u8]) -> Result<usize> {
         .parse()
         .map_err(|error| err(format!("KML non valido: {error}")))?;
     let mut placemarks = Vec::new();
-    collect(&document, &mut placemarks);
+    let cancellation = CancellationToken::new();
+    let mut visited = 0;
+    collect(&document, &mut placemarks, &cancellation, &mut visited)?;
     let (batch, _) = build_batch(&placemarks)?;
     Ok(batch.num_rows())
 }

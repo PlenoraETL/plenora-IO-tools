@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
+use arrow_array::{BinaryArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use plenora_io_core::{
-    validate_write, AttributeWriteSupport, CrsWriteSupport, Direction, Fidelity, FormatDescriptor,
-    FormatDriver, NullabilitySupport, PredicatePruningSupport, ProjectionSupport, ReadOptions,
-    ReaderConcurrency, Runtime, Sink, Source, SpatialPruningSupport, TypeCoercionPolicy,
-    WriteLayer, WriteOptions, WritePlan,
+    validate_write, AttributeWriteSupport, CrsWriteSupport, DeterminismLevel, Direction, Fidelity,
+    FormatDescriptor, FormatDriver, NullabilitySupport, PredicatePruningSupport, ProjectionSupport,
+    ReadOptions, ReaderConcurrency, Runtime, Sink, Source, SpatialPruningSupport,
+    TypeCoercionPolicy, WriteLayer, WriteOptions, WritePlan, ALL_GEOMETRY_TYPES,
 };
 use plenora_io_core::{BatchTarget, ProjectionMode, ReadRequest};
 use plenora_io_model::contract::{
@@ -152,7 +152,7 @@ fn descriptor_matrix_is_internally_coherent() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
         assert!(
-            descriptor.descriptor_version >= 4,
+            descriptor.descriptor_version >= 5,
             "{}: descriptor legacy",
             descriptor.id
         );
@@ -167,7 +167,37 @@ fn descriptor_matrix_is_internally_coherent() {
             "{}: write mode e capability incoerenti",
             descriptor.id
         );
+        assert_eq!(
+            descriptor.write_mode.is_some(),
+            descriptor.write_determinism.is_some(),
+            "{}: write mode e determinismo incoerenti",
+            descriptor.id
+        );
+        assert_ne!(
+            descriptor.read_determinism,
+            DeterminismLevel::Unordered,
+            "{}: sorgente locale dichiarata non ordinata senza snapshot remoto",
+            descriptor.id
+        );
         if let Some(capabilities) = descriptor.write_capabilities {
+            assert_eq!(
+                capabilities.geometry.supported,
+                !capabilities.geometry.geometry_types.is_empty(),
+                "{}: tipi geometrici e supporto incoerenti",
+                descriptor.id
+            );
+            let unique_types = capabilities
+                .geometry
+                .geometry_types
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                unique_types.len(),
+                capabilities.geometry.geometry_types.len(),
+                "{}: tipi geometrici duplicati",
+                descriptor.id
+            );
             assert_eq!(
                 descriptor.multi_layer, capabilities.multi_layer,
                 "{}: multi_layer incoerente",
@@ -377,8 +407,14 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
     ];
     let all_encodings = [GeometryEncoding::Wkb, GeometryEncoding::Ewkb];
     let all_semantics = [SpatialSemantics::Geometry, SpatialSemantics::Geography];
-    let (mut dimensions_checked, mut encodings_checked, mut semantics_checked, mut mixed_checked) =
-        (0, 0, 0, 0);
+    let (
+        mut dimensions_checked,
+        mut encodings_checked,
+        mut semantics_checked,
+        mut types_checked,
+        mut unresolved_checked,
+        mut mixed_checked,
+    ) = (0, 0, 0, 0, 0, 0);
 
     for driver in drivers() {
         let descriptor = driver.descriptor();
@@ -446,6 +482,36 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             semantics_checked += 1;
         }
+        if let Some(unsupported) = ALL_GEOMETRY_TYPES
+            .iter()
+            .find(|geometry_type| !support.geometry_types.contains(geometry_type))
+        {
+            let plan = geometry_plan(
+                descriptor,
+                valid_crs(descriptor),
+                support.dimensions[0],
+                support.encodings[0],
+                support.spatial_semantics[0],
+                vec![*unsupported],
+            );
+            assert_capability(
+                descriptor.id,
+                validate_write(descriptor, &plan, &Default::default()),
+                CapabilityReason::GeometryNotSupported,
+            );
+            types_checked += 1;
+
+            let mut unresolved = valid_geometry_plan(descriptor);
+            let geometry = unresolved.layers[0].contract.geometry.as_mut().unwrap();
+            geometry.geometry_types.clear();
+            geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
+            assert_capability(
+                descriptor.id,
+                validate_write(descriptor, &unresolved, &Default::default()),
+                CapabilityReason::GeometryNotSupported,
+            );
+            unresolved_checked += 1;
+        }
         if !support.mixed_types {
             let plan = geometry_plan(
                 descriptor,
@@ -467,7 +533,9 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
     assert!(dimensions_checked >= 3);
     assert!(encodings_checked >= 6);
     assert!(semantics_checked >= 8);
-    assert!(mixed_checked >= 1);
+    assert_eq!(types_checked, 2);
+    assert_eq!(unresolved_checked, 2);
+    assert!(mixed_checked >= 2);
 }
 
 #[test]
@@ -607,6 +675,102 @@ fn materialize_empty_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
         .finish()
         .unwrap_or_else(|error| panic!("{}: finish dataset vuoto: {error}", descriptor.id));
     output
+}
+
+fn point_wkb(x: f64, y: f64) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(21);
+    bytes.push(1);
+    bytes.extend_from_slice(&1_u32.to_le_bytes());
+    bytes.extend_from_slice(&x.to_le_bytes());
+    bytes.extend_from_slice(&y.to_le_bytes());
+    bytes
+}
+
+fn require_ok<T, E: std::fmt::Display>(
+    result: Result<T, E>,
+    driver_id: &str,
+    operation: &str,
+) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => panic!("{driver_id}: {operation}: {error}"),
+    }
+}
+
+fn materialize_point_dataset(driver: &dyn FormatDriver, directory: &tempfile::TempDir) -> PathBuf {
+    let descriptor = driver.descriptor();
+    let output = output_path(directory, descriptor.id);
+    let plan = valid_geometry_plan(descriptor);
+    let geometry = point_wkb(12.5, -7.25);
+    let batch = RecordBatch::try_new(
+        plan.layers[0].contract.schema.clone(),
+        vec![Arc::new(BinaryArray::from(vec![Some(geometry.as_slice())]))],
+    )
+    .unwrap();
+    let mut writer = require_ok(
+        driver.create(Sink::Path(output.clone()), &plan, &WriteOptions::default()),
+        descriptor.id,
+        "create determinismo",
+    );
+    require_ok(writer.write(&batch), descriptor.id, "write determinismo");
+    require_ok(writer.finish(), descriptor.id, "finish determinismo");
+    output
+}
+
+fn read_all_batches(driver: &dyn FormatDriver, source: PathBuf) -> Vec<RecordBatch> {
+    let descriptor = driver.descriptor();
+    let dataset = require_ok(
+        driver.open(Source::Path(source), &read_options(descriptor.id)),
+        descriptor.id,
+        "open determinismo",
+    );
+    let mut reader = require_ok(
+        dataset.open_layer_reader(&read_request()),
+        descriptor.id,
+        "reader determinismo",
+    );
+    let mut batches = Vec::new();
+    while let Some(batch) = require_ok(reader.next_batch(), descriptor.id, "next determinismo") {
+        batches.push(batch);
+    }
+    batches
+}
+
+#[test]
+fn repeated_local_operations_preserve_semantic_results() {
+    let mut checked = Vec::new();
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.runtime != Runtime::PureRust || descriptor.write_capabilities.is_none() {
+            continue;
+        }
+        let first_directory = tempfile::tempdir().unwrap();
+        let second_directory = tempfile::tempdir().unwrap();
+        let first = materialize_point_dataset(driver.as_ref(), &first_directory);
+        let second = materialize_point_dataset(driver.as_ref(), &second_directory);
+
+        assert_eq!(
+            read_all_batches(driver.as_ref(), first),
+            read_all_batches(driver.as_ref(), second),
+            "{}: due esecuzioni equivalenti hanno prodotto risultati semantici diversi",
+            descriptor.id
+        );
+        checked.push(descriptor.id);
+    }
+    assert_eq!(
+        checked,
+        vec![
+            "geoparquet",
+            "geojson",
+            "csv",
+            "gpkg",
+            "shp",
+            "kml",
+            "xls",
+            "dxf",
+            "ipc",
+        ]
+    );
 }
 
 #[test]

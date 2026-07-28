@@ -55,7 +55,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "geoparquet",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::StreamingColumnar,
+    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Streaming),
+    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::MultipleIndependentReaders, // Parquet è seekable
@@ -77,7 +79,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 4,
-    descriptor_version: 4,
+    descriptor_version: 5,
 };
 
 pub struct GeoParquetDriver;

@@ -29,9 +29,10 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
-    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
+    AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
+    SingleReaderGate, TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES,
+    WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -43,7 +44,7 @@ use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
 
 const GEOMETRY: &str = "geometry";
 
@@ -55,7 +56,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "xls",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::Materializing,
+    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Buffered),
+    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
     multi_layer: false, // primo foglio nella v1; multi-foglio futuro
     multi_file: false,
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
@@ -77,7 +80,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     semantic_version: 1,
     driver_version: 4,
-    descriptor_version: 4,
+    descriptor_version: 5,
 };
 
 pub struct XlsDriver;
@@ -91,6 +94,7 @@ impl FormatDriver for XlsDriver {
         let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let mut wb: Xlsx<_> =
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
+        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         let sheet = opts
             .format_options
             .get("sheet")
@@ -100,10 +104,12 @@ impl FormatDriver for XlsDriver {
         let range = wb
             .worksheet_range(&sheet)
             .map_err(|e| err(format!("foglio '{sheet}': {e}")))?;
+        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::Crs("XLSX con geometria richiede --assume-crs".to_owned())
         })?;
-        let (batch, contract) = build_batch(&range, &opts.format_options, &crs)?;
+        let (batch, contract) =
+            build_batch_cancellable(&range, &opts.format_options, &crs, &opts.cancellation)?;
         Ok(Box::new(XlsDataset {
             layers: vec![LayerContract {
                 id: LayerId(0),
@@ -361,16 +367,22 @@ fn data_to_string(d: &Data) -> String {
     }
 }
 
-fn build_batch(
+fn build_batch_cancellable(
     range: &calamine::Range<Data>,
     opts: &BTreeMap<String, String>,
     crs: &str,
+    cancellation: &CancellationToken,
 ) -> Result<(RecordBatch, DataContract)> {
+    check_cancelled(cancellation, ErrorPhase::Read)?;
     let mut rows = range.rows();
     let header = rows.next().ok_or_else(|| err("foglio vuoto"))?;
     let headers: Vec<String> = header.iter().map(data_to_string).collect();
     let idx = |name: &str| headers.iter().position(|h| h == name);
-    let data_rows: Vec<&[Data]> = rows.collect();
+    let mut data_rows = Vec::new();
+    for (index, row) in rows.enumerate() {
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
+        data_rows.push(row);
+    }
     let mut detected_dimensions = BTreeSet::new();
     let mut detected_types = BTreeSet::new();
 
@@ -378,7 +390,8 @@ fn build_batch(
         if let Some(w) = opts.get("wkt_column") {
             let wi = idx(w).ok_or_else(|| err(format!("colonna WKT '{w}' assente")))?;
             let mut out = Vec::new();
-            for row in &data_rows {
+            for (index, row) in data_rows.iter().enumerate() {
+                check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
                 let cell = row.get(wi).map(data_to_string).unwrap_or_default();
                 if cell.trim().is_empty() {
                     out.push(None);
@@ -394,7 +407,8 @@ fn build_batch(
             let xi = idx(x).ok_or_else(|| err(format!("colonna X '{x}' assente")))?;
             let yi = idx(y).ok_or_else(|| err(format!("colonna Y '{y}' assente")))?;
             let mut out = Vec::new();
-            for row in &data_rows {
+            for (index, row) in data_rows.iter().enumerate() {
+                check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
                 let xv = coordinate_cell(row.get(xi), "X")?;
                 let yv = coordinate_cell(row.get(yi), "Y")?;
                 match (xv, yv) {
@@ -467,13 +481,17 @@ fn build_batch(
         wkb.iter().map(|o| o.as_deref()).collect::<Vec<_>>(),
     ))];
     for (ci, name) in headers.iter().enumerate() {
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, ci)?;
         if geom_cols.contains(&ci) {
             continue;
         }
-        let values: Vec<Option<JsonValue>> = data_rows
-            .iter()
-            .map(|r| Some(r.get(ci).map(data_to_json).unwrap_or(JsonValue::Null)))
-            .collect();
+        let mut values = Vec::with_capacity(data_rows.len());
+        for (row_index, row) in data_rows.iter().enumerate() {
+            check_cancelled_periodically(cancellation, ErrorPhase::Read, row_index)?;
+            values.push(Some(
+                row.get(ci).map(data_to_json).unwrap_or(JsonValue::Null),
+            ));
+        }
         let col = infer_column(values.iter().filter_map(|v| v.as_ref()));
         let (dt, arr) = build_property_array(col, &values);
         fields.push(Field::new(name, dt, true));
