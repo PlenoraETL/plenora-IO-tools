@@ -1,6 +1,6 @@
 # Registro dei fallback `unwrap_or*`
 
-Data del censimento: 2026-07-27.
+Data del censimento: 2026-07-28.
 
 Il lint contro `unwrap`/`expect` impedisce panic espliciti, ma non dimostra che
 un valore assente non venga sostituito con un dato inventato. Per questo
@@ -22,6 +22,10 @@ booleani/dimensionali KML non più necessari. Il saldo è ora 82 occorrenze:
 82 occorrenze, inclusi i target non distribuibili. L'aggiornamento del registro
 non è una deroga automatica: richiede la revisione della nuova semantica e una
 change impact analysis.
+
+La centralizzazione del lifecycle `StagedFile` e l'estrazione del codec
+geometrico GeoJSON del 2026-07-28 non introducono né rimuovono fallback: il
+totale verificato resta 82.
 
 ## Censimento del componente distribuibile
 
