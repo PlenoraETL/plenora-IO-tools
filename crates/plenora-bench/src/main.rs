@@ -21,6 +21,7 @@
 //! non codice di produzione.
 
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::collections::BTreeMap;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -34,7 +35,10 @@ use driver_common::geometry_field;
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
 use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest};
 use plenora_io_core::{WriteLayer, WritePlan};
-use plenora_io_model::contract::{DataContract, LayerId};
+use plenora_io_model::contract::{
+    DataContract, FieldId, GeometryColumnContract, GeometryType, LayerId,
+};
+use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 use plenora_io_model::wkb::to_wkb;
 
 const CHUNK: usize = 65_536;
@@ -109,13 +113,39 @@ fn peak_rss_bytes() -> u64 {
 
 // --- generazione a chunk (pool WKB, niente encode nella generazione) -------
 
-fn bench_schema() -> SchemaRef {
+fn bench_crs(id: &str) -> &'static str {
+    if id == "kml" {
+        driver_common::OGC_CRS84
+    } else {
+        "EPSG:4326"
+    }
+}
+
+fn bench_schema(id: &str) -> SchemaRef {
     Arc::new(Schema::new(vec![
-        geometry_field("geometry", "EPSG:4326"),
+        geometry_field("geometry", bench_crs(id)),
         Field::new("id", DataType::Int64, false),
         Field::new("name", DataType::Utf8, false),
         Field::new("val", DataType::Float64, false),
     ]))
+}
+
+fn bench_contract(id: &str) -> DataContract {
+    let crs = if id == "kml" {
+        ResolvedCrs::wgs84()
+    } else {
+        ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None)
+    };
+    let mut geometry = GeometryColumnContract::wkb_xy(FieldId(0), "geometry", crs, true);
+    geometry.set_exact_geometry_types(vec![if use_polygon() {
+        GeometryType::Polygon
+    } else {
+        GeometryType::Point
+    }]);
+    DataContract {
+        schema: bench_schema(id),
+        geometry: Some(geometry),
+    }
 }
 
 fn coord(k: usize) -> (f64, f64) {
@@ -167,7 +197,13 @@ fn name_pool() -> Vec<String> {
     (0..POOL).map(|k| format!("f{k}")).collect()
 }
 
-fn gen_chunk(pool: &[Vec<u8>], names: &[String], start: usize, count: usize) -> RecordBatch {
+fn gen_chunk(
+    id: &str,
+    pool: &[Vec<u8>],
+    names: &[String],
+    start: usize,
+    count: usize,
+) -> RecordBatch {
     let geom = BinaryArray::from(
         (0..count)
             .map(|j| Some(pool[(start + j) % POOL].as_slice()))
@@ -185,7 +221,7 @@ fn gen_chunk(pool: &[Vec<u8>], names: &[String], start: usize, count: usize) -> 
             .collect::<Vec<_>>(),
     );
     RecordBatch::try_new(
-        bench_schema(),
+        bench_schema(id),
         vec![Arc::new(geom), Arc::new(ids), Arc::new(nm), Arc::new(vals)],
     )
     .unwrap()
@@ -199,6 +235,9 @@ fn driver_by_id(id: &str) -> Box<dyn FormatDriver> {
         "geojson" => Box::new(driver_geojson::GeoJsonDriver),
         "csv" => Box::new(driver_csv::CsvDriver),
         "gpkg" => Box::new(driver_gpkg::GpkgDriver),
+        "kml" => Box::new(driver_kml::KmlDriver),
+        "dxf" => Box::new(driver_dxf::DxfDriver),
+        "xlsx" => Box::new(driver_xls::XlsDriver),
         other => panic!("driver sconosciuto: {other}"),
     }
 }
@@ -209,6 +248,9 @@ fn ext(id: &str) -> &'static str {
         "geojson" => "geojson",
         "csv" => "csv",
         "gpkg" => "gpkg",
+        "kml" => "kml",
+        "dxf" => "dxf",
+        "xlsx" => "xlsx",
         _ => "bin",
     }
 }
@@ -223,7 +265,7 @@ fn fixture_path(id: &str) -> PathBuf {
 
 fn read_opts(id: &str) -> ReadOptions {
     let mut o = ReadOptions::default();
-    if id == "csv" {
+    if matches!(id, "csv" | "xlsx") {
         o.assume_crs = Some("EPSG:4326".to_owned());
         o.format_options
             .insert("wkt_column".to_owned(), "geometry".to_owned());
@@ -248,10 +290,7 @@ fn feed_write(
     let plan = WritePlan {
         layers: vec![WriteLayer {
             name: "bench".to_owned(),
-            contract: DataContract {
-                schema: bench_schema(),
-                geometry: None,
-            },
+            contract: bench_contract(id),
         }],
     };
     let mut w = driver
@@ -262,7 +301,7 @@ fn feed_write(
     let mut max_bb = 0;
     while start < total {
         let c = (total - start).min(CHUNK);
-        let batch = gen_chunk(pool, names, start, c);
+        let batch = gen_chunk(id, pool, names, start, c);
         max_bb = max_bb.max(batch.get_array_memory_size());
         w.write(&batch).unwrap();
         batches += 1;
@@ -364,6 +403,7 @@ fn read_drain(
             pruning_predicate: pruning.map(plenora_io_core::request::PruningPredicate::Opaque),
             spatial_pruning_hint: None,
             batch_target: BatchTarget::default(),
+            cancellation: Default::default(),
         })
         .unwrap();
     let mut st = ReadStats {
@@ -545,8 +585,160 @@ fn run_child(exe: &Path, args: &[&str], deadline: Duration) -> serde_json::Value
     })
 }
 
+fn median(values: &mut [f64]) -> f64 {
+    values.sort_by(f64::total_cmp);
+    let middle = values.len() / 2;
+    if values.len().is_multiple_of(2) {
+        (values[middle - 1] + values[middle]) / 2.0
+    } else {
+        values[middle]
+    }
+}
+
+type BenchmarkKey = (String, String);
+type BenchmarkMedian = (f64, f64);
+type BenchmarkMedians = BTreeMap<BenchmarkKey, BenchmarkMedian>;
+
+fn benchmark_medians(
+    document: &serde_json::Value,
+) -> std::result::Result<BenchmarkMedians, String> {
+    let benchmarks = document["benchmarks"]
+        .as_array()
+        .ok_or_else(|| "campo benchmarks assente".to_owned())?;
+    let mut samples: BTreeMap<(String, String), (Vec<f64>, Vec<f64>)> = BTreeMap::new();
+    for benchmark in benchmarks {
+        if benchmark["status"].as_str() != Some("ok") {
+            continue;
+        }
+        let driver = benchmark["driver"]
+            .as_str()
+            .ok_or_else(|| "driver assente".to_owned())?;
+        let op = benchmark["op"]
+            .as_str()
+            .ok_or_else(|| "op assente".to_owned())?;
+        let rows_per_s = benchmark["rows_per_s"]
+            .as_f64()
+            .ok_or_else(|| format!("{driver}/{op}: rows_per_s assente"))?;
+        let peak_rss = benchmark["peak_rss_bytes"]
+            .as_f64()
+            .ok_or_else(|| format!("{driver}/{op}: peak_rss_bytes assente"))?;
+        let entry = samples
+            .entry((driver.to_owned(), op.to_owned()))
+            .or_default();
+        entry.0.push(rows_per_s);
+        entry.1.push(peak_rss);
+    }
+    samples
+        .into_iter()
+        .map(|(key, (mut throughput, mut rss))| {
+            if throughput.is_empty() || rss.is_empty() {
+                return Err(format!("{}/{}: nessun campione valido", key.0, key.1));
+            }
+            Ok((key, (median(&mut throughput), median(&mut rss))))
+        })
+        .collect()
+}
+
+fn percent_change(before: f64, after: f64) -> f64 {
+    if before == 0.0 {
+        if after == 0.0 {
+            0.0
+        } else {
+            f64::INFINITY
+        }
+    } else {
+        (after - before) / before * 100.0
+    }
+}
+
+fn compare_baselines(before_path: &Path, after_path: &Path) -> std::result::Result<(), String> {
+    let load = |path: &Path| {
+        let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .map_err(|error| format!("{}: {error}", path.display()))
+    };
+    let before = load(before_path)?;
+    let after = load(after_path)?;
+    for document in [&before, &after] {
+        if document["contract"].as_str() != Some("plenora-io-baseline-v1") {
+            return Err("contratto baseline non riconosciuto".to_owned());
+        }
+    }
+    for field in ["rows_per_benchmark", "geometry"] {
+        if before[field] != after[field] {
+            return Err(format!(
+                "baseline non comparabili: {field} {:?} != {:?}",
+                before[field], after[field]
+            ));
+        }
+    }
+    let max_throughput_regression = std::env::var("PLENORA_BENCH_MAX_THROUGHPUT_REGRESSION_PCT")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .unwrap_or(5.0);
+    let max_rss_regression = std::env::var("PLENORA_BENCH_MAX_RSS_REGRESSION_PCT")
+        .ok()
+        .and_then(|value| value.parse::<f64>().ok())
+        .unwrap_or(5.0);
+    let before_medians = benchmark_medians(&before)?;
+    let after_medians = benchmark_medians(&after)?;
+    let mut failures = Vec::new();
+    println!("driver/op         throughput delta    peak RSS delta    esito");
+    for (key, (before_rate, before_rss)) in &before_medians {
+        let Some((after_rate, after_rss)) = after_medians.get(key) else {
+            failures.push(format!("{}/{}: risultato post mancante", key.0, key.1));
+            continue;
+        };
+        let rate_delta = percent_change(*before_rate, *after_rate);
+        let rss_delta = percent_change(*before_rss, *after_rss);
+        let mut reasons = Vec::new();
+        if rate_delta < -max_throughput_regression {
+            reasons.push("throughput");
+        }
+        if rss_delta > max_rss_regression {
+            reasons.push("RSS");
+        }
+        let status = if reasons.is_empty() {
+            "OK".to_owned()
+        } else {
+            format!("FAIL {}", reasons.join(","))
+        };
+        println!(
+            "{}/{:<11} {rate_delta:>+14.2}% {rss_delta:>+15.2}%    {status}",
+            key.0, key.1
+        );
+        if !reasons.is_empty() {
+            failures.push(format!(
+                "{}/{}: regressione {}",
+                key.0,
+                key.1,
+                reasons.join(", ")
+            ));
+        }
+    }
+    if failures.is_empty() {
+        println!("Confronto superato.");
+        Ok(())
+    } else {
+        Err(format!("VETO PRESTAZIONALE:\n- {}", failures.join("\n- ")))
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("compare") {
+        let before = args.get(2).map(PathBuf::from);
+        let after = args.get(3).map(PathBuf::from);
+        let Some((before, after)) = before.zip(after) else {
+            eprintln!("uso: plenora-bench compare <before.json> <after.json>");
+            std::process::exit(2);
+        };
+        if let Err(error) = compare_baselines(&before, &after) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let rows: usize = std::env::var("PLENORA_BENCH_ROWS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -557,6 +749,11 @@ fn main() {
             .and_then(|s| s.parse().ok())
             .unwrap_or(900),
     );
+    let repetitions: usize = std::env::var("PLENORA_BENCH_REPETITIONS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|count| *count > 0)
+        .unwrap_or(1);
 
     if args.get(1).map(String::as_str) == Some("run") {
         let get = |k: &str| {
@@ -572,7 +769,19 @@ fn main() {
 
     let exe = std::env::current_exe().unwrap();
     std::fs::create_dir_all(fixture_dir()).ok();
-    let drivers = ["geoparquet", "geojson", "csv", "gpkg"];
+    let configured_drivers = std::env::var("PLENORA_BENCH_DRIVERS")
+        .unwrap_or_else(|_| "geoparquet,geojson,csv,gpkg".to_owned());
+    let drivers = configured_drivers
+        .split(',')
+        .map(str::trim)
+        .filter(|driver| !driver.is_empty())
+        .collect::<Vec<_>>();
+    for driver in &drivers {
+        match *driver {
+            "geoparquet" | "geojson" | "csv" | "gpkg" | "kml" | "dxf" | "xlsx" => {}
+            other => panic!("PLENORA_BENCH_DRIVERS contiene un driver sconosciuto: {other}"),
+        }
+    }
     let mut results = Vec::new();
     for d in drivers {
         eprintln!("[{d}] prepare…");
@@ -585,35 +794,48 @@ fn main() {
             r["op"] = "read".into();
             results.push(r);
         } else {
-            eprintln!("[{d}] read…");
-            let mut r = run_child(&exe, &["run", "--driver", d, "--op", "read"], deadline);
-            r["driver"] = d.into();
-            r["op"] = "read".into();
-            eprintln!("  read: {}", short(&r));
-            results.push(r);
+            for sample in 1..=repetitions {
+                eprintln!("[{d}] read {sample}/{repetitions}");
+                let mut r = run_child(&exe, &["run", "--driver", d, "--op", "read"], deadline);
+                r["driver"] = d.into();
+                r["op"] = "read".into();
+                r["sample"] = sample.into();
+                eprintln!("  read: {}", short(&r));
+                results.push(r);
+            }
         }
-        eprintln!("[{d}] write…");
-        let mut wj = run_child(&exe, &["run", "--driver", d, "--op", "write"], deadline);
-        wj["driver"] = d.into();
-        wj["op"] = "write".into();
-        eprintln!("  write: {}", short(&wj));
-        results.push(wj);
+        for sample in 1..=repetitions {
+            eprintln!("[{d}] write {sample}/{repetitions}");
+            let mut wj = run_child(&exe, &["run", "--driver", d, "--op", "write"], deadline);
+            wj["driver"] = d.into();
+            wj["op"] = "write".into();
+            wj["sample"] = sample.into();
+            eprintln!("  write: {}", short(&wj));
+            results.push(wj);
+        }
         std::fs::remove_file(fixture_path(d)).ok();
     }
 
     let baseline = serde_json::json!({
         "contract": "plenora-io-baseline-v1",
+        "source_revision": std::env::var("PLENORA_BENCH_SOURCE_REVISION")
+            .unwrap_or_else(|_| "unknown".to_owned()),
+        "geometry": if use_polygon() { "polygon" } else { "point" },
         "rows_per_benchmark": rows,
-        "note": "Baseline 10M righe. Driver eager/materializzanti falliscono per OOM (finding, non bug dell'harness). Riferimento per il budget di regressione. bytes_copied e metriche di coda: n/a in v1.",
+        "repetitions": repetitions,
+        "drivers": configured_drivers,
+        "note": "Driver eager/materializzanti possono fallire per OOM: e' un finding, non un bug dell'harness. Confrontare mediane su build e host identici. bytes_copied e metriche di coda: n/a in v1.",
         "benchmarks": results,
     });
-    std::fs::create_dir_all("baseline").ok();
-    std::fs::write(
-        "baseline/baseline.json",
-        serde_json::to_string_pretty(&baseline).unwrap(),
-    )
-    .unwrap();
-    eprintln!("--- baseline scritta in baseline/baseline.json ---");
+    let output = PathBuf::from(
+        std::env::var("PLENORA_BENCH_OUTPUT")
+            .unwrap_or_else(|_| "baseline/baseline.json".to_owned()),
+    );
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::write(&output, serde_json::to_string_pretty(&baseline).unwrap()).unwrap();
+    eprintln!("--- baseline scritta in {} ---", output.display());
 }
 
 fn short(v: &serde_json::Value) -> String {

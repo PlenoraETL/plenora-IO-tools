@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
+use arrow_schema::DataType;
 use plenora_io_model::contract::{
     CoordinateDimensions, FieldId, GeometryColumnContract, GeometryEncoding, GeometryType,
     LayerContract, LayerId,
@@ -12,13 +13,15 @@ use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::geometry::{is_geometry_field, read_geometry_contract_metadata};
 use plenora_io_model::limits::Limits;
 use plenora_io_model::wkb::{decode_wkb, WkbGeometry, WkbValue};
-use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
+use plenora_io_model::{
+    CancellationReason, CancellationToken, CapabilityReason, ErrorPhase, PlenoraIoError, Result,
+};
 
 use crate::descriptor::{
-    AttributeWriteSupport, FormatDescriptor, GeometryWriteSupport, NullabilitySupport,
-    TypeCoercionPolicy,
+    ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport, FormatDescriptor, GeometryWriteSupport,
+    NullabilitySupport, TypeCoercionPolicy,
 };
-use crate::loss::{FidelityAssessment, FidelityReasonCode, LossReport};
+use crate::loss::{FidelityAssessment, FidelityReasonCode, LossExample, LossReport};
 #[cfg(test)]
 use crate::request::BatchTarget;
 use crate::request::{ReadRequest, WritePlan};
@@ -26,7 +29,7 @@ use crate::request::{ReadRequest, WritePlan};
 mod batch_worker;
 mod reader_adapters;
 pub use batch_worker::{spawn_batch_reader, BatchEmitter};
-pub use reader_adapters::{with_batch_target, SingleReaderGate};
+pub use reader_adapters::{with_batch_target, with_cancellation, SingleReaderGate};
 
 /// Sorgente di lettura (scheletro Fase 0).
 pub enum Source {
@@ -37,17 +40,21 @@ impl Source {
     /// Risolve la sorgente e applica il limite complessivo prima che un parser
     /// possa materializzarla. Le directory-dataset sono conteggiate senza
     /// seguire symlink.
-    pub fn into_path_checked(self, limits: &Limits) -> Result<PathBuf> {
+    pub fn into_path_checked(
+        self,
+        limits: &Limits,
+        cancellation: &CancellationToken,
+    ) -> Result<PathBuf> {
         let Self::Path(path) = self;
         let mut total = 0_u64;
         let mut pending = vec![path.clone()];
         while let Some(candidate) = pending.pop() {
+            check_cancelled(cancellation, ErrorPhase::Probe)?;
             let metadata = std::fs::symlink_metadata(&candidate)?;
             if metadata.file_type().is_symlink() {
-                return Err(PlenoraIoError::Unsupported(format!(
-                    "symlink non ammesso nella sorgente: {}",
-                    candidate.display()
-                )));
+                return Err(PlenoraIoError::Unsupported(
+                    "symlink non ammesso nella sorgente".to_owned(),
+                ));
             }
             if metadata.is_dir() {
                 for entry in std::fs::read_dir(&candidate)? {
@@ -83,6 +90,7 @@ pub struct ReadOptions {
     pub format_options: BTreeMap<String, String>,
     /// Limiti condivisi del bordo I/O.
     pub limits: Limits,
+    pub cancellation: CancellationToken,
 }
 
 #[derive(Default)]
@@ -93,6 +101,17 @@ pub struct WriteOptions {
     pub format_options: BTreeMap<String, String>,
     /// Limiti condivisi del bordo I/O.
     pub limits: Limits,
+    pub cancellation: CancellationToken,
+}
+
+pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<()> {
+    match token.reason() {
+        None => Ok(()),
+        Some(CancellationReason::Deadline) => Err(PlenoraIoError::cancelled(phase, true)),
+        Some(CancellationReason::Requested | CancellationReason::Parent) => {
+            Err(PlenoraIoError::cancelled(phase, false))
+        }
+    }
 }
 
 pub trait FormatDriver: Send + Sync {
@@ -164,6 +183,8 @@ pub fn with_write_limits(writer: Box<dyn FormatWriter>, limits: Limits) -> Box<d
         rows: 0,
         failed: false,
         geometry_validation: None,
+        planned_loss: LossReport::default(),
+        cancellation: CancellationToken::new(),
         fidelity: FidelityAssessment::unassessed(
             "writer con soli limiti globali: assessment di formato non disponibile",
         ),
@@ -220,25 +241,84 @@ pub fn with_write_validation(
     descriptor: &FormatDescriptor,
     plan: &WritePlan,
     limits: Limits,
+    cancellation: CancellationToken,
 ) -> Result<Box<dyn FormatWriter>> {
     let geometry_support = descriptor
         .write_capabilities
         .as_ref()
         .map(|capabilities| capabilities.geometry);
     let layers = geometry_contracts_for_validation(plan)?;
+    let planned_loss = planned_write_loss(descriptor, plan);
+    let fidelity = assess_write_contract(descriptor, plan).with_loss_report(&planned_loss);
     Ok(Box::new(LimitedWriter {
         inner: writer,
         driver: descriptor.id,
         limits,
         rows: 0,
         failed: false,
-        fidelity: assess_write_contract(descriptor, plan),
+        fidelity,
+        planned_loss,
+        cancellation,
         geometry_validation: geometry_support.map(|support| GeometryValidation {
             driver: descriptor.id,
             support,
             layers,
         }),
     }))
+}
+
+fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossReport {
+    let mut loss = LossReport::default();
+    let Some(capabilities) = descriptor.write_capabilities else {
+        return loss;
+    };
+
+    for layer in &plan.layers {
+        if capabilities.crs == CrsWriteSupport::None {
+            if let Some(geometry) = &layer.contract.geometry {
+                let has_crs_information =
+                    !matches!(geometry.crs, CrsResolution::Missing) || geometry.srid.is_some();
+                if has_crs_information {
+                    loss.record("metadata CRS non rappresentati", 1);
+                    loss.add_example(LossExample {
+                        category: "metadata CRS non rappresentati".to_owned(),
+                        context: format!("layer={} field={}", layer.name, geometry.name),
+                    });
+                }
+            }
+        }
+
+        let geometry_name = layer
+            .contract
+            .geometry
+            .as_ref()
+            .map(|geometry| geometry.name.as_str());
+        for field in layer.contract.schema.fields() {
+            if geometry_name == Some(field.name().as_str()) || is_geometry_field(field) {
+                continue;
+            }
+            let type_class = crate::capabilities::arrow_type_class(field.data_type());
+            let unsupported_text_coercion = !capabilities.allowed_types.contains(&type_class)
+                && matches!(
+                    capabilities.type_coercion,
+                    TypeCoercionPolicy::ExplicitText | TypeCoercionPolicy::LossReported
+                );
+            let kml_scalar_to_text = descriptor.id == "kml" && type_class != ArrowTypeClass::Utf8;
+            let gpkg_type_normalization = descriptor.id == "gpkg"
+                && !matches!(
+                    field.data_type(),
+                    DataType::Int64 | DataType::Float64 | DataType::Utf8 | DataType::Binary
+                );
+            if unsupported_text_coercion || kml_scalar_to_text || gpkg_type_normalization {
+                loss.record("coercion tipo attributo", 1);
+                loss.add_example(LossExample {
+                    category: "coercion tipo attributo".to_owned(),
+                    context: format!("layer={} field={}", layer.name, field.name()),
+                });
+            }
+        }
+    }
+    loss
 }
 
 fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> FidelityAssessment {
@@ -329,6 +409,8 @@ struct LimitedWriter {
     failed: bool,
     geometry_validation: Option<GeometryValidation>,
     fidelity: FidelityAssessment,
+    planned_loss: LossReport,
+    cancellation: CancellationToken,
 }
 
 impl LimitedWriter {
@@ -353,15 +435,14 @@ impl LimitedWriter {
             validate_geometry_batch(
                 validation.driver,
                 validation.support,
-                validation
-                    .layers
-                    .get(layer)
-                    .ok_or_else(|| PlenoraIoError::Capability {
-                        driver: validation.driver,
-                        field: None,
-                        reason: CapabilityReason::MultipleLayers,
-                        detail: format!("layer runtime {layer} fuori dal WritePlan"),
-                    })?,
+                validation.layers.get(layer).ok_or_else(|| {
+                    PlenoraIoError::capability(
+                        validation.driver,
+                        None,
+                        CapabilityReason::MultipleLayers,
+                        format!("layer runtime {layer} fuori dal WritePlan"),
+                    )
+                })?,
                 batch,
                 &self.limits,
             )?;
@@ -376,11 +457,13 @@ impl FormatWriter for LimitedWriter {
     }
 
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        check_cancelled(&self.cancellation, ErrorPhase::Write)?;
         if self.failed {
-            return Err(PlenoraIoError::Format {
-                driver: self.driver,
-                reason: "writer invalidato da un precedente errore di scrittura".to_owned(),
-            });
+            return Err(PlenoraIoError::format(
+                self.driver,
+                "writer invalidato da un precedente errore di scrittura",
+            )
+            .during(plenora_io_model::ErrorPhase::Write));
         }
         let result = self
             .account(0, batch)
@@ -392,11 +475,13 @@ impl FormatWriter for LimitedWriter {
     }
 
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
+        check_cancelled(&self.cancellation, ErrorPhase::Write)?;
         if self.failed {
-            return Err(PlenoraIoError::Format {
-                driver: self.driver,
-                reason: "writer invalidato da un precedente errore di scrittura".to_owned(),
-            });
+            return Err(PlenoraIoError::format(
+                self.driver,
+                "writer invalidato da un precedente errore di scrittura",
+            )
+            .during(plenora_io_model::ErrorPhase::Write));
         }
         let result = self
             .account(layer.0 as usize, batch)
@@ -408,13 +493,16 @@ impl FormatWriter for LimitedWriter {
     }
 
     fn finish(self: Box<Self>) -> Result<Published> {
+        check_cancelled(&self.cancellation, ErrorPhase::Finalize)?;
         if self.failed {
-            return Err(PlenoraIoError::Format {
-                driver: self.driver,
-                reason: "finish vietato dopo un errore di scrittura".to_owned(),
-            });
+            return Err(PlenoraIoError::format(
+                self.driver,
+                "finish vietato dopo un errore di scrittura",
+            )
+            .during(plenora_io_model::ErrorPhase::Finalize));
         }
         let mut published = self.inner.finish()?;
+        published.loss.merge(&self.planned_loss);
         published.fidelity = self.fidelity.with_loss_report(&published.loss);
         Ok(published)
     }
@@ -426,12 +514,7 @@ fn geometry_violation(
     reason: CapabilityReason,
     detail: impl Into<String>,
 ) -> PlenoraIoError {
-    PlenoraIoError::Capability {
-        driver,
-        field: Some(field.to_owned()),
-        reason,
-        detail: detail.into(),
-    }
+    PlenoraIoError::capability(driver, Some(field.to_owned()), reason, detail)
 }
 
 fn geometry_nodes_match(
@@ -669,15 +752,15 @@ mod tests {
 
         assert!(matches!(
             writer.write(&batch),
-            Err(PlenoraIoError::LimitExceeded(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
         assert!(matches!(
             writer.write(&batch),
-            Err(PlenoraIoError::Format { .. })
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Format
         ));
         assert!(matches!(
             writer.finish(),
-            Err(PlenoraIoError::Format { .. })
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Format
         ));
         assert!(!finished.load(Ordering::SeqCst));
     }
@@ -690,8 +773,54 @@ mod tests {
             max_input_bytes: 7,
             ..Limits::default()
         };
-        let result = Source::Path(file.path().to_owned()).into_path_checked(&limits);
-        assert!(matches!(result, Err(PlenoraIoError::LimitExceeded(_))));
+        let result = Source::Path(file.path().to_owned())
+            .into_path_checked(&limits, &CancellationToken::new());
+        assert!(matches!(
+            result,
+            Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
+        ));
+    }
+
+    #[test]
+    fn cancelled_source_is_rejected_before_filesystem_probe() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let result = Source::Path(std::path::PathBuf::from("not-observed"))
+            .into_path_checked(&Limits::default(), &token);
+        assert!(matches!(
+            result,
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::Cancelled
+                    && error.phase == ErrorPhase::Probe
+        ));
+    }
+
+    #[test]
+    fn cancellation_before_finish_never_publishes() {
+        let finished = Arc::new(AtomicBool::new(false));
+        let token = CancellationToken::new();
+        let writer: Box<dyn FormatWriter> = Box::new(LimitedWriter {
+            inner: Box::new(FinishTrackingWriter {
+                finished: finished.clone(),
+            }),
+            driver: "test",
+            limits: Limits::default(),
+            rows: 0,
+            failed: false,
+            geometry_validation: None,
+            fidelity: FidelityAssessment::lossless(),
+            planned_loss: LossReport::default(),
+            cancellation: token.clone(),
+        });
+        token.cancel();
+
+        assert!(matches!(
+            writer.finish(),
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::Cancelled
+                    && error.phase == ErrorPhase::Finalize
+        ));
+        assert!(!finished.load(Ordering::SeqCst));
     }
 
     struct TestReader {
@@ -785,10 +914,11 @@ mod tests {
                 target_bytes: 16,
                 max_rows: 100,
             },
+            CancellationToken::new(),
         );
         assert!(matches!(
             gate.open(LayerId(0), || Ok(test_reader(1, false))),
-            Err(PlenoraIoError::ReaderBusy { .. })
+            Err(error) if error.code == plenora_io_model::IoErrorCode::ReaderBusy
         ));
 
         let mut sizes = Vec::new();
@@ -815,10 +945,9 @@ mod tests {
         let first = gate.open(LayerId(0), || Ok(test_reader(1, false))).unwrap();
         assert!(matches!(
             gate.open(LayerId(0), || Ok(test_reader(1, false))),
-            Err(PlenoraIoError::ReaderBusy {
-                driver: "test",
-                layer: 0
-            })
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::ReaderBusy
+                    && error.driver.as_deref() == Some("test")
         ));
 
         drop(first);
@@ -835,6 +964,23 @@ mod tests {
 
         let mut failed = gate.open(LayerId(0), || Ok(test_reader(0, true))).unwrap();
         assert!(failed.next_batch().is_err());
+        assert!(gate.open(LayerId(0), || Ok(test_reader(1, false))).is_ok());
+    }
+
+    #[test]
+    fn cancelled_reader_releases_single_reader_lease() {
+        let gate = SingleReaderGate::new("test");
+        let inner = gate.open(LayerId(0), || Ok(test_reader(1, false))).unwrap();
+        let token = CancellationToken::new();
+        let mut reader = with_cancellation(inner, token.clone());
+        token.cancel();
+
+        assert!(matches!(
+            reader.next_batch(),
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::Cancelled
+                    && error.phase == ErrorPhase::Read
+        ));
         assert!(gate.open(LayerId(0), || Ok(test_reader(1, false))).is_ok());
     }
 
@@ -874,10 +1020,8 @@ mod tests {
         );
         assert!(matches!(
             result,
-            Err(PlenoraIoError::Capability {
-                reason: CapabilityReason::CoordinateDimensions,
-                ..
-            })
+            Err(error)
+                if error.capability_reason == Some(CapabilityReason::CoordinateDimensions)
         ));
     }
 
@@ -903,10 +1047,8 @@ mod tests {
         );
         assert!(matches!(
             result,
-            Err(PlenoraIoError::Capability {
-                reason: CapabilityReason::GeometryEncoding,
-                ..
-            })
+            Err(error)
+                if error.capability_reason == Some(CapabilityReason::GeometryEncoding)
         ));
     }
 
@@ -921,10 +1063,7 @@ mod tests {
         );
         assert!(matches!(
             result,
-            Err(PlenoraIoError::Capability {
-                reason: CapabilityReason::Nullability,
-                ..
-            })
+            Err(error) if error.capability_reason == Some(CapabilityReason::Nullability)
         ));
     }
 
@@ -983,11 +1122,11 @@ mod tests {
 
         assert!(matches!(
             geometry_contracts_for_validation(&ambiguous),
-            Err(PlenoraIoError::Contract(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
         ));
         assert!(matches!(
             geometry_contracts_for_validation(&invalid),
-            Err(PlenoraIoError::Contract(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
         ));
     }
 }

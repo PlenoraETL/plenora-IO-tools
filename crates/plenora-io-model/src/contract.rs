@@ -91,6 +91,18 @@ impl GeometryType {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TypesDeclaration {
+    Exact,
+    Mixed,
+    Unresolved,
+    /// Ingresso legacy nel quale la proprietà non era dichiarata. Non ha un
+    /// valore wire: va preservato come assenza, mai emesso come `unresolved`.
+    #[serde(skip)]
+    LegacyUndeclared,
+}
+
 /// Contratto di una colonna geometrica.
 #[derive(Clone, Debug)]
 pub struct GeometryColumnContract {
@@ -107,6 +119,7 @@ pub struct GeometryColumnContract {
     /// Tipi noti staticamente. Vuoto significa non ancora determinato; non
     /// equivale a "nessuna geometria".
     pub geometry_types: Vec<GeometryType>,
+    pub types_declaration: TypesDeclaration,
     /// Metadati nativi namespaced, per esempio `postgis.typmod`,
     /// `gpkg.geometry_type_name`, `sql.type_name`.
     pub native_metadata: BTreeMap<String, String>,
@@ -130,6 +143,7 @@ impl GeometryColumnContract {
             srid: None,
             precision: CoordinatePrecision::Float64,
             geometry_types: Vec::new(),
+            types_declaration: TypesDeclaration::Unresolved,
             native_metadata: BTreeMap::new(),
         }
     }
@@ -149,6 +163,17 @@ impl GeometryColumnContract {
     pub fn resolved_crs(&self) -> Option<&ResolvedCrs> {
         self.crs.as_resolved()
     }
+
+    pub fn set_exact_geometry_types(&mut self, geometry_types: Vec<GeometryType>) {
+        self.geometry_types = geometry_types;
+        self.geometry_types.sort_unstable();
+        self.geometry_types.dedup();
+        self.types_declaration = if self.geometry_types.is_empty() {
+            TypesDeclaration::Unresolved
+        } else {
+            TypesDeclaration::Exact
+        };
+    }
 }
 
 /// Contratto dei dati che attraversano un arco / un layer.
@@ -157,6 +182,37 @@ pub struct DataContract {
     pub schema: SchemaRef,
     /// v1: al massimo una colonna geometria.
     pub geometry: Option<GeometryColumnContract>,
+}
+
+impl DataContract {
+    /// Costruisce il contratto e inserisce la versione del protocollo nei
+    /// metadati di schema quando sono presenti chiavi geometriche canoniche.
+    #[must_use]
+    pub fn new(schema: SchemaRef, geometry: Option<GeometryColumnContract>) -> Self {
+        let schema = geometry.as_ref().map_or_else(
+            || schema.clone(),
+            |geometry| {
+                if geometry.types_declaration == TypesDeclaration::LegacyUndeclared {
+                    return schema.clone();
+                }
+                let fields = schema
+                    .fields()
+                    .iter()
+                    .map(|field| {
+                        if field.name() == &geometry.name {
+                            crate::geometry::with_geometry_contract_metadata(field, geometry)
+                        } else {
+                            field.as_ref().clone()
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                crate::geometry::with_contract_version(std::sync::Arc::new(
+                    arrow_schema::Schema::new_with_metadata(fields, schema.metadata().clone()),
+                ))
+            },
+        );
+        Self { schema, geometry }
+    }
 }
 
 /// Contratto di un layer di un dataset aperto.

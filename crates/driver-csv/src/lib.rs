@@ -61,10 +61,7 @@ use plenora_io_model::{PlenoraIoError, Result};
 const GEOMETRY: &str = "geometry";
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "csv",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("csv", reason)
 }
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
@@ -125,7 +122,7 @@ impl FormatDriver for CsvDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let delim = delimiter(&opts.format_options);
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::Crs("CSV con geometria richiede --assume-crs".to_owned())
@@ -186,7 +183,7 @@ impl FormatDriver for CsvDriver {
             true,
         );
         geometry_contract.dimensions = dimensions;
-        geometry_contract.geometry_types = geometry_types;
+        geometry_contract.set_exact_geometry_types(geometry_types);
         let native_encoding = match geom {
             GeomSpec::Wkt(_) => "wkt",
             GeomSpec::Xy(_, _) => "xy_columns",
@@ -203,10 +200,7 @@ impl FormatDriver for CsvDriver {
             fields.push(Field::new(&headers[*ci], ct.arrow_data_type(), true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let contract = DataContract {
-            schema: schema.clone(),
-            geometry: Some(geometry_contract),
-        };
+        let contract = DataContract::new(schema.clone(), Some(geometry_contract));
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -272,6 +266,7 @@ impl FormatDriver for CsvDriver {
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -298,7 +293,7 @@ impl OpenDatasetHandle for CsvDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let batch_size =
             plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
-        spawn_parser(
+        let reader = spawn_parser(
             self.path.clone(),
             self.delim,
             self.geom,
@@ -306,7 +301,11 @@ impl OpenDatasetHandle for CsvDataset {
             self.schema.clone(),
             batch_size,
             self.layers[0].clone(),
-        )
+        )?;
+        Ok(plenora_io_core::with_cancellation(
+            reader,
+            request.cancellation.clone(),
+        ))
     }
 }
 
@@ -566,8 +565,7 @@ impl FormatWriter for CsvWriter {
         for row in 0..batch.num_rows() {
             for (i, _) in schema.fields().iter().enumerate() {
                 if i != geom_idx {
-                    write_cell(w, batch.column(i), row, &mut fbuf)
-                        .map_err(|e| err(e.to_string()))?;
+                    write_cell(w, batch.column(i), row, &mut fbuf)?;
                 }
             }
             if geom_col.is_null(row) {
@@ -625,25 +623,31 @@ fn write_cell<W: std::io::Write>(
     col: &ArrayRef,
     row: usize,
     fbuf: &mut String,
-) -> csv::Result<()> {
+) -> Result<()> {
     if col.is_null(row) {
-        return w.write_field("");
+        return w.write_field("").map_err(|error| err(error.to_string()));
     }
     if let Some(a) = col.as_any().downcast_ref::<StringArray>() {
         w.write_field(a.value(row))
+            .map_err(|error| err(error.to_string()))
     } else if let Some(a) = col.as_any().downcast_ref::<Int64Array>() {
         fbuf.clear();
         let _ = write!(fbuf, "{}", a.value(row));
         w.write_field(&*fbuf)
+            .map_err(|error| err(error.to_string()))
     } else if let Some(a) = col.as_any().downcast_ref::<Float64Array>() {
         fbuf.clear();
         let _ = write!(fbuf, "{}", a.value(row));
         w.write_field(&*fbuf)
+            .map_err(|error| err(error.to_string()))
     } else if let Some(a) = col.as_any().downcast_ref::<BooleanArray>() {
         w.write_field(if a.value(row) { "true" } else { "false" })
+            .map_err(|error| err(error.to_string()))
     } else {
         // Tipo non comune (Date, ecc.): fallback via il convertitore generico.
-        w.write_field(cell_string(&json_from_array(col, row)))
+        let value = json_from_array(col, row)?;
+        w.write_field(cell_string(&value))
+            .map_err(|error| err(error.to_string()))
     }
 }
 
@@ -690,6 +694,7 @@ mod tests {
                 target_bytes: 8 * 1024 * 1024,
                 max_rows,
             },
+            cancellation: Default::default(),
         }
     }
 
@@ -939,6 +944,9 @@ mod tests {
         std::fs::write(&source, "id,wkt\n1,NOT_A_GEOMETRY\n").unwrap();
         let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
 
-        assert!(matches!(reader.next_batch(), Err(PlenoraIoError::Wkb(_))));
+        assert!(matches!(
+            reader.next_batch(),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Wkb
+        ));
     }
 }

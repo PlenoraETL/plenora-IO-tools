@@ -36,16 +36,13 @@ use plenora_io_model::contract::{
 };
 use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
 use plenora_io_model::geometry::{
-    is_geometry_field, read_geometry_contract_metadata, with_geometry_contract_metadata,
-    GEO_CRS_KEY,
+    is_geometry_field, read_geometry_contract_metadata, validate_contract_version,
+    with_contract_version, with_geometry_contract_metadata, GEO_CRS_KEY,
 };
 use plenora_io_model::{PlenoraIoError, Result};
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "ipc",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("ipc", reason)
 }
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
@@ -85,10 +82,11 @@ impl FormatDriver for IpcDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let reader = FileReader::try_new(File::open(&path)?, None)
             .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
         let schema = reader.schema();
+        validate_contract_version(schema.as_ref())?;
         let mut geometry_fields = schema
             .fields()
             .iter()
@@ -136,7 +134,7 @@ impl FormatDriver for IpcDriver {
             layers: vec![LayerContract {
                 id: LayerId(0),
                 name,
-                contract: DataContract { schema, geometry },
+                contract: DataContract::new(schema, geometry),
             }],
         }))
     }
@@ -180,10 +178,10 @@ impl FormatDriver for IpcDriver {
                     .unwrap_or_else(|| field.as_ref().clone())
             })
             .collect::<Vec<_>>();
-        let schema = Arc::new(arrow_schema::Schema::new_with_metadata(
+        let schema = with_contract_version(Arc::new(arrow_schema::Schema::new_with_metadata(
             fields,
             layer.schema.metadata().clone(),
-        ));
+        )));
         let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
         let writer = FileWriter::try_new(BufWriter::new(staging.reopen()?), &schema)
             .map_err(|e| err(format!("writer IPC: {e}")))?;
@@ -196,6 +194,7 @@ impl FormatDriver for IpcDriver {
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -261,7 +260,7 @@ impl OpenDatasetHandle for IpcDataset {
                     LayerContract {
                         id: source_layer.id,
                         name: source_layer.name.clone(),
-                        contract: DataContract { schema, geometry },
+                        contract: DataContract::new(schema, geometry),
                     },
                 )
             }
@@ -271,6 +270,7 @@ impl OpenDatasetHandle for IpcDataset {
         Ok(plenora_io_core::with_batch_target(
             Box::new(IpcReader { reader, layer }),
             request.batch_target,
+            request.cancellation.clone(),
         ))
     }
 }
@@ -398,7 +398,7 @@ mod tests {
 
         assert!(matches!(
             IpcDriver.open(Source::Path(path), &ReadOptions::default()),
-            Err(PlenoraIoError::Contract(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
         ));
     }
 
@@ -456,6 +456,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let rb = r.next_batch().unwrap().unwrap();
@@ -480,6 +481,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         assert_eq!(projected.contract().contract.schema.fields().len(), 1);
@@ -539,6 +541,7 @@ mod tests {
                     target_bytes: 16,
                     max_rows: 100,
                 },
+                cancellation: Default::default(),
             })
             .unwrap();
         let mut sizes = Vec::new();
@@ -586,7 +589,7 @@ mod tests {
         geometry.spatial_semantics = SpatialSemantics::Geography;
         geometry.srid = Some(4326);
         geometry.precision = CoordinatePrecision::Native;
-        geometry.geometry_types = vec![GeometryType::Point];
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
         geometry.native_metadata.insert(
             "postgis.typmod".to_owned(),
             "geography(PointZM,4326)".to_owned(),
@@ -632,6 +635,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let read = reader.next_batch().unwrap().unwrap();

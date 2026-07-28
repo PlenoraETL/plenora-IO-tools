@@ -4,8 +4,8 @@
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeSet, HashMap};
-use std::io::Write as _;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::{BufWriter, Write as _};
 use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, StringArray};
@@ -14,7 +14,7 @@ use kml::types::{
     Coord as KmlCoord, Element, Geometry as KmlGeometry, LineString as KmlLineString, LinearRing,
     MultiGeometry, Placemark, Point as KmlPoint, Polygon as KmlPolygon,
 };
-use kml::{Kml, KmlDocument, KmlVersion, KmlWriter};
+use kml::{Kml, KmlWriter};
 
 use driver_common::{geometry_field, json_from_array, OGC_CRS84};
 use plenora_io_core::descriptor::{
@@ -26,16 +26,17 @@ use plenora_io_core::driver::{
     Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
-use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
+use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
+#[cfg(test)]
+use plenora_io_model::contract::GeometryType;
 use plenora_io_model::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
-    LayerContract, LayerId,
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
 use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
@@ -51,10 +52,7 @@ const GEOMETRY: &str = "geometry";
 const MAX_XML_DEPTH: usize = 256;
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "kml",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("kml", reason)
 }
 
 fn valid_xml_name(name: &[u8]) -> bool {
@@ -210,7 +208,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "kml",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::Materializing,
-    write_mode: Some(WriteMode::Buffered),
+    write_mode: Some(WriteMode::Streaming),
     multi_layer: false,
     multi_file: false,
     reader_concurrency: ReaderConcurrency::SingleActiveReader,
@@ -243,7 +241,7 @@ impl FormatDriver for KmlDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let text = std::fs::read_to_string(&path)?;
         validate_kml_xml(&text)?;
         let root: Kml = text
@@ -293,17 +291,21 @@ impl FormatDriver for KmlDriver {
                 "KML: un solo layer per file".to_owned(),
             ));
         }
+        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
+        let mut output = BufWriter::new(staging.reopen()?);
+        output.write_all(
+            br#"<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>"#,
+        )?;
         with_write_validation(
             Box::new(KmlWriterState {
-                path,
-                durable: opts.durable,
-                placemarks: Vec::new(),
+                staging,
+                output,
                 wkb_limits: opts.limits.effective_wkb(),
-                max_output_bytes: opts.limits.max_output_bytes,
             }),
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -332,6 +334,7 @@ impl OpenDatasetHandle for KmlDataset {
         Ok(plenora_io_core::with_batch_target(
             reader,
             request.batch_target,
+            request.cancellation.clone(),
         ))
     }
 }
@@ -345,6 +348,7 @@ impl LayerReader for KmlReader {
     fn contract(&self) -> &LayerContract {
         &self.layer
     }
+
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
         Ok(self.batch.take())
     }
@@ -353,11 +357,9 @@ impl LayerReader for KmlReader {
 // --- scrittura -------------------------------------------------------------
 
 struct KmlWriterState {
-    path: PathBuf,
-    durable: bool,
-    placemarks: Vec<Placemark>,
+    staging: StagedFile,
+    output: BufWriter<File>,
     wkb_limits: WkbLimits,
-    max_output_bytes: u64,
 }
 
 impl FormatWriter for KmlWriterState {
@@ -376,6 +378,8 @@ impl FormatWriter for KmlWriterState {
         let limits = self.wkb_limits;
         let name_idx = schema.index_of("name").ok();
         let desc_idx = schema.index_of("description").ok();
+        let mut buffer = Vec::new();
+        let mut writer = KmlWriter::from_writer(&mut buffer);
 
         for row in 0..batch.num_rows() {
             let geometry = if geom_col.is_null(row) {
@@ -384,8 +388,14 @@ impl FormatWriter for KmlWriterState {
                 let geometry = decode_wkb(geom_col.value(row), &limits)?;
                 Some(kml_geometry_from_wkb(&geometry)?)
             };
-            let name = name_idx.and_then(|i| cell_string(batch.column(i), row));
-            let description = desc_idx.and_then(|i| cell_string(batch.column(i), row));
+            let name = name_idx
+                .map(|index| cell_string(batch.column(index), row))
+                .transpose()?
+                .flatten();
+            let description = desc_idx
+                .map(|index| cell_string(batch.column(index), row))
+                .transpose()?
+                .flatten();
 
             // Colonne extra (non name/description/geometria) -> ExtendedData.
             let mut data = Vec::new();
@@ -393,7 +403,7 @@ impl FormatWriter for KmlWriterState {
                 if i == geom_idx || Some(i) == name_idx || Some(i) == desc_idx {
                     continue;
                 }
-                if let Some(v) = cell_string(batch.column(i), row) {
+                if let Some(v) = cell_string(batch.column(i), row)? {
                     data.push((f.name().clone(), v));
                 }
             }
@@ -403,42 +413,27 @@ impl FormatWriter for KmlWriterState {
                 vec![extended_data(&data)]
             };
 
-            self.placemarks.push(Placemark {
+            let placemark = Placemark {
                 name,
                 description,
                 geometry,
                 children,
                 ..Default::default()
-            });
+            };
+            writer
+                .write(&Kml::Placemark(placemark))
+                .map_err(|error| err(format!("serializzazione KML: {error}")))?;
         }
+        drop(writer);
+        self.output.write_all(&buffer)?;
         Ok(())
     }
 
-    fn finish(self: Box<Self>) -> Result<Published> {
-        // Avvolge i Placemark in <kml xmlns><Document>…</Document></kml> (root
-        // KML valido, altrimenti GDAL/parser rifiutano il file).
-        let doc = Kml::KmlDocument(KmlDocument {
-            version: KmlVersion::V22,
-            attrs: HashMap::from([(
-                "xmlns".to_owned(),
-                "http://www.opengis.net/kml/2.2".to_owned(),
-            )]),
-            elements: vec![Kml::Document {
-                attrs: HashMap::new(),
-                elements: self.placemarks.into_iter().map(Kml::Placemark).collect(),
-            }],
-        });
-        let mut temp = create_staged_file(&self.path)?;
-        let mut buf: Vec<u8> = Vec::new();
-        {
-            let mut w = KmlWriter::from_writer(&mut buf);
-            w.write(&doc)
-                .map_err(|e| err(format!("serializzazione KML: {e}")))?;
-        }
-        temp.as_file_mut().write_all(&buf)?;
-        temp.as_file_mut().flush()?;
-        let (bytes, outcome) =
-            publish_file_atomic_limited(temp, &self.path, self.durable, self.max_output_bytes)?;
+    fn finish(mut self: Box<Self>) -> Result<Published> {
+        self.output.write_all(b"</Document></kml>")?;
+        self.output.flush()?;
+        drop(self.output);
+        let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
             loss: LossReport::default(),
@@ -448,12 +443,12 @@ impl FormatWriter for KmlWriterState {
     }
 }
 
-fn cell_string(array: &ArrayRef, row: usize) -> Option<String> {
-    match json_from_array(array, row) {
+fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
+    Ok(match json_from_array(array, row)? {
         serde_json::Value::Null => None,
         serde_json::Value::String(s) => Some(s),
         other => Some(other.to_string()),
-    }
+    })
 }
 
 fn extended_data(pairs: &[(String, String)]) -> Element {
@@ -737,7 +732,7 @@ fn build_batch(placemarks: &[Placemark]) -> Result<(RecordBatch, DataContract)> 
     } else {
         CoordinateDimensions::Unknown
     };
-    geometry_contract.geometry_types = geometry_types.into_iter().collect::<Vec<GeometryType>>();
+    geometry_contract.set_exact_geometry_types(geometry_types.into_iter().collect());
     let fields = vec![
         with_geometry_contract_metadata(&geometry_field(GEOMETRY, OGC_CRS84), &geometry_contract),
         Field::new("name", DataType::Utf8, true),
@@ -753,10 +748,7 @@ fn build_batch(placemarks: &[Placemark]) -> Result<(RecordBatch, DataContract)> 
     let schema: SchemaRef = Arc::new(Schema::new(fields));
     let batch =
         RecordBatch::try_new(schema.clone(), arrays).map_err(|e| err(format!("batch: {e}")))?;
-    let contract = DataContract {
-        schema,
-        geometry: Some(geometry_contract),
-    };
+    let contract = DataContract::new(schema, Some(geometry_contract));
     Ok((batch, contract))
 }
 
@@ -845,6 +837,7 @@ mod tests {
                     target_bytes: usize::MAX,
                     max_rows: 1,
                 },
+                cancellation: Default::default(),
             })
             .unwrap();
         let batch = r.next_batch().unwrap().unwrap();
@@ -880,6 +873,7 @@ mod tests {
             geometry_field(GEOMETRY, OGC_CRS84),
             Field::new("name", DataType::Utf8, true),
             Field::new("description", DataType::Utf8, true),
+            Field::new("population", DataType::Int64, true),
         ]));
         let batch = RecordBatch::try_new(
             schema.clone(),
@@ -887,6 +881,7 @@ mod tests {
                 Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())])),
                 Arc::new(StringArray::from(vec!["Roma"])),
                 Arc::new(StringArray::from(vec!["capitale"])),
+                Arc::new(arrow_array::Int64Array::from(vec![2_800_000])),
             ],
         )
         .unwrap();
@@ -905,7 +900,15 @@ mod tests {
             .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
             .unwrap();
         w.write(&batch).unwrap();
-        w.finish().unwrap();
+        let published = w.finish().unwrap();
+        assert_eq!(
+            published.loss.counts.get("coercion tipo attributo"),
+            Some(&1)
+        );
+        assert_eq!(
+            published.fidelity.level,
+            plenora_io_core::Fidelity::Approximating
+        );
 
         let ds = driver
             .open(Source::Path(out), &ReadOptions::default())
@@ -918,6 +921,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let rb = r.next_batch().unwrap().unwrap();
@@ -1007,6 +1011,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let round_trip = reader.next_batch().unwrap().unwrap();

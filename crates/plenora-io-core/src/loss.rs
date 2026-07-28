@@ -133,6 +133,8 @@ fn reason_code_for_loss(category: &str) -> FidelityReasonCode {
         || category.contains("collection")
     {
         FidelityReasonCode::StructureChanged
+    } else if category.contains("coerc") {
+        FidelityReasonCode::TypeCoercion
     } else if category.contains("attribut")
         || category.contains("colonn")
         || category.contains("propriet")
@@ -159,7 +161,8 @@ pub struct LossReport {
 
 impl LossReport {
     pub fn record(&mut self, category: &str, n: u64) {
-        *self.counts.entry(category.to_owned()).or_default() += n;
+        let count = self.counts.entry(category.to_owned()).or_default();
+        *count = count.saturating_add(n);
     }
 
     /// Aggiunge un esempio solo finché sotto il tetto (bounded).
@@ -175,6 +178,20 @@ impl LossReport {
 
     pub fn is_empty(&self) -> bool {
         self.counts.is_empty()
+    }
+
+    /// Unisce report prodotti da livelli diversi (piano statico, driver,
+    /// publish) senza perdere il bound diagnostico.
+    pub fn merge(&mut self, other: &Self) {
+        for (category, count) in &other.counts {
+            self.record(category, *count);
+        }
+        for example in &other.examples {
+            if self.examples.len() >= MAX_LOSS_EXAMPLES {
+                break;
+            }
+            self.examples.push(example.clone());
+        }
     }
 }
 

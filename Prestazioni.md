@@ -360,3 +360,25 @@ Principio finale:
 > plenora-IO-tools non deve essere solo corretta e fedele: deve dimostrare, con
 > benchmark e limiti verificabili, di leggere e scrivere **al costo del formato,
 > più il minimo per essere Arrow**.
+
+---
+
+## 11. Evidenza 2026-07-28 — pulizia e contratti trasversali
+
+Baseline `1c1ee61` e post compilati ed eseguiti nello stesso container
+Linux/Rust 1.92.0 e con lo stesso harness: 100.000 righe, geometria Point e
+mediana di cinque ripetizioni. Soglia di veto: regressione throughput o aumento
+RSS oltre il 5%.
+
+| Driver/operazione | Throughput | Picco RSS | Esito |
+|---|---:|---:|---|
+| DXF read | +1,31% | +0,13% | OK |
+| DXF write | +3,51% | +0,08% | OK |
+| KML read | +2,50% | +0,03% | OK |
+| KML write | +64,32% | -85,63% | OK |
+| XLSX read | -0,62% | +0,29% | OK |
+| XLSX write | -0,79% | +0,00% | OK |
+
+Il gate comparativo è superato. La baseline versionata è
+`baseline/streaming-before.json`; il post locale è
+`target/paired-after.json`.

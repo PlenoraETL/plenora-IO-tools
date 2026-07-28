@@ -37,16 +37,16 @@ fn usage_err(message: impl Into<String>) -> (i32, Value) {
 
 /// Mappa un `PlenoraIoError` a (exit, doc) con codici stabili.
 fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
-    use plenora_io_model::PlenoraIoError as E;
-    let (exit, code) = match &e {
-        E::OutputExists(_) => (3, "OUTPUT_EXISTS"),
-        E::Unsupported(_) => (4, "UNSUPPORTED"),
-        E::Crs(_) => (5, "CRS_REQUIRED"),
-        E::Contract(_) | E::Schema(_) => (6, "CONTRACT"),
-        E::LimitExceeded(_) => (7, "LIMIT_EXCEEDED"),
-        E::ReaderBusy { .. } => (8, "READER_BUSY"),
-        E::ProjectionUnsupported { .. } => (8, "PROJECTION_UNSUPPORTED"),
-        E::CrsUnresolved { .. } => (8, "CRS_UNRESOLVED"),
+    use plenora_io_model::IoErrorCode;
+    let (exit, code) = match e.code {
+        IoErrorCode::OutputExists => (3, "OUTPUT_EXISTS"),
+        IoErrorCode::Unsupported | IoErrorCode::Capability => (4, "UNSUPPORTED"),
+        IoErrorCode::Crs => (5, "CRS_REQUIRED"),
+        IoErrorCode::Contract | IoErrorCode::Schema => (6, "CONTRACT"),
+        IoErrorCode::LimitExceeded => (7, "LIMIT_EXCEEDED"),
+        IoErrorCode::ReaderBusy => (8, "READER_BUSY"),
+        IoErrorCode::ProjectionUnsupported => (8, "PROJECTION_UNSUPPORTED"),
+        IoErrorCode::CrsUnresolved => (8, "CRS_UNRESOLVED"),
         _ => (1, "FORMAT_ERROR"),
     };
     (exit, err_doc(code, e.to_string()))
@@ -249,6 +249,7 @@ fn read_options(cli: &Cli) -> ReadOptions {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.opts.clone(),
         limits: cli.limits,
+        cancellation: Default::default(),
     }
 }
 
@@ -342,6 +343,7 @@ fn read_request(layer_id: u32) -> ReadRequest {
         pruning_predicate: None,
         spatial_pruning_hint: None,
         batch_target: BatchTarget::default(),
+        cancellation: Default::default(),
     }
 }
 
@@ -400,6 +402,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.in_opts.clone(),
         limits: cli.limits,
+        cancellation: Default::default(),
     };
     let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
     let read_fidelity = ds.fidelity_assessment();
@@ -448,6 +451,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         durable: cli.durable,
         format_options: cli.out_opts.clone(),
         limits: cli.limits,
+        cancellation: Default::default(),
     };
     let mut writer = dst
         .create(Sink::Path(out_path), &plan, &wopts)
@@ -565,31 +569,29 @@ mod tests {
 
     #[test]
     fn reader_busy_has_stable_cli_error() {
-        let (exit, document) = map_err(plenora_io_model::PlenoraIoError::ReaderBusy {
-            driver: "kml",
-            layer: 0,
-        });
+        let (exit, document) = map_err(plenora_io_model::PlenoraIoError::reader_busy("kml", 0));
         assert_eq!(exit, 8);
         assert_eq!(document["error"]["code"], "READER_BUSY");
     }
 
     #[test]
     fn projection_unsupported_has_stable_cli_error() {
-        let (exit, document) =
-            map_err(plenora_io_model::PlenoraIoError::ProjectionUnsupported { driver: "csv" });
+        let (exit, document) = map_err(plenora_io_model::PlenoraIoError::projection_unsupported(
+            "csv",
+        ));
         assert_eq!(exit, 8);
         assert_eq!(document["error"]["code"], "PROJECTION_UNSUPPORTED");
     }
 
     #[test]
     fn unresolved_crs_has_stable_redacted_cli_error() {
-        let (_, document) = map_err(plenora_io_model::PlenoraIoError::CrsUnresolved {
-            driver: "shp",
-            raw: plenora_io_model::crs::RawCrs {
-                definition: "LOCAL_CS[\"survey-grid-secret\"]".to_owned(),
-                authority_hint: Some("authority-secret".to_owned()),
-            },
-        });
+        let raw = plenora_io_model::crs::RawCrs::new(
+            "LOCAL_CS[\"survey-grid-secret\"]".to_owned(),
+            Some("authority-secret".to_owned()),
+        );
+        let (_, document) = map_err(plenora_io_model::PlenoraIoError::crs_unresolved(
+            "shp", &raw,
+        ));
         assert_eq!(document["error"]["code"], "CRS_UNRESOLVED");
         assert!(!document.to_string().contains("survey-grid-secret"));
         assert!(!document.to_string().contains("authority-secret"));

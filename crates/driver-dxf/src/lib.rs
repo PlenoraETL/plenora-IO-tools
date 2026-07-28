@@ -65,10 +65,7 @@ const MAX_ENTITIES: usize = 5_000_000;
 const WGS84_ESRI_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]";
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "dxf",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("dxf", reason)
 }
 
 fn crs_kind(id: Option<&str>, definition: Option<&str>) -> CrsKind {
@@ -141,11 +138,8 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
             });
             let id = embedded_id.or_else(|| options.assume_crs.clone());
             let Some(id) = id else {
-                let raw = RawCrs {
-                    definition,
-                    authority_hint: None,
-                };
-                return Err(PlenoraIoError::CrsUnresolved { driver: "dxf", raw });
+                let raw = RawCrs::new(definition, None);
+                return Err(PlenoraIoError::crs_unresolved("dxf", &raw));
             };
             let kind = crs_kind(Some(&id), Some(&definition));
             Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
@@ -230,7 +224,7 @@ impl FormatDriver for DxfDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let drawing = Drawing::load_file(&path).map_err(|e| err(format!("apertura DXF: {e}")))?;
         let crs = resolve_dxf_crs(&drawing, opts)?;
         let (batch, loss, contract) = build_batch(&drawing, crs, &opts.limits)?;
@@ -297,6 +291,7 @@ impl FormatDriver for DxfDriver {
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -344,7 +339,10 @@ impl FormatWriter for DxfWriterState {
                 continue;
             }
             let g = decode_wkb(geom_col.value(row), &limits)?;
-            let layer = layer_idx.and_then(|i| cell_string(batch.column(i), row));
+            let layer = layer_idx
+                .map(|index| cell_string(batch.column(index), row))
+                .transpose()?
+                .flatten();
             add_geometry(&mut self.drawing, &g, layer.as_deref(), &mut self.loss)?;
         }
         Ok(())
@@ -376,12 +374,12 @@ impl FormatWriter for DxfWriterState {
     }
 }
 
-fn cell_string(array: &ArrayRef, row: usize) -> Option<String> {
-    match json_from_array(array, row) {
+fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
+    Ok(match json_from_array(array, row)? {
         serde_json::Value::Null => None,
         serde_json::Value::String(s) => Some(s),
         other => Some(other.to_string()),
-    }
+    })
 }
 
 fn add_entity(dr: &mut Drawing, specific: EntityType, layer: Option<&str>) {
@@ -564,6 +562,7 @@ impl OpenDatasetHandle for DxfDataset {
         Ok(plenora_io_core::with_batch_target(
             reader,
             request.batch_target,
+            request.cancellation.clone(),
         ))
     }
 }
@@ -1194,7 +1193,7 @@ fn build_batch(
     let mut geometry_contract =
         GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs.clone(), true);
     geometry_contract.dimensions = dimensions;
-    geometry_contract.geometry_types = geometry_types.into_iter().collect();
+    geometry_contract.set_exact_geometry_types(geometry_types.into_iter().collect());
     geometry_contract
         .native_metadata
         .insert("dxf.geometry_model".to_owned(), "wcs".to_owned());
@@ -1227,10 +1226,7 @@ fn build_batch(
     let schema: SchemaRef = Arc::new(Schema::new(fields));
     let batch =
         RecordBatch::try_new(schema.clone(), arrays).map_err(|e| err(format!("batch: {e}")))?;
-    let contract = DataContract {
-        schema,
-        geometry: Some(geometry_contract),
-    };
+    let contract = DataContract::new(schema, Some(geometry_contract));
     Ok((batch, walker.loss, contract))
 }
 
@@ -1290,6 +1286,7 @@ mod tests {
             pruning_predicate: None,
             spatial_pruning_hint: None,
             batch_target: BatchTarget::default(),
+            cancellation: Default::default(),
         }
     }
 
@@ -1513,14 +1510,8 @@ mod tests {
         })));
 
         let error = resolve_dxf_crs(&drawing, &ReadOptions::default()).unwrap_err();
-        match &error {
-            PlenoraIoError::CrsUnresolved { driver, raw } => {
-                assert_eq!(*driver, "dxf");
-                assert_eq!(raw.definition, definition);
-                assert_eq!(raw.authority_hint, None);
-            }
-            other => panic!("errore inatteso: {other}"),
-        }
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+        assert_eq!(error.driver.as_deref(), Some("dxf"));
         assert!(!error.to_string().contains("survey-grid-secret"));
     }
 
@@ -1546,7 +1537,7 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(matches!(row_error, PlenoraIoError::LimitExceeded(_)));
+        assert_eq!(row_error.code, plenora_io_model::IoErrorCode::LimitExceeded);
 
         let column_error = build_batch(
             &drawing,
@@ -1557,7 +1548,10 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(matches!(column_error, PlenoraIoError::LimitExceeded(_)));
+        assert_eq!(
+            column_error.code,
+            plenora_io_model::IoErrorCode::LimitExceeded
+        );
     }
 
     #[test]

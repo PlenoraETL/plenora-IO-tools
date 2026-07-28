@@ -6,6 +6,7 @@
 pub use arrow_array;
 pub use arrow_schema;
 
+pub mod cancellation;
 pub mod contract;
 pub mod crs;
 pub mod error;
@@ -16,4 +17,8 @@ pub mod metrics;
 pub mod wkb;
 mod wkb_lossless;
 
-pub use error::{CapabilityReason, PlenoraIoError, Result};
+pub use cancellation::{CancellationReason, CancellationToken};
+pub use error::{
+    CapabilityReason, ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, RemoteEffect, Result,
+    RetryDisposition,
+};

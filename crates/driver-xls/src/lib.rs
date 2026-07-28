@@ -48,10 +48,7 @@ use plenora_io_model::{PlenoraIoError, Result};
 const GEOMETRY: &str = "geometry";
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "xls",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("xls", reason)
 }
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
@@ -91,7 +88,7 @@ impl FormatDriver for XlsDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let mut wb: Xlsx<_> =
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
         let sheet = opts
@@ -161,6 +158,7 @@ impl FormatDriver for XlsDriver {
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -189,6 +187,7 @@ impl OpenDatasetHandle for XlsDataset {
         Ok(plenora_io_core::with_batch_target(
             reader,
             request.batch_target,
+            request.cancellation.clone(),
         ))
     }
 }
@@ -229,7 +228,7 @@ fn write_cell(
     array: &ArrayRef,
     row: usize,
 ) -> Result<()> {
-    match json_from_array(array, row) {
+    match json_from_array(array, row)? {
         JsonValue::Null => {}
         JsonValue::Bool(b) => {
             sheet.write_boolean(r, c, b).map_err(xls_err)?;
@@ -450,7 +449,7 @@ fn build_batch(
         true,
     );
     geometry_contract.dimensions = dimensions;
-    geometry_contract.geometry_types = detected_types.into_iter().collect();
+    geometry_contract.set_exact_geometry_types(detected_types.into_iter().collect());
     let native_encoding = if opts.contains_key("wkt_column") {
         "wkt"
     } else {
@@ -484,10 +483,7 @@ fn build_batch(
     let schema: SchemaRef = Arc::new(Schema::new(fields));
     let batch =
         RecordBatch::try_new(schema.clone(), arrays).map_err(|e| err(format!("batch: {e}")))?;
-    let contract = DataContract {
-        schema,
-        geometry: Some(geometry_contract),
-    };
+    let contract = DataContract::new(schema, Some(geometry_contract));
     Ok((batch, contract))
 }
 
@@ -588,6 +584,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let rb = r.next_batch().unwrap().unwrap();
@@ -672,6 +669,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let batch = reader.next_batch().unwrap().unwrap();

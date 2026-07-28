@@ -196,10 +196,9 @@ pub fn publish_files_ordered_limited(
         }
         let metadata = std::fs::symlink_metadata(source)?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {
-            return Err(PlenoraIoError::Unsupported(format!(
-                "file di staging non regolare: {}",
-                source.display()
-            )));
+            return Err(PlenoraIoError::Unsupported(
+                "file di staging non regolare".to_owned(),
+            ));
         }
         ensure_destination_absent(destination)?;
         bytes = bytes.checked_add(metadata.len()).ok_or_else(|| {
@@ -297,11 +296,10 @@ fn ensure_same_filesystem(staging: &Path, destination_parent: &Path) -> Result<(
     if same_filesystem(staging, destination_parent)? {
         return Ok(());
     }
-    Err(PlenoraIoError::Unsupported(format!(
-        "publish cross-filesystem vietato: staging '{}' e destinazione '{}' sono su filesystem diversi",
-        staging.display(),
-        destination_parent.display()
-    )))
+    Err(PlenoraIoError::Unsupported(
+        "publish cross-filesystem vietato: staging e destinazione sono su filesystem diversi"
+            .to_owned(),
+    ))
 }
 
 #[cfg(unix)]
@@ -325,7 +323,7 @@ fn windows_volume_root(path: &Path) -> std::io::Result<String> {
         Some(Component::Prefix(prefix)) => Ok(prefix.as_os_str().to_string_lossy().to_lowercase()),
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("percorso Windows senza volume: {}", canonical.display()),
+            "percorso Windows senza volume",
         )),
     }
 }
@@ -342,7 +340,7 @@ fn prepare_tree(path: &Path, durable: bool) -> std::io::Result<bool> {
     if metadata.file_type().is_symlink() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("symlink nella staging: {}", path.display()),
+            "symlink nella staging",
         ));
     }
     if metadata.is_file() {
@@ -354,7 +352,7 @@ fn prepare_tree(path: &Path, durable: bool) -> std::io::Result<bool> {
     if !metadata.is_dir() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("elemento staging non regolare: {}", path.display()),
+            "elemento staging non regolare",
         ));
     }
     let mut durability_confirmed = true;
@@ -449,11 +447,15 @@ mod tests {
         assert_eq!(outcome, PublishOutcome::Published);
         assert_eq!(std::fs::read(&destination).unwrap(), b"payload");
         assert!(!staging_path.exists());
-        assert!(matches!(staging.path(), Err(PlenoraIoError::Contract(_))));
-        assert!(matches!(staging.reopen(), Err(PlenoraIoError::Contract(_))));
+        assert!(
+            matches!(staging.path(), Err(error) if error.code == plenora_io_model::IoErrorCode::Contract)
+        );
+        assert!(
+            matches!(staging.reopen(), Err(error) if error.code == plenora_io_model::IoErrorCode::Contract)
+        );
         assert!(matches!(
             staging.publish(),
-            Err(PlenoraIoError::Contract(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
         ));
     }
 
@@ -470,11 +472,13 @@ mod tests {
 
         let result = staging.publish();
 
-        assert!(matches!(result, Err(PlenoraIoError::LimitExceeded(_))));
+        assert!(
+            matches!(result, Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded)
+        );
         assert!(!destination.exists());
         assert!(matches!(
             staging.publish(),
-            Err(PlenoraIoError::Contract(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
         ));
     }
 
@@ -502,7 +506,9 @@ mod tests {
         let mut temp = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
         temp.write_all(&[0_u8; 8]).unwrap();
         let result = publish_file_atomic_limited(temp, &destination, false, 7);
-        assert!(matches!(result, Err(PlenoraIoError::LimitExceeded(_))));
+        assert!(
+            matches!(result, Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded)
+        );
         assert!(!destination.exists());
     }
 
@@ -545,7 +551,9 @@ mod tests {
 
         let result = publish_dir_atomic(staging.path(), &destination, false);
 
-        assert!(matches!(result, Err(PlenoraIoError::OutputExists(_))));
+        assert!(
+            matches!(result, Err(error) if error.code == plenora_io_model::IoErrorCode::OutputExists)
+        );
         assert_eq!(
             std::fs::read(destination.join("sentinel")).unwrap(),
             b"existing"
@@ -564,7 +572,9 @@ mod tests {
         std::fs::write(&destination, b"concurrent").unwrap();
         let result = rename_noclobber(&source, &destination);
 
-        assert!(matches!(result, Err(PlenoraIoError::OutputExists(_))));
+        assert!(
+            matches!(result, Err(error) if error.code == plenora_io_model::IoErrorCode::OutputExists)
+        );
         assert_eq!(std::fs::read(&destination).unwrap(), b"concurrent");
         assert_eq!(std::fs::read(&source).unwrap(), b"new");
     }
@@ -587,7 +597,9 @@ mod tests {
         std::fs::write(destination.join("sentinel"), b"concurrent").unwrap();
         let result = rename_noclobber(staging.path(), &destination);
 
-        assert!(matches!(result, Err(PlenoraIoError::OutputExists(_))));
+        assert!(
+            matches!(result, Err(error) if error.code == plenora_io_model::IoErrorCode::OutputExists)
+        );
         assert_eq!(
             std::fs::read(destination.join("sentinel")).unwrap(),
             b"concurrent"
@@ -611,8 +623,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(PlenoraIoError::Io(error))
-                if error.kind() == std::io::ErrorKind::InvalidInput
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Io
         ));
         assert!(!destination.exists());
         assert_eq!(std::fs::read(target).unwrap(), b"outside");
@@ -696,8 +707,9 @@ mod tests {
         let directory_result = publish_dir_atomic(staging.path(), &directory_destination, false);
         assert!(matches!(
             directory_result,
-            Err(PlenoraIoError::Unsupported(message))
-                if message.contains("cross-filesystem")
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::Unsupported
+                    && error.message.contains("cross-filesystem")
         ));
         assert!(staging.path().join("data").exists());
         assert!(!directory_destination.exists());
@@ -708,8 +720,9 @@ mod tests {
         let file_result = publish_file_atomic(temp, &file_destination, false);
         assert!(matches!(
             file_result,
-            Err(PlenoraIoError::Unsupported(message))
-                if message.contains("cross-filesystem")
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::Unsupported
+                    && error.message.contains("cross-filesystem")
         ));
         assert!(!file_destination.exists());
 
@@ -723,8 +736,9 @@ mod tests {
         );
         assert!(matches!(
             loose_result,
-            Err(PlenoraIoError::Unsupported(message))
-                if message.contains("cross-filesystem")
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::Unsupported
+                    && error.message.contains("cross-filesystem")
         ));
         assert!(loose_source.exists());
         assert!(!loose_destination.exists());

@@ -45,19 +45,18 @@ struct BatchWorkerReader {
 
 impl BatchWorkerReader {
     fn abnormal_termination(&self) -> PlenoraIoError {
-        PlenoraIoError::Format {
-            driver: self.driver,
-            reason: "worker di lettura terminato senza stato terminale".to_owned(),
-        }
+        PlenoraIoError::format(
+            self.driver,
+            "worker di lettura terminato senza stato terminale",
+        )
     }
 
     fn join_worker(&mut self) -> Result<()> {
         let Some(worker) = self.worker.take() else {
             return Ok(());
         };
-        worker.join().map_err(|_| PlenoraIoError::Format {
-            driver: self.driver,
-            reason: "worker di lettura terminato in modo anomalo".to_owned(),
+        worker.join().map_err(|_| {
+            PlenoraIoError::format(self.driver, "worker di lettura terminato in modo anomalo")
         })
     }
 }
@@ -117,10 +116,10 @@ where
             let event = match result {
                 Ok(Ok(())) => BatchWorkerEvent::Finished,
                 Ok(Err(error)) => BatchWorkerEvent::Failed(error),
-                Err(_) => BatchWorkerEvent::Failed(PlenoraIoError::Format {
+                Err(_) => BatchWorkerEvent::Failed(PlenoraIoError::format(
                     driver,
-                    reason: "worker di lettura terminato in modo anomalo".to_owned(),
-                }),
+                    "worker di lettura terminato in modo anomalo",
+                )),
             };
             drop(terminal_sender.send(event));
         })?;
@@ -178,7 +177,9 @@ mod tests {
 
         assert!(matches!(
             reader.next_batch(),
-            Err(PlenoraIoError::LimitExceeded(message)) if message == "limite del parser"
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::LimitExceeded
+                    && error.message == "limite del parser"
         ));
         assert!(reader.next_batch().unwrap().is_none());
     }
@@ -192,10 +193,10 @@ mod tests {
 
         assert!(matches!(
             reader.next_batch(),
-            Err(PlenoraIoError::Format {
-                driver: "test",
-                reason
-            }) if reason.contains("anomalo")
+            Err(error)
+                if error.code == plenora_io_model::IoErrorCode::Format
+                    && error.driver.as_deref() == Some("test")
+                    && error.message.contains("anomalo")
         ));
         assert!(reader.next_batch().unwrap().is_none());
     }

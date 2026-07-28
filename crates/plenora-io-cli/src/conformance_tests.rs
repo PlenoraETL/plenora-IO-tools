@@ -22,7 +22,7 @@ use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
 use plenora_io_model::geometry::{
     with_geometry_contract_metadata, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
 };
-use plenora_io_model::{CapabilityReason, PlenoraIoError};
+use plenora_io_model::CapabilityReason;
 
 const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
@@ -73,7 +73,7 @@ fn geometry_plan(
     geometry.encoding = encoding;
     geometry.spatial_semantics = semantics;
     geometry.srid = (encoding == GeometryEncoding::Ewkb).then_some(4326);
-    geometry.geometry_types = geometry_types;
+    geometry.set_exact_geometry_types(geometry_types);
     let base = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([(
         ARROW_EXTENSION_NAME_KEY.to_owned(),
         GEOARROW_WKB_EXTENSION.to_owned(),
@@ -141,7 +141,7 @@ fn assert_capability(
     assert!(
         matches!(
             result,
-            Err(PlenoraIoError::Capability { reason, .. }) if reason == expected
+            Err(error) if error.capability_reason == Some(expected)
         ),
         "{driver}: atteso {expected:?}"
     );
@@ -221,6 +221,7 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
         pruning_predicate: None,
         spatial_pruning_hint: None,
         batch_target: BatchTarget::default(),
+        cancellation: Default::default(),
     };
     let mut exact = Vec::new();
     for driver in drivers() {
@@ -234,8 +235,9 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
             ProjectionSupport::None => assert!(
                 matches!(
                     plenora_io_core::validate_read_projection(descriptor, &request),
-                    Err(PlenoraIoError::ProjectionUnsupported { driver })
-                        if driver == descriptor.id
+                    Err(error)
+                        if error.code == plenora_io_model::IoErrorCode::ProjectionUnsupported
+                            && error.driver.as_deref() == Some(descriptor.id)
                 ),
                 "{}: Required non respinta fail-closed",
                 descriptor.id
@@ -488,7 +490,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                 &attribute_plan(&["layer"], Field::new("v", DataType::Utf8, true)),
                 &limits
             ),
-            Err(PlenoraIoError::LimitExceeded(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
 
         if let Some(max_bytes) = capabilities.field_names.max_bytes {
@@ -586,6 +588,7 @@ fn read_request() -> ReadRequest {
         pruning_predicate: None,
         spatial_pruning_hint: None,
         batch_target: BatchTarget::default(),
+        cancellation: Default::default(),
     }
 }
 
@@ -607,7 +610,7 @@ fn materialize_empty_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
 }
 
 #[test]
-fn conditional_writers_remain_conditional_when_no_loss_is_observed() {
+fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
     let mut checked = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
@@ -625,29 +628,33 @@ fn conditional_writers_remain_conditional_when_no_loss_is_observed() {
             .create(Sink::Path(output), &plan, &WriteOptions::default())
             .unwrap_or_else(|error| panic!("{}: create: {error}", descriptor.id));
 
-        assert_eq!(
-            writer.fidelity_assessment().level,
-            Fidelity::Conditional,
-            "{}: assessment preventivo",
-            descriptor.id
-        );
+        let preventive = writer.fidelity_assessment().level;
         writer
             .write(&batch)
             .unwrap_or_else(|error| panic!("{}: write: {error}", descriptor.id));
         let published = writer
             .finish()
             .unwrap_or_else(|error| panic!("{}: finish: {error}", descriptor.id));
-        assert!(
-            published.loss.is_empty(),
-            "{}: loss inattesa",
-            descriptor.id
-        );
         assert_eq!(
-            published.fidelity.level,
-            Fidelity::Conditional,
-            "{}: LossReport vuoto non deve diventare Lossless",
+            published.fidelity.level, preventive,
+            "{}: assessment finale divergente",
             descriptor.id
         );
+        match preventive {
+            Fidelity::Conditional => assert!(
+                published.loss.is_empty(),
+                "{}: loss inattesa",
+                descriptor.id
+            ),
+            Fidelity::Approximating => assert!(
+                !published.loss.is_empty(),
+                "{}: perdita pianificata senza LossReport",
+                descriptor.id
+            ),
+            Fidelity::Lossless => {
+                panic!("{}: classe Conditional degradata a Lossless", descriptor.id)
+            }
+        }
         checked += 1;
     }
     assert_eq!(checked, 5, "catalogo Conditional pure Rust inatteso");
@@ -688,12 +695,14 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
             pruning_predicate: None,
             spatial_pruning_hint: None,
             batch_target: BatchTarget::default(),
+            cancellation: Default::default(),
         };
         assert!(
             matches!(
                 dataset.open_layer_reader(&request),
-                Err(PlenoraIoError::ProjectionUnsupported { driver })
-                    if driver == descriptor.id
+                Err(error)
+                    if error.code == plenora_io_model::IoErrorCode::ProjectionUnsupported
+                        && error.driver.as_deref() == Some(descriptor.id)
             ),
             "{}: Required non respinta all'apertura",
             descriptor.id
@@ -724,8 +733,9 @@ fn single_active_reader_is_enforced_by_every_pure_rust_descriptor() {
         assert!(
             matches!(
                 dataset.open_layer_reader(&read_request()),
-                Err(PlenoraIoError::ReaderBusy { driver, layer: 0 })
-                    if driver == descriptor.id
+                Err(error)
+                    if error.code == plenora_io_model::IoErrorCode::ReaderBusy
+                        && error.driver.as_deref() == Some(descriptor.id)
             ),
             "{}: secondo reader concorrente non respinto",
             descriptor.id
@@ -773,7 +783,10 @@ fn create_is_no_clobber_for_every_pure_rust_writer() {
             &WriteOptions::default(),
         );
         assert!(
-            matches!(result, Err(PlenoraIoError::OutputExists(_))),
+            matches!(
+                result,
+                Err(error) if error.code == plenora_io_model::IoErrorCode::OutputExists
+            ),
             "{}: create non ha rispettato no-clobber",
             descriptor.id
         );

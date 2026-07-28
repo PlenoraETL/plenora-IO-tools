@@ -17,7 +17,17 @@ pub enum AxisOrder {
     LongitudeLatitude,
     LatitudeLongitude,
     EastingNorthing,
+    NorthingEasting,
+    Other,
     Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CrsDefinitionFormat {
+    Wkt,
+    Wkt2,
+    Projjson,
 }
 
 /// CRS risolto associato a una colonna geometria.
@@ -30,21 +40,56 @@ pub struct ResolvedCrs {
     pub axis_order: AxisOrder,
     /// Rappresentazione sorgente (WKT o PROJJSON), se disponibile.
     pub definition: Option<String>,
+    /// Formato della definizione sorgente. Obbligatorio quando `definition`
+    /// è presente; il costruttore lo ricava dalla grammatica riconoscibile.
+    pub definition_format: Option<CrsDefinitionFormat>,
 }
 
 impl ResolvedCrs {
     pub fn new(id: Option<String>, kind: CrsKind, definition: Option<String>) -> Self {
         let axis_order = axis_order_for(id.as_deref(), kind);
+        let definition_format = definition.as_deref().map(definition_format);
         Self {
             id,
             kind,
             axis_order,
             definition,
+            definition_format,
         }
+    }
+
+    #[must_use]
+    pub fn with_definition_format(mut self, format: CrsDefinitionFormat) -> Self {
+        self.definition_format = self.definition.as_ref().map(|_| format);
+        self
     }
 
     pub fn wgs84() -> Self {
         Self::new(Some("OGC:CRS84".to_owned()), CrsKind::Geographic, None)
+    }
+}
+
+fn definition_format(definition: &str) -> CrsDefinitionFormat {
+    let definition = definition.trim_start();
+    if definition.starts_with('{') {
+        CrsDefinitionFormat::Projjson
+    } else if [
+        "GEOGCRS[",
+        "PROJCRS[",
+        "GEODCRS[",
+        "VERTCRS[",
+        "COMPOUNDCRS[",
+        "BOUNDCRS[",
+        "ENGCRS[",
+        "PARAMETRICCRS[",
+        "TIMECRS[",
+    ]
+    .iter()
+    .any(|prefix| definition.starts_with(prefix))
+    {
+        CrsDefinitionFormat::Wkt2
+    } else {
+        CrsDefinitionFormat::Wkt
     }
 }
 
@@ -64,6 +109,22 @@ pub fn axis_order_for(id: Option<&str>, kind: CrsKind) -> AxisOrder {
 pub struct RawCrs {
     pub definition: String,
     pub authority_hint: Option<String>,
+    pub definition_format: CrsDefinitionFormat,
+    pub axis_order: AxisOrder,
+}
+
+impl RawCrs {
+    #[must_use]
+    pub fn new(definition: String, authority_hint: Option<String>) -> Self {
+        let definition_format = definition_format(&definition);
+        let axis_order = axis_order_for(authority_hint.as_deref(), CrsKind::Unknown);
+        Self {
+            definition,
+            authority_hint,
+            definition_format,
+            axis_order,
+        }
+    }
 }
 
 /// Stato esplicito della risoluzione CRS (ADR-IO 4). Evita di rappresentare
@@ -132,12 +193,34 @@ mod tests {
 
     #[test]
     fn raw_resolution_is_not_operational() {
-        let raw = RawCrs {
-            definition: "LOCAL_CS[\"private\"]".to_owned(),
-            authority_hint: Some("LOCAL".to_owned()),
-        };
+        let raw = RawCrs::new("LOCAL_CS[\"private\"]".to_owned(), Some("LOCAL".to_owned()));
         let resolution = CrsResolution::DeclaredButUnresolved(raw.clone());
         assert_eq!(resolution.raw(), Some(&raw));
         assert!(resolution.as_resolved().is_none());
+    }
+
+    #[test]
+    fn definition_format_is_explicit_and_not_inferred_by_consumers() {
+        let wkt = ResolvedCrs::new(
+            None,
+            CrsKind::Geographic,
+            Some("GEOGCS[\"WGS 84\"]".to_owned()),
+        );
+        let wkt2 = ResolvedCrs::new(
+            None,
+            CrsKind::Geographic,
+            Some("GEOGCRS[\"WGS 84\"]".to_owned()),
+        );
+        let projjson = ResolvedCrs::new(
+            None,
+            CrsKind::Geographic,
+            Some("{\"type\":\"GeographicCRS\"}".to_owned()),
+        );
+        assert_eq!(wkt.definition_format, Some(CrsDefinitionFormat::Wkt));
+        assert_eq!(wkt2.definition_format, Some(CrsDefinitionFormat::Wkt2));
+        assert_eq!(
+            projjson.definition_format,
+            Some(CrsDefinitionFormat::Projjson)
+        );
     }
 }

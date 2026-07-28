@@ -74,10 +74,7 @@ const LOOSE_SET_MODE: &str = "loose_shapefile_set";
 const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "shp",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("shp", reason)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,17 +150,13 @@ fn shapefile_source_path(path: PathBuf) -> Result<PathBuf> {
         return Ok(path);
     }
     if !is_directory_dataset_path(&path) {
-        return Err(PlenoraIoError::Unsupported(format!(
-            "directory Shapefile non riconosciuta: {} (atteso *.shp.d)",
-            path.display()
-        )));
+        return Err(PlenoraIoError::Unsupported(
+            "directory Shapefile non riconosciuta (atteso *.shp.d)".to_owned(),
+        ));
     }
     let source = path.join("data.shp");
     if !source.is_file() {
-        return Err(err(format!(
-            "directory dataset senza data.shp: {}",
-            path.display()
-        )));
+        return Err(err("directory dataset senza data.shp"));
     }
     Ok(source)
 }
@@ -205,14 +198,15 @@ impl FormatDriver for ShpDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = shapefile_source_path(source.into_path_checked(&opts.limits)?)?;
+        let path =
+            shapefile_source_path(source.into_path_checked(&opts.limits, &opts.cancellation)?)?;
         let crs = resolve_crs(&path, opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let (cols, geometry_info) = infer_shp_schema(&path)?;
         let mut geometry_contract =
             GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs.clone(), true);
         geometry_contract.dimensions = geometry_info.dimensions;
-        geometry_contract.geometry_types = geometry_info.geometry_types;
+        geometry_contract.set_exact_geometry_types(geometry_info.geometry_types);
         if let Some(shape_type) = geometry_info.shape_type {
             geometry_contract
                 .native_metadata
@@ -234,10 +228,7 @@ impl FormatDriver for ShpDriver {
             fields.push(Field::new(n, ct.arrow_data_type(), true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let contract = DataContract {
-            schema: schema.clone(),
-            geometry: Some(geometry_contract.clone()),
-        };
+        let contract = DataContract::new(schema.clone(), Some(geometry_contract.clone()));
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -337,6 +328,7 @@ impl FormatDriver for ShpDriver {
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -362,14 +354,18 @@ impl OpenDatasetHandle for ShpDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let batch_size =
             plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
-        spawn_parser(
+        let reader = spawn_parser(
             self.path.clone(),
             self.schema.clone(),
             self.cols.clone(),
             self.dimensions,
             batch_size,
             self.layers[0].clone(),
-        )
+        )?;
+        Ok(plenora_io_core::with_cancellation(
+            reader,
+            request.cancellation.clone(),
+        ))
     }
 }
 
@@ -451,7 +447,7 @@ impl FormatWriter for ShpWriter {
             }
             let mut rec = Record::default();
             for (col, name, kind) in &self.attrs {
-                rec.insert(name.clone(), cell_to_field(batch.column(*col), row, *kind));
+                rec.insert(name.clone(), cell_to_field(batch.column(*col), row, *kind)?);
             }
             write_shape(w, shape, &rec)?;
         }
@@ -814,9 +810,9 @@ fn write_shape(w: &mut Writer<BufWriter<File>>, shape: Shape, rec: &Record) -> R
     }
 }
 
-fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> FieldValue {
-    let v = json_from_array(array, row);
-    match kind {
+fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> Result<FieldValue> {
+    let v = json_from_array(array, row)?;
+    Ok(match kind {
         DbfKind::Char => FieldValue::Character(match v {
             JsonValue::Null => None,
             JsonValue::String(s) => Some(s),
@@ -824,7 +820,7 @@ fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> FieldValue {
         }),
         DbfKind::Int | DbfKind::Float => FieldValue::Numeric(v.as_f64()),
         DbfKind::Logical => FieldValue::Logical(v.as_bool()),
-    }
+    })
 }
 
 fn geometry_index(schema: &Schema) -> Option<usize> {
@@ -869,13 +865,8 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
             .clone()
             .or_else(|| authority_id_from_wkt(&wkt));
         let Some(id) = id else {
-            return Err(PlenoraIoError::CrsUnresolved {
-                driver: "shp",
-                raw: RawCrs {
-                    definition: wkt,
-                    authority_hint: None,
-                },
-            });
+            let raw = RawCrs::new(wkt, None);
+            return Err(PlenoraIoError::crs_unresolved("shp", &raw));
         };
         let kind = crs_kind(&id, Some(&wkt));
         return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)));
@@ -1457,6 +1448,7 @@ mod tests {
             pruning_predicate: None,
             spatial_pruning_hint: None,
             batch_target: BatchTarget::default(),
+            cancellation: Default::default(),
         }
     }
 
@@ -1486,13 +1478,8 @@ mod tests {
         std::fs::write(path.with_extension("prj"), definition).unwrap();
 
         let error = resolve_crs(&path, &ReadOptions::default()).unwrap_err();
-        match &error {
-            PlenoraIoError::CrsUnresolved { driver, raw } => {
-                assert_eq!(*driver, "shp");
-                assert_eq!(raw.definition, definition);
-            }
-            other => panic!("errore inatteso: {other}"),
-        }
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+        assert_eq!(error.driver.as_deref(), Some("shp"));
         assert!(!error.to_string().contains("survey-grid-secret"));
     }
 
@@ -1520,7 +1507,10 @@ mod tests {
             Some("LOCAL_CS[\"private\"]".to_owned()),
         );
 
-        assert!(matches!(resolved_crs_id(&crs), Err(PlenoraIoError::Crs(_))));
+        assert!(matches!(
+            resolved_crs_id(&crs),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Crs
+        ));
     }
 
     #[test]
@@ -1706,7 +1696,10 @@ mod tests {
             .create(Sink::Path(root.path().join("points.shp")), &plan, &options)
             .map(|_| ());
 
-        assert!(matches!(result, Err(PlenoraIoError::Unsupported(_))));
+        assert!(matches!(
+            result,
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Unsupported
+        ));
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     }
 
@@ -1736,13 +1729,10 @@ mod tests {
             )
             .map(|_| ())
             .unwrap_err();
-        assert!(matches!(
-            e,
-            PlenoraIoError::Capability {
-                reason: plenora_io_model::CapabilityReason::FieldNameTooLong,
-                ..
-            }
-        ));
+        assert_eq!(
+            e.capability_reason,
+            Some(plenora_io_model::CapabilityReason::FieldNameTooLong)
+        );
     }
 
     #[test]
@@ -1802,6 +1792,7 @@ mod tests {
                 target_bytes: 8 * 1024 * 1024,
                 max_rows: 4,
             },
+            cancellation: Default::default(),
         };
         let mut r = ds.open_layer_reader(&req).unwrap();
         let (mut total, mut batches) = (0, 0);

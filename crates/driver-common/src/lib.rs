@@ -465,15 +465,15 @@ pub fn geometry_field(name: &str, crs_id: &str) -> Field {
 }
 
 /// Valore JSON di una cella Arrow (per la scrittura verso formati testuali).
-pub fn json_from_array(array: &ArrayRef, row: usize) -> JsonValue {
+pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if array.is_null(row) {
-        return JsonValue::Null;
+        return Ok(JsonValue::Null);
     }
     let a = array.as_any();
     macro_rules! as_i64 {
         ($t:ty) => {
             if let Some(x) = a.downcast_ref::<$t>() {
-                return JsonValue::from(x.value(row) as i64);
+                return Ok(JsonValue::from(x.value(row) as i64));
             }
         };
     }
@@ -485,21 +485,28 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> JsonValue {
     as_i64!(UInt16Array);
     as_i64!(UInt32Array);
     if let Some(x) = a.downcast_ref::<UInt64Array>() {
-        return JsonValue::from(x.value(row));
+        return Ok(JsonValue::from(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<Float32Array>() {
-        return Number::from_f64(x.value(row) as f64).map_or(JsonValue::Null, JsonValue::Number);
+        return Number::from_f64(x.value(row) as f64)
+            .map(JsonValue::Number)
+            .ok_or_else(|| PlenoraIoError::Schema("Float32 non finito".to_owned()));
     }
     if let Some(x) = a.downcast_ref::<Float64Array>() {
-        return Number::from_f64(x.value(row)).map_or(JsonValue::Null, JsonValue::Number);
+        return Number::from_f64(x.value(row))
+            .map(JsonValue::Number)
+            .ok_or_else(|| PlenoraIoError::Schema("Float64 non finito".to_owned()));
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
-        return JsonValue::Bool(x.value(row));
+        return Ok(JsonValue::Bool(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<StringArray>() {
-        return JsonValue::String(x.value(row).to_owned());
+        return Ok(JsonValue::String(x.value(row).to_owned()));
     }
-    JsonValue::Null
+    Err(PlenoraIoError::Unsupported(format!(
+        "tipo Arrow {:?} non convertibile in JSON senza perdita",
+        array.data_type()
+    )))
 }
 
 #[cfg(test)]
@@ -553,7 +560,26 @@ mod tests {
         let mut builder = InferredColumnBuilder::new(ColType::Integer);
         assert!(matches!(
             builder.append_str("not-an-integer"),
-            Err(PlenoraIoError::Schema(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Schema
         ));
+    }
+
+    #[test]
+    fn json_conversion_never_conflates_unsupported_or_non_finite_with_null() {
+        let unsupported: ArrayRef = Arc::new(arrow_array::BinaryArray::from(vec![Some(
+            b"payload".as_slice(),
+        )]));
+        let non_finite: ArrayRef = Arc::new(Float64Array::from(vec![f64::NAN]));
+        let absent: ArrayRef = Arc::new(StringArray::from(vec![None::<&str>]));
+
+        assert!(matches!(
+            json_from_array(&unsupported, 0),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Unsupported
+        ));
+        assert!(matches!(
+            json_from_array(&non_finite, 0),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Schema
+        ));
+        assert_eq!(json_from_array(&absent, 0).unwrap(), JsonValue::Null);
     }
 }

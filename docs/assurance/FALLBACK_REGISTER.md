@@ -11,21 +11,23 @@ Il censimento iniziale contava 103 occorrenze nell'intero workspace. La prima
 revisione aveva portato il totale a 95. La pulizia profonda successiva elimina
 altri tredici fallback: nove risoluzioni duplicate della directory di staging,
 il default XY per geometrie GeoJSON/KML senza coordinate e altri default
-booleani/dimensionali KML non più necessari. Il saldo è ora 82 occorrenze:
+booleani/dimensionali KML non più necessari. Il saldo del componente resta
+invariato; il runner di benchmark aggiunge sei default espliciti per soglie,
+ripetizioni e output diagnostico. Il totale del workspace è ora 88 occorrenze:
 
 - 41 nei sorgenti dei crate distribuibili, includendo conservativamente i loro
   moduli `#[cfg(test)]`;
-- 41 nei target esclusi dal componente (`plenora-io-cli` 19,
-  `plenora-bench` 16, `plenora-fuzz` 6).
+- 47 nei target esclusi dal componente (`plenora-io-cli` 19,
+  `plenora-bench` 22, `plenora-fuzz` 6).
 
 `scripts/check_assurance_fallbacks.sh` blocca in CI ogni variazione di tutte le
-82 occorrenze, inclusi i target non distribuibili. L'aggiornamento del registro
+88 occorrenze, inclusi i target non distribuibili. L'aggiornamento del registro
 non è una deroga automatica: richiede la revisione della nuova semantica e una
 change impact analysis.
 
 La centralizzazione del lifecycle `StagedFile` e l'estrazione del codec
-geometrico GeoJSON del 2026-07-28 non introducono né rimuovono fallback: il
-totale verificato resta 82.
+geometrico GeoJSON del 2026-07-28 non introducono né rimuovono fallback nel
+componente distribuibile: il relativo totale verificato resta 41.
 
 ## Censimento del componente distribuibile
 
@@ -49,7 +51,7 @@ totale verificato resta 82.
 | Crate | Conteggio | Decisione verificata |
 |---|---:|---|
 | `plenora-io-cli` | 19 | default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance |
-| `plenora-bench` | 16 | configurazione e soglie benchmark documentate; metriche mancanti rappresentate come zero o `?` soltanto nell'output del runner, senza entrare nei driver |
+| `plenora-bench` | 22 | configurazione, ripetizioni e soglie benchmark documentate; metriche mancanti rappresentate come zero o `?` soltanto nell'output del runner, senza entrare nei driver |
 | `plenora-fuzz` | 6 | directory, durata e seed di campagna riproducibili; serializzazione best-effort confinata alla generazione del corpus, senza entrare nel componente distribuibile |
 
 ## Decisioni fail-closed introdotte

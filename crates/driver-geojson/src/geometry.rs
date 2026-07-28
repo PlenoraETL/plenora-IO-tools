@@ -5,10 +5,7 @@ use plenora_io_model::wkb::{encode_wkb_into, WkbCoordinate, WkbFlavor, WkbGeomet
 use plenora_io_model::{PlenoraIoError, Result};
 
 fn format_error(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "geojson",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("geojson", reason)
 }
 
 fn position(

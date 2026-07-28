@@ -13,12 +13,12 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.92.0"
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
       - name: Install GDAL
         run: sudo apt-get update && sudo apt-get install --yes libgdal-dev
       - run: cargo fmt --all -- --check
@@ -58,7 +58,7 @@ jobs:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
         run: cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo build --workspace --release --locked
-      - uses: taiki-e/install-action@f1b61bf3a1373bccc1ebdc11506122709bd40dee # cargo-audit
+      - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-audit
       - name: Audit locked dependencies
         run: >-
           cargo audit --deny warnings
@@ -68,11 +68,11 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.92.0"
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
       - name: Test cross-volume publish rejection
         shell: pwsh
         run: |
@@ -93,12 +93,12 @@ jobs:
   macos-publish:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.92.0"
           components: clippy
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
       - name: Test exclusive file and directory publish
         run: cargo test -p plenora-io-core publish::tests --locked
       - name: Check safety lints on the macOS publish implementation
@@ -116,19 +116,19 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           toolchain: "1.92.0"
           components: llvm-tools-preview
-      - uses: taiki-e/install-action@8dc1a448f03edf5b0d5a9bb37d054545b2fe246e # cargo-llvm-cov
+      - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-llvm-cov
       - name: Measure coverage
         env:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
         run: cargo llvm-cov --workspace --all-targets --locked --no-report
       - name: Export LCOV report
         run: cargo llvm-cov report --lcov --output-path lcov.info
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         with:
           name: rust-coverage-lcov
           path: lcov.info

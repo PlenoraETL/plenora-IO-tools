@@ -4,6 +4,7 @@
 use arrow_schema::{DataType, Schema};
 use plenora_io_model::contract::{DataContract, FieldId, LayerId};
 use plenora_io_model::geometry::is_geometry_field;
+use plenora_io_model::CancellationToken;
 use plenora_io_model::{PlenoraIoError, Result};
 
 use crate::descriptor::{FormatDescriptor, ProjectionSupport};
@@ -79,6 +80,7 @@ pub struct ReadRequest {
     pub pruning_predicate: Option<PruningPredicate>,
     pub spatial_pruning_hint: Option<Bbox>,
     pub batch_target: BatchTarget,
+    pub cancellation: CancellationToken,
 }
 
 /// Applica la semantica fail-closed di `ProjectionMode::Required`.
@@ -90,9 +92,7 @@ pub fn validate_read_projection(
         && request.projected_fields.is_some()
         && descriptor.projection_support != ProjectionSupport::Exact
     {
-        return Err(PlenoraIoError::ProjectionUnsupported {
-            driver: descriptor.id,
-        });
+        return Err(PlenoraIoError::projection_unsupported(descriptor.id));
     }
     Ok(())
 }

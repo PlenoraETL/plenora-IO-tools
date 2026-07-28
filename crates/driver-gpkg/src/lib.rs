@@ -16,7 +16,10 @@ use std::sync::Arc;
 
 use arrow_array::builder::{BinaryBuilder, Float64Builder, Int64Builder, StringBuilder};
 use arrow_array::{
-    Array, ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
+    Array, ArrayRef, BinaryArray, BinaryViewArray, BooleanArray, FixedSizeBinaryArray,
+    Float16Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, Int8Array,
+    LargeBinaryArray, LargeStringArray, RecordBatch, StringArray, StringViewArray, UInt16Array,
+    UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use rusqlite::types::{Value, ValueRef};
@@ -35,9 +38,9 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{Bbox, ReadRequest};
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
-    UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
+    WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -48,15 +51,21 @@ use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::{PlenoraIoError, Result};
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "gpkg",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("gpkg", reason)
 }
 
 fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
     err(format!("sqlite: {e}"))
 }
+
+const GPKG_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
+    ArrowTypeClass::Boolean,
+    ArrowTypeClass::SignedInteger,
+    ArrowTypeClass::UnsignedInteger,
+    ArrowTypeClass::Floating,
+    ArrowTypeClass::Utf8,
+    ArrowTypeClass::Binary,
+];
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "gpkg",
@@ -74,8 +83,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     runtime: Runtime::PureRust,
     write_capabilities: Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
-        allowed_types: SCALAR_TYPES,
-        type_coercion: TypeCoercionPolicy::ExplicitText,
+        allowed_types: GPKG_ATTRIBUTE_TYPES,
+        type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
         geometry: WKB_PASSTHROUGH_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
@@ -95,7 +104,7 @@ impl FormatDriver for GpkgDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let conn = Connection::open(&path).map_err(sql_err)?;
         let tables = feature_tables(&conn)?;
         if tables.is_empty() {
@@ -119,7 +128,7 @@ impl FormatDriver for GpkgDriver {
             geometry.dimensions = gpkg_dimensions(table_meta.z, table_meta.m);
             geometry.srid = i32::try_from(table_meta.srs_id).ok();
             if let Some(geometry_type) = gpkg_geometry_type(&table_meta.geometry_type_name) {
-                geometry.geometry_types.push(geometry_type);
+                geometry.set_exact_geometry_types(vec![geometry_type]);
             }
             geometry.native_metadata.insert(
                 "gpkg.geometry_type_name".to_owned(),
@@ -135,10 +144,7 @@ impl FormatDriver for GpkgDriver {
                 "gpkg.rtree_index".to_owned(),
                 rtree_table.is_some().to_string(),
             );
-            let contract = DataContract {
-                schema: schema.clone(),
-                geometry: Some(geometry),
-            };
+            let contract = DataContract::new(schema.clone(), Some(geometry));
             layers.push(LayerContract {
                 id: LayerId(i as u32),
                 name: table_meta.table.clone(),
@@ -223,6 +229,7 @@ impl FormatDriver for GpkgDriver {
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -295,7 +302,7 @@ impl OpenDatasetHandle for GpkgDataset {
                 None,
             ),
         };
-        Ok(Box::new(GpkgReader {
+        let reader: Box<dyn LayerReader> = Box::new(GpkgReader {
             conn,
             sql,
             spatial_hint,
@@ -307,7 +314,11 @@ impl OpenDatasetHandle for GpkgDataset {
             ) as i64,
             last_rowid: 0,
             layer: self.layers[idx].clone(),
-        }))
+        });
+        Ok(plenora_io_core::with_cancellation(
+            reader,
+            request.cancellation.clone(),
+        ))
     }
 }
 
@@ -500,7 +511,7 @@ fn insert_batch(conn: &Connection, a: &ActiveLayer, batch: &RecordBatch) -> Resu
             params.push(Value::Blob(blob));
         }
         for &i in &attr_idx {
-            params.push(arrow_cell_to_sql(batch.column(i), row));
+            params.push(arrow_cell_to_sql(batch.column(i), row)?);
         }
         stmt.execute(rusqlite::params_from_iter(params.iter()))
             .map_err(sql_err)?;
@@ -508,24 +519,87 @@ fn insert_batch(conn: &Connection, a: &ActiveLayer, batch: &RecordBatch) -> Resu
     Ok(())
 }
 
-fn arrow_cell_to_sql(array: &ArrayRef, row: usize) -> Value {
+fn arrow_cell_to_sql(array: &ArrayRef, row: usize) -> Result<Value> {
     if array.is_null(row) {
-        return Value::Null;
+        return Ok(Value::Null);
     }
     let a = array.as_any();
-    if let Some(x) = a.downcast_ref::<Int64Array>() {
-        return Value::Integer(x.value(row));
+    macro_rules! signed_integer {
+        ($array:ty) => {
+            if let Some(values) = a.downcast_ref::<$array>() {
+                return Ok(Value::Integer(values.value(row) as i64));
+            }
+        };
+    }
+    signed_integer!(Int8Array);
+    signed_integer!(Int16Array);
+    signed_integer!(Int32Array);
+    signed_integer!(Int64Array);
+    macro_rules! unsigned_integer {
+        ($array:ty) => {
+            if let Some(values) = a.downcast_ref::<$array>() {
+                return Ok(Value::Integer(values.value(row) as i64));
+            }
+        };
+    }
+    unsigned_integer!(UInt8Array);
+    unsigned_integer!(UInt16Array);
+    unsigned_integer!(UInt32Array);
+    if let Some(values) = a.downcast_ref::<UInt64Array>() {
+        let value = i64::try_from(values.value(row)).map_err(|_| {
+            err("UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage")
+        })?;
+        return Ok(Value::Integer(value));
+    }
+    if let Some(x) = a.downcast_ref::<Float16Array>() {
+        let value = f64::from(f32::from(x.value(row)));
+        if !value.is_finite() {
+            return Err(err("Float16 non finito non rappresentabile in GeoPackage"));
+        }
+        return Ok(Value::Real(value));
+    }
+    if let Some(x) = a.downcast_ref::<Float32Array>() {
+        let value = f64::from(x.value(row));
+        if !value.is_finite() {
+            return Err(err("Float32 non finito non rappresentabile in GeoPackage"));
+        }
+        return Ok(Value::Real(value));
     }
     if let Some(x) = a.downcast_ref::<Float64Array>() {
-        return Value::Real(x.value(row));
+        let value = x.value(row);
+        if !value.is_finite() {
+            return Err(err("Float64 non finito non rappresentabile in GeoPackage"));
+        }
+        return Ok(Value::Real(value));
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
-        return Value::Integer(x.value(row) as i64);
+        return Ok(Value::Integer(x.value(row) as i64));
     }
     if let Some(x) = a.downcast_ref::<StringArray>() {
-        return Value::Text(x.value(row).to_owned());
+        return Ok(Value::Text(x.value(row).to_owned()));
     }
-    Value::Null
+    if let Some(x) = a.downcast_ref::<LargeStringArray>() {
+        return Ok(Value::Text(x.value(row).to_owned()));
+    }
+    if let Some(x) = a.downcast_ref::<StringViewArray>() {
+        return Ok(Value::Text(x.value(row).to_owned()));
+    }
+    if let Some(x) = a.downcast_ref::<BinaryArray>() {
+        return Ok(Value::Blob(x.value(row).to_vec()));
+    }
+    if let Some(x) = a.downcast_ref::<LargeBinaryArray>() {
+        return Ok(Value::Blob(x.value(row).to_vec()));
+    }
+    if let Some(x) = a.downcast_ref::<BinaryViewArray>() {
+        return Ok(Value::Blob(x.value(row).to_vec()));
+    }
+    if let Some(x) = a.downcast_ref::<FixedSizeBinaryArray>() {
+        return Ok(Value::Blob(x.value(row).to_vec()));
+    }
+    Err(PlenoraIoError::Unsupported(format!(
+        "GeoPackage: tipo Arrow {:?} non rappresentabile senza conversione esplicita",
+        array.data_type()
+    )))
 }
 
 // --- helpers comuni --------------------------------------------------------
@@ -665,13 +739,11 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
         Ok((org, code, def)) => {
             let id = format!("{}:{}", org.to_uppercase(), code);
             if org.eq_ignore_ascii_case("NONE") {
-                return Err(PlenoraIoError::CrsUnresolved {
-                    driver: "gpkg",
-                    raw: RawCrs {
-                        definition: format!("GeoPackage srs_id={srs_id}; definition={def}"),
-                        authority_hint: Some(id),
-                    },
-                });
+                let raw = RawCrs::new(
+                    format!("GeoPackage srs_id={srs_id}; definition={def}"),
+                    Some(id),
+                );
+                return Err(PlenoraIoError::crs_unresolved("gpkg", &raw));
             }
             let kind = if id.eq_ignore_ascii_case("EPSG:4326") {
                 CrsKind::Geographic
@@ -694,13 +766,10 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
             };
             Ok(ResolvedCrs::new(Some(id), kind, definition))
         }
-        Err(rusqlite::Error::QueryReturnedNoRows) => Err(PlenoraIoError::CrsUnresolved {
-            driver: "gpkg",
-            raw: RawCrs {
-                definition: format!("GeoPackage srs_id={srs_id}"),
-                authority_hint: None,
-            },
-        }),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            let raw = RawCrs::new(format!("GeoPackage srs_id={srs_id}"), None);
+            Err(PlenoraIoError::crs_unresolved("gpkg", &raw))
+        }
         Err(error) => Err(err(format!("lettura gpkg_spatial_ref_sys: {error}"))),
     }
 }
@@ -816,8 +885,16 @@ fn sqlite_type(dt: &DataType) -> &'static str {
         | DataType::Int16
         | DataType::Int32
         | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64
         | DataType::Boolean => "INTEGER",
-        DataType::Float32 | DataType::Float64 => "REAL",
+        DataType::Float16 | DataType::Float32 | DataType::Float64 => "REAL",
+        DataType::Binary
+        | DataType::LargeBinary
+        | DataType::BinaryView
+        | DataType::FixedSizeBinary(_) => "BLOB",
         _ => "TEXT",
     }
 }
@@ -878,13 +955,8 @@ fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Resul
             return Ok(code_i);
         }
     }
-    Err(PlenoraIoError::CrsUnresolved {
-        driver: "gpkg",
-        raw: RawCrs {
-            definition: def.unwrap_or(id).to_owned(),
-            authority_hint: Some(id.to_owned()),
-        },
-    })
+    let raw = RawCrs::new(def.unwrap_or(id).to_owned(), Some(id.to_owned()));
+    Err(PlenoraIoError::crs_unresolved("gpkg", &raw))
 }
 
 fn create_feature_table(
@@ -973,26 +1045,30 @@ mod tests {
     };
 
     #[test]
+    fn integer_widths_are_exact_and_overflow_never_becomes_sql_null() {
+        let values: ArrayRef = Arc::new(Int32Array::from(vec![7]));
+        let overflow: ArrayRef = Arc::new(UInt64Array::from(vec![u64::MAX]));
+
+        assert_eq!(arrow_cell_to_sql(&values, 0).unwrap(), Value::Integer(7));
+        assert!(arrow_cell_to_sql(&overflow, 0).is_err());
+    }
+
+    #[test]
     fn undefined_and_dangling_srs_ids_fail_closed_with_raw_crs() {
         let conn = Connection::open_in_memory().unwrap();
         init_gpkg(&conn).unwrap();
 
         for srs_id in [0, -1, 999_999] {
             let error = crs_for(&conn, srs_id).unwrap_err();
-            match error {
-                PlenoraIoError::CrsUnresolved { driver, raw } => {
-                    assert_eq!(driver, "gpkg");
-                    assert!(raw.definition.contains(&srs_id.to_string()));
-                }
-                other => panic!("errore inatteso per srs_id {srs_id}: {other}"),
-            }
+            assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+            assert_eq!(error.driver.as_deref(), Some("gpkg"));
         }
 
         conn.execute("DELETE FROM gpkg_spatial_ref_sys WHERE srs_id = 4326", [])
             .unwrap();
         assert!(matches!(
             crs_for(&conn, 4326),
-            Err(PlenoraIoError::CrsUnresolved { .. })
+            Err(error) if error.code == plenora_io_model::IoErrorCode::CrsUnresolved
         ));
     }
 
@@ -1002,7 +1078,7 @@ mod tests {
         init_gpkg(&conn).unwrap();
         assert!(matches!(
             register_srs(&conn, Some("OGC:CRS84"), None),
-            Err(PlenoraIoError::CrsUnresolved { .. })
+            Err(error) if error.code == plenora_io_model::IoErrorCode::CrsUnresolved
         ));
     }
 
@@ -1036,6 +1112,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: Some(spatial_pruning_hint),
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let mut ids = Vec::new();
@@ -1234,6 +1311,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let out = reader.next_batch().unwrap().unwrap();
@@ -1327,6 +1405,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let output = reader.next_batch().unwrap().unwrap();
@@ -1421,6 +1500,7 @@ mod tests {
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
                     batch_target: BatchTarget::default(),
+                    cancellation: Default::default(),
                 })
                 .unwrap();
             let rb = r.next_batch().unwrap().unwrap();

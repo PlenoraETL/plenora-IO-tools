@@ -48,10 +48,7 @@ use plenora_io_model::wkb::decode_wkb;
 use plenora_io_model::{PlenoraIoError, Result};
 
 fn fmt_err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "geoparquet",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("geoparquet", reason)
 }
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
@@ -91,7 +88,7 @@ impl FormatDriver for GeoParquetDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
             .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))?;
         let parquet_schema = builder.schema().clone();
@@ -109,10 +106,7 @@ impl FormatDriver for GeoParquetDriver {
             out_schema.field(geom_idx).is_nullable(),
         );
         apply_geo_column_metadata(&mut geometry, geo.as_ref(), &geom_name);
-        let contract = DataContract {
-            schema: out_schema.clone(),
-            geometry: Some(geometry),
-        };
+        let contract = DataContract::new(out_schema.clone(), Some(geometry));
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -190,6 +184,7 @@ impl FormatDriver for GeoParquetDriver {
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -292,11 +287,15 @@ impl OpenDatasetHandle for GeoParquetDataset {
         let reader = builder
             .build()
             .map_err(|e| fmt_err(format!("lettura: {e}")))?;
-        Ok(Box::new(GeoParquetReader {
+        let reader: Box<dyn LayerReader> = Box::new(GeoParquetReader {
             reader,
             out_schema,
             layer,
-        }))
+        });
+        Ok(plenora_io_core::with_cancellation(
+            reader,
+            request.cancellation.clone(),
+        ))
     }
 }
 
@@ -659,17 +658,14 @@ fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> Result<ResolvedCr
             });
             let definition = v.to_string();
             let Some(id) = id else {
-                return Err(PlenoraIoError::CrsUnresolved {
-                    driver: "geoparquet",
-                    raw: RawCrs {
-                        definition,
-                        authority_hint: v
-                            .get("id")
-                            .and_then(|i| i.get("authority"))
-                            .and_then(|a| a.as_str())
-                            .map(str::to_owned),
-                    },
-                });
+                let raw = RawCrs::new(
+                    definition,
+                    v.get("id")
+                        .and_then(|i| i.get("authority"))
+                        .and_then(|a| a.as_str())
+                        .map(str::to_owned),
+                );
+                return Err(PlenoraIoError::crs_unresolved("geoparquet", &raw));
             };
             let kind = if id.eq_ignore_ascii_case("OGC:CRS84")
                 || id.eq_ignore_ascii_case("EPSG:4326")
@@ -733,6 +729,10 @@ fn apply_geo_column_metadata(
                 dimensions.insert(dimension);
             }
         }
+    }
+    if !contract.geometry_types.is_empty() {
+        let geometry_types = std::mem::take(&mut contract.geometry_types);
+        contract.set_exact_geometry_types(geometry_types);
     }
     if dimensions.len() == 1 {
         contract.dimensions = dimensions
@@ -1094,13 +1094,8 @@ mod tests {
             }
         });
         let error = crs_from(Some(&geo), "geometry").unwrap_err();
-        match &error {
-            PlenoraIoError::CrsUnresolved { driver, raw } => {
-                assert_eq!(*driver, "geoparquet");
-                assert!(raw.definition.contains("survey-grid-secret"));
-            }
-            other => panic!("errore inatteso: {other}"),
-        }
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+        assert_eq!(error.driver.as_deref(), Some("geoparquet"));
         assert!(!error.to_string().contains("survey-grid-secret"));
     }
 
@@ -1198,6 +1193,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let out = reader.next_batch().unwrap().unwrap();
@@ -1284,6 +1280,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let output = reader.next_batch().unwrap().unwrap();
@@ -1430,6 +1427,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         // Il contratto del reader riflette la projection (1 colonna, niente geometria).
@@ -1504,6 +1502,7 @@ mod tests {
                 }),
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let mut total = 0;
@@ -1529,6 +1528,7 @@ mod tests {
                 pruning_predicate: Some(PruningPredicate::Opaque("id > 150000".to_owned())),
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let mut legacy_total = 0;
@@ -1604,6 +1604,7 @@ mod tests {
                     maxy: 50.0,
                 }),
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let mut total = 0;
@@ -1675,6 +1676,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let out = reader.next_batch().unwrap().unwrap();

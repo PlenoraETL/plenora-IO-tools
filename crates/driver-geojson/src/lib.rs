@@ -66,10 +66,7 @@ use plenora_io_model::{PlenoraIoError, Result};
 const GEOMETRY: &str = "geometry";
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Format {
-        driver: "geojson",
-        reason: reason.into(),
-    }
+    PlenoraIoError::format("geojson", reason)
 }
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
@@ -109,18 +106,18 @@ impl FormatDriver for GeoJsonDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits)?;
+        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let (schema, cols) = infer_schema(&path)?;
-        let contract = DataContract {
-            schema: schema.clone(),
-            geometry: Some(GeometryColumnContract::wkb_passthrough(
+        let contract = DataContract::new(
+            schema.clone(),
+            Some(GeometryColumnContract::wkb_passthrough(
                 FieldId(0),
                 GEOMETRY,
                 ResolvedCrs::wgs84(),
                 true,
             )),
-        };
+        );
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -176,6 +173,7 @@ impl FormatDriver for GeoJsonDriver {
             self.descriptor(),
             plan,
             opts.limits,
+            opts.cancellation.clone(),
         )
     }
 }
@@ -200,13 +198,17 @@ impl OpenDatasetHandle for GeoJsonDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let batch_size =
             plenora_io_core::effective_batch_rows(self.schema.as_ref(), request.batch_target);
-        spawn_parser(
+        let reader = spawn_parser(
             self.path.clone(),
             self.schema.clone(),
             self.cols.clone(),
             batch_size,
             self.layers[0].clone(),
-        )
+        )?;
+        Ok(plenora_io_core::with_cancellation(
+            reader,
+            request.cancellation.clone(),
+        ))
     }
 }
 
@@ -937,12 +939,12 @@ fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<(
             // serde_json (ryu): round-trippabile anche per f64 estremi.
             serde_json::to_writer(&mut *w, &v).map_err(|e| err(e.to_string()))?;
         } else {
-            w.write_all(b"null")?; // NaN/Inf non sono JSON validi
+            return Err(err("Float64 non finito non rappresentabile in GeoJSON"));
         }
     } else if let Some(a) = col.as_any().downcast_ref::<BooleanArray>() {
         w.write_all(if a.value(row) { b"true" } else { b"false" })?;
     } else {
-        serde_json::to_writer(&mut *w, &json_from_array(col, row))
+        serde_json::to_writer(&mut *w, &json_from_array(col, row)?)
             .map_err(|e| err(e.to_string()))?;
     }
     Ok(())
@@ -980,6 +982,7 @@ mod tests {
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
                 batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
             })
             .unwrap();
         let batch = reader.next_batch().unwrap().unwrap();
@@ -1362,6 +1365,7 @@ mod tests {
                     target_bytes: 8 * 1024 * 1024,
                     max_rows: 4,
                 },
+                cancellation: Default::default(),
             })
             .unwrap();
         let mut total = 0;

@@ -17,6 +17,9 @@ driver-geoparquet = { path = "../driver-geoparquet" }
 driver-geojson = { path = "../driver-geojson" }
 driver-csv = { path = "../driver-csv" }
 driver-gpkg = { path = "../driver-gpkg" }
+driver-kml = { path = "../driver-kml" }
+driver-dxf = { path = "../driver-dxf" }
+driver-xls = { path = "../driver-xls" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
 geo-types.workspace = true

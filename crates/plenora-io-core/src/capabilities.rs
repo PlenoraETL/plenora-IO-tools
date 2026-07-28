@@ -20,12 +20,7 @@ fn violation(
     reason: CapabilityReason,
     detail: impl Into<String>,
 ) -> PlenoraIoError {
-    PlenoraIoError::Capability {
-        driver,
-        field: field.map(str::to_owned),
-        reason,
-        detail: detail.into(),
-    }
+    PlenoraIoError::capability(driver, field.map(str::to_owned), reason, detail)
 }
 
 pub fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
@@ -364,13 +359,10 @@ mod tests {
         );
         let error =
             validate_write(&descriptor(CrsWriteSupport::None), &p, &Limits::default()).unwrap_err();
-        assert!(matches!(
-            error,
-            PlenoraIoError::Capability {
-                reason: CapabilityReason::FieldNameTooLong,
-                ..
-            }
-        ));
+        assert_eq!(
+            error.capability_reason,
+            Some(CapabilityReason::FieldNameTooLong)
+        );
     }
 
     #[test]
@@ -391,13 +383,10 @@ mod tests {
             &Limits::default(),
         )
         .unwrap_err();
-        assert!(matches!(
-            error,
-            PlenoraIoError::Capability {
-                reason: CapabilityReason::ReprojectionRequired,
-                ..
-            }
-        ));
+        assert_eq!(
+            error.capability_reason,
+            Some(CapabilityReason::ReprojectionRequired)
+        );
     }
 
     #[test]
@@ -415,7 +404,7 @@ mod tests {
         };
         assert!(matches!(
             validate_write(&descriptor(CrsWriteSupport::None), &p, &limits),
-            Err(PlenoraIoError::LimitExceeded(_))
+            Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
     }
 
@@ -429,10 +418,8 @@ mod tests {
 
         assert!(matches!(
             validate_write(&descriptor, &p, &Limits::default()),
-            Err(PlenoraIoError::Capability {
-                reason: CapabilityReason::TypeNotRepresentable,
-                ..
-            })
+            Err(error)
+                if error.capability_reason == Some(CapabilityReason::TypeNotRepresentable)
         ));
     }
 
@@ -450,10 +437,8 @@ mod tests {
         let rejected = plan(vec![Field::new("secret", DataType::Utf8, false)], None);
         assert!(matches!(
             validate_write(&descriptor, &rejected, &Limits::default()),
-            Err(PlenoraIoError::Capability {
-                reason: CapabilityReason::TypeNotRepresentable,
-                ..
-            })
+            Err(error)
+                if error.capability_reason == Some(CapabilityReason::TypeNotRepresentable)
         ));
     }
 
@@ -467,10 +452,7 @@ mod tests {
 
         assert!(matches!(
             validate_write(&descriptor, &p, &Limits::default()),
-            Err(PlenoraIoError::Capability {
-                reason: CapabilityReason::Nullability,
-                ..
-            })
+            Err(error) if error.capability_reason == Some(CapabilityReason::Nullability)
         ));
     }
 
@@ -494,10 +476,7 @@ mod tests {
                 &p,
                 &Limits::default()
             ),
-            Err(PlenoraIoError::Capability {
-                reason: CapabilityReason::MixedGeometry,
-                ..
-            })
+            Err(error) if error.capability_reason == Some(CapabilityReason::MixedGeometry)
         ));
     }
 }
