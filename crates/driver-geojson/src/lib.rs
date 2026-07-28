@@ -11,6 +11,10 @@
 //! `serde_json::Value` per colonna). La scrittura resta bufferizzante nella v1.
 #![forbid(unsafe_code)]
 
+mod geometry;
+
+pub use geometry::{wkb_from_gj_value, write_geo_geojson};
+
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
@@ -51,14 +55,12 @@ use plenora_io_core::{
     UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+    DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
 use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::WkbLimits;
-use plenora_io_model::wkb::{
-    decode_wkb, encode_wkb_into, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
-};
+use plenora_io_model::wkb::decode_wkb;
 use plenora_io_model::{PlenoraIoError, Result};
 
 const GEOMETRY: &str = "geometry";
@@ -897,7 +899,7 @@ fn write_feature<W: Write>(
         w.write_all(b"null")?;
     } else {
         let geom = decode_wkb(geom_col.value(row), limits)?;
-        write_wkb_geojson(w, &geom)?;
+        geometry::write_wkb_geojson(w, &geom)?;
     }
     w.write_all(b",\"properties\":{")?;
     let mut first_prop = true;
@@ -946,412 +948,6 @@ fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<(
     Ok(())
 }
 
-// --- geometria: conversione diretta senza intermedio geo_types/Value --------
-
-/// Emette WKB ISO XY/XYZ little-endian da una `geojson::Value` (lettura), senza
-/// passare da geo_types. Le posizioni devono avere dimensionalità uniforme:
-/// una quarta ordinata è rifiutata perché GeoJSON non le assegna una semantica
-/// M interoperabile.
-#[doc(hidden)] // esposto anche per il fuzzer (plenora-fuzz)
-pub fn wkb_from_gj_value(v: &geojson::Value, out: &mut Vec<u8>) -> std::result::Result<(), String> {
-    use geojson::Value::*;
-
-    fn position(
-        ordinates: &[f64],
-    ) -> std::result::Result<(WkbCoordinate, CoordinateDimensions), String> {
-        let dimensions = match ordinates.len() {
-            2 => CoordinateDimensions::Xy,
-            3 => CoordinateDimensions::Xyz,
-            n => {
-                return Err(format!(
-                    "posizione GeoJSON con {n} ordinate: attese esattamente 2 o 3"
-                ))
-            }
-        };
-        if ordinates.iter().any(|ordinate| !ordinate.is_finite()) {
-            return Err("posizione GeoJSON con ordinata non finita".to_owned());
-        }
-        Ok((
-            WkbCoordinate {
-                x: ordinates[0],
-                y: ordinates[1],
-                z: if dimensions == CoordinateDimensions::Xyz {
-                    Some(ordinates[2])
-                } else {
-                    None
-                },
-                m: None,
-            },
-            dimensions,
-        ))
-    }
-
-    fn positions(
-        values: &[Vec<f64>],
-    ) -> std::result::Result<(Vec<WkbCoordinate>, CoordinateDimensions), String> {
-        let mut coordinates = Vec::with_capacity(values.len());
-        let mut dimensions = None;
-        for value in values {
-            let (coordinate, current) = position(value)?;
-            if dimensions.is_some_and(|known| known != current) {
-                return Err("dimensionalità GeoJSON non uniforme".to_owned());
-            }
-            dimensions = Some(current);
-            coordinates.push(coordinate);
-        }
-        let dimensions =
-            dimensions.ok_or_else(|| "geometria GeoJSON senza coordinate".to_owned())?;
-        Ok((coordinates, dimensions))
-    }
-
-    fn children(
-        values: &[geojson::Geometry],
-    ) -> std::result::Result<(Vec<WkbGeometry>, CoordinateDimensions), String> {
-        let geometries = values
-            .iter()
-            .map(|geometry| convert(&geometry.value))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        let dimensions = geometries
-            .first()
-            .map(|geometry| geometry.dimensions)
-            .ok_or_else(|| "GeometryCollection GeoJSON vuota".to_owned())?;
-        if geometries
-            .iter()
-            .any(|geometry| geometry.dimensions != dimensions)
-        {
-            return Err("dimensionalità GeoJSON non uniforme".to_owned());
-        }
-        Ok((geometries, dimensions))
-    }
-
-    fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, String> {
-        let (value, dimensions) = match value {
-            Point(value) => {
-                let (coordinate, dimensions) = position(value)?;
-                (WkbValue::Point(coordinate), dimensions)
-            }
-            LineString(values) => {
-                let (coordinates, dimensions) = positions(values)?;
-                (WkbValue::LineString(coordinates), dimensions)
-            }
-            Polygon(values) => {
-                let mut rings = Vec::with_capacity(values.len());
-                let mut dimensions = None;
-                for value in values {
-                    let (ring, current) = positions(value)?;
-                    if dimensions.is_some_and(|known| known != current) {
-                        return Err("dimensionalità GeoJSON non uniforme".to_owned());
-                    }
-                    dimensions = Some(current);
-                    rings.push(ring);
-                }
-                let dimensions =
-                    dimensions.ok_or_else(|| "Polygon GeoJSON senza anelli".to_owned())?;
-                (WkbValue::Polygon(rings), dimensions)
-            }
-            MultiPoint(values) => {
-                let (coordinates, dimensions) = positions(values)?;
-                let geometries = coordinates
-                    .into_iter()
-                    .map(|coordinate| WkbGeometry {
-                        value: WkbValue::Point(coordinate),
-                        dimensions,
-                        srid: None,
-                    })
-                    .collect();
-                (WkbValue::MultiPoint(geometries), dimensions)
-            }
-            MultiLineString(values) => {
-                let geometries = values
-                    .iter()
-                    .map(|value| convert(&LineString(value.clone())))
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                let dimensions = geometries
-                    .first()
-                    .map(|geometry| geometry.dimensions)
-                    .ok_or_else(|| "MultiLineString GeoJSON vuota".to_owned())?;
-                if geometries
-                    .iter()
-                    .any(|geometry| geometry.dimensions != dimensions)
-                {
-                    return Err("dimensionalità GeoJSON non uniforme".to_owned());
-                }
-                (WkbValue::MultiLineString(geometries), dimensions)
-            }
-            MultiPolygon(values) => {
-                let geometries = values
-                    .iter()
-                    .map(|value| convert(&Polygon(value.clone())))
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                let dimensions = geometries
-                    .first()
-                    .map(|geometry| geometry.dimensions)
-                    .ok_or_else(|| "MultiPolygon GeoJSON vuota".to_owned())?;
-                if geometries
-                    .iter()
-                    .any(|geometry| geometry.dimensions != dimensions)
-                {
-                    return Err("dimensionalità GeoJSON non uniforme".to_owned());
-                }
-                (WkbValue::MultiPolygon(geometries), dimensions)
-            }
-            GeometryCollection(values) => {
-                let (geometries, dimensions) = children(values)?;
-                (WkbValue::GeometryCollection(geometries), dimensions)
-            }
-        };
-        Ok(WkbGeometry {
-            value,
-            dimensions,
-            srid: None,
-        })
-    }
-
-    let geometry = convert(v)?;
-    encode_wkb_into(&geometry, WkbFlavor::Iso, out).map_err(|error| error.to_string())
-}
-
-/// Scrive direttamente il modello WKB lossless come GeoJSON, preservando Z.
-fn write_wkb_geojson<W: Write>(w: &mut W, geometry: &WkbGeometry) -> Result<()> {
-    fn position<W: Write>(
-        w: &mut W,
-        coordinate: &WkbCoordinate,
-        dimensions: CoordinateDimensions,
-    ) -> Result<()> {
-        if !coordinate.x.is_finite()
-            || !coordinate.y.is_finite()
-            || coordinate.z.is_some_and(|z| !z.is_finite())
-        {
-            return Err(err("coordinata non finita non rappresentabile in GeoJSON"));
-        }
-        w.write_all(b"[")?;
-        serde_json::to_writer(&mut *w, &coordinate.x).map_err(|e| err(e.to_string()))?;
-        w.write_all(b",")?;
-        serde_json::to_writer(&mut *w, &coordinate.y).map_err(|e| err(e.to_string()))?;
-        if dimensions == CoordinateDimensions::Xyz {
-            w.write_all(b",")?;
-            serde_json::to_writer(
-                &mut *w,
-                &coordinate
-                    .z
-                    .ok_or_else(|| err("coordinata XYZ senza ordinata z"))?,
-            )
-            .map_err(|e| err(e.to_string()))?;
-        }
-        w.write_all(b"]")?;
-        Ok(())
-    }
-
-    fn positions<W: Write>(
-        w: &mut W,
-        coordinates: &[WkbCoordinate],
-        dimensions: CoordinateDimensions,
-    ) -> Result<()> {
-        w.write_all(b"[")?;
-        for (index, coordinate) in coordinates.iter().enumerate() {
-            if index > 0 {
-                w.write_all(b",")?;
-            }
-            position(w, coordinate, dimensions)?;
-        }
-        w.write_all(b"]")?;
-        Ok(())
-    }
-
-    fn polygon<W: Write>(
-        w: &mut W,
-        rings: &[Vec<WkbCoordinate>],
-        dimensions: CoordinateDimensions,
-    ) -> Result<()> {
-        w.write_all(b"[")?;
-        for (index, ring) in rings.iter().enumerate() {
-            if index > 0 {
-                w.write_all(b",")?;
-            }
-            positions(w, ring, dimensions)?;
-        }
-        w.write_all(b"]")?;
-        Ok(())
-    }
-
-    if !matches!(
-        geometry.dimensions,
-        CoordinateDimensions::Xy | CoordinateDimensions::Xyz
-    ) {
-        return Err(err("GeoJSON supporta solo coordinate XY o XYZ"));
-    }
-    let dimensions = geometry.dimensions;
-    match &geometry.value {
-        WkbValue::Point(coordinate) => {
-            w.write_all(b"{\"type\":\"Point\",\"coordinates\":")?;
-            position(w, coordinate, dimensions)?;
-            w.write_all(b"}")?;
-        }
-        WkbValue::LineString(coordinates) => {
-            w.write_all(b"{\"type\":\"LineString\",\"coordinates\":")?;
-            positions(w, coordinates, dimensions)?;
-            w.write_all(b"}")?;
-        }
-        WkbValue::Polygon(rings) => {
-            w.write_all(b"{\"type\":\"Polygon\",\"coordinates\":")?;
-            polygon(w, rings, dimensions)?;
-            w.write_all(b"}")?;
-        }
-        WkbValue::MultiPoint(points) => {
-            w.write_all(b"{\"type\":\"MultiPoint\",\"coordinates\":[")?;
-            for (index, point) in points.iter().enumerate() {
-                if index > 0 {
-                    w.write_all(b",")?;
-                }
-                let WkbValue::Point(coordinate) = &point.value else {
-                    return Err(err("MultiPoint WKB con membro non-Point"));
-                };
-                position(w, coordinate, dimensions)?;
-            }
-            w.write_all(b"]}")?;
-        }
-        WkbValue::MultiLineString(lines) => {
-            w.write_all(b"{\"type\":\"MultiLineString\",\"coordinates\":[")?;
-            for (index, line) in lines.iter().enumerate() {
-                if index > 0 {
-                    w.write_all(b",")?;
-                }
-                let WkbValue::LineString(coordinates) = &line.value else {
-                    return Err(err("MultiLineString WKB con membro non-LineString"));
-                };
-                positions(w, coordinates, dimensions)?;
-            }
-            w.write_all(b"]}")?;
-        }
-        WkbValue::MultiPolygon(polygons) => {
-            w.write_all(b"{\"type\":\"MultiPolygon\",\"coordinates\":[")?;
-            for (index, value) in polygons.iter().enumerate() {
-                if index > 0 {
-                    w.write_all(b",")?;
-                }
-                let WkbValue::Polygon(rings) = &value.value else {
-                    return Err(err("MultiPolygon WKB con membro non-Polygon"));
-                };
-                polygon(w, rings, dimensions)?;
-            }
-            w.write_all(b"]}")?;
-        }
-        WkbValue::GeometryCollection(geometries) => {
-            w.write_all(b"{\"type\":\"GeometryCollection\",\"geometries\":[")?;
-            for (index, value) in geometries.iter().enumerate() {
-                if index > 0 {
-                    w.write_all(b",")?;
-                }
-                write_wkb_geojson(w, value)?;
-            }
-            w.write_all(b"]}")?;
-        }
-    }
-    Ok(())
-}
-
-/// Scrive una geometria geo_types come oggetto GeoJSON DIRETTAMENTE nel writer
-/// (scrittura), senza costruire un `geojson::Value` intermedio.
-#[doc(hidden)] // esposto anche per il fuzzer (plenora-fuzz)
-pub fn write_geo_geojson<W: Write>(w: &mut W, g: &geo_types::Geometry<f64>) -> Result<()> {
-    use geo_types::Geometry as G;
-    match g {
-        G::Point(p) => {
-            w.write_all(b"{\"type\":\"Point\",\"coordinates\":")?;
-            write_pos(w, p.x(), p.y())?;
-            w.write_all(b"}")?;
-        }
-        G::LineString(ls) => {
-            w.write_all(b"{\"type\":\"LineString\",\"coordinates\":")?;
-            write_line(w, ls)?;
-            w.write_all(b"}")?;
-        }
-        G::Polygon(pl) => {
-            w.write_all(b"{\"type\":\"Polygon\",\"coordinates\":")?;
-            write_poly(w, pl)?;
-            w.write_all(b"}")?;
-        }
-        G::MultiPoint(mp) => {
-            w.write_all(b"{\"type\":\"MultiPoint\",\"coordinates\":[")?;
-            for (i, p) in mp.0.iter().enumerate() {
-                if i > 0 {
-                    w.write_all(b",")?;
-                }
-                write_pos(w, p.x(), p.y())?;
-            }
-            w.write_all(b"]}")?;
-        }
-        G::MultiLineString(ml) => {
-            w.write_all(b"{\"type\":\"MultiLineString\",\"coordinates\":[")?;
-            for (i, ls) in ml.0.iter().enumerate() {
-                if i > 0 {
-                    w.write_all(b",")?;
-                }
-                write_line(w, ls)?;
-            }
-            w.write_all(b"]}")?;
-        }
-        G::MultiPolygon(mp) => {
-            w.write_all(b"{\"type\":\"MultiPolygon\",\"coordinates\":[")?;
-            for (i, pl) in mp.0.iter().enumerate() {
-                if i > 0 {
-                    w.write_all(b",")?;
-                }
-                write_poly(w, pl)?;
-            }
-            w.write_all(b"]}")?;
-        }
-        G::GeometryCollection(gc) => {
-            w.write_all(b"{\"type\":\"GeometryCollection\",\"geometries\":[")?;
-            for (i, gg) in gc.0.iter().enumerate() {
-                if i > 0 {
-                    w.write_all(b",")?;
-                }
-                write_geo_geojson(w, gg)?;
-            }
-            w.write_all(b"]}")?;
-        }
-        _ => return Err(err("geometria con Z/M non rappresentabile in GeoJSON 2D")),
-    }
-    Ok(())
-}
-
-fn write_pos<W: Write>(w: &mut W, x: f64, y: f64) -> Result<()> {
-    if !x.is_finite() || !y.is_finite() {
-        return Err(err("coordinata non finita non rappresentabile in GeoJSON"));
-    }
-    // Formattazione via serde_json (ryu): sempre ri-leggibile. `write!("{}", f64)`
-    // per valori estremi (es. f64::MAX) produrrebbe un decimale che serde_json
-    // rifiuta in rilettura ("number out of range") — trovato dal fuzzer.
-    w.write_all(b"[")?;
-    serde_json::to_writer(&mut *w, &x).map_err(|e| err(e.to_string()))?;
-    w.write_all(b",")?;
-    serde_json::to_writer(&mut *w, &y).map_err(|e| err(e.to_string()))?;
-    w.write_all(b"]")?;
-    Ok(())
-}
-fn write_line<W: Write>(w: &mut W, ls: &geo_types::LineString<f64>) -> Result<()> {
-    w.write_all(b"[")?;
-    for (i, c) in ls.0.iter().enumerate() {
-        if i > 0 {
-            w.write_all(b",")?;
-        }
-        write_pos(w, c.x, c.y)?;
-    }
-    w.write_all(b"]")?;
-    Ok(())
-}
-fn write_poly<W: Write>(w: &mut W, pl: &geo_types::Polygon<f64>) -> Result<()> {
-    w.write_all(b"[")?;
-    write_line(w, pl.exterior())?;
-    for r in pl.interiors() {
-        w.write_all(b",")?;
-        write_line(w, r)?;
-    }
-    w.write_all(b"]")?;
-    Ok(())
-}
-
 // Solo per i test: parse completo (documenti piccoli).
 #[cfg(test)]
 fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
@@ -1368,7 +964,8 @@ mod tests {
     use super::*;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
-    use plenora_io_model::wkb::from_wkb;
+    use plenora_io_model::contract::CoordinateDimensions;
+    use plenora_io_model::wkb::{from_wkb, WkbCoordinate, WkbValue};
 
     fn read_all(driver: &GeoJsonDriver, path: &Path) -> (RecordBatch, LayerContract) {
         let ds = driver
