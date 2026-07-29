@@ -79,7 +79,8 @@ indipendente non è un gate per il freeze o per il tag di una RC dichiarata
 
 Restano necessari:
 
-1. una CI verde sul commit che registra la decisione prima del tag;
+1. una CI verde sul commit che registra la decisione prima del tag
+   (soddisfatta: revisione `75ea508`, run `30435854122`);
 2. una revisione indipendente prima di promuovere il claim a
    `verified_independently`;
 3. la campagna lunga coverage-guided e le altre evidenze aperte prima di

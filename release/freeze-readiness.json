@@ -14,7 +14,8 @@
     "technical_baseline_frozen": true,
     "verification_claim_declared": true,
     "component_scope_declared": true,
-    "release_decision_recorded": true
+    "release_decision_recorded": true,
+    "release_decision_ci": true
   },
   "assurance_attributes": {
     "verification_claim": "verified_internally",

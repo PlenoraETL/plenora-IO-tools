@@ -25,6 +25,10 @@ EXPECTED_IO_BASELINE = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068"
 EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
 EXPECTED_CANDIDATE_CI_RUN = 30415766905
+EXPECTED_RELEASE_DECISION_REVISION = (
+    "75ea508cec257dc46252ec267e5b1e9ecaa78b73"
+)
+EXPECTED_RELEASE_DECISION_CI_RUN = 30435854122
 EXPECTED_COVERAGE_ARTIFACT = {
     "id": 8710097703,
     "name": "rust-coverage-lcov",
@@ -56,6 +60,8 @@ EXPECTED_RELEASE_DECISION = {
     "decision_record": (
         "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
     ),
+    "decision_revision": EXPECTED_RELEASE_DECISION_REVISION,
+    "decision_ci_run": EXPECTED_RELEASE_DECISION_CI_RUN,
 }
 EXPECTED_FREEZE_DECISION = {
     "status": "technical_baseline_frozen",
@@ -286,6 +292,7 @@ def validate_documents(
         "verification_claim_declared",
         "component_scope_declared",
         "release_decision_recorded",
+        "release_decision_ci",
     }
     if set(readiness_gates) != expected_gates:
         errors.append("freeze readiness: insieme dei gate obbligatori inatteso")
@@ -329,6 +336,17 @@ def validate_documents(
         "decision_record": (
             "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
         ),
+        "decision_revision": EXPECTED_RELEASE_DECISION_REVISION,
+        "ci": {
+            "run_id": EXPECTED_RELEASE_DECISION_CI_RUN,
+            "url": (
+                "https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/"
+                f"{EXPECTED_RELEASE_DECISION_CI_RUN}"
+            ),
+            "head_revision": EXPECTED_RELEASE_DECISION_REVISION,
+            "result": "pass",
+            "jobs": ["rust", "coverage", "windows", "macos-publish"],
+        },
     }:
         errors.append("evidence: decisione RC interna inattesa")
     candidate_ci = evidence.get("candidate_ci", {})

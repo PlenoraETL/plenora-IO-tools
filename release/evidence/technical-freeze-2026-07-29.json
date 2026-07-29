@@ -25,7 +25,20 @@
     "independent_review": false,
     "independently_verified_claim_authorized": false,
     "release_tag_created": false,
-    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md",
+    "decision_revision": "75ea508cec257dc46252ec267e5b1e9ecaa78b73",
+    "ci": {
+      "run_id": 30435854122,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/30435854122",
+      "head_revision": "75ea508cec257dc46252ec267e5b1e9ecaa78b73",
+      "result": "pass",
+      "jobs": [
+        "rust",
+        "coverage",
+        "windows",
+        "macos-publish"
+      ]
+    }
   },
   "icd_revision": "62b12e3496466d2c908dac3cc098640b99b52e21",
   "component_revisions": {

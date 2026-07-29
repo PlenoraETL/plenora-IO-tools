@@ -65,6 +65,14 @@ Non modifica:
 - CI completa sul commit che registra la decisione prima della creazione del
   tag.
 
+## Evidenza di verifica
+
+La decisione è registrata nella revisione
+`75ea508cec257dc46252ec267e5b1e9ecaa78b73`. La CI `30435854122` è terminata
+con esito `success` sui job `rust`, `coverage`, `windows` e `macos-publish`.
+Il tag può quindi essere creato senza attendere la revisione indipendente,
+mantenendo il claim `verified_internally`.
+
 ## Residui dichiarati
 
 - revisione indipendente non eseguita;

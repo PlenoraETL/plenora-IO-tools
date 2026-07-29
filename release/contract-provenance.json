@@ -22,7 +22,9 @@
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": false,
     "release_tag_created": false,
-    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md",
+    "decision_revision": "75ea508cec257dc46252ec267e5b1e9ecaa78b73",
+    "decision_ci_run": 30435854122
   },
   "wire_contract_version": 1,
   "icd": {
