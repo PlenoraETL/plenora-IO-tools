@@ -19,7 +19,7 @@ trasformare la review aperta in un blocco. L'impatto del freeze è registrato ne
 [`CIA dedicata`](CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md).
 
 La versione dei 16 crate del workspace è `0.1.0-rc.1` e il riferimento Git
-predisposto è `v0.1.0-rc.1`. Il tag è annotato e non firmato
+pubblicato è `v0.1.0-rc.1`. Il tag è annotato e non firmato
 (`annotated_unsigned`); il messaggio identifica candidato, claim e stato della
 review. La decisione è registrata nella
 [`CIA versione e tag`](CHANGE_IMPACT_2026-07-29_RC_VERSION_AND_TAG.md).
@@ -97,9 +97,8 @@ Lo stato corrente è machine-readable in
 [`release/freeze-readiness.json`](../../release/freeze-readiness.json):
 la baseline tecnica è congelata, la CI candidata `30415766905` è verde su
 Linux, Windows, macOS e coverage e la RC di componente è autorizzata come
-`verified_internally`. `independent_review` e `release_tag_created` restano
-esplicitamente `false` durante la preparazione; la prima limita soltanto il
-livello del claim, mentre il secondo passa a `true` alla pubblicazione del tag
+`verified_internally`. `independent_review=false` limita soltanto il livello
+del claim; `release_tag_created=true` registra la pubblicazione del tag
 annotato `v0.1.0-rc.1`.
 
 Il materiale da consegnare al revisore è raccolto nel

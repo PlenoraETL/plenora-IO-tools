@@ -24,7 +24,7 @@
     "verification_claim": "verified_internally",
     "independent_review": false,
     "independently_verified_claim_authorized": false,
-    "release_tag_created": false,
+    "release_tag_created": true,
     "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md",
     "decision_revision": "75ea508cec257dc46252ec267e5b1e9ecaa78b73",
     "ci": {
@@ -43,10 +43,13 @@
       "name": "v0.1.0-rc.1",
       "version": "0.1.0-rc.1",
       "tag_form": "annotated_unsigned",
-      "status": "authorized_pending_creation",
+      "status": "created",
+      "created_on": "2026-07-29",
       "candidate_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
       "verification_claim": "verified_internally",
-      "independent_review_status": "not_performed"
+      "independent_review_status": "not_performed",
+      "pre_tag_revision": "83798768a9bd86c6ebab85331afda1cb2e049229",
+      "pre_tag_ci_run": 30438104745
     }
   },
   "icd_revision": "62b12e3496466d2c908dac3cc098640b99b52e21",

@@ -59,6 +59,10 @@ Il messaggio annotato deve contenere almeno:
 4. creazione del tag annotato `v0.1.0-rc.1` sul commit verificato;
 5. push del tag senza riscritture.
 
+La verifica pre-tag è stata completata sulla revisione
+`83798768a9bd86c6ebab85331afda1cb2e049229`: CI `30438104745` verde sui job
+`rust`, `coverage`, `windows` e `macos-publish`.
+
 ## Claim esclusi
 
 Il tag non dichiara `verified_independently`, RC del sistema Plenora,

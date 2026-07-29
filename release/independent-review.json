@@ -45,6 +45,6 @@
     "blocks_component_rc_release": false,
     "component_rc_release_authorized": true,
     "independently_verified_claim_authorized": false,
-    "release_tag_created": false
+    "release_tag_created": true
   }
 }

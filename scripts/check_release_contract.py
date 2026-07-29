@@ -39,6 +39,8 @@ EXPECTED_RELEASE_DECISION_REVISION = (
     "75ea508cec257dc46252ec267e5b1e9ecaa78b73"
 )
 EXPECTED_RELEASE_DECISION_CI_RUN = 30435854122
+EXPECTED_PRE_TAG_REVISION = "83798768a9bd86c6ebab85331afda1cb2e049229"
+EXPECTED_PRE_TAG_CI_RUN = 30438104745
 EXPECTED_COVERAGE_ARTIFACT = {
     "id": 8710097703,
     "name": "rust-coverage-lcov",
@@ -66,7 +68,7 @@ EXPECTED_RELEASE_DECISION = {
     "independent_review_required": False,
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": False,
-    "release_tag_created": False,
+    "release_tag_created": True,
     "decision_record": (
         "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
     ),
@@ -77,10 +79,13 @@ EXPECTED_RELEASE_TAG_RECORD = {
     "name": EXPECTED_RELEASE_TAG,
     "version": EXPECTED_COMPONENT_VERSION,
     "tag_form": "annotated_unsigned",
-    "status": "authorized_pending_creation",
+    "status": "created",
+    "created_on": "2026-07-29",
     "candidate_revision": EXPECTED_IO_CANDIDATE,
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
+    "pre_tag_revision": EXPECTED_PRE_TAG_REVISION,
+    "pre_tag_ci_run": EXPECTED_PRE_TAG_CI_RUN,
     "decision_record": (
         "docs/assurance/CHANGE_IMPACT_2026-07-29_RC_VERSION_AND_TAG.md"
     ),
@@ -357,7 +362,7 @@ def validate_documents(
     }:
         errors.append("shared corpus: revisioni dei producer inattese")
 
-    if freeze_readiness.get("status") != "ready_for_component_rc_tag":
+    if freeze_readiness.get("status") != "component_rc_tagged":
         errors.append("freeze readiness: stato RC interno inatteso")
     if freeze_readiness.get("freeze_scope") != "technical_baseline_only":
         errors.append("freeze readiness: perimetro tecnico non dichiarato")
@@ -389,10 +394,10 @@ def validate_documents(
         "independent_review": False,
         "independent_review_status": "pending_eligible_reviewer",
         "independently_verified_claim_authorized": False,
-        "release_tag_created": False,
+        "release_tag_created": True,
         "release_tag_name": EXPECTED_RELEASE_TAG,
         "release_tag_form": "annotated_unsigned",
-        "release_tag_status": "authorized_pending_creation",
+        "release_tag_status": "created",
     }:
         errors.append("freeze readiness: attributi assurance inattesi")
     if "independent_review" in readiness_gates:
@@ -417,7 +422,7 @@ def validate_documents(
         "verification_claim": "verified_internally",
         "independent_review": False,
         "independently_verified_claim_authorized": False,
-        "release_tag_created": False,
+        "release_tag_created": True,
         "decision_record": (
             "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
         ),
@@ -499,7 +504,7 @@ def validate_documents(
         "blocks_component_rc_release": False,
         "component_rc_release_authorized": True,
         "independently_verified_claim_authorized": False,
-        "release_tag_created": False,
+        "release_tag_created": True,
     }:
         errors.append("independent review: separazione da release interna inattesa")
 

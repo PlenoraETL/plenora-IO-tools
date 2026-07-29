@@ -1,6 +1,6 @@
 {
   "manifest_version": 1,
-  "status": "ready_for_component_rc_tag",
+  "status": "component_rc_tagged",
   "evaluated_on": "2026-07-29",
   "candidate_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
   "freeze_scope": "technical_baseline_only",
@@ -22,10 +22,10 @@
     "independent_review": false,
     "independent_review_status": "pending_eligible_reviewer",
     "independently_verified_claim_authorized": false,
-    "release_tag_created": false,
+    "release_tag_created": true,
     "release_tag_name": "v0.1.0-rc.1",
     "release_tag_form": "annotated_unsigned",
-    "release_tag_status": "authorized_pending_creation"
+    "release_tag_status": "created"
   },
-  "next_required_action": "Run CI on the version-and-tag preparation commit, then create and push the annotated unsigned tag v0.1.0-rc.1. Independent review remains open and is required only before an independently_verified claim."
+  "next_required_action": "Independent review remains an optional open assurance attribute and is required only before an independently_verified claim. Any rc.2 requires a new candidate decision and CI."
 }

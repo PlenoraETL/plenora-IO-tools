@@ -13,7 +13,7 @@ emissione. Il gate della catena a tre componenti resta esplicitamente
 La baseline tecnica `78c2d15` è congelata con claim
 `verified_internally`. La RC del componente è autorizzata con tale claim;
 la revisione indipendente resta aperta come attributo non bloccante e il tag
-SemVer `v0.1.0-rc.1` è predisposto in forma `annotated_unsigned`. Tutti i crate
+SemVer `v0.1.0-rc.1` è pubblicato in forma `annotated_unsigned`. Tutti i crate
 del workspace ereditano la versione `0.1.0-rc.1`; un claim
 `verified_independently` resta vietato finché la review non viene completata.
 
