@@ -14,14 +14,26 @@ ROOT = Path(__file__).resolve().parents[1]
 PROVENANCE = ROOT / "release" / "contract-provenance.json"
 SYSTEM_GATE = ROOT / "release" / "system-rc-gate.json"
 FREEZE_READINESS = ROOT / "release" / "freeze-readiness.json"
-EVIDENCE = ROOT / "release" / "evidence" / "pre-freeze-2026-07-28.json"
+EVIDENCE = ROOT / "release" / "evidence" / "pre-freeze-2026-07-29.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
 EXPECTED_ICD_TAG = "v2.0-rc8"
 EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
 EXPECTED_IO_BASELINE = "1c37fb5d525647b264ce977e26fc07b346bb7914"
-EXPECTED_IO_CANDIDATE = "92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a"
+EXPECTED_IO_CANDIDATE = "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068"
+EXPECTED_CANDIDATE_CI_RUN = 30415766905
+EXPECTED_COVERAGE_ARTIFACT = {
+    "id": 8710097703,
+    "name": "rust-coverage-lcov",
+    "size_bytes": 94172,
+    "sha256": "f5473d8c3e55fcaecf54ff5134872157c94351686356c7fd3db3928c90b701ab",
+    "digest_source": "github_actions_artifact_api",
+}
+EXPECTED_LIBRARY_COVERAGE = {"covered": 12769, "total": 15271, "percent": 83.62}
+EXPECTED_LIBRARY_COVERAGE_SOURCE = (
+    "local_reproduction_of_ci_command"
+)
 EXPECTED_DATABASE_REPLAY_REVISION = "ef18e80c798126f872fd366c36ee96a029598958"
 EXPECTED_SYSTEM_REVISIONS = {
     "plenora-IO-tools": EXPECTED_IO_CANDIDATE,
@@ -69,8 +81,8 @@ def validate_documents(
         errors.append("contract-provenance: componente inatteso")
     if provenance.get("release_kind") != "component_rc":
         errors.append("contract-provenance: release_kind deve essere component_rc")
-    if provenance.get("freeze_status") not in {"pre_freeze", "frozen"}:
-        errors.append("contract-provenance: freeze_status non valido")
+    if provenance.get("freeze_status") != "pre_freeze":
+        errors.append("contract-provenance: freeze prematuro senza revisione indipendente")
     if not SHA.fullmatch(str(provenance.get("implementation_revision", ""))):
         errors.append("contract-provenance: implementation_revision non è uno SHA completo")
     elif provenance.get("implementation_revision") != EXPECTED_IO_CANDIDATE:
@@ -210,15 +222,34 @@ def validate_documents(
     if evidence.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("evidence: revisione candidata inattesa")
     candidate_ci = evidence.get("candidate_ci", {})
-    if candidate_ci.get("head_revision") != "0dbd4fedfa2f3494cc2692d4e1f5b1e169024ed7":
+    if candidate_ci.get("head_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("evidence: revisione CI candidata inattesa")
-    if candidate_ci.get("run_id") != 30412487233:
+    if candidate_ci.get("run_id") != EXPECTED_CANDIDATE_CI_RUN:
         errors.append("evidence: run CI candidato inatteso")
+    if candidate_ci.get("url") != (
+        "https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/"
+        f"{EXPECTED_CANDIDATE_CI_RUN}"
+    ):
+        errors.append("evidence: URL CI candidata inatteso")
+    if candidate_ci.get("jobs") != [
+        "rust",
+        "coverage",
+        "windows",
+        "macos-publish",
+    ]:
+        errors.append("evidence: matrice job CI candidata inattesa")
     if candidate_ci.get("result") != "pass":
         errors.append("evidence: CI candidata non verde")
+    if candidate_ci.get("coverage_artifact") != EXPECTED_COVERAGE_ARTIFACT:
+        errors.append("evidence: digest artifact coverage inatteso")
     coverage = candidate_ci.get("library_line_coverage", {})
-    if coverage != {"covered": 12675, "total": 15175, "percent": 83.53}:
+    if coverage != EXPECTED_LIBRARY_COVERAGE:
         errors.append("evidence: coverage candidata inattesa")
+    if (
+        candidate_ci.get("library_line_coverage_source")
+        != EXPECTED_LIBRARY_COVERAGE_SOURCE
+    ):
+        errors.append("evidence: fonte coverage candidata inattesa")
     replay = (
         evidence.get("candidate_local_verification", {})
         .get("shared_wkb_ewkb_replay", {})
@@ -247,6 +278,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-28_EIGHT_POINT_COMPLETION.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_CANDIDATE_REBASELINE.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]

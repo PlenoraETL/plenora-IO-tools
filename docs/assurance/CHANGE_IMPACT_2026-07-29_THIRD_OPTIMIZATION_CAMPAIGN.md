@@ -130,10 +130,11 @@ Superati sul working tree della campagna:
   secondi, zero finding;
 - confronti A/B intercalati descritti sopra.
 
-La CI candidata precedente non copre questo working tree. Una nuova evidenza CI
-potrà essere attribuita alla campagna soltanto dopo commit e run sul nuovo SHA.
-La revisione indipendente resta separata e non viene soddisfatta da questa
-autoverifica.
+La CI candidata `30415766905` copre la revisione finale
+`78c2d150b9c7d0ac48e4c97b03f86228e0f0a068`, inclusa la regressione
+deterministica sull'ordine dello schema GeoJSON, ed è verde su Linux, Windows,
+macOS e coverage. La revisione indipendente resta separata e non viene
+soddisfatta da questa autoverifica.
 
 ## Margini residui
 

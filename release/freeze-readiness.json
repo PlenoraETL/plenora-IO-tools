@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "status": "not_ready_to_freeze",
   "evaluated_on": "2026-07-29",
-  "candidate_revision": "92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a",
+  "candidate_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
   "gates": {
     "candidate_code_complete": true,
     "local_workspace_tests": true,

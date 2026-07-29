@@ -3,7 +3,7 @@
   "component": "plenora-IO-tools",
   "release_kind": "component_rc",
   "freeze_status": "pre_freeze",
-  "implementation_revision": "92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a",
+  "implementation_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
   "candidate_state": "candidate_ci_passed_pending_independent_review",
   "wire_contract_version": 1,
   "icd": {

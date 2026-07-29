@@ -9,7 +9,7 @@ IO-tools**. Non è una RC del sistema Plenora e non dichiara conformità o
 certificazione avionica.
 
 La revisione candidata del codice è
-`92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a`; l'identificatore e il tag della RC
+`78c2d150b9c7d0ac48e4c97b03f86228e0f0a068`; l'identificatore e il tag della RC
 saranno assegnati soltanto al freeze. Fino a quel momento lo stato
 machine-readable è `pre_freeze` in
 [`release/contract-provenance.json`](../../release/contract-provenance.json).
@@ -77,6 +77,6 @@ citabile. Nessun tag di release è creato da questo documento.
 Lo stato corrente è machine-readable in
 [`release/freeze-readiness.json`](../../release/freeze-readiness.json):
 il codice candidato ha una revisione immutabile e la CI candidata
-`30412487233` è verde su Linux, Windows, macOS e coverage. Manca ancora una
+`30415766905` è verde su Linux, Windows, macOS e coverage. Manca ancora una
 revisione indipendente eleggibile; il freeze resta quindi intenzionalmente
 chiuso.

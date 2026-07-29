@@ -28,12 +28,18 @@ class ReleaseContractTests(unittest.TestCase):
         self.corpus_manifest = load_json(CORPUS_MANIFEST)
         self.geometry_source = GEOMETRY_SOURCE.read_text(encoding="utf-8")
 
-    def validate(self, provenance=None, system_gate=None, corpus_schema=None) -> list[str]:
+    def validate(
+        self,
+        provenance=None,
+        system_gate=None,
+        evidence=None,
+        corpus_schema=None,
+    ) -> list[str]:
         return validate_documents(
             provenance if provenance is not None else self.provenance,
             system_gate if system_gate is not None else self.system_gate,
             self.freeze_readiness,
-            self.evidence,
+            evidence if evidence is not None else self.evidence,
             corpus_schema if corpus_schema is not None else self.corpus_schema,
             self.corpus_manifest,
             self.geometry_source,
@@ -62,10 +68,28 @@ class ReleaseContractTests(unittest.TestCase):
         gate["status"] = "satisfied"
         self.assertTrue(self.validate(system_gate=gate))
 
+    def test_rejects_premature_component_freeze(self) -> None:
+        provenance = copy.deepcopy(self.provenance)
+        provenance["freeze_status"] = "frozen"
+        self.assertTrue(self.validate(provenance=provenance))
+
     def test_rejects_incomplete_shared_corpus_schema(self) -> None:
         schema = copy.deepcopy(self.corpus_schema)
         del schema["properties"]["cases"]["items"]["properties"]["sha256"]
         self.assertTrue(self.validate(corpus_schema=schema))
+
+    def test_rejects_candidate_ci_evidence_drift(self) -> None:
+        for path, replacement in (
+            (("run_id",), 0),
+            (("coverage_artifact", "sha256"), "0" * 64),
+            (("library_line_coverage", "covered"), 0),
+        ):
+            evidence = copy.deepcopy(self.evidence)
+            target = evidence["candidate_ci"]
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = replacement
+            self.assertTrue(self.validate(evidence=evidence), path)
 
 
 if __name__ == "__main__":

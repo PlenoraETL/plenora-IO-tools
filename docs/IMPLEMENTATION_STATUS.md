@@ -140,8 +140,8 @@ Il report LCOV conserva l'intera workspace, inclusi CLI, benchmark e harness
 fuzz. Il gate quantitativo è invece applicato al solo codice di libreria:
 esclude esclusivamente gli entry point `main.rs` di `plenora-io-cli`,
 `plenora-bench` e `plenora-fuzz`, che richiedono test end-to-end o campagne
-dedicate e falsavano il dato delle librerie. La baseline CI immutabile
-`1c37fb5` misura 12.616/15.112 linee, pari a 83,48%, e il gate fail-closed è
+dedicate e falsavano il dato delle librerie. La CI candidata immutabile
+`78c2d15` misura 12.769/15.271 linee, pari a 83,62%, e il gate fail-closed è
 fissato all'80%; raccolta, pubblicazione
 dell'artifact e verifica della soglia sono passi distinti, così un eventuale
 calo resta diagnosticabile.
