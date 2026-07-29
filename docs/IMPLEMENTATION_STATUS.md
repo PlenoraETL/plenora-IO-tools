@@ -1,6 +1,6 @@
 # Stato implementazione rispetto agli ADR
 
-Verifica aggiornata al 2026-07-28. La tabella distingue ciò che è nel codice da
+Verifica aggiornata al 2026-07-29. La tabella distingue ciò che è nel codice da
 ciò che resta una decisione architetturale: “parziale” non significa che il
 driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 
@@ -108,6 +108,12 @@ primitive esplicite di panic in tutti i target di libreria.
   schema inferito produce errore invece di `null`; interi oltre `i64` e
   combinazioni intero/float non rappresentabili senza perdita sono conservati
   come testo.
+- La terza campagna prestazionale elimina le allocazioni ripetute delle chiavi
+  durante l'inferenza GeoJSON, riusa il buffer WKT del writer CSV e usa il
+  visitor WKB bounded per il solo metadato dei tipi GeoParquet. Su 250.000
+  Polygon e sette coppie A/B intercalate i delta mediani sono rispettivamente
+  +6,59%, +12,59% e +48,64%, senza crescita della RSS. Baseline, veto e
+  invarianti sono registrati nella CIA del 2026-07-29.
 - `Limits` è parte di `ReadOptions` e `WriteOptions`. La dimensione complessiva
   dell’input è verificata prima del parser; righe e colonne sono conteggiate da
   un wrapper comune dei writer; i writer geometrici v1 usano i limiti WKB

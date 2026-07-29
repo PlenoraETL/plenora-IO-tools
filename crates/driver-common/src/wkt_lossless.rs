@@ -359,7 +359,21 @@ fn geometry_to_wkt(geometry: &WkbGeometry) -> Result<Wkt<f64>> {
 /// Serializza l'AST WKB in WKT dimensionale usando una rappresentazione
 /// numerica `f64` round-trip.
 pub fn format_wkt(geometry: &WkbGeometry) -> Result<String> {
-    Ok(geometry_to_wkt(geometry)?.to_string())
+    let mut output = String::new();
+    format_wkt_into(geometry, &mut output)?;
+    Ok(output)
+}
+
+/// Appende WKT dimensionale a un buffer riusabile.
+///
+/// La conversione viene validata prima di toccare `output`: in caso di errore
+/// il contenuto precedente resta invariato.
+pub fn format_wkt_into(geometry: &WkbGeometry, output: &mut String) -> Result<()> {
+    use std::fmt::Write as _;
+
+    let wkt = geometry_to_wkt(geometry)?;
+    write!(output, "{wkt}")
+        .map_err(|format_error| error(format!("serializzazione fallita: {format_error}")))
 }
 
 #[cfg(test)]
@@ -403,5 +417,30 @@ mod tests {
             srid: None,
         };
         assert!(format_wkt(&geometry).is_err());
+    }
+
+    #[test]
+    fn reusable_formatter_appends_and_preserves_buffer_on_error() {
+        let geometry = parse_wkt("LINESTRING Z(0 1 2,3 4 5)").unwrap();
+        let mut output = "prefix:".to_owned();
+        format_wkt_into(&geometry, &mut output).unwrap();
+        assert_eq!(
+            parse_wkt(output.strip_prefix("prefix:").unwrap()).unwrap(),
+            geometry
+        );
+
+        let invalid = WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: f64::INFINITY,
+                y: 2.0,
+                z: None,
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let before = output.clone();
+        assert!(format_wkt_into(&invalid, &mut output).is_err());
+        assert_eq!(output, before);
     }
 }

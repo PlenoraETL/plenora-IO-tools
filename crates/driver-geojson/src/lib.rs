@@ -15,7 +15,7 @@ mod geometry;
 
 pub use geometry::{wkb_from_gj_value, write_geo_geojson};
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -232,14 +232,11 @@ impl OpenDatasetHandle for GeoJsonDataset {
 /// geometria, niente valori materializzati (allocazioni ~ solo le chiavi nuove).
 fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
     let file = File::open(path)?;
-    let mut accs: BTreeMap<String, TypeAccumulator> = BTreeMap::new();
+    let mut accs = SchemaAccumulators::default();
     let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
     de.deserialize_map(TopVisitor { accs: &mut accs })
         .map_err(|e| err(format!("GeoJSON non valido: {e}")))?;
-    let cols: Vec<(String, ColType)> = accs
-        .iter()
-        .map(|(key, accumulator)| (key.clone(), accumulator.column_type()))
-        .collect();
+    let cols = accs.into_columns().map_err(err)?;
     let mut fields = vec![geometry_field(GEOMETRY, OGC_CRS84)];
     for (k, ct) in &cols {
         fields.push(Field::new(k, ct.arrow_data_type(), true));
@@ -248,6 +245,50 @@ fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
 }
 
 // --- pass-1: visitor serde streaming (chiavi + tipo, zero valori) ----------
+
+#[derive(Default)]
+struct SchemaAccumulators {
+    indices: HashMap<String, usize>,
+    values: Vec<TypeAccumulator>,
+}
+
+impl SchemaAccumulators {
+    fn index_for(&mut self, name: &str) -> usize {
+        if let Some(index) = self.indices.get(name) {
+            return *index;
+        }
+        let index = self.values.len();
+        self.indices.insert(name.to_owned(), index);
+        self.values.push(TypeAccumulator::default());
+        index
+    }
+
+    fn observe(
+        &mut self,
+        index: usize,
+        value: ObservedValueClass,
+    ) -> std::result::Result<(), &'static str> {
+        let accumulator = self
+            .values
+            .get_mut(index)
+            .ok_or("indice di inferenza GeoJSON incoerente")?;
+        accumulator.observe(value);
+        Ok(())
+    }
+
+    fn into_columns(self) -> std::result::Result<Vec<(String, ColType)>, &'static str> {
+        let Self { indices, values } = self;
+        let mut columns = Vec::with_capacity(indices.len());
+        for (name, index) in indices {
+            let accumulator = values
+                .get(index)
+                .ok_or("indice di inferenza GeoJSON incoerente")?;
+            columns.push((name, accumulator.column_type()));
+        }
+        columns.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        Ok(columns)
+    }
+}
 
 /// Classe di tipo di un valore JSON, letta senza allocare il valore.
 struct TypeTag(ObservedValueClass);
@@ -310,7 +351,7 @@ impl<'de> Visitor<'de> for TagVisitor {
 
 /// Livello top: FeatureCollection; interessa solo la chiave "features".
 struct TopVisitor<'a> {
-    accs: &'a mut BTreeMap<String, TypeAccumulator>,
+    accs: &'a mut SchemaAccumulators,
 }
 impl<'a, 'de> Visitor<'de> for TopVisitor<'a> {
     type Value = ();
@@ -330,7 +371,7 @@ impl<'a, 'de> Visitor<'de> for TopVisitor<'a> {
 }
 
 struct FeaturesSeed<'a> {
-    accs: &'a mut BTreeMap<String, TypeAccumulator>,
+    accs: &'a mut SchemaAccumulators,
 }
 impl<'a, 'de> DeserializeSeed<'de> for FeaturesSeed<'a> {
     type Value = ();
@@ -339,7 +380,7 @@ impl<'a, 'de> DeserializeSeed<'de> for FeaturesSeed<'a> {
     }
 }
 struct FeaturesVisitor<'a> {
-    accs: &'a mut BTreeMap<String, TypeAccumulator>,
+    accs: &'a mut SchemaAccumulators,
 }
 impl<'a, 'de> Visitor<'de> for FeaturesVisitor<'a> {
     type Value = ();
@@ -356,7 +397,7 @@ impl<'a, 'de> Visitor<'de> for FeaturesVisitor<'a> {
 }
 
 struct FeatureSeed<'a> {
-    accs: &'a mut BTreeMap<String, TypeAccumulator>,
+    accs: &'a mut SchemaAccumulators,
 }
 impl<'a, 'de> DeserializeSeed<'de> for FeatureSeed<'a> {
     type Value = ();
@@ -365,7 +406,7 @@ impl<'a, 'de> DeserializeSeed<'de> for FeatureSeed<'a> {
     }
 }
 struct FeatureVisitor<'a> {
-    accs: &'a mut BTreeMap<String, TypeAccumulator>,
+    accs: &'a mut SchemaAccumulators,
 }
 impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
     type Value = ();
@@ -373,11 +414,12 @@ impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
         f.write_str("un Feature")
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
-        while let Some(key) = map.next_key::<String>()? {
-            if key == "properties" {
-                map.next_value_seed(PropsSeed { accs: self.accs })?;
-            } else {
-                map.next_value::<IgnoredAny>()?;
+        while let Some(key) = map.next_key_seed(FeatKeySeed)? {
+            match key {
+                FeatKey::Props => map.next_value_seed(PropsSeed { accs: self.accs })?,
+                FeatKey::Geom | FeatKey::Other => {
+                    map.next_value::<IgnoredAny>()?;
+                }
             }
         }
         Ok(())
@@ -385,7 +427,7 @@ impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
 }
 
 struct PropsSeed<'a> {
-    accs: &'a mut BTreeMap<String, TypeAccumulator>,
+    accs: &'a mut SchemaAccumulators,
 }
 impl<'a, 'de> DeserializeSeed<'de> for PropsSeed<'a> {
     type Value = ();
@@ -395,7 +437,7 @@ impl<'a, 'de> DeserializeSeed<'de> for PropsSeed<'a> {
     }
 }
 struct PropsVisitor<'a> {
-    accs: &'a mut BTreeMap<String, TypeAccumulator>,
+    accs: &'a mut SchemaAccumulators,
 }
 impl<'a, 'de> Visitor<'de> for PropsVisitor<'a> {
     type Value = ();
@@ -412,18 +454,42 @@ impl<'a, 'de> Visitor<'de> for PropsVisitor<'a> {
         d.deserialize_any(self)
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
-        while let Some(key) = map.next_key::<String>()? {
+        while let Some(index) = map.next_key_seed(SchemaKeySeed { accs: self.accs })? {
             let tag = map.next_value::<TypeTag>()?.0;
-            // Alloca la chiave solo se nuova (dopo il 1° feature, nessuna alloc).
-            if let Some(acc) = self.accs.get_mut(&key) {
-                acc.observe(tag);
-            } else {
-                let mut acc = TypeAccumulator::default();
-                acc.observe(tag);
-                self.accs.insert(key, acc);
-            }
+            self.accs.observe(index, tag).map_err(A::Error::custom)?;
         }
         Ok(())
+    }
+}
+
+struct SchemaKeySeed<'a> {
+    accs: &'a mut SchemaAccumulators,
+}
+
+impl<'a, 'de> DeserializeSeed<'de> for SchemaKeySeed<'a> {
+    type Value = usize;
+
+    fn deserialize<D: Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> std::result::Result<Self::Value, D::Error> {
+        deserializer.deserialize_str(SchemaKeyVisitor { accs: self.accs })
+    }
+}
+
+struct SchemaKeyVisitor<'a> {
+    accs: &'a mut SchemaAccumulators,
+}
+
+impl<'a, 'de> Visitor<'de> for SchemaKeyVisitor<'a> {
+    type Value = usize;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("una chiave di proprietà")
+    }
+
+    fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E> {
+        Ok(self.accs.index_for(value))
     }
 }
 
@@ -819,14 +885,11 @@ fn finish_batch(
 pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     use std::io::Cursor;
     // pass-1: schema
-    let mut accs: BTreeMap<String, TypeAccumulator> = BTreeMap::new();
+    let mut accs = SchemaAccumulators::default();
     serde_json::Deserializer::from_reader(Cursor::new(bytes))
         .deserialize_map(TopVisitor { accs: &mut accs })
         .map_err(|e| e.to_string())?;
-    let cols: Vec<(String, ColType)> = accs
-        .iter()
-        .map(|(key, accumulator)| (key.clone(), accumulator.column_type()))
-        .collect();
+    let cols = accs.into_columns().map_err(str::to_owned)?;
     let mut fields = vec![geometry_field(GEOMETRY, OGC_CRS84)];
     for (k, ct) in &cols {
         fields.push(Field::new(k, ct.arrow_data_type(), true));

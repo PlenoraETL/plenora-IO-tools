@@ -115,7 +115,7 @@ fn peak_rss_bytes() -> u64 {
 // --- generazione a chunk (pool WKB, niente encode nella generazione) -------
 
 fn bench_crs(id: &str) -> &'static str {
-    if id == "kml" {
+    if matches!(id, "geojson" | "kml") {
         driver_common::OGC_CRS84
     } else {
         "EPSG:4326"
@@ -132,7 +132,7 @@ fn bench_schema(id: &str) -> SchemaRef {
 }
 
 fn bench_contract(id: &str) -> DataContract {
-    let crs = if id == "kml" {
+    let crs = if matches!(id, "geojson" | "kml") {
         ResolvedCrs::wgs84()
     } else {
         ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None)
@@ -894,5 +894,27 @@ fn short(v: &serde_json::Value) -> String {
             "FAILED: {}",
             v.get("reason").and_then(|r| r.as_str()).unwrap_or("?")
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_wgs84_drivers_use_crs84_in_schema_and_contract() {
+        for driver in ["geojson", "kml"] {
+            assert_eq!(bench_crs(driver), driver_common::OGC_CRS84);
+            assert_eq!(
+                bench_contract(driver).geometry.unwrap().crs.id(),
+                Some(driver_common::OGC_CRS84)
+            );
+        }
+
+        assert_eq!(bench_crs("csv"), "EPSG:4326");
+        assert_eq!(
+            bench_contract("csv").geometry.unwrap().crs.id(),
+            Some("EPSG:4326")
+        );
     }
 }

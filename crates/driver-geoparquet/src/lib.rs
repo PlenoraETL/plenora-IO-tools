@@ -46,7 +46,7 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
-use plenora_io_model::wkb::decode_wkb;
+use plenora_io_model::wkb::inspect_wkb;
 use plenora_io_model::{PlenoraIoError, Result};
 
 fn fmt_err(reason: impl Into<String>) -> PlenoraIoError {
@@ -341,7 +341,7 @@ struct GeoParquetWriter {
     geom_idx: usize,
     geom_name: String,
     crs_meta: Option<String>,
-    geometry_types: BTreeSet<String>,
+    geometry_types: BTreeSet<(GeometryType, CoordinateDimensions)>,
     wkb_limits: WkbLimits,
 }
 
@@ -377,7 +377,7 @@ impl FormatWriter for GeoParquetWriter {
             &self.geom_name,
             &self.geometry_types,
             self.crs_meta.as_deref(),
-        );
+        )?;
         writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo));
         writer.close().map_err(|e| fmt_err(format!("close: {e}")))?;
         let (bytes, outcome) = self.staging.publish()?;
@@ -1000,46 +1000,58 @@ fn geometry_type_name(geometry_type: GeometryType) -> Result<&'static str> {
     }
 }
 
-fn geometry_type_label(bytes: &[u8], limits: &WkbLimits) -> Result<String> {
-    let geometry = decode_wkb(bytes, limits)?;
-    let suffix = match geometry.dimensions {
+fn geometry_type_label(
+    geometry_type: GeometryType,
+    dimensions: CoordinateDimensions,
+) -> Result<String> {
+    let suffix = match dimensions {
         CoordinateDimensions::Xy => "",
         CoordinateDimensions::Xyz => " Z",
         CoordinateDimensions::Xym => " M",
         CoordinateDimensions::Xyzm => " ZM",
         CoordinateDimensions::Unknown => return Err(fmt_err("dimensionalità WKB ignota")),
     };
-    Ok(format!(
-        "{}{suffix}",
-        geometry_type_name(geometry.geometry_type())?
-    ))
+    Ok(format!("{}{suffix}", geometry_type_name(geometry_type)?))
 }
 
 fn accumulate_geometry_types(
     col: &dyn Array,
-    out: &mut BTreeSet<String>,
+    out: &mut BTreeSet<(GeometryType, CoordinateDimensions)>,
     limits: &WkbLimits,
 ) -> Result<()> {
     if let Some(a) = col.as_any().downcast_ref::<BinaryArray>() {
         for i in 0..a.len() {
             if !a.is_null(i) {
-                out.insert(geometry_type_label(a.value(i), limits)?);
+                let inspection = inspect_wkb(a.value(i), limits)?;
+                out.insert((inspection.geometry_type, inspection.dimensions));
             }
         }
     } else if let Some(a) = col.as_any().downcast_ref::<LargeBinaryArray>() {
         for i in 0..a.len() {
             if !a.is_null(i) {
-                out.insert(geometry_type_label(a.value(i), limits)?);
+                let inspection = inspect_wkb(a.value(i), limits)?;
+                out.insert((inspection.geometry_type, inspection.dimensions));
             }
         }
     }
     Ok(())
 }
 
-fn build_geo_metadata(geom_name: &str, types: &BTreeSet<String>, crs: Option<&str>) -> String {
+fn build_geo_metadata(
+    geom_name: &str,
+    types: &BTreeSet<(GeometryType, CoordinateDimensions)>,
+    crs: Option<&str>,
+) -> Result<String> {
+    let mut geometry_types = types
+        .iter()
+        .map(|(geometry_type, dimensions)| geometry_type_label(*geometry_type, *dimensions))
+        .collect::<Result<Vec<_>>>()?;
+    // Mantiene l'ordine lessicografico emesso dal precedente BTreeSet<String>:
+    // l'ottimizzazione non deve cambiare neppure incidentalmente il metadato.
+    geometry_types.sort_unstable();
     let mut column = serde_json::json!({
         "encoding": "WKB",
-        "geometry_types": types.iter().collect::<Vec<_>>(),
+        "geometry_types": geometry_types,
     });
     // crs "AUTH:CODE" -> {"id":{authority,code}}, altrimenti null.
     if let Some(id) = crs {
@@ -1053,12 +1065,12 @@ fn build_geo_metadata(geom_name: &str, types: &BTreeSet<String>, crs: Option<&st
     }
     let mut columns = HashMap::new();
     columns.insert(geom_name.to_owned(), column);
-    serde_json::json!({
+    Ok(serde_json::json!({
         "version": "1.0.0",
         "primary_column": geom_name,
         "columns": columns,
     })
-    .to_string()
+    .to_string())
 }
 
 #[cfg(test)]

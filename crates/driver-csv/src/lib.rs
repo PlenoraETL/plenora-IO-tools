@@ -26,7 +26,7 @@ use arrow_array::{
 use arrow_schema::{Field, Schema, SchemaRef};
 use serde_json::Value as JsonValue;
 
-use driver_common::wkt_lossless::{format_wkt, parse_wkt};
+use driver_common::wkt_lossless::{format_wkt_into, parse_wkt};
 use driver_common::{
     classify_i64, geometry_field, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
@@ -614,8 +614,9 @@ impl FormatWriter for CsvWriter {
                         }
                     }
                 } else {
-                    w.write_field(format_wkt(&geom)?)
-                        .map_err(|e| err(e.to_string()))?;
+                    fbuf.clear();
+                    format_wkt_into(&geom, &mut fbuf)?;
+                    w.write_field(&fbuf).map_err(|e| err(e.to_string()))?;
                 }
             }
             // Termina il record (dopo i write_field).
