@@ -9,16 +9,20 @@
     "immutable": true
   },
   "program_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_RC3_PROGRAM.md",
+  "scope_decision": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md",
   "scope": "component_only",
   "system_qualification_ownership": "external",
   "workstreams": {
     "long_fuzz_campaign": "completed_no_findings",
-    "independent_review": "external_open_no_eligible_reviewer_recorded",
     "canonical_wkb_types": "implemented_local_gates_passed",
+    "crs_inconsistency_read_declaration": "implemented_targeted_gates_passed",
+    "independent_review": "assurance_attribute_open_non_blocking",
+    "icd_ratification_alignment": "owner_decision_open_not_component_code_gate"
+  },
+  "deferred_to_rc4": {
     "streaming_and_cancellation": "blocked_prerequisites_revalidated",
     "openfilegdb_native_pushdown": "design_constraint_open",
-    "filegdb_windows_and_filesystem_matrix": "bundled_candidate_rejected_performance_veto_environment_open",
-    "icd_ratification_alignment": "revalidated_rc8_unratified"
+    "filegdb_windows_and_filesystem_matrix": "bundled_candidate_rejected_performance_veto_environment_open"
   },
   "claims": {
     "component_rc": false,

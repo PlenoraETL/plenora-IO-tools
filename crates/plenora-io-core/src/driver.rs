@@ -698,7 +698,7 @@ mod tests {
     use arrow_array::{BinaryArray, Int64Array};
     use arrow_schema::{DataType, Field, Schema};
     use plenora_io_model::contract::{CoordinateDimensions, FieldId, GeometryColumnContract};
-    use plenora_io_model::crs::CrsResolution;
+    use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
     use plenora_io_model::geometry::{
         ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_DIMENSIONS_KEY,
     };
@@ -999,6 +999,70 @@ mod tests {
                     && error.phase == ErrorPhase::Read
         ));
         assert!(gate.open(LayerId(0), || Ok(test_reader(1, false))).is_ok());
+    }
+
+    fn crs_reader(crs_id: &str, srid: i32) -> Box<dyn LayerReader> {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )]));
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(Some(crs_id.to_owned()), CrsKind::Geographic, None),
+            true,
+        );
+        geometry.srid = Some(srid);
+        Box::new(TestReader {
+            layer: LayerContract {
+                id: LayerId(0),
+                name: "conflicting".to_owned(),
+                contract: plenora_io_model::contract::DataContract::new(schema, Some(geometry)),
+            },
+            batches: 0,
+            fail: false,
+        })
+    }
+
+    #[test]
+    fn read_boundary_preserves_and_reports_conflicting_crs_representations() {
+        let reader = with_cancellation(crs_reader("EPSG:4326", 3003), CancellationToken::new());
+
+        assert_eq!(
+            reader.contract().contract.geometry.as_ref().unwrap().srid,
+            Some(3003)
+        );
+        assert_eq!(
+            reader
+                .contract()
+                .contract
+                .geometry
+                .as_ref()
+                .unwrap()
+                .crs
+                .id(),
+            Some("EPSG:4326")
+        );
+        let loss = reader.loss_report();
+        assert_eq!(
+            loss.counts.get(crate::INCONSISTENT_CRS_REPRESENTATIONS),
+            Some(&1)
+        );
+        assert_eq!(loss.examples().len(), 1);
+        assert!(loss.examples()[0].context.contains("crs_id=EPSG:4326"));
+        assert!(loss.examples()[0].context.contains("srid=3003"));
+    }
+
+    #[test]
+    fn read_boundary_does_not_report_matching_crs_representations() {
+        let reader = with_batch_target(
+            crs_reader("EPSG:4326", 4326),
+            BatchTarget::default(),
+            CancellationToken::new(),
+        );
+
+        assert!(reader.loss_report().is_empty());
     }
 
     fn geometry_batch(bytes: Option<&[u8]>) -> RecordBatch {

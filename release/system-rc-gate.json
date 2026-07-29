@@ -71,7 +71,9 @@
     "All three revisions and the ICD revision are immutable and recorded.",
     "Identity-preserving operations preserve every required property byte-for-byte.",
     "Derived fields reconstruct metadata from the result and never inherit invalid source metadata.",
-    "Conflicting representations fail closed with the same four-axis error semantics.",
+    "A read boundary preserves conflicting representations and declares them in LossReport or FidelityAssessment.",
+    "The central component propagates conflicts unless an explicit plan resolves them.",
+    "A write boundary fails closed with four-axis error semantics before a permanent effect when a conflict remains.",
     "Both required directions pass on Linux and Windows without an unreported LossReport entry.",
     "The evidence bundle includes commands, environment, fixture hashes and results."
   ],

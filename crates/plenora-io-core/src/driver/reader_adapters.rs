@@ -7,7 +7,7 @@ use arrow_array::RecordBatch;
 use plenora_io_model::contract::{LayerContract, LayerId};
 use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
 
-use crate::loss::LossReport;
+use crate::loss::{declare_crs_inconsistency, LossReport};
 use crate::request::{effective_batch_rows, BatchTarget};
 
 use super::LayerReader;
@@ -36,7 +36,7 @@ pub fn with_cancellation(
     reader: Box<dyn LayerReader>,
     cancellation: CancellationToken,
 ) -> Box<dyn LayerReader> {
-    let loss = reader.loss_report();
+    let loss = reader_loss(reader.as_ref());
     Box::new(CancellationReader {
         contract: reader.contract().clone(),
         inner: Some(reader),
@@ -66,7 +66,7 @@ impl LayerReader for CancellationReader {
             return Ok(None);
         };
         let result = inner.next_batch();
-        self.loss = inner.loss_report();
+        self.loss = reader_loss(inner.as_ref());
         if !matches!(result, Ok(Some(_))) {
             self.inner = None;
         }
@@ -114,8 +114,14 @@ impl LayerReader for BatchTargetReader {
     }
 
     fn loss_report(&self) -> LossReport {
-        self.inner.loss_report()
+        reader_loss(self.inner.as_ref())
     }
+}
+
+fn reader_loss(reader: &dyn LayerReader) -> LossReport {
+    let mut loss = reader.loss_report();
+    declare_crs_inconsistency(reader.contract(), &mut loss);
+    loss
 }
 
 /// Enforcement runtime di `ReaderConcurrency::SingleActiveReader` (ADR-IO 1).

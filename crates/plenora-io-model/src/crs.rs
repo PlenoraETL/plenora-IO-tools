@@ -102,6 +102,18 @@ pub fn axis_order_for(id: Option<&str>, kind: CrsKind) -> AxisOrder {
     }
 }
 
+/// Estrae il codice numerico da un identificatore di autorità EPSG.
+///
+/// Gli altri namespace non sono interpretati come SRID: una loro eventuale
+/// equivalenza richiede un resolver CRS, non una regola sintattica al bordo.
+pub fn authority_srid(value: &str) -> Option<u32> {
+    let (authority, code) = value.split_once(':')?;
+    authority
+        .eq_ignore_ascii_case("EPSG")
+        .then(|| code.parse::<u32>().ok())
+        .flatten()
+}
+
 /// Rappresentazione CRS presente nella sorgente ma non risolta in modo
 /// affidabile. È conservata per diagnostica e round-trip metadata, mai usata
 /// come CRS operativo.
@@ -197,6 +209,15 @@ mod tests {
         let resolution = CrsResolution::DeclaredButUnresolved(raw.clone());
         assert_eq!(resolution.raw(), Some(&raw));
         assert!(resolution.as_resolved().is_none());
+    }
+
+    #[test]
+    fn authority_srid_only_resolves_numeric_epsg_ids() {
+        assert_eq!(authority_srid("EPSG:4326"), Some(4326));
+        assert_eq!(authority_srid("epsg:3003"), Some(3003));
+        assert_eq!(authority_srid("OGC:CRS84"), None);
+        assert_eq!(authority_srid("EPSG:not-a-code"), None);
+        assert_eq!(authority_srid("EPSG:4326:extra"), None);
     }
 
     #[test]

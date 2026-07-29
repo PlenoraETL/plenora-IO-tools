@@ -241,19 +241,43 @@ def validate_rc3_development(document: dict[str, Any]) -> list[str]:
         errors.append("rc3-development: perimetro non limitato al componente")
     if document.get("system_qualification_ownership") != "external":
         errors.append("rc3-development: qualifica di sistema non dichiarata esterna")
+    if document.get("scope_decision") != (
+        "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md"
+    ):
+        errors.append("rc3-development: decisione di perimetro inattesa")
     workstreams = document.get("workstreams", {})
     if set(workstreams) != {
         "long_fuzz_campaign",
         "independent_review",
         "canonical_wkb_types",
-        "streaming_and_cancellation",
-        "openfilegdb_native_pushdown",
-        "filegdb_windows_and_filesystem_matrix",
+        "crs_inconsistency_read_declaration",
         "icd_ratification_alignment",
     }:
-        errors.append("rc3-development: workstream diversi dai sette autorizzati")
+        errors.append("rc3-development: workstream RC3 inattesi")
     if workstreams.get("long_fuzz_campaign") != "completed_no_findings":
         errors.append("rc3-development: stato campagna fuzz lunga inatteso")
+    if workstreams.get("canonical_wkb_types") != "implemented_local_gates_passed":
+        errors.append("rc3-development: stato codec canonico inatteso")
+    if workstreams.get("crs_inconsistency_read_declaration") != (
+        "implemented_targeted_gates_passed"
+    ):
+        errors.append("rc3-development: stato dichiarazione CRS inatteso")
+    if workstreams.get("independent_review") != (
+        "assurance_attribute_open_non_blocking"
+    ):
+        errors.append("rc3-development: review indipendente riclassificata come gate")
+    if workstreams.get("icd_ratification_alignment") != (
+        "owner_decision_open_not_component_code_gate"
+    ):
+        errors.append("rc3-development: ratifica ICD riclassificata come gate esterno")
+    if document.get("deferred_to_rc4") != {
+        "streaming_and_cancellation": "blocked_prerequisites_revalidated",
+        "openfilegdb_native_pushdown": "design_constraint_open",
+        "filegdb_windows_and_filesystem_matrix": (
+            "bundled_candidate_rejected_performance_veto_environment_open"
+        ),
+    }:
+        errors.append("rc3-development: backlog RC4 inatteso")
     if document.get("diagnostic_fuzz_run") != {
         "library_baseline_revision": "f8a89170785c938a9105deae6cc479576abb969a",
         "baseline_ci_run": 30447756574,
@@ -702,6 +726,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-30_RC3_WINDOWS_GDAL.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]

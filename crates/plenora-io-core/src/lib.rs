@@ -31,7 +31,7 @@ pub use driver::{
 };
 pub use loss::{
     FidelityAssessment, FidelityReason, FidelityReasonCode, LossExample, LossReport,
-    MAX_FIDELITY_REASONS,
+    INCONSISTENT_CRS_REPRESENTATIONS, MAX_FIDELITY_REASONS,
 };
 pub use publish::{
     create_staged_dir, create_staged_file, create_staged_file_with_suffix, publish_dir_atomic,

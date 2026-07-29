@@ -100,9 +100,11 @@ verde su Linux, Windows, macOS e coverage. `independent_review=false` limita
 soltanto il livello del claim; `release_tag_created=true` e
 `release_tag_status=created` registrano la pubblicazione del tag
 `v0.1.0-rc.2` senza promuovere il livello di assurance.
-Il file `release/rc3-development.json` dichiara separatamente i sette
-workstream RC3, tutti limitati al componente, e mantiene ogni claim RC3 a
-`false` finché non esiste una nuova baseline verificata.
+Il file `release/rc3-development.json` dichiara separatamente i risultati
+inclusi in RC3, gli attributi non bloccanti e i tre workstream differiti a RC4.
+La decisione di perimetro è registrata nella
+[CIA del 30 luglio](CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md). Ogni claim RC3
+resta `false` finché non esiste una nuova baseline verificata.
 
 Il materiale da consegnare al revisore è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record

@@ -33,6 +33,20 @@ modifiche a `plenora-data-tools`, `plenora-database-tools` o
 7. Verificare la revisione ICD adottata prima del freeze RC3 e migrare soltanto
    in presenza di una ratifica o di una modifica effettiva del contratto.
 
+## Revisione del perimetro del 2026-07-30
+
+La decisione iniziale sopra resta la provenienza del programma, ma non tutti i
+sette workstream sono gate della stessa release. La
+[CIA di revisione](CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md) limita RC3 ai
+risultati 1 e 3 già completati e alla dichiarazione delle incoerenze CRS al
+bordo di lettura.
+
+I workstream 4, 5 e 6 — streaming materializzante, pushdown nativo OpenFileGDB
+e matrice FileGDB/GDAL Windows — sono differiti esplicitamente a RC4. Il
+workstream 2 resta un attributo di assurance non bloccante per un claim
+`verified_internally`. Il workstream 7 registra l'allineamento tecnico, mentre
+la ratifica è una decisione dell'owner e non un gate di codice del componente.
+
 ## Hazard e invarianti
 
 - **H-01 — reinterpretazione geometrica:** i nuovi type code devono
@@ -64,8 +78,9 @@ modifiche a `plenora-data-tools`, `plenora-database-tools` o
 
 - revisione indipendente;
 - disponibilità di un ambiente FileGDB/GDAL Windows nativo qualificabile;
-- ratifica delle sezioni candidate dell'ICD;
 - claim di RC di sistema o certificazione avionica.
 
-Questi gate restano visibili e non bloccano l'avvio dello sviluppo RC3, ma
-impediscono qualsiasi claim che li presupponga.
+Questi elementi restano visibili, ma review e ambiente Windows non bloccano il
+perimetro ridotto di RC3 e passano rispettivamente agli attributi di assurance
+e a RC4. La ratifica delle sezioni candidate dell'ICD è separata: appartiene
+all'owner e non viene classificata come prerequisito esterno del componente.

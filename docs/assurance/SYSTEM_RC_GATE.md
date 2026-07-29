@@ -32,7 +32,8 @@ La matrice comprende almeno:
 - CRS assente;
 - semantica geography;
 - metadati nativi su una trasformazione identity-preserving;
-- rappresentazioni CRS/SRID deliberatamente conflittuali.
+- rappresentazioni CRS/SRID deliberatamente conflittuali, con attesa distinta
+  per ruolo.
 
 Per ogni fixture vengono confrontati `contract.version`, dichiarazione e lista
 dei tipi, dimensioni, encoding, semantica geometry/geography, precisione, SRID,
@@ -44,7 +45,13 @@ cinque proprietà CRS e metadati nativi.
   metadati che restano validi.
 - Un campo derivato deve ricostruire i metadati dal risultato, non ereditarli
   dalla sorgente.
-- Un conflitto fra rappresentazioni deve fallire prima dell'effetto esterno.
+- Il bordo di lettura deve preservare tutte le rappresentazioni conflittuali e
+  dichiararle nel `LossReport` o nel `FidelityAssessment`, senza respingerle per
+  la sola incoerenza.
+- Il componente centrale deve propagarle oppure risolverle soltanto tramite una
+  decisione esplicita del piano.
+- Il bordo di scrittura deve fallire chiuso prima dell'effetto permanente se il
+  conflitto non è stato risolto.
 - Una perdita ammessa deve comparire nel `LossReport`; un report vuoto non può
   accompagnare una proprietà scomparsa.
 - Categoria, fase, effetto remoto e retry devono restare semanticamente

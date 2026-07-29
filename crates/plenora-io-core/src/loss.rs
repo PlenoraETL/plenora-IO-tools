@@ -6,12 +6,17 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+use plenora_io_model::contract::LayerContract;
+use plenora_io_model::crs::CrsResolution;
+
 use crate::descriptor::Fidelity;
 
 /// Tetto agli esempi diagnostici conservati (nessun accumulo illimitato).
 pub const MAX_LOSS_EXAMPLES: usize = 64;
 /// Anche le motivazioni della valutazione restano bounded.
 pub const MAX_FIDELITY_REASONS: usize = 64;
+/// Categoria stabile per R4.3.1/R4.6.1, leggibile dagli harness di conformità.
+pub const INCONSISTENT_CRS_REPRESENTATIONS: &str = "inconsistent_crs_representations";
 
 #[derive(Clone, Debug, Serialize)]
 pub struct LossExample {
@@ -193,6 +198,43 @@ impl LossReport {
             self.examples.push(example.clone());
         }
     }
+}
+
+/// Dichiara, senza respingerla né conciliarla, l'incoerenza fra `crs_id`
+/// EPSG e `plenora.geometry.srid` osservata da un bordo di lettura.
+///
+/// La funzione è idempotente sul report così che più adattatori reader possano
+/// essere composti senza moltiplicare la stessa osservazione strutturale.
+pub(crate) fn declare_crs_inconsistency(contract: &LayerContract, report: &mut LossReport) {
+    if report.counts.contains_key(INCONSISTENT_CRS_REPRESENTATIONS) {
+        return;
+    }
+    let Some(geometry) = &contract.contract.geometry else {
+        return;
+    };
+    let crs_id = match &geometry.crs {
+        CrsResolution::Resolved(crs) => crs.id.as_deref(),
+        CrsResolution::DeclaredButUnresolved(raw) => raw.authority_hint.as_deref(),
+        CrsResolution::Missing => None,
+    };
+    let (Some(crs_id), Some(srid)) = (crs_id, geometry.srid) else {
+        return;
+    };
+    let Some(authority) = plenora_io_model::crs::authority_srid(crs_id) else {
+        return;
+    };
+    if u32::try_from(srid).ok() == Some(authority) {
+        return;
+    }
+
+    report.record(INCONSISTENT_CRS_REPRESENTATIONS, 1);
+    report.add_example(LossExample {
+        category: INCONSISTENT_CRS_REPRESENTATIONS.to_owned(),
+        context: format!(
+            "layer={} field={} crs_id={} srid={}",
+            contract.name, geometry.name, crs_id, srid
+        ),
+    });
 }
 
 #[cfg(test)]
