@@ -8,6 +8,7 @@ import unittest
 from scripts.check_release_contract import (
     CORPUS_SCHEMA,
     CORPUS_MANIFEST,
+    DETACHED_LOCKFILES,
     EVIDENCE,
     FREEZE_READINESS,
     GEOMETRY_SOURCE,
@@ -39,6 +40,7 @@ class ReleaseContractTests(unittest.TestCase):
             load_toml(path) for path in WORKSPACE_CRATE_MANIFESTS
         ]
         self.lockfile = load_toml(WORKSPACE_LOCK)
+        self.detached_lockfiles = [load_toml(path) for path in DETACHED_LOCKFILES]
 
     def validate(
         self,
@@ -75,6 +77,7 @@ class ReleaseContractTests(unittest.TestCase):
                 self.workspace_manifest,
                 self.crate_manifests,
                 self.lockfile,
+                self.detached_lockfiles,
             ),
             [],
         )
@@ -87,6 +90,7 @@ class ReleaseContractTests(unittest.TestCase):
                 manifest,
                 self.crate_manifests,
                 self.lockfile,
+                self.detached_lockfiles,
             )
         )
 
@@ -98,6 +102,25 @@ class ReleaseContractTests(unittest.TestCase):
                 self.workspace_manifest,
                 manifests,
                 self.lockfile,
+                self.detached_lockfiles,
+            )
+        )
+
+    def test_rejects_stale_path_dependency_in_detached_lockfile(self) -> None:
+        detached = copy.deepcopy(self.detached_lockfiles)
+        changed = False
+        for package in detached[0]["package"]:
+            if package.get("name") == "plenora-io-model":
+                package["version"] = "0.0.0"
+                changed = True
+                break
+        self.assertTrue(changed)
+        self.assertTrue(
+            validate_workspace_versions(
+                self.workspace_manifest,
+                self.crate_manifests,
+                self.lockfile,
+                detached,
             )
         )
 

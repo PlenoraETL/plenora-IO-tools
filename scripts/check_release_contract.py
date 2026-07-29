@@ -23,6 +23,10 @@ GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
 WORKSPACE_MANIFEST = ROOT / "Cargo.toml"
 WORKSPACE_LOCK = ROOT / "Cargo.lock"
 WORKSPACE_CRATE_MANIFESTS = tuple(sorted((ROOT / "crates").glob("*/Cargo.toml")))
+DETACHED_LOCKFILES = (
+    ROOT / "fuzz" / "Cargo.lock",
+    ROOT / "conformance" / "three-component-chain" / "Cargo.lock",
+)
 EXPECTED_ICD_TAG = "v2.0-rc8"
 EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
 EXPECTED_IO_BASELINE = "1c37fb5d525647b264ce977e26fc07b346bb7914"
@@ -161,6 +165,7 @@ def validate_workspace_versions(
     workspace_manifest: dict[str, Any],
     crate_manifests: list[dict[str, Any]],
     lockfile: dict[str, Any],
+    detached_lockfiles: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     workspace_version = (
@@ -188,6 +193,19 @@ def validate_workspace_versions(
     for crate_name in sorted(crate_names):
         if locked_versions.get(crate_name) != EXPECTED_COMPONENT_VERSION:
             errors.append(f"Cargo.lock: versione RC inattesa per {crate_name}")
+
+    for index, detached_lockfile in enumerate(detached_lockfiles or []):
+        detached_versions = {
+            package.get("name"): package.get("version")
+            for package in detached_lockfile.get("package", [])
+            if isinstance(package, dict) and package.get("name") in crate_names
+        }
+        for crate_name, version in sorted(detached_versions.items()):
+            if version != EXPECTED_COMPONENT_VERSION:
+                errors.append(
+                    "lockfile detached "
+                    f"{index}: versione RC inattesa per {crate_name}"
+                )
 
     return errors
 
@@ -512,6 +530,7 @@ def main() -> int:
         WORKSPACE_MANIFEST,
         WORKSPACE_LOCK,
         *WORKSPACE_CRATE_MANIFESTS,
+        *DETACHED_LOCKFILES,
         ROOT / "docs" / "assurance" / "RELEASE_CANDIDATE_SCOPE.md",
         ROOT / "docs" / "assurance" / "SYSTEM_RC_GATE.md",
         ROOT / "docs" / "assurance" / "WKB_EWKB_FUZZ_COORDINATION.md",
@@ -573,6 +592,7 @@ def main() -> int:
                     load_toml(WORKSPACE_MANIFEST),
                     [load_toml(path) for path in WORKSPACE_CRATE_MANIFESTS],
                     load_toml(WORKSPACE_LOCK),
+                    [load_toml(path) for path in DETACHED_LOCKFILES],
                 )
             )
         except (OSError, ValueError, json.JSONDecodeError) as error:

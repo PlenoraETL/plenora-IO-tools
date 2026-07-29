@@ -9,8 +9,10 @@ La release candidate del componente IO-tools usa la versione SemVer
 
 La versione è definita una sola volta in `[workspace.package]`; tutti i 16
 crate membri ereditano `version.workspace = true`. `Cargo.lock` registra la
-stessa versione per ogni package del workspace. Il gate di release controlla
-le tre rappresentazioni e rifiuta ogni divergenza.
+stessa versione per ogni package del workspace. Anche `fuzz/Cargo.lock` e
+`conformance/three-component-chain/Cargo.lock` registrano `0.1.0-rc.1` per i
+path dependency IO. Il gate di release controlla tutte le rappresentazioni e
+rifiuta ogni divergenza.
 
 I package `fuzz/` e `conformance/three-component-chain/` non appartengono al
 workspace distribuibile: sono harness di verifica con `publish = false` e
