@@ -23,7 +23,7 @@ EXPECTED_ICD_TAG = "v2.0-rc8"
 EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
 EXPECTED_IO_BASELINE = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068"
-EXPECTED_CANDIDATE_STATE = "technical_baseline_frozen_pending_independent_review"
+EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
 EXPECTED_CANDIDATE_CI_RUN = 30415766905
 EXPECTED_COVERAGE_ARTIFACT = {
     "id": 8710097703,
@@ -42,8 +42,20 @@ EXPECTED_FREEZE_SCOPE = {
     "frozen_on": "2026-07-29",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
-    "release_tag_authorized": False,
+    "release_tag_authorized": True,
     "assurance_promotion_authorized": False,
+}
+EXPECTED_RELEASE_DECISION = {
+    "authorized": True,
+    "scope": "component_rc",
+    "verification_claim": "verified_internally",
+    "independent_review_required": False,
+    "independent_review_status": "not_performed",
+    "independently_verified_claim_authorized": False,
+    "release_tag_created": False,
+    "decision_record": (
+        "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
+    ),
 }
 EXPECTED_FREEZE_DECISION = {
     "status": "technical_baseline_frozen",
@@ -145,6 +157,8 @@ def validate_documents(
         errors.append("contract-provenance: stato candidato inatteso")
     if provenance.get("freeze_scope") != EXPECTED_FREEZE_SCOPE:
         errors.append("contract-provenance: perimetro del freeze inatteso")
+    if provenance.get("release_decision") != EXPECTED_RELEASE_DECISION:
+        errors.append("contract-provenance: decisione release interna inattesa")
 
     if icd.get("tag") != EXPECTED_ICD_TAG:
         errors.append("contract-provenance: tag ICD inatteso")
@@ -255,24 +269,42 @@ def validate_documents(
     }:
         errors.append("shared corpus: revisioni dei producer inattese")
 
-    if freeze_readiness.get("status") != "frozen_with_open_assurance_gates":
-        errors.append("freeze readiness: stato del freeze tecnico inatteso")
+    if freeze_readiness.get("status") != "ready_for_component_rc_tag":
+        errors.append("freeze readiness: stato RC interno inatteso")
     if freeze_readiness.get("freeze_scope") != "technical_baseline_only":
         errors.append("freeze readiness: perimetro tecnico non dichiarato")
-    if freeze_readiness.get("release_authorized") is not False:
-        errors.append("freeze readiness: release autorizzata senza review")
+    if freeze_readiness.get("release_authorized") is not True:
+        errors.append("freeze readiness: RC verificata internamente non autorizzata")
     readiness_gates = freeze_readiness.get("gates", {})
-    if readiness_gates.get("candidate_revision_committed") is not True:
-        errors.append("freeze readiness: revisione candidata non registrata")
+    expected_gates = {
+        "candidate_code_complete",
+        "local_workspace_tests",
+        "local_safety_clippy",
+        "candidate_revision_committed",
+        "candidate_ci",
+        "technical_baseline_frozen",
+        "verification_claim_declared",
+        "component_scope_declared",
+        "release_decision_recorded",
+    }
+    if set(readiness_gates) != expected_gates:
+        errors.append("freeze readiness: insieme dei gate obbligatori inatteso")
+    for gate in expected_gates:
+        if readiness_gates.get(gate) is not True:
+            errors.append(f"freeze readiness: gate obbligatorio non soddisfatto: {gate}")
     if freeze_readiness.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("freeze readiness: SHA candidato inatteso")
-    if readiness_gates.get("candidate_ci") is not True:
-        errors.append("freeze readiness: CI candidata non registrata")
-    if readiness_gates.get("technical_baseline_frozen") is not True:
-        errors.append("freeze readiness: baseline tecnica non congelata")
-    for open_gate in ("independent_review", "release_tag"):
-        if readiness_gates.get(open_gate) is not False:
-            errors.append(f"freeze readiness: gate aperto non fail-closed: {open_gate}")
+    assurance_attributes = freeze_readiness.get("assurance_attributes", {})
+    if assurance_attributes != {
+        "verification_claim": "verified_internally",
+        "independent_review": False,
+        "independent_review_status": "pending_eligible_reviewer",
+        "independently_verified_claim_authorized": False,
+        "release_tag_created": False,
+    }:
+        errors.append("freeze readiness: attributi assurance inattesi")
+    if "independent_review" in readiness_gates:
+        errors.append("freeze readiness: independent_review non deve essere un gate RC")
 
     if evidence.get("status") != "technical_freeze_evidence":
         errors.append("evidence: stato del freeze tecnico inatteso")
@@ -285,9 +317,20 @@ def validate_documents(
     if evidence.get("independent_review_record") != {
         "path": "release/independent-review.json",
         "status": "pending_eligible_reviewer",
-        "independent_review_gate": False,
+        "blocks_component_rc_release": False,
     }:
         errors.append("evidence: riferimento alla review indipendente inatteso")
+    if evidence.get("release_decision") != {
+        "status": "authorized_as_verified_internally_component_rc",
+        "verification_claim": "verified_internally",
+        "independent_review": False,
+        "independently_verified_claim_authorized": False,
+        "release_tag_created": False,
+        "decision_record": (
+            "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
+        ),
+    }:
+        errors.append("evidence: decisione RC interna inattesa")
     candidate_ci = evidence.get("candidate_ci", {})
     if candidate_ci.get("head_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("evidence: revisione CI candidata inattesa")
@@ -345,11 +388,25 @@ def validate_documents(
     ):
         errors.append("independent review: campi obbligatori inattesi")
     if independent_review.get("release_effect") != {
-        "independent_review_gate": False,
-        "release_authorized": False,
+        "blocks_component_rc_release": False,
+        "component_rc_release_authorized": True,
+        "independently_verified_claim_authorized": False,
         "release_tag_created": False,
     }:
-        errors.append("independent review: effetto release non fail-closed")
+        errors.append("independent review: separazione da release interna inattesa")
+
+    verification_claim = (
+        provenance.get("release_decision", {}).get("verification_claim")
+    )
+    independent_review_complete = (
+        independent_review.get("status") == "completed"
+        and independent_review.get("outcome")
+        in {"pass", "pass_with_non_blocking_findings"}
+    )
+    if verification_claim == "verified_independently" and not independent_review_complete:
+        errors.append(
+            "assurance: claim verified_independently senza review completata"
+        )
 
     return errors
 
@@ -389,6 +446,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-29_INDEPENDENT_REVIEW_PACKET.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -421,8 +482,8 @@ def main() -> int:
 
     print(
         "Release contract gate passed "
-        "(technical baseline frozen; independent review and tag open; "
-        "system RC not claimed)."
+        "(component RC authorized as verified_internally; independent review "
+        "remains an open non-blocking attribute; system RC not claimed)."
     )
     return 0
 

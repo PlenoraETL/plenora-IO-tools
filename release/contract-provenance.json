@@ -4,15 +4,25 @@
   "release_kind": "component_rc",
   "freeze_status": "frozen",
   "implementation_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
-  "candidate_state": "technical_baseline_frozen_pending_independent_review",
+  "candidate_state": "component_rc_verified_internally",
   "freeze_scope": {
     "kind": "technical_baseline",
     "baseline_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
     "frozen_on": "2026-07-29",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
-    "release_tag_authorized": false,
+    "release_tag_authorized": true,
     "assurance_promotion_authorized": false
+  },
+  "release_decision": {
+    "authorized": true,
+    "scope": "component_rc",
+    "verification_claim": "verified_internally",
+    "independent_review_required": false,
+    "independent_review_status": "not_performed",
+    "independently_verified_claim_authorized": false,
+    "release_tag_created": false,
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
   },
   "wire_contract_version": 1,
   "icd": {

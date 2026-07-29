@@ -86,21 +86,28 @@ class ReleaseContractTests(unittest.TestCase):
         provenance["freeze_status"] = "pre_freeze"
         self.assertTrue(self.validate(provenance=provenance))
 
-    def test_rejects_release_promotion_while_review_is_open(self) -> None:
-        for field in ("release_authorized",):
-            readiness = copy.deepcopy(self.freeze_readiness)
-            readiness[field] = True
-            self.assertTrue(
-                self.validate(freeze_readiness=readiness),
-                field,
-            )
-        for gate in ("independent_review", "release_tag"):
-            readiness = copy.deepcopy(self.freeze_readiness)
-            readiness["gates"][gate] = True
-            self.assertTrue(
-                self.validate(freeze_readiness=readiness),
-                gate,
-            )
+    def test_allows_internal_component_rc_while_review_is_open(self) -> None:
+        self.assertTrue(self.freeze_readiness["release_authorized"])
+        self.assertFalse(
+            self.freeze_readiness["assurance_attributes"]["independent_review"]
+        )
+        self.assertNotIn("independent_review", self.freeze_readiness["gates"])
+        self.assertEqual(self.validate(), [])
+
+    def test_rejects_independent_claim_while_review_is_open(self) -> None:
+        provenance = copy.deepcopy(self.provenance)
+        provenance["release_decision"]["verification_claim"] = (
+            "verified_independently"
+        )
+        errors = self.validate(provenance=provenance)
+        self.assertTrue(
+            any("verified_independently senza review" in error for error in errors)
+        )
+
+    def test_rejects_independent_review_reintroduced_as_rc_gate(self) -> None:
+        readiness = copy.deepcopy(self.freeze_readiness)
+        readiness["gates"]["independent_review"] = False
+        self.assertTrue(self.validate(freeze_readiness=readiness))
 
     def test_rejects_incomplete_shared_corpus_schema(self) -> None:
         schema = copy.deepcopy(self.corpus_schema)

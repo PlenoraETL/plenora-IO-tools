@@ -2,6 +2,12 @@
 
 Data: 2026-07-29
 
+> Nota successiva: la decisione
+> [`CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md`](CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md)
+> ha separato anche l'autorizzazione della RC dalla review indipendente. Le
+> affermazioni sotto descrivono lo stato al momento del freeze; la review resta
+> necessaria solo per il claim `verified_independently`.
+
 ## Decisione
 
 La revisione

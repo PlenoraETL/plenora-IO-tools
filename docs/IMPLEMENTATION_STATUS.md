@@ -11,8 +11,10 @@ la wire version dall'ICD e registra le sezioni candidate e la deroga di
 emissione. Il gate della catena a tre componenti resta esplicitamente
 `not_satisfied`.
 La baseline tecnica `78c2d15` è congelata con claim
-`verified_internally`; revisione indipendente, autorizzazione di release e tag
-restano aperti e non vengono implicati dal freeze.
+`verified_internally`. La RC del componente è autorizzata con tale claim;
+la revisione indipendente resta aperta come attributo non bloccante e il tag
+non è ancora stato creato. Un claim `verified_independently` resta vietato
+finché la review non viene completata.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con

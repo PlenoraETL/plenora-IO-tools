@@ -95,7 +95,12 @@ Quando il record è completo:
 1. il gate verifica identità del candidato, campi obbligatori, coerenza dei
    rilievi ed esito;
 2. `independent_review` può diventare `true` soltanto con esito non bloccante;
-3. una CIA separata decide l'eventuale autorizzazione di release;
-4. il tag viene creato soltanto dopo una CI verde sul record completato.
+3. una review completata autorizza la promozione del claim a
+   `verified_independently`;
+4. la RC `verified_internally` e il suo tag seguono la decisione di release
+   separata e non dipendono dal completamento di questo record.
 
-Fino ad allora `release_authorized` e `release_tag` restano `false`.
+Fino ad allora `independent_review` e
+`independently_verified_claim_authorized` restano `false`. La decisione
+[`CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md`](CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md)
+autorizza separatamente la RC del componente come `verified_internally`.

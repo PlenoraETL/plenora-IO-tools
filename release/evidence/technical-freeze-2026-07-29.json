@@ -17,7 +17,15 @@
   "independent_review_record": {
     "path": "release/independent-review.json",
     "status": "pending_eligible_reviewer",
-    "independent_review_gate": false
+    "blocks_component_rc_release": false
+  },
+  "release_decision": {
+    "status": "authorized_as_verified_internally_component_rc",
+    "verification_claim": "verified_internally",
+    "independent_review": false,
+    "independently_verified_claim_authorized": false,
+    "release_tag_created": false,
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md"
   },
   "icd_revision": "62b12e3496466d2c908dac3cc098640b99b52e21",
   "component_revisions": {

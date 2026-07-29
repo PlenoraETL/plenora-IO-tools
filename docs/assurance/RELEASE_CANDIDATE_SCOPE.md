@@ -13,7 +13,9 @@ La revisione candidata del codice è
 congelata. Lo stato machine-readable è `frozen` in
 [`release/contract-provenance.json`](../../release/contract-provenance.json).
 Il freeze non crea un tag, non dichiara una revisione indipendente e non
-autorizza una promozione assurance. L'impatto è registrato nella
+autorizza da solo una promozione assurance. La successiva decisione di release
+autorizza una RC del componente con claim `verified_internally`, senza
+trasformare la review aperta in un blocco. L'impatto del freeze è registrato nella
 [`CIA dedicata`](CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md).
 
 ## Due versioni distinte
@@ -69,20 +71,26 @@ Il freeze tecnico della baseline è avvenuto dopo:
    senza trasformare evidenza locale in verifica indipendente.
 
 La baseline congelata non può essere sostituita in-place: qualunque modifica al
-codice genera un nuovo candidato e una nuova CIA. La promozione oltre
-`verified_internally` e la creazione del tag richiedono ancora:
+codice genera un nuovo candidato e una nuova CIA. La
+[`decisione di release interna`](CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md)
+separa i prerequisiti della RC dagli attributi di assurance: la review
+indipendente non è un gate per il freeze o per il tag di una RC dichiarata
+`verified_internally`.
 
-1. una revisione indipendente che registri revisore, revisione, rilievi ed
-   esito;
-2. l'esecuzione della campagna lunga coverage-guided con budget, toolchain e
-   retention dichiarati;
-3. una decisione di release separata con CIA e tag.
+Restano necessari:
+
+1. una CI verde sul commit che registra la decisione prima del tag;
+2. una revisione indipendente prima di promuovere il claim a
+   `verified_independently`;
+3. la campagna lunga coverage-guided e le altre evidenze aperte prima di
+   eventuali claim più forti.
 
 Lo stato corrente è machine-readable in
 [`release/freeze-readiness.json`](../../release/freeze-readiness.json):
-la baseline tecnica è congelata e la CI candidata `30415766905` è verde su
-Linux, Windows, macOS e coverage. `independent_review`, `release_authorized` e
-`release_tag` restano esplicitamente `false`.
+la baseline tecnica è congelata, la CI candidata `30415766905` è verde su
+Linux, Windows, macOS e coverage e la RC di componente è autorizzata come
+`verified_internally`. `independent_review` e `release_tag_created` restano
+esplicitamente `false`, ma soltanto la prima limita il livello del claim.
 
 Il materiale da consegnare al revisore è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record

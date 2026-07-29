@@ -42,8 +42,9 @@
     "outcome"
   ],
   "release_effect": {
-    "independent_review_gate": false,
-    "release_authorized": false,
+    "blocks_component_rc_release": false,
+    "component_rc_release_authorized": true,
+    "independently_verified_claim_authorized": false,
     "release_tag_created": false
   }
 }

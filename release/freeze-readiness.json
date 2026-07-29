@@ -1,10 +1,10 @@
 {
   "manifest_version": 1,
-  "status": "frozen_with_open_assurance_gates",
+  "status": "ready_for_component_rc_tag",
   "evaluated_on": "2026-07-29",
   "candidate_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
   "freeze_scope": "technical_baseline_only",
-  "release_authorized": false,
+  "release_authorized": true,
   "gates": {
     "candidate_code_complete": true,
     "local_workspace_tests": true,
@@ -12,8 +12,16 @@
     "candidate_revision_committed": true,
     "candidate_ci": true,
     "technical_baseline_frozen": true,
-    "independent_review": false,
-    "release_tag": false
+    "verification_claim_declared": true,
+    "component_scope_declared": true,
+    "release_decision_recorded": true
   },
-  "next_required_action": "Complete release/independent-review.json using docs/assurance/INDEPENDENT_REVIEW_PACKET.md before authorizing a release tag or any independently_verified claim."
+  "assurance_attributes": {
+    "verification_claim": "verified_internally",
+    "independent_review": false,
+    "independent_review_status": "pending_eligible_reviewer",
+    "independently_verified_claim_authorized": false,
+    "release_tag_created": false
+  },
+  "next_required_action": "Create the component RC tag after a green CI run on the release-decision commit. Independent review remains open and is required only before an independently_verified claim."
 }
