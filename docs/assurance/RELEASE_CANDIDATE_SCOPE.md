@@ -19,9 +19,9 @@ trasformare la review aperta in un blocco. L'impatto del freeze è registrato ne
 [`CIA dedicata`](CHANGE_IMPACT_2026-07-29_RC2_RELEASE_DECISION.md).
 
 La versione dei 16 crate del workspace è `0.1.0-rc.2`. Il tag omonimo è
-autorizzato ma non ancora creato: il record dichiara `pending_pre_tag_ci`.
-Il precedente `v0.1.0-rc.1` resta pubblicato, annotato, non firmato e
-immutabile.
+pubblicato come tag annotato non firmato, dopo la CI pre-tag `30444724398`
+verde sulla revisione `682e905`. Il precedente `v0.1.0-rc.1` resta
+pubblicato, annotato, non firmato e immutabile.
 
 ## Identificativi distinti
 
@@ -83,22 +83,20 @@ separa i prerequisiti della RC dagli attributi di assurance: la review
 indipendente non è un gate per il freeze o per il tag di una RC dichiarata
 `verified_internally`.
 
-Restano necessari:
+Restano necessari per claim successivi:
 
-1. una CI verde sul commit che registra la decisione rc.2;
-2. una CI verde sulla revisione pre-tag che allinea versione e manifesti;
-3. una revisione indipendente prima di promuovere il claim a
+1. una revisione indipendente prima di promuovere il claim a
    `verified_independently`;
-4. la campagna lunga coverage-guided e le altre evidenze aperte prima di
+2. la campagna lunga coverage-guided e le altre evidenze aperte prima di
    eventuali claim più forti.
 
 Lo stato corrente è machine-readable in
 [`release/freeze-readiness.json`](../../release/freeze-readiness.json):
 la baseline tecnica `179ad03` è congelata e la CI candidata `30442548998` è
 verde su Linux, Windows, macOS e coverage. `independent_review=false` limita
-soltanto il livello del claim; `release_tag_created=false` e
-`release_tag_status=pending_pre_tag_ci` impediscono di presentare il tag
-`v0.1.0-rc.2` come già pubblicato.
+soltanto il livello del claim; `release_tag_created=true` e
+`release_tag_status=created` registrano la pubblicazione del tag
+`v0.1.0-rc.2` senza promuovere il livello di assurance.
 
 Il materiale da consegnare al revisore è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record

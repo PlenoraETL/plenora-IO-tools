@@ -13,10 +13,10 @@ emissione. Il gate della catena a tre componenti resta esplicitamente
 La baseline tecnica candidata `179ad03` è congelata con claim
 `verified_internally` per `v0.1.0-rc.2`. La revisione indipendente resta aperta
 come attributo non bloccante; tutti i crate del workspace ereditano la versione
-`0.1.0-rc.2`. Il tag `v0.1.0-rc.2` non è ancora creato: serve prima una CI
-verde sulla revisione pre-tag committata. Il precedente tag annotato
-`v0.1.0-rc.1` resta immutabile. Un claim `verified_independently` resta vietato
-finché la review non viene completata.
+`0.1.0-rc.2`. La CI pre-tag `30444724398` è verde sulla revisione
+`682e905`; il tag annotato non firmato `v0.1.0-rc.2` è registrato come
+pubblicato. Il precedente tag annotato `v0.1.0-rc.1` resta immutabile. Un claim
+`verified_independently` resta vietato finché la review non viene completata.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
