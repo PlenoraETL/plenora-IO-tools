@@ -1,0 +1,324 @@
+{
+  "cases": [
+    {
+      "dialect": "wkb",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "point",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/point-xy-le.wkb",
+      "sha256": "10a39f36ce6fbfdb4ad86e3d96a0fcd00d2fe4ee71e8c5f889ed2b70932e9d7a"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "point",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/point-xy-be.wkb",
+      "sha256": "1c6d111bd26c729f2f4007317449df78682042d59918d1662cedec098f72c6d0"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "linestring",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/linestring-xy.wkb",
+      "sha256": "e90501d1913d283c98f20c657eb77e443199bef05d65773938606009a7287e75"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "polygon",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/polygon-xy.wkb",
+      "sha256": "604c0fcd0528beb4b3fe2844c54575594faa0d3594c30d3beb5a1137b30cfe56"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "multipoint",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/multipoint-xy.wkb",
+      "sha256": "636a6ec33fb3be9d940c99f806b230c89bf22c24b79e7f245fb3f99b0752db23"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "multilinestring",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/multilinestring-xy.wkb",
+      "sha256": "8e3745d696a30c824582d7eb04d70bac483a2fa1c7d1141c5de1078c6fbd2de6"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "multipolygon",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/multipolygon-xy.wkb",
+      "sha256": "deb7682df1a71ede2c2b3dd762315f0d973b8676a05a7790ad62bc6a93125333"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "geometrycollection",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/geometrycollection-xy.wkb",
+      "sha256": "ad96c4f6e6f651c99dd5c69c9596580a1610e323144b5992acd47a2162b7d619"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xyz",
+      "expectation": "accepted",
+      "geometry_type": "point",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/point-xyz-iso.wkb",
+      "sha256": "cd68065918493bebdbc13ab7d1e397a272deb599fa9ef7d48e2be06ceb0c128a"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xym",
+      "expectation": "accepted",
+      "geometry_type": "point",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/point-xym-iso.wkb",
+      "sha256": "ec74258e6f7b7455601a03318238ac35cb6adc1864e14c6250ac18be04575962"
+    },
+    {
+      "dialect": "wkb",
+      "dimensions": "xyzm",
+      "expectation": "accepted",
+      "geometry_type": "point",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/point-xyzm-iso.wkb",
+      "sha256": "602d45f7e2d78fd19fdbba2f7524a5c94ea19f9da31b9b9e56e6e94d31e88365"
+    },
+    {
+      "dialect": "ewkb",
+      "dimensions": "xyzm",
+      "expectation": "accepted",
+      "geometry_type": "point",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip",
+        "srid_coherence"
+      ],
+      "metadata_srid": 4326,
+      "path": "cases/point-xyzm-ewkb-srid-4326.wkb",
+      "sha256": "281dccf9aac0e4265e3c5c4908cee972787cbdbdd5ba2854cf5d3ba5551bec00",
+      "srid": 4326
+    },
+    {
+      "dialect": "either",
+      "dimensions": "xy",
+      "expectation": "accepted",
+      "geometry_type": "linestring",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits",
+        "roundtrip"
+      ],
+      "path": "cases/empty-linestring.wkb",
+      "sha256": "76be601065f3569392b6737387eb10ae72031aaec89efa40513025627f1f9a42"
+    },
+    {
+      "dialect": "either",
+      "dimensions": "xy",
+      "expectation": "implementation_defined",
+      "geometry_type": "circularstring",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits"
+      ],
+      "known_difference": {
+        "classification": "intentional_capability_difference",
+        "dimension": "acceptance",
+        "reason": "database-tools supports extended EWKB curves; IO-tools supports the seven simple WKB types and rejects the rest"
+      },
+      "path": "cases/circularstring-capability-difference.wkb",
+      "sha256": "f21ef4c3301005a2442a45e1046517e97dce81a7a5e2ee48fd5e0114c275eb9f"
+    },
+    {
+      "dialect": "invalid",
+      "expectation": "rejected",
+      "expected_error_category": "data_mapping",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits"
+      ],
+      "path": "cases/invalid-trailing-byte.wkb",
+      "sha256": "a891e8ea1ae16b22a70ad985a5ba463755327c254ca1aabab8b21d8a23cb79db"
+    },
+    {
+      "dialect": "invalid",
+      "expectation": "rejected",
+      "expected_error_category": "data_mapping",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits"
+      ],
+      "path": "cases/invalid-truncated-point.wkb",
+      "sha256": "066b2207f085308050ad1c8a73a35155418b0492d01ab4b9742edb616c00dd29"
+    },
+    {
+      "dialect": "invalid",
+      "expectation": "rejected",
+      "expected_error_category": "data_mapping",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits"
+      ],
+      "path": "cases/invalid-byte-order.wkb",
+      "sha256": "c917c62f31841abfdabe15c67d334666be44a5cf1b1abdc41cbdd9667df19284"
+    },
+    {
+      "dialect": "invalid",
+      "expectation": "rejected",
+      "expected_error_category": "resource_limit",
+      "invariants": [
+        "no_panic",
+        "full_consumption",
+        "bounded_components",
+        "bounded_depth",
+        "checked_arithmetic",
+        "stable_with_looser_limits"
+      ],
+      "known_difference": {
+        "classification": "ambiguous_or_noncanonical_input",
+        "dimension": "error_category",
+        "reason": "the payload simultaneously exceeds the component budget and is truncated; category precedence is not defined by the ICD"
+      },
+      "path": "cases/invalid-linestring-count-bomb.wkb",
+      "sha256": "40b7af4b3d47ee0a777a75f13aca3ae5b548f2b2202c34358f865db23467b760"
+    }
+  ],
+  "corpus_id": "plenora-wkb-ewkb-cross-repository-v1",
+  "icd": {
+    "revision": "62b12e3496466d2c908dac3cc098640b99b52e21",
+    "tag": "v2.0-rc8"
+  },
+  "producer_revisions": {
+    "plenora-IO-tools": "1c37fb5d525647b264ce977e26fc07b346bb7914",
+    "plenora-database-tools": "ef18e80c798126f872fd366c36ee96a029598958"
+  },
+  "schema_version": 1
+}

@@ -1021,7 +1021,7 @@ mod tests {
         let mut geometry_contract =
             GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
         geometry_contract.dimensions = CoordinateDimensions::Xyz;
-        geometry_contract.geometry_types = vec![GeometryType::Point];
+        geometry_contract.set_exact_geometry_types(vec![GeometryType::Point]);
         let schema: SchemaRef = Arc::new(Schema::new(vec![
             with_geometry_contract_metadata(
                 &geometry_field(GEOMETRY, OGC_CRS84),

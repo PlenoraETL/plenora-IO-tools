@@ -60,6 +60,15 @@ pub enum GeometryType {
     MultiLineString,
     MultiPolygon,
     GeometryCollection,
+    CircularString,
+    CompoundCurve,
+    CurvePolygon,
+    MultiCurve,
+    MultiSurface,
+    PolyhedralSurface,
+    Tin,
+    Triangle,
+    Unknown,
 }
 
 impl GeometryType {
@@ -73,6 +82,15 @@ impl GeometryType {
             Self::MultiLineString => "multilinestring",
             Self::MultiPolygon => "multipolygon",
             Self::GeometryCollection => "geometrycollection",
+            Self::CircularString => "circularstring",
+            Self::CompoundCurve => "compoundcurve",
+            Self::CurvePolygon => "curvepolygon",
+            Self::MultiCurve => "multicurve",
+            Self::MultiSurface => "multisurface",
+            Self::PolyhedralSurface => "polyhedralsurface",
+            Self::Tin => "tin",
+            Self::Triangle => "triangle",
+            Self::Unknown => "unknown",
         }
     }
 
@@ -86,6 +104,15 @@ impl GeometryType {
             "multilinestring" => Some(Self::MultiLineString),
             "multipolygon" => Some(Self::MultiPolygon),
             "geometrycollection" => Some(Self::GeometryCollection),
+            "circularstring" => Some(Self::CircularString),
+            "compoundcurve" => Some(Self::CompoundCurve),
+            "curvepolygon" => Some(Self::CurvePolygon),
+            "multicurve" => Some(Self::MultiCurve),
+            "multisurface" => Some(Self::MultiSurface),
+            "polyhedralsurface" => Some(Self::PolyhedralSurface),
+            "tin" => Some(Self::Tin),
+            "triangle" => Some(Self::Triangle),
+            "unknown" => Some(Self::Unknown),
             _ => None,
         }
     }
@@ -237,11 +264,20 @@ mod tests {
             GeometryType::MultiLineString,
             GeometryType::MultiPolygon,
             GeometryType::GeometryCollection,
+            GeometryType::CircularString,
+            GeometryType::CompoundCurve,
+            GeometryType::CurvePolygon,
+            GeometryType::MultiCurve,
+            GeometryType::MultiSurface,
+            GeometryType::PolyhedralSurface,
+            GeometryType::Tin,
+            GeometryType::Triangle,
+            GeometryType::Unknown,
         ];
 
         assert_eq!(
             serde_json::to_string(&values).unwrap(),
-            r#"["point","linestring","polygon","multipoint","multilinestring","multipolygon","geometrycollection"]"#
+            r#"["point","linestring","polygon","multipoint","multilinestring","multipolygon","geometrycollection","circularstring","compoundcurve","curvepolygon","multicurve","multisurface","polyhedralsurface","tin","triangle","unknown"]"#
         );
         for value in values {
             assert_eq!(

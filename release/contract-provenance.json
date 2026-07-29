@@ -3,7 +3,8 @@
   "component": "plenora-IO-tools",
   "release_kind": "component_rc",
   "freeze_status": "pre_freeze",
-  "implementation_revision": "59369fdfb6dbb5d1d7c97a29865ca39ae21c6f76",
+  "implementation_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
+  "candidate_worktree": "uncommitted_eight_point_completion",
   "wire_contract_version": 1,
   "icd": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
@@ -56,10 +57,20 @@
     "avionic_certification": false
   },
   "fuzz_coordination": {
-    "state": "protocol_defined_campaign_not_started",
-    "io_tools_revision": "59369fdfb6dbb5d1d7c97a29865ca39ae21c6f76",
-    "database_tools_branch": "assurance/ewkb-fuzzing",
-    "database_tools_revision": "834fff4fbe0c62cc2f02278073e58b0cf2159f8d",
+    "state": "deterministic_cross_replay_passed_long_campaign_pending",
+    "io_tools_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
+    "database_tools_revision": "ef18e80c798126f872fd366c36ee96a029598958",
+    "corpus_id": "plenora-wkb-ewkb-cross-repository-v1",
+    "corpus_cases": 18,
+    "cross_replay_status": "pass",
+    "classified_differences": 2,
+    "unclassified_differences": 0,
+    "bounded_smoke": {
+      "seed": 20260728,
+      "duration_seconds": 60,
+      "iterations": 68740000,
+      "findings": 0
+    },
     "future_corpus_owner": "plenora-contracts",
     "protocol": "docs/assurance/WKB_EWKB_FUZZ_COORDINATION.md"
   }

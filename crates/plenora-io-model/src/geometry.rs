@@ -16,6 +16,7 @@ pub const ARROW_EXTENSION_NAME_KEY: &str = "ARROW:extension:name";
 pub const GEO_METADATA_KEY: &str = "geo";
 /// Chiave `crs` (PROJJSON) dentro il metadato `geo`.
 pub const GEO_CRS_KEY: &str = "crs";
+pub const PLENORA_FIELD_ID_KEY: &str = "plenora.field_id";
 pub const PLENORA_ENCODING_KEY: &str = "plenora.geometry.encoding";
 pub const PLENORA_DIMENSIONS_KEY: &str = "plenora.geometry.dimensions";
 pub const PLENORA_SPATIAL_SEMANTICS_KEY: &str = "plenora.geometry.spatial_semantics";
@@ -103,6 +104,10 @@ pub fn with_geometry_contract_metadata(
     contract: &GeometryColumnContract,
 ) -> arrow_schema::Field {
     let mut metadata = field.metadata().clone();
+    metadata.insert(
+        PLENORA_FIELD_ID_KEY.to_owned(),
+        contract.field_id.0.to_string(),
+    );
     metadata.insert(
         PLENORA_ENCODING_KEY.to_owned(),
         match contract.encoding {
@@ -257,6 +262,13 @@ pub fn read_geometry_contract_metadata(
     let mut parsed = contract.clone();
     let mut presence = GeometryMetadataPresence::default();
 
+    if let Some(value) = metadata.get(PLENORA_FIELD_ID_KEY) {
+        parsed.field_id = crate::contract::FieldId(
+            value
+                .parse()
+                .map_err(|_| invalid_metadata(field, PLENORA_FIELD_ID_KEY))?,
+        );
+    }
     if let Some(value) = metadata.get(PLENORA_ENCODING_KEY) {
         parsed.encoding = match value.as_str() {
             "wkb" => GeometryEncoding::Wkb,
@@ -477,6 +489,7 @@ mod tests {
     #[test]
     fn invalid_srid_and_geometry_types_are_rejected() {
         for field in [
+            field_with(PLENORA_FIELD_ID_KEY, "not-a-u32"),
             field_with(PLENORA_SRID_KEY, "not-an-i32"),
             field_with(PLENORA_GEOMETRY_TYPES_KEY, "point,futuregeometry"),
             field_with(PLENORA_GEOMETRY_TYPES_KEY, "point,point"),
@@ -522,7 +535,7 @@ mod tests {
     #[test]
     fn emits_and_reads_complete_crs_and_type_contract() {
         let mut geometry = GeometryColumnContract::wkb_xy(
-            FieldId(0),
+            FieldId(17),
             "geometry",
             ResolvedCrs::new(
                 Some("EPSG:4326".to_owned()),
@@ -538,6 +551,10 @@ mod tests {
             &geometry,
         );
         let metadata = field.metadata();
+        assert_eq!(
+            metadata.get(PLENORA_FIELD_ID_KEY).map(String::as_str),
+            Some("17")
+        );
         assert_eq!(
             metadata.get(PLENORA_CRS_ID_KEY).map(String::as_str),
             Some("EPSG:4326")
@@ -565,6 +582,7 @@ mod tests {
 
         let mut decoded = contract();
         read_geometry_contract_metadata(&field, &mut decoded).unwrap();
+        assert_eq!(decoded.field_id, FieldId(17));
         assert_eq!(decoded.crs, geometry.crs);
         assert_eq!(decoded.types_declaration, TypesDeclaration::Exact);
     }

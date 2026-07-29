@@ -984,15 +984,19 @@ fn geometry_field(schema: &Schema) -> Result<(usize, String, Option<String>)> {
     ))
 }
 
-fn geometry_type_name(geometry_type: GeometryType) -> &'static str {
+fn geometry_type_name(geometry_type: GeometryType) -> Result<&'static str> {
     match geometry_type {
-        GeometryType::Point => "Point",
-        GeometryType::LineString => "LineString",
-        GeometryType::Polygon => "Polygon",
-        GeometryType::MultiPoint => "MultiPoint",
-        GeometryType::MultiLineString => "MultiLineString",
-        GeometryType::MultiPolygon => "MultiPolygon",
-        GeometryType::GeometryCollection => "GeometryCollection",
+        GeometryType::Point => Ok("Point"),
+        GeometryType::LineString => Ok("LineString"),
+        GeometryType::Polygon => Ok("Polygon"),
+        GeometryType::MultiPoint => Ok("MultiPoint"),
+        GeometryType::MultiLineString => Ok("MultiLineString"),
+        GeometryType::MultiPolygon => Ok("MultiPolygon"),
+        GeometryType::GeometryCollection => Ok("GeometryCollection"),
+        other => Err(fmt_err(format!(
+            "tipo geometrico {} non supportato dal profilo GeoParquet corrente",
+            other.canonical_name()
+        ))),
     }
 }
 
@@ -1007,7 +1011,7 @@ fn geometry_type_label(bytes: &[u8], limits: &WkbLimits) -> Result<String> {
     };
     Ok(format!(
         "{}{suffix}",
-        geometry_type_name(geometry.geometry_type())
+        geometry_type_name(geometry.geometry_type())?
     ))
 }
 
@@ -1256,7 +1260,7 @@ mod tests {
             true,
         );
         geometry.dimensions = CoordinateDimensions::Xyz;
-        geometry.geometry_types = vec![GeometryType::Point];
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
         let plan = WritePlan {
             layers: vec![WriteLayer {
                 name: "z".to_owned(),

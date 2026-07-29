@@ -245,6 +245,96 @@ fn export_corpus(root: &Path) {
     );
 }
 
+fn replay_shared_corpus(root: &Path) -> Result<serde_json::Value, String> {
+    let manifest_path = root.join("manifest.json");
+    let manifest_text = std::fs::read_to_string(&manifest_path)
+        .map_err(|error| format!("lettura {}: {error}", manifest_path.display()))?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_text)
+        .map_err(|error| format!("manifest condiviso non valido: {error}"))?;
+    let cases = manifest
+        .get("cases")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "manifest condiviso senza cases array".to_owned())?;
+    let limits = WkbLimits::default();
+    let mut observations = Vec::with_capacity(cases.len());
+    let mut failures = Vec::new();
+
+    for case in cases {
+        let path = case
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "caso senza path".to_owned())?;
+        let expectation = case
+            .get("expectation")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| format!("{path}: expectation assente"))?;
+        let payload_path = root.join(path);
+        let payload = std::fs::read(&payload_path)
+            .map_err(|error| format!("lettura {}: {error}", payload_path.display()))?;
+        match inspect_wkb(&payload, &limits) {
+            Ok(inspection) => {
+                let geometry_type = inspection.geometry_type.canonical_name();
+                let dimensions = serde_json::to_value(inspection.dimensions)
+                    .map_err(|error| format!("{path}: dimensioni non serializzabili: {error}"))?;
+                let dimensions = dimensions
+                    .as_str()
+                    .ok_or_else(|| format!("{path}: dimensioni non stringa"))?;
+                if expectation == "rejected" {
+                    failures.push(format!("{path}: accettato ma atteso rejected"));
+                }
+                if expectation == "accepted" {
+                    if case
+                        .get("geometry_type")
+                        .and_then(serde_json::Value::as_str)
+                        != Some(geometry_type)
+                    {
+                        failures.push(format!("{path}: geometry_type divergente"));
+                    }
+                    if case.get("dimensions").and_then(serde_json::Value::as_str)
+                        != Some(dimensions)
+                    {
+                        failures.push(format!("{path}: dimensions divergenti"));
+                    }
+                    if case.get("srid").and_then(serde_json::Value::as_i64)
+                        != inspection.srid.map(i64::from)
+                    {
+                        failures.push(format!("{path}: SRID divergente"));
+                    }
+                }
+                observations.push(serde_json::json!({
+                    "path": path,
+                    "accepted": true,
+                    "geometry_type": geometry_type,
+                    "dimensions": dimensions,
+                    "srid": inspection.srid,
+                    "nested_dimensions_coherent": inspection.nested_dimensions_coherent,
+                    "contains_srid": inspection.contains_srid,
+                }));
+            }
+            Err(error) => {
+                if expectation == "accepted" {
+                    failures.push(format!("{path}: rifiutato ma atteso accepted"));
+                }
+                observations.push(serde_json::json!({
+                    "path": path,
+                    "accepted": false,
+                    "error_category": error.category,
+                    "error_code": error.code,
+                }));
+            }
+        }
+    }
+
+    if !failures.is_empty() {
+        return Err(failures.join("\n"));
+    }
+    Ok(serde_json::json!({
+        "component": "plenora-IO-tools",
+        "revision": option_env!("GIT_COMMIT"),
+        "cases": observations,
+    }))
+}
+
 // --- mutazione di byte -----------------------------------------------------
 
 fn mutate(rng: &mut Rng, seed: &[u8]) -> Vec<u8> {
@@ -609,6 +699,36 @@ fn main() {
         export_corpus(&root);
         return;
     }
+    if args.get(1).map(String::as_str) == Some("--replay-shared-corpus") {
+        let root = match args.get(2) {
+            Some(path) => PathBuf::from(path),
+            None => PathBuf::from("/work/fuzz/shared-corpus"),
+        };
+        match replay_shared_corpus(&root) {
+            Ok(report) => {
+                let encoded = match serde_json::to_string_pretty(&report) {
+                    Ok(encoded) => encoded,
+                    Err(error) => {
+                        eprintln!("serializzazione report corpus fallita: {error}");
+                        std::process::exit(1);
+                    }
+                };
+                if let Some(output) = args.get(3).map(PathBuf::from) {
+                    if let Err(error) = std::fs::write(&output, format!("{encoded}\n")) {
+                        eprintln!("scrittura {} fallita: {error}", output.display());
+                        std::process::exit(1);
+                    }
+                } else {
+                    println!("{encoded}");
+                }
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if let Some(path) = args.get(1) {
         replay(path);
         return;
@@ -758,5 +878,18 @@ fn report(
         *findings += 1;
         save(out, target, input, why);
         eprintln!("[FINDING {target}] {why}");
+    }
+}
+
+#[cfg(test)]
+mod shared_corpus_tests {
+    use super::*;
+
+    #[test]
+    fn checked_in_shared_corpus_matches_io_codec() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/shared-corpus");
+        if let Err(error) = replay_shared_corpus(&root) {
+            panic!("replay corpus condiviso fallito: {error}");
+        }
     }
 }

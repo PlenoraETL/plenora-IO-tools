@@ -258,6 +258,19 @@ pub fn validate_write(
                     "il formato richiede un solo tipo geometrico",
                 ));
             }
+            let unique_geometry_types = geometry
+                .geometry_types
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>();
+            if unique_geometry_types.len() != geometry.geometry_types.len() {
+                return Err(violation(
+                    driver,
+                    Some(&geometry.name),
+                    CapabilityReason::MixedGeometry,
+                    "il contratto geometrico contiene tipi duplicati",
+                ));
+            }
             let restricts_geometry_types = caps.geometry.geometry_types.len()
                 != ALL_GEOMETRY_TYPES.len()
                 || !ALL_GEOMETRY_TYPES
@@ -289,19 +302,6 @@ pub fn validate_write(
                     format!("tipo geometrico {unsupported:?} non supportato"),
                 ));
             }
-            let unique_geometry_types = geometry
-                .geometry_types
-                .iter()
-                .copied()
-                .collect::<BTreeSet<_>>();
-            if unique_geometry_types.len() != geometry.geometry_types.len() {
-                return Err(violation(
-                    driver,
-                    Some(&geometry.name),
-                    CapabilityReason::MixedGeometry,
-                    "il contratto geometrico contiene tipi duplicati",
-                ));
-            }
             match caps.crs {
                 CrsWriteSupport::Embedded if geometry.resolved_crs().is_none() => {
                     return Err(violation(
@@ -319,7 +319,10 @@ pub fn validate_write(
                         format!("richiesto {expected}, ricevuto {:?}", geometry.crs.id()),
                     ))
                 }
-                CrsWriteSupport::Embedded | CrsWriteSupport::Fixed(_) | CrsWriteSupport::None => {}
+                CrsWriteSupport::Embedded
+                | CrsWriteSupport::EmbeddedOptional
+                | CrsWriteSupport::Fixed(_)
+                | CrsWriteSupport::None => {}
             }
         }
     }
@@ -402,12 +405,13 @@ mod tests {
 
     #[test]
     fn fixed_crs_requires_explicit_reprojection() {
-        let geometry = GeometryColumnContract::wkb_xy(
+        let mut geometry = GeometryColumnContract::wkb_xy(
             FieldId(0),
             "geom",
             ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
             true,
         );
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
         let p = plan(
             vec![Field::new("geom", DataType::Binary, true)],
             Some(geometry),

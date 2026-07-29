@@ -9,17 +9,17 @@
   "components": [
     {
       "name": "plenora-IO-tools",
-      "revision": "59369fdfb6dbb5d1d7c97a29865ca39ae21c6f76",
+      "revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
       "role": "file_boundary"
     },
     {
       "name": "plenora-data-tools",
-      "revision": "40771dec2426ba79dc777b2243a6a16bd4a3072d",
+      "revision": "97e48ba469f9f55a2cc83e9598d72899c29e2be6",
       "role": "transformation_core"
     },
     {
       "name": "plenora-database-tools",
-      "revision": "834fff4fbe0c62cc2f02278073e58b0cf2159f8d",
+      "revision": "2588523bf6a4ad57e62ae3d44e9f58025c55a913",
       "role": "database_boundary"
     }
   ],
@@ -39,6 +39,7 @@
   ],
   "required_properties": [
     "contract_version",
+    "field_id",
     "types_declaration",
     "geometry_types",
     "dimensions",
@@ -53,6 +54,18 @@
     "axis_order",
     "native_metadata"
   ],
+  "evidence": {
+    "io_to_data_to_database": {
+      "status": "partial",
+      "fixture": "exact_point_xyz_resolved_crs",
+      "platform": "linux_x86_64",
+      "result": "pass",
+      "harness": "scripts/run_three_component_chain.py"
+    },
+    "database_to_data_to_io": {
+      "status": "not_run"
+    }
+  },
   "pass_conditions": [
     "All three revisions and the ICD revision are immutable and recorded.",
     "Identity-preserving operations preserve every required property byte-for-byte.",
@@ -62,8 +75,9 @@
     "The evidence bundle includes commands, environment, fixture hashes and results."
   ],
   "open_blockers": [
-    "No cross-repository executable harness currently exercises the complete three-component chain.",
-    "The data-tools propagation milestones have not yet supplied evidence for every required fixture.",
+    "Only one exact Point XYZ fixture has passed in the IO-to-data-to-database direction.",
+    "The reverse database-to-data-to-IO direction has not been executed.",
+    "The remaining fixture matrix and native Windows execution are not covered.",
     "The candidate ICD sections used by the wire contract are not all ratified."
   ]
 }

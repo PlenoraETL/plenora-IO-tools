@@ -1002,7 +1002,7 @@ mod tests {
     use super::*;
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
-    use plenora_io_model::contract::CoordinateDimensions;
+    use plenora_io_model::contract::{CoordinateDimensions, GeometryType};
     use plenora_io_model::wkb::{from_wkb, WkbCoordinate, WkbValue};
 
     fn read_all(driver: &GeoJsonDriver, path: &Path) -> (RecordBatch, LayerContract) {
@@ -1062,10 +1062,16 @@ mod tests {
 
         // scrivi verso GeoJSON e rileggi
         let out = dir.path().join("out.geojson");
+        let mut output_contract = layer.contract.clone();
+        output_contract
+            .geometry
+            .as_mut()
+            .unwrap()
+            .set_exact_geometry_types(vec![GeometryType::Point, GeometryType::LineString]);
         let plan = WritePlan {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
-                contract: layer.contract.clone(),
+                contract: output_contract,
             }],
         };
         let mut w = driver
@@ -1246,10 +1252,16 @@ mod tests {
 
         // Scrittura: WKB→JSON diretto; rileggendo la geometria deve sopravvivere.
         let out = dir.path().join("poly-out.geojson");
+        let mut output_contract = layer.contract.clone();
+        output_contract
+            .geometry
+            .as_mut()
+            .unwrap()
+            .set_exact_geometry_types(vec![GeometryType::Polygon, GeometryType::MultiPolygon]);
         let plan = WritePlan {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
-                contract: layer.contract.clone(),
+                contract: output_contract,
             }],
         };
         let mut w = driver
@@ -1309,10 +1321,16 @@ mod tests {
             })
         ));
 
+        let mut output_contract = layer.contract;
+        output_contract
+            .geometry
+            .as_mut()
+            .unwrap()
+            .set_exact_geometry_types(vec![GeometryType::Point]);
         let plan = WritePlan {
             layers: vec![WriteLayer {
                 name: "xyz".to_owned(),
-                contract: layer.contract,
+                contract: output_contract,
             }],
         };
         let mut writer = driver

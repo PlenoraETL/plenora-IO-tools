@@ -625,7 +625,7 @@ mod tests {
         let mut geometry_contract =
             GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
         geometry_contract.dimensions = CoordinateDimensions::Xym;
-        geometry_contract.geometry_types = vec![GeometryType::MultiLineString];
+        geometry_contract.set_exact_geometry_types(vec![GeometryType::MultiLineString]);
         let schema: SchemaRef = Arc::new(Schema::new(vec![
             with_geometry_contract_metadata(
                 &geometry_field(GEOMETRY, "EPSG:4326"),

@@ -472,6 +472,14 @@ mod backend {
                 CapabilityReason::GeometryNotSupported,
                 "GeometryCollection non rappresentabile nel profilo FileGDB corrente",
             )),
+            (unsupported, _) => Err(geometry_capability(
+                &geometry.name,
+                CapabilityReason::GeometryNotSupported,
+                format!(
+                    "tipo geometrico {} non rappresentabile nel profilo FileGDB corrente",
+                    unsupported.canonical_name()
+                ),
+            )),
         }
     }
 
@@ -1575,6 +1583,87 @@ mod backend {
             ));
             drop(first);
             assert!(dataset.open_layer_reader(&read_request()).is_ok());
+        }
+
+        #[test]
+        fn repeated_filegdb_writes_are_semantically_deterministic() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = [
+                dir.path().join("determinism-a.gdb"),
+                dir.path().join("determinism-b.gdb"),
+            ];
+            let wkb = encode_wkb(
+                &WkbGeometry {
+                    value: WkbValue::Point(WkbCoordinate {
+                        x: 1_113_194.0,
+                        y: 5_621_521.0,
+                        z: None,
+                        m: None,
+                    }),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                },
+                WkbFlavor::Iso,
+            )
+            .unwrap();
+            let schema: SchemaRef =
+                Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:3857")]));
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
+            let mut geometry = GeometryColumnContract::wkb_xy(
+                FieldId(0),
+                GEOMETRY,
+                ResolvedCrs::new(Some("EPSG:3857".to_owned()), CrsKind::Projected, None),
+                true,
+            );
+            geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "points".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: Some(geometry),
+                    },
+                }],
+            };
+            let driver = super::super::FileGdbDriver;
+            for path in &paths {
+                let mut writer = driver
+                    .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                    .unwrap();
+                writer.write(&batch).unwrap();
+                writer.finish().unwrap();
+            }
+
+            let semantic_signature = |path: &Path| {
+                let dataset = driver
+                    .open(Source::Path(path.to_owned()), &ReadOptions::default())
+                    .unwrap();
+                let layer = &dataset.layers()[0];
+                let geometry = layer.contract.geometry.as_ref().unwrap();
+                let contract_signature = (
+                    layer.name.clone(),
+                    geometry.dimensions,
+                    geometry.geometry_types.clone(),
+                    geometry.crs.id().map(str::to_owned),
+                    geometry.resolved_crs().map(|crs| crs.axis_order).unwrap(),
+                );
+                let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
+                let batch = reader.next_batch().unwrap().unwrap();
+                assert!(reader.next_batch().unwrap().is_none());
+                let values = batch
+                    .column(0)
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .unwrap();
+                let decoded = decode_wkb(values.value(0), &WkbLimits::default()).unwrap();
+                (contract_signature, decoded)
+            };
+
+            assert_eq!(semantic_signature(&paths[0]), semantic_signature(&paths[1]));
         }
 
         #[test]

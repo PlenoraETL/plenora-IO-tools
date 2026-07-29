@@ -13,11 +13,21 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 PROVENANCE = ROOT / "release" / "contract-provenance.json"
 SYSTEM_GATE = ROOT / "release" / "system-rc-gate.json"
+FREEZE_READINESS = ROOT / "release" / "freeze-readiness.json"
+EVIDENCE = ROOT / "release" / "evidence" / "pre-freeze-2026-07-28.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
+CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
 EXPECTED_ICD_TAG = "v2.0-rc8"
 EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
-EXPECTED_DATABASE_REVISION = "834fff4fbe0c62cc2f02278073e58b0cf2159f8d"
+EXPECTED_IO_BASELINE = "1c37fb5d525647b264ce977e26fc07b346bb7914"
+EXPECTED_DATABASE_REPLAY_REVISION = "ef18e80c798126f872fd366c36ee96a029598958"
+EXPECTED_SYSTEM_REVISIONS = {
+    "plenora-IO-tools": EXPECTED_IO_BASELINE,
+    "plenora-data-tools": "97e48ba469f9f55a2cc83e9598d72899c29e2be6",
+    "plenora-database-tools": "2588523bf6a4ad57e62ae3d44e9f58025c55a913",
+}
+EXPECTED_FUZZ_STATE = "deterministic_cross_replay_passed_long_campaign_pending"
 REQUIRED_CANDIDATE_SECTIONS = {
     "§2",
     "§3.4/R3.4.1",
@@ -41,7 +51,10 @@ def load_json(path: Path) -> dict[str, Any]:
 def validate_documents(
     provenance: dict[str, Any],
     system_gate: dict[str, Any],
+    freeze_readiness: dict[str, Any],
+    evidence: dict[str, Any],
     corpus_schema: dict[str, Any],
+    corpus_manifest: dict[str, Any],
     geometry_source: str,
 ) -> list[str]:
     errors: list[str] = []
@@ -59,6 +72,10 @@ def validate_documents(
         errors.append("contract-provenance: freeze_status non valido")
     if not SHA.fullmatch(str(provenance.get("implementation_revision", ""))):
         errors.append("contract-provenance: implementation_revision non è uno SHA completo")
+    elif provenance.get("implementation_revision") != EXPECTED_IO_BASELINE:
+        errors.append("contract-provenance: baseline IO inattesa")
+    if provenance.get("candidate_worktree") != "uncommitted_eight_point_completion":
+        errors.append("contract-provenance: worktree candidato non dichiarato")
 
     if icd.get("tag") != EXPECTED_ICD_TAG:
         errors.append("contract-provenance: tag ICD inatteso")
@@ -101,10 +118,16 @@ def validate_documents(
     }:
         errors.append("contract-provenance: claims RC/sistema/avionica non fail-closed")
 
-    if fuzz.get("state") != "protocol_defined_campaign_not_started":
-        errors.append("contract-provenance: campagna condivisa non deve risultare avviata")
-    if fuzz.get("database_tools_revision") != EXPECTED_DATABASE_REVISION:
+    if fuzz.get("state") != EXPECTED_FUZZ_STATE:
+        errors.append("contract-provenance: stato fuzz coordinato inatteso")
+    if fuzz.get("io_tools_revision") != EXPECTED_IO_BASELINE:
+        errors.append("contract-provenance: revisione IO-tools fuzz inattesa")
+    if fuzz.get("database_tools_revision") != EXPECTED_DATABASE_REPLAY_REVISION:
         errors.append("contract-provenance: revisione database-tools fuzz inattesa")
+    if fuzz.get("corpus_cases") != 18 or fuzz.get("cross_replay_status") != "pass":
+        errors.append("contract-provenance: replay dei 18 casi non registrato come pass")
+    if fuzz.get("unclassified_differences") != 0:
+        errors.append("contract-provenance: divergenze fuzz non classificate")
 
     version_match = WIRE_VERSION.search(geometry_source)
     if version_match is None:
@@ -122,17 +145,12 @@ def validate_documents(
     if gate_icd.get("revision") != EXPECTED_ICD_REVISION:
         errors.append("system-rc-gate: revisione ICD diversa dalla provenienza")
 
-    component_names = {
-        component.get("name")
+    component_revisions = {
+        component.get("name"): component.get("revision")
         for component in system_gate.get("components", [])
         if isinstance(component, dict) and SHA.fullmatch(str(component.get("revision", "")))
     }
-    expected_components = {
-        "plenora-IO-tools",
-        "plenora-data-tools",
-        "plenora-database-tools",
-    }
-    if component_names != expected_components:
+    if component_revisions != EXPECTED_SYSTEM_REVISIONS:
         errors.append("system-rc-gate: revisioni complete dei tre componenti richieste")
     if not system_gate.get("open_blockers"):
         errors.append("system-rc-gate: stato aperto senza blocker dichiarati")
@@ -149,12 +167,49 @@ def validate_documents(
         "dialect",
         "expectation",
         "expected_error_category",
+        "known_difference",
         "invariants",
     ):
         if required_property not in case_properties:
             errors.append(
                 f"shared corpus: proprietà caso assente: {required_property}"
             )
+
+    if corpus_manifest.get("corpus_id") != fuzz.get("corpus_id"):
+        errors.append("shared corpus: corpus_id diverso dalla provenienza")
+    manifest_cases = corpus_manifest.get("cases", [])
+    if not isinstance(manifest_cases, list) or len(manifest_cases) != 18:
+        errors.append("shared corpus: sono richiesti esattamente 18 casi")
+    if corpus_manifest.get("producer_revisions") != {
+        "plenora-IO-tools": EXPECTED_IO_BASELINE,
+        "plenora-database-tools": EXPECTED_DATABASE_REPLAY_REVISION,
+    }:
+        errors.append("shared corpus: revisioni dei producer inattese")
+
+    if freeze_readiness.get("status") != "not_ready_to_freeze":
+        errors.append("freeze readiness: il worktree non può risultare congelabile")
+    readiness_gates = freeze_readiness.get("gates", {})
+    for open_gate in (
+        "candidate_revision_committed",
+        "candidate_ci",
+        "independent_review",
+        "release_tag",
+    ):
+        if readiness_gates.get(open_gate) is not False:
+            errors.append(f"freeze readiness: gate aperto non fail-closed: {open_gate}")
+
+    if evidence.get("status") != "candidate_worktree_local_evidence":
+        errors.append("evidence: stato candidato inatteso")
+    if evidence.get("baseline_revision") != EXPECTED_IO_BASELINE:
+        errors.append("evidence: baseline IO inattesa")
+    if evidence.get("candidate_revision") is not None:
+        errors.append("evidence: il worktree non committato non può avere una revisione")
+    replay = (
+        evidence.get("candidate_local_verification", {})
+        .get("shared_wkb_ewkb_replay", {})
+    )
+    if replay.get("result") != "pass" or replay.get("unclassified_differences") != 0:
+        errors.append("evidence: replay differenziale non verde")
 
     return errors
 
@@ -164,6 +219,8 @@ def main() -> int:
     required_files = [
         PROVENANCE,
         SYSTEM_GATE,
+        FREEZE_READINESS,
+        EVIDENCE,
         ROOT / "docs" / "assurance" / "RELEASE_CANDIDATE_SCOPE.md",
         ROOT / "docs" / "assurance" / "SYSTEM_RC_GATE.md",
         ROOT / "docs" / "assurance" / "WKB_EWKB_FUZZ_COORDINATION.md",
@@ -171,7 +228,12 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-28_RC_PROVENANCE_FUZZ_COORDINATION.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-28_EIGHT_POINT_COMPLETION.md",
         CORPUS_SCHEMA,
+        CORPUS_MANIFEST,
     ]
     for path in required_files:
         if not path.is_file():
@@ -183,7 +245,10 @@ def main() -> int:
                 validate_documents(
                     load_json(PROVENANCE),
                     load_json(SYSTEM_GATE),
+                    load_json(FREEZE_READINESS),
+                    load_json(EVIDENCE),
                     load_json(CORPUS_SCHEMA),
+                    load_json(CORPUS_MANIFEST),
                     GEOMETRY_SOURCE.read_text(encoding="utf-8"),
                 )
             )

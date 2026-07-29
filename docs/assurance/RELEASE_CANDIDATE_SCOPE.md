@@ -11,8 +11,8 @@ certificazione avionica.
 L'identificatore della RC e il relativo commit saranno assegnati soltanto al
 freeze. Fino a quel momento lo stato machine-readable è `pre_freeze` in
 [`release/contract-provenance.json`](../../release/contract-provenance.json).
-L'impatto di questa preparazione è registrato nella
-[`CIA dedicata`](CHANGE_IMPACT_2026-07-28_RC_PROVENANCE_FUZZ_COORDINATION.md).
+L'impatto della preparazione corrente è registrato nella
+[`CIA dedicata`](CHANGE_IMPACT_2026-07-28_EIGHT_POINT_COMPLETION.md).
 
 ## Due versioni distinte
 
@@ -64,8 +64,16 @@ Il freeze può avvenire quando:
    gate documentali sono verdi sulla revisione finale;
 4. la matrice delle capability è allegata all'evidenza di release;
 5. la revisione indipendente registra autore, revisore, rilievi ed esito;
-6. il fuzzing WKB/EWKB lungo resta sospeso finché il protocollo condiviso non è
-   accettato da IO-tools e database-tools.
+6. il replay deterministico WKB/EWKB resta verde e la campagna lunga
+   coverage-guided viene eseguita con budget, toolchain e retention dichiarati;
+7. il bundle `release/evidence/` identifica ambiente, comandi, artifact e gap
+   senza trasformare evidenza locale in evidenza della revisione congelata.
 
 Il passaggio a `frozen` richiede una nuova CIA perché modifica la baseline
 citabile. Nessun tag di release è creato da questo documento.
+
+Lo stato corrente è machine-readable in
+[`release/freeze-readiness.json`](../../release/freeze-readiness.json):
+il codice candidato ha evidenza locale, ma non esiste ancora una revisione
+immutabile candidata, la relativa CI e una revisione indipendente. Il freeze
+resta quindi intenzionalmente chiuso.

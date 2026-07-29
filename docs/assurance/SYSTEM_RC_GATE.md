@@ -52,7 +52,9 @@ La RC di sistema può essere dichiarata soltanto quando tutte le fixture passano
 in entrambe le direzioni almeno su Linux e Windows, senza proprietà perse o
 inventate, e il bundle di evidenza è riproducibile.
 
-Oggi il gate resta aperto perché manca un harness eseguibile cross-repository,
-data-tools non ha ancora prodotto evidenza per l'intera matrice e le sezioni
-candidate dell'ICD non sono tutte ratificate. Il superamento dei test di
-IO-tools da solo non modifica questo stato.
+Un primo harness cross-repository è ora eseguibile e ha superato la direzione
+IO-tools → data-tools → database-tools per una fixture Point XYZ con CRS
+risolto, SRID e `field_id`. È evidenza utile ma non soddisfa il gate: mancano la
+direzione inversa, le altre sette fixture, Windows e la ratifica delle sezioni
+candidate dell'ICD. Il superamento dei test di IO-tools o di una sola tratta
+non modifica lo stato `not_satisfied`.

@@ -1534,7 +1534,7 @@ mod tests {
         );
         geometry.dimensions = CoordinateDimensions::Xyzm;
         geometry.srid = Some(4326);
-        geometry.geometry_types = vec![GeometryType::Point];
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
         let plan = WritePlan {
             layers: vec![WriteLayer {
                 name: "zm".to_owned(),

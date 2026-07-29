@@ -1,5 +1,6 @@
 # Artefatti di build Rust (grandi, rigenerabili)
 /target/
+/conformance/*/target/
 
 # Fixture di benchmark container-locali
 /bench-fix/

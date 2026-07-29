@@ -129,6 +129,38 @@
               "internal"
             ]
           },
+          "known_difference": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "dimension",
+              "classification",
+              "reason"
+            ],
+            "properties": {
+              "dimension": {
+                "enum": [
+                  "acceptance",
+                  "error_category",
+                  "metadata",
+                  "statistics"
+                ]
+              },
+              "classification": {
+                "enum": [
+                  "defect_io",
+                  "defect_database",
+                  "intentional_capability_difference",
+                  "ambiguous_or_noncanonical_input",
+                  "contract_gap"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
           "invariants": {
             "type": "array",
             "uniqueItems": true,

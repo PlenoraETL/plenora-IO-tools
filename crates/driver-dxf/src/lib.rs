@@ -1419,7 +1419,8 @@ mod tests {
             true,
         );
         geometry_contract.dimensions = CoordinateDimensions::Xyz;
-        geometry_contract.geometry_types = vec![GeometryType::Point, GeometryType::LineString];
+        geometry_contract
+            .set_exact_geometry_types(vec![GeometryType::Point, GeometryType::LineString]);
         let field = with_geometry_contract_metadata(
             &geometry_field(GEOMETRY, "EPSG:4326"),
             &geometry_contract,
@@ -1657,7 +1658,7 @@ mod tests {
             true,
         );
         geometry.dimensions = CoordinateDimensions::Xym;
-        geometry.geometry_types = vec![GeometryType::Point];
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
         let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
             &geometry_field(GEOMETRY, "EPSG:4326"),
             &geometry,

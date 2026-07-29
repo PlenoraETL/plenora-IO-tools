@@ -67,13 +67,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         type_coercion: TypeCoercionPolicy::Reject,
         attributes: AttributeWriteSupport::All,
         geometry: WKB_EWKB_PASSTHROUGH_GEOMETRY,
-        crs: CrsWriteSupport::Embedded,
+        crs: CrsWriteSupport::EmbeddedOptional,
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,
     }),
     semantic_version: 1,
     driver_version: 3,
-    descriptor_version: 5,
+    descriptor_version: 6,
 };
 
 pub struct IpcDriver;

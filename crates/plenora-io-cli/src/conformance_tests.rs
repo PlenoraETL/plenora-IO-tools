@@ -56,7 +56,9 @@ fn valid_crs(descriptor: &FormatDescriptor) -> CrsResolution {
         .crs
     {
         CrsWriteSupport::Fixed(id) => resolved(id),
-        CrsWriteSupport::Embedded | CrsWriteSupport::None => resolved("EPSG:4326"),
+        CrsWriteSupport::Embedded | CrsWriteSupport::EmbeddedOptional | CrsWriteSupport::None => {
+            resolved("EPSG:4326")
+        }
     }
 }
 
@@ -356,6 +358,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
 #[test]
 fn crs_matrix_fails_closed() {
     let mut embedded = 0;
+    let mut optional_embedded = 0;
     let mut fixed = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
@@ -400,10 +403,31 @@ fn crs_matrix_fails_closed() {
                 );
                 fixed += 1;
             }
+            CrsWriteSupport::EmbeddedOptional => {
+                let support = capabilities.geometry;
+                let plan = geometry_plan(
+                    descriptor,
+                    CrsResolution::Missing,
+                    support.dimensions[0],
+                    support.encodings[0],
+                    support.spatial_semantics[0],
+                    vec![GeometryType::Point],
+                );
+                assert!(
+                    validate_write(descriptor, &plan, &Default::default()).is_ok(),
+                    "{} dichiara CRS embedded opzionale ma rifiuta lo stato missing",
+                    descriptor.id
+                );
+                optional_embedded += 1;
+            }
             CrsWriteSupport::None => {}
         }
     }
     assert!(embedded >= 5, "copertura CRS embedded insufficiente");
+    assert_eq!(
+        optional_embedded, 1,
+        "il profilo CRS embedded opzionale deve essere esercitato"
+    );
     assert!(fixed >= 2, "copertura CRS fisso insufficiente");
 }
 
@@ -425,7 +449,8 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
         mut types_checked,
         mut unresolved_checked,
         mut mixed_checked,
-    ) = (0, 0, 0, 0, 0, 0);
+        mut writable_geometry_profiles,
+    ) = (0, 0, 0, 0, 0, 0, 0);
 
     for driver in drivers() {
         let descriptor = driver.descriptor();
@@ -436,6 +461,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
         if !support.supported {
             continue;
         }
+        writable_geometry_profiles += 1;
         if let Some(unsupported) = all_dimensions
             .iter()
             .find(|dimension| !support.dimensions.contains(dimension))
@@ -544,8 +570,8 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
     assert!(dimensions_checked >= 3);
     assert!(encodings_checked >= 6);
     assert!(semantics_checked >= 8);
-    assert_eq!(types_checked, 2);
-    assert_eq!(unresolved_checked, 2);
+    assert_eq!(types_checked, writable_geometry_profiles);
+    assert_eq!(unresolved_checked, writable_geometry_profiles);
     assert!(mixed_checked >= 2);
 }
 

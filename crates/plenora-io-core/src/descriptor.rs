@@ -150,7 +150,11 @@ pub struct GeometryWriteSupport {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CrsWriteSupport {
+    /// Il formato richiede un CRS risolto e lo incorpora.
     Embedded,
+    /// Il formato incorpora senza perdita anche gli stati dichiarato ma non
+    /// risolto e assente.
+    EmbeddedOptional,
     Fixed(&'static str),
     None,
 }
@@ -225,6 +229,28 @@ pub const ALL_GEOMETRY_TYPES: &[GeometryType] = &[
     GeometryType::MultiLineString,
     GeometryType::MultiPolygon,
     GeometryType::GeometryCollection,
+    GeometryType::CircularString,
+    GeometryType::CompoundCurve,
+    GeometryType::CurvePolygon,
+    GeometryType::MultiCurve,
+    GeometryType::MultiSurface,
+    GeometryType::PolyhedralSurface,
+    GeometryType::Tin,
+    GeometryType::Triangle,
+    GeometryType::Unknown,
+];
+
+/// Sette tipi semplici decodificati dal codec WKB locale. È distinto
+/// dall'universo normativo R3.1: conoscere un tipo nel contratto non implica
+/// che un driver sappia materializzarlo.
+pub const SIMPLE_WKB_GEOMETRY_TYPES: &[GeometryType] = &[
+    GeometryType::Point,
+    GeometryType::LineString,
+    GeometryType::Polygon,
+    GeometryType::MultiPoint,
+    GeometryType::MultiLineString,
+    GeometryType::MultiPolygon,
+    GeometryType::GeometryCollection,
 ];
 
 pub const SHAPEFILE_GEOMETRY_TYPES: &[GeometryType] = &[
@@ -241,7 +267,7 @@ pub const WKB_XY_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     encodings: &[GeometryEncoding::Wkb],
     dimensions: &[CoordinateDimensions::Xy],
     spatial_semantics: &[SpatialSemantics::Geometry],
-    geometry_types: ALL_GEOMETRY_TYPES,
+    geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
 };
 
@@ -257,7 +283,7 @@ pub const WKB_XY_XYZ_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
         CoordinateDimensions::Unknown,
     ],
     spatial_semantics: &[SpatialSemantics::Geometry],
-    geometry_types: ALL_GEOMETRY_TYPES,
+    geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
 };
 
@@ -285,7 +311,7 @@ pub const WKB_PASSTHROUGH_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport 
         CoordinateDimensions::Unknown,
     ],
     spatial_semantics: &[SpatialSemantics::Geometry],
-    geometry_types: ALL_GEOMETRY_TYPES,
+    geometry_types: SIMPLE_WKB_GEOMETRY_TYPES,
     mixed_types: true,
 };
 

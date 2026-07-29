@@ -34,6 +34,10 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_release_contract
           python3 scripts/check_release_contract.py
+      - name: Verify shared WKB/EWKB corpus
+        run: |
+          python3 -m unittest scripts.test_compare_shared_wkb_observations
+          python3 scripts/generate_shared_wkb_corpus.py --check
       - name: Verify exact dependency pins
         run: python3 scripts/check_dependency_pins.py
       - name: Verify locked workspace and fuzz dependency graphs

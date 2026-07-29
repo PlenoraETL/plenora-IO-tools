@@ -7,6 +7,9 @@ import unittest
 
 from scripts.check_release_contract import (
     CORPUS_SCHEMA,
+    CORPUS_MANIFEST,
+    EVIDENCE,
+    FREEZE_READINESS,
     GEOMETRY_SOURCE,
     PROVENANCE,
     SYSTEM_GATE,
@@ -19,14 +22,20 @@ class ReleaseContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.provenance = load_json(PROVENANCE)
         self.system_gate = load_json(SYSTEM_GATE)
+        self.freeze_readiness = load_json(FREEZE_READINESS)
+        self.evidence = load_json(EVIDENCE)
         self.corpus_schema = load_json(CORPUS_SCHEMA)
+        self.corpus_manifest = load_json(CORPUS_MANIFEST)
         self.geometry_source = GEOMETRY_SOURCE.read_text(encoding="utf-8")
 
     def validate(self, provenance=None, system_gate=None, corpus_schema=None) -> list[str]:
         return validate_documents(
             provenance if provenance is not None else self.provenance,
             system_gate if system_gate is not None else self.system_gate,
+            self.freeze_readiness,
+            self.evidence,
             corpus_schema if corpus_schema is not None else self.corpus_schema,
+            self.corpus_manifest,
             self.geometry_source,
         )
 
