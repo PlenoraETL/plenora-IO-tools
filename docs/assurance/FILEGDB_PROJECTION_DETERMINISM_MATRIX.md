@@ -103,3 +103,10 @@ L'accesso diretto tramite `gdal-sys` richiederebbe `unsafe` e violerebbe il
 profilo corrente. La decisione e le condizioni di riapertura sono registrate
 in `CHANGE_IMPACT_2026-07-29_RC3_FILEGDB_PUSHDOWN.md`; lo stato resta
 `design_constraint_open`, senza claim di pushdown nativo.
+
+Il 2026-07-30 è stato costruito e verificato anche un candidato
+`gdal 0.19.0` con GDAL/OpenFileGDB 3.12.1 bundled. Build, round-trip e safety
+lint sono verdi, ma la projection narrow interlacciata ha registrato
+74,310 ms con il pin 0.17.1 e 97,918 ms col candidato (+31,77%). Il veto del
+5% ha imposto il rollback completo; la matrice operativa continua a riferirsi
+a `gdal 0.17.1` e Windows resta aperto.

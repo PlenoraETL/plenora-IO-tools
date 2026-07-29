@@ -47,6 +47,13 @@ La chiusura richiede:
 - NTFS e filesystem Linux qualificato con la stessa fixture;
 - CI ancorata alla revisione esatta del componente.
 
+Il 2026-07-30 è stato provato un percorso bundled riproducibile con
+`gdal 0.19.0` e GDAL/OpenFileGDB 3.12.1. Il round-trip funzionale e il gate
+`unsafe-code` sono risultati verdi, ma il benchmark narrow interlacciato ha
+misurato +31,77% sul tempo mediano rispetto al pin 0.17.1. Il candidato è
+stato rimosso in applicazione del veto prestazionale; dettagli in
+`CHANGE_IMPACT_2026-07-30_RC3_WINDOWS_GDAL.md`. Il gate resta aperto.
+
 ## Ownership della catena
 
 L'harness a tre componenti non è contenuto in IO-tools. La qualifica di sistema

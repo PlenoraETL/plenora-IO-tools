@@ -698,6 +698,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-29_RC3_FUZZ_CAMPAIGN.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-30_RC3_WINDOWS_GDAL.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]

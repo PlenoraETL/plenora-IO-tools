@@ -17,7 +17,7 @@
     "canonical_wkb_types": "implemented_local_gates_passed",
     "streaming_and_cancellation": "blocked_prerequisites_revalidated",
     "openfilegdb_native_pushdown": "design_constraint_open",
-    "filegdb_windows_and_filesystem_matrix": "environment_open_not_run",
+    "filegdb_windows_and_filesystem_matrix": "bundled_candidate_rejected_performance_veto_environment_open",
     "icd_ratification_alignment": "revalidated_rc8_unratified"
   },
   "claims": {
