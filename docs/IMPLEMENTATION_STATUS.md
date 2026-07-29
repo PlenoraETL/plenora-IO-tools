@@ -10,12 +10,13 @@ Il manifest cita `plenora-contracts@v2.0-rc8` e la revisione esatta, distingue
 la wire version dall'ICD e registra le sezioni candidate e la deroga di
 emissione. Il gate della catena a tre componenti resta esplicitamente
 `not_satisfied`.
-La baseline tecnica `78c2d15` è congelata con claim
-`verified_internally`. La RC del componente è autorizzata con tale claim;
-la revisione indipendente resta aperta come attributo non bloccante e il tag
-SemVer `v0.1.0-rc.1` è pubblicato in forma `annotated_unsigned`. Tutti i crate
-del workspace ereditano la versione `0.1.0-rc.1`; un claim
-`verified_independently` resta vietato finché la review non viene completata.
+La baseline tecnica candidata `179ad03` è congelata con claim
+`verified_internally` per `v0.1.0-rc.2`. La revisione indipendente resta aperta
+come attributo non bloccante; tutti i crate del workspace ereditano la versione
+`0.1.0-rc.2`. Il tag `v0.1.0-rc.2` non è ancora creato: serve prima una CI
+verde sulla revisione pre-tag committata. Il precedente tag annotato
+`v0.1.0-rc.1` resta immutabile. Un claim `verified_independently` resta vietato
+finché la review non viene completata.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
@@ -147,7 +148,7 @@ fuzz. Il gate quantitativo è invece applicato al solo codice di libreria:
 esclude esclusivamente gli entry point `main.rs` di `plenora-io-cli`,
 `plenora-bench` e `plenora-fuzz`, che richiedono test end-to-end o campagne
 dedicate e falsavano il dato delle librerie. La CI candidata immutabile
-`78c2d15` misura 12.769/15.271 linee, pari a 83,62%, e il gate fail-closed è
+`179ad03` misura 12.769/15.271 linee, pari a 83,62%, e il gate fail-closed è
 fissato all'80%; raccolta, pubblicazione
 dell'artifact e verifica della soglia sono passi distinti, così un eventuale
 calo resta diagnosticabile.

@@ -119,9 +119,9 @@ Superati sul candidato:
 La CI
 [`30442548998`](https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/30442548998)
 è verde su Linux, Windows, macOS e coverage e copre la revisione di
-implementazione `179ad037aad18c3c92ff3c703315a7033ff43773`. Un'eventuale
-`rc.2` richiede ancora una decisione di candidato e una nuova baseline
-congelata; questa campagna non modifica `v0.1.0-rc.1`.
+implementazione `179ad037aad18c3c92ff3c703315a7033ff43773`. La decisione
+`rc.2` è ora registrata e la baseline tecnica è congelata; versione e manifesti
+sono in preparazione pre-tag. Questa campagna non modifica `v0.1.0-rc.1`.
 
 Questa evidenza non costituisce certificazione né dichiarazione di conformità
 DO-178C/ED-12C.

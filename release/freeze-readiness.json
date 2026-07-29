@@ -1,10 +1,10 @@
 {
   "manifest_version": 1,
-  "status": "component_rc_tagged",
+  "status": "pre_tag_pending_ci",
   "evaluated_on": "2026-07-29",
-  "candidate_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
+  "candidate_revision": "179ad037aad18c3c92ff3c703315a7033ff43773",
   "freeze_scope": "technical_baseline_only",
-  "release_authorized": true,
+  "release_authorized": false,
   "gates": {
     "candidate_code_complete": true,
     "local_workspace_tests": true,
@@ -15,17 +15,18 @@
     "verification_claim_declared": true,
     "component_scope_declared": true,
     "release_decision_recorded": true,
-    "release_decision_ci": true
+    "release_decision_ci": true,
+    "pre_tag_ci": false
   },
   "assurance_attributes": {
     "verification_claim": "verified_internally",
     "independent_review": false,
     "independent_review_status": "pending_eligible_reviewer",
     "independently_verified_claim_authorized": false,
-    "release_tag_created": true,
-    "release_tag_name": "v0.1.0-rc.1",
+    "release_tag_created": false,
+    "release_tag_name": "v0.1.0-rc.2",
     "release_tag_form": "annotated_unsigned",
-    "release_tag_status": "created"
+    "release_tag_status": "pending_pre_tag_ci"
   },
-  "next_required_action": "Independent review remains an optional open assurance attribute and is required only before an independently_verified claim. Any rc.2 requires a new candidate decision and CI."
+  "next_required_action": "Run CI on this committed pre-tag revision, then bind its SHA and run id before creating v0.1.0-rc.2. Independent review remains an optional open assurance attribute."
 }

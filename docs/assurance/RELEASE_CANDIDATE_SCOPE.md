@@ -9,26 +9,25 @@ IO-tools**. Non è una RC del sistema Plenora e non dichiara conformità o
 certificazione avionica.
 
 La revisione candidata del codice è
-`78c2d150b9c7d0ac48e4c97b03f86228e0f0a068` ed è la baseline tecnica
+`179ad037aad18c3c92ff3c703315a7033ff43773` ed è la baseline tecnica
 congelata. Lo stato machine-readable è `frozen` in
 [`release/contract-provenance.json`](../../release/contract-provenance.json).
 Il freeze non crea un tag, non dichiara una revisione indipendente e non
-autorizza da solo una promozione assurance. La successiva decisione di release
-autorizza una RC del componente con claim `verified_internally`, senza
+autorizza da solo una promozione assurance. La decisione `rc.2` autorizza il
+candidato del componente con claim `verified_internally`, senza
 trasformare la review aperta in un blocco. L'impatto del freeze è registrato nella
-[`CIA dedicata`](CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md).
+[`CIA dedicata`](CHANGE_IMPACT_2026-07-29_RC2_RELEASE_DECISION.md).
 
-La versione dei 16 crate del workspace è `0.1.0-rc.1` e il riferimento Git
-pubblicato è `v0.1.0-rc.1`. Il tag è annotato e non firmato
-(`annotated_unsigned`); il messaggio identifica candidato, claim e stato della
-review. La decisione è registrata nella
-[`CIA versione e tag`](CHANGE_IMPACT_2026-07-29_RC_VERSION_AND_TAG.md).
+La versione dei 16 crate del workspace è `0.1.0-rc.2`. Il tag omonimo è
+autorizzato ma non ancora creato: il record dichiara `pending_pre_tag_ci`.
+Il precedente `v0.1.0-rc.1` resta pubblicato, annotato, non firmato e
+immutabile.
 
 ## Identificativi distinti
 
 - `plenora.contract.version=1` identifica il formato wire emesso negli schemi
   Arrow;
-- `0.1.0-rc.1` identifica la versione SemVer dei crate del componente;
+- `0.1.0-rc.2` identifica la versione SemVer dei crate del componente;
 - `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`, identifica la revisione dell'ICD
   usata come obiettivo di implementazione.
@@ -79,27 +78,27 @@ Il freeze tecnico della baseline è avvenuto dopo:
 
 La baseline congelata non può essere sostituita in-place: qualunque modifica al
 codice genera un nuovo candidato e una nuova CIA. La
-[`decisione di release interna`](CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md)
+[`decisione rc.2`](CHANGE_IMPACT_2026-07-29_RC2_RELEASE_DECISION.md)
 separa i prerequisiti della RC dagli attributi di assurance: la review
 indipendente non è un gate per il freeze o per il tag di una RC dichiarata
 `verified_internally`.
 
 Restano necessari:
 
-1. una CI verde sul commit che registra la decisione prima del tag
-   (soddisfatta: revisione `75ea508`, run `30435854122`);
-2. una revisione indipendente prima di promuovere il claim a
+1. una CI verde sul commit che registra la decisione rc.2;
+2. una CI verde sulla revisione pre-tag che allinea versione e manifesti;
+3. una revisione indipendente prima di promuovere il claim a
    `verified_independently`;
-3. la campagna lunga coverage-guided e le altre evidenze aperte prima di
+4. la campagna lunga coverage-guided e le altre evidenze aperte prima di
    eventuali claim più forti.
 
 Lo stato corrente è machine-readable in
 [`release/freeze-readiness.json`](../../release/freeze-readiness.json):
-la baseline tecnica è congelata, la CI candidata `30415766905` è verde su
-Linux, Windows, macOS e coverage e la RC di componente è autorizzata come
-`verified_internally`. `independent_review=false` limita soltanto il livello
-del claim; `release_tag_created=true` registra la pubblicazione del tag
-annotato `v0.1.0-rc.1`.
+la baseline tecnica `179ad03` è congelata e la CI candidata `30442548998` è
+verde su Linux, Windows, macOS e coverage. `independent_review=false` limita
+soltanto il livello del claim; `release_tag_created=false` e
+`release_tag_status=pending_pre_tag_ci` impediscono di presentare il tag
+`v0.1.0-rc.2` come già pubblicato.
 
 Il materiale da consegnare al revisore è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record
