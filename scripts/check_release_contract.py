@@ -252,10 +252,7 @@ def validate_rc3_development(document: dict[str, Any]) -> list[str]:
         "icd_ratification_alignment",
     }:
         errors.append("rc3-development: workstream diversi dai sette autorizzati")
-    if (
-        workstreams.get("long_fuzz_campaign")
-        != "repeat_required_uncommitted_harness_detected"
-    ):
+    if workstreams.get("long_fuzz_campaign") != "completed_no_findings":
         errors.append("rc3-development: stato campagna fuzz lunga inatteso")
     if document.get("diagnostic_fuzz_run") != {
         "library_baseline_revision": "f8a89170785c938a9105deae6cc479576abb969a",
@@ -280,6 +277,25 @@ def validate_rc3_development(document: dict[str, Any]) -> list[str]:
         },
     }:
         errors.append("rc3-development: record diagnostico fuzz inatteso")
+    if document.get("fuzz_campaign_evidence") != {
+        "baseline_revision": "2353e32da15cf25537a79c3a7dd507054c013764",
+        "baseline_ci_run": 30457744328,
+        "run_id": "20260729T181308Z",
+        "duration_seconds": 3600,
+        "container_image": (
+            "sha256:bf24b399447ea3b8cd68c4d248cf42bc"
+            "6bc0f9a7e895c50f2b55ab58cbfbbe65"
+        ),
+        "libfuzzer_executions": 210118046,
+        "new_corpus_units": 16794,
+        "structured_iterations": 5705840000,
+        "peak_rss_mb": 530,
+        "findings": 0,
+        "crash_artifacts": 0,
+        "container_exit_code": 0,
+        "working_tree_clean_before_and_after": True,
+    }:
+        errors.append("rc3-development: evidenza fuzz lunga inattesa")
     if document.get("claims") != {
         "component_rc": False,
         "system_rc": False,

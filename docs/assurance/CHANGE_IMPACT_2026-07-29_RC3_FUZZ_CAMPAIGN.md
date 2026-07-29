@@ -2,7 +2,7 @@
 
 Date: 2026-07-29
 
-Status: diagnostic campaign passed; release-evidence repeat required
+Status: release-evidence repeat passed with no findings
 
 Scope:
 
@@ -109,12 +109,38 @@ findings. These results do not override the provenance defect.
 The campaign script affects assurance execution only; it is absent from
 runtime library paths. Production performance and public APIs are unchanged.
 
-## Next required evidence
+## Valid committed-baseline repeat
 
-1. Commit the two harness updates and this provenance correction.
-2. Push and obtain green CI for that exact revision.
-3. Repeat the 3,600-second campaign from a clean checkout.
-4. Record the repeat's exact revision, run identifier and final statistics.
+The required repeat ran from a clean working tree after the finite-work oracle
+updates were committed and pushed.
 
-Even a valid repeat will not qualify the three-component system, replace an
-independent review, or satisfy the external native-Windows GDAL/FileGDB gate.
+Baseline:
+
+- revision: `2353e32da15cf25537a79c3a7dd507054c013764`;
+- CI run: `30457744328`, successful on Linux, Windows, macOS and coverage;
+- run identifier: `20260729T181308Z`;
+- duration: 3,600 seconds per target;
+- container image:
+  `sha256:bf24b399447ea3b8cd68c4d248cf42bc6bc0f9a7e895c50f2b55ab58cbfbbe65`;
+- working tree: clean before and after;
+- container exit code: 0.
+
+Results:
+
+| Target | Executions | New corpus units | Peak RSS MiB | Findings |
+| --- | ---: | ---: | ---: | ---: |
+| `from_wkb` | 28,848,680 | 516 | 517 | 0 |
+| `geojson_reader` | 4,533,100 | 2,865 | 501 | 0 |
+| `wkt_parse` | 10,981,930 | 1,424 | 530 | 0 |
+| `kml_reader` | 4,823,944 | 4,864 | 514 | 0 |
+| `shp_wkb` | 159,272,378 | 719 | 518 | 0 |
+| `dxf_reader` | 1,658,014 | 6,406 | 520 | 0 |
+| **libFuzzer total** | **210,118,046** | **16,794** | — | **0** |
+| structured differential driver | 5,705,840,000 | — | — | 0 |
+
+Both run-specific finding locations contain zero files. Every process reached
+the configured duration and returned normally. This repeat closes the RC3
+long-fuzz workstream for the recorded component revision.
+
+It does not qualify the three-component system, replace an independent review,
+or satisfy the external native-Windows GDAL/FileGDB gate.
