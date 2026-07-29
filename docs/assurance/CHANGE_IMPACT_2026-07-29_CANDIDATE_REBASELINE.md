@@ -61,3 +61,8 @@ Il candidato può restare in stato
 `candidate_ci_passed_pending_independent_review`. Non può passare a `frozen`
 né ricevere un tag finché una revisione indipendente eleggibile non è
 registrata.
+
+Questa decisione pre-freeze è stata successivamente superata, per il solo
+legame fra immutabilità e review, dalla
+[`CIA del freeze tecnico`](CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md).
+La revisione indipendente resta aperta e nessun tag è autorizzato.

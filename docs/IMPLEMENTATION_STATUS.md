@@ -10,6 +10,9 @@ Il manifest cita `plenora-contracts@v2.0-rc8` e la revisione esatta, distingue
 la wire version dall'ICD e registra le sezioni candidate e la deroga di
 emissione. Il gate della catena a tre componenti resta esplicitamente
 `not_satisfied`.
+La baseline tecnica `78c2d15` è congelata con claim
+`verified_internally`; revisione indipendente, autorizzazione di release e tag
+restano aperti e non vengono implicati dal freeze.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROVENANCE = ROOT / "release" / "contract-provenance.json"
 SYSTEM_GATE = ROOT / "release" / "system-rc-gate.json"
 FREEZE_READINESS = ROOT / "release" / "freeze-readiness.json"
-EVIDENCE = ROOT / "release" / "evidence" / "pre-freeze-2026-07-29.json"
+EVIDENCE = ROOT / "release" / "evidence" / "technical-freeze-2026-07-29.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
@@ -22,6 +22,7 @@ EXPECTED_ICD_TAG = "v2.0-rc8"
 EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
 EXPECTED_IO_BASELINE = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068"
+EXPECTED_CANDIDATE_STATE = "technical_baseline_frozen_pending_independent_review"
 EXPECTED_CANDIDATE_CI_RUN = 30415766905
 EXPECTED_COVERAGE_ARTIFACT = {
     "id": 8710097703,
@@ -34,6 +35,26 @@ EXPECTED_LIBRARY_COVERAGE = {"covered": 12769, "total": 15271, "percent": 83.62}
 EXPECTED_LIBRARY_COVERAGE_SOURCE = (
     "local_reproduction_of_ci_command"
 )
+EXPECTED_FREEZE_SCOPE = {
+    "kind": "technical_baseline",
+    "baseline_revision": EXPECTED_IO_CANDIDATE,
+    "frozen_on": "2026-07-29",
+    "verification_claim": "verified_internally",
+    "independent_review_status": "not_performed",
+    "release_tag_authorized": False,
+    "assurance_promotion_authorized": False,
+}
+EXPECTED_FREEZE_DECISION = {
+    "status": "technical_baseline_frozen",
+    "baseline_revision": EXPECTED_IO_CANDIDATE,
+    "frozen_on": "2026-07-29",
+    "verification_claim": "verified_internally",
+    "independent_review": False,
+    "release_tag_created": False,
+    "decision_record": (
+        "docs/assurance/CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md"
+    ),
+}
 EXPECTED_DATABASE_REPLAY_REVISION = "ef18e80c798126f872fd366c36ee96a029598958"
 EXPECTED_SYSTEM_REVISIONS = {
     "plenora-IO-tools": EXPECTED_IO_CANDIDATE,
@@ -81,17 +102,16 @@ def validate_documents(
         errors.append("contract-provenance: componente inatteso")
     if provenance.get("release_kind") != "component_rc":
         errors.append("contract-provenance: release_kind deve essere component_rc")
-    if provenance.get("freeze_status") != "pre_freeze":
-        errors.append("contract-provenance: freeze prematuro senza revisione indipendente")
+    if provenance.get("freeze_status") != "frozen":
+        errors.append("contract-provenance: baseline tecnica non congelata")
     if not SHA.fullmatch(str(provenance.get("implementation_revision", ""))):
         errors.append("contract-provenance: implementation_revision non è uno SHA completo")
     elif provenance.get("implementation_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("contract-provenance: revisione candidata IO inattesa")
-    if (
-        provenance.get("candidate_state")
-        != "candidate_ci_passed_pending_independent_review"
-    ):
+    if provenance.get("candidate_state") != EXPECTED_CANDIDATE_STATE:
         errors.append("contract-provenance: stato candidato inatteso")
+    if provenance.get("freeze_scope") != EXPECTED_FREEZE_SCOPE:
+        errors.append("contract-provenance: perimetro del freeze inatteso")
 
     if icd.get("tag") != EXPECTED_ICD_TAG:
         errors.append("contract-provenance: tag ICD inatteso")
@@ -202,8 +222,12 @@ def validate_documents(
     }:
         errors.append("shared corpus: revisioni dei producer inattese")
 
-    if freeze_readiness.get("status") != "not_ready_to_freeze":
-        errors.append("freeze readiness: il candidato non può risultare congelabile")
+    if freeze_readiness.get("status") != "frozen_with_open_assurance_gates":
+        errors.append("freeze readiness: stato del freeze tecnico inatteso")
+    if freeze_readiness.get("freeze_scope") != "technical_baseline_only":
+        errors.append("freeze readiness: perimetro tecnico non dichiarato")
+    if freeze_readiness.get("release_authorized") is not False:
+        errors.append("freeze readiness: release autorizzata senza review")
     readiness_gates = freeze_readiness.get("gates", {})
     if readiness_gates.get("candidate_revision_committed") is not True:
         errors.append("freeze readiness: revisione candidata non registrata")
@@ -211,16 +235,20 @@ def validate_documents(
         errors.append("freeze readiness: SHA candidato inatteso")
     if readiness_gates.get("candidate_ci") is not True:
         errors.append("freeze readiness: CI candidata non registrata")
+    if readiness_gates.get("technical_baseline_frozen") is not True:
+        errors.append("freeze readiness: baseline tecnica non congelata")
     for open_gate in ("independent_review", "release_tag"):
         if readiness_gates.get(open_gate) is not False:
             errors.append(f"freeze readiness: gate aperto non fail-closed: {open_gate}")
 
-    if evidence.get("status") != "candidate_ci_evidence":
-        errors.append("evidence: stato candidato inatteso")
+    if evidence.get("status") != "technical_freeze_evidence":
+        errors.append("evidence: stato del freeze tecnico inatteso")
     if evidence.get("baseline_revision") != EXPECTED_IO_BASELINE:
         errors.append("evidence: baseline IO inattesa")
     if evidence.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("evidence: revisione candidata inattesa")
+    if evidence.get("freeze_decision") != EXPECTED_FREEZE_DECISION:
+        errors.append("evidence: decisione di freeze inattesa")
     candidate_ci = evidence.get("candidate_ci", {})
     if candidate_ci.get("head_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("evidence: revisione CI candidata inattesa")
@@ -282,6 +310,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-29_CANDIDATE_REBASELINE.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -311,7 +343,11 @@ def main() -> int:
             print(f"- {error}", file=sys.stderr)
         return 1
 
-    print("Release contract gate passed (component RC only; system RC not claimed).")
+    print(
+        "Release contract gate passed "
+        "(technical baseline frozen; independent review and tag open; "
+        "system RC not claimed)."
+    )
     return 0
 
 

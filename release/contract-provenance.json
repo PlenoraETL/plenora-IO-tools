@@ -2,9 +2,18 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "release_kind": "component_rc",
-  "freeze_status": "pre_freeze",
+  "freeze_status": "frozen",
   "implementation_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
-  "candidate_state": "candidate_ci_passed_pending_independent_review",
+  "candidate_state": "technical_baseline_frozen_pending_independent_review",
+  "freeze_scope": {
+    "kind": "technical_baseline",
+    "baseline_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
+    "frozen_on": "2026-07-29",
+    "verification_claim": "verified_internally",
+    "independent_review_status": "not_performed",
+    "release_tag_authorized": false,
+    "assurance_promotion_authorized": false
+  },
   "wire_contract_version": 1,
   "icd": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",

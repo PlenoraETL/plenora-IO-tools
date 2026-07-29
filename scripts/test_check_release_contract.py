@@ -32,13 +32,18 @@ class ReleaseContractTests(unittest.TestCase):
         self,
         provenance=None,
         system_gate=None,
+        freeze_readiness=None,
         evidence=None,
         corpus_schema=None,
     ) -> list[str]:
         return validate_documents(
             provenance if provenance is not None else self.provenance,
             system_gate if system_gate is not None else self.system_gate,
-            self.freeze_readiness,
+            (
+                freeze_readiness
+                if freeze_readiness is not None
+                else self.freeze_readiness
+            ),
             evidence if evidence is not None else self.evidence,
             corpus_schema if corpus_schema is not None else self.corpus_schema,
             self.corpus_manifest,
@@ -68,10 +73,26 @@ class ReleaseContractTests(unittest.TestCase):
         gate["status"] = "satisfied"
         self.assertTrue(self.validate(system_gate=gate))
 
-    def test_rejects_premature_component_freeze(self) -> None:
+    def test_rejects_rollback_after_technical_freeze(self) -> None:
         provenance = copy.deepcopy(self.provenance)
-        provenance["freeze_status"] = "frozen"
+        provenance["freeze_status"] = "pre_freeze"
         self.assertTrue(self.validate(provenance=provenance))
+
+    def test_rejects_release_promotion_while_review_is_open(self) -> None:
+        for field in ("release_authorized",):
+            readiness = copy.deepcopy(self.freeze_readiness)
+            readiness[field] = True
+            self.assertTrue(
+                self.validate(freeze_readiness=readiness),
+                field,
+            )
+        for gate in ("independent_review", "release_tag"):
+            readiness = copy.deepcopy(self.freeze_readiness)
+            readiness["gates"][gate] = True
+            self.assertTrue(
+                self.validate(freeze_readiness=readiness),
+                gate,
+            )
 
     def test_rejects_incomplete_shared_corpus_schema(self) -> None:
         schema = copy.deepcopy(self.corpus_schema)
