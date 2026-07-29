@@ -75,7 +75,10 @@ def validate_documents(
         errors.append("contract-provenance: implementation_revision non è uno SHA completo")
     elif provenance.get("implementation_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("contract-provenance: revisione candidata IO inattesa")
-    if provenance.get("candidate_state") != "committed_pending_candidate_ci":
+    if (
+        provenance.get("candidate_state")
+        != "candidate_ci_passed_pending_independent_review"
+    ):
         errors.append("contract-provenance: stato candidato inatteso")
 
     if icd.get("tag") != EXPECTED_ICD_TAG:
@@ -194,16 +197,28 @@ def validate_documents(
         errors.append("freeze readiness: revisione candidata non registrata")
     if freeze_readiness.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("freeze readiness: SHA candidato inatteso")
-    for open_gate in ("candidate_ci", "independent_review", "release_tag"):
+    if readiness_gates.get("candidate_ci") is not True:
+        errors.append("freeze readiness: CI candidata non registrata")
+    for open_gate in ("independent_review", "release_tag"):
         if readiness_gates.get(open_gate) is not False:
             errors.append(f"freeze readiness: gate aperto non fail-closed: {open_gate}")
 
-    if evidence.get("status") != "candidate_revision_local_evidence":
+    if evidence.get("status") != "candidate_ci_evidence":
         errors.append("evidence: stato candidato inatteso")
     if evidence.get("baseline_revision") != EXPECTED_IO_BASELINE:
         errors.append("evidence: baseline IO inattesa")
     if evidence.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("evidence: revisione candidata inattesa")
+    candidate_ci = evidence.get("candidate_ci", {})
+    if candidate_ci.get("head_revision") != "0dbd4fedfa2f3494cc2692d4e1f5b1e169024ed7":
+        errors.append("evidence: revisione CI candidata inattesa")
+    if candidate_ci.get("run_id") != 30412487233:
+        errors.append("evidence: run CI candidato inatteso")
+    if candidate_ci.get("result") != "pass":
+        errors.append("evidence: CI candidata non verde")
+    coverage = candidate_ci.get("library_line_coverage", {})
+    if coverage != {"covered": 12675, "total": 15175, "percent": 83.53}:
+        errors.append("evidence: coverage candidata inattesa")
     replay = (
         evidence.get("candidate_local_verification", {})
         .get("shared_wkb_ewkb_replay", {})

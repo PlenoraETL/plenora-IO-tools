@@ -78,6 +78,12 @@ dichiarata. Non viene promossa la wire version globale.
 - catena IO → data → database: Point XYZ, 3 → 2 righe, pass;
 - gate documentali e generator check: richiesti dalla CI.
 
+La CI candidata `30412487233`, head
+`0dbd4fedfa2f3494cc2692d4e1f5b1e169024ed7`, ha successivamente superato tutti
+i job Linux/Rust, Windows, macOS e coverage. Il filtro librerie misura
+12.675/15.175 linee (83,53%); l'hash SHA-256 dell'artifact LCOV è registrato
+nel bundle machine-readable.
+
 ## Residui e decisione
 
 Non sono chiusi MC/DC, qualifica strumenti, campagna fuzz lunga, catena inversa,

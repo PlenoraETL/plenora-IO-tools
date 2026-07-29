@@ -1,6 +1,6 @@
 {
   "evidence_version": 1,
-  "status": "candidate_revision_local_evidence",
+  "status": "candidate_ci_evidence",
   "generated_on": "2026-07-29",
   "component": "plenora-IO-tools",
   "baseline_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
@@ -17,7 +17,7 @@
     "gdal": "3.10.3",
     "container": "plenora-io-opt2-20260728"
   },
-  "baseline_ci": {
+  "prior_baseline_ci": {
     "run_id": 30391022163,
     "url": "https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/30391022163",
     "result": "pass",
@@ -32,6 +32,24 @@
       "covered": 12616,
       "total": 15112,
       "percent": 83.48
+    }
+  },
+  "candidate_ci": {
+    "head_revision": "0dbd4fedfa2f3494cc2692d4e1f5b1e169024ed7",
+    "run_id": 30412487233,
+    "url": "https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/30412487233",
+    "result": "pass",
+    "jobs": [
+      "rust",
+      "coverage",
+      "windows",
+      "macos-publish"
+    ],
+    "coverage_artifact_sha256": "6a08e18c82dcf4605d859a5bceac63523d856e95b5aa1dd4fb01ccf1c104ff01",
+    "library_line_coverage": {
+      "covered": 12675,
+      "total": 15175,
+      "percent": 83.53
     }
   },
   "candidate_local_verification": {

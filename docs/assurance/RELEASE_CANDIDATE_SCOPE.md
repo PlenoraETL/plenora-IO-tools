@@ -76,6 +76,7 @@ citabile. Nessun tag di release è creato da questo documento.
 
 Lo stato corrente è machine-readable in
 [`release/freeze-readiness.json`](../../release/freeze-readiness.json):
-il codice candidato ha una revisione immutabile ed evidenza locale, ma non
-ancora la relativa CI né una revisione indipendente. Il freeze resta quindi
-intenzionalmente chiuso.
+il codice candidato ha una revisione immutabile e la CI candidata
+`30412487233` è verde su Linux, Windows, macOS e coverage. Manca ancora una
+revisione indipendente eleggibile; il freeze resta quindi intenzionalmente
+chiuso.
