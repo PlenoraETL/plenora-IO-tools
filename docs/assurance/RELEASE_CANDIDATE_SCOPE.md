@@ -83,3 +83,8 @@ Lo stato corrente è machine-readable in
 la baseline tecnica è congelata e la CI candidata `30415766905` è verde su
 Linux, Windows, macOS e coverage. `independent_review`, `release_authorized` e
 `release_tag` restano esplicitamente `false`.
+
+Il materiale da consegnare al revisore è raccolto nel
+[`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record
+machine-readable resta `pending_eligible_reviewer` finché una persona
+eleggibile non registra identità, comandi, rilievi ed esito.

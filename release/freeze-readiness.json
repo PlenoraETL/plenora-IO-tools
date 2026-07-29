@@ -15,5 +15,5 @@
     "independent_review": false,
     "release_tag": false
   },
-  "next_required_action": "Record an eligible independent review before authorizing a release tag or any independently_verified claim."
+  "next_required_action": "Complete release/independent-review.json using docs/assurance/INDEPENDENT_REVIEW_PACKET.md before authorizing a release tag or any independently_verified claim."
 }

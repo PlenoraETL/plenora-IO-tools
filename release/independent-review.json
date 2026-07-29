@@ -1,0 +1,49 @@
+{
+  "review_record_version": 1,
+  "status": "pending_eligible_reviewer",
+  "review_scope": {
+    "component": "plenora-IO-tools",
+    "comparison_base_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
+    "candidate_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
+    "freeze_record_revision": "824cbc9077e16aca2033e8d35ee3263b7d067b47",
+    "evidence_revision": "aefec48b0da7f0e2324b378ac0aedf29a38a4e94",
+    "icd_revision": "62b12e3496466d2c908dac3cc098640b99b52e21",
+    "packet": "docs/assurance/INDEPENDENT_REVIEW_PACKET.md"
+  },
+  "eligibility": {
+    "requires_human_person": true,
+    "different_from_all_change_authors_and_coauthors": true,
+    "owner_allowed_only_when_not_author_or_coauthor": true,
+    "automation_or_author_self_review_accepted": false
+  },
+  "reviewer": {
+    "name": null,
+    "affiliation": null,
+    "contact_or_identity_reference": null,
+    "eligibility_attestation": null
+  },
+  "reviewed_on": null,
+  "commands_executed": null,
+  "findings": null,
+  "outcome": null,
+  "outcome_values": [
+    "pass",
+    "pass_with_non_blocking_findings",
+    "blocking_findings"
+  ],
+  "required_completion_fields": [
+    "reviewer.name",
+    "reviewer.affiliation",
+    "reviewer.contact_or_identity_reference",
+    "reviewer.eligibility_attestation",
+    "reviewed_on",
+    "commands_executed",
+    "findings",
+    "outcome"
+  ],
+  "release_effect": {
+    "independent_review_gate": false,
+    "release_authorized": false,
+    "release_tag_created": false
+  }
+}

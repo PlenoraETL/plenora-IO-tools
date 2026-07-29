@@ -11,6 +11,7 @@ from scripts.check_release_contract import (
     EVIDENCE,
     FREEZE_READINESS,
     GEOMETRY_SOURCE,
+    INDEPENDENT_REVIEW,
     PROVENANCE,
     SYSTEM_GATE,
     load_json,
@@ -24,6 +25,7 @@ class ReleaseContractTests(unittest.TestCase):
         self.system_gate = load_json(SYSTEM_GATE)
         self.freeze_readiness = load_json(FREEZE_READINESS)
         self.evidence = load_json(EVIDENCE)
+        self.independent_review = load_json(INDEPENDENT_REVIEW)
         self.corpus_schema = load_json(CORPUS_SCHEMA)
         self.corpus_manifest = load_json(CORPUS_MANIFEST)
         self.geometry_source = GEOMETRY_SOURCE.read_text(encoding="utf-8")
@@ -34,6 +36,7 @@ class ReleaseContractTests(unittest.TestCase):
         system_gate=None,
         freeze_readiness=None,
         evidence=None,
+        independent_review=None,
         corpus_schema=None,
     ) -> list[str]:
         return validate_documents(
@@ -45,6 +48,11 @@ class ReleaseContractTests(unittest.TestCase):
                 else self.freeze_readiness
             ),
             evidence if evidence is not None else self.evidence,
+            (
+                independent_review
+                if independent_review is not None
+                else self.independent_review
+            ),
             corpus_schema if corpus_schema is not None else self.corpus_schema,
             self.corpus_manifest,
             self.geometry_source,
@@ -111,6 +119,27 @@ class ReleaseContractTests(unittest.TestCase):
                 target = target[key]
             target[path[-1]] = replacement
             self.assertTrue(self.validate(evidence=evidence), path)
+
+    def test_rejects_fabricated_or_misdirected_independent_review(self) -> None:
+        for field, replacement in (
+            ("status", "pass"),
+            ("reviewed_on", "2026-07-29"),
+            ("findings", []),
+            ("outcome", "pass"),
+        ):
+            review = copy.deepcopy(self.independent_review)
+            review[field] = replacement
+            self.assertTrue(
+                self.validate(independent_review=review),
+                field,
+            )
+
+        review = copy.deepcopy(self.independent_review)
+        review["review_scope"]["candidate_revision"] = "0" * 40
+        self.assertTrue(
+            self.validate(independent_review=review),
+            "candidate_revision",
+        )
 
 
 if __name__ == "__main__":

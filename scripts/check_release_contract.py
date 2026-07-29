@@ -15,6 +15,7 @@ PROVENANCE = ROOT / "release" / "contract-provenance.json"
 SYSTEM_GATE = ROOT / "release" / "system-rc-gate.json"
 FREEZE_READINESS = ROOT / "release" / "freeze-readiness.json"
 EVIDENCE = ROOT / "release" / "evidence" / "technical-freeze-2026-07-29.json"
+INDEPENDENT_REVIEW = ROOT / "release" / "independent-review.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
@@ -55,6 +56,37 @@ EXPECTED_FREEZE_DECISION = {
         "docs/assurance/CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md"
     ),
 }
+EXPECTED_REVIEW_SCOPE = {
+    "component": "plenora-IO-tools",
+    "comparison_base_revision": EXPECTED_IO_BASELINE,
+    "candidate_revision": EXPECTED_IO_CANDIDATE,
+    "freeze_record_revision": "824cbc9077e16aca2033e8d35ee3263b7d067b47",
+    "evidence_revision": "aefec48b0da7f0e2324b378ac0aedf29a38a4e94",
+    "icd_revision": EXPECTED_ICD_REVISION,
+    "packet": "docs/assurance/INDEPENDENT_REVIEW_PACKET.md",
+}
+EXPECTED_REVIEW_ELIGIBILITY = {
+    "requires_human_person": True,
+    "different_from_all_change_authors_and_coauthors": True,
+    "owner_allowed_only_when_not_author_or_coauthor": True,
+    "automation_or_author_self_review_accepted": False,
+}
+EXPECTED_PENDING_REVIEWER = {
+    "name": None,
+    "affiliation": None,
+    "contact_or_identity_reference": None,
+    "eligibility_attestation": None,
+}
+EXPECTED_REVIEW_COMPLETION_FIELDS = [
+    "reviewer.name",
+    "reviewer.affiliation",
+    "reviewer.contact_or_identity_reference",
+    "reviewer.eligibility_attestation",
+    "reviewed_on",
+    "commands_executed",
+    "findings",
+    "outcome",
+]
 EXPECTED_DATABASE_REPLAY_REVISION = "ef18e80c798126f872fd366c36ee96a029598958"
 EXPECTED_SYSTEM_REVISIONS = {
     "plenora-IO-tools": EXPECTED_IO_CANDIDATE,
@@ -87,6 +119,7 @@ def validate_documents(
     system_gate: dict[str, Any],
     freeze_readiness: dict[str, Any],
     evidence: dict[str, Any],
+    independent_review: dict[str, Any],
     corpus_schema: dict[str, Any],
     corpus_manifest: dict[str, Any],
     geometry_source: str,
@@ -249,6 +282,12 @@ def validate_documents(
         errors.append("evidence: revisione candidata inattesa")
     if evidence.get("freeze_decision") != EXPECTED_FREEZE_DECISION:
         errors.append("evidence: decisione di freeze inattesa")
+    if evidence.get("independent_review_record") != {
+        "path": "release/independent-review.json",
+        "status": "pending_eligible_reviewer",
+        "independent_review_gate": False,
+    }:
+        errors.append("evidence: riferimento alla review indipendente inatteso")
     candidate_ci = evidence.get("candidate_ci", {})
     if candidate_ci.get("head_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("evidence: revisione CI candidata inattesa")
@@ -285,6 +324,33 @@ def validate_documents(
     if replay.get("result") != "pass" or replay.get("unclassified_differences") != 0:
         errors.append("evidence: replay differenziale non verde")
 
+    if independent_review.get("review_record_version") != 1:
+        errors.append("independent review: versione record inattesa")
+    if independent_review.get("status") != "pending_eligible_reviewer":
+        errors.append("independent review: stato pendente non preservato")
+    if independent_review.get("review_scope") != EXPECTED_REVIEW_SCOPE:
+        errors.append("independent review: perimetro o revisioni inattesi")
+    if independent_review.get("eligibility") != EXPECTED_REVIEW_ELIGIBILITY:
+        errors.append("independent review: criteri di eleggibilità inattesi")
+    if independent_review.get("reviewer") != EXPECTED_PENDING_REVIEWER:
+        errors.append("independent review: revisore precompilato senza review")
+    for pending_field in ("reviewed_on", "commands_executed", "findings", "outcome"):
+        if independent_review.get(pending_field) is not None:
+            errors.append(
+                f"independent review: campo compilato prematuramente: {pending_field}"
+            )
+    if (
+        independent_review.get("required_completion_fields")
+        != EXPECTED_REVIEW_COMPLETION_FIELDS
+    ):
+        errors.append("independent review: campi obbligatori inattesi")
+    if independent_review.get("release_effect") != {
+        "independent_review_gate": False,
+        "release_authorized": False,
+        "release_tag_created": False,
+    }:
+        errors.append("independent review: effetto release non fail-closed")
+
     return errors
 
 
@@ -295,6 +361,7 @@ def main() -> int:
         SYSTEM_GATE,
         FREEZE_READINESS,
         EVIDENCE,
+        INDEPENDENT_REVIEW,
         ROOT / "docs" / "assurance" / "RELEASE_CANDIDATE_SCOPE.md",
         ROOT / "docs" / "assurance" / "SYSTEM_RC_GATE.md",
         ROOT / "docs" / "assurance" / "WKB_EWKB_FUZZ_COORDINATION.md",
@@ -314,6 +381,14 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "INDEPENDENT_REVIEW_PACKET.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_INDEPENDENT_REVIEW_PACKET.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -329,6 +404,7 @@ def main() -> int:
                     load_json(SYSTEM_GATE),
                     load_json(FREEZE_READINESS),
                     load_json(EVIDENCE),
+                    load_json(INDEPENDENT_REVIEW),
                     load_json(CORPUS_SCHEMA),
                     load_json(CORPUS_MANIFEST),
                     GEOMETRY_SOURCE.read_text(encoding="utf-8"),
