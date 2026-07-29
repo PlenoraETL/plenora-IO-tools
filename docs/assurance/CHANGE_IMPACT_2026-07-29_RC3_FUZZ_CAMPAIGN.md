@@ -2,7 +2,7 @@
 
 Date: 2026-07-29
 
-Status: smoke passed; long campaign pending a committed RC3 baseline
+Status: diagnostic campaign passed; release-evidence repeat required
 
 Scope:
 
@@ -56,10 +56,53 @@ Results:
 | `dxf_reader` | 538,637 | 0 |
 | structured differential driver | 19,260,000 | 0 |
 
-The smoke run is a launch/readiness check only. It demonstrates that every
+The smoke run was a launch/readiness check only. It demonstrates that every
 target builds, starts, remains within its configured bounded-work model, and
 places evidence in the expected isolated location. It is not the long RC3
 campaign.
+
+## Diagnostic long run
+
+The first 3,600-second run completed without a technical finding, but the
+post-run working-tree check found that two finite-work oracle updates had not
+been included in the baseline commit:
+
+- `fuzz/fuzz_targets/from_wkb.rs`, SHA-256
+  `759421a3d6249cf6898f3f4ca58ef99c975cd493b7f42c320716276cfc741ee9`;
+- `fuzz/fuzz_targets/wkt_parse.rs`, SHA-256
+  `6af6c2adeaa8efe5db0c21f2d987fdd26ca5d6f6b8ae0d71fd9f39edff16c9af`.
+
+The library sources were at the committed baseline, but the full fuzz harness
+was not. The run is therefore retained as diagnostic evidence and MUST NOT be
+used as RC3 release evidence. A clean committed-baseline repeat is required.
+
+Baseline:
+
+- library revision: `f8a89170785c938a9105deae6cc479576abb969a`;
+- pushed branch: `main`;
+- CI run: `30447756574`, successful on Linux, Windows, macOS and coverage;
+- run identifier: `20260729T113223Z`;
+- duration: 3,600 seconds per target;
+- container exit code: 0;
+- provenance status: `not_release_evidence_uncommitted_harness`.
+
+Results:
+
+| Target | Executions | New corpus units | Peak RSS MiB | Findings |
+| --- | ---: | ---: | ---: | ---: |
+| `from_wkb` | 47,195,033 | 1,401 | 523 | 0 |
+| `geojson_reader` | 9,846,500 | 7,196 | 516 | 0 |
+| `wkt_parse` | 19,669,244 | 2,891 | 514 | 0 |
+| `kml_reader` | 7,399,741 | 14,467 | 513 | 0 |
+| `shp_wkb` | 183,799,884 | 1,770 | 520 | 0 |
+| `dxf_reader` | 3,458,829 | 14,341 | 518 | 0 |
+| **libFuzzer total** | **271,369,231** | **42,066** | — | **0** |
+| structured differential driver | 5,720,360,000 | — | — | 0 |
+
+The run-specific artifact and structured-finding directories contain zero
+files. Every target reached its time limit normally; there were no crashes,
+timeouts, out-of-memory exits, sanitizer findings, or structured differential
+findings. These results do not override the provenance defect.
 
 ## Performance and compatibility
 
@@ -68,9 +111,10 @@ runtime library paths. Production performance and public APIs are unchanged.
 
 ## Next required evidence
 
-1. Commit and push the RC3 baseline.
-2. Run the long campaign without modifying its mounted source tree.
-3. Record the exact revision, run identifier, durations, execution counts,
-   findings, artifact hashes when applicable, and resource limits.
-4. Re-run the release gate after updating the development manifest.
+1. Commit the two harness updates and this provenance correction.
+2. Push and obtain green CI for that exact revision.
+3. Repeat the 3,600-second campaign from a clean checkout.
+4. Record the repeat's exact revision, run identifier and final statistics.
 
+Even a valid repeat will not qualify the three-component system, replace an
+independent review, or satisfy the external native-Windows GDAL/FileGDB gate.

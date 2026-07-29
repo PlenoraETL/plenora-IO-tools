@@ -252,6 +252,34 @@ def validate_rc3_development(document: dict[str, Any]) -> list[str]:
         "icd_ratification_alignment",
     }:
         errors.append("rc3-development: workstream diversi dai sette autorizzati")
+    if (
+        workstreams.get("long_fuzz_campaign")
+        != "repeat_required_uncommitted_harness_detected"
+    ):
+        errors.append("rc3-development: stato campagna fuzz lunga inatteso")
+    if document.get("diagnostic_fuzz_run") != {
+        "library_baseline_revision": "f8a89170785c938a9105deae6cc479576abb969a",
+        "baseline_ci_run": 30447756574,
+        "run_id": "20260729T113223Z",
+        "duration_seconds": 3600,
+        "libfuzzer_executions": 271369231,
+        "structured_iterations": 5720360000,
+        "findings": 0,
+        "crash_artifacts": 0,
+        "container_exit_code": 0,
+        "provenance_status": "not_release_evidence_uncommitted_harness",
+        "uncommitted_harness_sha256": {
+            "fuzz/fuzz_targets/from_wkb.rs": (
+                "759421a3d6249cf6898f3f4ca58ef99c"
+                "975cd493b7f42c320716276cfc741ee9"
+            ),
+            "fuzz/fuzz_targets/wkt_parse.rs": (
+                "6af6c2adeaa8efe5db0c21f2d987fdd2"
+                "6ca5d6f6b8ae0d71fd9f39edff16c9af"
+            ),
+        },
+    }:
+        errors.append("rc3-development: record diagnostico fuzz inatteso")
     if document.get("claims") != {
         "component_rc": False,
         "system_rc": False,

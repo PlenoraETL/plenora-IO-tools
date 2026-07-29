@@ -15,12 +15,22 @@ fn all_finite(geometry: &WkbGeometry) -> bool {
     };
     match &geometry.value {
         WkbValue::Point(value) => coordinate(value),
-        WkbValue::LineString(values) => values.iter().all(coordinate),
-        WkbValue::Polygon(rings) => rings.iter().flatten().all(coordinate),
+        WkbValue::LineString(values) | WkbValue::CircularString(values) => {
+            values.iter().all(coordinate)
+        }
+        WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
+            rings.iter().flatten().all(coordinate)
+        }
         WkbValue::MultiPoint(values)
         | WkbValue::MultiLineString(values)
         | WkbValue::MultiPolygon(values)
-        | WkbValue::GeometryCollection(values) => values.iter().all(all_finite),
+        | WkbValue::GeometryCollection(values)
+        | WkbValue::CompoundCurve(values)
+        | WkbValue::CurvePolygon(values)
+        | WkbValue::MultiCurve(values)
+        | WkbValue::MultiSurface(values)
+        | WkbValue::PolyhedralSurface(values)
+        | WkbValue::Tin(values) => values.iter().all(all_finite),
     }
 }
 
