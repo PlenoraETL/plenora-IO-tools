@@ -31,6 +31,21 @@ questo la ratifica.
   strutturale è idempotente quando gli adattatori sono composti;
 - il controllo EWKB del writer resta invariato e fail-closed.
 
+## Residuo R4.3.1 dichiarato
+
+L'implementazione non dichiara una divergenza fra `crs_definition` — WKT o
+PROJJSON — e `plenora.geometry.srid`. Copre soltanto il confronto sintattico fra
+un `crs_id` nel namespace EPSG e lo SRID numerico. Di conseguenza non costituisce
+un'implementazione completa della precedenza fra tutte le rappresentazioni
+definita da R4.3.1.
+
+Chiudere il residuo richiede un resolver CRS capace di interpretare la
+definizione e confrontarne l'identità con lo SRID. Non appartiene al perimetro
+RC3 e non deve essere sostituito da euristiche al bordo: indovinare
+l'equivalenza introdurrebbe informazione invece di preservarla. Il residuo resta
+quindi dichiarato per una milestone successiva, senza promuovere
+`crs_inconsistency_read_declaration` a conformità completa R4.3.1.
+
 ## Decisione di perimetro
 
 RC3 comprende tre risultati tecnici coesi e già implementati:
