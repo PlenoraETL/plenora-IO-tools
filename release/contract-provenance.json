@@ -3,8 +3,8 @@
   "component": "plenora-IO-tools",
   "release_kind": "component_rc",
   "freeze_status": "pre_freeze",
-  "implementation_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
-  "candidate_worktree": "uncommitted_eight_point_completion",
+  "implementation_revision": "92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a",
+  "candidate_state": "committed_pending_candidate_ci",
   "wire_contract_version": 1,
   "icd": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",

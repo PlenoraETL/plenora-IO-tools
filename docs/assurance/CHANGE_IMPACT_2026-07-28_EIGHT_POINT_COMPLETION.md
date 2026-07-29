@@ -15,8 +15,10 @@ Data: 2026-07-28.
 - database-tools usato per il replay EWKB:
   `ef18e80c798126f872fd366c36ee96a029598958`.
 
-La revisione candidata IO non è ancora assegnabile: questo documento descrive
-un worktree verificato localmente, non una baseline congelata.
+La revisione candidata del codice IO è
+`92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a`. È una baseline immutabile
+verificata localmente, ma non una RC congelata: CI candidata, revisione
+indipendente e tag restano separati.
 
 ## Modifiche e impatto
 

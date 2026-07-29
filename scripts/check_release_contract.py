@@ -21,9 +21,10 @@ GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
 EXPECTED_ICD_TAG = "v2.0-rc8"
 EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
 EXPECTED_IO_BASELINE = "1c37fb5d525647b264ce977e26fc07b346bb7914"
+EXPECTED_IO_CANDIDATE = "92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a"
 EXPECTED_DATABASE_REPLAY_REVISION = "ef18e80c798126f872fd366c36ee96a029598958"
 EXPECTED_SYSTEM_REVISIONS = {
-    "plenora-IO-tools": EXPECTED_IO_BASELINE,
+    "plenora-IO-tools": EXPECTED_IO_CANDIDATE,
     "plenora-data-tools": "97e48ba469f9f55a2cc83e9598d72899c29e2be6",
     "plenora-database-tools": "2588523bf6a4ad57e62ae3d44e9f58025c55a913",
 }
@@ -72,10 +73,10 @@ def validate_documents(
         errors.append("contract-provenance: freeze_status non valido")
     if not SHA.fullmatch(str(provenance.get("implementation_revision", ""))):
         errors.append("contract-provenance: implementation_revision non è uno SHA completo")
-    elif provenance.get("implementation_revision") != EXPECTED_IO_BASELINE:
-        errors.append("contract-provenance: baseline IO inattesa")
-    if provenance.get("candidate_worktree") != "uncommitted_eight_point_completion":
-        errors.append("contract-provenance: worktree candidato non dichiarato")
+    elif provenance.get("implementation_revision") != EXPECTED_IO_CANDIDATE:
+        errors.append("contract-provenance: revisione candidata IO inattesa")
+    if provenance.get("candidate_state") != "committed_pending_candidate_ci":
+        errors.append("contract-provenance: stato candidato inatteso")
 
     if icd.get("tag") != EXPECTED_ICD_TAG:
         errors.append("contract-provenance: tag ICD inatteso")
@@ -187,23 +188,22 @@ def validate_documents(
         errors.append("shared corpus: revisioni dei producer inattese")
 
     if freeze_readiness.get("status") != "not_ready_to_freeze":
-        errors.append("freeze readiness: il worktree non può risultare congelabile")
+        errors.append("freeze readiness: il candidato non può risultare congelabile")
     readiness_gates = freeze_readiness.get("gates", {})
-    for open_gate in (
-        "candidate_revision_committed",
-        "candidate_ci",
-        "independent_review",
-        "release_tag",
-    ):
+    if readiness_gates.get("candidate_revision_committed") is not True:
+        errors.append("freeze readiness: revisione candidata non registrata")
+    if freeze_readiness.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
+        errors.append("freeze readiness: SHA candidato inatteso")
+    for open_gate in ("candidate_ci", "independent_review", "release_tag"):
         if readiness_gates.get(open_gate) is not False:
             errors.append(f"freeze readiness: gate aperto non fail-closed: {open_gate}")
 
-    if evidence.get("status") != "candidate_worktree_local_evidence":
+    if evidence.get("status") != "candidate_revision_local_evidence":
         errors.append("evidence: stato candidato inatteso")
     if evidence.get("baseline_revision") != EXPECTED_IO_BASELINE:
         errors.append("evidence: baseline IO inattesa")
-    if evidence.get("candidate_revision") is not None:
-        errors.append("evidence: il worktree non committato non può avere una revisione")
+    if evidence.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
+        errors.append("evidence: revisione candidata inattesa")
     replay = (
         evidence.get("candidate_local_verification", {})
         .get("shared_wkb_ewkb_replay", {})

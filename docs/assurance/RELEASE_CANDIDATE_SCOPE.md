@@ -8,8 +8,10 @@ La release candidate preparata da questo repository è una **RC del componente
 IO-tools**. Non è una RC del sistema Plenora e non dichiara conformità o
 certificazione avionica.
 
-L'identificatore della RC e il relativo commit saranno assegnati soltanto al
-freeze. Fino a quel momento lo stato machine-readable è `pre_freeze` in
+La revisione candidata del codice è
+`92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a`; l'identificatore e il tag della RC
+saranno assegnati soltanto al freeze. Fino a quel momento lo stato
+machine-readable è `pre_freeze` in
 [`release/contract-provenance.json`](../../release/contract-provenance.json).
 L'impatto della preparazione corrente è registrato nella
 [`CIA dedicata`](CHANGE_IMPACT_2026-07-28_EIGHT_POINT_COMPLETION.md).
@@ -74,6 +76,6 @@ citabile. Nessun tag di release è creato da questo documento.
 
 Lo stato corrente è machine-readable in
 [`release/freeze-readiness.json`](../../release/freeze-readiness.json):
-il codice candidato ha evidenza locale, ma non esiste ancora una revisione
-immutabile candidata, la relativa CI e una revisione indipendente. Il freeze
-resta quindi intenzionalmente chiuso.
+il codice candidato ha una revisione immutabile ed evidenza locale, ma non
+ancora la relativa CI né una revisione indipendente. Il freeze resta quindi
+intenzionalmente chiuso.

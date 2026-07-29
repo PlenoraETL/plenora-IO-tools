@@ -1,10 +1,10 @@
 {
   "evidence_version": 1,
-  "status": "candidate_worktree_local_evidence",
-  "generated_on": "2026-07-28",
+  "status": "candidate_revision_local_evidence",
+  "generated_on": "2026-07-29",
   "component": "plenora-IO-tools",
   "baseline_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
-  "candidate_revision": null,
+  "candidate_revision": "92be3f4cd9a84b4dffbfd8b1621cc85a6ec9aa7a",
   "icd_revision": "62b12e3496466d2c908dac3cc098640b99b52e21",
   "component_revisions": {
     "plenora-data-tools": "97e48ba469f9f55a2cc83e9598d72899c29e2be6",
