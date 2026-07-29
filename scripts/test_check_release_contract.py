@@ -14,8 +14,13 @@ from scripts.check_release_contract import (
     INDEPENDENT_REVIEW,
     PROVENANCE,
     SYSTEM_GATE,
+    WORKSPACE_CRATE_MANIFESTS,
+    WORKSPACE_LOCK,
+    WORKSPACE_MANIFEST,
     load_json,
+    load_toml,
     validate_documents,
+    validate_workspace_versions,
 )
 
 
@@ -29,6 +34,11 @@ class ReleaseContractTests(unittest.TestCase):
         self.corpus_schema = load_json(CORPUS_SCHEMA)
         self.corpus_manifest = load_json(CORPUS_MANIFEST)
         self.geometry_source = GEOMETRY_SOURCE.read_text(encoding="utf-8")
+        self.workspace_manifest = load_toml(WORKSPACE_MANIFEST)
+        self.crate_manifests = [
+            load_toml(path) for path in WORKSPACE_CRATE_MANIFESTS
+        ]
+        self.lockfile = load_toml(WORKSPACE_LOCK)
 
     def validate(
         self,
@@ -60,6 +70,36 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_repository_manifests_are_consistent(self) -> None:
         self.assertEqual(self.validate(), [])
+        self.assertEqual(
+            validate_workspace_versions(
+                self.workspace_manifest,
+                self.crate_manifests,
+                self.lockfile,
+            ),
+            [],
+        )
+
+    def test_rejects_workspace_version_drift(self) -> None:
+        manifest = copy.deepcopy(self.workspace_manifest)
+        manifest["workspace"]["package"]["version"] = "0.0.0"
+        self.assertTrue(
+            validate_workspace_versions(
+                manifest,
+                self.crate_manifests,
+                self.lockfile,
+            )
+        )
+
+    def test_rejects_crate_not_inheriting_release_version(self) -> None:
+        manifests = copy.deepcopy(self.crate_manifests)
+        manifests[0]["package"]["version"] = "0.1.0-rc.2"
+        self.assertTrue(
+            validate_workspace_versions(
+                self.workspace_manifest,
+                manifests,
+                self.lockfile,
+            )
+        )
 
     def test_rejects_system_rc_claim(self) -> None:
         provenance = copy.deepcopy(self.provenance)
@@ -70,6 +110,19 @@ class ReleaseContractTests(unittest.TestCase):
         provenance = copy.deepcopy(self.provenance)
         provenance["icd"]["conformance_claim"] = "full"
         self.assertTrue(self.validate(provenance=provenance))
+
+    def test_rejects_release_version_or_tag_form_drift(self) -> None:
+        for path, replacement in (
+            (("component_version",), "0.1.0-rc.2"),
+            (("release_tag", "name"), "v0.1.0-rc.2"),
+            (("release_tag", "tag_form"), "lightweight"),
+        ):
+            provenance = copy.deepcopy(self.provenance)
+            target = provenance
+            for key in path[:-1]:
+                target = target[key]
+            target[path[-1]] = replacement
+            self.assertTrue(self.validate(provenance=provenance), path)
 
     def test_rejects_wire_version_drift(self) -> None:
         provenance = copy.deepcopy(self.provenance)

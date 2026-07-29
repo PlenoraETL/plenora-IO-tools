@@ -38,6 +38,15 @@
         "windows",
         "macos-publish"
       ]
+    },
+    "release_tag": {
+      "name": "v0.1.0-rc.1",
+      "version": "0.1.0-rc.1",
+      "tag_form": "annotated_unsigned",
+      "status": "authorized_pending_creation",
+      "candidate_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
+      "verification_claim": "verified_internally",
+      "independent_review_status": "not_performed"
     }
   },
   "icd_revision": "62b12e3496466d2c908dac3cc098640b99b52e21",

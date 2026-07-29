@@ -18,16 +18,23 @@ autorizza una RC del componente con claim `verified_internally`, senza
 trasformare la review aperta in un blocco. L'impatto del freeze è registrato nella
 [`CIA dedicata`](CHANGE_IMPACT_2026-07-29_TECHNICAL_FREEZE.md).
 
-## Due versioni distinte
+La versione dei 16 crate del workspace è `0.1.0-rc.1` e il riferimento Git
+predisposto è `v0.1.0-rc.1`. Il tag è annotato e non firmato
+(`annotated_unsigned`); il messaggio identifica candidato, claim e stato della
+review. La decisione è registrata nella
+[`CIA versione e tag`](CHANGE_IMPACT_2026-07-29_RC_VERSION_AND_TAG.md).
+
+## Identificativi distinti
 
 - `plenora.contract.version=1` identifica il formato wire emesso negli schemi
   Arrow;
+- `0.1.0-rc.1` identifica la versione SemVer dei crate del componente;
 - `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`, identifica la revisione dell'ICD
   usata come obiettivo di implementazione.
 
-I due numeri non sono intercambiabili. Il tag ICD è annotato ma non firmato e
-il relativo candidato di ratifica è esplicitamente non ratificato.
+I tre identificativi non sono intercambiabili. Il tag ICD è annotato ma non
+firmato e il relativo candidato di ratifica è esplicitamente non ratificato.
 
 ## Stato normativo adottato
 
@@ -91,7 +98,9 @@ Lo stato corrente è machine-readable in
 la baseline tecnica è congelata, la CI candidata `30415766905` è verde su
 Linux, Windows, macOS e coverage e la RC di componente è autorizzata come
 `verified_internally`. `independent_review` e `release_tag_created` restano
-esplicitamente `false`, ma soltanto la prima limita il livello del claim.
+esplicitamente `false` durante la preparazione; la prima limita soltanto il
+livello del claim, mentre il secondo passa a `true` alla pubblicazione del tag
+annotato `v0.1.0-rc.1`.
 
 Il materiale da consegnare al revisore è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record

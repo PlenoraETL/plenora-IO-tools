@@ -2,6 +2,7 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "release_kind": "component_rc",
+  "component_version": "0.1.0-rc.1",
   "freeze_status": "frozen",
   "implementation_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
   "candidate_state": "component_rc_verified_internally",
@@ -25,6 +26,16 @@
     "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md",
     "decision_revision": "75ea508cec257dc46252ec267e5b1e9ecaa78b73",
     "decision_ci_run": 30435854122
+  },
+  "release_tag": {
+    "name": "v0.1.0-rc.1",
+    "version": "0.1.0-rc.1",
+    "tag_form": "annotated_unsigned",
+    "status": "authorized_pending_creation",
+    "candidate_revision": "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068",
+    "verification_claim": "verified_internally",
+    "independent_review_status": "not_performed",
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_RC_VERSION_AND_TAG.md"
   },
   "wire_contract_version": 1,
   "icd": {

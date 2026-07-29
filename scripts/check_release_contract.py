@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -19,11 +20,16 @@ INDEPENDENT_REVIEW = ROOT / "release" / "independent-review.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
+WORKSPACE_MANIFEST = ROOT / "Cargo.toml"
+WORKSPACE_LOCK = ROOT / "Cargo.lock"
+WORKSPACE_CRATE_MANIFESTS = tuple(sorted((ROOT / "crates").glob("*/Cargo.toml")))
 EXPECTED_ICD_TAG = "v2.0-rc8"
 EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
 EXPECTED_IO_BASELINE = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "78c2d150b9c7d0ac48e4c97b03f86228e0f0a068"
 EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
+EXPECTED_COMPONENT_VERSION = "0.1.0-rc.1"
+EXPECTED_RELEASE_TAG = "v0.1.0-rc.1"
 EXPECTED_CANDIDATE_CI_RUN = 30415766905
 EXPECTED_RELEASE_DECISION_REVISION = (
     "75ea508cec257dc46252ec267e5b1e9ecaa78b73"
@@ -62,6 +68,18 @@ EXPECTED_RELEASE_DECISION = {
     ),
     "decision_revision": EXPECTED_RELEASE_DECISION_REVISION,
     "decision_ci_run": EXPECTED_RELEASE_DECISION_CI_RUN,
+}
+EXPECTED_RELEASE_TAG_RECORD = {
+    "name": EXPECTED_RELEASE_TAG,
+    "version": EXPECTED_COMPONENT_VERSION,
+    "tag_form": "annotated_unsigned",
+    "status": "authorized_pending_creation",
+    "candidate_revision": EXPECTED_IO_CANDIDATE,
+    "verification_claim": "verified_internally",
+    "independent_review_status": "not_performed",
+    "decision_record": (
+        "docs/assurance/CHANGE_IMPACT_2026-07-29_RC_VERSION_AND_TAG.md"
+    ),
 }
 EXPECTED_FREEZE_DECISION = {
     "status": "technical_baseline_frozen",
@@ -132,6 +150,48 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def load_toml(path: Path) -> dict[str, Any]:
+    value = tomllib.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: radice TOML non table")
+    return value
+
+
+def validate_workspace_versions(
+    workspace_manifest: dict[str, Any],
+    crate_manifests: list[dict[str, Any]],
+    lockfile: dict[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    workspace_version = (
+        workspace_manifest.get("workspace", {}).get("package", {}).get("version")
+    )
+    if workspace_version != EXPECTED_COMPONENT_VERSION:
+        errors.append("workspace: versione RC centrale inattesa")
+
+    crate_names: set[str] = set()
+    for manifest in crate_manifests:
+        package = manifest.get("package", {})
+        name = package.get("name")
+        if not isinstance(name, str):
+            errors.append("workspace: crate senza nome")
+            continue
+        crate_names.add(name)
+        if package.get("version") != {"workspace": True}:
+            errors.append(f"workspace: {name} non eredita la versione centrale")
+
+    locked_versions = {
+        package.get("name"): package.get("version")
+        for package in lockfile.get("package", [])
+        if isinstance(package, dict) and package.get("name") in crate_names
+    }
+    for crate_name in sorted(crate_names):
+        if locked_versions.get(crate_name) != EXPECTED_COMPONENT_VERSION:
+            errors.append(f"Cargo.lock: versione RC inattesa per {crate_name}")
+
+    return errors
+
+
 def validate_documents(
     provenance: dict[str, Any],
     system_gate: dict[str, Any],
@@ -153,6 +213,8 @@ def validate_documents(
         errors.append("contract-provenance: componente inatteso")
     if provenance.get("release_kind") != "component_rc":
         errors.append("contract-provenance: release_kind deve essere component_rc")
+    if provenance.get("component_version") != EXPECTED_COMPONENT_VERSION:
+        errors.append("contract-provenance: versione componente inattesa")
     if provenance.get("freeze_status") != "frozen":
         errors.append("contract-provenance: baseline tecnica non congelata")
     if not SHA.fullmatch(str(provenance.get("implementation_revision", ""))):
@@ -165,6 +227,8 @@ def validate_documents(
         errors.append("contract-provenance: perimetro del freeze inatteso")
     if provenance.get("release_decision") != EXPECTED_RELEASE_DECISION:
         errors.append("contract-provenance: decisione release interna inattesa")
+    if provenance.get("release_tag") != EXPECTED_RELEASE_TAG_RECORD:
+        errors.append("contract-provenance: record del tag RC inatteso")
 
     if icd.get("tag") != EXPECTED_ICD_TAG:
         errors.append("contract-provenance: tag ICD inatteso")
@@ -308,6 +372,9 @@ def validate_documents(
         "independent_review_status": "pending_eligible_reviewer",
         "independently_verified_claim_authorized": False,
         "release_tag_created": False,
+        "release_tag_name": EXPECTED_RELEASE_TAG,
+        "release_tag_form": "annotated_unsigned",
+        "release_tag_status": "authorized_pending_creation",
     }:
         errors.append("freeze readiness: attributi assurance inattesi")
     if "independent_review" in readiness_gates:
@@ -346,6 +413,11 @@ def validate_documents(
             "head_revision": EXPECTED_RELEASE_DECISION_REVISION,
             "result": "pass",
             "jobs": ["rust", "coverage", "windows", "macos-publish"],
+        },
+        "release_tag": {
+            key: value
+            for key, value in EXPECTED_RELEASE_TAG_RECORD.items()
+            if key != "decision_record"
         },
     }:
         errors.append("evidence: decisione RC interna inattesa")
@@ -437,6 +509,9 @@ def main() -> int:
         FREEZE_READINESS,
         EVIDENCE,
         INDEPENDENT_REVIEW,
+        WORKSPACE_MANIFEST,
+        WORKSPACE_LOCK,
+        *WORKSPACE_CRATE_MANIFESTS,
         ROOT / "docs" / "assurance" / "RELEASE_CANDIDATE_SCOPE.md",
         ROOT / "docs" / "assurance" / "SYSTEM_RC_GATE.md",
         ROOT / "docs" / "assurance" / "WKB_EWKB_FUZZ_COORDINATION.md",
@@ -468,6 +543,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_RC_VERSION_AND_TAG.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -487,6 +566,13 @@ def main() -> int:
                     load_json(CORPUS_SCHEMA),
                     load_json(CORPUS_MANIFEST),
                     GEOMETRY_SOURCE.read_text(encoding="utf-8"),
+                )
+            )
+            errors.extend(
+                validate_workspace_versions(
+                    load_toml(WORKSPACE_MANIFEST),
+                    [load_toml(path) for path in WORKSPACE_CRATE_MANIFESTS],
+                    load_toml(WORKSPACE_LOCK),
                 )
             )
         except (OSError, ValueError, json.JSONDecodeError) as error:
