@@ -116,6 +116,12 @@ Superati sul candidato:
   iterazioni, zero finding;
 - confronto A/B alternato sopra.
 
-Resta da eseguire prima di candidare `rc.2` la CI multi-piattaforma sulla
-revisione committata. Questa evidenza non costituisce certificazione né
-dichiarazione di conformità DO-178C/ED-12C.
+La CI
+[`30442548998`](https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/30442548998)
+è verde su Linux, Windows, macOS e coverage e copre la revisione di
+implementazione `179ad037aad18c3c92ff3c703315a7033ff43773`. Un'eventuale
+`rc.2` richiede ancora una decisione di candidato e una nuova baseline
+congelata; questa campagna non modifica `v0.1.0-rc.1`.
+
+Questa evidenza non costituisce certificazione né dichiarazione di conformità
+DO-178C/ED-12C.
