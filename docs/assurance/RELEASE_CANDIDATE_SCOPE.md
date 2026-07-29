@@ -18,21 +18,24 @@ candidato del componente con claim `verified_internally`, senza
 trasformare la review aperta in un blocco. L'impatto del freeze è registrato nella
 [`CIA dedicata`](CHANGE_IMPACT_2026-07-29_RC2_RELEASE_DECISION.md).
 
-La versione dei 16 crate del workspace è `0.1.0-rc.2`. Il tag omonimo è
-pubblicato come tag annotato non firmato, dopo la CI pre-tag `30444724398`
-verde sulla revisione `682e905`. Il precedente `v0.1.0-rc.1` resta
-pubblicato, annotato, non firmato e immutabile.
+RC2 resta pubblicata come tag annotato non firmato, dopo la CI pre-tag
+`30444724398` verde sulla revisione `682e905`. Il workspace corrente eredita
+`0.1.0-rc.3` perché è iniziato lo sviluppo della RC successiva, ma non esiste
+ancora un candidato congelato né un tag RC3. Lo stato di sviluppo è separato
+in [`release/rc3-development.json`](../../release/rc3-development.json). Il
+precedente `v0.1.0-rc.1` resta pubblicato, annotato, non firmato e immutabile.
 
 ## Identificativi distinti
 
 - `plenora.contract.version=1` identifica il formato wire emesso negli schemi
   Arrow;
-- `0.1.0-rc.2` identifica la versione SemVer dei crate del componente;
+- `0.1.0-rc.2` identifica l'ultima release SemVer congelata;
+- `0.1.0-rc.3` identifica il workspace di sviluppo corrente, senza claim RC;
 - `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`, identifica la revisione dell'ICD
   usata come obiettivo di implementazione.
 
-I tre identificativi non sono intercambiabili. Il tag ICD è annotato ma non
+Gli identificativi non sono intercambiabili. Il tag ICD è annotato ma non
 firmato e il relativo candidato di ratifica è esplicitamente non ratificato.
 
 ## Stato normativo adottato
@@ -97,6 +100,9 @@ verde su Linux, Windows, macOS e coverage. `independent_review=false` limita
 soltanto il livello del claim; `release_tag_created=true` e
 `release_tag_status=created` registrano la pubblicazione del tag
 `v0.1.0-rc.2` senza promuovere il livello di assurance.
+Il file `release/rc3-development.json` dichiara separatamente i sette
+workstream RC3, tutti limitati al componente, e mantiene ogni claim RC3 a
+`false` finché non esiste una nuova baseline verificata.
 
 Il materiale da consegnare al revisore è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record

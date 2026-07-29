@@ -45,7 +45,8 @@ La review deve esaminare almeno:
 4. cancellazione, limiti, backpressure e parser materializzanti residui;
 5. capability, fidelity/loss report e modello d'errore a quattro assi;
 6. ottimizzazioni GeoJSON, CSV e GeoParquet e relativi invarianti;
-7. corpus differenziale, catena a tre componenti e gap dichiarati;
+7. corpus differenziale e gap dichiarati; la catena a tre componenti è
+   esplicitamente fuori dal repository e dal perimetro della review IO;
 8. coerenza fra codice, ADR, ICD, matrice assurance e manifesti release.
 
 Le CIA in `docs/assurance/CHANGE_IMPACT_*.md` sono indici del lavoro, non

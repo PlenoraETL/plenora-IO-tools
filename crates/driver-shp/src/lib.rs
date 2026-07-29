@@ -640,6 +640,16 @@ fn topology_from_wkb(geometry: WkbGeometry) -> Result<ShpTopology> {
         WkbValue::GeometryCollection(_) => {
             Err(err("GeometryCollection non rappresentabile in Shapefile"))
         }
+        WkbValue::CircularString(_)
+        | WkbValue::CompoundCurve(_)
+        | WkbValue::CurvePolygon(_)
+        | WkbValue::MultiCurve(_)
+        | WkbValue::MultiSurface(_)
+        | WkbValue::PolyhedralSurface(_)
+        | WkbValue::Tin(_)
+        | WkbValue::Triangle(_) => Err(err(
+            "tipo WKB esteso non rappresentabile in Shapefile senza normalizzazione",
+        )),
     }
 }
 

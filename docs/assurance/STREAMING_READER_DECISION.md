@@ -72,3 +72,21 @@ e ha attivato il veto; DXF ha un blocco di API verificabile; XLSX ha un blocco
 contrattuale verificabile. Nel profilo aeronautico i tre reader restano
 esplicitamente fuori dal sottoinsieme streaming bounded e non possono essere
 descritti come cancellabili durante la chiamata upstream sincrona.
+
+## Riesame RC3
+
+Il riesame del 2026-07-29 conferma gli stessi prerequisiti sulle dipendenze
+pinnate `kml 0.14.0`, `dxf 0.6.1` e `calamine 0.36.1`:
+
+- KML non espone un iteratore pubblico di placemark/eventi equivalente al
+  modello letto dal driver;
+- DXF non espone il parser progressivo interno necessario a preservare blocchi
+  e riferimenti;
+- XLSX richiede ancora uno schema governato o una seconda passata per non
+  inventare tipi prima di osservare il foglio completo.
+
+RC3 non mantiene una “ottimizzazione” superficiale che riduca soltanto un
+vettore intermedio lasciando materializzato il documento sorgente. Lo stato è
+`blocked_prerequisites_revalidated`: cancellazione e limiti restano applicati
+prima/dopo la chiamata upstream e nei loop controllati, ma la chiamata sincrona
+non viene dichiarata preemptive.

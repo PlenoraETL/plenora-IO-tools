@@ -94,3 +94,12 @@ immutabile e identificata da digest. La matrice minima residua è:
 
 Finché questa matrice non è verde, FileGDB resta capability opzionale e non va
 incluso nel perimetro operativo aeronautico congelato.
+
+## Riesame RC3
+
+Il riesame del 2026-07-29 ha confermato sulla dipendenza pinnata
+`gdal 0.17.1` che `OGR_L_SetIgnoredFields` non è esposto da una API safe.
+L'accesso diretto tramite `gdal-sys` richiederebbe `unsafe` e violerebbe il
+profilo corrente. La decisione e le condizioni di riapertura sono registrate
+in `CHANGE_IMPACT_2026-07-29_RC3_FILEGDB_PUSHDOWN.md`; lo stato resta
+`design_constraint_open`, senza claim di pushdown nativo.

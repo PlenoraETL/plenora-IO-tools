@@ -353,6 +353,18 @@ fn geometry_to_wkt(geometry: &WkbGeometry) -> Result<Wkt<f64>> {
                 .collect::<Result<Vec<_>>>()?;
             Wkt::GeometryCollection(GeometryCollection::new(children, dim))
         }
+        WkbValue::CircularString(_)
+        | WkbValue::CompoundCurve(_)
+        | WkbValue::CurvePolygon(_)
+        | WkbValue::MultiCurve(_)
+        | WkbValue::MultiSurface(_)
+        | WkbValue::PolyhedralSurface(_)
+        | WkbValue::Tin(_)
+        | WkbValue::Triangle(_) => {
+            return Err(error(
+                "tipo WKB esteso non rappresentabile dal profilo WKT corrente",
+            ))
+        }
     })
 }
 

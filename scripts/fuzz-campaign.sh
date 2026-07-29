@@ -11,7 +11,9 @@ rss_limit_mb="${PLENORA_FUZZ_RSS_MB:-2048}"
 max_len="${PLENORA_FUZZ_MAX_LEN:-65536}"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 log_dir="/work/fuzz/logs/${run_id}"
-mkdir -p "${log_dir}" /work/fuzz-findings
+artifact_dir="/work/fuzz/artifacts/${run_id}"
+finding_dir="/work/fuzz-findings/${run_id}"
+mkdir -p "${log_dir}" "${artifact_dir}" "${finding_dir}"
 targets=(from_wkb geojson_reader wkt_parse kml_reader shp_wkb dxf_reader)
 
 echo "=== build e seed corpus ==="
@@ -29,6 +31,8 @@ declare -A logs=()
 start_target() {
     local target="$1"
     local log="${log_dir}/${target}.log"
+    local artifacts="${artifact_dir}/${target}/"
+    mkdir -p "${artifacts}"
     logs["${target}"]="${log}"
     echo "=== start ${target}: ${duration}s ==="
     cargo +"${toolchain}" --locked fuzz run "${target}" -- \
@@ -37,6 +41,7 @@ start_target() {
         "-max_len=${max_len}" \
         "-timeout=15" \
         "-print_final_stats=1" \
+        "-artifact_prefix=${artifacts}" \
         >"${log}" 2>&1 &
     pids["${target}"]=$!
 }
@@ -47,7 +52,7 @@ start_structured() {
     logs["${target}"]="${log}"
     echo "=== start ${target}: ${duration}s ==="
     PLENORA_FUZZ_SECONDS="${duration}" \
-    PLENORA_FUZZ_OUT="/work/fuzz-findings" \
+    PLENORA_FUZZ_OUT="${finding_dir}" \
         ./target/release/plenora-fuzz >"${log}" 2>&1 &
     pids["${target}"]=$!
 }
@@ -69,7 +74,9 @@ for target in "${targets[@]}" structured; do
 done
 
 echo "=== artifacts ==="
-find /work/fuzz/artifacts /work/fuzz-findings \
+find "${artifact_dir}" "${finding_dir}" \
     -type f -printf '%p %s bytes\n' 2>/dev/null || true
 echo "logs: ${log_dir}"
+echo "artifacts: ${artifact_dir}"
+echo "structured findings: ${finding_dir}"
 exit "${failed}"

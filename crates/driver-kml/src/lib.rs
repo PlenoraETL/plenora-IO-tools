@@ -751,6 +751,16 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
                     .collect::<Result<Vec<_>>>()?,
             )))
         }
+        WkbValue::CircularString(_)
+        | WkbValue::CompoundCurve(_)
+        | WkbValue::CurvePolygon(_)
+        | WkbValue::MultiCurve(_)
+        | WkbValue::MultiSurface(_)
+        | WkbValue::PolyhedralSurface(_)
+        | WkbValue::Tin(_)
+        | WkbValue::Triangle(_) => Err(err(
+            "tipo WKB esteso non rappresentabile in KML senza linearizzazione",
+        )),
     }
 }
 

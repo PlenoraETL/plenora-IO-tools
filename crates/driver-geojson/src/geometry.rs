@@ -244,6 +244,16 @@ fn validate_wkb_geojson_geometry(geometry: &WkbGeometry) -> Result<()> {
             }
             Ok(())
         }
+        WkbValue::CircularString(_)
+        | WkbValue::CompoundCurve(_)
+        | WkbValue::CurvePolygon(_)
+        | WkbValue::MultiCurve(_)
+        | WkbValue::MultiSurface(_)
+        | WkbValue::PolyhedralSurface(_)
+        | WkbValue::Tin(_)
+        | WkbValue::Triangle(_) => Err(format_error(
+            "tipo WKB esteso non rappresentabile in GeoJSON senza linearizzazione",
+        )),
     }
 }
 
@@ -335,6 +345,18 @@ fn write_wkb_geojson_unchecked<W: Write>(writer: &mut W, geometry: &WkbGeometry)
                 write_wkb_geojson_unchecked(writer, value)?;
             }
             writer.write_all(b"]}")?;
+        }
+        WkbValue::CircularString(_)
+        | WkbValue::CompoundCurve(_)
+        | WkbValue::CurvePolygon(_)
+        | WkbValue::MultiCurve(_)
+        | WkbValue::MultiSurface(_)
+        | WkbValue::PolyhedralSurface(_)
+        | WkbValue::Tin(_)
+        | WkbValue::Triangle(_) => {
+            return Err(format_error(
+                "tipo WKB esteso non rappresentabile in GeoJSON senza linearizzazione",
+            ))
         }
     }
     Ok(())

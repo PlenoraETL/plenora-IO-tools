@@ -76,6 +76,58 @@ mod tests {
         ]
     }
 
+    fn xy(x: f64, y: f64) -> WkbCoordinate {
+        WkbCoordinate {
+            x,
+            y,
+            z: None,
+            m: None,
+        }
+    }
+
+    fn extended_geometries() -> Vec<WkbGeometry> {
+        let child = |value| WkbGeometry {
+            value,
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let line = || child(WkbValue::LineString(vec![xy(0.0, 0.0), xy(1.0, 1.0)]));
+        let circular = || {
+            child(WkbValue::CircularString(vec![
+                xy(0.0, 0.0),
+                xy(1.0, 1.0),
+                xy(2.0, 0.0),
+            ]))
+        };
+        let polygon = || {
+            child(WkbValue::Polygon(vec![vec![
+                xy(0.0, 0.0),
+                xy(2.0, 0.0),
+                xy(0.0, 0.0),
+            ]]))
+        };
+        let triangle = || {
+            child(WkbValue::Triangle(vec![vec![
+                xy(0.0, 0.0),
+                xy(2.0, 0.0),
+                xy(0.0, 0.0),
+            ]]))
+        };
+        let compound = || child(WkbValue::CompoundCurve(vec![line(), circular()]));
+        let curve_polygon = || child(WkbValue::CurvePolygon(vec![circular()]));
+
+        vec![
+            circular(),
+            compound(),
+            curve_polygon(),
+            child(WkbValue::MultiCurve(vec![line(), compound()])),
+            child(WkbValue::MultiSurface(vec![polygon(), curve_polygon()])),
+            child(WkbValue::PolyhedralSurface(vec![polygon()])),
+            child(WkbValue::Tin(vec![triangle()])),
+            triangle(),
+        ]
+    }
+
     #[test]
     fn geo_adapter_roundtrips_every_standard_type() {
         for geometry in sample_geometries() {
@@ -123,6 +175,94 @@ mod tests {
         assert_eq!(inspected.geometry_type, GeometryType::Point);
         assert_eq!(inspected.srid, Some(4326));
         assert!(inspected.contains_srid);
+    }
+
+    #[test]
+    fn lossless_codec_roundtrips_every_concrete_canonical_type() {
+        let mut observed = sample_geometries()
+            .iter()
+            .map(WkbGeometry::from_geo_xy)
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        observed.extend(extended_geometries());
+
+        let expected = [
+            GeometryType::Point,
+            GeometryType::LineString,
+            GeometryType::Polygon,
+            GeometryType::MultiPoint,
+            GeometryType::MultiLineString,
+            GeometryType::MultiPolygon,
+            GeometryType::GeometryCollection,
+            GeometryType::CircularString,
+            GeometryType::CompoundCurve,
+            GeometryType::CurvePolygon,
+            GeometryType::MultiCurve,
+            GeometryType::MultiSurface,
+            GeometryType::PolyhedralSurface,
+            GeometryType::Tin,
+            GeometryType::Triangle,
+        ];
+        assert_eq!(observed.len(), expected.len());
+        for (geometry, expected_type) in observed.iter().zip(expected) {
+            assert_eq!(geometry.geometry_type(), expected_type);
+            let bytes = encode_wkb(geometry, WkbFlavor::Iso).unwrap();
+            assert_eq!(
+                decode_wkb(&bytes, &WkbLimits::default()).unwrap(),
+                *geometry
+            );
+            let inspection = inspect_wkb(&bytes, &WkbLimits::default()).unwrap();
+            assert_eq!(inspection.geometry_type, expected_type);
+            assert!(inspection.nested_dimensions_coherent);
+        }
+    }
+
+    #[test]
+    fn extended_types_preserve_xyzm_and_srid_in_ewkb() {
+        let coordinate = |x, y, z, m| WkbCoordinate {
+            x,
+            y,
+            z: Some(z),
+            m: Some(m),
+        };
+        let geometry = WkbGeometry {
+            value: WkbValue::CircularString(vec![
+                coordinate(0.0, 0.0, 10.0, 1.0),
+                coordinate(1.0, 1.0, 11.0, 2.0),
+                coordinate(2.0, 0.0, 12.0, 3.0),
+            ]),
+            dimensions: CoordinateDimensions::Xyzm,
+            srid: Some(4979),
+        };
+        let bytes = encode_wkb(&geometry, WkbFlavor::Ewkb).unwrap();
+        assert_eq!(decode_wkb(&bytes, &WkbLimits::default()).unwrap(), geometry);
+        let inspection = inspect_wkb(&bytes, &WkbLimits::default()).unwrap();
+        assert_eq!(inspection.geometry_type, GeometryType::CircularString);
+        assert_eq!(inspection.dimensions, CoordinateDimensions::Xyzm);
+        assert_eq!(inspection.srid, Some(4979));
+        assert!(inspection.contains_srid);
+    }
+
+    #[test]
+    fn extended_aggregates_reject_noncanonical_children() {
+        let invalid = WkbGeometry {
+            value: WkbValue::Tin(vec![WkbGeometry {
+                value: WkbValue::Polygon(vec![]),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            }]),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        assert!(encode_wkb(&invalid, WkbFlavor::Iso).is_err());
+    }
+
+    #[test]
+    fn geo_adapter_rejects_extended_types_without_linearizing_them() {
+        for geometry in extended_geometries() {
+            let bytes = encode_wkb(&geometry, WkbFlavor::Iso).unwrap();
+            assert!(from_wkb(&bytes, &WkbLimits::default()).is_err());
+        }
     }
 
     #[test]

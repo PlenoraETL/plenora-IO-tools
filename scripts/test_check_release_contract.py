@@ -96,7 +96,7 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rejects_crate_not_inheriting_release_version(self) -> None:
         manifests = copy.deepcopy(self.crate_manifests)
-        manifests[0]["package"]["version"] = "0.1.0-rc.2"
+        manifests[0]["package"]["version"] = "0.1.0-rc.3"
         self.assertTrue(
             validate_workspace_versions(
                 self.workspace_manifest,

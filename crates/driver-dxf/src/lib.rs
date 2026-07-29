@@ -588,6 +588,18 @@ fn add_geometry(
                 add_geometry(drawing, child, layer, loss)?;
             }
         }
+        WkbValue::CircularString(_)
+        | WkbValue::CompoundCurve(_)
+        | WkbValue::CurvePolygon(_)
+        | WkbValue::MultiCurve(_)
+        | WkbValue::MultiSurface(_)
+        | WkbValue::PolyhedralSurface(_)
+        | WkbValue::Tin(_)
+        | WkbValue::Triangle(_) => {
+            return Err(err(
+                "tipo WKB esteso non rappresentabile nel profilo DXF corrente",
+            ))
+        }
     }
     Ok(())
 }
@@ -1124,12 +1136,20 @@ impl<'a> Walker<'a> {
 fn value_coordinate_count(value: &WkbValue) -> usize {
     match value {
         WkbValue::Point(_) => 1,
-        WkbValue::LineString(coordinates) => coordinates.len(),
-        WkbValue::Polygon(rings) => rings.iter().map(Vec::len).sum(),
+        WkbValue::LineString(coordinates) | WkbValue::CircularString(coordinates) => {
+            coordinates.len()
+        }
+        WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => rings.iter().map(Vec::len).sum(),
         WkbValue::MultiPoint(children)
         | WkbValue::MultiLineString(children)
         | WkbValue::MultiPolygon(children)
-        | WkbValue::GeometryCollection(children) => children
+        | WkbValue::GeometryCollection(children)
+        | WkbValue::CompoundCurve(children)
+        | WkbValue::CurvePolygon(children)
+        | WkbValue::MultiCurve(children)
+        | WkbValue::MultiSurface(children)
+        | WkbValue::PolyhedralSurface(children)
+        | WkbValue::Tin(children) => children
             .iter()
             .map(|geometry| value_coordinate_count(&geometry.value))
             .sum(),
@@ -1181,12 +1201,22 @@ fn coordinates_have_nonzero_z(coordinates: &[WkbCoordinate]) -> bool {
 fn geometry_has_nonzero_z(geometry: &WkbGeometry) -> bool {
     match &geometry.value {
         WkbValue::Point(coordinate) => coordinate.z.is_some_and(|z| z != 0.0),
-        WkbValue::LineString(coordinates) => coordinates_have_nonzero_z(coordinates),
-        WkbValue::Polygon(rings) => rings.iter().any(|ring| coordinates_have_nonzero_z(ring)),
+        WkbValue::LineString(coordinates) | WkbValue::CircularString(coordinates) => {
+            coordinates_have_nonzero_z(coordinates)
+        }
+        WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
+            rings.iter().any(|ring| coordinates_have_nonzero_z(ring))
+        }
         WkbValue::MultiPoint(children)
         | WkbValue::MultiLineString(children)
         | WkbValue::MultiPolygon(children)
-        | WkbValue::GeometryCollection(children) => children.iter().any(geometry_has_nonzero_z),
+        | WkbValue::GeometryCollection(children)
+        | WkbValue::CompoundCurve(children)
+        | WkbValue::CurvePolygon(children)
+        | WkbValue::MultiCurve(children)
+        | WkbValue::MultiSurface(children)
+        | WkbValue::PolyhedralSurface(children)
+        | WkbValue::Tin(children) => children.iter().any(geometry_has_nonzero_z),
     }
 }
 
@@ -1204,8 +1234,10 @@ fn set_geometry_dimensions(geometry: &mut WkbGeometry, dimensions: CoordinateDim
                 coordinate.z = None;
             }
         }
-        WkbValue::LineString(coordinates) => set_coordinates(coordinates),
-        WkbValue::Polygon(rings) => {
+        WkbValue::LineString(coordinates) | WkbValue::CircularString(coordinates) => {
+            set_coordinates(coordinates)
+        }
+        WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
             for ring in rings {
                 set_coordinates(ring);
             }
@@ -1213,7 +1245,13 @@ fn set_geometry_dimensions(geometry: &mut WkbGeometry, dimensions: CoordinateDim
         WkbValue::MultiPoint(children)
         | WkbValue::MultiLineString(children)
         | WkbValue::MultiPolygon(children)
-        | WkbValue::GeometryCollection(children) => {
+        | WkbValue::GeometryCollection(children)
+        | WkbValue::CompoundCurve(children)
+        | WkbValue::CurvePolygon(children)
+        | WkbValue::MultiCurve(children)
+        | WkbValue::MultiSurface(children)
+        | WkbValue::PolyhedralSurface(children)
+        | WkbValue::Tin(children) => {
             for child in children {
                 set_geometry_dimensions(child, dimensions);
             }

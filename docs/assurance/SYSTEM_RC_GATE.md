@@ -1,8 +1,12 @@
 # Gate per la release candidate di sistema
 
-Questo gate separa la readiness del componente dalla readiness della catena
-`IO-tools → data-tools → database-tools`. Lo stato corrente è
-**non soddisfatto**.
+Questo documento separa la readiness del componente dalla readiness della
+catena `IO-tools → data-tools → database-tools`. Lo stato corrente è
+**non soddisfatto**. La qualifica di sistema e il relativo harness sono di
+proprietà esterna: questo repository non contiene né esegue test che compilano
+gli altri due componenti.
+Il checkout `plenora-contracts` possiede il perimetro `conformance/`; IO-tools
+non ne modifica né incorpora il runner.
 
 La definizione machine-readable è
 [`release/system-rc-gate.json`](../../release/system-rc-gate.json).
@@ -52,9 +56,9 @@ La RC di sistema può essere dichiarata soltanto quando tutte le fixture passano
 in entrambe le direzioni almeno su Linux e Windows, senza proprietà perse o
 inventate, e il bundle di evidenza è riproducibile.
 
-Un primo harness cross-repository è ora eseguibile e ha superato la direzione
-IO-tools → data-tools → database-tools per una fixture Point XYZ con CRS
-risolto, SRID e `field_id`. È evidenza utile ma non soddisfa il gate: mancano la
-direzione inversa, le altre sette fixture, Windows e la ratifica delle sezioni
-candidate dell'ICD. Il superamento dei test di IO-tools o di una sola tratta
-non modifica lo stato `not_satisfied`.
+Il tag immutabile `v0.1.0-rc.2` conserva l'osservazione storica di una tratta
+Point XYZ con CRS risolto, SRID e `field_id`; non è un gate eseguibile della
+baseline corrente. Direzione inversa, matrice completa, Windows e ratifica
+delle sezioni candidate dell'ICD devono essere verificate dal proprietario
+della qualifica di sistema. Il superamento dei test di IO-tools non modifica lo
+stato `not_satisfied`.

@@ -19,6 +19,7 @@ EVIDENCE = (
     ROOT / "release" / "evidence" / "technical-freeze-v0.1.0-rc.2.json"
 )
 INDEPENDENT_REVIEW = ROOT / "release" / "independent-review.json"
+RC3_DEVELOPMENT = ROOT / "release" / "rc3-development.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
@@ -27,7 +28,10 @@ WORKSPACE_LOCK = ROOT / "Cargo.lock"
 WORKSPACE_CRATE_MANIFESTS = tuple(sorted((ROOT / "crates").glob("*/Cargo.toml")))
 DETACHED_LOCKFILES = (
     ROOT / "fuzz" / "Cargo.lock",
-    ROOT / "conformance" / "three-component-chain" / "Cargo.lock",
+)
+FORBIDDEN_SYSTEM_HARNESS_PATHS = (
+    ROOT / "conformance" / "three-component-chain",
+    ROOT / "scripts" / "run_three_component_chain.py",
 )
 EXPECTED_ICD_TAG = "v2.0-rc8"
 EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
@@ -36,6 +40,7 @@ EXPECTED_FUZZ_IO_REVISION = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "179ad037aad18c3c92ff3c703315a7033ff43773"
 EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
 EXPECTED_COMPONENT_VERSION = "0.1.0-rc.2"
+EXPECTED_WORKSPACE_VERSION = "0.1.0-rc.3"
 EXPECTED_RELEASE_TAG = "v0.1.0-rc.2"
 EXPECTED_CANDIDATE_CI_RUN = 30442548998
 EXPECTED_RELEASE_DECISION_REVISION = (
@@ -177,7 +182,7 @@ def validate_workspace_versions(
     workspace_version = (
         workspace_manifest.get("workspace", {}).get("package", {}).get("version")
     )
-    if workspace_version != EXPECTED_COMPONENT_VERSION:
+    if workspace_version != EXPECTED_WORKSPACE_VERSION:
         errors.append("workspace: versione RC centrale inattesa")
 
     crate_names: set[str] = set()
@@ -197,7 +202,7 @@ def validate_workspace_versions(
         if isinstance(package, dict) and package.get("name") in crate_names
     }
     for crate_name in sorted(crate_names):
-        if locked_versions.get(crate_name) != EXPECTED_COMPONENT_VERSION:
+        if locked_versions.get(crate_name) != EXPECTED_WORKSPACE_VERSION:
             errors.append(f"Cargo.lock: versione RC inattesa per {crate_name}")
 
     for index, detached_lockfile in enumerate(detached_lockfiles or []):
@@ -207,12 +212,52 @@ def validate_workspace_versions(
             if isinstance(package, dict) and package.get("name") in crate_names
         }
         for crate_name, version in sorted(detached_versions.items()):
-            if version != EXPECTED_COMPONENT_VERSION:
+            if version != EXPECTED_WORKSPACE_VERSION:
                 errors.append(
                     "lockfile detached "
                     f"{index}: versione RC inattesa per {crate_name}"
                 )
 
+    return errors
+
+
+def validate_rc3_development(document: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if document.get("manifest_version") != 1:
+        errors.append("rc3-development: manifest_version inattesa")
+    if document.get("component") != "plenora-IO-tools":
+        errors.append("rc3-development: componente inatteso")
+    if document.get("component_version") != EXPECTED_WORKSPACE_VERSION:
+        errors.append("rc3-development: versione workspace inattesa")
+    if document.get("status") != "development":
+        errors.append("rc3-development: stato diverso da development")
+    if document.get("baseline_release") != {
+        "tag": EXPECTED_RELEASE_TAG,
+        "target_revision": "f47bf4605b248d127205e49a7e6ebd2a0984a83f",
+        "immutable": True,
+    }:
+        errors.append("rc3-development: baseline RC2 inattesa")
+    if document.get("scope") != "component_only":
+        errors.append("rc3-development: perimetro non limitato al componente")
+    if document.get("system_qualification_ownership") != "external":
+        errors.append("rc3-development: qualifica di sistema non dichiarata esterna")
+    workstreams = document.get("workstreams", {})
+    if set(workstreams) != {
+        "long_fuzz_campaign",
+        "independent_review",
+        "canonical_wkb_types",
+        "streaming_and_cancellation",
+        "openfilegdb_native_pushdown",
+        "filegdb_windows_and_filesystem_matrix",
+        "icd_ratification_alignment",
+    }:
+        errors.append("rc3-development: workstream diversi dai sette autorizzati")
+    if document.get("claims") != {
+        "component_rc": False,
+        "system_rc": False,
+        "avionic_certification": False,
+    }:
+        errors.append("rc3-development: claim prematuri")
     return errors
 
 
@@ -329,6 +374,12 @@ def validate_documents(
     }
     if component_revisions != EXPECTED_SYSTEM_REVISIONS:
         errors.append("system-rc-gate: revisioni complete dei tre componenti richieste")
+    if system_gate.get("ownership") != "external_system_qualification":
+        errors.append("system-rc-gate: ownership della qualifica di sistema inattesa")
+    if system_gate.get("external_owner") != "plenora-contracts/conformance":
+        errors.append("system-rc-gate: owner esterno della qualifica inatteso")
+    if system_gate.get("component_repository_harness") != "not_present":
+        errors.append("system-rc-gate: harness cross-component non ammesso nel repository IO")
     if not system_gate.get("open_blockers"):
         errors.append("system-rc-gate: stato aperto senza blocker dichiarati")
 
@@ -528,12 +579,18 @@ def validate_documents(
 
 def main() -> int:
     errors: list[str] = []
+    for path in FORBIDDEN_SYSTEM_HARNESS_PATHS:
+        if path.exists():
+            errors.append(
+                f"system qualification harness non ammesso nel repository IO: {path}"
+            )
     required_files = [
         PROVENANCE,
         SYSTEM_GATE,
         FREEZE_READINESS,
         EVIDENCE,
         INDEPENDENT_REVIEW,
+        RC3_DEVELOPMENT,
         WORKSPACE_MANIFEST,
         WORKSPACE_LOCK,
         *WORKSPACE_CRATE_MANIFESTS,
@@ -577,6 +634,26 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-29_RC2_RELEASE_DECISION.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_RC3_PROGRAM.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_RC3_EXTENDED_WKB.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_RC3_FILEGDB_PUSHDOWN.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_RC3_EXTERNAL_GATES.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-29_RC3_FUZZ_CAMPAIGN.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -606,6 +683,7 @@ def main() -> int:
                     [load_toml(path) for path in DETACHED_LOCKFILES],
                 )
             )
+            errors.extend(validate_rc3_development(load_json(RC3_DEVELOPMENT)))
         except (OSError, ValueError, json.JSONDecodeError) as error:
             errors.append(str(error))
 
@@ -617,8 +695,8 @@ def main() -> int:
 
     print(
         "Release contract gate passed "
-        "(component RC authorized as verified_internally; independent review "
-        "remains an open non-blocking attribute; system RC not claimed)."
+        "(v0.1.0-rc.2 remains the immutable released component RC; "
+        "v0.1.0-rc.3 is component-only development; system RC not claimed)."
     )
     return 0
 

@@ -2,6 +2,9 @@
   "manifest_version": 1,
   "gate_id": "plenora-system-contract-roundtrip-v1",
   "status": "not_satisfied",
+  "ownership": "external_system_qualification",
+  "external_owner": "plenora-contracts/conformance",
+  "component_repository_harness": "not_present",
   "icd": {
     "tag": "v2.0-rc8",
     "revision": "62b12e3496466d2c908dac3cc098640b99b52e21"
@@ -55,16 +58,14 @@
     "native_metadata"
   ],
   "evidence": {
-    "io_to_data_to_database": {
-      "status": "partial",
+    "status": "external_to_component_repository",
+    "historical_observation": {
+      "release_tag": "v0.1.0-rc.2",
       "fixture": "exact_point_xyz_resolved_crs",
       "platform": "linux_x86_64",
-      "result": "pass",
-      "harness": "scripts/run_three_component_chain.py"
+      "result": "pass"
     },
-    "database_to_data_to_io": {
-      "status": "not_run"
-    }
+    "current_system_qualification": "not_run"
   },
   "pass_conditions": [
     "All three revisions and the ICD revision are immutable and recorded.",
@@ -75,9 +76,8 @@
     "The evidence bundle includes commands, environment, fixture hashes and results."
   ],
   "open_blockers": [
-    "Only one exact Point XYZ fixture has passed in the IO-to-data-to-database direction.",
-    "The reverse database-to-data-to-IO direction has not been executed.",
-    "The remaining fixture matrix and native Windows execution are not covered.",
+    "System integration evidence is owned outside the IO component repository.",
+    "Both directions, the remaining fixture matrix and native Windows execution are not covered by an external qualification bundle.",
     "The candidate ICD sections used by the wire contract are not all ratified."
   ]
 }

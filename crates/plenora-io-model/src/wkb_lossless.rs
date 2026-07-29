@@ -36,6 +36,14 @@ pub enum WkbValue {
     MultiLineString(Vec<WkbGeometry>),
     MultiPolygon(Vec<WkbGeometry>),
     GeometryCollection(Vec<WkbGeometry>),
+    CircularString(Vec<WkbCoordinate>),
+    CompoundCurve(Vec<WkbGeometry>),
+    CurvePolygon(Vec<WkbGeometry>),
+    MultiCurve(Vec<WkbGeometry>),
+    MultiSurface(Vec<WkbGeometry>),
+    PolyhedralSurface(Vec<WkbGeometry>),
+    Tin(Vec<WkbGeometry>),
+    Triangle(Vec<Vec<WkbCoordinate>>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -137,6 +145,14 @@ impl WkbGeometry {
             WkbValue::MultiLineString(_) => GeometryType::MultiLineString,
             WkbValue::MultiPolygon(_) => GeometryType::MultiPolygon,
             WkbValue::GeometryCollection(_) => GeometryType::GeometryCollection,
+            WkbValue::CircularString(_) => GeometryType::CircularString,
+            WkbValue::CompoundCurve(_) => GeometryType::CompoundCurve,
+            WkbValue::CurvePolygon(_) => GeometryType::CurvePolygon,
+            WkbValue::MultiCurve(_) => GeometryType::MultiCurve,
+            WkbValue::MultiSurface(_) => GeometryType::MultiSurface,
+            WkbValue::PolyhedralSurface(_) => GeometryType::PolyhedralSurface,
+            WkbValue::Tin(_) => GeometryType::Tin,
+            WkbValue::Triangle(_) => GeometryType::Triangle,
         }
     }
 
@@ -199,6 +215,18 @@ impl WkbGeometry {
                         .iter()
                         .map(WkbGeometry::to_geo_xy)
                         .collect::<Result<_>>()?,
+                ))
+            }
+            WkbValue::CircularString(_)
+            | WkbValue::CompoundCurve(_)
+            | WkbValue::CurvePolygon(_)
+            | WkbValue::MultiCurve(_)
+            | WkbValue::MultiSurface(_)
+            | WkbValue::PolyhedralSurface(_)
+            | WkbValue::Tin(_)
+            | WkbValue::Triangle(_) => {
+                return Err(error(
+                    "tipo WKB esteso non rappresentabile dall'adattatore geo-types XY",
                 ))
             }
         })
@@ -328,6 +356,48 @@ fn decode_type(raw: u32) -> Result<(u32, CoordinateDimensions, bool)> {
     Ok((raw % 1000, dimensions, false))
 }
 
+fn geometry_type_from_base(base: u32) -> Result<GeometryType> {
+    match base {
+        1 => Ok(GeometryType::Point),
+        2 => Ok(GeometryType::LineString),
+        3 => Ok(GeometryType::Polygon),
+        4 => Ok(GeometryType::MultiPoint),
+        5 => Ok(GeometryType::MultiLineString),
+        6 => Ok(GeometryType::MultiPolygon),
+        7 => Ok(GeometryType::GeometryCollection),
+        8 => Ok(GeometryType::CircularString),
+        9 => Ok(GeometryType::CompoundCurve),
+        10 => Ok(GeometryType::CurvePolygon),
+        11 => Ok(GeometryType::MultiCurve),
+        12 => Ok(GeometryType::MultiSurface),
+        15 => Ok(GeometryType::PolyhedralSurface),
+        16 => Ok(GeometryType::Tin),
+        17 => Ok(GeometryType::Triangle),
+        _ => Err(error(format!("tipo WKB non supportato: {base}"))),
+    }
+}
+
+fn child_type_allowed(parent_base: u32, child: GeometryType) -> bool {
+    match parent_base {
+        4 => child == GeometryType::Point,
+        5 => child == GeometryType::LineString,
+        6 => child == GeometryType::Polygon,
+        7 => true,
+        9 => matches!(
+            child,
+            GeometryType::LineString | GeometryType::CircularString
+        ),
+        10 | 11 => matches!(
+            child,
+            GeometryType::LineString | GeometryType::CircularString | GeometryType::CompoundCurve
+        ),
+        12 => matches!(child, GeometryType::Polygon | GeometryType::CurvePolygon),
+        15 => child == GeometryType::Polygon,
+        16 => child == GeometryType::Triangle,
+        _ => false,
+    }
+}
+
 fn coordinate_size(dimensions: CoordinateDimensions) -> Result<usize> {
     let (z, m) = dimension_flags(dimensions)?;
     Ok(16 + usize::from(z) * 8 + usize::from(m) * 8)
@@ -376,9 +446,7 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
     }
     let little_endian = reader.byte_order()?;
     let (base, dimensions, has_srid) = decode_type(reader.u32(little_endian)?)?;
-    if !(1..=7).contains(&base) {
-        return Err(error(format!("tipo WKB non supportato: {base}")));
-    }
+    let geometry_type = geometry_type_from_base(base)?;
     let srid = if has_srid {
         Some(reader.u32(little_endian)? as i32)
     } else {
@@ -388,45 +456,47 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
     let value = match base {
         1 => WkbValue::Point(read_coordinate(reader, little_endian, dimensions)?),
         2 => WkbValue::LineString(read_coordinates(reader, little_endian, dimensions)?),
-        3 => {
+        8 => WkbValue::CircularString(read_coordinates(reader, little_endian, dimensions)?),
+        3 | 17 => {
             let ring_count = reader.u32(little_endian)?;
             let ring_count = reader.ensure_count(ring_count, 4)?;
             let mut rings = Vec::with_capacity(ring_count);
             for _ in 0..ring_count {
                 rings.push(read_coordinates(reader, little_endian, dimensions)?);
             }
-            WkbValue::Polygon(rings)
+            if base == 3 {
+                WkbValue::Polygon(rings)
+            } else {
+                WkbValue::Triangle(rings)
+            }
         }
-        4..=7 => {
+        4..=7 | 9..=12 | 15..=16 => {
             let count = reader.u32(little_endian)?;
             let count = reader.ensure_count(count, 9)?;
             let mut values = Vec::with_capacity(count);
             for _ in 0..count {
                 values.push(read_geometry(reader, depth + 1)?);
             }
+            if let Some(child) = values
+                .iter()
+                .find(|child| !child_type_allowed(base, child.geometry_type()))
+            {
+                return Err(error(format!(
+                    "{geometry_type:?} con membro {:?}",
+                    child.geometry_type()
+                )));
+            }
             match base {
-                4 if values
-                    .iter()
-                    .all(|value| matches!(value.value, WkbValue::Point(_))) =>
-                {
-                    WkbValue::MultiPoint(values)
-                }
-                5 if values
-                    .iter()
-                    .all(|value| matches!(value.value, WkbValue::LineString(_))) =>
-                {
-                    WkbValue::MultiLineString(values)
-                }
-                6 if values
-                    .iter()
-                    .all(|value| matches!(value.value, WkbValue::Polygon(_))) =>
-                {
-                    WkbValue::MultiPolygon(values)
-                }
+                4 => WkbValue::MultiPoint(values),
+                5 => WkbValue::MultiLineString(values),
+                6 => WkbValue::MultiPolygon(values),
                 7 => WkbValue::GeometryCollection(values),
-                4 => return Err(error("MultiPoint con membro non-Point")),
-                5 => return Err(error("MultiLineString con membro non-LineString")),
-                6 => return Err(error("MultiPolygon con membro non-Polygon")),
+                9 => WkbValue::CompoundCurve(values),
+                10 => WkbValue::CurvePolygon(values),
+                11 => WkbValue::MultiCurve(values),
+                12 => WkbValue::MultiSurface(values),
+                15 => WkbValue::PolyhedralSurface(values),
+                16 => WkbValue::Tin(values),
                 aggregate_type => {
                     return Err(error(format!(
                         "tipo WKB aggregato non supportato: {aggregate_type}"
@@ -470,16 +540,7 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
     }
     let little_endian = reader.byte_order()?;
     let (base, dimensions, has_srid) = decode_type(reader.u32(little_endian)?)?;
-    let geometry_type = match base {
-        1 => GeometryType::Point,
-        2 => GeometryType::LineString,
-        3 => GeometryType::Polygon,
-        4 => GeometryType::MultiPoint,
-        5 => GeometryType::MultiLineString,
-        6 => GeometryType::MultiPolygon,
-        7 => GeometryType::GeometryCollection,
-        _ => return Err(error(format!("tipo WKB non supportato: {base}"))),
-    };
+    let geometry_type = geometry_type_from_base(base)?;
     let srid = if has_srid {
         Some(reader.u32(little_endian)? as i32)
     } else {
@@ -493,26 +554,20 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
             reader.charge_coordinate()?;
             let _ = reader.take(coordinate_size(dimensions)?)?;
         }
-        2 => skip_coordinates(reader, little_endian, dimensions)?,
-        3 => {
+        2 | 8 => skip_coordinates(reader, little_endian, dimensions)?,
+        3 | 17 => {
             let ring_count = reader.u32(little_endian)?;
             let ring_count = reader.ensure_count(ring_count, 4)?;
             for _ in 0..ring_count {
                 skip_coordinates(reader, little_endian, dimensions)?;
             }
         }
-        4..=7 => {
+        4..=7 | 9..=12 | 15..=16 => {
             let count = reader.u32(little_endian)?;
             let count = reader.ensure_count(count, 9)?;
             for _ in 0..count {
                 let child = inspect_geometry(reader, depth + 1)?;
-                let expected_child = match base {
-                    4 => Some(GeometryType::Point),
-                    5 => Some(GeometryType::LineString),
-                    6 => Some(GeometryType::Polygon),
-                    _ => None,
-                };
-                if expected_child.is_some_and(|expected| child.geometry_type != expected) {
+                if !child_type_allowed(base, child.geometry_type) {
                     return Err(error(format!(
                         "{geometry_type:?} con membro {:?}",
                         child.geometry_type
@@ -636,6 +691,14 @@ fn base(value: &WkbValue) -> u32 {
         WkbValue::MultiLineString(_) => 5,
         WkbValue::MultiPolygon(_) => 6,
         WkbValue::GeometryCollection(_) => 7,
+        WkbValue::CircularString(_) => 8,
+        WkbValue::CompoundCurve(_) => 9,
+        WkbValue::CurvePolygon(_) => 10,
+        WkbValue::MultiCurve(_) => 11,
+        WkbValue::MultiSurface(_) => 12,
+        WkbValue::PolyhedralSurface(_) => 15,
+        WkbValue::Tin(_) => 16,
+        WkbValue::Triangle(_) => 17,
     }
 }
 
@@ -673,10 +736,10 @@ fn write_geometry(output: &mut Vec<u8>, geometry: &WkbGeometry, flavor: WkbFlavo
 
     match &geometry.value {
         WkbValue::Point(coordinate) => write_coordinate(output, coordinate, geometry.dimensions)?,
-        WkbValue::LineString(coordinates) => {
+        WkbValue::LineString(coordinates) | WkbValue::CircularString(coordinates) => {
             write_coordinates(output, coordinates, geometry.dimensions)?
         }
-        WkbValue::Polygon(rings) => {
+        WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
             output.extend_from_slice(&count_u32(rings.len())?.to_le_bytes());
             for ring in rings {
                 write_coordinates(output, ring, geometry.dimensions)?;
@@ -685,7 +748,24 @@ fn write_geometry(output: &mut Vec<u8>, geometry: &WkbGeometry, flavor: WkbFlavo
         WkbValue::MultiPoint(values)
         | WkbValue::MultiLineString(values)
         | WkbValue::MultiPolygon(values)
-        | WkbValue::GeometryCollection(values) => {
+        | WkbValue::GeometryCollection(values)
+        | WkbValue::CompoundCurve(values)
+        | WkbValue::CurvePolygon(values)
+        | WkbValue::MultiCurve(values)
+        | WkbValue::MultiSurface(values)
+        | WkbValue::PolyhedralSurface(values)
+        | WkbValue::Tin(values) => {
+            let parent = base(&geometry.value);
+            if let Some(child) = values
+                .iter()
+                .find(|child| !child_type_allowed(parent, child.geometry_type()))
+            {
+                return Err(error(format!(
+                    "{:?} con membro {:?}",
+                    geometry.geometry_type(),
+                    child.geometry_type()
+                )));
+            }
             output.extend_from_slice(&count_u32(values.len())?.to_le_bytes());
             for value in values {
                 write_geometry(output, value, flavor)?;
