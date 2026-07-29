@@ -1,14 +1,23 @@
 # FileGDB: projection, determinismo e matrice GDAL
 
-Stato al 2026-07-28: **projection Arrow esatta e determinismo semantico
-verificati; pushdown nativo delle colonne e GDAL nativo Windows aperti**.
+Stato al 2026-07-29: **projection Arrow esatta, estrazione indicizzata e
+determinismo semantico verificati; pushdown nativo delle colonne e GDAL nativo
+Windows aperti**.
 
 ## Risultato tecnico
 
 Il reader costruisce esclusivamente builder e array per i campi richiesti e
-non invoca `Feature::field` né `Geometry::wkb` per le colonne escluse. Lo
-schema e il `RecordBatch` prodotti coincidono quindi esattamente con la
-projection, compreso il caso senza colonne.
+non invoca `Geometry::wkb` quando la geometria è esclusa. Per gli attributi
+risolve l'indice OGR una volta dallo schema e usa gli accessor tipizzati per
+indice: non ripete più la ricerca per nome e la costruzione della relativa
+`CString` per ogni cella. Poiché il worker riapre il dataset, prima di leggere
+confronta nome e tipo OGR di ogni indice selezionato con lo snapshot osservato
+da `open`; una modifica concorrente dello schema fallisce chiusa.
+
+Lo schema e il `RecordBatch` prodotti coincidono esattamente con la projection,
+compreso il caso senza colonne. Il test con proiezione non contigua del campo
+stringa, valori nulli e tipi numerici protegge la corrispondenza fra `FieldId`,
+indice OGR e array Arrow.
 
 Questo non è ancora un pushdown nativo nel driver OpenFileGDB: GDAL può avere
 materializzato internamente campi esclusi prima di restituire la `Feature`.
@@ -27,6 +36,24 @@ Non sono state adottate due scorciatoie:
 
 Il pushdown nativo resta quindi bloccato in modo esplicito da una API upstream,
 non viene dichiarato come implementato e non giustifica una deroga `unsafe`.
+
+## Evidenza prestazionale dell'estrazione indicizzata
+
+La campagna del 2026-07-29 usa una fixture OpenFileGDB da 50.000 righe e 64
+campi `Int32`, build release, sette coppie baseline/candidato alternate e un
+warm-up per processo. La baseline di prodotto è
+`ca39d6272b06e290f727b62200ea36cc25d6f826`; i due binari contengono lo stesso
+harness e differiscono soltanto nel percorso di estrazione.
+
+| Proiezione | Baseline mediana | Indicizzata mediana | Delta throughput |
+|---|---:|---:|---:|
+| geometria + 64 attributi | 63.522 righe/s | 354.959 righe/s | **+458,8%** |
+| 3 attributi non contigui | 436.643 righe/s | 656.880 righe/s | **+50,4%** |
+
+I checksum completi sono identici in tutte le esecuzioni. Il candidato supera
+il veto (nessuna coppia è più lenta) e non modifica API pubblica, capability,
+formato su disco o dipendenze. Queste misure caratterizzano throughput, non
+worst-case execution time né schedulabilità real-time.
 
 ## Determinismo
 

@@ -1028,7 +1028,7 @@ mod backend {
                 .map(|field| field.field_type())
                 .ok_or_else(|| err(format!("layer '{}' senza campo geometrico", layer.name())))?;
             let geometry = geometry_contract_from_ogr(ogr_geometry_type, crs);
-            let native_fields: Vec<(String, DataType, HashMap<String, String>)> = layer
+            let native_fields: Vec<(LayerFieldMeta, Field)> = layer
                 .defn()
                 .fields()
                 .map(|field| {
@@ -1043,20 +1043,25 @@ mod backend {
                                 field.precision().to_string(),
                             ),
                         ]);
-                        (name, data_type, metadata)
+                        let arrow_field =
+                            Field::new(&name, data_type.clone(), true).with_metadata(metadata);
+                        (
+                            LayerFieldMeta {
+                                name,
+                                data_type,
+                                ogr_type: field_type,
+                            },
+                            arrow_field,
+                        )
                     })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let fields: Vec<(String, DataType)> = native_fields
-                .iter()
-                .map(|(name, data_type, _)| (name.clone(), data_type.clone()))
-                .collect();
+            let (fields, attribute_arrow_fields): (Vec<_>, Vec<_>) =
+                native_fields.into_iter().unzip();
             let geometry_arrow_field =
                 with_geometry_contract_metadata(&geometry_field(GEOMETRY, &crs_label), &geometry);
             let mut arrow_fields = vec![geometry_arrow_field];
-            for (name, data_type, metadata) in native_fields {
-                arrow_fields.push(Field::new(name, data_type, true).with_metadata(metadata));
-            }
+            arrow_fields.extend(attribute_arrow_fields);
             let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
             let contract = DataContract::new(schema.clone(), Some(geometry));
             layers.push(LayerContract {
@@ -1099,9 +1104,22 @@ mod backend {
         }
     }
 
+    struct LayerFieldMeta {
+        name: String,
+        data_type: DataType,
+        ogr_type: gdal::vector::OGRFieldType::Type,
+    }
+
+    struct ProjectedField {
+        ogr_index: i32,
+        name: String,
+        data_type: DataType,
+        ogr_type: gdal::vector::OGRFieldType::Type,
+    }
+
     struct LayerMeta {
         gdal_idx: usize,
-        fields: Vec<(String, DataType)>,
+        fields: Vec<LayerFieldMeta>,
     }
 
     struct GdbDataset {
@@ -1132,15 +1150,25 @@ mod backend {
             let (indices, layer_contract) =
                 plenora_io_core::project_layer_contract(&self.layers[idx], request)?;
             let include_geometry = indices.binary_search(&0).is_ok();
-            let fields = indices
-                .iter()
-                .filter_map(|&index| {
-                    index
-                        .checked_sub(1)
-                        .and_then(|field_index| m.fields.get(field_index))
-                        .cloned()
-                })
-                .collect();
+            let mut fields = Vec::with_capacity(indices.len());
+            for &index in &indices {
+                let Some(field_index) = index.checked_sub(1) else {
+                    continue;
+                };
+                let field = m.fields.get(field_index).ok_or_else(|| {
+                    err(format!(
+                        "indice Arrow {index} non presente nello schema FileGDB"
+                    ))
+                })?;
+                let ogr_index = i32::try_from(field_index)
+                    .map_err(|_| err(format!("indice OGR {field_index} fuori intervallo i32")))?;
+                fields.push(ProjectedField {
+                    ogr_index,
+                    name: field.name.clone(),
+                    data_type: field.data_type.clone(),
+                    ogr_type: field.ogr_type,
+                });
+            }
             let batch_sizer = plenora_io_core::AdaptiveBatchSizer::new(
                 layer_contract.contract.schema.as_ref(),
                 request.batch_target,
@@ -1169,7 +1197,7 @@ mod backend {
         path: PathBuf,
         gdal_idx: usize,
         schema: SchemaRef,
-        fields: Vec<(String, DataType)>,
+        fields: Vec<ProjectedField>,
         include_geometry: bool,
         mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
         contract: LayerContract,
@@ -1180,9 +1208,35 @@ mod backend {
             let mut layer = ds
                 .layer(gdal_idx)
                 .map_err(|error| err(format!("apertura layer FileGDB: {error}")))?;
+            // Il worker riapre il dataset: prima di usare gli indici OGR
+            // pre-risolti verifica che nessun processo abbia cambiato lo
+            // schema fra `open` e l'avvio della lettura. Un mismatch fallisce
+            // chiuso invece di convertire silenziosamente il campo sbagliato.
+            let actual_fields: Vec<_> = layer
+                .defn()
+                .fields()
+                .map(|field| (field.name(), field.field_type()))
+                .collect();
+            for field in &fields {
+                let index = usize::try_from(field.ogr_index)
+                    .map_err(|_| err(format!("indice OGR {} negativo", field.ogr_index)))?;
+                let actual = actual_fields.get(index);
+                if !matches!(
+                    actual,
+                    Some((name, ogr_type))
+                        if name == &field.name && *ogr_type == field.ogr_type
+                ) {
+                    return Err(err(format!(
+                        "schema FileGDB cambiato fra apertura e lettura al campo '{}'",
+                        field.name
+                    )));
+                }
+            }
             let mut geom = include_geometry.then(BinaryBuilder::new);
-            let mut builders: Vec<ReadCol> =
-                fields.iter().map(|(_, dt)| ReadCol::new(dt)).collect();
+            let mut builders: Vec<ReadCol> = fields
+                .iter()
+                .map(|field| ReadCol::new(&field.data_type))
+                .collect();
             let mut n = 0usize;
             for feature in layer.features() {
                 if let Some(builder) = &mut geom {
@@ -1195,11 +1249,8 @@ mod backend {
                         None => builder.append_null(),
                     }
                 }
-                for (k, (name, _)) in fields.iter().enumerate() {
-                    let value = feature
-                        .field(name)
-                        .map_err(|error| err(format!("lettura campo FileGDB: {error}")))?;
-                    builders[k].append(value)?;
+                for (builder, field) in builders.iter_mut().zip(&fields) {
+                    builder.append_feature(&feature, field)?;
                 }
                 n += 1;
                 if n >= batch_sizer.rows() {
@@ -1256,45 +1307,46 @@ mod backend {
                 _ => ReadCol::Str(StringBuilder::new()),
             }
         }
-        fn append(&mut self, v: Option<gdal::vector::FieldValue>) -> Result<()> {
-            use gdal::vector::FieldValue as F;
+        fn append_feature(&mut self, feature: &Feature<'_>, field: &ProjectedField) -> Result<()> {
+            let read_error =
+                |error| err(format!("lettura campo FileGDB '{}': {error}", field.name));
             match self {
-                ReadCol::I32(b) => match v {
-                    Some(F::IntegerValue(i)) => b.append_value(i),
-                    None => b.append_null(),
-                    Some(other) => {
-                        return Err(err(format!(
-                            "campo OGR intero 32-bit ha restituito valore incompatibile {other:?}"
-                        )));
+                ReadCol::I32(builder) => {
+                    match feature
+                        .field_as_integer(field.ogr_index)
+                        .map_err(read_error)?
+                    {
+                        Some(value) => builder.append_value(value),
+                        None => builder.append_null(),
                     }
-                },
-                ReadCol::I64(b) => match v {
-                    Some(F::Integer64Value(i)) => b.append_value(i),
-                    None => b.append_null(),
-                    Some(other) => {
-                        return Err(err(format!(
-                            "campo OGR intero 64-bit ha restituito valore incompatibile {other:?}"
-                        )));
+                }
+                ReadCol::I64(builder) => {
+                    match feature
+                        .field_as_integer64(field.ogr_index)
+                        .map_err(read_error)?
+                    {
+                        Some(value) => builder.append_value(value),
+                        None => builder.append_null(),
                     }
-                },
-                ReadCol::F64(b) => match v {
-                    Some(F::RealValue(f)) => b.append_value(f),
-                    None => b.append_null(),
-                    Some(other) => {
-                        return Err(err(format!(
-                            "campo OGR reale ha restituito valore incompatibile {other:?}"
-                        )));
+                }
+                ReadCol::F64(builder) => {
+                    match feature
+                        .field_as_double(field.ogr_index)
+                        .map_err(read_error)?
+                    {
+                        Some(value) => builder.append_value(value),
+                        None => builder.append_null(),
                     }
-                },
-                ReadCol::Str(b) => match v {
-                    Some(F::StringValue(s)) => b.append_value(s),
-                    None => b.append_null(),
-                    Some(other) => {
-                        return Err(err(format!(
-                            "campo OGR stringa ha restituito valore incompatibile {other:?}"
-                        )));
+                }
+                ReadCol::Str(builder) => {
+                    match feature
+                        .field_as_string(field.ogr_index)
+                        .map_err(read_error)?
+                    {
+                        Some(value) => builder.append_value(value),
+                        None => builder.append_null(),
                     }
-                },
+                }
             }
             Ok(())
         }
