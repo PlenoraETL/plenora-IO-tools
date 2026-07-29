@@ -1237,6 +1237,40 @@ mod tests {
     }
 
     #[test]
+    fn source_property_order_does_not_change_inferred_schema_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let za = dir.path().join("za.geojson");
+        let az = dir.path().join("az.geojson");
+        std::fs::write(
+            &za,
+            r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":null,"properties":{"z":1,"a":"x"}}
+            ]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            &az,
+            r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":null,"properties":{"a":"x","z":1}}
+            ]}"#,
+        )
+        .unwrap();
+
+        let (za_schema, za_columns) = infer_schema(&za).unwrap();
+        let (az_schema, az_columns) = infer_schema(&az).unwrap();
+        assert_eq!(za_schema, az_schema);
+        assert_eq!(za_columns, az_columns);
+        assert_eq!(
+            za_schema
+                .fields()
+                .iter()
+                .map(|field| field.name().as_str())
+                .collect::<Vec<_>>(),
+            ["geometry", "a", "z"]
+        );
+    }
+
+    #[test]
     fn duplicate_keys_read_without_error() {
         // Regressione (trovato dal fuzzer): chiavi duplicate in una feature
         // (JSON malformato ma accettato da molti parser). La 1ª occorrenza vince

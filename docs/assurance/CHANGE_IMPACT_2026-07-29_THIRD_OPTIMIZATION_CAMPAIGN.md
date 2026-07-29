@@ -42,7 +42,9 @@ Il precedente `BTreeMap<String, TypeAccumulator>` materializzava una nuova
 nota. `SchemaAccumulators` interna ora assegna un indice stabile a ciascun nome:
 la chiave viene allocata una sola volta, gli accumulatori restano contigui e
 l'ordinamento lessicografico dello schema viene applicato una volta al termine.
-Gli indici incoerenti producono errore fail-closed.
+Gli indici incoerenti producono errore fail-closed. Un test con proprietà
+presentate in ordine inverso fissa esplicitamente che entrambi gli input
+producano lo stesso schema `geometry, a, z`.
 
 | Metrica | Prima | Dopo |
 |---|---:|---:|
