@@ -1,29 +1,33 @@
-//! driver-xls — XLSX → RecordBatch (Fase 1, read-only). Foglio tabellare: la
+//! driver-xls — XLSX ↔ RecordBatch. Foglio tabellare: la
 //! geometria è dichiarata via `format_options` (`x_column`+`y_column` XY o
 //! `wkt_column` XY/XYZ/XYM/XYZM), il CRS via `assume_crs` (ADR-IO 4). Foglio scelto con
-//! `format_options["sheet"]` o il primo. Multi-foglio e scrittura: incrementi.
+//! `format_options["sheet"]` o il primo. Multi-foglio: incremento futuro.
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write as _;
+use std::io::{BufReader, BufWriter, Read, Seek, Write as _};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch};
+use arrow_array::builder::BinaryBuilder;
+use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, RecordBatchOptions};
 use arrow_schema::{Field, Schema, SchemaRef};
-use calamine::{open_workbook, Data, Reader, Xlsx};
+use calamine::{open_workbook, Data, Reader, Xlsx, XlsxCellReader};
 use rust_xlsxwriter::Workbook;
 use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt};
-use driver_common::{build_property_array, geometry_field, infer_column, json_from_array};
+use driver_common::{
+    classify_i64, geometry_field, json_from_array, ColType, InferredColumnBuilder,
+    ObservedValueClass, TypeAccumulator,
+};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
 };
 use plenora_io_core::driver::{
-    FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions, Sink,
-    Source, WriteOptions,
+    spawn_batch_reader, BatchEmitter, FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle,
+    Published, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
@@ -40,11 +44,13 @@ use plenora_io_model::contract::{
 };
 use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
+use plenora_io_model::limits::Limits;
 use plenora_io_model::limits::WkbLimits;
-use plenora_io_model::wkb::{
-    decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
-};
+use plenora_io_model::wkb::{decode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
 use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
+
+#[cfg(test)]
+use plenora_io_model::wkb::encode_wkb;
 
 const GEOMETRY: &str = "geometry";
 
@@ -55,7 +61,7 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "xls",
     direction: Direction::Bidirectional,
-    read_mode: ReadMode::Materializing,
+    read_mode: ReadMode::StreamingSequential,
     read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Buffered),
     write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
@@ -79,8 +85,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 4,
-    descriptor_version: 5,
+    driver_version: 5,
+    descriptor_version: 6,
 };
 
 pub struct XlsDriver;
@@ -101,22 +107,25 @@ impl FormatDriver for XlsDriver {
             .cloned()
             .or_else(|| wb.sheet_names().first().cloned())
             .ok_or_else(|| err("nessun foglio nel workbook"))?;
-        let range = wb
-            .worksheet_range(&sheet)
-            .map_err(|e| err(format!("foglio '{sheet}': {e}")))?;
-        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::Crs("XLSX con geometria richiede --assume-crs".to_owned())
         })?;
-        let (batch, contract) =
-            build_batch_cancellable(&range, &opts.format_options, &crs, &opts.cancellation)?;
+        let (layout, contract, spool) = infer_layout(
+            &mut wb,
+            &sheet,
+            &opts.format_options,
+            &crs,
+            &opts.cancellation,
+            &opts.limits,
+        )?;
         Ok(Box::new(XlsDataset {
             layers: vec![LayerContract {
                 id: LayerId(0),
-                name: sheet,
+                name: sheet.clone(),
                 contract,
             }],
-            batch,
+            layout,
+            spool,
             reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
         }))
     }
@@ -171,7 +180,8 @@ impl FormatDriver for XlsDriver {
 
 struct XlsDataset {
     layers: Vec<LayerContract>,
-    batch: RecordBatch,
+    layout: XlsxLayout,
+    spool: Arc<tempfile::NamedTempFile>,
     reader_gate: SingleReaderGate,
 }
 
@@ -184,32 +194,41 @@ impl OpenDatasetHandle for XlsDataset {
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        let reader = self.reader_gate.open(request.layer, || {
-            Ok(Box::new(XlsReader {
-                batch: Some(self.batch.clone()),
-                layer: self.layers[0].clone(),
-            }))
-        })?;
-        Ok(plenora_io_core::with_batch_target(
-            reader,
+        let layout = self.layout.clone();
+        let spool = Arc::clone(&self.spool);
+        let layer = self.layers[0].clone();
+        let cancellation = request.cancellation.clone();
+        let batch_sizer = plenora_io_core::AdaptiveBatchSizer::new(
+            layer.contract.schema.as_ref(),
             request.batch_target,
+        );
+        let reader = self.reader_gate.open(request.layer, || {
+            spawn_xlsx_reader(spool, layout, batch_sizer, layer, cancellation.clone())
+        })?;
+        Ok(plenora_io_core::with_cancellation(
+            reader,
             request.cancellation.clone(),
         ))
     }
 }
 
-struct XlsReader {
-    batch: Option<RecordBatch>,
-    layer: LayerContract,
+#[derive(Clone, Copy)]
+enum XlsxGeomSpec {
+    Wkt(u32),
+    Xy(u32, u32),
 }
 
-impl LayerReader for XlsReader {
-    fn contract(&self) -> &LayerContract {
-        &self.layer
-    }
-    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        Ok(self.batch.take())
-    }
+#[derive(Clone)]
+struct XlsxLayout {
+    attrs: Vec<(u32, ColType)>,
+    schema: SchemaRef,
+    data_rows: usize,
+}
+
+#[derive(Clone, Copy)]
+struct SheetBounds {
+    start: (u32, u32),
+    end: (u32, u32),
 }
 
 // --- scrittura -------------------------------------------------------------
@@ -348,17 +367,6 @@ impl FormatWriter for XlsWriterState {
     }
 }
 
-fn data_to_json(d: &Data) -> JsonValue {
-    match d {
-        Data::Int(i) => JsonValue::from(*i),
-        Data::Float(f) => JsonValue::from(*f),
-        Data::String(s) => JsonValue::String(s.clone()),
-        Data::Bool(b) => JsonValue::Bool(*b),
-        Data::DateTimeIso(s) | Data::DurationIso(s) => JsonValue::String(s.clone()),
-        _ => JsonValue::Null,
-    }
-}
-
 fn data_to_string(d: &Data) -> String {
     match d {
         Data::String(s) => s.clone(),
@@ -367,81 +375,362 @@ fn data_to_string(d: &Data) -> String {
     }
 }
 
-fn build_batch_cancellable(
-    range: &calamine::Range<Data>,
+fn classify_data(data: &Data) -> ObservedValueClass {
+    match data {
+        Data::Int(value) => classify_i64(*value),
+        Data::Float(value) if value.is_finite() => ObservedValueClass::Number,
+        Data::String(_) | Data::DateTimeIso(_) | Data::DurationIso(_) => ObservedValueClass::Text,
+        Data::Bool(_) => ObservedValueClass::Boolean,
+        _ => ObservedValueClass::Null,
+    }
+}
+
+fn data_row_width(bounds: SheetBounds) -> Result<usize> {
+    bounds
+        .end
+        .1
+        .checked_sub(bounds.start.1)
+        .and_then(|width| width.checked_add(1))
+        .and_then(|width| usize::try_from(width).ok())
+        .ok_or_else(|| err("dimensioni XLSX non valide"))
+}
+
+fn data_row_count(bounds: SheetBounds) -> Result<usize> {
+    bounds
+        .end
+        .0
+        .checked_sub(bounds.start.0)
+        .and_then(|rows| usize::try_from(rows).ok())
+        .ok_or_else(|| err("dimensioni XLSX non valide"))
+}
+
+fn for_each_dense_row<RS, F>(
+    reader: &mut XlsxCellReader<'_, RS>,
+    bounds: SheetBounds,
+    cancellation: &CancellationToken,
+    mut visit: F,
+) -> Result<usize>
+where
+    RS: Read + Seek,
+    F: FnMut(u32, &[Data]) -> Result<bool>,
+{
+    let width = data_row_width(bounds)?;
+    let mut pending: Option<(u32, u32, Data)> = None;
+    let mut observed_cells = 0usize;
+
+    for (row_index, row) in (bounds.start.0..=bounds.end.0).enumerate() {
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, row_index)?;
+        let mut values = vec![Data::Empty; width];
+        loop {
+            let next = if let Some(cell) = pending.take() {
+                Some(cell)
+            } else {
+                let cell = reader
+                    .next_cell()
+                    .map_err(|error| err(format!("lettura celle XLSX: {error}")))?;
+                if cell.is_some() {
+                    observed_cells += 1;
+                }
+                cell.map(|cell| {
+                    let (cell_row, cell_column) = cell.get_position();
+                    let value: Data = cell.get_value().clone().into();
+                    (cell_row, cell_column, value)
+                })
+            };
+            let Some((cell_row, cell_column, value)) = next else {
+                break;
+            };
+            if cell_row > row {
+                pending = Some((cell_row, cell_column, value));
+                break;
+            }
+            if cell_row < row {
+                return Err(err("ordine delle celle XLSX non monotono"));
+            }
+            if cell_column < bounds.start.1 || cell_column > bounds.end.1 {
+                return Err(err("cella XLSX fuori dalle dimensioni dichiarate"));
+            }
+            let offset = usize::try_from(cell_column - bounds.start.1)
+                .map_err(|_| err("indice colonna XLSX non rappresentabile"))?;
+            values[offset] = value;
+        }
+        if !visit(row, &values)? {
+            break;
+        }
+    }
+    Ok(observed_cells)
+}
+
+fn resolve_geometry(
+    headers: &[String],
+    start_column: u32,
+    opts: &BTreeMap<String, String>,
+) -> Result<(XlsxGeomSpec, BTreeSet<u32>)> {
+    let index = |name: &str| {
+        headers
+            .iter()
+            .position(|header| header == name)
+            .and_then(|offset| u32::try_from(offset).ok())
+            .and_then(|offset| start_column.checked_add(offset))
+    };
+    if let Some(wkt_name) = opts.get("wkt_column") {
+        let column =
+            index(wkt_name).ok_or_else(|| err(format!("colonna WKT '{wkt_name}' assente")))?;
+        return Ok((XlsxGeomSpec::Wkt(column), BTreeSet::from([column])));
+    }
+    if let (Some(x_name), Some(y_name)) = (opts.get("x_column"), opts.get("y_column")) {
+        let x_column = index(x_name).ok_or_else(|| err(format!("colonna X '{x_name}' assente")))?;
+        let y_column = index(y_name).ok_or_else(|| err(format!("colonna Y '{y_name}' assente")))?;
+        return Ok((
+            XlsxGeomSpec::Xy(x_column, y_column),
+            BTreeSet::from([x_column, y_column]),
+        ));
+    }
+    Err(err(
+        "specificare wkt_column, oppure x_column con y_column, in format_options",
+    ))
+}
+
+fn cell_at(row: &[Data], bounds: SheetBounds, column: u32) -> Result<&Data> {
+    let offset = column
+        .checked_sub(bounds.start.1)
+        .and_then(|offset| usize::try_from(offset).ok())
+        .ok_or_else(|| err("indice colonna XLSX non valido"))?;
+    row.get(offset)
+        .ok_or_else(|| err("riga XLSX fuori dalle dimensioni dichiarate"))
+}
+
+fn encode_geometry_cell(
+    row: &[Data],
+    bounds: SheetBounds,
+    geom: XlsxGeomSpec,
+    detected_dimensions: &mut BTreeSet<CoordinateDimensions>,
+    detected_types: &mut BTreeSet<GeometryType>,
+    wkb_buffer: &mut Vec<u8>,
+) -> Result<bool> {
+    match geom {
+        XlsxGeomSpec::Wkt(column) => {
+            let text = data_to_string(cell_at(row, bounds, column)?);
+            if text.trim().is_empty() {
+                return Ok(false);
+            }
+            let geometry = parse_wkt(text.trim())?;
+            detected_dimensions.insert(geometry.dimensions);
+            detected_types.insert(geometry.geometry_type());
+            wkb_buffer.clear();
+            plenora_io_model::wkb::encode_wkb_into(&geometry, WkbFlavor::Iso, wkb_buffer)?;
+        }
+        XlsxGeomSpec::Xy(x_column, y_column) => {
+            let x = coordinate_cell(Some(cell_at(row, bounds, x_column)?), "X")?;
+            let y = coordinate_cell(Some(cell_at(row, bounds, y_column)?), "Y")?;
+            match (x, y) {
+                (Some(x), Some(y)) => {
+                    let geometry = WkbGeometry {
+                        value: WkbValue::Point(WkbCoordinate {
+                            x,
+                            y,
+                            z: None,
+                            m: None,
+                        }),
+                        dimensions: CoordinateDimensions::Xy,
+                        srid: None,
+                    };
+                    wkb_buffer.clear();
+                    plenora_io_model::wkb::encode_wkb_into(&geometry, WkbFlavor::Iso, wkb_buffer)?;
+                }
+                (None, None) => return Ok(false),
+                _ => {
+                    return Err(err(
+                        "geometria XY incompleta: X e Y devono essere entrambi presenti",
+                    ))
+                }
+            }
+        }
+    }
+    Ok(true)
+}
+
+const SPOOL_NULL_GEOMETRY: u32 = u32::MAX;
+const SPOOL_NULL: u8 = 0;
+const SPOOL_INTEGER: u8 = 1;
+const SPOOL_NUMBER: u8 = 2;
+const SPOOL_BOOLEAN: u8 = 3;
+const SPOOL_TEXT: u8 = 4;
+
+struct BoundedSpoolWriter<'a> {
+    writer: BufWriter<&'a std::fs::File>,
+    bytes: u64,
+    limit: u64,
+}
+
+impl<'a> BoundedSpoolWriter<'a> {
+    fn new(file: &'a std::fs::File, limit: u64) -> Self {
+        Self {
+            writer: BufWriter::new(file),
+            bytes: 0,
+            limit,
+        }
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        let length =
+            u64::try_from(bytes.len()).map_err(|_| err("spool XLSX non rappresentabile"))?;
+        let next = self
+            .bytes
+            .checked_add(length)
+            .ok_or_else(|| err("dimensione spool XLSX fuori intervallo"))?;
+        if next > self.limit {
+            return Err(PlenoraIoError::LimitExceeded(format!(
+                "spool XLSX: {next} byte eccedono il limite {}",
+                self.limit
+            )));
+        }
+        self.writer.write_all(bytes)?;
+        self.bytes = next;
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<()> {
+        self.writer.flush()?;
+        Ok(())
+    }
+
+    fn geometry(&mut self, value: Option<&[u8]>) -> Result<()> {
+        let length = match value {
+            None => SPOOL_NULL_GEOMETRY,
+            Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
+                PlenoraIoError::LimitExceeded(
+                    "geometria XLSX troppo grande per lo spool".to_owned(),
+                )
+            })?,
+        };
+        self.write(&length.to_le_bytes())?;
+        if let Some(bytes) = value {
+            self.write(bytes)?;
+        }
+        Ok(())
+    }
+
+    fn data(&mut self, value: &Data) -> Result<()> {
+        match value {
+            Data::Int(value) => {
+                self.write(&[SPOOL_INTEGER])?;
+                self.write(&value.to_le_bytes())
+            }
+            Data::Float(value) if value.is_finite() => {
+                self.write(&[SPOOL_NUMBER])?;
+                self.write(&value.to_le_bytes())
+            }
+            Data::Bool(value) => self.write(&[SPOOL_BOOLEAN, u8::from(*value)]),
+            Data::String(value) | Data::DateTimeIso(value) | Data::DurationIso(value) => {
+                let bytes = value.as_bytes();
+                let length = u32::try_from(bytes.len()).map_err(|_| {
+                    PlenoraIoError::LimitExceeded(
+                        "testo XLSX troppo grande per lo spool".to_owned(),
+                    )
+                })?;
+                self.write(&[SPOOL_TEXT])?;
+                self.write(&length.to_le_bytes())?;
+                self.write(bytes)
+            }
+            _ => self.write(&[SPOOL_NULL]),
+        }
+    }
+}
+
+fn infer_layout<RS>(
+    workbook: &mut Xlsx<RS>,
+    sheet: &str,
     opts: &BTreeMap<String, String>,
     crs: &str,
     cancellation: &CancellationToken,
-) -> Result<(RecordBatch, DataContract)> {
+    limits: &Limits,
+) -> Result<(XlsxLayout, DataContract, Arc<tempfile::NamedTempFile>)>
+where
+    RS: Read + Seek,
+{
     check_cancelled(cancellation, ErrorPhase::Read)?;
-    let mut rows = range.rows();
-    let header = rows.next().ok_or_else(|| err("foglio vuoto"))?;
-    let headers: Vec<String> = header.iter().map(data_to_string).collect();
-    let idx = |name: &str| headers.iter().position(|h| h == name);
-    let mut data_rows = Vec::new();
-    for (index, row) in rows.enumerate() {
-        check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
-        data_rows.push(row);
+    let mut reader = workbook
+        .worksheet_cells_reader(sheet)
+        .map_err(|error| err(format!("foglio '{sheet}': {error}")))?;
+    let dimensions = reader.dimensions();
+    let bounds = SheetBounds {
+        start: dimensions.start,
+        end: dimensions.end,
+    };
+    let width = data_row_width(bounds)?;
+    let row_count = data_row_count(bounds)?;
+    if width > limits.max_columns {
+        return Err(PlenoraIoError::LimitExceeded(format!(
+            "XLSX: {width} colonne eccedono il limite {}",
+            limits.max_columns
+        )));
     }
+    if row_count > limits.max_rows {
+        return Err(PlenoraIoError::LimitExceeded(format!(
+            "XLSX: {row_count} righe eccedono il limite {}",
+            limits.max_rows
+        )));
+    }
+
+    let mut headers: Option<Vec<String>> = None;
+    let mut geom = None;
+    let mut geom_columns = BTreeSet::new();
+    let mut accumulators: Vec<TypeAccumulator> = Vec::new();
     let mut detected_dimensions = BTreeSet::new();
     let mut detected_types = BTreeSet::new();
-
-    let (geom_cols, wkb): (Vec<usize>, Vec<Option<Vec<u8>>>) =
-        if let Some(w) = opts.get("wkt_column") {
-            let wi = idx(w).ok_or_else(|| err(format!("colonna WKT '{w}' assente")))?;
-            let mut out = Vec::new();
-            for (index, row) in data_rows.iter().enumerate() {
-                check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
-                let cell = row.get(wi).map(data_to_string).unwrap_or_default();
-                if cell.trim().is_empty() {
-                    out.push(None);
-                } else {
-                    let geometry = parse_wkt(cell.trim())?;
-                    detected_dimensions.insert(geometry.dimensions);
-                    detected_types.insert(geometry.geometry_type());
-                    out.push(Some(encode_wkb(&geometry, WkbFlavor::Iso)?));
-                }
+    let spool = Arc::new(tempfile::NamedTempFile::new()?);
+    let mut spool_writer = BoundedSpoolWriter::new(spool.as_file(), limits.max_input_bytes);
+    let mut wkb_buffer = Vec::new();
+    let observed_cells =
+        for_each_dense_row(&mut reader, bounds, cancellation, |row_index, row| {
+            if row_index == bounds.start.0 {
+                let row_headers: Vec<String> = row.iter().map(data_to_string).collect();
+                let (resolved_geom, resolved_columns) =
+                    resolve_geometry(&row_headers, bounds.start.1, opts)?;
+                accumulators = vec![TypeAccumulator::default(); width - resolved_columns.len()];
+                geom = Some(resolved_geom);
+                geom_columns = resolved_columns;
+                headers = Some(row_headers);
+                return Ok(true);
             }
-            (vec![wi], out)
-        } else if let (Some(x), Some(y)) = (opts.get("x_column"), opts.get("y_column")) {
-            let xi = idx(x).ok_or_else(|| err(format!("colonna X '{x}' assente")))?;
-            let yi = idx(y).ok_or_else(|| err(format!("colonna Y '{y}' assente")))?;
-            let mut out = Vec::new();
-            for (index, row) in data_rows.iter().enumerate() {
-                check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
-                let xv = coordinate_cell(row.get(xi), "X")?;
-                let yv = coordinate_cell(row.get(yi), "Y")?;
-                match (xv, yv) {
-                    (Some(x), Some(y)) => {
-                        let geometry = WkbGeometry {
-                            value: WkbValue::Point(WkbCoordinate {
-                                x,
-                                y,
-                                z: None,
-                                m: None,
-                            }),
-                            dimensions: CoordinateDimensions::Xy,
-                            srid: None,
-                        };
-                        out.push(Some(encode_wkb(&geometry, WkbFlavor::Iso)?));
-                    }
-                    (None, None) => out.push(None),
-                    _ => {
-                        return Err(err(
-                            "geometria XY incompleta: X e Y devono essere entrambi presenti",
-                        ))
-                    }
+            let resolved_geom = geom.ok_or_else(|| err("intestazione XLSX assente"))?;
+            let has_geometry = encode_geometry_cell(
+                row,
+                bounds,
+                resolved_geom,
+                &mut detected_dimensions,
+                &mut detected_types,
+                &mut wkb_buffer,
+            )?;
+            spool_writer.geometry(has_geometry.then_some(wkb_buffer.as_slice()))?;
+            let mut attribute_index = 0usize;
+            for (offset, data) in row.iter().enumerate() {
+                let column = bounds
+                    .start
+                    .1
+                    .checked_add(u32::try_from(offset).map_err(|_| err("troppe colonne XLSX"))?)
+                    .ok_or_else(|| err("indice colonna XLSX fuori intervallo"))?;
+                if geom_columns.contains(&column) {
+                    continue;
                 }
+                accumulators[attribute_index].observe(classify_data(data));
+                spool_writer.data(data)?;
+                attribute_index += 1;
             }
-            detected_dimensions.insert(CoordinateDimensions::Xy);
-            detected_types.insert(GeometryType::Point);
-            (vec![xi, yi], out)
-        } else {
-            return Err(err(
-                "specificare wkt_column, oppure x_column con y_column, in format_options",
-            ));
-        };
+            Ok(true)
+        })?;
+    spool_writer.finish()?;
+    if observed_cells == 0 {
+        return Err(err("foglio vuoto"));
+    }
+    let headers = headers.ok_or_else(|| err("intestazione XLSX assente"))?;
+    let geom = geom.ok_or_else(|| err("geometria XLSX non configurata"))?;
 
+    if matches!(geom, XlsxGeomSpec::Xy(_, _)) {
+        detected_dimensions.insert(CoordinateDimensions::Xy);
+        detected_types.insert(GeometryType::Point);
+    }
     let dimensions = if detected_dimensions.len() == 1 {
         detected_dimensions
             .iter()
@@ -464,45 +753,190 @@ fn build_batch_cancellable(
     );
     geometry_contract.dimensions = dimensions;
     geometry_contract.set_exact_geometry_types(detected_types.into_iter().collect());
-    let native_encoding = if opts.contains_key("wkt_column") {
-        "wkt"
-    } else {
-        "xy_columns"
-    };
     geometry_contract.native_metadata.insert(
         "xlsx.geometry_encoding".to_owned(),
-        native_encoding.to_owned(),
+        if matches!(geom, XlsxGeomSpec::Wkt(_)) {
+            "wkt"
+        } else {
+            "xy_columns"
+        }
+        .to_owned(),
     );
     let mut fields = vec![with_geometry_contract_metadata(
         &geometry_field(GEOMETRY, crs),
         &geometry_contract,
     )];
-    let mut arrays: Vec<ArrayRef> = vec![Arc::new(BinaryArray::from(
-        wkb.iter().map(|o| o.as_deref()).collect::<Vec<_>>(),
-    ))];
-    for (ci, name) in headers.iter().enumerate() {
-        check_cancelled_periodically(cancellation, ErrorPhase::Read, ci)?;
-        if geom_cols.contains(&ci) {
+    let mut attrs = Vec::with_capacity(accumulators.len());
+    let mut attribute_index = 0usize;
+    for (offset, name) in headers.iter().enumerate() {
+        let column = bounds
+            .start
+            .1
+            .checked_add(u32::try_from(offset).map_err(|_| err("troppe colonne XLSX"))?)
+            .ok_or_else(|| err("indice colonna XLSX fuori intervallo"))?;
+        if geom_columns.contains(&column) {
             continue;
         }
-        let mut values = Vec::with_capacity(data_rows.len());
-        for (row_index, row) in data_rows.iter().enumerate() {
-            check_cancelled_periodically(cancellation, ErrorPhase::Read, row_index)?;
-            values.push(Some(
-                row.get(ci).map(data_to_json).unwrap_or(JsonValue::Null),
-            ));
-        }
-        let col = infer_column(values.iter().filter_map(|v| v.as_ref()));
-        let (dt, arr) = build_property_array(col, &values);
-        fields.push(Field::new(name, dt, true));
-        arrays.push(arr);
+        let column_type = accumulators[attribute_index].column_type();
+        fields.push(Field::new(name, column_type.arrow_data_type(), true));
+        attrs.push((column, column_type));
+        attribute_index += 1;
     }
 
     let schema: SchemaRef = Arc::new(Schema::new(fields));
-    let batch =
-        RecordBatch::try_new(schema.clone(), arrays).map_err(|e| err(format!("batch: {e}")))?;
-    let contract = DataContract::new(schema, Some(geometry_contract));
-    Ok((batch, contract))
+    let contract = DataContract::new(schema.clone(), Some(geometry_contract));
+    Ok((
+        XlsxLayout {
+            attrs,
+            schema,
+            data_rows: row_count,
+        },
+        contract,
+        spool,
+    ))
+}
+
+fn finish_read_batch(
+    schema: &SchemaRef,
+    geometry: &mut BinaryBuilder,
+    attributes: &mut [InferredColumnBuilder],
+    row_count: usize,
+) -> Result<RecordBatch> {
+    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + attributes.len());
+    arrays.push(Arc::new(geometry.finish()));
+    for builder in attributes {
+        arrays.push(builder.finish());
+    }
+    let options = RecordBatchOptions::new().with_row_count(Some(row_count));
+    RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
+        .map_err(|error| err(format!("batch XLSX: {error}")))
+}
+
+fn read_spool_exact(reader: &mut impl Read, bytes: &mut [u8]) -> Result<()> {
+    reader
+        .read_exact(bytes)
+        .map_err(|error| err(format!("spool XLSX troncato o illeggibile: {error}")))
+}
+
+fn read_spool_geometry(
+    reader: &mut impl Read,
+    builder: &mut BinaryBuilder,
+    buffer: &mut Vec<u8>,
+) -> Result<()> {
+    let mut length_bytes = [0u8; 4];
+    read_spool_exact(reader, &mut length_bytes)?;
+    let length = u32::from_le_bytes(length_bytes);
+    if length == SPOOL_NULL_GEOMETRY {
+        builder.append_null();
+        return Ok(());
+    }
+    let length =
+        usize::try_from(length).map_err(|_| err("lunghezza geometria spool non valida"))?;
+    buffer.resize(length, 0);
+    read_spool_exact(reader, buffer)?;
+    builder.append_value(buffer.as_slice());
+    Ok(())
+}
+
+fn read_spool_data(
+    reader: &mut impl Read,
+    builder: &mut InferredColumnBuilder,
+    buffer: &mut Vec<u8>,
+) -> Result<()> {
+    let mut tag = [0u8; 1];
+    read_spool_exact(reader, &mut tag)?;
+    match tag[0] {
+        SPOOL_NULL => {
+            builder.append_null();
+            Ok(())
+        }
+        SPOOL_INTEGER => {
+            let mut bytes = [0u8; 8];
+            read_spool_exact(reader, &mut bytes)?;
+            builder.append_i64(i64::from_le_bytes(bytes))
+        }
+        SPOOL_NUMBER => {
+            let mut bytes = [0u8; 8];
+            read_spool_exact(reader, &mut bytes)?;
+            builder.append_f64(f64::from_le_bytes(bytes))
+        }
+        SPOOL_BOOLEAN => {
+            let mut value = [0u8; 1];
+            read_spool_exact(reader, &mut value)?;
+            match value[0] {
+                0 => builder.append_bool(false),
+                1 => builder.append_bool(true),
+                _ => Err(err("booleano spool XLSX non valido")),
+            }
+        }
+        SPOOL_TEXT => {
+            let mut length = [0u8; 4];
+            read_spool_exact(reader, &mut length)?;
+            let length = usize::try_from(u32::from_le_bytes(length))
+                .map_err(|_| err("lunghezza testo spool non valida"))?;
+            buffer.resize(length, 0);
+            read_spool_exact(reader, buffer)?;
+            let text =
+                std::str::from_utf8(buffer).map_err(|_| err("testo spool XLSX non UTF-8"))?;
+            builder.append_str(text)
+        }
+        _ => Err(err("tag spool XLSX non valido")),
+    }
+}
+
+fn spawn_xlsx_reader(
+    spool: Arc<tempfile::NamedTempFile>,
+    layout: XlsxLayout,
+    mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
+    layer: LayerContract,
+    cancellation: CancellationToken,
+) -> Result<Box<dyn LayerReader>> {
+    spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
+        let file = spool.reopen()?;
+        let mut reader = BufReader::new(file);
+        let mut geometry = BinaryBuilder::new();
+        let mut attributes: Vec<InferredColumnBuilder> = layout
+            .attrs
+            .iter()
+            .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
+            .collect();
+        let mut geometry_buffer = Vec::new();
+        let mut text_buffer = Vec::new();
+        let mut rows_in_batch = 0usize;
+        for row_index in 0..layout.data_rows {
+            check_cancelled_periodically(&cancellation, ErrorPhase::Read, row_index)?;
+            read_spool_geometry(&mut reader, &mut geometry, &mut geometry_buffer)?;
+            for builder in &mut attributes {
+                read_spool_data(&mut reader, builder, &mut text_buffer)?;
+            }
+            rows_in_batch += 1;
+            if rows_in_batch >= batch_sizer.rows() {
+                let batch = finish_read_batch(
+                    &layout.schema,
+                    &mut geometry,
+                    &mut attributes,
+                    rows_in_batch,
+                )?;
+                batch_sizer.observe(&batch);
+                rows_in_batch = 0;
+                if !emitter.send(batch) {
+                    return Ok(());
+                }
+            }
+        }
+        if rows_in_batch > 0 {
+            let batch = finish_read_batch(
+                &layout.schema,
+                &mut geometry,
+                &mut attributes,
+                rows_in_batch,
+            )?;
+            if !emitter.send(batch) {
+                return Ok(());
+            }
+        }
+        Ok(())
+    })
 }
 
 fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64>> {
@@ -614,6 +1048,152 @@ mod tests {
             .downcast_ref::<arrow_array::StringArray>()
             .unwrap();
         assert_eq!(nome.value(0), "Roma");
+    }
+
+    #[test]
+    fn xlsx_reader_emits_bounded_batches_and_preserves_sparse_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("sparse.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "name").unwrap();
+        sheet.write_string(0, 1, "geometry").unwrap();
+        sheet.write_string(1, 0, "first").unwrap();
+        sheet.write_string(1, 1, "POINT (1 2)").unwrap();
+        sheet.write_string(3, 0, "third").unwrap();
+        sheet.write_string(3, 1, "POINT (3 4)").unwrap();
+        workbook.save(&output).unwrap();
+
+        let driver = XlsDriver;
+        let dataset = driver
+            .open(
+                Source::Path(output),
+                &ReadOptions {
+                    assume_crs: Some("EPSG:4326".to_owned()),
+                    format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
+                        .into_iter()
+                        .collect(),
+                    ..ReadOptions::default()
+                },
+            )
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget {
+                    target_bytes: 1024,
+                    max_rows: 1,
+                },
+                cancellation: Default::default(),
+            })
+            .unwrap();
+
+        let first = reader.next_batch().unwrap().unwrap();
+        let empty = reader.next_batch().unwrap().unwrap();
+        let third = reader.next_batch().unwrap().unwrap();
+        assert_eq!(
+            [first.num_rows(), empty.num_rows(), third.num_rows()],
+            [1, 1, 1]
+        );
+        assert!(empty
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap()
+            .is_null(0));
+        assert!(empty
+            .column_by_name("name")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .unwrap()
+            .is_null(0));
+        assert!(reader.next_batch().unwrap().is_none());
+    }
+
+    #[test]
+    fn xlsx_reader_stops_after_cancellation_between_batches() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("cancel.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "geometry").unwrap();
+        for row in 1..=4 {
+            sheet
+                .write_string(row, 0, format!("POINT ({row} {row})"))
+                .unwrap();
+        }
+        workbook.save(&output).unwrap();
+
+        let driver = XlsDriver;
+        let dataset = driver
+            .open(
+                Source::Path(output),
+                &ReadOptions {
+                    assume_crs: Some("EPSG:4326".to_owned()),
+                    format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
+                        .into_iter()
+                        .collect(),
+                    ..ReadOptions::default()
+                },
+            )
+            .unwrap();
+        let cancellation = CancellationToken::new();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget {
+                    target_bytes: 1024,
+                    max_rows: 1,
+                },
+                cancellation: cancellation.clone(),
+            })
+            .unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
+        cancellation.cancel();
+        assert!(reader.next_batch().is_err());
+    }
+
+    #[test]
+    fn xlsx_spool_is_bounded_by_the_input_byte_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("bounded.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "name").unwrap();
+        sheet.write_string(0, 1, "geometry").unwrap();
+        let repeated = "x".repeat(1_000);
+        for row in 1..=100 {
+            sheet.write_string(row, 0, &repeated).unwrap();
+            sheet.write_string(row, 1, "POINT (1 2)").unwrap();
+        }
+        workbook.save(&output).unwrap();
+        let input_bytes = std::fs::metadata(&output).unwrap().len();
+
+        let result = XlsDriver.open(
+            Source::Path(output),
+            &ReadOptions {
+                assume_crs: Some("EPSG:4326".to_owned()),
+                format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
+                    .into_iter()
+                    .collect(),
+                limits: Limits {
+                    max_input_bytes: input_bytes,
+                    ..Limits::default()
+                },
+                ..ReadOptions::default()
+            },
+        );
+        let error = result.err().expect("lo spool deve rispettare il limite");
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::LimitExceeded);
     }
 
     #[test]

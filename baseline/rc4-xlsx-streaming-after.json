@@ -1,0 +1,51 @@
+{
+  "contract": "plenora-io-baseline-v1",
+  "source_revision": "rc4-working-tree-candidate",
+  "geometry": "point",
+  "rows_per_benchmark": 100000,
+  "repetitions": 5,
+  "drivers": "xlsx",
+  "note": "Campioni read interlacciati sulla stessa fixture e sullo stesso container plenora-rust:1.92-quality. Lo SHA viene congelato dopo il commit del candidato invariato.",
+  "benchmarks": [
+    {
+      "driver": "xlsx",
+      "op": "read",
+      "sample": 1,
+      "status": "ok",
+      "rows_per_s": 554773.0,
+      "peak_rss_bytes": 9224192
+    },
+    {
+      "driver": "xlsx",
+      "op": "read",
+      "sample": 2,
+      "status": "ok",
+      "rows_per_s": 454872.0,
+      "peak_rss_bytes": 9953280
+    },
+    {
+      "driver": "xlsx",
+      "op": "read",
+      "sample": 3,
+      "status": "ok",
+      "rows_per_s": 496863.0,
+      "peak_rss_bytes": 9760768
+    },
+    {
+      "driver": "xlsx",
+      "op": "read",
+      "sample": 4,
+      "status": "ok",
+      "rows_per_s": 547649.0,
+      "peak_rss_bytes": 9605120
+    },
+    {
+      "driver": "xlsx",
+      "op": "read",
+      "sample": 5,
+      "status": "ok",
+      "rows_per_s": 508116.0,
+      "peak_rss_bytes": 9510912
+    }
+  ]
+}

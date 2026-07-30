@@ -25,24 +25,44 @@ I tre gruppi differiti da RC3 restano indipendenti:
    matrici native, crash/recovery e filesystem senza peggiorare il percorso
    narrow oltre il 5%.
 
-## Primo incremento: XLSX a due passate
+## Primo incremento: XLSX bounded con spool temporaneo
 
 `calamine 0.36.1`, già pinnato, espone `Xlsx::worksheet_cells_reader`, un
-reader lazy delle celle usate con coordinate esplicite. RC4 usa questa API
-senza cambiare il contratto:
+reader lazy delle celle usate con coordinate esplicite. Il primo prototipo
+riapriva il workbook per una seconda passata: riduceva l'RSS, ma il benchmark
+interlacciato ha misurato una regressione mediana del throughput del 37,71% e
+ha attivato il veto del 5%. Quel percorso è stato rimosso.
 
-- passata 1 durante `open`: intestazione, inferenza monotona dei tipi,
-  geometria, dimensioni e tipi WKB, con memoria proporzionale al numero di
-  colonne;
-- passata 2 nel `LayerReader`: nuova apertura del workbook e produzione di
-  `RecordBatch` bounded da `batch_target`, con canale a capacità limitata;
+L'implementazione mantenuta usa l'API lazy senza cambiare il contratto:
+
+- una sola scansione XLSX durante `open` ricava intestazione, inferenza monotona
+  dei tipi, geometria, dimensioni e tipi WKB;
+- i valori già normalizzati vengono scritti in uno spool temporaneo binario
+  bounded da `limits.max_input_bytes`, mai trattenuti come dataset Arrow in
+  memoria;
+- il `LayerReader` legge sequenzialmente lo spool e produce `RecordBatch`
+  bounded da `batch_target`, con canale a capacità limitata;
 - righe e celle sparse vengono ricostruite senza cambiare l'ordine o inventare
   valori;
-- cancellazione verificata durante entrambe le passate;
+- cancellazione verificata durante scansione ed emissione;
 - errori del parser e valori incompatibili restano fail-closed.
 
-La strategia è deliberatamente a due passate: una sola passata senza
-`schema_hint` sceglierebbe i tipi prima di avere osservato tutto il foglio.
+Lo spool è deliberato: una singola passata che emettesse Arrow prima della fine
+dell'inferenza sceglierebbe i tipi senza avere osservato tutto il foglio.
+L'artefatto temporaneo viene eliminato al rilascio del dataset; se la sua
+espansione supera il limite di input, l'apertura fallisce esplicitamente con
+`LimitExceeded`.
+
+Il secondo benchmark interlacciato, cinque campioni per revisione sulla stessa
+fixture da 100.000 righe e sullo stesso container, ha dato:
+
+- throughput mediano: 465.811 → 508.116 righe/s (`+9,08%`);
+- peak RSS mediano: 49.016.832 → 9.605.120 byte (`-80,40%`);
+- allocazioni per campione: 1.108.260 → 708.423 (`-36,08%`);
+- byte allocati: 108.748.567 → 33.941.119 (`-68,79%`).
+
+Il veto del 5% è superato e il descrittore XLSX passa a
+`ReadMode::StreamingSequential`.
 
 ## Workstream ancora bloccati
 
@@ -64,6 +84,6 @@ dell'owner ed attività esterna registrata.
 - test workspace e test mirati XLSX;
 - equivalenza di schema, payload, righe sparse e batch multipli;
 - cancellazione durante la scansione e durante l'emissione;
-- benchmark interlacciato baseline/RC4 su tempo, RSS e allocazioni prima di
-  promuovere `ReadMode::StreamingSequential`;
+- benchmark interlacciato baseline/RC4 su tempo, RSS e allocazioni superato
+  prima della promozione a `ReadMode::StreamingSequential`;
 - gate di provenienza release con RC3 immutabile e RC4 ancora `development`.
