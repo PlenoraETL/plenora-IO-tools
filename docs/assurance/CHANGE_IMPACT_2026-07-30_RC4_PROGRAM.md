@@ -144,6 +144,30 @@ che il report sia disponibile sia nella valutazione del dataset sia nel
 del descrittore; `driver_version` passa da 7 a 8 e `descriptor_version` resta
 6.
 
+Lo stesso corpus è stato convertito eseguendo il CLI verso tutti gli altri
+driver, così da esercitare anche i writer:
+
+| Destinazione | Esito |
+|---|---|
+| Arrow IPC, GeoParquet | conversione completata; perdita del writer assente |
+| GeoPackage, CSV, DXF | conversione completata; perdita del writer dichiarata |
+| XLSX | conversione completata; metadati CRS non rappresentabili dichiarati |
+| GeoJSON, KML | rifiuto del CRS `EPSG:3003`, incompatibile con il CRS fisso `OGC:CRS84` |
+
+I rifiuti GeoJSON e KML avvengono in `Validate` come `Unsupported`, con
+`effect=None` e `retry=Never`. Il bordo non applica una riproiezione implicita:
+la trasformazione resta una decisione esplicita del centro. XLSX conserva
+invece i dati rappresentabili e dichiara la perdita dei metadati CRS.
+
+Questa matrice rende inoltre visibile un residuo di contratto, non assorbito
+in RC4. Per Arrow IPC e GeoParquet `loss.lossless=true` descrive correttamente
+il solo writer, mentre `read_fidelity=approximating` descrive la conversione
+complessiva e riporta le 3.000 occorrenze lette dal DBF. Il nome generico del
+primo campo può essere interpretato erroneamente come fedeltà end-to-end.
+L'interfaccia futura dovrà rendere esplicito lo scope writer del campo oppure
+allineare il riepilogo alla fedeltà complessiva; fino ad allora
+`loss.lossless` non costituisce da solo evidenza di conversione lossless.
+
 ## Quarto incremento: pushdown nativo OpenFileGDB
 
 Il prerequisito RC3 ammetteva una API safe upstream oppure un fork governato.
