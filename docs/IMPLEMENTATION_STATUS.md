@@ -20,6 +20,12 @@ immutabile; RC3 ha superato la CI pre-tag `30501904391` sulla revisione
 soltanto dopo la propria CI verde. Un claim
 `verified_independently` resta vietato finché la review non viene completata.
 
+Il programma component-only `0.1.0-rc.4` è ora aperto dalla baseline immutabile
+`v0.1.0-rc.3` ed è registrato in `release/rc4-development.json`, senza claim di
+nuova RC. Il primo incremento selezionato è il reader XLSX esatto a due passate;
+KML, DXF, pushdown OpenFileGDB e ambiente GDAL Windows restano subordinati ai
+prerequisiti e ai veti già registrati.
+
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
 requisiti, hazard, prove e gap nella

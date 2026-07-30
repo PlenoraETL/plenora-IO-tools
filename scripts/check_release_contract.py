@@ -20,6 +20,7 @@ EVIDENCE = (
 )
 INDEPENDENT_REVIEW = ROOT / "release" / "independent-review.json"
 RC3_DEVELOPMENT = ROOT / "release" / "rc3-development.json"
+RC4_DEVELOPMENT = ROOT / "release" / "rc4-development.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
@@ -40,7 +41,7 @@ EXPECTED_FUZZ_IO_REVISION = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "3f3562a4707995549ff5eb8dc03f9e37f2cde355"
 EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
 EXPECTED_COMPONENT_VERSION = "0.1.0-rc.3"
-EXPECTED_WORKSPACE_VERSION = "0.1.0-rc.3"
+EXPECTED_WORKSPACE_VERSION = "0.1.0-rc.4"
 EXPECTED_RELEASE_TAG = "v0.1.0-rc.3"
 EXPECTED_CANDIDATE_CI_RUN = 30500304709
 EXPECTED_RELEASE_DECISION_REVISION = (
@@ -227,8 +228,8 @@ def validate_rc3_development(document: dict[str, Any]) -> list[str]:
         errors.append("rc3-development: manifest_version inattesa")
     if document.get("component") != "plenora-IO-tools":
         errors.append("rc3-development: componente inatteso")
-    if document.get("component_version") != EXPECTED_WORKSPACE_VERSION:
-        errors.append("rc3-development: versione workspace inattesa")
+    if document.get("component_version") != EXPECTED_COMPONENT_VERSION:
+        errors.append("rc3-development: versione release inattesa")
     if document.get("status") != "component_rc_tagged":
         errors.append("rc3-development: stato finale inatteso")
     if document.get("baseline_release") != {
@@ -337,6 +338,50 @@ def validate_rc3_development(document: dict[str, Any]) -> list[str]:
         "avionic_certification": False,
     }:
         errors.append("rc3-development: claim prematuri")
+    return errors
+
+
+def validate_rc4_development(document: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if document != {
+        "manifest_version": 1,
+        "component": "plenora-IO-tools",
+        "component_version": EXPECTED_WORKSPACE_VERSION,
+        "status": "development",
+        "baseline_release": {
+            "tag": EXPECTED_RELEASE_TAG,
+            "target_revision": "ea0de79677e8fc794d96ac3d95c5bc2c6e30358c",
+            "implementation_revision": EXPECTED_IO_CANDIDATE,
+            "immutable": True,
+        },
+        "program_record": (
+            "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_PROGRAM.md"
+        ),
+        "scope": "component_only",
+        "system_qualification_ownership": "external",
+        "workstreams": {
+            "xlsx_two_pass_streaming": "in_progress",
+            "kml_event_streaming": "blocked_upstream_or_performance_evidence",
+            "dxf_progressive_reader": "blocked_upstream_or_governed_fork",
+            "openfilegdb_native_pushdown": "blocked_safe_api_or_governed_fork",
+            "filegdb_windows_and_filesystem_matrix": (
+                "environment_solution_required"
+            ),
+        },
+        "non_code_dependencies": {
+            "combined_read_write_boundary_crs_policy": "owner_decision_open",
+            "reader_loss_cli_observability": "external_contracts_follow_up",
+            "icd_ratification_alignment": (
+                "owner_decision_open_not_component_code_gate"
+            ),
+        },
+        "claims": {
+            "component_rc": False,
+            "system_rc": False,
+            "avionic_certification": False,
+        },
+    }:
+        errors.append("rc4-development: programma o claim inattesi")
     return errors
 
 
@@ -680,6 +725,7 @@ def main() -> int:
         EVIDENCE,
         INDEPENDENT_REVIEW,
         RC3_DEVELOPMENT,
+        RC4_DEVELOPMENT,
         WORKSPACE_MANIFEST,
         WORKSPACE_LOCK,
         *WORKSPACE_CRATE_MANIFESTS,
@@ -755,6 +801,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-30_RC4_PROGRAM.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -785,6 +835,7 @@ def main() -> int:
                 )
             )
             errors.extend(validate_rc3_development(load_json(RC3_DEVELOPMENT)))
+            errors.extend(validate_rc4_development(load_json(RC4_DEVELOPMENT)))
         except (OSError, ValueError, json.JSONDecodeError) as error:
             errors.append(str(error))
 
@@ -797,7 +848,8 @@ def main() -> int:
     print(
         "Release contract gate passed "
         "(v0.1.0-rc.3 is recorded as the internally verified component RC; "
-        "system RC and avionic certification are not claimed)."
+        "v0.1.0-rc.4 is development only; system RC and avionic certification "
+        "are not claimed)."
     )
     return 0
 

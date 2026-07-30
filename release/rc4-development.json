@@ -1,0 +1,32 @@
+{
+  "manifest_version": 1,
+  "component": "plenora-IO-tools",
+  "component_version": "0.1.0-rc.4",
+  "status": "development",
+  "baseline_release": {
+    "tag": "v0.1.0-rc.3",
+    "target_revision": "ea0de79677e8fc794d96ac3d95c5bc2c6e30358c",
+    "implementation_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
+    "immutable": true
+  },
+  "program_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_PROGRAM.md",
+  "scope": "component_only",
+  "system_qualification_ownership": "external",
+  "workstreams": {
+    "xlsx_two_pass_streaming": "in_progress",
+    "kml_event_streaming": "blocked_upstream_or_performance_evidence",
+    "dxf_progressive_reader": "blocked_upstream_or_governed_fork",
+    "openfilegdb_native_pushdown": "blocked_safe_api_or_governed_fork",
+    "filegdb_windows_and_filesystem_matrix": "environment_solution_required"
+  },
+  "non_code_dependencies": {
+    "combined_read_write_boundary_crs_policy": "owner_decision_open",
+    "reader_loss_cli_observability": "external_contracts_follow_up",
+    "icd_ratification_alignment": "owner_decision_open_not_component_code_gate"
+  },
+  "claims": {
+    "component_rc": false,
+    "system_rc": false,
+    "avionic_certification": false
+  }
+}
