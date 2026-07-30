@@ -83,6 +83,17 @@ jobs:
         with:
           toolchain: "1.92.0"
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+      - name: Install pinned GDAL/OpenFileGDB
+        shell: pwsh
+        run: >-
+          ./scripts/install-windows-gdal.ps1
+          -Destination "$env:RUNNER_TEMP\plenora-gdal"
+          -CacheDirectory "$env:RUNNER_TEMP\plenora-osgeo4w-cache"
+          -ExportGitHubEnvironment
+      - name: Test FileGDB with native Windows GDAL
+        env:
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
+        run: cargo test -p driver-filegdb --features gdal-bindgen --locked
       - name: Test cross-volume publish rejection
         shell: pwsh
         run: |
