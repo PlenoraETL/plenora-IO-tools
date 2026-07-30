@@ -2,14 +2,14 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "release_kind": "component_rc",
-  "component_version": "0.1.0-rc.2",
+  "component_version": "0.1.0-rc.3",
   "freeze_status": "frozen",
-  "implementation_revision": "179ad037aad18c3c92ff3c703315a7033ff43773",
+  "implementation_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
   "candidate_state": "component_rc_verified_internally",
   "freeze_scope": {
     "kind": "technical_baseline",
-    "baseline_revision": "179ad037aad18c3c92ff3c703315a7033ff43773",
-    "frozen_on": "2026-07-29",
+    "baseline_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
+    "frozen_on": "2026-07-30",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
     "release_tag_authorized": true,
@@ -22,23 +22,23 @@
     "independent_review_required": false,
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": false,
-    "release_tag_created": true,
-    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_RC2_RELEASE_DECISION.md",
-    "decision_revision": "2cf2bb3ce07cfe86ad3613b21930b73752f91df3",
-    "decision_ci_run": 30443837255
+    "release_tag_created": false,
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md",
+    "decision_revision": "6868990461f7ef880258f67985528dc29b0564a0",
+    "decision_ci_run": 30501136176
   },
   "release_tag": {
-    "name": "v0.1.0-rc.2",
-    "version": "0.1.0-rc.2",
+    "name": "v0.1.0-rc.3",
+    "version": "0.1.0-rc.3",
     "tag_form": "annotated_unsigned",
-    "status": "created",
-    "created_on": "2026-07-29",
-    "candidate_revision": "179ad037aad18c3c92ff3c703315a7033ff43773",
+    "status": "pending_pre_tag_ci",
+    "created_on": null,
+    "candidate_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
-    "pre_tag_revision": "682e90574ec943d58dc2e0d972319864601ea5e5",
-    "pre_tag_ci_run": 30444724398,
-    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-29_RC2_RELEASE_DECISION.md"
+    "pre_tag_revision": null,
+    "pre_tag_ci_run": null,
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md"
   },
   "wire_contract_version": 1,
   "icd": {
@@ -87,12 +87,29 @@
     }
   ],
   "claims": {
-    "component_rc": true,
+    "component_rc": false,
     "system_rc": false,
     "avionic_certification": false
   },
+  "rc3_scope": {
+    "included": [
+      "canonical_wkb_types",
+      "reproducible_long_fuzz_campaign",
+      "crs_inconsistency_read_declaration"
+    ],
+    "deferred_to_rc4": [
+      "streaming_and_cancellation",
+      "openfilegdb_native_pushdown",
+      "filegdb_windows_and_filesystem_matrix"
+    ],
+    "declared_residuals": [
+      "crs_definition_vs_srid_requires_resolver",
+      "reader_loss_cli_observability_external_follow_up",
+      "combined_read_write_boundary_crs_policy_owner_decision"
+    ]
+  },
   "fuzz_coordination": {
-    "state": "deterministic_cross_replay_passed_long_campaign_pending",
+    "state": "long_campaign_completed_no_findings",
     "io_tools_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
     "database_tools_revision": "ef18e80c798126f872fd366c36ee96a029598958",
     "corpus_id": "plenora-wkb-ewkb-cross-repository-v1",
@@ -105,6 +122,15 @@
       "duration_seconds": 60,
       "iterations": 68740000,
       "findings": 0
+    },
+    "long_campaign": {
+      "baseline_revision": "2353e32da15cf25537a79c3a7dd507054c013764",
+      "baseline_ci_run": 30457744328,
+      "duration_seconds": 3600,
+      "libfuzzer_executions": 210118046,
+      "structured_iterations": 5705840000,
+      "findings": 0,
+      "working_tree_clean_before_and_after": true
     },
     "future_corpus_owner": "plenora-contracts",
     "protocol": "docs/assurance/WKB_EWKB_FUZZ_COORDINATION.md"

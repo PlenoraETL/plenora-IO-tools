@@ -136,8 +136,8 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_rejects_release_version_or_tag_form_drift(self) -> None:
         for path, replacement in (
-            (("component_version",), "0.1.0-rc.3"),
-            (("release_tag", "name"), "v0.1.0-rc.3"),
+            (("component_version",), "0.1.0-rc.2"),
+            (("release_tag", "name"), "v0.1.0-rc.2"),
             (("release_tag", "tag_form"), "lightweight"),
         ):
             provenance = copy.deepcopy(self.provenance)
@@ -162,9 +162,9 @@ class ReleaseContractTests(unittest.TestCase):
         provenance["freeze_status"] = "pre_freeze"
         self.assertTrue(self.validate(provenance=provenance))
 
-    def test_allows_component_rc_tag_while_review_is_open(self) -> None:
-        self.assertTrue(self.freeze_readiness["release_authorized"])
-        self.assertTrue(self.freeze_readiness["gates"]["pre_tag_ci"])
+    def test_keeps_pre_tag_state_fail_closed_while_review_is_open(self) -> None:
+        self.assertFalse(self.freeze_readiness["release_authorized"])
+        self.assertFalse(self.freeze_readiness["gates"]["pre_tag_ci"])
         self.assertFalse(
             self.freeze_readiness["assurance_attributes"]["independent_review"]
         )
@@ -195,7 +195,7 @@ class ReleaseContractTests(unittest.TestCase):
         for path, replacement in (
             (("run_id",), 0),
             (("coverage_artifact", "sha256"), "0" * 64),
-            (("library_line_coverage", "covered"), 0),
+            (("library_line_coverage", "minimum_percent"), 0),
         ):
             evidence = copy.deepcopy(self.evidence)
             target = evidence["candidate_ci"]

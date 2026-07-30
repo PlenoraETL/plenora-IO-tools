@@ -6,19 +6,18 @@ Stato: **in attesa di un revisore eleggibile**.
 
 - componente: `plenora-IO-tools`;
 - base di confronto:
-  `1c37fb5d525647b264ce977e26fc07b346bb7914`;
+  `f47bf4605b248d127205e49a7e6ebd2a0984a83f`;
 - codice candidato:
-  `78c2d150b9c7d0ac48e4c97b03f86228e0f0a068`;
-- record del freeze tecnico:
-  `824cbc9077e16aca2033e8d35ee3263b7d067b47`;
-- record di provenienza ed evidenza:
-  `aefec48b0da7f0e2324b378ac0aedf29a38a4e94`;
+  `3f3562a4707995549ff5eb8dc03f9e37f2cde355`;
+- record del freeze tecnico e record di provenienza: in attesa dello SHA
+  pre-tag, che verrà legato dopo la relativa CI;
 - ICD: `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`.
 
-`git diff --exit-code 78c2d15 824cbc9 -- crates Cargo.toml Cargo.lock
-rust-toolchain.toml` non produce differenze: i commit successivi al candidato
-modificano soltanto assurance, provenienza e gate.
+I commit successivi a `3f3562a` possono modificare soltanto assurance,
+provenienza e gate. La verifica da applicare allo SHA pre-tag è
+`git diff --exit-code 3f3562a <pre-tag> -- crates Cargo.toml Cargo.lock
+rust-toolchain.toml`.
 
 ## Eleggibilità
 
@@ -39,7 +38,7 @@ Prima di iniziare, il revisore deve registrare nel file
 
 La review deve esaminare almeno:
 
-1. diff completo `1c37fb5..78c2d15`, con priorità ai confini esterni;
+1. diff completo `f47bf46..3f3562a`, con priorità ai confini esterni;
 2. publish atomico/no-clobber/durability e failure mode;
 3. WKB/EWKB, dimensioni, SRID, geometry/geography e metadati CRS;
 4. cancellazione, limiti, backpressure e parser materializzanti residui;
@@ -55,9 +54,9 @@ sostituiscono l'ispezione del diff.
 ## Comandi riproducibili
 
 ```text
-git diff --stat 1c37fb5 78c2d15
-git diff 1c37fb5 78c2d15 -- crates conformance fuzz scripts
-git diff --exit-code 78c2d15 824cbc9 -- crates Cargo.toml Cargo.lock rust-toolchain.toml
+git diff --stat f47bf46 3f3562a
+git diff f47bf46 3f3562a -- crates conformance fuzz scripts
+git diff --exit-code 3f3562a <pre-tag> -- crates Cargo.toml Cargo.lock rust-toolchain.toml
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo clippy --workspace --lib --all-features --locked -- -D warnings -D unsafe-code -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::unreachable -D clippy::todo -D clippy::unimplemented
@@ -103,5 +102,6 @@ Quando il record è completo:
 
 Fino ad allora `independent_review` e
 `independently_verified_claim_authorized` restano `false`. La decisione
-[`CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md`](CHANGE_IMPACT_2026-07-29_INTERNAL_RC_RELEASE.md)
-autorizza separatamente la RC del componente come `verified_internally`.
+[`CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md`](CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md)
+autorizza separatamente RC3 come `verified_internally`, subordinata alle CI
+pre-tag e del record finale.

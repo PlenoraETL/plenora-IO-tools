@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "component_version": "0.1.0-rc.3",
-  "status": "development",
+  "status": "candidate_frozen_pending_pre_tag_ci",
   "baseline_release": {
     "tag": "v0.1.0-rc.2",
     "target_revision": "f47bf4605b248d127205e49a7e6ebd2a0984a83f",
@@ -12,6 +12,14 @@
   "scope_decision": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md",
   "scope": "component_only",
   "system_qualification_ownership": "external",
+  "candidate": {
+    "implementation_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
+    "candidate_ci_run": 30500304709,
+    "release_decision_revision": "6868990461f7ef880258f67985528dc29b0564a0",
+    "release_decision_ci_run": 30501136176,
+    "release_tag": "v0.1.0-rc.3",
+    "release_tag_status": "pending_pre_tag_ci"
+  },
   "workstreams": {
     "long_fuzz_campaign": "completed_no_findings",
     "canonical_wkb_types": "implemented_local_gates_passed",

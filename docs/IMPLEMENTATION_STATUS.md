@@ -1,6 +1,6 @@
 # Stato implementazione rispetto agli ADR
 
-Verifica aggiornata al 2026-07-29. La tabella distingue ciò che è nel codice da
+Verifica aggiornata al 2026-07-30. La tabella distingue ciò che è nel codice da
 ciò che resta una decisione architetturale: “parziale” non significa che il
 driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 
@@ -10,14 +10,13 @@ Il manifest cita `plenora-contracts@v2.0-rc8` e la revisione esatta, distingue
 la wire version dall'ICD e registra le sezioni candidate e la deroga di
 emissione. Il gate della catena a tre componenti resta esplicitamente
 `not_satisfied`.
-La baseline tecnica candidata `179ad03` è congelata con claim
-`verified_internally` per `v0.1.0-rc.2`. La revisione indipendente resta aperta
-come attributo non bloccante. RC2 resta l'ultima release pubblicata; il
-workspace corrente ha avviato lo sviluppo component-only `0.1.0-rc.3`, descritto
-in `release/rc3-development.json`, senza claim di nuova RC. La CI pre-tag
-`30444724398` è verde sulla revisione
-`682e905`; il tag annotato non firmato `v0.1.0-rc.2` è registrato come
-pubblicato. Il precedente tag annotato `v0.1.0-rc.1` resta immutabile. Un claim
+La baseline tecnica candidata `3f3562a` è congelata con claim previsto
+`verified_internally` per `v0.1.0-rc.3`. La CI candidata `30500304709` e la CI
+della decisione `30501136176` sono verdi. La revisione indipendente resta
+aperta come attributo non bloccante. RC2 resta l'ultima release pubblicata e
+immutabile; RC3 è nello stato pre-tag descritto in
+`release/rc3-development.json`, con `component_rc: false` finché la CI pre-tag
+e quella del record finale non sono verdi e il tag non è creato. Un claim
 `verified_independently` resta vietato finché la review non viene completata.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
@@ -150,8 +149,9 @@ fuzz. Il gate quantitativo è invece applicato al solo codice di libreria:
 esclude esclusivamente gli entry point `main.rs` di `plenora-io-cli`,
 `plenora-bench` e `plenora-fuzz`, che richiedono test end-to-end o campagne
 dedicate e falsavano il dato delle librerie. La CI candidata immutabile
-`179ad03` misura 12.769/15.271 linee, pari a 83,62%, e il gate fail-closed è
-fissato all'80%; raccolta, pubblicazione
+`3f3562a` supera il gate fail-closed fissato all'80%; l'artifact LCOV
+`8743219769` e il relativo digest sono registrati nel bundle di evidenza.
+Raccolta, pubblicazione
 dell'artifact e verifica della soglia sono passi distinti, così un eventuale
 calo resta diagnosticabile.
 
@@ -176,11 +176,14 @@ dopo il rename, e verifica recovery degli orfani e protezione dei writer attivi.
 La matrice deterministica `RawCrs`/axis order e il test feature-on FileGDB sono
 parte delle rispettive suite.
 
-La campagna lunga WKB/EWKB non parte come iniziativa isolata. Il protocollo
+La campagna lunga WKB/EWKB non è partita come iniziativa isolata. Il protocollo
 condiviso confronta il codec lossless IO con lo scanner database-tools usando
 18 payload grezzi deduplicati per SHA-256, manifest comune e oracolo
 differenziale. Il replay è verde con zero differenze non classificate; le due
 differenze osservate sono registrate e motivate. Uno smoke bounded con seed
 `20260728` ha eseguito 68.740.000 mutazioni in 60 secondi senza finding.
-Corpus e invarianti sono destinati al repository `plenora-contracts`; la
-campagna lunga coverage-guided e la retention dei finding restano aperte.
+Corpus e invarianti sono destinati al repository `plenora-contracts`. La
+campagna lunga su harness committati ha eseguito 210.118.046 esecuzioni
+libFuzzer e 5.705.840.000 iterazioni strutturate in un'ora, con zero finding e
+working tree pulito prima e dopo. Restano aperte la retention/promozione del
+corpus condiviso e le campagne future su nuove modifiche.
