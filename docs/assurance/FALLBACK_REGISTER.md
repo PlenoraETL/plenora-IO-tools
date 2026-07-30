@@ -11,23 +11,25 @@ Il censimento iniziale contava 103 occorrenze nell'intero workspace. La prima
 revisione aveva portato il totale a 95. La pulizia profonda successiva elimina
 altri tredici fallback: nove risoluzioni duplicate della directory di staging,
 il default XY per geometrie GeoJSON/KML senza coordinate e altri default
-booleani/dimensionali KML non più necessari. Il saldo del componente resta
-invariato; il runner di benchmark aggiunge sei default espliciti per soglie,
-ripetizioni e output diagnostico. Il totale del workspace è ora 88 occorrenze:
+booleani/dimensionali KML non più necessari. RC4 elimina inoltre i due fallback
+XLSX che completavano celle attributive assenti durante la materializzazione:
+la ricostruzione delle righe sparse è ora esplicita. Il runner di benchmark
+aggiunge sei default dichiarati per soglie, ripetizioni e output diagnostico.
+Il totale del workspace è ora 86 occorrenze:
 
-- 41 nei sorgenti dei crate distribuibili, includendo conservativamente i loro
+- 39 nei sorgenti dei crate distribuibili, includendo conservativamente i loro
   moduli `#[cfg(test)]`;
 - 47 nei target esclusi dal componente (`plenora-io-cli` 19,
   `plenora-bench` 22, `plenora-fuzz` 6).
 
 `scripts/check_assurance_fallbacks.sh` blocca in CI ogni variazione di tutte le
-88 occorrenze, inclusi i target non distribuibili. L'aggiornamento del registro
+86 occorrenze, inclusi i target non distribuibili. L'aggiornamento del registro
 non è una deroga automatica: richiede la revisione della nuova semantica e una
 change impact analysis.
 
 La centralizzazione del lifecycle `StagedFile` e l'estrazione del codec
-geometrico GeoJSON del 2026-07-28 non introducono né rimuovono fallback nel
-componente distribuibile: il relativo totale verificato resta 41.
+geometrico GeoJSON del 2026-07-28 non introducevano né rimuovevano fallback nel
+componente distribuibile; l'incremento XLSX RC4 porta il totale verificato a 39.
 
 ## Censimento del componente distribuibile
 
@@ -42,7 +44,7 @@ componente distribuibile: il relativo totale verificato resta 41.
 | `driver-ipc` | 2 | nome; projection best-effort conserva il campo originale se non esiste una sostituzione |
 | `driver-kml` | 2 | nome diagnostico; eterogeneità dimensionale → `Unknown`; geometrie vuote sono rifiutate |
 | `driver-shp` | 2 | nome diagnostico; stringa vuota usata solo dalla classificazione di una definizione opzionale, non come CRS operativo |
-| `driver-xls` | 3 | celle attributive fisicamente assenti diventano blank/null; eterogeneità dimensionale → `Unknown`; le coordinate assenti, invalide o lossy sono distinte |
+| `driver-xls` | 1 | dimensioni geometriche eterogenee → `Unknown`; celle sparse e coordinate assenti sono gestite da rami espliciti, senza fallback |
 | `plenora-io-model` | 1 | metadato GeoArrow assente significa “non è un campo geometrico” |
 | `plenora-io-core` | 2 | un path senza parent esplicito usa la directory corrente, senza modificare dati o contratti |
 
