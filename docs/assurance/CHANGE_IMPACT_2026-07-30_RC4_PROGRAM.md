@@ -64,6 +64,49 @@ fixture da 100.000 righe e sullo stesso container, ha dato:
 Il veto del 5% è superato e il descrittore XLSX passa a
 `ReadMode::StreamingSequential`.
 
+## Secondo incremento: matrice GDAL/OpenFileGDB Windows riproducibile
+
+La matrice Windows usa un ambiente OSGeo4W fissato e verificato prima
+dell'estrazione. `scripts/windows-gdal-lock.json` registra URL ufficiale,
+dimensione e SHA-256 di 49 archivi; il runtime risultante è GDAL 3.10.3 e
+`ogrinfo --formats` deve dichiarare OpenFileGDB `rw+v`. L'installer rifiuta
+dimensioni o digest discordanti, membri d'archivio non sicuri e ambienti
+incompleti.
+
+La dipendenza Rust resta `gdal 0.17.1`. Il runtime e le dichiarazioni FFI sono
+registrati separatamente: le DLL sono GDAL 3.10.3, mentre `gdal-sys 0.10.0`
+seleziona le binding precompilate 3.6 già usate dalla baseline RC3. Questo è
+un vincolo esplicito, non una dichiarazione falsa sulla versione caricata:
+`PLENORA_GDAL_RUNTIME_VERSION=3.10.3` descrive il runtime e
+`GDAL_VERSION=3.6.0` seleziona le dichiarazioni ABI.
+
+Un primo candidato generava binding 3.10 con `bindgen`. L'installazione e il
+caricamento OpenFileGDB erano corretti, ma MSVC ha rilevato 58 incompatibilità
+di tipo fra le binding generate e le assunzioni sorgente di `gdal 0.17.1`
+(inclusi enum `i32`/`u32` e il puntatore dell'errore
+`OSRGetSemiMajor`). Il run `30543014741` ha quindi respinto quel percorso. La
+feature e l'intero grafo `bindgen` sono stati rimossi dal manifest e dal
+lockfile.
+
+Il run finale `30543947947`, sulla revisione
+`4c9eddb0e4f02f1e3420896980dee0b4f092a752`, è verde sui quattro job. Il job
+Windows ha ricostruito da zero i 49 pacchetti fissati, eseguito 22 test
+FileGDB nativi con due soli helper marcati ignored, incluso crash/recovery, e
+ha superato il test cross-volume reale e la suite workspace.
+
+Il benchmark narrow costruisce sia il tag immutabile `v0.1.0-rc.3` sia la
+revisione RC4 nello stesso job, con lo stesso runtime e lo stesso target
+MSVC. Sette coppie interlacciate sulla fixture da 50.000 righe e 64 campi
+hanno dato:
+
+- baseline RC3: mediana 432,839 ms;
+- candidato RC4: mediana 437,440 ms;
+- delta: `+1,063%`, entro il veto del 5%.
+
+L'artefatto `windows-filegdb-narrow-benchmark.json` ha SHA-256
+`34829261a315b90f00119a1fb9dc41ec1d7975fce15a65f33ae54913d3e42e8a`.
+Checksum, righe e configurazione sono inclusi nell'oracolo machine-readable.
+
 ## Workstream ancora bloccati
 
 - KML richiede un parser event-based semanticamente equivalente e un benchmark
@@ -71,8 +114,6 @@ Il veto del 5% è superato e il descrittore XLSX passa a
 - DXF richiede un iteratore upstream pubblico oppure un fork governato.
 - OpenFileGDB richiede una API safe equivalente a
   `OGR_L_SetIgnoredFields` oppure un fork governato.
-- Il bundle GDAL 0.19/GDAL 3.12.1 resta respinto per la regressione narrow del
-  31,77%; una nuova soluzione deve restare entro il 5%.
 
 I residui CRS combinati e l'osservabilità CLI del `LossReport` reader non
 vengono assorbiti implicitamente in RC4: restano rispettivamente decisione
@@ -86,4 +127,6 @@ dell'owner ed attività esterna registrata.
 - cancellazione durante la scansione e durante l'emissione;
 - benchmark interlacciato baseline/RC4 su tempo, RSS e allocazioni superato
   prima della promozione a `ReadMode::StreamingSequential`;
+- ambiente Windows verificato per digest e versione, suite FileGDB nativa,
+  crash/recovery, cross-volume e benchmark narrow RC3/RC4 entro il 5%;
 - gate di provenienza release con RC3 immutabile e RC4 ancora `development`.

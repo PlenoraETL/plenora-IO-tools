@@ -365,7 +365,7 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
             "dxf_progressive_reader": "blocked_upstream_or_governed_fork",
             "openfilegdb_native_pushdown": "blocked_safe_api_or_governed_fork",
             "filegdb_windows_and_filesystem_matrix": (
-                "environment_solution_required"
+                "implemented_native_matrix_and_benchmark_passed"
             ),
         },
         "non_code_dependencies": {

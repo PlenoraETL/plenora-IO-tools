@@ -22,9 +22,10 @@ soltanto dopo la propria CI verde. Un claim
 
 Il programma component-only `0.1.0-rc.4` è ora aperto dalla baseline immutabile
 `v0.1.0-rc.3` ed è registrato in `release/rc4-development.json`, senza claim di
-nuova RC. Il primo incremento selezionato è il reader XLSX esatto a due passate;
-KML, DXF, pushdown OpenFileGDB e ambiente GDAL Windows restano subordinati ai
-prerequisiti e ai veti già registrati.
+nuova RC. Il reader XLSX bounded con spool temporaneo e la matrice nativa
+Windows GDAL 3.10.3/OpenFileGDB sono implementati e hanno superato i rispettivi
+benchmark. KML, DXF e pushdown OpenFileGDB restano subordinati ai prerequisiti
+e ai veti già registrati.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
