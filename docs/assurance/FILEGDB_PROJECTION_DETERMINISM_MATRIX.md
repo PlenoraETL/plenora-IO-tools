@@ -79,7 +79,7 @@ Esecuzione locale su Linux x86_64, Rust 1.92.0 e GDAL 3.10.3: superata.
 | Linux locale corrente | 3.10.3 | verificata | verificato | verificato | verificato |
 | Linux evidenza storica | 3.6.2 | verificata | verificato | non rieseguito con il nuovo test | no |
 | CI Ubuntu | versione pacchetto runner | verificata a ogni run | verificato | verificato | verificato |
-| Windows runner | 3.10.3 pinnato | verificata | verificato | verificato | al prossimo run del candidato |
+| Windows runner | 3.10.3 pinnato | verificata | verificato | verificato | verificato |
 | macOS runner | nessun GDAL nativo | publish core soltanto | non applicabile | non verificato | non verificato |
 
 La voce “versione pacchetto runner” non è sufficiente per una baseline
@@ -125,7 +125,10 @@ e tipo degli indici selezionati resta precedente alla chiamata di pushdown,
 quindi la protezione contro uno schema cambiato fra `open` e reader non viene
 indebolita.
 
-La matrice Windows GDAL/OpenFileGDB 3.10.3 è già riproducibile tramite 49
-pacchetti verificati per digest. La prima CI del commit pushdown deve ancora
-rieseguire quel job prima che la relativa cella passi da “al prossimo run” a
-“verificato”.
+La matrice Windows GDAL/OpenFileGDB 3.10.3 è riproducibile tramite 49 pacchetti
+verificati per digest. La CI `30550393598`, sul commit
+`c87a5801794f7e95833bf20a41dc87d8a3848fbd`, ha superato suite FileGDB
+nativa, benchmark narrow col veto del 5%, cross-volume e test workspace. Il
+job ha pubblicato l'artefatto machine-readable
+`windows-filegdb-narrow-benchmark`; i numeri non vengono duplicati qui senza
+averne verificato direttamente il contenuto.

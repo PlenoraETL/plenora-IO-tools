@@ -187,6 +187,13 @@ runtime osservato, non WCET o schedulabilità real-time.
 Il comportamento fisico cambia senza modificare la forma del descrittore:
 `driver_version` passa da 9 a 10 e `descriptor_version` resta 8.
 
+La CI `30550393598`, sul commit
+`c87a5801794f7e95833bf20a41dc87d8a3848fbd`, è verde sui quattro job. Windows
+ha verificato lo stesso fork con GDAL/OpenFileGDB 3.10.3 pinnato, inclusi suite
+nativa, benchmark narrow col veto del 5%, cross-volume e workspace. Il gate
+`Verify governed GDAL fork` ha inoltre verificato in CI i 64 file e il tree
+hash `c35bc68c794bf7b5f27e948e8b139029dfe035c20ac540711ca0c4f5def5d099`.
+
 ## Workstream ancora bloccati
 
 - KML richiede un parser event-based semanticamente equivalente e un benchmark
