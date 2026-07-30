@@ -2,6 +2,7 @@
   "manifest_version": 1,
   "base_url": "https://download.osgeo.org/osgeo4w/v2/",
   "gdal_version": "3.10.3",
+  "binding_version": "3.6.0",
   "architecture": "x86_64",
   "packages": [
     ["x86_64/release/arrow-cpp/arrow-cpp-19.0.1-1.tar.bz2", 6522386, "749c4e322f3f80734da62a37e95ec747cab43269711955987fe1e7d60fd2c4cc"],

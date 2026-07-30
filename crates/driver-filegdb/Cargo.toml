@@ -20,5 +20,3 @@ tempfile.workspace = true
 [features]
 # "tier GDB": FileGDB via GDAL (dipendenza C). Assente di default → stub.
 gdal-backend = ["dep:gdal"]
-# Assurance-only binding generation for GDAL 3.10 on the pinned Windows matrix.
-gdal-bindgen = ["gdal-backend", "gdal/bindgen"]

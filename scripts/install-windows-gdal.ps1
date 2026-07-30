@@ -32,6 +32,9 @@ $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 if ($manifest.manifest_version -ne 1) {
     throw "Unsupported Windows GDAL lock manifest version: $($manifest.manifest_version)"
 }
+if ($manifest.gdal_version -ne "3.10.3" -or $manifest.binding_version -ne "3.6.0") {
+    throw "Unexpected Windows GDAL runtime/binding contract"
+}
 if ($manifest.architecture -ne "x86_64" -or -not [Environment]::Is64BitOperatingSystem) {
     throw "The pinned OSGeo4W environment requires 64-bit Windows"
 }
@@ -102,7 +105,8 @@ $binPath = Join-Path $destinationPath "bin"
 $env:PATH = "$binPath;$env:PATH"
 $env:OSGEO4W_ROOT = $destinationPath
 $env:GDAL_HOME = $destinationPath
-$env:GDAL_VERSION = [string]$manifest.gdal_version
+$env:GDAL_VERSION = [string]$manifest.binding_version
+$env:PLENORA_GDAL_RUNTIME_VERSION = [string]$manifest.gdal_version
 $env:GDAL_DATA = Join-Path $destinationPath "share\gdal"
 $env:PROJ_DATA = Join-Path $destinationPath "share\proj"
 
@@ -122,7 +126,8 @@ if ($ExportGitHubEnvironment) {
     @(
         "OSGEO4W_ROOT=$destinationPath",
         "GDAL_HOME=$destinationPath",
-        "GDAL_VERSION=$($manifest.gdal_version)",
+        "GDAL_VERSION=$($manifest.binding_version)",
+        "PLENORA_GDAL_RUNTIME_VERSION=$($manifest.gdal_version)",
         "GDAL_DATA=$($env:GDAL_DATA)",
         "PROJ_DATA=$($env:PROJ_DATA)"
     ) | ForEach-Object {
@@ -134,6 +139,7 @@ if ($ExportGitHubEnvironment) {
 [pscustomobject]@{
     destination = $destinationPath
     gdal_version = $reportedVersion
+    binding_version = [string]$manifest.binding_version
     openfilegdb = "rw+v"
     package_count = @($manifest.packages).Count
 }
