@@ -363,7 +363,9 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
             "xlsx_bounded_spool_streaming": "implemented_benchmark_passed",
             "kml_event_streaming": "blocked_upstream_or_performance_evidence",
             "dxf_progressive_reader": "blocked_upstream_or_governed_fork",
-            "openfilegdb_native_pushdown": "blocked_safe_api_or_governed_fork",
+            "openfilegdb_native_pushdown": (
+                "implemented_governed_fork_benchmark_passed"
+            ),
             "filegdb_windows_and_filesystem_matrix": (
                 "implemented_native_matrix_and_benchmark_passed"
             ),

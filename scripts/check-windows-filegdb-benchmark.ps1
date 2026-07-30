@@ -163,6 +163,8 @@ $result = [ordered]@{
     runtime = @{
         gdal = "3.10.3"
         rust_gdal = "0.17.1"
+        rust_gdal_source = "governed-path-fork"
+        rust_gdal_upstream_checksum = "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f"
         gdal_sys = "0.10.0"
         bindings = "prebuilt-3.6"
     }

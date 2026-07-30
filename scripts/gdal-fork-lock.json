@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "package": "gdal",
+  "version": "0.17.1",
+  "source": "crates.io",
+  "crate_sha256": "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f",
+  "upstream_revision": "a324724c60dbf1e9bf0fb05203c4e0a1eefbf312",
+  "vendor_path": "vendor/gdal",
+  "file_count": 64,
+  "tree_sha256": "c35bc68c794bf7b5f27e948e8b139029dfe035c20ac540711ca0c4f5def5d099",
+  "functional_delta_files": [
+    "src/vector/layer.rs"
+  ],
+  "packaging_delta_files": [
+    "Cargo.toml",
+    "PLENORA_FORK.md"
+  ]
+}

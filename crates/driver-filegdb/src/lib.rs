@@ -72,7 +72,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: true,
     }),
     semantic_version: 1,
-    driver_version: 9,
+    driver_version: 10,
     descriptor_version: 8,
 };
 
@@ -137,7 +137,7 @@ impl FormatDriver for FileGdbDriver {
 mod backend {
     use super::DESCRIPTOR;
 
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::fs::{File, OpenOptions, TryLockError};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
@@ -1232,6 +1232,25 @@ mod backend {
                     )));
                 }
             }
+            let selected_fields = fields
+                .iter()
+                .map(|field| usize::try_from(field.ogr_index))
+                .collect::<std::result::Result<HashSet<_>, _>>()
+                .map_err(|_| err("indice OGR negativo nella projection FileGDB"))?;
+            let mut ignored_fields = actual_fields
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| !selected_fields.contains(index))
+                .map(|(_, (name, _))| name.as_str())
+                .collect::<Vec<_>>();
+            if !include_geometry {
+                ignored_fields.push("OGR_GEOMETRY");
+            }
+            layer.set_ignored_fields(&ignored_fields).map_err(|error| {
+                err(format!(
+                    "projection fisica FileGDB non applicabile: {error}"
+                ))
+            })?;
             let mut geom = include_geometry.then(BinaryBuilder::new);
             let mut builders: Vec<ReadCol> = fields
                 .iter()
@@ -1839,6 +1858,44 @@ mod backend {
             assert_eq!(output.num_rows(), 2);
             assert_eq!(output.num_columns(), 1);
             assert_eq!(output.schema().field(0).name(), "label");
+            assert!(projected.next_batch().unwrap().is_none());
+            drop(projected);
+
+            let mut reversed = dataset
+                .open_layer_reader(&ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: Some(vec![FieldId(3), FieldId(1)]),
+                    projection_mode: ProjectionMode::Required,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    batch_target: BatchTarget::default(),
+                    cancellation: Default::default(),
+                })
+                .unwrap();
+            let output = reversed.next_batch().unwrap().unwrap();
+            assert_eq!(output.num_rows(), 2);
+            assert_eq!(output.num_columns(), 2);
+            assert_eq!(output.schema().field(0).name(), "count");
+            assert_eq!(output.schema().field(1).name(), "label");
+            assert!(reversed.next_batch().unwrap().is_none());
+            drop(reversed);
+
+            let mut empty = dataset
+                .open_layer_reader(&ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: Some(Vec::new()),
+                    projection_mode: ProjectionMode::Required,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    batch_target: BatchTarget::default(),
+                    cancellation: Default::default(),
+                })
+                .unwrap();
+            assert!(empty.contract().contract.geometry.is_none());
+            let output = empty.next_batch().unwrap().unwrap();
+            assert_eq!(output.num_rows(), 2);
+            assert_eq!(output.num_columns(), 0);
+            assert!(empty.next_batch().unwrap().is_none());
         }
 
         #[test]

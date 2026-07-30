@@ -1,8 +1,8 @@
 # FileGDB: projection, determinismo e matrice GDAL
 
-Stato al 2026-07-29: **projection Arrow esatta, estrazione indicizzata e
-determinismo semantico verificati; pushdown nativo delle colonne e GDAL nativo
-Windows aperti**.
+Stato al 2026-07-30: **projection Arrow esatta, estrazione indicizzata,
+pushdown nativo delle colonne, determinismo semantico e GDAL nativo Windows
+verificati**.
 
 ## Risultato tecnico
 
@@ -19,12 +19,11 @@ compreso il caso senza colonne. Il test con proiezione non contigua del campo
 stringa, valori nulli e tipi numerici protegge la corrispondenza fra `FieldId`,
 indice OGR e array Arrow.
 
-Questo non è ancora un pushdown nativo nel driver OpenFileGDB: GDAL può avere
-materializzato internamente campi esclusi prima di restituire la `Feature`.
-La primitiva corretta è `OGR_L_SetIgnoredFields`. Essa è presente nell'API C
-di GDAL e in `gdal-sys`, ma non è esposta dall'API safe di `gdal` usata dal
-workspace (pin `0.17.1`). Anche la release upstream `gdal 0.19.0`, verificata
-il 2026-07-28, non dichiara un wrapper safe per questa primitiva.
+Il pushdown nativo usa ora `OGR_L_SetIgnoredFields` tramite un wrapper safe
+nel fork governato della crate `gdal 0.17.1`. Il worker calcola il complemento
+degli attributi richiesti e usa il nome speciale `OGR_GEOMETRY` quando la
+projection esclude la geometria. La lista viene installata dopo la verifica
+TOCTOU dello schema e prima della prima `Feature`.
 
 Non sono state adottate due scorciatoie:
 
@@ -34,8 +33,9 @@ Non sono state adottate due scorciatoie:
   FID, comportamento della geometria e piano del driver; non è equivalente a
   ignorare campi e richiederebbe una nuova matrice semantica e prestazionale.
 
-Il pushdown nativo resta quindi bloccato in modo esplicito da una API upstream,
-non viene dichiarato come implementato e non giustifica una deroga `unsafe`.
+Il componente non contiene nuove chiamate `unsafe`: il confine FFI resta nella
+dipendenza governata. Checksum, revisione upstream, delta e regola di
+aggiornamento sono registrati in `vendor/gdal/PLENORA_FORK.md`.
 
 ## Evidenza prestazionale dell'estrazione indicizzata
 
@@ -76,10 +76,10 @@ Esecuzione locale su Linux x86_64, Rust 1.92.0 e GDAL 3.10.3: superata.
 
 | Ambiente | GDAL | Lettura/scrittura | Crash publish | Determinismo semantico | Pushdown nativo |
 |---|---:|---|---|---|---|
-| Linux locale corrente | 3.10.3 | verificata | verificato | verificato | no, API safe assente |
+| Linux locale corrente | 3.10.3 | verificata | verificato | verificato | verificato |
 | Linux evidenza storica | 3.6.2 | verificata | verificato | non rieseguito con il nuovo test | no |
-| CI Ubuntu | versione pacchetto runner | verificata a ogni run | verificato | nuovo gate al prossimo run | no |
-| Windows runner | nessun GDAL nativo | stub/pure-Rust soltanto | non applicabile | non verificato | non verificato |
+| CI Ubuntu | versione pacchetto runner | verificata a ogni run | verificato | verificato | verificato |
+| Windows runner | 3.10.3 pinnato | verificata | verificato | verificato | al prossimo run del candidato |
 | macOS runner | nessun GDAL nativo | publish core soltanto | non applicabile | non verificato | non verificato |
 
 La voce “versione pacchetto runner” non è sufficiente per una baseline
@@ -110,3 +110,22 @@ lint sono verdi, ma la projection narrow interlacciata ha registrato
 74,310 ms con il pin 0.17.1 e 97,918 ms col candidato (+31,77%). Il veto del
 5% ha imposto il rollback completo; la matrice operativa continua a riferirsi
 a `gdal 0.17.1` e Windows resta aperto.
+
+## Riesame RC4
+
+RC4 soddisfa il prerequisito del fork governato senza cambiare versione della
+crate Rust né binding FFI. Sul benchmark interlacciato contro
+`f9e098082be087881272c665c0a4768d93c906b2`, il narrow da tre attributi passa
+da 86,171 a 53,311 ms (−38,13%); il full passa da 168,039 a 165,394 ms
+(−1,57%). Righe e checksum restano identici in tutti i campioni.
+
+I test FileGDB feature-on coprono projection senza geometria, campi non
+contigui richiesti in ordine inverso e projection vuota. La convalida di nome
+e tipo degli indici selezionati resta precedente alla chiamata di pushdown,
+quindi la protezione contro uno schema cambiato fra `open` e reader non viene
+indebolita.
+
+La matrice Windows GDAL/OpenFileGDB 3.10.3 è già riproducibile tramite 49
+pacchetti verificati per digest. La prima CI del commit pushdown deve ancora
+rieseguire quel job prima che la relativa cella passi da “al prossimo run” a
+“verificato”.

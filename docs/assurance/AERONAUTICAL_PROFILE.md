@@ -34,9 +34,11 @@ per la misura e non deve essere collegato a un artefatto operativo.
 ## Regole obbligatorie
 
 1. Input esterni malformati devono produrre un errore tipizzato, mai un panic.
-2. Il codice di libreria non può contenere `unsafe` né primitive esplicite di
-   panic (`unwrap`, `expect`, `panic!`, `unreachable!`, `todo!`,
-   `unimplemented!`).
+2. I crate di libreria del workspace non possono contenere `unsafe` né
+   primitive esplicite di panic (`unwrap`, `expect`, `panic!`, `unreachable!`,
+   `todo!`, `unimplemented!`). Le dipendenze FFI restano un perimetro distinto
+   da inventariare e governare; il fork `gdal` è fissato da hash e delta
+   machine-readable, senza trasformare questo controllo in una qualifica.
 3. Limiti di byte, righe, colonne, componenti geometrici e profondità devono
    essere applicati prima dell'allocazione o pubblicazione quando tecnicamente
    possibile; i punti ancora non bounded sono gap dichiarati.
@@ -86,6 +88,7 @@ documentazione o nel messaggio di change record.
   dimostrati globalmente; il gate corrente elimina solo le primitive di panic
   esplicite;
 - determinismo temporale e WCET non valutati;
-- matrice hardware/filesystem incompleta, incluso FileGDB/GDAL nativo Windows;
+- matrice hardware/filesystem ancora incompleta oltre gli ambienti
+  Linux/Windows già osservati;
 - copertura linee all'80% utile come regressione, ma non equivalente a structural
   coverage aeronautica.

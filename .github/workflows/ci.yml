@@ -40,6 +40,8 @@ jobs:
           python3 scripts/generate_shared_wkb_corpus.py --check
       - name: Verify exact dependency pins
         run: python3 scripts/check_dependency_pins.py
+      - name: Verify governed GDAL fork
+        run: python3 scripts/check_gdal_fork.py
       - name: Verify locked workspace and fuzz dependency graphs
         run: |
           cargo metadata --locked --format-version 1 > /dev/null

@@ -144,13 +144,54 @@ che il report sia disponibile sia nella valutazione del dataset sia nel
 del descrittore; `driver_version` passa da 7 a 8 e `descriptor_version` resta
 6.
 
+## Quarto incremento: pushdown nativo OpenFileGDB
+
+Il prerequisito RC3 ammetteva una API safe upstream oppure un fork governato.
+Il workspace usa ora un fork locale della stessa crate `gdal 0.17.1`, ricavato
+dalla sorgente crates.io con checksum
+`82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f` e
+revisione upstream
+`a324724c60dbf1e9bf0fb05203c4e0a1eefbf312`. Provenienza, delta e regola di
+aggiornamento sono registrati in `vendor/gdal/PLENORA_FORK.md`.
+
+Il solo delta funzionale espone
+`LayerAccess::set_ignored_fields(&[&str])` come wrapper safe e fallibile di
+`OGR_L_SetIgnoredFields`. Le `CString` e il vettore di puntatori restano vivi
+per l'intera chiamata, la lista è terminata da null e ogni errore OGR viene
+restituito senza fallback. L'`unsafe` resta confinato nella crate FFI
+governata; `driver-filegdb` continua a soddisfare `forbid(unsafe_code)` e i
+gate safety del componente.
+
+Il worker FileGDB valida ancora nome e tipo degli indici selezionati dopo aver
+riaperto il dataset. Soltanto dopo la validazione calcola il complemento dei
+campi richiesti, aggiunge `OGR_GEOMETRY` quando la geometria è esclusa e
+installa la lista prima di leggere la prima feature. Projection vuota,
+richiesta in ordine inverso, valori, null e geometria sono verificati su
+OpenFileGDB reale.
+
+Il benchmark A/B Linux usa due binari release distinti: baseline
+`f9e098082be087881272c665c0a4768d93c906b2` e candidato con il solo delta
+pushdown, GDAL 3.10.3, 50.000 righe, 64 attributi `Int32`, un warm-up e sette
+coppie alternate:
+
+| Percorso | Baseline mediana | Candidato mediana | Delta tempo |
+|---|---:|---:|---:|
+| narrow, 3 attributi non contigui | 86,171 ms | 53,311 ms | **−38,13%** |
+| full, geometria + 64 attributi | 168,039 ms | 165,394 ms | **−1,57%** |
+
+Ogni campione conserva 50.000 righe. I checksum sono `3754675000` sul narrow
+e `80100250000` sul full per entrambe le varianti. Il candidato supera il veto
+del 5% su entrambi i percorsi. Questa misura caratterizza throughput sul
+runtime osservato, non WCET o schedulabilità real-time.
+
+Il comportamento fisico cambia senza modificare la forma del descrittore:
+`driver_version` passa da 9 a 10 e `descriptor_version` resta 8.
+
 ## Workstream ancora bloccati
 
 - KML richiede un parser event-based semanticamente equivalente e un benchmark
   interlacciato che superi il veto.
 - DXF richiede un iteratore upstream pubblico oppure un fork governato.
-- OpenFileGDB richiede una API safe equivalente a
-  `OGR_L_SetIgnoredFields` oppure un fork governato.
 
 I residui CRS combinati e l'osservabilità CLI del `LossReport` reader non
 vengono assorbiti implicitamente in RC4: restano rispettivamente decisione
@@ -168,4 +209,6 @@ dell'owner ed attività esterna registrata.
   crash/recovery, cross-volume e benchmark narrow RC3/RC4 entro il 5%;
 - fixture `.prj` proiettato con `GEOGCS` annidato e corpus DBF con interi oltre
   `2^53`, inclusa la propagazione bounded del `LossReport`;
+- fork `gdal 0.17.1` verificato per provenienza, projection FileGDB vuota e
+  non contigua, suite feature-on e benchmark A/B full/narrow;
 - gate di provenienza release con RC3 immutabile e RC4 ancora `development`.
