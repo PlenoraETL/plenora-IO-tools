@@ -22,7 +22,7 @@
     "independent_review_required": false,
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": false,
-    "release_tag_created": false,
+    "release_tag_created": true,
     "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md",
     "decision_revision": "6868990461f7ef880258f67985528dc29b0564a0",
     "decision_ci_run": 30501136176
@@ -31,13 +31,13 @@
     "name": "v0.1.0-rc.3",
     "version": "0.1.0-rc.3",
     "tag_form": "annotated_unsigned",
-    "status": "pending_pre_tag_ci",
-    "created_on": null,
+    "status": "created",
+    "created_on": "2026-07-30",
     "candidate_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
-    "pre_tag_revision": null,
-    "pre_tag_ci_run": null,
+    "pre_tag_revision": "ab330f8dfbcc7235c418e3e04f988317d3070525",
+    "pre_tag_ci_run": 30501904391,
     "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md"
   },
   "wire_contract_version": 1,
@@ -87,7 +87,7 @@
     }
   ],
   "claims": {
-    "component_rc": false,
+    "component_rc": true,
     "system_rc": false,
     "avionic_certification": false
   },

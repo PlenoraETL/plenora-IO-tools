@@ -13,14 +13,15 @@ La revisione candidata del codice è
 congelata. Lo stato machine-readable è `frozen` in
 [`release/contract-provenance.json`](../../release/contract-provenance.json).
 La decisione RC3 autorizza il candidato del componente con claim
-`verified_internally`, senza trasformare la review aperta in un blocco. Il tag
-resta però non creato finché la revisione pre-tag committata non ha una CI
-verde e il relativo SHA non è legato nel record finale. L'impatto è registrato
-nella [`CIA dedicata`](CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md).
+`verified_internally`, senza trasformare la review aperta in un blocco. La
+revisione pre-tag `ab330f8dfbcc7235c418e3e04f988317d3070525` ha CI
+`30501904391` verde ed è legata nel record finale. Il tag viene materializzato
+soltanto dopo la CI verde del record finale. L'impatto è registrato nella
+[`CIA dedicata`](CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md).
 
 RC2 resta pubblicata e immutabile come tag annotato non firmato
 `v0.1.0-rc.2`, con target `f47bf4605b248d127205e49a7e6ebd2a0984a83f`.
-RC3 è nello stato `candidate_frozen_pending_pre_tag_ci`, separato in
+RC3 è nello stato `component_rc_tagged`, separato in
 [`release/rc3-development.json`](../../release/rc3-development.json). Il
 precedente `v0.1.0-rc.1` resta a sua volta immutabile.
 
@@ -29,8 +30,8 @@ precedente `v0.1.0-rc.1` resta a sua volta immutabile.
 - `plenora.contract.version=1` identifica il formato wire emesso negli schemi
   Arrow;
 - `0.1.0-rc.2` identifica la precedente release SemVer immutabile;
-- `0.1.0-rc.3` identifica la baseline candidata congelata; il relativo tag non
-  esiste ancora nello stato pre-tag;
+- `0.1.0-rc.3` identifica la baseline candidata congelata e il record finale
+  destinato al tag annotato `v0.1.0-rc.3`;
 - `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`, identifica la revisione dell'ICD
   usata come obiettivo di implementazione.
@@ -98,16 +99,16 @@ Lo stato corrente è machine-readable in
 [`release/freeze-readiness.json`](../../release/freeze-readiness.json):
 la baseline tecnica `3f3562a` è congelata e la CI candidata `30500304709` è
 verde su Linux, Windows, macOS e coverage. La decisione committata in
-`6868990` ha CI `30501136176` verde. `independent_review=false` limita soltanto
-il livello del claim; `component_rc=false`, `release_authorized=false` e
-`release_tag_status=pending_pre_tag_ci` impediscono una pubblicazione
-prematura.
+`6868990` ha CI `30501136176` verde; la revisione pre-tag `ab330f8` ha CI
+`30501904391` verde. `independent_review=false` limita soltanto il livello del
+claim; `component_rc=true` e `release_tag_status=created` appartengono al
+record finale che diventa il target del tag soltanto dopo la propria CI verde.
 Il file `release/rc3-development.json` dichiara i risultati inclusi in RC3, gli
 attributi non bloccanti e i tre workstream differiti a RC4.
 La decisione di perimetro è registrata nella
-[CIA del 30 luglio](CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md). Il claim RC3
-resta `false` finché non sono verdi la CI pre-tag e la CI del record finale e
-il tag non è stato creato.
+[CIA del 30 luglio](CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md). La CI finale e
+la verifica del tag remoto chiudono la sequenza di pubblicazione senza
+modificare la baseline di implementazione.
 
 Il materiale da consegnare al revisore è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record

@@ -9,14 +9,14 @@ Stato: **in attesa di un revisore eleggibile**.
   `f47bf4605b248d127205e49a7e6ebd2a0984a83f`;
 - codice candidato:
   `3f3562a4707995549ff5eb8dc03f9e37f2cde355`;
-- record del freeze tecnico e record di provenienza: in attesa dello SHA
-  pre-tag, che verrà legato dopo la relativa CI;
+- record del freeze tecnico e record di provenienza:
+  `ab330f8dfbcc7235c418e3e04f988317d3070525`, CI `30501904391`;
 - ICD: `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`.
 
 I commit successivi a `3f3562a` possono modificare soltanto assurance,
-provenienza e gate. La verifica da applicare allo SHA pre-tag è
-`git diff --exit-code 3f3562a <pre-tag> -- crates Cargo.toml Cargo.lock
+provenienza e gate. La verifica applicata allo SHA pre-tag è
+`git diff --exit-code 3f3562a ab330f8 -- crates Cargo.toml Cargo.lock
 rust-toolchain.toml`.
 
 ## Eleggibilità
@@ -56,7 +56,7 @@ sostituiscono l'ispezione del diff.
 ```text
 git diff --stat f47bf46 3f3562a
 git diff f47bf46 3f3562a -- crates conformance fuzz scripts
-git diff --exit-code 3f3562a <pre-tag> -- crates Cargo.toml Cargo.lock rust-toolchain.toml
+git diff --exit-code 3f3562a ab330f8 -- crates Cargo.toml Cargo.lock rust-toolchain.toml
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo clippy --workspace --lib --all-features --locked -- -D warnings -D unsafe-code -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::unreachable -D clippy::todo -D clippy::unimplemented
@@ -103,5 +103,5 @@ Quando il record è completo:
 Fino ad allora `independent_review` e
 `independently_verified_claim_authorized` restano `false`. La decisione
 [`CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md`](CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md)
-autorizza separatamente RC3 come `verified_internally`, subordinata alle CI
-pre-tag e del record finale.
+autorizza separatamente RC3 come `verified_internally`; la CI pre-tag è verde
+e resta da verificare la CI del record finale prima della creazione del tag.

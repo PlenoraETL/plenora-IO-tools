@@ -14,9 +14,10 @@ La baseline tecnica candidata `3f3562a` è congelata con claim previsto
 `verified_internally` per `v0.1.0-rc.3`. La CI candidata `30500304709` e la CI
 della decisione `30501136176` sono verdi. La revisione indipendente resta
 aperta come attributo non bloccante. RC2 resta l'ultima release pubblicata e
-immutabile; RC3 è nello stato pre-tag descritto in
-`release/rc3-development.json`, con `component_rc: false` finché la CI pre-tag
-e quella del record finale non sono verdi e il tag non è creato. Un claim
+immutabile; RC3 ha superato la CI pre-tag `30501904391` sulla revisione
+`ab330f8` ed è descritta come `component_rc_tagged` in
+`release/rc3-development.json`. Il record finale diventa il target del tag
+soltanto dopo la propria CI verde. Un claim
 `verified_independently` resta vietato finché la review non viene completata.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
