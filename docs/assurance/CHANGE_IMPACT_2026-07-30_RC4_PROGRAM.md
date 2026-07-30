@@ -56,8 +56,8 @@ espansione supera il limite di input, l'apertura fallisce esplicitamente con
 Il secondo benchmark interlacciato, cinque campioni per revisione sulla stessa
 fixture da 100.000 righe e sullo stesso container, ha dato:
 
-- throughput mediano: 465.811 → 508.116 righe/s (`+9,08%`);
-- peak RSS mediano: 49.016.832 → 9.605.120 byte (`-80,40%`);
+- throughput mediano: 442.733 → 543.076 righe/s (`+22,66%`);
+- peak RSS mediano: 48.668.672 → 10.014.720 byte (`-79,42%`);
 - allocazioni per campione: 1.108.260 → 708.423 (`-36,08%`);
 - byte allocati: 108.748.567 → 33.941.119 (`-68,79%`).
 

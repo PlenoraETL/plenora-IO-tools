@@ -12,40 +12,40 @@
       "op": "read",
       "sample": 1,
       "status": "ok",
-      "rows_per_s": 466480.0,
-      "peak_rss_bytes": 48902144
+      "rows_per_s": 442733.0,
+      "peak_rss_bytes": 49045504
     },
     {
       "driver": "xlsx",
       "op": "read",
       "sample": 2,
       "status": "ok",
-      "rows_per_s": 463981.0,
-      "peak_rss_bytes": 49291264
+      "rows_per_s": 434135.0,
+      "peak_rss_bytes": 48619520
     },
     {
       "driver": "xlsx",
       "op": "read",
       "sample": 3,
       "status": "ok",
-      "rows_per_s": 494140.0,
-      "peak_rss_bytes": 49016832
+      "rows_per_s": 443484.0,
+      "peak_rss_bytes": 48603136
     },
     {
       "driver": "xlsx",
       "op": "read",
       "sample": 4,
       "status": "ok",
-      "rows_per_s": 443193.0,
-      "peak_rss_bytes": 48721920
+      "rows_per_s": 482409.0,
+      "peak_rss_bytes": 49152000
     },
     {
       "driver": "xlsx",
       "op": "read",
       "sample": 5,
       "status": "ok",
-      "rows_per_s": 465811.0,
-      "peak_rss_bytes": 49213440
+      "rows_per_s": 438543.0,
+      "peak_rss_bytes": 48668672
     }
   ]
 }
