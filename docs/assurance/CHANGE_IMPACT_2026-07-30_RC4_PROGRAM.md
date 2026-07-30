@@ -107,6 +107,43 @@ L'artefatto `windows-filegdb-narrow-benchmark.json` ha SHA-256
 `34829261a315b90f00119a1fb9dc41ec1d7975fce15a65f33ae54913d3e42e8a`.
 Checksum, righe e configurazione sono inclusi nell'oracolo machine-readable.
 
+## Terzo incremento: verifica Shapefile su dati patrimoniali reali
+
+Un corpus deterministico di 3.000 particelle EPSG:3003 in Shapefile ha
+individuato due difetti di osservabilità nel bordo di lettura.
+
+Il riconoscimento del CRS verificava `GEOGCS[` prima di `PROJCS[`. Poiché un
+WKT proiettato contiene il CRS geografico di base, ogni definizione WKT1
+proiettata veniva classificata come geografica e perdeva l'ordine assi
+`EastingNorthing`. La precedenza è ora `PROJCS`/`PROJCRS` prima di
+`GEOGCS`/`GEOGCRS`. Un fixture `.prj` EPSG:3003 reale, che contiene il
+`GEOGCS` annidato, verifica direttamente identificativo, `CrsKind::Projected`
+e ordine assi.
+
+I campi DBF `Numeric` vengono esposti dalla dipendenza come `f64`. Per valori
+interi con valore assoluto almeno `2^53`, l'identità lessicale originaria non
+è più verificabile: valori DBF distinti possono essere già collassati prima
+che il driver li osservi. Il reader registra ora
+`dbf_numeric_integer_precision_unverifiable` nel `LossReport`, una occorrenza
+per valore osservato nella zona a rischio e un solo esempio bounded per campo.
+La valutazione di fedeltà del dataset diventa quindi `Approximating` con
+motivo `precision_changed`, invece di dichiarare un rapporto vuoto.
+
+Il conteggio è intenzionalmente conservativo: dichiara le occorrenze per cui
+la precisione intera unitaria non è dimostrabile, non ricostruisce né inventa
+il numero di collisioni avvenute. Preservare il testo numerico DBF originale
+richiederebbe un reader lessicale diverso; non è implicato da questa
+correzione.
+
+La verifica sul corpus reale produce `EPSG:3003`, `kind=projected`,
+`axis_order=easting_northing` e 3.000 occorrenze dichiarate. Un test con due
+record DBF lessicalmente distinti (`9007199254740992` e
+`9007199254740993`) dimostra inoltre il collasso nello stesso `f64` e verifica
+che il report sia disponibile sia nella valutazione del dataset sia nel
+`LayerReader`. Il comportamento del driver cambia senza modificare lo schema
+del descrittore; `driver_version` passa da 7 a 8 e `descriptor_version` resta
+6.
+
 ## Workstream ancora bloccati
 
 - KML richiede un parser event-based semanticamente equivalente e un benchmark
@@ -129,4 +166,6 @@ dell'owner ed attività esterna registrata.
   prima della promozione a `ReadMode::StreamingSequential`;
 - ambiente Windows verificato per digest e versione, suite FileGDB nativa,
   crash/recovery, cross-volume e benchmark narrow RC3/RC4 entro il 5%;
+- fixture `.prj` proiettato con `GEOGCS` annidato e corpus DBF con interi oltre
+  `2^53`, inclusa la propagazione bounded del `LossReport`;
 - gate di provenienza release con RC3 immutabile e RC4 ancora `development`.

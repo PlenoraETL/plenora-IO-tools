@@ -143,7 +143,7 @@ primitive esplicite di panic in tutti i target di libreria.
   annidamento ed esplosione degli INSERT.
 - Il catalogo espone capability di scrittura, concorrenza reader, projection e
   pruning con descrittori versionati; CSV e GeoJSON usano le versioni `6/6`,
-  Shapefile `7/6` e FileGDB `9/8`, così il fingerprint distingue la nuova
+  Shapefile `8/6` e FileGDB `9/8`, così il fingerprint distingue la nuova
   projection esatta dal profilo precedente.
 - I comandi `inspect`, `layers`, `read` e `convert` espongono la valutazione di
   fedeltà concreta. `create` la rende interrogabile sul writer prima del primo

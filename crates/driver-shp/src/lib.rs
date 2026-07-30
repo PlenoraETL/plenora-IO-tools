@@ -42,7 +42,7 @@ use plenora_io_core::driver::{
     spawn_batch_reader, BatchEmitter, FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle,
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
-use plenora_io_core::loss::LossReport;
+use plenora_io_core::loss::{LossExample, LossReport};
 use plenora_io_core::publish::{
     create_staged_dir, publish_dir_atomic, publish_files_ordered_limited,
 };
@@ -68,6 +68,9 @@ const GEOMETRY: &str = "geometry";
 const DIRECTORY_DATASET_SUFFIX: &str = ".shp.d";
 const DIRECTORY_DATASET_MODE: &str = "shapefile_directory_dataset";
 const LOOSE_SET_MODE: &str = "loose_shapefile_set";
+const DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE: &str =
+    "dbf_numeric_integer_precision_unverifiable";
+const FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION: f64 = 9_007_199_254_740_992.0;
 
 /// WKT standard per WGS84 (accettato da GDAL), usato per il `.prj` quando la
 /// sorgente dà solo il codice autorità e non una definizione WKT.
@@ -188,7 +191,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 7,
+    driver_version: 8,
     descriptor_version: 6,
 };
 
@@ -204,7 +207,11 @@ impl FormatDriver for ShpDriver {
             shapefile_source_path(source.into_path_checked(&opts.limits, &opts.cancellation)?)?;
         let crs = resolve_crs(&path, opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
-        let (cols, geometry_info) = infer_shp_schema(&path)?;
+        let ShpInference {
+            cols,
+            geometry_info,
+            loss,
+        } = infer_shp_schema(&path)?;
         let mut geometry_contract =
             GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs.clone(), true);
         geometry_contract.dimensions = geometry_info.dimensions;
@@ -240,6 +247,7 @@ impl FormatDriver for ShpDriver {
             path,
             cols,
             dimensions: geometry_contract.dimensions,
+            loss,
             layers: vec![LayerContract {
                 id: LayerId(0),
                 name,
@@ -340,6 +348,7 @@ struct ShpDataset {
     path: PathBuf,
     cols: Vec<(String, ColType)>,
     dimensions: CoordinateDimensions,
+    loss: LossReport,
     layers: Vec<LayerContract>,
 }
 
@@ -349,6 +358,7 @@ impl OpenDatasetHandle for ShpDataset {
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
         plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+            .with_loss_report(&self.loss)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
@@ -367,15 +377,16 @@ impl OpenDatasetHandle for ShpDataset {
             layer.contract.schema.as_ref(),
             request.batch_target,
         );
-        let reader = spawn_parser(
-            self.path.clone(),
-            layer.contract.schema.clone(),
+        let reader = spawn_parser(ShpParserInput {
+            path: self.path.clone(),
+            schema: layer.contract.schema.clone(),
             cols,
-            self.dimensions,
+            dimensions: self.dimensions,
             include_geometry,
             batch_sizer,
             layer,
-        )?;
+            loss: self.loss.clone(),
+        })?;
         Ok(plenora_io_core::with_cancellation(
             reader,
             request.cancellation.clone(),
@@ -936,20 +947,30 @@ fn authority_id_from_wkt(wkt: &str) -> Option<String> {
 
 fn crs_kind(id: &str, definition: Option<&str>) -> CrsKind {
     let definition = definition.unwrap_or_default().to_ascii_uppercase();
-    if id.eq_ignore_ascii_case("OGC:CRS84")
+    if definition.contains("PROJCS[")
+        || definition.contains("PROJCRS[")
+        || id.eq_ignore_ascii_case("EPSG:3857")
+    {
+        CrsKind::Projected
+    } else if id.eq_ignore_ascii_case("OGC:CRS84")
         || id.eq_ignore_ascii_case("EPSG:4326")
         || definition.contains("GEOGCS[")
         || definition.contains("GEOGCRS[")
     {
         CrsKind::Geographic
-    } else if definition.contains("PROJCS[")
-        || definition.contains("PROJCRS[")
-        || id.eq_ignore_ascii_case("EPSG:3857")
-    {
-        CrsKind::Projected
     } else {
         CrsKind::Unknown
     }
+}
+
+fn dbf_numeric_integer_precision_unverifiable(value: &FieldValue) -> bool {
+    matches!(
+        value,
+        FieldValue::Numeric(Some(number))
+            if number.is_finite()
+                && number.fract() == 0.0
+                && number.abs() >= FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION
+    )
 }
 
 /// Classe dbf per l'inferenza (Numeric/Double/Float=numero, Integer=int).
@@ -969,6 +990,12 @@ struct ShpGeometryInfo {
     dimensions: CoordinateDimensions,
     geometry_types: Vec<GeometryType>,
     shape_type: Option<&'static str>,
+}
+
+struct ShpInference {
+    cols: Vec<(String, ColType)>,
+    geometry_info: ShpGeometryInfo,
+    loss: LossReport,
 }
 
 trait NativePoint {
@@ -1264,7 +1291,7 @@ fn dimensions_for_shape_tag(shape_type: Option<&str>, z_has_measure: bool) -> Co
 }
 
 /// Pass 1: nomi campo, tipo DBF e contratto geometrico nativo, a RAM O(ncol).
-fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryInfo)> {
+fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     let mut reader =
         shapefile::Reader::from_path(path).map_err(|e| err(format!("apertura shapefile: {e}")))?;
     let mut order: Vec<String> = Vec::new();
@@ -1272,6 +1299,8 @@ fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryI
     let mut shape_type = None;
     let mut geometry_types = BTreeSet::new();
     let mut z_has_measure = false;
+    let mut loss = LossReport::default();
+    let mut precision_risk_fields = BTreeSet::new();
     for pair in reader.iter_shapes_and_records() {
         let (shape, record) = pair.map_err(|e| err(format!("record shapefile: {e}")))?;
         let tag = shape_tag(&shape);
@@ -1294,6 +1323,10 @@ fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryI
             geometry_types.insert(geometry_type);
         }
         for (name, value) in record {
+            if dbf_numeric_integer_precision_unverifiable(&value) {
+                loss.record(DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE, 1);
+                precision_risk_fields.insert(name.clone());
+            }
             match accs.entry(name.clone()) {
                 std::collections::hash_map::Entry::Vacant(entry) => {
                     order.push(name);
@@ -1317,27 +1350,49 @@ fn infer_shp_schema(path: &Path) -> Result<(Vec<(String, ColType)>, ShpGeometryI
             Ok((name, column_type))
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok((
-        columns,
-        ShpGeometryInfo {
+    for name in precision_risk_fields {
+        loss.add_example(LossExample {
+            category: DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE.to_owned(),
+            context: format!(
+                "field={name}: DBF Numeric già decodificato come f64 senza precisione intera unitaria"
+            ),
+        });
+    }
+    Ok(ShpInference {
+        cols: columns,
+        geometry_info: ShpGeometryInfo {
             dimensions: dimensions_for_shape_tag(shape_type, z_has_measure),
             geometry_types: geometry_types.into_iter().collect(),
             shape_type,
         },
-    ))
+        loss,
+    })
 }
 
-/// Pass 2: thread che scorre i record e produce batch da `batch_size` righe.
-fn spawn_parser(
+struct ShpParserInput {
     path: PathBuf,
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
     dimensions: CoordinateDimensions,
     include_geometry: bool,
-    mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
+    batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
-) -> Result<Box<dyn LayerReader>> {
-    spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
+    loss: LossReport,
+}
+
+/// Pass 2: thread che scorre i record e produce batch da `batch_size` righe.
+fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
+    let ShpParserInput {
+        path,
+        schema,
+        cols,
+        dimensions,
+        include_geometry,
+        mut batch_sizer,
+        layer,
+        loss,
+    } = input;
+    let reader = spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
         let mut reader = shapefile::Reader::from_path(&path)
             .map_err(|error| err(format!("shapefile non valido: {error}")))?;
         let mut geom = include_geometry.then(BinaryBuilder::new);
@@ -1384,7 +1439,32 @@ fn spawn_parser(
             }
         }
         Ok(())
-    })
+    })?;
+    Ok(Box::new(ShpLossReader {
+        inner: reader,
+        loss,
+    }))
+}
+
+struct ShpLossReader {
+    inner: Box<dyn LayerReader>,
+    loss: LossReport,
+}
+
+impl LayerReader for ShpLossReader {
+    fn contract(&self) -> &LayerContract {
+        self.inner.contract()
+    }
+
+    fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+        self.inner.next_batch()
+    }
+
+    fn loss_report(&self) -> LossReport {
+        let mut loss = self.inner.loss_report();
+        loss.merge(&self.loss);
+        loss
+    }
 }
 
 fn finish_batch(
@@ -1463,9 +1543,13 @@ pub fn __fuzz_wkb_roundtrip(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::wkb::to_wkb;
+
+    const EPSG_3003_WKT: &str = include_str!("../tests/fixtures/epsg3003.prj");
 
     fn read_opts() -> ReadOptions {
         ReadOptions {
@@ -1503,6 +1587,88 @@ mod tests {
             crs.axis_order,
             plenora_io_model::crs::AxisOrder::LatitudeLongitude
         );
+    }
+
+    #[test]
+    fn projected_prj_with_nested_geogcs_keeps_projected_kind_and_axis_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("parcels.shp");
+        std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
+
+        let crs = resolve_crs(&path, &ReadOptions::default()).unwrap();
+        assert_eq!(crs.id.as_deref(), Some("EPSG:3003"));
+        assert_eq!(crs.kind, CrsKind::Projected);
+        assert_eq!(
+            crs.axis_order,
+            plenora_io_model::crs::AxisOrder::EastingNorthing
+        );
+    }
+
+    #[test]
+    fn wide_dbf_integers_report_precision_loss_after_f64_decode() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("parcels.shp");
+        let field_name = shapefile::dbase::FieldName::try_from("parcel_id").unwrap();
+        let table = TableWriterBuilder::new().add_numeric_field(field_name, 18, 0);
+        let mut writer = Writer::from_path(&path, table).unwrap();
+        for coordinate in [0.0, 1.0] {
+            let mut record = Record::default();
+            record.insert("parcel_id".to_owned(), FieldValue::Numeric(Some(0.0)));
+            writer
+                .write_shape_and_record(&Point::new(coordinate, coordinate), &record)
+                .unwrap();
+        }
+        drop(writer);
+        std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
+
+        // Il writer dbase accetta già f64. Si sostituiscono i byte del campo
+        // con due interi ASCII distinti per riprodurre un DBF patrimoniale
+        // reale prima che dbase 0.5.0 li converta nello stesso f64.
+        let mut dbf = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path.with_extension("dbf"))
+            .unwrap();
+        let mut header = [0_u8; 32];
+        dbf.read_exact(&mut header).unwrap();
+        let header_length = u64::from(u16::from_le_bytes([header[8], header[9]]));
+        let record_length = u64::from(u16::from_le_bytes([header[10], header[11]]));
+        for (row, value) in ["9007199254740992", "9007199254740993"]
+            .into_iter()
+            .enumerate()
+        {
+            dbf.seek(SeekFrom::Start(
+                header_length + (row as u64 * record_length) + 1,
+            ))
+            .unwrap();
+            dbf.write_all(format!("{value:>18}").as_bytes()).unwrap();
+        }
+        drop(dbf);
+
+        let dataset = ShpDriver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let assessment = dataset.fidelity_assessment();
+        assert_eq!(assessment.level, Fidelity::Approximating);
+        assert!(assessment.reasons.iter().any(|reason| {
+            reason.code == plenora_io_core::FidelityReasonCode::PrecisionChanged
+        }));
+
+        let mut reader = dataset.open_layer_reader(&req()).unwrap();
+        let loss = reader.loss_report();
+        assert_eq!(
+            loss.counts.get(DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE),
+            Some(&2)
+        );
+        assert_eq!(loss.examples().len(), 1);
+        assert!(loss.examples()[0].context.contains("field=parcel_id"));
+        let batch = reader.next_batch().unwrap().unwrap();
+        let ids = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow_array::Float64Array>()
+            .unwrap();
+        assert_eq!(ids.value(0), ids.value(1));
     }
 
     #[test]
