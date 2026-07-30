@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+exclude = ["vendor/dxf", "vendor/gdal"]
 
 [workspace.package]
 version = "0.1.0-rc.4"
@@ -41,3 +42,7 @@ atomicwrites = "=0.4.4"
 # OGR_L_SetIgnoredFields dietro un metodo safe; provenienza e manutenzione sono
 # registrate in vendor/gdal/PLENORA_FORK.md.
 gdal = { path = "vendor/gdal" }
+# Fork governato della sorgente upstream dxf 0.6.1. Il delta evita il
+# read-to-end e rende pubblico un reader fallibile di entità logiche;
+# provenienza e manutenzione sono registrate in vendor/dxf/PLENORA_FORK.md.
+dxf = { path = "vendor/dxf" }

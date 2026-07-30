@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "package": "dxf",
+  "version": "0.6.1",
+  "source": "upstream_git_tag_and_crates_io_release",
+  "crate_sha256": "6bb070bbb077a936e2bdf95d4b39aa83e865b38c3a7054f71d704e0796da1821",
+  "upstream_tag": "v0.6.1",
+  "upstream_tag_object": "c965cc8ef139b191131780ccdcf134c220642b16",
+  "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
+  "vendor_path": "vendor/dxf",
+  "file_count": 60,
+  "tree_sha256": "7de901d9fba185c4bd53d5149d654281298035d405ac05aeb4a434d978110c13",
+  "functional_delta_files": [
+    "src/code_pair_iter.rs",
+    "src/drawing.rs",
+    "src/lib.rs"
+  ],
+  "packaging_delta_files": [
+    "PLENORA_FORK.md"
+  ]
+}

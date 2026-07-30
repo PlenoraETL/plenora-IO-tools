@@ -361,8 +361,8 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
         "system_qualification_ownership": "external",
         "workstreams": {
             "xlsx_bounded_spool_streaming": "implemented_benchmark_passed",
-            "kml_event_streaming": "blocked_upstream_or_performance_evidence",
-            "dxf_progressive_reader": "blocked_upstream_or_governed_fork",
+            "kml_event_streaming": "implemented_benchmark_passed",
+            "dxf_progressive_reader": "implemented_governed_fork_benchmark_passed",
             "openfilegdb_native_pushdown": (
                 "implemented_governed_fork_benchmark_passed"
             ),

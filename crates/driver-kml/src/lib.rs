@@ -5,14 +5,16 @@
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
-use std::io::{BufRead, BufWriter, Write as _};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write as _};
+use std::path::Path;
 use std::sync::Arc;
 
 use arrow_array::{Array, ArrayRef, BinaryArray, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use kml::types::{
-    Coord as KmlCoord, Element, Geometry as KmlGeometry, LineString as KmlLineString, LinearRing,
-    MultiGeometry, Placemark, Point as KmlPoint, Polygon as KmlPolygon,
+    coords_from_str, Coord as KmlCoord, Element, Geometry as KmlGeometry,
+    LineString as KmlLineString, LinearRing, MultiGeometry, Placemark, Point as KmlPoint,
+    Polygon as KmlPolygon,
 };
 use kml::{Kml, KmlWriter};
 
@@ -211,7 +213,7 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "kml",
     direction: Direction::Bidirectional,
-    read_mode: ReadMode::Materializing,
+    read_mode: ReadMode::StreamingSequential,
     read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Streaming),
     write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
@@ -235,8 +237,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 4,
-    descriptor_version: 5,
+    driver_version: 5,
+    descriptor_version: 6,
 };
 
 pub struct KmlDriver;
@@ -248,18 +250,27 @@ impl FormatDriver for KmlDriver {
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
-        let text = std::fs::read_to_string(&path)?;
-        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
-        validate_kml_xml(text.as_bytes(), text.len())?;
-        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
-        let root: Kml = text
-            .parse()
-            .map_err(|e| err(format!("KML non valido: {e}")))?;
-        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
-        let mut placemarks = Vec::new();
-        let mut visited = 0;
-        collect(&root, &mut placemarks, &opts.cancellation, &mut visited)?;
-        let (batch, contract) = build_batch_cancellable(&placemarks, &opts.cancellation)?;
+        let mut stream = PlacemarkStream::open(&path)?;
+        let mut stats = KmlContractStats::default();
+        let spool = Arc::new(tempfile::NamedTempFile::new()?);
+        let mut spool_writer = KmlSpoolWriter::new(spool.as_file(), opts.limits.max_input_bytes);
+        while let Some(placemark) = stream.next_placemark(&opts.cancellation)? {
+            if stats.rows >= opts.limits.max_rows {
+                return Err(PlenoraIoError::LimitExceeded(format!(
+                    "KML: più di {} Placemark",
+                    opts.limits.max_rows
+                )));
+            }
+            let geometry = stats.observe(&placemark, &opts.cancellation)?;
+            spool_writer.row(
+                geometry.as_deref(),
+                placemark.name.as_deref(),
+                placemark.description.as_deref(),
+            )?;
+        }
+        spool_writer.finish()?;
+        let rows = stats.rows;
+        let contract = stats.contract();
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -271,7 +282,8 @@ impl FormatDriver for KmlDriver {
                 name,
                 contract,
             }],
-            batch,
+            spool,
+            rows,
             reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
         }))
     }
@@ -322,7 +334,8 @@ impl FormatDriver for KmlDriver {
 
 struct KmlDataset {
     layers: Vec<LayerContract>,
-    batch: RecordBatch,
+    spool: Arc<tempfile::NamedTempFile>,
+    rows: usize,
     reader_gate: SingleReaderGate,
 }
 
@@ -337,8 +350,14 @@ impl OpenDatasetHandle for KmlDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let reader = self.reader_gate.open(request.layer, || {
             Ok(Box::new(KmlReader {
-                batch: Some(self.batch.clone()),
+                input: BufReader::with_capacity(KML_IO_BUFFER_BYTES, self.spool.reopen()?),
+                remaining_rows: self.rows,
                 layer: self.layers[0].clone(),
+                batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
+                    self.layers[0].contract.schema.as_ref(),
+                    request.batch_target,
+                ),
+                cancellation: request.cancellation.clone(),
             }))
         })?;
         Ok(plenora_io_core::with_batch_target(
@@ -350,8 +369,11 @@ impl OpenDatasetHandle for KmlDataset {
 }
 
 struct KmlReader {
-    batch: Option<RecordBatch>,
+    input: BufReader<File>,
+    remaining_rows: usize,
     layer: LayerContract,
+    batch_sizer: plenora_io_core::AdaptiveBatchSizer,
+    cancellation: CancellationToken,
 }
 
 impl LayerReader for KmlReader {
@@ -360,7 +382,506 @@ impl LayerReader for KmlReader {
     }
 
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        Ok(self.batch.take())
+        check_cancelled(&self.cancellation, ErrorPhase::Read)?;
+        if self.remaining_rows == 0 {
+            return Ok(None);
+        }
+        let rows = self.remaining_rows.min(self.batch_sizer.rows());
+        let mut geometries = Vec::with_capacity(rows);
+        let mut names = Vec::with_capacity(rows);
+        let mut descriptions = Vec::with_capacity(rows);
+        for index in 0..rows {
+            check_cancelled_periodically(&self.cancellation, ErrorPhase::Read, index)?;
+            geometries.push(read_spool_value(&mut self.input)?);
+            names.push(read_spool_string(&mut self.input)?);
+            descriptions.push(read_spool_string(&mut self.input)?);
+        }
+        self.remaining_rows -= rows;
+        let arrays: Vec<ArrayRef> = vec![
+            Arc::new(BinaryArray::from(
+                geometries
+                    .iter()
+                    .map(|value| value.as_deref())
+                    .collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(names)),
+            Arc::new(StringArray::from(descriptions)),
+        ];
+        let batch = RecordBatch::try_new(self.layer.contract.schema.clone(), arrays)
+            .map_err(|error| err(format!("batch KML da spool: {error}")))?;
+        self.batch_sizer.observe(&batch);
+        Ok(Some(batch))
+    }
+}
+
+const SPOOL_NULL: u32 = u32::MAX;
+
+struct KmlSpoolWriter<'a> {
+    output: BufWriter<&'a File>,
+    bytes: u64,
+    limit: u64,
+}
+
+impl<'a> KmlSpoolWriter<'a> {
+    fn new(file: &'a File, limit: u64) -> Self {
+        Self {
+            output: BufWriter::new(file),
+            bytes: 0,
+            limit,
+        }
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        let length =
+            u64::try_from(bytes.len()).map_err(|_| err("spool KML non rappresentabile"))?;
+        let next = self
+            .bytes
+            .checked_add(length)
+            .ok_or_else(|| err("dimensione spool KML fuori intervallo"))?;
+        if next > self.limit {
+            return Err(PlenoraIoError::LimitExceeded(format!(
+                "spool KML: {next} byte eccedono il limite {}",
+                self.limit
+            )));
+        }
+        self.output.write_all(bytes)?;
+        self.bytes = next;
+        Ok(())
+    }
+
+    fn value(&mut self, value: Option<&[u8]>) -> Result<()> {
+        let length = match value {
+            None => SPOOL_NULL,
+            Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
+                PlenoraIoError::LimitExceeded("valore KML troppo grande per lo spool".to_owned())
+            })?,
+        };
+        self.write(&length.to_le_bytes())?;
+        if let Some(bytes) = value {
+            self.write(bytes)?;
+        }
+        Ok(())
+    }
+
+    fn row(
+        &mut self,
+        geometry: Option<&[u8]>,
+        name: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<()> {
+        self.value(geometry)?;
+        self.value(name.map(str::as_bytes))?;
+        self.value(description.map(str::as_bytes))
+    }
+
+    fn finish(mut self) -> Result<()> {
+        self.output.flush()?;
+        Ok(())
+    }
+}
+
+fn read_spool_value(input: &mut impl Read) -> Result<Option<Vec<u8>>> {
+    let mut length = [0_u8; 4];
+    input
+        .read_exact(&mut length)
+        .map_err(|error| err(format!("spool KML troncato: {error}")))?;
+    let length = u32::from_le_bytes(length);
+    if length == SPOOL_NULL {
+        return Ok(None);
+    }
+    let mut value =
+        vec![0; usize::try_from(length).map_err(|_| err("lunghezza spool KML non valida"))?];
+    input
+        .read_exact(&mut value)
+        .map_err(|error| err(format!("spool KML troncato: {error}")))?;
+    Ok(Some(value))
+}
+
+fn read_spool_string(input: &mut impl Read) -> Result<Option<String>> {
+    let Some(bytes) = read_spool_value(input)? else {
+        return Ok(None);
+    };
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| err(format!("testo spool KML non UTF-8: {error}")))
+}
+
+struct PlacemarkStream {
+    reader: XmlReader<BufReader<File>>,
+    event_buffer: Vec<u8>,
+    ancestors: Vec<Vec<u8>>,
+    visited_events: usize,
+    events_left: usize,
+    previous_position: u64,
+    xml_depth: usize,
+    element_stack: Vec<Vec<u8>>,
+    open_points_with_coordinates: Vec<bool>,
+}
+
+impl PlacemarkStream {
+    fn open(path: &Path) -> Result<Self> {
+        let input_bytes = usize::try_from(std::fs::metadata(path)?.len())
+            .map_err(|_| err("dimensione KML non rappresentabile"))?;
+        let input = BufReader::with_capacity(KML_IO_BUFFER_BYTES, File::open(path)?);
+        Ok(Self {
+            reader: XmlReader::from_reader(input),
+            event_buffer: Vec::new(),
+            ancestors: Vec::new(),
+            visited_events: 0,
+            events_left: input_bytes.saturating_add(1),
+            previous_position: 0,
+            xml_depth: 0,
+            element_stack: Vec::new(),
+            open_points_with_coordinates: Vec::new(),
+        })
+    }
+
+    fn next_event(&mut self, cancellation: &CancellationToken) -> Result<Event<'static>> {
+        if self.events_left == 0 {
+            return Err(err(
+                "numero di eventi XML incoerente con la dimensione dell'input",
+            ));
+        }
+        self.events_left -= 1;
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, self.visited_events)?;
+        self.visited_events = self.visited_events.saturating_add(1);
+        self.event_buffer.clear();
+        let event = self
+            .reader
+            .read_event_into(&mut self.event_buffer)
+            .map(Event::into_owned)
+            .map_err(|error| err(format!("XML KML non valido: {error}")))?;
+        let position = self.reader.buffer_position();
+        if !matches!(event, Event::Eof) && position <= self.previous_position {
+            return Err(err("parser XML senza avanzamento"));
+        }
+        self.previous_position = position;
+        match &event {
+            Event::Start(element) => {
+                validate_element(element)?;
+                if self.xml_depth >= MAX_XML_DEPTH {
+                    return Err(err(format!(
+                        "profondità XML oltre il limite di {MAX_XML_DEPTH}"
+                    )));
+                }
+                self.xml_depth += 1;
+                if element.local_name().as_ref() == b"Point" {
+                    self.open_points_with_coordinates.push(false);
+                }
+                self.element_stack.push(element.name().as_ref().to_vec());
+            }
+            Event::Empty(element) => {
+                validate_element(element)?;
+                if element.local_name().as_ref() == b"Point" {
+                    return Err(err("Point KML senza coordinate"));
+                }
+            }
+            Event::Text(text) => observe_point_coordinate_text(
+                &self.element_stack,
+                &mut self.open_points_with_coordinates,
+                text.as_ref(),
+            )?,
+            Event::CData(text) => observe_point_coordinate_text(
+                &self.element_stack,
+                &mut self.open_points_with_coordinates,
+                text.as_ref(),
+            )?,
+            Event::GeneralRef(_) => observe_point_coordinate_text(
+                &self.element_stack,
+                &mut self.open_points_with_coordinates,
+                b"x",
+            )?,
+            Event::End(element) => {
+                if !valid_xml_name(element.name().as_ref()) {
+                    return Err(err("nome di chiusura XML non valido"));
+                }
+                let opened = self
+                    .element_stack
+                    .pop()
+                    .ok_or_else(|| err("chiusura XML senza elemento aperto"))?;
+                if opened.as_slice() != element.name().as_ref() {
+                    return Err(err("elementi XML annidati in modo non valido"));
+                }
+                if element.local_name().as_ref() == b"Point" {
+                    let has_coordinates = self
+                        .open_points_with_coordinates
+                        .pop()
+                        .ok_or_else(|| err("chiusura Point KML senza apertura"))?;
+                    if !has_coordinates {
+                        return Err(err("Point KML senza coordinate"));
+                    }
+                }
+                self.xml_depth = self
+                    .xml_depth
+                    .checked_sub(1)
+                    .ok_or_else(|| err("chiusura XML senza elemento aperto"))?;
+            }
+            Event::DocType(_) => return Err(err("DOCTYPE non ammesso nei documenti KML")),
+            Event::Eof if self.xml_depth != 0 => return Err(err("documento XML troncato")),
+            _ => {}
+        }
+        Ok(event)
+    }
+
+    fn traversed_by_legacy_reader(&self) -> bool {
+        self.ancestors
+            .iter()
+            .all(|name| matches!(local_xml_name(name), b"kml" | b"Document" | b"Folder"))
+    }
+
+    fn decode_general_ref(reference: &quick_xml::events::BytesRef<'_>) -> Result<String> {
+        if let Some(character) = reference
+            .resolve_char_ref()
+            .map_err(|error| err(format!("riferimento XML non valido: {error}")))?
+        {
+            return Ok(character.to_string());
+        }
+        let name = reference
+            .decode()
+            .map_err(|error| err(format!("riferimento XML non valido: {error}")))?;
+        quick_xml::escape::resolve_xml_entity(&name)
+            .map(str::to_owned)
+            .ok_or_else(|| err(format!("entità XML sconosciuta: &{name};")))
+    }
+
+    fn read_text(&mut self, cancellation: &CancellationToken) -> Result<String> {
+        let mut output = String::new();
+        loop {
+            match self.next_event(cancellation)? {
+                Event::Text(text) => output.push_str(
+                    &text
+                        .decode()
+                        .map(|value| value.into_owned())
+                        .unwrap_or_else(|_| text.escape_ascii().to_string()),
+                ),
+                Event::GeneralRef(reference) => {
+                    output.push_str(&Self::decode_general_ref(&reference)?)
+                }
+                Event::CData(text) => output.push_str(
+                    &String::from_utf8(text.to_vec())
+                        .unwrap_or_else(|_| text.escape_ascii().to_string()),
+                ),
+                Event::End(_) => return Ok(output),
+                event => return Err(err(format!("contenuto testuale KML non valido: {event:?}"))),
+            }
+        }
+    }
+
+    fn skip_element(&mut self, cancellation: &CancellationToken) -> Result<()> {
+        let mut depth = 1usize;
+        while depth > 0 {
+            match self.next_event(cancellation)? {
+                Event::Start(_) => depth = depth.saturating_add(1),
+                Event::End(_) => depth = depth.saturating_sub(1),
+                Event::Eof => return Err(err("documento KML troncato")),
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn read_geometry_coordinates(
+        &mut self,
+        end_tag: &[u8],
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<KmlCoord>> {
+        let mut coordinates = Vec::new();
+        loop {
+            match self.next_event(cancellation)? {
+                Event::Start(element) if element.local_name().as_ref() == b"coordinates" => {
+                    let text = self.read_text(cancellation)?;
+                    coordinates = coords_from_str(&text)
+                        .map_err(|error| err(format!("coordinate KML non valide: {error}")))?;
+                }
+                Event::Start(_) => self.skip_element(cancellation)?,
+                Event::End(element) if element.local_name().as_ref() == end_tag => {
+                    return Ok(coordinates)
+                }
+                Event::Eof => return Err(err("documento KML troncato nella geometria")),
+                _ => {}
+            }
+        }
+    }
+
+    fn read_boundary(
+        &mut self,
+        end_tag: &[u8],
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<LinearRing>> {
+        let mut rings = Vec::new();
+        loop {
+            match self.next_event(cancellation)? {
+                Event::Start(element) if element.local_name().as_ref() == b"LinearRing" => {
+                    rings.push(LinearRing::from(
+                        self.read_geometry_coordinates(b"LinearRing", cancellation)?,
+                    ));
+                }
+                Event::Start(_) => self.skip_element(cancellation)?,
+                Event::End(element) if element.local_name().as_ref() == end_tag => {
+                    return Ok(rings)
+                }
+                Event::Eof => return Err(err("documento KML troncato nel boundary")),
+                _ => {}
+            }
+        }
+    }
+
+    fn read_polygon(&mut self, cancellation: &CancellationToken) -> Result<KmlPolygon> {
+        let mut outer = None;
+        let mut inner = Vec::new();
+        loop {
+            match self.next_event(cancellation)? {
+                Event::Start(element) if element.local_name().as_ref() == b"outerBoundaryIs" => {
+                    let rings = self.read_boundary(b"outerBoundaryIs", cancellation)?;
+                    outer = rings.into_iter().next();
+                }
+                Event::Start(element) if element.local_name().as_ref() == b"innerBoundaryIs" => {
+                    inner.extend(self.read_boundary(b"innerBoundaryIs", cancellation)?);
+                }
+                Event::Start(_) => self.skip_element(cancellation)?,
+                Event::End(element) if element.local_name().as_ref() == b"Polygon" => {
+                    let outer = outer.ok_or_else(|| err("Polygon KML senza anello esterno"))?;
+                    return Ok(KmlPolygon::new(outer, inner));
+                }
+                Event::Eof => return Err(err("documento KML troncato nel Polygon")),
+                _ => {}
+            }
+        }
+    }
+
+    fn read_multi_geometry(&mut self, cancellation: &CancellationToken) -> Result<MultiGeometry> {
+        let mut geometries = Vec::new();
+        loop {
+            match self.next_event(cancellation)? {
+                Event::Start(element) => {
+                    if let Some(geometry) =
+                        self.read_geometry(element.local_name().as_ref(), cancellation)?
+                    {
+                        geometries.push(geometry);
+                    }
+                }
+                Event::End(element) if element.local_name().as_ref() == b"MultiGeometry" => {
+                    return Ok(MultiGeometry::new(geometries))
+                }
+                Event::Eof => return Err(err("documento KML troncato nella MultiGeometry")),
+                _ => {}
+            }
+        }
+    }
+
+    fn read_geometry(
+        &mut self,
+        name: &[u8],
+        cancellation: &CancellationToken,
+    ) -> Result<Option<KmlGeometry>> {
+        Ok(match name {
+            b"Point" => {
+                let coordinates = self.read_geometry_coordinates(b"Point", cancellation)?;
+                let coordinate = coordinates
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| err("Point KML senza coordinate"))?;
+                Some(KmlGeometry::Point(KmlPoint::from(coordinate)))
+            }
+            b"LineString" => Some(KmlGeometry::LineString(KmlLineString::from(
+                self.read_geometry_coordinates(b"LineString", cancellation)?,
+            ))),
+            b"LinearRing" => Some(KmlGeometry::LinearRing(LinearRing::from(
+                self.read_geometry_coordinates(b"LinearRing", cancellation)?,
+            ))),
+            b"Polygon" => Some(KmlGeometry::Polygon(self.read_polygon(cancellation)?)),
+            b"MultiGeometry" => Some(KmlGeometry::MultiGeometry(
+                self.read_multi_geometry(cancellation)?,
+            )),
+            _ => {
+                self.skip_element(cancellation)?;
+                None
+            }
+        })
+    }
+
+    fn read_placemark(&mut self, cancellation: &CancellationToken) -> Result<Placemark> {
+        let mut placemark = Placemark::default();
+        loop {
+            match self.next_event(cancellation)? {
+                Event::Start(element) => match element.local_name().as_ref() {
+                    b"name" => placemark.name = Some(self.read_text(cancellation)?),
+                    b"description" => placemark.description = Some(self.read_text(cancellation)?),
+                    name => {
+                        if let Some(geometry) = self.read_geometry(name, cancellation)? {
+                            placemark.geometry = Some(geometry);
+                        }
+                    }
+                },
+                Event::End(element) if element.local_name().as_ref() == b"Placemark" => {
+                    return Ok(placemark)
+                }
+                Event::Eof => return Err(err("documento KML troncato nel Placemark")),
+                _ => {}
+            }
+        }
+    }
+
+    fn next_placemark(&mut self, cancellation: &CancellationToken) -> Result<Option<Placemark>> {
+        loop {
+            let event = self.next_event(cancellation)?;
+            match event {
+                Event::Start(element)
+                    if element.local_name().as_ref() == b"Placemark"
+                        && self.traversed_by_legacy_reader() =>
+                {
+                    return self.read_placemark(cancellation).map(Some);
+                }
+                Event::Empty(element)
+                    if element.local_name().as_ref() == b"Placemark"
+                        && self.traversed_by_legacy_reader() =>
+                {
+                    return Ok(Some(Placemark::default()));
+                }
+                Event::Start(element) => {
+                    self.ancestors.push(element.name().as_ref().to_vec());
+                }
+                Event::End(_) => {
+                    self.ancestors.pop();
+                }
+                Event::Eof => return Ok(None),
+                _ => {}
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct KmlContractStats {
+    dimensions: BTreeSet<CoordinateDimensions>,
+    geometry_types: BTreeSet<plenora_io_model::contract::GeometryType>,
+    rows: usize,
+    visited_geometry_items: usize,
+}
+
+impl KmlContractStats {
+    fn observe(
+        &mut self,
+        placemark: &Placemark,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Vec<u8>>> {
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, self.rows)?;
+        self.rows = self.rows.saturating_add(1);
+        if let Some(geometry) = &placemark.geometry {
+            let geometry = wkb_geometry_from_kml_cancellable(
+                geometry,
+                cancellation,
+                &mut self.visited_geometry_items,
+            )?;
+            self.dimensions.insert(geometry.dimensions);
+            self.geometry_types.insert(geometry.geometry_type());
+            return encode_wkb(&geometry, WkbFlavor::Iso).map(Some);
+        }
+        Ok(None)
+    }
+
+    fn contract(self) -> DataContract {
+        kml_contract(self.dimensions, self.geometry_types)
     }
 }
 
@@ -764,6 +1285,30 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
     }
 }
 
+fn kml_contract(
+    dimensions: BTreeSet<CoordinateDimensions>,
+    geometry_types: BTreeSet<plenora_io_model::contract::GeometryType>,
+) -> DataContract {
+    let mut geometry_contract =
+        GeometryColumnContract::wkb_passthrough(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
+    geometry_contract.dimensions = if dimensions.len() == 1 {
+        dimensions
+            .first()
+            .copied()
+            .unwrap_or(CoordinateDimensions::Unknown)
+    } else {
+        CoordinateDimensions::Unknown
+    };
+    geometry_contract.set_exact_geometry_types(geometry_types.into_iter().collect());
+    let fields = vec![
+        with_geometry_contract_metadata(&geometry_field(GEOMETRY, OGC_CRS84), &geometry_contract),
+        Field::new("name", DataType::Utf8, true),
+        Field::new("description", DataType::Utf8, true),
+    ];
+    let schema: SchemaRef = Arc::new(Schema::new(fields));
+    DataContract::new(schema, Some(geometry_contract))
+}
+
 fn build_batch_cancellable(
     placemarks: &[&Placemark],
     cancellation: &CancellationToken,
@@ -794,22 +1339,7 @@ fn build_batch_cancellable(
         descs.push(p.description.clone());
     }
 
-    let mut geometry_contract =
-        GeometryColumnContract::wkb_passthrough(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), true);
-    geometry_contract.dimensions = if dimensions.len() == 1 {
-        dimensions
-            .first()
-            .copied()
-            .unwrap_or(CoordinateDimensions::Unknown)
-    } else {
-        CoordinateDimensions::Unknown
-    };
-    geometry_contract.set_exact_geometry_types(geometry_types.into_iter().collect());
-    let fields = vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, OGC_CRS84), &geometry_contract),
-        Field::new("name", DataType::Utf8, true),
-        Field::new("description", DataType::Utf8, true),
-    ];
+    let contract = kml_contract(dimensions, geometry_types);
     let arrays: Vec<ArrayRef> = vec![
         Arc::new(BinaryArray::from(
             wkb.iter().map(|o| o.as_deref()).collect::<Vec<_>>(),
@@ -817,10 +1347,8 @@ fn build_batch_cancellable(
         Arc::new(StringArray::from(names)),
         Arc::new(StringArray::from(descs)),
     ];
-    let schema: SchemaRef = Arc::new(Schema::new(fields));
-    let batch =
-        RecordBatch::try_new(schema.clone(), arrays).map_err(|e| err(format!("batch: {e}")))?;
-    let contract = DataContract::new(schema, Some(geometry_contract));
+    let batch = RecordBatch::try_new(contract.schema.clone(), arrays)
+        .map_err(|e| err(format!("batch: {e}")))?;
     Ok((batch, contract))
 }
 
@@ -937,6 +1465,67 @@ mod tests {
         ));
         assert_eq!(r.next_batch().unwrap().unwrap().num_rows(), 1);
         assert!(r.next_batch().unwrap().is_none());
+    }
+
+    #[test]
+    fn event_stream_matches_legacy_document_traversal() {
+        let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <kml:kml xmlns:kml="http://www.opengis.net/kml/2.2">
+          <kml:Document>
+            <kml:Folder>
+              <kml:Placemark id="a"><kml:name>A &amp; B</kml:name>
+                <kml:Point><kml:coordinates>12,45</kml:coordinates></kml:Point>
+              </kml:Placemark>
+            </kml:Folder>
+            <Update>
+              <kml:Placemark><kml:name>non attraversato</kml:name>
+                <kml:Point><kml:coordinates>0,0</kml:coordinates></kml:Point>
+              </kml:Placemark>
+            </Update>
+            <kml:Placemark><kml:description><![CDATA[testo <grezzo>]]></kml:description>
+              <kml:LineString><kml:coordinates>0,0,0 1,1,0</kml:coordinates></kml:LineString>
+            </kml:Placemark>
+          </kml:Document>
+        </kml:kml>"#;
+        let document: Kml = text.parse().unwrap();
+        let mut legacy_placemarks = Vec::new();
+        collect(
+            &document,
+            &mut legacy_placemarks,
+            &CancellationToken::new(),
+            &mut 0,
+        )
+        .unwrap();
+        let (legacy, _) = build_batch(&legacy_placemarks).unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("semantic-equivalence.kml");
+        std::fs::write(&path, text).unwrap();
+        let dataset = KmlDriver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::new(),
+            })
+            .unwrap();
+        let streamed = reader.next_batch().unwrap().unwrap();
+        assert!(reader.next_batch().unwrap().is_none());
+        assert_eq!(streamed.num_rows(), 2);
+        assert_eq!(streamed.schema(), legacy.schema());
+        for index in 0..streamed.num_columns() {
+            assert_eq!(
+                streamed.column(index).to_data(),
+                legacy.column(index).to_data()
+            );
+        }
+        assert_eq!(DESCRIPTOR.read_mode, ReadMode::StreamingSequential);
     }
 
     #[test]

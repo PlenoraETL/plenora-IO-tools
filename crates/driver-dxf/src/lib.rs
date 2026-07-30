@@ -10,7 +10,8 @@
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::io::{BufWriter, Write};
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -19,7 +20,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use dxf::entities::{Entity, EntityType, Insert, LwPolyline, ModelPoint, Polyline, Vertex};
 use dxf::enums::AcadVersion;
 use dxf::objects::{GeoData, Object, ObjectType};
-use dxf::{Block, Drawing, LwPolylineVertex, Point as DxfPoint, Vector};
+use dxf::{Block, Drawing, DrawingEntityReader, LwPolylineVertex, Point as DxfPoint, Vector};
 
 mod geometry;
 use geometry::{
@@ -46,13 +47,14 @@ use plenora_io_core::{
     WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
-    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+    CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+    LayerContract, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
 use plenora_io_model::limits::{Limits, WkbLimits};
 use plenora_io_model::wkb::{
-    decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+    decode_wkb, encode_wkb, inspect_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
 use plenora_io_model::{CancellationToken, ErrorPhase};
 use plenora_io_model::{PlenoraIoError, Result};
@@ -192,7 +194,7 @@ fn embed_dxf_crs(drawing: &mut Drawing, geometry: &GeometryColumnContract) -> Re
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "dxf",
     direction: Direction::Bidirectional,
-    read_mode: ReadMode::Materializing,
+    read_mode: ReadMode::StreamingSequential,
     read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Buffered),
     write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
@@ -216,8 +218,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 4,
-    descriptor_version: 5,
+    driver_version: 5,
+    descriptor_version: 6,
 };
 
 pub struct DxfDriver;
@@ -229,11 +231,28 @@ impl FormatDriver for DxfDriver {
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
-        let drawing = Drawing::load_file(&path).map_err(|e| err(format!("apertura DXF: {e}")))?;
+        let mut stream = DrawingEntityReader::load_file(&path)
+            .map_err(|e| err(format!("apertura DXF progressiva: {e}")))?;
         check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
+        let mut walker = Walker::new(stream.drawing(), &opts.limits, &opts.cancellation)?;
+        let mut stats = DxfContractStats::default();
+        let mut spool_writer = DxfSpoolWriter::new(opts.limits.max_input_bytes);
+        while let Some(entity) = stream
+            .next_entity()
+            .map_err(|e| err(format!("lettura entità DXF: {e}")))?
+        {
+            let mut visiting = HashSet::new();
+            walker.walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)?;
+            stats.observe(&walker, &opts.cancellation)?;
+            spool_writer.write_and_clear(&mut walker, &opts.cancellation)?;
+        }
+        let spool = spool_writer.finish()?;
+        let drawing = stream
+            .finish()
+            .map_err(|e| err(format!("chiusura scansione DXF: {e}")))?;
         let crs = resolve_dxf_crs(&drawing, opts)?;
-        let (batch, loss, contract) =
-            build_batch_cancellable(&drawing, crs, &opts.limits, &opts.cancellation)?;
+        let loss = walker.loss.clone();
+        let contract = dxf_contract(crs, stats.dimensions(), stats.geometry_types)?;
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -245,7 +264,9 @@ impl FormatDriver for DxfDriver {
                 name,
                 contract,
             }],
-            batch,
+            spool,
+            rows: walker.emitted_rows,
+            wkb_limits: opts.limits.effective_wkb(),
             loss,
             reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
         }))
@@ -604,9 +625,391 @@ fn add_geometry(
     Ok(())
 }
 
+const DXF_SPOOL_NULL: u32 = u32::MAX;
+const DXF_SPOOL_MEMORY_LIMIT: u64 = 64 * 1024 * 1024;
+
+enum DxfSpoolOutput {
+    Memory {
+        rows: Vec<DxfSpoolRow>,
+        bytes: u64,
+    },
+    File {
+        tempfile: Arc<tempfile::NamedTempFile>,
+        output: BufWriter<File>,
+    },
+}
+
+enum DxfSpoolStorage {
+    Memory(Arc<Vec<DxfSpoolRow>>),
+    File(Arc<tempfile::NamedTempFile>),
+}
+
+impl DxfSpoolStorage {
+    fn reader(&self) -> Result<DxfSpoolReader> {
+        match self {
+            Self::Memory(rows) => Ok(DxfSpoolReader::Memory {
+                rows: rows.clone(),
+                index: 0,
+            }),
+            Self::File(tempfile) => Ok(DxfSpoolReader::File(BufReader::new(tempfile.reopen()?))),
+        }
+    }
+}
+
+enum DxfSpoolReader {
+    Memory {
+        rows: Arc<Vec<DxfSpoolRow>>,
+        index: usize,
+    },
+    File(BufReader<File>),
+}
+
+struct DxfOutputRow {
+    geometry: Option<Vec<u8>>,
+    layer: Option<String>,
+    entity_type: Option<String>,
+    text: Option<String>,
+}
+
+struct DxfSpoolRow {
+    geometry: Option<WkbGeometry>,
+    layer: Option<String>,
+    entity_type: Option<String>,
+    text: Option<String>,
+}
+
+impl DxfSpoolReader {
+    fn next_row(
+        &mut self,
+        dimensions: CoordinateDimensions,
+        limits: &WkbLimits,
+    ) -> Result<DxfOutputRow> {
+        match self {
+            Self::Memory { rows, index } => {
+                let row = rows
+                    .get(*index)
+                    .ok_or_else(|| err("spool DXF in memoria troncato"))?;
+                *index += 1;
+                let geometry = row
+                    .geometry
+                    .as_ref()
+                    .map(|geometry| {
+                        if geometry.dimensions == dimensions {
+                            encode_wkb(geometry, WkbFlavor::Iso)
+                        } else {
+                            let mut geometry = geometry.clone();
+                            set_geometry_dimensions(&mut geometry, dimensions);
+                            encode_wkb(&geometry, WkbFlavor::Iso)
+                        }
+                    })
+                    .transpose()?;
+                Ok(DxfOutputRow {
+                    geometry,
+                    layer: row.layer.clone(),
+                    entity_type: row.entity_type.clone(),
+                    text: row.text.clone(),
+                })
+            }
+            Self::File(input) => {
+                let geometry = match read_dxf_spool_value(input)? {
+                    None => None,
+                    Some(bytes) => {
+                        if inspect_wkb(&bytes, limits)?.dimensions == dimensions {
+                            Some(bytes)
+                        } else {
+                            let mut geometry = decode_wkb(&bytes, limits)?;
+                            set_geometry_dimensions(&mut geometry, dimensions);
+                            Some(encode_wkb(&geometry, WkbFlavor::Iso)?)
+                        }
+                    }
+                };
+                Ok(DxfOutputRow {
+                    geometry,
+                    layer: read_dxf_spool_string(input)?,
+                    entity_type: read_dxf_spool_string(input)?,
+                    text: read_dxf_spool_string(input)?,
+                })
+            }
+        }
+    }
+}
+
+struct DxfSpoolWriter {
+    output: DxfSpoolOutput,
+    bytes: u64,
+    limit: u64,
+    memory_limit: u64,
+}
+
+impl DxfSpoolWriter {
+    fn new(limit: u64) -> Self {
+        Self {
+            output: DxfSpoolOutput::Memory {
+                rows: Vec::new(),
+                bytes: 0,
+            },
+            bytes: 0,
+            limit,
+            memory_limit: DXF_SPOOL_MEMORY_LIMIT,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_memory_limit(limit: u64, memory_limit: u64) -> Self {
+        Self {
+            output: DxfSpoolOutput::Memory {
+                rows: Vec::new(),
+                bytes: 0,
+            },
+            bytes: 0,
+            limit,
+            memory_limit,
+        }
+    }
+
+    fn write_file_value(output: &mut impl Write, value: Option<&[u8]>) -> Result<()> {
+        let length = match value {
+            None => DXF_SPOOL_NULL,
+            Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
+                PlenoraIoError::LimitExceeded("valore DXF troppo grande per lo spool".to_owned())
+            })?,
+        };
+        output.write_all(&length.to_le_bytes())?;
+        if let Some(bytes) = value {
+            output.write_all(bytes)?;
+        }
+        Ok(())
+    }
+
+    fn write_file_row(output: &mut impl Write, row: &DxfSpoolRow) -> Result<()> {
+        let geometry = row
+            .geometry
+            .as_ref()
+            .map(|geometry| encode_wkb(geometry, WkbFlavor::Iso))
+            .transpose()?;
+        Self::write_file_value(output, geometry.as_deref())?;
+        Self::write_file_value(output, row.layer.as_deref().map(str::as_bytes))?;
+        Self::write_file_value(output, row.entity_type.as_deref().map(str::as_bytes))?;
+        Self::write_file_value(output, row.text.as_deref().map(str::as_bytes))
+    }
+
+    fn spill_to_file(&mut self) -> Result<()> {
+        let DxfSpoolOutput::Memory { rows, .. } = std::mem::replace(
+            &mut self.output,
+            DxfSpoolOutput::Memory {
+                rows: Vec::new(),
+                bytes: 0,
+            },
+        ) else {
+            return Ok(());
+        };
+        let tempfile = Arc::new(tempfile::NamedTempFile::new()?);
+        let mut output = BufWriter::new(tempfile.reopen()?);
+        for row in &rows {
+            Self::write_file_row(&mut output, row)?;
+        }
+        self.output = DxfSpoolOutput::File { tempfile, output };
+        Ok(())
+    }
+
+    fn push(&mut self, row: DxfSpoolRow) -> Result<()> {
+        let logical_bytes = dxf_spool_row_length(&row);
+        let next = self
+            .bytes
+            .checked_add(logical_bytes)
+            .ok_or_else(|| err("dimensione spool DXF fuori intervallo"))?;
+        if next > self.limit {
+            return Err(PlenoraIoError::LimitExceeded(format!(
+                "spool DXF: {next} byte eccedono il limite {}",
+                self.limit
+            )));
+        }
+        let memory_bytes = dxf_spool_row_memory(&row);
+        let spill = matches!(
+            &self.output,
+            DxfSpoolOutput::Memory { bytes, .. }
+                if bytes.saturating_add(memory_bytes) > self.memory_limit
+        );
+        if spill {
+            self.spill_to_file()?;
+        }
+        match &mut self.output {
+            DxfSpoolOutput::Memory { rows, bytes } => {
+                rows.push(row);
+                *bytes = bytes.saturating_add(memory_bytes);
+            }
+            DxfSpoolOutput::File { output, .. } => Self::write_file_row(output, &row)?,
+        }
+        self.bytes = next;
+        Ok(())
+    }
+
+    fn write_and_clear(
+        &mut self,
+        walker: &mut Walker,
+        cancellation: &CancellationToken,
+    ) -> Result<()> {
+        for (index, (((mut geometry, layer), entity_type), text)) in walker
+            .geometries
+            .drain(..)
+            .zip(walker.layers.drain(..))
+            .zip(walker.types.drain(..))
+            .zip(walker.texts.drain(..))
+            .enumerate()
+        {
+            check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
+            if let Some(geometry) = geometry.as_mut() {
+                let dimensions = if geometry_has_nonzero_z(geometry) {
+                    CoordinateDimensions::Xyz
+                } else {
+                    CoordinateDimensions::Xy
+                };
+                set_geometry_dimensions(geometry, dimensions);
+            }
+            self.push(DxfSpoolRow {
+                geometry,
+                layer,
+                entity_type,
+                text,
+            })?;
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Result<DxfSpoolStorage> {
+        match self.output {
+            DxfSpoolOutput::Memory { rows, .. } => Ok(DxfSpoolStorage::Memory(Arc::new(rows))),
+            DxfSpoolOutput::File {
+                tempfile,
+                mut output,
+            } => {
+                output.flush()?;
+                drop(output);
+                Ok(DxfSpoolStorage::File(tempfile))
+            }
+        }
+    }
+}
+
+fn dxf_spool_row_length(row: &DxfSpoolRow) -> u64 {
+    let value = |length: usize| 4_u64.saturating_add(u64::try_from(length).unwrap_or(u64::MAX));
+    let geometry = row
+        .geometry
+        .as_ref()
+        .map(wkb_iso_length)
+        .unwrap_or_default();
+    value(geometry)
+        .saturating_add(value(row.layer.as_ref().map_or(0, String::len)))
+        .saturating_add(value(row.entity_type.as_ref().map_or(0, String::len)))
+        .saturating_add(value(row.text.as_ref().map_or(0, String::len)))
+}
+
+fn wkb_iso_length(geometry: &WkbGeometry) -> usize {
+    let coordinate_bytes = match geometry.dimensions {
+        CoordinateDimensions::Xy | CoordinateDimensions::Unknown => 16,
+        CoordinateDimensions::Xyz | CoordinateDimensions::Xym => 24,
+        CoordinateDimensions::Xyzm => 32,
+    };
+    let coordinates = |values: &[WkbCoordinate]| {
+        4_usize.saturating_add(values.len().saturating_mul(coordinate_bytes))
+    };
+    5_usize.saturating_add(match &geometry.value {
+        WkbValue::Point(_) => coordinate_bytes,
+        WkbValue::LineString(values) | WkbValue::CircularString(values) => coordinates(values),
+        WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
+            rings.iter().fold(4_usize, |length, ring| {
+                length.saturating_add(coordinates(ring))
+            })
+        }
+        WkbValue::MultiPoint(children)
+        | WkbValue::MultiLineString(children)
+        | WkbValue::MultiPolygon(children)
+        | WkbValue::GeometryCollection(children)
+        | WkbValue::CompoundCurve(children)
+        | WkbValue::CurvePolygon(children)
+        | WkbValue::MultiCurve(children)
+        | WkbValue::MultiSurface(children)
+        | WkbValue::PolyhedralSurface(children)
+        | WkbValue::Tin(children) => children.iter().fold(4_usize, |length, child| {
+            length.saturating_add(wkb_iso_length(child))
+        }),
+    })
+}
+
+fn dxf_spool_row_memory(row: &DxfSpoolRow) -> u64 {
+    let string_bytes = |value: &Option<String>| {
+        value
+            .as_ref()
+            .map_or(0_u64, |value| value.capacity() as u64)
+    };
+    (std::mem::size_of::<DxfSpoolRow>() as u64)
+        .saturating_add(row.geometry.as_ref().map_or(0, geometry_heap_memory_bytes))
+        .saturating_add(string_bytes(&row.layer))
+        .saturating_add(string_bytes(&row.entity_type))
+        .saturating_add(string_bytes(&row.text))
+}
+
+fn geometry_heap_memory_bytes(geometry: &WkbGeometry) -> u64 {
+    const ALLOCATION_OVERHEAD: u64 = 32;
+    let coordinates = |values: &Vec<WkbCoordinate>| {
+        (values.capacity() * std::mem::size_of::<WkbCoordinate>()) as u64 + ALLOCATION_OVERHEAD
+    };
+    match &geometry.value {
+        WkbValue::Point(_) => 0,
+        WkbValue::LineString(values) | WkbValue::CircularString(values) => coordinates(values),
+        WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
+            (rings.capacity() * std::mem::size_of::<Vec<WkbCoordinate>>()) as u64
+                + ALLOCATION_OVERHEAD
+                + rings.iter().map(coordinates).sum::<u64>()
+        }
+        WkbValue::MultiPoint(children)
+        | WkbValue::MultiLineString(children)
+        | WkbValue::MultiPolygon(children)
+        | WkbValue::GeometryCollection(children)
+        | WkbValue::CompoundCurve(children)
+        | WkbValue::CurvePolygon(children)
+        | WkbValue::MultiCurve(children)
+        | WkbValue::MultiSurface(children)
+        | WkbValue::PolyhedralSurface(children)
+        | WkbValue::Tin(children) => {
+            (children.capacity() * std::mem::size_of::<WkbGeometry>()) as u64
+                + ALLOCATION_OVERHEAD
+                + children.iter().map(geometry_heap_memory_bytes).sum::<u64>()
+        }
+    }
+}
+
+fn read_dxf_spool_value(input: &mut impl Read) -> Result<Option<Vec<u8>>> {
+    let mut length = [0_u8; 4];
+    input
+        .read_exact(&mut length)
+        .map_err(|error| err(format!("spool DXF troncato: {error}")))?;
+    let length = u32::from_le_bytes(length);
+    if length == DXF_SPOOL_NULL {
+        return Ok(None);
+    }
+    let mut value =
+        vec![0; usize::try_from(length).map_err(|_| err("lunghezza spool DXF non valida"))?];
+    input
+        .read_exact(&mut value)
+        .map_err(|error| err(format!("spool DXF troncato: {error}")))?;
+    Ok(Some(value))
+}
+
+fn read_dxf_spool_string(input: &mut impl Read) -> Result<Option<String>> {
+    let Some(bytes) = read_dxf_spool_value(input)? else {
+        return Ok(None);
+    };
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| err(format!("testo spool DXF non UTF-8: {error}")))
+}
+
 struct DxfDataset {
     layers: Vec<LayerContract>,
-    batch: RecordBatch,
+    spool: DxfSpoolStorage,
+    rows: usize,
+    wkb_limits: WkbLimits,
     loss: LossReport,
     reader_gate: SingleReaderGate,
 }
@@ -623,9 +1026,16 @@ impl OpenDatasetHandle for DxfDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let reader = self.reader_gate.open(request.layer, || {
             Ok(Box::new(DxfReader {
-                batch: Some(self.batch.clone()),
+                input: self.spool.reader()?,
+                remaining_rows: self.rows,
+                wkb_limits: self.wkb_limits,
                 layer: self.layers[0].clone(),
                 loss: self.loss.clone(),
+                batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
+                    self.layers[0].contract.schema.as_ref(),
+                    request.batch_target,
+                ),
+                cancellation: request.cancellation.clone(),
             }))
         })?;
         Ok(plenora_io_core::with_batch_target(
@@ -637,9 +1047,13 @@ impl OpenDatasetHandle for DxfDataset {
 }
 
 struct DxfReader {
-    batch: Option<RecordBatch>,
+    input: DxfSpoolReader,
+    remaining_rows: usize,
+    wkb_limits: WkbLimits,
     layer: LayerContract,
     loss: LossReport,
+    batch_sizer: plenora_io_core::AdaptiveBatchSizer,
+    cancellation: CancellationToken,
 }
 
 impl LayerReader for DxfReader {
@@ -647,7 +1061,46 @@ impl LayerReader for DxfReader {
         &self.layer
     }
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        Ok(self.batch.take())
+        check_cancelled(&self.cancellation, ErrorPhase::Read)?;
+        if self.remaining_rows == 0 {
+            return Ok(None);
+        }
+        let rows = self.remaining_rows.min(self.batch_sizer.rows());
+        let dimensions = self
+            .layer
+            .contract
+            .geometry
+            .as_ref()
+            .map(|geometry| geometry.dimensions)
+            .unwrap_or(CoordinateDimensions::Unknown);
+        let mut geometries = Vec::with_capacity(rows);
+        let mut layers = Vec::with_capacity(rows);
+        let mut types = Vec::with_capacity(rows);
+        let mut texts = Vec::with_capacity(rows);
+        for index in 0..rows {
+            check_cancelled_periodically(&self.cancellation, ErrorPhase::Read, index)?;
+            let row = self.input.next_row(dimensions, &self.wkb_limits)?;
+            geometries.push(row.geometry);
+            layers.push(row.layer);
+            types.push(row.entity_type);
+            texts.push(row.text);
+        }
+        self.remaining_rows -= rows;
+        let arrays: Vec<ArrayRef> = vec![
+            Arc::new(BinaryArray::from(
+                geometries
+                    .iter()
+                    .map(|value| value.as_deref())
+                    .collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(layers)),
+            Arc::new(StringArray::from(types)),
+            Arc::new(StringArray::from(texts)),
+        ];
+        let batch = RecordBatch::try_new(self.layer.contract.schema.clone(), arrays)
+            .map_err(|error| err(format!("batch DXF da spool: {error}")))?;
+        self.batch_sizer.observe(&batch);
+        Ok(Some(batch))
     }
     fn loss_report(&self) -> LossReport {
         self.loss.clone()
@@ -679,8 +1132,8 @@ fn mapped(local: &[[f64; 2]], elevation: f64, transform: &Transform3) -> Vec<Wkb
 /// Walker ricorsivo: converte le entità (esplodendo gli INSERT) in righe
 /// colonnari WKB. È il motore di plenora-dxf-tools adattato all'interfaccia del
 /// driver (AST WKB lossless + LossReport invece di GeoJSON).
-struct Walker<'a> {
-    blocks: HashMap<String, &'a Block>,
+struct Walker {
+    blocks: HashMap<String, Arc<Block>>,
     geometries: Vec<Option<WkbGeometry>>,
     layers: Vec<Option<String>>,
     types: Vec<Option<String>>,
@@ -691,18 +1144,15 @@ struct Walker<'a> {
     remaining_vertices: usize,
     cancellation: CancellationToken,
     visited_entities: usize,
+    emitted_rows: usize,
 }
 
-impl<'a> Walker<'a> {
-    fn new(
-        drawing: &'a Drawing,
-        limits: &Limits,
-        cancellation: &CancellationToken,
-    ) -> Result<Self> {
+impl Walker {
+    fn new(drawing: &Drawing, limits: &Limits, cancellation: &CancellationToken) -> Result<Self> {
         let mut blocks = HashMap::new();
         for (index, block) in drawing.blocks().enumerate() {
             check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
-            blocks.insert(block.name.clone(), block);
+            blocks.insert(block.name.clone(), Arc::new(block.clone()));
         }
         Ok(Walker {
             blocks,
@@ -716,6 +1166,7 @@ impl<'a> Walker<'a> {
             remaining_vertices: limits.max_vertices,
             cancellation: cancellation.clone(),
             visited_entities: 0,
+            emitted_rows: 0,
         })
     }
 
@@ -735,12 +1186,13 @@ impl<'a> Walker<'a> {
         ty: &'static str,
         text: Option<String>,
     ) -> Result<()> {
-        if self.geometries.len() >= self.max_rows {
+        if self.emitted_rows >= self.max_rows {
             return Err(PlenoraIoError::LimitExceeded(format!(
                 "righe DXF oltre il limite di {}",
                 self.max_rows
             )));
         }
+        self.emitted_rows = self.emitted_rows.saturating_add(1);
         let vertices = value_coordinate_count(&value);
         if vertices > self.remaining_vertices {
             return Err(PlenoraIoError::LimitExceeded(format!(
@@ -1120,7 +1572,7 @@ impl<'a> Walker<'a> {
                 insert.z_scale_factor
             },
         ));
-        if let Some(block) = self.blocks.get(&insert.name).copied() {
+        if let Some(block) = self.blocks.get(&insert.name).cloned() {
             self.loss.record("blocco INSERT esploso", 1);
             for entity in &block.entities {
                 self.walk_entity(entity, composed, layer, depth + 1, visiting)?;
@@ -1222,18 +1674,24 @@ fn geometry_has_nonzero_z(geometry: &WkbGeometry) -> bool {
 
 fn set_geometry_dimensions(geometry: &mut WkbGeometry, dimensions: CoordinateDimensions) {
     let set_coordinates = |coordinates: &mut [WkbCoordinate]| {
-        if dimensions == CoordinateDimensions::Xy {
-            for coordinate in coordinates {
-                coordinate.z = None;
+        for coordinate in coordinates {
+            match dimensions {
+                CoordinateDimensions::Xy => coordinate.z = None,
+                CoordinateDimensions::Xyz => {
+                    coordinate.z.get_or_insert(0.0);
+                }
+                _ => {}
             }
         }
     };
     match &mut geometry.value {
-        WkbValue::Point(coordinate) => {
-            if dimensions == CoordinateDimensions::Xy {
-                coordinate.z = None;
+        WkbValue::Point(coordinate) => match dimensions {
+            CoordinateDimensions::Xy => coordinate.z = None,
+            CoordinateDimensions::Xyz => {
+                coordinate.z.get_or_insert(0.0);
             }
-        }
+            _ => {}
+        },
         WkbValue::LineString(coordinates) | WkbValue::CircularString(coordinates) => {
             set_coordinates(coordinates)
         }
@@ -1258,6 +1716,98 @@ fn set_geometry_dimensions(geometry: &mut WkbGeometry, dimensions: CoordinateDim
         }
     }
     geometry.dimensions = dimensions;
+}
+
+#[derive(Default)]
+struct DxfContractStats {
+    has_nonzero_z: bool,
+    geometry_types: BTreeSet<GeometryType>,
+}
+
+impl DxfContractStats {
+    fn observe(&mut self, walker: &Walker, cancellation: &CancellationToken) -> Result<()> {
+        for (index, geometry) in walker.geometries.iter().flatten().enumerate() {
+            check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
+            self.has_nonzero_z |= geometry_has_nonzero_z(geometry);
+            self.geometry_types.insert(geometry.geometry_type());
+        }
+        Ok(())
+    }
+
+    fn dimensions(&self) -> CoordinateDimensions {
+        if self.has_nonzero_z {
+            CoordinateDimensions::Xyz
+        } else {
+            CoordinateDimensions::Xy
+        }
+    }
+}
+
+fn dxf_contract(
+    crs: ResolvedCrs,
+    dimensions: CoordinateDimensions,
+    geometry_types: BTreeSet<GeometryType>,
+) -> Result<DataContract> {
+    let mut geometry_contract =
+        GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs.clone(), true);
+    geometry_contract.dimensions = dimensions;
+    geometry_contract.set_exact_geometry_types(geometry_types.into_iter().collect());
+    geometry_contract
+        .native_metadata
+        .insert("dxf.geometry_model".to_owned(), "wcs".to_owned());
+    geometry_contract.native_metadata.insert(
+        "dxf.z_inference".to_owned(),
+        "xyz_if_any_nonzero_z_else_xy".to_owned(),
+    );
+    let crs_label = crs.id.as_deref().ok_or_else(|| {
+        PlenoraIoError::Crs(
+            "DXF: CRS risolto senza identificatore; vietato inventare DXF:GEODATA".to_owned(),
+        )
+    })?;
+    let fields = vec![
+        with_geometry_contract_metadata(&geometry_field(GEOMETRY, crs_label), &geometry_contract),
+        Field::new("layer", DataType::Utf8, true),
+        Field::new("dxf_type", DataType::Utf8, true),
+        Field::new("text", DataType::Utf8, true),
+    ];
+    let schema: SchemaRef = Arc::new(Schema::new(fields));
+    Ok(DataContract::new(schema, Some(geometry_contract)))
+}
+
+fn batch_from_walker(
+    walker: &mut Walker,
+    contract: &DataContract,
+    cancellation: &CancellationToken,
+) -> Result<RecordBatch> {
+    let dimensions = contract
+        .geometry
+        .as_ref()
+        .map(|geometry| geometry.dimensions)
+        .unwrap_or(CoordinateDimensions::Unknown);
+    let mut geometries = std::mem::take(&mut walker.geometries);
+    let mut encoded = Vec::with_capacity(geometries.len());
+    for (index, geometry) in geometries.iter_mut().enumerate() {
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
+        let Some(geometry) = geometry else {
+            encoded.push(None);
+            continue;
+        };
+        set_geometry_dimensions(geometry, dimensions);
+        encoded.push(Some(encode_wkb(geometry, WkbFlavor::Iso)?));
+    }
+    let arrays: Vec<ArrayRef> = vec![
+        Arc::new(BinaryArray::from(
+            encoded
+                .iter()
+                .map(|value| value.as_deref())
+                .collect::<Vec<_>>(),
+        )),
+        Arc::new(StringArray::from(std::mem::take(&mut walker.layers))),
+        Arc::new(StringArray::from(std::mem::take(&mut walker.types))),
+        Arc::new(StringArray::from(std::mem::take(&mut walker.texts))),
+    ];
+    RecordBatch::try_new(contract.schema.clone(), arrays)
+        .map_err(|error| err(format!("batch DXF progressivo: {error}")))
 }
 
 fn build_batch(
@@ -1287,67 +1837,10 @@ fn build_batch_cancellable(
     for e in drawing.entities() {
         walker.walk_entity(e, Transform3::IDENTITY, "0", 0, &mut visiting)?;
     }
-
-    let dimensions = if walker
-        .geometries
-        .iter()
-        .flatten()
-        .any(geometry_has_nonzero_z)
-    {
-        CoordinateDimensions::Xyz
-    } else {
-        CoordinateDimensions::Xy
-    };
-    let mut geometry_types = BTreeSet::new();
-    let mut encoded = Vec::with_capacity(walker.geometries.len());
-    for (index, geometry) in walker.geometries.iter_mut().enumerate() {
-        check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
-        let Some(geometry) = geometry else {
-            encoded.push(None);
-            continue;
-        };
-        set_geometry_dimensions(geometry, dimensions);
-        geometry_types.insert(geometry.geometry_type());
-        encoded.push(Some(encode_wkb(geometry, WkbFlavor::Iso)?));
-    }
-
-    let mut geometry_contract =
-        GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs.clone(), true);
-    geometry_contract.dimensions = dimensions;
-    geometry_contract.set_exact_geometry_types(geometry_types.into_iter().collect());
-    geometry_contract
-        .native_metadata
-        .insert("dxf.geometry_model".to_owned(), "wcs".to_owned());
-    geometry_contract.native_metadata.insert(
-        "dxf.z_inference".to_owned(),
-        "xyz_if_any_nonzero_z_else_xy".to_owned(),
-    );
-    let crs_label = crs.id.as_deref().ok_or_else(|| {
-        PlenoraIoError::Crs(
-            "DXF: CRS risolto senza identificatore; vietato inventare DXF:GEODATA".to_owned(),
-        )
-    })?;
-    let fields = vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, crs_label), &geometry_contract),
-        Field::new("layer", DataType::Utf8, true),
-        Field::new("dxf_type", DataType::Utf8, true),
-        Field::new("text", DataType::Utf8, true),
-    ];
-    let arrays: Vec<ArrayRef> = vec![
-        Arc::new(BinaryArray::from(
-            encoded
-                .iter()
-                .map(|value| value.as_deref())
-                .collect::<Vec<_>>(),
-        )),
-        Arc::new(StringArray::from(walker.layers)),
-        Arc::new(StringArray::from(walker.types)),
-        Arc::new(StringArray::from(walker.texts)),
-    ];
-    let schema: SchemaRef = Arc::new(Schema::new(fields));
-    let batch =
-        RecordBatch::try_new(schema.clone(), arrays).map_err(|e| err(format!("batch: {e}")))?;
-    let contract = DataContract::new(schema, Some(geometry_contract));
+    let mut stats = DxfContractStats::default();
+    stats.observe(&walker, cancellation)?;
+    let contract = dxf_contract(crs, stats.dimensions(), stats.geometry_types)?;
+    let batch = batch_from_walker(&mut walker, &contract, cancellation)?;
     Ok((batch, walker.loss, contract))
 }
 
@@ -1386,6 +1879,39 @@ mod tests {
         assert!(output.write_all(b"cd").is_err());
         assert!(output.exceeded());
         assert_eq!(output.into_inner(), b"ab");
+    }
+
+    #[test]
+    fn spool_spills_to_file_without_changing_the_row() {
+        let mut spool = DxfSpoolWriter::with_memory_limit(4096, 1);
+        spool
+            .push(DxfSpoolRow {
+                geometry: Some(WkbGeometry {
+                    value: WkbValue::Point(WkbCoordinate {
+                        x: 1.0,
+                        y: 2.0,
+                        z: None,
+                        m: None,
+                    }),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                }),
+                layer: Some("layer".to_owned()),
+                entity_type: Some("POINT".to_owned()),
+                text: None,
+            })
+            .unwrap();
+        let storage = spool.finish().unwrap();
+        assert!(matches!(storage, DxfSpoolStorage::File(_)));
+        let mut reader = storage.reader().unwrap();
+        let row = reader
+            .next_row(CoordinateDimensions::Xy, &WkbLimits::default())
+            .unwrap();
+        assert_eq!(row.layer.as_deref(), Some("layer"));
+        assert_eq!(row.entity_type.as_deref(), Some("POINT"));
+        let geometry = decode_wkb(row.geometry.as_deref().unwrap(), &WkbLimits::default()).unwrap();
+        assert_eq!(geometry.dimensions, CoordinateDimensions::Xy);
+        assert!(matches!(geometry.value, WkbValue::Point(_)));
     }
 
     fn resolved_wgs84() -> ResolvedCrs {

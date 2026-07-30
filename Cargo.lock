@@ -607,8 +607,6 @@ dependencies = [
 [[package]]
 name = "dxf"
 version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bb070bbb077a936e2bdf95d4b39aa83e865b38c3a7054f71d704e0796da1821"
 dependencies = [
  "byteorder",
  "chrono",

@@ -218,11 +218,81 @@ nativa, benchmark narrow col veto del 5%, cross-volume e workspace. Il gate
 `Verify governed GDAL fork` ha inoltre verificato in CI i 64 file e il tree
 hash `c35bc68c794bf7b5f27e948e8b139029dfe035c20ac540711ca0c4f5def5d099`.
 
-## Workstream ancora bloccati
+## Quinto incremento: KML event-based con spool bounded
 
-- KML richiede un parser event-based semanticamente equivalente e un benchmark
-  interlacciato che superi il veto.
-- DXF richiede un iteratore upstream pubblico oppure un fork governato.
+Il reader KML non costruisce più il DOM della crate `kml`. Una singola visita
+`quick-xml` valida la struttura XML e segue lo stesso ordine documentale del
+loader precedente, inclusi `Document`, `Folder`, `Placemark`,
+`MultiGeometry`, nome e descrizione. Le geometrie WKB e gli attributi vengono
+scritti in uno spool temporaneo bounded da `limits.max_input_bytes`; il
+`LayerReader` li emette poi in batch sequenziali senza riaprire né riparsare
+il documento.
+
+Un test di equivalenza confronta direttamente l'ordine di visita event-based
+con quello legacy su documenti annidati. I dieci test del driver coprono anche
+XML malformato, DOCTYPE, coordinate invalide, limiti e cancellazione.
+
+Il benchmark interlacciato usa cinque coppie RC3/RC4 sulla stessa fixture KML
+da 100.000 placemark:
+
+- throughput mediano: 169.393 → 305.809 righe/s (`+80,53%`);
+- peak RSS mediano: circa 425,86 → 22,39 MB (`-94,74%`);
+- allocazioni: 6.100.308 → 5.100.357 (`-16,39%`);
+- byte allocati: 590.930.526 → 92.693.781 (`-84,31%`).
+
+Il veto del 5% è superato. Il descrittore passa a
+`ReadMode::StreamingSequential`; `driver_version` passa da 4 a 5 e
+`descriptor_version` da 5 a 6.
+
+## Sesto incremento: DXF progressivo tramite fork governato
+
+La crate upstream `dxf 0.6.1` esponeva soltanto un loader che copiava l'intero
+input e materializzava tutte le entità. Il workspace usa ora un fork locale
+della stessa versione, tag `v0.6.1`, commit
+`f1bca30b9d753ee53e66212b329972a3dfd46641` e checksum crates.io
+`6bb070bbb077a936e2bdf95d4b39aa83e865b38c3a7054f71d704e0796da1821`.
+Provenienza, delta e aggiornamento sono registrati in
+`vendor/dxf/PLENORA_FORK.md`; il gate verifica i 60 file e il tree hash
+`7de901d9fba185c4bd53d5149d654281298035d405ac05aeb4a434d978110c13`.
+
+`DrawingEntityReader` conserva metadata e blocchi necessari agli `INSERT`, ma
+emette una entità logica alla volta. Il raggruppamento di
+`POLYLINE`/`VERTEX`, attributi `INSERT` e `MTEXT` resta identico al loader
+upstream. Il parser testuale usa `BufRead::read_until` e limita il prefetch a
+1 KiB; un test con reader strumentato dimostra che la prima entità arriva
+senza leggere anticipatamente il file completo. La suite upstream chiude con
+292 test e 3 doctest verdi.
+
+Il driver cammina ogni entità una sola volta e mantiene un buffer ibrido:
+fino a 64 MiB conserva le righe WKB native già prodotte dal walker; superata
+la soglia le serializza in un tempfile e prosegue bounded. Inferenza del
+contratto, limiti, cancellazione e perdite osservate restano nella stessa
+passata. Il `LayerReader` accede al buffer con lease esclusivo e copia soltanto
+la riga del batch corrente, non l'intero dataset; dopo il drop un nuovo reader
+può ripartire dall'inizio. I 24 test del driver sono verdi.
+
+Il benchmark interlacciato definitivo usa cinque coppie RC3/RC4, 100.000
+entità e la stessa fixture nel filesystem Linux del container:
+
+- throughput mediano: 238.930 → 313.135 righe/s (`+31,06%`);
+- peak RSS mediano: 216.731.648 → 44.101.632 byte (`-79,65%`);
+- allocazioni: 9.606.215 → 9.408.860 (`-2,05%`);
+- byte allocati: 553.252.495 → 107.984.767 (`-80,48%`).
+
+Una misura preliminare sul bind mount NTFS del workspace penalizzava
+selettivamente le letture progressive e mostrava una falsa regressione,
+mentre la CPU RC4 era già inferiore. È esclusa dall'evidenza prestazionale:
+il confronto registrato usa il filesystem nativo del runner Linux per
+entrambe le revisioni. Il veto del 5% è superato. Il descrittore passa a
+`ReadMode::StreamingSequential`; `driver_version` passa da 4 a 5 e
+`descriptor_version` da 5 a 6.
+
+## Stato dei workstream
+
+I cinque workstream tecnici RC4 sono implementati e hanno superato i rispettivi
+gate. Il manifest resta `development` e `component_rc=false`: congelamento
+della baseline, CI verde sulla revisione congelata e tag immutabile restano
+passi procedurali separati.
 
 I residui CRS combinati e l'osservabilità CLI del `LossReport` reader non
 vengono assorbiti implicitamente in RC4: restano rispettivamente decisione
@@ -231,7 +301,8 @@ dell'owner ed attività esterna registrata.
 ## Gate
 
 - rustfmt e Clippy safety;
-- test workspace e test mirati XLSX;
+- test workspace e test mirati XLSX/KML/DXF, inclusa la suite upstream del
+  fork DXF;
 - equivalenza di schema, payload, righe sparse e batch multipli;
 - cancellazione durante la scansione e durante l'emissione;
 - benchmark interlacciato baseline/RC4 su tempo, RSS e allocazioni superato
@@ -242,4 +313,6 @@ dell'owner ed attività esterna registrata.
   `2^53`, inclusa la propagazione bounded del `LossReport`;
 - fork `gdal 0.17.1` verificato per provenienza, projection FileGDB vuota e
   non contigua, suite feature-on e benchmark A/B full/narrow;
+- fork `dxf 0.6.1` verificato per provenienza e tree hash, emissione realmente
+  progressiva, equivalenza dei gruppi logici e benchmark A/B;
 - gate di provenienza release con RC3 immutabile e RC4 ancora `development`.

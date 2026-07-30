@@ -42,6 +42,8 @@ jobs:
         run: python3 scripts/check_dependency_pins.py
       - name: Verify governed GDAL fork
         run: python3 scripts/check_gdal_fork.py
+      - name: Verify governed DXF fork
+        run: python3 scripts/check_dxf_fork.py
       - name: Verify locked workspace and fuzz dependency graphs
         run: |
           cargo metadata --locked --format-version 1 > /dev/null
