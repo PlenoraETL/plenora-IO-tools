@@ -103,7 +103,10 @@ scrittura. Il codice RC5 è congelato come candidato `1.0.0-rc.1` sulla
 revisione `796a1f9`, verificata dalla CI `30617658910`; la decisione
 `409cf93` ha CI `30618471105` verde. La revisione pre-tag `cea2535` ha CI
 `30619205139` verde e il record finale autorizza il tag annotato
-`v1.0.0-rc.1`. R2.8 e R4.1.1 restano proposte registrate e
+`v1.0.0-rc.1`, target `6e3a942`; anche la CI del tag `30619802027` è verde.
+La qualifica esterna `plenora-contracts@c3f1a8e` misura `83/84` roundtrip e
+`27/28` nella catena: l'unico fallimento è il caso R4.1.1 già escluso dal
+claim. R2.8 e R4.1.1 restano proposte registrate e
 non implementate, quindi bloccano soltanto un claim esplicito di allineamento a
 quelle proposte. Le riduzioni di scope e i blocker che riemergono per claim più
 forti sono machine-readable nel manifesto RC5.
@@ -112,3 +115,7 @@ Il materiale per un'eventuale review è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il
 record resta `pending_eligible_reviewer` finché una persona eleggibile non
 registra identità, comandi, rilievi ed esito.
+
+L'evidenza post-tag e i limiti che impediscono di leggerla come system RC sono
+registrati nella
+[`CIA di qualifica post-tag`](CHANGE_IMPACT_2026-07-31_1_0_RC1_POST_TAG_QUALIFICATION.md).

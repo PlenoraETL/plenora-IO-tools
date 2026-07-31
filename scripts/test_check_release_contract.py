@@ -178,6 +178,11 @@ class ReleaseContractTests(unittest.TestCase):
         gate["status"] = "satisfied"
         self.assertTrue(self.validate(system_gate=gate))
 
+    def test_rejects_external_qualification_result_drift(self) -> None:
+        gate = copy.deepcopy(self.system_gate)
+        gate["evidence"]["current_system_qualification"]["roundtrip"] = "84/84"
+        self.assertTrue(self.validate(system_gate=gate))
+
     def test_rejects_rollback_after_technical_freeze(self) -> None:
         provenance = copy.deepcopy(self.provenance)
         provenance["freeze_status"] = "pre_freeze"

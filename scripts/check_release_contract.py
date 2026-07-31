@@ -54,6 +54,12 @@ EXPECTED_PRE_TAG_REVISION = "cea2535c2ddcbae4ba7ec49e72b65a9524b8711b"
 EXPECTED_PRE_TAG_CI_RUN = 30619205139
 EXPECTED_RELEASE_TAG_CREATED = True
 EXPECTED_PRE_TAG_CI_PASSED = True
+EXPECTED_FINAL_RECORD_REVISION = "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842"
+EXPECTED_FINAL_RECORD_CI_RUN = 30619555718
+EXPECTED_TAG_CI_RUN = 30619802027
+EXPECTED_EXTERNAL_QUALIFICATION_REVISION = (
+    "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab"
+)
 EXPECTED_COVERAGE_ARTIFACT = {
     "id": 8788035291,
     "name": "rust-coverage-lcov",
@@ -168,9 +174,9 @@ RC4_PRE_TAG_REVISION = "f5dc5d46668062b4016ac9e50229bc869a12d380"
 RC4_PRE_TAG_CI_RUN = 30606830974
 EXPECTED_DATABASE_REPLAY_REVISION = "ef18e80c798126f872fd366c36ee96a029598958"
 EXPECTED_SYSTEM_REVISIONS = {
-    "plenora-IO-tools": EXPECTED_IO_CANDIDATE,
-    "plenora-data-tools": "97e48ba469f9f55a2cc83e9598d72899c29e2be6",
-    "plenora-database-tools": "2588523bf6a4ad57e62ae3d44e9f58025c55a913",
+    "plenora-IO-tools": EXPECTED_FINAL_RECORD_REVISION,
+    "plenora-data-tools": "7d530318760ccfa93b2baa2049e181fd57deed1e",
+    "plenora-database-tools": "b541c61dd1c286cdf2e808e17eefd133d7c9ba20",
 }
 EXPECTED_FUZZ_STATE = "long_campaign_completed_no_findings"
 REQUIRED_CANDIDATE_SECTIONS = {
@@ -454,6 +460,10 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
             "release_tag_status": "created",
             "pre_tag_revision": EXPECTED_PRE_TAG_REVISION,
             "pre_tag_ci_run": EXPECTED_PRE_TAG_CI_RUN,
+            "final_record_revision": EXPECTED_FINAL_RECORD_REVISION,
+            "final_record_ci_run": EXPECTED_FINAL_RECORD_CI_RUN,
+            "tag_target_revision": EXPECTED_FINAL_RECORD_REVISION,
+            "tag_ci_run": EXPECTED_TAG_CI_RUN,
         },
         "workstreams": {
             "r9_machine_readable_error_envelope": (
@@ -492,6 +502,20 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
             "status": "component_rc_tagged",
             "surface": "cli_json_only",
             "blocking_decisions": [],
+        },
+        "post_tag_qualification": {
+            "owner": "plenora-contracts/conformance",
+            "owner_revision": EXPECTED_EXTERNAL_QUALIFICATION_REVISION,
+            "roundtrip": "83/84",
+            "chain": "27/28",
+            "single_failure": (
+                "crs_unresolved__geoarrow_r4_1_1_proposal_not_implemented"
+            ),
+            "system_gate": "not_satisfied",
+            "record": (
+                "docs/assurance/"
+                "CHANGE_IMPACT_2026-07-31_1_0_RC1_POST_TAG_QUALIFICATION.md"
+            ),
         },
         "declared_scope_reductions": {
             "component_rc_verified_internally": [
@@ -685,6 +709,15 @@ def validate_documents(
         "avionic_certification": False,
     }:
         errors.append("contract-provenance: claims RC/sistema/avionica non fail-closed")
+    if provenance.get("post_tag_qualification") != {
+        "owner": "plenora-contracts/conformance",
+        "owner_revision": EXPECTED_EXTERNAL_QUALIFICATION_REVISION,
+        "component_tag_target": EXPECTED_FINAL_RECORD_REVISION,
+        "roundtrip": "83/84",
+        "chain": "27/28",
+        "system_gate": "not_satisfied",
+    }:
+        errors.append("contract-provenance: qualifica post-tag inattesa")
 
     if fuzz.get("state") != EXPECTED_FUZZ_STATE:
         errors.append("contract-provenance: stato fuzz coordinato inatteso")
@@ -738,6 +771,32 @@ def validate_documents(
         errors.append("system-rc-gate: harness cross-component non ammesso nel repository IO")
     if not system_gate.get("open_blockers"):
         errors.append("system-rc-gate: stato aperto senza blocker dichiarati")
+    if system_gate.get("fixture_variants") != [
+        "canonical_only",
+        "geoarrow_extension",
+    ]:
+        errors.append("system-rc-gate: varianti canonica/GeoArrow non dichiarate")
+    current_qualification = system_gate.get("evidence", {}).get(
+        "current_system_qualification"
+    )
+    if current_qualification != {
+        "owner_revision": EXPECTED_EXTERNAL_QUALIFICATION_REVISION,
+        "matrix_icd": {
+            "tag": "v2.0-rc8",
+            "revision": "62b12e3496466d2c908dac3cc098640b99b52e21",
+        },
+        "roundtrip": "83/84",
+        "chain": "27/28",
+        "single_failure": (
+            "crs_unresolved__geoarrow: R4.1.1 proposal_not_implemented"
+        ),
+        "read_loss_runner_status": "unverified_obligation",
+        "read_loss_targeted_component_observation": (
+            "conflicting_crs__geoarrow records "
+            "inconsistent_crs_representations=1"
+        ),
+    }:
+        errors.append("system-rc-gate: qualifica esterna post-tag inattesa")
 
     if corpus_schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
         errors.append("shared corpus: JSON Schema draft inatteso")
@@ -888,6 +947,18 @@ def validate_documents(
         != EXPECTED_LIBRARY_COVERAGE_SOURCE
     ):
         errors.append("evidence: fonte coverage candidata inattesa")
+    if evidence.get("post_tag_validation") != {
+        "final_record_revision": EXPECTED_FINAL_RECORD_REVISION,
+        "final_record_ci_run": EXPECTED_FINAL_RECORD_CI_RUN,
+        "tag_ci_run": EXPECTED_TAG_CI_RUN,
+        "tag_ci_result": "pass",
+        "external_qualification_owner_revision": (
+            EXPECTED_EXTERNAL_QUALIFICATION_REVISION
+        ),
+        "external_roundtrip": "83/84",
+        "external_chain": "27/28",
+    }:
+        errors.append("evidence: validazione post-tag inattesa")
     replay = (
         evidence.get("candidate_local_verification", {})
         .get("shared_wkb_ewkb_replay", {})
@@ -1055,6 +1126,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-31_1_0_RC1_POST_TAG_QUALIFICATION.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]

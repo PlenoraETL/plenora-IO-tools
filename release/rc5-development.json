@@ -24,7 +24,11 @@
     "release_tag": "v1.0.0-rc.1",
     "release_tag_status": "created",
     "pre_tag_revision": "cea2535c2ddcbae4ba7ec49e72b65a9524b8711b",
-    "pre_tag_ci_run": 30619205139
+    "pre_tag_ci_run": 30619205139,
+    "final_record_revision": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
+    "final_record_ci_run": 30619555718,
+    "tag_target_revision": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
+    "tag_ci_run": 30619802027
   },
   "workstreams": {
     "r9_machine_readable_error_envelope": "implemented_targeted_gates_passed",
@@ -51,6 +55,15 @@
     "status": "component_rc_tagged",
     "surface": "cli_json_only",
     "blocking_decisions": []
+  },
+  "post_tag_qualification": {
+    "owner": "plenora-contracts/conformance",
+    "owner_revision": "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab",
+    "roundtrip": "83/84",
+    "chain": "27/28",
+    "single_failure": "crs_unresolved__geoarrow_r4_1_1_proposal_not_implemented",
+    "system_gate": "not_satisfied",
+    "record": "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_POST_TAG_QUALIFICATION.md"
   },
   "declared_scope_reductions": {
     "component_rc_verified_internally": [

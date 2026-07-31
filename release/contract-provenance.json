@@ -123,6 +123,14 @@
       "reverse_system_qualification_direction"
     ]
   },
+  "post_tag_qualification": {
+    "owner": "plenora-contracts/conformance",
+    "owner_revision": "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab",
+    "component_tag_target": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
+    "roundtrip": "83/84",
+    "chain": "27/28",
+    "system_gate": "not_satisfied"
+  },
   "fuzz_coordination": {
     "state": "long_campaign_completed_no_findings",
     "io_tools_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",

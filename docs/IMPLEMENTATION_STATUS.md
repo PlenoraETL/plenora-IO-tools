@@ -32,7 +32,11 @@ campo writer-only `loss.lossless`. La superficie candidata alla compatibilità
 Il codice è congelato come `1.0.0-rc.1` sulla revisione `796a1f9`, con CI
 candidata `30617658910` e decisione di release `409cf93`/`30618471105` verdi.
 La revisione pre-tag `cea2535` ha CI `30619205139` verde ed è legata al record
-finale che autorizza il tag annotato `v1.0.0-rc.1`.
+finale `6e3a942`; il tag annotato `v1.0.0-rc.1` e la relativa CI
+`30619802027` sono verdi. La prima qualifica esterna sui tre tag immutabili,
+registrata da `plenora-contracts` in `c3f1a8e`, riporta `83/84` roundtrip e
+`27/28` nella catena. L'unico fallimento è R4.1.1 proposta e già dichiarata
+non implementata; il gate di sistema resta separato e non soddisfatto.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con

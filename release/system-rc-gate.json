@@ -12,17 +12,17 @@
   "components": [
     {
       "name": "plenora-IO-tools",
-      "revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
+      "revision": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
       "role": "file_boundary"
     },
     {
       "name": "plenora-data-tools",
-      "revision": "97e48ba469f9f55a2cc83e9598d72899c29e2be6",
+      "revision": "7d530318760ccfa93b2baa2049e181fd57deed1e",
       "role": "transformation_core"
     },
     {
       "name": "plenora-database-tools",
-      "revision": "2588523bf6a4ad57e62ae3d44e9f58025c55a913",
+      "revision": "b541c61dd1c286cdf2e808e17eefd133d7c9ba20",
       "role": "database_boundary"
     }
   ],
@@ -31,14 +31,24 @@
     "database_to_data_to_io"
   ],
   "required_fixtures": [
-    "exact_point_xy_resolved_crs",
-    "exact_multipolygon_xyzm_with_srid",
-    "mixed_geometry_types",
-    "declared_unresolved_crs",
-    "missing_crs",
+    "axis_lat_lon",
+    "conflicting_crs",
+    "crs_missing",
+    "crs_unresolved",
+    "dimensions_unknown",
     "geography_semantics",
-    "native_metadata_identity_lineage",
-    "conflicting_crs_representations"
+    "int64_beyond_2_53",
+    "multipolygon_xyzm_srid",
+    "point_z",
+    "point_zm",
+    "polygon_xy_projected",
+    "types_mixed",
+    "uint64_ordering",
+    "unknown_key"
+  ],
+  "fixture_variants": [
+    "canonical_only",
+    "geoarrow_extension"
   ],
   "required_properties": [
     "contract_version",
@@ -58,14 +68,25 @@
     "native_metadata"
   ],
   "evidence": {
-    "status": "external_to_component_repository",
+    "status": "external_partial_not_system_gate",
     "historical_observation": {
       "release_tag": "v0.1.0-rc.2",
       "fixture": "exact_point_xyz_resolved_crs",
       "platform": "linux_x86_64",
       "result": "pass"
     },
-    "current_system_qualification": "not_run"
+    "current_system_qualification": {
+      "owner_revision": "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab",
+      "matrix_icd": {
+        "tag": "v2.0-rc8",
+        "revision": "62b12e3496466d2c908dac3cc098640b99b52e21"
+      },
+      "roundtrip": "83/84",
+      "chain": "27/28",
+      "single_failure": "crs_unresolved__geoarrow: R4.1.1 proposal_not_implemented",
+      "read_loss_runner_status": "unverified_obligation",
+      "read_loss_targeted_component_observation": "conflicting_crs__geoarrow records inconsistent_crs_representations=1"
+    }
   },
   "pass_conditions": [
     "All three revisions and the ICD revision are immutable and recorded.",
@@ -78,8 +99,10 @@
     "The evidence bundle includes commands, environment, fixture hashes and results."
   ],
   "open_blockers": [
-    "System integration evidence is owned outside the IO component repository.",
-    "Both directions, the remaining fixture matrix and native Windows execution are not covered by an external qualification bundle.",
-    "The candidate ICD sections used by the wire contract are not all ratified."
+    "The database_to_data_to_io direction has not been executed.",
+    "Native Windows execution of the three-component chain is not covered.",
+    "The external runner does not yet consume read_loss and keeps the R4.6.1 declaration as an unverified obligation.",
+    "The external matrix evidence declares ICD v2.0-rc8 while the current component provenance records v2.0-rc13.",
+    "R4.1.1 remains a proposed, explicitly non-implemented rule."
   ]
 }

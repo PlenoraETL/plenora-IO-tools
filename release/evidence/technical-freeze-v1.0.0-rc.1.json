@@ -128,5 +128,14 @@
     "crs_definition against SRID requires a resolver and is outside this component RC.",
     "The system RC gate remains not satisfied and its matrix must be rerun on the immutable tag.",
     "This record does not claim independent verification or avionic certification."
-  ]
+  ],
+  "post_tag_validation": {
+    "final_record_revision": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
+    "final_record_ci_run": 30619555718,
+    "tag_ci_run": 30619802027,
+    "tag_ci_result": "pass",
+    "external_qualification_owner_revision": "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab",
+    "external_roundtrip": "83/84",
+    "external_chain": "27/28"
+  }
 }
