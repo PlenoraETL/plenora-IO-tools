@@ -5,7 +5,7 @@
 **Baseline:** `v1.0.0-rc.1`
 
 **ICD esaminato:** `plenora-contracts v2.0-rc14`, revisione
-`c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab`
+`65fd2c6418efa7937e3063245913d79a80c6499b`
 
 **Posizione R16.3:** `accetta`, senza deroga né rilievo bloccante
 
