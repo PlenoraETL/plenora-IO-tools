@@ -15,34 +15,43 @@ booleani/dimensionali KML non più necessari. RC4 elimina inoltre i due fallback
 XLSX che completavano celle attributive assenti durante la materializzazione:
 la ricostruzione delle righe sparse è ora esplicita. Il runner di benchmark
 aggiunge sei default dichiarati per soglie, ripetizioni e output diagnostico.
-Il totale del workspace è ora 86 occorrenze:
+Il parser KML event-based aggiunge due fallback confinati alla diagnosi: un
+token XML non decodificabile viene rappresentato con escape ASCII nel messaggio
+d'errore, senza entrare nel payload. Il reader progressivo DXF RC4 aggiunge
+quattro decisioni conservative: overflow
+di una lunghezza spool promosso al massimo per attivare `LimitExceeded`,
+geometria nulla conteggiata come payload di lunghezza zero oltre al marker e
+dimensioni `Unknown` nei due punti difensivi in cui il contratto geometrico
+fosse assente. Nessuna inventa coordinate o CRS. Il totale del workspace è ora
+92 occorrenze:
 
-- 39 nei sorgenti dei crate distribuibili, includendo conservativamente i loro
+- 45 nei sorgenti dei crate distribuibili, includendo conservativamente i loro
   moduli `#[cfg(test)]`;
 - 47 nei target esclusi dal componente (`plenora-io-cli` 19,
   `plenora-bench` 22, `plenora-fuzz` 6).
 
 `scripts/check_assurance_fallbacks.sh` blocca in CI ogni variazione di tutte le
-86 occorrenze, inclusi i target non distribuibili. L'aggiornamento del registro
+92 occorrenze, inclusi i target non distribuibili. L'aggiornamento del registro
 non è una deroga automatica: richiede la revisione della nuova semantica e una
 change impact analysis.
 
 La centralizzazione del lifecycle `StagedFile` e l'estrazione del codec
 geometrico GeoJSON del 2026-07-28 non introducevano né rimuovevano fallback nel
-componente distribuibile; l'incremento XLSX RC4 porta il totale verificato a 39.
+componente distribuibile; XLSX RC4 portava il totale a 39, KML a 41 e il
+reader progressivo DXF lo porta a 45.
 
 ## Censimento del componente distribuibile
 
 | Crate | Conteggio | Decisione verificata |
 |---|---:|---|
 | `driver-csv` | 3 | delimitatore di default dichiarato; nome diagnostico; `Unknown` solo quando il set dimensionale non è singleton |
-| `driver-dxf` | 14 | classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF e coperti dai test geometrici |
+| `driver-dxf` | 18 | classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF; accounting spool fail-closed su overflow/null e dimensioni difensive `Unknown`; decisioni coperte dai test geometrici, limite e spill |
 | `driver-filegdb` | 3 | path/stem di staging non semantici; un fallback `custom` è confinato al costruttore dei test |
 | `driver-geojson` | 1 | nome diagnostico; geometrie senza coordinate sono ora rifiutate |
 | `driver-geoparquet` | 4 | nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza |
 | `driver-gpkg` | 4 | `undefined` richiesto dalla tabella SRS quando manca WKT; raw CRS conserva almeno l'ID; tipo `GEOMETRY` e dimensioni `Unknown` sono valori nativi espliciti |
 | `driver-ipc` | 2 | nome; projection best-effort conserva il campo originale se non esiste una sostituzione |
-| `driver-kml` | 2 | nome diagnostico; eterogeneità dimensionale → `Unknown`; geometrie vuote sono rifiutate |
+| `driver-kml` | 4 | nome diagnostico; eterogeneità dimensionale → `Unknown`; due fallback rendono leggibili con escape ASCII soltanto i token XML invalidi nei messaggi d'errore; geometrie vuote sono rifiutate |
 | `driver-shp` | 2 | nome diagnostico; stringa vuota usata solo dalla classificazione di una definizione opzionale, non come CRS operativo |
 | `driver-xls` | 1 | dimensioni geometriche eterogenee → `Unknown`; celle sparse e coordinate assenti sono gestite da rami espliciti, senza fallback |
 | `plenora-io-model` | 1 | metadato GeoArrow assente significa “non è un campo geometrico” |

@@ -6,13 +6,13 @@ set -eu
 # revisione H-01 e l'aggiornamento esplicito del registro.
 expected='
 driver-csv 3
-driver-dxf 14
+driver-dxf 18
 driver-filegdb 3
 driver-geojson 1
 driver-geoparquet 4
 driver-gpkg 4
 driver-ipc 2
-driver-kml 2
+driver-kml 4
 driver-shp 2
 driver-xls 1
 plenora-io-model 1
@@ -49,7 +49,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 86 ]; then
+if [ "${actual_total}" -ne 92 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

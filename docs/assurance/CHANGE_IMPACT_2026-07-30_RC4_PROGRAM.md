@@ -244,6 +244,10 @@ Il veto del 5% è superato. Il descrittore passa a
 `ReadMode::StreamingSequential`; `driver_version` passa da 4 a 5 e
 `descriptor_version` da 5 a 6.
 
+Due nuove occorrenze `unwrap_or_else` sono confinate alla diagnosi XML: se un
+token invalido non è UTF-8, il messaggio mostra gli escape ASCII e il parser
+continua a rifiutare l'input; il testo non entra mai nel payload.
+
 ## Sesto incremento: DXF progressivo tramite fork governato
 
 La crate upstream `dxf 0.6.1` esponeva soltanto un loader che copiava l'intero
@@ -270,6 +274,12 @@ contratto, limiti, cancellazione e perdite osservate restano nella stessa
 passata. Il `LayerReader` accede al buffer con lease esclusivo e copia soltanto
 la riga del batch corrente, non l'intero dataset; dopo il drop un nuovo reader
 può ripartire dall'inizio. I 24 test del driver sono verdi.
+
+Le quattro nuove occorrenze `unwrap_or*` sono censite nel registro H-01:
+overflow della lunghezza spool promosso a `u64::MAX` per fallire sul limite,
+geometria nulla conteggiata senza payload e dimensioni difensive `Unknown`
+quando manca un contratto geometrico. Insieme ai due fallback diagnostici KML,
+il gate passa da 86 a 92 occorrenze workspace, 45 nel componente distribuibile.
 
 Il benchmark interlacciato definitivo usa cinque coppie RC3/RC4, 100.000
 entità e la stessa fixture nel filesystem Linux del container:
