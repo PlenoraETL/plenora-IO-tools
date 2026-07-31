@@ -11,13 +11,15 @@
   },
   "program_records": [
     "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md",
-    "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_CONVERT_CONTRACT.md"
+    "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_CONVERT_CONTRACT.md",
+    "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_CRS_WRITE_CAPABILITY.md"
   ],
   "scope": "component_only",
   "system_qualification_ownership": "external",
   "workstreams": {
     "r9_machine_readable_error_envelope": "implemented_targeted_gates_passed",
     "convert_loss_observability": "implemented_targeted_gates_passed",
+    "r4_6_5_crs_write_capability": "implemented_targeted_gates_passed",
     "cli_protocol_1x_candidate": "declared"
   },
   "compatibility_surface": {
@@ -28,20 +30,22 @@
     "extraction_under_r15_4_1": "not_blocked_by_public_api_commitment"
   },
   "non_code_dependencies": {
-    "combined_read_write_boundary_crs_policy": "owner_decision_open",
+    "r4_6_5_ratification": "owner_decision_open_not_component_code_gate",
+    "r2_8_canonical_geometry_recognition": "proposal_registered_not_implemented",
+    "r4_1_1_unresolved_authority_without_definition": "proposal_registered_not_implemented",
     "reader_loss_conformance_runner": "external_contracts_follow_up",
     "icd_ratification_alignment": "owner_decision_open_not_component_code_gate"
   },
   "next_candidate": {
     "version": "1.0.0-rc.1",
-    "status": "blocked_on_owner_decision",
-    "blocking_decisions": [
-      "combined_read_write_boundary_crs_policy"
-    ]
+    "status": "code_scope_complete_pending_rc5_baseline_freeze",
+    "blocking_decisions": []
   },
   "declared_scope_reductions": {
     "component_rc_verified_internally": [
       "crs_definition_vs_srid_semantic_resolution",
+      "r2_8_canonical_only_geometry_recognition",
+      "r4_1_1_unresolved_authority_without_definition",
       "shared_resource_budget_leases_r7_5_r7_7",
       "multi_gdal_and_filesystem_qualification",
       "independent_review",
@@ -50,6 +54,12 @@
     "stronger_claim_blockers": {
       "full_r4_3_1_conformance": [
         "crs_definition_vs_srid_semantic_resolution"
+      ],
+      "full_proposed_r2_8_alignment": [
+        "r2_8_canonical_only_geometry_recognition"
+      ],
+      "full_proposed_r4_1_1_alignment": [
+        "r4_1_1_unresolved_authority_without_definition"
       ],
       "full_r7_5_r7_7_conformance": [
         "shared_resource_budget_leases_r7_5_r7_7"

@@ -18,8 +18,8 @@ use plenora_io_model::{
 };
 
 use crate::descriptor::{
-    ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport, FormatDescriptor, GeometryWriteSupport,
-    NullabilitySupport, TypeCoercionPolicy,
+    ArrowTypeClass, AttributeWriteSupport, CrsRepresentationState, FormatDescriptor,
+    GeometryWriteSupport, NullabilitySupport, TypeCoercionPolicy,
 };
 use crate::loss::{FidelityAssessment, FidelityReasonCode, LossExample, LossReport};
 #[cfg(test)]
@@ -291,18 +291,38 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
     };
 
     for layer in &plan.layers {
-        if capabilities.crs == CrsWriteSupport::None {
-            if let Some(geometry) = &layer.contract.geometry {
-                let has_crs_information =
-                    !matches!(geometry.crs, CrsResolution::Missing) || geometry.srid.is_some();
-                if has_crs_information {
-                    loss.record("metadata CRS non rappresentati", 1);
-                    loss.add_example(LossExample {
-                        category: "metadata CRS non rappresentati".to_owned(),
-                        context: format!("layer={} field={}", layer.name, geometry.name),
-                    });
+        if let Some(geometry) = &layer.contract.geometry {
+            let (crs_id, crs_definition) = match &geometry.crs {
+                CrsResolution::Resolved(crs) => (crs.id.as_deref(), crs.definition.as_deref()),
+                CrsResolution::DeclaredButUnresolved(raw) => {
+                    (raw.authority_hint.as_deref(), Some(raw.definition.as_str()))
                 }
-            }
+                CrsResolution::Missing => (None, None),
+            };
+            record_crs_representation_loss(
+                &mut loss,
+                &layer.name,
+                &geometry.name,
+                "crs_id",
+                crs_id.map(str::len),
+                capabilities.crs_representations.crs_id,
+            );
+            record_crs_representation_loss(
+                &mut loss,
+                &layer.name,
+                &geometry.name,
+                "srid",
+                geometry.srid.map(|srid| srid.to_string().len()),
+                capabilities.crs_representations.srid,
+            );
+            record_crs_representation_loss(
+                &mut loss,
+                &layer.name,
+                &geometry.name,
+                "crs_definition",
+                crs_definition.map(str::len),
+                capabilities.crs_representations.crs_definition,
+            );
         }
 
         let geometry_name = layer
@@ -336,6 +356,35 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
         }
     }
     loss
+}
+
+fn record_crs_representation_loss(
+    loss: &mut LossReport,
+    layer: &str,
+    field: &str,
+    representation: &str,
+    value_bytes: Option<usize>,
+    state: CrsRepresentationState,
+) {
+    let (Some(value_bytes), category_suffix) = (
+        value_bytes,
+        match state {
+            CrsRepresentationState::Preserved => return,
+            CrsRepresentationState::Absent => "absent",
+            CrsRepresentationState::Derived => "derived",
+        },
+    ) else {
+        return;
+    };
+    let category = format!("{representation}_not_preserved_{category_suffix}");
+    loss.record(&category, 1);
+    loss.add_example(LossExample {
+        category,
+        context: format!(
+            "layer={layer} field={field} representation={representation} \
+             state={category_suffix} value_bytes={value_bytes}"
+        ),
+    });
 }
 
 fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> FidelityAssessment {
@@ -1063,6 +1112,45 @@ mod tests {
         );
 
         assert!(reader.loss_report().is_empty());
+    }
+
+    #[test]
+    fn write_loss_names_each_non_preserved_crs_representation_and_state() {
+        let mut loss = LossReport::default();
+        record_crs_representation_loss(
+            &mut loss,
+            "layer",
+            "geometry",
+            "crs_id",
+            Some(9),
+            CrsRepresentationState::Derived,
+        );
+        record_crs_representation_loss(
+            &mut loss,
+            "layer",
+            "geometry",
+            "srid",
+            Some(4),
+            CrsRepresentationState::Absent,
+        );
+        record_crs_representation_loss(
+            &mut loss,
+            "layer",
+            "geometry",
+            "crs_definition",
+            Some(42),
+            CrsRepresentationState::Preserved,
+        );
+
+        assert_eq!(loss.counts.get("crs_id_not_preserved_derived"), Some(&1));
+        assert_eq!(loss.counts.get("srid_not_preserved_absent"), Some(&1));
+        assert!(!loss
+            .counts
+            .contains_key("crs_definition_not_preserved_absent"));
+        assert!(loss
+            .examples()
+            .iter()
+            .any(|example| example.context.contains("value_bytes=9")));
     }
 
     fn geometry_batch(bytes: Option<&[u8]>) -> RecordBatch {

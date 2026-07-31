@@ -6,8 +6,9 @@ Data: 2026-07-31.
 
 La modifica appartiene allo sviluppo `0.1.0-rc.5` successivo al tag immutabile
 `v0.1.0-rc.4`. Non apre né modifica `1.0.0-rc.1`: prepara la forma che quella
-baseline potrà congelare dopo la decisione owner sul comando che combina bordo
-di lettura e scrittura in presenza di CRS discordanti.
+baseline potrà congelare. La successiva proposta R4.6.5 ha reso implementabile
+la decisione sul comando che combina bordo di lettura e scrittura; il relativo
+intervento è registrato in una CIA separata.
 
 La superficie candidata alla compatibilità 1.x è soltanto il protocollo JSON
 della CLI. Le API Rust di `plenora-io-model`, `plenora-io-core` e dei driver
@@ -50,10 +51,10 @@ osservata promuove `read_fidelity` e quindi `conversion_fidelity` ad
 ## CRS combinato
 
 Questa modifica osserva e pubblica l'incoerenza, ma non decide se una
-destinazione debba accettarla. La distinzione proposta fra propagare entrambe
-le rappresentazioni e sceglierne una tramite `CrsWriteSupport` resta una
-decisione dell'owner. `1.0.0-rc.1` è registrata come bloccata su quella
-decisione; il componente non ne anticipa l'esito.
+destinazione debba accettarla. La successiva capability
+`crs_representations` implementa la distinzione candidata di R4.6.5 fra
+propagare tutte le rappresentazioni discordanti e sceglierne o derivarne una.
+La ratifica resta dell'owner e non viene anticipata dal claim del componente.
 
 ## Scope reduction
 

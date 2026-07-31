@@ -48,9 +48,10 @@ use plenora_io_core::publish::{
 };
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES,
-    SCALAR_TYPES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
+    validate_write, with_write_validation, AttributeWriteSupport, CrsRepresentationCapabilities,
+    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
+    TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES, SCALAR_TYPES,
+    WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -187,12 +188,17 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         attributes: AttributeWriteSupport::All,
         geometry: WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
+        crs_representations: CrsRepresentationCapabilities::new(
+            CrsRepresentationState::Derived,
+            CrsRepresentationState::Absent,
+            CrsRepresentationState::Preserved,
+        ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
     }),
     semantic_version: 1,
     driver_version: 8,
-    descriptor_version: 6,
+    descriptor_version: 7,
 };
 
 pub struct ShpDriver;

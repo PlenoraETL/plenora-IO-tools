@@ -8,10 +8,11 @@ use std::sync::Arc;
 use arrow_array::{BinaryArray, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use plenora_io_core::{
-    validate_write, AttributeWriteSupport, CrsWriteSupport, DeterminismLevel, Direction, Fidelity,
-    FormatDescriptor, FormatDriver, NullabilitySupport, PredicatePruningSupport, ProjectionSupport,
-    ReadOptions, ReaderConcurrency, Runtime, Sink, Source, SpatialPruningSupport,
-    TypeCoercionPolicy, WriteLayer, WriteOptions, WritePlan, ALL_GEOMETRY_TYPES,
+    validate_write, AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState,
+    CrsWriteSupport, DeterminismLevel, Direction, Fidelity, FormatDescriptor, FormatDriver,
+    NullabilitySupport, PredicatePruningSupport, ProjectionSupport, ReadOptions, ReaderConcurrency,
+    Runtime, Sink, Source, SpatialPruningSupport, TypeCoercionPolicy, WriteLayer, WriteOptions,
+    WritePlan, ALL_GEOMETRY_TYPES,
 };
 use plenora_io_core::{BatchTarget, ProjectionMode, ReadRequest};
 use plenora_io_model::contract::{
@@ -429,6 +430,84 @@ fn crs_matrix_fails_closed() {
         "il profilo CRS embedded opzionale deve essere esercitato"
     );
     assert!(fixed >= 2, "copertura CRS fisso insufficiente");
+}
+
+#[test]
+fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
+    let ipc = driver_ipc::IpcDriver;
+    let mut ipc_plan = valid_geometry_plan(ipc.descriptor());
+    ipc_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
+    assert!(
+        validate_write(ipc.descriptor(), &ipc_plan, &Default::default()).is_ok(),
+        "IPC deve preservare crs_id e srid discordanti senza sceglierne uno"
+    );
+
+    let shp = driver_shp::ShpDriver;
+    let mut shp_plan = valid_geometry_plan(shp.descriptor());
+    shp_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
+    assert_capability(
+        "shp",
+        validate_write(shp.descriptor(), &shp_plan, &Default::default()),
+        CapabilityReason::CrsRepresentationsInconsistent,
+    );
+}
+
+#[test]
+fn every_writer_declares_the_reviewed_crs_representation_matrix() {
+    use CrsRepresentationState::{Absent, Derived, Preserved};
+
+    let expected = HashMap::from([
+        (
+            "ipc",
+            CrsRepresentationCapabilities::new(Preserved, Preserved, Preserved),
+        ),
+        (
+            "geoparquet",
+            CrsRepresentationCapabilities::new(Preserved, Absent, Absent),
+        ),
+        (
+            "gpkg",
+            CrsRepresentationCapabilities::new(Preserved, Derived, Derived),
+        ),
+        (
+            "shp",
+            CrsRepresentationCapabilities::new(Derived, Absent, Preserved),
+        ),
+        (
+            "dxf",
+            CrsRepresentationCapabilities::new(Derived, Absent, Preserved),
+        ),
+        (
+            "filegdb",
+            CrsRepresentationCapabilities::new(Derived, Absent, Derived),
+        ),
+        (
+            "geojson",
+            CrsRepresentationCapabilities::new(Derived, Absent, Absent),
+        ),
+        (
+            "kml",
+            CrsRepresentationCapabilities::new(Derived, Absent, Absent),
+        ),
+        (
+            "csv",
+            CrsRepresentationCapabilities::new(Absent, Absent, Absent),
+        ),
+        (
+            "xls",
+            CrsRepresentationCapabilities::new(Absent, Absent, Absent),
+        ),
+    ]);
+
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        assert_eq!(
+            descriptor.write_capabilities.unwrap().crs_representations,
+            expected[descriptor.id],
+            "{} ha una capability CRS diversa dalla matrice revisionata",
+            descriptor.id
+        );
+    }
 }
 
 #[test]

@@ -51,9 +51,9 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
-    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    validate_write, with_write_validation, AttributeWriteSupport, CrsRepresentationCapabilities,
+    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
+    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
@@ -93,12 +93,17 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         attributes: AttributeWriteSupport::All,
         geometry: WKB_XY_XYZ_GEOMETRY,
         crs: CrsWriteSupport::Fixed("OGC:CRS84"),
+        crs_representations: CrsRepresentationCapabilities::new(
+            CrsRepresentationState::Derived,
+            CrsRepresentationState::Absent,
+            CrsRepresentationState::Absent,
+        ),
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,
     }),
     semantic_version: 1,
     driver_version: 6,
-    descriptor_version: 6,
+    descriptor_version: 7,
 };
 
 pub struct GeoJsonDriver;

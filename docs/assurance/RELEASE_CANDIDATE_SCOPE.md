@@ -97,10 +97,13 @@ RC5 chiude l'osservabilità machine-readable del `LossReport` reader e
 l'ambiguità writer/end-to-end del vecchio `loss.lossless`. Registra inoltre
 come candidata alla compatibilità 1.x soltanto la superficie JSON della CLI:
 le API Rust restano interne per non bloccare l'estrazione prevista da R15.4.1.
-Il passaggio a `1.0.0-rc.1` resta bloccato dalla decisione owner sul comando che
-combina bordo di lettura e scrittura con rappresentazioni CRS discordanti. Le
-riduzioni di scope e i blocker che riemergono per claim più forti sono
-machine-readable nel manifesto RC5.
+La capability generale delle rappresentazioni CRS e il preflight candidato
+R4.6.5 chiudono il precedente blocker sul comando che combina lettura e
+scrittura. Il codice previsto per RC5 è completo; prima di `1.0.0-rc.1` resta
+il congelamento della baseline RC5. R2.8 e R4.1.1 restano proposte registrate e
+non implementate, quindi bloccano soltanto un claim esplicito di allineamento a
+quelle proposte. Le riduzioni di scope e i blocker che riemergono per claim più
+forti sono machine-readable nel manifesto RC5.
 
 Il materiale per un'eventuale review è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il

@@ -26,6 +26,19 @@ struct FormatWriteCapabilities {
 }
 ```
 
+**1a. Le rappresentazioni CRS sono una capability indipendente.** Per
+`crs_id`, `srid` e `crs_definition` il writer dichiara uno fra:
+
+- `Preserved`: conserva indipendentemente il valore sorgente;
+- `Absent`: non lo emette;
+- `Derived`: lo ricostruisce da un'altra rappresentazione o da una regola del
+  formato.
+
+`Derived` non è preservazione: può cancellare l'evidenza di una discordanza.
+La capability alimenta sia il preflight sia le categorie del `LossReport`.
+`CrsWriteSupport` continua invece a descrivere se il formato incorpora,
+richiede, fissa o non porta un CRS.
+
 **1b. La policy dei nomi è più ampia di un limite di byte.** I formati vincolano
 i nomi campo su assi diversi (byte vs caratteri, encoding, normalizzazione
 Unicode, case folding, parole riservate, unicità case-insensitive, collisioni

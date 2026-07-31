@@ -42,9 +42,9 @@ use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
-    AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    SingleReaderGate, TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES,
-    WKB_XY_XYZ_GEOMETRY,
+    AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
+    SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -214,12 +214,17 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         attributes: AttributeWriteSupport::LossReported,
         geometry: WKB_XY_XYZ_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
+        crs_representations: CrsRepresentationCapabilities::new(
+            CrsRepresentationState::Derived,
+            CrsRepresentationState::Absent,
+            CrsRepresentationState::Preserved,
+        ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
     }),
     semantic_version: 1,
     driver_version: 5,
-    descriptor_version: 6,
+    descriptor_version: 7,
 };
 
 pub struct DxfDriver;

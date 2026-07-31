@@ -35,15 +35,15 @@ use plenora_io_core::request::{
     Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar, ReadRequest,
 };
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsWriteSupport,
-    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES,
-    UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    validate_write, with_write_validation, AttributeWriteSupport, CrsRepresentationCapabilities,
+    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
+    TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{CrsKind, CrsResolution, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::inspect_wkb;
@@ -76,12 +76,17 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         attributes: AttributeWriteSupport::All,
         geometry: WKB_PASSTHROUGH_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
+        crs_representations: CrsRepresentationCapabilities::new(
+            CrsRepresentationState::Preserved,
+            CrsRepresentationState::Absent,
+            CrsRepresentationState::Absent,
+        ),
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 4,
-    descriptor_version: 5,
+    driver_version: 5,
+    descriptor_version: 6,
 };
 
 pub struct GeoParquetDriver;
@@ -156,7 +161,8 @@ impl FormatDriver for GeoParquetDriver {
         }
         let layer = &plan.layers[0];
         let schema = layer.contract.schema.clone();
-        let (geom_idx, geom_name, crs_meta) = geometry_field(&schema)?;
+        let (geom_idx, geom_name, legacy_crs_meta) = geometry_field(&schema)?;
+        let crs_meta = crs_meta_for_write(layer.contract.geometry.as_ref(), legacy_crs_meta);
         // Schema di scrittura = utente + colonne bbox covering (spatial pruning).
         let mut aug_fields: Vec<Field> =
             schema.fields().iter().map(|f| f.as_ref().clone()).collect();
@@ -191,6 +197,20 @@ impl FormatDriver for GeoParquetDriver {
             opts.cancellation.clone(),
         )
     }
+}
+
+fn crs_meta_for_write(
+    geometry: Option<&GeometryColumnContract>,
+    legacy_crs_meta: Option<String>,
+) -> Option<String> {
+    geometry
+        .and_then(|geometry| match &geometry.crs {
+            CrsResolution::Resolved(crs) => crs.id.as_deref(),
+            CrsResolution::DeclaredButUnresolved(raw) => raw.authority_hint.as_deref(),
+            CrsResolution::Missing => None,
+        })
+        .map(str::to_owned)
+        .or(legacy_crs_meta)
 }
 
 struct GeoParquetDataset {
@@ -1102,6 +1122,21 @@ mod tests {
         assert_eq!(
             crs.axis_order,
             plenora_io_model::crs::AxisOrder::LongitudeLatitude
+        );
+    }
+
+    #[test]
+    fn writer_crs_id_comes_from_the_contract_without_legacy_field_metadata() {
+        let geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(Some("EPSG:3003".to_owned()), CrsKind::Projected, None),
+            true,
+        );
+
+        assert_eq!(
+            crs_meta_for_write(Some(&geometry), None).as_deref(),
+            Some("EPSG:3003")
         );
     }
 

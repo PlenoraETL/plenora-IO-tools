@@ -38,7 +38,8 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{Bbox, ProjectionMode, ReadRequest};
 use plenora_io_core::{
-    validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport,
+    validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport,
+    CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
     WKB_PASSTHROUGH_GEOMETRY,
 };
@@ -90,12 +91,17 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         attributes: AttributeWriteSupport::All,
         geometry: WKB_PASSTHROUGH_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
+        crs_representations: CrsRepresentationCapabilities::new(
+            CrsRepresentationState::Preserved,
+            CrsRepresentationState::Derived,
+            CrsRepresentationState::Derived,
+        ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
     }),
     semantic_version: 1,
     driver_version: 6,
-    descriptor_version: 6,
+    descriptor_version: 7,
 };
 
 pub struct GpkgDriver;

@@ -12,8 +12,9 @@ use plenora_io_core::driver::{
     FormatDriver, FormatWriter, OpenDatasetHandle, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::{
-    validate_write, AttributeWriteSupport, CrsWriteSupport, FormatWriteCapabilities,
-    NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
+    validate_write, AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState,
+    CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan,
+    UTF8_FIELD_NAMES,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
@@ -68,12 +69,17 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         attributes: AttributeWriteSupport::All,
         geometry: FILEGDB_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
+        crs_representations: CrsRepresentationCapabilities::new(
+            CrsRepresentationState::Derived,
+            CrsRepresentationState::Absent,
+            CrsRepresentationState::Derived,
+        ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
     }),
     semantic_version: 1,
     driver_version: 10,
-    descriptor_version: 8,
+    descriptor_version: 9,
 };
 
 pub struct FileGdbDriver;
@@ -1791,8 +1797,11 @@ mod backend {
                 .unwrap();
             writer.write(&batch).unwrap();
             let published = writer.finish().unwrap();
-            assert_eq!(published.fidelity.level, Fidelity::Conditional);
-            assert!(published.loss.is_empty());
+            assert_eq!(published.fidelity.level, Fidelity::Approximating);
+            assert_eq!(
+                published.loss.counts.get("crs_id_not_preserved_derived"),
+                Some(&1)
+            );
 
             let dataset = driver
                 .open(Source::Path(path), &ReadOptions::default())

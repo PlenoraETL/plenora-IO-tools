@@ -857,6 +857,34 @@ mod tests {
             serde_json::json!({"lossless": true, "counts": {}})
         );
         assert_eq!(document["conversion_fidelity"]["level"], "approximating");
+
+        let reopened = driver
+            .open(
+                Source::Path(output),
+                &plenora_io_core::ReadOptions::default(),
+            )
+            .unwrap();
+        let reopened_geometry = reopened.layers()[0].contract.geometry.as_ref().unwrap();
+        assert_eq!(reopened_geometry.crs.id(), Some("EPSG:4326"));
+        assert_eq!(reopened_geometry.srid, Some(3003));
+
+        let shapefile_output = directory.path().join("must_not_exist.shp");
+        let cli = parse(&[
+            input.to_string_lossy().into_owned(),
+            shapefile_output.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        let (exit, error) = cmd_convert(&cli).unwrap_err();
+        assert_eq!(exit, 4);
+        assert_eq!(error["error"]["category"], "unsupported");
+        assert_eq!(error["error"]["phase"], "validate");
+        assert_eq!(error["error"]["remote_effect"], "none");
+        assert_eq!(error["error"]["retry"]["kind"], "never");
+        assert!(error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("rappresentazioni CRS discordanti"));
+        assert!(!shapefile_output.exists());
     }
 
     #[test]

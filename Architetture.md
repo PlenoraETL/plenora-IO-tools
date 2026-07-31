@@ -150,6 +150,7 @@ dei data-tools §4.3):
 | `geometry_support` | tipi geometrici, singola/multipla colonna, dimensioni (v1: XY) |
 | `type_support` | quali tipi del set chiuso il formato sa rappresentare |
 | `crs_handling` | `Embedded` (shp/gpkg/geoparquet/dxf) / `FixedWgs84` (kml/geojson) / `None` (csv/xlsx) |
+| `crs_representations` | per `crs_id`, `srid` e `crs_definition`: `preserved`, `absent` o `derived`; solo `preserved` è conservazione indipendente |
 | `fidelity` | `Lossless` / `Approximating` (DXF: tassellazione, esplosione blocchi) |
 | `runtime` | `PureRust` / `Gdal` (tier GDB) |
 | `required_capabilities` | backend/feature necessari (`gdal`) — verificati in `open`/`create` |

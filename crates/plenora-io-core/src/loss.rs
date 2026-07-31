@@ -149,7 +149,11 @@ fn reason_code_for_loss(category: &str) -> FidelityReasonCode {
         FidelityReasonCode::PrecisionChanged
     } else if category.contains("null") {
         FidelityReasonCode::NullabilityChanged
-    } else if category.contains("metadata") || category.contains("metadati") {
+    } else if category.contains("metadata")
+        || category.contains("metadati")
+        || category.starts_with("crs_")
+        || category.starts_with("srid_")
+    {
         FidelityReasonCode::NativeMetadataLoss
     } else {
         FidelityReasonCode::LossReported

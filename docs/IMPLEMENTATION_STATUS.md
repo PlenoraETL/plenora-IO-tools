@@ -46,6 +46,15 @@ primitive esplicite di panic in tutti i target di libreria.
 | ADR-IO 5 — fedeltà | Parziale avanzato | `Fidelity` nel descrittore; `FidelityAssessment` bounded e serializzabile restituito da `open`/`create` e nel `Published`; motivi tipizzati per vincoli, attributi, coercion, nullability, struttura, precisione e metadati; il wrapper comune collega il contratto e promuove automaticamente l'esito a `Approximating` quando il `LossReport` osservato non è vuoto; un test trasversale verifica che tutti i cinque writer pure-Rust `Conditional` restino `Conditional` anche quando il report osservato è correttamente vuoto; DXF registra tassellazioni, esplosioni INSERT, conversioni di testo/solidi, entità non gestite e attributi non rappresentati; FileGDB è `Conditional` e fail-closed sul profilo GDAL 3.6 verificato (`Int32`/`Float64`/`Utf8`, WKB XY/XYZ/XYM/XYZM nelle famiglie native Point/Multi*), conserva feature con geometria nulla e pubblica tipo/dimensioni OGR più tipo/width/precision degli attributi nei metadati del contratto | I profili dei driver `Conditional` restano conservativi e vanno raffinati per singolo tipo/valore; un report vuoto significa “nessuna perdita osservata”, non `Lossless`; EWKB, temporali, booleani, binari e interi 64-bit FileGDB richiedono un modello nativo senza cambio di contratto e una matrice multi-versione GDAL; oracoli indipendenti e corpus reali non sono uniformi |
 | ADR-IO 6 — projection e pruning | Parziale avanzato trasversale | Contratto `ReadRequest` e schema effettivo; capability machine-readable per projection, pruning numerico e spaziale, determinismo e tipi geometrici; projection esatta CSV, GeoJSON, Shapefile, FileGDB, GeoParquet, IPC e GeoPackage, inclusa projection vuota e geometria non forzata per richieste tabellari; `Required` fail-closed su DXF, KML e XLSX; CSV/GeoJSON/SHP/FileGDB saltano parsing, conversione e costruzione delle colonne escluse; FileGDB applica inoltre il pushdown fisico degli attributi e della geometria esclusi tramite `OGR_L_SetIgnoredFields` nel fork governato `gdal 0.17.1`; `NumericComparison` GeoParquet precision-safe su statistiche min/max, con legacy `Opaque` fail-open; pruning spaziale GeoParquet e GeoPackage tramite RTree registrato/conforme; `target_bytes`/`max_rows` su tutti i reader e correzione adattiva condivisa sui byte Arrow osservati per CSV, GeoJSON, Shapefile, FileGDB e GeoPackage | Il pruning attributivo resta disponibile solo dove esistono statistiche a blocchi (GeoParquet): usare indici B-tree degli altri formati sarebbe filtering esatto; KML, DXF e XLSX restano non exact e non applicano pushdown fisico |
 
+Lo sviluppo RC5 aggiunge alla capability di scrittura CRS i tre stati
+`preserved`, `absent` e `derived` per `crs_id`, `srid` e `crs_definition`.
+Il preflight candidato R4.6.5 consente una coppia `crs_id`/`srid` discordante
+soltanto quando entrambe le rappresentazioni sono preservate
+indipendentemente: IPC passa, Shapefile fallisce chiuso durante `Validate`.
+Il `LossReport` writer distingue inoltre rappresentazione e stato invece della
+precedente categoria CRS generica. Restano dichiaratamente non implementate le
+proposte R2.8 e R4.1.1; `RawCrs::definition` rimane obbligatoria.
+
 ## Contratti trasversali introdotti
 
 - L’identità locale del modello è `plenora-io-model` e il suo errore pubblico è
@@ -61,6 +70,9 @@ primitive esplicite di panic in tutti i target di libreria.
 - `plenora-io-convert-v1` separa i report osservati in `read_loss` e
   `write_loss`; `conversion_fidelity` combina i due assessment senza presentare
   il solo esito del writer come giudizio sull'intera conversione.
+- La capability CRS del writer distingue conservazione indipendente, assenza e
+  derivazione. Le rappresentazioni non conservate producono categorie
+  machine-readable specifiche nel `LossReport`.
 - Gli schemi prodotti dichiarano `plenora.contract.version=1`; i consumer
   accettano i contratti legacy senza versione e rifiutano versioni future.
   `types_declaration` distingue `exact`, `mixed` e `unresolved`, con invarianti

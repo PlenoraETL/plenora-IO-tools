@@ -5,12 +5,13 @@
 use std::collections::BTreeSet;
 
 use arrow_schema::DataType;
+use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::limits::Limits;
 use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
 
 use crate::descriptor::{
-    ArrowTypeClass, AttributeWriteSupport, CrsWriteSupport, FormatDescriptor, NullabilitySupport,
-    TextEncoding, TypeCoercionPolicy, ALL_GEOMETRY_TYPES,
+    ArrowTypeClass, AttributeWriteSupport, CrsRepresentationState, CrsWriteSupport,
+    FormatDescriptor, NullabilitySupport, TextEncoding, TypeCoercionPolicy, ALL_GEOMETRY_TYPES,
 };
 use crate::request::WritePlan;
 
@@ -21,6 +22,26 @@ fn violation(
     detail: impl Into<String>,
 ) -> PlenoraIoError {
     PlenoraIoError::capability(driver, field.map(str::to_owned), reason, detail)
+}
+
+fn declared_crs_id(crs: &CrsResolution) -> Option<&str> {
+    match crs {
+        CrsResolution::Resolved(resolved) => resolved.id.as_deref(),
+        CrsResolution::DeclaredButUnresolved(raw) => raw.authority_hint.as_deref(),
+        CrsResolution::Missing => None,
+    }
+}
+
+fn id_and_srid_are_inconsistent(
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+) -> bool {
+    let (Some(crs_id), Some(srid)) = (declared_crs_id(&geometry.crs), geometry.srid) else {
+        return false;
+    };
+    let Some(authority_srid) = plenora_io_model::crs::authority_srid(crs_id) else {
+        return false;
+    };
+    u32::try_from(srid).ok() != Some(authority_srid)
 }
 
 pub fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
@@ -324,6 +345,21 @@ pub fn validate_write(
                 | CrsWriteSupport::Fixed(_)
                 | CrsWriteSupport::None => {}
             }
+            if id_and_srid_are_inconsistent(geometry)
+                && (caps.crs_representations.crs_id != CrsRepresentationState::Preserved
+                    || caps.crs_representations.srid != CrsRepresentationState::Preserved)
+            {
+                return Err(violation(
+                    driver,
+                    Some(&geometry.name),
+                    CapabilityReason::CrsRepresentationsInconsistent,
+                    format!(
+                        "rappresentazioni CRS discordanti non preservabili indipendentemente: \
+                         crs_id={:?}, srid={:?}",
+                        caps.crs_representations.crs_id, caps.crs_representations.srid
+                    ),
+                ));
+            }
         }
     }
     Ok(())
@@ -339,8 +375,8 @@ mod tests {
 
     use super::*;
     use crate::descriptor::{
-        Direction, Fidelity, FormatWriteCapabilities, ReadMode, ReaderConcurrency, Runtime,
-        WriteMode, DBF_FIELD_NAMES, SCALAR_TYPES, WKB_XY_GEOMETRY,
+        CrsRepresentationCapabilities, Direction, Fidelity, FormatWriteCapabilities, ReadMode,
+        ReaderConcurrency, Runtime, WriteMode, DBF_FIELD_NAMES, SCALAR_TYPES, WKB_XY_GEOMETRY,
     };
     use crate::request::WriteLayer;
 
@@ -368,6 +404,11 @@ mod tests {
                 attributes: AttributeWriteSupport::All,
                 geometry: WKB_XY_GEOMETRY,
                 crs,
+                crs_representations: CrsRepresentationCapabilities::new(
+                    CrsRepresentationState::Preserved,
+                    CrsRepresentationState::Preserved,
+                    CrsRepresentationState::Preserved,
+                ),
                 nullability: NullabilitySupport::Preserve,
                 multi_layer: false,
             }),
@@ -517,5 +558,41 @@ mod tests {
             ),
             Err(error) if error.capability_reason == Some(CapabilityReason::MixedGeometry)
         ));
+    }
+
+    #[test]
+    fn inconsistent_crs_requires_independent_preservation_of_id_and_srid() {
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geom",
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+            true,
+        );
+        geometry.srid = Some(3003);
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let p = plan(
+            vec![Field::new("geom", DataType::Binary, true)],
+            Some(geometry),
+        );
+
+        assert!(validate_write(
+            &descriptor(CrsWriteSupport::EmbeddedOptional),
+            &p,
+            &Limits::default()
+        )
+        .is_ok());
+
+        let mut selecting = descriptor(CrsWriteSupport::Embedded);
+        let mut capabilities = selecting.write_capabilities.unwrap();
+        capabilities.crs_representations.srid = CrsRepresentationState::Derived;
+        selecting.write_capabilities = Some(capabilities);
+        let error = validate_write(&selecting, &p, &Limits::default()).unwrap_err();
+        assert_eq!(
+            error.capability_reason,
+            Some(CapabilityReason::CrsRepresentationsInconsistent)
+        );
+        assert_eq!(error.phase, plenora_io_model::ErrorPhase::Validate);
+        assert_eq!(error.remote_effect, plenora_io_model::RemoteEffect::None);
+        assert_eq!(error.retry, plenora_io_model::RetryDisposition::Never);
     }
 }

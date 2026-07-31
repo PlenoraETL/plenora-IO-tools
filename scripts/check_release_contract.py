@@ -430,6 +430,7 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
         "program_records": [
             "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md",
             "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_CONVERT_CONTRACT.md",
+            "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_CRS_WRITE_CAPABILITY.md",
         ],
         "scope": "component_only",
         "system_qualification_ownership": "external",
@@ -438,6 +439,7 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
                 "implemented_targeted_gates_passed"
             ),
             "convert_loss_observability": "implemented_targeted_gates_passed",
+            "r4_6_5_crs_write_capability": "implemented_targeted_gates_passed",
             "cli_protocol_1x_candidate": "declared",
         },
         "compatibility_surface": {
@@ -450,7 +452,15 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
             ),
         },
         "non_code_dependencies": {
-            "combined_read_write_boundary_crs_policy": "owner_decision_open",
+            "r4_6_5_ratification": (
+                "owner_decision_open_not_component_code_gate"
+            ),
+            "r2_8_canonical_geometry_recognition": (
+                "proposal_registered_not_implemented"
+            ),
+            "r4_1_1_unresolved_authority_without_definition": (
+                "proposal_registered_not_implemented"
+            ),
             "reader_loss_conformance_runner": "external_contracts_follow_up",
             "icd_ratification_alignment": (
                 "owner_decision_open_not_component_code_gate"
@@ -458,14 +468,14 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
         },
         "next_candidate": {
             "version": "1.0.0-rc.1",
-            "status": "blocked_on_owner_decision",
-            "blocking_decisions": [
-                "combined_read_write_boundary_crs_policy",
-            ],
+            "status": "code_scope_complete_pending_rc5_baseline_freeze",
+            "blocking_decisions": [],
         },
         "declared_scope_reductions": {
             "component_rc_verified_internally": [
                 "crs_definition_vs_srid_semantic_resolution",
+                "r2_8_canonical_only_geometry_recognition",
+                "r4_1_1_unresolved_authority_without_definition",
                 "shared_resource_budget_leases_r7_5_r7_7",
                 "multi_gdal_and_filesystem_qualification",
                 "independent_review",
@@ -474,6 +484,12 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
             "stronger_claim_blockers": {
                 "full_r4_3_1_conformance": [
                     "crs_definition_vs_srid_semantic_resolution",
+                ],
+                "full_proposed_r2_8_alignment": [
+                    "r2_8_canonical_only_geometry_recognition",
+                ],
+                "full_proposed_r4_1_1_alignment": [
+                    "r4_1_1_unresolved_authority_without_definition",
                 ],
                 "full_r7_5_r7_7_conformance": [
                     "shared_resource_budget_leases_r7_5_r7_7",

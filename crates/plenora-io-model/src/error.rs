@@ -22,6 +22,7 @@ pub enum CapabilityReason {
     CoordinateDimensions,
     SpatialSemantics,
     CrsUnresolved,
+    CrsRepresentationsInconsistent,
     ReprojectionRequired,
     Nullability,
 }
