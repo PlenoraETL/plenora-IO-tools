@@ -14,7 +14,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,12 +27,12 @@ use serde_json::Value as JsonValue;
 use shapefile::dbase::{FieldValue, Record, TableWriterBuilder};
 use shapefile::{
     Multipoint, MultipointM, MultipointZ, Point, PointM, PointZ, Polygon, PolygonM, PolygonRing,
-    PolygonZ, Polyline, PolylineM, PolylineZ, Shape, Writer, NO_DATA,
+    PolygonZ, Polyline, PolylineM, PolylineZ, Shape, ShapeReader, ShapeType, Writer, NO_DATA,
 };
 
 use driver_common::{
-    geometry_field, json_from_array, ColType, InferredColumnBuilder, ObservedValueClass,
-    TypeAccumulator,
+    classify_i64, geometry_field, json_from_array, ColType, InferredColumnBuilder,
+    ObservedValueClass, TypeAccumulator,
 };
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -72,6 +72,13 @@ const LOOSE_SET_MODE: &str = "loose_shapefile_set";
 const DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE: &str =
     "dbf_numeric_integer_precision_unverifiable";
 const FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION: f64 = 9_007_199_254_740_992.0;
+const DBF_HEADER_SIZE: usize = 32;
+const DBF_FIELD_DESCRIPTOR_SIZE: usize = 32;
+const DBF_HEADER_TERMINATOR_SIZE: usize = 1;
+#[cfg(test)]
+const DBF_FIELD_NAME_SIZE: usize = 11;
+const DBF_VISUAL_FOXPRO_VERSION: u8 = 0x30;
+const DBF_VISUAL_FOXPRO_BACKLINK_SIZE: usize = 263;
 
 /// WKT standard per WGS84 (accettato da GDAL), usato per il `.prj` quando la
 /// sorgente dà solo il codice autorità e non una definizione WKT.
@@ -197,7 +204,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         multi_layer: false,
     }),
     semantic_version: 1,
-    driver_version: 8,
+    driver_version: 9,
     descriptor_version: 7,
 };
 
@@ -218,6 +225,7 @@ impl FormatDriver for ShpDriver {
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let ShpInference {
             cols,
+            dbf_layout,
             geometry_info,
             loss,
         } = infer_shp_schema(&path)?;
@@ -242,8 +250,12 @@ impl FormatDriver for ShpDriver {
         let geometry_field =
             with_geometry_contract_metadata(&geometry_field(GEOMETRY, crs_id), &geometry_contract);
         let mut fields = vec![geometry_field];
-        for (n, ct) in &cols {
-            fields.push(Field::new(n, ct.arrow_data_type(), true));
+        for column in &cols {
+            fields.push(Field::new(
+                &column.name,
+                column.column_type.arrow_data_type(),
+                true,
+            ));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
         let contract = DataContract::new(schema.clone(), Some(geometry_contract.clone()));
@@ -256,7 +268,9 @@ impl FormatDriver for ShpDriver {
             Box::new(ShpDataset {
                 path,
                 cols,
+                dbf_layout,
                 dimensions: geometry_contract.dimensions,
+                shape_type: geometry_info.shape_type,
                 loss,
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -359,8 +373,10 @@ impl FormatDriver for ShpDriver {
 
 struct ShpDataset {
     path: PathBuf,
-    cols: Vec<(String, ColType)>,
+    cols: Vec<ShpColumn>,
+    dbf_layout: DbfLayout,
     dimensions: CoordinateDimensions,
+    shape_type: Option<&'static str>,
     loss: LossReport,
     layers: Vec<LayerContract>,
 }
@@ -394,7 +410,9 @@ impl OpenDatasetHandle for ShpDataset {
             path: self.path.clone(),
             schema: layer.contract.schema.clone(),
             cols,
+            dbf_layout: self.dbf_layout.clone(),
             dimensions: self.dimensions,
+            expected_shape_type: self.shape_type,
             include_geometry,
             batch_sizer,
             layer,
@@ -999,6 +1017,209 @@ fn classify(v: &FieldValue) -> ObservedValueClass {
     }
 }
 
+#[derive(Clone, Debug)]
+struct DbfFieldLayout {
+    name: String,
+    offset: usize,
+    width: usize,
+    exact_integer_slot: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+struct DbfLayout {
+    header_length: usize,
+    record_length: usize,
+    record_count: u32,
+    fields: Vec<DbfFieldLayout>,
+    exact_integer_count: usize,
+}
+
+/// Legge la parte strutturale del DBF che `dbase::Record` non espone.
+///
+/// Due proprieta' dipendono dai descrittori originali: i nomi duplicati devono
+/// essere respinti prima che `Record` li comprima in una `HashMap`, e un campo
+/// Numeric largo, senza decimali, deve essere letto dal testo ASCII originale
+/// anziche' dal `f64` gia' arrotondato dalla dipendenza.
+fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
+    let path = shp_path.with_extension("dbf");
+    let decoded_names = shapefile::dbase::Reader::from_path(&path)
+        .map_err(|error| err(format!("apertura schema DBF: {error}")))?
+        .fields()
+        .iter()
+        .map(|field| field.name().to_owned())
+        .collect::<Vec<_>>();
+    let mut reader =
+        BufReader::new(File::open(&path).map_err(|error| err(format!("apertura DBF: {error}")))?);
+    let mut header = [0_u8; DBF_HEADER_SIZE];
+    reader
+        .read_exact(&mut header)
+        .map_err(|error| err(format!("header DBF incompleto: {error}")))?;
+    let record_count = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+    let header_length = usize::from(u16::from_le_bytes([header[8], header[9]]));
+    let declared_record_length = usize::from(u16::from_le_bytes([header[10], header[11]]));
+    let descriptor_end = if header[0] == DBF_VISUAL_FOXPRO_VERSION {
+        header_length
+            .checked_sub(DBF_VISUAL_FOXPRO_BACKLINK_SIZE)
+            .ok_or_else(|| err("header Visual FoxPro piu' corto del backlink"))?
+    } else {
+        header_length
+    };
+    let descriptor_bytes = descriptor_end
+        .checked_sub(DBF_HEADER_SIZE + DBF_HEADER_TERMINATOR_SIZE)
+        .ok_or_else(|| err("lunghezza header DBF non valida"))?;
+    if descriptor_bytes % DBF_FIELD_DESCRIPTOR_SIZE != 0 {
+        return Err(err("lunghezza descrittori DBF non valida"));
+    }
+
+    let field_count = descriptor_bytes / DBF_FIELD_DESCRIPTOR_SIZE;
+    if decoded_names.len() != field_count {
+        return Err(err(format!(
+            "numero descrittori DBF incoerente: header={field_count}, decoder={}",
+            decoded_names.len()
+        )));
+    }
+    let mut fields = Vec::with_capacity(field_count);
+    let mut seen = BTreeSet::new();
+    let mut offset = 1_usize; // deletion flag
+    let mut exact_integer_count = 0_usize;
+    for (index, decoded_name) in decoded_names.into_iter().enumerate() {
+        let mut descriptor = [0_u8; DBF_FIELD_DESCRIPTOR_SIZE];
+        reader
+            .read_exact(&mut descriptor)
+            .map_err(|error| err(format!("descrittore campo DBF incompleto: {error}")))?;
+        let name = decoded_name;
+        if name.is_empty() {
+            return Err(err(format!("nome campo DBF vuoto all'indice {index}")));
+        }
+        let normalized = name.to_ascii_uppercase();
+        if !seen.insert(normalized) {
+            return Err(err(format!(
+                "nomi campo DBF duplicati: '{name}'; il file e' rifiutato per non perdere una colonna"
+            )));
+        }
+        let width = usize::from(descriptor[16]);
+        if width == 0 {
+            return Err(err(format!("campo DBF '{name}' con larghezza zero")));
+        }
+        let exact_integer_slot = (descriptor[11] == b'N' && descriptor[17] == 0 && width >= 10)
+            .then(|| {
+                let slot = exact_integer_count;
+                exact_integer_count += 1;
+                slot
+            });
+        fields.push(DbfFieldLayout {
+            name,
+            offset,
+            width,
+            exact_integer_slot,
+        });
+        offset = offset
+            .checked_add(width)
+            .ok_or_else(|| err("overflow nella lunghezza record DBF"))?;
+    }
+    let mut terminator = [0_u8; 1];
+    reader
+        .read_exact(&mut terminator)
+        .map_err(|error| err(format!("terminatore header DBF mancante: {error}")))?;
+    if terminator[0] != 0x0d {
+        return Err(err("terminatore header DBF non valido"));
+    }
+    if declared_record_length != offset && declared_record_length.checked_add(1) != Some(offset) {
+        return Err(err(format!(
+            "record DBF dichiarato lungo {declared_record_length} byte ma i campi ne richiedono {offset}"
+        )));
+    }
+    Ok(DbfLayout {
+        header_length,
+        // `dbase` adotta la lunghezza calcolata quando un produttore omette il
+        // deletion flag dalla lunghezza dichiarata; il lettore raw deve restare
+        // allineato allo stesso comportamento.
+        record_length: offset,
+        record_count,
+        fields,
+        exact_integer_count,
+    })
+}
+
+struct DbfExactIntegerRows {
+    reader: BufReader<File>,
+    layout: DbfLayout,
+    records_read: u32,
+    buffer: Vec<u8>,
+}
+
+impl DbfExactIntegerRows {
+    fn open(shp_path: &Path, layout: &DbfLayout) -> Result<Self> {
+        let mut reader = BufReader::new(
+            File::open(shp_path.with_extension("dbf"))
+                .map_err(|error| err(format!("apertura DBF: {error}")))?,
+        );
+        reader
+            .seek(SeekFrom::Start(layout.header_length as u64))
+            .map_err(|error| err(format!("posizionamento sui record DBF: {error}")))?;
+        Ok(Self {
+            reader,
+            layout: layout.clone(),
+            records_read: 0,
+            buffer: vec![0_u8; layout.record_length],
+        })
+    }
+
+    /// Restituisce i valori esatti del prossimo record non cancellato, come fa
+    /// l'iteratore della dipendenza usato dal reader Shapefile.
+    fn next_active(&mut self) -> Result<Option<Vec<Option<i64>>>> {
+        while self.records_read < self.layout.record_count {
+            self.reader
+                .read_exact(&mut self.buffer)
+                .map_err(|error| err(format!("record DBF incompleto: {error}")))?;
+            self.records_read += 1;
+            match self.buffer[0] {
+                b'*' => continue,
+                b' ' => {}
+                marker => {
+                    return Err(err(format!(
+                        "marcatore record DBF non valido: 0x{marker:02x}"
+                    )))
+                }
+            }
+            let mut values = vec![None; self.layout.exact_integer_count];
+            for field in &self.layout.fields {
+                let Some(slot) = field.exact_integer_slot else {
+                    continue;
+                };
+                let end = field
+                    .offset
+                    .checked_add(field.width)
+                    .ok_or_else(|| err("overflow nell'offset del campo DBF"))?;
+                let raw = self
+                    .buffer
+                    .get(field.offset..end)
+                    .ok_or_else(|| err(format!("campo DBF '{}' fuori record", field.name)))?;
+                let text = std::str::from_utf8(raw)
+                    .map_err(|_| err(format!("campo numerico DBF '{}' non ASCII", field.name)))?
+                    .trim();
+                if !text.is_empty() {
+                    values[slot] = Some(text.parse::<i64>().map_err(|_| {
+                        err(format!(
+                            "campo DBF '{}' dichiarato N({},0) ma valore non rappresentabile come intero i64",
+                            field.name, field.width
+                        ))
+                    })?);
+                }
+            }
+            return Ok(Some(values));
+        }
+        Ok(None)
+    }
+}
+
+#[derive(Clone)]
+struct ShpColumn {
+    name: String,
+    column_type: ColType,
+    exact_integer_slot: Option<usize>,
+}
+
 struct ShpGeometryInfo {
     dimensions: CoordinateDimensions,
     geometry_types: Vec<GeometryType>,
@@ -1006,7 +1227,8 @@ struct ShpGeometryInfo {
 }
 
 struct ShpInference {
-    cols: Vec<(String, ColType)>,
+    cols: Vec<ShpColumn>,
+    dbf_layout: DbfLayout,
     geometry_info: ShpGeometryInfo,
     loss: LossReport,
 }
@@ -1277,22 +1499,6 @@ fn shape_has_valid_measure(shape: &Shape) -> bool {
     }
 }
 
-fn geometry_type_for_shape(shape: &Shape) -> Option<GeometryType> {
-    match shape {
-        Shape::Point(_) | Shape::PointM(_) | Shape::PointZ(_) => Some(GeometryType::Point),
-        Shape::Polyline(_) | Shape::PolylineM(_) | Shape::PolylineZ(_) => {
-            Some(GeometryType::MultiLineString)
-        }
-        Shape::Polygon(_) | Shape::PolygonM(_) | Shape::PolygonZ(_) => {
-            Some(GeometryType::MultiPolygon)
-        }
-        Shape::Multipoint(_) | Shape::MultipointM(_) | Shape::MultipointZ(_) => {
-            Some(GeometryType::MultiPoint)
-        }
-        Shape::NullShape | Shape::Multipatch(_) => None,
-    }
-}
-
 fn dimensions_for_shape_tag(shape_type: Option<&str>, z_has_measure: bool) -> CoordinateDimensions {
     match shape_type {
         Some(tag) if tag.ends_with("-xy") => CoordinateDimensions::Xy,
@@ -1303,55 +1509,125 @@ fn dimensions_for_shape_tag(shape_type: Option<&str>, z_has_measure: bool) -> Co
     }
 }
 
+fn header_geometry(shape_type: ShapeType) -> Result<(Option<&'static str>, Vec<GeometryType>)> {
+    let value = match shape_type {
+        ShapeType::NullShape => (None, Vec::new()),
+        ShapeType::Point => (Some("point-xy"), vec![GeometryType::Point]),
+        ShapeType::PointM => (Some("point-m"), vec![GeometryType::Point]),
+        ShapeType::PointZ => (Some("point-z"), vec![GeometryType::Point]),
+        ShapeType::Polyline => (Some("polyline-xy"), vec![GeometryType::MultiLineString]),
+        ShapeType::PolylineM => (Some("polyline-m"), vec![GeometryType::MultiLineString]),
+        ShapeType::PolylineZ => (Some("polyline-z"), vec![GeometryType::MultiLineString]),
+        ShapeType::Polygon => (Some("polygon-xy"), vec![GeometryType::MultiPolygon]),
+        ShapeType::PolygonM => (Some("polygon-m"), vec![GeometryType::MultiPolygon]),
+        ShapeType::PolygonZ => (Some("polygon-z"), vec![GeometryType::MultiPolygon]),
+        ShapeType::Multipoint => (Some("multipoint-xy"), vec![GeometryType::MultiPoint]),
+        ShapeType::MultipointM => (Some("multipoint-m"), vec![GeometryType::MultiPoint]),
+        ShapeType::MultipointZ => (Some("multipoint-z"), vec![GeometryType::MultiPoint]),
+        ShapeType::Multipatch => return Err(err("Multipatch Shapefile non supportato")),
+    };
+    Ok(value)
+}
+
+fn shape_type_label(shape_type: Option<&str>) -> &str {
+    match shape_type {
+        Some(value) => value,
+        None => "null",
+    }
+}
+
+/// Il tipo geometrico e' una proprieta' dell'header Shapefile. Per i tipi Z
+/// soltanto, M e' opzionale record per record e richiede una scansione; i
+/// comuni percorsi XY/M non devono decodificare tutte le geometrie durante
+/// l'apertura per poi decodificarle di nuovo durante la lettura.
+fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometryInfo> {
+    let mut reader = ShapeReader::from_path(path)
+        .map_err(|error| err(format!("apertura geometrie Shapefile: {error}")))?;
+    let native_type = reader.header().shape_type;
+    if let Ok(shape_count) = reader.shape_count() {
+        if shape_count != dbf_record_count as usize {
+            return Err(err(format!(
+                "numero di geometrie ({shape_count}) diverso dai record DBF ({dbf_record_count})"
+            )));
+        }
+    }
+    let (shape_type, geometry_types) = header_geometry(native_type)?;
+    let mut z_has_measure = false;
+    if native_type.has_z() {
+        for shape in reader.iter_shapes() {
+            let shape =
+                shape.map_err(|error| err(format!("record geometrico Shapefile: {error}")))?;
+            let tag = shape_tag(&shape);
+            if !tag.is_empty() && Some(tag) != shape_type {
+                return Err(err(format!(
+                    "tipo Shape nel record '{tag}' incoerente con l'header '{}'",
+                    shape_type_label(shape_type)
+                )));
+            }
+            z_has_measure |= shape_has_valid_measure(&shape);
+        }
+    }
+    Ok(ShpGeometryInfo {
+        dimensions: dimensions_for_shape_tag(shape_type, z_has_measure),
+        geometry_types,
+        shape_type,
+    })
+}
+
 /// Pass 1: nomi campo, tipo DBF e contratto geometrico nativo, a RAM O(ncol).
 fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
-    let mut reader =
-        shapefile::Reader::from_path(path).map_err(|e| err(format!("apertura shapefile: {e}")))?;
-    let mut order: Vec<String> = Vec::new();
-    let mut accs: HashMap<String, TypeAccumulator> = HashMap::new();
-    let mut shape_type = None;
-    let mut geometry_types = BTreeSet::new();
-    let mut z_has_measure = false;
+    let dbf_layout = read_dbf_layout(path)?;
+    let mut exact_rows = DbfExactIntegerRows::open(path, &dbf_layout)?;
+    let geometry_info = infer_geometry_info(path, dbf_layout.record_count)?;
+    let mut reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
+        .map_err(|error| err(format!("apertura DBF: {error}")))?;
+    let order = dbf_layout
+        .fields
+        .iter()
+        .map(|field| field.name.clone())
+        .collect::<Vec<_>>();
+    let mut accs: HashMap<String, TypeAccumulator> = dbf_layout
+        .fields
+        .iter()
+        .map(|field| {
+            let mut accumulator = TypeAccumulator::default();
+            if field.exact_integer_slot.is_some() {
+                // Il tipo e' dichiarato dal descrittore N(width>=10, decimals=0),
+                // anche quando tutti i valori sono nulli.
+                accumulator.observe(ObservedValueClass::Integer);
+            }
+            (field.name.clone(), accumulator)
+        })
+        .collect();
     let mut loss = LossReport::default();
     let mut precision_risk_fields = BTreeSet::new();
-    for pair in reader.iter_shapes_and_records() {
-        let (shape, record) = pair.map_err(|e| err(format!("record shapefile: {e}")))?;
-        let tag = shape_tag(&shape);
-        if tag == "unsupported" {
-            return Err(err("Multipatch Shapefile non supportato"));
-        }
-        if !tag.is_empty() {
-            match shape_type {
-                None => shape_type = Some(tag),
-                Some(existing) if existing != tag => {
-                    return Err(err(format!(
-                        "tipi Shape incoerenti nel file: '{existing}' e '{tag}'"
-                    )))
-                }
-                _ => {}
+    for record in reader.iter_records() {
+        let record = record.map_err(|error| err(format!("record DBF: {error}")))?;
+        let exact_values = exact_rows
+            .next_active()?
+            .ok_or_else(|| err("numero di record DBF incoerente con l'header"))?;
+        for field in &dbf_layout.fields {
+            let accumulator = accs.get_mut(&field.name).ok_or_else(|| {
+                err(format!(
+                    "schema DBF senza accumulatore per '{}'",
+                    field.name
+                ))
+            })?;
+            if let Some(slot) = field.exact_integer_slot {
+                accumulator
+                    .observe(exact_values[slot].map_or(ObservedValueClass::Null, classify_i64));
+                continue;
             }
-        }
-        z_has_measure |= shape_has_valid_measure(&shape);
-        if let Some(geometry_type) = geometry_type_for_shape(&shape) {
-            geometry_types.insert(geometry_type);
-        }
-        for (name, value) in record {
-            if dbf_numeric_integer_precision_unverifiable(&value) {
+            let value = record.get(&field.name);
+            if value.is_some_and(dbf_numeric_integer_precision_unverifiable) {
                 loss.record(DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE, 1);
-                precision_risk_fields.insert(name.clone());
+                precision_risk_fields.insert(field.name.clone());
             }
-            match accs.entry(name.clone()) {
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    order.push(name);
-                    entry
-                        .insert(TypeAccumulator::default())
-                        .observe(classify(&value));
-                }
-                std::collections::hash_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().observe(classify(&value));
-                }
-            }
+            accumulator.observe(value.map_or(ObservedValueClass::Null, classify));
         }
+    }
+    if exact_rows.next_active()?.is_some() {
+        return Err(err("numero di record DBF incoerente con l'header"));
     }
     let columns = order
         .into_iter()
@@ -1360,7 +1636,16 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
                 .get(&name)
                 .ok_or_else(|| err(format!("schema DBF senza accumulatore per '{name}'")))?
                 .column_type();
-            Ok((name, column_type))
+            let exact_integer_slot = dbf_layout
+                .fields
+                .iter()
+                .find(|field| field.name == name)
+                .and_then(|field| field.exact_integer_slot);
+            Ok(ShpColumn {
+                name,
+                column_type,
+                exact_integer_slot,
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     for name in precision_risk_fields {
@@ -1373,11 +1658,8 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     }
     Ok(ShpInference {
         cols: columns,
-        geometry_info: ShpGeometryInfo {
-            dimensions: dimensions_for_shape_tag(shape_type, z_has_measure),
-            geometry_types: geometry_types.into_iter().collect(),
-            shape_type,
-        },
+        dbf_layout,
+        geometry_info,
         loss,
     })
 }
@@ -1385,8 +1667,10 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
 struct ShpParserInput {
     path: PathBuf,
     schema: SchemaRef,
-    cols: Vec<(String, ColType)>,
+    cols: Vec<ShpColumn>,
+    dbf_layout: DbfLayout,
     dimensions: CoordinateDimensions,
+    expected_shape_type: Option<&'static str>,
     include_geometry: bool,
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
@@ -1399,7 +1683,9 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
         path,
         schema,
         cols,
+        dbf_layout,
         dimensions,
+        expected_shape_type,
         include_geometry,
         mut batch_sizer,
         layer,
@@ -1408,15 +1694,26 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
     let reader = spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
         let mut reader = shapefile::Reader::from_path(&path)
             .map_err(|error| err(format!("shapefile non valido: {error}")))?;
+        let mut exact_rows = DbfExactIntegerRows::open(&path, &dbf_layout)?;
         let mut geom = include_geometry.then(BinaryBuilder::new);
         let mut builders: Vec<InferredColumnBuilder> = cols
             .iter()
-            .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
+            .map(|column| InferredColumnBuilder::new(column.column_type))
             .collect();
         let mut n = 0usize;
         for pair in reader.iter_shapes_and_records() {
             let (shape, record) =
                 pair.map_err(|error| err(format!("record shapefile non valido: {error}")))?;
+            let exact_values = exact_rows
+                .next_active()?
+                .ok_or_else(|| err("numero di record DBF incoerente con le geometrie"))?;
+            let tag = shape_tag(&shape);
+            if !tag.is_empty() && Some(tag) != expected_shape_type {
+                return Err(err(format!(
+                    "tipo Shape nel record '{tag}' incoerente con l'header '{}'",
+                    shape_type_label(expected_shape_type)
+                )));
+            }
             if let Some(builder) = &mut geom {
                 match shape_to_wkb(&shape, dimensions)? {
                     Some(geometry) => {
@@ -1427,9 +1724,16 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 }
             }
             // Lookup per nome (l'ordine di iterazione del Record non è garantito).
-            for (k, (name, _)) in cols.iter().enumerate() {
+            for (k, column) in cols.iter().enumerate() {
+                if let Some(slot) = column.exact_integer_slot {
+                    match exact_values[slot] {
+                        Some(value) => builders[k].append_i64(value)?,
+                        None => builders[k].append_null(),
+                    }
+                    continue;
+                }
                 let value = record
-                    .get(name)
+                    .get(&column.name)
                     .filter(|value| classify(value) != ObservedValueClass::Null);
                 builders[k].append_converted(value, fv_i64, fv_f64, fv_bool, |value| {
                     fv_string(value).map(Cow::Owned)
@@ -1444,6 +1748,9 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 }
                 n = 0;
             }
+        }
+        if exact_rows.next_active()?.is_some() {
+            return Err(err("numero di record DBF incoerente con le geometrie"));
         }
         if n > 0 {
             let batch = finish_batch(&schema, &mut geom, &mut builders, n)?;
@@ -1556,7 +1863,7 @@ pub fn __fuzz_wkb_roundtrip(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+    use std::io::Write as _;
 
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
@@ -1618,7 +1925,7 @@ mod tests {
     }
 
     #[test]
-    fn wide_dbf_integers_report_precision_loss_after_f64_decode() {
+    fn wide_zero_decimal_dbf_numeric_is_read_exactly_as_i64() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("parcels.shp");
         let field_name = shapefile::dbase::FieldName::try_from("parcel_id").unwrap();
@@ -1662,26 +1969,94 @@ mod tests {
             .open(Source::Path(path), &ReadOptions::default())
             .unwrap();
         let assessment = dataset.fidelity_assessment();
-        assert_eq!(assessment.level, Fidelity::Approximating);
-        assert!(assessment.reasons.iter().any(|reason| {
-            reason.code == plenora_io_core::FidelityReasonCode::PrecisionChanged
-        }));
+        assert_eq!(assessment.level, Fidelity::Conditional);
 
         let mut reader = dataset.open_layer_reader(&req()).unwrap();
         let loss = reader.loss_report();
-        assert_eq!(
-            loss.counts.get(DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE),
-            Some(&2)
-        );
-        assert_eq!(loss.examples().len(), 1);
-        assert!(loss.examples()[0].context.contains("field=parcel_id"));
+        assert!(!loss
+            .counts
+            .contains_key(DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE));
         let batch = reader.next_batch().unwrap().unwrap();
         let ids = batch
             .column(1)
             .as_any()
-            .downcast_ref::<arrow_array::Float64Array>()
+            .downcast_ref::<arrow_array::Int64Array>()
             .unwrap();
-        assert_eq!(ids.value(0), ids.value(1));
+        assert_eq!(ids.value(0), 9_007_199_254_740_992);
+        assert_eq!(ids.value(1), 9_007_199_254_740_993);
+    }
+
+    #[test]
+    fn narrow_or_decimal_dbf_numeric_keeps_float_mapping() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("numeric-shapes.shp");
+        let narrow = shapefile::dbase::FieldName::try_from("narrow").unwrap();
+        let decimal = shapefile::dbase::FieldName::try_from("decimal").unwrap();
+        let table = TableWriterBuilder::new()
+            .add_numeric_field(narrow, 9, 0)
+            .add_numeric_field(decimal, 18, 2);
+        let mut writer = Writer::from_path(&path, table).unwrap();
+        let mut record = Record::default();
+        record.insert("narrow".to_owned(), FieldValue::Numeric(Some(123.0)));
+        record.insert("decimal".to_owned(), FieldValue::Numeric(Some(12.5)));
+        writer
+            .write_shape_and_record(&Point::new(0.0, 0.0), &record)
+            .unwrap();
+        drop(writer);
+        std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
+
+        let dataset = ShpDriver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let schema = &dataset.layers()[0].contract.schema;
+        assert_eq!(schema.field(1).data_type(), &DataType::Float64);
+        assert_eq!(schema.field(2).data_type(), &DataType::Float64);
+    }
+
+    #[test]
+    fn duplicate_dbf_field_names_are_rejected_before_record_map_collapse() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("duplicates.shp");
+        let first = shapefile::dbase::FieldName::try_from("first").unwrap();
+        let second = shapefile::dbase::FieldName::try_from("second").unwrap();
+        let table = TableWriterBuilder::new()
+            .add_character_field(first, 16)
+            .add_character_field(second, 16);
+        let mut writer = Writer::from_path(&path, table).unwrap();
+        let mut record = Record::default();
+        record.insert(
+            "first".to_owned(),
+            FieldValue::Character(Some("a".to_owned())),
+        );
+        record.insert(
+            "second".to_owned(),
+            FieldValue::Character(Some("b".to_owned())),
+        );
+        writer
+            .write_shape_and_record(&Point::new(0.0, 0.0), &record)
+            .unwrap();
+        drop(writer);
+        std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
+
+        let mut dbf = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path.with_extension("dbf"))
+            .unwrap();
+        dbf.seek(SeekFrom::Start(
+            (DBF_HEADER_SIZE + DBF_FIELD_DESCRIPTOR_SIZE) as u64,
+        ))
+        .unwrap();
+        let mut duplicate = [0_u8; DBF_FIELD_NAME_SIZE];
+        duplicate[..5].copy_from_slice(b"first");
+        dbf.write_all(&duplicate).unwrap();
+        drop(dbf);
+
+        let error = ShpDriver
+            .open(Source::Path(path), &ReadOptions::default())
+            .err()
+            .expect("il DBF con nomi duplicati deve essere rifiutato");
+        assert!(error.to_string().contains("nomi campo DBF duplicati"));
     }
 
     #[test]
