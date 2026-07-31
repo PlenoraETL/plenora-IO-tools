@@ -22,6 +22,7 @@ INDEPENDENT_REVIEW = ROOT / "release" / "independent-review.json"
 RC3_DEVELOPMENT = ROOT / "release" / "rc3-development.json"
 RC4_DEVELOPMENT = ROOT / "release" / "rc4-development.json"
 RC5_DEVELOPMENT = ROOT / "release" / "rc5-development.json"
+CLI_PROTOCOL_V1 = ROOT / "release" / "cli-protocol-v1.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
@@ -426,22 +427,70 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
             "implementation_revision": EXPECTED_IO_CANDIDATE,
             "immutable": True,
         },
-        "program_record": (
-            "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md"
-        ),
+        "program_records": [
+            "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md",
+            "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_CONVERT_CONTRACT.md",
+        ],
         "scope": "component_only",
         "system_qualification_ownership": "external",
         "workstreams": {
             "r9_machine_readable_error_envelope": (
                 "implemented_targeted_gates_passed"
             ),
+            "convert_loss_observability": "implemented_targeted_gates_passed",
+            "cli_protocol_1x_candidate": "declared",
+        },
+        "compatibility_surface": {
+            "candidate_manifest": "release/cli-protocol-v1.json",
+            "planned_stable_for_1x": "cli_json_only",
+            "rust_api": "internal_unstable_not_semver_surface",
+            "rust_crates_publish": False,
+            "extraction_under_r15_4_1": (
+                "not_blocked_by_public_api_commitment"
+            ),
         },
         "non_code_dependencies": {
             "combined_read_write_boundary_crs_policy": "owner_decision_open",
-            "reader_loss_cli_observability": "external_contracts_follow_up",
+            "reader_loss_conformance_runner": "external_contracts_follow_up",
             "icd_ratification_alignment": (
                 "owner_decision_open_not_component_code_gate"
             ),
+        },
+        "next_candidate": {
+            "version": "1.0.0-rc.1",
+            "status": "blocked_on_owner_decision",
+            "blocking_decisions": [
+                "combined_read_write_boundary_crs_policy",
+            ],
+        },
+        "declared_scope_reductions": {
+            "component_rc_verified_internally": [
+                "crs_definition_vs_srid_semantic_resolution",
+                "shared_resource_budget_leases_r7_5_r7_7",
+                "multi_gdal_and_filesystem_qualification",
+                "independent_review",
+                "reverse_system_qualification_direction",
+            ],
+            "stronger_claim_blockers": {
+                "full_r4_3_1_conformance": [
+                    "crs_definition_vs_srid_semantic_resolution",
+                ],
+                "full_r7_5_r7_7_conformance": [
+                    "shared_resource_budget_leases_r7_5_r7_7",
+                ],
+                "verified_independently": [
+                    "independent_review",
+                ],
+                "system_rc": [
+                    "reverse_system_qualification_direction",
+                    "external_three_component_qualification",
+                ],
+                "avionic_certification": [
+                    "independent_review",
+                    "qualified_native_dependency_and_filesystem_matrix",
+                    "structural_coverage_beyond_line_coverage",
+                ],
+            },
         },
         "claims": {
             "component_rc": False,
@@ -450,6 +499,62 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
         },
     }:
         errors.append("rc5-development: programma o claim inattesi")
+    return errors
+
+
+def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if document.get("manifest_version") != 1:
+        errors.append("cli-protocol-v1: manifest_version inattesa")
+    if document.get("component") != "plenora-IO-tools":
+        errors.append("cli-protocol-v1: componente inatteso")
+    if document.get("protocol_version") != 1:
+        errors.append("cli-protocol-v1: protocol_version inattesa")
+    if document.get("status") != "candidate_for_1_0_freeze":
+        errors.append("cli-protocol-v1: stato inatteso")
+    if document.get("compatibility_scope") != "cli_json_only":
+        errors.append("cli-protocol-v1: superficie non limitata alla CLI JSON")
+
+    rust_api = document.get("rust_api", {})
+    if rust_api != {
+        "status": "internal_unstable",
+        "semver_guarantee": False,
+        "crates_publish": False,
+        "reason": (
+            "R15.4.1 prevede l'estrazione dei tipi di confine da "
+            "plenora-io-model; una garanzia pubblica 1.x renderebbe "
+            "quell'estrazione una rottura."
+        ),
+    }:
+        errors.append("cli-protocol-v1: stato API Rust inatteso")
+
+    expected_contracts = {
+        "error": "plenora-io-error-v1",
+        "catalog": "plenora-io-catalog-v1",
+        "inspect": "plenora-io-inspect-v1",
+        "layers": "plenora-io-layers-v1",
+        "read": "plenora-io-read-v1",
+        "convert": "plenora-io-convert-v1",
+    }
+    envelopes = document.get("envelopes", {})
+    if set(envelopes) != set(expected_contracts):
+        errors.append("cli-protocol-v1: devono essere dichiarate sei buste")
+    for name, contract in expected_contracts.items():
+        if envelopes.get(name, {}).get("contract") != contract:
+            errors.append(f"cli-protocol-v1: contratto inatteso per {name}")
+
+    convert = envelopes.get("convert", {})
+    required_convert = {
+        "conversion_fidelity",
+        "read_fidelity",
+        "write_fidelity",
+        "read_loss",
+        "write_loss",
+    }
+    if not required_convert.issubset(set(convert.get("required_top_level", []))):
+        errors.append("cli-protocol-v1: osservabilità convert incompleta")
+    if convert.get("forbidden_legacy_fields") != ["loss"]:
+        errors.append("cli-protocol-v1: campo legacy loss non vietato")
     return errors
 
 
@@ -800,6 +905,7 @@ def main() -> int:
         RC3_DEVELOPMENT,
         RC4_DEVELOPMENT,
         RC5_DEVELOPMENT,
+        CLI_PROTOCOL_V1,
         WORKSPACE_MANIFEST,
         WORKSPACE_LOCK,
         *WORKSPACE_CRATE_MANIFESTS,
@@ -887,6 +993,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-31_RC5_CONVERT_CONTRACT.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -919,6 +1029,7 @@ def main() -> int:
             errors.extend(validate_rc3_development(load_json(RC3_DEVELOPMENT)))
             errors.extend(validate_rc4_development(load_json(RC4_DEVELOPMENT)))
             errors.extend(validate_rc5_development(load_json(RC5_DEVELOPMENT)))
+            errors.extend(validate_cli_protocol_v1(load_json(CLI_PROTOCOL_V1)))
         except (OSError, ValueError, json.JSONDecodeError) as error:
             errors.append(str(error))
 

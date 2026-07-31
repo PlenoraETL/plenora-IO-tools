@@ -366,13 +366,18 @@ formato oltre quella mediata da `plenora-core`.
 - `write --input I.arrow --output F [--format …]` → Arrow IPC → file.
 - `convert --input a.shp --output b.gpkg` → `read` + `write` in streaming,
   file→file, `RecordBatch` in mezzo. **Sostituisce** il vecchio
-  import/export-verso-GeoJSON: GeoJSON è ora solo uno dei formati.
+  import/export-verso-GeoJSON: GeoJSON è ora solo uno dei formati. Il documento
+  distingue `read_loss` e `write_loss` e pubblica `conversion_fidelity` come
+  valutazione end-to-end col livello peggiore dei due bordi.
 - `catalog` → descrittori dei driver, machine-readable.
 - Busta d'errore versionata `plenora-io-error-v1`: `category`, `phase` ed
   `remote_effect` sono campi `snake_case`; `retry` è un oggetto taggato e
   conserva `delay_ms` per `after`; `message` resta diagnostico. Exit code stabili
   (2 CliUsage, 3 LimitExceeded, 4 Unsupported, 5 LayerNotFound, 6 OutputExists,
   7 Input/Io, 8 InvalidInput, 10 Internal) — allineati alla famiglia.
+- La compatibilità 1.x pianificata riguarda le sei buste JSON versionate della
+  CLI. Le API Rust dei crate, tutti `publish = false`, restano interne e possono
+  essere riorganizzate per l'estrazione dei tipi condivisi prevista da R15.4.1.
 
 **Fuori scope (invariato)**: qualunque *trasformazione* dei dati (filter, join,
 aggregate, reproject) resta a `plenora-data-tools`. plenora-IO-tools non ha un

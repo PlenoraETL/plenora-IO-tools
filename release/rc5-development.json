@@ -9,16 +9,64 @@
     "implementation_revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
     "immutable": true
   },
-  "program_record": "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md",
+  "program_records": [
+    "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md",
+    "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_CONVERT_CONTRACT.md"
+  ],
   "scope": "component_only",
   "system_qualification_ownership": "external",
   "workstreams": {
-    "r9_machine_readable_error_envelope": "implemented_targeted_gates_passed"
+    "r9_machine_readable_error_envelope": "implemented_targeted_gates_passed",
+    "convert_loss_observability": "implemented_targeted_gates_passed",
+    "cli_protocol_1x_candidate": "declared"
+  },
+  "compatibility_surface": {
+    "candidate_manifest": "release/cli-protocol-v1.json",
+    "planned_stable_for_1x": "cli_json_only",
+    "rust_api": "internal_unstable_not_semver_surface",
+    "rust_crates_publish": false,
+    "extraction_under_r15_4_1": "not_blocked_by_public_api_commitment"
   },
   "non_code_dependencies": {
     "combined_read_write_boundary_crs_policy": "owner_decision_open",
-    "reader_loss_cli_observability": "external_contracts_follow_up",
+    "reader_loss_conformance_runner": "external_contracts_follow_up",
     "icd_ratification_alignment": "owner_decision_open_not_component_code_gate"
+  },
+  "next_candidate": {
+    "version": "1.0.0-rc.1",
+    "status": "blocked_on_owner_decision",
+    "blocking_decisions": [
+      "combined_read_write_boundary_crs_policy"
+    ]
+  },
+  "declared_scope_reductions": {
+    "component_rc_verified_internally": [
+      "crs_definition_vs_srid_semantic_resolution",
+      "shared_resource_budget_leases_r7_5_r7_7",
+      "multi_gdal_and_filesystem_qualification",
+      "independent_review",
+      "reverse_system_qualification_direction"
+    ],
+    "stronger_claim_blockers": {
+      "full_r4_3_1_conformance": [
+        "crs_definition_vs_srid_semantic_resolution"
+      ],
+      "full_r7_5_r7_7_conformance": [
+        "shared_resource_budget_leases_r7_5_r7_7"
+      ],
+      "verified_independently": [
+        "independent_review"
+      ],
+      "system_rc": [
+        "reverse_system_qualification_direction",
+        "external_three_component_qualification"
+      ],
+      "avionic_certification": [
+        "independent_review",
+        "qualified_native_dependency_and_filesystem_matrix",
+        "structural_coverage_beyond_line_coverage"
+      ]
+    }
   },
   "claims": {
     "component_rc": false,

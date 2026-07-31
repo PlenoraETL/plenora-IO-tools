@@ -25,7 +25,10 @@ vietato finché la review non viene completata.
 Lo sviluppo `0.1.0-rc.5` parte dalla baseline immutabile RC4. Il primo
 incremento rende machine-readable i quattro assi della busta d'errore CLI e
 conserva `delay_ms` nella variante retry `after`; non modifica driver o formati
-su disco.
+su disco. Il secondo espone separatamente `read_loss` e `write_loss` nel
+documento `convert` e aggiunge `conversion_fidelity`, eliminando l'ambiguo
+campo writer-only `loss.lossless`. La superficie candidata alla compatibilità
+1.x è limitata alle sei buste JSON della CLI; le API Rust restano interne.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
@@ -55,6 +58,9 @@ primitive esplicite di panic in tutti i target di libreria.
   assi come campi `snake_case`; `retry` è un oggetto taggato e `After` conserva
   `delay_ms`. Il codice locale resta separato e `message` è soltanto testo
   diagnostico redatto.
+- `plenora-io-convert-v1` separa i report osservati in `read_loss` e
+  `write_loss`; `conversion_fidelity` combina i due assessment senza presentare
+  il solo esito del writer come giudizio sull'intera conversione.
 - Gli schemi prodotti dichiarano `plenora.contract.version=1`; i consumer
   accettano i contratti legacy senza versione e rifiutano versioni future.
   `types_declaration` distingue `exact`, `mixed` e `unresolved`, con invarianti

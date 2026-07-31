@@ -6,6 +6,7 @@ import copy
 import unittest
 
 from scripts.check_release_contract import (
+    CLI_PROTOCOL_V1,
     CORPUS_SCHEMA,
     CORPUS_MANIFEST,
     DETACHED_LOCKFILES,
@@ -21,6 +22,7 @@ from scripts.check_release_contract import (
     load_json,
     load_toml,
     validate_documents,
+    validate_cli_protocol_v1,
     validate_workspace_versions,
 )
 
@@ -41,6 +43,7 @@ class ReleaseContractTests(unittest.TestCase):
         ]
         self.lockfile = load_toml(WORKSPACE_LOCK)
         self.detached_lockfiles = [load_toml(path) for path in DETACHED_LOCKFILES]
+        self.cli_protocol = load_json(CLI_PROTOCOL_V1)
 
     def validate(
         self,
@@ -93,6 +96,17 @@ class ReleaseContractTests(unittest.TestCase):
                 self.detached_lockfiles,
             )
         )
+
+    def test_cli_protocol_freezes_six_json_envelopes_not_the_rust_api(self) -> None:
+        self.assertEqual(validate_cli_protocol_v1(self.cli_protocol), [])
+        self.assertEqual(self.cli_protocol["compatibility_scope"], "cli_json_only")
+        self.assertEqual(self.cli_protocol["rust_api"]["status"], "internal_unstable")
+        self.assertEqual(len(self.cli_protocol["envelopes"]), 6)
+
+    def test_cli_protocol_rejects_legacy_convert_loss_field(self) -> None:
+        protocol = copy.deepcopy(self.cli_protocol)
+        protocol["envelopes"]["convert"]["forbidden_legacy_fields"] = []
+        self.assertTrue(validate_cli_protocol_v1(protocol))
 
     def test_rejects_crate_not_inheriting_release_version(self) -> None:
         manifests = copy.deepcopy(self.crate_manifests)

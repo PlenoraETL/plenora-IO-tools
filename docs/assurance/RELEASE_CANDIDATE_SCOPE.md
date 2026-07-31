@@ -93,6 +93,14 @@ La decisione e la sequenza autorizzata sono nella
 Le modifiche successive appartengono allo sviluppo `0.1.0-rc.5`, registrato
 separatamente in
 [`release/rc5-development.json`](../../release/rc5-development.json).
+RC5 chiude l'osservabilità machine-readable del `LossReport` reader e
+l'ambiguità writer/end-to-end del vecchio `loss.lossless`. Registra inoltre
+come candidata alla compatibilità 1.x soltanto la superficie JSON della CLI:
+le API Rust restano interne per non bloccare l'estrazione prevista da R15.4.1.
+Il passaggio a `1.0.0-rc.1` resta bloccato dalla decisione owner sul comando che
+combina bordo di lettura e scrittura con rappresentazioni CRS discordanti. Le
+riduzioni di scope e i blocker che riemergono per claim più forti sono
+machine-readable nel manifesto RC5.
 
 Il materiale per un'eventuale review è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il

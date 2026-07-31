@@ -1,0 +1,106 @@
+{
+  "manifest_version": 1,
+  "component": "plenora-IO-tools",
+  "protocol_version": 1,
+  "status": "candidate_for_1_0_freeze",
+  "compatibility_scope": "cli_json_only",
+  "rust_api": {
+    "status": "internal_unstable",
+    "semver_guarantee": false,
+    "crates_publish": false,
+    "reason": "R15.4.1 prevede l'estrazione dei tipi di confine da plenora-io-model; una garanzia pubblica 1.x renderebbe quell'estrazione una rottura."
+  },
+  "envelopes": {
+    "error": {
+      "contract": "plenora-io-error-v1",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "error"
+      ],
+      "required_error_fields": [
+        "category",
+        "phase",
+        "remote_effect",
+        "retry",
+        "code",
+        "message"
+      ]
+    },
+    "catalog": {
+      "contract": "plenora-io-catalog-v1",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "determinism",
+        "drivers"
+      ]
+    },
+    "inspect": {
+      "contract": "plenora-io-inspect-v1",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "format",
+        "fidelity",
+        "layers"
+      ]
+    },
+    "layers": {
+      "contract": "plenora-io-layers-v1",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "format",
+        "fidelity",
+        "layers"
+      ]
+    },
+    "read": {
+      "contract": "plenora-io-read-v1",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "format",
+        "fidelity",
+        "layer",
+        "rows_read",
+        "batches",
+        "truncated"
+      ]
+    },
+    "convert": {
+      "contract": "plenora-io-convert-v1",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "from",
+        "to",
+        "layers",
+        "total_rows",
+        "bytes_written",
+        "publish_outcome",
+        "read_fidelity",
+        "write_fidelity",
+        "conversion_fidelity",
+        "read_loss",
+        "write_loss"
+      ],
+      "forbidden_legacy_fields": [
+        "loss"
+      ]
+    }
+  },
+  "compatibility_rules": {
+    "remove_or_rename_required_field": "requires_new_protocol_version",
+    "change_field_type_or_meaning": "requires_new_protocol_version",
+    "add_optional_field": "allowed_with_change_impact_record",
+    "extend_closed_enum": "requires_explicit_compatibility_review"
+  }
+}

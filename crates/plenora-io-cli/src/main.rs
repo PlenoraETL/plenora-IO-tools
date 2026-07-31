@@ -14,7 +14,9 @@ use serde_json::{json, Value};
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
 use plenora_io_core::publish::PublishOutcome;
 use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest};
-use plenora_io_core::{DriverRegistry, WriteLayer, WritePlan};
+use plenora_io_core::{
+    DriverRegistry, Fidelity, FidelityAssessment, LossReport, WriteLayer, WritePlan,
+};
 use plenora_io_model::contract::{DataContract, LayerContract};
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::Limits;
@@ -84,6 +86,29 @@ fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
         _ => (1, "FORMAT_ERROR"),
     };
     (exit, err_doc(code, &e))
+}
+
+fn combined_fidelity(read: &FidelityAssessment, write: &FidelityAssessment) -> FidelityAssessment {
+    let level = match (read.level, write.level) {
+        (Fidelity::Approximating, _) | (_, Fidelity::Approximating) => Fidelity::Approximating,
+        (Fidelity::Conditional, _) | (_, Fidelity::Conditional) => Fidelity::Conditional,
+        (Fidelity::Lossless, Fidelity::Lossless) => Fidelity::Lossless,
+    };
+    let mut combined = FidelityAssessment {
+        level,
+        reasons: Vec::new(),
+    };
+    for reason in read.reasons.iter().chain(&write.reasons) {
+        combined.add_reason(reason.code, reason.detail.clone());
+    }
+    combined
+}
+
+fn loss_doc(fidelity: &FidelityAssessment, loss: &LossReport) -> Value {
+    json!({
+        "lossless": fidelity.level == Fidelity::Lossless && loss.is_empty(),
+        "counts": serde_json::to_value(&loss.counts).unwrap_or(Value::Null),
+    })
 }
 
 // --- selezione driver per estensione --------------------------------------
@@ -447,7 +472,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         cancellation: Default::default(),
     };
     let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
-    let read_fidelity = ds.fidelity_assessment();
+    let initial_read_fidelity = ds.fidelity_assessment();
 
     // Layer da convertire: `--layer` ne sceglie uno, altrimenti tutti.
     let all: Vec<LayerContract> = ds.layers().to_vec();
@@ -510,6 +535,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     // L'i-esimo layer sorgente scrive nel LayerId(i) del piano di destinazione.
     let mut layer_reports = Vec::new();
     let mut total_rows = 0usize;
+    let mut read_loss = LossReport::default();
     for (sink_idx, l) in selected.iter().enumerate() {
         let mut reader = ds
             .open_layer_reader(&read_request(l.id.0))
@@ -522,10 +548,13 @@ fn cmd_convert(cli: &Cli) -> CliResult {
                 .write_to_layer(plenora_io_model::contract::LayerId(sink_idx as u32), &batch)
                 .map_err(map_err)?;
         }
+        read_loss.merge(&reader.loss_report());
         total_rows += rows;
         layer_reports.push(json!({"name": l.name, "rows": rows, "batches": batches}));
     }
     let published = writer.finish().map_err(map_err)?;
+    let read_fidelity = initial_read_fidelity.with_loss_report(&read_loss);
+    let conversion_fidelity = combined_fidelity(&read_fidelity, &published.fidelity);
 
     let outcome = match published.outcome {
         PublishOutcome::Published => "published",
@@ -541,13 +570,11 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         "total_rows": total_rows,
         "bytes_written": published.bytes,
         "publish_outcome": outcome,
-        "read_fidelity": read_fidelity,
+        "read_fidelity": &read_fidelity,
         "write_fidelity": &published.fidelity,
-        "loss": {
-            "lossless": published.fidelity.level == plenora_io_core::Fidelity::Lossless
-                && published.loss.is_empty(),
-            "counts": serde_json::to_value(&published.loss.counts).unwrap_or(Value::Null),
-        },
+        "conversion_fidelity": conversion_fidelity,
+        "read_loss": loss_doc(&read_fidelity, &read_loss),
+        "write_loss": loss_doc(&published.fidelity, &published.loss),
     }))
 }
 
@@ -582,6 +609,51 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_candidate_envelope(name: &str, document: &Value) {
+        let manifest: Value =
+            serde_json::from_str(include_str!("../../../release/cli-protocol-v1.json")).unwrap();
+        let envelope = &manifest["envelopes"][name];
+        assert_eq!(document["contract"], envelope["contract"]);
+        for field in envelope["required_top_level"].as_array().unwrap() {
+            let field = field.as_str().unwrap();
+            assert!(
+                document.get(field).is_some(),
+                "{name}: campo {field} assente"
+            );
+        }
+        if let Some(forbidden) = envelope["forbidden_legacy_fields"].as_array() {
+            for field in forbidden {
+                let field = field.as_str().unwrap();
+                assert!(
+                    document.get(field).is_none(),
+                    "{name}: campo legacy {field} presente"
+                );
+            }
+        }
+    }
+
+    fn materialize_empty_ipc(directory: &tempfile::TempDir) -> PathBuf {
+        use std::sync::Arc;
+
+        use arrow_schema::{DataType, Field, Schema};
+
+        let path = directory.path().join("input.arrow");
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "layer".to_owned(),
+                contract: DataContract {
+                    schema: Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)])),
+                    geometry: None,
+                },
+            }],
+        };
+        let writer = driver_ipc::IpcDriver
+            .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.finish().unwrap();
+        path
+    }
 
     #[test]
     fn parse_flags_and_opts() {
@@ -643,6 +715,7 @@ mod tests {
         let (exit, document) = map_err(error);
 
         assert_eq!(exit, 1);
+        assert_candidate_envelope("error", &document);
         assert_eq!(
             document,
             serde_json::json!({
@@ -672,6 +745,118 @@ mod tests {
             serde_json::json!({"kind": "never"})
         );
         assert_eq!(document["error"]["message"], "argomento mancante");
+    }
+
+    #[test]
+    fn convert_observability_separates_read_write_and_end_to_end_fidelity() {
+        let mut read_loss = LossReport::default();
+        read_loss.record("inconsistent_crs_representations", 1);
+        let read = FidelityAssessment::lossless().with_loss_report(&read_loss);
+        let write = FidelityAssessment::lossless();
+        let conversion = combined_fidelity(&read, &write);
+
+        assert_eq!(conversion.level, Fidelity::Approximating);
+        assert_eq!(
+            loss_doc(&read, &read_loss),
+            serde_json::json!({
+                "lossless": false,
+                "counts": {"inconsistent_crs_representations": 1},
+            })
+        );
+        assert_eq!(
+            loss_doc(&write, &LossReport::default()),
+            serde_json::json!({"lossless": true, "counts": {}})
+        );
+    }
+
+    #[test]
+    fn combined_fidelity_uses_the_worst_level_and_bounds_reasons() {
+        let mut read = FidelityAssessment::for_format("shp", Fidelity::Conditional);
+        for index in 0..plenora_io_core::MAX_FIDELITY_REASONS {
+            read.add_reason(
+                plenora_io_core::FidelityReasonCode::FormatConstraint,
+                format!("read-{index}"),
+            );
+        }
+        let write = FidelityAssessment::for_format("dxf", Fidelity::Approximating);
+        let combined = combined_fidelity(&read, &write);
+
+        assert_eq!(combined.level, Fidelity::Approximating);
+        assert_eq!(
+            combined.reasons.len(),
+            plenora_io_core::MAX_FIDELITY_REASONS
+        );
+    }
+
+    #[test]
+    fn convert_exposes_reader_crs_inconsistency_without_writer_ambiguity() {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        use arrow_schema::{DataType, Field, Schema};
+        use plenora_io_model::contract::{FieldId, GeometryColumnContract, GeometryType};
+        use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
+        use plenora_io_model::geometry::{
+            with_geometry_contract_metadata, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("input.arrow");
+        let output = directory.path().join("output.arrow");
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geometry",
+            CrsResolution::resolved(ResolvedCrs::new(
+                Some("EPSG:4326".to_owned()),
+                CrsKind::Geographic,
+                None,
+            )),
+            true,
+        );
+        geometry.srid = Some(3003);
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let base = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([(
+            ARROW_EXTENSION_NAME_KEY.to_owned(),
+            GEOARROW_WKB_EXTENSION.to_owned(),
+        )]));
+        let schema = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
+            &base, &geometry,
+        )]));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "conflicting_crs".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometry),
+                },
+            }],
+        };
+        let driver = driver_ipc::IpcDriver;
+        let writer = driver
+            .create(Sink::Path(input.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.finish().unwrap();
+
+        let cli = parse(&[
+            input.to_string_lossy().into_owned(),
+            output.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        let document = cmd_convert(&cli).unwrap();
+
+        assert_candidate_envelope("convert", &document);
+        assert_eq!(
+            document["read_loss"],
+            serde_json::json!({
+                "lossless": false,
+                "counts": {"inconsistent_crs_representations": 1},
+            })
+        );
+        assert_eq!(
+            document["write_loss"],
+            serde_json::json!({"lossless": true, "counts": {}})
+        );
+        assert_eq!(document["conversion_fidelity"]["level"], "approximating");
     }
 
     #[test]
@@ -737,6 +922,7 @@ mod tests {
         assert_eq!(first, second);
 
         let document: Value = serde_json::from_slice(&first).unwrap();
+        assert_candidate_envelope("catalog", &document);
         assert_eq!(document["determinism"], "byte_for_byte");
         let ids: Vec<_> = document["drivers"]
             .as_array()
@@ -759,6 +945,17 @@ mod tests {
                 "xls",
             ]
         );
+    }
+
+    #[test]
+    fn inspect_layers_and_read_match_the_candidate_protocol_manifest() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = materialize_empty_ipc(&directory);
+        let cli = parse(&[input.to_string_lossy().into_owned()]).unwrap();
+
+        assert_candidate_envelope("inspect", &cmd_inspect(&cli).unwrap());
+        assert_candidate_envelope("layers", &cmd_layers(&cli).unwrap());
+        assert_candidate_envelope("read", &cmd_read(&cli).unwrap());
     }
 }
 
