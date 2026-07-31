@@ -9,14 +9,14 @@ Stato: **in attesa di un revisore eleggibile**.
   `8d3f25f109f6ea8910da71e098db6924438e481c`;
 - codice candidato:
   `796a1f94e0735e4f5b9e8bfca1056c295bda4814`;
-- record del freeze tecnico e record di provenienza: in attesa della revisione
-  pre-tag e della relativa CI;
+- record del freeze tecnico e record di provenienza:
+  `cea2535c2ddcbae4ba7ec49e72b65a9524b8711b`, CI `30619205139`;
 - ICD: `plenora-contracts@v2.0-rc13`, revisione
   `8f684a4edd9bbeaadd4f5f0375cc0b86aefe6417`.
 
 I commit successivi a `796a1f9` possono modificare soltanto versione,
-assurance, provenienza e gate. Lo SHA pre-tag e il comando di confronto
-esatto saranno inseriti dopo la CI della revisione pre-tag.
+assurance, provenienza e gate. La verifica applicata allo SHA pre-tag è
+`git diff --exit-code 796a1f9 cea2535 -- crates rust-toolchain.toml`.
 
 ## Eleggibilità
 

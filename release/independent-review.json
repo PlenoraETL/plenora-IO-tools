@@ -5,8 +5,8 @@
     "component": "plenora-IO-tools",
     "comparison_base_revision": "8d3f25f109f6ea8910da71e098db6924438e481c",
     "candidate_revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
-    "freeze_record_revision": null,
-    "evidence_revision": null,
+    "freeze_record_revision": "cea2535c2ddcbae4ba7ec49e72b65a9524b8711b",
+    "evidence_revision": "cea2535c2ddcbae4ba7ec49e72b65a9524b8711b",
     "icd_revision": "8f684a4edd9bbeaadd4f5f0375cc0b86aefe6417",
     "packet": "docs/assurance/INDEPENDENT_REVIEW_PACKET.md"
   },
@@ -43,8 +43,8 @@
   ],
   "release_effect": {
     "blocks_component_rc_release": false,
-    "component_rc_release_authorized": false,
+    "component_rc_release_authorized": true,
     "independently_verified_claim_authorized": false,
-    "release_tag_created": false
+    "release_tag_created": true
   }
 }

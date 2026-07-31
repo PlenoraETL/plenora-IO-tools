@@ -29,10 +29,10 @@ su disco. Il secondo espone separatamente `read_loss` e `write_loss` nel
 documento `convert` e aggiunge `conversion_fidelity`, eliminando l'ambiguo
 campo writer-only `loss.lossless`. La superficie candidata alla compatibilità
 1.x è limitata alle sei buste JSON della CLI; le API Rust restano interne.
-Il codice è congelato come candidato `1.0.0-rc.1` sulla revisione `796a1f9`,
-con CI candidata `30617658910` e decisione di release `409cf93`/`30618471105`
-verdi. Il record pre-tag mantiene `component_rc: false` finché la propria CI
-non è completata e legata al record finale.
+Il codice è congelato come `1.0.0-rc.1` sulla revisione `796a1f9`, con CI
+candidata `30617658910` e decisione di release `409cf93`/`30618471105` verdi.
+La revisione pre-tag `cea2535` ha CI `30619205139` verde ed è legata al record
+finale che autorizza il tag annotato `v1.0.0-rc.1`.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con

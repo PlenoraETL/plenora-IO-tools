@@ -1,6 +1,6 @@
 {
   "evidence_version": 1,
-  "status": "technical_freeze_pre_tag",
+  "status": "technical_freeze_evidence",
   "generated_on": "2026-07-31",
   "component": "plenora-IO-tools",
   "component_version": "1.0.0-rc.1",
@@ -18,7 +18,7 @@
     "frozen_on": "2026-07-31",
     "verification_claim": "verified_internally",
     "independent_review": false,
-    "release_tag_created": false,
+    "release_tag_created": true,
     "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md"
   },
   "independent_review_record": {
@@ -31,7 +31,7 @@
     "verification_claim": "verified_internally",
     "independent_review": false,
     "independently_verified_claim_authorized": false,
-    "release_tag_created": false,
+    "release_tag_created": true,
     "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md",
     "decision_revision": "409cf936b0d4054467ef8c50f4254698ace41cb8",
     "ci": {
@@ -50,13 +50,13 @@
       "name": "v1.0.0-rc.1",
       "version": "1.0.0-rc.1",
       "tag_form": "annotated_unsigned",
-      "status": "pending_pre_tag_ci",
-      "created_on": null,
+      "status": "created",
+      "created_on": "2026-07-31",
       "candidate_revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
       "verification_claim": "verified_internally",
       "independent_review_status": "not_performed",
-      "pre_tag_revision": null,
-      "pre_tag_ci_run": null
+      "pre_tag_revision": "cea2535c2ddcbae4ba7ec49e72b65a9524b8711b",
+      "pre_tag_ci_run": 30619205139
     }
   },
   "icd": {
