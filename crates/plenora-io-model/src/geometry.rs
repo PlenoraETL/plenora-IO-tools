@@ -223,9 +223,10 @@ pub fn with_geometry_contract_metadata(
             }
             if let Some(definition) = &raw.definition {
                 metadata.insert(PLENORA_CRS_DEFINITION_KEY.to_owned(), definition.clone());
-                let format = raw
-                    .definition_format
-                    .unwrap_or_else(|| definition_format(definition));
+                let format = match raw.definition_format {
+                    Some(format) => format,
+                    None => definition_format(definition),
+                };
                 metadata.insert(
                     PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
                     definition_format_name(format).to_owned(),
