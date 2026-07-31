@@ -12,7 +12,7 @@
   "components": [
     {
       "name": "plenora-IO-tools",
-      "revision": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
+      "revision": "9804d775d0d46df9137d44cf0c6963d66a563753",
       "role": "file_boundary"
     },
     {
@@ -75,7 +75,7 @@
       "platform": "linux_x86_64",
       "result": "pass"
     },
-    "current_system_qualification": {
+    "historical_v1_0_0_rc_1_qualification": {
       "owner_revision": "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab",
       "matrix_icd": {
         "tag": "v2.0-rc8",
@@ -86,6 +86,11 @@
       "single_failure": "crs_unresolved__geoarrow: R4.1.1 proposal_not_implemented",
       "read_loss_runner_status": "unverified_obligation",
       "read_loss_targeted_component_observation": "conflicting_crs__geoarrow records inconsistent_crs_representations=1"
+    },
+    "current_system_qualification": {
+      "component_tag": "v1.0.0-rc.2",
+      "component_revision": "9804d775d0d46df9137d44cf0c6963d66a563753",
+      "status": "not_run"
     }
   },
   "pass_conditions": [

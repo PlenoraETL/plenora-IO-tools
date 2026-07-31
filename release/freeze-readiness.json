@@ -28,5 +28,5 @@
     "release_tag_form": "annotated_unsigned",
     "release_tag_status": "created"
   },
-  "next_required_action": "Create and push annotated unsigned tag v1.0.0-rc.2 only after CI is green on this final record, then verify the tag-triggered CI. Independent review remains an optional open assurance attribute."
+  "next_required_action": "Update plenora-contracts/conformance to the immutable v1.0.0-rc.2 target and rerun the external matrix. The component tag and its CI are complete; independent review remains an optional open assurance attribute."
 }

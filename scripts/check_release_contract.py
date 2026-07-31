@@ -55,9 +55,10 @@ EXPECTED_PRE_TAG_REVISION = "40212ad7e441313b38c14103e9261a6f9bb4bb56"
 EXPECTED_PRE_TAG_CI_RUN = 30632956628
 EXPECTED_RELEASE_TAG_CREATED = True
 EXPECTED_PRE_TAG_CI_PASSED = True
-EXPECTED_FINAL_RECORD_REVISION = None
-EXPECTED_FINAL_RECORD_CI_RUN = None
-EXPECTED_TAG_CI_RUN = None
+EXPECTED_FINAL_RECORD_REVISION = "9804d775d0d46df9137d44cf0c6963d66a563753"
+EXPECTED_FINAL_RECORD_CI_RUN = 30633367104
+EXPECTED_TAG_OBJECT = "d69a10d405a71af93809ba038971279e107a2fc4"
+EXPECTED_TAG_CI_RUN = 30633636716
 EXPECTED_EXTERNAL_QUALIFICATION_REVISION = (
     "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab"
 )
@@ -186,7 +187,7 @@ RC5_FINAL_RECORD_CI_RUN = 30619555718
 RC5_TAG_CI_RUN = 30619802027
 EXPECTED_DATABASE_REPLAY_REVISION = "ef18e80c798126f872fd366c36ee96a029598958"
 EXPECTED_SYSTEM_REVISIONS = {
-    "plenora-IO-tools": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
+    "plenora-IO-tools": EXPECTED_FINAL_RECORD_REVISION,
     "plenora-data-tools": "7d530318760ccfa93b2baa2049e181fd57deed1e",
     "plenora-database-tools": "b541c61dd1c286cdf2e808e17eefd133d7c9ba20",
 }
@@ -602,6 +603,7 @@ def validate_rc6_development(document: dict[str, Any]) -> list[str]:
         "final_record_revision": EXPECTED_FINAL_RECORD_REVISION,
         "final_record_ci_run": EXPECTED_FINAL_RECORD_CI_RUN,
         "tag_target_revision": EXPECTED_FINAL_RECORD_REVISION,
+        "tag_object": EXPECTED_TAG_OBJECT,
         "tag_ci_run": EXPECTED_TAG_CI_RUN,
     }:
         errors.append("rc6-development: candidato o sequenza release inattesi")
@@ -789,6 +791,15 @@ def validate_documents(
         "system_gate": "not_satisfied",
     }:
         errors.append("contract-provenance: qualifica storica RC1 inattesa")
+    if provenance.get("post_tag_validation") != {
+        "tag_object": EXPECTED_TAG_OBJECT,
+        "component_tag_target": EXPECTED_FINAL_RECORD_REVISION,
+        "final_record_ci_run": EXPECTED_FINAL_RECORD_CI_RUN,
+        "tag_ci_run": EXPECTED_TAG_CI_RUN,
+        "tag_ci_result": "pass",
+        "external_qualification": "not_run_on_v1.0.0-rc.2",
+    }:
+        errors.append("contract-provenance: validazione post-tag RC2 inattesa")
 
     if fuzz.get("state") != EXPECTED_FUZZ_STATE:
         errors.append("contract-provenance: stato fuzz coordinato inatteso")
@@ -847,10 +858,11 @@ def validate_documents(
         "geoarrow_extension",
     ]:
         errors.append("system-rc-gate: varianti canonica/GeoArrow non dichiarate")
-    current_qualification = system_gate.get("evidence", {}).get(
-        "current_system_qualification"
+    gate_evidence = system_gate.get("evidence", {})
+    historical_qualification = gate_evidence.get(
+        "historical_v1_0_0_rc_1_qualification"
     )
-    if current_qualification != {
+    if historical_qualification != {
         "owner_revision": EXPECTED_EXTERNAL_QUALIFICATION_REVISION,
         "matrix_icd": {
             "tag": "v2.0-rc8",
@@ -868,6 +880,12 @@ def validate_documents(
         ),
     }:
         errors.append("system-rc-gate: qualifica esterna post-tag inattesa")
+    if gate_evidence.get("current_system_qualification") != {
+        "component_tag": EXPECTED_RELEASE_TAG,
+        "component_revision": EXPECTED_FINAL_RECORD_REVISION,
+        "status": "not_run",
+    }:
+        errors.append("system-rc-gate: RC2 non registrata come non qualificata")
 
     if corpus_schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
         errors.append("shared corpus: JSON Schema draft inatteso")
@@ -1018,8 +1036,16 @@ def validate_documents(
         != EXPECTED_LIBRARY_COVERAGE_SOURCE
     ):
         errors.append("evidence: fonte coverage candidata inattesa")
-    if "post_tag_validation" in evidence:
-        errors.append("evidence: validazione post-tag presente prima del tag")
+    if evidence.get("post_tag_validation") != {
+        "final_record_revision": EXPECTED_FINAL_RECORD_REVISION,
+        "final_record_ci_run": EXPECTED_FINAL_RECORD_CI_RUN,
+        "tag_object": EXPECTED_TAG_OBJECT,
+        "tag_target_revision": EXPECTED_FINAL_RECORD_REVISION,
+        "tag_ci_run": EXPECTED_TAG_CI_RUN,
+        "tag_ci_result": "pass",
+        "external_qualification": "not_run_on_v1.0.0-rc.2",
+    }:
+        errors.append("evidence: validazione post-tag RC2 inattesa")
     replay = (
         evidence.get("candidate_local_verification", {})
         .get("shared_wkb_ewkb_replay", {})
@@ -1200,6 +1226,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-31_1_0_RC2_RELEASE_DECISION.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-31_1_0_RC2_POST_TAG_VALIDATION.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -1245,7 +1275,7 @@ def main() -> int:
 
     print(
         "Release contract gate passed "
-        "(v1.0.0-rc.2 is authorized for tagging after green pre-tag CI as an internally verified component RC; "
+        "(v1.0.0-rc.2 is tagged with green tag CI as an internally verified component RC; "
         "only the CLI JSON protocol is the 1.x compatibility surface; system "
         "RC, independent verification and avionic certification are not "
         "claimed)."

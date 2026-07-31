@@ -16,8 +16,8 @@ congelata per `1.0.0-rc.2`. La CI candidata `30625336681` è verde sui job
 La decisione RC2 è committata in
 `2d5d606cfb6f83e7a10c5b3e0c05fa3987c5eab4` e la relativa CI
 `30627985036` è verde. La revisione pre-tag `40212ad` ha CI `30632956628`
-verde; il tag annotato `v1.0.0-rc.2` può essere creato soltanto dopo la CI
-verde del record finale.
+verde. Il record finale `9804d77` ha CI `30633367104` verde ed è il target del
+tag annotato `v1.0.0-rc.2`; anche la CI del tag `30633636716` è verde.
 
 La RC precedente resta pubblicata e immutabile come tag annotato non firmato
 `v1.0.0-rc.1`, con target
@@ -109,7 +109,8 @@ verificata dalla CI `30625336681`; la decisione `2d5d606` ha CI
 [`release/rc6-development.json`](../../release/rc6-development.json); la
 revisione pre-tag è `40212ad` con CI `30632956628` verde. Finché non esiste il
 tag immutabile, l'esito esplorativo della matrice non è evidenza di qualifica.
-R2.8 resta proposta e non implementata. Le riduzioni di scope e
+Il tag ora esiste, ma la matrice esterna è ancora `not_run` sulla RC.2. R2.8
+resta proposta e non implementata. Le riduzioni di scope e
 i blocker per claim più forti sono machine-readable nel manifesto RC6.
 
 Il materiale per un'eventuale review è raccolto nel
@@ -120,3 +121,7 @@ registra identità, comandi, rilievi ed esito.
 L'evidenza post-tag e i limiti che impediscono di leggerla come system RC sono
 registrati nella
 [`CIA di qualifica post-tag`](CHANGE_IMPACT_2026-07-31_1_0_RC1_POST_TAG_QUALIFICATION.md).
+
+La verifica del tag RC.2 e la separazione dalla qualifica esterna ancora da
+eseguire sono registrate nella
+[`CIA di validazione post-tag RC.2`](CHANGE_IMPACT_2026-07-31_1_0_RC2_POST_TAG_VALIDATION.md).

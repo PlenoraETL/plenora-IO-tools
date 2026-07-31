@@ -82,6 +82,14 @@
     "transferable_to_rc2": false,
     "system_gate": "not_satisfied"
   },
+  "post_tag_validation": {
+    "tag_object": "d69a10d405a71af93809ba038971279e107a2fc4",
+    "component_tag_target": "9804d775d0d46df9137d44cf0c6963d66a563753",
+    "final_record_ci_run": 30633367104,
+    "tag_ci_run": 30633636716,
+    "tag_ci_result": "pass",
+    "external_qualification": "not_run_on_v1.0.0-rc.2"
+  },
   "fuzz_coordination": {
     "state": "long_campaign_completed_no_findings",
     "io_tools_revision": "1c37fb5d525647b264ce977e26fc07b346bb7914",
