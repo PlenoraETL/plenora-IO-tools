@@ -10,13 +10,13 @@ Stato: **in attesa di un revisore eleggibile**.
 - codice candidato:
   `63a82531f82c4d3d42372fa8499ba1678ae4344b`;
 - record del freeze tecnico e record di provenienza:
-  da legare alla revisione pre-tag dopo la relativa CI;
+  `40212ad7e441313b38c14103e9261a6f9bb4bb56`, CI `30632956628`;
 - ICD: `plenora-contracts@v2.0-rc14`, revisione
   `65fd2c6418efa7937e3063245913d79a80c6499b`.
 
 I commit successivi a `63a8253` possono modificare soltanto versione,
-assurance, provenienza e gate. La verifica applicata allo SHA pre-tag deve
-essere `git diff --exit-code 63a8253 <pre-tag> -- crates rust-toolchain.toml`.
+assurance, provenienza e gate. La verifica applicata allo SHA pre-tag è
+`git diff --exit-code 63a8253 40212ad -- crates rust-toolchain.toml`.
 
 ## Eleggibilità
 

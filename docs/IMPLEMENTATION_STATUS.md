@@ -34,7 +34,8 @@ qualifica esterna `83/84` roundtrip e `27/28` nella catena. La candidata
 `1.0.0-rc.2` è congelata sulla revisione `63a8253`, con CI candidata
 `30625336681` e decisione di release `2d5d606`/`30627985036` verdi. Il delta
 implementa R4.1.1 contro `v2.0-rc14`; la qualifica della RC.1 non si trasferisce
-alla RC.2 e la matrice esterna dovrà essere rieseguita sul nuovo tag immutabile.
+alla RC.2. La revisione pre-tag `40212ad` ha CI `30632956628` verde; la matrice
+esterna dovrà essere rieseguita sul nuovo tag immutabile.
 R2.8 resta proposta e non implementata. Il gate di sistema resta separato e
 non soddisfatto.
 

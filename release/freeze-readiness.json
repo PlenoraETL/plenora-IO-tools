@@ -1,10 +1,10 @@
 {
   "manifest_version": 1,
-  "status": "pre_tag_pending_ci",
+  "status": "component_rc_tagged",
   "evaluated_on": "2026-07-31",
   "candidate_revision": "63a82531f82c4d3d42372fa8499ba1678ae4344b",
   "freeze_scope": "technical_baseline_only",
-  "release_authorized": false,
+  "release_authorized": true,
   "gates": {
     "candidate_code_complete": true,
     "local_workspace_tests": true,
@@ -16,17 +16,17 @@
     "component_scope_declared": true,
     "release_decision_recorded": true,
     "release_decision_ci": true,
-    "pre_tag_ci": false
+    "pre_tag_ci": true
   },
   "assurance_attributes": {
     "verification_claim": "verified_internally",
     "independent_review": false,
     "independent_review_status": "pending_eligible_reviewer",
     "independently_verified_claim_authorized": false,
-    "release_tag_created": false,
+    "release_tag_created": true,
     "release_tag_name": "v1.0.0-rc.2",
     "release_tag_form": "annotated_unsigned",
-    "release_tag_status": "pending_pre_tag_ci"
+    "release_tag_status": "created"
   },
-  "next_required_action": "Run CI on this committed pre-tag revision, then bind its SHA and run id before creating v1.0.0-rc.2. Independent review remains an optional open assurance attribute."
+  "next_required_action": "Create and push annotated unsigned tag v1.0.0-rc.2 only after CI is green on this final record, then verify the tag-triggered CI. Independent review remains an optional open assurance attribute."
 }

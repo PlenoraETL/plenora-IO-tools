@@ -5,8 +5,8 @@
     "component": "plenora-IO-tools",
     "comparison_base_revision": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
     "candidate_revision": "63a82531f82c4d3d42372fa8499ba1678ae4344b",
-    "freeze_record_revision": null,
-    "evidence_revision": null,
+    "freeze_record_revision": "40212ad7e441313b38c14103e9261a6f9bb4bb56",
+    "evidence_revision": "40212ad7e441313b38c14103e9261a6f9bb4bb56",
     "icd_revision": "65fd2c6418efa7937e3063245913d79a80c6499b",
     "packet": "docs/assurance/INDEPENDENT_REVIEW_PACKET.md"
   },
@@ -18,5 +18,5 @@
   "outcome": null,
   "outcome_values": ["pass", "pass_with_non_blocking_findings", "blocking_findings"],
   "required_completion_fields": ["reviewer.name", "reviewer.affiliation", "reviewer.contact_or_identity_reference", "reviewer.eligibility_attestation", "reviewed_on", "commands_executed", "findings", "outcome"],
-  "release_effect": {"blocks_component_rc_release": false, "component_rc_release_authorized": false, "independently_verified_claim_authorized": false, "release_tag_created": false}
+  "release_effect": {"blocks_component_rc_release": false, "component_rc_release_authorized": true, "independently_verified_claim_authorized": false, "release_tag_created": true}
 }

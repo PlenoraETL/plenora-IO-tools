@@ -188,9 +188,9 @@ class ReleaseContractTests(unittest.TestCase):
         provenance["freeze_status"] = "pre_freeze"
         self.assertTrue(self.validate(provenance=provenance))
 
-    def test_keeps_component_rc_closed_until_pre_tag_ci(self) -> None:
-        self.assertFalse(self.freeze_readiness["release_authorized"])
-        self.assertFalse(self.freeze_readiness["gates"]["pre_tag_ci"])
+    def test_allows_component_rc_tag_after_pre_tag_ci_while_review_is_open(self) -> None:
+        self.assertTrue(self.freeze_readiness["release_authorized"])
+        self.assertTrue(self.freeze_readiness["gates"]["pre_tag_ci"])
         self.assertFalse(
             self.freeze_readiness["assurance_attributes"]["independent_review"]
         )

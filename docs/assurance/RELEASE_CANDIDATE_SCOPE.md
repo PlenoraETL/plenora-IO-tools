@@ -15,8 +15,9 @@ congelata per `1.0.0-rc.2`. La CI candidata `30625336681` è verde sui job
 
 La decisione RC2 è committata in
 `2d5d606cfb6f83e7a10c5b3e0c05fa3987c5eab4` e la relativa CI
-`30627985036` è verde. La revisione e la CI pre-tag devono ancora essere
-legate al record prima della creazione del tag annotato `v1.0.0-rc.2`.
+`30627985036` è verde. La revisione pre-tag `40212ad` ha CI `30632956628`
+verde; il tag annotato `v1.0.0-rc.2` può essere creato soltanto dopo la CI
+verde del record finale.
 
 La RC precedente resta pubblicata e immutabile come tag annotato non firmato
 `v1.0.0-rc.1`, con target
@@ -105,9 +106,10 @@ La qualifica esterna `plenora-contracts@c3f1a8e` misura `83/84` roundtrip e
 La candidata `1.0.0-rc.2` implementa quel caso sulla revisione `63a8253`,
 verificata dalla CI `30625336681`; la decisione `2d5d606` ha CI
 `30627985036` verde. Il record pre-tag è separato in
-[`release/rc6-development.json`](../../release/rc6-development.json): finché
-non esiste il tag immutabile, l'esito esplorativo della matrice non è evidenza
-di qualifica. R2.8 resta proposta e non implementata. Le riduzioni di scope e
+[`release/rc6-development.json`](../../release/rc6-development.json); la
+revisione pre-tag è `40212ad` con CI `30632956628` verde. Finché non esiste il
+tag immutabile, l'esito esplorativo della matrice non è evidenza di qualifica.
+R2.8 resta proposta e non implementata. Le riduzioni di scope e
 i blocker per claim più forti sono machine-readable nel manifesto RC6.
 
 Il materiale per un'eventuale review è raccolto nel

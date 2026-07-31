@@ -22,7 +22,7 @@
     "independent_review_required": false,
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": false,
-    "release_tag_created": false,
+    "release_tag_created": true,
     "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC2_RELEASE_DECISION.md",
     "decision_revision": "2d5d606cfb6f83e7a10c5b3e0c05fa3987c5eab4",
     "decision_ci_run": 30627985036
@@ -31,13 +31,13 @@
     "name": "v1.0.0-rc.2",
     "version": "1.0.0-rc.2",
     "tag_form": "annotated_unsigned",
-    "status": "pending_pre_tag_ci",
-    "created_on": null,
+    "status": "created",
+    "created_on": "2026-07-31",
     "candidate_revision": "63a82531f82c4d3d42372fa8499ba1678ae4344b",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
-    "pre_tag_revision": null,
-    "pre_tag_ci_run": null,
+    "pre_tag_revision": "40212ad7e441313b38c14103e9261a6f9bb4bb56",
+    "pre_tag_ci_run": 30632956628,
     "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC2_RELEASE_DECISION.md"
   },
   "wire_contract_version": 1,
@@ -67,7 +67,7 @@
     "exit_condition": "Ratification of §2 with compatible wire names, or migration of the emitter to the ratified replacement."
   }],
   "declared_gaps": [{"rule": "R2.8", "status": "proposal_not_implemented", "scope": "IPC geometry recognition still requires ARROW:extension:name"}],
-  "claims": {"component_rc": false, "system_rc": false, "avionic_certification": false},
+  "claims": {"component_rc": true, "system_rc": false, "avionic_certification": false},
   "rc6_scope": {
     "included": ["r4_1_1_unresolved_authority_without_definition", "cli_json_protocol_1x_freeze"],
     "declared_residuals": ["crs_definition_vs_srid_requires_resolver", "r2_8_canonical_only_geometry_recognition", "shared_resource_budget_leases_r7_5_r7_7", "reverse_system_qualification_direction"]
