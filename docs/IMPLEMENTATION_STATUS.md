@@ -6,7 +6,7 @@ driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 
 La preparazione della release è dichiarata come **RC del solo componente** in
 [`assurance/RELEASE_CANDIDATE_SCOPE.md`](assurance/RELEASE_CANDIDATE_SCOPE.md).
-Il manifest cita `plenora-contracts@v2.0-rc13` e la revisione esatta, distingue
+Il manifest cita `plenora-contracts@v2.0-rc14` e la revisione esatta, distingue
 la wire version dall'ICD e registra le sezioni candidate e la deroga di
 emissione. Il gate della catena a tre componenti resta esplicitamente
 `not_satisfied`.
@@ -29,17 +29,14 @@ su disco. Il secondo espone separatamente `read_loss` e `write_loss` nel
 documento `convert` e aggiunge `conversion_fidelity`, eliminando l'ambiguo
 campo writer-only `loss.lossless`. La superficie candidata alla compatibilità
 1.x è limitata alle sei buste JSON della CLI; le API Rust restano interne.
-Il codice è congelato come `1.0.0-rc.1` sulla revisione `796a1f9`, con CI
-candidata `30617658910` e decisione di release `409cf93`/`30618471105` verdi.
-La revisione pre-tag `cea2535` ha CI `30619205139` verde ed è legata al record
-finale `6e3a942`; il tag annotato `v1.0.0-rc.1` e la relativa CI
-`30619802027` sono verdi. La prima qualifica esterna sui tre tag immutabili,
-registrata da `plenora-contracts` in `c3f1a8e`, riporta `83/84` roundtrip e
-`27/28` nella catena. L'unico fallimento è R4.1.1 proposta e già dichiarata
-non implementata nel tag. Dopo quella baseline, `main` implementa R4.1.1
-contro `v2.0-rc14`; i valori storici restano invariati finché la matrice
-esterna non viene rieseguita sul nuovo commit. Il gate di sistema resta
-separato e non soddisfatto.
+La baseline immutabile `v1.0.0-rc.1`, target `6e3a942`, conserva la propria
+qualifica esterna `83/84` roundtrip e `27/28` nella catena. La candidata
+`1.0.0-rc.2` è congelata sulla revisione `63a8253`, con CI candidata
+`30625336681` e decisione di release `2d5d606`/`30627985036` verdi. Il delta
+implementa R4.1.1 contro `v2.0-rc14`; la qualifica della RC.1 non si trasferisce
+alla RC.2 e la matrice esterna dovrà essere rieseguita sul nuovo tag immutabile.
+R2.8 resta proposta e non implementata. Il gate di sistema resta separato e
+non soddisfatto.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con

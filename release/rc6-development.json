@@ -1,0 +1,88 @@
+{
+  "manifest_version": 1,
+  "component": "plenora-IO-tools",
+  "component_version": "1.0.0-rc.2",
+  "status": "candidate_frozen_pending_pre_tag_ci",
+  "baseline_release": {
+    "tag": "v1.0.0-rc.1",
+    "target_revision": "6e3a942dfd607c8bf4bdbe0075c8e8f5f3761842",
+    "implementation_revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
+    "immutable": true
+  },
+  "program_records": [
+    "docs/assurance/CHANGE_IMPACT_2026-07-31_R4_1_1_UNRESOLVED_AUTHORITY.md",
+    "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC2_RELEASE_DECISION.md"
+  ],
+  "scope": "component_only",
+  "system_qualification_ownership": "external",
+  "candidate": {
+    "implementation_revision": "63a82531f82c4d3d42372fa8499ba1678ae4344b",
+    "candidate_ci_run": 30625336681,
+    "release_decision_revision": "2d5d606cfb6f83e7a10c5b3e0c05fa3987c5eab4",
+    "release_decision_ci_run": 30627985036,
+    "release_tag": "v1.0.0-rc.2",
+    "release_tag_status": "pending_pre_tag_ci",
+    "pre_tag_revision": null,
+    "pre_tag_ci_run": null,
+    "final_record_revision": null,
+    "final_record_ci_run": null,
+    "tag_target_revision": null,
+    "tag_ci_run": null
+  },
+  "workstreams": {
+    "r4_1_1_unresolved_authority_without_definition": "implemented_targeted_gates_passed",
+    "r2_8_canonical_geometry_recognition": "proposal_registered_not_implemented",
+    "cli_protocol_1x_candidate": "unchanged_and_gated"
+  },
+  "compatibility_surface": {
+    "candidate_manifest": "release/cli-protocol-v1.json",
+    "stable_for_1x": "cli_json_only",
+    "rust_api": "internal_unstable_not_semver_surface",
+    "rust_crates_publish": false,
+    "wire_protocol_delta_from_rc1": "none"
+  },
+  "non_code_dependencies": {
+    "r4_1_1_ratification": "owner_decision_open_not_component_code_gate",
+    "r2_8_canonical_geometry_recognition": "proposal_registered_not_implemented",
+    "reader_loss_conformance_runner": "external_contracts_follow_up",
+    "icd_ratification_alignment": "owner_decision_open_not_component_code_gate"
+  },
+  "compatibility_freeze": {
+    "version": "1.0.0-rc.2",
+    "status": "pending_pre_tag_ci",
+    "surface": "cli_json_only",
+    "blocking_decisions": []
+  },
+  "prior_release_qualification": {
+    "release_tag": "v1.0.0-rc.1",
+    "owner": "plenora-contracts/conformance",
+    "owner_revision": "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab",
+    "roundtrip": "83/84",
+    "chain": "27/28",
+    "single_failure": "crs_unresolved__geoarrow_r4_1_1_proposal_not_implemented",
+    "transferable_to_rc2": false
+  },
+  "declared_scope_reductions": {
+    "component_rc_verified_internally": [
+      "crs_definition_vs_srid_semantic_resolution",
+      "r2_8_canonical_only_geometry_recognition",
+      "shared_resource_budget_leases_r7_5_r7_7",
+      "multi_gdal_and_filesystem_qualification",
+      "independent_review",
+      "reverse_system_qualification_direction"
+    ],
+    "stronger_claim_blockers": {
+      "full_r4_3_1_conformance": ["crs_definition_vs_srid_semantic_resolution"],
+      "full_proposed_r2_8_alignment": ["r2_8_canonical_only_geometry_recognition"],
+      "full_r7_5_r7_7_conformance": ["shared_resource_budget_leases_r7_5_r7_7"],
+      "verified_independently": ["independent_review"],
+      "system_rc": ["reverse_system_qualification_direction", "external_three_component_qualification"],
+      "avionic_certification": ["independent_review", "qualified_native_dependency_and_filesystem_matrix", "structural_coverage_beyond_line_coverage"]
+    }
+  },
+  "claims": {
+    "component_rc": false,
+    "system_rc": false,
+    "avionic_certification": false
+  }
+}
