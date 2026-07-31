@@ -162,9 +162,9 @@ class ReleaseContractTests(unittest.TestCase):
         provenance["freeze_status"] = "pre_freeze"
         self.assertTrue(self.validate(provenance=provenance))
 
-    def test_allows_component_rc_tag_while_review_is_open(self) -> None:
-        self.assertTrue(self.freeze_readiness["release_authorized"])
-        self.assertTrue(self.freeze_readiness["gates"]["pre_tag_ci"])
+    def test_keeps_pre_tag_state_fail_closed_while_review_is_open(self) -> None:
+        self.assertFalse(self.freeze_readiness["release_authorized"])
+        self.assertFalse(self.freeze_readiness["gates"]["pre_tag_ci"])
         self.assertFalse(
             self.freeze_readiness["assurance_attributes"]["independent_review"]
         )
@@ -195,6 +195,7 @@ class ReleaseContractTests(unittest.TestCase):
         for path, replacement in (
             (("run_id",), 0),
             (("coverage_artifact", "sha256"), "0" * 64),
+            (("windows_filegdb_benchmark_artifact", "sha256"), "0" * 64),
             (("library_line_coverage", "minimum_percent"), 0),
         ):
             evidence = copy.deepcopy(self.evidence)

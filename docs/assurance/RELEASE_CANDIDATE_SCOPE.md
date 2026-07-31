@@ -9,108 +9,87 @@ IO-tools**. Non è una RC del sistema Plenora e non dichiara conformità o
 certificazione avionica.
 
 La revisione candidata del codice è
-`3f3562a4707995549ff5eb8dc03f9e37f2cde355` ed è la baseline tecnica
-congelata. Lo stato machine-readable è `frozen` in
-[`release/contract-provenance.json`](../../release/contract-provenance.json).
-La decisione RC3 autorizza il candidato del componente con claim
-`verified_internally`, senza trasformare la review aperta in un blocco. La
-revisione pre-tag `ab330f8dfbcc7235c418e3e04f988317d3070525` ha CI
-`30501904391` verde ed è legata nel record finale. Il tag viene materializzato
-soltanto dopo la CI verde del record finale. L'impatto è registrato nella
-[`CIA dedicata`](CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md).
+`dc85f5163860bd16c4cf0bfa1066276980d38e8c` ed è la baseline tecnica
+congelata. La CI candidata `30605882153` è verde sui job `rust`, `windows`,
+`macos-publish` e `coverage`.
 
-RC2 resta pubblicata e immutabile come tag annotato non firmato
-`v0.1.0-rc.2`, con target `f47bf4605b248d127205e49a7e6ebd2a0984a83f`.
-RC3 è nello stato `component_rc_tagged`, separato in
-[`release/rc3-development.json`](../../release/rc3-development.json). Il
-precedente `v0.1.0-rc.1` resta a sua volta immutabile.
+La decisione RC4 è committata in
+`322ff57abd872f728d3f4e10c50c800ad39fa29c` e la relativa CI
+`30606393196` è verde. Il record corrente è intenzionalmente pre-tag:
+`component_rc=false`, `release_tag_created=false` e `pre_tag_ci=false`.
+Il tag `v0.1.0-rc.4` può essere creato soltanto dopo aver legato al record
+finale SHA ed esito verde della CI pre-tag.
+
+RC3 resta pubblicata e immutabile come tag annotato non firmato
+`v0.1.0-rc.3`, con target
+`ea0de79677e8fc794d96ac3d95c5bc2c6e30358c`.
 
 ## Identificativi distinti
 
 - `plenora.contract.version=1` identifica il formato wire emesso negli schemi
   Arrow;
-- `0.1.0-rc.2` identifica la precedente release SemVer immutabile;
-- `0.1.0-rc.3` identifica la baseline candidata congelata e il record finale
-  destinato al tag annotato `v0.1.0-rc.3`;
+- `0.1.0-rc.3` identifica la precedente release SemVer immutabile;
+- `0.1.0-rc.4` identifica la baseline candidata congelata e il futuro tag
+  annotato `v0.1.0-rc.4`;
 - `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`, identifica la revisione dell'ICD
   usata come obiettivo di implementazione.
 
 Gli identificativi non sono intercambiabili. Il tag ICD è annotato ma non
-firmato e il relativo candidato di ratifica è esplicitamente non ratificato.
+firmato e il relativo candidato di ratifica resta parzialmente ratificato.
 
 ## Stato normativo adottato
 
-La RC implementa anticipatamente parti candidate di §2, §3.4, §4.3.1–§4.3.3,
-§9 e §11. Questa scelta non ne cambia lo stato normativo. In particolare:
+La RC implementa anticipatamente parti candidate di §2, §3.4,
+§4.3.1–§4.3.3, §9 e §11. Questa scelta non ne cambia lo stato normativo:
 
 - non viene dichiarata conformità completa a `v2.0-rc8`;
-- l'emissione delle chiavi candidate di §2 prima della ratifica è registrata
-  localmente secondo il passo 1 di §15.4 e la deroga `DER-ICD-002`;
+- l'emissione delle chiavi candidate di §2 prima della ratifica resta
+  registrata secondo §15.4 e `DER-ICD-002`;
 - la condizione di rientro è la ratifica con nomi compatibili oppure la
   migrazione dell'emettitore verso la forma ratificata sostitutiva.
 
-Un consumatore della RC adotta quindi un'interfaccia candidata che può ancora
-richiedere una migrazione.
-
 ## Cosa attesta la RC
 
-La RC attesta esclusivamente che il componente, alle revisioni registrate:
+La futura RC4 attesta esclusivamente che il componente, alle revisioni
+registrate:
 
-- supera i propri test, lint e gate di assurance;
+- supera test, lint, gate di assurance e soglia di coverage;
 - emette e valida il wire contract candidato dichiarato;
-- espone gli errori a quattro assi e la cancellazione cooperativa;
-- rispetta la matrice di capability pubblicata da IO-tools.
+- applica reader bounded XLSX/KML/DXF e pushdown fisico OpenFileGDB;
+- supera la matrice nativa Windows GDAL/OpenFileGDB e i benchmark con veto;
+- espone gli errori a quattro assi, la cancellazione e le capability dichiarate.
 
 Non attesta che data-tools propaghi tutte le proprietà né che database-tools le
-consumi. Quella dichiarazione appartiene esclusivamente al gate di sistema in
+consumi. Quella dichiarazione appartiene al gate di sistema in
 [`SYSTEM_RC_GATE.md`](SYSTEM_RC_GATE.md).
 
-## Freeze tecnico e promozione assurance
+## Freeze tecnico e residui
 
-Il freeze tecnico della baseline è avvenuto dopo:
+La baseline congelata non può essere sostituita in-place: qualunque modifica
+al codice genera un nuovo candidato e una nuova change impact analysis.
 
-1. `contract-provenance.json` è verificato dalla CI e riporta tag e revisione
-   ICD esatti;
-2. la revisione sorgente finale è registrata in `implementation_revision`;
-3. test workspace, all-features, safety Clippy, FileGDB feature-on, benchmark e
-   gate documentali sono verdi sulla revisione finale;
-4. la matrice delle capability è allegata all'evidenza di release;
-5. il replay deterministico WKB/EWKB resta verde;
-6. il bundle `release/evidence/` identifica ambiente, comandi, artifact e gap
-   senza trasformare evidenza locale in verifica indipendente.
+Restano esplicitamente fuori dal claim:
 
-La baseline congelata non può essere sostituita in-place: qualunque modifica al
-codice genera un nuovo candidato e una nuova CIA. La
-[`decisione rc.3`](CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md)
-separa i prerequisiti della RC dagli attributi di assurance: la review
-indipendente non è un gate per il freeze o per il tag di una RC dichiarata
-`verified_internally`.
+1. confronto semantico fra `crs_definition` e SRID;
+2. esposizione machine-readable del `LossReport` reader nella CLI;
+3. decisione owner sul comando che combina bordo di lettura e scrittura in
+   presenza di CRS discordanti;
+4. chiarimento end-to-end del campo `loss.lossless`, oggi riferito al writer;
+5. qualifica della matrice a tre componenti.
 
-Restano necessari per claim successivi:
+La revisione indipendente resta aperta e non blocca una component RC con claim
+`verified_internally`; blocca invece qualunque promozione a
+`verified_independently`.
 
-1. una revisione indipendente prima di promuovere il claim a
-   `verified_independently`;
-2. le altre evidenze aperte prima di eventuali claim più forti. La campagna
-   lunga coverage-guided RC3 è stata completata su harness committati, con zero
-   finding.
+Lo stato machine-readable è in
+[`release/contract-provenance.json`](../../release/contract-provenance.json),
+[`release/freeze-readiness.json`](../../release/freeze-readiness.json) e
+[`release/evidence/technical-freeze-v0.1.0-rc.4.json`](../../release/evidence/technical-freeze-v0.1.0-rc.4.json).
+La decisione e la sequenza autorizzata sono nella
+[`CIA RC4`](CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md).
 
-Lo stato corrente è machine-readable in
-[`release/freeze-readiness.json`](../../release/freeze-readiness.json):
-la baseline tecnica `3f3562a` è congelata e la CI candidata `30500304709` è
-verde su Linux, Windows, macOS e coverage. La decisione committata in
-`6868990` ha CI `30501136176` verde; la revisione pre-tag `ab330f8` ha CI
-`30501904391` verde. `independent_review=false` limita soltanto il livello del
-claim; `component_rc=true` e `release_tag_status=created` appartengono al
-record finale che diventa il target del tag soltanto dopo la propria CI verde.
-Il file `release/rc3-development.json` dichiara i risultati inclusi in RC3, gli
-attributi non bloccanti e i tre workstream differiti a RC4.
-La decisione di perimetro è registrata nella
-[CIA del 30 luglio](CHANGE_IMPACT_2026-07-30_RC3_CRS_SCOPE.md). La CI finale e
-la verifica del tag remoto chiudono la sequenza di pubblicazione senza
-modificare la baseline di implementazione.
-
-Il materiale da consegnare al revisore è raccolto nel
-[`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il record
-machine-readable resta `pending_eligible_reviewer` finché una persona
-eleggibile non registra identità, comandi, rilievi ed esito.
+Il materiale per un'eventuale review è raccolto nel
+[`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il
+record resta `pending_eligible_reviewer` finché una persona eleggibile non
+registra identità, comandi, rilievi ed esito.

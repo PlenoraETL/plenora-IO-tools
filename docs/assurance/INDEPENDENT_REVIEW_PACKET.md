@@ -6,17 +6,17 @@ Stato: **in attesa di un revisore eleggibile**.
 
 - componente: `plenora-IO-tools`;
 - base di confronto:
-  `f47bf4605b248d127205e49a7e6ebd2a0984a83f`;
+  `ea0de79677e8fc794d96ac3d95c5bc2c6e30358c`;
 - codice candidato:
-  `3f3562a4707995549ff5eb8dc03f9e37f2cde355`;
+  `dc85f5163860bd16c4cf0bfa1066276980d38e8c`;
 - record del freeze tecnico e record di provenienza:
-  `ab330f8dfbcc7235c418e3e04f988317d3070525`, CI `30501904391`;
+  da legare alla revisione pre-tag dopo la relativa CI;
 - ICD: `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`.
 
-I commit successivi a `3f3562a` possono modificare soltanto assurance,
-provenienza e gate. La verifica applicata allo SHA pre-tag è
-`git diff --exit-code 3f3562a ab330f8 -- crates Cargo.toml Cargo.lock
+I commit successivi a `dc85f51` possono modificare soltanto assurance,
+provenienza e gate. La revisione finale dovrà dimostrarlo con
+`git diff --exit-code dc85f51 <pre-tag> -- crates Cargo.toml Cargo.lock
 rust-toolchain.toml`.
 
 ## Eleggibilità
@@ -38,7 +38,7 @@ Prima di iniziare, il revisore deve registrare nel file
 
 La review deve esaminare almeno:
 
-1. diff completo `f47bf46..3f3562a`, con priorità ai confini esterni;
+1. diff completo `ea0de79..dc85f51`, con priorità ai confini esterni;
 2. publish atomico/no-clobber/durability e failure mode;
 3. WKB/EWKB, dimensioni, SRID, geometry/geography e metadati CRS;
 4. cancellazione, limiti, backpressure e parser materializzanti residui;
@@ -54,9 +54,9 @@ sostituiscono l'ispezione del diff.
 ## Comandi riproducibili
 
 ```text
-git diff --stat f47bf46 3f3562a
-git diff f47bf46 3f3562a -- crates conformance fuzz scripts
-git diff --exit-code 3f3562a ab330f8 -- crates Cargo.toml Cargo.lock rust-toolchain.toml
+git diff --stat ea0de79 dc85f51
+git diff ea0de79 dc85f51 -- crates fuzz scripts
+git diff --exit-code dc85f51 <pre-tag> -- crates Cargo.toml Cargo.lock rust-toolchain.toml
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo clippy --workspace --lib --all-features --locked -- -D warnings -D unsafe-code -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::unreachable -D clippy::todo -D clippy::unimplemented
@@ -102,6 +102,6 @@ Quando il record è completo:
 
 Fino ad allora `independent_review` e
 `independently_verified_claim_authorized` restano `false`. La decisione
-[`CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md`](CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md)
-autorizza separatamente RC3 come `verified_internally`; la CI pre-tag è verde
-e resta da verificare la CI del record finale prima della creazione del tag.
+[`CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md`](CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md)
+autorizza separatamente RC4 come `verified_internally`; il record corrente
+resta fail-closed finché CI pre-tag, record finale e tag non sono verificati.

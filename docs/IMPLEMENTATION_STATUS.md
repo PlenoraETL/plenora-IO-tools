@@ -10,25 +10,18 @@ Il manifest cita `plenora-contracts@v2.0-rc8` e la revisione esatta, distingue
 la wire version dall'ICD e registra le sezioni candidate e la deroga di
 emissione. Il gate della catena a tre componenti resta esplicitamente
 `not_satisfied`.
-La baseline tecnica candidata `3f3562a` è congelata con claim previsto
-`verified_internally` per `v0.1.0-rc.3`. La CI candidata `30500304709` e la CI
-della decisione `30501136176` sono verdi. La revisione indipendente resta
-aperta come attributo non bloccante. RC2 resta l'ultima release pubblicata e
-immutabile; RC3 ha superato la CI pre-tag `30501904391` sulla revisione
-`ab330f8` ed è descritta come `component_rc_tagged` in
-`release/rc3-development.json`. Il record finale diventa il target del tag
-soltanto dopo la propria CI verde. Un claim
-`verified_independently` resta vietato finché la review non viene completata.
+RC3 resta pubblicata e immutabile al tag `v0.1.0-rc.3`. La baseline tecnica
+RC4 `dc85f51` è congelata con claim previsto `verified_internally`; la CI
+candidata `30605882153` e la CI della decisione `30606393196` sono verdi sui
+quattro job. Il record pre-tag mantiene `component_rc=false` e il tag
+`v0.1.0-rc.4` inesistente finché la propria CI non è verde.
 
-Il programma component-only `0.1.0-rc.4` è ora aperto dalla baseline immutabile
-`v0.1.0-rc.3` ed è registrato in `release/rc4-development.json`, senza claim di
-nuova RC. Il reader XLSX bounded con spool temporaneo e la matrice nativa
-Windows GDAL 3.10.3/OpenFileGDB sono implementati e hanno superato i rispettivi
-benchmark. Il pushdown OpenFileGDB è implementato tramite un fork governato di
-`gdal 0.17.1`; KML usa un parser event-based con spool bounded e DXF un reader
-progressivo tramite fork governato di `dxf 0.6.1`. Tutti e cinque i workstream
-tecnici hanno superato i benchmark A/B; congelamento e CI della baseline RC4
-restano passi procedurali.
+RC4 comprende reader bounded XLSX/KML/DXF, pushdown OpenFileGDB tramite fork
+governato `gdal 0.17.1`, matrice nativa Windows GDAL 3.10.3/OpenFileGDB e le
+correzioni Shapefile su WKT proiettato e precisione DBF. Tutti i workstream
+tecnici hanno superato i rispettivi test e benchmark. La revisione indipendente
+resta un attributo non bloccante; un claim `verified_independently` resta
+vietato finché la review non viene completata.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con

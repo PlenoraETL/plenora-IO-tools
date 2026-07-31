@@ -2,13 +2,13 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "release_kind": "component_rc",
-  "component_version": "0.1.0-rc.3",
+  "component_version": "0.1.0-rc.4",
   "freeze_status": "frozen",
-  "implementation_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
+  "implementation_revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
   "candidate_state": "component_rc_verified_internally",
   "freeze_scope": {
     "kind": "technical_baseline",
-    "baseline_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
+    "baseline_revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
     "frozen_on": "2026-07-30",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
@@ -22,23 +22,23 @@
     "independent_review_required": false,
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": false,
-    "release_tag_created": true,
-    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md",
-    "decision_revision": "6868990461f7ef880258f67985528dc29b0564a0",
-    "decision_ci_run": 30501136176
+    "release_tag_created": false,
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md",
+    "decision_revision": "322ff57abd872f728d3f4e10c50c800ad39fa29c",
+    "decision_ci_run": 30606393196
   },
   "release_tag": {
-    "name": "v0.1.0-rc.3",
-    "version": "0.1.0-rc.3",
+    "name": "v0.1.0-rc.4",
+    "version": "0.1.0-rc.4",
     "tag_form": "annotated_unsigned",
-    "status": "created",
-    "created_on": "2026-07-30",
-    "candidate_revision": "3f3562a4707995549ff5eb8dc03f9e37f2cde355",
+    "status": "pending_pre_tag_ci",
+    "created_on": null,
+    "candidate_revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
-    "pre_tag_revision": "ab330f8dfbcc7235c418e3e04f988317d3070525",
-    "pre_tag_ci_run": 30501904391,
-    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC3_RELEASE_DECISION.md"
+    "pre_tag_revision": null,
+    "pre_tag_ci_run": null,
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
   },
   "wire_contract_version": 1,
   "icd": {
@@ -87,25 +87,24 @@
     }
   ],
   "claims": {
-    "component_rc": true,
+    "component_rc": false,
     "system_rc": false,
     "avionic_certification": false
   },
-  "rc3_scope": {
+  "rc4_scope": {
     "included": [
-      "canonical_wkb_types",
-      "reproducible_long_fuzz_campaign",
-      "crs_inconsistency_read_declaration"
-    ],
-    "deferred_to_rc4": [
-      "streaming_and_cancellation",
+      "xlsx_bounded_spool_streaming",
+      "kml_event_streaming",
+      "dxf_progressive_reader",
       "openfilegdb_native_pushdown",
-      "filegdb_windows_and_filesystem_matrix"
+      "filegdb_windows_and_filesystem_matrix",
+      "shapefile_projected_crs_and_dbf_precision_reporting"
     ],
     "declared_residuals": [
       "crs_definition_vs_srid_requires_resolver",
       "reader_loss_cli_observability_external_follow_up",
-      "combined_read_write_boundary_crs_policy_owner_decision"
+      "combined_read_write_boundary_crs_policy_owner_decision",
+      "writer_lossless_name_not_end_to_end_fidelity"
     ]
   },
   "fuzz_coordination": {

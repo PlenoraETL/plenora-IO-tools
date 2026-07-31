@@ -300,9 +300,10 @@ entrambe le revisioni. Il veto del 5% è superato. Il descrittore passa a
 ## Stato dei workstream
 
 I cinque workstream tecnici RC4 sono implementati e hanno superato i rispettivi
-gate. Il manifest resta `development` e `component_rc=false`: congelamento
-della baseline, CI verde sulla revisione congelata e tag immutabile restano
-passi procedurali separati.
+gate. La baseline `dc85f5163860bd16c4cf0bfa1066276980d38e8c` è ora congelata:
+la CI candidata `30605882153` e la CI della decisione `30606393196` sono verdi.
+Il manifest è nello stato pre-tag fail-closed con `component_rc=false`; CI del
+record pre-tag, record finale e tag immutabile restano passi separati.
 
 I residui CRS combinati e l'osservabilità CLI del `LossReport` reader non
 vengono assorbiti implicitamente in RC4: restano rispettivamente decisione
