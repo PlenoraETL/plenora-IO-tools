@@ -15,10 +15,10 @@ congelata. La CI candidata `30605882153` è verde sui job `rust`, `windows`,
 
 La decisione RC4 è committata in
 `322ff57abd872f728d3f4e10c50c800ad39fa29c` e la relativa CI
-`30606393196` è verde. Il record corrente è intenzionalmente pre-tag:
-`component_rc=false`, `release_tag_created=false` e `pre_tag_ci=false`.
-Il tag `v0.1.0-rc.4` può essere creato soltanto dopo aver legato al record
-finale SHA ed esito verde della CI pre-tag.
+`30606393196` è verde. La revisione pre-tag
+`f5dc5d46668062b4016ac9e50229bc869a12d380` ha CI `30606830974` verde.
+Il record finale dichiara `component_rc=true`; il tag `v0.1.0-rc.4` può essere
+creato soltanto dopo la CI verde di quel record.
 
 RC3 resta pubblicata e immutabile come tag annotato non firmato
 `v0.1.0-rc.3`, con target

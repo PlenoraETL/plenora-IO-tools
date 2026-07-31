@@ -48,8 +48,8 @@ EXPECTED_RELEASE_DECISION_REVISION = (
     "322ff57abd872f728d3f4e10c50c800ad39fa29c"
 )
 EXPECTED_RELEASE_DECISION_CI_RUN = 30606393196
-EXPECTED_PRE_TAG_REVISION = None
-EXPECTED_PRE_TAG_CI_RUN = None
+EXPECTED_PRE_TAG_REVISION = "f5dc5d46668062b4016ac9e50229bc869a12d380"
+EXPECTED_PRE_TAG_CI_RUN = 30606830974
 EXPECTED_COVERAGE_ARTIFACT = {
     "id": 8783562020,
     "name": "rust-coverage-lcov",
@@ -82,7 +82,7 @@ EXPECTED_RELEASE_DECISION = {
     "independent_review_required": False,
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": False,
-    "release_tag_created": False,
+    "release_tag_created": True,
     "decision_record": (
         "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
     ),
@@ -93,8 +93,8 @@ EXPECTED_RELEASE_TAG_RECORD = {
     "name": EXPECTED_RELEASE_TAG,
     "version": EXPECTED_COMPONENT_VERSION,
     "tag_form": "annotated_unsigned",
-    "status": "pending_pre_tag_ci",
-    "created_on": None,
+    "status": "created",
+    "created_on": "2026-07-30",
     "candidate_revision": EXPECTED_IO_CANDIDATE,
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
@@ -110,7 +110,7 @@ EXPECTED_FREEZE_DECISION = {
     "frozen_on": "2026-07-30",
     "verification_claim": "verified_internally",
     "independent_review": False,
-    "release_tag_created": False,
+    "release_tag_created": True,
     "decision_record": (
         "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
     ),
@@ -362,7 +362,7 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
         "manifest_version": 1,
         "component": "plenora-IO-tools",
         "component_version": EXPECTED_WORKSPACE_VERSION,
-        "status": "candidate_frozen_pending_pre_tag_ci",
+        "status": "component_rc_tagged",
         "baseline_release": {
             "tag": RC3_RELEASE_TAG,
             "target_revision": "ea0de79677e8fc794d96ac3d95c5bc2c6e30358c",
@@ -380,7 +380,9 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
             "release_decision_revision": EXPECTED_RELEASE_DECISION_REVISION,
             "release_decision_ci_run": EXPECTED_RELEASE_DECISION_CI_RUN,
             "release_tag": EXPECTED_RELEASE_TAG,
-            "release_tag_status": "pending_pre_tag_ci",
+            "release_tag_status": "created",
+            "pre_tag_revision": EXPECTED_PRE_TAG_REVISION,
+            "pre_tag_ci_run": EXPECTED_PRE_TAG_CI_RUN,
         },
         "workstreams": {
             "xlsx_bounded_spool_streaming": "implemented_benchmark_passed",
@@ -401,7 +403,7 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
             ),
         },
         "claims": {
-            "component_rc": False,
+            "component_rc": True,
             "system_rc": False,
             "avionic_certification": False,
         },
@@ -483,7 +485,7 @@ def validate_documents(
         errors.append("contract-provenance: deroga emissione §15.4 non dichiarata")
 
     if claims != {
-        "component_rc": False,
+        "component_rc": True,
         "system_rc": False,
         "avionic_certification": False,
     }:
@@ -573,12 +575,12 @@ def validate_documents(
     }:
         errors.append("shared corpus: revisioni dei producer inattese")
 
-    if freeze_readiness.get("status") != "pre_tag_pending_ci":
+    if freeze_readiness.get("status") != "component_rc_tagged":
         errors.append("freeze readiness: stato RC interno inatteso")
     if freeze_readiness.get("freeze_scope") != "technical_baseline_only":
         errors.append("freeze readiness: perimetro tecnico non dichiarato")
-    if freeze_readiness.get("release_authorized") is not False:
-        errors.append("freeze readiness: autorizzazione dichiarata prima della CI pre-tag")
+    if freeze_readiness.get("release_authorized") is not True:
+        errors.append("freeze readiness: RC verificata internamente non autorizzata")
     readiness_gates = freeze_readiness.get("gates", {})
     expected_gates = {
         "candidate_code_complete",
@@ -595,11 +597,9 @@ def validate_documents(
     }
     if set(readiness_gates) != expected_gates:
         errors.append("freeze readiness: insieme dei gate obbligatori inatteso")
-    for gate in expected_gates - {"pre_tag_ci"}:
+    for gate in expected_gates:
         if readiness_gates.get(gate) is not True:
             errors.append(f"freeze readiness: gate obbligatorio non soddisfatto: {gate}")
-    if readiness_gates.get("pre_tag_ci") is not False:
-        errors.append("freeze readiness: CI pre-tag dichiarata prima dell'esecuzione")
     if freeze_readiness.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("freeze readiness: SHA candidato inatteso")
     assurance_attributes = freeze_readiness.get("assurance_attributes", {})
@@ -608,16 +608,16 @@ def validate_documents(
         "independent_review": False,
         "independent_review_status": "pending_eligible_reviewer",
         "independently_verified_claim_authorized": False,
-        "release_tag_created": False,
+        "release_tag_created": True,
         "release_tag_name": EXPECTED_RELEASE_TAG,
         "release_tag_form": "annotated_unsigned",
-        "release_tag_status": "pending_pre_tag_ci",
+        "release_tag_status": "created",
     }:
         errors.append("freeze readiness: attributi assurance inattesi")
     if "independent_review" in readiness_gates:
         errors.append("freeze readiness: independent_review non deve essere un gate RC")
 
-    if evidence.get("status") != "technical_freeze_pre_tag":
+    if evidence.get("status") != "technical_freeze_evidence":
         errors.append("evidence: stato del freeze tecnico inatteso")
     if evidence.get("baseline_revision") != EXPECTED_RC_BASELINE:
         errors.append("evidence: baseline IO inattesa")
@@ -636,7 +636,7 @@ def validate_documents(
         "verification_claim": "verified_internally",
         "independent_review": False,
         "independently_verified_claim_authorized": False,
-        "release_tag_created": False,
+        "release_tag_created": True,
         "decision_record": (
             "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
         ),
@@ -721,9 +721,9 @@ def validate_documents(
         errors.append("independent review: campi obbligatori inattesi")
     if independent_review.get("release_effect") != {
         "blocks_component_rc_release": False,
-        "component_rc_release_authorized": False,
+        "component_rc_release_authorized": True,
         "independently_verified_claim_authorized": False,
-        "release_tag_created": False,
+        "release_tag_created": True,
     }:
         errors.append("independent review: separazione da release interna inattesa")
 
@@ -883,9 +883,8 @@ def main() -> int:
 
     print(
         "Release contract gate passed "
-        "(v0.1.0-rc.3 remains immutable; v0.1.0-rc.4 is frozen pending "
-        "pre-tag CI; component RC, system RC and avionic certification are "
-        "not yet claimed for RC4)."
+        "(v0.1.0-rc.4 is recorded as the internally verified component RC; "
+        "system RC and avionic certification are not claimed)."
     )
     return 0
 

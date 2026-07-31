@@ -13,8 +13,9 @@ emissione. Il gate della catena a tre componenti resta esplicitamente
 RC3 resta pubblicata e immutabile al tag `v0.1.0-rc.3`. La baseline tecnica
 RC4 `dc85f51` è congelata con claim previsto `verified_internally`; la CI
 candidata `30605882153` e la CI della decisione `30606393196` sono verdi sui
-quattro job. Il record pre-tag mantiene `component_rc=false` e il tag
-`v0.1.0-rc.4` inesistente finché la propria CI non è verde.
+quattro job. La revisione pre-tag `f5dc5d4` ha CI `30606830974` verde; il
+record finale dichiara la component RC e diventa target del tag
+`v0.1.0-rc.4` soltanto dopo la propria CI verde.
 
 RC4 comprende reader bounded XLSX/KML/DXF, pushdown OpenFileGDB tramite fork
 governato `gdal 0.17.1`, matrice nativa Windows GDAL 3.10.3/OpenFileGDB e le

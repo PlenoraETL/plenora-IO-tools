@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "component_version": "0.1.0-rc.4",
-  "status": "candidate_frozen_pending_pre_tag_ci",
+  "status": "component_rc_tagged",
   "baseline_release": {
     "tag": "v0.1.0-rc.3",
     "target_revision": "ea0de79677e8fc794d96ac3d95c5bc2c6e30358c",
@@ -18,7 +18,9 @@
     "release_decision_revision": "322ff57abd872f728d3f4e10c50c800ad39fa29c",
     "release_decision_ci_run": 30606393196,
     "release_tag": "v0.1.0-rc.4",
-    "release_tag_status": "pending_pre_tag_ci"
+    "release_tag_status": "created",
+    "pre_tag_revision": "f5dc5d46668062b4016ac9e50229bc869a12d380",
+    "pre_tag_ci_run": 30606830974
   },
   "workstreams": {
     "xlsx_bounded_spool_streaming": "implemented_benchmark_passed",
@@ -33,7 +35,7 @@
     "icd_ratification_alignment": "owner_decision_open_not_component_code_gate"
   },
   "claims": {
-    "component_rc": false,
+    "component_rc": true,
     "system_rc": false,
     "avionic_certification": false
   }

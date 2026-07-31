@@ -10,13 +10,13 @@ Stato: **in attesa di un revisore eleggibile**.
 - codice candidato:
   `dc85f5163860bd16c4cf0bfa1066276980d38e8c`;
 - record del freeze tecnico e record di provenienza:
-  da legare alla revisione pre-tag dopo la relativa CI;
+  `f5dc5d46668062b4016ac9e50229bc869a12d380`, CI `30606830974`;
 - ICD: `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`.
 
 I commit successivi a `dc85f51` possono modificare soltanto assurance,
-provenienza e gate. La revisione finale dovrà dimostrarlo con
-`git diff --exit-code dc85f51 <pre-tag> -- crates Cargo.toml Cargo.lock
+provenienza e gate. La verifica applicata allo SHA pre-tag è
+`git diff --exit-code dc85f51 f5dc5d4 -- crates Cargo.toml Cargo.lock
 rust-toolchain.toml`.
 
 ## Eleggibilità
@@ -56,7 +56,7 @@ sostituiscono l'ispezione del diff.
 ```text
 git diff --stat ea0de79 dc85f51
 git diff ea0de79 dc85f51 -- crates fuzz scripts
-git diff --exit-code dc85f51 <pre-tag> -- crates Cargo.toml Cargo.lock rust-toolchain.toml
+git diff --exit-code dc85f51 f5dc5d4 -- crates Cargo.toml Cargo.lock rust-toolchain.toml
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo clippy --workspace --lib --all-features --locked -- -D warnings -D unsafe-code -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic -D clippy::unreachable -D clippy::todo -D clippy::unimplemented
@@ -104,4 +104,4 @@ Fino ad allora `independent_review` e
 `independently_verified_claim_authorized` restano `false`. La decisione
 [`CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md`](CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md)
 autorizza separatamente RC4 come `verified_internally`; il record corrente
-resta fail-closed finché CI pre-tag, record finale e tag non sono verificati.
+diventa target del tag soltanto dopo la propria CI verde.
