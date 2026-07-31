@@ -463,4 +463,31 @@ mod tests {
             serde_json::from_value::<PlenoraIoError>(serde_json::Value::Object(object)).is_err()
         );
     }
+
+    #[test]
+    fn retry_disposition_uses_the_shared_tagged_object_shape() {
+        let cases = [
+            (
+                RetryDisposition::Never,
+                serde_json::json!({"kind": "never"}),
+            ),
+            (RetryDisposition::Safe, serde_json::json!({"kind": "safe"})),
+            (
+                RetryDisposition::RequiresIdempotencyKey,
+                serde_json::json!({"kind": "requires_idempotency_key"}),
+            ),
+            (
+                RetryDisposition::RequiresRecovery,
+                serde_json::json!({"kind": "requires_recovery"}),
+            ),
+            (
+                RetryDisposition::After(2_750),
+                serde_json::json!({"kind": "after", "delay_ms": 2_750}),
+            ),
+        ];
+
+        for (retry, expected) in cases {
+            assert_eq!(serde_json::to_value(retry).unwrap(), expected);
+        }
+    }
 }

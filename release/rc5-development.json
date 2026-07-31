@@ -1,0 +1,28 @@
+{
+  "manifest_version": 1,
+  "component": "plenora-IO-tools",
+  "component_version": "0.1.0-rc.5",
+  "status": "development",
+  "baseline_release": {
+    "tag": "v0.1.0-rc.4",
+    "target_revision": "8d3f25f109f6ea8910da71e098db6924438e481c",
+    "implementation_revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
+    "immutable": true
+  },
+  "program_record": "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md",
+  "scope": "component_only",
+  "system_qualification_ownership": "external",
+  "workstreams": {
+    "r9_machine_readable_error_envelope": "implemented_targeted_gates_passed"
+  },
+  "non_code_dependencies": {
+    "combined_read_write_boundary_crs_policy": "owner_decision_open",
+    "reader_loss_cli_observability": "external_contracts_follow_up",
+    "icd_ratification_alignment": "owner_decision_open_not_component_code_gate"
+  },
+  "claims": {
+    "component_rc": false,
+    "system_rc": false,
+    "avionic_certification": false
+  }
+}

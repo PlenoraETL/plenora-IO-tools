@@ -17,8 +17,9 @@ La decisione RC4 è committata in
 `322ff57abd872f728d3f4e10c50c800ad39fa29c` e la relativa CI
 `30606393196` è verde. La revisione pre-tag
 `f5dc5d46668062b4016ac9e50229bc869a12d380` ha CI `30606830974` verde.
-Il record finale dichiara `component_rc=true`; il tag `v0.1.0-rc.4` può essere
-creato soltanto dopo la CI verde di quel record.
+Il record finale `8d3f25f109f6ea8910da71e098db6924438e481c` ha CI
+`30607124206` verde ed è il target del tag annotato `v0.1.0-rc.4`; anche la CI
+del tag `30607373426` è verde.
 
 RC3 resta pubblicata e immutabile come tag annotato non firmato
 `v0.1.0-rc.3`, con target
@@ -29,8 +30,8 @@ RC3 resta pubblicata e immutabile come tag annotato non firmato
 - `plenora.contract.version=1` identifica il formato wire emesso negli schemi
   Arrow;
 - `0.1.0-rc.3` identifica la precedente release SemVer immutabile;
-- `0.1.0-rc.4` identifica la baseline candidata congelata e il futuro tag
-  annotato `v0.1.0-rc.4`;
+- `0.1.0-rc.4` identifica la baseline congelata e il tag annotato
+  `v0.1.0-rc.4`;
 - `plenora-contracts@v2.0-rc8`, revisione
   `62b12e3496466d2c908dac3cc098640b99b52e21`, identifica la revisione dell'ICD
   usata come obiettivo di implementazione.
@@ -51,7 +52,7 @@ La RC implementa anticipatamente parti candidate di §2, §3.4,
 
 ## Cosa attesta la RC
 
-La futura RC4 attesta esclusivamente che il componente, alle revisioni
+RC4 attesta esclusivamente che il componente, alle revisioni
 registrate:
 
 - supera test, lint, gate di assurance e soglia di coverage;
@@ -88,6 +89,10 @@ Lo stato machine-readable è in
 [`release/evidence/technical-freeze-v0.1.0-rc.4.json`](../../release/evidence/technical-freeze-v0.1.0-rc.4.json).
 La decisione e la sequenza autorizzata sono nella
 [`CIA RC4`](CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md).
+
+Le modifiche successive appartengono allo sviluppo `0.1.0-rc.5`, registrato
+separatamente in
+[`release/rc5-development.json`](../../release/rc5-development.json).
 
 Il materiale per un'eventuale review è raccolto nel
 [`pacchetto di revisione indipendente`](INDEPENDENT_REVIEW_PACKET.md); il

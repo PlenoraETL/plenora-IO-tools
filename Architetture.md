@@ -368,7 +368,9 @@ formato oltre quella mediata da `plenora-core`.
   file→file, `RecordBatch` in mezzo. **Sostituisce** il vecchio
   import/export-verso-GeoJSON: GeoJSON è ora solo uno dei formati.
 - `catalog` → descrittori dei driver, machine-readable.
-- Busta d'errore versionata `plenora-io-error-v1`, exit code stabili
+- Busta d'errore versionata `plenora-io-error-v1`: `category`, `phase` ed
+  `remote_effect` sono campi `snake_case`; `retry` è un oggetto taggato e
+  conserva `delay_ms` per `after`; `message` resta diagnostico. Exit code stabili
   (2 CliUsage, 3 LimitExceeded, 4 Unsupported, 5 LayerNotFound, 6 OutputExists,
   7 Input/Io, 8 InvalidInput, 10 Internal) — allineati alla famiglia.
 

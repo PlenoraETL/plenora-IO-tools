@@ -1,6 +1,6 @@
 # Stato implementazione rispetto agli ADR
 
-Verifica aggiornata al 2026-07-30. La tabella distingue ciò che è nel codice da
+Verifica aggiornata al 2026-07-31. La tabella distingue ciò che è nel codice da
 ciò che resta una decisione architetturale: “parziale” non significa che il
 driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 
@@ -10,12 +10,10 @@ Il manifest cita `plenora-contracts@v2.0-rc8` e la revisione esatta, distingue
 la wire version dall'ICD e registra le sezioni candidate e la deroga di
 emissione. Il gate della catena a tre componenti resta esplicitamente
 `not_satisfied`.
-RC3 resta pubblicata e immutabile al tag `v0.1.0-rc.3`. La baseline tecnica
-RC4 `dc85f51` è congelata con claim previsto `verified_internally`; la CI
-candidata `30605882153` e la CI della decisione `30606393196` sono verdi sui
-quattro job. La revisione pre-tag `f5dc5d4` ha CI `30606830974` verde; il
-record finale dichiara la component RC e diventa target del tag
-`v0.1.0-rc.4` soltanto dopo la propria CI verde.
+RC4 è pubblicata e immutabile al tag `v0.1.0-rc.4`, target `8d3f25f`. La CI
+finale `30607124206` e la CI del tag `30607373426` sono verdi sui quattro job.
+Il claim resta `verified_internally`; review indipendente, RC di sistema e
+certificazione avionica non sono dichiarate.
 
 RC4 comprende reader bounded XLSX/KML/DXF, pushdown OpenFileGDB tramite fork
 governato `gdal 0.17.1`, matrice nativa Windows GDAL 3.10.3/OpenFileGDB e le
@@ -23,6 +21,11 @@ correzioni Shapefile su WKT proiettato e precisione DBF. Tutti i workstream
 tecnici hanno superato i rispettivi test e benchmark. La revisione indipendente
 resta un attributo non bloccante; un claim `verified_independently` resta
 vietato finché la review non viene completata.
+
+Lo sviluppo `0.1.0-rc.5` parte dalla baseline immutabile RC4. Il primo
+incremento rende machine-readable i quattro assi della busta d'errore CLI e
+conserva `delay_ms` nella variante retry `after`; non modifica driver o formati
+su disco.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
@@ -47,10 +50,11 @@ primitive esplicite di panic in tutti i target di libreria.
   `PlenoraError` strutturalmente diverso di data-tools. Un gate CI rende
   irreversibile la correzione R8.1/R8.4. Il futuro crate condiviso
   `plenora-contracts` non viene anticipato finché §15.3 resta proposta.
-- `PlenoraIoError` è ora un record serializzabile a quattro assi indipendenti:
-  categoria, fase, effetto remoto e disposizione di retry. Il codice locale
-  dettagliato resta separato, i messaggi di input esterno sono redatti e tutti
-  i driver, incluso FileGDB feature-on, compilano contro il nuovo modello.
+- `PlenoraIoError` è un record serializzabile a quattro assi indipendenti:
+  categoria, fase, effetto remoto e disposizione di retry. La CLI pubblica gli
+  assi come campi `snake_case`; `retry` è un oggetto taggato e `After` conserva
+  `delay_ms`. Il codice locale resta separato e `message` è soltanto testo
+  diagnostico redatto.
 - Gli schemi prodotti dichiarano `plenora.contract.version=1`; i consumer
   accettano i contratti legacy senza versione e rifiutano versioni future.
   `types_declaration` distingue `exact`, `mixed` e `unresolved`, con invarianti

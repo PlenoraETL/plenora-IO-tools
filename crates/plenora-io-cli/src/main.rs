@@ -18,21 +18,55 @@ use plenora_io_core::{DriverRegistry, WriteLayer, WritePlan};
 use plenora_io_model::contract::{DataContract, LayerContract};
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::Limits;
+use plenora_io_model::{ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, RetryDisposition};
 
 /// Errore CLI: (exit code, documento JSON d'errore).
 type CliResult = Result<Value, (i32, Value)>;
 
-fn err_doc(code: &str, message: impl Into<String>) -> Value {
+fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
     json!({
         "status": "error",
         "protocol_version": 1,
         "contract": "plenora-io-error-v1",
-        "error": {"code": code, "message": message.into()},
+        "error": {
+            "category": error.category,
+            "phase": error.phase,
+            "remote_effect": error.remote_effect,
+            "retry": error.retry,
+            "code": code,
+            "message": error.message,
+        },
     })
 }
 
+fn local_err_doc(
+    code: &str,
+    category: ErrorCategory,
+    phase: ErrorPhase,
+    message: impl Into<String>,
+) -> Value {
+    err_doc(
+        code,
+        &PlenoraIoError::new(
+            category,
+            phase,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        ),
+    )
+}
+
 fn usage_err(message: impl Into<String>) -> (i32, Value) {
-    (2, err_doc("CLI_USAGE", message))
+    (
+        2,
+        local_err_doc(
+            "CLI_USAGE",
+            ErrorCategory::InvalidConfiguration,
+            ErrorPhase::Validate,
+            message,
+        ),
+    )
 }
 
 /// Mappa un `PlenoraIoError` a (exit, doc) con codici stabili.
@@ -49,7 +83,7 @@ fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
         IoErrorCode::CrsUnresolved => (8, "CRS_UNRESOLVED"),
         _ => (1, "FORMAT_ERROR"),
     };
-    (exit, err_doc(code, e.to_string()))
+    (exit, err_doc(code, &e))
 }
 
 // --- selezione driver per estensione --------------------------------------
@@ -81,8 +115,10 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         other => {
             return Err((
                 4,
-                err_doc(
+                local_err_doc(
                     "UNSUPPORTED",
+                    ErrorCategory::Unsupported,
+                    ErrorPhase::Validate,
                     format!("estensione non riconosciuta: '.{other}'"),
                 ),
             ))
@@ -362,7 +398,12 @@ fn cmd_read(cli: &Cli) -> CliResult {
         .ok_or_else(|| {
             (
                 1,
-                err_doc("NO_LAYER", format!("layer {layer_id} inesistente")),
+                local_err_doc(
+                    "NO_LAYER",
+                    ErrorCategory::NotFound,
+                    ErrorPhase::Prepare,
+                    format!("layer {layer_id} inesistente"),
+                ),
             )
         })?
         .clone();
@@ -411,19 +452,27 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     // Layer da convertire: `--layer` ne sceglie uno, altrimenti tutti.
     let all: Vec<LayerContract> = ds.layers().to_vec();
     let selected: Vec<LayerContract> = match cli.layer {
-        Some(id) => vec![all
-            .iter()
-            .find(|l| l.id.0 == id)
-            .cloned()
-            .ok_or_else(|| (1, err_doc("NO_LAYER", format!("layer {id} inesistente"))))?],
+        Some(id) => vec![all.iter().find(|l| l.id.0 == id).cloned().ok_or_else(|| {
+            (
+                1,
+                local_err_doc(
+                    "NO_LAYER",
+                    ErrorCategory::NotFound,
+                    ErrorPhase::Prepare,
+                    format!("layer {id} inesistente"),
+                ),
+            )
+        })?],
         None => all,
     };
     // Multi-layer verso destinazione single-layer: vietato (fail-closed).
     if selected.len() > 1 && !dst.descriptor().multi_layer {
         return Err((
             4,
-            err_doc(
+            local_err_doc(
                 "SINGLE_LAYER_SINK",
+                ErrorCategory::InvalidPlan,
+                ErrorPhase::Validate,
                 format!(
                     "sorgente con {} layer ma '{}' è single-layer: usa --layer N per sceglierne uno",
                     selected.len(),
@@ -573,6 +622,56 @@ mod tests {
         let (exit, document) = map_err(plenora_io_model::PlenoraIoError::reader_busy("kml", 0));
         assert_eq!(exit, 8);
         assert_eq!(document["error"]["code"], "READER_BUSY");
+        assert_eq!(document["error"]["category"], "conflict");
+        assert_eq!(document["error"]["phase"], "prepare");
+        assert_eq!(document["error"]["remote_effect"], "none");
+        assert_eq!(
+            document["error"]["retry"],
+            serde_json::json!({"kind": "never"})
+        );
+    }
+
+    #[test]
+    fn retry_after_keeps_delay_in_the_cli_envelope() {
+        let error = PlenoraIoError::new(
+            ErrorCategory::Transient,
+            ErrorPhase::Connect,
+            RemoteEffect::None,
+            RetryDisposition::After(2_750),
+            "servizio temporaneamente non disponibile",
+        );
+        let (exit, document) = map_err(error);
+
+        assert_eq!(exit, 1);
+        assert_eq!(
+            document,
+            serde_json::json!({
+                "status": "error",
+                "protocol_version": 1,
+                "contract": "plenora-io-error-v1",
+                "error": {
+                    "category": "transient",
+                    "phase": "connect",
+                    "remote_effect": "none",
+                    "retry": {"kind": "after", "delay_ms": 2_750},
+                    "code": "FORMAT_ERROR",
+                    "message": "servizio temporaneamente non disponibile",
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn usage_errors_also_expose_machine_readable_axes() {
+        let (exit, document) = usage_err("argomento mancante");
+        assert_eq!(exit, 2);
+        assert_eq!(document["error"]["category"], "invalid_configuration");
+        assert_eq!(document["error"]["phase"], "validate");
+        assert_eq!(
+            document["error"]["retry"],
+            serde_json::json!({"kind": "never"})
+        );
+        assert_eq!(document["error"]["message"], "argomento mancante");
     }
 
     #[test]

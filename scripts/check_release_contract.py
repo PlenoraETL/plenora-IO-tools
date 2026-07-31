@@ -21,6 +21,7 @@ EVIDENCE = (
 INDEPENDENT_REVIEW = ROOT / "release" / "independent-review.json"
 RC3_DEVELOPMENT = ROOT / "release" / "rc3-development.json"
 RC4_DEVELOPMENT = ROOT / "release" / "rc4-development.json"
+RC5_DEVELOPMENT = ROOT / "release" / "rc5-development.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
@@ -41,7 +42,7 @@ EXPECTED_FUZZ_IO_REVISION = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "dc85f5163860bd16c4cf0bfa1066276980d38e8c"
 EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
 EXPECTED_COMPONENT_VERSION = "0.1.0-rc.4"
-EXPECTED_WORKSPACE_VERSION = "0.1.0-rc.4"
+EXPECTED_WORKSPACE_VERSION = "0.1.0-rc.5"
 EXPECTED_RELEASE_TAG = "v0.1.0-rc.4"
 EXPECTED_CANDIDATE_CI_RUN = 30605882153
 EXPECTED_RELEASE_DECISION_REVISION = (
@@ -361,7 +362,7 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
     if document != {
         "manifest_version": 1,
         "component": "plenora-IO-tools",
-        "component_version": EXPECTED_WORKSPACE_VERSION,
+        "component_version": EXPECTED_COMPONENT_VERSION,
         "status": "component_rc_tagged",
         "baseline_release": {
             "tag": RC3_RELEASE_TAG,
@@ -409,6 +410,46 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
         },
     }:
         errors.append("rc4-development: programma o claim inattesi")
+    return errors
+
+
+def validate_rc5_development(document: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if document != {
+        "manifest_version": 1,
+        "component": "plenora-IO-tools",
+        "component_version": EXPECTED_WORKSPACE_VERSION,
+        "status": "development",
+        "baseline_release": {
+            "tag": EXPECTED_RELEASE_TAG,
+            "target_revision": "8d3f25f109f6ea8910da71e098db6924438e481c",
+            "implementation_revision": EXPECTED_IO_CANDIDATE,
+            "immutable": True,
+        },
+        "program_record": (
+            "docs/assurance/CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md"
+        ),
+        "scope": "component_only",
+        "system_qualification_ownership": "external",
+        "workstreams": {
+            "r9_machine_readable_error_envelope": (
+                "implemented_targeted_gates_passed"
+            ),
+        },
+        "non_code_dependencies": {
+            "combined_read_write_boundary_crs_policy": "owner_decision_open",
+            "reader_loss_cli_observability": "external_contracts_follow_up",
+            "icd_ratification_alignment": (
+                "owner_decision_open_not_component_code_gate"
+            ),
+        },
+        "claims": {
+            "component_rc": False,
+            "system_rc": False,
+            "avionic_certification": False,
+        },
+    }:
+        errors.append("rc5-development: programma o claim inattesi")
     return errors
 
 
@@ -758,6 +799,7 @@ def main() -> int:
         INDEPENDENT_REVIEW,
         RC3_DEVELOPMENT,
         RC4_DEVELOPMENT,
+        RC5_DEVELOPMENT,
         WORKSPACE_MANIFEST,
         WORKSPACE_LOCK,
         *WORKSPACE_CRATE_MANIFESTS,
@@ -841,6 +883,10 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-31_RC5_ERROR_ENVELOPE.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -872,6 +918,7 @@ def main() -> int:
             )
             errors.extend(validate_rc3_development(load_json(RC3_DEVELOPMENT)))
             errors.extend(validate_rc4_development(load_json(RC4_DEVELOPMENT)))
+            errors.extend(validate_rc5_development(load_json(RC5_DEVELOPMENT)))
         except (OSError, ValueError, json.JSONDecodeError) as error:
             errors.append(str(error))
 
@@ -884,7 +931,8 @@ def main() -> int:
     print(
         "Release contract gate passed "
         "(v0.1.0-rc.4 is recorded as the internally verified component RC; "
-        "system RC and avionic certification are not claimed)."
+        "v0.1.0-rc.5 is development only; system RC and avionic "
+        "certification are not claimed)."
     )
     return 0
 
