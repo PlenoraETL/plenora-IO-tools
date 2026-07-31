@@ -381,6 +381,58 @@ mod tests {
     }
 
     #[test]
+    fn unresolved_authority_without_definition_is_preserved() {
+        use plenora_io_model::geometry::{
+            ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
+            PLENORA_CRS_DEFINITION_FORMAT_KEY, PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY,
+            PLENORA_CRS_RESOLUTION_KEY,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unresolved-authority.arrow");
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+            [
+                (
+                    ARROW_EXTENSION_NAME_KEY.to_owned(),
+                    GEOARROW_WKB_EXTENSION.to_owned(),
+                ),
+                (
+                    PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                    "declared_unresolved".to_owned(),
+                ),
+                (PLENORA_CRS_ID_KEY.to_owned(), "EPSG:99999".to_owned()),
+                (PLENORA_AXIS_ORDER_KEY.to_owned(), "unknown".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let schema = Schema::new(vec![field]);
+        {
+            let file = File::create(&path).unwrap();
+            let mut writer = FileWriter::try_new(file, &schema).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let dataset = IpcDriver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+        let raw = geometry.crs.raw().unwrap();
+        assert_eq!(raw.authority_hint.as_deref(), Some("EPSG:99999"));
+        assert_eq!(raw.definition, None);
+        assert_eq!(raw.definition_format, None);
+
+        let emitted = with_geometry_contract_metadata(
+            &Field::new("geometry", DataType::Binary, true),
+            geometry,
+        );
+        assert!(!emitted.metadata().contains_key(PLENORA_CRS_DEFINITION_KEY));
+        assert!(!emitted
+            .metadata()
+            .contains_key(PLENORA_CRS_DEFINITION_FORMAT_KEY));
+    }
+
+    #[test]
     fn multiple_geoarrow_fields_are_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("ambiguous.arrow");

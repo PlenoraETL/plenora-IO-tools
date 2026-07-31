@@ -295,7 +295,7 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
             let (crs_id, crs_definition) = match &geometry.crs {
                 CrsResolution::Resolved(crs) => (crs.id.as_deref(), crs.definition.as_deref()),
                 CrsResolution::DeclaredButUnresolved(raw) => {
-                    (raw.authority_hint.as_deref(), Some(raw.definition.as_str()))
+                    (raw.authority_hint.as_deref(), raw.definition.as_deref())
                 }
                 CrsResolution::Missing => (None, None),
             };

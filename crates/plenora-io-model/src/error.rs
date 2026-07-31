@@ -210,7 +210,7 @@ impl PlenoraIoError {
             format!(
                 "CRS dichiarato ma non risolto (authority_hint_bytes={}, definition_bytes={})",
                 raw.authority_hint.as_ref().map_or(0, String::len),
-                raw.definition.len()
+                raw.definition.as_ref().map_or(0, String::len)
             ),
         );
         error.driver = Some(driver.to_owned());
@@ -418,6 +418,15 @@ impl From<serde_json::Error> for PlenoraIoError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unresolved_authority_error_does_not_require_or_expose_a_definition() {
+        let raw = RawCrs::from_authority_hint("EPSG:99999".to_owned());
+        let error = PlenoraIoError::crs_unresolved("ipc", &raw);
+
+        assert!(error.message.contains("definition_bytes=0"));
+        assert!(!error.message.contains("EPSG:99999"));
+    }
 
     #[test]
     fn timeout_after_commit_keeps_cause_effect_and_recovery_separate() {

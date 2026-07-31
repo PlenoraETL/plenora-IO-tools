@@ -4,7 +4,9 @@ use crate::contract::{
     CoordinateDimensions, CoordinatePrecision, GeometryColumnContract, GeometryEncoding,
     GeometryType, SpatialSemantics, TypesDeclaration,
 };
-use crate::crs::{AxisOrder, CrsDefinitionFormat, CrsResolution, RawCrs, ResolvedCrs};
+use crate::crs::{
+    definition_format, AxisOrder, CrsDefinitionFormat, CrsResolution, RawCrs, ResolvedCrs,
+};
 use crate::{PlenoraIoError, Result};
 use std::sync::Arc;
 
@@ -219,14 +221,16 @@ pub fn with_geometry_contract_metadata(
             if let Some(id) = &raw.authority_hint {
                 metadata.insert(PLENORA_CRS_ID_KEY.to_owned(), id.clone());
             }
-            metadata.insert(
-                PLENORA_CRS_DEFINITION_KEY.to_owned(),
-                raw.definition.clone(),
-            );
-            metadata.insert(
-                PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
-                definition_format_name(raw.definition_format).to_owned(),
-            );
+            if let Some(definition) = &raw.definition {
+                metadata.insert(PLENORA_CRS_DEFINITION_KEY.to_owned(), definition.clone());
+                let format = raw
+                    .definition_format
+                    .unwrap_or_else(|| definition_format(definition));
+                metadata.insert(
+                    PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
+                    definition_format_name(format).to_owned(),
+                );
+            }
             metadata.insert(
                 PLENORA_AXIS_ORDER_KEY.to_owned(),
                 axis_order_name(raw.axis_order).to_owned(),
@@ -398,10 +402,9 @@ pub fn read_geometry_contract_metadata(
                 CrsResolution::Resolved(crs)
             }
             "declared_unresolved" => {
-                let definition = definition
-                    .ok_or_else(|| invalid_metadata(field, PLENORA_CRS_DEFINITION_KEY))?;
-                let definition_format = definition_format
-                    .ok_or_else(|| invalid_metadata(field, PLENORA_CRS_DEFINITION_FORMAT_KEY))?;
+                if id.is_none() && definition.is_none() {
+                    return Err(invalid_metadata(field, PLENORA_CRS_RESOLUTION_KEY));
+                }
                 let axis_order =
                     axis_order.ok_or_else(|| invalid_metadata(field, PLENORA_AXIS_ORDER_KEY))?;
                 CrsResolution::DeclaredButUnresolved(RawCrs {
@@ -640,9 +643,9 @@ mod tests {
     fn unresolved_crs_preserves_definition_format_and_axis_order() {
         let mut geometry = contract();
         geometry.crs = CrsResolution::DeclaredButUnresolved(RawCrs {
-            definition: "GEOGCRS[\"unresolved\"]".to_owned(),
+            definition: Some("GEOGCRS[\"unresolved\"]".to_owned()),
             authority_hint: Some("EPSG:4326".to_owned()),
-            definition_format: CrsDefinitionFormat::Wkt2,
+            definition_format: Some(CrsDefinitionFormat::Wkt2),
             axis_order: AxisOrder::LatitudeLongitude,
         });
         let field = with_geometry_contract_metadata(
@@ -652,5 +655,43 @@ mod tests {
         let mut decoded = contract();
         read_geometry_contract_metadata(&field, &mut decoded).unwrap();
         assert_eq!(decoded.crs, geometry.crs);
+    }
+
+    #[test]
+    fn unresolved_crs_roundtrips_with_authority_only() {
+        let mut geometry = contract();
+        geometry.crs = CrsResolution::DeclaredButUnresolved(RawCrs::from_authority_hint(
+            "EPSG:99999".to_owned(),
+        ));
+        let field = with_geometry_contract_metadata(
+            &Field::new("geometry", DataType::Binary, true),
+            &geometry,
+        );
+
+        assert_eq!(
+            field.metadata().get(PLENORA_CRS_ID_KEY).map(String::as_str),
+            Some("EPSG:99999")
+        );
+        assert!(!field.metadata().contains_key(PLENORA_CRS_DEFINITION_KEY));
+        assert!(!field
+            .metadata()
+            .contains_key(PLENORA_CRS_DEFINITION_FORMAT_KEY));
+
+        let mut decoded = contract();
+        read_geometry_contract_metadata(&field, &mut decoded).unwrap();
+        assert_eq!(decoded.crs, geometry.crs);
+    }
+
+    #[test]
+    fn unresolved_crs_without_any_declaration_is_rejected() {
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([
+            (
+                PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                "declared_unresolved".to_owned(),
+            ),
+            (PLENORA_AXIS_ORDER_KEY.to_owned(), "unknown".to_owned()),
+        ]));
+
+        assert!(read_geometry_contract_metadata(&field, &mut contract()).is_err());
     }
 }

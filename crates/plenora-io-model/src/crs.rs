@@ -69,7 +69,7 @@ impl ResolvedCrs {
     }
 }
 
-fn definition_format(definition: &str) -> CrsDefinitionFormat {
+pub(crate) fn definition_format(definition: &str) -> CrsDefinitionFormat {
     let definition = definition.trim_start();
     if definition.starts_with('{') {
         CrsDefinitionFormat::Projjson
@@ -119,21 +119,37 @@ pub fn authority_srid(value: &str) -> Option<u32> {
 /// come CRS operativo.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RawCrs {
-    pub definition: String,
+    /// Rappresentazione sorgente, se dichiarata. Un identificatore di autorità
+    /// non risolvibile è sufficiente a distinguere questo stato da `Missing`.
+    pub definition: Option<String>,
     pub authority_hint: Option<String>,
-    pub definition_format: CrsDefinitionFormat,
+    /// Presente se e solo se `definition` è presente.
+    pub definition_format: Option<CrsDefinitionFormat>,
     pub axis_order: AxisOrder,
 }
 
 impl RawCrs {
     #[must_use]
     pub fn new(definition: String, authority_hint: Option<String>) -> Self {
-        let definition_format = definition_format(&definition);
+        let definition_format = Some(definition_format(&definition));
         let axis_order = axis_order_for(authority_hint.as_deref(), CrsKind::Unknown);
         Self {
-            definition,
+            definition: Some(definition),
             authority_hint,
             definition_format,
+            axis_order,
+        }
+    }
+
+    /// Conserva un identificatore dichiarato che il bordo non ha risolto.
+    /// Non sintetizza una definizione testuale né rende il CRS operativo.
+    #[must_use]
+    pub fn from_authority_hint(authority_hint: String) -> Self {
+        let axis_order = axis_order_for(Some(&authority_hint), CrsKind::Unknown);
+        Self {
+            definition: None,
+            authority_hint: Some(authority_hint),
+            definition_format: None,
             axis_order,
         }
     }
@@ -208,6 +224,18 @@ mod tests {
         let raw = RawCrs::new("LOCAL_CS[\"private\"]".to_owned(), Some("LOCAL".to_owned()));
         let resolution = CrsResolution::DeclaredButUnresolved(raw.clone());
         assert_eq!(resolution.raw(), Some(&raw));
+        assert!(resolution.as_resolved().is_none());
+    }
+
+    #[test]
+    fn unresolved_authority_does_not_require_or_invent_a_definition() {
+        let raw = RawCrs::from_authority_hint("EPSG:99999".to_owned());
+        let resolution = CrsResolution::DeclaredButUnresolved(raw.clone());
+
+        assert_eq!(raw.authority_hint.as_deref(), Some("EPSG:99999"));
+        assert_eq!(raw.definition, None);
+        assert_eq!(raw.definition_format, None);
+        assert_eq!(raw.axis_order, AxisOrder::Unknown);
         assert!(resolution.as_resolved().is_none());
     }
 
