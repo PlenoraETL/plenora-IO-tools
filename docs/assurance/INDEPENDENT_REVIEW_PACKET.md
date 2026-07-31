@@ -6,18 +6,17 @@ Stato: **in attesa di un revisore eleggibile**.
 
 - componente: `plenora-IO-tools`;
 - base di confronto:
-  `ea0de79677e8fc794d96ac3d95c5bc2c6e30358c`;
+  `8d3f25f109f6ea8910da71e098db6924438e481c`;
 - codice candidato:
-  `dc85f5163860bd16c4cf0bfa1066276980d38e8c`;
-- record del freeze tecnico e record di provenienza:
-  `f5dc5d46668062b4016ac9e50229bc869a12d380`, CI `30606830974`;
-- ICD: `plenora-contracts@v2.0-rc8`, revisione
-  `62b12e3496466d2c908dac3cc098640b99b52e21`.
+  `796a1f94e0735e4f5b9e8bfca1056c295bda4814`;
+- record del freeze tecnico e record di provenienza: in attesa della revisione
+  pre-tag e della relativa CI;
+- ICD: `plenora-contracts@v2.0-rc13`, revisione
+  `8f684a4edd9bbeaadd4f5f0375cc0b86aefe6417`.
 
-I commit successivi a `dc85f51` possono modificare soltanto assurance,
-provenienza e gate. La verifica applicata allo SHA pre-tag è
-`git diff --exit-code dc85f51 f5dc5d4 -- crates Cargo.toml Cargo.lock
-rust-toolchain.toml`.
+I commit successivi a `796a1f9` possono modificare soltanto versione,
+assurance, provenienza e gate. Lo SHA pre-tag e il comando di confronto
+esatto saranno inseriti dopo la CI della revisione pre-tag.
 
 ## Eleggibilità
 

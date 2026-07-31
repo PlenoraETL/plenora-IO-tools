@@ -6,13 +6,13 @@
   "external_owner": "plenora-contracts/conformance",
   "component_repository_harness": "not_present",
   "icd": {
-    "tag": "v2.0-rc8",
-    "revision": "62b12e3496466d2c908dac3cc098640b99b52e21"
+    "tag": "v2.0-rc13",
+    "revision": "8f684a4edd9bbeaadd4f5f0375cc0b86aefe6417"
   },
   "components": [
     {
       "name": "plenora-IO-tools",
-      "revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
+      "revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
       "role": "file_boundary"
     },
     {

@@ -2,14 +2,14 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "release_kind": "component_rc",
-  "component_version": "0.1.0-rc.4",
+  "component_version": "1.0.0-rc.1",
   "freeze_status": "frozen",
-  "implementation_revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
+  "implementation_revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
   "candidate_state": "component_rc_verified_internally",
   "freeze_scope": {
     "kind": "technical_baseline",
-    "baseline_revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
-    "frozen_on": "2026-07-30",
+    "baseline_revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
+    "frozen_on": "2026-07-31",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
     "release_tag_authorized": true,
@@ -22,29 +22,29 @@
     "independent_review_required": false,
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": false,
-    "release_tag_created": true,
-    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md",
-    "decision_revision": "322ff57abd872f728d3f4e10c50c800ad39fa29c",
-    "decision_ci_run": 30606393196
+    "release_tag_created": false,
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md",
+    "decision_revision": "409cf936b0d4054467ef8c50f4254698ace41cb8",
+    "decision_ci_run": 30618471105
   },
   "release_tag": {
-    "name": "v0.1.0-rc.4",
-    "version": "0.1.0-rc.4",
+    "name": "v1.0.0-rc.1",
+    "version": "1.0.0-rc.1",
     "tag_form": "annotated_unsigned",
-    "status": "created",
-    "created_on": "2026-07-30",
-    "candidate_revision": "dc85f5163860bd16c4cf0bfa1066276980d38e8c",
+    "status": "pending_pre_tag_ci",
+    "created_on": null,
+    "candidate_revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
-    "pre_tag_revision": "f5dc5d46668062b4016ac9e50229bc869a12d380",
-    "pre_tag_ci_run": 30606830974,
-    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
+    "pre_tag_revision": null,
+    "pre_tag_ci_run": null,
+    "decision_record": "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md"
   },
   "wire_contract_version": 1,
   "icd": {
     "repository": "https://github.com/PlenoraETL/plenora-contracts.git",
-    "tag": "v2.0-rc8",
-    "revision": "62b12e3496466d2c908dac3cc098640b99b52e21",
+    "tag": "v2.0-rc13",
+    "revision": "8f684a4edd9bbeaadd4f5f0375cc0b86aefe6417",
     "tag_form": "annotated_unsigned",
     "normative_status": "partially_ratified",
     "conformance_claim": "candidate_implementation_only"
@@ -64,6 +64,11 @@
       "section": "§4.3.1-§4.3.3",
       "status": "proposal",
       "surface": "CRS definition format, precedence, SRID coherence and axis order"
+    },
+    {
+      "section": "R4.6.5",
+      "status": "proposal",
+      "surface": "propagate independently preserved conflicting CRS representations or fail closed"
     },
     {
       "section": "§9",
@@ -86,25 +91,36 @@
       "exit_condition": "Ratification of §2 with compatible wire names, or migration of the emitter to the ratified replacement."
     }
   ],
+  "declared_gaps": [
+    {
+      "rule": "R2.8",
+      "status": "proposal_not_implemented",
+      "scope": "IPC geometry recognition still requires ARROW:extension:name"
+    },
+    {
+      "rule": "R4.1.1",
+      "status": "proposal_not_implemented",
+      "scope": "DeclaredButUnresolved still requires crs_definition"
+    }
+  ],
   "claims": {
-    "component_rc": true,
+    "component_rc": false,
     "system_rc": false,
     "avionic_certification": false
   },
-  "rc4_scope": {
+  "rc5_scope": {
     "included": [
-      "xlsx_bounded_spool_streaming",
-      "kml_event_streaming",
-      "dxf_progressive_reader",
-      "openfilegdb_native_pushdown",
-      "filegdb_windows_and_filesystem_matrix",
-      "shapefile_projected_crs_and_dbf_precision_reporting"
+      "r9_machine_readable_error_envelope",
+      "convert_loss_observability",
+      "r4_6_5_crs_write_capability",
+      "cli_json_protocol_1x_freeze"
     ],
     "declared_residuals": [
       "crs_definition_vs_srid_requires_resolver",
-      "reader_loss_cli_observability_external_follow_up",
-      "combined_read_write_boundary_crs_policy_owner_decision",
-      "writer_lossless_name_not_end_to_end_fidelity"
+      "r2_8_canonical_only_geometry_recognition",
+      "r4_1_1_unresolved_authority_without_definition",
+      "shared_resource_budget_leases_r7_5_r7_7",
+      "reverse_system_qualification_direction"
     ]
   },
   "fuzz_coordination": {

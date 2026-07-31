@@ -1,8 +1,8 @@
 {
   "manifest_version": 1,
   "component": "plenora-IO-tools",
-  "component_version": "0.1.0-rc.5",
-  "status": "development",
+  "component_version": "1.0.0-rc.1",
+  "status": "candidate_frozen_pending_pre_tag_ci",
   "baseline_release": {
     "tag": "v0.1.0-rc.4",
     "target_revision": "8d3f25f109f6ea8910da71e098db6924438e481c",
@@ -16,6 +16,14 @@
   ],
   "scope": "component_only",
   "system_qualification_ownership": "external",
+  "candidate": {
+    "implementation_revision": "796a1f94e0735e4f5b9e8bfca1056c295bda4814",
+    "candidate_ci_run": 30617658910,
+    "release_decision_revision": "409cf936b0d4054467ef8c50f4254698ace41cb8",
+    "release_decision_ci_run": 30618471105,
+    "release_tag": "v1.0.0-rc.1",
+    "release_tag_status": "pending_pre_tag_ci"
+  },
   "workstreams": {
     "r9_machine_readable_error_envelope": "implemented_targeted_gates_passed",
     "convert_loss_observability": "implemented_targeted_gates_passed",
@@ -36,9 +44,10 @@
     "reader_loss_conformance_runner": "external_contracts_follow_up",
     "icd_ratification_alignment": "owner_decision_open_not_component_code_gate"
   },
-  "next_candidate": {
+  "compatibility_freeze": {
     "version": "1.0.0-rc.1",
-    "status": "code_scope_complete_pending_rc5_baseline_freeze",
+    "status": "frozen_pending_pre_tag_ci",
+    "surface": "cli_json_only",
     "blocking_decisions": []
   },
   "declared_scope_reductions": {

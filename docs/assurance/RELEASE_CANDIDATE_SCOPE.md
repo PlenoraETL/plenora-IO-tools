@@ -99,8 +99,10 @@ come candidata alla compatibilità 1.x soltanto la superficie JSON della CLI:
 le API Rust restano interne per non bloccare l'estrazione prevista da R15.4.1.
 La capability generale delle rappresentazioni CRS e il preflight candidato
 R4.6.5 chiudono il precedente blocker sul comando che combina lettura e
-scrittura. Il codice previsto per RC5 è completo; prima di `1.0.0-rc.1` resta
-il congelamento della baseline RC5. R2.8 e R4.1.1 restano proposte registrate e
+scrittura. Il codice RC5 è congelato come candidato `1.0.0-rc.1` sulla
+revisione `796a1f9`, verificata dalla CI `30617658910`; la decisione
+`409cf93` ha CI `30618471105` verde. Il record pre-tag è in preparazione e non
+dichiara ancora il tag creato. R2.8 e R4.1.1 restano proposte registrate e
 non implementate, quindi bloccano soltanto un claim esplicito di allineamento a
 quelle proposte. Le riduzioni di scope e i blocker che riemergono per claim più
 forti sono machine-readable nel manifesto RC5.

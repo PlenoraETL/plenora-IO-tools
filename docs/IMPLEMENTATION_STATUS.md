@@ -6,7 +6,7 @@ driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 
 La preparazione della release è dichiarata come **RC del solo componente** in
 [`assurance/RELEASE_CANDIDATE_SCOPE.md`](assurance/RELEASE_CANDIDATE_SCOPE.md).
-Il manifest cita `plenora-contracts@v2.0-rc8` e la revisione esatta, distingue
+Il manifest cita `plenora-contracts@v2.0-rc13` e la revisione esatta, distingue
 la wire version dall'ICD e registra le sezioni candidate e la deroga di
 emissione. Il gate della catena a tre componenti resta esplicitamente
 `not_satisfied`.
@@ -22,13 +22,17 @@ tecnici hanno superato i rispettivi test e benchmark. La revisione indipendente
 resta un attributo non bloccante; un claim `verified_independently` resta
 vietato finché la review non viene completata.
 
-Lo sviluppo `0.1.0-rc.5` parte dalla baseline immutabile RC4. Il primo
+Lo sviluppo `0.1.0-rc.5` partiva dalla baseline immutabile RC4. Il primo
 incremento rende machine-readable i quattro assi della busta d'errore CLI e
 conserva `delay_ms` nella variante retry `after`; non modifica driver o formati
 su disco. Il secondo espone separatamente `read_loss` e `write_loss` nel
 documento `convert` e aggiunge `conversion_fidelity`, eliminando l'ambiguo
 campo writer-only `loss.lossless`. La superficie candidata alla compatibilità
 1.x è limitata alle sei buste JSON della CLI; le API Rust restano interne.
+Il codice è congelato come candidato `1.0.0-rc.1` sulla revisione `796a1f9`,
+con CI candidata `30617658910` e decisione di release `409cf93`/`30618471105`
+verdi. Il record pre-tag mantiene `component_rc: false` finché la propria CI
+non è completata e legata al record finale.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con

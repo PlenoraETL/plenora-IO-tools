@@ -16,7 +16,7 @@ PROVENANCE = ROOT / "release" / "contract-provenance.json"
 SYSTEM_GATE = ROOT / "release" / "system-rc-gate.json"
 FREEZE_READINESS = ROOT / "release" / "freeze-readiness.json"
 EVIDENCE = (
-    ROOT / "release" / "evidence" / "technical-freeze-v0.1.0-rc.4.json"
+    ROOT / "release" / "evidence" / "technical-freeze-v1.0.0-rc.1.json"
 )
 INDEPENDENT_REVIEW = ROOT / "release" / "independent-review.json"
 RC3_DEVELOPMENT = ROOT / "release" / "rc3-development.json"
@@ -36,34 +36,36 @@ FORBIDDEN_SYSTEM_HARNESS_PATHS = (
     ROOT / "conformance" / "three-component-chain",
     ROOT / "scripts" / "run_three_component_chain.py",
 )
-EXPECTED_ICD_TAG = "v2.0-rc8"
-EXPECTED_ICD_REVISION = "62b12e3496466d2c908dac3cc098640b99b52e21"
-EXPECTED_RC_BASELINE = "ea0de79677e8fc794d96ac3d95c5bc2c6e30358c"
+EXPECTED_ICD_TAG = "v2.0-rc13"
+EXPECTED_ICD_REVISION = "8f684a4edd9bbeaadd4f5f0375cc0b86aefe6417"
+EXPECTED_RC_BASELINE = "8d3f25f109f6ea8910da71e098db6924438e481c"
 EXPECTED_FUZZ_IO_REVISION = "1c37fb5d525647b264ce977e26fc07b346bb7914"
-EXPECTED_IO_CANDIDATE = "dc85f5163860bd16c4cf0bfa1066276980d38e8c"
+EXPECTED_IO_CANDIDATE = "796a1f94e0735e4f5b9e8bfca1056c295bda4814"
 EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
-EXPECTED_COMPONENT_VERSION = "0.1.0-rc.4"
-EXPECTED_WORKSPACE_VERSION = "0.1.0-rc.5"
-EXPECTED_RELEASE_TAG = "v0.1.0-rc.4"
-EXPECTED_CANDIDATE_CI_RUN = 30605882153
+EXPECTED_COMPONENT_VERSION = "1.0.0-rc.1"
+EXPECTED_WORKSPACE_VERSION = "1.0.0-rc.1"
+EXPECTED_RELEASE_TAG = "v1.0.0-rc.1"
+EXPECTED_CANDIDATE_CI_RUN = 30617658910
 EXPECTED_RELEASE_DECISION_REVISION = (
-    "322ff57abd872f728d3f4e10c50c800ad39fa29c"
+    "409cf936b0d4054467ef8c50f4254698ace41cb8"
 )
-EXPECTED_RELEASE_DECISION_CI_RUN = 30606393196
-EXPECTED_PRE_TAG_REVISION = "f5dc5d46668062b4016ac9e50229bc869a12d380"
-EXPECTED_PRE_TAG_CI_RUN = 30606830974
+EXPECTED_RELEASE_DECISION_CI_RUN = 30618471105
+EXPECTED_PRE_TAG_REVISION = None
+EXPECTED_PRE_TAG_CI_RUN = None
+EXPECTED_RELEASE_TAG_CREATED = False
+EXPECTED_PRE_TAG_CI_PASSED = False
 EXPECTED_COVERAGE_ARTIFACT = {
-    "id": 8783562020,
+    "id": 8788035291,
     "name": "rust-coverage-lcov",
-    "size_bytes": 103610,
-    "sha256": "a8c262e8f3d330f70c1c820f9e355a3a349bd9bb86a0d29193e1151b365b7d24",
+    "size_bytes": 105896,
+    "sha256": "c2b6c5274cd3b7ed559f940594da5f8479fe95c2e58cef05d528f3e41edc9e7c",
     "digest_source": "github_actions_artifact_api",
 }
 EXPECTED_WINDOWS_FILEGDB_BENCHMARK_ARTIFACT = {
-    "id": 8783600878,
+    "id": 8788088153,
     "name": "windows-filegdb-narrow-benchmark",
-    "size_bytes": 774,
-    "sha256": "5b4f56c896813e9d72227f53094b7e72625ae23f43949d838a4982b3dfb89a6e",
+    "size_bytes": 775,
+    "sha256": "47d5c8094760f9aa87f8f2aa52a433123d83c0c42ff9d99a142d275bf7e28f1e",
     "digest_source": "github_actions_artifact_api",
 }
 EXPECTED_LIBRARY_COVERAGE = {"minimum_percent": 80, "gate_result": "pass"}
@@ -71,7 +73,7 @@ EXPECTED_LIBRARY_COVERAGE_SOURCE = "github_actions_coverage_gate"
 EXPECTED_FREEZE_SCOPE = {
     "kind": "technical_baseline",
     "baseline_revision": EXPECTED_IO_CANDIDATE,
-    "frozen_on": "2026-07-30",
+    "frozen_on": "2026-07-31",
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
     "release_tag_authorized": True,
@@ -84,9 +86,9 @@ EXPECTED_RELEASE_DECISION = {
     "independent_review_required": False,
     "independent_review_status": "not_performed",
     "independently_verified_claim_authorized": False,
-    "release_tag_created": True,
+    "release_tag_created": EXPECTED_RELEASE_TAG_CREATED,
     "decision_record": (
-        "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
+        "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md"
     ),
     "decision_revision": EXPECTED_RELEASE_DECISION_REVISION,
     "decision_ci_run": EXPECTED_RELEASE_DECISION_CI_RUN,
@@ -95,26 +97,26 @@ EXPECTED_RELEASE_TAG_RECORD = {
     "name": EXPECTED_RELEASE_TAG,
     "version": EXPECTED_COMPONENT_VERSION,
     "tag_form": "annotated_unsigned",
-    "status": "created",
-    "created_on": "2026-07-30",
+    "status": "pending_pre_tag_ci",
+    "created_on": None,
     "candidate_revision": EXPECTED_IO_CANDIDATE,
     "verification_claim": "verified_internally",
     "independent_review_status": "not_performed",
     "pre_tag_revision": EXPECTED_PRE_TAG_REVISION,
     "pre_tag_ci_run": EXPECTED_PRE_TAG_CI_RUN,
     "decision_record": (
-        "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
+        "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md"
     ),
 }
 EXPECTED_FREEZE_DECISION = {
     "status": "technical_baseline_frozen",
     "baseline_revision": EXPECTED_IO_CANDIDATE,
-    "frozen_on": "2026-07-30",
+    "frozen_on": "2026-07-31",
     "verification_claim": "verified_internally",
     "independent_review": False,
-    "release_tag_created": True,
+    "release_tag_created": EXPECTED_RELEASE_TAG_CREATED,
     "decision_record": (
-        "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
+        "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md"
     ),
 }
 EXPECTED_REVIEW_SCOPE = {
@@ -156,6 +158,14 @@ RC3_RELEASE_DECISION_CI_RUN = 30501136176
 RC3_RELEASE_TAG = "v0.1.0-rc.3"
 RC3_PRE_TAG_REVISION = "ab330f8dfbcc7235c418e3e04f988317d3070525"
 RC3_PRE_TAG_CI_RUN = 30501904391
+RC4_COMPONENT_VERSION = "0.1.0-rc.4"
+RC4_CANDIDATE_REVISION = "dc85f5163860bd16c4cf0bfa1066276980d38e8c"
+RC4_CANDIDATE_CI_RUN = 30605882153
+RC4_RELEASE_DECISION_REVISION = "322ff57abd872f728d3f4e10c50c800ad39fa29c"
+RC4_RELEASE_DECISION_CI_RUN = 30606393196
+RC4_RELEASE_TAG = "v0.1.0-rc.4"
+RC4_PRE_TAG_REVISION = "f5dc5d46668062b4016ac9e50229bc869a12d380"
+RC4_PRE_TAG_CI_RUN = 30606830974
 EXPECTED_DATABASE_REPLAY_REVISION = "ef18e80c798126f872fd366c36ee96a029598958"
 EXPECTED_SYSTEM_REVISIONS = {
     "plenora-IO-tools": EXPECTED_IO_CANDIDATE,
@@ -167,6 +177,7 @@ REQUIRED_CANDIDATE_SECTIONS = {
     "§2",
     "§3.4/R3.4.1",
     "§4.3.1-§4.3.3",
+    "R4.6.5",
     "§9",
     "§11",
 }
@@ -363,7 +374,7 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
     if document != {
         "manifest_version": 1,
         "component": "plenora-IO-tools",
-        "component_version": EXPECTED_COMPONENT_VERSION,
+        "component_version": RC4_COMPONENT_VERSION,
         "status": "component_rc_tagged",
         "baseline_release": {
             "tag": RC3_RELEASE_TAG,
@@ -377,14 +388,14 @@ def validate_rc4_development(document: dict[str, Any]) -> list[str]:
         "scope": "component_only",
         "system_qualification_ownership": "external",
         "candidate": {
-            "implementation_revision": EXPECTED_IO_CANDIDATE,
-            "candidate_ci_run": EXPECTED_CANDIDATE_CI_RUN,
-            "release_decision_revision": EXPECTED_RELEASE_DECISION_REVISION,
-            "release_decision_ci_run": EXPECTED_RELEASE_DECISION_CI_RUN,
-            "release_tag": EXPECTED_RELEASE_TAG,
+            "implementation_revision": RC4_CANDIDATE_REVISION,
+            "candidate_ci_run": RC4_CANDIDATE_CI_RUN,
+            "release_decision_revision": RC4_RELEASE_DECISION_REVISION,
+            "release_decision_ci_run": RC4_RELEASE_DECISION_CI_RUN,
+            "release_tag": RC4_RELEASE_TAG,
             "release_tag_status": "created",
-            "pre_tag_revision": EXPECTED_PRE_TAG_REVISION,
-            "pre_tag_ci_run": EXPECTED_PRE_TAG_CI_RUN,
+            "pre_tag_revision": RC4_PRE_TAG_REVISION,
+            "pre_tag_ci_run": RC4_PRE_TAG_CI_RUN,
         },
         "workstreams": {
             "xlsx_bounded_spool_streaming": "implemented_benchmark_passed",
@@ -420,11 +431,11 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
         "manifest_version": 1,
         "component": "plenora-IO-tools",
         "component_version": EXPECTED_WORKSPACE_VERSION,
-        "status": "development",
+        "status": "candidate_frozen_pending_pre_tag_ci",
         "baseline_release": {
-            "tag": EXPECTED_RELEASE_TAG,
+            "tag": RC4_RELEASE_TAG,
             "target_revision": "8d3f25f109f6ea8910da71e098db6924438e481c",
-            "implementation_revision": EXPECTED_IO_CANDIDATE,
+            "implementation_revision": RC4_CANDIDATE_REVISION,
             "immutable": True,
         },
         "program_records": [
@@ -434,6 +445,14 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
         ],
         "scope": "component_only",
         "system_qualification_ownership": "external",
+        "candidate": {
+            "implementation_revision": EXPECTED_IO_CANDIDATE,
+            "candidate_ci_run": EXPECTED_CANDIDATE_CI_RUN,
+            "release_decision_revision": EXPECTED_RELEASE_DECISION_REVISION,
+            "release_decision_ci_run": EXPECTED_RELEASE_DECISION_CI_RUN,
+            "release_tag": EXPECTED_RELEASE_TAG,
+            "release_tag_status": "pending_pre_tag_ci",
+        },
         "workstreams": {
             "r9_machine_readable_error_envelope": (
                 "implemented_targeted_gates_passed"
@@ -466,9 +485,10 @@ def validate_rc5_development(document: dict[str, Any]) -> list[str]:
                 "owner_decision_open_not_component_code_gate"
             ),
         },
-        "next_candidate": {
+        "compatibility_freeze": {
             "version": "1.0.0-rc.1",
-            "status": "code_scope_complete_pending_rc5_baseline_freeze",
+            "status": "frozen_pending_pre_tag_ci",
+            "surface": "cli_json_only",
             "blocking_decisions": [],
         },
         "declared_scope_reductions": {
@@ -526,7 +546,7 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
         errors.append("cli-protocol-v1: componente inatteso")
     if document.get("protocol_version") != 1:
         errors.append("cli-protocol-v1: protocol_version inattesa")
-    if document.get("status") != "candidate_for_1_0_freeze":
+    if document.get("status") != "frozen_for_1_0_rc":
         errors.append("cli-protocol-v1: stato inatteso")
     if document.get("compatibility_scope") != "cli_json_only":
         errors.append("cli-protocol-v1: superficie non limitata alla CLI JSON")
@@ -646,8 +666,19 @@ def validate_documents(
     ):
         errors.append("contract-provenance: deroga emissione §15.4 non dichiarata")
 
+    declared_gaps = {
+        gap.get("rule"): gap.get("status")
+        for gap in provenance.get("declared_gaps", [])
+        if isinstance(gap, dict)
+    }
+    if declared_gaps != {
+        "R2.8": "proposal_not_implemented",
+        "R4.1.1": "proposal_not_implemented",
+    }:
+        errors.append("contract-provenance: gap proposti R2.8/R4.1.1 non dichiarati")
+
     if claims != {
-        "component_rc": True,
+        "component_rc": False,
         "system_rc": False,
         "avionic_certification": False,
     }:
@@ -737,12 +768,12 @@ def validate_documents(
     }:
         errors.append("shared corpus: revisioni dei producer inattese")
 
-    if freeze_readiness.get("status") != "component_rc_tagged":
+    if freeze_readiness.get("status") != "pre_tag_pending_ci":
         errors.append("freeze readiness: stato RC interno inatteso")
     if freeze_readiness.get("freeze_scope") != "technical_baseline_only":
         errors.append("freeze readiness: perimetro tecnico non dichiarato")
-    if freeze_readiness.get("release_authorized") is not True:
-        errors.append("freeze readiness: RC verificata internamente non autorizzata")
+    if freeze_readiness.get("release_authorized") is not False:
+        errors.append("freeze readiness: tag autorizzato prima della CI pre-tag")
     readiness_gates = freeze_readiness.get("gates", {})
     expected_gates = {
         "candidate_code_complete",
@@ -760,8 +791,9 @@ def validate_documents(
     if set(readiness_gates) != expected_gates:
         errors.append("freeze readiness: insieme dei gate obbligatori inatteso")
     for gate in expected_gates:
-        if readiness_gates.get(gate) is not True:
-            errors.append(f"freeze readiness: gate obbligatorio non soddisfatto: {gate}")
+        expected = EXPECTED_PRE_TAG_CI_PASSED if gate == "pre_tag_ci" else True
+        if readiness_gates.get(gate) is not expected:
+            errors.append(f"freeze readiness: stato gate inatteso: {gate}")
     if freeze_readiness.get("candidate_revision") != EXPECTED_IO_CANDIDATE:
         errors.append("freeze readiness: SHA candidato inatteso")
     assurance_attributes = freeze_readiness.get("assurance_attributes", {})
@@ -770,16 +802,16 @@ def validate_documents(
         "independent_review": False,
         "independent_review_status": "pending_eligible_reviewer",
         "independently_verified_claim_authorized": False,
-        "release_tag_created": True,
+        "release_tag_created": EXPECTED_RELEASE_TAG_CREATED,
         "release_tag_name": EXPECTED_RELEASE_TAG,
         "release_tag_form": "annotated_unsigned",
-        "release_tag_status": "created",
+        "release_tag_status": "pending_pre_tag_ci",
     }:
         errors.append("freeze readiness: attributi assurance inattesi")
     if "independent_review" in readiness_gates:
         errors.append("freeze readiness: independent_review non deve essere un gate RC")
 
-    if evidence.get("status") != "technical_freeze_evidence":
+    if evidence.get("status") != "technical_freeze_pre_tag":
         errors.append("evidence: stato del freeze tecnico inatteso")
     if evidence.get("baseline_revision") != EXPECTED_RC_BASELINE:
         errors.append("evidence: baseline IO inattesa")
@@ -798,9 +830,9 @@ def validate_documents(
         "verification_claim": "verified_internally",
         "independent_review": False,
         "independently_verified_claim_authorized": False,
-        "release_tag_created": True,
+        "release_tag_created": EXPECTED_RELEASE_TAG_CREATED,
         "decision_record": (
-            "docs/assurance/CHANGE_IMPACT_2026-07-30_RC4_RELEASE_DECISION.md"
+            "docs/assurance/CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md"
         ),
         "decision_revision": EXPECTED_RELEASE_DECISION_REVISION,
         "ci": {
@@ -883,9 +915,9 @@ def validate_documents(
         errors.append("independent review: campi obbligatori inattesi")
     if independent_review.get("release_effect") != {
         "blocks_component_rc_release": False,
-        "component_rc_release_authorized": True,
+        "component_rc_release_authorized": False,
         "independently_verified_claim_authorized": False,
-        "release_tag_created": True,
+        "release_tag_created": EXPECTED_RELEASE_TAG_CREATED,
     }:
         errors.append("independent review: separazione da release interna inattesa")
 
@@ -1013,6 +1045,14 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-31_RC5_CONVERT_CONTRACT.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-31_RC5_CRS_WRITE_CAPABILITY.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-07-31_1_0_RC1_RELEASE_DECISION.md",
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -1057,9 +1097,9 @@ def main() -> int:
 
     print(
         "Release contract gate passed "
-        "(v0.1.0-rc.4 is recorded as the internally verified component RC; "
-        "v0.1.0-rc.5 is development only; system RC and avionic "
-        "certification are not claimed)."
+        "(v1.0.0-rc.1 is frozen pending pre-tag CI; only the CLI JSON "
+        "protocol is the 1.x compatibility surface; system RC, independent "
+        "verification and avionic certification are not claimed)."
     )
     return 0
 

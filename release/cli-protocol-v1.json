@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "protocol_version": 1,
-  "status": "candidate_for_1_0_freeze",
+  "status": "frozen_for_1_0_rc",
   "compatibility_scope": "cli_json_only",
   "rust_api": {
     "status": "internal_unstable",

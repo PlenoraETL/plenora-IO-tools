@@ -148,6 +148,13 @@ class ReleaseContractTests(unittest.TestCase):
         provenance["icd"]["conformance_claim"] = "full"
         self.assertTrue(self.validate(provenance=provenance))
 
+    def test_rejects_undeclared_proposed_gap(self) -> None:
+        provenance = copy.deepcopy(self.provenance)
+        provenance["declared_gaps"] = [
+            gap for gap in provenance["declared_gaps"] if gap["rule"] != "R4.1.1"
+        ]
+        self.assertTrue(self.validate(provenance=provenance))
+
     def test_rejects_release_version_or_tag_form_drift(self) -> None:
         for path, replacement in (
             (("component_version",), "0.1.0-rc.2"),
@@ -176,9 +183,9 @@ class ReleaseContractTests(unittest.TestCase):
         provenance["freeze_status"] = "pre_freeze"
         self.assertTrue(self.validate(provenance=provenance))
 
-    def test_allows_component_rc_tag_while_review_is_open(self) -> None:
-        self.assertTrue(self.freeze_readiness["release_authorized"])
-        self.assertTrue(self.freeze_readiness["gates"]["pre_tag_ci"])
+    def test_keeps_tag_pending_until_pre_tag_ci_while_review_is_open(self) -> None:
+        self.assertFalse(self.freeze_readiness["release_authorized"])
+        self.assertFalse(self.freeze_readiness["gates"]["pre_tag_ci"])
         self.assertFalse(
             self.freeze_readiness["assurance_attributes"]["independent_review"]
         )
