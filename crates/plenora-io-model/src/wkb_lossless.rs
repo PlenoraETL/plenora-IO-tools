@@ -62,6 +62,8 @@ pub struct WkbInspection {
     pub srid: Option<i32>,
     pub nested_dimensions_coherent: bool,
     pub contains_srid: bool,
+    /// Coordinate e geometrie figlie conteggiate dal parser bounded.
+    pub components: usize,
 }
 
 impl WkbGeometry {
@@ -535,6 +537,7 @@ fn skip_coordinates(
 }
 
 fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> {
+    let components_before = reader.components_left;
     if depth > reader.max_depth {
         return Err(error("WKB annidato troppo in profondità"));
     }
@@ -587,6 +590,7 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
         srid,
         nested_dimensions_coherent,
         contains_srid,
+        components: components_before - reader.components_left,
     })
 }
 

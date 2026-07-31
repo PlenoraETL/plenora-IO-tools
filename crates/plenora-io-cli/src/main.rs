@@ -310,6 +310,7 @@ fn read_options(cli: &Cli) -> ReadOptions {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.opts.clone(),
         limits: cli.limits,
+        resource_budget: Default::default(),
         cancellation: Default::default(),
     }
 }
@@ -464,11 +465,13 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let out_path = PathBuf::from(&cli.positionals[1]);
     let src = driver_for_path(&in_path)?;
     let dst = driver_for_path(&out_path)?;
+    let resource_budget = plenora_io_model::ResourceBudget::default();
 
     let ropts = ReadOptions {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.in_opts.clone(),
         limits: cli.limits,
+        resource_budget: resource_budget.clone(),
         cancellation: Default::default(),
     };
     let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
@@ -526,6 +529,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         durable: cli.durable,
         format_options: cli.out_opts.clone(),
         limits: cli.limits,
+        resource_budget,
         cancellation: Default::default(),
     };
     let mut writer = dst

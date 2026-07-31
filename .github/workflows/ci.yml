@@ -123,6 +123,35 @@ jobs:
           cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
       - run: cargo test --workspace --all-targets --locked
 
+  gdal-linux-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: "1.92.0"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+      - name: Install distribution GDAL/OpenFileGDB
+        run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
+      - name: Record native dependency and filesystem identities
+        run: |
+          gdal-config --version
+          ogrinfo --formats | grep -F OpenFileGDB
+          findmnt -T "$GITHUB_WORKSPACE" -o TARGET,SOURCE,FSTYPE,OPTIONS
+          findmnt -T /dev/shm -o TARGET,SOURCE,FSTYPE,OPTIONS
+      - name: Test FileGDB against distribution GDAL
+        run: cargo test -p driver-filegdb --features gdal-backend --locked
+      - name: Test publish on runner filesystem and reject tmpfs crossing
+        env:
+          PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
+        run: |
+          cargo test -p plenora-io-core publish::tests --locked
+          cargo test -p plenora-io-core cross_filesystem_publish_is_rejected_before_any_output_is_visible --locked
+
   macos-publish:
     runs-on: macos-latest
     steps:

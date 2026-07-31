@@ -114,6 +114,83 @@ pub fn authority_srid(value: &str) -> Option<u32> {
         .flatten()
 }
 
+/// Estrae l'identificatore EPSG della definizione CRS soltanto quando è
+/// dichiarato alla radice. Gli identificatori dei CRS base annidati non
+/// descrivono necessariamente il CRS esterno (per esempio un `PROJCS` EPSG:3003
+/// contiene un `GEOGCS` EPSG:4326) e vengono quindi ignorati.
+///
+/// Questa funzione non è un resolver di equivalenza: se la definizione non
+/// porta un identificatore EPSG radice, il bordo non deduce nulla.
+pub fn definition_authority_srid(definition: &str, format: CrsDefinitionFormat) -> Option<u32> {
+    match format {
+        CrsDefinitionFormat::Projjson => projjson_root_epsg(definition),
+        CrsDefinitionFormat::Wkt | CrsDefinitionFormat::Wkt2 => wkt_root_epsg(definition),
+    }
+}
+
+fn projjson_root_epsg(definition: &str) -> Option<u32> {
+    let value: serde_json::Value = serde_json::from_str(definition).ok()?;
+    let id = value.as_object()?.get("id")?.as_object()?;
+    let authority = id.get("authority")?.as_str()?;
+    if !authority.eq_ignore_ascii_case("EPSG") {
+        return None;
+    }
+    match id.get("code")? {
+        serde_json::Value::Number(code) => u32::try_from(code.as_u64()?).ok(),
+        serde_json::Value::String(code) => code.parse().ok(),
+        _ => None,
+    }
+}
+
+fn wkt_root_epsg(definition: &str) -> Option<u32> {
+    let upper = definition.to_ascii_uppercase();
+    let bytes = upper.as_bytes();
+    let mut depth = 0_u32;
+    let mut quoted = false;
+    let mut index = 0_usize;
+    let mut root_code = None;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' => quoted = !quoted,
+            b'[' if !quoted => depth = depth.checked_add(1)?,
+            b']' if !quoted => depth = depth.checked_sub(1)?,
+            _ if !quoted && depth == 1 => {
+                for marker in ["AUTHORITY[", "ID["] {
+                    if upper[index..].starts_with(marker) {
+                        let tail = &definition[index + marker.len()..];
+                        if let Some(code) = parse_epsg_wkt_identifier(tail) {
+                            // Più identificatori EPSG alla radice sono
+                            // ambigui: in quel caso non scegliamo.
+                            if root_code.replace(code).is_some() {
+                                return None;
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    root_code
+}
+
+fn parse_epsg_wkt_identifier(tail: &str) -> Option<u32> {
+    let mut parts = tail.splitn(3, ',');
+    let authority = parts.next()?.trim().trim_matches(['"', '\'']);
+    if !authority.eq_ignore_ascii_case("EPSG") {
+        return None;
+    }
+    let code = parts
+        .next()?
+        .trim()
+        .trim_matches(['"', '\''])
+        .split(|character: char| !character.is_ascii_digit())
+        .next()?;
+    code.parse().ok()
+}
+
 /// Rappresentazione CRS presente nella sorgente ma non risolta in modo
 /// affidabile. È conservata per diagnostica e round-trip metadata, mai usata
 /// come CRS operativo.
@@ -270,6 +347,67 @@ mod tests {
         assert_eq!(
             projjson.definition_format,
             Some(CrsDefinitionFormat::Projjson)
+        );
+    }
+
+    #[test]
+    fn definition_epsg_uses_root_identifier_not_nested_base_crs() {
+        let projected = concat!(
+            "PROJCS[\"Monte Mario / Italy zone 1\",",
+            "GEOGCS[\"Monte Mario\",AUTHORITY[\"EPSG\",\"4265\"]],",
+            "AUTHORITY[\"EPSG\",\"3003\"]]"
+        );
+        assert_eq!(
+            definition_authority_srid(projected, CrsDefinitionFormat::Wkt),
+            Some(3003)
+        );
+
+        let wkt2 = concat!(
+            "PROJCRS[\"WGS 84 / UTM zone 32N\",",
+            "BASEGEOGCRS[\"WGS 84\",ID[\"EPSG\",4326]],",
+            "ID[\"EPSG\",32632]]"
+        );
+        assert_eq!(
+            definition_authority_srid(wkt2, CrsDefinitionFormat::Wkt2),
+            Some(32632)
+        );
+    }
+
+    #[test]
+    fn definition_epsg_reads_projjson_root_id_only() {
+        let definition = r#"{
+            "type":"ProjectedCRS",
+            "base_crs":{"id":{"authority":"EPSG","code":4326}},
+            "id":{"authority":"EPSG","code":3003}
+        }"#;
+        assert_eq!(
+            definition_authority_srid(definition, CrsDefinitionFormat::Projjson),
+            Some(3003)
+        );
+        assert_eq!(
+            definition_authority_srid(
+                r#"{"id":{"authority":"OGC","code":"CRS84"}}"#,
+                CrsDefinitionFormat::Projjson
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn definition_epsg_rejects_ambiguous_or_nested_only_ids() {
+        assert_eq!(
+            definition_authority_srid(
+                "GEOGCS[\"unnamed\",DATUM[\"x\",AUTHORITY[\"EPSG\",\"6326\"]]]",
+                CrsDefinitionFormat::Wkt
+            ),
+            None
+        );
+        assert_eq!(
+            definition_authority_srid(
+                "GEOGCS[\"x\",AUTHORITY[\"EPSG\",\"4326\"],ID[\"EPSG\",4326]]",
+                CrsDefinitionFormat::Wkt
+            ),
+            None
         );
     }
 }

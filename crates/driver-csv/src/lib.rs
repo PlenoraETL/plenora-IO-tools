@@ -130,7 +130,8 @@ impl FormatDriver for CsvDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
+        let path =
+            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
         let delim = delimiter(&opts.format_options);
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::Crs("CSV con geometria richiede --assume-crs".to_owned())
@@ -214,17 +215,20 @@ impl FormatDriver for CsvDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(Box::new(CsvDataset {
-            path,
-            delim,
-            geom,
-            attrs,
-            layers: vec![LayerContract {
-                id: LayerId(0),
-                name,
-                contract,
-            }],
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(CsvDataset {
+                path,
+                delim,
+                geom,
+                attrs,
+                layers: vec![LayerContract {
+                    id: LayerId(0),
+                    name,
+                    contract,
+                }],
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -258,7 +262,7 @@ impl FormatDriver for CsvDriver {
                 .map(String::as_str),
             Some("xy")
         );
-        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
+        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
         let writer = csv::WriterBuilder::new()
             .delimiter(delimiter(&opts.format_options))
             .from_writer(staging.reopen()?);
@@ -274,6 +278,7 @@ impl FormatDriver for CsvDriver {
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
 }

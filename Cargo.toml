@@ -28,6 +28,7 @@ kml = { version = "=0.14.0", features = ["geo-types"] }
 quick-xml = "=0.41.0"
 calamine = "=0.36.1"
 rust_xlsxwriter = "=0.79.4"
+zip = { version = "=8.6.0", default-features = false, features = ["deflate"] }
 dxf = "=0.6.1"
 gdal = "=0.17.1"
 serde = { version = "=1.0.229", features = ["derive"] }

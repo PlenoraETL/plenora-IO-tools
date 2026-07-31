@@ -38,7 +38,8 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
 use plenora_io_model::geometry::{
     is_geometry_field, read_geometry_contract_metadata, validate_contract_version,
-    with_contract_version, with_geometry_contract_metadata, GEO_CRS_KEY,
+    validate_geometry_field_identity, with_contract_version, with_geometry_contract_metadata,
+    GEO_CRS_KEY, PLENORA_CONTRACT_VERSION_KEY,
 };
 use plenora_io_model::{PlenoraIoError, Result};
 
@@ -90,11 +91,14 @@ impl FormatDriver for IpcDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
+        let path =
+            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
         let reader = FileReader::try_new(File::open(&path)?, None)
             .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
         let schema = reader.schema();
         validate_contract_version(schema.as_ref())?;
+        let canonical_version_present =
+            schema.metadata().contains_key(PLENORA_CONTRACT_VERSION_KEY);
         let mut geometry_fields = schema
             .fields()
             .iter()
@@ -102,7 +106,8 @@ impl FormatDriver for IpcDriver {
             .filter(|(_, field)| is_geometry_field(field));
         let geometry = match geometry_fields.next() {
             None => None,
-            Some((i, _)) => {
+            Some((i, field)) => {
+                validate_geometry_field_identity(field, canonical_version_present)?;
                 if geometry_fields.next().is_some() {
                     return Err(PlenoraIoError::Contract(
                         "Arrow IPC contiene più colonne GeoArrow nel contratto v1".to_owned(),
@@ -137,14 +142,17 @@ impl FormatDriver for IpcDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(Box::new(IpcDataset {
-            path,
-            layers: vec![LayerContract {
-                id: LayerId(0),
-                name,
-                contract: DataContract::new(schema, geometry),
-            }],
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(IpcDataset {
+                path,
+                layers: vec![LayerContract {
+                    id: LayerId(0),
+                    name,
+                    contract: DataContract::new(schema, geometry),
+                }],
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -190,7 +198,7 @@ impl FormatDriver for IpcDriver {
             fields,
             layer.schema.metadata().clone(),
         )));
-        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
+        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
         let writer = FileWriter::try_new(BufWriter::new(staging.reopen()?), &schema)
             .map_err(|e| err(format!("writer IPC: {e}")))?;
         with_write_validation(
@@ -203,6 +211,7 @@ impl FormatDriver for IpcDriver {
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
 }
@@ -364,10 +373,10 @@ mod tests {
             .into_iter()
             .collect(),
         );
-        let schema = Schema::new(vec![field]);
+        let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
         {
             let file = File::create(&path).unwrap();
-            let mut writer = FileWriter::try_new(file, &schema).unwrap();
+            let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
             writer.finish().unwrap();
         }
 
@@ -385,7 +394,8 @@ mod tests {
         use plenora_io_model::geometry::{
             ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
             PLENORA_CRS_DEFINITION_FORMAT_KEY, PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY,
-            PLENORA_CRS_RESOLUTION_KEY,
+            PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY,
+            PLENORA_TYPES_DECLARATION_KEY,
         };
 
         let dir = tempfile::tempdir().unwrap();
@@ -400,16 +410,22 @@ mod tests {
                     PLENORA_CRS_RESOLUTION_KEY.to_owned(),
                     "declared_unresolved".to_owned(),
                 ),
+                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                (
+                    PLENORA_TYPES_DECLARATION_KEY.to_owned(),
+                    "unresolved".to_owned(),
+                ),
                 (PLENORA_CRS_ID_KEY.to_owned(), "EPSG:99999".to_owned()),
                 (PLENORA_AXIS_ORDER_KEY.to_owned(), "unknown".to_owned()),
             ]
             .into_iter()
             .collect(),
         );
-        let schema = Schema::new(vec![field]);
+        let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
         {
             let file = File::create(&path).unwrap();
-            let mut writer = FileWriter::try_new(file, &schema).unwrap();
+            let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
             writer.finish().unwrap();
         }
 
@@ -430,6 +446,97 @@ mod tests {
         assert!(!emitted
             .metadata()
             .contains_key(PLENORA_CRS_DEFINITION_FORMAT_KEY));
+    }
+
+    #[test]
+    fn canonical_metadata_without_geoarrow_extension_is_geometry() {
+        use plenora_io_model::geometry::{
+            PLENORA_AXIS_ORDER_KEY, PLENORA_CRS_ID_KEY, PLENORA_CRS_RESOLUTION_KEY,
+            PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("canonical-only.arrow");
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(
+            [
+                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "resolved".to_owned()),
+                (PLENORA_CRS_ID_KEY.to_owned(), "EPSG:4326".to_owned()),
+                (PLENORA_AXIS_ORDER_KEY.to_owned(), "lat_lon".to_owned()),
+                (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+        {
+            let file = File::create(&path).unwrap();
+            let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let dataset = IpcDriver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
+        assert_eq!(geometry.name, "geometry");
+        assert_eq!(geometry.crs.id(), Some("EPSG:4326"));
+    }
+
+    #[test]
+    fn incomplete_or_conflicting_canonical_identity_is_rejected() {
+        use plenora_io_model::geometry::{
+            ARROW_EXTENSION_NAME_KEY, PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY,
+            PLENORA_ENCODING_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        };
+
+        for (name, metadata) in [
+            (
+                "missing-version",
+                [
+                    (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                    (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                    (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
+                    (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "conflicting-extension",
+                [
+                    (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                    (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                    (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
+                    (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "mixed".to_owned()),
+                    (
+                        ARROW_EXTENSION_NAME_KEY.to_owned(),
+                        "vendor.opaque".to_owned(),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join(format!("{name}.arrow"));
+            let field = Field::new("geometry", DataType::Binary, true).with_metadata(metadata);
+            let schema = if name == "missing-version" {
+                Arc::new(Schema::new(vec![field]))
+            } else {
+                with_contract_version(Arc::new(Schema::new(vec![field])))
+            };
+            {
+                let file = File::create(&path).unwrap();
+                let mut writer = FileWriter::try_new(file, schema.as_ref()).unwrap();
+                writer.finish().unwrap();
+            }
+            assert!(matches!(
+                IpcDriver.open(Source::Path(path), &ReadOptions::default()),
+                Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
+            ));
+        }
     }
 
     #[test]

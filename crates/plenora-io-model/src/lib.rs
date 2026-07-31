@@ -14,6 +14,7 @@ pub mod geometry;
 pub mod limits;
 #[cfg(feature = "metrics")]
 pub mod metrics;
+pub mod resource;
 pub mod wkb;
 mod wkb_lossless;
 
@@ -22,3 +23,4 @@ pub use error::{
     CapabilityReason, ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, RemoteEffect, Result,
     RetryDisposition,
 };
+pub use resource::{ResourceBudget, ResourceKind, ResourceLease, ResourceLimits};

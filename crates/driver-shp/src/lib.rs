@@ -209,8 +209,11 @@ impl FormatDriver for ShpDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path =
-            shapefile_source_path(source.into_path_checked(&opts.limits, &opts.cancellation)?)?;
+        let path = shapefile_source_path(source.into_path_checked(
+            &opts.limits,
+            &opts.cancellation,
+            &opts.resource_budget,
+        )?)?;
         let crs = resolve_crs(&path, opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let ShpInference {
@@ -249,17 +252,20 @@ impl FormatDriver for ShpDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(Box::new(ShpDataset {
-            path,
-            cols,
-            dimensions: geometry_contract.dimensions,
-            loss,
-            layers: vec![LayerContract {
-                id: LayerId(0),
-                name,
-                contract,
-            }],
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(ShpDataset {
+                path,
+                cols,
+                dimensions: geometry_contract.dimensions,
+                loss,
+                layers: vec![LayerContract {
+                    id: LayerId(0),
+                    name,
+                    contract,
+                }],
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -338,12 +344,13 @@ impl FormatDriver for ShpDriver {
                 prj: resolve_prj(layer, schema, geom_idx),
                 shape_type: None,
                 wkb_limits: opts.limits.effective_wkb(),
-                max_output_bytes: opts.limits.max_output_bytes,
+                max_output_bytes: opts.max_output_bytes(),
             }),
             self.descriptor(),
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
 }

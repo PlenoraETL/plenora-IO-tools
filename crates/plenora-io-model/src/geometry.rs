@@ -48,13 +48,72 @@ impl GeometryMetadataPresence {
     }
 }
 
-/// True se il campo Arrow è marcato come colonna geometria `geoarrow.wkb`.
+/// True se il campo Arrow è riconoscibile come geometria tramite GeoArrow o
+/// tramite almeno una chiave canonica Plenora.
+///
+/// Il riconoscimento è intenzionalmente più largo della validazione: un campo
+/// con metadati canonici incompleti deve essere riconosciuto e poi rifiutato,
+/// non degradato a binario opaco.
 pub fn is_geometry_field(field: &arrow_schema::Field) -> bool {
+    is_geoarrow_wkb_field(field) || has_canonical_geometry_metadata(field)
+}
+
+fn is_geoarrow_wkb_field(field: &arrow_schema::Field) -> bool {
     field
         .metadata()
         .get(ARROW_EXTENSION_NAME_KEY)
         .map(|v| v == GEOARROW_WKB_EXTENSION)
         .unwrap_or(false)
+}
+
+/// Indica se il campo porta una qualunque chiave canonica della geometria.
+#[must_use]
+pub fn has_canonical_geometry_metadata(field: &arrow_schema::Field) -> bool {
+    field
+        .metadata()
+        .keys()
+        .any(|key| key.starts_with("plenora.geometry."))
+}
+
+/// Verifica la coerenza dell'identità geometrica secondo R2.6/R2.8.
+///
+/// Le quattro chiavi obbligatorie del campo devono essere presenti insieme;
+/// la versione canonica vive invece sullo schema ed è comunicata dal caller.
+pub fn validate_geometry_field_identity(
+    field: &arrow_schema::Field,
+    schema_contract_version_present: bool,
+) -> Result<()> {
+    let canonical = has_canonical_geometry_metadata(field);
+    let extension = field.metadata().get(ARROW_EXTENSION_NAME_KEY);
+
+    if canonical {
+        if !schema_contract_version_present {
+            return Err(invalid_metadata(field, PLENORA_CONTRACT_VERSION_KEY));
+        }
+        for key in [
+            PLENORA_ENCODING_KEY,
+            PLENORA_DIMENSIONS_KEY,
+            PLENORA_CRS_RESOLUTION_KEY,
+            PLENORA_TYPES_DECLARATION_KEY,
+        ] {
+            if !field.metadata().contains_key(key) {
+                return Err(invalid_metadata(field, key));
+            }
+        }
+        if extension.is_some_and(|value| value != GEOARROW_WKB_EXTENSION) {
+            return Err(invalid_metadata(field, ARROW_EXTENSION_NAME_KEY));
+        }
+    }
+
+    if (canonical || is_geoarrow_wkb_field(field))
+        && !matches!(
+            field.data_type(),
+            arrow_schema::DataType::Binary | arrow_schema::DataType::LargeBinary
+        )
+    {
+        return Err(invalid_metadata(field, PLENORA_ENCODING_KEY));
+    }
+    Ok(())
 }
 
 #[must_use]

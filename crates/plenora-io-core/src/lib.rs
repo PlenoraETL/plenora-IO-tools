@@ -26,9 +26,9 @@ pub use descriptor::{
 };
 pub use driver::{
     check_cancelled, check_cancelled_periodically, spawn_batch_reader, with_batch_target,
-    with_cancellation, with_write_limits, with_write_validation, BatchEmitter, FormatDriver,
-    FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions, SingleReaderGate, Sink,
-    Source, WriteOptions, CANCELLATION_CHECK_INTERVAL,
+    with_cancellation, with_read_budget, with_write_limits, with_write_validation, BatchEmitter,
+    FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions,
+    SingleReaderGate, Sink, Source, WriteOptions, CANCELLATION_CHECK_INTERVAL,
 };
 pub use loss::{
     FidelityAssessment, FidelityReason, FidelityReasonCode, LossExample, LossReport,

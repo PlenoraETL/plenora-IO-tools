@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use plenora_io_model::contract::LayerContract;
-use plenora_io_model::crs::CrsResolution;
+use plenora_io_model::crs::{definition_authority_srid, CrsResolution};
 
 use crate::descriptor::Fidelity;
 
@@ -204,8 +204,9 @@ impl LossReport {
     }
 }
 
-/// Dichiara, senza respingerla né conciliarla, l'incoerenza fra `crs_id`
-/// EPSG e `plenora.geometry.srid` osservata da un bordo di lettura.
+/// Dichiara, senza respingerla né conciliarla, un'incoerenza rilevabile fra
+/// `crs_definition`, `crs_id` EPSG e `plenora.geometry.srid` osservata da un
+/// bordo di lettura.
 ///
 /// La funzione è idempotente sul report così che più adattatori reader possano
 /// essere composti senza moltiplicare la stessa osservazione strutturale.
@@ -216,34 +217,74 @@ pub(crate) fn declare_crs_inconsistency(contract: &LayerContract, report: &mut L
     let Some(geometry) = &contract.contract.geometry else {
         return;
     };
-    let crs_id = match &geometry.crs {
-        CrsResolution::Resolved(crs) => crs.id.as_deref(),
-        CrsResolution::DeclaredButUnresolved(raw) => raw.authority_hint.as_deref(),
-        CrsResolution::Missing => None,
+    let (crs_id, definition, definition_format) = match &geometry.crs {
+        CrsResolution::Resolved(crs) => (
+            crs.id.as_deref(),
+            crs.definition.as_deref(),
+            crs.definition_format,
+        ),
+        CrsResolution::DeclaredButUnresolved(raw) => (
+            raw.authority_hint.as_deref(),
+            raw.definition.as_deref(),
+            raw.definition_format,
+        ),
+        CrsResolution::Missing => (None, None, None),
     };
-    let (Some(crs_id), Some(srid)) = (crs_id, geometry.srid) else {
-        return;
-    };
-    let Some(authority) = plenora_io_model::crs::authority_srid(crs_id) else {
-        return;
-    };
-    if u32::try_from(srid).ok() == Some(authority) {
+
+    let id_srid = crs_id
+        .and_then(plenora_io_model::crs::authority_srid)
+        .map(i64::from);
+    let definition_srid = definition
+        .zip(definition_format)
+        .and_then(|(value, format)| definition_authority_srid(value, format))
+        .map(i64::from);
+    let native_srid = geometry.srid.map(i64::from);
+    let known = [definition_srid, id_srid, native_srid]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if known.len() < 2 || known.windows(2).all(|pair| pair[0] == pair[1]) {
         return;
     }
 
     report.record(INCONSISTENT_CRS_REPRESENTATIONS, 1);
+    let srid = geometry
+        .srid
+        .map_or_else(|| "<none>".to_owned(), |value| value.to_string());
+    let crs_id = crs_id.map_or("<none>", |value| value);
     report.add_example(LossExample {
         category: INCONSISTENT_CRS_REPRESENTATIONS.to_owned(),
         context: format!(
-            "layer={} field={} crs_id={} srid={}",
-            contract.name, geometry.name, crs_id, srid
+            "layer={} field={} definition_epsg={definition_srid:?} crs_id={} srid={srid}",
+            contract.name, geometry.name, crs_id
         ),
     });
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use arrow_schema::{DataType, Field, Schema};
+    use plenora_io_model::contract::{DataContract, FieldId, GeometryColumnContract, LayerId};
+    use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+
     use super::*;
+
+    fn layer_with_geometry(geometry: GeometryColumnContract) -> LayerContract {
+        LayerContract {
+            id: LayerId(0),
+            name: "parcels".to_owned(),
+            contract: DataContract::new(
+                Arc::new(Schema::new(vec![Field::new(
+                    "geom",
+                    DataType::Binary,
+                    true,
+                )])),
+                Some(geometry),
+            ),
+        }
+    }
 
     #[test]
     fn observed_loss_promotes_assessment_and_stays_bounded() {
@@ -267,5 +308,51 @@ mod tests {
             FidelityAssessment::for_format("ipc", Fidelity::Lossless),
             FidelityAssessment::lossless()
         );
+    }
+
+    #[test]
+    fn definition_and_srid_disagreement_is_declared_once() {
+        let definition = concat!(
+            "PROJCS[\"Monte Mario / Italy zone 1\",",
+            "GEOGCS[\"Monte Mario\",AUTHORITY[\"EPSG\",\"4265\"]],",
+            "AUTHORITY[\"EPSG\",\"3003\"]]"
+        );
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geom",
+            ResolvedCrs::new(None, CrsKind::Projected, Some(definition.to_owned())),
+            true,
+        );
+        geometry.srid = Some(4326);
+        let layer = layer_with_geometry(geometry);
+        let mut report = LossReport::default();
+
+        declare_crs_inconsistency(&layer, &mut report);
+        declare_crs_inconsistency(&layer, &mut report);
+
+        assert_eq!(report.counts[INCONSISTENT_CRS_REPRESENTATIONS], 1);
+        assert!(report.examples()[0]
+            .context
+            .contains("definition_epsg=Some(3003)"));
+    }
+
+    #[test]
+    fn unresolved_definition_and_authority_disagreement_is_declared() {
+        let raw = RawCrs::new(
+            "GEOGCS[\"WGS 84\",AUTHORITY[\"EPSG\",\"4326\"]]".to_owned(),
+            Some("EPSG:3003".to_owned()),
+        );
+        let geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geom",
+            CrsResolution::DeclaredButUnresolved(raw),
+            true,
+        );
+        let layer = layer_with_geometry(geometry);
+        let mut report = LossReport::default();
+
+        declare_crs_inconsistency(&layer, &mut report);
+
+        assert_eq!(report.counts[INCONSISTENT_CRS_REPRESENTATIONS], 1);
     }
 }

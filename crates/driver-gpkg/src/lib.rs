@@ -112,7 +112,8 @@ impl FormatDriver for GpkgDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
+        let path =
+            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
         let conn = Connection::open(&path).map_err(sql_err)?;
         let tables = feature_tables(&conn)?;
         if tables.is_empty() {
@@ -166,11 +167,14 @@ impl FormatDriver for GpkgDriver {
                 attrs,
             });
         }
-        Ok(Box::new(GpkgDataset {
-            path,
-            layers,
-            metas,
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(GpkgDataset {
+                path,
+                layers,
+                metas,
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -203,7 +207,7 @@ impl FormatDriver for GpkgDriver {
             }
         }
         let staging =
-            StagedFile::with_suffix(&path, ".gpkg", opts.durable, opts.limits.max_output_bytes)?;
+            StagedFile::with_suffix(&path, ".gpkg", opts.durable, opts.max_output_bytes())?;
         let conn = Connection::open(staging.path()?).map_err(sql_err)?;
         // Bulk-load veloce: la durabilità è garantita dal publish atomico, non
         // dal file temporaneo (un crash a metà non pubblica nulla).
@@ -238,6 +242,7 @@ impl FormatDriver for GpkgDriver {
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
 }

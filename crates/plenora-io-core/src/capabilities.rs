@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 
 use arrow_schema::DataType;
-use plenora_io_model::crs::CrsResolution;
+use plenora_io_model::crs::{definition_authority_srid, CrsResolution};
 use plenora_io_model::limits::Limits;
 use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
 
@@ -32,16 +32,39 @@ fn declared_crs_id(crs: &CrsResolution) -> Option<&str> {
     }
 }
 
-fn id_and_srid_are_inconsistent(
+fn comparable_crs_representations(
+    geometry: &plenora_io_model::contract::GeometryColumnContract,
+) -> (Option<i64>, Option<i64>, Option<i64>) {
+    let (definition, definition_format) = match &geometry.crs {
+        CrsResolution::Resolved(resolved) => {
+            (resolved.definition.as_deref(), resolved.definition_format)
+        }
+        CrsResolution::DeclaredButUnresolved(raw) => {
+            (raw.definition.as_deref(), raw.definition_format)
+        }
+        CrsResolution::Missing => (None, None),
+    };
+    (
+        declared_crs_id(&geometry.crs)
+            .and_then(plenora_io_model::crs::authority_srid)
+            .map(i64::from),
+        geometry.srid.map(i64::from),
+        definition
+            .zip(definition_format)
+            .and_then(|(value, format)| definition_authority_srid(value, format))
+            .map(i64::from),
+    )
+}
+
+fn crs_representations_are_inconsistent(
     geometry: &plenora_io_model::contract::GeometryColumnContract,
 ) -> bool {
-    let (Some(crs_id), Some(srid)) = (declared_crs_id(&geometry.crs), geometry.srid) else {
-        return false;
-    };
-    let Some(authority_srid) = plenora_io_model::crs::authority_srid(crs_id) else {
-        return false;
-    };
-    u32::try_from(srid).ok() != Some(authority_srid)
+    let (crs_id, srid, definition) = comparable_crs_representations(geometry);
+    let known = [crs_id, srid, definition]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    known.len() >= 2 && known.windows(2).any(|pair| pair[0] != pair[1])
 }
 
 pub fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
@@ -345,18 +368,28 @@ pub fn validate_write(
                 | CrsWriteSupport::Fixed(_)
                 | CrsWriteSupport::None => {}
             }
-            if id_and_srid_are_inconsistent(geometry)
-                && (caps.crs_representations.crs_id != CrsRepresentationState::Preserved
-                    || caps.crs_representations.srid != CrsRepresentationState::Preserved)
-            {
+            let (comparable_id, comparable_srid, comparable_definition) =
+                comparable_crs_representations(geometry);
+            let representations_are_preserved = comparable_id.is_none()
+                || caps.crs_representations.crs_id == CrsRepresentationState::Preserved;
+            let representations_are_preserved = representations_are_preserved
+                && (comparable_srid.is_none()
+                    || caps.crs_representations.srid == CrsRepresentationState::Preserved);
+            let representations_are_preserved = representations_are_preserved
+                && (comparable_definition.is_none()
+                    || caps.crs_representations.crs_definition
+                        == CrsRepresentationState::Preserved);
+            if crs_representations_are_inconsistent(geometry) && !representations_are_preserved {
                 return Err(violation(
                     driver,
                     Some(&geometry.name),
                     CapabilityReason::CrsRepresentationsInconsistent,
                     format!(
                         "rappresentazioni CRS discordanti non preservabili indipendentemente: \
-                         crs_id={:?}, srid={:?}",
-                        caps.crs_representations.crs_id, caps.crs_representations.srid
+                         crs_id={:?}, srid={:?}, crs_definition={:?}",
+                        caps.crs_representations.crs_id,
+                        caps.crs_representations.srid,
+                        caps.crs_representations.crs_definition
                     ),
                 ));
             }
@@ -594,5 +627,43 @@ mod tests {
         assert_eq!(error.phase, plenora_io_model::ErrorPhase::Validate);
         assert_eq!(error.remote_effect, plenora_io_model::RemoteEffect::None);
         assert_eq!(error.retry, plenora_io_model::RetryDisposition::Never);
+    }
+
+    #[test]
+    fn inconsistent_definition_requires_independent_preservation() {
+        let definition = concat!(
+            "PROJCS[\"Monte Mario / Italy zone 1\",",
+            "GEOGCS[\"Monte Mario\",AUTHORITY[\"EPSG\",\"4265\"]],",
+            "AUTHORITY[\"EPSG\",\"3003\"]]"
+        );
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geom",
+            ResolvedCrs::new(
+                Some("EPSG:3003".to_owned()),
+                CrsKind::Projected,
+                Some(definition.to_owned()),
+            ),
+            true,
+        );
+        geometry.srid = Some(4326);
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let p = plan(
+            vec![Field::new("geom", DataType::Binary, true)],
+            Some(geometry),
+        );
+
+        let preserving = descriptor(CrsWriteSupport::EmbeddedOptional);
+        assert!(validate_write(&preserving, &p, &Limits::default()).is_ok());
+
+        let mut selecting = descriptor(CrsWriteSupport::Embedded);
+        let mut capabilities = selecting.write_capabilities.unwrap();
+        capabilities.crs_representations.crs_definition = CrsRepresentationState::Derived;
+        selecting.write_capabilities = Some(capabilities);
+        let error = validate_write(&selecting, &p, &Limits::default()).unwrap_err();
+        assert_eq!(
+            error.capability_reason,
+            Some(CapabilityReason::CrsRepresentationsInconsistent)
+        );
     }
 }

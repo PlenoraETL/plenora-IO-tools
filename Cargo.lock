@@ -602,6 +602,7 @@ dependencies = [
  "rust_xlsxwriter",
  "serde_json",
  "tempfile",
+ "zip 8.6.0",
 ]
 
 [[package]]

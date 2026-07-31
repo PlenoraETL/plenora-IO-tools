@@ -44,6 +44,7 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
 use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
@@ -254,12 +255,18 @@ impl FormatDriver for KmlDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
+        let path =
+            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
         let spool = Arc::new(tempfile::NamedTempFile::new()?);
-        let mut spool_writer = KmlSpoolWriter::new(spool.as_file(), opts.limits.max_input_bytes);
+        let mut spool_writer = KmlSpoolWriter::new(
+            spool.as_file(),
+            opts.limits.max_input_bytes,
+            opts.resource_budget.clone(),
+        );
         while let Some(placemark) = stream.next_placemark(&opts.cancellation)? {
+            opts.resource_budget.ensure_active()?;
             if stats.rows >= opts.limits.max_rows {
                 return Err(PlenoraIoError::LimitExceeded(format!(
                     "KML: più di {} Placemark",
@@ -281,16 +288,19 @@ impl FormatDriver for KmlDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(Box::new(KmlDataset {
-            layers: vec![LayerContract {
-                id: LayerId(0),
-                name,
-                contract,
-            }],
-            spool,
-            rows,
-            reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(KmlDataset {
+                layers: vec![LayerContract {
+                    id: LayerId(0),
+                    name,
+                    contract,
+                }],
+                spool,
+                rows,
+                reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -318,7 +328,7 @@ impl FormatDriver for KmlDriver {
                 "KML: un solo layer per file".to_owned(),
             ));
         }
-        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
+        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
         let mut output = BufWriter::with_capacity(KML_IO_BUFFER_BYTES, staging.reopen()?);
         output.write_all(
             br#"<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document>"#,
@@ -333,6 +343,7 @@ impl FormatDriver for KmlDriver {
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
 }
@@ -425,14 +436,16 @@ struct KmlSpoolWriter<'a> {
     output: BufWriter<&'a File>,
     bytes: u64,
     limit: u64,
+    budget: ResourceBudget,
 }
 
 impl<'a> KmlSpoolWriter<'a> {
-    fn new(file: &'a File, limit: u64) -> Self {
+    fn new(file: &'a File, limit: u64, budget: ResourceBudget) -> Self {
         Self {
             output: BufWriter::new(file),
             bytes: 0,
             limit,
+            budget,
         }
     }
 
@@ -449,7 +462,9 @@ impl<'a> KmlSpoolWriter<'a> {
                 self.limit
             )));
         }
+        let lease = self.budget.try_lease(ResourceKind::SpillBytes, length)?;
         self.output.write_all(bytes)?;
+        lease.commit(length)?;
         self.bytes = next;
         Ok(())
     }

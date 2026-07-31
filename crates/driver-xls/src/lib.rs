@@ -46,6 +46,7 @@ use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
 use plenora_io_model::limits::Limits;
 use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{decode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
 use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
 
@@ -102,7 +103,9 @@ impl FormatDriver for XlsDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
+        let path =
+            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        validate_archive_ratio(&path, &opts.resource_budget)?;
         let mut wb: Xlsx<_> =
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
         check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
@@ -122,17 +125,21 @@ impl FormatDriver for XlsDriver {
             &crs,
             &opts.cancellation,
             &opts.limits,
+            opts.resource_budget.clone(),
         )?;
-        Ok(Box::new(XlsDataset {
-            layers: vec![LayerContract {
-                id: LayerId(0),
-                name: sheet.clone(),
-                contract,
-            }],
-            layout,
-            spool,
-            reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(XlsDataset {
+                layers: vec![LayerContract {
+                    id: LayerId(0),
+                    name: sheet.clone(),
+                    contract,
+                }],
+                layout,
+                spool,
+                reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -173,14 +180,53 @@ impl FormatDriver for XlsDriver {
                 xy,
                 batches: Vec::new(),
                 wkb_limits: opts.limits.effective_wkb(),
-                max_output_bytes: opts.limits.max_output_bytes,
+                max_output_bytes: opts.max_output_bytes(),
             }),
             self.descriptor(),
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
+}
+
+fn validate_archive_ratio(path: &PathBuf, resource_budget: &ResourceBudget) -> Result<()> {
+    let maximum_ratio = resource_budget.limits().decompression_ratio;
+    let file = std::fs::File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| err(format!("contenitore XLSX non valido: {error}")))?;
+    let mut compressed = 0_u64;
+    let mut expanded = 0_u64;
+    for index in 0..archive.len() {
+        resource_budget.ensure_active()?;
+        let entry = archive
+            .by_index(index)
+            .map_err(|error| err(format!("voce XLSX non valida: {error}")))?;
+        compressed = compressed
+            .checked_add(entry.compressed_size())
+            .ok_or_else(|| {
+                PlenoraIoError::LimitExceeded(
+                    "overflow nel conteggio dei byte compressi XLSX".to_owned(),
+                )
+            })?;
+        expanded = expanded.checked_add(entry.size()).ok_or_else(|| {
+            PlenoraIoError::LimitExceeded(
+                "overflow nel conteggio dei byte decompressi XLSX".to_owned(),
+            )
+        })?;
+    }
+    let allowed = compressed.checked_mul(maximum_ratio).ok_or_else(|| {
+        PlenoraIoError::LimitExceeded(
+            "overflow nel calcolo del rapporto di decompressione XLSX".to_owned(),
+        )
+    })?;
+    if expanded > 0 && (compressed == 0 || expanded > allowed) {
+        return Err(PlenoraIoError::LimitExceeded(format!(
+            "XLSX: {expanded} byte decompressi superano il rapporto massimo {maximum_ratio}:1"
+        )));
+    }
+    Ok(())
 }
 
 struct XlsDataset {
@@ -566,14 +612,16 @@ struct BoundedSpoolWriter<'a> {
     writer: BufWriter<&'a std::fs::File>,
     bytes: u64,
     limit: u64,
+    budget: ResourceBudget,
 }
 
 impl<'a> BoundedSpoolWriter<'a> {
-    fn new(file: &'a std::fs::File, limit: u64) -> Self {
+    fn new(file: &'a std::fs::File, limit: u64, budget: ResourceBudget) -> Self {
         Self {
             writer: BufWriter::new(file),
             bytes: 0,
             limit,
+            budget,
         }
     }
 
@@ -590,7 +638,9 @@ impl<'a> BoundedSpoolWriter<'a> {
                 self.limit
             )));
         }
+        let lease = self.budget.try_lease(ResourceKind::SpillBytes, length)?;
         self.writer.write_all(bytes)?;
+        lease.commit(length)?;
         self.bytes = next;
         Ok(())
     }
@@ -650,6 +700,7 @@ fn infer_layout<RS>(
     crs: &str,
     cancellation: &CancellationToken,
     limits: &Limits,
+    resource_budget: ResourceBudget,
 ) -> Result<(XlsxLayout, DataContract, Arc<tempfile::NamedTempFile>)>
 where
     RS: Read + Seek,
@@ -685,10 +736,15 @@ where
     let mut detected_dimensions = BTreeSet::new();
     let mut detected_types = BTreeSet::new();
     let spool = Arc::new(tempfile::NamedTempFile::new()?);
-    let mut spool_writer = BoundedSpoolWriter::new(spool.as_file(), limits.max_input_bytes);
+    let mut spool_writer = BoundedSpoolWriter::new(
+        spool.as_file(),
+        limits.max_input_bytes,
+        resource_budget.clone(),
+    );
     let mut wkb_buffer = Vec::new();
     let observed_cells =
         for_each_dense_row(&mut reader, bounds, cancellation, |row_index, row| {
+            resource_budget.ensure_active()?;
             if row_index == bounds.start.0 {
                 let row_headers: Vec<String> = row.iter().map(data_to_string).collect();
                 let (resolved_geom, resolved_columns) =
@@ -1199,6 +1255,40 @@ mod tests {
         );
         let error = result.err().expect("lo spool deve rispettare il limite");
         assert_eq!(error.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    }
+
+    #[test]
+    fn xlsx_decompression_ratio_is_checked_before_cell_materialization() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("compressed.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "geometry").unwrap();
+        sheet.write_string(1, 0, "POINT (1 2)").unwrap();
+        workbook.save(&output).unwrap();
+        let resource_budget =
+            plenora_io_model::ResourceBudget::new(plenora_io_model::ResourceLimits {
+                decompression_ratio: 1,
+                ..plenora_io_model::ResourceLimits::default()
+            })
+            .unwrap();
+
+        let result = XlsDriver.open(
+            Source::Path(output),
+            &ReadOptions {
+                assume_crs: Some("EPSG:4326".to_owned()),
+                format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
+                    .into_iter()
+                    .collect(),
+                resource_budget,
+                ..ReadOptions::default()
+            },
+        );
+        let error = result.err().expect("il rapporto deve fallire chiuso");
+        assert_eq!(
+            error.category,
+            plenora_io_model::ErrorCategory::ResourceLimit
+        );
     }
 
     #[test]

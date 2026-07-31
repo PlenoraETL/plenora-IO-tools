@@ -53,6 +53,7 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
 use plenora_io_model::limits::{Limits, WkbLimits};
+use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, inspect_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
@@ -235,17 +236,20 @@ impl FormatDriver for DxfDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
+        let path =
+            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
         let mut stream = DrawingEntityReader::load_file(&path)
             .map_err(|e| err(format!("apertura DXF progressiva: {e}")))?;
         check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
         let mut walker = Walker::new(stream.drawing(), &opts.limits, &opts.cancellation)?;
         let mut stats = DxfContractStats::default();
-        let mut spool_writer = DxfSpoolWriter::new(opts.limits.max_input_bytes);
+        let mut spool_writer =
+            DxfSpoolWriter::new(opts.limits.max_input_bytes, opts.resource_budget.clone());
         while let Some(entity) = stream
             .next_entity()
             .map_err(|e| err(format!("lettura entità DXF: {e}")))?
         {
+            opts.resource_budget.ensure_active()?;
             let mut visiting = HashSet::new();
             walker.walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)?;
             stats.observe(&walker, &opts.cancellation)?;
@@ -263,18 +267,21 @@ impl FormatDriver for DxfDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(Box::new(DxfDataset {
-            layers: vec![LayerContract {
-                id: LayerId(0),
-                name,
-                contract,
-            }],
-            spool,
-            rows: walker.emitted_rows,
-            wkb_limits: opts.limits.effective_wkb(),
-            loss,
-            reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(DxfDataset {
+                layers: vec![LayerContract {
+                    id: LayerId(0),
+                    name,
+                    contract,
+                }],
+                spool,
+                rows: walker.emitted_rows,
+                wkb_limits: opts.limits.effective_wkb(),
+                loss,
+                reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -318,12 +325,13 @@ impl FormatDriver for DxfDriver {
                 rows: 0,
                 first: true,
                 wkb_limits: opts.limits.effective_wkb(),
-                max_output_bytes: opts.limits.max_output_bytes,
+                max_output_bytes: opts.max_output_bytes(),
             }),
             self.descriptor(),
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
 }
@@ -744,10 +752,11 @@ struct DxfSpoolWriter {
     bytes: u64,
     limit: u64,
     memory_limit: u64,
+    budget: ResourceBudget,
 }
 
 impl DxfSpoolWriter {
-    fn new(limit: u64) -> Self {
+    fn new(limit: u64, budget: ResourceBudget) -> Self {
         Self {
             output: DxfSpoolOutput::Memory {
                 rows: Vec::new(),
@@ -756,6 +765,7 @@ impl DxfSpoolWriter {
             bytes: 0,
             limit,
             memory_limit: DXF_SPOOL_MEMORY_LIMIT,
+            budget,
         }
     }
 
@@ -769,6 +779,7 @@ impl DxfSpoolWriter {
             bytes: 0,
             limit,
             memory_limit,
+            budget: ResourceBudget::default(),
         }
     }
 
@@ -810,8 +821,14 @@ impl DxfSpoolWriter {
         };
         let tempfile = Arc::new(tempfile::NamedTempFile::new()?);
         let mut output = BufWriter::new(tempfile.reopen()?);
+        let lease = (self.bytes > 0)
+            .then(|| self.budget.try_lease(ResourceKind::SpillBytes, self.bytes))
+            .transpose()?;
         for row in &rows {
             Self::write_file_row(&mut output, row)?;
+        }
+        if let Some(lease) = lease {
+            lease.commit(self.bytes)?;
         }
         self.output = DxfSpoolOutput::File { tempfile, output };
         Ok(())
@@ -838,12 +855,21 @@ impl DxfSpoolWriter {
         if spill {
             self.spill_to_file()?;
         }
+        let file_lease = matches!(&self.output, DxfSpoolOutput::File { .. })
+            .then(|| {
+                self.budget
+                    .try_lease(ResourceKind::SpillBytes, logical_bytes)
+            })
+            .transpose()?;
         match &mut self.output {
             DxfSpoolOutput::Memory { rows, bytes } => {
                 rows.push(row);
                 *bytes = bytes.saturating_add(memory_bytes);
             }
             DxfSpoolOutput::File { output, .. } => Self::write_file_row(output, &row)?,
+        }
+        if let Some(lease) = file_lease {
+            lease.commit(logical_bytes)?;
         }
         self.bytes = next;
         Ok(())

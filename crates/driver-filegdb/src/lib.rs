@@ -95,8 +95,14 @@ impl FormatDriver for FileGdbDriver {
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
-            let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
-            return backend::open(&path, opts.assume_crs.as_deref());
+            let path = source.into_path_checked(
+                &opts.limits,
+                &opts.cancellation,
+                &opts.resource_budget,
+            )?;
+            return backend::open(&path, opts.assume_crs.as_deref()).map(|dataset| {
+                plenora_io_core::with_read_budget(dataset, opts.resource_budget.clone())
+            });
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
@@ -125,6 +131,7 @@ impl FormatDriver for FileGdbDriver {
                     plan,
                     opts.limits,
                     opts.cancellation.clone(),
+                    opts.resource_budget.clone(),
                 )
             });
         }
@@ -779,7 +786,7 @@ mod backend {
             staging,
             dest: path.to_owned(),
             durable: opts.durable,
-            max_output_bytes: opts.limits.max_output_bytes,
+            max_output_bytes: opts.max_output_bytes(),
             layers: infos,
         }))
     }

@@ -114,7 +114,8 @@ impl FormatDriver for GeoJsonDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
+        let path =
+            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let (schema, cols) = infer_schema(&path)?;
         let contract = DataContract::new(
@@ -131,15 +132,18 @@ impl FormatDriver for GeoJsonDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(Box::new(GeoJsonDataset {
-            path,
-            cols,
-            layers: vec![LayerContract {
-                id: LayerId(0),
-                name,
-                contract,
-            }],
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(GeoJsonDataset {
+                path,
+                cols,
+                layers: vec![LayerContract {
+                    id: LayerId(0),
+                    name,
+                    contract,
+                }],
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -167,7 +171,7 @@ impl FormatDriver for GeoJsonDriver {
                 "GeoJSON: un solo layer per file nella v1".to_owned(),
             ));
         }
-        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
+        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
         let mut writer = BufWriter::new(staging.reopen()?);
         writer.write_all(b"{\"type\":\"FeatureCollection\",\"features\":[")?;
         with_write_validation(
@@ -181,6 +185,7 @@ impl FormatDriver for GeoJsonDriver {
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
 }

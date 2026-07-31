@@ -97,7 +97,8 @@ impl FormatDriver for GeoParquetDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(&opts.limits, &opts.cancellation)?;
+        let path =
+            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
             .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))?;
         let parquet_schema = builder.schema().clone();
@@ -126,12 +127,15 @@ impl FormatDriver for GeoParquetDriver {
             name,
             contract,
         };
-        Ok(Box::new(GeoParquetDataset {
-            path,
-            out_schema,
-            has_bbox,
-            layers: vec![layer],
-        }))
+        Ok(plenora_io_core::with_read_budget(
+            Box::new(GeoParquetDataset {
+                path,
+                out_schema,
+                has_bbox,
+                layers: vec![layer],
+            }),
+            opts.resource_budget.clone(),
+        ))
     }
 
     fn create(
@@ -171,7 +175,7 @@ impl FormatDriver for GeoParquetDriver {
             aug_fields,
             schema.metadata().clone(),
         ));
-        let staging = StagedFile::new(&path, opts.durable, opts.limits.max_output_bytes)?;
+        let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
         // Row group da 64k righe: statistiche min/max abbastanza granulari da
         // rendere efficace il row-group pruning in lettura (Fase 2C).
         let props = WriterProperties::builder()
@@ -195,6 +199,7 @@ impl FormatDriver for GeoParquetDriver {
             plan,
             opts.limits,
             opts.cancellation.clone(),
+            opts.resource_budget.clone(),
         )
     }
 }

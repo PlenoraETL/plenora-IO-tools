@@ -12,6 +12,7 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::geometry::{is_geometry_field, read_geometry_contract_metadata};
 use plenora_io_model::limits::Limits;
+use plenora_io_model::resource::{ResourceBudget, ResourceKind, ResourceLease};
 use plenora_io_model::wkb::{inspect_wkb, WkbInspection};
 use plenora_io_model::{
     CancellationReason, CancellationToken, CapabilityReason, ErrorPhase, PlenoraIoError, Result,
@@ -29,7 +30,9 @@ use crate::request::{ReadRequest, WritePlan};
 mod batch_worker;
 mod reader_adapters;
 pub use batch_worker::{spawn_batch_reader, BatchEmitter};
-pub use reader_adapters::{with_batch_target, with_cancellation, SingleReaderGate};
+pub use reader_adapters::{
+    with_batch_target, with_cancellation, with_read_budget, SingleReaderGate,
+};
 
 /// Sorgente di lettura (scheletro Fase 0).
 pub enum Source {
@@ -44,12 +47,14 @@ impl Source {
         self,
         limits: &Limits,
         cancellation: &CancellationToken,
+        resource_budget: &ResourceBudget,
     ) -> Result<PathBuf> {
         let Self::Path(path) = self;
         let mut total = 0_u64;
         let mut pending = vec![path.clone()];
         while let Some(candidate) = pending.pop() {
             check_cancelled(cancellation, ErrorPhase::Probe)?;
+            resource_budget.ensure_active()?;
             let metadata = std::fs::symlink_metadata(&candidate)?;
             if metadata.file_type().is_symlink() {
                 return Err(PlenoraIoError::Unsupported(
@@ -72,6 +77,7 @@ impl Source {
                 }
             }
         }
+        resource_budget.observe_input_bytes(total)?;
         Ok(path)
     }
 }
@@ -90,6 +96,8 @@ pub struct ReadOptions {
     pub format_options: BTreeMap<String, String>,
     /// Limiti condivisi del bordo I/O.
     pub limits: Limits,
+    /// Budget condivisibile fra più componenti della stessa pipeline (R7.5).
+    pub resource_budget: ResourceBudget,
     pub cancellation: CancellationToken,
 }
 
@@ -101,7 +109,19 @@ pub struct WriteOptions {
     pub format_options: BTreeMap<String, String>,
     /// Limiti condivisi del bordo I/O.
     pub limits: Limits,
+    /// Deve essere lo stesso handle del reader per una conversione composta.
+    pub resource_budget: ResourceBudget,
     pub cancellation: CancellationToken,
+}
+
+impl WriteOptions {
+    /// Limite fisico effettivo, incluso il fattore massimo di espansione R7.7.
+    #[must_use]
+    pub fn max_output_bytes(&self) -> u64 {
+        self.limits
+            .max_output_bytes
+            .min(self.resource_budget.output_limit())
+    }
 }
 
 pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<()> {
@@ -117,6 +137,14 @@ pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<(
 /// Frequenza comune dei controlli cooperativi nei loop che materializzano.
 /// È una potenza di due per mantenere trascurabile il costo del fast path.
 pub const CANCELLATION_CHECK_INTERVAL: usize = 1024;
+
+const fn saturating_usize(value: u64) -> usize {
+    if value > usize::MAX as u64 {
+        usize::MAX
+    } else {
+        value as usize
+    }
+}
 
 /// Controlla periodicamente il token senza imporre una lettura atomica per
 /// ogni riga. Il chiamante deve passare un indice monotono a partire da zero.
@@ -202,6 +230,8 @@ pub fn with_write_limits(writer: Box<dyn FormatWriter>, limits: Limits) -> Box<d
         geometry_validation: None,
         planned_loss: LossReport::default(),
         cancellation: CancellationToken::new(),
+        resource_budget: ResourceBudget::default(),
+        _operation_lease: None,
         fidelity: FidelityAssessment::unassessed(
             "writer con soli limiti globali: assessment di formato non disponibile",
         ),
@@ -259,6 +289,7 @@ pub fn with_write_validation(
     plan: &WritePlan,
     limits: Limits,
     cancellation: CancellationToken,
+    resource_budget: ResourceBudget,
 ) -> Result<Box<dyn FormatWriter>> {
     let geometry_support = descriptor
         .write_capabilities
@@ -267,6 +298,24 @@ pub fn with_write_validation(
     let layers = geometry_contracts_for_validation(plan)?;
     let planned_loss = planned_write_loss(descriptor, plan);
     let fidelity = assess_write_contract(descriptor, plan).with_loss_report(&planned_loss);
+    resource_budget.ensure_active()?;
+    let operation_lease = resource_budget.try_lease(ResourceKind::ConcurrentOperations, 1)?;
+    let columns = plan.layers.iter().try_fold(0_u64, |total, layer| {
+        total
+            .checked_add(
+                u64::try_from(layer.contract.schema.fields().len()).map_err(|_| {
+                    PlenoraIoError::LimitExceeded("troppe colonne nel piano".to_owned())
+                })?,
+            )
+            .ok_or_else(|| {
+                PlenoraIoError::LimitExceeded("overflow nel conteggio delle colonne".to_owned())
+            })
+    })?;
+    if columns > 0 {
+        resource_budget
+            .try_lease(ResourceKind::Columns, columns)?
+            .commit(columns)?;
+    }
     Ok(Box::new(LimitedWriter {
         inner: writer,
         driver: descriptor.id,
@@ -276,6 +325,8 @@ pub fn with_write_validation(
         fidelity,
         planned_loss,
         cancellation,
+        resource_budget,
+        _operation_lease: Some(operation_lease),
         geometry_validation: geometry_support.map(|support| GeometryValidation {
             driver: descriptor.id,
             support,
@@ -477,10 +528,43 @@ struct LimitedWriter {
     fidelity: FidelityAssessment,
     planned_loss: LossReport,
     cancellation: CancellationToken,
+    resource_budget: ResourceBudget,
+    _operation_lease: Option<ResourceLease>,
+}
+
+struct WriteBatchResources {
+    rows: u64,
+    bytes: u64,
+    rows_lease: Option<ResourceLease>,
+    output_lease: Option<ResourceLease>,
+    memory_lease: Option<ResourceLease>,
+    geometry_components: u64,
+    geometry_lease: Option<ResourceLease>,
+}
+
+impl WriteBatchResources {
+    fn commit(self) -> Result<()> {
+        if let Some(rows_lease) = self.rows_lease {
+            rows_lease.commit(self.rows)?;
+        }
+        if let Some(output_lease) = self.output_lease {
+            output_lease.commit(self.bytes)?;
+        }
+        drop(self.memory_lease);
+        if self.geometry_components > 0 {
+            self.geometry_lease
+                .ok_or_else(|| {
+                    PlenoraIoError::LimitExceeded("budget geometrico esaurito".to_owned())
+                })?
+                .commit(self.geometry_components)?;
+        }
+        Ok(())
+    }
 }
 
 impl LimitedWriter {
-    fn account(&mut self, layer: usize, batch: &RecordBatch) -> Result<()> {
+    fn account(&mut self, layer: usize, batch: &RecordBatch) -> Result<WriteBatchResources> {
+        self.resource_budget.ensure_active()?;
         if batch.num_columns() > self.limits.max_columns {
             return Err(PlenoraIoError::LimitExceeded(format!(
                 "batch con {} colonne oltre il limite di {}",
@@ -497,7 +581,20 @@ impl LimitedWriter {
                 self.rows, self.limits.max_rows
             )));
         }
-        if let Some(validation) = &self.geometry_validation {
+        let geometry_components = if let Some(validation) = &self.geometry_validation {
+            let mut effective_limits = self.limits;
+            effective_limits.wkb.max_cell_bytes = effective_limits
+                .wkb
+                .max_cell_bytes
+                .min(saturating_usize(self.resource_budget.limits().cell_bytes));
+            effective_limits.wkb.max_components =
+                effective_limits.wkb.max_components.min(saturating_usize(
+                    self.resource_budget
+                        .remaining(ResourceKind::GeometryComponents),
+                ));
+            effective_limits.wkb.max_depth = effective_limits.wkb.max_depth.min(saturating_usize(
+                self.resource_budget.limits().nesting_depth,
+            ));
             validate_geometry_batch(
                 validation.driver,
                 validation.support,
@@ -510,10 +607,52 @@ impl LimitedWriter {
                     )
                 })?,
                 batch,
-                &self.limits,
-            )?;
+                &effective_limits,
+            )?
+        } else {
+            0
+        };
+        let rows = u64::try_from(batch.num_rows()).map_err(|_| {
+            PlenoraIoError::LimitExceeded("batch oltre il conteggio supportato".to_owned())
+        })?;
+        if rows == 0 {
+            return Ok(WriteBatchResources {
+                rows: 0,
+                bytes: 0,
+                rows_lease: None,
+                output_lease: None,
+                memory_lease: None,
+                geometry_components: 0,
+                geometry_lease: None,
+            });
         }
-        Ok(())
+        let bytes = u64::try_from(batch.get_array_memory_size()).map_err(|_| {
+            PlenoraIoError::LimitExceeded("batch oltre il conteggio byte supportato".to_owned())
+        })?;
+        Ok(WriteBatchResources {
+            rows,
+            bytes,
+            rows_lease: Some(self.resource_budget.try_lease(ResourceKind::Rows, rows)?),
+            output_lease: (bytes > 0)
+                .then(|| {
+                    self.resource_budget
+                        .try_lease(ResourceKind::OutputBytes, bytes)
+                })
+                .transpose()?,
+            memory_lease: (bytes > 0)
+                .then(|| {
+                    self.resource_budget
+                        .try_lease(ResourceKind::MemoryBytes, bytes)
+                })
+                .transpose()?,
+            geometry_components,
+            geometry_lease: (geometry_components > 0)
+                .then(|| {
+                    self.resource_budget
+                        .try_lease(ResourceKind::GeometryComponents, geometry_components)
+                })
+                .transpose()?,
+        })
     }
 }
 
@@ -531,9 +670,10 @@ impl FormatWriter for LimitedWriter {
             )
             .during(plenora_io_model::ErrorPhase::Write));
         }
-        let result = self
-            .account(0, batch)
-            .and_then(|()| self.inner.write(batch));
+        let result = self.account(0, batch).and_then(|resources| {
+            self.inner.write(batch)?;
+            resources.commit()
+        });
         if result.is_err() {
             self.failed = true;
         }
@@ -549,9 +689,10 @@ impl FormatWriter for LimitedWriter {
             )
             .during(plenora_io_model::ErrorPhase::Write));
         }
-        let result = self
-            .account(layer.0 as usize, batch)
-            .and_then(|()| self.inner.write_to_layer(layer, batch));
+        let result = self.account(layer.0 as usize, batch).and_then(|resources| {
+            self.inner.write_to_layer(layer, batch)?;
+            resources.commit()
+        });
         if result.is_err() {
             self.failed = true;
         }
@@ -560,6 +701,7 @@ impl FormatWriter for LimitedWriter {
 
     fn finish(self: Box<Self>) -> Result<Published> {
         check_cancelled(&self.cancellation, ErrorPhase::Finalize)?;
+        self.resource_budget.ensure_active()?;
         if self.failed {
             return Err(PlenoraIoError::format(
                 self.driver,
@@ -658,9 +800,9 @@ fn validate_geometry_batch(
     contract: &Option<GeometryColumnContract>,
     batch: &RecordBatch,
     limits: &Limits,
-) -> Result<()> {
+) -> Result<u64> {
     let Some(contract) = contract else {
-        return Ok(());
+        return Ok(0);
     };
     let index = batch
         .schema()
@@ -678,7 +820,7 @@ fn validate_geometry_batch(
     let array = batch.column(index);
     let wkb_limits = limits.effective_wkb();
 
-    let validate_value = |row: usize, bytes: Option<&[u8]>| -> Result<()> {
+    let validate_value = |row: usize, bytes: Option<&[u8]>| -> Result<u64> {
         let Some(bytes) = bytes else {
             if !contract.nullable {
                 return Err(geometry_violation(
@@ -688,37 +830,53 @@ fn validate_geometry_batch(
                     format!("geometria nulla alla riga {row} in colonna non-nullable"),
                 ));
             }
-            return Ok(());
+            return Ok(0);
         };
         let geometry = inspect_wkb(bytes, &wkb_limits)?;
-        validate_inspected_geometry(driver, support, contract, &geometry)
+        validate_inspected_geometry(driver, support, contract, &geometry)?;
+        u64::try_from(geometry.components).map_err(|_| {
+            PlenoraIoError::LimitExceeded("geometria oltre il conteggio supportato".to_owned())
+        })
     };
 
+    let mut components = 0_u64;
     if let Some(values) = array.as_any().downcast_ref::<BinaryArray>() {
         for row in 0..values.len() {
-            validate_value(
-                row,
-                if values.is_null(row) {
-                    None
-                } else {
-                    Some(values.value(row))
-                },
-            )?;
+            components = components
+                .checked_add(validate_value(
+                    row,
+                    if values.is_null(row) {
+                        None
+                    } else {
+                        Some(values.value(row))
+                    },
+                )?)
+                .ok_or_else(|| {
+                    PlenoraIoError::LimitExceeded(
+                        "overflow nel conteggio dei componenti geometrici".to_owned(),
+                    )
+                })?;
         }
-        return Ok(());
+        return Ok(components);
     }
     if let Some(values) = array.as_any().downcast_ref::<LargeBinaryArray>() {
         for row in 0..values.len() {
-            validate_value(
-                row,
-                if values.is_null(row) {
-                    None
-                } else {
-                    Some(values.value(row))
-                },
-            )?;
+            components = components
+                .checked_add(validate_value(
+                    row,
+                    if values.is_null(row) {
+                        None
+                    } else {
+                        Some(values.value(row))
+                    },
+                )?)
+                .ok_or_else(|| {
+                    PlenoraIoError::LimitExceeded(
+                        "overflow nel conteggio dei componenti geometrici".to_owned(),
+                    )
+                })?;
         }
-        return Ok(());
+        return Ok(components);
     }
     Err(geometry_violation(
         driver,
@@ -839,8 +997,11 @@ mod tests {
             max_input_bytes: 7,
             ..Limits::default()
         };
-        let result = Source::Path(file.path().to_owned())
-            .into_path_checked(&limits, &CancellationToken::new());
+        let result = Source::Path(file.path().to_owned()).into_path_checked(
+            &limits,
+            &CancellationToken::new(),
+            &ResourceBudget::default(),
+        );
         assert!(matches!(
             result,
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
@@ -851,8 +1012,11 @@ mod tests {
     fn cancelled_source_is_rejected_before_filesystem_probe() {
         let token = CancellationToken::new();
         token.cancel();
-        let result = Source::Path(std::path::PathBuf::from("not-observed"))
-            .into_path_checked(&Limits::default(), &token);
+        let result = Source::Path(std::path::PathBuf::from("not-observed")).into_path_checked(
+            &Limits::default(),
+            &token,
+            &ResourceBudget::default(),
+        );
         assert!(matches!(
             result,
             Err(error)
@@ -877,6 +1041,8 @@ mod tests {
             fidelity: FidelityAssessment::lossless(),
             planned_loss: LossReport::default(),
             cancellation: token.clone(),
+            resource_budget: ResourceBudget::default(),
+            _operation_lease: None,
         });
         token.cancel();
 

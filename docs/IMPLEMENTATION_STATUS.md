@@ -38,8 +38,11 @@ alla RC.2. La revisione pre-tag `40212ad` ha CI `30632956628` verde. Il tag
 annotato `v1.0.0-rc.2` punta a `9804d77`; la CI finale `30633367104` e quella
 del tag `30633636716` sono verdi. La matrice esterna dovrà essere rieseguita
 sul nuovo tag immutabile.
-R2.8 resta proposta e non implementata. Il gate di sistema resta separato e
-non soddisfatto.
+Il ramo `main` successivo alla RC.2 implementa R2.8, il confronto conservativo
+fra EPSG radice di WKT/PROJJSON, `crs_id` e SRID, e i budget condivisi
+R7.5-R7.7. Questi incrementi non appartengono al tag RC.2 e richiedono una
+nuova baseline immutabile prima di diventare evidenza di release. Il gate di
+sistema resta separato e non soddisfatto.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
@@ -66,7 +69,33 @@ Il `LossReport` writer distingue inoltre rappresentazione e stato invece della
 precedente categoria CRS generica. R4.1.1 è implementata contro
 `plenora-contracts v2.0-rc14`: `RawCrs::definition` e il relativo formato sono
 opzionali e il solo identificatore dichiarato mantiene lo stato distinto da
-`Missing`. R2.8 resta dichiaratamente non implementata.
+`Missing`. Sul ramo successivo alla RC.2, R2.8 riconosce anche le sole chiavi
+canoniche e rifiuta metadati incompleti o un'estensione esterna discordante.
+
+## Incrementi post-RC.2
+
+- R2.8: IPC riconosce una geometria dalle sole chiavi canoniche; metadati
+  canonici incompleti, versione schema assente e un'eventuale estensione
+  discordante falliscono chiuso.
+- R4.3.1/R4.6: il confronto comprende l'EPSG dichiarato alla radice di WKT e
+  PROJJSON, senza confonderlo con gli EPSG dei CRS base annidati. Il bordo di
+  lettura preserva e dichiara; il preflight writer applica la capability a tre
+  stati. Definizioni senza identificatore EPSG radice restano fuori dal
+  resolver conservativo e non vengono interpretate per supposizione.
+- R7.5-R7.7: `ResourceBudget` usa contatori atomici e lease checked condivise
+  fra reader e writer; governa memoria, righe, colonne, componenti geometrici,
+  depth, concorrenza, output, spill, cella, durata, espansione e decompressione
+  XLSX. La CPU è governata tramite durata, non tramite un contatore CPU.
+- KML, DXF e XLSX effettuano una sola scansione della sorgente durante `open` e
+  riusano lo spool bounded nel reader. Ridurla ulteriormente richiederebbe un
+  contratto/schema fornito dal chiamante: senza quello, fermarsi prima della
+  fine renderebbe l'inferenza dipendente dal campione.
+- FileGDB `Int64` è stato provato e non esposto: GDAL/OpenFileGDB 3.6.2 ha
+  riaperto `OFTInteger64` come `OFTReal`, quindi il round-trip oltre 2^53 non è
+  simmetrico. La capability resta fail-closed su `Int32`/`Float64`/`Utf8`.
+- La CI aggiunge una matrice Linux su Ubuntu 22.04 e 24.04, registrando versione
+  GDAL e filesystem e ripetendo FileGDB e publish su filesystem runner/tmpfs.
+  Il claim multi-ambiente nasce solo dopo l'esecuzione verde dei job.
 
 ## Contratti trasversali introdotti
 
