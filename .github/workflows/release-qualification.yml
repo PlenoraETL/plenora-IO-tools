@@ -1,0 +1,43 @@
+name: Release checkout qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_revision:
+        description: Exact 40-character commit SHA to qualify
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  functional-gates:
+    uses: ./.github/workflows/ci.yml
+
+  qualify-current-checkout:
+    needs: functional-gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Test release qualification semantics
+        run: python3 -m unittest scripts.test_check_release_contract
+      - name: Qualify the exact clean checkout selected by GitHub
+        env:
+          EXPECTED_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          args=(
+            --qualify-current
+            --expected-revision "$EXPECTED_REVISION"
+          )
+          if [[ -n "$RELEASE_TAG" ]]; then
+            args+=(--release-tag "$RELEASE_TAG")
+          fi
+          python3 scripts/check_release_contract.py "${args[@]}"

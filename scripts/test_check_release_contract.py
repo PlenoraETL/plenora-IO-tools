@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import subprocess
 import unittest
+from pathlib import Path
 
 from scripts.check_release_contract import (
     CLI_PROTOCOL_V1,
@@ -22,8 +24,18 @@ from scripts.check_release_contract import (
     load_json,
     load_toml,
     validate_documents,
+    validate_catalog_producer,
     validate_cli_protocol_v1,
+    validate_current_checkout,
+    validate_release_tag_binding,
     validate_workspace_versions,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE_QUALIFICATION_WORKFLOW = (
+    ROOT / ".github" / "workflows" / "release-qualification.yml"
 )
 
 
@@ -85,6 +97,143 @@ class ReleaseContractTests(unittest.TestCase):
             [],
         )
 
+    def test_release_qualification_requires_functional_gates_for_same_sha(self) -> None:
+        ci = CI_WORKFLOW.read_text(encoding="utf-8")
+        release = RELEASE_QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("  workflow_call:", ci)
+        self.assertIn(
+            "  functional-gates:\n    uses: ./.github/workflows/ci.yml",
+            release,
+        )
+        self.assertIn(
+            "  qualify-current-checkout:\n    needs: functional-gates",
+            release,
+        )
+
+    def test_every_functional_gate_checks_out_the_caller_sha(self) -> None:
+        ci = CI_WORKFLOW.read_text(encoding="utf-8")
+        checkout_steps = ci.count("- uses: actions/checkout@")
+        pinned_checkouts = ci.count("ref: ${{ github.sha }}")
+
+        self.assertGreater(checkout_steps, 0)
+        self.assertEqual(pinned_checkouts, checkout_steps)
+
+    def test_direct_ci_push_trigger_excludes_tags(self) -> None:
+        ci = CI_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn('  push:\n    branches:\n      - "**"', ci)
+
+    def test_release_workflow_binds_manual_sha_and_tag_version(self) -> None:
+        release = RELEASE_QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("      expected_revision:", release)
+        self.assertIn("required: true", release)
+        self.assertIn("inputs.expected_revision", release)
+        self.assertIn("--release-tag", release)
+        self.assertIn("github.ref_name", release)
+
+    def test_current_checkout_qualification_accepts_clean_expected_revision(self) -> None:
+        revision = "a" * 40
+
+        def run_git(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+            outputs = {
+                ("rev-parse", "--verify", "HEAD^{commit}"): revision + "\n",
+                ("rev-parse", "--verify", f"{revision}^{{commit}}"): revision + "\n",
+                ("status", "--porcelain=v1", "--untracked-files=all"): "",
+            }
+            return subprocess.CompletedProcess(arguments, 0, outputs[tuple(arguments)], "")
+
+        self.assertEqual(validate_current_checkout(revision, run_git), [])
+
+    def test_current_checkout_qualification_rejects_revision_mismatch(self) -> None:
+        head = "a" * 40
+        expected = "b" * 40
+
+        def run_git(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+            outputs = {
+                ("rev-parse", "--verify", "HEAD^{commit}"): head + "\n",
+                ("rev-parse", "--verify", f"{expected}^{{commit}}"): expected + "\n",
+                ("status", "--porcelain=v1", "--untracked-files=all"): "",
+            }
+            return subprocess.CompletedProcess(arguments, 0, outputs[tuple(arguments)], "")
+
+        errors = validate_current_checkout(expected, run_git)
+        self.assertTrue(any("does not match" in error for error in errors))
+
+    def test_current_checkout_qualification_rejects_tracked_and_untracked_dirt(self) -> None:
+        revision = "a" * 40
+        for status in (" M tracked.txt\n", "?? untracked.txt\n"):
+            with self.subTest(status=status):
+                def run_git(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+                    outputs = {
+                        ("rev-parse", "--verify", "HEAD^{commit}"): revision + "\n",
+                        ("rev-parse", "--verify", f"{revision}^{{commit}}"): revision + "\n",
+                        ("status", "--porcelain=v1", "--untracked-files=all"): status,
+                    }
+                    return subprocess.CompletedProcess(
+                        arguments, 0, outputs[tuple(arguments)], ""
+                    )
+
+                errors = validate_current_checkout(revision, run_git)
+                self.assertTrue(any("not clean" in error for error in errors))
+
+    def test_current_checkout_qualification_rejects_anything_but_one_full_sha(self) -> None:
+        def unexpected_git(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+            self.fail(f"git must not run for a non-exact revision: {arguments}")
+
+        for revision in (
+            "",
+            "a" * 7,
+            "a" * 39,
+            "a" * 41,
+            "HEAD",
+            "HEAD~1",
+            "main",
+            "refs/heads/main",
+            "v1.0.0-rc.2",
+            "-c",
+            "--upload-pack=echo",
+            "A" * 40,
+            "a" * 39 + "G",
+            "a" * 40 + "\n",
+            " " + "a" * 40,
+        ):
+            with self.subTest(revision=revision):
+                self.assertTrue(validate_current_checkout(revision, unexpected_git))
+
+    def test_release_tag_binding_accepts_only_the_declared_workspace_version(self) -> None:
+        version = self.workspace_manifest["workspace"]["package"]["version"]
+        self.assertEqual(
+            validate_release_tag_binding(f"v{version}", self.workspace_manifest),
+            [],
+        )
+
+        for tag in (
+            "",
+            version,
+            f"V{version}",
+            f"v{version}.1",
+            "v9.9.9",
+            f"refs/tags/v{version}",
+        ):
+            with self.subTest(tag=tag):
+                self.assertTrue(
+                    validate_release_tag_binding(tag, self.workspace_manifest)
+                )
+
+    def test_release_tag_binding_fails_closed_without_a_workspace_version(self) -> None:
+        version = self.workspace_manifest["workspace"]["package"]["version"]
+        for manifest in (
+            {},
+            {"workspace": {}},
+            {"workspace": {"package": {}}},
+            {"workspace": {"package": {"version": ""}}},
+            {"workspace": {"package": {"version": 1}}},
+        ):
+            with self.subTest(manifest=manifest):
+                self.assertTrue(validate_release_tag_binding(f"v{version}", manifest))
+
     def test_rejects_workspace_version_drift(self) -> None:
         manifest = copy.deepcopy(self.workspace_manifest)
         manifest["workspace"]["package"]["version"] = "0.0.0"
@@ -107,6 +256,112 @@ class ReleaseContractTests(unittest.TestCase):
         protocol = copy.deepcopy(self.cli_protocol)
         protocol["envelopes"]["convert"]["forbidden_legacy_fields"] = []
         self.assertTrue(validate_cli_protocol_v1(protocol))
+
+    def test_cli_protocol_rejects_catalog_driver_field_declaration_mutations(self) -> None:
+        catalog = self.cli_protocol["envelopes"]["catalog"]
+        mutations = (
+            ("optional_driver_fields", []),
+            ("current_producer", {"required_driver_fields": ["available"]}),
+            ("driver_field_semantics", {}),
+        )
+        for field, replacement in mutations:
+            with self.subTest(field=field):
+                protocol = copy.deepcopy(self.cli_protocol)
+                protocol["envelopes"]["catalog"][field] = replacement
+                self.assertTrue(validate_cli_protocol_v1(protocol))
+
+        self.assertNotIn("required_driver_fields", catalog)
+
+    def test_cli_protocol_rejects_catalog_driver_semantic_mutations(self) -> None:
+        mutations = (
+            (("available", "type"), "string"),
+            (("available", "true_when"), "cargo_feature_enabled"),
+            (("required_feature", "type"), ["string"]),
+            (("required_feature", "filegdb"), None),
+            (("required_feature", "other_drivers"), "gdal-backend"),
+        )
+        for path, replacement in mutations:
+            with self.subTest(path=path):
+                protocol = copy.deepcopy(self.cli_protocol)
+                target = protocol["envelopes"]["catalog"]["driver_field_semantics"]
+                target[path[0]][path[1]] = replacement
+                self.assertTrue(validate_cli_protocol_v1(protocol))
+
+    def test_legacy_catalog_producer_may_omit_additive_driver_fields(self) -> None:
+        legacy = {
+            "status": "ok",
+            "protocol_version": 1,
+            "contract": "plenora-io-catalog-v1",
+            "determinism": "byte_for_byte",
+            "drivers": [{"id": "filegdb"}],
+        }
+        self.assertEqual(
+            validate_catalog_producer(legacy, self.cli_protocol, current=False),
+            [],
+        )
+
+    def test_legacy_catalog_producer_still_rejects_invalid_optional_field(self) -> None:
+        legacy = {
+            "status": "ok",
+            "protocol_version": 1,
+            "contract": "plenora-io-catalog-v1",
+            "determinism": "byte_for_byte",
+            "drivers": [{"id": "filegdb", "available": "false"}],
+        }
+        self.assertTrue(
+            validate_catalog_producer(legacy, self.cli_protocol, current=False)
+        )
+
+    def test_current_catalog_producer_must_emit_both_additive_fields(self) -> None:
+        current = {
+            "status": "ok",
+            "protocol_version": 1,
+            "contract": "plenora-io-catalog-v1",
+            "determinism": "byte_for_byte",
+            "drivers": [{"id": "filegdb", "available": False}],
+        }
+        self.assertTrue(
+            validate_catalog_producer(current, self.cli_protocol, current=True)
+        )
+
+    def test_current_catalog_producer_rejects_envelope_identity_drift(self) -> None:
+        current = {
+            "status": "ok",
+            "protocol_version": 1,
+            "contract": "plenora-io-catalog-v1",
+            "determinism": "byte_for_byte",
+            "drivers": [
+                {"id": "geojson", "available": True, "required_feature": None},
+                {"id": "filegdb", "available": True, "required_feature": "gdal-backend"},
+            ],
+        }
+        self.assertEqual(
+            validate_catalog_producer(current, self.cli_protocol, current=True),
+            [],
+        )
+
+        for field, replacement in (
+            ("status", "error"),
+            ("protocol_version", 2),
+            ("protocol_version", True),
+            ("protocol_version", "1"),
+            ("contract", "plenora-io-catalog-v2"),
+            ("determinism", "best_effort"),
+        ):
+            with self.subTest(field=field, replacement=replacement):
+                document = copy.deepcopy(current)
+                document[field] = replacement
+                self.assertTrue(
+                    validate_catalog_producer(
+                        document, self.cli_protocol, current=True
+                    )
+                )
+
+        self.assertTrue(
+            validate_catalog_producer(
+                ["not", "an", "object"], self.cli_protocol, current=True
+            )
+        )
 
     def test_rejects_crate_not_inheriting_release_version(self) -> None:
         manifests = copy.deepcopy(self.crate_manifests)
