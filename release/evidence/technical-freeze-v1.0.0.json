@@ -1,0 +1,29 @@
+{
+  "manifest_version": 1,
+  "component": "plenora-IO-tools",
+  "component_version": "1.0.0",
+  "status": "pre_tag_metadata_candidate",
+  "evidence_base_revision": "938dab99567fffde6510bb3c3e5e944e6bff42df",
+  "evidence_base_ci_run": 30692495395,
+  "evidence_base_ci_result": "passed",
+  "metadata_candidate_revision": null,
+  "metadata_candidate_ci_run": null,
+  "metadata_candidate_ci_result": "pending",
+  "release_tag": {
+    "name": "v1.0.0",
+    "created": false,
+    "target_revision": null,
+    "tag_object": null,
+    "tag_ci_run": null
+  },
+  "claims": {
+    "verification": "verified_internally",
+    "independent_review": false,
+    "system_rc": false,
+    "avionic_certification": false,
+    "crates_publish": false
+  },
+  "historical_evidence": {
+    "v1.0.0-rc.2": "immutable_and_not_repurposed"
+  }
+}

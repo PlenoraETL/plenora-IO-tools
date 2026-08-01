@@ -47,6 +47,13 @@ incrementi non appartengono al tag RC.2 e richiedono una
 nuova baseline immutabile prima di diventare evidenza di release. Il gate di
 sistema resta separato e non soddisfatto.
 
+La metadata candidate `1.0.0` usa come evidence base la revisione
+`938dab99567fffde6510bb3c3e5e944e6bff42df`, qualificata same-SHA nel run
+`30692495395`. Il diff di versione e manifesti richiede una nuova CI sulla
+propria revisione prima di qualsiasi tag. Il tag `v1.0.0` non esiste e i crate
+restano `publish = false`; la compatibilità 1.x resta limitata alla CLI JSON.
+Le evidenze e i record `v1.0.0-rc.2` non vengono riattribuiti.
+
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
 requisiti, hazard, prove e gap nella

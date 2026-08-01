@@ -3,13 +3,21 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Sequence
 
+# Re-exported so this gate and the CI catalog gate share one canonical producer
+# contract; importable as `scripts.check_release_contract` and as a plain script.
+try:
+    from scripts.catalog_contract import validate_catalog_producer
+except ImportError:  # pragma: no cover - taken when run as scripts/<file>.py
+    from catalog_contract import validate_catalog_producer
 
 ROOT = Path(__file__).resolve().parents[1]
 PROVENANCE = ROOT / "release" / "contract-provenance.json"
@@ -24,6 +32,8 @@ RC4_DEVELOPMENT = ROOT / "release" / "rc4-development.json"
 RC5_DEVELOPMENT = ROOT / "release" / "rc5-development.json"
 RC6_DEVELOPMENT = ROOT / "release" / "rc6-development.json"
 CLI_PROTOCOL_V1 = ROOT / "release" / "cli-protocol-v1.json"
+FINAL_MANIFEST = ROOT / "release" / "final-1.0.0.json"
+FINAL_EVIDENCE = ROOT / "release" / "evidence" / "technical-freeze-v1.0.0.json"
 CORPUS_SCHEMA = ROOT / "fuzz" / "shared-corpus-manifest.schema.json"
 CORPUS_MANIFEST = ROOT / "fuzz" / "shared-corpus" / "manifest.json"
 GEOMETRY_SOURCE = ROOT / "crates" / "plenora-io-model" / "src" / "geometry.rs"
@@ -44,8 +54,25 @@ EXPECTED_FUZZ_IO_REVISION = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "63a82531f82c4d3d42372fa8499ba1678ae4344b"
 EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
 EXPECTED_COMPONENT_VERSION = "1.0.0-rc.2"
-EXPECTED_WORKSPACE_VERSION = "1.0.0-rc.2"
+EXPECTED_WORKSPACE_VERSION = "1.0.0"
 EXPECTED_RELEASE_TAG = "v1.0.0-rc.2"
+EXPECTED_FINAL_VERSION = "1.0.0"
+EXPECTED_FINAL_EVIDENCE_BASE = "938dab99567fffde6510bb3c3e5e944e6bff42df"
+EXPECTED_FINAL_EVIDENCE_CI_RUN = 30692495395
+EXPECTED_RC2_TARGET = "9804d775d0d46df9137d44cf0c6963d66a563753"
+EXPECTED_FINAL_DELTA = {
+    "Cargo.toml",
+    "Cargo.lock",
+    "fuzz/Cargo.lock",
+    "release/cli-protocol-v1.json",
+    "release/final-1.0.0.json",
+    "release/evidence/technical-freeze-v1.0.0.json",
+    "scripts/check_release_contract.py",
+    "scripts/test_check_release_contract.py",
+    "docs/IMPLEMENTATION_STATUS.md",
+    "docs/assurance/TRACEABILITY.md",
+    "docs/assurance/CHANGE_IMPACT_2026-08-01_1_0_0_RELEASE_DECISION.md",
+}
 EXPECTED_CANDIDATE_CI_RUN = 30625336681
 EXPECTED_RELEASE_DECISION_REVISION = (
     "2d5d606cfb6f83e7a10c5b3e0c05fa3987c5eab4"
@@ -205,6 +232,7 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 WIRE_VERSION = re.compile(
     r'pub const PLENORA_CONTRACT_VERSION:\s*&str\s*=\s*"([0-9]+)";'
 )
+GitRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -219,6 +247,91 @@ def load_toml(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{path}: radice TOML non table")
     return value
+
+
+def run_git(arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a read-only Git query against this checkout."""
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def validate_release_tag_binding(
+    tag_name: str,
+    workspace_manifest: dict[str, Any],
+) -> list[str]:
+    """Refuse a release tag that claims a version the workspace does not declare."""
+    if not tag_name:
+        return ["release tag: an explicit tag name is required"]
+
+    workspace_version = (
+        workspace_manifest.get("workspace", {}).get("package", {}).get("version")
+    )
+    if not isinstance(workspace_version, str) or not workspace_version:
+        return [
+            "release tag: Cargo.toml does not declare one workspace package version"
+        ]
+    if tag_name != f"v{workspace_version}":
+        return [
+            f"release tag: {tag_name} does not match the workspace version "
+            f"{workspace_version} of the tagged commit"
+        ]
+    return []
+
+
+def validate_current_checkout(
+    expected_revision: str,
+    git_runner: GitRunner = run_git,
+) -> list[str]:
+    """Bind qualification to an exact external commit SHA and a clean checkout."""
+    if not SHA.fullmatch(expected_revision or ""):
+        return [
+            "current checkout: the externally supplied expected revision must be "
+            "exactly 40 lowercase hexadecimal characters; refs, abbreviations, "
+            "uppercase digests and option-like values are rejected before Git runs"
+        ]
+
+    errors: list[str] = []
+
+    def query(arguments: list[str], description: str) -> str | None:
+        try:
+            result = git_runner(arguments)
+        except OSError as error:
+            errors.append(f"current checkout: cannot {description}: {error}")
+            return None
+        if result.returncode != 0:
+            detail = result.stderr.strip() or f"git exited {result.returncode}"
+            errors.append(f"current checkout: cannot {description}: {detail}")
+            return None
+        return result.stdout.strip()
+
+    head = query(["rev-parse", "--verify", "HEAD^{commit}"], "resolve HEAD")
+    expected = query(
+        ["rev-parse", "--verify", f"{expected_revision}^{{commit}}"],
+        "resolve the externally supplied expected commit SHA",
+    )
+    status = query(
+        ["status", "--porcelain=v1", "--untracked-files=all"],
+        "inspect tracked and untracked state",
+    )
+
+    if head is not None and not SHA.fullmatch(head):
+        errors.append("current checkout: HEAD did not resolve to one full commit SHA")
+    if expected is not None and not SHA.fullmatch(expected):
+        errors.append(
+            "current checkout: expected SHA did not resolve to one full commit SHA"
+        )
+    if head is not None and expected is not None and head != expected:
+        errors.append(
+            f"current checkout: HEAD {head} does not match expected revision {expected}"
+        )
+    if status:
+        errors.append("current checkout: worktree is not clean (tracked or untracked changes)")
+    return errors
 
 
 def validate_workspace_versions(
@@ -646,7 +759,7 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
         errors.append("cli-protocol-v1: componente inatteso")
     if document.get("protocol_version") != 1:
         errors.append("cli-protocol-v1: protocol_version inattesa")
-    if document.get("status") != "frozen_for_1_0_rc":
+    if document.get("status") != "frozen_for_1_0":
         errors.append("cli-protocol-v1: stato inatteso")
     if document.get("compatibility_scope") != "cli_json_only":
         errors.append("cli-protocol-v1: superficie non limitata alla CLI JSON")
@@ -679,6 +792,29 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
         if envelopes.get(name, {}).get("contract") != contract:
             errors.append(f"cli-protocol-v1: contratto inatteso per {name}")
 
+    catalog = envelopes.get("catalog", {})
+    catalog_fields = ["available", "required_feature"]
+    if catalog.get("optional_driver_fields") != catalog_fields:
+        errors.append("cli-protocol-v1: campi catalogo additivi opzionali inattesi")
+    if catalog.get("current_producer") != {
+        "required_driver_fields": catalog_fields,
+    }:
+        errors.append("cli-protocol-v1: campi obbligatori del producer corrente inattesi")
+    if "required_driver_fields" in catalog:
+        errors.append("cli-protocol-v1: producer v1 legacy resi incompatibili")
+    if catalog.get("driver_field_semantics") != {
+        "available": {
+            "type": "boolean",
+            "true_when": "runtime_probe_satisfies_descriptor",
+        },
+        "required_feature": {
+            "type": ["string", "null"],
+            "filegdb": "gdal-backend",
+            "other_drivers": None,
+        },
+    }:
+        errors.append("cli-protocol-v1: semantica campi driver inattesa")
+
     convert = envelopes.get("convert", {})
     required_convert = {
         "conversion_fidelity",
@@ -691,6 +827,117 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
         errors.append("cli-protocol-v1: osservabilità convert incompleta")
     if convert.get("forbidden_legacy_fields") != ["loss"]:
         errors.append("cli-protocol-v1: campo legacy loss non vietato")
+    return errors
+
+
+def validate_final_release_candidate(
+    manifest: dict[str, Any], evidence: dict[str, Any]
+) -> list[str]:
+    errors: list[str] = []
+    if manifest.get("manifest_version") != 1:
+        errors.append("final-1.0.0: manifest_version inattesa")
+    if manifest.get("component") != "plenora-IO-tools":
+        errors.append("final-1.0.0: componente inatteso")
+    if manifest.get("component_version") != EXPECTED_FINAL_VERSION:
+        errors.append("final-1.0.0: versione finale inattesa")
+    if manifest.get("release_kind") != "component_final":
+        errors.append("final-1.0.0: release_kind inatteso")
+    if manifest.get("status") != "metadata_candidate_pending_post_diff_ci":
+        errors.append("final-1.0.0: stato candidato inatteso")
+    if manifest.get("implementation_revision") != EXPECTED_FINAL_EVIDENCE_BASE:
+        errors.append("final-1.0.0: evidence base inattesa")
+    if manifest.get("verification_claim") != "verified_internally":
+        errors.append("final-1.0.0: claim di verifica inatteso")
+    if manifest.get("independent_review") is not False:
+        errors.append("final-1.0.0: review indipendente promossa")
+    if manifest.get("claims") != {
+        "component_rc": True,
+        "system_rc": False,
+        "avionic_certification": False,
+    }:
+        errors.append("final-1.0.0: claims inattesi")
+    if manifest.get("compatibility_surface") != {
+        "scope": "cli_json_only",
+        "protocol_version": 1,
+        "rust_api": "internal_unstable",
+        "crates_publish": False,
+    }:
+        errors.append("final-1.0.0: superficie di compatibilita inattesa")
+    if manifest.get("prior_release") != {
+        "tag": "v1.0.0-rc.2",
+        "target_revision": EXPECTED_RC2_TARGET,
+        "immutable": True,
+        "historical_records_unchanged": True,
+    }:
+        errors.append("final-1.0.0: identita RC.2 storica inattesa")
+
+    candidate = manifest.get("candidate", {})
+    if candidate.get("evidence_base_revision") != EXPECTED_FINAL_EVIDENCE_BASE:
+        errors.append("final-1.0.0: revisione CI base inattesa")
+    if candidate.get("evidence_base_ci_run") != EXPECTED_FINAL_EVIDENCE_CI_RUN:
+        errors.append("final-1.0.0: run CI base inatteso")
+    if candidate.get("evidence_base_result") != "passed":
+        errors.append("final-1.0.0: CI base non passed")
+    if candidate.get("metadata_delta_requires_new_same_sha_ci") is not True:
+        errors.append("final-1.0.0: nuova CI same-SHA non richiesta")
+    if candidate.get("release_tag_created") is not False:
+        errors.append("final-1.0.0: tag dichiarato prematuramente")
+    if candidate.get("intended_release_tag") != "v1.0.0":
+        errors.append("final-1.0.0: tag previsto inatteso")
+    if candidate.get("publish") is not False:
+        errors.append("final-1.0.0: publish crate promosso")
+    declared_delta = candidate.get("declared_delta")
+    if (
+        not isinstance(declared_delta, list)
+        or len(declared_delta) != len(EXPECTED_FINAL_DELTA)
+        or set(declared_delta) != EXPECTED_FINAL_DELTA
+    ):
+        errors.append("final-1.0.0: delta metadata inatteso o incompleto")
+    if manifest.get("system_qualification") != {
+        "status": "not_satisfied",
+        "component_final_effect": "does_not_block_declared_component_scope",
+        "system_rc_claim": False,
+    }:
+        errors.append("final-1.0.0: gate di sistema promosso")
+
+    if evidence.get("component") != "plenora-IO-tools":
+        errors.append("technical-freeze-v1.0.0: componente inatteso")
+    if evidence.get("component_version") != EXPECTED_FINAL_VERSION:
+        errors.append("technical-freeze-v1.0.0: versione inattesa")
+    if evidence.get("status") != "pre_tag_metadata_candidate":
+        errors.append("technical-freeze-v1.0.0: stato inatteso")
+    if evidence.get("evidence_base_revision") != EXPECTED_FINAL_EVIDENCE_BASE:
+        errors.append("technical-freeze-v1.0.0: revisione base inattesa")
+    if evidence.get("evidence_base_ci_run") != EXPECTED_FINAL_EVIDENCE_CI_RUN:
+        errors.append("technical-freeze-v1.0.0: CI base inattesa")
+    if evidence.get("evidence_base_ci_result") != "passed":
+        errors.append("technical-freeze-v1.0.0: CI base non passed")
+    if evidence.get("metadata_candidate_revision") is not None:
+        errors.append("technical-freeze-v1.0.0: revisione metadata inventata")
+    if evidence.get("metadata_candidate_ci_run") is not None:
+        errors.append("technical-freeze-v1.0.0: run metadata inventato")
+    if evidence.get("metadata_candidate_ci_result") != "pending":
+        errors.append("technical-freeze-v1.0.0: CI metadata non pending")
+    release_tag = evidence.get("release_tag", {})
+    if release_tag.get("name") != "v1.0.0" or release_tag.get("created") is not False:
+        errors.append("technical-freeze-v1.0.0: tag finale inatteso")
+    if any(
+        release_tag.get(field) is not None
+        for field in ("target_revision", "tag_object", "tag_ci_run")
+    ):
+        errors.append("technical-freeze-v1.0.0: identita tag inventata")
+    if evidence.get("claims") != {
+        "verification": "verified_internally",
+        "independent_review": False,
+        "system_rc": False,
+        "avionic_certification": False,
+        "crates_publish": False,
+    }:
+        errors.append("technical-freeze-v1.0.0: claims inattesi")
+    if evidence.get("historical_evidence") != {
+        "v1.0.0-rc.2": "immutable_and_not_repurposed"
+    }:
+        errors.append("technical-freeze-v1.0.0: evidenza RC.2 riattribuita")
     return errors
 
 
@@ -1097,7 +1344,43 @@ def validate_documents(
     return errors
 
 
-def main() -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    git_runner: GitRunner = run_git,
+) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Validate historical v1.0.0-rc.2 evidence, optionally also qualifying "
+            "the current checkout against an externally supplied SHA/ref."
+        )
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--historical",
+        action="store_true",
+        help="validate historical v1.0.0-rc.2 evidence only (the default)",
+    )
+    mode.add_argument(
+        "--qualify-current",
+        action="store_true",
+        help="also bind qualification to current HEAD and worktree cleanliness",
+    )
+    parser.add_argument(
+        "--expected-revision",
+        help=(
+            "external expected commit SHA, exactly 40 lowercase hexadecimal "
+            "characters; required with --qualify-current"
+        ),
+    )
+    parser.add_argument(
+        "--release-tag",
+        help=(
+            "release tag being qualified; requires the tagged commit to declare the "
+            "matching workspace version (only valid with --qualify-current)"
+        ),
+    )
+    arguments = parser.parse_args(argv)
+
     errors: list[str] = []
     for path in FORBIDDEN_SYSTEM_HARNESS_PATHS:
         if path.exists():
@@ -1230,6 +1513,12 @@ def main() -> int:
         / "docs"
         / "assurance"
         / "CHANGE_IMPACT_2026-07-31_1_0_RC2_POST_TAG_VALIDATION.md",
+        ROOT
+        / "docs"
+        / "assurance"
+        / "CHANGE_IMPACT_2026-08-01_1_0_0_RELEASE_DECISION.md",
+        FINAL_MANIFEST,
+        FINAL_EVIDENCE,
         CORPUS_SCHEMA,
         CORPUS_MANIFEST,
     ]
@@ -1264,8 +1553,36 @@ def main() -> int:
             errors.extend(validate_rc5_development(load_json(RC5_DEVELOPMENT)))
             errors.extend(validate_rc6_development(load_json(RC6_DEVELOPMENT)))
             errors.extend(validate_cli_protocol_v1(load_json(CLI_PROTOCOL_V1)))
+            errors.extend(
+                validate_final_release_candidate(
+                    load_json(FINAL_MANIFEST), load_json(FINAL_EVIDENCE)
+                )
+            )
         except (OSError, ValueError, json.JSONDecodeError) as error:
             errors.append(str(error))
+
+    if arguments.qualify_current:
+        errors.extend(
+            validate_current_checkout(arguments.expected_revision or "", git_runner)
+        )
+        if arguments.release_tag is not None:
+            try:
+                errors.extend(
+                    validate_release_tag_binding(
+                        arguments.release_tag, load_toml(WORKSPACE_MANIFEST)
+                    )
+                )
+            except (OSError, ValueError) as error:
+                errors.append(f"release tag: {error}")
+    else:
+        for option, value in (
+            ("--expected-revision", arguments.expected_revision),
+            ("--release-tag", arguments.release_tag),
+        ):
+            if value is not None:
+                errors.append(
+                    f"historical mode: {option} is only valid with --qualify-current"
+                )
 
     if errors:
         print("Release contract gate failed:", file=sys.stderr)
@@ -1273,13 +1590,26 @@ def main() -> int:
             print(f"- {error}", file=sys.stderr)
         return 1
 
-    print(
-        "Release contract gate passed "
-        "(v1.0.0-rc.2 is tagged with green tag CI as an internally verified component RC; "
-        "only the CLI JSON protocol is the 1.x compatibility surface; system "
-        "RC, independent verification and avionic certification are not "
-        "claimed)."
-    )
+    if arguments.qualify_current:
+        tag_claim = (
+            f", and tag {arguments.release_tag} matches the workspace version"
+            if arguments.release_tag is not None
+            else ""
+        )
+        print(
+            "Current-checkout release qualification passed: historical v1.0.0-rc.2 "
+            "evidence is valid, HEAD equals the externally supplied expected full "
+            "commit SHA, tracked/untracked state is clean"
+            f"{tag_claim} (expected: {arguments.expected_revision})."
+        )
+    else:
+        print(
+            "Historical release evidence gate passed for v1.0.0-rc.2 "
+            "(tagged with green tag CI as an internally verified component RC). "
+            "This historical mode does not inspect or qualify current HEAD. Only the "
+            "CLI JSON protocol is the 1.x compatibility surface; system RC, independent "
+            "verification and avionic certification are not claimed."
+        )
     return 0
 
 

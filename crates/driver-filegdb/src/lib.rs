@@ -84,6 +84,20 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
 
 pub struct FileGdbDriver;
 
+/// Verifica a runtime che GDAL esponga OpenFileGDB come driver vettoriale
+/// bidirezionale. In assenza della feature, o se una capability non è
+/// dichiarata dal runtime caricato, il risultato è deliberatamente fail-closed.
+pub fn runtime_available() -> bool {
+    #[cfg(feature = "gdal-backend")]
+    {
+        backend::runtime_available()
+    }
+    #[cfg(not(feature = "gdal-backend"))]
+    {
+        false
+    }
+}
+
 impl FormatDriver for FileGdbDriver {
     fn descriptor(&self) -> &FormatDescriptor {
         &DESCRIPTOR
@@ -164,7 +178,7 @@ mod backend {
     };
     use arrow_schema::{Field, Schema, SchemaRef};
     use gdal::vector::LayerAccess;
-    use gdal::Dataset;
+    use gdal::{Dataset, Metadata};
 
     use driver_common::geometry_field;
     use plenora_io_core::driver::{
@@ -178,6 +192,15 @@ mod backend {
     use plenora_io_model::crs::{AxisOrder, CrsKind, RawCrs, ResolvedCrs};
     use plenora_io_model::geometry::with_geometry_contract_metadata;
     use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
+
+    pub(super) fn runtime_available() -> bool {
+        let Ok(driver) = DriverManager::get_driver_by_name("OpenFileGDB") else {
+            return false;
+        };
+        ["DCAP_VECTOR", "DCAP_OPEN", "DCAP_CREATE"]
+            .into_iter()
+            .all(|capability| driver.metadata_item(capability, "") == Some("YES".to_owned()))
+    }
 
     // --- scrittura (tier GDB via GDAL OpenFileGDB) --------------------------
     use std::path::{Path, PathBuf};
