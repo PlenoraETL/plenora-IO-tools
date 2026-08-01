@@ -13,6 +13,8 @@ from scripts.check_release_contract import (
     CORPUS_MANIFEST,
     DETACHED_LOCKFILES,
     EVIDENCE,
+    FINAL_EVIDENCE,
+    FINAL_MANIFEST,
     FREEZE_READINESS,
     GEOMETRY_SOURCE,
     INDEPENDENT_REVIEW,
@@ -24,6 +26,7 @@ from scripts.check_release_contract import (
     load_json,
     load_toml,
     validate_documents,
+    validate_final_release_candidate,
     validate_catalog_producer,
     validate_cli_protocol_v1,
     validate_current_checkout,
@@ -45,6 +48,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.system_gate = load_json(SYSTEM_GATE)
         self.freeze_readiness = load_json(FREEZE_READINESS)
         self.evidence = load_json(EVIDENCE)
+        self.final_manifest = load_json(FINAL_MANIFEST)
+        self.final_evidence = load_json(FINAL_EVIDENCE)
         self.independent_review = load_json(INDEPENDENT_REVIEW)
         self.corpus_schema = load_json(CORPUS_SCHEMA)
         self.corpus_manifest = load_json(CORPUS_MANIFEST)
@@ -87,6 +92,12 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_repository_manifests_are_consistent(self) -> None:
         self.assertEqual(self.validate(), [])
+        self.assertEqual(
+            validate_final_release_candidate(
+                self.final_manifest, self.final_evidence
+            ),
+            [],
+        )
         self.assertEqual(
             validate_workspace_versions(
                 self.workspace_manifest,
@@ -279,6 +290,56 @@ class ReleaseContractTests(unittest.TestCase):
         protocol = copy.deepcopy(self.cli_protocol)
         protocol["envelopes"]["convert"]["forbidden_legacy_fields"] = []
         self.assertTrue(validate_cli_protocol_v1(protocol))
+
+    def test_final_candidate_rejects_premature_release_claims(self) -> None:
+        mutations = (
+            ("component_version", "1.0.0-rc.2"),
+            ("status", "released"),
+            ("independent_review", True),
+        )
+        for field, value in mutations:
+            with self.subTest(field=field):
+                manifest = copy.deepcopy(self.final_manifest)
+                manifest[field] = value
+                self.assertTrue(
+                    validate_final_release_candidate(manifest, self.final_evidence)
+                )
+
+        manifest = copy.deepcopy(self.final_manifest)
+        manifest["candidate"]["release_tag_created"] = True
+        self.assertTrue(validate_final_release_candidate(manifest, self.final_evidence))
+
+        evidence = copy.deepcopy(self.final_evidence)
+        evidence["release_tag"]["tag_object"] = "0" * 40
+        self.assertTrue(validate_final_release_candidate(self.final_manifest, evidence))
+
+    def test_final_candidate_rejects_false_provenance_and_ci(self) -> None:
+        manifest_mutations = (
+            (("prior_release", "target_revision"), "0" * 40),
+            (("candidate", "evidence_base_result"), "failed"),
+            (("candidate", "declared_delta"), []),
+            (("system_qualification", "system_rc_claim"), True),
+        )
+        for path, value in manifest_mutations:
+            with self.subTest(path=path):
+                manifest = copy.deepcopy(self.final_manifest)
+                manifest[path[0]][path[1]] = value
+                self.assertTrue(
+                    validate_final_release_candidate(manifest, self.final_evidence)
+                )
+
+        evidence_mutations = (
+            ("evidence_base_ci_result", "failed"),
+            ("metadata_candidate_revision", "0" * 40),
+            ("metadata_candidate_ci_run", 1),
+        )
+        for field, value in evidence_mutations:
+            with self.subTest(field=field):
+                evidence = copy.deepcopy(self.final_evidence)
+                evidence[field] = value
+                self.assertTrue(
+                    validate_final_release_candidate(self.final_manifest, evidence)
+                )
 
     def test_cli_protocol_rejects_catalog_driver_field_declaration_mutations(self) -> None:
         catalog = self.cli_protocol["envelopes"]["catalog"]
