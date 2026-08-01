@@ -36,7 +36,31 @@
         "contract",
         "determinism",
         "drivers"
-      ]
+      ],
+      "optional_driver_fields": [
+        "available",
+        "required_feature"
+      ],
+      "current_producer": {
+        "required_driver_fields": [
+          "available",
+          "required_feature"
+        ]
+      },
+      "driver_field_semantics": {
+        "available": {
+          "type": "boolean",
+          "true_when": "runtime_probe_satisfies_descriptor"
+        },
+        "required_feature": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "filegdb": "gdal-backend",
+          "other_drivers": null
+        }
+      }
     },
     "inspect": {
       "contract": "plenora-io-inspect-v1",

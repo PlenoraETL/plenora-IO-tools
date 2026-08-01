@@ -317,7 +317,7 @@ fn read_options(cli: &Cli) -> ReadOptions {
 
 // --- comandi ----------------------------------------------------------------
 
-fn cmd_catalog() -> CliResult {
+fn catalog_document(filegdb_available: bool) -> Value {
     let mut registry = DriverRegistry::new();
     registry.register(Box::new(driver_geoparquet::GeoParquetDriver));
     registry.register(Box::new(driver_geojson::GeoJsonDriver));
@@ -329,14 +329,40 @@ fn cmd_catalog() -> CliResult {
     registry.register(Box::new(driver_dxf::DxfDriver));
     registry.register(Box::new(driver_filegdb::FileGdbDriver));
     registry.register(Box::new(driver_ipc::IpcDriver));
-    let drivers = serde_json::to_value(registry.descriptors()).unwrap_or(Value::Null);
-    Ok(json!({
+    let drivers = registry
+        .descriptors()
+        .into_iter()
+        .map(|descriptor| {
+            let mut document = serde_json::to_value(descriptor).unwrap_or(Value::Null);
+            let is_filegdb = descriptor.id == "filegdb";
+            if let Some(fields) = document.as_object_mut() {
+                fields.insert(
+                    "available".to_owned(),
+                    Value::Bool(!is_filegdb || filegdb_available),
+                );
+                fields.insert(
+                    "required_feature".to_owned(),
+                    if is_filegdb {
+                        Value::String("gdal-backend".to_owned())
+                    } else {
+                        Value::Null
+                    },
+                );
+            }
+            document
+        })
+        .collect::<Vec<_>>();
+    json!({
         "status": "ok",
         "protocol_version": 1,
         "contract": "plenora-io-catalog-v1",
         "determinism": "byte_for_byte",
         "drivers": drivers,
-    }))
+    })
+}
+
+fn cmd_catalog() -> CliResult {
+    Ok(catalog_document(driver_filegdb::runtime_available()))
 }
 
 fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Value)> {
@@ -633,6 +659,17 @@ mod tests {
                     document.get(field).is_none(),
                     "{name}: campo legacy {field} presente"
                 );
+            }
+        }
+        if let Some(required) = envelope["current_producer"]["required_driver_fields"].as_array() {
+            for driver in document["drivers"].as_array().unwrap() {
+                for field in required {
+                    let field = field.as_str().unwrap();
+                    assert!(
+                        driver.get(field).is_some(),
+                        "{name}: campo driver {field} assente"
+                    );
+                }
             }
         }
     }
@@ -945,6 +982,52 @@ mod tests {
             "shp"
         );
         assert!(driver_for_path(Path::new("x.zzz")).is_err());
+    }
+
+    #[cfg(not(feature = "gdal-backend"))]
+    #[test]
+    fn default_catalog_marks_filegdb_unavailable_and_names_the_required_feature() {
+        let document = cmd_catalog().unwrap();
+        let filegdb = document["drivers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|driver| driver["id"] == "filegdb")
+            .expect("FileGDB deve restare individuabile nel catalogo");
+
+        assert_eq!(filegdb["available"], false);
+        assert_eq!(filegdb["required_feature"], "gdal-backend");
+    }
+
+    #[test]
+    fn catalog_fields_have_exact_types_and_semantics_for_every_driver() {
+        let document = catalog_document(false);
+        for driver in document["drivers"].as_array().unwrap() {
+            assert!(
+                driver["available"].is_boolean(),
+                "{}: available",
+                driver["id"]
+            );
+            if driver["id"] == "filegdb" {
+                assert_eq!(driver["available"], false);
+                assert_eq!(driver["required_feature"].as_str(), Some("gdal-backend"));
+            } else {
+                assert_eq!(driver["available"], true, "{}", driver["id"]);
+                assert!(driver["required_feature"].is_null(), "{}", driver["id"]);
+            }
+        }
+    }
+
+    #[test]
+    fn feature_on_catalog_fails_closed_when_runtime_probe_is_unavailable() {
+        let document = catalog_document(false);
+        let filegdb = document["drivers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|driver| driver["id"] == "filegdb")
+            .unwrap();
+        assert!(!filegdb["available"].as_bool().unwrap());
     }
 
     #[test]

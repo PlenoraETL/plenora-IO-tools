@@ -153,7 +153,8 @@ dei data-tools §4.3):
 | `crs_representations` | per `crs_id`, `srid` e `crs_definition`: `preserved`, `absent` o `derived`; solo `preserved` è conservazione indipendente |
 | `fidelity` | `Lossless` / `Approximating` (DXF: tassellazione, esplosione blocchi) |
 | `runtime` | `PureRust` / `Gdal` (tier GDB) |
-| `required_capabilities` | backend/feature necessari (`gdal`) — verificati in `open`/`create` |
+| `catalog.available` | campo additivo opzionale di protocollo, emesso dal producer corrente: `true` soltanto se il driver è operativo; per FileGDB richiede una probe runtime positiva di `OpenFileGDB` come vettoriale con open e create, non la sola feature Cargo |
+| `catalog.required_feature` | campo build-specific aggiunto dal catalogo: feature Cargo necessaria (`gdal-backend` per FileGDB), `null` se non richiesta |
 | `semantic_version`, `driver_version`, `descriptor_version` | versioni esplicite; il fingerprint del catalogo deriva da queste, mai da hash del binario (come D17) |
 | `maturity` / `support_level` | pipeline di promozione |
 
@@ -370,7 +371,12 @@ formato oltre quella mediata da `plenora-core`.
   import/export-verso-GeoJSON: GeoJSON è ora solo uno dei formati. Il documento
   distingue `read_loss` e `write_loss` e pubblica `conversion_fidelity` come
   valutazione end-to-end col livello peggiore dei due bordi.
-- `catalog` → descrittori dei driver, machine-readable.
+- `catalog` → descrittori dei driver, machine-readable; ogni voce espone
+  `available` e `required_feature`. Nella build puro-Rust predefinita FileGDB
+  resta individuabile ma dichiara `available: false` e
+  `required_feature: "gdal-backend"`, senza pubblicizzare lo stub come operativo.
+  Anche con la feature attiva la voce resta fail-closed se il runtime GDAL non
+  registra `OpenFileGDB` con `DCAP_VECTOR`, `DCAP_OPEN` e `DCAP_CREATE` a `YES`.
 - Busta d'errore versionata `plenora-io-error-v1`: `category`, `phase` ed
   `remote_effect` sono campi `snake_case`; `retry` è un oggetto taggato e
   conserva `delay_ms` per `after`; `message` resta diagnostico. Exit code stabili
