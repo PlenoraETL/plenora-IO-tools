@@ -114,10 +114,19 @@ class ReleaseContractTests(unittest.TestCase):
     def test_every_functional_gate_checks_out_the_caller_sha(self) -> None:
         ci = CI_WORKFLOW.read_text(encoding="utf-8")
         checkout_steps = ci.count("- uses: actions/checkout@")
-        pinned_checkouts = ci.count("ref: ${{ github.sha }}")
+        pinned_checkouts = ci.count("ref: ${{ env.CANDIDATE_SHA }}")
 
         self.assertGreater(checkout_steps, 0)
         self.assertEqual(pinned_checkouts, checkout_steps)
+        self.assertIn(
+            "CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.sha || github.sha }}",
+            ci,
+        )
+        self.assertIn(
+            '--expected-revision "$CANDIDATE_SHA"',
+            ci,
+        )
 
     def test_direct_ci_push_trigger_excludes_tags(self) -> None:
         ci = CI_WORKFLOW.read_text(encoding="utf-8")
