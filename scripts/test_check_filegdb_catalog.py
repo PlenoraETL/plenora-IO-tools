@@ -30,8 +30,12 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
             ],
         }
 
-    def validate(self, catalog) -> list[str]:
-        return validate_catalog(catalog, self.protocol)
+    def validate(self, catalog, *, expected_available: bool = True) -> list[str]:
+        return validate_catalog(
+            catalog,
+            self.protocol,
+            expected_available=expected_available,
+        )
 
     def test_accepts_feature_on_runtime_available_evidence(self) -> None:
         self.assertEqual(self.validate(self.catalog), [])
@@ -40,6 +44,18 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
         catalog = copy.deepcopy(self.catalog)
         catalog["drivers"][1]["available"] = False
         self.assertTrue(self.validate(catalog))
+
+    def test_accepts_explicitly_expected_read_only_runtime(self) -> None:
+        catalog = copy.deepcopy(self.catalog)
+        catalog["drivers"][1]["available"] = False
+
+        self.assertEqual(
+            self.validate(catalog, expected_available=False),
+            [],
+        )
+        self.assertTrue(
+            self.validate(self.catalog, expected_available=False),
+        )
 
     def test_rejects_non_boolean_true_and_wrong_feature(self) -> None:
         for field, value in (

@@ -27,8 +27,13 @@ def load_protocol(path: Path = CLI_PROTOCOL_V1) -> dict[str, Any]:
     return document
 
 
-def validate_catalog(document: Any, protocol: dict[str, Any]) -> list[str]:
-    """Require the canonical current-producer contract plus an operative FileGDB."""
+def validate_catalog(
+    document: Any,
+    protocol: dict[str, Any],
+    *,
+    expected_available: bool = True,
+) -> list[str]:
+    """Require the canonical contract and the expected runtime FileGDB state."""
     errors = validate_catalog_producer(document, protocol, current=True)
     if not isinstance(document, dict):
         return errors
@@ -46,8 +51,9 @@ def validate_catalog(document: Any, protocol: dict[str, Any]) -> list[str]:
         return errors
 
     entry = filegdb[0]
-    if entry.get("available") is not True:
-        errors.append("catalog: filegdb.available must be boolean true")
+    if entry.get("available") is not expected_available:
+        expected = str(expected_available).lower()
+        errors.append(f"catalog: filegdb.available must be boolean {expected}")
     if entry.get("required_feature") != "gdal-backend":
         errors.append(
             'catalog: filegdb.required_feature must be exactly "gdal-backend"'
@@ -63,6 +69,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="catalog JSON file; stdin is used when omitted",
     )
+    parser.add_argument(
+        "--expect-available",
+        choices=("true", "false"),
+        default="true",
+        help="expected boolean value of filegdb.available (default: true)",
+    )
     arguments = parser.parse_args(argv)
     try:
         protocol = load_protocol()
@@ -76,7 +88,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"FileGDB catalog evidence failed: {error}", file=sys.stderr)
         return 1
 
-    errors = validate_catalog(document, protocol)
+    expected_available = arguments.expect_available == "true"
+    errors = validate_catalog(
+        document,
+        protocol,
+        expected_available=expected_available,
+    )
     if errors:
         print("FileGDB catalog evidence failed:", file=sys.stderr)
         for error in errors:
@@ -85,7 +102,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(
         "FileGDB catalog evidence passed: the real CLI emitted a conforming "
         "plenora-io-catalog-v1 current-producer envelope reporting boolean "
-        'available=true and required_feature="gdal-backend" for FileGDB.'
+        f"available={str(expected_available).lower()} and "
+        'required_feature="gdal-backend" for FileGDB.'
     )
     return 0
 

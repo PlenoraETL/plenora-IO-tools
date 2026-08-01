@@ -124,6 +124,20 @@ class ReleaseContractTests(unittest.TestCase):
 
         self.assertIn('  push:\n    branches:\n      - "**"', ci)
 
+    def test_gdal_matrix_only_runs_filegdb_writes_when_runtime_supports_create(self) -> None:
+        ci = CI_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("filegdb_write_available: false", ci)
+        self.assertIn("filegdb_write_available: true", ci)
+        self.assertIn(
+            "if: matrix.filegdb_write_available",
+            ci,
+        )
+        self.assertIn(
+            "--expect-available ${{ matrix.filegdb_write_available }}",
+            ci,
+        )
+
     def test_release_workflow_binds_manual_sha_and_tag_version(self) -> None:
         release = RELEASE_QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
 

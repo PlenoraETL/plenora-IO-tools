@@ -141,7 +141,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        include:
+          - os: ubuntu-22.04
+            filegdb_write_available: false
+          - os: ubuntu-24.04
+            filegdb_write_available: true
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
@@ -159,7 +163,15 @@ jobs:
           ogrinfo --formats | grep -F OpenFileGDB
           findmnt -T "$GITHUB_WORKSPACE" -o TARGET,SOURCE,FSTYPE,OPTIONS
           findmnt -T /dev/shm -o TARGET,SOURCE,FSTYPE,OPTIONS
+      - name: Verify truthful runtime FileGDB availability
+        run: |
+          catalog_file="$(mktemp)"
+          cargo run --quiet -p plenora-io-cli --features gdal-backend --locked -- catalog > "$catalog_file"
+          python3 scripts/check_filegdb_catalog.py \
+            --expect-available ${{ matrix.filegdb_write_available }} \
+            "$catalog_file"
       - name: Test FileGDB against distribution GDAL
+        if: matrix.filegdb_write_available
         run: cargo test -p driver-filegdb --features gdal-backend --locked
       - name: Test publish on runner filesystem and reject tmpfs crossing
         env:
