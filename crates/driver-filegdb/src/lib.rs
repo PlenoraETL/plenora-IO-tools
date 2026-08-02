@@ -207,6 +207,7 @@ mod backend {
 
     use arrow_array::Array;
     use arrow_schema::DataType;
+    use driver_common::geometry_index;
     use gdal::spatial_ref::SpatialRef;
     use gdal::vector::{Feature, FieldDefn, Geometry, LayerOptions, OGRwkbGeometryType};
     use gdal::DriverManager;
@@ -215,7 +216,6 @@ mod backend {
     use plenora_io_core::loss::LossReport;
     use plenora_io_core::publish::publish_dir_atomic;
     use plenora_io_core::{SingleReaderGate, WriteLayer, WritePlan};
-    use plenora_io_model::geometry::is_geometry_field;
 
     const OGR_FIELD_TYPE_KEY: &str = "plenora.filegdb.ogr_field_type";
     const OGR_FIELD_WIDTH_KEY: &str = "plenora.filegdb.width";
@@ -664,10 +664,7 @@ mod backend {
         let mut infos = Vec::new();
         for l in &plan.layers {
             let schema = &l.contract.schema;
-            let geom_idx = schema
-                .fields()
-                .iter()
-                .position(|f| is_geometry_field(f))
+            let geom_idx = geometry_index(schema)
                 .ok_or_else(|| err(format!("layer '{}' senza colonna geometria", l.name)))?;
             let fields = schema
                 .fields()

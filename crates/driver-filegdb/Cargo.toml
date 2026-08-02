@@ -11,7 +11,6 @@ plenora-io-core = { path = "../plenora-io-core" }
 driver-common = { path = "../driver-common" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
-serde_json.workspace = true
 gdal = { workspace = true, optional = true }
 
 [dev-dependencies]

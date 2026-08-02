@@ -9,6 +9,7 @@ use serde::Serialize;
 use plenora_io_model::contract::LayerContract;
 use plenora_io_model::crs::{definition_authority_srid, CrsResolution};
 
+use crate::capabilities::known_crs_values_disagree;
 use crate::descriptor::Fidelity;
 
 /// Tetto agli esempi diagnostici conservati (nessun accumulo illimitato).
@@ -239,11 +240,7 @@ pub(crate) fn declare_crs_inconsistency(contract: &LayerContract, report: &mut L
         .and_then(|(value, format)| definition_authority_srid(value, format))
         .map(i64::from);
     let native_srid = geometry.srid.map(i64::from);
-    let known = [definition_srid, id_srid, native_srid]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    if known.len() < 2 || known.windows(2).all(|pair| pair[0] == pair[1]) {
+    if !known_crs_values_disagree([definition_srid, id_srid, native_srid]) {
         return;
     }
 

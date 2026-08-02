@@ -482,7 +482,6 @@ dependencies = [
  "dxf",
  "plenora-io-core",
  "plenora-io-model",
- "serde_json",
  "tempfile",
 ]
 
@@ -496,7 +495,6 @@ dependencies = [
  "gdal",
  "plenora-io-core",
  "plenora-io-model",
- "serde_json",
  "tempfile",
 ]
 
@@ -541,7 +539,6 @@ dependencies = [
  "plenora-io-core",
  "plenora-io-model",
  "rusqlite",
- "serde_json",
  "tempfile",
 ]
 
@@ -570,7 +567,6 @@ dependencies = [
  "plenora-io-core",
  "plenora-io-model",
  "quick-xml",
- "serde_json",
  "tempfile",
 ]
 
@@ -1313,7 +1309,6 @@ dependencies = [
  "plenora-io-core",
  "plenora-io-model",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]
@@ -1325,10 +1320,8 @@ dependencies = [
  "driver-geoparquet",
  "geo-types",
  "geojson",
- "plenora-io-core",
  "plenora-io-model",
  "serde_json",
- "tempfile",
 ]
 
 [[package]]

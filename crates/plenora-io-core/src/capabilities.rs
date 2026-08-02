@@ -60,11 +60,15 @@ fn crs_representations_are_inconsistent(
     geometry: &plenora_io_model::contract::GeometryColumnContract,
 ) -> bool {
     let (crs_id, srid, definition) = comparable_crs_representations(geometry);
-    let known = [crs_id, srid, definition]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    known.len() >= 2 && known.windows(2).any(|pair| pair[0] != pair[1])
+    known_crs_values_disagree([crs_id, srid, definition])
+}
+
+pub(crate) fn known_crs_values_disagree(values: [Option<i64>; 3]) -> bool {
+    let mut known = values.into_iter().flatten();
+    let Some(first) = known.next() else {
+        return false;
+    };
+    known.any(|value| value != first)
 }
 
 pub fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
@@ -665,5 +669,13 @@ mod tests {
             error.capability_reason,
             Some(CapabilityReason::CrsRepresentationsInconsistent)
         );
+    }
+
+    #[test]
+    fn known_crs_values_disagree_ignores_missing_values_and_order() {
+        assert!(!known_crs_values_disagree([None, None, None]));
+        assert!(!known_crs_values_disagree([Some(4_326), None, Some(4_326)]));
+        assert!(known_crs_values_disagree([Some(4_326), None, Some(3_003)]));
+        assert!(known_crs_values_disagree([Some(3_003), Some(4_326), None]));
     }
 }

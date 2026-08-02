@@ -102,6 +102,20 @@ pub fn axis_order_for(id: Option<&str>, kind: CrsKind) -> AxisOrder {
     }
 }
 
+/// Classifica gli identificatori di autorità il cui tipo CRS è noto senza
+/// risolvere una definizione esterna.
+///
+/// Gli altri identificatori restano sconosciuti: dedurre il tipo dal solo
+/// codice richiederebbe un resolver CRS, che non appartiene al bordo I/O.
+#[must_use]
+pub fn crs_kind_for_authority_id(id: &str) -> CrsKind {
+    if id.eq_ignore_ascii_case("OGC:CRS84") || id.eq_ignore_ascii_case("EPSG:4326") {
+        CrsKind::Geographic
+    } else {
+        CrsKind::Unknown
+    }
+}
+
 /// Estrae il codice numerico da un identificatore di autorità EPSG.
 ///
 /// Gli altri namespace non sono interpretati come SRID: una loro eventuale
@@ -279,6 +293,20 @@ impl From<ResolvedCrs> for CrsResolution {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authority_kind_classifies_wgs84_aliases_case_insensitively() {
+        for id in ["OGC:CRS84", "ogc:crs84", "EPSG:4326", "epsg:4326"] {
+            assert_eq!(crs_kind_for_authority_id(id), CrsKind::Geographic);
+        }
+    }
+
+    #[test]
+    fn authority_kind_leaves_other_identifiers_unknown() {
+        for id in ["EPSG:3857", "EPSG:3003", ""] {
+            assert_eq!(crs_kind_for_authority_id(id), CrsKind::Unknown);
+        }
+    }
 
     #[test]
     fn crs84_and_epsg_4326_keep_distinct_axis_orders() {

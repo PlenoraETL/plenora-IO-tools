@@ -43,7 +43,9 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, CrsResolution, RawCrs, ResolvedCrs};
+use plenora_io_model::crs::{
+    crs_kind_for_authority_id, CrsKind, CrsResolution, RawCrs, ResolvedCrs,
+};
 use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::inspect_wkb;
@@ -700,8 +702,7 @@ fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> Result<ResolvedCr
                 );
                 return Err(PlenoraIoError::crs_unresolved("geoparquet", &raw));
             };
-            let kind = if id.eq_ignore_ascii_case("OGC:CRS84")
-                || id.eq_ignore_ascii_case("EPSG:4326")
+            let kind = if crs_kind_for_authority_id(&id) == CrsKind::Geographic
                 || v.get("type").and_then(|t| t.as_str()) == Some("GeographicCRS")
             {
                 CrsKind::Geographic

@@ -35,7 +35,9 @@ use plenora_io_core::{
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
-use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
+#[cfg(test)]
+use plenora_io_model::crs::CrsKind;
+use plenora_io_model::crs::{crs_kind_for_authority_id, CrsResolution, ResolvedCrs};
 use plenora_io_model::geometry::{
     is_geometry_field, read_geometry_contract_metadata, validate_contract_version,
     validate_geometry_field_identity, with_contract_version, with_geometry_contract_metadata,
@@ -116,13 +118,7 @@ impl FormatDriver for IpcDriver {
                 let f = schema.field(i);
                 let crs = match f.metadata().get(GEO_CRS_KEY).cloned() {
                     Some(id) => {
-                        let kind = if id.eq_ignore_ascii_case("OGC:CRS84")
-                            || id.eq_ignore_ascii_case("EPSG:4326")
-                        {
-                            CrsKind::Geographic
-                        } else {
-                            CrsKind::Unknown
-                        };
+                        let kind = crs_kind_for_authority_id(&id);
                         CrsResolution::resolved(ResolvedCrs::new(Some(id), kind, None))
                     }
                     None => CrsResolution::Missing,

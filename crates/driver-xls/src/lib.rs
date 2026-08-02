@@ -18,7 +18,7 @@ use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt};
 use driver_common::{
-    classify_i64, geometry_field, json_from_array, ColType, InferredColumnBuilder,
+    classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
 };
 use plenora_io_core::descriptor::{
@@ -43,7 +43,7 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, ResolvedCrs};
-use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
+use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::Limits;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::resource::{ResourceBudget, ResourceKind};
@@ -342,11 +342,8 @@ impl FormatWriter for XlsWriterState {
 
         for batch in &self.batches {
             let schema = batch.schema();
-            let geom_idx = schema
-                .fields()
-                .iter()
-                .position(|f| is_geometry_field(f))
-                .ok_or_else(|| err("nessuna colonna geometria"))?;
+            let geom_idx =
+                geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria"))?;
             let geom_col = batch
                 .column(geom_idx)
                 .as_any()

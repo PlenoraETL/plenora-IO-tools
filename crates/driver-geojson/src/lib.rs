@@ -36,8 +36,8 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 use driver_common::{
-    classify_i64, classify_u64, geometry_field, json_from_array, ColType, InferredColumnBuilder,
-    ObservedValueClass, TypeAccumulator, OGC_CRS84,
+    classify_i64, classify_u64, geometry_field, geometry_index, json_from_array, ColType,
+    InferredColumnBuilder, ObservedValueClass, TypeAccumulator, OGC_CRS84,
 };
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
@@ -59,6 +59,7 @@ use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
 use plenora_io_model::crs::ResolvedCrs;
+#[cfg(test)]
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
@@ -955,11 +956,8 @@ struct GeoJsonWriter {
 impl FormatWriter for GeoJsonWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
-        let geom_idx = schema
-            .fields()
-            .iter()
-            .position(|f| is_geometry_field(f))
-            .ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
+        let geom_idx =
+            geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
         let geom_col = batch
             .column(geom_idx)
             .as_any()
