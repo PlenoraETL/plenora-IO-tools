@@ -13,5 +13,4 @@ arrow-array.workspace = true
 arrow-schema.workspace = true
 rusqlite.workspace = true
 geo-types.workspace = true
-serde_json.workspace = true
 tempfile.workspace = true

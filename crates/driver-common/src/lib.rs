@@ -14,10 +14,12 @@ use arrow_array::{
     Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
     Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
-use arrow_schema::{DataType, Field};
+use arrow_schema::{DataType, Field, Schema};
 use serde_json::{Number, Value as JsonValue};
 
-use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
+use plenora_io_model::geometry::{
+    is_geometry_field, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY,
+};
 use plenora_io_model::{PlenoraIoError, Result};
 
 /// CRS di default per i formati WGS84 per specifica (GeoJSON, KML).
@@ -464,6 +466,14 @@ pub fn geometry_field(name: &str, crs_id: &str) -> Field {
     Field::new(name, DataType::Binary, true).with_metadata(md)
 }
 
+/// Indice della prima colonna dichiarata come geometria GeoArrow WKB.
+pub fn geometry_index(schema: &Schema) -> Option<usize> {
+    schema
+        .fields()
+        .iter()
+        .position(|field| is_geometry_field(field))
+}
+
 /// Valore JSON di una cella Arrow (per la scrittura verso formati testuali).
 pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if array.is_null(row) {
@@ -507,6 +517,15 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
         "tipo Arrow {:?} non convertibile in JSON senza perdita",
         array.data_type()
     )))
+}
+
+/// Rappresentazione testuale lossless di una cella Arrow, con `None` per null.
+pub fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
+    Ok(match json_from_array(array, row)? {
+        JsonValue::Null => None,
+        JsonValue::String(value) => Some(value),
+        other => Some(other.to_string()),
+    })
 }
 
 #[cfg(test)]
@@ -581,5 +600,69 @@ mod tests {
             Err(error) if error.code == plenora_io_model::IoErrorCode::Schema
         ));
         assert_eq!(json_from_array(&absent, 0).unwrap(), JsonValue::Null);
+    }
+
+    #[test]
+    fn cell_string_renders_wide_int64_textually_exact() {
+        let wide = (1_i64 << 53) + 1;
+        let array: ArrayRef = Arc::new(Int64Array::from(vec![wide]));
+
+        assert_eq!(
+            cell_string(&array, 0).unwrap().as_deref(),
+            Some("9007199254740993")
+        );
+    }
+
+    #[test]
+    fn cell_string_maps_null_to_none() {
+        let array: ArrayRef = Arc::new(Int64Array::from(vec![None::<i64>]));
+
+        assert_eq!(cell_string(&array, 0).unwrap(), None);
+    }
+
+    #[test]
+    fn cell_string_passes_through_utf8_and_bool() {
+        let strings: ArrayRef = Arc::new(StringArray::from(vec!["testo"]));
+        let bools: ArrayRef = Arc::new(BooleanArray::from(vec![true]));
+
+        assert_eq!(cell_string(&strings, 0).unwrap().as_deref(), Some("testo"));
+        assert_eq!(cell_string(&bools, 0).unwrap().as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn cell_string_rejects_non_finite_float64() {
+        let nan: ArrayRef = Arc::new(Float64Array::from(vec![f64::NAN]));
+        let infinite: ArrayRef = Arc::new(Float64Array::from(vec![f64::INFINITY]));
+
+        assert!(cell_string(&nan, 0).is_err());
+        assert!(cell_string(&infinite, 0).is_err());
+    }
+
+    #[test]
+    fn geometry_index_returns_first_of_two_geoarrow_wkb_fields() {
+        let schema = Schema::new(vec![
+            Field::new("name", DataType::Utf8, true),
+            geometry_field("geom_a", OGC_CRS84),
+            geometry_field("geom_b", OGC_CRS84),
+        ]);
+
+        assert_eq!(geometry_index(&schema), Some(1));
+    }
+
+    #[test]
+    fn geometry_index_is_none_without_geometry_metadata() {
+        let schema = Schema::new(vec![
+            Field::new("a", DataType::Int64, true),
+            Field::new("b", DataType::Binary, true),
+        ]);
+
+        assert_eq!(geometry_index(&schema), None);
+    }
+
+    #[test]
+    fn geometry_index_ignores_bare_geometry_name_without_extension() {
+        let schema = Schema::new(vec![Field::new("geometry", DataType::Binary, true)]);
+
+        assert_eq!(geometry_index(&schema), None);
     }
 }

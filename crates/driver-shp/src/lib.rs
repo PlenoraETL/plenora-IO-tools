@@ -31,7 +31,7 @@ use shapefile::{
 };
 
 use driver_common::{
-    classify_i64, geometry_field, json_from_array, ColType, InferredColumnBuilder,
+    classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
 };
 use plenora_io_core::descriptor::{
@@ -58,7 +58,7 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
-use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata, GEO_CRS_KEY};
+use plenora_io_model::geometry::{with_geometry_contract_metadata, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
@@ -889,10 +889,6 @@ fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> Result<FieldVal
         DbfKind::Int | DbfKind::Float => FieldValue::Numeric(v.as_f64()),
         DbfKind::Logical => FieldValue::Logical(v.as_bool()),
     })
-}
-
-fn geometry_index(schema: &Schema) -> Option<usize> {
-    schema.fields().iter().position(|f| is_geometry_field(f))
 }
 
 fn wkt_for_id(id: Option<&str>) -> Option<String> {

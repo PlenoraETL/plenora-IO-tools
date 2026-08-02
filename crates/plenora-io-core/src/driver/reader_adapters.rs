@@ -13,7 +13,7 @@ use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
 use crate::loss::{declare_crs_inconsistency, LossReport};
 use crate::request::{effective_batch_rows, BatchTarget};
 
-use super::{LayerReader, OpenDatasetHandle};
+use super::{saturating_usize, LayerReader, OpenDatasetHandle};
 
 /// Collega a un dataset un budget condiviso. Ogni reader consuma colonne,
 /// righe, byte e una quota di concorrenza dagli stessi contatori, anche quando
@@ -179,14 +179,6 @@ fn geometry_components(
     Err(PlenoraIoError::LimitExceeded(
         "colonna geometrica non binaria nel reader budgeted".to_owned(),
     ))
-}
-
-const fn saturating_usize(value: u64) -> usize {
-    if value > usize::MAX as u64 {
-        usize::MAX
-    } else {
-        value as usize
-    }
 }
 
 /// Adatta i batch prodotti da un reader al target comune di ADR-IO 6.

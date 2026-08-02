@@ -28,7 +28,7 @@ use geometry::{
     Transform3,
 };
 
-use driver_common::{geometry_field, json_from_array};
+use driver_common::{cell_string, geometry_field, geometry_index};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -51,7 +51,7 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
-use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
+use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::{Limits, WkbLimits};
 use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{
@@ -396,11 +396,8 @@ impl<W: Write> Write for BoundedOutput<W> {
 impl FormatWriter for DxfWriterState {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
-        let geom_idx = schema
-            .fields()
-            .iter()
-            .position(|f| is_geometry_field(f))
-            .ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
+        let geom_idx =
+            geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
         let geom_col = batch
             .column(geom_idx)
             .as_any()
@@ -463,14 +460,6 @@ impl FormatWriter for DxfWriterState {
             outcome,
         })
     }
-}
-
-fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
-    Ok(match json_from_array(array, row)? {
-        serde_json::Value::Null => None,
-        serde_json::Value::String(s) => Some(s),
-        other => Some(other.to_string()),
-    })
 }
 
 fn add_entity(dr: &mut Drawing, specific: EntityType, layer: Option<&str>) {

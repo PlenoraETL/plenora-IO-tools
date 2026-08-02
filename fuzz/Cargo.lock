@@ -405,7 +405,6 @@ dependencies = [
  "dxf",
  "plenora-io-core",
  "plenora-io-model",
- "serde_json",
  "tempfile",
 ]
 
@@ -451,7 +450,6 @@ dependencies = [
  "plenora-io-core",
  "plenora-io-model",
  "quick-xml",
- "serde_json",
  "tempfile",
 ]
 
@@ -1100,10 +1098,8 @@ dependencies = [
  "driver-kml",
  "driver-shp",
  "geo-types",
- "geojson",
  "libfuzzer-sys",
  "plenora-io-model",
- "serde_json",
 ]
 
 [[package]]

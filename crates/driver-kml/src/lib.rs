@@ -18,7 +18,7 @@ use kml::types::{
 };
 use kml::{Kml, KmlWriter};
 
-use driver_common::{geometry_field, json_from_array, OGC_CRS84};
+use driver_common::{cell_string, geometry_field, geometry_index, OGC_CRS84};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -42,7 +42,7 @@ use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
 };
 use plenora_io_model::crs::ResolvedCrs;
-use plenora_io_model::geometry::{is_geometry_field, with_geometry_contract_metadata};
+use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{
@@ -916,11 +916,8 @@ struct KmlWriterState {
 impl FormatWriter for KmlWriterState {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
-        let geom_idx = schema
-            .fields()
-            .iter()
-            .position(|f| is_geometry_field(f))
-            .ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
+        let geom_idx =
+            geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
         let geom_col = batch
             .column(geom_idx)
             .as_any()
@@ -990,14 +987,6 @@ impl FormatWriter for KmlWriterState {
             outcome,
         })
     }
-}
-
-fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
-    Ok(match json_from_array(array, row)? {
-        serde_json::Value::Null => None,
-        serde_json::Value::String(s) => Some(s),
-        other => Some(other.to_string()),
-    })
 }
 
 fn extended_data(pairs: &[(String, String)]) -> Element {

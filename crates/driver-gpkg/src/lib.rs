@@ -25,7 +25,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, Statement};
 
-use driver_common::geometry_field;
+use driver_common::{geometry_field, geometry_index};
 use plenora_io_core::descriptor::{
     CrsHandling, Direction, Fidelity, FormatDescriptor, ReadMode, ReaderConcurrency, Runtime,
     WriteMode,
@@ -48,7 +48,7 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
-use plenora_io_model::geometry::is_geometry_field;
+
 use plenora_io_model::{PlenoraIoError, Result};
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
@@ -994,10 +994,6 @@ fn strip_gpkg_header(blob: &[u8]) -> Result<&[u8]> {
 fn gpkg_header(srs_id: i32) -> [u8; 8] {
     let s = srs_id.to_le_bytes();
     [b'G', b'P', 0, 0x01, s[0], s[1], s[2], s[3]]
-}
-
-fn geometry_index(schema: &Schema) -> Option<usize> {
-    schema.fields().iter().position(|f| is_geometry_field(f))
 }
 
 fn init_gpkg(conn: &Connection) -> Result<()> {
