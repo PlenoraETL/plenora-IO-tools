@@ -1,0 +1,86 @@
+{
+  "manifest_version": 1,
+  "component": "plenora-IO-tools",
+  "component_version": "1.0.1",
+  "status": "metadata_candidate_pending_same_sha_ci",
+  "revision": "966005d67b6f2d4fcfe5d62e58fced17881eff06",
+  "verification_claim": "verified_internally",
+  "independent_review": false,
+  "claims": {
+    "component_rc": true,
+    "system_rc": false,
+    "avionic_certification": false
+  },
+  "supersedes": {
+    "tag": "v1.0.0",
+    "revision": "ca7f34c6b732700fa79f579f7b003df27ce54b09",
+    "immutable": true
+  },
+  "candidate": {
+    "evidence_base_revision": "966005d67b6f2d4fcfe5d62e58fced17881eff06",
+    "evidence_base_result": "passed",
+    "metadata_delta_requires_new_same_sha_ci": true,
+    "production_delta": [
+      "Cargo.toml",
+      "Cargo.lock",
+      "fuzz/Cargo.lock"
+    ],
+    "assurance_delta": [
+      ".github/workflows/ci.yml",
+      ".github/workflows/release-qualification.yml",
+      "docs/PATCH-1.0.1-READINESS.md",
+      "release/1.0.1.json",
+      "scripts/check_patch_readiness.py",
+      "scripts/check_release_contract.py",
+      "scripts/test_check_patch_readiness.py",
+      "scripts/test_check_release_contract.py"
+    ]
+  },
+  "evidence": [
+    {
+      "id": "ci_same_sha",
+      "status": "passed",
+      "revision": "966005d67b6f2d4fcfe5d62e58fced17881eff06",
+      "run_id": 30742404497,
+      "url": "https://github.com/PlenoraETL/plenora-IO-tools/actions/runs/30742404497"
+    }
+  ],
+  "release_criteria": {
+    "repository": "plenora-contracts",
+    "revision": "ec55bf1379b8b26ca9b9e29e10b954e39c2258ed",
+    "tag": null,
+    "document": "conformance/releases/v1.0.0.json",
+    "normative_status": "frozen_campaign_baseline"
+  },
+  "functional_delta": {
+    "public_api": "unchanged",
+    "contracts": "unchanged",
+    "wire_formats": "unchanged",
+    "error_semantics": "unchanged",
+    "cleanup": "behavior_preserving",
+    "filegdb_release_catalog": "corrected_and_qualified"
+  },
+
+  "external_dependencies": [
+    {
+      "id": "PLN-IO-CROSS-LIBRARY",
+      "owner": "plenora-contracts/conformance",
+      "status": "pending",
+      "description": "Le catene PostgreSQL/MySQL Database -> Data -> IO devono passare sui nuovi artefatti prima del tag."
+    },
+    {
+      "id": "PLN-IO-SYSTEM",
+      "owner": "plenora-contracts/conformance",
+      "status": "pending",
+      "description": "La comparativa Plenora resta separata e non autorizza claim system_rc."
+    }
+  ],
+  "release_action": {
+    "allowed": false,
+    "reason": "CI same-SHA del commit metadata e catene cross-library ancora obbligatorie.",
+    "intended_tag": "v1.0.1",
+    "tag_created": false,
+    "tag_target": null,
+    "tag_object": null
+  }
+}

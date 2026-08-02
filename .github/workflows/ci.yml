@@ -50,7 +50,8 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_release_contract
           python3 scripts/check_release_contract.py --historical
-          python3 scripts/check_release_contract.py \
+          python3 -m unittest scripts.test_check_patch_readiness
+          python3 scripts/check_patch_readiness.py \
             --qualify-current \
             --expected-revision "$CANDIDATE_SHA"
       - name: Verify shared WKB/EWKB corpus
