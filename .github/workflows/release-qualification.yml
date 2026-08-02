@@ -27,7 +27,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
       - name: Test release qualification semantics
-        run: python3 -m unittest scripts.test_check_release_contract
+        run: |
+          python3 -m unittest scripts.test_check_release_contract
+          python3 -m unittest scripts.test_check_patch_readiness
       - name: Qualify the exact clean checkout selected by GitHub
         env:
           EXPECTED_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
@@ -40,4 +42,4 @@ jobs:
           if [[ -n "$RELEASE_TAG" ]]; then
             args+=(--release-tag "$RELEASE_TAG")
           fi
-          python3 scripts/check_release_contract.py "${args[@]}"
+          python3 scripts/check_patch_readiness.py "${args[@]}"

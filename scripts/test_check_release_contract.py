@@ -11,7 +11,6 @@ from scripts.check_release_contract import (
     CLI_PROTOCOL_V1,
     CORPUS_SCHEMA,
     CORPUS_MANIFEST,
-    DETACHED_LOCKFILES,
     EVIDENCE,
     FINAL_EVIDENCE,
     FINAL_MANIFEST,
@@ -20,8 +19,6 @@ from scripts.check_release_contract import (
     INDEPENDENT_REVIEW,
     PROVENANCE,
     SYSTEM_GATE,
-    WORKSPACE_CRATE_MANIFESTS,
-    WORKSPACE_LOCK,
     WORKSPACE_MANIFEST,
     load_json,
     load_toml,
@@ -31,7 +28,6 @@ from scripts.check_release_contract import (
     validate_cli_protocol_v1,
     validate_current_checkout,
     validate_release_tag_binding,
-    validate_workspace_versions,
 )
 
 
@@ -55,11 +51,6 @@ class ReleaseContractTests(unittest.TestCase):
         self.corpus_manifest = load_json(CORPUS_MANIFEST)
         self.geometry_source = GEOMETRY_SOURCE.read_text(encoding="utf-8")
         self.workspace_manifest = load_toml(WORKSPACE_MANIFEST)
-        self.crate_manifests = [
-            load_toml(path) for path in WORKSPACE_CRATE_MANIFESTS
-        ]
-        self.lockfile = load_toml(WORKSPACE_LOCK)
-        self.detached_lockfiles = [load_toml(path) for path in DETACHED_LOCKFILES]
         self.cli_protocol = load_json(CLI_PROTOCOL_V1)
 
     def validate(
@@ -98,15 +89,7 @@ class ReleaseContractTests(unittest.TestCase):
             ),
             [],
         )
-        self.assertEqual(
-            validate_workspace_versions(
-                self.workspace_manifest,
-                self.crate_manifests,
-                self.lockfile,
-                self.detached_lockfiles,
-            ),
-            [],
-        )
+
 
     def test_release_qualification_requires_functional_gates_for_same_sha(self) -> None:
         ci = CI_WORKFLOW.read_text(encoding="utf-8")
@@ -267,18 +250,6 @@ class ReleaseContractTests(unittest.TestCase):
         ):
             with self.subTest(manifest=manifest):
                 self.assertTrue(validate_release_tag_binding(f"v{version}", manifest))
-
-    def test_rejects_workspace_version_drift(self) -> None:
-        manifest = copy.deepcopy(self.workspace_manifest)
-        manifest["workspace"]["package"]["version"] = "0.0.0"
-        self.assertTrue(
-            validate_workspace_versions(
-                manifest,
-                self.crate_manifests,
-                self.lockfile,
-                self.detached_lockfiles,
-            )
-        )
 
     def test_cli_protocol_freezes_six_json_envelopes_not_the_rust_api(self) -> None:
         self.assertEqual(validate_cli_protocol_v1(self.cli_protocol), [])
@@ -447,35 +418,6 @@ class ReleaseContractTests(unittest.TestCase):
             )
         )
 
-    def test_rejects_crate_not_inheriting_release_version(self) -> None:
-        manifests = copy.deepcopy(self.crate_manifests)
-        manifests[0]["package"]["version"] = "0.1.0-rc.3"
-        self.assertTrue(
-            validate_workspace_versions(
-                self.workspace_manifest,
-                manifests,
-                self.lockfile,
-                self.detached_lockfiles,
-            )
-        )
-
-    def test_rejects_stale_path_dependency_in_detached_lockfile(self) -> None:
-        detached = copy.deepcopy(self.detached_lockfiles)
-        changed = False
-        for package in detached[0]["package"]:
-            if package.get("name") == "plenora-io-model":
-                package["version"] = "0.0.0"
-                changed = True
-                break
-        self.assertTrue(changed)
-        self.assertTrue(
-            validate_workspace_versions(
-                self.workspace_manifest,
-                self.crate_manifests,
-                self.lockfile,
-                detached,
-            )
-        )
 
     def test_rejects_system_rc_claim(self) -> None:
         provenance = copy.deepcopy(self.provenance)

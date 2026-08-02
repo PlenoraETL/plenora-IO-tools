@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "driver-common"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -460,7 +460,7 @@ dependencies = [
 
 [[package]]
 name = "driver-csv"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "driver-dxf"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -487,7 +487,7 @@ dependencies = [
 
 [[package]]
 name = "driver-filegdb"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -500,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "driver-geojson"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "driver-geoparquet"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "driver-gpkg"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -544,7 +544,7 @@ dependencies = [
 
 [[package]]
 name = "driver-ipc"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-ipc",
@@ -557,7 +557,7 @@ dependencies = [
 
 [[package]]
 name = "driver-kml"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -572,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "driver-shp"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "driver-xls"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1291,7 +1291,7 @@ checksum = "19f132c84eca552bf34cab8ec81f1c1dcc229b811638f9d283dceabe58c5569e"
 
 [[package]]
 name = "plenora-bench"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1313,7 +1313,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-fuzz"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "driver-common",
  "driver-geojson",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-cli"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1348,7 +1348,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1361,7 +1361,7 @@ dependencies = [
 
 [[package]]
 name = "plenora-io-model"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",

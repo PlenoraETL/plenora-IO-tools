@@ -54,7 +54,6 @@ EXPECTED_FUZZ_IO_REVISION = "1c37fb5d525647b264ce977e26fc07b346bb7914"
 EXPECTED_IO_CANDIDATE = "63a82531f82c4d3d42372fa8499ba1678ae4344b"
 EXPECTED_CANDIDATE_STATE = "component_rc_verified_internally"
 EXPECTED_COMPONENT_VERSION = "1.0.0-rc.2"
-EXPECTED_WORKSPACE_VERSION = "1.0.0"
 EXPECTED_RELEASE_TAG = "v1.0.0-rc.2"
 EXPECTED_FINAL_VERSION = "1.0.0"
 EXPECTED_FINAL_EVIDENCE_BASE = "938dab99567fffde6510bb3c3e5e944e6bff42df"
@@ -331,55 +330,6 @@ def validate_current_checkout(
         )
     if status:
         errors.append("current checkout: worktree is not clean (tracked or untracked changes)")
-    return errors
-
-
-def validate_workspace_versions(
-    workspace_manifest: dict[str, Any],
-    crate_manifests: list[dict[str, Any]],
-    lockfile: dict[str, Any],
-    detached_lockfiles: list[dict[str, Any]] | None = None,
-) -> list[str]:
-    errors: list[str] = []
-    workspace_version = (
-        workspace_manifest.get("workspace", {}).get("package", {}).get("version")
-    )
-    if workspace_version != EXPECTED_WORKSPACE_VERSION:
-        errors.append("workspace: versione RC centrale inattesa")
-
-    crate_names: set[str] = set()
-    for manifest in crate_manifests:
-        package = manifest.get("package", {})
-        name = package.get("name")
-        if not isinstance(name, str):
-            errors.append("workspace: crate senza nome")
-            continue
-        crate_names.add(name)
-        if package.get("version") != {"workspace": True}:
-            errors.append(f"workspace: {name} non eredita la versione centrale")
-
-    locked_versions = {
-        package.get("name"): package.get("version")
-        for package in lockfile.get("package", [])
-        if isinstance(package, dict) and package.get("name") in crate_names
-    }
-    for crate_name in sorted(crate_names):
-        if locked_versions.get(crate_name) != EXPECTED_WORKSPACE_VERSION:
-            errors.append(f"Cargo.lock: versione RC inattesa per {crate_name}")
-
-    for index, detached_lockfile in enumerate(detached_lockfiles or []):
-        detached_versions = {
-            package.get("name"): package.get("version")
-            for package in detached_lockfile.get("package", [])
-            if isinstance(package, dict) and package.get("name") in crate_names
-        }
-        for crate_name, version in sorted(detached_versions.items()):
-            if version != EXPECTED_WORKSPACE_VERSION:
-                errors.append(
-                    "lockfile detached "
-                    f"{index}: versione RC inattesa per {crate_name}"
-                )
-
     return errors
 
 
@@ -1538,14 +1488,6 @@ def main(
                     load_json(CORPUS_SCHEMA),
                     load_json(CORPUS_MANIFEST),
                     GEOMETRY_SOURCE.read_text(encoding="utf-8"),
-                )
-            )
-            errors.extend(
-                validate_workspace_versions(
-                    load_toml(WORKSPACE_MANIFEST),
-                    [load_toml(path) for path in WORKSPACE_CRATE_MANIFESTS],
-                    load_toml(WORKSPACE_LOCK),
-                    [load_toml(path) for path in DETACHED_LOCKFILES],
                 )
             )
             errors.extend(validate_rc3_development(load_json(RC3_DEVELOPMENT)))
