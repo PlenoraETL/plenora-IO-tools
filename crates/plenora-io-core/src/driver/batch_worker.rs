@@ -5,17 +5,19 @@
 //! terminale è sempre un errore: non può essere confusa con EOF.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use arrow_array::RecordBatch;
 use plenora_io_model::contract::LayerContract;
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
 
 use super::LayerReader;
 
 enum BatchWorkerEvent {
     Batch(RecordBatch),
+    Heartbeat,
     Finished,
     Failed(PlenoraIoError),
 }
@@ -33,6 +35,49 @@ impl BatchEmitter {
     pub fn send(&self, batch: RecordBatch) -> bool {
         self.sender.send(BatchWorkerEvent::Batch(batch)).is_ok()
     }
+
+    /// Consegna con backpressure senza rendere il producer cieco alla
+    /// cancellazione mentre il canale bounded e' pieno.
+    pub fn send_cancellable(
+        &self,
+        mut batch: RecordBatch,
+        cancellation: &CancellationToken,
+        phase: ErrorPhase,
+    ) -> Result<bool> {
+        const INITIAL_BACKOFF: Duration = Duration::from_micros(50);
+        const MAX_BACKOFF: Duration = Duration::from_millis(5);
+        let mut backoff = INITIAL_BACKOFF;
+        loop {
+            super::check_cancelled(cancellation, phase)?;
+            match self.sender.try_send(BatchWorkerEvent::Batch(batch)) {
+                Ok(()) => return Ok(true),
+                Err(TrySendError::Disconnected(_)) => return Ok(false),
+                Err(TrySendError::Full(event)) => match event {
+                    BatchWorkerEvent::Batch(returned) => {
+                        batch = returned;
+                        std::thread::park_timeout(backoff);
+                        backoff = backoff.saturating_mul(2).min(MAX_BACKOFF);
+                    }
+                    BatchWorkerEvent::Heartbeat
+                    | BatchWorkerEvent::Finished
+                    | BatchWorkerEvent::Failed(_) => {
+                        return Err(PlenoraIoError::format(
+                            "batch-worker",
+                            "il canale bounded ha restituito un evento diverso dal batch inviato",
+                        ));
+                    }
+                },
+            }
+        }
+    }
+
+    /// Controlla senza bloccare se il consumer esiste ancora.
+    pub fn is_receiver_alive(&self) -> bool {
+        match self.sender.try_send(BatchWorkerEvent::Heartbeat) {
+            Ok(()) | Err(TrySendError::Full(_)) => true,
+            Err(TrySendError::Disconnected(_)) => false,
+        }
+    }
 }
 
 struct BatchWorkerReader {
@@ -41,6 +86,7 @@ struct BatchWorkerReader {
     receiver: Receiver<BatchWorkerEvent>,
     worker: Option<JoinHandle<()>>,
     terminal: bool,
+    terminal_error: Option<PlenoraIoError>,
 }
 
 impl BatchWorkerReader {
@@ -67,26 +113,37 @@ impl LayerReader for BatchWorkerReader {
     }
 
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+        if let Some(error) = &self.terminal_error {
+            return Err(error.clone());
+        }
         if self.terminal {
             return Ok(None);
         }
-        match self.receiver.recv() {
-            Ok(BatchWorkerEvent::Batch(batch)) => Ok(Some(batch)),
-            Ok(BatchWorkerEvent::Finished) => {
-                self.terminal = true;
-                self.join_worker()?;
-                Ok(None)
-            }
-            Ok(BatchWorkerEvent::Failed(error)) => {
-                self.terminal = true;
-                self.join_worker()?;
-                Err(error)
-            }
-            Err(_) => {
-                self.terminal = true;
-                let error = self.abnormal_termination();
-                self.join_worker()?;
-                Err(error)
+        loop {
+            match self.receiver.recv() {
+                Ok(BatchWorkerEvent::Batch(batch)) => return Ok(Some(batch)),
+                Ok(BatchWorkerEvent::Heartbeat) => continue,
+                Ok(BatchWorkerEvent::Finished) => {
+                    self.terminal = true;
+                    self.join_worker()?;
+                    return Ok(None);
+                }
+                Ok(BatchWorkerEvent::Failed(error)) => {
+                    self.terminal = true;
+                    // L'errore tipizzato inviato dal producer è l'esito
+                    // autorevole. Un eventuale panic del join non può
+                    // sovrascriverne categoria, causa o diagnostica.
+                    drop(self.join_worker());
+                    self.terminal_error = Some(error.clone());
+                    return Err(error);
+                }
+                Err(_) => {
+                    self.terminal = true;
+                    let error = self.abnormal_termination();
+                    drop(self.join_worker());
+                    self.terminal_error = Some(error.clone());
+                    return Err(error);
+                }
             }
         }
     }
@@ -129,6 +186,7 @@ where
         receiver,
         worker: Some(worker),
         terminal: false,
+        terminal_error: None,
     }))
 }
 
@@ -181,7 +239,85 @@ mod tests {
                 if error.code == plenora_io_model::IoErrorCode::LimitExceeded
                     && error.message == "limite del parser"
         ));
+        assert!(matches!(
+            reader.next_batch(),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
+        ));
+    }
+
+    #[test]
+    fn heartbeat_is_invisible_to_the_reader() {
+        let mut reader = spawn_batch_reader("test", test_layer(), 2, |emitter| {
+            assert!(emitter.is_receiver_alive());
+            assert!(emitter.send(RecordBatch::new_empty(Arc::new(Schema::empty()))));
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(reader.next_batch().unwrap().is_some());
         assert!(reader.next_batch().unwrap().is_none());
+    }
+
+    #[test]
+    fn heartbeat_detects_a_dropped_reader() {
+        let (sender, receiver) = sync_channel(1);
+        let emitter = BatchEmitter { sender };
+        drop(receiver);
+
+        assert!(!emitter.is_receiver_alive());
+    }
+
+    #[test]
+    fn cancellable_send_observes_pre_cancelled_token_on_a_full_channel() {
+        let (sender, _receiver) = sync_channel(1);
+        sender.send(BatchWorkerEvent::Heartbeat).unwrap();
+        let emitter = BatchEmitter { sender };
+        let cancellation = CancellationToken::default();
+        cancellation.cancel();
+
+        let error = emitter
+            .send_cancellable(
+                RecordBatch::new_empty(Arc::new(Schema::empty())),
+                &cancellation,
+                ErrorPhase::Read,
+            )
+            .unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Cancelled);
+    }
+
+    #[test]
+    fn cancellable_send_exits_when_a_full_channel_is_cancelled() {
+        let (sender, _receiver) = sync_channel(1);
+        sender.send(BatchWorkerEvent::Heartbeat).unwrap();
+        let cancellation = CancellationToken::default();
+        let worker_cancellation = cancellation.clone();
+        let worker = std::thread::spawn(move || {
+            BatchEmitter { sender }.send_cancellable(
+                RecordBatch::new_empty(Arc::new(Schema::empty())),
+                &worker_cancellation,
+                ErrorPhase::Read,
+            )
+        });
+
+        cancellation.cancel();
+        let error = worker.join().unwrap().unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Cancelled);
+    }
+
+    #[test]
+    fn cancellable_send_exits_when_the_receiver_of_a_full_channel_drops() {
+        let (sender, receiver) = sync_channel(1);
+        sender.send(BatchWorkerEvent::Heartbeat).unwrap();
+        let worker = std::thread::spawn(move || {
+            BatchEmitter { sender }.send_cancellable(
+                RecordBatch::new_empty(Arc::new(Schema::empty())),
+                &CancellationToken::default(),
+                ErrorPhase::Read,
+            )
+        });
+
+        drop(receiver);
+        assert!(!worker.join().unwrap().unwrap());
     }
 
     #[test]
@@ -198,6 +334,9 @@ mod tests {
                     && error.driver.as_deref() == Some("test")
                     && error.message.contains("anomalo")
         ));
-        assert!(reader.next_batch().unwrap().is_none());
+        assert!(matches!(
+            reader.next_batch(),
+            Err(error) if error.code == plenora_io_model::IoErrorCode::Format
+        ));
     }
 }

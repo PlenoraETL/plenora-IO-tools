@@ -1,6 +1,6 @@
 # Stato implementazione rispetto agli ADR
 
-Verifica aggiornata al 2026-07-31. La tabella distingue ciò che è nel codice da
+Verifica aggiornata al 2026-08-03. La tabella distingue ciò che è nel codice da
 ciò che resta una decisione architetturale: “parziale” non significa che il
 driver non funzioni, ma che non soddisfa ancora tutte le invarianti dell’ADR.
 
@@ -53,6 +53,18 @@ La metadata candidate `1.0.0` usa come evidence base la revisione
 propria revisione prima di qualsiasi tag. Il tag `v1.0.0` non esiste e i crate
 restano `publish = false`; la compatibilità 1.x resta limitata alla CLI JSON.
 Le evidenze e i record `v1.0.0-rc.2` non vengono riattribuiti.
+
+Il worktree post-candidato adotta `plenora-row-diagnostics-v1` per i rifiuti
+row-scoped e impone la validazione runtime sui confini read/write di tutti i
+driver. Le geometrie non valide non entrano nei batch;
+dopo il primo rifiuto il parser continua soltanto per ottenere conteggi completi
+ed esempi bounded, conservando l'indice assoluto zero-based solo quando la
+provenance è attestabile. La CLI aggiunge `error.row_diagnostics` solo quando
+applicabile, mappa i rifiuti `DataMapping` normativi a exit 2 e la cancellazione
+del chiamante a exit 130. Chiave e valore sono assenti
+per default e richiedono campo e policy `emit`/`redact` espliciti. Questo
+incremento non appartiene alle evidenze congelate precedenti e richiede suite,
+review, CI same-SHA e qualifica cross-component prima di una release.
 
 Il profilo safety per un possibile impiego aeronautico è definito in
 [`assurance/AERONAUTICAL_PROFILE.md`](assurance/AERONAUTICAL_PROFILE.md), con
@@ -123,6 +135,28 @@ canoniche e rifiuta metadati incompleti o un'estensione esterna discordante.
   assi come campi `snake_case`; `retry` è un oggetto taggato e `After` conserva
   `delay_ms`. Il codice locale resta separato e `message` è soltanto testo
   diagnostico redatto.
+- `PlenoraIoError` può includere `row_diagnostics` conforme a
+  `plenora-row-diagnostics-v1`. Il report è opzionale, bounded, usa indici
+  sorgente zero-based e resta separato dagli assi dell'errore e dagli effetti
+  remoti. Il reader Shapefile produce la diagnostica nativa completa; il bordo
+  comune valida schema, nullability e geometria di tutti i reader e writer.
+  Gli indici sono emessi soltanto per i percorsi che attestano una relazione
+  fisica uno-a-uno; pruning, righe deleted ed espansioni DXF falliscono senza
+  inventare provenance. La qualifica cross-component resta aperta.
+  GeoPackage non attesta indici fisici generici: l'ordinale Arrow non coincide
+  necessariamente con `rowid` quando esistono gap. La CLI determina
+  `input_total` esatto a EOF per un layer alla volta, lo dichiara prima della
+  relativa scrittura e non accumula tutti i layer; EOF corto o righe extra
+  impediscono `finish` e publish. Un'interruzione terminale conserva categoria,
+  codice, fase e retry originali, aggiungendo soltanto diagnostica partial.
+  FileGDB/GDAL resta pending per una qualifica live su dataset e runtime reali:
+  i test feature-gated non sono presentati come evidenza live.
+  Il routing CLI `.xls` e' stato rimosso come capability drop esplicita: il
+  driver supporta esclusivamente `.xlsx`, non il contenitore binario BIFF.
+- `read --limit` usa la scope typed `ReadScope::AcceptedRows`: arresto reale
+  dopo il batch che raggiunge la soglia, overshoot per batch invariato e
+  diagnostica non completa sullo stop volontario. `convert` usa
+  `ReadScope::Complete` e continua a validare fino a EOF prima del publish.
 - `plenora-io-convert-v1` separa i report osservati in `read_loss` e
   `write_loss`; `conversion_fidelity` combina i due assessment senza presentare
   il solo esito del writer come giudizio sull'intera conversione.

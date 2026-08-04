@@ -16,8 +16,8 @@ driver-kml 4
 driver-shp 2
 driver-xls 1
 plenora-io-model 1
-plenora-io-core 2
-plenora-io-cli 19
+plenora-io-core 8
+plenora-io-cli 20
 plenora-bench 22
 plenora-fuzz 6
 '
@@ -49,7 +49,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 92 ]; then
+if [ "${actual_total}" -ne 99 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

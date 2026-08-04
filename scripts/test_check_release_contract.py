@@ -262,6 +262,30 @@ class ReleaseContractTests(unittest.TestCase):
         protocol["envelopes"]["convert"]["forbidden_legacy_fields"] = []
         self.assertTrue(validate_cli_protocol_v1(protocol))
 
+    def test_cli_protocol_rejects_error_contract_semantic_mutations(self) -> None:
+        mutations = (
+            (("optional_error_fields",), []),
+            (("optional_error_fields",), ["row_diagnostics", "details"]),
+            (("row_diagnostics_semantics", "contract"), "other-contract"),
+            (("row_diagnostics_semantics", "present_when"), "always"),
+            (
+                ("row_diagnostics_semantics", "missing_write_input_total"),
+                "row_diagnostics_with_unknown_input_total",
+            ),
+            (("row_diagnostics_semantics", "absent_for_other_errors"), False),
+            (("emitted_error_codes",), ["CANCELLED"]),
+            (("exit_codes", "data_mapping"), 1),
+            (("exit_codes", "cancelled_by_caller"), 1),
+        )
+        for path, replacement in mutations:
+            with self.subTest(path=path):
+                protocol = copy.deepcopy(self.cli_protocol)
+                target = protocol["envelopes"]["error"]
+                for segment in path[:-1]:
+                    target = target[segment]
+                target[path[-1]] = replacement
+                self.assertTrue(validate_cli_protocol_v1(protocol))
+
     def test_final_candidate_rejects_premature_release_claims(self) -> None:
         mutations = (
             ("component_version", "1.0.0-rc.2"),

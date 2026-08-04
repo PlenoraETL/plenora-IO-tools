@@ -253,6 +253,7 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
         projection_mode: ProjectionMode::Required,
         pruning_predicate: None,
         spatial_pruning_hint: None,
+        scope: Default::default(),
         batch_target: BatchTarget::default(),
         cancellation: Default::default(),
     };
@@ -771,6 +772,7 @@ fn read_request() -> ReadRequest {
         projection_mode: ProjectionMode::BestEffort,
         pruning_predicate: None,
         spatial_pruning_hint: None,
+        scope: Default::default(),
         batch_target: BatchTarget::default(),
         cancellation: Default::default(),
     }
@@ -974,6 +976,7 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
             projection_mode: ProjectionMode::Required,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: Default::default(),
             batch_target: BatchTarget::default(),
             cancellation: Default::default(),
         };
@@ -1014,6 +1017,7 @@ fn every_exact_pure_rust_reader_supports_an_empty_projection() {
             projection_mode: ProjectionMode::Required,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: Default::default(),
             batch_target: BatchTarget::default(),
             cancellation: Default::default(),
         }) {

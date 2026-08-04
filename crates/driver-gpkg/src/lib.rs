@@ -153,7 +153,8 @@ impl FormatDriver for GpkgDriver {
                 "gpkg.rtree_index".to_owned(),
                 rtree_table.is_some().to_string(),
             );
-            let contract = DataContract::new(schema.clone(), Some(geometry));
+            let contract = DataContract::new(schema, Some(geometry));
+            let runtime_schema = contract.schema.clone();
             layers.push(LayerContract {
                 id: LayerId(i as u32),
                 name: table_meta.table.clone(),
@@ -163,7 +164,7 @@ impl FormatDriver for GpkgDriver {
                 rtree_table,
                 table: table_meta.table,
                 geom_col: table_meta.geom_col,
-                schema,
+                schema: runtime_schema,
                 attrs,
             });
         }
@@ -174,6 +175,7 @@ impl FormatDriver for GpkgDriver {
                 metas,
             }),
             opts.resource_budget.clone(),
+            false,
         ))
     }
 
@@ -396,21 +398,24 @@ fn project_gpkg_layer(
         })
         .collect();
     let mut layer = source_layer.clone();
-    layer.contract = DataContract {
-        schema: schema.clone(),
-        geometry: if geometry {
-            layer
-                .contract
-                .geometry
-                .map(|geometry| GeometryColumnContract {
-                    field_id: FieldId(0),
-                    ..geometry
-                })
-        } else {
-            None
-        },
+    let projected_geometry = if geometry {
+        layer
+            .contract
+            .geometry
+            .map(|geometry| GeometryColumnContract {
+                field_id: FieldId(0),
+                ..geometry
+            })
+    } else {
+        None
     };
-    Ok((ProjectedGpkgColumns { geometry, attrs }, schema, layer))
+    layer.contract = DataContract::new(schema, projected_geometry);
+    let runtime_schema = layer.contract.schema.clone();
+    Ok((
+        ProjectedGpkgColumns { geometry, attrs },
+        runtime_schema,
+        layer,
+    ))
 }
 
 struct GpkgReader {
@@ -850,11 +855,15 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
 }
 
 fn gpkg_dimensions(z: i64, m: i64) -> CoordinateDimensions {
-    match (z != 0, m != 0) {
-        (false, false) => CoordinateDimensions::Xy,
-        (true, false) => CoordinateDimensions::Xyz,
-        (false, true) => CoordinateDimensions::Xym,
-        (true, true) => CoordinateDimensions::Xyzm,
+    match (z, m) {
+        (0, 0) => CoordinateDimensions::Xy,
+        (1, 0) => CoordinateDimensions::Xyz,
+        (0, 1) => CoordinateDimensions::Xym,
+        (1, 1) => CoordinateDimensions::Xyzm,
+        // GeoPackage usa 2 per "optional": non attesta che l'ordinata sia
+        // presente in ogni geometria, quindi il contratto runtime resta
+        // deliberatamente Unknown invece di inventare XYZ/XYZM.
+        _ => CoordinateDimensions::Unknown,
     }
 }
 
@@ -1253,6 +1262,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: Some(spatial_pruning_hint),
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1452,6 +1462,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1482,6 +1493,7 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1500,6 +1512,7 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1579,6 +1592,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1674,6 +1688,7 @@ mod tests {
                     projection_mode: ProjectionMode::BestEffort,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
+                    scope: Default::default(),
                     batch_target: BatchTarget::default(),
                     cancellation: Default::default(),
                 })

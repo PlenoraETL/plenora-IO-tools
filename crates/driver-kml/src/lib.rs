@@ -31,8 +31,9 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
-    check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
-    AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
+    check_cancelled, check_cancelled_periodically, read_row_error, validate_write,
+    with_write_validation, write_row_rejection, AttributeWriteSupport,
+    CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
@@ -265,7 +266,11 @@ impl FormatDriver for KmlDriver {
             opts.limits.max_input_bytes,
             opts.resource_budget.clone(),
         );
-        while let Some(placemark) = stream.next_placemark(&opts.cancellation)? {
+        while let Some(placemark) = stream.next_placemark(
+            &opts.cancellation,
+            u64::try_from(stats.rows)
+                .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?,
+        )? {
             opts.resource_budget.ensure_active()?;
             if stats.rows >= opts.limits.max_rows {
                 return Err(PlenoraIoError::LimitExceeded(format!(
@@ -273,7 +278,18 @@ impl FormatDriver for KmlDriver {
                     opts.limits.max_rows
                 )));
             }
-            let geometry = stats.observe(&placemark, &opts.cancellation)?;
+            let source_index = u64::try_from(stats.rows)
+                .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?;
+            let geometry = stats
+                .observe(&placemark, &opts.cancellation)
+                .map_err(|error| {
+                    read_row_error(
+                        error,
+                        Some(source_index),
+                        "kml.geometry_not_representable",
+                        Some(GEOMETRY),
+                    )
+                })?;
             spool_writer.row(
                 geometry.as_deref(),
                 placemark.name.as_deref(),
@@ -300,6 +316,7 @@ impl FormatDriver for KmlDriver {
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
             opts.resource_budget.clone(),
+            true,
         ))
     }
 
@@ -337,6 +354,8 @@ impl FormatDriver for KmlDriver {
             Box::new(KmlWriterState {
                 staging,
                 output,
+                rows: 0,
+                input_total: None,
                 wkb_limits: opts.limits.effective_wkb(),
             }),
             self.descriptor(),
@@ -813,6 +832,9 @@ impl PlacemarkStream {
             b"MultiGeometry" => Some(KmlGeometry::MultiGeometry(
                 self.read_multi_geometry(cancellation)?,
             )),
+            b"Model" | b"Track" | b"MultiTrack" => {
+                return Err(err("geometria KML non supportata dal contratto corrente"))
+            }
             _ => {
                 self.skip_element(cancellation)?;
                 None
@@ -829,6 +851,9 @@ impl PlacemarkStream {
                     b"description" => placemark.description = Some(self.read_text(cancellation)?),
                     name => {
                         if let Some(geometry) = self.read_geometry(name, cancellation)? {
+                            if placemark.geometry.is_some() {
+                                return Err(err("Placemark KML con piu geometrie top-level"));
+                            }
                             placemark.geometry = Some(geometry);
                         }
                     }
@@ -842,7 +867,11 @@ impl PlacemarkStream {
         }
     }
 
-    fn next_placemark(&mut self, cancellation: &CancellationToken) -> Result<Option<Placemark>> {
+    fn next_placemark(
+        &mut self,
+        cancellation: &CancellationToken,
+        source_index: u64,
+    ) -> Result<Option<Placemark>> {
         loop {
             let event = self.next_event(cancellation)?;
             match event {
@@ -850,7 +879,17 @@ impl PlacemarkStream {
                     if element.local_name().as_ref() == b"Placemark"
                         && self.traversed_by_legacy_reader() =>
                 {
-                    return self.read_placemark(cancellation).map(Some);
+                    return self
+                        .read_placemark(cancellation)
+                        .map(Some)
+                        .map_err(|error| {
+                            read_row_error(
+                                error,
+                                Some(source_index),
+                                "kml.invalid_placemark",
+                                Some(GEOMETRY),
+                            )
+                        });
                 }
                 Event::Empty(element)
                     if element.local_name().as_ref() == b"Placemark"
@@ -910,10 +949,22 @@ impl KmlContractStats {
 struct KmlWriterState {
     staging: StagedFile,
     output: BufWriter<File>,
+    rows: u64,
+    input_total: Option<u64>,
     wkb_limits: WkbLimits,
 }
 
 impl FormatWriter for KmlWriterState {
+    fn declare_input_total(&mut self, layer: LayerId, total: u64) -> Result<()> {
+        if layer.0 != 0 {
+            return Err(PlenoraIoError::Unsupported(
+                "KML supporta un solo layer".to_owned(),
+            ));
+        }
+        self.input_total = Some(total);
+        Ok(())
+    }
+
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
         let geom_idx =
@@ -926,23 +977,48 @@ impl FormatWriter for KmlWriterState {
         let limits = self.wkb_limits;
         let name_idx = schema.index_of("name").ok();
         let desc_idx = schema.index_of("description").ok();
-        let mut writer = KmlWriter::from_writer(&mut self.output);
+        let mut placemarks = Vec::with_capacity(batch.num_rows());
+        let mut rejections = Vec::new();
 
         for row in 0..batch.num_rows() {
             let geometry = if geom_col.is_null(row) {
                 None
             } else {
-                let geometry = decode_wkb(geom_col.value(row), &limits)?;
-                Some(kml_geometry_from_wkb(&geometry)?)
+                let geometry = match decode_wkb(geom_col.value(row), &limits) {
+                    Ok(geometry) => geometry,
+                    Err(_) => {
+                        rejections.push((row, "kml.invalid_geometry", GEOMETRY));
+                        continue;
+                    }
+                };
+                match kml_geometry_from_wkb(&geometry) {
+                    Ok(geometry) => Some(geometry),
+                    Err(_) => {
+                        rejections.push((row, "kml.geometry_not_representable", GEOMETRY));
+                        continue;
+                    }
+                }
             };
-            let name = name_idx
+            let name = match name_idx
                 .map(|index| cell_string(batch.column(index), row))
-                .transpose()?
-                .flatten();
-            let description = desc_idx
+                .transpose()
+            {
+                Ok(value) => value.flatten(),
+                Err(_) => {
+                    rejections.push((row, "kml.cell_not_representable", "name"));
+                    continue;
+                }
+            };
+            let description = match desc_idx
                 .map(|index| cell_string(batch.column(index), row))
-                .transpose()?
-                .flatten();
+                .transpose()
+            {
+                Ok(value) => value.flatten(),
+                Err(_) => {
+                    rejections.push((row, "kml.cell_not_representable", "description"));
+                    continue;
+                }
+            };
 
             // Colonne extra (non name/description/geometria) -> ExtendedData.
             let mut data = Vec::new();
@@ -950,9 +1026,21 @@ impl FormatWriter for KmlWriterState {
                 if i == geom_idx || Some(i) == name_idx || Some(i) == desc_idx {
                     continue;
                 }
-                if let Some(v) = cell_string(batch.column(i), row)? {
-                    data.push((f.name().clone(), v));
+                match cell_string(batch.column(i), row) {
+                    Ok(Some(value)) => data.push((f.name().clone(), value)),
+                    Ok(None) => {}
+                    Err(_) => {
+                        rejections.push((row, "kml.cell_not_representable", f.name().as_str()));
+                        data.clear();
+                        break;
+                    }
                 }
+            }
+            if rejections
+                .last()
+                .is_some_and(|(rejected_row, _, _)| *rejected_row == row)
+            {
+                continue;
             }
             let children = if data.is_empty() {
                 Vec::new()
@@ -960,18 +1048,37 @@ impl FormatWriter for KmlWriterState {
                 vec![extended_data(&data)]
             };
 
-            let placemark = Placemark {
+            placemarks.push(Placemark {
                 name,
                 description,
                 geometry,
                 children,
                 ..Default::default()
-            };
+            });
+        }
+        if !rejections.is_empty() {
+            return Err(write_row_rejection(
+                "kml",
+                self.rows,
+                batch.num_rows(),
+                &rejections,
+                self.input_total,
+            ));
+        }
+        let mut writer = KmlWriter::from_writer(&mut self.output);
+        for placemark in placemarks {
             writer
                 .write(&Kml::Placemark(placemark))
                 .map_err(|error| err(format!("serializzazione KML: {error}")))?;
         }
         drop(writer);
+        self.rows = self
+            .rows
+            .checked_add(
+                u64::try_from(batch.num_rows())
+                    .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?,
+            )
+            .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?;
         Ok(())
     }
 
@@ -1421,6 +1528,50 @@ mod tests {
         .is_err());
     }
 
+    fn event_parser_error(xml: &str) -> PlenoraIoError {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("unsupported.kml");
+        std::fs::write(&path, xml).unwrap();
+        let mut stream = PlacemarkStream::open(&path).unwrap();
+        stream
+            .next_placemark(&CancellationToken::new(), 0)
+            .unwrap_err()
+    }
+
+    #[test]
+    fn event_parser_rejects_model_track_and_multitrack() {
+        for geometry in [
+            "<Model><Location/></Model>",
+            "<gx:Track><when>2026-01-01T00:00:00Z</when></gx:Track>",
+            "<gx:MultiTrack><gx:Track/></gx:MultiTrack>",
+        ] {
+            let xml = format!(
+                r#"<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Placemark>{geometry}</Placemark></kml>"#
+            );
+            let error = event_parser_error(&xml);
+            assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+            assert!(error.message.contains("geometria KML non supportata"));
+            let diagnostics = error.row_diagnostics.as_deref().unwrap();
+            assert_eq!(diagnostics.examples[0].source_index, 0);
+            assert_eq!(diagnostics.counts["kml.invalid_placemark"], 1);
+            assert!(diagnostics.validate().is_ok());
+        }
+    }
+
+    #[test]
+    fn event_parser_rejects_multiple_top_level_geometries() {
+        let error = event_parser_error(
+            r#"<kml xmlns="http://www.opengis.net/kml/2.2"><Placemark><Point><coordinates>1,2</coordinates></Point><Point><coordinates>3,4</coordinates></Point></Placemark></kml>"#,
+        );
+
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+        assert!(error.message.contains("piu geometrie top-level"));
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(diagnostics.examples[0].source_index, 0);
+        assert_eq!(diagnostics.counts["kml.invalid_placemark"], 1);
+        assert!(diagnostics.validate().is_ok());
+    }
+
     #[test]
     fn reads_kml_placemarks() {
         let dir = tempfile::tempdir().unwrap();
@@ -1448,6 +1599,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget {
                     target_bytes: usize::MAX,
                     max_rows: 1,
@@ -1520,6 +1672,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: CancellationToken::new(),
             })
@@ -1596,6 +1749,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1686,6 +1840,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1779,6 +1934,62 @@ mod tests {
             srid: None,
         };
         assert!(kml_geometry_from_wkb(&geometry).is_err());
+    }
+
+    #[test]
+    fn writer_adapter_attributes_kml_specific_rejection_and_prevents_publish() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("ambiguous.kml");
+        let contract = kml_contract(
+            BTreeSet::from([CoordinateDimensions::Xy]),
+            BTreeSet::from([GeometryType::GeometryCollection]),
+        );
+        let point = |x| WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x,
+                y: 1.0,
+                z: None,
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let bytes = encode_wkb(
+            &WkbGeometry {
+                value: WkbValue::GeometryCollection(vec![point(1.0), point(2.0)]),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+        )
+        .unwrap();
+        let batch = RecordBatch::try_new(
+            contract.schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(bytes.as_slice())])),
+                Arc::new(StringArray::from(vec![Some("name")])),
+                Arc::new(StringArray::from(vec![None::<&str>])),
+            ],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![plenora_io_core::WriteLayer {
+                name: "ambiguous".to_owned(),
+                contract,
+            }],
+        };
+        let mut writer = KmlDriver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+
+        let error = writer.write(&batch).unwrap_err();
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(diagnostics.examples[0].source_index, 0);
+        assert_eq!(diagnostics.counts["kml.geometry_not_representable"], 1);
+        assert!(diagnostics.validate().is_ok());
+        assert!(writer.finish().is_err());
+        assert!(!output.exists());
     }
 
     #[test]

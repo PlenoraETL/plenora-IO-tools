@@ -12,7 +12,7 @@
 #![forbid(unsafe_code)]
 
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -46,12 +46,12 @@ use plenora_io_core::loss::{LossExample, LossReport};
 use plenora_io_core::publish::{
     create_staged_dir, publish_dir_atomic, publish_files_ordered_limited,
 };
-use plenora_io_core::request::ReadRequest;
+use plenora_io_core::request::{ReadRequest, ReadScope};
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsRepresentationCapabilities,
-    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES, SCALAR_TYPES,
-    WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
+    validate_write, with_write_validation, write_row_rejection, AttributeWriteSupport,
+    CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES,
+    SCALAR_TYPES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -63,7 +63,11 @@ use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{
+    PlenoraIoError, Result, RowDiagnosticExample, RowDiagnosticKey, RowDiagnosticKeyState,
+    RowDiagnosticKeyValue, RowDiagnosticScope, RowDiagnostics, RowDiagnosticsCompleteness,
+    ROW_DIAGNOSTICS_CONTRACT, ROW_DIAGNOSTICS_INDEX_BASIS,
+};
 
 const GEOMETRY: &str = "geometry";
 const DIRECTORY_DATASET_SUFFIX: &str = ".shp.d";
@@ -79,6 +83,13 @@ const DBF_HEADER_TERMINATOR_SIZE: usize = 1;
 const DBF_FIELD_NAME_SIZE: usize = 11;
 const DBF_VISUAL_FOXPRO_VERSION: u8 = 0x30;
 const DBF_VISUAL_FOXPRO_BACKLINK_SIZE: usize = 263;
+const DEFAULT_ROW_DIAGNOSTICS_EXAMPLES_LIMIT: u64 = 64;
+const MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT: u64 = 64;
+const INNER_RING_WITHOUT_OUTER_CAUSE: &str = "shapefile.inner_ring_without_outer";
+const POLYGON_WITHOUT_OUTER_CAUSE: &str = "shapefile.polygon_without_outer";
+const UNCLOSED_RING_CAUSE: &str = "shapefile.unclosed_ring";
+const DEGENERATE_RING_CAUSE: &str = "shapefile.degenerate_ring";
+const ATTRIBUTE_NUMERIC_INVALID_CAUSE: &str = "shapefile.attribute_numeric_invalid";
 
 /// WKT standard per WGS84 (accettato da GDAL), usato per il `.prj` quando la
 /// sorgente dà solo il codice autorità e non una definizione WKT.
@@ -86,6 +97,240 @@ const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\
 
 fn err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("shp", reason)
+}
+
+#[derive(Clone, Copy)]
+enum DiagnosticKeyPolicy {
+    /// Espone il valore lessicale DBF soltanto quando `key_field` e' stato
+    /// configurato esplicitamente e il valore e' attestabile.
+    Emit,
+    /// Espone esclusivamente nome campo e stato `redacted`, mai il valore DBF.
+    Redact,
+}
+
+#[derive(Clone)]
+struct DiagnosticKeyConfig {
+    field: String,
+    policy: DiagnosticKeyPolicy,
+    raw_numeric_field_index: Option<usize>,
+}
+
+#[derive(Clone)]
+struct ShpRowDiagnosticsConfig {
+    examples_limit: u64,
+    /// `None` significa che gli esempi non contengono alcun oggetto `key`;
+    /// non esiste una policy implicita.
+    key: Option<DiagnosticKeyConfig>,
+}
+
+impl ShpRowDiagnosticsConfig {
+    fn from_options(
+        options: &BTreeMap<String, String>,
+        columns: &[ShpColumn],
+        dbf_layout: &DbfLayout,
+    ) -> Result<Self> {
+        let examples_limit = options.get("row_diagnostics.examples_limit").map_or(
+            Ok(DEFAULT_ROW_DIAGNOSTICS_EXAMPLES_LIMIT),
+            |value| {
+                value.parse::<u64>().map_err(|_| {
+                    PlenoraIoError::new(
+                        plenora_io_model::ErrorCategory::InvalidConfiguration,
+                        plenora_io_model::ErrorPhase::Validate,
+                        plenora_io_model::RemoteEffect::None,
+                        plenora_io_model::RetryDisposition::Never,
+                        "row_diagnostics.examples_limit deve essere un intero",
+                    )
+                })
+            },
+        )?;
+        if !(1..=MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT).contains(&examples_limit) {
+            return Err(PlenoraIoError::new(
+                plenora_io_model::ErrorCategory::InvalidConfiguration,
+                plenora_io_model::ErrorPhase::Validate,
+                plenora_io_model::RemoteEffect::None,
+                plenora_io_model::RetryDisposition::Never,
+                format!(
+                    "row_diagnostics.examples_limit deve essere compreso tra 1 e {MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT}"
+                ),
+            ));
+        }
+
+        let key = match options.get("row_diagnostics.key_field") {
+            None => {
+                if options.contains_key("row_diagnostics.key_policy") {
+                    return Err(PlenoraIoError::new(
+                        plenora_io_model::ErrorCategory::InvalidConfiguration,
+                        plenora_io_model::ErrorPhase::Validate,
+                        plenora_io_model::RemoteEffect::None,
+                        plenora_io_model::RetryDisposition::Never,
+                        "row_diagnostics.key_policy richiede row_diagnostics.key_field",
+                    ));
+                }
+                None
+            }
+            Some(field) => {
+                let _column = columns
+                    .iter()
+                    .find(|column| column.name == *field)
+                    .ok_or_else(|| {
+                        PlenoraIoError::new(
+                            plenora_io_model::ErrorCategory::InvalidConfiguration,
+                            plenora_io_model::ErrorPhase::Validate,
+                            plenora_io_model::RemoteEffect::None,
+                            plenora_io_model::RetryDisposition::Never,
+                            "row_diagnostics.key_field non esiste nello schema DBF",
+                        )
+                    })?;
+                let policy = match options
+                    .get("row_diagnostics.key_policy")
+                    .map(String::as_str)
+                {
+                    Some("emit") => DiagnosticKeyPolicy::Emit,
+                    Some("redact") => DiagnosticKeyPolicy::Redact,
+                    _ => {
+                        return Err(PlenoraIoError::new(
+                            plenora_io_model::ErrorCategory::InvalidConfiguration,
+                            plenora_io_model::ErrorPhase::Validate,
+                            plenora_io_model::RemoteEffect::None,
+                            plenora_io_model::RetryDisposition::Never,
+                            "row_diagnostics.key_policy deve essere 'emit' o 'redact'",
+                        ))
+                    }
+                };
+                Some(DiagnosticKeyConfig {
+                    field: field.clone(),
+                    policy,
+                    raw_numeric_field_index: dbf_layout.fields.iter().position(|layout| {
+                        layout.name == *field && matches!(layout.field_type, b'N' | b'F')
+                    }),
+                })
+            }
+        };
+        Ok(Self {
+            examples_limit,
+            key,
+        })
+    }
+}
+
+struct ShpRowDiagnostics {
+    config: ShpRowDiagnosticsConfig,
+    counts: BTreeMap<String, u64>,
+    observed_total: u64,
+    examples: Vec<RowDiagnosticExample>,
+}
+
+impl ShpRowDiagnostics {
+    fn new(config: ShpRowDiagnosticsConfig) -> Self {
+        Self {
+            config,
+            counts: BTreeMap::new(),
+            observed_total: 0,
+            examples: Vec::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.observed_total == 0
+    }
+
+    fn record(
+        &mut self,
+        source_index: u64,
+        cause: &'static str,
+        record: Option<&Record>,
+        raw_numeric_key: Option<&str>,
+    ) {
+        self.observed_total += 1;
+        *self.counts.entry(cause.to_owned()).or_default() += 1;
+        if self.examples.len() as u64 >= self.config.examples_limit {
+            return;
+        }
+        let key = self.config.key.as_ref().map(|config| match config.policy {
+            DiagnosticKeyPolicy::Redact => RowDiagnosticKey {
+                field: config.field.clone(),
+                state: RowDiagnosticKeyState::Redacted,
+                value: None,
+            },
+            DiagnosticKeyPolicy::Emit => {
+                let decoded = config
+                    .raw_numeric_field_index
+                    .is_none()
+                    .then(|| {
+                        record
+                            .and_then(|row| row.get(&config.field))
+                            .and_then(fv_string)
+                    })
+                    .flatten();
+                let value = raw_numeric_key.map(str::to_owned).or(decoded);
+                match value {
+                    Some(value) if value.len() <= 1024 => RowDiagnosticKey {
+                        field: config.field.clone(),
+                        state: RowDiagnosticKeyState::Value,
+                        value: Some(RowDiagnosticKeyValue::String(value)),
+                    },
+                    _ => RowDiagnosticKey {
+                        field: config.field.clone(),
+                        state: RowDiagnosticKeyState::Unavailable,
+                        value: None,
+                    },
+                }
+            }
+        });
+        self.examples.push(RowDiagnosticExample {
+            source_index,
+            cause: cause.to_owned(),
+            column: None,
+            key,
+            write_state: None,
+        });
+    }
+
+    fn into_report(self) -> RowDiagnostics {
+        let total = self.observed_total;
+        self.into_report_with(RowDiagnosticsCompleteness::Complete, None, Some(total))
+    }
+
+    fn into_partial_report(self, knowledge_limit: &str) -> RowDiagnostics {
+        self.into_report_with(
+            RowDiagnosticsCompleteness::Partial,
+            Some(vec![knowledge_limit.to_owned()]),
+            None,
+        )
+    }
+
+    fn into_partial_error(self, error: PlenoraIoError, knowledge_limit: &str) -> PlenoraIoError {
+        if self.is_empty() {
+            error
+        } else {
+            error.with_row_diagnostics(self.into_partial_report(knowledge_limit))
+        }
+    }
+
+    fn into_report_with(
+        self,
+        completeness: RowDiagnosticsCompleteness,
+        knowledge_limits: Option<Vec<String>>,
+        total: Option<u64>,
+    ) -> RowDiagnostics {
+        let examples_truncated = self.observed_total > self.examples.len() as u64;
+        RowDiagnostics {
+            contract: ROW_DIAGNOSTICS_CONTRACT.to_owned(),
+            scope: RowDiagnosticScope::Read,
+            index_basis: ROW_DIAGNOSTICS_INDEX_BASIS.to_owned(),
+            completeness,
+            knowledge_limits,
+            observed_total: self.observed_total,
+            total,
+            input_total: None,
+            counts: self.counts,
+            examples_limit: self.config.examples_limit,
+            examples_truncated,
+            examples: self.examples,
+            diagnostic_state_counts: None,
+            write_outcome: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -227,8 +472,11 @@ impl FormatDriver for ShpDriver {
             cols,
             dbf_layout,
             geometry_info,
+            active_row_count,
             loss,
         } = infer_shp_schema(&path)?;
+        let row_diagnostics =
+            ShpRowDiagnosticsConfig::from_options(&opts.format_options, &cols, &dbf_layout)?;
         let mut geometry_contract =
             GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs.clone(), true);
         geometry_contract.dimensions = geometry_info.dimensions;
@@ -271,7 +519,9 @@ impl FormatDriver for ShpDriver {
                 dbf_layout,
                 dimensions: geometry_contract.dimensions,
                 shape_type: geometry_info.shape_type,
+                active_row_count,
                 loss,
+                row_diagnostics,
                 layers: vec![LayerContract {
                     id: LayerId(0),
                     name,
@@ -279,6 +529,7 @@ impl FormatDriver for ShpDriver {
                 }],
             }),
             opts.resource_budget.clone(),
+            false,
         ))
     }
 
@@ -357,6 +608,8 @@ impl FormatDriver for ShpDriver {
                 geom_idx,
                 prj: resolve_prj(layer, schema, geom_idx),
                 shape_type: None,
+                rows: 0,
+                input_total: None,
                 wkb_limits: opts.limits.effective_wkb(),
                 max_output_bytes: opts.max_output_bytes(),
             }),
@@ -377,7 +630,9 @@ struct ShpDataset {
     dbf_layout: DbfLayout,
     dimensions: CoordinateDimensions,
     shape_type: Option<&'static str>,
+    active_row_count: u64,
     loss: LossReport,
+    row_diagnostics: ShpRowDiagnosticsConfig,
     layers: Vec<LayerContract>,
 }
 
@@ -413,10 +668,14 @@ impl OpenDatasetHandle for ShpDataset {
             dbf_layout: self.dbf_layout.clone(),
             dimensions: self.dimensions,
             expected_shape_type: self.shape_type,
+            expected_active_rows: self.active_row_count,
             include_geometry,
             batch_sizer,
             layer,
             loss: self.loss.clone(),
+            row_diagnostics: self.row_diagnostics.clone(),
+            scope: request.scope,
+            cancellation: request.cancellation.clone(),
         })?;
         Ok(plenora_io_core::with_cancellation(
             reader,
@@ -464,11 +723,23 @@ struct ShpWriter {
     geom_idx: usize,
     prj: Option<String>,
     shape_type: Option<&'static str>,
+    rows: u64,
+    input_total: Option<u64>,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
 }
 
 impl FormatWriter for ShpWriter {
+    fn declare_input_total(&mut self, layer: LayerId, total: u64) -> Result<()> {
+        if layer.0 != 0 {
+            return Err(PlenoraIoError::Unsupported(
+                "Shapefile supporta un solo layer".to_owned(),
+            ));
+        }
+        self.input_total = Some(total);
+        Ok(())
+    }
+
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let geom_col = batch
             .column(self.geom_idx)
@@ -476,38 +747,87 @@ impl FormatWriter for ShpWriter {
             .downcast_ref::<BinaryArray>()
             .ok_or_else(|| err("colonna geometria non binaria"))?;
         let limits = self.wkb_limits;
-        let w = self.writer.as_mut().ok_or_else(|| err("writer chiuso"))?;
         let mut st = self.shape_type;
+        let mut prepared = Vec::with_capacity(batch.num_rows());
+        let mut rejections = Vec::new();
         for row in 0..batch.num_rows() {
-            let shape = if geom_col.is_null(row) {
-                Shape::NullShape
-            } else {
-                let geometry = decode_wkb(geom_col.value(row), &limits)?;
-                shape_from_wkb(geometry)?
+            if geom_col.is_null(row) {
+                rejections.push((row, "shapefile.null_geometry_unsupported", GEOMETRY));
+                continue;
+            }
+            let geometry = match decode_wkb(geom_col.value(row), &limits) {
+                Ok(geometry) => geometry,
+                Err(_) => {
+                    rejections.push((row, "shapefile.invalid_geometry", GEOMETRY));
+                    continue;
+                }
+            };
+            let shape = match shape_from_wkb(geometry) {
+                Ok(shape) => shape,
+                Err(_) => {
+                    rejections.push((row, "shapefile.geometry_not_representable", GEOMETRY));
+                    continue;
+                }
             };
             // Capability-check (ADR-IO 3): un unico tipo di geometria per file.
             let tag = shape_tag(&shape);
             if tag == "unsupported" {
-                return Err(err("tipo geometria non supportato da Shapefile"));
+                rejections.push((row, "shapefile.geometry_type_unsupported", GEOMETRY));
+                continue;
             }
             if !tag.is_empty() {
                 match st {
-                    None => st = Some(tag),
+                    None => {}
                     Some(e) if e != tag => {
-                        return Err(err(format!(
-                            "Shapefile richiede un unico tipo di geometria per file (trovati '{e}' e '{tag}')"
-                        )))
+                        rejections.push((row, "shapefile.mixed_geometry_type", GEOMETRY));
+                        continue;
                     }
                     _ => {}
                 }
             }
             let mut rec = Record::default();
+            let mut valid_record = true;
             for (col, name, kind) in &self.attrs {
-                rec.insert(name.clone(), cell_to_field(batch.column(*col), row, *kind)?);
+                match cell_to_field(batch.column(*col), row, *kind) {
+                    Ok(value) => {
+                        rec.insert(name.clone(), value);
+                    }
+                    Err(_) => {
+                        rejections.push((row, "shapefile.cell_not_representable", name.as_str()));
+                        valid_record = false;
+                        break;
+                    }
+                }
             }
+            if valid_record {
+                if !tag.is_empty() && st.is_none() {
+                    st = Some(tag);
+                }
+                prepared.push((shape, rec));
+            }
+        }
+        if !rejections.is_empty() {
+            return Err(write_row_rejection(
+                "shp",
+                self.rows,
+                batch.num_rows(),
+                &rejections,
+                self.input_total,
+            ));
+        }
+        let w = self.writer.as_mut().ok_or_else(|| err("writer chiuso"))?;
+        for (shape, rec) in prepared {
             write_shape(w, shape, &rec)?;
         }
         self.shape_type = st;
+        self.rows = self
+            .rows
+            .checked_add(
+                u64::try_from(batch.num_rows()).map_err(|_| {
+                    PlenoraIoError::LimitExceeded("troppe righe Shapefile".to_owned())
+                })?,
+            )
+            .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe righe Shapefile".to_owned()))?;
         Ok(())
     }
 
@@ -1016,6 +1336,7 @@ fn classify(v: &FieldValue) -> ObservedValueClass {
 #[derive(Clone, Debug)]
 struct DbfFieldLayout {
     name: String,
+    field_type: u8,
     offset: usize,
     width: usize,
     exact_integer_slot: Option<usize>,
@@ -1105,6 +1426,7 @@ fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
             });
         fields.push(DbfFieldLayout {
             name,
+            field_type: descriptor[11],
             offset,
             width,
             exact_integer_slot,
@@ -1144,6 +1466,15 @@ struct DbfExactIntegerRows {
     buffer: Vec<u8>,
 }
 
+enum DbfPhysicalRow {
+    Deleted,
+    Active {
+        exact_values: Vec<Option<i64>>,
+        raw_numeric_key: Option<String>,
+        rejection_cause: Option<&'static str>,
+    },
+}
+
 impl DbfExactIntegerRows {
     fn open(shp_path: &Path, layout: &DbfLayout) -> Result<Self> {
         let mut reader = BufReader::new(
@@ -1161,51 +1492,84 @@ impl DbfExactIntegerRows {
         })
     }
 
-    /// Restituisce i valori esatti del prossimo record non cancellato, come fa
-    /// l'iteratore della dipendenza usato dal reader Shapefile.
-    fn next_active(&mut self) -> Result<Option<Vec<Option<i64>>>> {
-        while self.records_read < self.layout.record_count {
-            self.reader
-                .read_exact(&mut self.buffer)
-                .map_err(|error| err(format!("record DBF incompleto: {error}")))?;
-            self.records_read += 1;
-            match self.buffer[0] {
-                b'*' => continue,
-                b' ' => {}
-                marker => {
-                    return Err(err(format!(
-                        "marcatore record DBF non valido: 0x{marker:02x}"
-                    )))
-                }
-            }
-            let mut values = vec![None; self.layout.exact_integer_count];
-            for field in &self.layout.fields {
-                let Some(slot) = field.exact_integer_slot else {
-                    continue;
-                };
-                let end = field
-                    .offset
-                    .checked_add(field.width)
-                    .ok_or_else(|| err("overflow nell'offset del campo DBF"))?;
-                let raw = self
-                    .buffer
-                    .get(field.offset..end)
-                    .ok_or_else(|| err(format!("campo DBF '{}' fuori record", field.name)))?;
-                let text = std::str::from_utf8(raw)
-                    .map_err(|_| err(format!("campo numerico DBF '{}' non ASCII", field.name)))?
-                    .trim();
-                if !text.is_empty() {
-                    values[slot] = Some(text.parse::<i64>().map_err(|_| {
-                        err(format!(
-                            "campo DBF '{}' dichiarato N({},0) ma valore non rappresentabile come intero i64",
-                            field.name, field.width
-                        ))
-                    })?);
-                }
-            }
-            return Ok(Some(values));
+    fn next_physical(
+        &mut self,
+        raw_numeric_field_index: Option<usize>,
+    ) -> Result<Option<DbfPhysicalRow>> {
+        if self.records_read >= self.layout.record_count {
+            return Ok(None);
         }
-        Ok(None)
+        self.reader
+            .read_exact(&mut self.buffer)
+            .map_err(|error| err(format!("record DBF incompleto: {error}")))?;
+        self.records_read += 1;
+        match self.buffer[0] {
+            b'*' => return Ok(Some(DbfPhysicalRow::Deleted)),
+            b' ' => {}
+            marker => {
+                return Err(err(format!(
+                    "marcatore record DBF non valido: 0x{marker:02x}"
+                )))
+            }
+        }
+        let mut values = vec![None; self.layout.exact_integer_count];
+        let mut rejection_cause = None;
+        for field in &self.layout.fields {
+            let Some(slot) = field.exact_integer_slot else {
+                continue;
+            };
+            let end = field
+                .offset
+                .checked_add(field.width)
+                .ok_or_else(|| err("overflow nell'offset del campo DBF"))?;
+            let raw = self
+                .buffer
+                .get(field.offset..end)
+                .ok_or_else(|| err(format!("campo DBF '{}' fuori record", field.name)))?;
+            let Ok(text) = std::str::from_utf8(raw) else {
+                rejection_cause = Some(ATTRIBUTE_NUMERIC_INVALID_CAUSE);
+                continue;
+            };
+            let text = text.trim();
+            if !text.is_empty() {
+                match text.parse::<i64>() {
+                    Ok(value) => values[slot] = Some(value),
+                    Err(_) => rejection_cause = Some(ATTRIBUTE_NUMERIC_INVALID_CAUSE),
+                }
+            }
+        }
+        let raw_numeric_key = if let Some(index) = raw_numeric_field_index {
+            let field = self
+                .layout
+                .fields
+                .get(index)
+                .ok_or_else(|| err("indice campo chiave DBF fuori schema"))?;
+            let end = field
+                .offset
+                .checked_add(field.width)
+                .ok_or_else(|| err("overflow nell'offset della chiave DBF"))?;
+            let raw = self
+                .buffer
+                .get(field.offset..end)
+                .ok_or_else(|| err("chiave DBF fuori record"))?;
+            match std::str::from_utf8(raw) {
+                Ok(text) => {
+                    let text = text.trim();
+                    (!text.is_empty()).then(|| text.to_owned())
+                }
+                Err(_) => {
+                    rejection_cause = Some(ATTRIBUTE_NUMERIC_INVALID_CAUSE);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        Ok(Some(DbfPhysicalRow::Active {
+            exact_values: values,
+            raw_numeric_key,
+            rejection_cause,
+        }))
     }
 }
 
@@ -1226,6 +1590,7 @@ struct ShpInference {
     cols: Vec<ShpColumn>,
     dbf_layout: DbfLayout,
     geometry_info: ShpGeometryInfo,
+    active_row_count: u64,
     loss: LossReport,
 }
 
@@ -1414,6 +1779,54 @@ fn polygon_wkb<P: NativePoint>(
     })
 }
 
+fn polygon_rejection_cause<P: NativePoint>(rings: &[PolygonRing<P>]) -> Option<&'static str> {
+    if rings.is_empty() {
+        return Some(POLYGON_WITHOUT_OUTER_CAUSE);
+    }
+    if rings.iter().any(|ring| {
+        let points = ring.points();
+        !matches!(
+            (points.first(), points.last()),
+            (Some(first), Some(last)) if first.x() == last.x() && first.y() == last.y()
+        )
+    }) {
+        return Some(UNCLOSED_RING_CAUSE);
+    }
+    if rings.iter().any(|ring| {
+        let points = ring.points();
+        if points.len() < 4 {
+            return true;
+        }
+        let twice_area = points.windows(2).fold(0.0, |area, edge| {
+            area + edge[0].x() * edge[1].y() - edge[1].x() * edge[0].y()
+        });
+        !twice_area.is_finite() || twice_area == 0.0
+    }) {
+        return Some(DEGENERATE_RING_CAUSE);
+    }
+    let mut has_outer = false;
+    for ring in rings {
+        match ring {
+            PolygonRing::Outer(_) => has_outer = true,
+            PolygonRing::Inner(_) if !has_outer => return Some(INNER_RING_WITHOUT_OUTER_CAUSE),
+            PolygonRing::Inner(_) => {}
+        }
+    }
+    if !has_outer {
+        return Some(POLYGON_WITHOUT_OUTER_CAUSE);
+    }
+    None
+}
+
+fn shape_rejection_cause(shape: &Shape) -> Option<&'static str> {
+    match shape {
+        Shape::Polygon(polygon) => polygon_rejection_cause(polygon.rings()),
+        Shape::PolygonM(polygon) => polygon_rejection_cause(polygon.rings()),
+        Shape::PolygonZ(polygon) => polygon_rejection_cause(polygon.rings()),
+        _ => None,
+    }
+}
+
 fn multipoint_wkb<P: NativePoint>(
     points: &[P],
     dimensions: CoordinateDimensions,
@@ -1591,17 +2004,33 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
                 // Il tipo e' dichiarato dal descrittore N(width>=10, decimals=0),
                 // anche quando tutti i valori sono nulli.
                 accumulator.observe(ObservedValueClass::Integer);
+            } else {
+                accumulator.observe(match field.field_type {
+                    b'N' | b'F' => ObservedValueClass::Number,
+                    b'L' => ObservedValueClass::Boolean,
+                    _ => ObservedValueClass::Text,
+                });
             }
             (field.name.clone(), accumulator)
         })
         .collect();
     let mut loss = LossReport::default();
     let mut precision_risk_fields = BTreeSet::new();
-    for record in reader.iter_records() {
-        let record = record.map_err(|error| err(format!("record DBF: {error}")))?;
-        let exact_values = exact_rows
-            .next_active()?
-            .ok_or_else(|| err("numero di record DBF incoerente con l'header"))?;
+    let mut active_row_count = 0_u64;
+    let mut records = reader.iter_records();
+    while let Some(physical_row) = exact_rows.next_physical(None)? {
+        let exact_values = match physical_row {
+            DbfPhysicalRow::Deleted => continue,
+            DbfPhysicalRow::Active { exact_values, .. } => exact_values,
+        };
+        active_row_count = active_row_count
+            .checked_add(1)
+            .ok_or_else(|| err("numero di record DBF fuori intervallo u64"))?;
+        let record = match records.next() {
+            Some(Ok(record)) => record,
+            Some(Err(_)) => continue,
+            None => return Err(err("numero di record DBF incoerente con l'header")),
+        };
         for field in &dbf_layout.fields {
             let accumulator = accs.get_mut(&field.name).ok_or_else(|| {
                 err(format!(
@@ -1622,7 +2051,7 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
             accumulator.observe(value.map_or(ObservedValueClass::Null, classify));
         }
     }
-    if exact_rows.next_active()?.is_some() {
+    if records.next().is_some() {
         return Err(err("numero di record DBF incoerente con l'header"));
     }
     let columns = order
@@ -1656,6 +2085,7 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
         cols: columns,
         dbf_layout,
         geometry_info,
+        active_row_count,
         loss,
     })
 }
@@ -1667,10 +2097,14 @@ struct ShpParserInput {
     dbf_layout: DbfLayout,
     dimensions: CoordinateDimensions,
     expected_shape_type: Option<&'static str>,
+    expected_active_rows: u64,
     include_geometry: bool,
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
     loss: LossReport,
+    row_diagnostics: ShpRowDiagnosticsConfig,
+    scope: ReadScope,
+    cancellation: plenora_io_model::CancellationToken,
 }
 
 /// Pass 2: thread che scorre i record e produce batch da `batch_size` righe.
@@ -1682,14 +2116,25 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
         dbf_layout,
         dimensions,
         expected_shape_type,
+        expected_active_rows,
         include_geometry,
         mut batch_sizer,
         layer,
         loss,
+        row_diagnostics,
+        scope,
+        cancellation,
     } = input;
     let reader = spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
-        let mut reader = shapefile::Reader::from_path(&path)
+        if scope == ReadScope::AcceptedRows(0) {
+            return Ok(());
+        }
+        let mut shape_reader = shapefile::ShapeReader::from_path(&path)
             .map_err(|error| err(format!("shapefile non valido: {error}")))?;
+        let mut dbf_reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
+            .map_err(|error| err(format!("apertura DBF: {error}")))?;
+        let mut shapes = shape_reader.iter_shapes();
+        let mut records = dbf_reader.iter_records();
         let mut exact_rows = DbfExactIntegerRows::open(&path, &dbf_layout)?;
         let mut geom = include_geometry.then(BinaryBuilder::new);
         let mut builders: Vec<InferredColumnBuilder> = cols
@@ -1697,25 +2142,153 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
             .map(|column| InferredColumnBuilder::new(column.column_type))
             .collect();
         let mut n = 0usize;
-        for pair in reader.iter_shapes_and_records() {
-            let (shape, record) =
-                pair.map_err(|error| err(format!("record shapefile non valido: {error}")))?;
-            let exact_values = exact_rows
-                .next_active()?
-                .ok_or_else(|| err("numero di record DBF incoerente con le geometrie"))?;
+        let mut source_rows_seen = 0_u64;
+        let mut active_rows_seen = 0_u64;
+        let raw_numeric_field_index = row_diagnostics
+            .key
+            .as_ref()
+            .and_then(|key| key.raw_numeric_field_index);
+        let mut diagnostics = ShpRowDiagnostics::new(row_diagnostics);
+        loop {
+            if !diagnostics.is_empty()
+                && matches!(scope, ReadScope::AcceptedRows(limit) if active_rows_seen >= limit)
+            {
+                return Err(diagnostics.into_partial_error(
+                    err("limite di righe richiesto raggiunto durante la diagnostica Shapefile"),
+                    "read_scope_row_limit_reached",
+                ));
+            }
+            if !diagnostics.is_empty()
+                && source_rows_seen.is_multiple_of(1_024)
+                && !emitter.is_receiver_alive()
+            {
+                return Ok(());
+            }
+            if let Err(error) =
+                plenora_io_core::check_cancelled(&cancellation, plenora_io_model::ErrorPhase::Read)
+            {
+                return Err(diagnostics.into_partial_error(error, "shapefile.scan_cancelled"));
+            }
+            let physical_row = match exact_rows.next_physical(raw_numeric_field_index) {
+                Ok(Some(row)) => row,
+                Ok(None) => break,
+                Err(error) => {
+                    return Err(diagnostics
+                        .into_partial_error(error, "shapefile.dbf_exact_scan_interrupted"));
+                }
+            };
+            let source_index = source_rows_seen;
+            source_rows_seen = source_rows_seen
+                .checked_add(1)
+                .ok_or_else(|| err("numero di record Shapefile fuori intervallo u64"))?;
+            let shape = match shapes.next() {
+                Some(Ok(shape)) => shape,
+                Some(Err(error)) => {
+                    return Err(diagnostics.into_partial_error(
+                        err(format!("record shapefile non valido: {error}")),
+                        "shapefile.scan_interrupted",
+                    ));
+                }
+                None => {
+                    return Err(diagnostics.into_partial_error(
+                        err("numero di geometrie incoerente con i record DBF"),
+                        "shapefile.scan_interrupted",
+                    ));
+                }
+            };
+            let (exact_values, raw_numeric_key, physical_rejection) = match physical_row {
+                DbfPhysicalRow::Deleted => continue,
+                DbfPhysicalRow::Active {
+                    exact_values,
+                    raw_numeric_key,
+                    rejection_cause,
+                } => (exact_values, raw_numeric_key, rejection_cause),
+            };
+            active_rows_seen = active_rows_seen
+                .checked_add(1)
+                .ok_or_else(|| err("numero di record DBF attivi fuori intervallo u64"))?;
+            let record = match records.next() {
+                Some(Ok(record)) => record,
+                Some(Err(_)) => {
+                    let cause = physical_rejection
+                        .map_or("shapefile.attribute_decode_failed", |cause| cause);
+                    diagnostics.record(source_index, cause, None, raw_numeric_key.as_deref());
+                    continue;
+                }
+                None => {
+                    return Err(diagnostics.into_partial_error(
+                        err("numero di record DBF attivi incoerente con le geometrie"),
+                        "shapefile.scan_interrupted",
+                    ));
+                }
+            };
+            if let Some(cause) = physical_rejection {
+                diagnostics.record(
+                    source_index,
+                    cause,
+                    Some(&record),
+                    raw_numeric_key.as_deref(),
+                );
+                continue;
+            }
             let tag = shape_tag(&shape);
             if !tag.is_empty() && Some(tag) != expected_shape_type {
-                return Err(err(format!(
-                    "tipo Shape nel record '{tag}' incoerente con l'header '{}'",
-                    shape_type_label(expected_shape_type)
-                )));
+                diagnostics.record(
+                    source_index,
+                    "shapefile.shape_type_mismatch",
+                    Some(&record),
+                    raw_numeric_key.as_deref(),
+                );
+                continue;
+            }
+            if let Some(cause) = shape_rejection_cause(&shape) {
+                diagnostics.record(
+                    source_index,
+                    cause,
+                    Some(&record),
+                    raw_numeric_key.as_deref(),
+                );
+                continue;
+            }
+            let converted_geometry = match shape_to_wkb(&shape, dimensions) {
+                Ok(geometry) => geometry,
+                Err(_) => {
+                    diagnostics.record(
+                        source_index,
+                        "shapefile.geometry_conversion_failed",
+                        Some(&record),
+                        raw_numeric_key.as_deref(),
+                    );
+                    continue;
+                }
+            };
+            let encoded_geometry = if include_geometry {
+                match converted_geometry {
+                    Some(geometry) => match encode_wkb(&geometry, WkbFlavor::Iso) {
+                        Ok(bytes) => Some(bytes),
+                        Err(_) => {
+                            diagnostics.record(
+                                source_index,
+                                "shapefile.geometry_encoding_failed",
+                                Some(&record),
+                                raw_numeric_key.as_deref(),
+                            );
+                            continue;
+                        }
+                    },
+                    None => None,
+                }
+            } else {
+                None
+            };
+            if !diagnostics.is_empty() {
+                // Dopo il primo rifiuto la scansione continua soltanto per
+                // completare conteggi/esempi; nessun altro batch viene emesso.
+                continue;
             }
             if let Some(builder) = &mut geom {
-                match shape_to_wkb(&shape, dimensions)? {
-                    Some(geometry) => {
-                        let bytes = encode_wkb(&geometry, WkbFlavor::Iso)?;
-                        builder.append_value(bytes);
-                    }
+                match encoded_geometry {
+                    Some(bytes) => builder.append_value(bytes),
                     None => builder.append_null(),
                 }
             }
@@ -1723,7 +2296,20 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
             for (k, column) in cols.iter().enumerate() {
                 if let Some(slot) = column.exact_integer_slot {
                     match exact_values[slot] {
-                        Some(value) => builders[k].append_i64(value)?,
+                        Some(value) => {
+                            if let Err(error) = builders[k].append_i64(value) {
+                                diagnostics.record(
+                                    source_index,
+                                    "shapefile.attribute_conversion_failed",
+                                    Some(&record),
+                                    raw_numeric_key.as_deref(),
+                                );
+                                return Err(diagnostics.into_partial_error(
+                                    error,
+                                    "shapefile.attribute_scan_interrupted",
+                                ));
+                            }
+                        }
                         None => builders[k].append_null(),
                     }
                     continue;
@@ -1731,26 +2317,59 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 let value = record
                     .get(&column.name)
                     .filter(|value| classify(value) != ObservedValueClass::Null);
-                builders[k].append_converted(value, fv_i64, fv_f64, fv_bool, |value| {
-                    fv_string(value).map(Cow::Owned)
-                })?;
+                if let Err(error) =
+                    builders[k].append_converted(value, fv_i64, fv_f64, fv_bool, |value| {
+                        fv_string(value).map(Cow::Owned)
+                    })
+                {
+                    diagnostics.record(
+                        source_index,
+                        "shapefile.attribute_conversion_failed",
+                        Some(&record),
+                        raw_numeric_key.as_deref(),
+                    );
+                    return Err(diagnostics
+                        .into_partial_error(error, "shapefile.attribute_scan_interrupted"));
+                }
             }
             n += 1;
             if n >= batch_sizer.rows() {
                 let batch = finish_batch(&schema, &mut geom, &mut builders, n)?;
                 batch_sizer.observe(&batch);
-                if !emitter.send(batch) {
+                if !emitter.send_cancellable(
+                    batch,
+                    &cancellation,
+                    plenora_io_model::ErrorPhase::Read,
+                )? {
                     return Ok(());
                 }
                 n = 0;
             }
         }
-        if exact_rows.next_active()?.is_some() {
-            return Err(err("numero di record DBF incoerente con le geometrie"));
+        if source_rows_seen != u64::from(dbf_layout.record_count)
+            || active_rows_seen != expected_active_rows
+            || shapes.next().is_some()
+            || records.next().is_some()
+        {
+            return Err(diagnostics.into_partial_error(
+                err("cardinalita' Shapefile cambiata durante la lettura"),
+                "shapefile.scan_interrupted",
+            ));
+        }
+        if !diagnostics.is_empty() {
+            let rejected = diagnostics.observed_total;
+            return Err(err(format!(
+                "{rejected} righe Shapefile non valide; consultare row_diagnostics"
+            ))
+            .with_row_diagnostics(diagnostics.into_report()));
         }
         if n > 0 {
             let batch = finish_batch(&schema, &mut geom, &mut builders, n)?;
-            if !emitter.send(batch) {
+            if !emitter.send_cancellable(
+                batch,
+                &cancellation,
+                plenora_io_model::ErrorPhase::Read,
+            )? {
                 return Ok(());
             }
         }
@@ -1882,9 +2501,550 @@ mod tests {
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: Default::default(),
             batch_target: BatchTarget::default(),
             cancellation: Default::default(),
         }
+    }
+
+    fn make_polygon_ring_unclosed(path: &Path, target_record: usize) {
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        let mut record_offset = 100_u64;
+        for record_index in 0..=target_record {
+            file.seek(SeekFrom::Start(record_offset)).unwrap();
+            let mut record_header = [0_u8; 8];
+            file.read_exact(&mut record_header).unwrap();
+            let content_bytes =
+                u64::from(u32::from_be_bytes(record_header[4..8].try_into().unwrap())) * 2;
+            let body_offset = record_offset + 8;
+            if record_index == target_record {
+                file.seek(SeekFrom::Start(body_offset + 36)).unwrap();
+                let mut counts = [0_u8; 8];
+                file.read_exact(&mut counts).unwrap();
+                let part_count = u64::from(u32::from_le_bytes(counts[0..4].try_into().unwrap()));
+                let point_count = u64::from(u32::from_le_bytes(counts[4..8].try_into().unwrap()));
+                assert!(part_count > 0 && point_count > 1);
+                let points_offset = body_offset + 44 + part_count * 4;
+                let last_x_offset = points_offset + (point_count - 1) * 16;
+                file.seek(SeekFrom::Start(last_x_offset)).unwrap();
+                file.write_all(&1.0_f64.to_le_bytes()).unwrap();
+                return;
+            }
+            record_offset += 8 + content_bytes;
+        }
+        panic!("record Shapefile {target_record} inesistente");
+    }
+
+    fn truncate_dbf_mid_record(path: &Path, complete_records: u64) {
+        let dbf_path = path.with_extension("dbf");
+        let header = std::fs::read(&dbf_path).unwrap();
+        let header_length = u64::from(u16::from_le_bytes(header[8..10].try_into().unwrap()));
+        let record_length = u64::from(u16::from_le_bytes(header[10..12].try_into().unwrap()));
+        assert!(record_length > 1);
+        let truncated_length = header_length + complete_records * record_length + record_length / 2;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(dbf_path)
+            .unwrap()
+            .set_len(truncated_length)
+            .unwrap();
+    }
+
+    fn mark_dbf_record_deleted(path: &Path, source_index: u64) {
+        let dbf_path = path.with_extension("dbf");
+        let header = std::fs::read(&dbf_path).unwrap();
+        let header_length = u64::from(u16::from_le_bytes(header[8..10].try_into().unwrap()));
+        let record_length = u64::from(u16::from_le_bytes(header[10..12].try_into().unwrap()));
+        let marker_offset = header_length + source_index * record_length;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(dbf_path)
+            .unwrap();
+        file.seek(SeekFrom::Start(marker_offset)).unwrap();
+        file.write_all(b"*").unwrap();
+    }
+
+    fn overwrite_dbf_ascii_field(path: &Path, source_index: u64, field_name: &str, value: &str) {
+        let dbf_path = path.with_extension("dbf");
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dbf_path)
+            .unwrap();
+        let mut header = [0_u8; 32];
+        file.read_exact(&mut header).unwrap();
+        let header_length = u64::from(u16::from_le_bytes(header[8..10].try_into().unwrap()));
+        let record_length = u64::from(u16::from_le_bytes(header[10..12].try_into().unwrap()));
+        let mut descriptor_offset = 32_u64;
+        let mut field_offset = 1_u64;
+        loop {
+            file.seek(SeekFrom::Start(descriptor_offset)).unwrap();
+            let mut descriptor = [0_u8; 32];
+            file.read_exact(&mut descriptor).unwrap();
+            assert_ne!(descriptor[0], 0x0d, "campo DBF non trovato");
+            let name_end = descriptor[..11]
+                .iter()
+                .position(|byte| *byte == 0)
+                .map_or(11, |position| position);
+            let name = std::str::from_utf8(&descriptor[..name_end]).unwrap();
+            let width = usize::from(descriptor[16]);
+            if name == field_name {
+                assert!(value.len() <= width);
+                let mut encoded = vec![b' '; width];
+                encoded[width - value.len()..].copy_from_slice(value.as_bytes());
+                let record_offset = header_length + source_index * record_length + field_offset;
+                file.seek(SeekFrom::Start(record_offset)).unwrap();
+                file.write_all(&encoded).unwrap();
+                return;
+            }
+            field_offset += width as u64;
+            descriptor_offset += 32;
+        }
+    }
+
+    fn consume_until_error(reader: &mut dyn LayerReader) -> (usize, PlenoraIoError) {
+        let mut emitted_rows = 0;
+        loop {
+            match reader.next_batch() {
+                Ok(Some(batch)) => emitted_rows += batch.num_rows(),
+                Ok(None) => panic!("atteso rifiuto row-scoped"),
+                Err(error) => return (emitted_rows, error),
+            }
+        }
+    }
+
+    #[test]
+    fn degenerate_polygon_rings_have_a_stable_rejection_cause() {
+        let repeated = Point::new(1.0, 1.0);
+        let rings = vec![PolygonRing::Outer(vec![
+            repeated, repeated, repeated, repeated,
+        ])];
+
+        assert_eq!(polygon_rejection_cause(&rings), Some(DEGENERATE_RING_CAUSE));
+    }
+
+    #[test]
+    fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("invalid-polygons.shp");
+        let key_name = shapefile::dbase::FieldName::try_from("ID_PART").unwrap();
+        let numeric_key_name = shapefile::dbase::FieldName::try_from("NUM_KEY").unwrap();
+        let integer_value_name = shapefile::dbase::FieldName::try_from("INT_VALUE").unwrap();
+        let table = TableWriterBuilder::new()
+            .add_character_field(key_name, 32)
+            .add_numeric_field(numeric_key_name, 20, 2)
+            .add_numeric_field(integer_value_name, 18, 0);
+        let mut writer = Writer::from_path(&path, table).unwrap();
+
+        let key_base = 9_007_199_254_740_992_u64;
+        for source_index in 0..128 {
+            let points = vec![
+                Point::new(0.0, 0.0),
+                Point::new(0.0, 5.0),
+                Point::new(5.0, 5.0),
+                Point::new(5.0, 0.0),
+                Point::new(0.0, 0.0),
+            ];
+            let rings = if matches!(source_index, 17 | 113) {
+                vec![PolygonRing::Inner(points)]
+            } else {
+                vec![PolygonRing::Outer(points)]
+            };
+            let polygon = Polygon::with_rings(rings);
+            let mut record = Record::default();
+            record.insert(
+                "ID_PART".to_owned(),
+                FieldValue::Character(Some((key_base + source_index).to_string())),
+            );
+            record.insert(
+                "NUM_KEY".to_owned(),
+                FieldValue::Numeric(Some(source_index as f64)),
+            );
+            record.insert(
+                "INT_VALUE".to_owned(),
+                FieldValue::Numeric(Some(source_index as f64)),
+            );
+            writer.write_shape_and_record(&polygon, &record).unwrap();
+        }
+        drop(writer);
+        make_polygon_ring_unclosed(&path, 89);
+        mark_dbf_record_deleted(&path, 20);
+        for source_index in [17_u64, 89, 113] {
+            overwrite_dbf_ascii_field(
+                &path,
+                source_index,
+                "NUM_KEY",
+                &format!("{}.25", key_base + source_index),
+            );
+        }
+        std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
+        let malformed_directory = tempfile::tempdir().unwrap();
+        let malformed_path = malformed_directory.path().join("invalid-attribute.shp");
+        for extension in ["shp", "shx", "dbf", "prj"] {
+            std::fs::copy(
+                path.with_extension(extension),
+                malformed_path.with_extension(extension),
+            )
+            .unwrap();
+        }
+
+        let mut options = read_opts();
+        options
+            .format_options
+            .insert("row_diagnostics.examples_limit".to_owned(), "2".to_owned());
+        options
+            .format_options
+            .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
+        options
+            .format_options
+            .insert("row_diagnostics.key_policy".to_owned(), "emit".to_owned());
+        let dataset = ShpDriver
+            .open(Source::Path(path.clone()), &options)
+            .unwrap();
+        let request = ReadRequest {
+            batch_target: BatchTarget {
+                target_bytes: 8 * 1024 * 1024,
+                max_rows: 8,
+            },
+            ..req()
+        };
+        let mut reader = dataset.open_layer_reader(&request).unwrap();
+        let (emitted_rows, error) = consume_until_error(reader.as_mut());
+        assert_eq!(emitted_rows, 0);
+        let diagnostics = error
+            .row_diagnostics
+            .expect("diagnostica row-scoped mancante");
+        assert_eq!(diagnostics.observed_total, 3);
+        assert_eq!(diagnostics.total, Some(3));
+        assert_eq!(
+            diagnostics.counts.get("shapefile.inner_ring_without_outer"),
+            Some(&2)
+        );
+        assert_eq!(diagnostics.counts.get("shapefile.unclosed_ring"), Some(&1));
+        assert_eq!(diagnostics.examples_limit, 2);
+        assert!(diagnostics.examples_truncated);
+        assert_eq!(diagnostics.examples.len(), 2);
+        assert_eq!(diagnostics.examples[0].source_index, 17);
+        assert_eq!(diagnostics.examples[1].source_index, 89);
+        assert_eq!(
+            diagnostics.examples[0]
+                .key
+                .as_ref()
+                .and_then(|key| key.value.as_ref()),
+            Some(&plenora_io_model::RowDiagnosticKeyValue::String(
+                (key_base + 17).to_string()
+            ))
+        );
+        assert_eq!(
+            diagnostics.examples[1]
+                .key
+                .as_ref()
+                .and_then(|key| key.value.as_ref()),
+            Some(&plenora_io_model::RowDiagnosticKeyValue::String(
+                (key_base + 89).to_string()
+            ))
+        );
+
+        let mut attribute_only_request = req();
+        attribute_only_request.projected_fields = Some(vec![FieldId(1)]);
+        attribute_only_request.batch_target = BatchTarget {
+            target_bytes: 8 * 1024 * 1024,
+            max_rows: 8,
+        };
+        let attribute_only_dataset = ShpDriver
+            .open(Source::Path(path.clone()), &read_opts())
+            .unwrap();
+        let mut attribute_only_reader = attribute_only_dataset
+            .open_layer_reader(&attribute_only_request)
+            .unwrap();
+        let (attribute_rows, attribute_error) = consume_until_error(attribute_only_reader.as_mut());
+        assert_eq!(attribute_rows, 0);
+        assert_eq!(attribute_error.row_diagnostics.unwrap().observed_total, 3);
+
+        let mut numeric_key_options = read_opts();
+        numeric_key_options
+            .format_options
+            .insert("row_diagnostics.examples_limit".to_owned(), "2".to_owned());
+        numeric_key_options
+            .format_options
+            .insert("row_diagnostics.key_field".to_owned(), "NUM_KEY".to_owned());
+        numeric_key_options
+            .format_options
+            .insert("row_diagnostics.key_policy".to_owned(), "emit".to_owned());
+        let numeric_key_dataset = ShpDriver
+            .open(Source::Path(path.clone()), &numeric_key_options)
+            .unwrap();
+        let mut numeric_key_reader = numeric_key_dataset.open_layer_reader(&request).unwrap();
+        let (_, numeric_key_error) = consume_until_error(numeric_key_reader.as_mut());
+        let numeric_examples = numeric_key_error.row_diagnostics.unwrap().examples;
+        for (example, source_index) in numeric_examples.iter().zip([17_u64, 89]) {
+            assert_eq!(
+                example.key.as_ref().and_then(|key| key.value.as_ref()),
+                Some(&plenora_io_model::RowDiagnosticKeyValue::String(format!(
+                    "{}.25",
+                    key_base + source_index
+                )))
+            );
+        }
+
+        let dataset_without_key = ShpDriver
+            .open(Source::Path(path.clone()), &read_opts())
+            .unwrap();
+        let mut reader_without_key = dataset_without_key.open_layer_reader(&request).unwrap();
+        let (_, error_without_key) = consume_until_error(reader_without_key.as_mut());
+        assert!(error_without_key
+            .row_diagnostics
+            .unwrap()
+            .examples
+            .iter()
+            .all(|example| example.key.is_none()));
+
+        let mut redacted_options = read_opts();
+        redacted_options
+            .format_options
+            .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
+        redacted_options
+            .format_options
+            .insert("row_diagnostics.key_policy".to_owned(), "redact".to_owned());
+        let redacted_dataset = ShpDriver
+            .open(Source::Path(path.clone()), &redacted_options)
+            .unwrap();
+        let mut redacted_reader = redacted_dataset.open_layer_reader(&request).unwrap();
+        let (_, redacted_error) = consume_until_error(redacted_reader.as_mut());
+        let redacted_key = redacted_error.row_diagnostics.unwrap().examples[0]
+            .key
+            .clone()
+            .unwrap();
+        assert_eq!(redacted_key.state, RowDiagnosticKeyState::Redacted);
+        assert!(redacted_key.value.is_none());
+
+        let mut missing_policy = read_opts();
+        missing_policy
+            .format_options
+            .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
+        let missing_policy_error = match ShpDriver.open(Source::Path(path.clone()), &missing_policy)
+        {
+            Ok(_) => panic!("key_field senza policy deve essere rifiutato"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            missing_policy_error.category,
+            plenora_io_model::ErrorCategory::InvalidConfiguration
+        );
+
+        let mut zero_limit = read_opts();
+        zero_limit
+            .format_options
+            .insert("row_diagnostics.examples_limit".to_owned(), "0".to_owned());
+        let zero_limit_error = match ShpDriver.open(Source::Path(path.clone()), &zero_limit) {
+            Ok(_) => panic!("examples_limit zero deve essere rifiutato"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            zero_limit_error.category,
+            plenora_io_model::ErrorCategory::InvalidConfiguration
+        );
+
+        let mut cancelled_diagnostics = ShpRowDiagnostics::new(ShpRowDiagnosticsConfig {
+            examples_limit: 1,
+            key: None,
+        });
+        cancelled_diagnostics.record(
+            17,
+            INNER_RING_WITHOUT_OUTER_CAUSE,
+            Some(&Record::default()),
+            None,
+        );
+        let cancellation = plenora_io_model::CancellationToken::default();
+        cancellation.cancel();
+        let cancellation_error =
+            plenora_io_core::check_cancelled(&cancellation, plenora_io_model::ErrorPhase::Read)
+                .expect_err("la cancellation richiesta deve essere osservata");
+        let cancelled = cancelled_diagnostics
+            .into_partial_error(cancellation_error, "shapefile.scan_cancelled")
+            .row_diagnostics
+            .unwrap();
+        assert_eq!(cancelled.completeness, RowDiagnosticsCompleteness::Partial);
+        assert_eq!(
+            cancelled.knowledge_limits,
+            Some(vec!["shapefile.scan_cancelled".to_owned()])
+        );
+        assert!(cancelled.total.is_none());
+
+        let partial_dataset = ShpDriver
+            .open(Source::Path(path.clone()), &read_opts())
+            .unwrap();
+        truncate_dbf_mid_record(&path, 50);
+        let mut partial_reader = partial_dataset.open_layer_reader(&request).unwrap();
+        let (_, partial_error) = consume_until_error(partial_reader.as_mut());
+        let partial = partial_error.row_diagnostics.unwrap();
+        assert_eq!(partial.completeness, RowDiagnosticsCompleteness::Partial);
+        assert_eq!(partial.total, None);
+        assert_eq!(partial.observed_total, 1);
+        assert_eq!(
+            partial.knowledge_limits,
+            Some(vec!["shapefile.dbf_exact_scan_interrupted".to_owned()])
+        );
+        assert_eq!(
+            partial.counts.get("shapefile.inner_ring_without_outer"),
+            Some(&1)
+        );
+        assert_eq!(partial.examples.len(), 1);
+        assert!(!partial.examples_truncated);
+
+        overwrite_dbf_ascii_field(&malformed_path, 42, "INT_VALUE", "not-an-integer");
+        let malformed_dataset = ShpDriver
+            .open(Source::Path(malformed_path), &read_opts())
+            .unwrap();
+        let mut malformed_reader = malformed_dataset.open_layer_reader(&request).unwrap();
+        let (_, malformed_error) = consume_until_error(malformed_reader.as_mut());
+        let malformed = malformed_error.row_diagnostics.unwrap();
+        assert_eq!(malformed.completeness, RowDiagnosticsCompleteness::Complete);
+        assert_eq!(malformed.observed_total, 4);
+        assert_eq!(
+            malformed.counts.get(ATTRIBUTE_NUMERIC_INVALID_CAUSE),
+            Some(&1)
+        );
+        assert!(malformed.examples.iter().any(|example| {
+            example.source_index == 42 && example.cause == ATTRIBUTE_NUMERIC_INVALID_CAUSE
+        }));
+    }
+
+    #[test]
+    fn accepted_rows_stops_invalid_shapefile_scan_at_active_row_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("bounded-invalid.shp");
+        let id = shapefile::dbase::FieldName::try_from("ID").unwrap();
+        let table = TableWriterBuilder::new().add_numeric_field(id, 9, 0);
+        let mut writer = Writer::from_path(&path, table).unwrap();
+        for source_index in 0..4_096 {
+            let points = vec![
+                Point::new(0.0, 0.0),
+                Point::new(0.0, 5.0),
+                Point::new(5.0, 5.0),
+                Point::new(5.0, 0.0),
+                Point::new(0.0, 0.0),
+            ];
+            let rings = if matches!(source_index, 17 | 89 | 3_000) {
+                vec![PolygonRing::Inner(points)]
+            } else {
+                vec![PolygonRing::Outer(points)]
+            };
+            let mut record = Record::default();
+            record.insert(
+                "ID".to_owned(),
+                FieldValue::Numeric(Some(source_index as f64)),
+            );
+            writer
+                .write_shape_and_record(&Polygon::with_rings(rings), &record)
+                .unwrap();
+        }
+        drop(writer);
+        mark_dbf_record_deleted(&path, 20);
+        std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
+
+        // Fault-tail deterministico: il dataset e' inferito quando integro, poi
+        // la coda oltre il prefisso richiesto diventa illeggibile.
+        let dataset = ShpDriver
+            .open(Source::Path(path.clone()), &read_opts())
+            .unwrap();
+        truncate_dbf_mid_record(&path, 200);
+        let request = ReadRequest {
+            scope: plenora_io_core::ReadScope::AcceptedRows(32),
+            batch_target: BatchTarget {
+                target_bytes: 8 * 1024 * 1024,
+                max_rows: 8,
+            },
+            ..req()
+        };
+        let mut reader = dataset.open_layer_reader(&request).unwrap();
+        let (emitted_rows, error) = consume_until_error(reader.as_mut());
+        assert_eq!(emitted_rows, 0);
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(
+            diagnostics.completeness,
+            RowDiagnosticsCompleteness::Partial
+        );
+        assert_eq!(diagnostics.total, None);
+        assert_eq!(diagnostics.observed_total, 1);
+        assert_eq!(diagnostics.counts[INNER_RING_WITHOUT_OUTER_CAUSE], 1);
+        assert_eq!(diagnostics.examples[0].source_index, 17);
+        assert_eq!(
+            diagnostics.knowledge_limits.as_deref(),
+            Some(["read_scope_row_limit_reached".to_owned()].as_slice())
+        );
+        assert!(diagnostics.validate().is_ok());
+    }
+
+    #[test]
+    fn accepted_rows_preserves_valid_shapefile_batch_overshoot_and_skips_late_invalidity() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("late-invalid.shp");
+        let id = shapefile::dbase::FieldName::try_from("ID").unwrap();
+        let table = TableWriterBuilder::new().add_numeric_field(id, 9, 0);
+        let mut writer = Writer::from_path(&path, table).unwrap();
+        for source_index in 0..25 {
+            let points = vec![
+                Point::new(0.0, 0.0),
+                Point::new(0.0, 5.0),
+                Point::new(5.0, 5.0),
+                Point::new(5.0, 0.0),
+                Point::new(0.0, 0.0),
+            ];
+            let rings = if source_index == 20 {
+                vec![PolygonRing::Inner(points)]
+            } else {
+                vec![PolygonRing::Outer(points)]
+            };
+            let mut record = Record::default();
+            record.insert(
+                "ID".to_owned(),
+                FieldValue::Numeric(Some(source_index as f64)),
+            );
+            writer
+                .write_shape_and_record(&Polygon::with_rings(rings), &record)
+                .unwrap();
+        }
+        drop(writer);
+        std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
+
+        let dataset = ShpDriver
+            .open(Source::Path(path.clone()), &read_opts())
+            .unwrap();
+        let request = ReadRequest {
+            scope: ReadScope::AcceptedRows(10),
+            batch_target: BatchTarget {
+                target_bytes: 8 * 1024 * 1024,
+                max_rows: 8,
+            },
+            ..req()
+        };
+        let mut reader = dataset.open_layer_reader(&request).unwrap();
+        let mut rows = Vec::new();
+        while let Some(batch) = reader.next_batch().unwrap() {
+            rows.push(batch.num_rows());
+        }
+        assert_eq!(rows, vec![8, 8]);
+
+        let complete_dataset = ShpDriver.open(Source::Path(path), &read_opts()).unwrap();
+        let mut complete_request = request;
+        complete_request.scope = ReadScope::Complete;
+        let mut complete = complete_dataset
+            .open_layer_reader(&complete_request)
+            .unwrap();
+        let (published_rows, error) = consume_until_error(complete.as_mut());
+        assert_eq!(published_rows, 0);
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(
+            diagnostics.completeness,
+            RowDiagnosticsCompleteness::Complete
+        );
+        assert_eq!(diagnostics.examples[0].source_index, 20);
+        assert_eq!(diagnostics.total, Some(1));
     }
 
     #[test]
@@ -2168,6 +3328,49 @@ mod tests {
     }
 
     #[test]
+    fn writer_adapter_attributes_mixed_geometry_and_prevents_publish() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("mixed.shp");
+        let point = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+        let line = to_wkb(&geo_types::Geometry::LineString(
+            geo_types::LineString::from(vec![(0.0, 0.0), (1.0, 1.0)]),
+        ))
+        .unwrap();
+        let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![
+                Some(point.as_slice()),
+                Some(line.as_slice()),
+            ]))],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "mixed".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut writer = ShpDriver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.declare_input_total(LayerId(0), 2).unwrap();
+
+        let error = writer.write(&batch).unwrap_err();
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(diagnostics.input_total, Some(2));
+        assert_eq!(diagnostics.examples[0].source_index, 1);
+        assert_eq!(diagnostics.counts["shapefile.mixed_geometry_type"], 1);
+        assert!(diagnostics.validate().is_ok());
+        assert!(writer.finish().is_err());
+        assert!(!output.exists());
+        assert!(!output.with_extension("dbf").exists());
+    }
+
+    #[test]
     fn directory_dataset_round_trip_uses_atomic_directory_unit() {
         use arrow_array::Int64Array;
         use arrow_schema::DataType;
@@ -2373,6 +3576,7 @@ mod tests {
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: Default::default(),
             batch_target: BatchTarget {
                 target_bytes: 8 * 1024 * 1024,
                 max_rows: 4,

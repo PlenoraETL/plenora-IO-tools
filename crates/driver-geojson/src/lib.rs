@@ -51,9 +51,10 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsRepresentationCapabilities,
-    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    TypeCoercionPolicy, WritePlan, SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
+    read_row_error, validate_write, with_write_validation, AttributeWriteSupport,
+    CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, SCALAR_TYPES,
+    UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
@@ -144,6 +145,7 @@ impl FormatDriver for GeoJsonDriver {
                 }],
             }),
             opts.resource_budget.clone(),
+            true,
         ))
     }
 
@@ -210,6 +212,7 @@ impl OpenDatasetHandle for GeoJsonDataset {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let (indices, layer) = plenora_io_core::project_layer_contract(&self.layers[0], request)?;
         let include_geometry = indices.binary_search(&0).is_ok();
+        let property_names = self.cols.iter().map(|(name, _)| name.clone()).collect();
         let cols = indices
             .iter()
             .filter_map(|&index| {
@@ -227,6 +230,7 @@ impl OpenDatasetHandle for GeoJsonDataset {
             self.path.clone(),
             layer.contract.schema.clone(),
             cols,
+            property_names,
             include_geometry,
             batch_sizer,
             layer,
@@ -245,8 +249,19 @@ fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
     let file = File::open(path)?;
     let mut accs = SchemaAccumulators::default();
     let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
-    de.deserialize_map(TopVisitor { accs: &mut accs })
-        .map_err(|e| err(format!("GeoJSON non valido: {e}")))?;
+    if let Err(error) = de.deserialize_map(TopVisitor { accs: &mut accs }) {
+        let error = err(format!("GeoJSON non valido: {error}"));
+        return Err(if accs.in_feature {
+            read_row_error(
+                error,
+                Some(accs.source_rows_seen),
+                "geojson.invalid_feature",
+                None,
+            )
+        } else {
+            error
+        });
+    }
     let cols = accs.into_columns().map_err(err)?;
     let mut fields = vec![geometry_field(GEOMETRY, OGC_CRS84)];
     for (k, ct) in &cols {
@@ -261,6 +276,8 @@ fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
 struct SchemaAccumulators {
     indices: HashMap<String, usize>,
     values: Vec<TypeAccumulator>,
+    source_rows_seen: u64,
+    in_feature: bool,
 }
 
 impl SchemaAccumulators {
@@ -288,7 +305,9 @@ impl SchemaAccumulators {
     }
 
     fn into_columns(self) -> std::result::Result<Vec<(String, ColType)>, &'static str> {
-        let Self { indices, values } = self;
+        let Self {
+            indices, values, ..
+        } = self;
         let mut columns = Vec::with_capacity(indices.len());
         for (name, index) in indices {
             let accumulator = values
@@ -425,6 +444,7 @@ impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
         f.write_str("un Feature")
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        self.accs.in_feature = true;
         while let Some(key) = map.next_key_seed(FeatKeySeed)? {
             match key {
                 FeatKey::Props => map.next_value_seed(PropsSeed { accs: self.accs })?,
@@ -433,6 +453,12 @@ impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
                 }
             }
         }
+        self.accs.in_feature = false;
+        self.accs.source_rows_seen = self
+            .accs
+            .source_rows_seen
+            .checked_add(1)
+            .ok_or_else(|| A::Error::custom("troppe feature GeoJSON"))?;
         Ok(())
     }
 }
@@ -510,6 +536,7 @@ fn spawn_parser(
     path: PathBuf,
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
+    property_names: Vec<String>,
     include_geometry: bool,
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
@@ -522,9 +549,16 @@ fn spawn_parser(
             .enumerate()
             .map(|(i, (k, _))| (k.clone(), i))
             .collect();
+        let property_idx: HashMap<String, usize> = property_names
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| (name, index))
+            .collect();
+        let property_count = property_idx.len();
         let mut sink = RowSink {
             schema: schema.clone(),
             col_idx,
+            property_idx,
             output: RowOutput::Worker(emitter),
             geom: include_geometry.then(BinaryBuilder::new),
             wkb_buf: Vec::new(),
@@ -533,7 +567,10 @@ fn spawn_parser(
                 .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
                 .collect(),
             seen: vec![false; ncols],
+            property_seen: vec![false; property_count],
             n: 0,
+            source_rows_seen: 0,
+            in_feature: false,
             batch_sizer,
             aborted: false,
         };
@@ -545,7 +582,19 @@ fn spawn_parser(
         if sink.aborted {
             return Ok(()); // consumatore andato via: stop pulito
         }
-        result.map_err(|error| err(format!("GeoJSON non valido: {error}")))?;
+        if let Err(error) = result {
+            let error = err(format!("GeoJSON non valido: {error}"));
+            return Err(if sink.in_feature {
+                read_row_error(
+                    error,
+                    Some(sink.source_rows_seen),
+                    "geojson.invalid_feature",
+                    None,
+                )
+            } else {
+                error
+            });
+        }
         if sink.n > 0 {
             let batch = finish_batch(&sink.schema, &mut sink.geom, &mut sink.builders, sink.n)
                 .map_err(err)?;
@@ -577,12 +626,16 @@ impl RowOutput {
 struct RowSink {
     schema: SchemaRef,
     col_idx: HashMap<String, usize>,
+    property_idx: HashMap<String, usize>,
     output: RowOutput,
     geom: Option<BinaryBuilder>,
     wkb_buf: Vec<u8>,
     builders: Vec<InferredColumnBuilder>,
     seen: Vec<bool>,
+    property_seen: Vec<bool>,
     n: usize,
+    source_rows_seen: u64,
+    in_feature: bool,
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     aborted: bool,
 }
@@ -599,6 +652,7 @@ impl<'a, 'de> Visitor<'de> for TopSink<'a> {
         f.write_str("un oggetto GeoJSON")
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        self.sink.in_feature = true;
         while let Some(key) = map.next_key::<String>()? {
             if key == "features" {
                 map.next_value_seed(FeaturesSink { sink: self.sink })?;
@@ -651,13 +705,17 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
         for s in self.sink.seen.iter_mut() {
             *s = false;
         }
+        for seen in &mut self.sink.property_seen {
+            *seen = false;
+        }
         let mut geom_seen = false;
+        let mut props_seen = false;
         while let Some(fk) = map.next_key_seed(FeatKeySeed)? {
             match fk {
                 FeatKey::Geom if geom_seen => {
-                    // "geometry" duplicata nella stessa feature: consuma e ignora
-                    // (tiene la 1ª, evita una seconda append → colonne disallineate).
-                    map.next_value::<IgnoredAny>()?;
+                    return Err(<A::Error as DeError>::custom(
+                        "chiave geometry duplicata nella feature GeoJSON",
+                    ));
                 }
                 FeatKey::Geom => {
                     if let Some(geometry) = &mut self.sink.geom {
@@ -676,8 +734,14 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
                     }
                     geom_seen = true;
                 }
+                FeatKey::Props if props_seen => {
+                    return Err(<A::Error as DeError>::custom(
+                        "chiave properties duplicata nella feature GeoJSON",
+                    ));
+                }
                 FeatKey::Props => {
                     map.next_value_seed(PropsSink { sink: self.sink })?;
+                    props_seen = true;
                 }
                 FeatKey::Other => {
                     map.next_value::<IgnoredAny>()?;
@@ -714,6 +778,12 @@ impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
             }
             self.sink.n = 0;
         }
+        self.sink.in_feature = false;
+        self.sink.source_rows_seen = self
+            .sink
+            .source_rows_seen
+            .checked_add(1)
+            .ok_or_else(|| A::Error::custom("troppe feature GeoJSON"))?;
         Ok(())
     }
 }
@@ -772,18 +842,24 @@ impl<'a, 'de> Visitor<'de> for PropsSink<'a> {
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
         while let Some(hit) = map.next_key_seed(PropKeySeed {
             col_idx: &self.sink.col_idx,
+            property_idx: &self.sink.property_idx,
         })? {
-            match hit {
+            if self.sink.property_seen[hit.property_idx] {
+                return Err(<A::Error as DeError>::custom(
+                    "chiave duplicata nelle properties GeoJSON",
+                ));
+            }
+            self.sink.property_seen[hit.property_idx] = true;
+            match hit.projected_idx {
                 // Chiave nota e non ancora vista in questa feature: append.
-                Some(idx) if !self.sink.seen[idx] => {
+                Some(idx) => {
                     map.next_value_seed(ValueSink {
                         b: &mut self.sink.builders[idx],
                     })?;
                     self.sink.seen[idx] = true;
                 }
-                // Chiave duplicata (o sconosciuta): consuma e ignora il valore.
-                // La 1ª occorrenza vince; niente doppia append → colonne allineate.
-                _ => {
+                // Una chiave fuori projection resta intenzionalmente non letta.
+                None => {
                     map.next_value::<IgnoredAny>()?;
                 }
             }
@@ -792,27 +868,38 @@ impl<'a, 'de> Visitor<'de> for PropsSink<'a> {
     }
 }
 
+struct PropHit {
+    projected_idx: Option<usize>,
+    property_idx: usize,
+}
+
 /// Chiave di proprietà → indice di colonna (o None se non è nello schema).
 /// La stringa non viene allocata: la lookup avviene dentro `visit_str`.
 struct PropKeySeed<'a> {
     col_idx: &'a HashMap<String, usize>,
+    property_idx: &'a HashMap<String, usize>,
 }
 impl<'a, 'de> DeserializeSeed<'de> for PropKeySeed<'a> {
-    type Value = Option<usize>;
-    fn deserialize<D: Deserializer<'de>>(
-        self,
-        d: D,
-    ) -> std::result::Result<Option<usize>, D::Error> {
+    type Value = PropHit;
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<PropHit, D::Error> {
         d.deserialize_str(self)
     }
 }
 impl<'a, 'de> Visitor<'de> for PropKeySeed<'a> {
-    type Value = Option<usize>;
+    type Value = PropHit;
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("una chiave di proprietà")
     }
-    fn visit_str<E>(self, s: &str) -> std::result::Result<Option<usize>, E> {
-        Ok(self.col_idx.get(s).copied())
+    fn visit_str<E: DeError>(self, s: &str) -> std::result::Result<PropHit, E> {
+        let property_idx = self
+            .property_idx
+            .get(s)
+            .copied()
+            .ok_or_else(|| E::custom("property GeoJSON assente dallo schema inferito"))?;
+        Ok(PropHit {
+            projected_idx: self.col_idx.get(s).copied(),
+            property_idx,
+        })
     }
 }
 
@@ -915,6 +1002,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         .collect();
     let mut sink = RowSink {
         schema: schema.clone(),
+        property_idx: col_idx.clone(),
         col_idx,
         output: RowOutput::Discard,
         geom: Some(BinaryBuilder::new()),
@@ -924,7 +1012,10 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
             .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
             .collect(),
         seen: vec![false; ncols],
+        property_seen: vec![false; ncols],
         n: 0,
+        source_rows_seen: 0,
+        in_feature: false,
         batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(
             schema.as_ref(),
             plenora_io_core::BatchTarget {
@@ -1088,6 +1179,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1279,10 +1371,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_keys_read_without_error() {
-        // Regressione (trovato dal fuzzer): chiavi duplicate in una feature
-        // (JSON malformato ma accettato da molti parser). La 1ª occorrenza vince
-        // e la lettura NON deve fallire con "colonne disallineate".
+    fn duplicate_keys_are_rejected_instead_of_using_first_value_wins() {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("dup.geojson");
         std::fs::write(
@@ -1293,26 +1382,66 @@ mod tests {
         )
         .unwrap();
         let driver = GeoJsonDriver;
-        let (batch, _layer) = read_all(&driver, &src);
-        assert_eq!(batch.num_rows(), 1);
-        // geometry duplicata → vince la 1ª: Point(1,2).
-        let geom = batch
-            .column(0)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
+        let dataset = driver
+            .open(Source::Path(src), &ReadOptions::default())
             .unwrap();
-        match from_wkb(geom.value(0), &WkbLimits::default()).unwrap() {
-            geo_types::Geometry::Point(p) => assert!((p.x() - 1.0).abs() < 1e-9),
-            other => panic!("atteso Point(1,2), {other:?}"),
-        }
-        // 'c' compare due volte (int poi bool → colonna Text): vince "1".
-        let schema = batch.schema();
-        let c = batch
-            .column(schema.index_of("c").unwrap())
-            .as_any()
-            .downcast_ref::<StringArray>()
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: Default::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
+            })
             .unwrap();
-        assert_eq!(c.value(0), "1");
+        let error = reader.next_batch().unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+        assert!(error.message.contains("geometry duplicata"));
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(diagnostics.examples[0].source_index, 0);
+        assert_eq!(diagnostics.counts["geojson.invalid_feature"], 1);
+        assert!(diagnostics.validate().is_ok());
+    }
+
+    #[test]
+    fn duplicate_property_outside_projection_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("dup-outside-projection.geojson");
+        std::fs::write(
+            &src,
+            r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"properties":{"kept":1,"outside":"first","outside":"second"}}
+            ]}"#,
+        )
+        .unwrap();
+        let driver = GeoJsonDriver;
+        let dataset = driver
+            .open(Source::Path(src), &ReadOptions::default())
+            .unwrap();
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: Some(vec![FieldId(0)]),
+                projection_mode: ProjectionMode::Required,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: Default::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
+            })
+            .unwrap();
+
+        let error = reader.next_batch().unwrap_err();
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+        assert_eq!(error.phase, plenora_io_model::ErrorPhase::Read);
+        assert!(error.message.contains("chiave duplicata nelle properties"));
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(diagnostics.examples[0].source_index, 0);
+        assert_eq!(diagnostics.counts["geojson.invalid_feature"], 1);
+        assert!(diagnostics.validate().is_ok());
     }
 
     #[test]
@@ -1520,6 +1649,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget {
                     target_bytes: 8 * 1024 * 1024,
                     max_rows: 4,

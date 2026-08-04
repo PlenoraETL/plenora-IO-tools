@@ -413,6 +413,7 @@ fn read_drain(
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: pruning.map(plenora_io_core::request::PruningPredicate::Opaque),
             spatial_pruning_hint: None,
+            scope: Default::default(),
             batch_target: BatchTarget::default(),
             cancellation: Default::default(),
         })

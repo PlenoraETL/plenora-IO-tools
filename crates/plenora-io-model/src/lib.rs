@@ -9,6 +9,7 @@ pub use arrow_schema;
 pub mod cancellation;
 pub mod contract;
 pub mod crs;
+pub mod diagnostics;
 pub mod error;
 pub mod geometry;
 pub mod limits;
@@ -19,6 +20,13 @@ pub mod wkb;
 mod wkb_lossless;
 
 pub use cancellation::{CancellationReason, CancellationToken};
+pub use diagnostics::{
+    KnownOrUnknownCount, RowDiagnosticColumn, RowDiagnosticExample, RowDiagnosticKey,
+    RowDiagnosticKeyState, RowDiagnosticKeyValue, RowDiagnosticScope, RowDiagnosticWriteOutcome,
+    RowDiagnosticWriteState, RowDiagnostics, RowDiagnosticsCompleteness,
+    WriteDiagnosticStateCounts, ROW_DIAGNOSTICS_CONTRACT, ROW_DIAGNOSTICS_INDEX_BASIS,
+    ROW_DIAGNOSTIC_COLUMN_UNATTESTABLE,
+};
 pub use error::{
     CapabilityReason, ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, RemoteEffect, Result,
     RetryDisposition,

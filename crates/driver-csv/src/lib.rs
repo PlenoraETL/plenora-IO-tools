@@ -230,6 +230,7 @@ impl FormatDriver for CsvDriver {
                 }],
             }),
             opts.resource_budget.clone(),
+            true,
         ))
     }
 
@@ -723,6 +724,7 @@ mod tests {
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: Default::default(),
             batch_target: BatchTarget {
                 target_bytes: 8 * 1024 * 1024,
                 max_rows,

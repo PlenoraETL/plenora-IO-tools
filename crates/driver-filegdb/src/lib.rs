@@ -115,7 +115,7 @@ impl FormatDriver for FileGdbDriver {
                 &opts.resource_budget,
             )?;
             return backend::open(&path, opts.assume_crs.as_deref()).map(|dataset| {
-                plenora_io_core::with_read_budget(dataset, opts.resource_budget.clone())
+                plenora_io_core::with_read_budget(dataset, opts.resource_budget.clone(), false)
             });
         }
         #[cfg(not(feature = "gdal-backend"))]
@@ -208,6 +208,7 @@ mod backend {
     use arrow_array::Array;
     use arrow_schema::DataType;
     use driver_common::geometry_index;
+    use gdal::errors::GdalError;
     use gdal::spatial_ref::SpatialRef;
     use gdal::vector::{Feature, FieldDefn, Geometry, LayerOptions, OGRwkbGeometryType};
     use gdal::DriverManager;
@@ -1292,13 +1293,22 @@ mod backend {
             let mut n = 0usize;
             for feature in layer.features() {
                 if let Some(builder) = &mut geom {
-                    match feature
-                        .geometry_by_index(0)
-                        .ok()
-                        .and_then(|geometry| geometry.wkb().ok())
-                    {
-                        Some(bytes) => builder.append_value(&bytes),
-                        None => builder.append_null(),
+                    match feature.geometry_by_index(0) {
+                        Ok(geometry) => {
+                            let bytes = geometry.wkb().map_err(|error| {
+                                err(format!("conversione geometria FileGDB in WKB: {error}"))
+                            })?;
+                            builder.append_value(&bytes);
+                        }
+                        Err(GdalError::NullPointer {
+                            method_name: "OGR_F_GetGeomFieldRef",
+                            ..
+                        }) => {
+                            builder.append_null();
+                        }
+                        Err(error) => {
+                            return Err(err(format!("lettura geometria FileGDB: {error}")))
+                        }
                     }
                 }
                 for (builder, field) in builders.iter_mut().zip(&fields) {
@@ -1435,6 +1445,7 @@ mod backend {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             }
@@ -1885,6 +1896,7 @@ mod backend {
                     projection_mode: ProjectionMode::Required,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
+                    scope: Default::default(),
                     batch_target: BatchTarget::default(),
                     cancellation: Default::default(),
                 })
@@ -1904,6 +1916,7 @@ mod backend {
                     projection_mode: ProjectionMode::Required,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
+                    scope: Default::default(),
                     batch_target: BatchTarget::default(),
                     cancellation: Default::default(),
                 })
@@ -1923,6 +1936,7 @@ mod backend {
                     projection_mode: ProjectionMode::Required,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
+                    scope: Default::default(),
                     batch_target: BatchTarget::default(),
                     cancellation: Default::default(),
                 })
@@ -2441,15 +2455,37 @@ mod backend {
             let mut writer = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
                 .unwrap();
+            writer.declare_input_total(LayerId(0), 1).unwrap();
 
+            let write_error = writer
+                .write(&batch)
+                .expect_err("WKB XYZ nascosto in un contratto XY deve essere rifiutato");
+            assert_eq!(
+                write_error.category,
+                plenora_io_model::ErrorCategory::DataMapping
+            );
+            assert_eq!(write_error.phase, plenora_io_model::ErrorPhase::Write);
+            assert_eq!(write_error.retry, plenora_io_model::RetryDisposition::Never);
+            assert_eq!(
+                write_error.capability_reason,
+                Some(CapabilityReason::CoordinateDimensions)
+            );
+            let diagnostics = write_error.row_diagnostics.as_deref().unwrap();
+            assert_eq!(diagnostics.observed_total, 1);
+            assert_eq!(diagnostics.input_total, Some(1));
+            assert_eq!(diagnostics.examples[0].source_index, 0);
+            assert_eq!(
+                diagnostics.examples[0].cause,
+                "contract.coordinate_dimensions"
+            );
+            let artifacts = staging_artifacts(&path);
+            assert_eq!(artifacts.len(), 2);
             assert!(matches!(
                 writer.write(&batch),
                 Err(error)
-                    if error.capability_reason
-                        == Some(CapabilityReason::CoordinateDimensions)
+                    if error.code == plenora_io_model::IoErrorCode::Format
+                        && error.driver.as_deref() == Some("filegdb")
             ));
-            let artifacts = staging_artifacts(&path);
-            assert_eq!(artifacts.len(), 2);
             assert!(matches!(
                 writer.finish(),
                 Err(error)

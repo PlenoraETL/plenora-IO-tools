@@ -41,8 +41,9 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
-    check_cancelled, check_cancelled_periodically, validate_write, with_write_validation,
-    AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
+    check_cancelled, check_cancelled_periodically, read_row_error, validate_write,
+    with_write_validation, write_row_rejection, AttributeWriteSupport,
+    CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
@@ -245,15 +246,32 @@ impl FormatDriver for DxfDriver {
         let mut stats = DxfContractStats::default();
         let mut spool_writer =
             DxfSpoolWriter::new(opts.limits.max_input_bytes, opts.resource_budget.clone());
-        while let Some(entity) = stream
-            .next_entity()
-            .map_err(|e| err(format!("lettura entità DXF: {e}")))?
-        {
+        let mut source_index = 0_u64;
+        while let Some(entity) = stream.next_entity().map_err(|e| {
+            read_row_error(
+                err(format!("lettura entità DXF: {e}")),
+                None,
+                "dxf.entity_decode_failed",
+                Some(GEOMETRY),
+            )
+        })? {
             opts.resource_budget.ensure_active()?;
             let mut visiting = HashSet::new();
-            walker.walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)?;
+            walker
+                .walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)
+                .map_err(|error| {
+                    read_row_error(
+                        error,
+                        Some(source_index),
+                        "dxf.entity_not_representable",
+                        Some(GEOMETRY),
+                    )
+                })?;
             stats.observe(&walker, &opts.cancellation)?;
             spool_writer.write_and_clear(&mut walker, &opts.cancellation)?;
+            source_index = source_index
+                .checked_add(1)
+                .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe entita DXF".to_owned()))?;
         }
         let spool = spool_writer.finish()?;
         let drawing = stream
@@ -281,6 +299,7 @@ impl FormatDriver for DxfDriver {
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
             opts.resource_budget.clone(),
+            false,
         ))
     }
 
@@ -323,6 +342,7 @@ impl FormatDriver for DxfDriver {
                 loss: LossReport::default(),
                 dropped_cols: Vec::new(),
                 rows: 0,
+                input_total: None,
                 first: true,
                 wkb_limits: opts.limits.effective_wkb(),
                 max_output_bytes: opts.max_output_bytes(),
@@ -345,6 +365,7 @@ struct DxfWriterState {
     loss: LossReport,
     dropped_cols: Vec<String>,
     rows: u64,
+    input_total: Option<u64>,
     first: bool,
     wkb_limits: WkbLimits,
     max_output_bytes: u64,
@@ -394,6 +415,16 @@ impl<W: Write> Write for BoundedOutput<W> {
 }
 
 impl FormatWriter for DxfWriterState {
+    fn declare_input_total(&mut self, layer: LayerId, total: u64) -> Result<()> {
+        if layer.0 != 0 {
+            return Err(PlenoraIoError::Unsupported(
+                "DXF supporta un solo layer".to_owned(),
+            ));
+        }
+        self.input_total = Some(total);
+        Ok(())
+    }
+
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
         let geom_idx =
@@ -413,18 +444,67 @@ impl FormatWriter for DxfWriterState {
             self.first = false;
         }
         let limits = self.wkb_limits;
+        let mut decoded = Vec::with_capacity(batch.num_rows());
+        let mut rejections = Vec::new();
         for row in 0..batch.num_rows() {
-            self.rows += 1;
             if geom_col.is_null(row) {
+                rejections.push((row, "dxf.null_geometry_unsupported", GEOMETRY));
+                decoded.push(None);
                 continue;
             }
-            let g = decode_wkb(geom_col.value(row), &limits)?;
-            let layer = layer_idx
-                .map(|index| cell_string(batch.column(index), row))
-                .transpose()?
-                .flatten();
-            add_geometry(&mut self.drawing, &g, layer.as_deref(), &mut self.loss)?;
+            let geometry = decode_wkb(geom_col.value(row), &limits)?;
+            let cause = if geometry.srid.is_some() {
+                Some("dxf.embedded_srid_unsupported")
+            } else if matches!(
+                geometry.dimensions,
+                CoordinateDimensions::Xym
+                    | CoordinateDimensions::Xyzm
+                    | CoordinateDimensions::Unknown
+            ) {
+                Some("dxf.coordinate_dimensions_unsupported")
+            } else {
+                dxf_geometry_rejection_cause(&geometry.value)
+            };
+            if let Some(cause) = cause {
+                rejections.push((row, cause, GEOMETRY));
+            }
+            decoded.push(Some(geometry));
         }
+        let mut layers = Vec::with_capacity(batch.num_rows());
+        for row in 0..batch.num_rows() {
+            match layer_idx
+                .map(|index| cell_string(batch.column(index), row))
+                .transpose()
+            {
+                Ok(layer) => layers.push(layer.flatten()),
+                Err(_) => {
+                    rejections.push((row, "dxf.layer_not_representable", "layer"));
+                    layers.push(None);
+                }
+            }
+        }
+        if !rejections.is_empty() {
+            return Err(write_row_rejection(
+                "dxf",
+                self.rows,
+                batch.num_rows(),
+                &rejections,
+                self.input_total,
+            ));
+        }
+        for (geometry, layer) in decoded.iter().zip(&layers) {
+            let g = geometry
+                .as_ref()
+                .ok_or_else(|| err("geometria DXF validata ma assente"))?;
+            add_geometry(&mut self.drawing, g, layer.as_deref(), &mut self.loss)?;
+        }
+        self.rows = self
+            .rows
+            .checked_add(
+                u64::try_from(batch.num_rows())
+                    .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe DXF".to_owned()))?,
+            )
+            .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe righe DXF".to_owned()))?;
         Ok(())
     }
 
@@ -556,6 +636,82 @@ fn add_polyline(
     Ok(())
 }
 
+fn dxf_geometry_rejection_cause(value: &WkbValue) -> Option<&'static str> {
+    fn coordinate_cause(coordinate: &WkbCoordinate) -> Option<&'static str> {
+        if !coordinate.x.is_finite()
+            || !coordinate.y.is_finite()
+            || coordinate.z.is_some_and(|value| !value.is_finite())
+        {
+            Some("dxf.non_finite_coordinate")
+        } else if coordinate.m.is_some() {
+            Some("dxf.measure_ordinate_unsupported")
+        } else {
+            None
+        }
+    }
+
+    let coordinate_rejection = match value {
+        WkbValue::Point(coordinate) => coordinate_cause(coordinate),
+        WkbValue::LineString(coordinates) | WkbValue::CircularString(coordinates) => {
+            coordinates.iter().find_map(coordinate_cause)
+        }
+        WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => rings
+            .iter()
+            .flat_map(|ring| ring.iter())
+            .find_map(coordinate_cause),
+        WkbValue::MultiPoint(values)
+        | WkbValue::MultiLineString(values)
+        | WkbValue::MultiPolygon(values)
+        | WkbValue::GeometryCollection(values)
+        | WkbValue::CompoundCurve(values)
+        | WkbValue::CurvePolygon(values)
+        | WkbValue::MultiCurve(values)
+        | WkbValue::MultiSurface(values)
+        | WkbValue::PolyhedralSurface(values)
+        | WkbValue::Tin(values) => values
+            .iter()
+            .find_map(|geometry| dxf_geometry_rejection_cause(&geometry.value)),
+    };
+    if coordinate_rejection.is_some() {
+        return coordinate_rejection;
+    }
+    match value {
+        WkbValue::Point(_) => None,
+        WkbValue::LineString(line) => (line.len() < 2).then_some("dxf.degenerate_geometry"),
+        WkbValue::Polygon(rings) => {
+            if rings.is_empty() || rings.iter().any(|ring| ring.len() < 4) {
+                Some("dxf.degenerate_geometry")
+            } else if rings.iter().any(|ring| ring.first() != ring.last()) {
+                Some("dxf.unclosed_polygon_ring")
+            } else if rings.len() > 1 {
+                Some("dxf.interior_rings_unsupported")
+            } else {
+                None
+            }
+        }
+        WkbValue::MultiPoint(values)
+        | WkbValue::MultiLineString(values)
+        | WkbValue::MultiPolygon(values)
+        | WkbValue::GeometryCollection(values) => {
+            if values.is_empty() {
+                Some("dxf.empty_geometry_unsupported")
+            } else {
+                values
+                    .iter()
+                    .find_map(|geometry| dxf_geometry_rejection_cause(&geometry.value))
+            }
+        }
+        WkbValue::CircularString(_)
+        | WkbValue::CompoundCurve(_)
+        | WkbValue::CurvePolygon(_)
+        | WkbValue::MultiCurve(_)
+        | WkbValue::MultiSurface(_)
+        | WkbValue::PolyhedralSurface(_)
+        | WkbValue::Tin(_)
+        | WkbValue::Triangle(_) => Some("dxf.geometry_type_unsupported"),
+    }
+}
+
 fn add_geometry(
     drawing: &mut Drawing,
     geometry: &WkbGeometry,
@@ -573,16 +729,16 @@ fn add_geometry(
             add_polyline(drawing, line, false, geometry.dimensions, layer)?
         }
         WkbValue::Polygon(rings) => {
+            if rings.len() > 1 {
+                return Err(err("anelli interni Polygon non rappresentabili in DXF"));
+            }
             let exterior = rings
                 .first()
                 .ok_or_else(|| err("Polygon senza anello esterno"))?;
-            add_polyline(drawing, exterior, true, geometry.dimensions, layer)?;
-            if rings.len() > 1 {
-                loss.record(
-                    "anelli interni Polygon scartati (DXF)",
-                    (rings.len() - 1) as u64,
-                );
+            if exterior.first() != exterior.last() {
+                return Err(err("anello Polygon DXF non chiuso"));
             }
+            add_polyline(drawing, exterior, true, geometry.dimensions, layer)?;
         }
         WkbValue::MultiPoint(points) => {
             loss.record("MultiPoint esploso in entità DXF", points.len() as u64);
@@ -1298,7 +1454,7 @@ impl Walker {
                 let local =
                     tessellate_circle([cir.center.x, cir.center.y], cir.radius, ARC_SEGMENTS);
                 if local.len() < 4 {
-                    self.loss.record("CIRCLE degenere", 1);
+                    return Err(err("CIRCLE degenere non convertibile"));
                 } else {
                     self.loss.record("CIRCLE tassellata", 1);
                     self.push(
@@ -1319,7 +1475,7 @@ impl Walker {
                     ARC_SEGMENTS,
                 );
                 if local.len() < 2 {
-                    self.loss.record("ARC degenere", 1);
+                    return Err(err("ARC degenere non convertibile"));
                 } else {
                     self.loss.record("ARC tassellato", 1);
                     self.push(
@@ -1386,7 +1542,7 @@ impl Walker {
                     ARC_SEGMENTS,
                 );
                 if local.len() < 2 {
-                    self.loss.record("ELLIPSE degenere", 1);
+                    return Err(err("ELLIPSE degenere non convertibile"));
                 } else {
                     let full = local.first() == local.last() && local.len() >= 4;
                     let coordinates: Vec<WkbCoordinate> = local
@@ -1422,7 +1578,7 @@ impl Walker {
                     samples,
                 );
                 if local.len() < 2 {
-                    self.loss.record("SPLINE degenere", 1);
+                    return Err(err("SPLINE degenere non convertibile"));
                 } else {
                     self.loss.record("SPLINE tassellata", 1);
                     let closed = sp.flags & 1 == 1;
@@ -1442,7 +1598,7 @@ impl Walker {
                                 None,
                             )?;
                         } else {
-                            self.loss.record("SPLINE degenere", 1);
+                            return Err(err("SPLINE chiusa degenere non convertibile"));
                         }
                     } else {
                         self.push(WkbValue::LineString(coordinates), &layer, "SPLINE", None)?;
@@ -1453,7 +1609,7 @@ impl Walker {
                 self.walk_insert(insert, transform, &layer, depth, visiting)?;
             }
             EntityType::Region(_) | EntityType::Body(_) => {
-                self.loss.record("REGION/BODY (ACIS) non convertibile", 1);
+                return Err(err("REGION/BODY (ACIS) non convertibile"));
             }
             EntityType::AttributeDefinition(_)
             | EntityType::Attribute(_)
@@ -1461,7 +1617,7 @@ impl Walker {
             | EntityType::Vertex(_) => {
                 // Elementi di struttura/template: nessuna geometria autonoma.
             }
-            _ => self.loss.record("entità DXF non gestita", 1),
+            _ => return Err(err("entità DXF non gestita")),
         }
         Ok(())
     }
@@ -1475,8 +1631,7 @@ impl Walker {
         kind: &'static str,
     ) -> Result<()> {
         if vertices.len() < 2 {
-            self.loss.record("polilinea degenere (<2 vertici)", 1);
-            return Ok(());
+            return Err(err("polilinea degenere (<2 vertici) non convertibile"));
         }
         if vertices.iter().enumerate().any(|(index, (point, bulge))| {
             let next = if index + 1 < vertices.len() {
@@ -1506,8 +1661,7 @@ impl Walker {
                 positions.push(positions[0]);
             }
             if positions.len() < 4 {
-                self.loss.record("polilinea chiusa degenere", 1);
-                return Ok(());
+                return Err(err("polilinea chiusa degenere non convertibile"));
             }
             self.push(WkbValue::Polygon(vec![positions]), layer, kind, None)?;
         } else {
@@ -1598,7 +1752,7 @@ impl Walker {
                 self.walk_entity(entity, composed, layer, depth + 1, visiting)?;
             }
         } else if insert.attributes().next().is_none() {
-            self.loss.record("blocco INSERT assente", 1);
+            return Err(err("blocco INSERT assente"));
         }
         visiting.remove(&insert.name);
         Ok(())
@@ -1961,6 +2115,7 @@ mod tests {
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: Default::default(),
             batch_target: BatchTarget::default(),
             cancellation: Default::default(),
         }
@@ -2199,6 +2354,37 @@ mod tests {
     }
 
     #[test]
+    fn row_level_dxf_failure_reports_the_top_level_entity_index() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("invalid-row.dxf");
+        let mut drawing = Drawing::new();
+        drawing.add_entity(Entity::new(EntityType::ModelPoint(ModelPoint {
+            location: DxfPoint::new(1.0, 2.0, 3.0),
+            ..Default::default()
+        })));
+        drawing.add_entity(Entity::new(EntityType::Circle(
+            dxf::entities::Circle::default(),
+        )));
+        let mut file = File::create(&path).unwrap();
+        drawing.save(&mut file).unwrap();
+
+        let error = DxfDriver
+            .open(
+                Source::Path(path),
+                &ReadOptions {
+                    assume_crs: Some("EPSG:4326".to_owned()),
+                    ..ReadOptions::default()
+                },
+            )
+            .err()
+            .expect("il CIRCLE degenere deve essere rifiutato");
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(diagnostics.examples[0].source_index, 1);
+        assert_eq!(diagnostics.counts["dxf.entity_not_representable"], 1);
+        assert!(diagnostics.validate().is_ok());
+    }
+
+    #[test]
     fn read_limits_are_enforced_before_batch_creation() {
         let mut drawing = Drawing::new();
         drawing.add_entity(Entity::new(EntityType::ModelPoint(ModelPoint {
@@ -2261,6 +2447,311 @@ mod tests {
             .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
             .is_err());
         assert!(!output.exists());
+    }
+
+    #[test]
+    fn dxf_conversion_rejects_non_finite_coordinates() {
+        for coordinate in [
+            WkbCoordinate {
+                x: f64::NAN,
+                y: 0.0,
+                z: None,
+                m: None,
+            },
+            WkbCoordinate {
+                x: 0.0,
+                y: f64::INFINITY,
+                z: None,
+                m: None,
+            },
+            WkbCoordinate {
+                x: 0.0,
+                y: 0.0,
+                z: Some(f64::NEG_INFINITY),
+                m: None,
+            },
+        ] {
+            let error = point_entity(&coordinate).unwrap_err();
+            assert_eq!(error.category, plenora_io_model::ErrorCategory::DataMapping);
+            assert!(error.message.contains("coordinate non finite"));
+        }
+    }
+
+    #[test]
+    fn declared_input_total_enables_dxf_specific_row_diagnostics() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("null.dxf");
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            GEOMETRY,
+            CrsResolution::resolved(resolved_wgs84()),
+            true,
+        );
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
+            &geometry_field(GEOMETRY, "EPSG:4326"),
+            &geometry,
+        )]));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "null".to_owned(),
+                contract: DataContract {
+                    schema: schema.clone(),
+                    geometry: Some(geometry),
+                },
+            }],
+        };
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(BinaryArray::from(vec![None::<&[u8]>]))],
+        )
+        .unwrap();
+        let mut writer = DxfDriver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+
+        let error = writer.write(&batch).unwrap_err();
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(diagnostics.input_total, Some(1));
+        assert_eq!(diagnostics.observed_total, 1);
+        assert_eq!(diagnostics.examples[0].source_index, 0);
+        assert_eq!(
+            diagnostics.counts.get("dxf.null_geometry_unsupported"),
+            Some(&1)
+        );
+        assert!(diagnostics.validate().is_ok());
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn writer_adapter_attributes_non_finite_dxf_row_and_prevents_publish() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("nan.dxf");
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            GEOMETRY,
+            CrsResolution::resolved(resolved_wgs84()),
+            false,
+        );
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
+            &geometry_field(GEOMETRY, "EPSG:4326"),
+            &geometry,
+        )]));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "nan".to_owned(),
+                contract: DataContract {
+                    schema: schema.clone(),
+                    geometry: Some(geometry),
+                },
+            }],
+        };
+        let bytes = encode_wkb(
+            &WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x: f64::NAN,
+                    y: 1.0,
+                    z: None,
+                    m: None,
+                }),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+        )
+        .unwrap();
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(BinaryArray::from(vec![Some(bytes.as_slice())]))],
+        )
+        .unwrap();
+        let mut writer = DxfDriver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+
+        let error = writer.write(&batch).unwrap_err();
+        let diagnostics = error.row_diagnostics.as_deref().unwrap();
+        assert_eq!(diagnostics.examples[0].source_index, 0);
+        assert_eq!(diagnostics.counts["dxf.non_finite_coordinate"], 1);
+        assert!(diagnostics.validate().is_ok());
+        assert!(writer.finish().is_err());
+        assert!(!output.exists());
+    }
+
+    fn dxf_writer_for_geometry_type(
+        output: &std::path::Path,
+        geometry_type: GeometryType,
+        input_total: u64,
+    ) -> (Box<dyn FormatWriter>, SchemaRef) {
+        let mut geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            GEOMETRY,
+            CrsResolution::resolved(resolved_wgs84()),
+            false,
+        );
+        geometry.set_exact_geometry_types(vec![geometry_type]);
+        let schema: SchemaRef = Arc::new(Schema::new(vec![with_geometry_contract_metadata(
+            &geometry_field(GEOMETRY, "EPSG:4326"),
+            &geometry,
+        )]));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "geometry".to_owned(),
+                contract: DataContract {
+                    schema: schema.clone(),
+                    geometry: Some(geometry),
+                },
+            }],
+        };
+        let mut writer = DxfDriver
+            .create(
+                Sink::Path(output.to_path_buf()),
+                &plan,
+                &WriteOptions::default(),
+            )
+            .unwrap();
+        writer.declare_input_total(LayerId(0), input_total).unwrap();
+        (writer, schema)
+    }
+
+    #[test]
+    fn writer_adapter_rejects_empty_multipart_and_collection_without_publish() {
+        let point = || WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 1.0,
+                y: 2.0,
+                z: None,
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        for (name, geometry_type, valid_value, empty_value) in [
+            (
+                "multipoint",
+                GeometryType::MultiPoint,
+                WkbValue::MultiPoint(vec![point()]),
+                WkbValue::MultiPoint(Vec::new()),
+            ),
+            (
+                "collection",
+                GeometryType::GeometryCollection,
+                WkbValue::GeometryCollection(vec![point()]),
+                WkbValue::GeometryCollection(Vec::new()),
+            ),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let output = directory.path().join(format!("{name}.dxf"));
+            let (mut writer, schema) = dxf_writer_for_geometry_type(&output, geometry_type, 2);
+            let valid = wkb(valid_value, CoordinateDimensions::Xy);
+            let valid_batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(valid.as_slice())]))],
+            )
+            .unwrap();
+            writer.write(&valid_batch).unwrap();
+            let empty = wkb(empty_value, CoordinateDimensions::Xy);
+            let batch = RecordBatch::try_new(
+                schema,
+                vec![Arc::new(BinaryArray::from(vec![Some(empty.as_slice())]))],
+            )
+            .unwrap();
+
+            let error = writer.write(&batch).unwrap_err();
+            let diagnostics = error.row_diagnostics.as_deref().unwrap();
+            assert_eq!(diagnostics.observed_total, 1);
+            assert_eq!(diagnostics.examples.len(), 1);
+            assert_eq!(diagnostics.examples[0].source_index, 1);
+            assert_eq!(diagnostics.counts["dxf.empty_geometry_unsupported"], 1);
+            assert_eq!(diagnostics.input_total, Some(2));
+            assert_eq!(
+                diagnostics
+                    .write_outcome
+                    .as_ref()
+                    .unwrap()
+                    .certainly_rejected,
+                plenora_io_model::KnownOrUnknownCount::Known { value: 1 }
+            );
+            assert!(diagnostics.validate().is_ok());
+            assert!(writer.write(&batch).is_err(), "poison deve essere sticky");
+            assert!(writer.finish().is_err());
+            assert!(!output.exists());
+        }
+    }
+
+    #[test]
+    fn empty_supported_collections_and_nested_empty_use_the_stable_cause() {
+        let empty = "dxf.empty_geometry_unsupported";
+        assert_eq!(
+            dxf_geometry_rejection_cause(&WkbValue::MultiLineString(Vec::new())),
+            Some(empty)
+        );
+        assert_eq!(
+            dxf_geometry_rejection_cause(&WkbValue::MultiPolygon(Vec::new())),
+            Some(empty)
+        );
+        assert_eq!(
+            dxf_geometry_rejection_cause(&WkbValue::GeometryCollection(vec![WkbGeometry {
+                value: WkbValue::MultiPoint(Vec::new()),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            }])),
+            Some(empty)
+        );
+        assert_eq!(
+            dxf_geometry_rejection_cause(&WkbValue::CompoundCurve(Vec::new())),
+            Some("dxf.geometry_type_unsupported")
+        );
+    }
+
+    #[test]
+    fn non_empty_multipoint_preserves_explosion_fidelity_and_entities() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("multipoint.dxf");
+        let (mut writer, schema) =
+            dxf_writer_for_geometry_type(&output, GeometryType::MultiPoint, 1);
+        let bytes = wkb(
+            WkbValue::MultiPoint(vec![
+                WkbGeometry {
+                    value: WkbValue::Point(WkbCoordinate {
+                        x: 1.0,
+                        y: 2.0,
+                        z: None,
+                        m: None,
+                    }),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                },
+                WkbGeometry {
+                    value: WkbValue::Point(WkbCoordinate {
+                        x: 3.0,
+                        y: 4.0,
+                        z: None,
+                        m: None,
+                    }),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                },
+            ]),
+            CoordinateDimensions::Xy,
+        );
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(BinaryArray::from(vec![Some(bytes.as_slice())]))],
+        )
+        .unwrap();
+        writer.write(&batch).unwrap();
+        let published = writer.finish().unwrap();
+        assert_eq!(published.loss.counts["MultiPoint esploso in entità DXF"], 2);
+
+        let dataset = DxfDriver
+            .open(Source::Path(output), &ReadOptions::default())
+            .unwrap();
+        let mut reader = dataset.open_layer_reader(&request()).unwrap();
+        assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 2);
     }
 
     #[test]

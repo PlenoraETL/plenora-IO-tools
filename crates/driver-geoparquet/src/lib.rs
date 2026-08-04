@@ -119,6 +119,10 @@ impl FormatDriver for GeoParquetDriver {
         );
         apply_geo_column_metadata(&mut geometry, geo.as_ref(), &geom_name);
         let contract = DataContract::new(out_schema.clone(), Some(geometry));
+        // `DataContract::new` rende i metadati geometrici del contratto
+        // autoritativi; anche i batch runtime devono essere retaggati con
+        // quello stesso schema, non con la versione intermedia.
+        let out_schema = contract.schema.clone();
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -137,6 +141,7 @@ impl FormatDriver for GeoParquetDriver {
                 layers: vec![layer],
             }),
             opts.resource_budget.clone(),
+            true,
         ))
     }
 
@@ -1257,6 +1262,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1344,6 +1350,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1491,6 +1498,7 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1566,6 +1574,7 @@ mod tests {
                     value: PruningScalar::Int64(150_000),
                 }),
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1592,6 +1601,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: Some(PruningPredicate::Opaque("id > 150000".to_owned())),
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1668,6 +1678,7 @@ mod tests {
                     maxx: 210.0,
                     maxy: 50.0,
                 }),
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1740,6 +1751,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })

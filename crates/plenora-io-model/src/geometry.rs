@@ -291,10 +291,12 @@ pub fn with_geometry_contract_metadata(
                     definition_format_name(format).to_owned(),
                 );
             }
-            metadata.insert(
-                PLENORA_AXIS_ORDER_KEY.to_owned(),
-                axis_order_name(raw.axis_order).to_owned(),
-            );
+            if raw.authority_hint.is_some() || raw.definition.is_some() {
+                metadata.insert(
+                    PLENORA_AXIS_ORDER_KEY.to_owned(),
+                    axis_order_name(raw.axis_order).to_owned(),
+                );
+            }
         }
         CrsResolution::Missing => {
             metadata.insert(PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned());
@@ -462,11 +464,18 @@ pub fn read_geometry_contract_metadata(
                 CrsResolution::Resolved(crs)
             }
             "declared_unresolved" => {
-                if id.is_none() && definition.is_none() {
+                let has_structured_representation = id.is_some() || definition.is_some();
+                if !has_structured_representation && parsed.srid.is_none() {
                     return Err(invalid_metadata(field, PLENORA_CRS_RESOLUTION_KEY));
                 }
-                let axis_order =
-                    axis_order.ok_or_else(|| invalid_metadata(field, PLENORA_AXIS_ORDER_KEY))?;
+                if !has_structured_representation && axis_order.is_some() {
+                    return Err(invalid_metadata(field, PLENORA_AXIS_ORDER_KEY));
+                }
+                let axis_order = if has_structured_representation {
+                    axis_order.ok_or_else(|| invalid_metadata(field, PLENORA_AXIS_ORDER_KEY))?
+                } else {
+                    AxisOrder::Unknown
+                };
                 CrsResolution::DeclaredButUnresolved(RawCrs {
                     definition,
                     authority_hint: id,
@@ -474,7 +483,14 @@ pub fn read_geometry_contract_metadata(
                     axis_order,
                 })
             }
-            "missing" if id.is_none() && definition.is_none() => CrsResolution::Missing,
+            "missing"
+                if id.is_none()
+                    && definition.is_none()
+                    && axis_order.is_none()
+                    && parsed.srid.is_none() =>
+            {
+                CrsResolution::Missing
+            }
             _ => return Err(invalid_metadata(field, PLENORA_CRS_RESOLUTION_KEY)),
         };
     }
@@ -740,6 +756,98 @@ mod tests {
         let mut decoded = contract();
         read_geometry_contract_metadata(&field, &mut decoded).unwrap();
         assert_eq!(decoded.crs, geometry.crs);
+    }
+
+    #[test]
+    fn unresolved_crs_roundtrips_with_srid_only_without_synthesis() {
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([
+            (
+                PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                "declared_unresolved".to_owned(),
+            ),
+            (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
+        ]));
+        let mut geometry = contract();
+
+        read_geometry_contract_metadata(&field, &mut geometry).unwrap();
+
+        assert_eq!(geometry.srid, Some(4326));
+        let raw = geometry.crs.raw().unwrap();
+        assert_eq!(raw.authority_hint, None);
+        assert_eq!(raw.definition, None);
+        assert_eq!(raw.definition_format, None);
+        assert_eq!(raw.axis_order, AxisOrder::Unknown);
+
+        let emitted = with_geometry_contract_metadata(
+            &Field::new("geometry", DataType::Binary, true),
+            &geometry,
+        );
+        assert_eq!(
+            emitted.metadata().get(PLENORA_SRID_KEY).map(String::as_str),
+            Some("4326")
+        );
+        for key in [
+            PLENORA_CRS_ID_KEY,
+            PLENORA_CRS_DEFINITION_KEY,
+            PLENORA_CRS_DEFINITION_FORMAT_KEY,
+            PLENORA_AXIS_ORDER_KEY,
+        ] {
+            assert!(
+                !emitted.metadata().contains_key(key),
+                "chiave sintetizzata: {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_crs_with_srid_only_is_rejected() {
+        let field = Field::new("geometry", DataType::Binary, true).with_metadata(HashMap::from([
+            (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "resolved".to_owned()),
+            (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
+        ]));
+
+        assert!(read_geometry_contract_metadata(&field, &mut contract()).is_err());
+    }
+
+    #[test]
+    fn unresolved_crs_with_structured_representation_requires_axis_order() {
+        for key in [PLENORA_CRS_ID_KEY, PLENORA_CRS_DEFINITION_KEY] {
+            let mut metadata = HashMap::from([
+                (
+                    PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                    "declared_unresolved".to_owned(),
+                ),
+                (key.to_owned(), "EPSG:4326".to_owned()),
+            ]);
+            if key == PLENORA_CRS_DEFINITION_KEY {
+                metadata.insert(
+                    PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
+                    "wkt".to_owned(),
+                );
+            }
+            let field = Field::new("geometry", DataType::Binary, true).with_metadata(metadata);
+
+            assert!(read_geometry_contract_metadata(&field, &mut contract()).is_err());
+        }
+    }
+
+    #[test]
+    fn axis_order_without_structured_crs_is_rejected() {
+        for (resolution, srid) in [("declared_unresolved", Some("4326")), ("missing", None)] {
+            let mut metadata = HashMap::from([
+                (PLENORA_CRS_RESOLUTION_KEY.to_owned(), resolution.to_owned()),
+                (PLENORA_AXIS_ORDER_KEY.to_owned(), "lon_lat".to_owned()),
+            ]);
+            if let Some(srid) = srid {
+                metadata.insert(PLENORA_SRID_KEY.to_owned(), srid.to_owned());
+            }
+            let field = Field::new("geometry", DataType::Binary, true).with_metadata(metadata);
+
+            assert!(
+                read_geometry_contract_metadata(&field, &mut contract()).is_err(),
+                "`{resolution}` senza crs_id/definition ha accettato axis_order"
+            );
+        }
     }
 
     #[test]
