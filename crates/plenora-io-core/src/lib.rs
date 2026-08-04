@@ -25,10 +25,11 @@ pub use descriptor::{
     WKB_XY_XYZ_GEOMETRY,
 };
 pub use driver::{
-    check_cancelled, check_cancelled_periodically, spawn_batch_reader, with_batch_target,
-    with_cancellation, with_read_budget, with_write_limits, with_write_validation, BatchEmitter,
-    FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle, Published, ReadOptions,
-    SingleReaderGate, Sink, Source, WriteOptions, CANCELLATION_CHECK_INTERVAL,
+    check_cancelled, check_cancelled_periodically, read_row_error, spawn_batch_reader,
+    with_batch_target, with_cancellation, with_read_budget, with_write_limits,
+    with_write_validation, write_row_rejection, BatchEmitter, FormatDriver, FormatWriter,
+    LayerReader, OpenDatasetHandle, Published, ReadOptions, SingleReaderGate, Sink, Source,
+    WriteOptions, CANCELLATION_CHECK_INTERVAL,
 };
 pub use loss::{
     FidelityAssessment, FidelityReason, FidelityReasonCode, LossExample, LossReport,
@@ -41,7 +42,8 @@ pub use publish::{
 };
 pub use registry::DriverRegistry;
 pub use request::{
-    effective_batch_rows, project_layer_contract, validate_read_projection, AdaptiveBatchSizer,
-    BatchTarget, Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar,
-    ReadRequest, WriteLayer, WritePlan,
+    effective_batch_rows, incremental_batch_memory_size, project_layer_contract,
+    validate_read_projection, AdaptiveBatchSizer, BatchTarget, Bbox, ProjectionMode,
+    PruningComparison, PruningPredicate, PruningScalar, ReadRequest, ReadScope, WriteLayer,
+    WritePlan,
 };

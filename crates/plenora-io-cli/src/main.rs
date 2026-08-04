@@ -1,8 +1,8 @@
 //! plenora-io — CLI (Fase 2A). Comandi: `catalog` (registro driver), `inspect`
 //! (formato + layer + schema + CRS), `layers` (elenco layer), `read` (scan +
-//! conteggio righe), `convert` (pipeline read→write in **streaming**: apre il
-//! driver sorgente, crea il driver destinazione, trasferisce i RecordBatch a
-//! memoria O(batch), publish atomico). Nessuna riproiezione: il CRS è
+//! conteggio righe), `convert` (pipeline operation-atomic: valida la sorgente
+//! fino a EOF prima di esporre batch al writer, poi trasferisce i RecordBatch
+//! e pubblica atomicamente). Nessuna riproiezione: il CRS è
 //! letto/scritto, mai trasformato (ADR-IO 4).
 #![forbid(unsafe_code)]
 
@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
 use plenora_io_core::publish::PublishOutcome;
-use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest};
+use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
 use plenora_io_core::{
     DriverRegistry, Fidelity, FidelityAssessment, LossReport, WriteLayer, WritePlan,
 };
@@ -26,18 +26,34 @@ use plenora_io_model::{ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, 
 type CliResult = Result<Value, (i32, Value)>;
 
 fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
+    let mut error_document = json!({
+        "category": error.category,
+        "phase": error.phase,
+        "remote_effect": error.remote_effect,
+        "retry": error.retry,
+        "code": code,
+        "message": error.message,
+    });
+    if let Some(diagnostics) = &error.row_diagnostics {
+        match serde_json::to_value(diagnostics.as_ref()) {
+            Ok(document) => error_document["row_diagnostics"] = document,
+            Err(_) => {
+                error_document = json!({
+                    "category": ErrorCategory::Internal,
+                    "phase": ErrorPhase::Validate,
+                    "remote_effect": RemoteEffect::None,
+                    "retry": RetryDisposition::Never,
+                    "code": "INVALID_ROW_DIAGNOSTICS",
+                    "message": "diagnostica row-scoped interna non conforme e non emessa",
+                });
+            }
+        }
+    }
     json!({
         "status": "error",
         "protocol_version": 1,
         "contract": "plenora-io-error-v1",
-        "error": {
-            "category": error.category,
-            "phase": error.phase,
-            "remote_effect": error.remote_effect,
-            "retry": error.retry,
-            "code": code,
-            "message": error.message,
-        },
+        "error": error_document,
     })
 }
 
@@ -74,7 +90,7 @@ fn usage_err(message: impl Into<String>) -> (i32, Value) {
 /// Mappa un `PlenoraIoError` a (exit, doc) con codici stabili.
 fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
     use plenora_io_model::IoErrorCode;
-    let (exit, code) = match e.code {
+    let (historical_exit, code) = match e.code {
         IoErrorCode::OutputExists => (3, "OUTPUT_EXISTS"),
         IoErrorCode::Unsupported | IoErrorCode::Capability => (4, "UNSUPPORTED"),
         IoErrorCode::Crs => (5, "CRS_REQUIRED"),
@@ -85,7 +101,20 @@ fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
         IoErrorCode::CrsUnresolved => (8, "CRS_UNRESOLVED"),
         _ => (1, "FORMAT_ERROR"),
     };
-    (exit, err_doc(code, &e))
+    let (exit, code) = if e.category == ErrorCategory::Cancelled {
+        (130, "CANCELLED")
+    } else if e.category == ErrorCategory::DataMapping {
+        (2, code)
+    } else {
+        (historical_exit, code)
+    };
+    let document = err_doc(code, &e);
+    let final_exit = if document["error"]["code"] == "INVALID_ROW_DIAGNOSTICS" {
+        1
+    } else {
+        exit
+    };
+    (final_exit, document)
 }
 
 fn combined_fidelity(read: &FidelityAssessment, write: &FidelityAssessment) -> FidelityAssessment {
@@ -133,7 +162,18 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
         "gpkg" => Box::new(driver_gpkg::GpkgDriver),
         "shp" => Box::new(driver_shp::ShpDriver),
         "kml" => Box::new(driver_kml::KmlDriver),
-        "xlsx" | "xls" => Box::new(driver_xls::XlsDriver),
+        "xlsx" => Box::new(driver_xls::XlsDriver),
+        "xls" => {
+            return Err((
+                4,
+                local_err_doc(
+                    "XLS_BINARY_UNSUPPORTED",
+                    ErrorCategory::Unsupported,
+                    ErrorPhase::Validate,
+                    "capability drop esplicita: il contenitore binario BIFF .xls non e' supportato; usare .xlsx",
+                ),
+            ))
+        }
         "dxf" => Box::new(driver_dxf::DxfDriver),
         "gdb" => Box::new(driver_filegdb::FileGdbDriver),
         "arrow" => Box::new(driver_ipc::IpcDriver),
@@ -424,13 +464,14 @@ fn cmd_layers(cli: &Cli) -> CliResult {
     }))
 }
 
-fn read_request(layer_id: u32) -> ReadRequest {
+fn read_request(layer_id: u32, scope: ReadScope) -> ReadRequest {
     ReadRequest {
         layer: plenora_io_model::contract::LayerId(layer_id),
         projected_fields: None,
         projection_mode: ProjectionMode::BestEffort,
         pruning_predicate: None,
         spatial_pruning_hint: None,
+        scope,
         batch_target: BatchTarget::default(),
         cancellation: Default::default(),
     }
@@ -460,7 +501,12 @@ fn cmd_read(cli: &Cli) -> CliResult {
         })?
         .clone();
     let mut reader = ds
-        .open_layer_reader(&read_request(layer_id))
+        .open_layer_reader(&read_request(
+            layer_id,
+            cli.limit
+                .map(|limit| ReadScope::AcceptedRows(limit as u64))
+                .unwrap_or(ReadScope::Complete),
+        ))
         .map_err(map_err)?;
     let (mut rows, mut batches) = (0usize, 0usize);
     while let Some(batch) = reader.next_batch().map_err(map_err)? {
@@ -568,18 +614,46 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let mut read_loss = LossReport::default();
     for (sink_idx, l) in selected.iter().enumerate() {
         let mut reader = ds
-            .open_layer_reader(&read_request(l.id.0))
+            .open_layer_reader(&read_request(l.id.0, ReadScope::Complete))
             .map_err(map_err)?;
         let (mut rows, mut batches) = (0usize, 0usize);
+        let mut layer_batches = Vec::new();
         while let Some(batch) = reader.next_batch().map_err(map_err)? {
-            rows += batch.num_rows();
-            batches += 1;
-            writer
-                .write_to_layer(plenora_io_model::contract::LayerId(sink_idx as u32), &batch)
-                .map_err(map_err)?;
+            rows = rows.checked_add(batch.num_rows()).ok_or_else(|| {
+                map_err(PlenoraIoError::LimitExceeded(
+                    "overflow nel conteggio righe CLI".to_owned(),
+                ))
+            })?;
+            batches = batches.checked_add(1).ok_or_else(|| {
+                map_err(PlenoraIoError::LimitExceeded(
+                    "overflow nel conteggio batch CLI".to_owned(),
+                ))
+            })?;
+            layer_batches.push(batch);
+        }
+        let input_total = u64::try_from(rows).map_err(|_| {
+            map_err(PlenoraIoError::LimitExceeded(
+                "cardinalita sorgente non rappresentabile".to_owned(),
+            ))
+        })?;
+        let sink_layer =
+            plenora_io_model::contract::LayerId(u32::try_from(sink_idx).map_err(|_| {
+                map_err(PlenoraIoError::LimitExceeded(
+                    "numero di layer sorgente non rappresentabile".to_owned(),
+                ))
+            })?);
+        writer
+            .declare_input_total(sink_layer, input_total)
+            .map_err(map_err)?;
+        for batch in layer_batches {
+            writer.write_to_layer(sink_layer, &batch).map_err(map_err)?;
         }
         read_loss.merge(&reader.loss_report());
-        total_rows += rows;
+        total_rows = total_rows.checked_add(rows).ok_or_else(|| {
+            map_err(PlenoraIoError::LimitExceeded(
+                "overflow nel conteggio totale righe CLI".to_owned(),
+            ))
+        })?;
         layer_reports.push(json!({"name": l.name, "rows": rows, "batches": batches}));
     }
     let published = writer.finish().map_err(map_err)?;
@@ -696,6 +770,132 @@ mod tests {
         path
     }
 
+    fn materialize_multibatch_geometry_ipc(
+        directory: &tempfile::TempDir,
+        first_batch_valid: bool,
+    ) -> PathBuf {
+        use std::fs::File;
+        use std::sync::Arc;
+
+        use arrow_array::{BinaryArray, RecordBatch};
+        use arrow_ipc::writer::FileWriter;
+        use arrow_schema::{DataType, Field, Schema};
+        use plenora_io_model::contract::{FieldId, GeometryColumnContract, GeometryType};
+        use plenora_io_model::crs::CrsResolution;
+        use plenora_io_model::geometry::{with_contract_version, with_geometry_contract_metadata};
+
+        const VALID_POINT: &[u8] = &[
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        const INVALID_WKB: &[u8] = &[1, 1, 0];
+        let path = directory.path().join(if first_batch_valid {
+            "late-invalid.arrow"
+        } else {
+            "prefix-invalid.arrow"
+        });
+        let mut geometry =
+            GeometryColumnContract::wkb_xy(FieldId(0), "geometry", CrsResolution::Missing, true);
+        geometry.set_exact_geometry_types(vec![GeometryType::Point]);
+        let field = with_geometry_contract_metadata(
+            &Field::new("geometry", DataType::Binary, true),
+            &geometry,
+        );
+        let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+        let first_values = (0..12)
+            .map(|index| {
+                Some(if first_batch_valid || index != 1 {
+                    VALID_POINT
+                } else {
+                    INVALID_WKB
+                })
+            })
+            .collect::<Vec<_>>();
+        let first = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(first_values))],
+        )
+        .unwrap();
+        let tail = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![Some(INVALID_WKB)]))],
+        )
+        .unwrap();
+        let mut writer = FileWriter::try_new(File::create(&path).unwrap(), &schema).unwrap();
+        writer.write(&first).unwrap();
+        writer.write(&tail).unwrap();
+        writer.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn read_limit_stops_before_invalid_tail_but_convert_remains_complete() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = materialize_multibatch_geometry_ipc(&directory, true);
+        let cli = parse(&[
+            input.to_string_lossy().into_owned(),
+            "--limit".to_owned(),
+            "10".to_owned(),
+        ])
+        .unwrap();
+        let summary = cmd_read(&cli).unwrap();
+        assert_eq!(summary["rows_read"], 12);
+        assert_eq!(summary["batches"], 1);
+        assert_eq!(summary["truncated"], true);
+
+        let output = directory.path().join("must-not-publish.arrow");
+        let convert = parse(&[
+            input.to_string_lossy().into_owned(),
+            output.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        let error = cmd_convert(&convert).unwrap_err();
+        assert_eq!(error.0, 2, "{}", error.1);
+        assert_eq!(error.1["error"]["code"], "FORMAT_ERROR");
+        assert_eq!(
+            error.1["error"]["row_diagnostics"]["examples"][0]["source_index"],
+            12
+        );
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn zero_read_limit_keeps_the_frozen_summary_without_observing_tail() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = materialize_multibatch_geometry_ipc(&directory, false);
+        let cli = parse(&[
+            input.to_string_lossy().into_owned(),
+            "--limit".to_owned(),
+            "0".to_owned(),
+        ])
+        .unwrap();
+
+        let summary = cmd_read(&cli).unwrap();
+        assert_eq!(summary["rows_read"], 0);
+        assert_eq!(summary["batches"], 0);
+        assert_eq!(summary["truncated"], true);
+        assert_eq!(summary["contract"], "plenora-io-read-v1");
+    }
+
+    #[test]
+    fn read_limit_rejects_invalid_rows_inside_the_observed_prefix() {
+        let directory = tempfile::tempdir().unwrap();
+        let input = materialize_multibatch_geometry_ipc(&directory, false);
+        let cli = parse(&[
+            input.to_string_lossy().into_owned(),
+            "--limit".to_owned(),
+            "10".to_owned(),
+        ])
+        .unwrap();
+        let error = cmd_read(&cli).unwrap_err();
+        let diagnostics = &error.1["error"]["row_diagnostics"];
+        assert_eq!(diagnostics["completeness"], "partial");
+        assert_eq!(diagnostics["examples"][0]["source_index"], 1);
+        assert_eq!(
+            diagnostics["knowledge_limits"][0],
+            "read_scope_row_limit_reached"
+        );
+    }
+
     #[test]
     fn parse_flags_and_opts() {
         let args = [
@@ -742,6 +942,115 @@ mod tests {
             document["error"]["retry"],
             serde_json::json!({"kind": "never"})
         );
+        assert!(document["error"].get("row_diagnostics").is_none());
+    }
+
+    #[test]
+    fn output_exists_keeps_the_frozen_cli_exit_and_category() {
+        let (exit, document) = map_err(PlenoraIoError::OutputExists(
+            "existing.unsupported".to_owned(),
+        ));
+        assert_eq!(exit, 3);
+        assert_eq!(document["error"]["code"], "OUTPUT_EXISTS");
+        assert_eq!(document["error"]["category"], "conflict");
+    }
+
+    #[test]
+    fn row_diagnostics_are_preserved_in_the_cli_error_envelope() {
+        let cause = "shapefile.inner_ring_without_outer".to_owned();
+        let diagnostics = plenora_io_model::RowDiagnostics {
+            contract: plenora_io_model::ROW_DIAGNOSTICS_CONTRACT.to_owned(),
+            scope: plenora_io_model::RowDiagnosticScope::Read,
+            index_basis: plenora_io_model::ROW_DIAGNOSTICS_INDEX_BASIS.to_owned(),
+            completeness: plenora_io_model::RowDiagnosticsCompleteness::Complete,
+            knowledge_limits: None,
+            observed_total: 1,
+            total: Some(1),
+            input_total: None,
+            counts: std::collections::BTreeMap::from([(cause.clone(), 1)]),
+            examples_limit: 1,
+            examples_truncated: false,
+            examples: vec![plenora_io_model::RowDiagnosticExample {
+                source_index: 17,
+                cause,
+                column: None,
+                key: None,
+                write_state: None,
+            }],
+            diagnostic_state_counts: None,
+            write_outcome: None,
+        };
+        let error = PlenoraIoError::format("shp", "riga Shapefile non valida")
+            .with_row_diagnostics(diagnostics);
+
+        let (exit, document) = map_err(error);
+
+        assert_eq!(exit, 2);
+        assert_eq!(document["status"], "error");
+        assert_eq!(document["protocol_version"], 1);
+        assert_eq!(document["contract"], "plenora-io-error-v1");
+        assert_eq!(document["error"]["code"], "FORMAT_ERROR");
+        assert_eq!(document["error"]["category"], "data_mapping");
+        assert_eq!(document["error"]["phase"], "read");
+        assert_eq!(document["error"]["remote_effect"], "none");
+        assert_eq!(
+            document["error"]["retry"],
+            serde_json::json!({"kind": "never"})
+        );
+        assert_eq!(
+            document["error"]["row_diagnostics"]["contract"],
+            plenora_io_model::ROW_DIAGNOSTICS_CONTRACT
+        );
+        assert_eq!(
+            document["error"]["row_diagnostics"]["examples"][0]["source_index"],
+            17
+        );
+    }
+
+    #[test]
+    fn cancellation_has_dedicated_exit_and_preserves_axes() {
+        let error = PlenoraIoError::cancelled(ErrorPhase::Read, false);
+
+        let (exit, document) = map_err(error);
+
+        assert_eq!(exit, 130);
+        assert_eq!(document["status"], "error");
+        assert_eq!(document["protocol_version"], 1);
+        assert_eq!(document["contract"], "plenora-io-error-v1");
+        assert_eq!(document["error"]["code"], "CANCELLED");
+        assert_eq!(document["error"]["category"], "cancelled");
+        assert_eq!(document["error"]["phase"], "read");
+        assert_eq!(document["error"]["remote_effect"], "none");
+        assert_eq!(
+            document["error"]["retry"],
+            serde_json::json!({"kind": "never"})
+        );
+        assert!(document["error"].get("row_diagnostics").is_none());
+    }
+
+    #[test]
+    fn data_mapping_changes_exit_only_and_preserves_frozen_error_codes() {
+        for (error, expected_code) in [
+            (PlenoraIoError::format("shp", "formato"), "FORMAT_ERROR"),
+            (PlenoraIoError::Wkb("wkb".to_owned()), "FORMAT_ERROR"),
+            (
+                PlenoraIoError::Json(serde_json::from_str::<Value>("{").unwrap_err()),
+                "FORMAT_ERROR",
+            ),
+        ] {
+            let (exit, document) = map_err(error);
+            assert_eq!(exit, 2);
+            assert_eq!(document["error"]["code"], expected_code);
+            assert_eq!(document["error"]["category"], "data_mapping");
+        }
+    }
+
+    #[test]
+    fn deadline_is_timeout_not_caller_cancellation() {
+        let (exit, document) = map_err(PlenoraIoError::cancelled(ErrorPhase::Read, true));
+        assert_eq!(exit, 1);
+        assert_eq!(document["error"]["code"], "FORMAT_ERROR");
+        assert_eq!(document["error"]["category"], "timeout");
     }
 
     #[test]
@@ -929,6 +1238,71 @@ mod tests {
     }
 
     #[test]
+    fn convert_round_trips_declared_unresolved_srid_only_without_synthesis() {
+        use std::collections::HashMap;
+        use std::fs::File;
+        use std::sync::Arc;
+
+        use arrow_ipc::reader::FileReader;
+        use arrow_ipc::writer::FileWriter;
+        use arrow_schema::{DataType, Field, Schema};
+        use plenora_io_model::geometry::{
+            with_contract_version, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
+            PLENORA_AXIS_ORDER_KEY, PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY,
+            PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY,
+            PLENORA_GEOMETRY_TYPES_KEY, PLENORA_SRID_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let input = directory.path().join("srid-only-input.arrow");
+        let output = directory.path().join("srid-only-output.arrow");
+        let field = Field::new("geom", DataType::Binary, true).with_metadata(HashMap::from([
+            (
+                ARROW_EXTENSION_NAME_KEY.to_owned(),
+                GEOARROW_WKB_EXTENSION.to_owned(),
+            ),
+            (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+            (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+            (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
+            (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
+            (
+                PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                "declared_unresolved".to_owned(),
+            ),
+            (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
+        ]));
+        let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+        FileWriter::try_new(File::create(&input).unwrap(), &schema)
+            .unwrap()
+            .finish()
+            .unwrap();
+
+        let cli = parse(&[
+            input.to_string_lossy().into_owned(),
+            output.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        let document = cmd_convert(&cli).unwrap();
+        assert_eq!(document["status"], "ok");
+
+        let output_schema = FileReader::try_new(File::open(output).unwrap(), None)
+            .unwrap()
+            .schema();
+        let metadata = output_schema.field(0).metadata();
+        assert_eq!(
+            metadata.get(PLENORA_SRID_KEY).map(String::as_str),
+            Some("4326")
+        );
+        for key in [
+            PLENORA_CRS_ID_KEY,
+            PLENORA_CRS_DEFINITION_KEY,
+            PLENORA_AXIS_ORDER_KEY,
+        ] {
+            assert!(!metadata.contains_key(key), "chiave sintetizzata: {key}");
+        }
+    }
+
+    #[test]
     fn projection_unsupported_has_stable_cli_error() {
         let (exit, document) = map_err(plenora_io_model::PlenoraIoError::projection_unsupported(
             "csv",
@@ -1071,6 +1445,20 @@ mod tests {
         assert_candidate_envelope("inspect", &cmd_inspect(&cli).unwrap());
         assert_candidate_envelope("layers", &cmd_layers(&cli).unwrap());
         assert_candidate_envelope("read", &cmd_read(&cli).unwrap());
+    }
+
+    #[test]
+    fn legacy_xls_extension_reports_the_explicit_capability_drop() {
+        let error = match driver_for_path(Path::new("legacy.xls")) {
+            Ok(_) => panic!(".xls non deve essere instradato"),
+            Err(error) => error,
+        };
+        assert_eq!(error.0, 4);
+        assert_eq!(error.1["error"]["code"], "XLS_BINARY_UNSUPPORTED");
+        assert!(error.1["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("BIFF .xls"));
     }
 }
 

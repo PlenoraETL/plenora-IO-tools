@@ -123,6 +123,7 @@ fn read(path: PathBuf, runs: usize, mode: &str) {
             projection_mode: ProjectionMode::Required,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: Default::default(),
             batch_target: BatchTarget::default(),
             cancellation: Default::default(),
         };

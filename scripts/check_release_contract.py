@@ -742,6 +742,32 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
         if envelopes.get(name, {}).get("contract") != contract:
             errors.append(f"cli-protocol-v1: contratto inatteso per {name}")
 
+    error_envelope = envelopes.get("error", {})
+    if error_envelope.get("optional_error_fields") != ["row_diagnostics"]:
+        errors.append("cli-protocol-v1: campi errore opzionali inattesi")
+    if error_envelope.get("row_diagnostics_semantics") != {
+        "contract": "plenora-row-diagnostics-v1",
+        "present_when": (
+            "read_row_scoped_rejections_are_observed_or_write_row_scoped_"
+            "rejections_are_observed_after_exact_input_total_declaration"
+        ),
+        "missing_write_input_total": (
+            "contract_precondition_error_without_row_diagnostics"
+        ),
+        "absent_for_other_errors": True,
+    }:
+        errors.append("cli-protocol-v1: semantica row diagnostics inattesa")
+    if error_envelope.get("emitted_error_codes") != [
+        "CANCELLED",
+        "INVALID_ROW_DIAGNOSTICS",
+    ]:
+        errors.append("cli-protocol-v1: token errore emessi inattesi")
+    if error_envelope.get("exit_codes") != {
+        "data_mapping": 2,
+        "cancelled_by_caller": 130,
+    }:
+        errors.append("cli-protocol-v1: exit code additivi inattesi")
+
     catalog = envelopes.get("catalog", {})
     catalog_fields = ["available", "required_feature"]
     if catalog.get("optional_driver_fields") != catalog_fields:

@@ -148,6 +148,7 @@ impl FormatDriver for IpcDriver {
                 }],
             }),
             opts.resource_budget.clone(),
+            true,
         ))
     }
 
@@ -445,6 +446,148 @@ mod tests {
     }
 
     #[test]
+    fn round_trip_preserves_declared_unresolved_srid_only_without_synthesis() {
+        use plenora_io_model::geometry::{
+            ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
+            PLENORA_CRS_DEFINITION_KEY, PLENORA_CRS_ID_KEY, PLENORA_CRS_RESOLUTION_KEY,
+            PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_GEOMETRY_TYPES_KEY,
+            PLENORA_SRID_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("srid-only-input.arrow");
+        let output = dir.path().join("srid-only-output.arrow");
+        let field = Field::new("geom", DataType::Binary, true).with_metadata(
+            [
+                (
+                    ARROW_EXTENSION_NAME_KEY.to_owned(),
+                    GEOARROW_WKB_EXTENSION.to_owned(),
+                ),
+                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
+                (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
+                (
+                    PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                    "declared_unresolved".to_owned(),
+                ),
+                (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+        {
+            let values = BinaryArray::from(vec![Some(
+                &[
+                    1_u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                ][..],
+            )]);
+            let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(values)]).unwrap();
+            let mut writer = FileWriter::try_new(File::create(&input).unwrap(), &schema).unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let driver = IpcDriver;
+        let dataset = driver
+            .open(Source::Path(input), &ReadOptions::default())
+            .unwrap();
+        let layer = dataset.layers()[0].clone();
+        let geometry = layer.contract.geometry.as_ref().unwrap();
+        assert_eq!(geometry.srid, Some(4326));
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: Default::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
+            })
+            .unwrap();
+        let batch = reader.next_batch().unwrap().unwrap();
+        assert_eq!(batch.num_rows(), 1);
+        assert_eq!(batch.schema(), layer.contract.schema);
+        assert!(reader.next_batch().unwrap().is_none());
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "layer".to_owned(),
+                contract: layer.contract,
+            }],
+        };
+        driver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .unwrap()
+            .finish()
+            .unwrap();
+
+        let output_schema = FileReader::try_new(File::open(output).unwrap(), None)
+            .unwrap()
+            .schema();
+        let metadata = output_schema.field(0).metadata();
+        assert_eq!(
+            metadata.get(PLENORA_SRID_KEY).map(String::as_str),
+            Some("4326")
+        );
+        for key in [
+            PLENORA_CRS_ID_KEY,
+            PLENORA_CRS_DEFINITION_KEY,
+            PLENORA_AXIS_ORDER_KEY,
+        ] {
+            assert!(!metadata.contains_key(key), "chiave sintetizzata: {key}");
+        }
+    }
+
+    #[test]
+    fn declared_unresolved_srid_only_with_axis_order_fails_at_open() {
+        use plenora_io_model::geometry::{
+            ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_AXIS_ORDER_KEY,
+            PLENORA_CRS_RESOLUTION_KEY, PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY,
+            PLENORA_GEOMETRY_TYPES_KEY, PLENORA_SRID_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("srid-only-with-axis.arrow");
+        let field = Field::new("geom", DataType::Binary, true).with_metadata(
+            [
+                (
+                    ARROW_EXTENSION_NAME_KEY.to_owned(),
+                    GEOARROW_WKB_EXTENSION.to_owned(),
+                ),
+                (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+                (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+                (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
+                (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
+                (
+                    PLENORA_CRS_RESOLUTION_KEY.to_owned(),
+                    "declared_unresolved".to_owned(),
+                ),
+                (PLENORA_SRID_KEY.to_owned(), "4326".to_owned()),
+                (PLENORA_AXIS_ORDER_KEY.to_owned(), "lon_lat".to_owned()),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
+        let values = BinaryArray::from(vec![Some(
+            &[
+                1_u8, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ][..],
+        )]);
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(values)]).unwrap();
+        let mut writer = FileWriter::try_new(File::create(&input).unwrap(), &schema).unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        assert!(IpcDriver
+            .open(Source::Path(input), &ReadOptions::default())
+            .is_err());
+    }
+
+    #[test]
     fn canonical_metadata_without_geoarrow_extension_is_geometry() {
         use plenora_io_model::geometry::{
             PLENORA_AXIS_ORDER_KEY, PLENORA_CRS_ID_KEY, PLENORA_CRS_RESOLUTION_KEY,
@@ -618,6 +761,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -643,6 +787,7 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -700,6 +845,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget {
                     target_bytes: 16,
                     max_rows: 100,
@@ -797,6 +943,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -808,6 +955,126 @@ mod tests {
             .downcast_ref::<BinaryArray>()
             .unwrap();
         assert_eq!(geometry_array.value(0), ewkb);
+    }
+
+    #[test]
+    fn canonical_metadata_additions_are_published_without_changing_values() {
+        use std::collections::HashMap;
+
+        use plenora_io_model::geometry::{
+            ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, PLENORA_CRS_RESOLUTION_KEY,
+            PLENORA_DIMENSIONS_KEY, PLENORA_ENCODING_KEY, PLENORA_FIELD_ID_KEY,
+            PLENORA_GEOMETRY_TYPES_KEY, PLENORA_PRECISION_KEY, PLENORA_TYPES_DECLARATION_KEY,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("physical.arrow");
+        let output = dir.path().join("canonical.arrow");
+        let metadata = HashMap::from([
+            (
+                ARROW_EXTENSION_NAME_KEY.to_owned(),
+                GEOARROW_WKB_EXTENSION.to_owned(),
+            ),
+            (PLENORA_ENCODING_KEY.to_owned(), "wkb".to_owned()),
+            (PLENORA_DIMENSIONS_KEY.to_owned(), "xy".to_owned()),
+            (PLENORA_CRS_RESOLUTION_KEY.to_owned(), "missing".to_owned()),
+            (PLENORA_TYPES_DECLARATION_KEY.to_owned(), "exact".to_owned()),
+            (PLENORA_GEOMETRY_TYPES_KEY.to_owned(), "point".to_owned()),
+            ("producer.normative".to_owned(), "retained".to_owned()),
+        ]);
+        assert!(!metadata.contains_key(PLENORA_FIELD_ID_KEY));
+        assert!(!metadata.contains_key(PLENORA_PRECISION_KEY));
+        let physical_schema = with_contract_version(Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            false,
+        )
+        .with_metadata(metadata)])));
+        let values = [
+            geo_types::Point::new(1.0, 2.0),
+            geo_types::Point::new(3.0, 4.0),
+            geo_types::Point::new(5.0, 6.0),
+        ]
+        .map(|point| to_wkb(&geo_types::Geometry::Point(point)).unwrap());
+        let physical_batch = RecordBatch::try_new(
+            physical_schema.clone(),
+            vec![Arc::new(BinaryArray::from_iter_values(
+                values.iter().map(Vec::as_slice),
+            ))],
+        )
+        .unwrap();
+        {
+            let file = File::create(&source).unwrap();
+            let mut writer = FileWriter::try_new(file, physical_schema.as_ref()).unwrap();
+            writer.write(&physical_batch).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let driver = IpcDriver;
+        let dataset = driver
+            .open(Source::Path(source), &ReadOptions::default())
+            .unwrap();
+        let layer = dataset.layers()[0].clone();
+        let canonical_field = layer.contract.schema.field(0);
+        assert_eq!(
+            canonical_field
+                .metadata()
+                .get(PLENORA_FIELD_ID_KEY)
+                .map(String::as_str),
+            Some("0")
+        );
+        assert_eq!(
+            canonical_field
+                .metadata()
+                .get(PLENORA_PRECISION_KEY)
+                .map(String::as_str),
+            Some("float64")
+        );
+        assert_eq!(
+            canonical_field
+                .metadata()
+                .get("producer.normative")
+                .map(String::as_str),
+            Some("retained")
+        );
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: Default::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: Default::default(),
+            })
+            .unwrap();
+        let read = reader.next_batch().unwrap().unwrap();
+        assert_eq!(read.schema(), layer.contract.schema);
+
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: layer.name,
+                contract: layer.contract,
+            }],
+        };
+        let mut writer = driver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&read).unwrap();
+        writer.finish().unwrap();
+
+        let mut published = FileReader::try_new(File::open(output).unwrap(), None).unwrap();
+        let published_batch = published.next().unwrap().unwrap();
+        assert_eq!(published_batch.num_rows(), 3);
+        let published_values = published_batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .unwrap();
+        for (row, expected) in values.iter().enumerate() {
+            assert_eq!(published_values.value(row), expected);
+        }
     }
 
     // geometry_field locale (evita la dipendenza driver-common nei test).

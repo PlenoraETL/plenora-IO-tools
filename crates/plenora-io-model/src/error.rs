@@ -3,6 +3,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::crs::RawCrs;
+use crate::diagnostics::RowDiagnostics;
 
 pub type Result<T> = std::result::Result<T, PlenoraIoError>;
 
@@ -123,6 +124,8 @@ pub struct PlenoraIoError {
     pub field: Option<String>,
     pub capability_reason: Option<CapabilityReason>,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_diagnostics: Option<Box<RowDiagnostics>>,
 }
 
 impl PlenoraIoError {
@@ -144,7 +147,14 @@ impl PlenoraIoError {
             field: None,
             capability_reason: None,
             message: message.into(),
+            row_diagnostics: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_row_diagnostics(mut self, diagnostics: RowDiagnostics) -> Self {
+        self.row_diagnostics = Some(Box::new(diagnostics));
+        self
     }
 
     #[must_use]
@@ -418,6 +428,76 @@ impl From<serde_json::Error> for PlenoraIoError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    use crate::{
+        RowDiagnosticExample, RowDiagnosticKey, RowDiagnosticKeyState, RowDiagnosticKeyValue,
+        RowDiagnosticScope, RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT,
+        ROW_DIAGNOSTICS_INDEX_BASIS,
+    };
+
+    #[test]
+    fn error_serializes_complete_bounded_read_diagnostics() {
+        let diagnostics = RowDiagnostics {
+            contract: ROW_DIAGNOSTICS_CONTRACT.to_owned(),
+            scope: RowDiagnosticScope::Read,
+            index_basis: ROW_DIAGNOSTICS_INDEX_BASIS.to_owned(),
+            completeness: RowDiagnosticsCompleteness::Complete,
+            observed_total: 3,
+            total: Some(3),
+            counts: BTreeMap::from([
+                ("shapefile.inner_ring_without_outer".to_owned(), 2),
+                ("shapefile.unclosed_ring".to_owned(), 1),
+            ]),
+            examples_limit: 2,
+            examples_truncated: true,
+            examples: vec![
+                RowDiagnosticExample {
+                    source_index: 17,
+                    cause: "shapefile.inner_ring_without_outer".to_owned(),
+                    column: None,
+                    key: Some(RowDiagnosticKey {
+                        field: "ID_PART".to_owned(),
+                        state: RowDiagnosticKeyState::Value,
+                        value: Some(RowDiagnosticKeyValue::String("9007199254741009".to_owned())),
+                    }),
+                    write_state: None,
+                },
+                RowDiagnosticExample {
+                    source_index: 89,
+                    cause: "shapefile.unclosed_ring".to_owned(),
+                    column: None,
+                    key: None,
+                    write_state: None,
+                },
+            ],
+            knowledge_limits: None,
+            input_total: None,
+            diagnostic_state_counts: None,
+            write_outcome: None,
+        };
+        let error = PlenoraIoError::format("shp", "3 righe Shapefile non valide")
+            .with_row_diagnostics(diagnostics);
+
+        let value = serde_json::to_value(error).unwrap();
+        assert_eq!(
+            value["row_diagnostics"]["contract"],
+            ROW_DIAGNOSTICS_CONTRACT
+        );
+        assert_eq!(value["row_diagnostics"]["observed_total"], 3);
+        assert_eq!(
+            value["row_diagnostics"]["examples"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            value["row_diagnostics"]["examples"][0]["key"]["value"],
+            "9007199254741009"
+        );
+        assert!(value["row_diagnostics"]["input_total"].is_null());
+    }
 
     #[test]
     fn unresolved_authority_error_does_not_require_or_expose_a_definition() {

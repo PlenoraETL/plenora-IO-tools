@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
+use arrow_array::{Array, RecordBatch};
 use arrow_schema::{DataType, Schema};
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
@@ -60,6 +60,20 @@ pub enum ProjectionMode {
     BestEffort,
 }
 
+/// Estensione della conoscenza richiesta al reader comune.
+///
+/// `Complete` valida l'operazione fino a EOF ed e' obbligatorio per pipeline
+/// operation-atomic come `convert`. `AcceptedRows` consente a un consumatore di
+/// summary di arrestarsi dopo il primo batch che porta almeno alla soglia; il
+/// batch non viene affettato, quindi resta valido l'overshoot storico. Una
+/// diagnostica prodotta prima dello stop e' necessariamente non completa.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReadScope {
+    #[default]
+    Complete,
+    AcceptedRows(u64),
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct BatchTarget {
     pub target_bytes: usize,
@@ -94,9 +108,30 @@ impl AdaptiveBatchSizer {
     }
 
     pub fn observe(&mut self, batch: &RecordBatch) {
-        self.rows =
-            observed_batch_rows(batch.num_rows(), batch.get_array_memory_size(), self.target);
+        self.rows = observed_batch_rows(
+            batch.num_rows(),
+            incremental_batch_memory_size(batch),
+            self.target,
+        );
     }
+}
+
+/// Memoria attribuibile al batch corrente: metadata Arrow posseduti e porzione
+/// logica dei buffer necessaria alla slice. Evita di riaddebitare l'intera
+/// capacity di un parent condiviso, ma continua a contare integralmente un
+/// batch non affettato e quindi realmente grande.
+pub fn incremental_batch_memory_size(batch: &RecordBatch) -> usize {
+    batch.columns().iter().fold(0usize, |total, array| {
+        let data = array.to_data();
+        let metadata = data
+            .get_array_memory_size()
+            .saturating_sub(data.get_buffer_memory_size());
+        let attributed = data.get_slice_memory_size().map_or_else(
+            |_| data.get_array_memory_size(),
+            |slice| metadata.saturating_add(slice),
+        );
+        total.saturating_add(attributed)
+    })
 }
 
 pub struct ReadRequest {
@@ -108,6 +143,7 @@ pub struct ReadRequest {
     pub projection_mode: ProjectionMode,
     pub pruning_predicate: Option<PruningPredicate>,
     pub spatial_pruning_hint: Option<Bbox>,
+    pub scope: ReadScope,
     pub batch_target: BatchTarget,
     pub cancellation: CancellationToken,
 }
@@ -335,6 +371,7 @@ mod tests {
             projection_mode: ProjectionMode::Required,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
             batch_target: BatchTarget::default(),
             cancellation: CancellationToken::default(),
         };
@@ -374,6 +411,7 @@ mod tests {
             projection_mode: ProjectionMode::Required,
             pruning_predicate: None,
             spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
             batch_target: BatchTarget::default(),
             cancellation: CancellationToken::default(),
         };

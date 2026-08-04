@@ -105,6 +105,15 @@ impl FormatDriver for XlsDriver {
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path =
             source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        if !path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx"))
+        {
+            return Err(PlenoraIoError::Unsupported(
+                "il driver supporta in lettura soltanto .xlsx; .xls non e instradato".to_owned(),
+            ));
+        }
         validate_archive_ratio(&path, &opts.resource_budget)?;
         let mut wb: Xlsx<_> =
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
@@ -139,6 +148,7 @@ impl FormatDriver for XlsDriver {
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
             opts.resource_budget.clone(),
+            true,
         ))
     }
 
@@ -843,6 +853,7 @@ where
 
     let schema: SchemaRef = Arc::new(Schema::new(fields));
     let contract = DataContract::new(schema.clone(), Some(geometry_contract));
+    let schema = contract.schema.clone();
     Ok((
         XlsxLayout {
             attrs,
@@ -1043,6 +1054,32 @@ mod tests {
     }
 
     #[test]
+    fn existing_destination_precedes_unsupported_xlsx_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("existing.unsupported");
+        std::fs::write(&output, b"sentinel").unwrap();
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            arrow_schema::DataType::Utf8,
+            true,
+        )]));
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "sheet".to_owned(),
+                contract: DataContract::new(schema, None),
+            }],
+        };
+
+        let error = XlsDriver
+            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .err()
+            .expect("la destinazione esistente deve essere rifiutata");
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+        assert_eq!(error.category, plenora_io_model::ErrorCategory::Conflict);
+        assert_eq!(std::fs::read(output).unwrap(), b"sentinel");
+    }
+
+    #[test]
     fn write_then_read_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("out.xlsx");
@@ -1093,6 +1130,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })
@@ -1142,6 +1180,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget {
                     target_bytes: 1024,
                     max_rows: 1,
@@ -1208,6 +1247,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget {
                     target_bytes: 1024,
                     max_rows: 1,
@@ -1358,6 +1398,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
+                scope: Default::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: Default::default(),
             })

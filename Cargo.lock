@@ -1329,6 +1329,7 @@ name = "plenora-io-cli"
 version = "1.0.1"
 dependencies = [
  "arrow-array",
+ "arrow-ipc",
  "arrow-schema",
  "driver-csv",
  "driver-dxf",
