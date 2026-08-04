@@ -52,12 +52,21 @@ impl BatchEmitter {
             match self.sender.try_send(BatchWorkerEvent::Batch(batch)) {
                 Ok(()) => return Ok(true),
                 Err(TrySendError::Disconnected(_)) => return Ok(false),
-                Err(TrySendError::Full(BatchWorkerEvent::Batch(returned))) => {
-                    batch = returned;
-                    std::thread::park_timeout(backoff);
-                    backoff = backoff.saturating_mul(2).min(MAX_BACKOFF);
-                }
-                Err(TrySendError::Full(_)) => unreachable!("l'evento tentato e' sempre Batch"),
+                Err(TrySendError::Full(event)) => match event {
+                    BatchWorkerEvent::Batch(returned) => {
+                        batch = returned;
+                        std::thread::park_timeout(backoff);
+                        backoff = backoff.saturating_mul(2).min(MAX_BACKOFF);
+                    }
+                    BatchWorkerEvent::Heartbeat
+                    | BatchWorkerEvent::Finished
+                    | BatchWorkerEvent::Failed(_) => {
+                        return Err(PlenoraIoError::format(
+                            "batch-worker",
+                            "il canale bounded ha restituito un evento diverso dal batch inviato",
+                        ));
+                    }
+                },
             }
         }
     }
