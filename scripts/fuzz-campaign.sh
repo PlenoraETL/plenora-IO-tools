@@ -1,6 +1,11 @@
 #!/bin/bash
-# Campagna riproducibile: sei target libFuzzer coverage-guided più il fuzzer
+# Campagna riproducibile: tutti i target libFuzzer coverage-guided più il fuzzer
 # strutturato stabile. Pensato per l'immagine definita da fuzz/Dockerfile.
+# La lista dei target è derivata dal manifest, non riscritta qui.
+#
+# I target girano tutti in parallelo: il fabbisogno di memoria scala con il
+# numero di target dichiarati, non è più fisso. Con tredici target servono
+# alcuni GB; `PLENORA_FUZZ_RSS_MB` resta il tetto per singolo processo.
 set -euo pipefail
 
 cd /work
@@ -14,16 +19,20 @@ log_dir="/work/fuzz/logs/${run_id}"
 artifact_dir="/work/fuzz/artifacts/${run_id}"
 finding_dir="/work/fuzz-findings/${run_id}"
 mkdir -p "${log_dir}" "${artifact_dir}" "${finding_dir}"
-targets=(from_wkb geojson_reader wkt_parse kml_reader shp_wkb dxf_reader)
+mapfile -t targets < <(cargo +"${toolchain}" fuzz list)
 
 echo "=== build e seed corpus ==="
 cargo +"${toolchain}" build --release -p plenora-fuzz --locked
 ./target/release/plenora-fuzz --export-corpus /work/fuzz/corpus
-mkdir -p /work/fuzz/corpus/dxf_reader
-cp /work/fuzz/seeds/dxf_reader/* /work/fuzz/corpus/dxf_reader/
+# I semi versionati coprono i target su formato contenitore, dove un input
+# casuale non supererebbe nemmeno il controllo del magic.
 for target in "${targets[@]}"; do
-    cargo +"${toolchain}" --locked fuzz build "${target}"
+    mkdir -p "/work/fuzz/corpus/${target}"
+    if [ -d "/work/fuzz/seeds/${target}" ]; then
+        cp -r "/work/fuzz/seeds/${target}/." "/work/fuzz/corpus/${target}/"
+    fi
 done
+cargo +"${toolchain}" --locked fuzz build
 
 declare -A pids=()
 declare -A logs=()

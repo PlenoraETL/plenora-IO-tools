@@ -1,0 +1,4 @@
+geometry,name,value
+"POINT (1 2)",alpha,1
+"LINESTRING (0 0, 1 1)",beta,2
+"POLYGON ((0 0, 1 0, 1 1, 0 0))",gamma,3

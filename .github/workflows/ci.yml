@@ -99,6 +99,49 @@ jobs:
           --ignore RUSTSEC-2023-0089
           --ignore RUSTSEC-2024-0436
 
+  # Unico job del repo che compila con un sanitizer. I driver leggono file
+  # esterni non fidati: senza AddressSanitizer un difetto di memoria in una
+  # dipendenza C (SQLite bundled, zlib, zstd) o un overflow aritmetico
+  # resterebbe silenzioso finche' non produce un risultato sbagliato in
+  # produzione. cargo-fuzz costruisce ogni target con -Zsanitizer=address e
+  # overflow-checks attivi (fuzz/Cargo.toml, profile.release).
+  fuzz:
+    runs-on: ubuntu-latest
+    env:
+      # -Zsanitizer richiede nightly e vince su rust-toolchain.toml (1.92.0):
+      # senza questa variabile cargo-fuzz userebbe la toolchain pinnata di
+      # progetto e fallirebbe con "only accepted on nightly". La deroga vale
+      # solo dentro questo job; nightly e' comunque fissato a una data, non al
+      # canale mobile, ed e' la stessa di scripts/fuzz-campaign.sh.
+      RUSTUP_TOOLCHAIN: nightly-2026-07-21
+      # Smoke su ogni push; la finestra settimanale (schedule) alza il budget
+      # senza cambiare il resto della configurazione.
+      PLENORA_FUZZ_SECONDS: ${{ github.event_name == 'schedule' && '300' || '60' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: "nightly-2026-07-21"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1, Node 24
+        with:
+          workspaces: fuzz
+      # Versione esatta: un cargo-fuzz mobile cambierebbe i flag passati a
+      # libFuzzer fra due esecuzioni della stessa revisione.
+      - name: Install pinned cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version 0.13.2
+      - name: Verify locked fuzz dependency graph
+        run: cargo metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 > /dev/null
+      - name: Build and smoke every fuzz target under AddressSanitizer
+        run: bash scripts/fuzz-smoke.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        if: failure()
+        with:
+          name: fuzz-crash-artifacts-${{ github.run_id }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+
   windows:
     runs-on: windows-latest
     steps:
