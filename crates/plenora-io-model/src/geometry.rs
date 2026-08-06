@@ -10,7 +10,7 @@ use crate::crs::{
 use crate::{PlenoraIoError, Result};
 use std::sync::Arc;
 
-/// Nome dell'estensione GeoArrow per una colonna geometria WKB.
+/// Nome dell'estensione `GeoArrow` per una colonna geometria WKB.
 pub const GEOARROW_WKB_EXTENSION: &str = "geoarrow.wkb";
 /// Chiave dei metadati di estensione a livello di campo Arrow.
 pub const ARROW_EXTENSION_NAME_KEY: &str = "ARROW:extension:name";
@@ -43,17 +43,19 @@ pub struct GeometryMetadataPresence {
 }
 
 impl GeometryMetadataPresence {
-    pub fn has_dimensions(self) -> bool {
+    #[must_use]
+    pub const fn has_dimensions(self) -> bool {
         self.dimensions
     }
 }
 
-/// True se il campo Arrow è riconoscibile come geometria tramite GeoArrow o
+/// True se il campo Arrow è riconoscibile come geometria tramite `GeoArrow` o
 /// tramite almeno una chiave canonica Plenora.
 ///
 /// Il riconoscimento è intenzionalmente più largo della validazione: un campo
 /// con metadati canonici incompleti deve essere riconosciuto e poi rifiutato,
 /// non degradato a binario opaco.
+#[must_use]
 pub fn is_geometry_field(field: &arrow_schema::Field) -> bool {
     is_geoarrow_wkb_field(field) || has_canonical_geometry_metadata(field)
 }
@@ -62,8 +64,7 @@ fn is_geoarrow_wkb_field(field: &arrow_schema::Field) -> bool {
     field
         .metadata()
         .get(ARROW_EXTENSION_NAME_KEY)
-        .map(|v| v == GEOARROW_WKB_EXTENSION)
-        .unwrap_or(false)
+        .is_some_and(|v| v == GEOARROW_WKB_EXTENSION)
 }
 
 /// Indica se il campo porta una qualunque chiave canonica della geometria.
@@ -79,6 +80,13 @@ pub fn has_canonical_geometry_metadata(field: &arrow_schema::Field) -> bool {
 ///
 /// Le quattro chiavi obbligatorie del campo devono essere presenti insieme;
 /// la versione canonica vive invece sullo schema ed è comunicata dal caller.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Contract`] se manca la versione di contratto
+/// sullo schema, se manca una delle chiavi canoniche obbligatorie, se
+/// l'estensione Arrow contraddice `geoarrow.wkb` o se il tipo Arrow del campo
+/// non è binario.
 pub fn validate_geometry_field_identity(
     field: &arrow_schema::Field,
     schema_contract_version_present: bool,
@@ -117,6 +125,9 @@ pub fn validate_geometry_field_identity(
 }
 
 #[must_use]
+// Firma per valore: fa parte dell'identita' pubblica del modello; il
+// riferimento condiviso e' gia' economico da passare.
+#[allow(clippy::needless_pass_by_value)]
 pub fn with_contract_version(schema: arrow_schema::SchemaRef) -> arrow_schema::SchemaRef {
     let mut metadata = schema.metadata().clone();
     metadata.insert(
@@ -129,6 +140,12 @@ pub fn with_contract_version(schema: arrow_schema::SchemaRef) -> arrow_schema::S
     ))
 }
 
+/// Verifica che la versione del protocollo metadati sia quella supportata.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Contract`] se lo schema dichiara una versione
+/// diversa da [`PLENORA_CONTRACT_VERSION`]. L'assenza della chiave è ammessa.
 pub fn validate_contract_version(schema: &arrow_schema::Schema) -> Result<()> {
     match schema.metadata().get(PLENORA_CONTRACT_VERSION_KEY) {
         None => Ok(()),
@@ -139,7 +156,7 @@ pub fn validate_contract_version(schema: &arrow_schema::Schema) -> Result<()> {
     }
 }
 
-fn axis_order_name(order: AxisOrder) -> &'static str {
+const fn axis_order_name(order: AxisOrder) -> &'static str {
     match order {
         AxisOrder::LongitudeLatitude => "lon_lat",
         AxisOrder::LatitudeLongitude => "lat_lon",
@@ -150,7 +167,7 @@ fn axis_order_name(order: AxisOrder) -> &'static str {
     }
 }
 
-fn definition_format_name(format: CrsDefinitionFormat) -> &'static str {
+const fn definition_format_name(format: CrsDefinitionFormat) -> &'static str {
     match format {
         CrsDefinitionFormat::Wkt => "wkt",
         CrsDefinitionFormat::Wkt2 => "wkt2",
@@ -160,6 +177,10 @@ fn definition_format_name(format: CrsDefinitionFormat) -> &'static str {
 
 /// Registra nel campo Arrow le parti del contratto che GeoArrow-WKB da solo
 /// non esprime. Le chiavi sono namespaced e quindi sopravvivono in Arrow IPC.
+#[must_use]
+// Serializzazione lineare di tutte le chiavi canoniche: la lunghezza e' nel
+// numero di chiavi del contratto, non in complessita' logica.
+#[allow(clippy::too_many_lines)]
 pub fn with_geometry_contract_metadata(
     field: &arrow_schema::Field,
     contract: &GeometryColumnContract,
@@ -254,12 +275,9 @@ pub fn with_geometry_contract_metadata(
             }
             if let Some(definition) = &crs.definition {
                 metadata.insert(PLENORA_CRS_DEFINITION_KEY.to_owned(), definition.clone());
-                let format = match crs.definition_format {
-                    Some(format) => Some(format),
-                    None => {
-                        ResolvedCrs::new(None, crs.kind, Some(definition.clone())).definition_format
-                    }
-                };
+                let format = crs.definition_format.or_else(|| {
+                    ResolvedCrs::new(None, crs.kind, Some(definition.clone())).definition_format
+                });
                 if let Some(format) = format {
                     metadata.insert(
                         PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
@@ -282,10 +300,9 @@ pub fn with_geometry_contract_metadata(
             }
             if let Some(definition) = &raw.definition {
                 metadata.insert(PLENORA_CRS_DEFINITION_KEY.to_owned(), definition.clone());
-                let format = match raw.definition_format {
-                    Some(format) => format,
-                    None => definition_format(definition),
-                };
+                let format = raw
+                    .definition_format
+                    .unwrap_or_else(|| definition_format(definition));
                 metadata.insert(
                     PLENORA_CRS_DEFINITION_FORMAT_KEY.to_owned(),
                     definition_format_name(format).to_owned(),
@@ -320,6 +337,16 @@ fn invalid_metadata(field: &arrow_schema::Field, key: &str) -> PlenoraIoError {
 /// I metadati assenti non modificano il contratto base; i metadati presenti ma
 /// non riconosciuti sono un errore di contratto. Questo evita di trasformare
 /// input corrotti o futuri in valori di comodo.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Contract`] se un metadato canonico presente
+/// non è interpretabile: identificativo di campo non numerico, valore
+/// enumerato non riconosciuto, SRID fuori range o rappresentazioni CRS
+/// incoerenti fra loro.
+// Lettura lineare di tutte le chiavi canoniche: la lunghezza e' nel numero di
+// chiavi del contratto, non in complessita' logica.
+#[allow(clippy::too_many_lines)]
 pub fn read_geometry_contract_metadata(
     field: &arrow_schema::Field,
     contract: &mut GeometryColumnContract,

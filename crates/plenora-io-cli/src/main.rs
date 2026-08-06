@@ -1,7 +1,7 @@
 //! plenora-io — CLI (Fase 2A). Comandi: `catalog` (registro driver), `inspect`
 //! (formato + layer + schema + CRS), `layers` (elenco layer), `read` (scan +
 //! conteggio righe), `convert` (pipeline operation-atomic: valida la sorgente
-//! fino a EOF prima di esporre batch al writer, poi trasferisce i RecordBatch
+//! fino a EOF prima di esporre batch al writer, poi trasferisce i `RecordBatch`
 //! e pubblica atomicamente). Nessuna riproiezione: il CRS è
 //! letto/scritto, mai trasformato (ADR-IO 4).
 #![forbid(unsafe_code)]
@@ -20,7 +20,10 @@ use plenora_io_core::{
 use plenora_io_model::contract::{DataContract, LayerContract};
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::Limits;
-use plenora_io_model::{ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, RetryDisposition};
+use plenora_io_model::{
+    CancellationToken, ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, ResourceBudget,
+    RetryDisposition,
+};
 
 /// Errore CLI: (exit code, documento JSON d'errore).
 type CliResult = Result<Value, (i32, Value)>;
@@ -88,6 +91,9 @@ fn usage_err(message: impl Into<String>) -> (i32, Value) {
 }
 
 /// Mappa un `PlenoraIoError` a (exit, doc) con codici stabili.
+// Usata come funzione in `map_err`/`unwrap_or_else`: la firma per valore è
+// imposta dai punti di chiamata.
+#[allow(clippy::needless_pass_by_value)]
 fn map_err(e: plenora_io_model::PlenoraIoError) -> (i32, Value) {
     use plenora_io_model::IoErrorCode;
     let (historical_exit, code) = match e.code {
@@ -153,7 +159,7 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
+        .map(str::to_ascii_lowercase)
         .unwrap_or_default();
     let d: Box<dyn FormatDriver> = match ext.as_str() {
         "parquet" => Box::new(driver_geoparquet::GeoParquetDriver),
@@ -237,7 +243,7 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
                     it.next()
                         .ok_or_else(|| usage_err("--assume-crs richiede un valore"))?
                         .clone(),
-                )
+                );
             }
             "--layer" => {
                 let v = it
@@ -333,8 +339,7 @@ fn layer_json(l: &LayerContract) -> Value {
             "crs_resolution": &g.crs,
             "kind": g
                 .resolved_crs()
-                .map(|crs| format!("{:?}", crs.kind))
-                .unwrap_or_else(|| "Unresolved".to_owned()),
+                .map_or_else(|| "Unresolved".to_owned(), |crs| format!("{:?}", crs.kind)),
         })
     });
     json!({
@@ -350,8 +355,8 @@ fn read_options(cli: &Cli) -> ReadOptions {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.opts.clone(),
         limits: cli.limits,
-        resource_budget: Default::default(),
-        cancellation: Default::default(),
+        resource_budget: ResourceBudget::default(),
+        cancellation: CancellationToken::default(),
     }
 }
 
@@ -401,6 +406,10 @@ fn catalog_document(filegdb_available: bool) -> Value {
     })
 }
 
+// Firma uniforme con gli altri `cmd_*`: il dispatch in `run()` richiede
+// `CliResult` anche dove il comando non può fallire. La superficie CLI è
+// congelata dal contratto `release/cli-protocol-v1.json`.
+#[allow(clippy::unnecessary_wraps)]
 fn cmd_catalog() -> CliResult {
     Ok(catalog_document(driver_filegdb::runtime_available()))
 }
@@ -473,7 +482,7 @@ fn read_request(layer_id: u32, scope: ReadScope) -> ReadRequest {
         spatial_pruning_hint: None,
         scope,
         batch_target: BatchTarget::default(),
-        cancellation: Default::default(),
+        cancellation: CancellationToken::default(),
     }
 }
 
@@ -503,9 +512,9 @@ fn cmd_read(cli: &Cli) -> CliResult {
     let mut reader = ds
         .open_layer_reader(&read_request(
             layer_id,
-            cli.limit
-                .map(|limit| ReadScope::AcceptedRows(limit as u64))
-                .unwrap_or(ReadScope::Complete),
+            cli.limit.map_or(ReadScope::Complete, |limit| {
+                ReadScope::AcceptedRows(limit as u64)
+            }),
         ))
         .map_err(map_err)?;
     let (mut rows, mut batches) = (0usize, 0usize);
@@ -529,6 +538,10 @@ fn cmd_read(cli: &Cli) -> CliResult {
     }))
 }
 
+// La pipeline di conversione è operation-atomic: apertura, validazione fino a
+// EOF, trasferimento batch e pubblicazione devono restare in un'unica sequenza
+// leggibile, con i fallimenti nell'ordine esatto in cui la CLI li espone.
+#[allow(clippy::too_many_lines)]
 fn cmd_convert(cli: &Cli) -> CliResult {
     if cli.positionals.len() < 2 {
         return Err(usage_err("convert richiede <ingresso> <uscita>"));
@@ -537,14 +550,14 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let out_path = PathBuf::from(&cli.positionals[1]);
     let src = driver_for_path(&in_path)?;
     let dst = driver_for_path(&out_path)?;
-    let resource_budget = plenora_io_model::ResourceBudget::default();
+    let resource_budget = ResourceBudget::default();
 
     let ropts = ReadOptions {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.in_opts.clone(),
         limits: cli.limits,
         resource_budget: resource_budget.clone(),
-        cancellation: Default::default(),
+        cancellation: CancellationToken::default(),
     };
     let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
     let initial_read_fidelity = ds.fidelity_assessment();
@@ -602,7 +615,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         format_options: cli.out_opts.clone(),
         limits: cli.limits,
         resource_budget,
-        cancellation: Default::default(),
+        cancellation: CancellationToken::default(),
     };
     let mut writer = dst
         .create(Sink::Path(out_path), &plan, &wopts)
@@ -685,7 +698,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
 fn run() -> CliResult {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("--version") | Some("-V") => Ok(json!({
+        Some("--version" | "-V") => Ok(json!({
             "status": "ok",
             "version": env!("CARGO_PKG_VERSION"),
         })),
@@ -1449,9 +1462,8 @@ mod tests {
 
     #[test]
     fn legacy_xls_extension_reports_the_explicit_capability_drop() {
-        let error = match driver_for_path(Path::new("legacy.xls")) {
-            Ok(_) => panic!(".xls non deve essere instradato"),
-            Err(error) => error,
+        let Err(error) = driver_for_path(Path::new("legacy.xls")) else {
+            panic!(".xls non deve essere instradato")
         };
         assert_eq!(error.0, 4);
         assert_eq!(error.1["error"]["code"], "XLS_BINARY_UNSUPPORTED");

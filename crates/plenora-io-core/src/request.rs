@@ -51,9 +51,11 @@ pub enum PruningPredicate {
     Opaque(String),
 }
 
-/// Modalità di projection (ADR-IO 6). `Required` = il reader produce esattamente
-/// la projection o fallisce all'apertura; `BestEffort` = può restituire colonne
-/// extra, lo schema effettivo del reader resta autoritativo.
+/// Modalità di projection (ADR-IO 6).
+///
+/// `Required` = il reader produce esattamente la projection o fallisce
+/// all'apertura; `BestEffort` = può restituire colonne extra, lo schema
+/// effettivo del reader resta autoritativo.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectionMode {
     Required,
@@ -96,6 +98,7 @@ pub struct AdaptiveBatchSizer {
 }
 
 impl AdaptiveBatchSizer {
+    #[must_use]
     pub fn new(schema: &Schema, target: BatchTarget) -> Self {
         Self {
             target,
@@ -103,7 +106,8 @@ impl AdaptiveBatchSizer {
         }
     }
 
-    pub fn rows(&self) -> usize {
+    #[must_use]
+    pub const fn rows(&self) -> usize {
         self.rows
     }
 
@@ -117,9 +121,11 @@ impl AdaptiveBatchSizer {
 }
 
 /// Memoria attribuibile al batch corrente: metadata Arrow posseduti e porzione
-/// logica dei buffer necessaria alla slice. Evita di riaddebitare l'intera
-/// capacity di un parent condiviso, ma continua a contare integralmente un
-/// batch non affettato e quindi realmente grande.
+/// logica dei buffer necessaria alla slice.
+///
+/// Evita di riaddebitare l'intera capacity di un parent condiviso, ma continua
+/// a contare integralmente un batch non affettato e quindi realmente grande.
+#[must_use]
 pub fn incremental_batch_memory_size(batch: &RecordBatch) -> usize {
     batch.columns().iter().fold(0usize, |total, array| {
         let data = array.to_data();
@@ -149,6 +155,11 @@ pub struct ReadRequest {
 }
 
 /// Applica la semantica fail-closed di `ProjectionMode::Required`.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::projection_unsupported`] se la richiesta
+/// esige una projection esatta che il descrittore non dichiara come tale.
 pub fn validate_read_projection(
     descriptor: &FormatDescriptor,
     request: &ReadRequest,
@@ -167,6 +178,11 @@ pub fn validate_read_projection(
 /// Gli indici restituiti sono deduplicati e ordinati secondo lo schema nativo.
 /// In `BestEffort` gli ID fuori range vengono ignorati; in `Required` causano
 /// un errore all'apertura del reader.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Contract`] quando la modalità è `Required` e
+/// un field id richiesto è fuori dallo schema nativo.
 pub fn project_layer_contract(
     source: &LayerContract,
     request: &ReadRequest,
@@ -207,7 +223,11 @@ pub fn project_layer_contract(
         indices
             .iter()
             .position(|&index| index == geometry.field_id.0 as usize)
+            // `index` e' la posizione nella projection, limitata dal numero di
+            // campi dello schema: ordini di grandezza sotto 2^32. Un cast
+            // controllato introdurrebbe un ramo d'errore irraggiungibile.
             .map(|index| GeometryColumnContract {
+                #[allow(clippy::cast_possible_truncation)]
                 field_id: FieldId(index as u32),
                 ..geometry
             })
@@ -218,8 +238,11 @@ pub fn project_layer_contract(
 }
 
 /// Traduce il target in byte in un numero di righe conservativo per i reader
-/// che costruiscono batch incrementali. È una stima (ADR-IO 6), non un limite
-/// di memoria: le colonne variabili e la geometria possono avere righe atipiche.
+/// che costruiscono batch incrementali.
+///
+/// È una stima (ADR-IO 6), non un limite di memoria: le colonne variabili e la
+/// geometria possono avere righe atipiche.
+#[must_use]
 pub fn effective_batch_rows(schema: &Schema, target: BatchTarget) -> usize {
     let estimated_row_bytes = schema
         .fields()
@@ -246,6 +269,9 @@ fn observed_batch_rows(row_count: usize, batch_bytes: usize, target: BatchTarget
     rows_for_bytes.min(target.max_rows.max(1))
 }
 
+// Tabella di stima: i tipi testuali restano una riga esplicita anche se il
+// valore coincide con il fallback, per rendere leggibile la stima per tipo.
+#[allow(clippy::match_same_arms)]
 fn estimated_type_bytes(data_type: &DataType) -> usize {
     match data_type {
         DataType::Boolean | DataType::Int8 | DataType::UInt8 => 1,
@@ -264,6 +290,9 @@ fn estimated_type_bytes(data_type: &DataType) -> usize {
         | DataType::Duration(_) => 8,
         DataType::Decimal128(_, _) => 16,
         DataType::Decimal256(_, _) => 32,
+        // `.max(1)` garantisce un valore >= 1: la perdita di segno e'
+        // impossibile e la stima resta quella storica.
+        #[allow(clippy::cast_sign_loss)]
         DataType::FixedSizeBinary(size) => (*size).max(1) as usize,
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => 64,
         DataType::Binary | DataType::LargeBinary | DataType::BinaryView => 128,
@@ -272,6 +301,7 @@ fn estimated_type_bytes(data_type: &DataType) -> usize {
 }
 
 /// Piano di scrittura di un dataset: 1..N layer pubblicati insieme (D11).
+///
 /// L'ordine è canonico; i nomi devono essere unici (validato dal driver).
 pub struct WritePlan {
     pub layers: Vec<WriteLayer>,

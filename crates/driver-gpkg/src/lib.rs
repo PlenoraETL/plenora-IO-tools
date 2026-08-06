@@ -1,4 +1,4 @@
-//! driver-gpkg — GeoPackage ⇄ RecordBatch (Fase 1 + ottimizzazione mirata).
+//! driver-gpkg — `GeoPackage` ⇄ `RecordBatch` (Fase 1 + ottimizzazione mirata).
 //! Geometria WKB nativa: blob `GeoPackageBinaryHeader` + payload WKB, passato
 //! senza decodifica (V4). Multi-layer.
 //!
@@ -55,6 +55,9 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("gpkg", reason)
 }
 
+// Firma per valore imposta dall'uso come funzione in `.map_err(sql_err)`:
+// prenderla per riferimento costringerebbe a una closure in ogni chiamata.
+#[allow(clippy::needless_pass_by_value)]
 fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
     err(format!("sqlite: {e}"))
 }
@@ -155,8 +158,13 @@ impl FormatDriver for GpkgDriver {
             );
             let contract = DataContract::new(schema, Some(geometry));
             let runtime_schema = contract.schema.clone();
+            // `i` indicizza le feature table di `gpkg_contents`: il loro numero
+            // e' limitato dalle righe di `sqlite_master`, molti ordini di
+            // grandezza sotto 2^32. Nessun troncamento possibile.
+            #[allow(clippy::cast_possible_truncation)]
+            let layer_id = LayerId(i as u32);
             layers.push(LayerContract {
-                id: LayerId(i as u32),
+                id: layer_id,
                 name: table_meta.table.clone(),
                 contract,
             });
@@ -445,19 +453,19 @@ impl LayerReader for GpkgReader {
             .collect();
         let mut count = 0usize;
         let mut max_rowid = self.last_rowid;
+        // Clamp identico al precedente `min(i64::MAX as usize) as i64`, senza
+        // cast: il LIMIT SQL satura a i64::MAX invece di avvolgersi.
+        let limit = i64::try_from(self.batch_sizer.rows()).unwrap_or(i64::MAX);
         let mut rows = match self.spatial_hint {
             Some(bbox) => stmt.query(rusqlite::params![
                 self.last_rowid,
-                self.batch_sizer.rows().min(i64::MAX as usize) as i64,
+                limit,
                 bbox.minx,
                 bbox.maxx,
                 bbox.miny,
                 bbox.maxy,
             ]),
-            None => stmt.query(rusqlite::params![
-                self.last_rowid,
-                self.batch_sizer.rows().min(i64::MAX as usize) as i64
-            ]),
+            None => stmt.query(rusqlite::params![self.last_rowid, limit]),
         }
         .map_err(sql_err)?;
         while let Some(row) = rows.next().map_err(sql_err)? {
@@ -507,32 +515,42 @@ enum ColBuilder {
 impl ColBuilder {
     fn new(dt: &DataType) -> Self {
         match dt {
-            DataType::Int64 => ColBuilder::I64(Int64Builder::new()),
-            DataType::Float64 => ColBuilder::F64(Float64Builder::new()),
-            DataType::Binary => ColBuilder::Bin(BinaryBuilder::new()),
-            _ => ColBuilder::Str(StringBuilder::new()),
+            DataType::Int64 => Self::I64(Int64Builder::new()),
+            DataType::Float64 => Self::F64(Float64Builder::new()),
+            DataType::Binary => Self::Bin(BinaryBuilder::new()),
+            _ => Self::Str(StringBuilder::new()),
         }
     }
     fn append(&mut self, v: ValueRef) {
         match self {
-            ColBuilder::I64(b) => match v {
+            Self::I64(b) => match v {
                 ValueRef::Integer(i) => b.append_value(i),
+                // SQLite e' tipizzato dinamicamente: un REAL in colonna
+                // dichiarata INTEGER viene troncato verso zero e saturato ai
+                // limiti di i64, esattamente come faceva prima. Cambiare la
+                // conversione cambierebbe i valori letti da file reali.
+                #[allow(clippy::cast_possible_truncation)]
                 ValueRef::Real(r) => b.append_value(r as i64),
                 _ => b.append_null(),
             },
-            ColBuilder::F64(b) => match v {
+            Self::F64(b) => match v {
                 ValueRef::Real(r) => b.append_value(r),
+                // Colonna dichiarata REAL: l'INTEGER SQLite viene rappresentato
+                // in f64, con la perdita di precisione inerente oltre 2^53 che
+                // e' quella del formato di destinazione, non un difetto locale.
+                #[allow(clippy::cast_precision_loss)]
                 ValueRef::Integer(i) => b.append_value(i as f64),
                 _ => b.append_null(),
             },
-            ColBuilder::Str(b) => match v {
+            Self::Str(b) => match v {
                 ValueRef::Text(t) => b.append_value(String::from_utf8_lossy(t)),
-                ValueRef::Null => b.append_null(),
                 ValueRef::Integer(i) => b.append_value(i.to_string()),
                 ValueRef::Real(r) => b.append_value(r.to_string()),
-                ValueRef::Blob(_) => b.append_null(),
+                // NULL e BLOB in colonna testuale: nessuna transcodifica
+                // implicita, si scrive null.
+                ValueRef::Null | ValueRef::Blob(_) => b.append_null(),
             },
-            ColBuilder::Bin(b) => match v {
+            Self::Bin(b) => match v {
                 ValueRef::Blob(x) => b.append_value(x),
                 _ => b.append_null(),
             },
@@ -540,10 +558,10 @@ impl ColBuilder {
     }
     fn finish(mut self) -> ArrayRef {
         match &mut self {
-            ColBuilder::I64(b) => Arc::new(b.finish()),
-            ColBuilder::F64(b) => Arc::new(b.finish()),
-            ColBuilder::Str(b) => Arc::new(b.finish()),
-            ColBuilder::Bin(b) => Arc::new(b.finish()),
+            Self::I64(b) => Arc::new(b.finish()),
+            Self::F64(b) => Arc::new(b.finish()),
+            Self::Str(b) => Arc::new(b.finish()),
+            Self::Bin(b) => Arc::new(b.finish()),
         }
     }
 }
@@ -633,10 +651,7 @@ fn execute_insert_row(
     geometry: Option<&[u8]>,
 ) -> Result<()> {
     let mut params = Vec::with_capacity(1 + attribute_indices.len());
-    params.push(match geometry {
-        Some(bytes) => BorrowedSqlValue::Blob(bytes),
-        None => BorrowedSqlValue::Null,
-    });
+    params.push(geometry.map_or(BorrowedSqlValue::Null, BorrowedSqlValue::Blob));
     for &index in attribute_indices {
         params.push(arrow_cell_to_sql_ref(batch.column(index), row)?);
     }
@@ -667,7 +682,7 @@ impl ToSql for BorrowedSqlValue<'_> {
     }
 }
 
-fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<BorrowedSqlValue<'a>> {
+fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValue<'_>> {
     if array.is_null(row) {
         return Ok(BorrowedSqlValue::Null);
     }
@@ -675,7 +690,7 @@ fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<Borrowed
     macro_rules! signed_integer {
         ($array:ty) => {
             if let Some(values) = a.downcast_ref::<$array>() {
-                return Ok(BorrowedSqlValue::Integer(values.value(row) as i64));
+                return Ok(BorrowedSqlValue::Integer(i64::from(values.value(row))));
             }
         };
     }
@@ -686,7 +701,7 @@ fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<Borrowed
     macro_rules! unsigned_integer {
         ($array:ty) => {
             if let Some(values) = a.downcast_ref::<$array>() {
-                return Ok(BorrowedSqlValue::Integer(values.value(row) as i64));
+                return Ok(BorrowedSqlValue::Integer(i64::from(values.value(row))));
             }
         };
     }
@@ -721,7 +736,7 @@ fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<Borrowed
         return Ok(BorrowedSqlValue::Real(value));
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
-        return Ok(BorrowedSqlValue::Integer(x.value(row) as i64));
+        return Ok(BorrowedSqlValue::Integer(i64::from(x.value(row))));
     }
     if let Some(x) = a.downcast_ref::<StringArray>() {
         return Ok(BorrowedSqlValue::Text(x.value(row)));
@@ -792,13 +807,11 @@ fn registered_rtree(conn: &Connection, table: &str, geom_col: &str) -> Result<Op
         return Ok(None);
     }
     let quoted = format!("\"{}\"", rtree.replace('"', "\"\""));
-    let mut statement = match conn.prepare(&format!("PRAGMA table_info({quoted})")) {
-        Ok(statement) => statement,
-        Err(_) => return Ok(None),
+    let Ok(mut statement) = conn.prepare(&format!("PRAGMA table_info({quoted})")) else {
+        return Ok(None);
     };
-    let columns = match statement.query_map([], |row| row.get::<_, String>(1)) {
-        Ok(columns) => columns,
-        Err(_) => return Ok(None),
+    let Ok(columns) = statement.query_map([], |row| row.get::<_, String>(1)) else {
+        return Ok(None);
     };
     let mut names = Vec::new();
     for column in columns {
@@ -854,7 +867,7 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
     Ok(out)
 }
 
-fn gpkg_dimensions(z: i64, m: i64) -> CoordinateDimensions {
+const fn gpkg_dimensions(z: i64, m: i64) -> CoordinateDimensions {
     match (z, m) {
         (0, 0) => CoordinateDimensions::Xy,
         (1, 0) => CoordinateDimensions::Xyz,
@@ -876,7 +889,8 @@ fn gpkg_geometry_type(name: &str) -> Option<GeometryType> {
         "MULTILINESTRING" => GeometryType::MultiLineString,
         "MULTIPOLYGON" => GeometryType::MultiPolygon,
         "GEOMETRYCOLLECTION" => GeometryType::GeometryCollection,
-        "GEOMETRY" => return None,
+        // "GEOMETRY" (tipo generico) e ogni altro nome non vincolano il
+        // contratto: nessun tipo esatto viene dichiarato.
         _ => return None,
     })
 }
@@ -1000,7 +1014,7 @@ fn strip_gpkg_header(blob: &[u8]) -> Result<&[u8]> {
     Ok(&blob[start..])
 }
 
-fn gpkg_header(srs_id: i32) -> [u8; 8] {
+const fn gpkg_header(srs_id: i32) -> [u8; 8] {
     let s = srs_id.to_le_bytes();
     [b'G', b'P', 0, 0x01, s[0], s[1], s[2], s[3]]
 }
@@ -1027,7 +1041,7 @@ fn init_gpkg(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn sqlite_type(dt: &DataType) -> &'static str {
+const fn sqlite_type(dt: &DataType) -> &'static str {
     match dt {
         DataType::Int8
         | DataType::Int16
@@ -1069,17 +1083,14 @@ fn layer_crs(
     (id, None)
 }
 
-/// Risolve il `srs_id` GeoPackage per il CRS dato, registrandolo in
+/// Risolve il `srs_id` `GeoPackage` per il CRS dato, registrandolo in
 /// `gpkg_spatial_ref_sys` se non è il WGS84 built-in. Senza WKT reale usa
 /// `definition='undefined'`: GDAL risolve comunque il CRS da organization+code.
 fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Result<i32> {
-    let id = match id {
-        Some(s) => s,
-        None => {
-            return Err(PlenoraIoError::Crs(
-                "GeoPackage richiede un CRS esplicito; nessun default implicito".to_owned(),
-            ))
-        }
+    let Some(id) = id else {
+        return Err(PlenoraIoError::Crs(
+            "GeoPackage richiede un CRS esplicito; nessun default implicito".to_owned(),
+        ));
     };
     if id.eq_ignore_ascii_case("EPSG:4326") {
         return Ok(4326);
@@ -1145,11 +1156,13 @@ fn create_feature_table(
     .map_err(sql_err)?;
     let geometry_type = geometry_contract
         .and_then(|contract| contract.geometry_types.first())
-        .map(|geometry_type| format!("{geometry_type:?}").to_ascii_uppercase())
-        .unwrap_or_else(|| "GEOMETRY".to_owned());
-    let dimensions = geometry_contract
-        .map(|contract| contract.dimensions)
-        .unwrap_or(CoordinateDimensions::Unknown);
+        .map_or_else(
+            || "GEOMETRY".to_owned(),
+            |geometry_type| format!("{geometry_type:?}").to_ascii_uppercase(),
+        );
+    let dimensions = geometry_contract.map_or(CoordinateDimensions::Unknown, |contract| {
+        contract.dimensions
+    });
     let (z, m) = match dimensions {
         CoordinateDimensions::Xy => (0, 0),
         CoordinateDimensions::Xyz => (1, 0),
@@ -1186,11 +1199,12 @@ fn create_feature_table(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::wkb::{
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
+    use plenora_io_model::CancellationToken;
 
     #[test]
     fn integer_widths_are_exact_and_overflow_never_becomes_sql_null() {
@@ -1262,9 +1276,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: Some(spatial_pruning_hint),
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let mut ids = Vec::new();
@@ -1282,6 +1296,10 @@ mod tests {
         ids
     }
 
+    // Il test copre in un solo scenario scrittura, registrazione dell'RTree e
+    // le tre letture (non registrato, registrato, hint invalido): spezzarlo
+    // duplicherebbe la fixture e ne perderebbe la sequenza.
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn spatial_pruning_uses_only_registered_rtree_and_never_filters_exactly() {
         let dir = tempfile::tempdir().unwrap();
@@ -1439,7 +1457,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "vani".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1462,9 +1480,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let out = reader.next_batch().unwrap().unwrap();
@@ -1493,9 +1511,9 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         assert!(attributes_only.contract().contract.geometry.is_none());
@@ -1512,9 +1530,9 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let projected = no_columns.next_batch().unwrap().unwrap();
@@ -1592,9 +1610,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let output = reader.next_batch().unwrap().unwrap();
@@ -1648,14 +1666,14 @@ mod tests {
                 WriteLayer {
                     name: "vani".to_owned(),
                     contract: DataContract {
-                        schema: s0.clone(),
+                        schema: s0,
                         geometry: None,
                     },
                 },
                 WriteLayer {
                     name: "strade".to_owned(),
                     contract: DataContract {
-                        schema: s1.clone(),
+                        schema: s1,
                         geometry: None,
                     },
                 },
@@ -1688,9 +1706,9 @@ mod tests {
                     projection_mode: ProjectionMode::BestEffort,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
-                    scope: Default::default(),
+                    scope: ReadScope::default(),
                     batch_target: BatchTarget::default(),
-                    cancellation: Default::default(),
+                    cancellation: CancellationToken::default(),
                 })
                 .unwrap();
             let rb = r.next_batch().unwrap().unwrap();
@@ -1704,7 +1722,8 @@ mod tests {
         let path = dir.path().join("m3857.gpkg");
         // Un punto in EPSG:3857 (Web Mercator).
         let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
-            1113194.0, 5621521.0,
+            1_113_194.0,
+            5_621_521.0,
         )))
         .unwrap();
         let schema: SchemaRef = Arc::new(Schema::new(vec![
@@ -1724,7 +1743,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],

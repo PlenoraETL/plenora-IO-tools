@@ -57,13 +57,15 @@ pub struct FidelityAssessment {
 }
 
 impl FidelityAssessment {
-    pub fn lossless() -> Self {
+    #[must_use]
+    pub const fn lossless() -> Self {
         Self {
             level: Fidelity::Lossless,
             reasons: Vec::new(),
         }
     }
 
+    #[must_use]
     pub fn for_format(format: &str, class: Fidelity) -> Self {
         match class {
             Fidelity::Lossless => Self::lossless(),
@@ -111,6 +113,7 @@ impl FidelityAssessment {
 
     /// Le perdite osservate prevalgono su una valutazione teorica e rendono
     /// l'esito concretamente `Approximating`.
+    #[must_use]
     pub fn with_loss_report(mut self, loss: &LossReport) -> Self {
         if loss.is_empty() {
             return self;
@@ -182,10 +185,12 @@ impl LossReport {
         }
     }
 
+    #[must_use]
     pub fn examples(&self) -> &[LossExample] {
         &self.examples
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.counts.is_empty()
     }

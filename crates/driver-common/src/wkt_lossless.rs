@@ -13,7 +13,7 @@ fn error(message: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::Wkb(format!("WKT: {}", message.into()))
 }
 
-fn contract_dimensions(dimension: Dimension) -> CoordinateDimensions {
+const fn contract_dimensions(dimension: Dimension) -> CoordinateDimensions {
     match dimension {
         Dimension::XY => CoordinateDimensions::Xy,
         Dimension::XYZ => CoordinateDimensions::Xyz,
@@ -72,6 +72,9 @@ fn coordinates_from_wkt(
         .collect()
 }
 
+// Dispatch esaustivo sui rami del tipo WKT: la lunghezza e' nel numero di
+// varianti, non in complessita' logica.
+#[allow(clippy::too_many_lines)]
 fn geometry_from_wkt(value: &Wkt<f64>) -> Result<WkbGeometry> {
     let (value, dimensions) = match value {
         Wkt::Point(point) => {
@@ -203,6 +206,12 @@ fn geometry_from_wkt(value: &Wkt<f64>) -> Result<WkbGeometry> {
 }
 
 /// Analizza WKT 2D/3D/M/ZM senza proiettarlo su `geo-types`.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Wkb`] se la sintassi WKT non è valida, se la
+/// dimensionalità è incoerente fra geometria e coordinate, se una coordinata
+/// non è finita o se la geometria non è rappresentabile nel core WKB.
 pub fn parse_wkt(text: &str) -> Result<WkbGeometry> {
     let parsed: Wkt<f64> = text
         .parse()
@@ -258,6 +267,9 @@ fn checked_child<'a>(
     Ok(&child.value)
 }
 
+// Dispatch esaustivo sui rami del valore WKB: la lunghezza e' nel numero di
+// varianti, non in complessita' logica.
+#[allow(clippy::too_many_lines)]
 fn geometry_to_wkt(geometry: &WkbGeometry) -> Result<Wkt<f64>> {
     if geometry.srid.is_some() {
         return Err(error(
@@ -370,6 +382,12 @@ fn geometry_to_wkt(geometry: &WkbGeometry) -> Result<Wkt<f64>> {
 
 /// Serializza l'AST WKB in WKT dimensionale usando una rappresentazione
 /// numerica `f64` round-trip.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Wkb`] se la geometria porta un SRID
+/// embedded, se la dimensionalità è ignota, se una coordinata non è finita o
+/// se il tipo WKB non è rappresentabile nel profilo WKT corrente.
 pub fn format_wkt(geometry: &WkbGeometry) -> Result<String> {
     let mut output = String::new();
     format_wkt_into(geometry, &mut output)?;
@@ -380,6 +398,11 @@ pub fn format_wkt(geometry: &WkbGeometry) -> Result<String> {
 ///
 /// La conversione viene validata prima di toccare `output`: in caso di errore
 /// il contenuto precedente resta invariato.
+///
+/// # Errors
+///
+/// Restituisce gli stessi errori di [`format_wkt`], più
+/// [`PlenoraIoError::Wkb`] se la scrittura sul buffer fallisce.
 pub fn format_wkt_into(geometry: &WkbGeometry, output: &mut String) -> Result<()> {
     use std::fmt::Write as _;
 

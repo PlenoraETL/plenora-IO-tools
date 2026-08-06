@@ -1,5 +1,5 @@
-//! driver-filegdb — FileGDB ⇄ RecordBatch (Fase 1, "tier GDB"). È
-//! l'unica eccezione alla policy puro-Rust: FileGDB richiede GDAL. Dietro la
+//! driver-filegdb — `FileGDB` ⇄ `RecordBatch` (Fase 1, "tier GDB"). È
+//! l'unica eccezione alla policy puro-Rust: `FileGDB` richiede GDAL. Dietro la
 //! feature `gdal-backend` legge via GDAL; senza feature è uno stub che fallisce
 //! tipizzato (il binario di default resta puro-Rust). Multi-layer.
 #![forbid(unsafe_code)]
@@ -84,9 +84,16 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
 
 pub struct FileGdbDriver;
 
-/// Verifica a runtime che GDAL esponga OpenFileGDB come driver vettoriale
-/// bidirezionale. In assenza della feature, o se una capability non è
-/// dichiarata dal runtime caricato, il risultato è deliberatamente fail-closed.
+/// Verifica a runtime che GDAL esponga `OpenFileGDB` come driver vettoriale
+/// bidirezionale.
+///
+/// In assenza della feature, o se una capability non è dichiarata dal runtime
+/// caricato, il risultato è deliberatamente fail-closed.
+// Senza `gdal-backend` il corpo si riduce a `false` e clippy la vorrebbe
+// `const fn`; con la feature attiva chiama GDAL e const non è possibile. La
+// firma pubblica resta unica in entrambe le configurazioni.
+#[allow(clippy::missing_const_for_fn)]
+#[must_use]
 pub fn runtime_available() -> bool {
     #[cfg(feature = "gdal-backend")]
     {
@@ -193,7 +200,7 @@ mod backend {
     use plenora_io_model::geometry::with_geometry_contract_metadata;
     use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
 
-    pub(super) fn runtime_available() -> bool {
+    pub fn runtime_available() -> bool {
         let Ok(driver) = DriverManager::get_driver_by_name("OpenFileGDB") else {
             return false;
         };
@@ -234,9 +241,9 @@ mod backend {
     impl FieldKind {
         fn from(field: &Field) -> Result<Self> {
             let kind = match field.data_type() {
-                DataType::Int32 => FieldKind::Int32,
-                DataType::Float64 => FieldKind::Float64,
-                DataType::Utf8 => FieldKind::Utf8,
+                DataType::Int32 => Self::Int32,
+                DataType::Float64 => Self::Float64,
+                DataType::Utf8 => Self::Utf8,
                 other => {
                     return Err(PlenoraIoError::capability(
                         "filegdb",
@@ -251,11 +258,11 @@ mod backend {
             Ok(kind)
         }
 
-        fn ogr(self) -> gdal::vector::OGRFieldType::Type {
+        const fn ogr(self) -> gdal::vector::OGRFieldType::Type {
             match self {
-                FieldKind::Int32 => gdal::vector::OGRFieldType::OFTInteger,
-                FieldKind::Float64 => gdal::vector::OGRFieldType::OFTReal,
-                FieldKind::Utf8 => gdal::vector::OGRFieldType::OFTString,
+                Self::Int32 => gdal::vector::OGRFieldType::OFTInteger,
+                Self::Float64 => gdal::vector::OGRFieldType::OFTReal,
+                Self::Utf8 => gdal::vector::OGRFieldType::OFTString,
             }
         }
     }
@@ -433,10 +440,14 @@ mod backend {
         PlenoraIoError::capability("filegdb", Some(field.to_owned()), reason, detail)
     }
 
-    /// FileGDB richiede tipo e dimensionalità del feature class prima dei dati:
+    /// `FileGDB` richiede tipo e dimensionalità del feature class prima dei dati:
     /// non li deduciamo dal primo record, che renderebbe vuoti/null dipendenti
     /// dall'ordine dei batch.
     fn contract_ogr_type(layer: &WriteLayer) -> Result<OGRwkbGeometryType::Type> {
+        use CoordinateDimensions as D;
+        use GeometryType as G;
+        use OGRwkbGeometryType as O;
+
         let geometry = layer.contract.geometry.as_ref().ok_or_else(|| {
             geometry_capability(
                 "geometry",
@@ -469,9 +480,6 @@ mod backend {
             ));
         }
 
-        use CoordinateDimensions as D;
-        use GeometryType as G;
-        use OGRwkbGeometryType as O;
         match (geometry_type, geometry.dimensions) {
             (G::Point, D::Xy) => Ok(O::wkbPoint),
             (G::MultiPoint, D::Xy) => Ok(O::wkbMultiPoint),
@@ -489,16 +497,13 @@ mod backend {
             (G::MultiPoint, D::Xyzm) => Ok(O::wkbMultiPointZM),
             (G::MultiLineString, D::Xyzm) => Ok(O::wkbMultiLineStringZM),
             (G::MultiPolygon, D::Xyzm) => Ok(O::wkbMultiPolygonZM),
-            (G::LineString | G::Polygon, D::Xy | D::Xyz) => Err(geometry_capability(
-                &geometry.name,
-                CapabilityReason::GeometryNotSupported,
-                "FileGDB normalizza le famiglie lineari/poligonali native a MultiLineString/MultiPolygon; dichiarare il tipo multipart per un round-trip stabile",
-            )),
-            (G::LineString | G::Polygon, D::Xym | D::Xyzm) => Err(geometry_capability(
-                &geometry.name,
-                CapabilityReason::GeometryNotSupported,
-                "FileGDB normalizza le famiglie lineari/poligonali native a MultiLineString/MultiPolygon; dichiarare il tipo multipart per un round-trip stabile",
-            )),
+            (G::LineString | G::Polygon, D::Xy | D::Xyz | D::Xym | D::Xyzm) => {
+                Err(geometry_capability(
+                    &geometry.name,
+                    CapabilityReason::GeometryNotSupported,
+                    "FileGDB normalizza le famiglie lineari/poligonali native a MultiLineString/MultiPolygon; dichiarare il tipo multipart per un round-trip stabile",
+                ))
+            }
             (_, D::Unknown) => Err(geometry_capability(
                 &geometry.name,
                 CapabilityReason::CoordinateDimensions,
@@ -586,8 +591,13 @@ mod backend {
             .filter_map(|entry| {
                 let name = entry.file_name();
                 let name = name.to_str()?;
-                (name.starts_with(&prefix) && (name.ends_with(".gdb") || name.ends_with(".lock")))
-                    .then(|| entry.path())
+                // Gli artefatti di staging sono creati da questo driver con
+                // estensione minuscola: il confronto case-sensitive e' voluto e
+                // non va allargato a varianti maiuscole altrui.
+                #[allow(clippy::case_sensitive_file_extension_comparisons)]
+                let is_artifact = name.starts_with(&prefix)
+                    && (name.ends_with(".gdb") || name.ends_with(".lock"));
+                is_artifact.then(|| entry.path())
             })
             .collect::<Vec<_>>();
         artifacts.sort();
@@ -651,6 +661,10 @@ mod backend {
         total
     }
 
+    // La sequenza staging → creazione layer → validazione CRS è un'unica
+    // transazione: spezzarla in helper renderebbe meno leggibile l'ordine dei
+    // fallimenti fail-closed senza cambiarne il comportamento.
+    #[allow(clippy::too_many_lines)]
     pub fn create(
         path: &Path,
         plan: &WritePlan,
@@ -674,8 +688,12 @@ mod backend {
                 .filter(|(i, _)| *i != geom_idx)
                 .map(|(index, field)| {
                     let kind = FieldKind::from(field)?;
+                    // OGRFieldType::Type è un u32 con costanti nell'intervallo
+                    // 0..=13: il cast a i32 non può cambiare segno.
+                    #[allow(clippy::cast_possible_wrap)]
+                    let ogr_type = kind.ogr() as i32;
                     if native_i32(field, OGR_FIELD_TYPE_KEY)?
-                        .is_some_and(|native_type| native_type != kind.ogr() as i32)
+                        .is_some_and(|native_type| native_type != ogr_type)
                     {
                         return Err(PlenoraIoError::capability(
                             "filegdb",
@@ -961,21 +979,20 @@ mod backend {
         embedded: Option<SpatialRef>,
         assume_crs: Option<&str>,
     ) -> Result<ResolvedCrs> {
-        let spatial_ref = match embedded {
-            Some(spatial_ref) => spatial_ref,
-            None => {
-                let definition = assume_crs.ok_or_else(|| {
-                    PlenoraIoError::Crs(
-                        "FileGDB con geometria senza CRS: fornire --assume-crs".to_owned(),
-                    )
-                })?;
-                SpatialRef::from_definition(definition).map_err(|_| {
-                    PlenoraIoError::crs_unresolved(
-                        "filegdb",
-                        &RawCrs::new(definition.to_owned(), Some(definition.to_owned())),
-                    )
-                })?
-            }
+        let spatial_ref = if let Some(spatial_ref) = embedded {
+            spatial_ref
+        } else {
+            let definition = assume_crs.ok_or_else(|| {
+                PlenoraIoError::Crs(
+                    "FileGDB con geometria senza CRS: fornire --assume-crs".to_owned(),
+                )
+            })?;
+            SpatialRef::from_definition(definition).map_err(|_| {
+                PlenoraIoError::crs_unresolved(
+                    "filegdb",
+                    &RawCrs::new(definition.to_owned(), Some(definition.to_owned())),
+                )
+            })?
         };
         let definition = spatial_ref.to_wkt().map_err(|_| {
             PlenoraIoError::crs_unresolved(
@@ -1098,8 +1115,12 @@ mod backend {
             arrow_fields.extend(attribute_arrow_fields);
             let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
             let contract = DataContract::new(schema.clone(), Some(geometry));
+            // Indice di layer di un FileGDB: il formato ne ammette al piu'
+            // qualche migliaio, il cast a u32 non puo' troncare.
+            #[allow(clippy::cast_possible_truncation)]
+            let layer_id = LayerId(i as u32);
             layers.push(LayerContract {
-                id: LayerId(i as u32),
+                id: layer_id,
                 name: layer.name(),
                 contract,
             });
@@ -1363,17 +1384,17 @@ mod backend {
     impl ReadCol {
         fn new(dt: &DataType) -> Self {
             match dt {
-                DataType::Int32 => ReadCol::I32(Int32Builder::new()),
-                DataType::Int64 => ReadCol::I64(Int64Builder::new()),
-                DataType::Float64 => ReadCol::F64(Float64Builder::new()),
-                _ => ReadCol::Str(StringBuilder::new()),
+                DataType::Int32 => Self::I32(Int32Builder::new()),
+                DataType::Int64 => Self::I64(Int64Builder::new()),
+                DataType::Float64 => Self::F64(Float64Builder::new()),
+                _ => Self::Str(StringBuilder::new()),
             }
         }
         fn append_feature(&mut self, feature: &Feature<'_>, field: &ProjectedField) -> Result<()> {
             let read_error =
                 |error| err(format!("lettura campo FileGDB '{}': {error}", field.name));
             match self {
-                ReadCol::I32(builder) => {
+                Self::I32(builder) => {
                     match feature
                         .field_as_integer(field.ogr_index)
                         .map_err(read_error)?
@@ -1382,7 +1403,7 @@ mod backend {
                         None => builder.append_null(),
                     }
                 }
-                ReadCol::I64(builder) => {
+                Self::I64(builder) => {
                     match feature
                         .field_as_integer64(field.ogr_index)
                         .map_err(read_error)?
@@ -1391,7 +1412,7 @@ mod backend {
                         None => builder.append_null(),
                     }
                 }
-                ReadCol::F64(builder) => {
+                Self::F64(builder) => {
                     match feature
                         .field_as_double(field.ogr_index)
                         .map_err(read_error)?
@@ -1400,7 +1421,7 @@ mod backend {
                         None => builder.append_null(),
                     }
                 }
-                ReadCol::Str(builder) => {
+                Self::Str(builder) => {
                     match feature
                         .field_as_string(field.ogr_index)
                         .map_err(read_error)?
@@ -1414,10 +1435,10 @@ mod backend {
         }
         fn finish(&mut self) -> ArrayRef {
             match self {
-                ReadCol::I32(b) => Arc::new(b.finish()),
-                ReadCol::I64(b) => Arc::new(b.finish()),
-                ReadCol::F64(b) => Arc::new(b.finish()),
-                ReadCol::Str(b) => Arc::new(b.finish()),
+                Self::I32(b) => Arc::new(b.finish()),
+                Self::I64(b) => Arc::new(b.finish()),
+                Self::F64(b) => Arc::new(b.finish()),
+                Self::Str(b) => Arc::new(b.finish()),
             }
         }
     }
@@ -1429,12 +1450,13 @@ mod backend {
         use arrow_array::RecordBatch;
         use plenora_io_core::descriptor::Fidelity;
         use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source};
-        use plenora_io_core::request::{BatchTarget, ProjectionMode};
+        use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
         use plenora_io_model::contract::{GeometryEncoding, GeometryType};
         use plenora_io_model::limits::WkbLimits;
         use plenora_io_model::wkb::{
             decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
         };
+        use plenora_io_model::CancellationToken;
         use std::process::{Child, Command, ExitStatus};
         use std::time::{Duration, Instant};
 
@@ -1445,9 +1467,9 @@ mod backend {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             }
         }
 
@@ -1781,6 +1803,10 @@ mod backend {
             assert_eq!(semantic_signature(&paths[0]), semantic_signature(&paths[1]));
         }
 
+        // Il test copre in sequenza scrittura, riletture proiettate e proiezione
+        // vuota sullo stesso dataset: spezzarlo perderebbe la condivisione della
+        // fixture e la verifica dell'ordine delle proiezioni.
+        #[allow(clippy::too_many_lines)]
         #[test]
         fn filegdb_round_trip_preserves_null_geometry_and_exact_attributes() {
             let dir = tempfile::tempdir().unwrap();
@@ -1877,7 +1903,12 @@ mod backend {
                 .as_any()
                 .downcast_ref::<Float64Array>()
                 .unwrap();
-            assert_eq!(ratios.value(0), 12.5);
+            // Il round-trip deve restituire il valore identico bit a bit: il
+            // confronto esatto e' il contratto, non un'approssimazione.
+            #[allow(clippy::float_cmp)]
+            {
+                assert_eq!(ratios.value(0), 12.5);
+            }
             assert!(ratios.is_null(1));
             let labels = output
                 .column(3)
@@ -1896,9 +1927,9 @@ mod backend {
                     projection_mode: ProjectionMode::Required,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
-                    scope: Default::default(),
+                    scope: ReadScope::default(),
                     batch_target: BatchTarget::default(),
-                    cancellation: Default::default(),
+                    cancellation: CancellationToken::default(),
                 })
                 .unwrap();
             assert!(projected.contract().contract.geometry.is_none());
@@ -1916,9 +1947,9 @@ mod backend {
                     projection_mode: ProjectionMode::Required,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
-                    scope: Default::default(),
+                    scope: ReadScope::default(),
                     batch_target: BatchTarget::default(),
-                    cancellation: Default::default(),
+                    cancellation: CancellationToken::default(),
                 })
                 .unwrap();
             let output = reversed.next_batch().unwrap().unwrap();
@@ -1936,9 +1967,9 @@ mod backend {
                     projection_mode: ProjectionMode::Required,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
-                    scope: Default::default(),
+                    scope: ReadScope::default(),
                     batch_target: BatchTarget::default(),
-                    cancellation: Default::default(),
+                    cancellation: CancellationToken::default(),
                 })
                 .unwrap();
             assert!(empty.contract().contract.geometry.is_none());
@@ -2410,8 +2441,6 @@ mod backend {
                     assert_complete_point_dataset(path.clone());
 
                     assert_eq!(recover_orphaned_staging(&path).unwrap(), 1);
-                    assert!(staging_artifacts(&path).is_empty());
-                    assert_complete_point_dataset(path);
                 } else {
                     assert!(!path.exists(), "output parziale reso visibile");
                     assert_eq!(orphaned.len(), 2, "staging orfano atteso");
@@ -2426,10 +2455,10 @@ mod backend {
                     );
                     writer.write(&batch).unwrap();
                     writer.finish().unwrap();
-
-                    assert!(staging_artifacts(&path).is_empty());
-                    assert_complete_point_dataset(path);
                 }
+
+                assert!(staging_artifacts(&path).is_empty());
+                assert_complete_point_dataset(path);
             }
         }
 

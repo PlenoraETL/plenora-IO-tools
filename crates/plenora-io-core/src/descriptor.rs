@@ -160,9 +160,11 @@ pub enum CrsWriteSupport {
 }
 
 /// Esito di una rappresentazione CRS presente nel contratto quando attraversa
-/// un writer. Solo `Preserved` conserva il valore sorgente in modo
-/// indipendente; `Derived` indica che il formato o il driver ricostruisce il
-/// valore da un'altra rappresentazione.
+/// un writer.
+///
+/// Solo `Preserved` conserva il valore sorgente in modo indipendente;
+/// `Derived` indica che il formato o il driver ricostruisce il valore da
+/// un'altra rappresentazione.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CrsRepresentationState {
@@ -172,9 +174,11 @@ pub enum CrsRepresentationState {
 }
 
 /// Capability generale del writer per le tre rappresentazioni CRS del
-/// contratto. È distinta da [`CrsWriteSupport`]: quest'ultima stabilisce se il
-/// formato richiede/incorpora un CRS, questa struttura stabilisce cosa
-/// sopravvive davvero al bordo di scrittura.
+/// contratto.
+///
+/// È distinta da [`CrsWriteSupport`]: quest'ultima stabilisce se il formato
+/// richiede/incorpora un CRS, questa struttura stabilisce cosa sopravvive
+/// davvero al bordo di scrittura.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct CrsRepresentationCapabilities {
     pub crs_id: CrsRepresentationState,
@@ -183,6 +187,7 @@ pub struct CrsRepresentationCapabilities {
 }
 
 impl CrsRepresentationCapabilities {
+    #[must_use]
     pub const fn new(
         crs_id: CrsRepresentationState,
         srid: CrsRepresentationState,

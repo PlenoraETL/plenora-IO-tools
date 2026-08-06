@@ -1,9 +1,9 @@
-//! Benchmark ripetibile del percorso di lettura FileGDB.
+//! Benchmark ripetibile del percorso di lettura `FileGDB`.
 //!
 //! Non fa parte della libreria: genera una fixture larga una volta e misura
 //! separatamente proiezione completa e proiezione stretta.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -11,12 +11,13 @@ use arrow_array::{Array, ArrayRef, BinaryArray, Int32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use driver_common::geometry_field;
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
-use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest};
+use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
 use plenora_io_core::{WriteLayer, WritePlan};
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, GeometryType, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, ResolvedCrs};
+use plenora_io_model::CancellationToken;
 
 const CHUNK_ROWS: usize = 4_096;
 
@@ -68,6 +69,9 @@ fn batch(schema: SchemaRef, field_count: usize, first_row: usize, rows: usize) -
             .collect::<Vec<_>>(),
     )));
     columns.extend((0..field_count).map(|field_index| {
+        // Fixture sintetica: righe e campi del benchmark restano ampiamente
+        // sotto 2^31, quindi il cast e' esatto e non cambia i valori attesi.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         let values = (0..rows)
             .map(|row| (first_row + row + field_index) as i32)
             .collect::<Vec<_>>();
@@ -76,12 +80,16 @@ fn batch(schema: SchemaRef, field_count: usize, first_row: usize, rows: usize) -
     RecordBatch::try_new(schema, columns).expect("fixture batch coerente")
 }
 
-fn generate(path: PathBuf, rows: usize, field_count: usize) {
+fn generate(path: &Path, rows: usize, field_count: usize) {
     assert!(!path.exists(), "la fixture esiste già: {}", path.display());
     let driver = driver_filegdb::FileGdbDriver;
     let plan = plan(field_count);
     let mut writer = driver
-        .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+        .create(
+            Sink::Path(path.to_path_buf()),
+            &plan,
+            &WriteOptions::default(),
+        )
         .expect("creazione FileGDB");
     let schema = plan.layers[0].contract.schema.clone();
     let mut first_row = 0;
@@ -101,13 +109,16 @@ fn generate(path: PathBuf, rows: usize, field_count: usize) {
     );
 }
 
-fn read(path: PathBuf, runs: usize, mode: &str) {
+fn read(path: &Path, runs: usize, mode: &str) {
     let driver = driver_filegdb::FileGdbDriver;
     for run in 0..=runs {
         let dataset = driver
-            .open(Source::Path(path.clone()), &ReadOptions::default())
+            .open(Source::Path(path.to_path_buf()), &ReadOptions::default())
             .expect("apertura FileGDB");
         let source_fields = dataset.layers()[0].contract.schema.fields().len() - 1;
+        // Il numero di campi di un layer FileGDB e' limitato dal formato a
+        // poche migliaia: il cast a u32 non puo' troncare.
+        #[allow(clippy::cast_possible_truncation)]
         let projected_fields = match mode {
             "full" => None,
             "narrow" => Some(vec![
@@ -123,9 +134,9 @@ fn read(path: PathBuf, runs: usize, mode: &str) {
             projection_mode: ProjectionMode::Required,
             pruning_predicate: None,
             spatial_pruning_hint: None,
-            scope: Default::default(),
+            scope: ReadScope::default(),
             batch_target: BatchTarget::default(),
-            cancellation: Default::default(),
+            cancellation: CancellationToken::default(),
         };
         let start = Instant::now();
         let mut reader = dataset
@@ -139,23 +150,31 @@ fn read(path: PathBuf, runs: usize, mode: &str) {
                 if let Some(values) = column.as_any().downcast_ref::<Int32Array>() {
                     checksum += values.iter().flatten().map(i64::from).sum::<i64>();
                 } else if let Some(values) = column.as_any().downcast_ref::<BinaryArray>() {
-                    checksum += values
+                    // Lunghezza di un blob WKB: sempre molto sotto 2^63, il
+                    // cast non puo' cambiare segno.
+                    #[allow(clippy::cast_possible_wrap)]
+                    let bytes = values
                         .iter()
                         .flatten()
                         .map(|value| value.len() as i64)
                         .sum::<i64>();
+                    checksum += bytes;
                 }
             }
         }
         let elapsed = start.elapsed();
         if run > 0 {
+            // Conteggio righe della fixture: resta sotto 2^53, quindi la
+            // conversione a f64 e' esatta.
+            #[allow(clippy::cast_precision_loss)]
+            let rows_per_second = rows as f64 / elapsed.as_secs_f64();
             println!(
                 "run={} mode={} rows={} elapsed_ms={:.3} rows_per_second={:.0} checksum={}",
                 run,
                 mode,
                 rows,
                 elapsed.as_secs_f64() * 1_000.0,
-                rows as f64 / elapsed.as_secs_f64(),
+                rows_per_second,
                 checksum
             );
         }
@@ -163,13 +182,10 @@ fn read(path: PathBuf, runs: usize, mode: &str) {
 }
 
 fn parse_usize(value: Option<String>, name: &str) -> usize {
-    match value {
-        Some(value) => match value.parse() {
-            Ok(parsed) => parsed,
-            Err(_) => panic!("{name} non numerico"),
-        },
-        None => panic!("argomento mancante: {name}"),
-    }
+    let value = value.unwrap_or_else(|| panic!("argomento mancante: {name}"));
+    value
+        .parse()
+        .unwrap_or_else(|_| panic!("{name} non numerico"))
 }
 
 fn main() {
@@ -178,12 +194,12 @@ fn main() {
     let path = PathBuf::from(args.next().expect("percorso fixture mancante"));
     match command.as_str() {
         "generate" => generate(
-            path,
+            &path,
             parse_usize(args.next(), "rows"),
             parse_usize(args.next(), "fields"),
         ),
         "read" => read(
-            path,
+            &path,
             parse_usize(args.next(), "runs"),
             &args.next().expect("modalità mancante"),
         ),

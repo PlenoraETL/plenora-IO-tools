@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "plenora-io"
 path = "src/main.rs"

@@ -1,6 +1,6 @@
 //! Adattatori comuni applicati ai `LayerReader`.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -24,6 +24,7 @@ use super::{saturating_usize, LayerReader, OpenDatasetHandle};
 /// Collega a un dataset un budget condiviso. Ogni reader consuma colonne,
 /// righe, byte e una quota di concorrenza dagli stessi contatori, anche quando
 /// il budget attraversa più componenti della pipeline.
+#[must_use]
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
     budget: ResourceBudget,
@@ -124,6 +125,10 @@ impl BudgetedReader {
         })
     }
 
+    // Ciclo di drenaggio con contabilizzazione, diagnostica e stati terminali
+    // in sequenza: la lunghezza e' negli stati da coprire, non in complessita'
+    // logica.
+    #[allow(clippy::too_many_lines)]
     fn drain_operation(&mut self) -> Result<()> {
         if self.scope == ReadScope::AcceptedRows(0) {
             return Ok(());
@@ -358,6 +363,9 @@ fn validate_read_batch(
     }
 }
 
+// Sequenza lineare di controlli, uno per vincolo del contratto di lettura: la
+// lunghezza e' nel numero di vincoli, non in complessita' logica.
+#[allow(clippy::too_many_lines)]
 fn collect_read_violations(
     contract: &LayerContract,
     batch: &RecordBatch,
@@ -401,15 +409,12 @@ fn collect_read_violations(
                 }
                 return Ok(());
             };
-            let inspected = match inspect_wkb(bytes, &limits) {
-                Ok(inspected) => inspected,
-                Err(_) => {
-                    violations.insert(
-                        source_index,
-                        ("conversion.invalid_geometry", geometry.name.clone()),
-                    );
-                    return Ok(());
-                }
+            let Ok(inspected) = inspect_wkb(bytes, &limits) else {
+                violations.insert(
+                    source_index,
+                    ("conversion.invalid_geometry", geometry.name.clone()),
+                );
+                return Ok(());
             };
             let cause = if geometry.dimensions != CoordinateDimensions::Unknown
                 && (geometry.dimensions != inspected.dimensions
@@ -553,7 +558,7 @@ struct ReadViolationAccumulator {
 }
 
 impl ReadViolationAccumulator {
-    fn new(physical_row_indices_attestable: bool, examples_limit: u64) -> Self {
+    const fn new(physical_row_indices_attestable: bool, examples_limit: u64) -> Self {
         Self {
             physical_row_indices_attestable,
             examples_limit,
@@ -564,7 +569,7 @@ impl ReadViolationAccumulator {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.observed_total == 0
     }
 
@@ -584,11 +589,11 @@ impl ReadViolationAccumulator {
                 )
             })?;
             if self.physical_row_indices_attestable
-                && self.examples.len() < self.examples_limit as usize
+                && self.examples.len() < saturating_usize(self.examples_limit)
             {
                 self.examples
                     .entry(source_index)
-                    .or_insert((cause, column.into_option()));
+                    .or_insert_with(|| (cause, column.into_option()));
             }
         }
         Ok(())
@@ -787,14 +792,14 @@ fn merge_interrupted_read_diagnostics(
         }
     }
     let examples = examples_by_index.into_values().collect::<Vec<_>>();
-    let mut knowledge_limits = BTreeMap::<String, ()>::new();
+    let mut knowledge_limits = BTreeSet::<String>::new();
     for limit in common
         .knowledge_limits
         .into_iter()
         .flatten()
         .chain(driver.knowledge_limits.into_iter().flatten())
     {
-        knowledge_limits.insert(limit, ());
+        knowledge_limits.insert(limit);
     }
     let diagnostics = RowDiagnostics {
         contract: common.contract,
@@ -805,7 +810,7 @@ fn merge_interrupted_read_diagnostics(
         } else {
             RowDiagnosticsCompleteness::Partial
         },
-        knowledge_limits: Some(knowledge_limits.into_keys().collect()),
+        knowledge_limits: Some(knowledge_limits.into_iter().collect()),
         observed_total,
         total: None,
         input_total: None,
@@ -880,6 +885,7 @@ fn geometry_components(
 ///
 /// Lo slicing Arrow non copia i buffer e quindi limita la cardinalità esposta,
 /// non la memoria già allocata dal reader sottostante.
+#[must_use]
 pub fn with_batch_target(
     reader: Box<dyn LayerReader>,
     target: BatchTarget,
@@ -897,6 +903,7 @@ pub fn with_batch_target(
 
 /// Collega il token R11 a un reader e rilascia immediatamente il reader
 /// sottostante quando la cancellazione viene osservata.
+#[must_use]
 pub fn with_cancellation(
     reader: Box<dyn LayerReader>,
     cancellation: CancellationToken,
@@ -1020,6 +1027,7 @@ pub struct SingleReaderGate {
 }
 
 impl SingleReaderGate {
+    #[must_use]
     pub fn new(driver: &'static str) -> Self {
         Self {
             active: Arc::new(AtomicBool::new(false)),
@@ -1027,6 +1035,12 @@ impl SingleReaderGate {
         }
     }
 
+    /// Apre l'unico reader ammesso dal gate, prendendone il lease.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::reader_busy`] se un reader è già attivo;
+    /// altrimenti propaga l'errore della closure `create`.
     pub fn open<F>(&self, layer: LayerId, create: F) -> Result<Box<dyn LayerReader>>
     where
         F: FnOnce() -> Result<Box<dyn LayerReader>>,
@@ -1156,10 +1170,7 @@ mod tests {
         }
 
         fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-            match self.events.pop_front() {
-                Some(event) => event,
-                None => Ok(None),
-            }
+            self.events.pop_front().unwrap_or(Ok(None))
         }
     }
 

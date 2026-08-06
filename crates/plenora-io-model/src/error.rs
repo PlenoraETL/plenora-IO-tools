@@ -158,13 +158,13 @@ impl PlenoraIoError {
     }
 
     #[must_use]
-    pub fn during(mut self, phase: ErrorPhase) -> Self {
+    pub const fn during(mut self, phase: ErrorPhase) -> Self {
         self.phase = phase;
         self
     }
 
     #[must_use]
-    pub fn with_effect(mut self, effect: RemoteEffect, retry: RetryDisposition) -> Self {
+    pub const fn with_effect(mut self, effect: RemoteEffect, retry: RetryDisposition) -> Self {
         self.remote_effect = effect;
         self.retry = retry;
         self
@@ -280,6 +280,7 @@ impl PlenoraIoError {
     // Costruttori con il nome storico: mantengono sorgenti compatibili i siti
     // semplici, ma producono sempre il nuovo envelope a quattro assi.
     #[allow(non_snake_case)]
+    #[must_use]
     pub fn Contract(message: String) -> Self {
         let mut error = Self::new(
             ErrorCategory::InvalidPlan,
@@ -293,6 +294,7 @@ impl PlenoraIoError {
     }
 
     #[allow(non_snake_case)]
+    #[must_use]
     pub fn Unsupported(message: String) -> Self {
         let mut error = Self::new(
             ErrorCategory::Unsupported,
@@ -306,6 +308,7 @@ impl PlenoraIoError {
     }
 
     #[allow(non_snake_case)]
+    #[must_use]
     pub fn Schema(message: String) -> Self {
         let mut error = Self::new(
             ErrorCategory::Schema,
@@ -319,6 +322,7 @@ impl PlenoraIoError {
     }
 
     #[allow(non_snake_case)]
+    #[must_use]
     pub fn Crs(message: String) -> Self {
         let mut error = Self::new(
             ErrorCategory::Crs,
@@ -332,6 +336,7 @@ impl PlenoraIoError {
     }
 
     #[allow(non_snake_case)]
+    #[must_use]
     pub fn Wkb(message: String) -> Self {
         let mut error = Self::new(
             ErrorCategory::DataMapping,
@@ -345,6 +350,7 @@ impl PlenoraIoError {
     }
 
     #[allow(non_snake_case)]
+    #[must_use]
     pub fn LimitExceeded(message: String) -> Self {
         let mut error = Self::new(
             ErrorCategory::ResourceLimit,
@@ -358,6 +364,7 @@ impl PlenoraIoError {
     }
 
     #[allow(non_snake_case)]
+    #[must_use]
     pub fn OutputExists(_message: String) -> Self {
         let mut error = Self::new(
             ErrorCategory::Conflict,
@@ -371,6 +378,10 @@ impl PlenoraIoError {
     }
 
     #[allow(non_snake_case)]
+    #[must_use]
+    // Firma per valore: il costruttore consuma l'errore sorgente ed e' parte
+    // dell'identita' pubblica del bordo I/O.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn Io(error: std::io::Error) -> Self {
         let mut result = Self::new(
             ErrorCategory::Io,
@@ -384,6 +395,10 @@ impl PlenoraIoError {
     }
 
     #[allow(non_snake_case)]
+    #[must_use]
+    // Firma per valore: il costruttore consuma l'errore sorgente ed e' parte
+    // dell'identita' pubblica del bordo I/O.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn Json(error: serde_json::Error) -> Self {
         let mut result = Self::new(
             ErrorCategory::DataMapping,

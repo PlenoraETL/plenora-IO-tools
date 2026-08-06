@@ -1,4 +1,4 @@
-//! driver-kml — KML ⇄ RecordBatch. KML è WGS84 per specifica (`OGC:CRS84`).
+//! driver-kml — KML ⇄ `RecordBatch`. KML è WGS84 per specifica (`OGC:CRS84`).
 //! I Placemark diventano feature con geometria WKB `geoarrow.wkb` XY/XYZ e
 //! `name`/`description` come proprietà. KMZ resta un incremento successivo.
 #![forbid(unsafe_code)]
@@ -91,10 +91,9 @@ fn validate_element(event: &BytesStart<'_>) -> Result<()> {
 }
 
 fn local_xml_name(name: &[u8]) -> &[u8] {
-    match name.iter().rposition(|byte| *byte == b':') {
-        Some(separator) => &name[separator + 1..],
-        None => name,
-    }
+    name.iter()
+        .rposition(|byte| *byte == b':')
+        .map_or(name, |separator| &name[separator + 1..])
 }
 
 fn observe_point_coordinate_text(
@@ -687,14 +686,12 @@ impl PlacemarkStream {
         let mut output = String::new();
         loop {
             match self.next_event(cancellation)? {
-                Event::Text(text) => output.push_str(
-                    &text
-                        .decode()
-                        .map(|value| value.into_owned())
-                        .unwrap_or_else(|_| text.escape_ascii().to_string()),
-                ),
+                Event::Text(text) => output.push_str(&text.decode().map_or_else(
+                    |_| text.escape_ascii().to_string(),
+                    std::borrow::Cow::into_owned,
+                )),
                 Event::GeneralRef(reference) => {
-                    output.push_str(&Self::decode_general_ref(&reference)?)
+                    output.push_str(&Self::decode_general_ref(&reference)?);
                 }
                 Event::CData(text) => output.push_str(
                     &String::from_utf8(text.to_vec())
@@ -940,7 +937,7 @@ impl KmlContractStats {
     }
 
     fn contract(self) -> DataContract {
-        kml_contract(self.dimensions, self.geometry_types)
+        kml_contract(&self.dimensions, self.geometry_types)
     }
 }
 
@@ -965,6 +962,10 @@ impl FormatWriter for KmlWriterState {
         Ok(())
     }
 
+    // Il ciclo riga-per-riga classifica geometria, name/description ed
+    // ExtendedData in un solo passaggio: separarlo duplicherebbe la gestione
+    // delle reiezioni per riga senza cambiarne il comportamento.
+    #[allow(clippy::too_many_lines)]
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
         let geom_idx =
@@ -984,41 +985,32 @@ impl FormatWriter for KmlWriterState {
             let geometry = if geom_col.is_null(row) {
                 None
             } else {
-                let geometry = match decode_wkb(geom_col.value(row), &limits) {
-                    Ok(geometry) => geometry,
-                    Err(_) => {
-                        rejections.push((row, "kml.invalid_geometry", GEOMETRY));
-                        continue;
-                    }
+                let Ok(geometry) = decode_wkb(geom_col.value(row), &limits) else {
+                    rejections.push((row, "kml.invalid_geometry", GEOMETRY));
+                    continue;
                 };
-                match kml_geometry_from_wkb(&geometry) {
-                    Ok(geometry) => Some(geometry),
-                    Err(_) => {
-                        rejections.push((row, "kml.geometry_not_representable", GEOMETRY));
-                        continue;
-                    }
-                }
+                let Ok(geometry) = kml_geometry_from_wkb(&geometry) else {
+                    rejections.push((row, "kml.geometry_not_representable", GEOMETRY));
+                    continue;
+                };
+                Some(geometry)
             };
-            let name = match name_idx
+            let Ok(name) = name_idx
                 .map(|index| cell_string(batch.column(index), row))
                 .transpose()
-            {
-                Ok(value) => value.flatten(),
-                Err(_) => {
-                    rejections.push((row, "kml.cell_not_representable", "name"));
-                    continue;
-                }
+            else {
+                rejections.push((row, "kml.cell_not_representable", "name"));
+                continue;
             };
-            let description = match desc_idx
+            let name = name.flatten();
+            let Ok(description) = desc_idx
                 .map(|index| cell_string(batch.column(index), row))
                 .transpose()
-            {
-                Ok(value) => value.flatten(),
-                Err(_) => {
-                    rejections.push((row, "kml.cell_not_representable", "description"));
-                    continue;
-                }
+            else {
+                rejections.push((row, "kml.cell_not_representable", "description"));
+                continue;
             };
+            let description = description.flatten();
 
             // Colonne extra (non name/description/geometria) -> ExtendedData.
             let mut data = Vec::new();
@@ -1402,7 +1394,7 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
 }
 
 fn kml_contract(
-    dimensions: BTreeSet<CoordinateDimensions>,
+    dimensions: &BTreeSet<CoordinateDimensions>,
     geometry_types: BTreeSet<plenora_io_model::contract::GeometryType>,
 ) -> DataContract {
     let mut geometry_contract =
@@ -1455,7 +1447,7 @@ fn build_batch_cancellable(
         descs.push(p.description.clone());
     }
 
-    let contract = kml_contract(dimensions, geometry_types);
+    let contract = kml_contract(&dimensions, geometry_types);
     let arrays: Vec<ArrayRef> = vec![
         Arc::new(BinaryArray::from(
             wkb.iter().map(|o| o.as_deref()).collect::<Vec<_>>(),
@@ -1492,7 +1484,7 @@ pub fn __fuzz_read_kml(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::wkb::to_wkb;
 
@@ -1519,11 +1511,11 @@ mod tests {
     fn rejects_empty_point_before_dependency_parser() {
         assert!(__fuzz_read_kml(FUZZ_EMPTY_POINT_REGRESSION).is_err());
         assert!(__fuzz_read_kml(
-            br#"<kml><Placemark><Point><coordinates> </coordinates></Point></Placemark></kml>"#
+            br"<kml><Placemark><Point><coordinates> </coordinates></Point></Placemark></kml>"
         )
         .is_err());
         assert!(__fuzz_read_kml(
-            br#"<kml><Placemark><Point><coordinates><![CDATA[ ]]></coordinates></Point></Placemark></kml>"#
+            br"<kml><Placemark><Point><coordinates><![CDATA[ ]]></coordinates></Point></Placemark></kml>"
         )
         .is_err());
     }
@@ -1599,12 +1591,12 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget {
                     target_bytes: usize::MAX,
                     max_rows: 1,
                 },
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let batch = r.next_batch().unwrap().unwrap();
@@ -1672,7 +1664,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
                 cancellation: CancellationToken::new(),
             })
@@ -1720,7 +1712,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1749,9 +1741,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let rb = r.next_batch().unwrap().unwrap();
@@ -1840,9 +1832,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let round_trip = reader.next_batch().unwrap().unwrap();
@@ -1941,7 +1933,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("ambiguous.kml");
         let contract = kml_contract(
-            BTreeSet::from([CoordinateDimensions::Xy]),
+            &BTreeSet::from([CoordinateDimensions::Xy]),
             BTreeSet::from([GeometryType::GeometryCollection]),
         );
         let point = |x| WkbGeometry {
