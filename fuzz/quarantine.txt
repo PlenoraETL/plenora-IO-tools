@@ -1,0 +1,22 @@
+# Target con un finding aperto: la build strumentata resta obbligatoria,
+# l'esecuzione nello smoke di CI no.
+#
+# Motivazione: uno smoke che fallisce sempre non è un gate, è rumore — smette
+# di essere letto e copre le regressioni nuove. Ogni riga qui è quindi un
+# debito dichiarato, non una rimozione: il target continua a compilare sotto
+# AddressSanitizer in CI e resta eseguibile in locale
+# (`scripts/fuzz-smoke.sh --include-quarantined`) e nella campagna lunga
+# `scripts/fuzz-campaign.sh`, che non legge questo file.
+#
+# Una riga si toglie solo quando il finding è chiuso a monte o quando è stata
+# presa una decisione esplicita sul confine (i finding aperti riguardano la
+# semantica di accettazione dei driver, quindi non sono correggibili senza
+# ratifica).
+#
+# Formato: <target> <spazi> <riferimento del finding>
+
+geoparquet_reader  arrow-ipc convert.rs:354 — panic su Precision FloatingPoint sconosciuta nei metadati ARROW:schema
+ipc_reader         arrow-buffer immutable.rs:288 — panic su slice con offset oltre la lunghezza del buffer IPC
+ipc_to_gpkg        arrow-ipc convert.rs:514 — panic su Type NONE nello schema IPC
+gpkg_reader        OOM — 32 KiB di GeoPackage portano oltre 2 GiB residenti
+xlsx_reader        timeout — 5,4 KiB di XLSX superano i 15 s per singola lettura

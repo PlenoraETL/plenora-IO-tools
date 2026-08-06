@@ -7,10 +7,16 @@
 # e' volutamente breve; il valore sta nella copertura di TUTTI i target e nel
 # fatto che il binario e' costruito con -Zsanitizer=address.
 #
-# Uso: scripts/fuzz-smoke.sh [secondi-per-target]
+# Uso: scripts/fuzz-smoke.sh [--include-quarantined] [secondi-per-target]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+include_quarantined=0
+if [ "${1:-}" = "--include-quarantined" ]; then
+    include_quarantined=1
+    shift
+fi
 
 duration="${1:-${PLENORA_FUZZ_SECONDS:-60}}"
 rss_limit_mb="${PLENORA_FUZZ_RSS_MB:-2048}"
@@ -31,8 +37,40 @@ if [ "${#targets[@]}" -eq 0 ]; then
     exit 1
 fi
 
+# I target con un finding aperto sono dichiarati in fuzz/quarantine.txt: si
+# compilano sempre, si eseguono solo su richiesta esplicita. Il debito resta
+# visibile a ogni esecuzione.
+quarantined=()
+if [ -f fuzz/quarantine.txt ]; then
+    mapfile -t quarantined < <(
+        grep -vE '^\s*(#|$)' fuzz/quarantine.txt | awk '{print $1}'
+    )
+fi
+
+is_quarantined() {
+    local candidate="$1" entry
+    for entry in ${quarantined[@]+"${quarantined[@]}"}; do
+        if [ "${entry}" = "${candidate}" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 echo "=== build strumentata (${#targets[@]} target) ==="
 cargo fuzz build "${options[@]}"
+
+if [ "${#quarantined[@]}" -ne 0 ]; then
+    echo
+    echo "=== ATTENZIONE: ${#quarantined[@]} target in quarantena (finding aperti) ==="
+    grep -vE '^\s*(#|$)' fuzz/quarantine.txt
+    if [ "${include_quarantined}" -eq 1 ]; then
+        echo "--include-quarantined: verranno eseguiti comunque."
+    else
+        echo "Compilati sotto AddressSanitizer ma NON eseguiti in questo smoke."
+    fi
+    echo
+fi
 
 # I semi versionati sono l'ingresso minimo perche' un target su formato
 # contenitore superi il controllo del magic e raggiunga il parser vero.
@@ -44,7 +82,13 @@ for target in "${targets[@]}"; do
 done
 
 failed=()
+skipped=0
 for target in "${targets[@]}"; do
+    if [ "${include_quarantined}" -eq 0 ] && is_quarantined "${target}"; then
+        echo "=== ${target}: saltato (quarantena) ==="
+        skipped=$((skipped + 1))
+        continue
+    fi
     echo "=== ${target}: ${duration}s ==="
     if ! cargo fuzz run "${options[@]}" "${target}" -- \
         "-max_total_time=${duration}" \
@@ -62,4 +106,4 @@ if [ "${#failed[@]}" -ne 0 ]; then
     exit 1
 fi
 
-echo "smoke fuzz completato senza finding su ${#targets[@]} target"
+echo "smoke fuzz completato senza finding su $(( ${#targets[@]} - skipped )) target eseguiti (${skipped} in quarantena, comunque compilati)"

@@ -133,6 +133,10 @@ jobs:
         run: cargo install cargo-fuzz --locked --version 0.13.2
       - name: Verify locked fuzz dependency graph
         run: cargo metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 > /dev/null
+      # Costruisce TUTTI i target strumentati ed esegue quelli senza finding
+      # aperti. I target elencati in fuzz/quarantine.txt restano compilati ma
+      # non eseguiti: lo script li stampa a ogni run, così il debito resta
+      # visibile invece di trasformare il gate in un rosso permanente.
       - name: Build and smoke every fuzz target under AddressSanitizer
         run: bash scripts/fuzz-smoke.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24

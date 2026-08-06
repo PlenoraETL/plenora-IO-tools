@@ -342,3 +342,22 @@ risultato sbagliato. La lista dei target è derivata da `cargo fuzz list`, quind
 un target nuovo entra nello smoke senza toccare né lo script né la CI. Il budget
 è di 60 secondi per target sui push e 300 sulla finestra settimanale; la
 persistenza del corpus fra esecuzioni CI resta aperta.
+
+La prima campagna sui target nuovi ha prodotto cinque finding, tutti nel giro di
+secondi e tutti sul percorso di lettura di file esterni. Tre sono panic in
+dipendenze: `arrow-ipc` `convert.rs` panica su un valore di enum sconosciuto nel
+FlatBuffer dello schema (precisione `FloatingPoint`, riga 354, e `Type::NONE`,
+riga 514) e `arrow-buffer` `immutable.rs:288` panica su uno slice con offset
+oltre la lunghezza del buffer. Sono raggiungibili da un `.parquet` (i metadati
+`ARROW:schema` sono un messaggio IPC incorporato) e da un `.arrow`: un file
+ostile termina il processo invece di produrre un `PlenoraIoError`. Gli altri due
+sono di risorsa: 32 KiB di GeoPackage portano il reader oltre 2 GiB residenti, e
+5,4 KiB di XLSX superano i 15 secondi per una singola lettura — i `Limits`
+attuali non li intercettano.
+
+Nessuno dei cinque è correggibile senza decidere cosa il driver deve accettare o
+rifiutare, quindi restano aperti e i target corrispondenti sono elencati in
+`fuzz/quarantine.txt`: compilano sotto sanitizer in CI ma non vengono eseguiti
+nello smoke, perché un gate che fallisce sempre smette di essere letto e copre le
+regressioni nuove. `scripts/fuzz-smoke.sh --include-quarantined` e la campagna
+lunga li eseguono comunque.
