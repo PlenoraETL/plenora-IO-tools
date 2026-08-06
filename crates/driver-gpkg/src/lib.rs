@@ -22,6 +22,8 @@ use arrow_array::{
     StringViewArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use std::collections::BTreeSet;
+
 use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, Statement};
 
@@ -60,6 +62,63 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
 #[allow(clippy::needless_pass_by_value)]
 fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
     err(format!("sqlite: {e}"))
+}
+
+// Categorie di perdita stabili, leggibili dagli harness di conformità. Stesso
+// stile di `driver-shp` (dbf_numeric_integer_precision_unverifiable): SQLite
+// non impone il tipo dichiarato dalla colonna, quindi un file legittimo può
+// consegnare un REAL dove il contratto dichiara INTEGER. La conversione resta
+// quella storica, ma smette di essere silenziosa (ADR-IO 5).
+const INTEGER_COLUMN_REAL_TRUNCATED: &str = "gpkg_integer_column_real_truncated";
+const INTEGER_COLUMN_REAL_SATURATED: &str = "gpkg_integer_column_real_saturated";
+const INTEGER_COLUMN_NON_FINITE_DISCARDED: &str = "gpkg_integer_column_non_finite_discarded";
+const REAL_COLUMN_INTEGER_PRECISION_UNVERIFIABLE: &str =
+    "gpkg_real_column_integer_precision_unverifiable";
+
+/// Primo intero f64 senza precisione unitaria: oltre questa soglia la
+/// conversione `i64 -> f64` non è più esatta. Stessa costante di `driver-shp`.
+const FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION: f64 = 9_007_199_254_740_992.0;
+
+/// Limite di saturazione di `f64 as i64`: 2^63, primo valore positivo non
+/// rappresentabile. `i64::MIN` vale esattamente -2^63 ed è rappresentabile,
+/// quindi la soglia negativa è stretta e quella positiva è inclusiva.
+const SATURATION_BOUND: f64 = 9_223_372_036_854_775_808.0;
+
+/// Esito della coercizione dinamica di `SQLite` verso il tipo dichiarato dal
+/// contratto. `None` significa che il valore era già rappresentabile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Coercion {
+    /// REAL con parte frazionaria in colonna INTEGER: il valore cambia.
+    RealTruncated,
+    /// REAL fuori dall'intervallo di `i64`: il valore satura ai limiti.
+    RealSaturated,
+    /// NaN o infinito in colonna INTEGER: scartato come null, mai convertito
+    /// in uno zero plausibile e falso.
+    NonFiniteDiscarded,
+    /// INTEGER oltre 2^53 in colonna REAL: perde la precisione unitaria.
+    IntegerPrecisionUnverifiable,
+}
+
+impl Coercion {
+    const fn category(self) -> &'static str {
+        match self {
+            Self::RealTruncated => INTEGER_COLUMN_REAL_TRUNCATED,
+            Self::RealSaturated => INTEGER_COLUMN_REAL_SATURATED,
+            Self::NonFiniteDiscarded => INTEGER_COLUMN_NON_FINITE_DISCARDED,
+            Self::IntegerPrecisionUnverifiable => REAL_COLUMN_INTEGER_PRECISION_UNVERIFIABLE,
+        }
+    }
+
+    const fn detail(self) -> &'static str {
+        match self {
+            Self::RealTruncated => "REAL con parte frazionaria troncato verso zero",
+            Self::RealSaturated => "REAL fuori dall'intervallo i64 saturato ai limiti",
+            Self::NonFiniteDiscarded => "valore non finito scartato come null",
+            Self::IntegerPrecisionUnverifiable => {
+                "INTEGER oltre 2^53 senza precisione intera unitaria"
+            }
+        }
+    }
 }
 
 const GPKG_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
@@ -278,7 +337,27 @@ impl OpenDatasetHandle for GpkgDataset {
         &self.layers
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+        use plenora_io_core::loss::FidelityReasonCode;
+
+        // `Conditional` senza motivi direbbe solo che la fedeltà "dipende".
+        // ADR-IO 5 chiede di elencare cosa la renderebbe approssimante: qui e'
+        // la tipizzazione dinamica di SQLite, che non impone il tipo dichiarato
+        // dalla colonna. La valutazione resta preventiva; le occorrenze reali
+        // finiscono nel `LossReport` del reader.
+        let mut assessment = plenora_io_core::FidelityAssessment::for_format(
+            DESCRIPTOR.id,
+            DESCRIPTOR.fidelity_class,
+        );
+        assessment.add_reason(
+            FidelityReasonCode::TypeCoercion,
+            "SQLite non impone il tipo dichiarato: un REAL in colonna INTEGER viene troncato o \
+             saturato, un valore non finito viene scartato come null",
+        );
+        assessment.add_reason(
+            FidelityReasonCode::PrecisionChanged,
+            "un INTEGER oltre 2^53 in colonna REAL perde la precisione intera unitaria",
+        );
+        assessment
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
@@ -345,6 +424,8 @@ impl OpenDatasetHandle for GpkgDataset {
             ),
             last_rowid: 0,
             layer,
+            loss: LossReport::default(),
+            reported: BTreeSet::new(),
         });
         Ok(plenora_io_core::with_cancellation(
             reader,
@@ -436,11 +517,20 @@ struct GpkgReader {
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     last_rowid: i64,
     layer: LayerContract,
+    /// Perdite osservate leggendo: conteggi per categoria ed esempi bounded.
+    loss: LossReport,
+    /// Coppie (campo, categoria) già illustrate da un esempio: gli esempi sono
+    /// bounded e non devono ripetersi a ogni riga.
+    reported: BTreeSet<(String, &'static str)>,
 }
 
 impl LayerReader for GpkgReader {
     fn contract(&self) -> &LayerContract {
         &self.layer
+    }
+
+    fn loss_report(&self) -> LossReport {
+        self.loss.clone()
     }
 
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
@@ -481,7 +571,18 @@ impl LayerReader for GpkgReader {
                 column += 1;
             }
             for (i, b) in attr_builders.iter_mut().enumerate() {
-                b.append(row.get_ref(column + i).map_err(sql_err)?);
+                let Some(coercion) = b.append(row.get_ref(column + i).map_err(sql_err)?) else {
+                    continue;
+                };
+                let category = coercion.category();
+                self.loss.record(category, 1);
+                let name = self.attrs[i].0.clone();
+                if self.reported.insert((name.clone(), category)) {
+                    self.loss.add_example(plenora_io_core::loss::LossExample {
+                        category: category.to_owned(),
+                        context: format!("field={name}: {}", coercion.detail()),
+                    });
+                }
             }
             count += 1;
         }
@@ -521,39 +622,86 @@ impl ColBuilder {
             _ => Self::Str(StringBuilder::new()),
         }
     }
-    fn append(&mut self, v: ValueRef) {
+    /// Restituisce la coercizione applicata, se il valore non era già
+    /// rappresentabile nel tipo dichiarato dal contratto. Il chiamante la
+    /// registra nel `LossReport`: la conversione resta quella storica, ma non
+    /// e' piu' silenziosa (ADR-IO 5).
+    fn append(&mut self, v: ValueRef) -> Option<Coercion> {
         match self {
             Self::I64(b) => match v {
-                ValueRef::Integer(i) => b.append_value(i),
-                // SQLite e' tipizzato dinamicamente: un REAL in colonna
-                // dichiarata INTEGER viene troncato verso zero e saturato ai
-                // limiti di i64, esattamente come faceva prima. Cambiare la
-                // conversione cambierebbe i valori letti da file reali.
-                #[allow(clippy::cast_possible_truncation)]
-                ValueRef::Real(r) => b.append_value(r as i64),
-                _ => b.append_null(),
+                ValueRef::Integer(i) => {
+                    b.append_value(i);
+                    None
+                }
+                // SQLite e' tipizzato dinamicamente: un REAL puo' arrivare in
+                // una colonna dichiarata INTEGER anche in un file legittimo.
+                ValueRef::Real(r) => {
+                    if !r.is_finite() {
+                        // Un NaN convertito con `as i64` diventerebbe 0: un
+                        // valore plausibile e falso. Si scarta, come fa
+                        // `driver-xls` con la guardia `is_finite`.
+                        b.append_null();
+                        return Some(Coercion::NonFiniteDiscarded);
+                    }
+                    // `as` satura ai limiti di i64 e tronca verso zero: e' la
+                    // conversione storica e non va cambiata, ma i due casi
+                    // vanno distinti perche' la perdita e' di natura diversa.
+                    let saturated = !(-SATURATION_BOUND..SATURATION_BOUND).contains(&r);
+                    #[allow(clippy::cast_possible_truncation)]
+                    b.append_value(r as i64);
+                    if saturated {
+                        Some(Coercion::RealSaturated)
+                    } else if r.fract() == 0.0 {
+                        None
+                    } else {
+                        Some(Coercion::RealTruncated)
+                    }
+                }
+                _ => {
+                    b.append_null();
+                    None
+                }
             },
             Self::F64(b) => match v {
-                ValueRef::Real(r) => b.append_value(r),
+                ValueRef::Real(r) => {
+                    b.append_value(r);
+                    None
+                }
                 // Colonna dichiarata REAL: l'INTEGER SQLite viene rappresentato
-                // in f64, con la perdita di precisione inerente oltre 2^53 che
-                // e' quella del formato di destinazione, non un difetto locale.
-                #[allow(clippy::cast_precision_loss)]
-                ValueRef::Integer(i) => b.append_value(i as f64),
-                _ => b.append_null(),
+                // in f64. Oltre 2^53 la precisione unitaria si perde, ed e' la
+                // stessa condizione che `driver-shp` registra sui Numeric DBF.
+                ValueRef::Integer(i) => {
+                    #[allow(clippy::cast_precision_loss)]
+                    let value = i as f64;
+                    b.append_value(value);
+                    (value.abs() >= FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION)
+                        .then_some(Coercion::IntegerPrecisionUnverifiable)
+                }
+                _ => {
+                    b.append_null();
+                    None
+                }
             },
-            Self::Str(b) => match v {
-                ValueRef::Text(t) => b.append_value(String::from_utf8_lossy(t)),
-                ValueRef::Integer(i) => b.append_value(i.to_string()),
-                ValueRef::Real(r) => b.append_value(r.to_string()),
-                // NULL e BLOB in colonna testuale: nessuna transcodifica
-                // implicita, si scrive null.
-                ValueRef::Null | ValueRef::Blob(_) => b.append_null(),
-            },
-            Self::Bin(b) => match v {
-                ValueRef::Blob(x) => b.append_value(x),
-                _ => b.append_null(),
-            },
+            Self::Str(b) => {
+                match v {
+                    ValueRef::Text(t) => b.append_value(String::from_utf8_lossy(t)),
+                    // La rappresentazione testuale di un intero o di un reale
+                    // e' fedele: nessuna perdita da dichiarare.
+                    ValueRef::Integer(i) => b.append_value(i.to_string()),
+                    ValueRef::Real(r) => b.append_value(r.to_string()),
+                    // NULL e BLOB in colonna testuale: nessuna transcodifica
+                    // implicita, si scrive null.
+                    ValueRef::Null | ValueRef::Blob(_) => b.append_null(),
+                }
+                None
+            }
+            Self::Bin(b) => {
+                match v {
+                    ValueRef::Blob(x) => b.append_value(x),
+                    _ => b.append_null(),
+                }
+                None
+            }
         }
     }
     fn finish(mut self) -> ArrayRef {
@@ -1205,6 +1353,147 @@ mod tests {
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
     use plenora_io_model::CancellationToken;
+
+    /// Legge tutti i batch e restituisce il report di perdita accumulato.
+    fn read_all_and_loss(dataset: &dyn OpenDatasetHandle) -> LossReport {
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        while reader.next_batch().unwrap().is_some() {}
+        reader.loss_report()
+    }
+
+    /// Scrive un gpkg con una colonna dichiarata INTEGER, poi vi inserisce
+    /// valori REAL con SQL diretto. `SQLite` ha affinita', non vincoli: un REAL
+    /// non convertibile senza perdita resta REAL anche in colonna INTEGER, ed
+    /// e' esattamente il caso che un file legittimo puo' produrre.
+    #[test]
+    fn real_values_in_an_integer_column_are_reported_as_loss_not_silently_coerced() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("coercion.gpkg");
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            geometry_field("geom", "EPSG:4326"),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let geometry =
+            to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0))).unwrap();
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(geometry.as_slice())])),
+                Arc::new(Int64Array::from(vec![1])),
+            ],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "features".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let driver = GpkgDriver;
+        let mut writer = driver
+            .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        // 7.0 viene convertito a INTEGER dall'affinita' (conversione lossless):
+        // nessuna perdita. 1.5 e 1e300 restano REAL.
+        conn.execute_batch(
+            "UPDATE features SET id = 1.5 WHERE fid = 1;
+             INSERT INTO features (fid, geom, id) SELECT 2, geom, 1e300 FROM features WHERE fid = 1;
+             INSERT INTO features (fid, geom, id) SELECT 3, geom, 7.0 FROM features WHERE fid = 1;",
+        )
+        .unwrap();
+        // Precondizione del test: l'affinita' si e' comportata come previsto.
+        let kinds: Vec<String> = conn
+            .prepare("SELECT typeof(id) FROM features ORDER BY fid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(std::result::Result::unwrap)
+            .collect();
+        assert_eq!(kinds, vec!["real", "real", "integer"]);
+        drop(conn);
+
+        let dataset = driver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let loss = read_all_and_loss(dataset.as_ref());
+
+        assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_TRUNCATED), Some(&1));
+        assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_SATURATED), Some(&1));
+        // Il 7.0 convertito dall'affinita' non e' una perdita.
+        assert_eq!(loss.counts.values().sum::<u64>(), 2);
+        // Un esempio per coppia (campo, categoria), mai uno per riga.
+        assert_eq!(loss.examples().len(), 2);
+        assert!(loss
+            .examples()
+            .iter()
+            .all(|example| example.context.starts_with("field=id:")));
+    }
+
+    /// Le due guardie difensive non sono raggiungibili da un file: `SQLite`
+    /// memorizza NaN come NULL e l'affinita' REAL converte gli interi in
+    /// virgola mobile prima che il driver li veda. Restano perche' rendono
+    /// esplicita un'invariante che oggi dipende dalle regole di affinita', e
+    /// si verificano al livello in cui sono scritte.
+    #[test]
+    fn non_finite_and_wide_integers_are_declared_never_silently_substituted() {
+        let mut integer_column = ColBuilder::new(&DataType::Int64);
+        assert_eq!(
+            integer_column.append(ValueRef::Real(f64::NAN)),
+            Some(Coercion::NonFiniteDiscarded)
+        );
+        assert_eq!(
+            integer_column.append(ValueRef::Real(f64::INFINITY)),
+            Some(Coercion::NonFiniteDiscarded)
+        );
+        // Un NaN non diventa mai lo zero plausibile e falso di `as i64`.
+        let values = integer_column.finish();
+        assert_eq!(values.null_count(), 2);
+
+        let mut real_column = ColBuilder::new(&DataType::Float64);
+        assert_eq!(
+            real_column.append(ValueRef::Integer(9_007_199_254_740_993)),
+            Some(Coercion::IntegerPrecisionUnverifiable)
+        );
+        assert_eq!(real_column.append(ValueRef::Integer(7)), None);
+    }
+
+    /// I valori gia' rappresentabili non producono perdita: il gate non deve
+    /// diventare rumoroso su file corretti.
+    #[test]
+    fn representable_values_produce_no_loss() {
+        let mut integer_column = ColBuilder::new(&DataType::Int64);
+        assert_eq!(integer_column.append(ValueRef::Integer(42)), None);
+        // REAL senza parte frazionaria e dentro l'intervallo: esatto.
+        assert_eq!(integer_column.append(ValueRef::Real(7.0)), None);
+        assert_eq!(integer_column.append(ValueRef::Real(-7.0)), None);
+        // Il limite negativo e' rappresentabile, quello positivo no.
+        assert_eq!(
+            integer_column.append(ValueRef::Real(-SATURATION_BOUND)),
+            None
+        );
+        assert_eq!(
+            integer_column.append(ValueRef::Real(SATURATION_BOUND)),
+            Some(Coercion::RealSaturated)
+        );
+    }
 
     #[test]
     fn integer_widths_are_exact_and_overflow_never_becomes_sql_null() {
