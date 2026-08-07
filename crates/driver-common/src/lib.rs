@@ -22,7 +22,7 @@ use plenora_io_model::geometry::{
 };
 use plenora_io_model::{PlenoraIoError, Result};
 
-/// CRS di default per i formati WGS84 per specifica (GeoJSON, KML).
+/// CRS di default per i formati WGS84 per specifica (`GeoJSON`, KML).
 pub const OGC_CRS84: &str = "OGC:CRS84";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -34,6 +34,7 @@ pub enum ColType {
 }
 
 impl ColType {
+    #[must_use]
     pub const fn arrow_data_type(self) -> DataType {
         match self {
             Self::Integer => DataType::Int64,
@@ -62,6 +63,7 @@ pub enum ObservedValueClass {
 
 const MAX_EXACT_F64_INTEGER: i64 = 1_i64 << 53;
 
+#[must_use]
 pub const fn classify_i64(value: i64) -> ObservedValueClass {
     if value >= -MAX_EXACT_F64_INTEGER && value <= MAX_EXACT_F64_INTEGER {
         ObservedValueClass::Integer
@@ -77,6 +79,9 @@ pub fn classify_u64(value: u64) -> ObservedValueClass {
 /// Stato comune dell'inferenza. La promozione è monotona: una colonna non può
 /// tornare a un tipo più ristretto dopo avere osservato un valore incompatibile.
 #[derive(Clone, Copy, Debug)]
+// I flag sono lo stato dell'automa di promozione, non opzioni di
+// configurazione: raggrupparli in un enum cambierebbe la logica monotona.
+#[allow(clippy::struct_excessive_bools)]
 pub struct TypeAccumulator {
     any: bool,
     all_int: bool,
@@ -128,7 +133,8 @@ impl TypeAccumulator {
         }
     }
 
-    pub fn column_type(self) -> ColType {
+    #[must_use]
+    pub const fn column_type(self) -> ColType {
         if !self.any {
             ColType::Text
         } else if self.all_int {
@@ -156,6 +162,7 @@ enum InferredColumnBuilderInner {
 }
 
 impl InferredColumnBuilder {
+    #[must_use]
     pub fn new(column_type: ColType) -> Self {
         let inner = match column_type {
             ColType::Integer => InferredColumnBuilderInner::Integer(Int64Builder::new()),
@@ -177,12 +184,11 @@ impl InferredColumnBuilder {
 
     fn incompatible_value(column_type: ColType) -> PlenoraIoError {
         PlenoraIoError::Schema(format!(
-            "valore non nullo incompatibile con il tipo inferito {:?}",
-            column_type
+            "valore non nullo incompatibile con il tipo inferito {column_type:?}"
         ))
     }
 
-    fn column_type(&self) -> ColType {
+    const fn column_type(&self) -> ColType {
         match self.inner {
             InferredColumnBuilderInner::Integer(_) => ColType::Integer,
             InferredColumnBuilderInner::Number(_) => ColType::Number,
@@ -191,6 +197,13 @@ impl InferredColumnBuilder {
         }
     }
 
+    /// Accoda un valore JSON alla colonna, rispettando il tipo inferito.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Schema`] se il valore non nullo non è
+    /// compatibile con il tipo inferito della colonna o se è un numero non
+    /// finito.
     pub fn append_json(&mut self, value: Option<&JsonValue>) -> Result<()> {
         let column_type = self.column_type();
         match value {
@@ -219,10 +232,21 @@ impl InferredColumnBuilder {
         Ok(())
     }
 
+    /// Accoda un intero con segno alla colonna.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Schema`] se la colonna è booleana, cioè
+    /// incompatibile con un intero.
     pub fn append_i64(&mut self, value: i64) -> Result<()> {
         let column_type = self.column_type();
         match &mut self.inner {
             InferredColumnBuilderInner::Integer(builder) => builder.append_value(value),
+            // La conversione i64 -> f64 e' la semantica voluta della colonna
+            // Number; l'inferenza promuove a testo gli interi fuori da 2^53
+            // (`WideInteger`), quindi qui non si perde una cifra significativa.
+            // Un cast controllato cambierebbe il valore prodotto.
+            #[allow(clippy::cast_precision_loss)]
             InferredColumnBuilderInner::Number(builder) => builder.append_value(value as f64),
             InferredColumnBuilderInner::Boolean(_) => {
                 return Err(Self::incompatible_value(column_type));
@@ -232,12 +256,22 @@ impl InferredColumnBuilder {
         Ok(())
     }
 
+    /// Accoda un intero senza segno alla colonna.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Schema`] se il valore eccede `i64` in una
+    /// colonna intera o se la colonna è booleana.
     pub fn append_u64(&mut self, value: u64) -> Result<()> {
         let column_type = self.column_type();
         match &mut self.inner {
             InferredColumnBuilderInner::Integer(builder) => builder.append_value(
                 i64::try_from(value).map_err(|_| Self::incompatible_value(column_type))?,
             ),
+            // Stessa motivazione di `append_i64`: la conversione u64 -> f64 e'
+            // la semantica voluta della colonna Number e l'inferenza esclude
+            // gli interi fuori da 2^53.
+            #[allow(clippy::cast_precision_loss)]
             InferredColumnBuilderInner::Number(builder) => builder.append_value(value as f64),
             InferredColumnBuilderInner::Boolean(_) => {
                 return Err(Self::incompatible_value(column_type));
@@ -247,6 +281,12 @@ impl InferredColumnBuilder {
         Ok(())
     }
 
+    /// Accoda un numero in virgola mobile alla colonna.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Schema`] se il valore non è finito oppure
+    /// se la colonna è intera o booleana.
     pub fn append_f64(&mut self, value: f64) -> Result<()> {
         if !value.is_finite() {
             return Err(PlenoraIoError::Schema(
@@ -255,11 +295,8 @@ impl InferredColumnBuilder {
         }
         let column_type = self.column_type();
         match &mut self.inner {
-            InferredColumnBuilderInner::Integer(_) => {
-                return Err(Self::incompatible_value(column_type));
-            }
             InferredColumnBuilderInner::Number(builder) => builder.append_value(value),
-            InferredColumnBuilderInner::Boolean(_) => {
+            InferredColumnBuilderInner::Integer(_) | InferredColumnBuilderInner::Boolean(_) => {
                 return Err(Self::incompatible_value(column_type));
             }
             InferredColumnBuilderInner::Text(builder) => builder.append_value(value.to_string()),
@@ -267,6 +304,11 @@ impl InferredColumnBuilder {
         Ok(())
     }
 
+    /// Accoda un booleano alla colonna.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Schema`] se la colonna è numerica.
     pub fn append_bool(&mut self, value: bool) -> Result<()> {
         let column_type = self.column_type();
         match &mut self.inner {
@@ -279,6 +321,11 @@ impl InferredColumnBuilder {
         Ok(())
     }
 
+    /// Accoda una stringa alla colonna, senza reinterpretarla.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Schema`] se la colonna non è testuale.
     pub fn append_str(&mut self, value: &str) -> Result<()> {
         let column_type = self.column_type();
         match &mut self.inner {
@@ -292,6 +339,15 @@ impl InferredColumnBuilder {
         Ok(())
     }
 
+    /// Accoda una cella CSV grezza, applicando il parsing del tipo inferito.
+    ///
+    /// La cella con soli spazi vale null; la colonna testuale conserva la
+    /// cella originale senza `trim`.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Schema`] se la cella non è parsabile nel
+    /// tipo inferito o se il numero risultante non è finito.
     pub fn append_csv_cell(&mut self, cell: &str) -> Result<()> {
         let trimmed = cell.trim();
         if trimmed.is_empty() {
@@ -331,6 +387,13 @@ impl InferredColumnBuilder {
         Ok(())
     }
 
+    /// Accoda un valore di origine convertendolo con l'estrattore adatto al
+    /// tipo inferito della colonna.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Schema`] se l'estrattore corrispondente
+    /// restituisce `None` o se il numero convertito non è finito.
     pub fn append_converted<'a, T, I, N, B, S>(
         &mut self,
         value: Option<&'a T>,
@@ -410,6 +473,7 @@ pub fn infer_column<'a>(values: impl Iterator<Item = &'a JsonValue>) -> ColType 
 }
 
 /// Costruisce l'array Arrow tipizzato di una colonna proprietà.
+#[must_use]
 pub fn build_property_array(col: ColType, values: &[Option<JsonValue>]) -> (DataType, ArrayRef) {
     match col {
         ColType::Integer => (
@@ -456,6 +520,7 @@ pub fn build_property_array(col: ColType, values: &[Option<JsonValue>]) -> (Data
 }
 
 /// Campo Arrow per la colonna geometria (`geoarrow.wkb` + `crs`).
+#[must_use]
 pub fn geometry_field(name: &str, crs_id: &str) -> Field {
     let mut md = HashMap::new();
     md.insert(
@@ -466,7 +531,8 @@ pub fn geometry_field(name: &str, crs_id: &str) -> Field {
     Field::new(name, DataType::Binary, true).with_metadata(md)
 }
 
-/// Indice della prima colonna dichiarata come geometria GeoArrow WKB.
+/// Indice della prima colonna dichiarata come geometria `GeoArrow` WKB.
+#[must_use]
 pub fn geometry_index(schema: &Schema) -> Option<usize> {
     schema
         .fields()
@@ -475,6 +541,12 @@ pub fn geometry_index(schema: &Schema) -> Option<usize> {
 }
 
 /// Valore JSON di una cella Arrow (per la scrittura verso formati testuali).
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Schema`] per un `Float32`/`Float64` non
+/// finito e [`PlenoraIoError::Unsupported`] per un tipo Arrow non
+/// convertibile in JSON senza perdita.
 pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if array.is_null(row) {
         return Ok(JsonValue::Null);
@@ -483,7 +555,7 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     macro_rules! as_i64 {
         ($t:ty) => {
             if let Some(x) = a.downcast_ref::<$t>() {
-                return Ok(JsonValue::from(x.value(row) as i64));
+                return Ok(JsonValue::from(i64::from(x.value(row))));
             }
         };
     }
@@ -498,7 +570,7 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
         return Ok(JsonValue::from(x.value(row)));
     }
     if let Some(x) = a.downcast_ref::<Float32Array>() {
-        return Number::from_f64(x.value(row) as f64)
+        return Number::from_f64(f64::from(x.value(row)))
             .map(JsonValue::Number)
             .ok_or_else(|| PlenoraIoError::Schema("Float32 non finito".to_owned()));
     }
@@ -520,6 +592,10 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
 }
 
 /// Rappresentazione testuale lossless di una cella Arrow, con `None` per null.
+///
+/// # Errors
+///
+/// Propaga gli errori di [`json_from_array`].
 pub fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
     Ok(match json_from_array(array, row)? {
         JsonValue::Null => None,

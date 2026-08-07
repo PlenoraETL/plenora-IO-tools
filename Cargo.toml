@@ -38,6 +38,25 @@ libc = "=0.2.189"
 rustix = { version = "=1.1.4", features = ["fs"] }
 atomicwrites = "=0.4.4"
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# Politica lint allineata a plenora-data-tools e plenora-database-tools: la
+# tabella dichiara nel manifest cio' che la CI applica gia' via riga di
+# comando, cosi' la policy resta verificabile anche fuori dalla CI. Ogni
+# deviazione voluta resta possibile solo come `#[allow]` mirato e motivato nel
+# codice. Il gate anti-panic sulle librerie resta un passo CI dedicato con lint
+# espliciti (piu' stretto di questa tabella).
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"
+
 [patch.crates-io]
 # Fork governato della sorgente crates.io gdal 0.17.1. Il delta espone
 # OGR_L_SetIgnoredFields dietro un metodo safe; provenienza e manutenzione sono

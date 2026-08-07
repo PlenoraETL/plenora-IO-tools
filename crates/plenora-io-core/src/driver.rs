@@ -48,6 +48,14 @@ impl Source {
     /// Risolve la sorgente e applica il limite complessivo prima che un parser
     /// possa materializzarla. Le directory-dataset sono conteggiate senza
     /// seguire symlink.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Unsupported`] se la sorgente (o un suo
+    /// discendente) è un symlink, [`PlenoraIoError::LimitExceeded`] se i byte
+    /// totali superano `max_input_bytes` o vanno in overflow, l'errore di
+    /// cancellazione se il token è attivo, e l'errore di I/O se la sorgente
+    /// non è ispezionabile.
     pub fn into_path_checked(
         self,
         limits: &Limits,
@@ -97,7 +105,8 @@ pub enum Sink {
 pub struct ReadOptions {
     /// CRS dichiarato per i formati che non lo portano (CSV/XLSX) — ADR-IO 4.
     pub assume_crs: Option<String>,
-    /// Knob specifici del driver (es. csv: x_column/y_column/wkt_column/delimiter).
+    /// Knob specifici del driver (es. csv: `x_column`/`y_column`/`wkt_column`/
+    /// `delimiter`).
     pub format_options: BTreeMap<String, String>,
     /// Limiti condivisi del bordo I/O.
     pub limits: Limits,
@@ -129,6 +138,13 @@ impl WriteOptions {
     }
 }
 
+/// Traduce lo stato del token di cancellazione in un errore tipizzato.
+///
+/// # Errors
+///
+/// Restituisce l'errore di cancellazione (categoria `Timeout` per la deadline,
+/// `Cancelled` per una richiesta esplicita o propagata dal parent) quando il
+/// token è già stato attivato.
 pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<()> {
     match token.reason() {
         None => Ok(()),
@@ -143,6 +159,10 @@ pub fn check_cancelled(token: &CancellationToken, phase: ErrorPhase) -> Result<(
 /// È una potenza di due per mantenere trascurabile il costo del fast path.
 pub const CANCELLATION_CHECK_INTERVAL: usize = 1024;
 
+// La saturazione e' esplicita nel ramo precedente: quando si arriva al cast il
+// valore e' gia' provato entro `usize::MAX`, quindi non puo' troncare.
+// `usize::try_from` non e' utilizzabile in un `const fn`.
+#[allow(clippy::cast_possible_truncation)]
 const fn saturating_usize(value: u64) -> usize {
     if value > usize::MAX as u64 {
         usize::MAX
@@ -151,6 +171,9 @@ const fn saturating_usize(value: u64) -> usize {
     }
 }
 
+// Simmetrico a `saturating_usize`: il cast e' raggiunto solo con un valore gia'
+// provato entro `u64::MAX`.
+#[allow(clippy::cast_possible_truncation)]
 const fn saturating_u64(value: usize) -> u64 {
     if usize::BITS > u64::BITS && value > u64::MAX as usize {
         u64::MAX
@@ -161,6 +184,11 @@ const fn saturating_u64(value: usize) -> u64 {
 
 /// Controlla periodicamente il token senza imporre una lettura atomica per
 /// ogni riga. Il chiamante deve passare un indice monotono a partire da zero.
+///
+/// # Errors
+///
+/// Gli stessi di [`check_cancelled`], valutati solo agli indici multipli di
+/// [`CANCELLATION_CHECK_INTERVAL`].
 pub fn check_cancelled_periodically(
     token: &CancellationToken,
     phase: ErrorPhase,
@@ -175,8 +203,18 @@ pub fn check_cancelled_periodically(
 pub trait FormatDriver: Send + Sync {
     fn descriptor(&self) -> &FormatDescriptor;
     /// Statico: header/schema/CRS, nessuna riga.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore se la sorgente non è accessibile, non è nel
+    /// formato atteso o eccede i limiti dichiarati in `opts`.
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>>;
     /// Statico: verifica che il contratto sia rappresentabile (ADR-IO 3).
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore se il piano non è rappresentabile dalle
+    /// capability del formato o se la destinazione non è preparabile.
     fn create(
         &self,
         sink: Sink,
@@ -191,6 +229,12 @@ pub trait OpenDatasetHandle: Send + Sync {
     fn fidelity_assessment(&self) -> FidelityAssessment;
     /// Apre un reader indipendente per un layer; lo STATO mutabile vive nel
     /// reader (ADR-IO 1).
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore se il layer richiesto non esiste, se la
+    /// projection non è soddisfacibile o se il driver non ammette un ulteriore
+    /// reader concorrente.
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>>;
 }
 
@@ -199,6 +243,11 @@ pub trait LayerReader {
     /// (ADR-IO 6). Riflette la projection realmente applicata.
     fn contract(&self) -> &LayerContract;
     /// Pull-based con stato; `None` = fine dello stream.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore se il flusso sorgente è malformato, se un limite
+    /// viene superato o se l'operazione viene annullata.
     fn next_batch(&mut self) -> Result<Option<RecordBatch>>;
     /// Report di perdita (vuoto per i driver Lossless) — ADR-IO 5.
     fn loss_report(&self) -> LossReport {
@@ -219,14 +268,30 @@ pub trait FormatWriter {
     /// Il wrapper comune usa il valore per evitare partizioni diagnostiche di
     /// prefisso. I writer raw possono ignorarlo: in tal caso non devono
     /// inventare una diagnostica write completa.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore se il totale viene dichiarato dopo il primo write
+    /// del layer o se contraddice un totale già dichiarato.
     fn declare_input_total(&mut self, _layer: LayerId, _total: u64) -> Result<()> {
         Ok(())
     }
     /// Scrive un batch nel layer primario (`LayerId(0)`).
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore se il batch non rispetta il contratto dichiarato,
+    /// se un limite viene superato o se il backend rifiuta la scrittura.
     fn write(&mut self, batch: &RecordBatch) -> Result<()>;
     /// Scrive un batch in uno specifico layer (multi-layer). Default: accetta solo
     /// `LayerId(0)` e delega a `write`; i driver multi-layer fanno override (ADR-IO 1:
     /// un dataset-writer coordina tutti i layer con un unico commit atomico).
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Unsupported`] se il formato non è
+    /// multi-layer e `layer` non è `LayerId(0)`; per il resto gli stessi
+    /// errori di [`FormatWriter::write`].
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
         if layer.0 != 0 {
             return Err(PlenoraIoError::Unsupported(
@@ -236,11 +301,17 @@ pub trait FormatWriter {
         self.write(batch)
     }
     /// Publish atomico dell'intero dataset, solo a successo (D11, ADR-IO 2).
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore se la finalizzazione o il publish atomico non
+    /// riescono; in quel caso la destinazione non viene pubblicata.
     fn finish(self: Box<Self>) -> Result<Published>;
 }
 
 /// Applica i limiti indipendenti dal formato a qualunque writer. I vincoli
 /// specifici (WKB, vertici, dimensione fisica del dataset) restano nel driver.
+#[must_use]
 pub fn with_write_limits(writer: Box<dyn FormatWriter>, limits: Limits) -> Box<dyn FormatWriter> {
     Box::new(LimitedWriter {
         inner: writer,
@@ -295,6 +366,11 @@ fn geometry_contracts_for_validation(
             // Il costruttore stabilisce il default storico XY prima di leggere
             // i metadati legacy. Un valore esplicito, incluso `unknown`, lo
             // sostituisce e non viene mai degradato dopo il parsing (R3.4).
+            // `index` e' la posizione di un campo nello schema Arrow: e'
+            // limitato dal numero di campi del layer, ordini di grandezza
+            // sotto 2^32. Un cast controllato introdurrebbe un ramo d'errore
+            // irraggiungibile in un punto del contratto.
+            #[allow(clippy::cast_possible_truncation)]
             let mut geometry = GeometryColumnContract::wkb_xy(
                 FieldId(index as u32),
                 field.name(),
@@ -307,6 +383,14 @@ fn geometry_contracts_for_validation(
         .collect()
 }
 
+/// Avvolge il writer con la validazione comune di contratto, geometria e
+/// limiti.
+///
+/// # Errors
+///
+/// Restituisce un errore se il piano dichiara più colonne geometriche senza
+/// contratto esplicito o se i metadati geometrici del campo non sono
+/// interpretabili.
 pub fn with_write_validation(
     writer: Box<dyn FormatWriter>,
     descriptor: &FormatDescriptor,
@@ -597,6 +681,9 @@ impl WriteBatchResources {
 }
 
 impl LimitedWriter {
+    // Sequenza lineare di contabilizzazioni e guardie, una per limite: la
+    // lunghezza e' nel numero di limiti, non in complessita' logica.
+    #[allow(clippy::too_many_lines)]
     fn account(&mut self, layer: usize, batch: &RecordBatch) -> Result<WriteBatchResources> {
         self.resource_budget.ensure_active()?;
         if let Some(contract) = self.contracts.get(layer) {
@@ -673,14 +760,18 @@ impl LimitedWriter {
             validate_geometry_batch_at(
                 validation.driver,
                 validation.support,
-                validation.layers.get(layer).ok_or_else(|| {
-                    PlenoraIoError::capability(
-                        validation.driver,
-                        None,
-                        CapabilityReason::MultipleLayers,
-                        format!("layer runtime {layer} fuori dal WritePlan"),
-                    )
-                })?,
+                validation
+                    .layers
+                    .get(layer)
+                    .ok_or_else(|| {
+                        PlenoraIoError::capability(
+                            validation.driver,
+                            None,
+                            CapabilityReason::MultipleLayers,
+                            format!("layer runtime {layer} fuori dal WritePlan"),
+                        )
+                    })?
+                    .as_ref(),
                 batch,
                 &effective_limits,
                 *self.layer_rows.get(layer).ok_or_else(|| {
@@ -874,7 +965,7 @@ fn validate_inspected_geometry(
             driver,
             &contract.name,
             CapabilityReason::CoordinateDimensions,
-            format!("payload {:?} non supportato dal driver", actual_dimensions),
+            format!("payload {actual_dimensions:?} non supportato dal driver"),
         ));
     }
 
@@ -921,7 +1012,7 @@ fn validate_inspected_geometry(
 fn validate_geometry_batch_at(
     driver: &'static str,
     support: GeometryWriteSupport,
-    contract: &Option<GeometryColumnContract>,
+    contract: Option<&GeometryColumnContract>,
     batch: &RecordBatch,
     limits: &Limits,
     row_offset: u64,
@@ -936,7 +1027,7 @@ fn validate_geometry_batch_at(
                 driver,
                 saturating_u64(batch.num_rows()),
                 row_offset,
-                violations,
+                &violations,
                 input_total,
             ))
         };
@@ -1010,7 +1101,7 @@ fn validate_geometry_batch_at(
             driver,
             saturating_u64(batch.num_rows()),
             row_offset,
-            violations,
+            &violations,
             input_total,
         ))
     }
@@ -1092,26 +1183,22 @@ fn inspect_geometry_row(
         }
         return Ok(());
     };
-    let inspection = match inspect_wkb(bytes, limits) {
-        Ok(inspection) => inspection,
-        Err(_) => {
-            violations.insert(
+    let Ok(inspection) = inspect_wkb(bytes, limits) else {
+        violations.insert(
+            source_index,
+            WriteRowViolation {
                 source_index,
-                WriteRowViolation {
-                    source_index,
-                    cause: "conversion.invalid_geometry",
-                    column: contract.name.clone(),
-                    capability_reason: CapabilityReason::GeometryEncoding,
-                },
-            );
-            return Ok(());
-        }
+                cause: "conversion.invalid_geometry",
+                column: contract.name.clone(),
+                capability_reason: CapabilityReason::GeometryEncoding,
+            },
+        );
+        return Ok(());
     };
     if let Err(error) = validate_inspected_geometry(driver, support, contract, &inspection) {
-        let capability_reason = match error.capability_reason {
-            Some(reason) => reason,
-            None => CapabilityReason::GeometryEncoding,
-        };
+        let capability_reason = error
+            .capability_reason
+            .unwrap_or(CapabilityReason::GeometryEncoding);
         let cause = match capability_reason {
             CapabilityReason::Nullability => "contract.nullability",
             CapabilityReason::CoordinateDimensions => "contract.coordinate_dimensions",
@@ -1145,7 +1232,7 @@ fn write_rejection_error(
     driver: &'static str,
     _batch_rows: u64,
     row_offset: u64,
-    violations: BTreeMap<u64, WriteRowViolation>,
+    violations: &BTreeMap<u64, WriteRowViolation>,
     input_total: Option<u64>,
 ) -> PlenoraIoError {
     const EXAMPLES_LIMIT: u64 = 64;
@@ -1160,6 +1247,9 @@ fn write_rejection_error(
         *counts.entry(violation.cause.to_owned()).or_insert(0_u64) += 1;
     }
     let mut column_name_unattestable = false;
+    // `EXAMPLES_LIMIT` e' la costante letterale 64: la conversione e' esatta
+    // su ogni target supportato.
+    #[allow(clippy::cast_possible_truncation)]
     let examples = violations
         .values()
         .take(EXAMPLES_LIMIT as usize)
@@ -1231,9 +1321,12 @@ fn write_rejection_error(
 }
 
 /// Costruisce un rifiuto row-scoped per i vincoli runtime specifici di un
-/// writer. Gli indici relativi sono trasformati in indici fisici globali solo
-/// perché il chiamante opera sul `RecordBatch` sorgente, prima di mutarlo o
+/// writer.
+///
+/// Gli indici relativi sono trasformati in indici fisici globali solo perché
+/// il chiamante opera sul `RecordBatch` sorgente, prima di mutarlo o
 /// consegnarlo al backend.
+#[must_use]
 pub fn write_row_rejection(
     driver: &'static str,
     row_offset: u64,
@@ -1271,14 +1364,16 @@ pub fn write_row_rejection(
         driver,
         saturating_u64(batch_rows),
         row_offset,
-        violations,
+        &violations,
         input_total,
     )
 }
 
 /// Attribuisce un errore di lettura a una riga sorgente soltanto quando il
-/// driver ne attesta l'identita'. L'errore tipizzato resta autorevole; il
-/// report e' sempre non-completo perche' la scansione si interrompe.
+/// driver ne attesta l'identita'.
+///
+/// L'errore tipizzato resta autorevole; il report e' sempre non-completo
+/// perche' la scansione si interrompe.
 pub fn read_row_error(
     mut error: PlenoraIoError,
     source_index: Option<u64>,
@@ -1501,9 +1596,8 @@ mod tests {
                 .unwrap();
         writer.write(&batch).unwrap();
 
-        let error = match writer.finish() {
-            Ok(_) => panic!("EOF anticipato pubblicato"),
-            Err(error) => error,
+        let Err(error) = writer.finish() else {
+            panic!("EOF anticipato pubblicato")
         };
         assert_eq!(error.code, plenora_io_model::IoErrorCode::Contract);
         assert_eq!(error.category, ErrorCategory::InvalidPlan);
@@ -1906,7 +2000,7 @@ mod tests {
         let result = validate_geometry_batch_at(
             "test",
             WKB_XY_GEOMETRY,
-            &Some(xy_contract(true)),
+            Some(&xy_contract(true)),
             &geometry_batch(Some(&bytes)),
             &Limits::default(),
             0,
@@ -1935,7 +2029,7 @@ mod tests {
         let result = validate_geometry_batch_at(
             "test",
             WKB_XY_GEOMETRY,
-            &Some(xy_contract(true)),
+            Some(&xy_contract(true)),
             &geometry_batch(Some(&bytes)),
             &Limits::default(),
             0,
@@ -1953,7 +2047,7 @@ mod tests {
         let result = validate_geometry_batch_at(
             "test",
             WKB_XY_GEOMETRY,
-            &Some(xy_contract(false)),
+            Some(&xy_contract(false)),
             &geometry_batch(None),
             &Limits::default(),
             0,
@@ -1979,7 +2073,7 @@ mod tests {
         let error = validate_geometry_batch_at(
             "test",
             WKB_XY_GEOMETRY,
-            &Some(xy_contract(false)),
+            Some(&xy_contract(false)),
             &batch,
             &Limits::default(),
             1_000,

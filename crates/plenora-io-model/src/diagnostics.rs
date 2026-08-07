@@ -22,6 +22,7 @@ impl RowDiagnosticColumn {
         }
     }
 
+    #[must_use]
     pub fn into_option(self) -> Option<String> {
         match self {
             Self::Attested(value) => Some(value),
@@ -29,7 +30,8 @@ impl RowDiagnosticColumn {
         }
     }
 
-    pub fn is_attested(&self) -> bool {
+    #[must_use]
+    pub const fn is_attested(&self) -> bool {
         matches!(self, Self::Attested(_))
     }
 }
@@ -144,6 +146,17 @@ impl RowDiagnostics {
     /// `plenora-row-diagnostics-v1`. La serializzazione richiama sempre questo
     /// metodo, così un documento costruito manualmente non può oltrepassare il
     /// bordo pubblico in uno stato non conforme.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce la descrizione del primo invariante violato: contratto o
+    /// `index_basis` non riconosciuto, `examples_limit` nullo, conteggi non
+    /// coerenti con `observed_total`, completezza incompatibile con i
+    /// conteggi, esempi o chiavi non conformi.
+    // La sequenza di controlli resta lineare e monolitica per essere
+    // confrontabile, nell'ordine, con il contratto normativo
+    // `plenora-row-diagnostics-v1`.
+    #[allow(clippy::too_many_lines)]
     pub fn validate(&self) -> std::result::Result<(), String> {
         if self.contract != ROW_DIAGNOSTICS_CONTRACT {
             return Err("contratto row diagnostics non riconosciuto".to_owned());
@@ -396,6 +409,10 @@ fn validate_key(key: Option<&RowDiagnosticKey>) -> std::result::Result<(), Strin
         {
             Ok(())
         }
+        // I due rami restano distinti perche' codificano regole diverse del
+        // contratto (valore booleano ammesso vs assenza di valore per stato
+        // redatto/indisponibile); fonderli ne perderebbe la tracciabilita'.
+        #[allow(clippy::match_same_arms)]
         (RowDiagnosticKeyState::Value, Some(RowDiagnosticKeyValue::Boolean(_))) => Ok(()),
         (RowDiagnosticKeyState::Redacted | RowDiagnosticKeyState::Unavailable, None) => Ok(()),
         _ => Err("stato/value della chiave diagnostica incoerente".to_owned()),

@@ -1,4 +1,4 @@
-//! driver-geoparquet — GeoParquet ⇄ RecordBatch (Fase 1). La geometria è WKB:
+//! driver-geoparquet — `GeoParquet` ⇄ `RecordBatch` (Fase 1). La geometria è WKB:
 //! in lettura la colonna binaria viene ri-etichettata `geoarrow.wkb` + `crs`
 //! SENZA decodifica (pass-through, V4); in scrittura si emette il metadato `geo`
 //! dal contratto. Compressione configurabile (`format_options["compression"]`:
@@ -16,7 +16,7 @@ use arrow_array::{
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use parquet::arrow::arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::{ArrowWriter, ProjectionMask};
-use parquet::basic::Compression;
+use parquet::basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel};
 use parquet::file::metadata::KeyValue;
 use parquet::file::properties::WriterProperties;
 use parquet::file::statistics::Statistics;
@@ -111,14 +111,18 @@ impl FormatDriver for GeoParquetDriver {
         let geom_idx = out_schema
             .index_of(&geom_name)
             .map_err(|e| fmt_err(format!("colonna geometria: {e}")))?;
+        // Indice di colonna di uno schema Parquet: limitato a poche migliaia di
+        // campi, il cast a u32 non puo' troncare.
+        #[allow(clippy::cast_possible_truncation)]
+        let geometry_field_id = FieldId(geom_idx as u32);
         let mut geometry = GeometryColumnContract::wkb_passthrough(
-            FieldId(geom_idx as u32),
+            geometry_field_id,
             geom_name.clone(),
-            crs.clone(),
+            crs,
             out_schema.field(geom_idx).is_nullable(),
         );
         apply_geo_column_metadata(&mut geometry, geo.as_ref(), &geom_name);
-        let contract = DataContract::new(out_schema.clone(), Some(geometry));
+        let contract = DataContract::new(out_schema, Some(geometry));
         // `DataContract::new` rende i metadati geometrici del contratto
         // autoritativi; anche i batch runtime devono essere retaggati con
         // quello stesso schema, non con la versione intermedia.
@@ -293,13 +297,13 @@ impl OpenDatasetHandle for GeoParquetDataset {
                 layer.contract = DataContract {
                     schema: projected.clone(),
                     geometry: layer.contract.geometry.and_then(|g| {
-                        projected
-                            .index_of(&g.name)
-                            .ok()
-                            .map(|i| GeometryColumnContract {
-                                field_id: FieldId(i as u32),
-                                ..g
-                            })
+                        projected.index_of(&g.name).ok().map(|i| {
+                            // Indice di colonna di uno schema Arrow: il
+                            // cast a u32 non puo' troncare.
+                            #[allow(clippy::cast_possible_truncation)]
+                            let field_id = FieldId(i as u32);
+                            GeometryColumnContract { field_id, ..g }
+                        })
                     }),
                 };
                 (builder.with_projection(mask), projected, layer)
@@ -314,11 +318,15 @@ impl OpenDatasetHandle for GeoParquetDataset {
         // min/max (mai filtering riga-per-riga; over-return, mai under-return).
         let builder = apply_pruning(
             builder,
-            &request.pruning_predicate,
+            request.pruning_predicate.as_ref(),
             self.out_schema.as_ref(),
         );
         // Spatial pruning (2C): salta i row group il cui bbox non interseca l'hint.
-        let builder = apply_spatial_pruning(builder, &request.spatial_pruning_hint, self.has_bbox);
+        let builder = apply_spatial_pruning(
+            builder,
+            request.spatial_pruning_hint.as_ref(),
+            self.has_bbox,
+        );
 
         let reader = builder
             .build()
@@ -382,13 +390,15 @@ impl FormatWriter for GeoParquetWriter {
         let geom = batch.column(self.geom_idx);
         accumulate_geometry_types(geom, &mut self.geometry_types, &self.wkb_limits)?;
         // Aggiunge le 4 colonne bbox covering per il pruning spaziale.
-        let bbox_cols = match geom.as_any().downcast_ref::<BinaryArray>() {
-            Some(g) => build_bbox_columns(g),
-            None => bbox_fields()
-                .iter()
-                .map(|_| Arc::new(Float64Array::new_null(batch.num_rows())) as ArrayRef)
-                .collect(),
-        };
+        let bbox_cols = geom.as_any().downcast_ref::<BinaryArray>().map_or_else(
+            || {
+                bbox_fields()
+                    .iter()
+                    .map(|_| Arc::new(Float64Array::new_null(batch.num_rows())) as ArrayRef)
+                    .collect()
+            },
+            build_bbox_columns,
+        );
         let mut cols: Vec<ArrayRef> = batch.columns().to_vec();
         cols.extend(bbox_cols);
         let aug = RecordBatch::try_new(self.write_schema.clone(), cols)
@@ -532,7 +542,7 @@ fn comparison_matches<T: PartialOrd + Copy>(
 /// statistiche mancano o il predicato non è riconosciuto, tiene tutto).
 fn apply_pruning(
     builder: ParquetRecordBatchReaderBuilder<File>,
-    pred: &Option<PruningPredicate>,
+    pred: Option<&PruningPredicate>,
     arrow_schema: &Schema,
 ) -> ParquetRecordBatchReaderBuilder<File> {
     let Some(predicate) = pred else {
@@ -564,15 +574,12 @@ fn apply_pruning(
     let md = builder.metadata();
     let mut keep = Vec::new();
     for rg in 0..md.num_row_groups() {
-        let keep_it = match md
+        let keep_it = md
             .row_group(rg)
             .column(cidx)
             .statistics()
             .and_then(stat_range)
-        {
-            Some(range) => range_matches(range, comparison, value).unwrap_or(true),
-            None => true,
-        };
+            .is_none_or(|range| range_matches(range, comparison, value).unwrap_or(true));
         if keep_it {
             keep.push(rg);
         }
@@ -582,9 +589,13 @@ fn apply_pruning(
 
 /// Spatial pruning: tiene i row group il cui estensione bbox interseca l'hint.
 /// Over-return (stats mancanti → tiene); mai under-return.
+// I nomi `cminx`/`cminy` e `minx`/`miny` sono le componenti canoniche di un
+// bounding box: rinominarle per soddisfare `similar_names` renderebbe il codice
+// meno leggibile, non più.
+#[allow(clippy::similar_names)]
 fn apply_spatial_pruning(
     builder: ParquetRecordBatchReaderBuilder<File>,
-    hint: &Option<Bbox>,
+    hint: Option<&Bbox>,
     has_bbox: bool,
 ) -> ParquetRecordBatchReaderBuilder<File> {
     let (Some(q), true) = (hint, has_bbox) else {
@@ -641,11 +652,11 @@ fn apply_spatial_pruning(
 /// zstd-sys (unica dep C oltre a GDAL/filegdb), sia in lettura che scrittura.
 fn compression_from(opts: &WriteOptions) -> Compression {
     match opts.format_options.get("compression").map(String::as_str) {
-        Some("zstd") => Compression::ZSTD(Default::default()),
-        Some("gzip") => Compression::GZIP(Default::default()),
-        Some("brotli") => Compression::BROTLI(Default::default()),
+        Some("zstd") => Compression::ZSTD(ZstdLevel::default()),
+        Some("gzip") => Compression::GZIP(GzipLevel::default()),
+        Some("brotli") => Compression::BROTLI(BrotliLevel::default()),
         Some("lz4") => Compression::LZ4,
-        Some("none") | Some("uncompressed") => Compression::UNCOMPRESSED,
+        Some("none" | "uncompressed") => Compression::UNCOMPRESSED,
         _ => Compression::SNAPPY,
     }
 }
@@ -672,7 +683,7 @@ fn resolve_geometry_and_crs(
             ["geometry", "geom", "wkb"]
                 .iter()
                 .find(|n| schema.index_of(n).is_ok())
-                .map(|s| s.to_string())
+                .map(std::string::ToString::to_string)
         })
         .ok_or_else(|| fmt_err("nessuna colonna geometria: non è GeoParquet"))?;
     let crs = crs_from(geo, &primary)?;
@@ -721,6 +732,10 @@ fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> Result<ResolvedCr
     }
 }
 
+// La catena di suffissi è ordinata (" ZM" prima di " Z"/" M"): tradurla in
+// `map_or_else` annidati non cambierebbe il risultato ma nasconderebbe la
+// priorità, che qui è il contratto della funzione.
+#[allow(clippy::option_if_let_else)]
 fn parse_geo_type_label(label: &str) -> Option<(GeometryType, CoordinateDimensions)> {
     let (name, dimensions) = if let Some(name) = label.strip_suffix(" ZM") {
         (name, CoordinateDimensions::Xyzm)
@@ -841,18 +856,18 @@ fn rd_f64(b: &[u8], off: &mut usize, le: bool) -> Option<f64> {
     })
 }
 
-fn scan_wkb(b: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<()> {
+fn scan_wkb(bytes: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<()> {
     if depth > 32 {
         return None;
     }
-    let le = match *b.get(*off)? {
+    let le = match *bytes.get(*off)? {
         0 => false,
         1 => true,
         _ => return None,
     };
     *off += 1;
-    let raw = rd_u32(b, off, le)?;
-    let (base, z, m, srid) = if raw & 0xE000_0000 != 0 {
+    let raw = rd_u32(bytes, off, le)?;
+    let (base, has_z, has_m, srid) = if raw & 0xE000_0000 != 0 {
         (
             raw & 0x1FFF_FFFF,
             raw & 0x8000_0000 != 0,
@@ -872,16 +887,16 @@ fn scan_wkb(b: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<
         )
     };
     if srid {
-        rd_u32(b, off, le)?;
+        rd_u32(bytes, off, le)?;
     }
     let scan_coord = |off: &mut usize, bb: &mut [f64; 4]| -> Option<()> {
-        let x = rd_f64(b, off, le)?;
-        let y = rd_f64(b, off, le)?;
-        if z {
-            rd_f64(b, off, le)?;
+        let x = rd_f64(bytes, off, le)?;
+        let y = rd_f64(bytes, off, le)?;
+        if has_z {
+            rd_f64(bytes, off, le)?;
         }
-        if m {
-            rd_f64(b, off, le)?;
+        if has_m {
+            rd_f64(bytes, off, le)?;
         }
         upd(bb, x, y);
         Some(())
@@ -891,24 +906,24 @@ fn scan_wkb(b: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<
             scan_coord(off, bb)?;
         }
         2 => {
-            let n = rd_u32(b, off, le)?;
-            for _ in 0..n {
+            let count = rd_u32(bytes, off, le)?;
+            for _ in 0..count {
                 scan_coord(off, bb)?;
             }
         }
         3 => {
-            let rings = rd_u32(b, off, le)?;
+            let rings = rd_u32(bytes, off, le)?;
             for _ in 0..rings {
-                let npts = rd_u32(b, off, le)?;
+                let npts = rd_u32(bytes, off, le)?;
                 for _ in 0..npts {
                     scan_coord(off, bb)?;
                 }
             }
         }
         4..=7 => {
-            let n = rd_u32(b, off, le)?;
-            for _ in 0..n {
-                scan_wkb(b, off, bb, depth + 1)?;
+            let count = rd_u32(bytes, off, le)?;
+            for _ in 0..count {
+                scan_wkb(bytes, off, bb, depth + 1)?;
             }
         }
         _ => return None,
@@ -919,6 +934,7 @@ fn scan_wkb(b: &[u8], off: &mut usize, bb: &mut [f64; 4], depth: u32) -> Option<
 /// Bounding box 2D da WKB senza costruire geometrie. `None` se non-2D o malformato
 /// (robusto al fuzzing: nessun panic, nessun loop illimitato).
 #[doc(hidden)] // esposto solo per il fuzzer (plenora-fuzz)
+#[must_use]
 pub fn wkb_bbox(bytes: &[u8]) -> Option<[f64; 4]> {
     let mut bb = [
         f64::INFINITY,
@@ -939,34 +955,27 @@ pub fn wkb_bbox(bytes: &[u8]) -> Option<[f64; 4]> {
 }
 
 /// Costruisce le 4 colonne bbox per un batch, dalla colonna geometria WKB.
+// `minx`/`miny` e `maxx`/`maxy` sono le componenti canoniche di un bounding
+// box: rinominarle per soddisfare `similar_names` peggiorerebbe la leggibilità.
+#[allow(clippy::similar_names)]
 fn build_bbox_columns(geom: &BinaryArray) -> Vec<ArrayRef> {
-    let n = geom.len();
+    let rows = geom.len();
     let (mut minx, mut miny, mut maxx, mut maxy) = (
-        Vec::with_capacity(n),
-        Vec::with_capacity(n),
-        Vec::with_capacity(n),
-        Vec::with_capacity(n),
+        Vec::with_capacity(rows),
+        Vec::with_capacity(rows),
+        Vec::with_capacity(rows),
+        Vec::with_capacity(rows),
     );
-    for i in 0..n {
-        let bb = if geom.is_null(i) {
+    for row in 0..rows {
+        let bbox = if geom.is_null(row) {
             None
         } else {
-            wkb_bbox(geom.value(i))
+            wkb_bbox(geom.value(row))
         };
-        match bb {
-            Some([a, b, c, d]) => {
-                minx.push(Some(a));
-                miny.push(Some(b));
-                maxx.push(Some(c));
-                maxy.push(Some(d));
-            }
-            None => {
-                minx.push(None);
-                miny.push(None);
-                maxx.push(None);
-                maxy.push(None);
-            }
-        }
+        minx.push(bbox.map(|bbox| bbox[0]));
+        miny.push(bbox.map(|bbox| bbox[1]));
+        maxx.push(bbox.map(|bbox| bbox[2]));
+        maxy.push(bbox.map(|bbox| bbox[3]));
     }
     vec![
         Arc::new(Float64Array::from(minx)),
@@ -1089,8 +1098,7 @@ fn build_geo_metadata(
         if let Some((auth, code)) = id.split_once(':') {
             let code_val: serde_json::Value = code
                 .parse::<i64>()
-                .map(serde_json::Value::from)
-                .unwrap_or_else(|_| serde_json::Value::from(code));
+                .map_or_else(|_| serde_json::Value::from(code), serde_json::Value::from);
             column["crs"] = serde_json::json!({"id": {"authority": auth, "code": code_val}});
         }
     }
@@ -1110,11 +1118,12 @@ mod tests {
     use arrow_array::Int64Array;
     use arrow_schema::DataType;
     use geo_types::{Geometry, Point};
-    use plenora_io_core::request::BatchTarget;
+    use plenora_io_core::request::{BatchTarget, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::wkb::{
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
+    use plenora_io_model::CancellationToken;
 
     fn geometry_field_meta(crs: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
@@ -1188,11 +1197,15 @@ mod tests {
             ),
             Some(true)
         );
+        // 2^53+1 NON è rappresentabile in f64: la perdita di precisione è
+        // esattamente cio' che il test verifica (domini misti → fail-open).
+        #[allow(clippy::cast_precision_loss)]
+        let inexact = exact as f64;
         assert_eq!(
             range_matches(
                 NumericRange::Int64(exact, exact),
                 PruningComparison::Equal,
-                PruningScalar::Float64(exact as f64),
+                PruningScalar::Float64(inexact),
             ),
             None,
             "domini numerici diversi devono tenere il row group"
@@ -1233,7 +1246,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1247,7 +1260,7 @@ mod tests {
 
         // open -> read back
         let ds = driver
-            .open(Source::Path(path.clone()), &ReadOptions::default())
+            .open(Source::Path(path), &ReadOptions::default())
             .unwrap();
         assert_eq!(ds.layers().len(), 1);
         let layer = &ds.layers()[0];
@@ -1262,9 +1275,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let out = reader.next_batch().unwrap().unwrap();
@@ -1350,9 +1363,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let output = reader.next_batch().unwrap().unwrap();
@@ -1365,9 +1378,9 @@ mod tests {
         assert_eq!(geometry_array.value(0), wkb);
     }
 
-    /// Conformità alla spec GeoParquet 1.0.0, verificata riaprendo il file
+    /// Conformità alla spec `GeoParquet` 1.0.0, verificata riaprendo il file
     /// GREZZO col crate `parquet` (indipendente dal nostro reader): metadato
-    /// `geo` file-level + colonna geometria fisicamente BYTE_ARRAY (WKB).
+    /// `geo` file-level + colonna geometria fisicamente `BYTE_ARRAY` (WKB).
     #[test]
     fn geoparquet_spec_conformance() {
         use parquet::basic::Type as PhysicalType;
@@ -1395,7 +1408,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1476,7 +1489,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1498,9 +1511,9 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         // Il contratto del reader riflette la projection (1 colonna, niente geometria).
@@ -1532,13 +1545,16 @@ mod tests {
                 .with_metadata(geometry_field_meta("EPSG:4326")),
             Field::new("id", DataType::Int64, false),
         ]));
+        // `n` è la costante 200_000: il cast a i64 è esatto.
+        #[allow(clippy::cast_possible_wrap)]
+        let rows = n as i64;
         let batch = RecordBatch::try_new(
             schema.clone(),
             vec![
                 Arc::new(BinaryArray::from(
                     (0..n).map(|_| Some(wkb.as_slice())).collect::<Vec<_>>(),
                 )),
-                Arc::new(Int64Array::from((0..n as i64).collect::<Vec<_>>())),
+                Arc::new(Int64Array::from((0..rows).collect::<Vec<_>>())),
             ],
         )
         .unwrap();
@@ -1548,7 +1564,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1574,9 +1590,9 @@ mod tests {
                     value: PruningScalar::Int64(150_000),
                 }),
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let mut total = 0;
@@ -1601,9 +1617,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: Some(PruningPredicate::Opaque("id > 150000".to_owned())),
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let mut legacy_total = 0;
@@ -1624,6 +1640,8 @@ mod tests {
         let path = dir.path().join("sp.parquet");
         let n = 200_000usize;
         // Punti con x crescente (0..200), y=45 → row group con estensione x diversa.
+        // `i` < 200_000 < 2^53: la conversione a f64 è esatta.
+        #[allow(clippy::cast_precision_loss)]
         let wkb: Vec<Vec<u8>> = (0..n)
             .map(|i| to_wkb(&Geometry::Point(Point::new(i as f64 * 0.001, 45.0))).unwrap())
             .collect();
@@ -1632,13 +1650,16 @@ mod tests {
                 .with_metadata(geometry_field_meta("EPSG:4326")),
             Field::new("id", DataType::Int64, false),
         ]));
+        // `n` è la costante 200_000: il cast a i64 è esatto.
+        #[allow(clippy::cast_possible_wrap)]
+        let rows = n as i64;
         let batch = RecordBatch::try_new(
             schema.clone(),
             vec![
                 Arc::new(BinaryArray::from(
                     wkb.iter().map(|w| Some(w.as_slice())).collect::<Vec<_>>(),
                 )),
-                Arc::new(Int64Array::from((0..n as i64).collect::<Vec<_>>())),
+                Arc::new(Int64Array::from((0..rows).collect::<Vec<_>>())),
             ],
         )
         .unwrap();
@@ -1648,7 +1669,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1678,9 +1699,9 @@ mod tests {
                     maxx: 210.0,
                     maxy: 50.0,
                 }),
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let mut total = 0;
@@ -1721,7 +1742,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1729,8 +1750,7 @@ mod tests {
         // Scrive compresso zstd.
         let wopts = WriteOptions {
             durable: false,
-            format_options: [("compression".to_owned(), "zstd".to_owned())]
-                .into_iter()
+            format_options: std::iter::once(("compression".to_owned(), "zstd".to_owned()))
                 .collect(),
             ..WriteOptions::default()
         };
@@ -1751,9 +1771,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let out = reader.next_batch().unwrap().unwrap();

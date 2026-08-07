@@ -4,22 +4,43 @@ set -eu
 # Registro conservativo dell'intero workspace: include anche i moduli
 # #[cfg(test)] e i target non distribuibili. Ogni nuova occorrenza richiede una
 # revisione H-01 e l'aggiornamento esplicito del registro.
+#
+# ATTENZIONE — questo registro misura la SINTASSI, non la semantica. La regex
+# conta solo la forma `unwrap_or*(`, quindi NON vede due forme equivalenti:
+#   - `map_or(default, f)`, che esprime lo stesso fallback;
+#   - il `match` esplicito `match x { Some(v) => v, None => default }`.
+# Di conseguenza un lint che riscrive fra queste forme sposta i conteggi senza
+# che cambi un solo comportamento.
+#
+# Il 2026-08-06 la bonifica lint (pedantic + nursery a deny) ha fatto
+# esattamente questo in dieci crate, nei due sensi: totale da 99 a 93.
+#   - in calo per `map_unwrap_or`: `map(f).unwrap_or(d)` -> `map_or(d, f)`
+#     (dxf -3, io-cli -2, geoparquet/gpkg/ipc/kml/bench/fuzz -1 ciascuno);
+#   - in aumento per `manual_unwrap_or`: `match` esplicito -> `unwrap_or*`
+#     (filegdb +2 nell'example projection_bench, io-core +2, shp +1).
+# Ogni delta e' stato verificato riga per riga: nessun fallback e' stato
+# introdotto o rimosso, solo riscritto. Nessuna revisione H-01 dovuta.
+#
+# Il punto aperto e' il meccanismo: finche' il registro conta una forma
+# sintattica, un fallback nuovo scritto come `map_or` o come `match` entra
+# senza passare da H-01. Renderlo semantico non e' una correzione meccanica
+# ed e' una decisione di policy.
 expected='
 driver-csv 3
-driver-dxf 18
-driver-filegdb 3
+driver-dxf 15
+driver-filegdb 5
 driver-geojson 1
-driver-geoparquet 4
-driver-gpkg 4
-driver-ipc 2
-driver-kml 4
-driver-shp 2
+driver-geoparquet 3
+driver-gpkg 3
+driver-ipc 1
+driver-kml 3
+driver-shp 3
 driver-xls 1
 plenora-io-model 1
-plenora-io-core 8
-plenora-io-cli 20
-plenora-bench 22
-plenora-fuzz 6
+plenora-io-core 10
+plenora-io-cli 18
+plenora-bench 21
+plenora-fuzz 5
 '
 
 actual_total=0
@@ -49,7 +70,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 99 ]; then
+if [ "${actual_total}" -ne 93 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

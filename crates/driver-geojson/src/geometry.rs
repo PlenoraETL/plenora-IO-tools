@@ -112,7 +112,9 @@ fn polygon_geometry(values: &[Vec<Vec<f64>>]) -> std::result::Result<WkbGeometry
 }
 
 fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, String> {
-    use geojson::Value::*;
+    use geojson::Value::{
+        GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
+    };
 
     let (value, dimensions) = match value {
         Point(value) => {
@@ -178,8 +180,8 @@ pub fn wkb_from_gj_value(
     encode_wkb_into(&geometry, WkbFlavor::Iso, out).map_err(|error| error.to_string())
 }
 
-/// Scrive direttamente il modello WKB lossless come GeoJSON, preservando Z.
-pub(crate) fn write_wkb_geojson<W: Write>(writer: &mut W, geometry: &WkbGeometry) -> Result<()> {
+/// Scrive direttamente il modello WKB lossless come `GeoJSON`, preservando Z.
+pub fn write_wkb_geojson<W: Write>(writer: &mut W, geometry: &WkbGeometry) -> Result<()> {
     validate_wkb_geojson_geometry(geometry)?;
     write_wkb_geojson_unchecked(writer, geometry)
 }

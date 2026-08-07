@@ -1,4 +1,4 @@
-//! driver-csv — CSV ⇄ RecordBatch. La geometria è dichiarata via
+//! driver-csv — CSV ⇄ `RecordBatch`. La geometria è dichiarata via
 //! `format_options`: `x_column`+`y_column` (Point XY) oppure `wkt_column`
 //! (WKT XY/XYZ/XYM/XYZM). CSV non porta CRS: `assume_crs` è obbligatorio
 //! (ADR-IO 4).
@@ -6,7 +6,7 @@
 //! Lettura **streaming** (Fase 2A): righe scorse via `csv::StringRecord` riusato
 //! (i campi sono `&str`, niente String per cella). Due passate: pass-1 (`open`)
 //! inferisce i tipi colonna a RAM O(1) sondando le celle (nessuna allocazione);
-//! pass-2 è un thread che produce RecordBatch da `batch_target` righe via canale
+//! pass-2 è un thread che produce `RecordBatch` da `batch_target` righe via canale
 //! con backpressure → memoria O(batch). Geometria diretta a WKB, attributi in
 //! builder tipizzati (niente intermedio `serde_json::Value`). Scrittura streaming
 //! per righe (niente buffering dei batch).
@@ -211,7 +211,7 @@ impl FormatDriver for CsvDriver {
             fields.push(Field::new(&headers[*ci], ct.arrow_data_type(), true));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let contract = DataContract::new(schema.clone(), Some(geometry_contract));
+        let contract = DataContract::new(schema, Some(geometry_contract));
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -698,8 +698,9 @@ fn cell_string(v: &JsonValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::CancellationToken;
     use std::collections::BTreeMap;
 
     fn opts(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -724,12 +725,12 @@ mod tests {
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,
             spatial_pruning_hint: None,
-            scope: Default::default(),
+            scope: ReadScope::default(),
             batch_target: BatchTarget {
                 target_bytes: 8 * 1024 * 1024,
                 max_rows,
             },
-            cancellation: Default::default(),
+            cancellation: CancellationToken::default(),
         }
     }
 
@@ -803,7 +804,7 @@ mod tests {
         let src = dir.path().join("many.csv");
         let mut s = String::from("id,geom\n");
         for i in 0..10 {
-            s.push_str(&format!("{i},\"POINT ({i} {i})\"\n"));
+            writeln!(s, "{i},\"POINT ({i} {i})\"").unwrap();
         }
         std::fs::write(&src, s).unwrap();
 

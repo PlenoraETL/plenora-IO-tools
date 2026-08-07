@@ -1,4 +1,4 @@
-//! driver-ipc — Arrow IPC (`.arrow`) ⇄ RecordBatch. **Pass-through nativo**:
+//! driver-ipc — Arrow IPC (`.arrow`) ⇄ `RecordBatch`. **Pass-through nativo**:
 //! l'IPC È già Arrow, quindi schema (inclusi i metadati `geoarrow.wkb` + `crs`) e
 //! buffer passano SENZA conversione — Lossless, zero decode/encode WKB, streaming
 //! reale (il `FileReader` è un iteratore pull, nessun thread). È il formato di
@@ -116,15 +116,20 @@ impl FormatDriver for IpcDriver {
                     ));
                 }
                 let f = schema.field(i);
-                let crs = match f.metadata().get(GEO_CRS_KEY).cloned() {
-                    Some(id) => {
-                        let kind = crs_kind_for_authority_id(&id);
-                        CrsResolution::resolved(ResolvedCrs::new(Some(id), kind, None))
-                    }
-                    None => CrsResolution::Missing,
-                };
+                let crs =
+                    f.metadata()
+                        .get(GEO_CRS_KEY)
+                        .cloned()
+                        .map_or(CrsResolution::Missing, |id| {
+                            let kind = crs_kind_for_authority_id(&id);
+                            CrsResolution::resolved(ResolvedCrs::new(Some(id), kind, None))
+                        });
+                // Indice di colonna di uno schema Arrow: limitato a poche
+                // migliaia di campi, il cast a u32 non puo' troncare.
+                #[allow(clippy::cast_possible_truncation)]
+                let field_id = FieldId(i as u32);
                 let mut contract = GeometryColumnContract::wkb_passthrough(
-                    FieldId(i as u32),
+                    field_id,
                     f.name(),
                     crs,
                     f.is_nullable(),
@@ -187,8 +192,10 @@ impl FormatDriver for IpcDriver {
                     .geometry
                     .as_ref()
                     .filter(|geometry| geometry.name.as_str() == field.name().as_str())
-                    .map(|geometry| with_geometry_contract_metadata(field, geometry))
-                    .unwrap_or_else(|| field.as_ref().clone())
+                    .map_or_else(
+                        || field.as_ref().clone(),
+                        |geometry| with_geometry_contract_metadata(field, geometry),
+                    )
             })
             .collect::<Vec<_>>();
         let schema = with_contract_version(Arc::new(arrow_schema::Schema::new_with_metadata(
@@ -261,13 +268,16 @@ impl OpenDatasetHandle for IpcDataset {
                     source_layer.contract.schema.metadata().clone(),
                 ));
                 let geometry = source_layer.contract.geometry.clone().and_then(|geometry| {
-                    schema
-                        .index_of(&geometry.name)
-                        .ok()
-                        .map(|index| GeometryColumnContract {
-                            field_id: FieldId(index as u32),
+                    schema.index_of(&geometry.name).ok().map(|index| {
+                        // Indice di colonna di uno schema Arrow: il cast a
+                        // u32 non puo' troncare.
+                        #[allow(clippy::cast_possible_truncation)]
+                        let field_id = FieldId(index as u32);
+                        GeometryColumnContract {
+                            field_id,
                             ..geometry
-                        })
+                        }
+                    })
                 });
                 (
                     Some(indices),
@@ -349,7 +359,7 @@ mod tests {
 
     use arrow_array::{BinaryArray, Int64Array};
     use arrow_schema::{DataType, Field, Schema, SchemaRef};
-    use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::contract::{
         CoordinateDimensions, CoordinatePrecision, GeometryEncoding, GeometryType, SpatialSemantics,
@@ -357,17 +367,17 @@ mod tests {
     use plenora_io_model::wkb::{
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
+    use plenora_io_model::CancellationToken;
 
     #[test]
     fn geometry_without_crs_metadata_is_explicitly_missing() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("missing-crs.arrow");
         let field = Field::new("geometry", DataType::Binary, true).with_metadata(
-            [(
+            std::iter::once((
                 plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
                 plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
-            )]
-            .into_iter()
+            ))
             .collect(),
         );
         let schema = with_contract_version(Arc::new(Schema::new(vec![field])));
@@ -503,9 +513,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let batch = reader.next_batch().unwrap().unwrap();
@@ -684,11 +694,10 @@ mod tests {
         let path = dir.path().join("ambiguous.arrow");
         let geometry_field = |name| {
             Field::new(name, DataType::Binary, true).with_metadata(
-                [(
+                std::iter::once((
                     plenora_io_model::geometry::ARROW_EXTENSION_NAME_KEY.to_owned(),
                     plenora_io_model::geometry::GEOARROW_WKB_EXTENSION.to_owned(),
-                )]
-                .into_iter()
+                ))
                 .collect(),
             )
         };
@@ -736,7 +745,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -761,9 +770,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let rb = r.next_batch().unwrap().unwrap();
@@ -787,9 +796,9 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         assert_eq!(projected.contract().contract.schema.fields().len(), 1);
@@ -845,12 +854,12 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget {
                     target_bytes: 16,
                     max_rows: 100,
                 },
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let mut sizes = Vec::new();
@@ -943,9 +952,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let read = reader.next_batch().unwrap().unwrap();
@@ -957,6 +966,9 @@ mod tests {
         assert_eq!(geometry_array.value(0), ewkb);
     }
 
+    // Il test confronta uno per uno tutti i metadati canonici pubblicati: la
+    // lunghezza è la lista dei metadati, spezzarla nasconderebbe la copertura.
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn canonical_metadata_additions_are_published_without_changing_values() {
         use std::collections::HashMap;
@@ -1044,9 +1056,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let read = reader.next_batch().unwrap().unwrap();

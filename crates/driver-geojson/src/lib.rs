@@ -1,11 +1,11 @@
-//! driver-geojson — GeoJSON ⇄ RecordBatch. GeoJSON è WGS84 per specifica
+//! driver-geojson — `GeoJSON` ⇄ `RecordBatch`. `GeoJSON` è WGS84 per specifica
 //! (`OGC:CRS84`). La geometria diventa una colonna WKB `geoarrow.wkb`.
 //!
-//! Lettura **streaming** (Fase 2A): l'array `features` del FeatureCollection è
+//! Lettura **streaming** (Fase 2A): l'array `features` del `FeatureCollection` è
 //! scorso un feature alla volta (`geojson::FeatureReader`), senza costruire il
 //! DOM `serde_json::Value` dell'intero documento. Due passate: pass 1 (`open`)
 //! inferisce lo schema (unione chiavi/tipi) a RAM O(1); pass 2 (reader) è un
-//! thread che produce RecordBatch da `batch_target` righe, consegnati via canale
+//! thread che produce `RecordBatch` da `batch_target` righe, consegnati via canale
 //! con backpressure → memoria O(batch), non O(file). Geometrie convertite
 //! direttamente a WKB, attributi in builder tipizzati (niente intermedio
 //! `serde_json::Value` per colonna). La scrittura resta bufferizzante nella v1.
@@ -121,7 +121,7 @@ impl FormatDriver for GeoJsonDriver {
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let (schema, cols) = infer_schema(&path)?;
         let contract = DataContract::new(
-            schema.clone(),
+            schema,
             Some(GeometryColumnContract::wkb_passthrough(
                 FieldId(0),
                 GEOMETRY,
@@ -367,7 +367,7 @@ impl<'de> Visitor<'de> for TagVisitor {
         Ok(TypeTag(ObservedValueClass::Null))
     }
     fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<TypeTag, D::Error> {
-        d.deserialize_any(TagVisitor)
+        d.deserialize_any(Self)
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> std::result::Result<TypeTag, A::Error> {
         while seq.next_element::<IgnoredAny>()?.is_some() {}
@@ -379,11 +379,11 @@ impl<'de> Visitor<'de> for TagVisitor {
     }
 }
 
-/// Livello top: FeatureCollection; interessa solo la chiave "features".
+/// Livello top: `FeatureCollection`; interessa solo la chiave "features".
 struct TopVisitor<'a> {
     accs: &'a mut SchemaAccumulators,
 }
-impl<'a, 'de> Visitor<'de> for TopVisitor<'a> {
+impl<'de> Visitor<'de> for TopVisitor<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un oggetto GeoJSON")
@@ -403,7 +403,7 @@ impl<'a, 'de> Visitor<'de> for TopVisitor<'a> {
 struct FeaturesSeed<'a> {
     accs: &'a mut SchemaAccumulators,
 }
-impl<'a, 'de> DeserializeSeed<'de> for FeaturesSeed<'a> {
+impl<'de> DeserializeSeed<'de> for FeaturesSeed<'_> {
     type Value = ();
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         d.deserialize_seq(FeaturesVisitor { accs: self.accs })
@@ -412,7 +412,7 @@ impl<'a, 'de> DeserializeSeed<'de> for FeaturesSeed<'a> {
 struct FeaturesVisitor<'a> {
     accs: &'a mut SchemaAccumulators,
 }
-impl<'a, 'de> Visitor<'de> for FeaturesVisitor<'a> {
+impl<'de> Visitor<'de> for FeaturesVisitor<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un array di feature")
@@ -429,7 +429,7 @@ impl<'a, 'de> Visitor<'de> for FeaturesVisitor<'a> {
 struct FeatureSeed<'a> {
     accs: &'a mut SchemaAccumulators,
 }
-impl<'a, 'de> DeserializeSeed<'de> for FeatureSeed<'a> {
+impl<'de> DeserializeSeed<'de> for FeatureSeed<'_> {
     type Value = ();
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         d.deserialize_map(FeatureVisitor { accs: self.accs })
@@ -438,7 +438,7 @@ impl<'a, 'de> DeserializeSeed<'de> for FeatureSeed<'a> {
 struct FeatureVisitor<'a> {
     accs: &'a mut SchemaAccumulators,
 }
-impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
+impl<'de> Visitor<'de> for FeatureVisitor<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un Feature")
@@ -466,7 +466,7 @@ impl<'a, 'de> Visitor<'de> for FeatureVisitor<'a> {
 struct PropsSeed<'a> {
     accs: &'a mut SchemaAccumulators,
 }
-impl<'a, 'de> DeserializeSeed<'de> for PropsSeed<'a> {
+impl<'de> DeserializeSeed<'de> for PropsSeed<'_> {
     type Value = ();
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         // `deserialize_any`: le properties possono essere `null` (oltre a oggetto).
@@ -476,7 +476,7 @@ impl<'a, 'de> DeserializeSeed<'de> for PropsSeed<'a> {
 struct PropsVisitor<'a> {
     accs: &'a mut SchemaAccumulators,
 }
-impl<'a, 'de> Visitor<'de> for PropsVisitor<'a> {
+impl<'de> Visitor<'de> for PropsVisitor<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("le properties di un Feature (oggetto o null)")
@@ -503,7 +503,7 @@ struct SchemaKeySeed<'a> {
     accs: &'a mut SchemaAccumulators,
 }
 
-impl<'a, 'de> DeserializeSeed<'de> for SchemaKeySeed<'a> {
+impl<'de> DeserializeSeed<'de> for SchemaKeySeed<'_> {
     type Value = usize;
 
     fn deserialize<D: Deserializer<'de>>(
@@ -518,7 +518,7 @@ struct SchemaKeyVisitor<'a> {
     accs: &'a mut SchemaAccumulators,
 }
 
-impl<'a, 'de> Visitor<'de> for SchemaKeyVisitor<'a> {
+impl Visitor<'_> for SchemaKeyVisitor<'_> {
     type Value = usize;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -621,8 +621,8 @@ impl RowOutput {
 }
 
 /// Stato del pass-2: builder tipizzati + bookkeeping per feature. Possiede tutto
-/// (schema/tx/col_idx sono clonati, cheap) così i seed serde lo passano come
-/// `&mut RowSink` senza parametri di lifetime.
+/// (`schema`/`tx`/`col_idx` sono clonati, cheap) così i seed serde lo passano
+/// come `&mut RowSink` senza parametri di lifetime.
 struct RowSink {
     schema: SchemaRef,
     col_idx: HashMap<String, usize>,
@@ -642,11 +642,11 @@ struct RowSink {
 
 // --- pass-2: catena di seed/visitor che scrivono nei builder ----------------
 
-/// Top: FeatureCollection; interessa solo "features".
+/// Top: `FeatureCollection`; interessa solo "features".
 struct TopSink<'a> {
     sink: &'a mut RowSink,
 }
-impl<'a, 'de> Visitor<'de> for TopSink<'a> {
+impl<'de> Visitor<'de> for TopSink<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un oggetto GeoJSON")
@@ -667,13 +667,13 @@ impl<'a, 'de> Visitor<'de> for TopSink<'a> {
 struct FeaturesSink<'a> {
     sink: &'a mut RowSink,
 }
-impl<'a, 'de> DeserializeSeed<'de> for FeaturesSink<'a> {
+impl<'de> DeserializeSeed<'de> for FeaturesSink<'_> {
     type Value = ();
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         d.deserialize_seq(self)
     }
 }
-impl<'a, 'de> Visitor<'de> for FeaturesSink<'a> {
+impl<'de> Visitor<'de> for FeaturesSink<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un array di feature")
@@ -690,19 +690,19 @@ impl<'a, 'de> Visitor<'de> for FeaturesSink<'a> {
 struct FeatureSink<'a> {
     sink: &'a mut RowSink,
 }
-impl<'a, 'de> DeserializeSeed<'de> for FeatureSink<'a> {
+impl<'de> DeserializeSeed<'de> for FeatureSink<'_> {
     type Value = ();
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         d.deserialize_map(self)
     }
 }
-impl<'a, 'de> Visitor<'de> for FeatureSink<'a> {
+impl<'de> Visitor<'de> for FeatureSink<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un Feature")
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
-        for s in self.sink.seen.iter_mut() {
+        for s in &mut self.sink.seen {
             *s = false;
         }
         for seen in &mut self.sink.property_seen {
@@ -801,7 +801,7 @@ impl<'de> DeserializeSeed<'de> for FeatKeySeed {
         d.deserialize_str(self)
     }
 }
-impl<'de> Visitor<'de> for FeatKeySeed {
+impl Visitor<'_> for FeatKeySeed {
     type Value = FeatKey;
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("una chiave di Feature")
@@ -818,14 +818,14 @@ impl<'de> Visitor<'de> for FeatKeySeed {
 struct PropsSink<'a> {
     sink: &'a mut RowSink,
 }
-impl<'a, 'de> DeserializeSeed<'de> for PropsSink<'a> {
+impl<'de> DeserializeSeed<'de> for PropsSink<'_> {
     type Value = ();
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         // properties può essere null (→ tutte le colonne restano non-viste = null).
         d.deserialize_any(self)
     }
 }
-impl<'a, 'de> Visitor<'de> for PropsSink<'a> {
+impl<'de> Visitor<'de> for PropsSink<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("le properties di un Feature (oggetto o null)")
@@ -879,13 +879,13 @@ struct PropKeySeed<'a> {
     col_idx: &'a HashMap<String, usize>,
     property_idx: &'a HashMap<String, usize>,
 }
-impl<'a, 'de> DeserializeSeed<'de> for PropKeySeed<'a> {
+impl<'de> DeserializeSeed<'de> for PropKeySeed<'_> {
     type Value = PropHit;
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<PropHit, D::Error> {
         d.deserialize_str(self)
     }
 }
-impl<'a, 'de> Visitor<'de> for PropKeySeed<'a> {
+impl Visitor<'_> for PropKeySeed<'_> {
     type Value = PropHit;
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("una chiave di proprietà")
@@ -908,13 +908,13 @@ impl<'a, 'de> Visitor<'de> for PropKeySeed<'a> {
 struct ValueSink<'a> {
     b: &'a mut InferredColumnBuilder,
 }
-impl<'a, 'de> DeserializeSeed<'de> for ValueSink<'a> {
+impl<'de> DeserializeSeed<'de> for ValueSink<'_> {
     type Value = ();
     fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
         d.deserialize_any(self)
     }
 }
-impl<'a, 'de> Visitor<'de> for ValueSink<'a> {
+impl<'de> Visitor<'de> for ValueSink<'_> {
     type Value = ();
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un valore di proprietà")
@@ -1162,10 +1162,12 @@ fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::contract::{CoordinateDimensions, GeometryType};
     use plenora_io_model::wkb::{from_wkb, WkbCoordinate, WkbValue};
+    use plenora_io_model::CancellationToken;
+    use std::fmt::Write as _;
 
     fn read_all(driver: &GeoJsonDriver, path: &Path) -> (RecordBatch, LayerContract) {
         let ds = driver
@@ -1179,9 +1181,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let batch = reader.next_batch().unwrap().unwrap();
@@ -1225,7 +1227,7 @@ mod tests {
 
         // scrivi verso GeoJSON e rileggi
         let out = dir.path().join("out.geojson");
-        let mut output_contract = layer.contract.clone();
+        let mut output_contract = layer.contract;
         output_contract
             .geometry
             .as_mut()
@@ -1392,9 +1394,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let error = reader.next_batch().unwrap_err();
@@ -1428,9 +1430,9 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
 
@@ -1486,7 +1488,7 @@ mod tests {
 
         // Scrittura: WKB→JSON diretto; rileggendo la geometria deve sopravvivere.
         let out = dir.path().join("poly-out.geojson");
-        let mut output_contract = layer.contract.clone();
+        let mut output_contract = layer.contract;
         output_contract
             .geometry
             .as_mut()
@@ -1615,7 +1617,12 @@ mod tests {
         let parsed: geojson::Geometry = serde_json::from_slice(&buf).unwrap();
         match parsed.value {
             geojson::Value::Point(c) => {
-                assert_eq!(c[0], f64::MAX);
+                // Il round-trip deve restituire f64::MAX identico bit a bit:
+                // il confronto esatto è il contratto della regressione.
+                #[allow(clippy::float_cmp)]
+                {
+                    assert_eq!(c[0], f64::MAX);
+                }
                 assert!((c[1] + 1.5).abs() < 1e-9);
             }
             other => panic!("atteso Point, {other:?}"),
@@ -1631,9 +1638,11 @@ mod tests {
             if i > 0 {
                 s.push(',');
             }
-            s.push_str(&format!(
+            write!(
+                s,
                 "{{\"type\":\"Feature\",\"geometry\":{{\"type\":\"Point\",\"coordinates\":[{i},{i}]}},\"properties\":{{\"id\":{i}}}}}"
-            ));
+            )
+            .unwrap();
         }
         s.push_str("]}");
         std::fs::write(&src, s).unwrap();
@@ -1649,12 +1658,12 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget {
                     target_bytes: 8 * 1024 * 1024,
                     max_rows: 4,
                 },
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let mut total = 0;

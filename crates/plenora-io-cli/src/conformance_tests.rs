@@ -14,7 +14,7 @@ use plenora_io_core::{
     Runtime, Sink, Source, SpatialPruningSupport, TypeCoercionPolicy, WriteLayer, WriteOptions,
     WritePlan, ALL_GEOMETRY_TYPES,
 };
-use plenora_io_core::{BatchTarget, ProjectionMode, ReadRequest};
+use plenora_io_core::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryEncoding,
     GeometryType, LayerId, SpatialSemantics,
@@ -23,7 +23,8 @@ use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
 use plenora_io_model::geometry::{
     with_geometry_contract_metadata, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
 };
-use plenora_io_model::CapabilityReason;
+use plenora_io_model::limits::Limits;
+use plenora_io_model::{CancellationToken, CapabilityReason};
 
 const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
@@ -121,7 +122,7 @@ fn valid_geometry_plan(descriptor: &FormatDescriptor) -> WritePlan {
     )
 }
 
-fn attribute_plan(layer_names: &[&str], field: Field) -> WritePlan {
+fn attribute_plan(layer_names: &[&str], field: &Field) -> WritePlan {
     WritePlan {
         layers: layer_names
             .iter()
@@ -253,9 +254,9 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
         projection_mode: ProjectionMode::Required,
         pruning_predicate: None,
         spatial_pruning_hint: None,
-        scope: Default::default(),
+        scope: ReadScope::default(),
         batch_target: BatchTarget::default(),
-        cancellation: Default::default(),
+        cancellation: CancellationToken::default(),
     };
     let mut exact = Vec::new();
     for driver in drivers() {
@@ -303,7 +304,7 @@ fn every_writable_driver_accepts_its_declared_baseline() {
         validate_write(
             descriptor,
             &valid_geometry_plan(descriptor),
-            &Default::default(),
+            &Limits::default(),
         )
         .unwrap_or_else(|error| {
             panic!(
@@ -326,7 +327,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
             validate_write(
                 descriptor,
                 &WritePlan { layers: Vec::new() },
-                &Default::default(),
+                &Limits::default(),
             ),
             CapabilityReason::EmptyWritePlan,
         );
@@ -337,9 +338,9 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                     descriptor,
                     &attribute_plan(
                         &["duplicate", "duplicate"],
-                        Field::new("value", DataType::Utf8, true),
+                        &Field::new("value", DataType::Utf8, true),
                     ),
-                    &Default::default(),
+                    &Limits::default(),
                 ),
                 CapabilityReason::DuplicateLayerName,
             );
@@ -348,8 +349,8 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                 descriptor.id,
                 validate_write(
                     descriptor,
-                    &attribute_plan(&["one", "two"], Field::new("value", DataType::Utf8, true)),
-                    &Default::default(),
+                    &attribute_plan(&["one", "two"], &Field::new("value", DataType::Utf8, true)),
+                    &Limits::default(),
                 ),
                 CapabilityReason::MultipleLayers,
             );
@@ -383,7 +384,7 @@ fn crs_matrix_fails_closed() {
                 );
                 assert_capability(
                     descriptor.id,
-                    validate_write(descriptor, &plan, &Default::default()),
+                    validate_write(descriptor, &plan, &Limits::default()),
                     CapabilityReason::CrsUnresolved,
                 );
                 embedded += 1;
@@ -400,7 +401,7 @@ fn crs_matrix_fails_closed() {
                 );
                 assert_capability(
                     descriptor.id,
-                    validate_write(descriptor, &plan, &Default::default()),
+                    validate_write(descriptor, &plan, &Limits::default()),
                     CapabilityReason::ReprojectionRequired,
                 );
                 fixed += 1;
@@ -416,7 +417,7 @@ fn crs_matrix_fails_closed() {
                     vec![GeometryType::Point],
                 );
                 assert!(
-                    validate_write(descriptor, &plan, &Default::default()).is_ok(),
+                    validate_write(descriptor, &plan, &Limits::default()).is_ok(),
                     "{} dichiara CRS embedded opzionale ma rifiuta lo stato missing",
                     descriptor.id
                 );
@@ -439,7 +440,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     let mut ipc_plan = valid_geometry_plan(ipc.descriptor());
     ipc_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
     assert!(
-        validate_write(ipc.descriptor(), &ipc_plan, &Default::default()).is_ok(),
+        validate_write(ipc.descriptor(), &ipc_plan, &Limits::default()).is_ok(),
         "IPC deve preservare crs_id e srid discordanti senza sceglierne uno"
     );
 
@@ -448,7 +449,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     shp_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
     assert_capability(
         "shp",
-        validate_write(shp.descriptor(), &shp_plan, &Default::default()),
+        validate_write(shp.descriptor(), &shp_plan, &Limits::default()),
         CapabilityReason::CrsRepresentationsInconsistent,
     );
 }
@@ -511,6 +512,10 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
     }
 }
 
+// La matrice copre in un solo test tutti gli assi di capability geometrica per
+// ogni driver del catalogo: spezzarla perderebbe la garanzia che l'insieme sia
+// esaustivo.
+#[allow(clippy::too_many_lines)]
 #[test]
 fn geometry_capability_matrix_rejects_every_unsupported_axis() {
     let all_dimensions = [
@@ -556,7 +561,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Default::default()),
+                validate_write(descriptor, &plan, &Limits::default()),
                 CapabilityReason::CoordinateDimensions,
             );
             dimensions_checked += 1;
@@ -575,7 +580,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Default::default()),
+                validate_write(descriptor, &plan, &Limits::default()),
                 CapabilityReason::GeometryEncoding,
             );
             encodings_checked += 1;
@@ -594,7 +599,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Default::default()),
+                validate_write(descriptor, &plan, &Limits::default()),
                 CapabilityReason::SpatialSemantics,
             );
             semantics_checked += 1;
@@ -613,7 +618,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Default::default()),
+                validate_write(descriptor, &plan, &Limits::default()),
                 CapabilityReason::GeometryNotSupported,
             );
             types_checked += 1;
@@ -624,7 +629,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &unresolved, &Default::default()),
+                validate_write(descriptor, &unresolved, &Limits::default()),
                 CapabilityReason::GeometryNotSupported,
             );
             unresolved_checked += 1;
@@ -640,7 +645,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Default::default()),
+                validate_write(descriptor, &plan, &Limits::default()),
                 CapabilityReason::MixedGeometry,
             );
             mixed_checked += 1;
@@ -672,7 +677,7 @@ fn field_type_and_limit_matrix_is_enforced() {
         assert!(matches!(
             validate_write(
                 descriptor,
-                &attribute_plan(&["layer"], Field::new("v", DataType::Utf8, true)),
+                &attribute_plan(&["layer"], &Field::new("v", DataType::Utf8, true)),
                 &limits
             ),
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
@@ -684,8 +689,8 @@ fn field_type_and_limit_matrix_is_enforced() {
                 descriptor.id,
                 validate_write(
                     descriptor,
-                    &attribute_plan(&["layer"], Field::new(name, DataType::Utf8, true)),
-                    &Default::default(),
+                    &attribute_plan(&["layer"], &Field::new(name, DataType::Utf8, true)),
+                    &Limits::default(),
                 ),
                 CapabilityReason::FieldNameTooLong,
             );
@@ -702,8 +707,8 @@ fn field_type_and_limit_matrix_is_enforced() {
                 descriptor.id,
                 validate_write(
                     descriptor,
-                    &attribute_plan(&["layer"], Field::new("nested", nested, true)),
-                    &Default::default(),
+                    &attribute_plan(&["layer"], &Field::new("nested", nested, true)),
+                    &Limits::default(),
                 ),
                 CapabilityReason::TypeNotRepresentable,
             );
@@ -720,9 +725,9 @@ fn field_type_and_limit_matrix_is_enforced() {
                     descriptor,
                     &attribute_plan(
                         &["layer"],
-                        Field::new("__not_a_native_attribute__", DataType::Utf8, true),
+                        &Field::new("__not_a_native_attribute__", DataType::Utf8, true),
                     ),
-                    &Default::default(),
+                    &Limits::default(),
                 ),
                 CapabilityReason::TypeNotRepresentable,
             );
@@ -733,8 +738,8 @@ fn field_type_and_limit_matrix_is_enforced() {
                 descriptor.id,
                 validate_write(
                     descriptor,
-                    &attribute_plan(&["layer"], Field::new("nullable", DataType::Utf8, true)),
-                    &Default::default(),
+                    &attribute_plan(&["layer"], &Field::new("nullable", DataType::Utf8, true)),
+                    &Limits::default(),
                 ),
                 CapabilityReason::Nullability,
             );
@@ -772,9 +777,9 @@ fn read_request() -> ReadRequest {
         projection_mode: ProjectionMode::BestEffort,
         pruning_predicate: None,
         spatial_pruning_hint: None,
-        scope: Default::default(),
+        scope: ReadScope::default(),
         batch_target: BatchTarget::default(),
-        cancellation: Default::default(),
+        cancellation: CancellationToken::default(),
     }
 }
 
@@ -976,9 +981,9 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
             projection_mode: ProjectionMode::Required,
             pruning_predicate: None,
             spatial_pruning_hint: None,
-            scope: Default::default(),
+            scope: ReadScope::default(),
             batch_target: BatchTarget::default(),
-            cancellation: Default::default(),
+            cancellation: CancellationToken::default(),
         };
         assert!(
             matches!(
@@ -1017,9 +1022,9 @@ fn every_exact_pure_rust_reader_supports_an_empty_projection() {
             projection_mode: ProjectionMode::Required,
             pruning_predicate: None,
             spatial_pruning_hint: None,
-            scope: Default::default(),
+            scope: ReadScope::default(),
             batch_target: BatchTarget::default(),
-            cancellation: Default::default(),
+            cancellation: CancellationToken::default(),
         }) {
             Ok(reader) => reader,
             Err(error) => panic!("{}: projection vuota: {error}", descriptor.id),

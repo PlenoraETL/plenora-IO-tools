@@ -1,4 +1,4 @@
-//! driver-xls — XLSX ↔ RecordBatch. Foglio tabellare: la
+//! driver-xls — XLSX ↔ `RecordBatch`. Foglio tabellare: la
 //! geometria è dichiarata via `format_options` (`x_column`+`y_column` XY o
 //! `wkt_column` XY/XYZ/XYM/XYZM), il CRS via `assume_crs` (ADR-IO 4). Foglio scelto con
 //! `format_options["sheet"]` o il primo. Multi-foglio: incremento futuro.
@@ -134,7 +134,7 @@ impl FormatDriver for XlsDriver {
             &crs,
             &opts.cancellation,
             &opts.limits,
-            opts.resource_budget.clone(),
+            &opts.resource_budget,
         )?;
         Ok(plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
@@ -303,6 +303,9 @@ struct XlsWriterState {
     max_output_bytes: u64,
 }
 
+// Usata come funzione in `map_err`: la firma per valore è imposta dal punto di
+// chiamata, prenderla per riferimento costringerebbe a chiusure inutili.
+#[allow(clippy::needless_pass_by_value)]
 fn xls_err(e: rust_xlsxwriter::XlsxError) -> PlenoraIoError {
     err(format!("XLSX: {e}"))
 }
@@ -433,7 +436,7 @@ fn data_to_string(d: &Data) -> String {
     }
 }
 
-fn classify_data(data: &Data) -> ObservedValueClass {
+const fn classify_data(data: &Data) -> ObservedValueClass {
     match data {
         Data::Int(value) => classify_i64(*value),
         Data::Float(value) if value.is_finite() => ObservedValueClass::Number,
@@ -700,6 +703,10 @@ impl<'a> BoundedSpoolWriter<'a> {
     }
 }
 
+// Inferenza di layout e contratto in una sola passata sul foglio: le fasi
+// (intestazioni, accumulatori di tipo, spool) condividono lo stato riga per riga
+// e separarle non ridurrebbe la complessità, solo la leggibilità.
+#[allow(clippy::too_many_lines)]
 fn infer_layout<RS>(
     workbook: &mut Xlsx<RS>,
     sheet: &str,
@@ -707,7 +714,7 @@ fn infer_layout<RS>(
     crs: &str,
     cancellation: &CancellationToken,
     limits: &Limits,
-    resource_budget: ResourceBudget,
+    resource_budget: &ResourceBudget,
 ) -> Result<(XlsxLayout, DataContract, Arc<tempfile::NamedTempFile>)>
 where
     RS: Read + Seek,
@@ -852,7 +859,7 @@ where
     }
 
     let schema: SchemaRef = Arc::new(Schema::new(fields));
-    let contract = DataContract::new(schema.clone(), Some(geometry_contract));
+    let contract = DataContract::new(schema, Some(geometry_contract));
     let schema = contract.schema.clone();
     Ok((
         XlsxLayout {
@@ -1017,7 +1024,12 @@ fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64
         Some(Data::Int(value))
             if *value >= -MAX_EXACT_F64_INTEGER && *value <= MAX_EXACT_F64_INTEGER =>
         {
-            *value as f64
+            // La guardia limita |value| a 2^53: la conversione a f64 è esatta,
+            // nessuna perdita di precisione possibile.
+            #[allow(clippy::cast_precision_loss)]
+            {
+                *value as f64
+            }
         }
         Some(Data::String(value)) if value.trim().is_empty() => return Ok(None),
         Some(Data::String(value)) => value
@@ -1038,7 +1050,7 @@ fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
 
     #[test]
@@ -1104,7 +1116,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1117,8 +1129,7 @@ mod tests {
 
         let ropts = ReadOptions {
             assume_crs: Some("EPSG:4326".to_owned()),
-            format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
-                .into_iter()
+            format_options: std::iter::once(("wkt_column".to_owned(), "geometry".to_owned()))
                 .collect(),
             ..ReadOptions::default()
         };
@@ -1130,9 +1141,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let rb = r.next_batch().unwrap().unwrap();
@@ -1166,9 +1177,11 @@ mod tests {
                 Source::Path(output),
                 &ReadOptions {
                     assume_crs: Some("EPSG:4326".to_owned()),
-                    format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
-                        .into_iter()
-                        .collect(),
+                    format_options: std::iter::once((
+                        "wkt_column".to_owned(),
+                        "geometry".to_owned(),
+                    ))
+                    .collect(),
                     ..ReadOptions::default()
                 },
             )
@@ -1180,12 +1193,12 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget {
                     target_bytes: 1024,
                     max_rows: 1,
                 },
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
 
@@ -1232,9 +1245,11 @@ mod tests {
                 Source::Path(output),
                 &ReadOptions {
                     assume_crs: Some("EPSG:4326".to_owned()),
-                    format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
-                        .into_iter()
-                        .collect(),
+                    format_options: std::iter::once((
+                        "wkt_column".to_owned(),
+                        "geometry".to_owned(),
+                    ))
+                    .collect(),
                     ..ReadOptions::default()
                 },
             )
@@ -1247,7 +1262,7 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget {
                     target_bytes: 1024,
                     max_rows: 1,
@@ -1280,8 +1295,7 @@ mod tests {
             Source::Path(output),
             &ReadOptions {
                 assume_crs: Some("EPSG:4326".to_owned()),
-                format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
-                    .into_iter()
+                format_options: std::iter::once(("wkt_column".to_owned(), "geometry".to_owned()))
                     .collect(),
                 limits: Limits {
                     max_input_bytes: input_bytes,
@@ -1314,8 +1328,7 @@ mod tests {
             Source::Path(output),
             &ReadOptions {
                 assume_crs: Some("EPSG:4326".to_owned()),
-                format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
-                    .into_iter()
+                format_options: std::iter::once(("wkt_column".to_owned(), "geometry".to_owned()))
                     .collect(),
                 resource_budget,
                 ..ReadOptions::default()
@@ -1372,8 +1385,7 @@ mod tests {
 
         let read_options = ReadOptions {
             assume_crs: Some("EPSG:4326".to_owned()),
-            format_options: [("wkt_column".to_owned(), "geometry".to_owned())]
-                .into_iter()
+            format_options: std::iter::once(("wkt_column".to_owned(), "geometry".to_owned()))
                 .collect(),
             ..ReadOptions::default()
         };
@@ -1398,9 +1410,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let batch = reader.next_batch().unwrap().unwrap();

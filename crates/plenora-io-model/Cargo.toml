@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [features]
 # Contatori di osservabilità (decode/encode WKB) per l'harness di benchmark.
 metrics = []

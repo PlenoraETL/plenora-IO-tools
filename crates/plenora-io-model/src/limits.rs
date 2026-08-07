@@ -45,6 +45,7 @@ impl Default for Limits {
 impl Limits {
     /// Limiti effettivi del decoder geometrico: `max_vertices` è un tetto
     /// globale aggiuntivo rispetto al limite WKB più specifico.
+    #[must_use]
     pub fn effective_wkb(&self) -> WkbLimits {
         WkbLimits {
             max_components: self.wkb.max_components.min(self.max_vertices),

@@ -15,7 +15,7 @@ fn error(message: impl Into<String>) -> PlenoraIoError {
 pub enum WkbFlavor {
     /// OGC/ISO WKB: dimensioni tramite offset 1000/2000/3000, nessun SRID.
     Iso,
-    /// PostGIS EWKB: flag Z/M/SRID nel type word.
+    /// `PostGIS` EWKB: flag Z/M/SRID nel type word.
     Ewkb,
 }
 
@@ -72,8 +72,13 @@ impl WkbGeometry {
     /// L'adattatore è intenzionalmente limitato ai sette tipi WKB classici:
     /// varianti `geo-types` come `Rect`, `Triangle` e `Line` richiedono una
     /// scelta di normalizzazione esplicita del chiamante.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Wkb`] se la geometria (o una geometria
+    /// annidata in una collection) non è uno dei sette tipi WKB classici.
     pub fn from_geo_xy(geometry: &Geometry<f64>) -> Result<Self> {
-        fn coordinate(coordinate: Coord<f64>) -> WkbCoordinate {
+        const fn coordinate(coordinate: Coord<f64>) -> WkbCoordinate {
             WkbCoordinate {
                 x: coordinate.x,
                 y: coordinate.y,
@@ -93,7 +98,7 @@ impl WkbGeometry {
                 .collect()
         }
 
-        fn child(value: WkbValue) -> WkbGeometry {
+        const fn child(value: WkbValue) -> WkbGeometry {
             WkbGeometry {
                 value,
                 dimensions: CoordinateDimensions::Xy,
@@ -126,7 +131,7 @@ impl WkbGeometry {
             Geometry::GeometryCollection(values) => WkbValue::GeometryCollection(
                 values
                     .iter()
-                    .map(WkbGeometry::from_geo_xy)
+                    .map(Self::from_geo_xy)
                     .collect::<Result<_>>()?,
             ),
             _ => return Err(error("geometria non rappresentabile in WKB standard")),
@@ -138,7 +143,8 @@ impl WkbGeometry {
         })
     }
 
-    pub fn geometry_type(&self) -> GeometryType {
+    #[must_use]
+    pub const fn geometry_type(&self) -> GeometryType {
         match &self.value {
             WkbValue::Point(_) => GeometryType::Point,
             WkbValue::LineString(_) => GeometryType::LineString,
@@ -160,8 +166,14 @@ impl WkbGeometry {
 
     /// Proietta intenzionalmente su XY per gli adattatori v1 basati su
     /// `geo-types`. Per conservare Z/M usare l'AST o i byte originali.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Wkb`] se il tipo è esteso (curve,
+    /// superfici, TIN, triangoli) oppure se un membro di un aggregato non ha
+    /// il tipo previsto dalla sua collection.
     pub fn to_geo_xy(&self) -> Result<Geometry<f64>> {
-        fn coord(c: WkbCoordinate) -> Coord<f64> {
+        const fn coord(c: WkbCoordinate) -> Coord<f64> {
             Coord { x: c.x, y: c.y }
         }
         fn point(value: &WkbGeometry) -> Result<Point<f64>> {
@@ -211,14 +223,9 @@ impl WkbGeometry {
             WkbValue::MultiPolygon(values) => Geometry::MultiPolygon(MultiPolygon(
                 values.iter().map(polygon).collect::<Result<_>>()?,
             )),
-            WkbValue::GeometryCollection(values) => {
-                Geometry::GeometryCollection(GeometryCollection(
-                    values
-                        .iter()
-                        .map(WkbGeometry::to_geo_xy)
-                        .collect::<Result<_>>()?,
-                ))
-            }
+            WkbValue::GeometryCollection(values) => Geometry::GeometryCollection(
+                GeometryCollection(values.iter().map(Self::to_geo_xy).collect::<Result<_>>()?),
+            ),
             WkbValue::CircularString(_)
             | WkbValue::CompoundCurve(_)
             | WkbValue::CurvePolygon(_)
@@ -243,7 +250,7 @@ struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
-    fn remaining(&self) -> usize {
+    const fn remaining(&self) -> usize {
         self.bytes.len().saturating_sub(self.pos)
     }
 
@@ -379,6 +386,10 @@ fn geometry_type_from_base(base: u32) -> Result<GeometryType> {
     }
 }
 
+// Tabella di contratto: una riga per codice base WKB. I codici 6
+// (MultiPolygon) e 15 (PolyhedralSurface) restano righe distinte anche se la
+// regola sui figli coincide, per restare confrontabili con la specifica.
+#[allow(clippy::match_same_arms)]
 fn child_type_allowed(parent_base: u32, child: GeometryType) -> bool {
     match parent_base {
         4 => child == GeometryType::Point,
@@ -449,8 +460,11 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
     let little_endian = reader.byte_order()?;
     let (base, dimensions, has_srid) = decode_type(reader.u32(little_endian)?)?;
     let geometry_type = geometry_type_from_base(base)?;
+    // Il SRID EWKB e' un intero con segno a 32 bit sul filo: la
+    // reinterpretazione dei quattro byte deve restare bit-esatta, non un
+    // cast controllato che rifiuterebbe i valori con bit alto acceso.
     let srid = if has_srid {
-        Some(reader.u32(little_endian)? as i32)
+        Some(reader.u32(little_endian)?.cast_signed())
     } else {
         None
     };
@@ -544,8 +558,10 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
     let little_endian = reader.byte_order()?;
     let (base, dimensions, has_srid) = decode_type(reader.u32(little_endian)?)?;
     let geometry_type = geometry_type_from_base(base)?;
+    // Stessa reinterpretazione bit-esatta di `read_geometry`: l'ispezione deve
+    // riportare esattamente il SRID che il decoder produrrebbe.
     let srid = if has_srid {
-        Some(reader.u32(little_endian)? as i32)
+        Some(reader.u32(little_endian)?.cast_signed())
     } else {
         None
     };
@@ -595,6 +611,12 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
 }
 
 /// Valida e ispeziona WKB/EWKB senza allocare l'AST lossless.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Wkb`] se la cella supera i limiti, se il
+/// flusso è troncato o strutturalmente non valido, o se restano byte residui
+/// dopo la geometria.
 pub fn inspect_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbInspection> {
     #[cfg(feature = "metrics")]
     crate::metrics::inc_decode();
@@ -615,6 +637,11 @@ pub fn inspect_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbInspection> {
 }
 
 /// Decodifica WKB ISO o EWKB senza perdere Z, M o SRID.
+///
+/// # Errors
+///
+/// Gli stessi di [`inspect_wkb`]: limiti superati, flusso troncato o non
+/// valido, byte residui dopo la geometria.
 pub fn decode_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbGeometry> {
     #[cfg(feature = "metrics")]
     crate::metrics::inc_decode();
@@ -686,7 +713,7 @@ fn write_coordinates(
     Ok(())
 }
 
-fn base(value: &WkbValue) -> u32 {
+const fn base(value: &WkbValue) -> u32 {
     match value {
         WkbValue::Point(_) => 1,
         WkbValue::LineString(_) => 2,
@@ -735,13 +762,15 @@ fn write_geometry(output: &mut Vec<u8>, geometry: &WkbGeometry, flavor: WkbFlavo
     output.push(1);
     output.extend_from_slice(&type_code.to_le_bytes());
     if let Some(srid) = geometry.srid {
-        output.extend_from_slice(&(srid as u32).to_le_bytes());
+        // Inverso esatto della lettura: i quattro byte del SRID vengono
+        // riemessi tali e quali, senza normalizzazioni del segno.
+        output.extend_from_slice(&srid.cast_unsigned().to_le_bytes());
     }
 
     match &geometry.value {
         WkbValue::Point(coordinate) => write_coordinate(output, coordinate, geometry.dimensions)?,
         WkbValue::LineString(coordinates) | WkbValue::CircularString(coordinates) => {
-            write_coordinates(output, coordinates, geometry.dimensions)?
+            write_coordinates(output, coordinates, geometry.dimensions)?;
         }
         WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
             output.extend_from_slice(&count_u32(rings.len())?.to_le_bytes());
@@ -779,6 +808,15 @@ fn write_geometry(output: &mut Vec<u8>, geometry: &WkbGeometry, flavor: WkbFlavo
     Ok(())
 }
 
+/// Codifica l'AST WKB nel buffer fornito, che viene svuotato prima di
+/// scrivere.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Wkb`] se il flavor ISO riceve un SRID, se le
+/// ordinate non sono coerenti con la dimensionalità dichiarata, se un
+/// aggregato contiene un membro di tipo non ammesso o se un conteggio non è
+/// rappresentabile su 32 bit.
 pub fn encode_wkb_into(
     geometry: &WkbGeometry,
     flavor: WkbFlavor,
@@ -790,6 +828,11 @@ pub fn encode_wkb_into(
     write_geometry(output, geometry, flavor)
 }
 
+/// Codifica l'AST WKB in un buffer nuovo.
+///
+/// # Errors
+///
+/// Gli stessi di [`encode_wkb_into`].
 pub fn encode_wkb(geometry: &WkbGeometry, flavor: WkbFlavor) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     encode_wkb_into(geometry, flavor, &mut output)?;
