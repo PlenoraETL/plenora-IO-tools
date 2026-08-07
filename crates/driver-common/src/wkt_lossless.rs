@@ -404,9 +404,65 @@ pub fn format_wkt(geometry: &WkbGeometry) -> Result<String> {
 /// Restituisce gli stessi errori di [`format_wkt`], più
 /// [`PlenoraIoError::Wkb`] se la scrittura sul buffer fallisce.
 pub fn format_wkt_into(geometry: &WkbGeometry, output: &mut String) -> Result<()> {
+    verifica_esprimibile(geometry)?;
     let mut testo = String::new();
     scrivi_geometria(geometry, &mut testo)?;
     output.push_str(&testo);
+    Ok(())
+}
+
+/// Rifiuta le geometrie che il WKT non sa esprimere fedelmente.
+///
+/// Il modulo si chiama `wkt_lossless` e i driver dichiarano
+/// [`Fidelity::Lossless`](plenora_io_core::descriptor::Fidelity): una
+/// conversione che cambia la geometria senza dirlo e' peggio di una che
+/// fallisce. I codec WKB sono piu' permissivi della grammatica WKT, e sulla
+/// differenza c'erano quattro forme che uscivano male:
+///
+/// | geometria | prodotto prima | |
+/// |---|---|---|
+/// | `Polygon` con un anello vuoto | `POLYGON EMPTY` | rileggeva un poligono senza anelli |
+/// | `Polygon` valido con un interno vuoto | `POLYGON((…),())` | non rileggibile |
+/// | `MultiPolygon` con un membro dall'anello vuoto | `MULTIPOLYGON((()))` | non rileggibile |
+/// | `MultiLineString` con un membro vuoto | `MULTILINESTRING(())` | non rileggibile |
+///
+/// Le ultime tre scrivevano in una cella CSV o XLSX del testo che il nostro
+/// stesso parser rifiuta.
+///
+/// Il confine e' netto: **una sequenza di coordinate annidata in un
+/// contenitore non puo' essere vuota**. Restano rappresentabili sia le
+/// geometrie vuote di primo livello (`POLYGON EMPTY`, `LINESTRING EMPTY`,
+/// `MULTIPOLYGON(EMPTY)`) sia gli anelli degeneri ma non vuoti: `POLYGON((0 0))`
+/// con una sola coordinata fa round-trip corretto, quindi non lo rifiutiamo —
+/// il controllo riguarda la fedelta' della conversione, non la validita' OGC
+/// della geometria, che e' un'altra decisione e non e' presa qui.
+fn verifica_esprimibile(geometry: &WkbGeometry) -> Result<()> {
+    match &geometry.value {
+        WkbValue::Polygon(anelli) => {
+            if anelli.iter().any(Vec::is_empty) {
+                return Err(error(
+                    "anello senza coordinate: il WKT non lo distingue da un poligono vuoto",
+                ));
+            }
+        }
+        WkbValue::MultiLineString(membri) => {
+            for membro in membri {
+                if matches!(&membro.value, WkbValue::LineString(coordinate) if coordinate.is_empty())
+                {
+                    return Err(error(
+                        "LineString senza coordinate dentro una MultiLineString: il WKT che ne \
+                         risulta non e' rileggibile",
+                    ));
+                }
+            }
+        }
+        WkbValue::MultiPolygon(membri) | WkbValue::GeometryCollection(membri) => {
+            for membro in membri {
+                verifica_esprimibile(membro)?;
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }
 
@@ -665,6 +721,77 @@ mod tests {
         let testo = format_wkt(&geometria).expect("serializzazione");
         assert_eq!(testo, "GEOMETRYCOLLECTION(POINT(1 2),MULTIPOLYGON(EMPTY))");
         assert_eq!(parse_wkt(&testo).expect("rilettura"), geometria);
+    }
+
+    /// Le quattro forme che il WKT non sa esprimere fedelmente devono
+    /// fallire in serializzazione, e tutto il resto deve continuare a passare.
+    ///
+    /// La tabella e' la mappa misurata delle perdite: senza il controllo, le
+    /// prime tre righe producevano testo che il nostro stesso parser rifiuta,
+    /// e la quarta rileggeva una geometria diversa da quella scritta.
+    #[test]
+    fn le_forme_non_esprimibili_in_wkt_falliscono_invece_di_uscire_sbagliate() {
+        let c = |x: f64, y: f64| WkbCoordinate {
+            x,
+            y,
+            z: None,
+            m: None,
+        };
+        let quadrato = vec![c(0.0, 0.0), c(1.0, 0.0), c(1.0, 1.0), c(0.0, 0.0)];
+        let xy = |value| WkbGeometry {
+            value,
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+
+        for (nome, value) in [
+            ("anello vuoto", WkbValue::Polygon(vec![vec![]])),
+            (
+                "interno vuoto",
+                WkbValue::Polygon(vec![quadrato.clone(), vec![]]),
+            ),
+            (
+                "membro con anello vuoto",
+                WkbValue::MultiPolygon(vec![xy(WkbValue::Polygon(vec![vec![]]))]),
+            ),
+            (
+                "membro LineString vuoto",
+                WkbValue::MultiLineString(vec![xy(WkbValue::LineString(vec![]))]),
+            ),
+        ] {
+            let errore = format_wkt(&xy(value)).expect_err(nome);
+            assert!(
+                errore.to_string().contains("senza coordinate"),
+                "{nome}: messaggio inatteso {errore}"
+            );
+        }
+
+        // Il controllo non deve allargarsi: queste passano e fanno round-trip.
+        for (nome, value) in [
+            ("poligono senza anelli", WkbValue::Polygon(vec![])),
+            ("linestring vuota", WkbValue::LineString(vec![])),
+            (
+                "anello di una sola coordinata",
+                WkbValue::Polygon(vec![vec![c(0.0, 0.0)]]),
+            ),
+            (
+                "anello non chiuso",
+                WkbValue::Polygon(vec![vec![c(0.0, 0.0), c(1.0, 0.0), c(1.0, 1.0)]]),
+            ),
+            (
+                "multipoligono con membro senza anelli",
+                WkbValue::MultiPolygon(vec![xy(WkbValue::Polygon(vec![]))]),
+            ),
+            ("poligono valido", WkbValue::Polygon(vec![quadrato])),
+        ] {
+            let geometria = xy(value);
+            let testo = format_wkt(&geometria).expect(nome);
+            assert_eq!(
+                parse_wkt(&testo).expect(nome),
+                geometria,
+                "{nome}: round-trip di {testo}"
+            );
+        }
     }
 
     #[test]
