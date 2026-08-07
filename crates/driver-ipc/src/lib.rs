@@ -316,11 +316,19 @@ impl LayerReader for IpcReader {
         &self.layer
     }
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        match self.reader.next() {
+        // Anche qui serve la barriera, non solo sullo schema: arrow decodifica
+        // i buffer del batch a ogni `next()`, e un offset oltre la lunghezza
+        // dichiarata panica in `arrow-buffer` invece di restituire un errore.
+        //
+        // Dopo un panico catturato il `FileReader` resta in uno stato non
+        // definito. Non e' un problema: il chiamante riceve un errore e il
+        // contratto di `LayerReader` non prevede di proseguire dopo un errore.
+        let reader = &mut self.reader;
+        plenora_io_core::driver::leggendo_arrow("arrow", move || match reader.next() {
             None => Ok(None),
             Some(Ok(b)) => Ok(Some(b)),
             Some(Err(e)) => Err(err(format!("batch IPC: {e}"))),
-        }
+        })
     }
 }
 
@@ -375,6 +383,55 @@ mod tests {
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
     use plenora_io_model::CancellationToken;
+
+    /// Il file che faceva panicare arrow decodificando lo schema IPC deve
+    /// uscire come errore del driver, non abbattere il processo.
+    ///
+    /// Il target di fuzzing non puo' verificarlo: `libfuzzer-sys` installa un
+    /// panic hook che chiama `abort()` prima dell'unwinding, quindi
+    /// `catch_unwind` non entra mai in gioco e il target continua a segnalare
+    /// un crash anche con la barriera al suo posto. Fuori dal fuzzer
+    /// l'unwinding e' quello di default — nel workspace non c'e' alcun
+    /// `panic = "abort"` — e la barriera si osserva.
+    #[test]
+    fn un_ipc_che_fa_panicare_arrow_diventa_un_errore_del_driver() {
+        // Su questo file `open` riesce: lo schema del footer si legge, e arrow
+        // panica piu' avanti, decodificando i buffer del primo batch. La
+        // barriera va quindi osservata sull'intero percorso di lettura, non
+        // solo sull'apertura — e sono due `leggendo_arrow` distinti.
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/ipc_reader/schema-che-fa-panicare-arrow.arrow");
+
+        let errore = match IpcDriver.open(Source::Path(seme), &ReadOptions::default()) {
+            Err(errore) => errore,
+            Ok(dataset) => {
+                let request = ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: None,
+                    projection_mode: ProjectionMode::BestEffort,
+                    pruning_predicate: None,
+                    spatial_pruning_hint: None,
+                    scope: ReadScope::default(),
+                    batch_target: BatchTarget::default(),
+                    cancellation: CancellationToken::default(),
+                };
+                match dataset.open_layer_reader(&request) {
+                    Err(errore) => errore,
+                    Ok(mut reader) => loop {
+                        match reader.next_batch() {
+                            Ok(Some(_)) => {}
+                            Ok(None) => panic!("il file doveva essere rifiutato"),
+                            Err(errore) => break errore,
+                        }
+                    },
+                }
+            }
+        };
+        assert!(
+            errore.to_string().contains("arrow in panico"),
+            "la barriera non e' scattata: {errore}"
+        );
+    }
 
     #[test]
     fn geometry_without_crs_metadata_is_explicitly_missing() {
