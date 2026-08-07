@@ -56,6 +56,21 @@ nursery = "deny"
 codegen-units = 1
 lto = "thin"
 strip = "symbols"
+# Il default di Rust attiva i controlli di overflow in debug e li disattiva in
+# release: un'aritmetica che va oltre il tipo, in produzione, avvolge in
+# silenzio. Per un componente che legge file esterni non fidati e dichiara
+# semantica fail-closed e' il verso sbagliato — un offset o un conteggio di
+# vertici avvolto e' plausibile, falso, e prosegue senza che alcun gate lo
+# veda.
+#
+# Con questa riga l'overflow diventa un panico dichiarato anche in release, e
+# quindi un fallimento visibile invece di un dato corrotto. Il gate anti-panic
+# sulle librerie resta coerente: vieta le primitive di panico *scritte*, non i
+# controlli del compilatore su un'invariante violata.
+#
+# Costo misurato su plenora-database-tools con i microbenchmark offline:
+# mediana +0,4%, peggiore +4,7%.
+overflow-checks = true
 
 [patch.crates-io]
 # Fork governato della sorgente crates.io gdal 0.17.1. Il delta espone
