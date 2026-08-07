@@ -101,8 +101,14 @@ impl FormatDriver for GeoParquetDriver {
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path =
             source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
-            .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))?;
+        // Il footer Parquet puo' portare la chiave `ARROW:schema`, che e' un
+        // messaggio Arrow IPC deserializzato qui dentro: un `.parquet` ostile
+        // raggiunge quindi lo stesso panico di un `.arrow`. Vedi
+        // `leggendo_arrow`.
+        let builder = plenora_io_core::driver::leggendo_arrow("parquet", || {
+            ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
+                .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
+        })?;
         let parquet_schema = builder.schema().clone();
         let geo = read_geo_meta(&builder);
         let (geom_name, crs) = resolve_geometry_and_crs(&parquet_schema, geo.as_ref())?;
@@ -247,8 +253,11 @@ impl OpenDatasetHandle for GeoParquetDataset {
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&self.path)?)
-            .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))?;
+        let path = self.path.clone();
+        let builder = plenora_io_core::driver::leggendo_arrow("parquet", move || {
+            ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
+                .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
+        })?;
 
         // Projection pushdown (Fase 2C): se richiesto, leggi SOLO quelle colonne.
         // Con bbox covering, le colonne bbox interne sono SEMPRE proiettate via.
