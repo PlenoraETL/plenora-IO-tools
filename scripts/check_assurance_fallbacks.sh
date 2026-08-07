@@ -25,6 +25,15 @@ set -eu
 # sintattica, un fallback nuovo scritto come `map_or` o come `match` entra
 # senza passare da H-01. Renderlo semantico non e' una correzione meccanica
 # ed e' una decisione di policy.
+#
+# Il 2026-08-07 la barriera sui panic di arrow ha aggiunto un'occorrenza in
+# plenora-io-core (10 -> 11, totale 93 -> 94): in `messaggio_del_panico`, il
+# payload di un panico che non e' ne' `&'static str` ne' `String` diventa
+# "panico senza messaggio". Il fallback e' sul testo diagnostico, non sul
+# dato: qualunque sia il payload, la lettura fallisce comunque e nessuna riga
+# viene prodotta. Riscriverlo come `match` per non far muovere il contatore
+# era possibile ed e' stato scartato: sarebbe stato esattamente il modo di
+# eludere H-01 che questo commento denuncia. **Serve ratifica H-01.**
 expected='
 driver-csv 3
 driver-dxf 15
@@ -37,7 +46,7 @@ driver-kml 3
 driver-shp 3
 driver-xls 1
 plenora-io-model 1
-plenora-io-core 10
+plenora-io-core 11
 plenora-io-cli 18
 plenora-bench 21
 plenora-fuzz 5
@@ -70,7 +79,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 93 ]; then
+if [ "${actual_total}" -ne 94 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi
