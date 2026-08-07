@@ -64,6 +64,7 @@ impl ResolvedCrs {
         self
     }
 
+    #[must_use]
     pub fn wgs84() -> Self {
         Self::new(Some("OGC:CRS84".to_owned()), CrsKind::Geographic, None)
     }
@@ -93,6 +94,7 @@ pub(crate) fn definition_format(definition: &str) -> CrsDefinitionFormat {
     }
 }
 
+#[must_use]
 pub fn axis_order_for(id: Option<&str>, kind: CrsKind) -> AxisOrder {
     match id {
         Some(id) if id.eq_ignore_ascii_case("OGC:CRS84") => AxisOrder::LongitudeLatitude,
@@ -108,7 +110,7 @@ pub fn axis_order_for(id: Option<&str>, kind: CrsKind) -> AxisOrder {
 /// Gli altri identificatori restano sconosciuti: dedurre il tipo dal solo
 /// codice richiederebbe un resolver CRS, che non appartiene al bordo I/O.
 #[must_use]
-pub fn crs_kind_for_authority_id(id: &str) -> CrsKind {
+pub const fn crs_kind_for_authority_id(id: &str) -> CrsKind {
     if id.eq_ignore_ascii_case("OGC:CRS84") || id.eq_ignore_ascii_case("EPSG:4326") {
         CrsKind::Geographic
     } else {
@@ -120,6 +122,7 @@ pub fn crs_kind_for_authority_id(id: &str) -> CrsKind {
 ///
 /// Gli altri namespace non sono interpretati come SRID: una loro eventuale
 /// equivalenza richiede un resolver CRS, non una regola sintattica al bordo.
+#[must_use]
 pub fn authority_srid(value: &str) -> Option<u32> {
     let (authority, code) = value.split_once(':')?;
     authority
@@ -129,12 +132,15 @@ pub fn authority_srid(value: &str) -> Option<u32> {
 }
 
 /// Estrae l'identificatore EPSG della definizione CRS soltanto quando è
-/// dichiarato alla radice. Gli identificatori dei CRS base annidati non
-/// descrivono necessariamente il CRS esterno (per esempio un `PROJCS` EPSG:3003
-/// contiene un `GEOGCS` EPSG:4326) e vengono quindi ignorati.
+/// dichiarato alla radice.
+///
+/// Gli identificatori dei CRS base annidati non descrivono necessariamente il
+/// CRS esterno (per esempio un `PROJCS` EPSG:3003 contiene un `GEOGCS`
+/// EPSG:4326) e vengono quindi ignorati.
 ///
 /// Questa funzione non è un resolver di equivalenza: se la definizione non
 /// porta un identificatore EPSG radice, il bordo non deduce nulla.
+#[must_use]
 pub fn definition_authority_srid(definition: &str, format: CrsDefinitionFormat) -> Option<u32> {
     match format {
         CrsDefinitionFormat::Projjson => projjson_root_epsg(definition),
@@ -257,26 +263,31 @@ pub enum CrsResolution {
 }
 
 impl CrsResolution {
-    pub fn resolved(crs: ResolvedCrs) -> Self {
+    #[must_use]
+    pub const fn resolved(crs: ResolvedCrs) -> Self {
         Self::Resolved(crs)
     }
 
-    pub fn as_resolved(&self) -> Option<&ResolvedCrs> {
+    #[must_use]
+    pub const fn as_resolved(&self) -> Option<&ResolvedCrs> {
         match self {
             Self::Resolved(crs) => Some(crs),
             Self::DeclaredButUnresolved(_) | Self::Missing => None,
         }
     }
 
+    #[must_use]
     pub fn id(&self) -> Option<&str> {
         self.as_resolved().and_then(|crs| crs.id.as_deref())
     }
 
+    #[must_use]
     pub fn definition(&self) -> Option<&str> {
         self.as_resolved().and_then(|crs| crs.definition.as_deref())
     }
 
-    pub fn raw(&self) -> Option<&RawCrs> {
+    #[must_use]
+    pub const fn raw(&self) -> Option<&RawCrs> {
         match self {
             Self::DeclaredButUnresolved(raw) => Some(raw),
             Self::Resolved(_) | Self::Missing => None,

@@ -34,7 +34,7 @@ fn declared_crs_id(crs: &CrsResolution) -> Option<&str> {
 
 fn comparable_crs_representations(
     geometry: &plenora_io_model::contract::GeometryColumnContract,
-) -> (Option<i64>, Option<i64>, Option<i64>) {
+) -> [Option<i64>; 3] {
     let (definition, definition_format) = match &geometry.crs {
         CrsResolution::Resolved(resolved) => {
             (resolved.definition.as_deref(), resolved.definition_format)
@@ -44,7 +44,7 @@ fn comparable_crs_representations(
         }
         CrsResolution::Missing => (None, None),
     };
-    (
+    [
         declared_crs_id(&geometry.crs)
             .and_then(plenora_io_model::crs::authority_srid)
             .map(i64::from),
@@ -53,14 +53,13 @@ fn comparable_crs_representations(
             .zip(definition_format)
             .and_then(|(value, format)| definition_authority_srid(value, format))
             .map(i64::from),
-    )
+    ]
 }
 
 fn crs_representations_are_inconsistent(
     geometry: &plenora_io_model::contract::GeometryColumnContract,
 ) -> bool {
-    let (crs_id, srid, definition) = comparable_crs_representations(geometry);
-    known_crs_values_disagree([crs_id, srid, definition])
+    known_crs_values_disagree(comparable_crs_representations(geometry))
 }
 
 pub(crate) fn known_crs_values_disagree(values: [Option<i64>; 3]) -> bool {
@@ -71,8 +70,14 @@ pub(crate) fn known_crs_values_disagree(values: [Option<i64>; 3]) -> bool {
     known.any(|value| value != first)
 }
 
-pub fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
-    use DataType::*;
+#[must_use]
+pub const fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
+    use DataType::{
+        Binary, BinaryView, Boolean, Date32, Date64, Decimal128, Decimal256, Decimal32, Decimal64,
+        Duration, FixedSizeBinary, FixedSizeList, Float16, Float32, Float64, Int16, Int32, Int64,
+        Int8, Interval, LargeBinary, LargeList, LargeListView, LargeUtf8, List, ListView, Map,
+        Struct, Time32, Time64, Timestamp, UInt16, UInt32, UInt64, UInt8, Union, Utf8, Utf8View,
+    };
     match data_type {
         Boolean => ArrowTypeClass::Boolean,
         Int8 | Int16 | Int32 | Int64 => ArrowTypeClass::SignedInteger,
@@ -101,6 +106,19 @@ pub fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
 /// Valida tutto ciò che è determinabile dal contratto statico. Vincoli che
 /// richiedono valori (per esempio tipo geometrico ignoto fino al primo record)
 /// restano una seconda guardia nel writer.
+///
+/// # Errors
+///
+/// Restituisce [`plenora_io_model::PlenoraIoError`] con categoria
+/// `Unsupported` al primo vincolo di capability violato dal piano: piano
+/// vuoto, layer multipli o nomi duplicati, nomi di campo non rappresentabili,
+/// tipo Arrow non supportato, geometria/encoding/dimensioni/semantica non
+/// ammesse, CRS non risolvibile o rappresentazioni CRS incoerenti,
+/// nullability non esprimibile.
+// Sequenza lineare di guardie, una per vincolo di capability: la lunghezza e'
+// nel numero di vincoli del contratto, non in complessita' logica. Restano
+// nell'ordine per essere confrontabili con la matrice delle capability.
+#[allow(clippy::too_many_lines)]
 pub fn validate_write(
     descriptor: &FormatDescriptor,
     plan: &WritePlan,
@@ -372,7 +390,7 @@ pub fn validate_write(
                 | CrsWriteSupport::Fixed(_)
                 | CrsWriteSupport::None => {}
             }
-            let (comparable_id, comparable_srid, comparable_definition) =
+            let [comparable_id, comparable_srid, comparable_definition] =
                 comparable_crs_representations(geometry);
             let representations_are_preserved = comparable_id.is_none()
                 || caps.crs_representations.crs_id == CrsRepresentationState::Preserved;

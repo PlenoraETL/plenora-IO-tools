@@ -1,6 +1,6 @@
 //! plenora-bench — harness di baseline prestazionale. NON ottimizza: misura
 //! throughput, picco RSS, allocazioni e decode/encode WKB per driver, e archivia
-//! una baseline. Metriche di `Prestazioni.md` §7 (bytes_copied e metriche di
+//! una baseline. Metriche di `Prestazioni.md` §7 (`bytes_copied` e metriche di
 //! coda: n/a in v1).
 //!
 //! Scala grande (10M righe) resa ONESTA:
@@ -33,7 +33,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 
 use driver_common::geometry_field;
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
-use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest};
+use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
 use plenora_io_core::{WriteLayer, WritePlan};
 use plenora_io_model::contract::{
     DataContract, FieldId, GeometryColumnContract, GeometryType, LayerId,
@@ -41,6 +41,7 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{decode_wkb, inspect_wkb, to_wkb};
+use plenora_io_model::CancellationToken;
 
 const CHUNK: usize = 65_536;
 const POOL: usize = 1024;
@@ -87,8 +88,16 @@ fn reset_alloc() {
 fn cpu_ms() -> f64 {
     let mut u: libc::rusage = unsafe { std::mem::zeroed() };
     unsafe {
-        libc::getrusage(libc::RUSAGE_SELF, &mut u);
+        libc::getrusage(libc::RUSAGE_SELF, &raw mut u);
     }
+    // Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e
+    // violerebbe il determinismo bit-esatto (ADR-0001). I campi di `timeval`
+    // sono secondi/microsecondi di CPU: ampiamente sotto 2^53, cast esatto.
+    #[allow(
+        clippy::suboptimal_flops,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_wrap
+    )]
     let s = |t: libc::timeval| t.tv_sec as f64 * 1000.0 + t.tv_usec as f64 / 1000.0;
     s(u.ru_utime) + s(u.ru_stime)
 }
@@ -108,8 +117,7 @@ fn peak_rss_bytes() -> u64 {
                 .and_then(|l| l.split_whitespace().nth(1))
                 .and_then(|v| v.parse::<u64>().ok())
         })
-        .map(|kb| kb * 1024)
-        .unwrap_or(0)
+        .map_or(0, |kb| kb * 1024)
 }
 
 // --- generazione a chunk (pool WKB, niente encode nella generazione) -------
@@ -149,6 +157,10 @@ fn bench_contract(id: &str) -> DataContract {
     }
 }
 
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e violerebbe il
+// determinismo bit-esatto delle fixture di baseline (ADR-0001). I resti sono
+// < 1000: la conversione a f64 è esatta.
+#[allow(clippy::suboptimal_flops, clippy::cast_precision_loss)]
 fn coord(k: usize) -> (f64, f64) {
     (
         6.0 + (k % 1000) as f64 * 0.001,
@@ -166,6 +178,9 @@ fn use_polygon() -> bool {
 }
 
 /// Anello quadrato (chiuso) attorno a `coord(k)`.
+// `[x, y]` qui è un vertice dell'anello, non la conversione di una tupla:
+// `tuple_array_conversions` è un falso positivo.
+#[allow(clippy::tuple_array_conversions)]
 fn poly_ring(k: usize) -> Vec<[f64; 2]> {
     let (x, y) = coord(k);
     let d = 0.0005;
@@ -210,12 +225,15 @@ fn gen_chunk(
             .map(|j| Some(pool[(start + j) % POOL].as_slice()))
             .collect::<Vec<_>>(),
     );
+    // Indici di riga della fixture (≤ 10M): i cast a i64 e f64 sono esatti.
+    #[allow(clippy::cast_possible_wrap)]
     let ids = Int64Array::from((0..count).map(|j| (start + j) as i64).collect::<Vec<_>>());
     let nm = StringArray::from(
         (0..count)
             .map(|j| names[(start + j) % POOL].as_str())
             .collect::<Vec<_>>(),
     );
+    #[allow(clippy::cast_precision_loss)]
     let vals = Float64Array::from(
         (0..count)
             .map(|j| (start + j) as f64 * 1.5)
@@ -288,7 +306,7 @@ fn read_opts(id: &str) -> ReadOptions {
 
 /// Scrittura a chunk via driver (streaming se il driver lo è; usato per i
 /// fixture geoparquet/gpkg e per il benchmark di `write`). Ritorna
-/// (n_batch, max_batch_bytes).
+/// (`n_batch`, `max_batch_bytes`).
 fn feed_write(
     id: &str,
     path: &Path,
@@ -344,11 +362,13 @@ fn write_geojson_fixture(path: &Path, total: usize) {
             let (x, y) = coord(i);
             format!("{{\"type\":\"Point\",\"coordinates\":[{x},{y}]}}")
         };
+        // `i` < 10M < 2^53: la conversione a f64 è esatta.
+        #[allow(clippy::cast_precision_loss)]
+        let val = i as f64 * 1.5;
         write!(
             w,
-            "{{\"type\":\"Feature\",\"geometry\":{geom},\"properties\":{{\"id\":{i},\"name\":\"f{}\",\"val\":{}}}}}",
-            i % POOL,
-            i as f64 * 1.5
+            "{{\"type\":\"Feature\",\"geometry\":{geom},\"properties\":{{\"id\":{i},\"name\":\"f{}\",\"val\":{val}}}}}",
+            i % POOL
         )
         .unwrap();
     }
@@ -363,13 +383,10 @@ fn write_csv_fixture(path: &Path, total: usize) {
     w.write_all(b"id,name,val,geometry\n").unwrap();
     for i in 0..total {
         let (x, y) = coord(i);
-        writeln!(
-            w,
-            "{i},f{},{},\"POINT ({x} {y})\"",
-            i % POOL,
-            i as f64 * 1.5
-        )
-        .unwrap();
+        // `i` < 10M < 2^53: la conversione a f64 è esatta.
+        #[allow(clippy::cast_precision_loss)]
+        let val = i as f64 * 1.5;
+        writeln!(w, "{i},f{},{val},\"POINT ({x} {y})\"", i % POOL).unwrap();
     }
     w.flush().unwrap();
 }
@@ -413,9 +430,9 @@ fn read_drain(
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: pruning.map(plenora_io_core::request::PruningPredicate::Opaque),
             spatial_pruning_hint: None,
-            scope: Default::default(),
+            scope: ReadScope::default(),
             batch_target: BatchTarget::default(),
-            cancellation: Default::default(),
+            cancellation: CancellationToken::default(),
         })
         .unwrap();
     let mut st = ReadStats {
@@ -455,6 +472,10 @@ fn dataset_len(id: &str, path: &Path) -> u64 {
     }
 }
 
+// Un solo flusso per operazione (prepare/read/write): reset dei contatori,
+// esecuzione e raccolta metriche devono restare adiacenti perché l'ordine
+// determina cosa finisce nella baseline.
+#[allow(clippy::too_many_lines)]
 fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
     // Pool costruiti PRIMA del reset: i loro 1024 encode non contano.
     let pool = wkb_pool();
@@ -546,7 +567,12 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
     let alloc_count = ALLOC_COUNT.load(Ordering::Relaxed);
     let peak_heap = PEAK.load(Ordering::Relaxed);
     let peak_rss = peak_rss_bytes();
+    // Byte di I/O e righe della baseline restano sotto 2^53: i cast a f64 sono
+    // esatti e non alterano le metriche riportate.
+    #[allow(clippy::cast_precision_loss)]
     let mb = io_bytes as f64 / 1_048_576.0;
+    #[allow(clippy::cast_precision_loss)]
+    let rows_done_f64 = rows_done as f64;
     let secs = wall_ms / 1000.0;
 
     serde_json::json!({
@@ -559,7 +585,7 @@ fn run_one(id: &str, op: &str, rows: usize) -> serde_json::Value {
         "batches": batches,
         "wall_ms": (wall_ms * 100.0).round() / 100.0,
         "cpu_ms": (cpu * 100.0).round() / 100.0,
-        "rows_per_s": if secs > 0.0 { (rows_done as f64 / secs).round() } else { 0.0 },
+        "rows_per_s": if secs > 0.0 { (rows_done_f64 / secs).round() } else { 0.0 },
         "mb_per_s": if secs > 0.0 { (mb / secs * 100.0).round() / 100.0 } else { 0.0 },
         "peak_rss_bytes": peak_rss,
         "peak_heap_bytes": peak_heap,
@@ -590,7 +616,7 @@ fn run_child(exe: &Path, args: &[&str], deadline: Duration) -> serde_json::Value
     let mut timed_out = false;
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => break,
+            Ok(Some(_)) | Err(_) => break,
             Ok(None) => {
                 if start.elapsed() > deadline {
                     child.kill().ok();
@@ -599,7 +625,6 @@ fn run_child(exe: &Path, args: &[&str], deadline: Duration) -> serde_json::Value
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
-            Err(_) => break,
         }
     }
     let out = match child.wait_with_output() {
@@ -626,6 +651,10 @@ fn run_child(exe: &Path, args: &[&str], deadline: Duration) -> serde_json::Value
     })
 }
 
+// `f64::midpoint` NON è bit-identico a `(a + b) / 2.0`: cambierebbe la mediana
+// pubblicata nelle baseline storiche. La media aritmetica esplicita resta il
+// contratto numerico di questo harness (ADR-0001, determinismo bit-esatto).
+#[allow(clippy::manual_midpoint)]
 fn median(values: &mut [f64]) -> f64 {
     values.sort_by(f64::total_cmp);
     let middle = values.len() / 2;
@@ -765,6 +794,10 @@ fn compare_baselines(before_path: &Path, after_path: &Path) -> std::result::Resu
     }
 }
 
+// `main` è il driver dell'harness: parsing degli argomenti, orchestrazione dei
+// sottoprocessi e scrittura della baseline condividono lo stesso stato e lo
+// stesso ordine di esecuzione.
+#[allow(clippy::too_many_lines)]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("compare") {
@@ -827,8 +860,7 @@ fn main() {
     for d in drivers {
         eprintln!("[{d}] prepare…");
         let prep = run_child(&exe, &["run", "--driver", d, "--op", "prepare"], deadline);
-        let prepared = prep.get("prepared").is_some();
-        if !prepared {
+        if prep.get("prepared").is_none() {
             eprintln!("[{d}] prepare FALLITO: {prep}");
             let mut r = prep.clone();
             r["driver"] = d.into();
@@ -879,6 +911,9 @@ fn main() {
     eprintln!("--- baseline scritta in {} ---", output.display());
 }
 
+// `rows_per_s` è un tasso non negativo già arrotondato: il cast a u64 serve
+// solo alla riga di log, non alimenta la baseline.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn short(v: &serde_json::Value) -> String {
     if v.get("status").and_then(|s| s.as_str()) == Some("ok") {
         format!(

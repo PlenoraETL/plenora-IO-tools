@@ -1,6 +1,8 @@
-//! Publish atomico condiviso (ADR-IO 2). Profilo v1 di default: `AtomicPublish`;
-//! `durable` attiva `DurableAtomicPublish`: sincronizza file e directory dove
-//! la piattaforma lo consente e segnala esplicitamente quando la durabilità del
+//! Publish atomico condiviso (ADR-IO 2).
+//!
+//! Profilo v1 di default: `AtomicPublish`; `durable` attiva
+//! `DurableAtomicPublish`, che sincronizza file e directory dove la
+//! piattaforma lo consente e segnala esplicitamente quando la durabilità del
 //! nome pubblicato non può essere confermata.
 
 use std::fs::{File, OpenOptions};
@@ -30,6 +32,12 @@ pub struct StagedFile {
 }
 
 impl StagedFile {
+    /// Prepara uno staging file adiacente alla destinazione.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore di I/O se lo staging non è creabile nella
+    /// directory di destinazione.
     pub fn new(destination: &Path, durable: bool, max_output_bytes: u64) -> Result<Self> {
         Ok(Self {
             temp: Some(create_staged_file(destination)?),
@@ -39,6 +47,13 @@ impl StagedFile {
         })
     }
 
+    /// Come [`StagedFile::new`], conservando il suffisso richiesto dal
+    /// formato.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce un errore di I/O se lo staging non è creabile nella
+    /// directory di destinazione.
     pub fn with_suffix(
         destination: &Path,
         suffix: &str,
@@ -53,6 +68,12 @@ impl StagedFile {
         })
     }
 
+    /// Percorso dello staging file.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Contract`] se lo staging è già stato
+    /// consumato da [`StagedFile::publish`].
     pub fn path(&self) -> Result<&Path> {
         self.temp
             .as_ref()
@@ -60,6 +81,12 @@ impl StagedFile {
             .ok_or_else(Self::terminal_state_error)
     }
 
+    /// Riapre lo staging file come handle indipendente.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Contract`] se lo staging è già stato
+    /// consumato, o l'errore di I/O della riapertura.
     pub fn reopen(&self) -> Result<File> {
         Ok(self
             .temp
@@ -68,6 +95,12 @@ impl StagedFile {
             .reopen()?)
     }
 
+    /// Handle mutabile sullo staging file.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Contract`] se lo staging è già stato
+    /// consumato da [`StagedFile::publish`].
     pub fn as_file_mut(&mut self) -> Result<&mut File> {
         Ok(self
             .temp
@@ -76,6 +109,14 @@ impl StagedFile {
             .as_file_mut())
     }
 
+    /// Transizione terminale: pubblica lo staging sulla destinazione.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::Contract`] se lo staging è già stato
+    /// consumato, [`PlenoraIoError::LimitExceeded`] se l'output supera il
+    /// limite fisico, [`PlenoraIoError::OutputExists`] se la destinazione
+    /// esiste già, o l'errore di I/O di `fsync`/rename.
     pub fn publish(&mut self) -> Result<(u64, PublishOutcome)> {
         let temp = self.temp.take().ok_or_else(Self::terminal_state_error)?;
         publish_file_atomic_limited(temp, &self.destination, self.durable, self.max_output_bytes)
@@ -94,12 +135,21 @@ impl StagedFile {
 /// percorso relativo e uno assoluto risolvono il parent con la stessa semantica
 /// e il successivo rename atomico non dipende dalla directory temporanea di
 /// sistema.
+///
+/// # Errors
+///
+/// Restituisce un errore di I/O se il file temporaneo non è creabile nella
+/// directory padre della destinazione.
 pub fn create_staged_file(dest: &Path) -> Result<NamedTempFile> {
     Ok(NamedTempFile::new_in(destination_parent(dest))?)
 }
 
 /// Come [`create_staged_file`], mantenendo il suffisso richiesto da librerie che
 /// riconoscono il formato dal nome del file temporaneo.
+///
+/// # Errors
+///
+/// Gli stessi di [`create_staged_file`].
 pub fn create_staged_file_with_suffix(dest: &Path, suffix: &str) -> Result<NamedTempFile> {
     Ok(tempfile::Builder::new()
         .suffix(suffix)
@@ -107,11 +157,22 @@ pub fn create_staged_file_with_suffix(dest: &Path, suffix: &str) -> Result<Named
 }
 
 /// Crea una staging directory adiacente alla destinazione del dataset.
+///
+/// # Errors
+///
+/// Restituisce un errore di I/O se la directory temporanea non è creabile
+/// nella directory padre della destinazione.
 pub fn create_staged_dir(dest: &Path) -> Result<TempDir> {
     Ok(tempfile::Builder::new().tempdir_in(destination_parent(dest))?)
 }
 
 /// Pubblica un file singolo in modo atomico e no-clobber.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::OutputExists`] se la destinazione esiste già,
+/// [`PlenoraIoError::Unsupported`] se staging e destinazione non sono sullo
+/// stesso filesystem, o l'errore di I/O di `fsync`/rename.
 pub fn publish_file_atomic(
     temp: NamedTempFile,
     dest: &Path,
@@ -133,6 +194,12 @@ pub fn publish_file_atomic(
 
 /// Variante bounded: verifica la dimensione del tempfile prima del rename, così
 /// un superamento non rende mai visibile l'output.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::LimitExceeded`] se lo staging supera
+/// `max_output_bytes`; per il resto gli stessi errori di
+/// [`publish_file_atomic`].
 pub fn publish_file_atomic_limited(
     temp: NamedTempFile,
     dest: &Path,
@@ -150,6 +217,13 @@ pub fn publish_file_atomic_limited(
 
 /// Pubblica una directory-dataset (multi-file / multi-layer) con un unico rename
 /// atomico (staging dir -> destinazione), sullo stesso filesystem.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::OutputExists`] se la destinazione esiste già,
+/// [`PlenoraIoError::Unsupported`] se staging e destinazione non sono sullo
+/// stesso filesystem o se il tree di staging contiene voci non regolari
+/// (symlink), o l'errore di I/O di `fsync`/rename.
 pub fn publish_dir_atomic(staging: &Path, dest: &Path, durable: bool) -> Result<PublishOutcome> {
     ensure_destination_absent(dest)?;
     ensure_same_filesystem(staging, destination_parent(dest))?;
@@ -167,11 +241,21 @@ pub fn publish_dir_atomic(staging: &Path, dest: &Path, durable: bool) -> Result<
     ))
 }
 
-/// Pubblica un set di file sciolti nell'ordine fornito. La modalità è
-/// deliberatamente più debole del rename di directory: i companion possono
-/// diventare visibili uno alla volta, quindi il marker principale va passato
-/// per ultimo. Tutti i controlli e gli `fsync` pre-publish avvengono prima del
-/// primo rename.
+/// Pubblica un set di file sciolti nell'ordine fornito.
+///
+/// La modalità è deliberatamente più debole del rename di directory: i
+/// companion possono diventare visibili uno alla volta, quindi il marker
+/// principale va passato per ultimo. Tutti i controlli e gli `fsync`
+/// pre-publish avvengono prima del primo rename.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::Unsupported`] se il set è vuoto, se non usa
+/// una sola staging e una sola destinazione, se un file di staging non è
+/// regolare o se staging e destinazione non sono sullo stesso filesystem;
+/// [`PlenoraIoError::LimitExceeded`] se i byte totali superano il limite o
+/// vanno in overflow; [`PlenoraIoError::OutputExists`] se una destinazione
+/// esiste già; l'errore di I/O di `fsync`/rename.
 pub fn publish_files_ordered_limited(
     files: &[(PathBuf, PathBuf)],
     durable: bool,
@@ -212,14 +296,14 @@ pub fn publish_files_ordered_limited(
     }
     ensure_same_filesystem(first_source, destination_parent(first_destination))?;
 
-    let mut staging_durability_confirmed = true;
-    if durable {
+    let staging_durability_confirmed = if durable {
         for (source, _) in files {
             sync_file(source)?;
         }
-        staging_durability_confirmed =
-            sync_dir(source_parent_path.unwrap_or_else(|| Path::new(".")))?;
-    }
+        sync_dir(source_parent_path.unwrap_or_else(|| Path::new(".")))?
+    } else {
+        true
+    };
 
     for (source, destination) in files {
         rename_noclobber(source, destination)?;

@@ -9,13 +9,13 @@
 //!  2. `wkb_bbox` (scanner raw-bytes) — non deve MAI SOTTO-stimare il bbox
 //!     (invariante di correttezza dello spatial pruning: mai scartare in eccesso).
 //!  3. `wkb_from_gj_value` — non panic; se produce WKB, dev'essere decodificabile.
-//!  4. `write_geo_geojson` — round-trip: geo→JSON→geojson::Value→WKB→geo.
+//!  4. `write_geo_geojson` — round-trip: geo→JSON→`geojson::Value`→WKB→geo.
 //!
 //! Uso:
-//!   plenora-fuzz                      # campagna (PLENORA_FUZZ_SECONDS, def 60)
+//!   plenora-fuzz                      # campagna (`PLENORA_FUZZ_SECONDS`, def 60)
 //!   plenora-fuzz <file>               # replay: esegue i check su un artefatto
 //!   plenora-fuzz --export-corpus DIR  # seed per i target cargo-fuzz
-//! Env: PLENORA_FUZZ_SECONDS, PLENORA_FUZZ_SEED, PLENORA_FUZZ_OUT.
+//! Env: `PLENORA_FUZZ_SECONDS`, `PLENORA_FUZZ_SEED`, `PLENORA_FUZZ_OUT`.
 
 use std::collections::HashSet;
 use std::io::Write;
@@ -34,7 +34,7 @@ use plenora_io_model::wkb::{
 
 struct Rng(u64);
 impl Rng {
-    fn next(&mut self) -> u64 {
+    const fn next(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x << 13;
         x ^= x >> 7;
@@ -42,14 +42,17 @@ impl Rng {
         self.0 = x;
         x
     }
-    fn below(&mut self, n: usize) -> usize {
+    const fn below(&mut self, n: usize) -> usize {
         if n == 0 {
             0
         } else {
-            (self.next() % n as u64) as usize
+            // Il resto è < n, che è già un usize: il cast di ritorno è esatto.
+            #[allow(clippy::cast_possible_truncation)]
+            let value = (self.next() % n as u64) as usize;
+            value
         }
     }
-    fn byte(&mut self) -> u8 {
+    const fn byte(&mut self) -> u8 {
         (self.next() & 0xff) as u8
     }
     fn f64(&mut self) -> f64 {
@@ -61,6 +64,9 @@ impl Rng {
             4 => 1e308,
             5 => f64::from_bits(self.next()),
             6 => -1e-9,
+            // Il fuzzer vuole proprio l'intero spettro dei bit: il wrap a i64 e
+            // l'arrotondamento a f64 sono la sorgente di entropia, non un bug.
+            #[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss)]
             _ => (self.next() as i64 as f64) * 1e-3,
         }
     }
@@ -101,7 +107,7 @@ fn wkb_seeds() -> Vec<Vec<u8>> {
     let gs: Vec<Geometry<f64>> = vec![
         Geometry::Point(Point::new(1., 2.)),
         Geometry::LineString(LineString(vec![c(0., 0.), c(1., 1.), c(2., 3.)])),
-        Geometry::Polygon(Polygon::new(ext.clone(), vec![hole.clone()])),
+        Geometry::Polygon(Polygon::new(ext.clone(), vec![hole])),
         Geometry::MultiPoint(MultiPoint(vec![Point::new(0., 0.), Point::new(5., 5.)])),
         Geometry::MultiLineString(MultiLineString(vec![LineString(vec![
             c(0., 0.),
@@ -186,7 +192,7 @@ fn wkt_seeds() -> Vec<Vec<u8>> {
     .collect()
 }
 
-/// FeatureCollection eterogenee: proprietà disomogenee, tipi misti, geometria
+/// `FeatureCollection` eterogenee: proprietà disomogenee, tipi misti, geometria
 /// null e properties null — per stressare pass-1 + pass-2 (allineamento colonne).
 fn fc_seeds() -> Vec<Vec<u8>> {
     [
@@ -392,7 +398,9 @@ fn mutate(rng: &mut Rng, seed: &[u8]) -> Vec<u8> {
 // --- geometrie: helper per le invarianti -----------------------------------
 
 fn collect_coords(g: &Geometry<f64>, out: &mut Vec<(f64, f64)>) {
-    use geo_types::Geometry::*;
+    use geo_types::Geometry::{
+        GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
+    };
     match g {
         Point(p) => out.push((p.x(), p.y())),
         LineString(ls) => out.extend(ls.0.iter().map(|c| (c.x, c.y))),
@@ -468,6 +476,9 @@ const LIM: WkbLimits = WkbLimits {
 };
 
 /// Invarianti sul codec WKB e sullo scanner bbox, da byte grezzi.
+// `minx`/`miny` e `maxx`/`maxy` sono le componenti canoniche di un bounding
+// box: rinominarle per `similar_names` peggiorerebbe la leggibilità.
+#[allow(clippy::similar_names)]
 fn check_wkb(data: &[u8]) -> Result<(), String> {
     let decoded_lossless = decode_wkb(data, &LIM);
     let inspected = inspect_wkb(data, &LIM);
@@ -507,9 +518,9 @@ fn check_wkb(data: &[u8]) -> Result<(), String> {
             return Err("round-trip lossless altera ordinate Z/M".to_owned());
         }
     }
-    let g = match from_wkb(data, &LIM) {
-        Ok(g) => g,
-        Err(_) => return Ok(()), // rifiuto pulito: ok
+    // rifiuto pulito: ok
+    let Ok(g) = from_wkb(data, &LIM) else {
+        return Ok(());
     };
     // Idempotenza: re-encode + re-decode deve dare la stessa geometria
     // (salta l'uguaglianza se ci sono coordinate non finite: NaN != NaN).
@@ -552,7 +563,7 @@ fn check_wkb(data: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// geo → write_geo_geojson → geojson::Geometry → wkb_from_gj_value → geo.
+/// geo → `write_geo_geojson` → `geojson::Geometry` → `wkb_from_gj_value` → geo.
 fn geojson_geom_roundtrip(g: &Geometry<f64>) -> Result<(), String> {
     let mut json: Vec<u8> = Vec::new();
     if driver_geojson::write_geo_geojson(&mut json, g).is_err() {
@@ -583,7 +594,7 @@ fn geojson_geom_roundtrip(g: &Geometry<f64>) -> Result<(), String> {
     Ok(())
 }
 
-/// wkb_from_gj_value su un `geojson::Value` sintetico: non deve panic, e se
+/// `wkb_from_gj_value` su un `geojson::Value` sintetico: non deve panic, e se
 /// produce WKB dev'essere decodificabile.
 fn check_gj_value(v: &geojson::Value) -> Result<(), String> {
     let mut wkb = Vec::new();
@@ -617,9 +628,14 @@ fn check_wkt(s: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// geojson::Value casuale, profondità limitata (≤4, come il limite serde reale).
+/// `geojson::Value` casuale, profondità limitata (≤4, come il limite serde reale).
+// `ring`/`rng` differiscono di una lettera ma sono i nomi naturali di "anello"
+// e "generatore": rinominarli non aggiungerebbe chiarezza.
+#[allow(clippy::similar_names)]
 fn rand_gj_value(rng: &mut Rng, depth: usize) -> geojson::Value {
-    use geojson::Value::*;
+    use geojson::Value::{
+        GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
+    };
     let pos = |rng: &mut Rng| -> Vec<f64> { (0..rng.below(4)).map(|_| rng.f64()).collect() };
     let ring = |rng: &mut Rng| -> Vec<Vec<f64>> { (0..rng.below(6)).map(|_| pos(rng)).collect() };
     let poly =
@@ -647,10 +663,10 @@ fn rand_gj_value(rng: &mut Rng, depth: usize) -> geojson::Value {
 // --- artefatti -------------------------------------------------------------
 
 fn fnv1a(b: &[u8]) -> u64 {
-    let mut h = 0xcbf29ce484222325u64;
+    let mut h = 0xcbf2_9ce4_8422_2325_u64;
     for &x in b {
-        h ^= x as u64;
-        h = h.wrapping_mul(0x100000001b3);
+        h ^= u64::from(x);
+        h = h.wrapping_mul(0x0100_0000_01b3);
     }
     h
 }
@@ -668,7 +684,10 @@ fn save(dir: &Path, target: &str, input: &[u8], why: &str) {
     );
 }
 
-fn panic_msg(e: Box<dyn std::any::Any + Send>) -> String {
+// La catena di downcast è ordinata (`&str` prima di `String`): tradurla in
+// `map_or_else` annidati nasconderebbe la priorità senza cambiarne l'esito.
+#[allow(clippy::option_if_let_else)]
+fn panic_msg(e: &(dyn std::any::Any + Send)) -> String {
     if let Some(s) = e.downcast_ref::<&str>() {
         (*s).to_owned()
     } else if let Some(s) = e.downcast_ref::<String>() {
@@ -699,21 +718,23 @@ fn replay(path: &str) {
     println!("  wkb_bbox → {:?}", driver_geoparquet::wkb_bbox(&data));
 }
 
+// `main` è il driver della campagna: parsing degli argomenti, seeding, loop di
+// mutazione e report vivono nello stesso flusso e condividono lo stato del PRNG.
+// `seen`/`secs` sono nomi consolidati dell'harness.
+#[allow(clippy::too_many_lines, clippy::similar_names)]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--export-corpus") {
         let root = args
             .get(2)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/work/fuzz/corpus"));
+            .map_or_else(|| PathBuf::from("/work/fuzz/corpus"), PathBuf::from);
         export_corpus(&root);
         return;
     }
     if args.get(1).map(String::as_str) == Some("--replay-shared-corpus") {
-        let root = match args.get(2) {
-            Some(path) => PathBuf::from(path),
-            None => PathBuf::from("/work/fuzz/shared-corpus"),
-        };
+        let root = args
+            .get(2)
+            .map_or_else(|| PathBuf::from("/work/fuzz/shared-corpus"), PathBuf::from);
         match replay_shared_corpus(&root) {
             Ok(report) => {
                 let encoded = match serde_json::to_string_pretty(&report) {
@@ -754,8 +775,14 @@ fn main() {
         .unwrap_or_else(|| {
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0x9E3779B97F4A7C15)
+                // Seed del PRNG: il troncamento dei nanosecondi a 64 bit è
+                // voluto, serve solo entropia iniziale.
+                .map(|d| {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let nanos = d.as_nanos() as u64;
+                    nanos
+                })
+                .unwrap_or(0x9E37_79B9_7F4A_7C15)
                 | 1
         });
     let out = PathBuf::from(
@@ -850,13 +877,11 @@ fn main() {
         }
         if last_report.elapsed() >= Duration::from_secs(30) {
             let el = start.elapsed().as_secs_f64().max(0.001);
-            println!(
-                "  {:.0}s  iter={}  {:.0}k/s  findings={}",
-                el,
-                iters,
-                iters as f64 / el / 1000.0,
-                findings
-            );
+            // Conteggio iterazioni della campagna: resta sotto 2^53, la
+            // conversione a f64 è esatta.
+            #[allow(clippy::cast_precision_loss)]
+            let rate = iters as f64 / el / 1000.0;
+            println!("  {el:.0}s  iter={iters}  {rate:.0}k/s  findings={findings}");
             let _ = std::io::stdout().flush();
             last_report = Instant::now();
         }
@@ -871,7 +896,7 @@ fn main() {
 fn run(f: impl FnOnce() -> Result<(), String>) -> Result<(), String> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(r) => r,
-        Err(e) => Err(format!("PANIC: {}", panic_msg(e))),
+        Err(e) => Err(format!("PANIC: {}", panic_msg(e.as_ref()))),
     }
 }
 

@@ -19,7 +19,7 @@ pub struct Transform3 {
 }
 
 impl Transform3 {
-    pub const IDENTITY: Transform3 = Transform3 {
+    pub const IDENTITY: Self = Self {
         matrix: [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
@@ -35,10 +35,10 @@ impl Transform3 {
         scale_x: f64,
         scale_y: f64,
         scale_z: f64,
-    ) -> Transform3 {
+    ) -> Self {
         let theta = rotation_degrees.to_radians();
         let (sin, cos) = theta.sin_cos();
-        Transform3 {
+        Self {
             matrix: [
                 [cos * scale_x, -sin * scale_y, 0.0, location[0]],
                 [sin * scale_x, cos * scale_y, 0.0, location[1]],
@@ -49,7 +49,7 @@ impl Transform3 {
     }
 
     /// Composizione `self ∘ other`: applica prima `other`, poi `self`.
-    pub fn then(self, other: Transform3) -> Transform3 {
+    pub fn then(self, other: Self) -> Self {
         let mut matrix = [[0.0; 4]; 4];
         for (row, values) in matrix.iter_mut().enumerate() {
             for (column, value) in values.iter_mut().enumerate() {
@@ -58,9 +58,12 @@ impl Transform3 {
                     .sum();
             }
         }
-        Transform3 { matrix }
+        Self { matrix }
     }
 
+    // Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe
+    // il determinismo bit-esatto delle coordinate trasformate.
+    #[allow(clippy::suboptimal_flops)]
     pub fn apply(&self, point: Point3) -> Point3 {
         [
             self.matrix[0][0] * point[0]
@@ -80,7 +83,7 @@ impl Transform3 {
 
     /// Arbitrary-axis algorithm DXF completo: le colonne della matrice sono
     /// gli assi X/Y dell'OCS e la normale Z, tutti espressi in WCS.
-    pub fn ocs(normal: Point3) -> Transform3 {
+    pub fn ocs(normal: Point3) -> Self {
         let n = normalize3(normal).unwrap_or([0.0, 0.0, 1.0]);
         let arbitrary = if n[0].abs() < 1.0 / 64.0 && n[1].abs() < 1.0 / 64.0 {
             cross3([0.0, 1.0, 0.0], n)
@@ -89,7 +92,7 @@ impl Transform3 {
         };
         let ax = normalize3(arbitrary).unwrap_or([1.0, 0.0, 0.0]);
         let ay = normalize3(cross3(n, ax)).unwrap_or([0.0, 1.0, 0.0]);
-        Transform3 {
+        Self {
             matrix: [
                 [ax[0], ay[0], n[0], 0.0],
                 [ax[1], ay[1], n[1], 0.0],
@@ -114,7 +117,7 @@ pub struct Transform {
 
 #[cfg(test)]
 impl Transform {
-    pub const IDENTITY: Transform = Transform {
+    pub const IDENTITY: Self = Self {
         a: 1.0,
         b: 0.0,
         c: 0.0,
@@ -125,7 +128,7 @@ impl Transform {
 
     /// Trasformazione di un INSERT: trasla nell'inserimento, ruota, scala.
     /// Applicata a coordinate locali del blocco: `translate ∘ rotate ∘ scale`.
-    pub fn insert(location: Point, rotation_degrees: f64, scale_x: f64, scale_y: f64) -> Transform {
+    pub fn insert(location: Point, rotation_degrees: f64, scale_x: f64, scale_y: f64) -> Self {
         let theta = rotation_degrees.to_radians();
         let (sin, cos) = theta.sin_cos();
         // rotate ∘ scale
@@ -133,7 +136,7 @@ impl Transform {
         let b = sin * scale_x;
         let c = -sin * scale_y;
         let d = cos * scale_y;
-        Transform {
+        Self {
             a,
             b,
             c,
@@ -144,8 +147,14 @@ impl Transform {
     }
 
     /// Composizione `self ∘ other`: applica prima `other`, poi `self`.
-    pub fn then(self, other: Transform) -> Transform {
-        Transform {
+    // Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe
+    // il determinismo bit-esatto della composizione affine.
+    // `suspicious_operation_groupings` e' un falso positivo: gli indici
+    // asimmetrici sono il prodotto righe-per-colonne di due matrici 3x3
+    // affini, verificato termine a termine.
+    #[allow(clippy::suboptimal_flops, clippy::suspicious_operation_groupings)]
+    pub fn then(self, other: Self) -> Self {
+        Self {
             a: self.a * other.a + self.c * other.b,
             b: self.b * other.a + self.d * other.b,
             c: self.a * other.c + self.c * other.d,
@@ -155,6 +164,9 @@ impl Transform {
         }
     }
 
+    // Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe
+    // il determinismo bit-esatto delle coordinate trasformate.
+    #[allow(clippy::suboptimal_flops)]
     pub fn apply(&self, point: Point) -> Point {
         [
             self.a * point[0] + self.c * point[1] + self.e,
@@ -167,7 +179,7 @@ impl Transform {
     /// quota). L'extrusion (0,0,1) dà l'identità; (0,0,-1) specchia la X. Senza
     /// questa mappa le entità in coordinate oggetto mirrorate finiscono a X
     /// negativa (bug trovato dall'oracolo GDAL sul corpus RFI).
-    pub fn ocs(normal: [f64; 3]) -> Transform {
+    pub fn ocs(normal: [f64; 3]) -> Self {
         let n = normalize3(normal).unwrap_or([0.0, 0.0, 1.0]);
         let arbitrary = if n[0].abs() < 1.0 / 64.0 && n[1].abs() < 1.0 / 64.0 {
             cross3([0.0, 1.0, 0.0], n)
@@ -176,7 +188,7 @@ impl Transform {
         };
         let ax = normalize3(arbitrary).unwrap_or([1.0, 0.0, 0.0]);
         let ay = normalize3(cross3(n, ax)).unwrap_or([0.0, 1.0, 0.0]);
-        Transform {
+        Self {
             a: ax[0],
             b: ax[1],
             c: ay[0],
@@ -187,6 +199,9 @@ impl Transform {
     }
 }
 
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il
+// determinismo bit-esatto del prodotto vettoriale.
+#[allow(clippy::suboptimal_flops)]
 fn cross3(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
     [
         u[1] * v[2] - u[2] * v[1],
@@ -195,6 +210,9 @@ fn cross3(u: [f64; 3], v: [f64; 3]) -> [f64; 3] {
     ]
 }
 
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il
+// determinismo bit-esatto della norma.
+#[allow(clippy::suboptimal_flops)]
 fn normalize3(v: [f64; 3]) -> Option<[f64; 3]> {
     let length = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
     if length.is_finite() && length > 1e-12 {
@@ -204,12 +222,24 @@ fn normalize3(v: [f64; 3]) -> Option<[f64; 3]> {
     }
 }
 
+// `full_circle_segments` e' il numero di segmenti per giro (ARC_SEGMENTS = 24
+// nel driver): la conversione in f64 e' esatta. `fraction` sta in [0, 1], quindi
+// il prodotto arrotondato sta in [0, full_circle_segments]: non negativo e senza
+// troncamento.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 fn segments_for_angle(sweep: f64, full_circle_segments: usize) -> usize {
     let fraction = (sweep.abs() / TAU).min(1.0);
     ((full_circle_segments as f64 * fraction).round() as usize).max(1)
 }
 
 /// Centro dell'arco codificato da un bulge tra due vertici (forma chiusa).
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il
+// determinismo bit-esatto del centro dell'arco.
+#[allow(clippy::suboptimal_flops)]
 fn bulge_center(p1: Point, p2: Point, bulge: f64) -> Point {
     let cot = 0.5 * (1.0 / bulge - bulge);
     [
@@ -220,6 +250,14 @@ fn bulge_center(p1: Point, p2: Point, bulge: f64) -> Point {
 
 /// Campiona l'arco codificato dal bulge, restituendo i punti INTERMEDI
 /// (esclusi p1 e p2, che il chiamante possiede già).
+// Niente `hypot` al posto di sqrt(x²+y²) e niente mul_add/FMA: entrambi
+// cambiano l'arrotondamento IEEE e romperebbero il determinismo bit-esatto
+// dell'arco. `step` e `count` sono conteggi di segmenti (<< 2^53): esatti in f64.
+#[allow(
+    clippy::imprecise_flops,
+    clippy::suboptimal_flops,
+    clippy::cast_precision_loss
+)]
 pub fn tessellate_bulge(
     p1: Point,
     p2: Point,
@@ -252,6 +290,10 @@ pub fn tessellate_bulge(
 }
 
 /// Punti di un arco (start/end in gradi, CCW come da specifica DXF).
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il
+// determinismo bit-esatto dei vertici campionati. `step` e `count` sono
+// conteggi di segmenti (<< 2^53): conversione esatta.
+#[allow(clippy::suboptimal_flops, clippy::cast_precision_loss)]
 pub fn tessellate_arc(
     center: Point,
     radius: f64,
@@ -283,7 +325,15 @@ pub fn tessellate_arc(
 /// centro->estremo dell'asse maggiore; `ratio` = semiasse minore / maggiore;
 /// i parametri sono angoli (rad) come da specifica DXF. Esatta, non
 /// approssimata oltre il campionamento.
-#[allow(clippy::too_many_arguments)]
+// Niente `hypot` e niente mul_add/FMA: cambiano l'arrotondamento IEEE e
+// romperebbero il determinismo bit-esatto dell'ellisse. `step` e `count` sono
+// conteggi di segmenti (<< 2^53): conversione esatta.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::imprecise_flops,
+    clippy::suboptimal_flops,
+    clippy::cast_precision_loss
+)]
 #[cfg(test)]
 pub fn tessellate_ellipse(
     center: Point,
@@ -330,7 +380,14 @@ pub fn tessellate_ellipse(
 /// Variante tridimensionale dell'ellisse DXF. `major` è il vettore
 /// centro→estremo dell'asse maggiore in WCS; la direzione minore è ricavata
 /// dalla normale del piano, così un'ellisse inclinata conserva la quota.
-#[allow(clippy::too_many_arguments)]
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il
+// determinismo bit-esatto dell'ellisse 3D. `step` e `count` sono conteggi di
+// segmenti (<< 2^53): conversione esatta.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::suboptimal_flops,
+    clippy::cast_precision_loss
+)]
 pub fn tessellate_ellipse3(
     center: Point3,
     major: Point3,
@@ -383,6 +440,9 @@ pub fn tessellate_ellipse3(
 /// coordinate omogenee). Se il knot vector è incoerente ripiega sul poligono
 /// di controllo, che delimita la curva vera: un'approssimazione grezza ma mai
 /// una geometria inventata.
+// `step` e `count` sono conteggi di campioni, limitati dal numero di control
+// point dell'entita' DXF (<< 2^53): conversione esatta.
+#[allow(clippy::cast_precision_loss)]
 #[cfg(test)]
 pub fn tessellate_spline(
     degree: usize,
@@ -437,6 +497,9 @@ pub fn tessellate_spline(
 
 /// Variante tridimensionale della tassellazione NURBS. Conserva la quota dei
 /// control point usando coordinate omogenee `(x*w, y*w, z*w, w)`.
+// `step` e `count` sono conteggi di campioni, limitati dal numero di control
+// point dell'entita' DXF (<< 2^53): conversione esatta.
+#[allow(clippy::cast_precision_loss)]
 pub fn tessellate_spline3(
     degree: usize,
     knots: &[f64],
@@ -493,6 +556,9 @@ pub fn tessellate_spline3(
     }
 }
 
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il
+// determinismo bit-esatto dell'interpolazione di de Boor.
+#[allow(clippy::suboptimal_flops)]
 #[cfg(test)]
 fn de_boor(p: usize, knots: &[f64], control: &[[f64; 3]], u: f64) -> [f64; 3] {
     let n = control.len();
@@ -501,30 +567,33 @@ fn de_boor(p: usize, knots: &[f64], control: &[[f64; 3]], u: f64) -> [f64; 3] {
     while k < n - 1 && knots[k + 1] <= u {
         k += 1;
     }
-    let mut d: Vec<[f64; 3]> = (0..=p)
-        .map(|j| control[(j + k).saturating_sub(p).min(n - 1)])
+    let mut values: Vec<[f64; 3]> = (0..=p)
+        .map(|index| control[(index + k).saturating_sub(p).min(n - 1)])
         .collect();
-    for r in 1..=p {
-        for j in (r..=p).rev() {
-            let i = j + k - p;
-            let denom = knots[i + p + 1 - r] - knots[i];
-            let alpha = if denom.abs() > 1e-12 {
-                (u - knots[i]) / denom
+    for iteration in 1..=p {
+        for index in (iteration..=p).rev() {
+            let knot_index = index + k - p;
+            let denominator = knots[knot_index + p + 1 - iteration] - knots[knot_index];
+            let alpha = if denominator.abs() > 1e-12 {
+                (u - knots[knot_index]) / denominator
             } else {
                 0.0
             };
-            let prev = d[j - 1];
-            let cur = d[j];
-            d[j] = [
-                (1.0 - alpha) * prev[0] + alpha * cur[0],
-                (1.0 - alpha) * prev[1] + alpha * cur[1],
-                (1.0 - alpha) * prev[2] + alpha * cur[2],
+            let previous = values[index - 1];
+            let current = values[index];
+            values[index] = [
+                (1.0 - alpha) * previous[0] + alpha * current[0],
+                (1.0 - alpha) * previous[1] + alpha * current[1],
+                (1.0 - alpha) * previous[2] + alpha * current[2],
             ];
         }
     }
-    d[p]
+    values[p]
 }
 
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il
+// determinismo bit-esatto dell'interpolazione di de Boor.
+#[allow(clippy::suboptimal_flops)]
 fn de_boor4(p: usize, knots: &[f64], control: &[[f64; 4]], u: f64) -> [f64; 4] {
     let n = control.len();
     let mut k = p;
@@ -553,6 +622,10 @@ fn de_boor4(p: usize, knots: &[f64], control: &[[f64; 4]], u: f64) -> [f64; 4] {
 }
 
 /// Anello chiuso che approssima un cerchio.
+// Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e romperebbe il
+// determinismo bit-esatto dell'anello. `step` e `count` sono conteggi di
+// segmenti (<< 2^53): conversione esatta.
+#[allow(clippy::suboptimal_flops, clippy::cast_precision_loss)]
 pub fn tessellate_circle(center: Point, radius: f64, full_circle_segments: usize) -> Vec<Point> {
     if radius <= 0.0 || !radius.is_finite() {
         return Vec::new();
@@ -578,6 +651,9 @@ mod tests {
         (a - b).abs() < 1e-9
     }
 
+    // Confronto esatto voluto: identità e composizioni con fattori binari
+    // esatti devono restituire i valori bit a bit, non "vicini".
+    #[allow(clippy::float_cmp)]
     #[test]
     fn identity_and_composition_behave() {
         let point = [3.0, 4.0];
@@ -595,6 +671,9 @@ mod tests {
         assert_eq!(composed.apply([1.0, 1.0]), [12.0, 2.0]);
     }
 
+    // Confronto esatto voluto: l'OCS identità e quello degenere non devono
+    // perturbare di un solo bit le coordinate.
+    #[allow(clippy::float_cmp)]
     #[test]
     fn ocs_mirrors_x_for_reversed_extrusion() {
         // Extrusion (0,0,1): identità.
@@ -620,6 +699,9 @@ mod tests {
         assert!(close(mapped[0], 5.0) && close(mapped[1], 7.0));
     }
 
+    // Confronto esatto voluto: l'OCS identità e quello a normale invertita
+    // devono restituire le coordinate bit a bit (segno incluso).
+    #[allow(clippy::float_cmp)]
     #[test]
     fn transform3_preserves_z_through_insert_and_ocs() {
         let insert = Transform3::insert([5.0, 6.0, 7.0], 90.0, 2.0, 3.0, 4.0);
@@ -634,6 +716,9 @@ mod tests {
         assert_eq!(reversed.apply([1.0, 2.0, 3.0]), [-1.0, 2.0, -3.0]);
     }
 
+    // Niente `hypot`: l'asserzione replica la stessa forma sqrt(x²+y²) usata
+    // dal codice tassellato, che non puo' cambiare arrotondamento.
+    #[allow(clippy::imprecise_flops)]
     #[test]
     fn semicircle_bulge_follows_the_ccw_convention() {
         // Bulge 1 da (0,0) a (2,0): semicerchio di centro (1,0) raggio 1.
@@ -668,6 +753,9 @@ mod tests {
         assert!(tessellate_circle([0.0, 0.0], -1.0, 24).is_empty());
     }
 
+    // Niente mul_add/FMA: l'asserzione replica la stessa forma dell'equazione
+    // dell'ellisse, che non puo' cambiare arrotondamento.
+    #[allow(clippy::suboptimal_flops)]
     #[test]
     fn ellipse_full_is_closed_and_respects_axes() {
         // Ellisse assi-allineata: semiasse maggiore 4 (lungo X), ratio 0.5.
@@ -706,7 +794,7 @@ mod tests {
         let curve = tessellate_spline(1, &knots, &controls, &[], 9);
         assert!(curve.len() >= 2);
         for p in &curve {
-            assert!(close(p[0], p[1]), "punto {:?} fuori dalla retta y=x", p);
+            assert!(close(p[0], p[1]), "punto {p:?} fuori dalla retta y=x");
         }
         assert!(close(curve.first().unwrap()[0], 0.0));
         assert!(close(curve.last().unwrap()[0], 2.0));
@@ -731,6 +819,9 @@ mod tests {
         assert_eq!(fallback, controls);
     }
 
+    // Niente `hypot`: l'asserzione replica la stessa forma sqrt(x²+y²) usata
+    // dal codice tassellato, che non puo' cambiare arrotondamento.
+    #[allow(clippy::imprecise_flops)]
     #[test]
     fn circle_ring_is_closed_and_on_radius() {
         let ring = tessellate_circle([2.0, 3.0], 5.0, 16);

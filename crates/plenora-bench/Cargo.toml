@@ -9,6 +9,19 @@ publish = false
 name = "plenora-bench"
 path = "src/main.rs"
 
+# Unica deroga al `forbid(unsafe_code)` di workspace: questo harness misura
+# allocazioni e rusage e richiede un `GlobalAlloc` contatore e `getrusage`.
+# Non e' codice di libreria, non entra nel perimetro spedito e resta escluso
+# dal gate anti-panic CI, che gira su `--workspace --lib`. La tabella clippy
+# del workspace resta applicata.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"
+
 [dependencies]
 plenora-io-model = { path = "../plenora-io-model", features = ["metrics"] }
 plenora-io-core = { path = "../plenora-io-core" }

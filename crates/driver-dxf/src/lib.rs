@@ -1,4 +1,4 @@
-//! driver-dxf — DXF ↔ RecordBatch. Lettura delle primitive native e delle
+//! driver-dxf — DXF ↔ `RecordBatch`. Lettura delle primitive native e delle
 //! approssimazioni curve con coordinate WKB XY/XYZ, senza passare da
 //! `geo-types`. Il motore esplode ricorsivamente i blocchi INSERT con
 //! composizione di trasformazioni, OCS→WCS (algoritmo dell'asse arbitrario),
@@ -112,8 +112,7 @@ fn epsg_from_definition(definition: &str) -> Option<String> {
         remaining = &remaining[start..];
         let end = remaining
             .find("</ALIAS>")
-            .map(|index| index + "</ALIAS>".len())
-            .unwrap_or(remaining.len());
+            .map_or(remaining.len(), |index| index + "</ALIAS>".len());
         let alias = &remaining[..end];
         if alias.contains("EPSG") {
             if let Some(code) = digits_after(alias, "ID=") {
@@ -136,30 +135,24 @@ fn embedded_crs_definition(drawing: &Drawing) -> Option<String> {
 }
 
 fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedCrs> {
-    match embedded_crs_definition(drawing) {
-        Some(definition) => {
-            let embedded_id = epsg_from_definition(&definition).or_else(|| {
-                let trimmed = definition.trim();
-                (trimmed.eq_ignore_ascii_case("OGC:CRS84")).then(|| "OGC:CRS84".to_owned())
-            });
-            let id = embedded_id.or_else(|| options.assume_crs.clone());
-            let Some(id) = id else {
-                let raw = RawCrs::new(definition, None);
-                return Err(PlenoraIoError::crs_unresolved("dxf", &raw));
-            };
-            let kind = crs_kind(Some(&id), Some(&definition));
-            Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
-        }
-        None => {
-            let id = options.assume_crs.clone().ok_or_else(|| {
-                PlenoraIoError::Crs(
-                    "DXF senza GEODATA risolvibile: fornire --assume-crs".to_owned(),
-                )
-            })?;
-            let kind = crs_kind(Some(&id), None);
-            Ok(ResolvedCrs::new(Some(id), kind, None))
-        }
-    }
+    let Some(definition) = embedded_crs_definition(drawing) else {
+        let id = options.assume_crs.clone().ok_or_else(|| {
+            PlenoraIoError::Crs("DXF senza GEODATA risolvibile: fornire --assume-crs".to_owned())
+        })?;
+        let kind = crs_kind(Some(&id), None);
+        return Ok(ResolvedCrs::new(Some(id), kind, None));
+    };
+    let embedded_id = epsg_from_definition(&definition).or_else(|| {
+        let trimmed = definition.trim();
+        (trimmed.eq_ignore_ascii_case("OGC:CRS84")).then(|| "OGC:CRS84".to_owned())
+    });
+    let id = embedded_id.or_else(|| options.assume_crs.clone());
+    let Some(id) = id else {
+        let raw = RawCrs::new(definition, None);
+        return Err(PlenoraIoError::crs_unresolved("dxf", &raw));
+    };
+    let kind = crs_kind(Some(&id), Some(&definition));
+    Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
 }
 
 fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
@@ -172,7 +165,7 @@ fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
         }
     }
     match resolved.id.as_deref() {
-        Some("EPSG:4326") | Some("OGC:CRS84") => Ok(WGS84_ESRI_WKT.to_owned()),
+        Some("EPSG:4326" | "OGC:CRS84") => Ok(WGS84_ESRI_WKT.to_owned()),
         Some(id) => Err(PlenoraIoError::Crs(format!(
             "DXF richiede la definizione WKT/XML del CRS {id}, non il solo authority id"
         ))),
@@ -379,7 +372,7 @@ struct BoundedOutput<W> {
 }
 
 impl<W> BoundedOutput<W> {
-    fn new(inner: W, limit: u64) -> Self {
+    const fn new(inner: W, limit: u64) -> Self {
         Self {
             inner,
             written: 0,
@@ -388,7 +381,7 @@ impl<W> BoundedOutput<W> {
         }
     }
 
-    fn exceeded(&self) -> bool {
+    const fn exceeded(&self) -> bool {
         self.exceeded
     }
 
@@ -472,15 +465,14 @@ impl FormatWriter for DxfWriterState {
         }
         let mut layers = Vec::with_capacity(batch.num_rows());
         for row in 0..batch.num_rows() {
-            match layer_idx
+            if let Ok(layer) = layer_idx
                 .map(|index| cell_string(batch.column(index), row))
                 .transpose()
             {
-                Ok(layer) => layers.push(layer.flatten()),
-                Err(_) => {
-                    rejections.push((row, "dxf.layer_not_representable", "layer"));
-                    layers.push(None);
-                }
+                layers.push(layer.flatten());
+            } else {
+                rejections.push((row, "dxf.layer_not_representable", "layer"));
+                layers.push(None);
             }
         }
         if !rejections.is_empty() {
@@ -545,7 +537,7 @@ impl FormatWriter for DxfWriterState {
 fn add_entity(dr: &mut Drawing, specific: EntityType, layer: Option<&str>) {
     let mut e = Entity::new(specific);
     if let Some(l) = layer {
-        e.common.layer = l.to_owned();
+        l.clone_into(&mut e.common.layer);
     }
     dr.add_entity(e);
 }
@@ -561,7 +553,7 @@ fn lwpolyline(coordinates: &[WkbCoordinate], closed: bool) -> EntityType {
         })
         .collect();
     EntityType::LwPolyline(LwPolyline {
-        flags: if closed { 1 } else { 0 },
+        flags: i32::from(closed),
         vertices,
         ..Default::default()
     })
@@ -628,8 +620,7 @@ fn add_polyline(
         }
         CoordinateDimensions::Xym | CoordinateDimensions::Xyzm | CoordinateDimensions::Unknown => {
             return Err(err(format!(
-                "dimensionalità {:?} non rappresentabile in DXF",
-                dimensions
+                "dimensionalità {dimensions:?} non rappresentabile in DXF"
             )))
         }
     }
@@ -726,7 +717,7 @@ fn add_geometry(
     match &geometry.value {
         WkbValue::Point(point) => add_entity(drawing, point_entity(point)?, layer),
         WkbValue::LineString(line) => {
-            add_polyline(drawing, line, false, geometry.dimensions, layer)?
+            add_polyline(drawing, line, false, geometry.dimensions, layer)?;
         }
         WkbValue::Polygon(rings) => {
             if rings.len() > 1 {
@@ -901,7 +892,7 @@ struct DxfSpoolWriter {
 }
 
 impl DxfSpoolWriter {
-    fn new(limit: u64, budget: ResourceBudget) -> Self {
+    const fn new(limit: u64, budget: ResourceBudget) -> Self {
         Self {
             output: DxfSpoolOutput::Memory {
                 rows: Vec::new(),
@@ -1247,8 +1238,9 @@ impl LayerReader for DxfReader {
             .contract
             .geometry
             .as_ref()
-            .map(|geometry| geometry.dimensions)
-            .unwrap_or(CoordinateDimensions::Unknown);
+            .map_or(CoordinateDimensions::Unknown, |geometry| {
+                geometry.dimensions
+            });
         let mut geometries = Vec::with_capacity(rows);
         let mut layers = Vec::with_capacity(rows);
         let mut types = Vec::with_capacity(rows);
@@ -1283,7 +1275,7 @@ impl LayerReader for DxfReader {
     }
 }
 
-fn coordinate(point: [f64; 3]) -> WkbCoordinate {
+const fn coordinate(point: [f64; 3]) -> WkbCoordinate {
     WkbCoordinate {
         x: point[0],
         y: point[1],
@@ -1307,7 +1299,7 @@ fn mapped(local: &[[f64; 2]], elevation: f64, transform: &Transform3) -> Vec<Wkb
 
 /// Walker ricorsivo: converte le entità (esplodendo gli INSERT) in righe
 /// colonnari WKB. È il motore di plenora-dxf-tools adattato all'interfaccia del
-/// driver (AST WKB lossless + LossReport invece di GeoJSON).
+/// driver (AST WKB lossless + `LossReport` invece di `GeoJSON`).
 struct Walker {
     blocks: HashMap<String, Arc<Block>>,
     geometries: Vec<Option<WkbGeometry>>,
@@ -1330,7 +1322,7 @@ impl Walker {
             check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
             blocks.insert(block.name.clone(), Arc::new(block.clone()));
         }
-        Ok(Walker {
+        Ok(Self {
             blocks,
             geometries: Vec::new(),
             layers: Vec::new(),
@@ -1388,6 +1380,10 @@ impl Walker {
         Ok(())
     }
 
+    // Dispatcher esaustivo sulle entita' DXF: un solo `match` per tipo tiene
+    // adiacenti la conversione e le sue perdite dichiarate. Spezzarlo
+    // disperderebbe la tabella di corrispondenza fra tipo DXF e WKB.
+    #[allow(clippy::too_many_lines)]
     fn walk_entity(
         &mut self,
         entity: &Entity,
@@ -1455,15 +1451,14 @@ impl Walker {
                     tessellate_circle([cir.center.x, cir.center.y], cir.radius, ARC_SEGMENTS);
                 if local.len() < 4 {
                     return Err(err("CIRCLE degenere non convertibile"));
-                } else {
-                    self.loss.record("CIRCLE tassellata", 1);
-                    self.push(
-                        WkbValue::Polygon(vec![mapped(&local, cir.center.z, &object_to_world)]),
-                        &layer,
-                        "CIRCLE",
-                        None,
-                    )?;
                 }
+                self.loss.record("CIRCLE tassellata", 1);
+                self.push(
+                    WkbValue::Polygon(vec![mapped(&local, cir.center.z, &object_to_world)]),
+                    &layer,
+                    "CIRCLE",
+                    None,
+                )?;
             }
             EntityType::Arc(a) => {
                 let object_to_world = transform.then(ocs_of(&a.normal));
@@ -1476,15 +1471,14 @@ impl Walker {
                 );
                 if local.len() < 2 {
                     return Err(err("ARC degenere non convertibile"));
-                } else {
-                    self.loss.record("ARC tassellato", 1);
-                    self.push(
-                        WkbValue::LineString(mapped(&local, a.center.z, &object_to_world)),
-                        &layer,
-                        "ARC",
-                        None,
-                    )?;
                 }
+                self.loss.record("ARC tassellato", 1);
+                self.push(
+                    WkbValue::LineString(mapped(&local, a.center.z, &object_to_world)),
+                    &layer,
+                    "ARC",
+                    None,
+                )?;
             }
             EntityType::ModelPoint(pt) => {
                 let object_to_world = transform.then(ocs_of(&pt.extrusion_direction));
@@ -1543,23 +1537,22 @@ impl Walker {
                 );
                 if local.len() < 2 {
                     return Err(err("ELLIPSE degenere non convertibile"));
+                }
+                let full = local.first() == local.last() && local.len() >= 4;
+                let coordinates: Vec<WkbCoordinate> = local
+                    .iter()
+                    .map(|point| coordinate(transform.apply(*point)))
+                    .collect();
+                self.loss.record("ELLIPSE tassellata", 1);
+                if full {
+                    self.push(
+                        WkbValue::Polygon(vec![coordinates]),
+                        &layer,
+                        "ELLIPSE",
+                        None,
+                    )?;
                 } else {
-                    let full = local.first() == local.last() && local.len() >= 4;
-                    let coordinates: Vec<WkbCoordinate> = local
-                        .iter()
-                        .map(|point| coordinate(transform.apply(*point)))
-                        .collect();
-                    self.loss.record("ELLIPSE tassellata", 1);
-                    if full {
-                        self.push(
-                            WkbValue::Polygon(vec![coordinates]),
-                            &layer,
-                            "ELLIPSE",
-                            None,
-                        )?;
-                    } else {
-                        self.push(WkbValue::LineString(coordinates), &layer, "ELLIPSE", None)?;
-                    }
+                    self.push(WkbValue::LineString(coordinates), &layer, "ELLIPSE", None)?;
                 }
             }
             EntityType::Spline(sp) => {
@@ -1570,8 +1563,12 @@ impl Walker {
                     .map(|point| [point.x, point.y, point.z])
                     .collect();
                 let samples = controls.len().max(2) * 6;
+                // `.max(1)` garantisce un valore positivo: la conversione a
+                // usize non puo' perdere il segno.
+                #[allow(clippy::cast_sign_loss)]
+                let degree = sp.degree_of_curve.max(1) as usize;
                 let local = tessellate_spline3(
-                    sp.degree_of_curve.max(1) as usize,
+                    degree,
                     &sp.knot_values,
                     &controls,
                     &sp.weight_values,
@@ -1579,30 +1576,24 @@ impl Walker {
                 );
                 if local.len() < 2 {
                     return Err(err("SPLINE degenere non convertibile"));
-                } else {
-                    self.loss.record("SPLINE tassellata", 1);
-                    let closed = sp.flags & 1 == 1;
-                    let mut coordinates: Vec<WkbCoordinate> = local
-                        .iter()
-                        .map(|point| coordinate(transform.apply(*point)))
-                        .collect();
-                    if closed {
-                        if coordinates.first() != coordinates.last() {
-                            coordinates.push(coordinates[0]);
-                        }
-                        if coordinates.len() >= 4 {
-                            self.push(
-                                WkbValue::Polygon(vec![coordinates]),
-                                &layer,
-                                "SPLINE",
-                                None,
-                            )?;
-                        } else {
-                            return Err(err("SPLINE chiusa degenere non convertibile"));
-                        }
-                    } else {
-                        self.push(WkbValue::LineString(coordinates), &layer, "SPLINE", None)?;
+                }
+                self.loss.record("SPLINE tassellata", 1);
+                let closed = sp.flags & 1 == 1;
+                let mut coordinates: Vec<WkbCoordinate> = local
+                    .iter()
+                    .map(|point| coordinate(transform.apply(*point)))
+                    .collect();
+                if closed {
+                    if coordinates.first() != coordinates.last() {
+                        coordinates.push(coordinates[0]);
                     }
+                    if coordinates.len() >= 4 {
+                        self.push(WkbValue::Polygon(vec![coordinates]), &layer, "SPLINE", None)?;
+                    } else {
+                        return Err(err("SPLINE chiusa degenere non convertibile"));
+                    }
+                } else {
+                    self.push(WkbValue::LineString(coordinates), &layer, "SPLINE", None)?;
                 }
             }
             EntityType::Insert(insert) => {
@@ -1622,6 +1613,10 @@ impl Walker {
         Ok(())
     }
 
+    // Il confronto esatto delle quote e' voluto: l'approssimazione del bulge
+    // sul piano iniziale va segnalata appena le due Z differiscono di un bit,
+    // e una tolleranza nasconderebbe la perdita al report.
+    #[allow(clippy::float_cmp)]
     fn emit_polyline(
         &mut self,
         layer: &str,
@@ -1867,7 +1862,7 @@ fn set_geometry_dimensions(geometry: &mut WkbGeometry, dimensions: CoordinateDim
             _ => {}
         },
         WkbValue::LineString(coordinates) | WkbValue::CircularString(coordinates) => {
-            set_coordinates(coordinates)
+            set_coordinates(coordinates);
         }
         WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
             for ring in rings {
@@ -1908,7 +1903,7 @@ impl DxfContractStats {
         Ok(())
     }
 
-    fn dimensions(&self) -> CoordinateDimensions {
+    const fn dimensions(&self) -> CoordinateDimensions {
         if self.has_nonzero_z {
             CoordinateDimensions::Xyz
         } else {
@@ -1922,8 +1917,14 @@ fn dxf_contract(
     dimensions: CoordinateDimensions,
     geometry_types: BTreeSet<GeometryType>,
 ) -> Result<DataContract> {
-    let mut geometry_contract =
-        GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs.clone(), true);
+    // L'etichetta CRS viene estratta prima di cedere `crs` al contratto: nessuna
+    // copia dell'intero CRS risolto e nessun parametro non consumato.
+    let crs_label = crs.id.clone().ok_or_else(|| {
+        PlenoraIoError::Crs(
+            "DXF: CRS risolto senza identificatore; vietato inventare DXF:GEODATA".to_owned(),
+        )
+    })?;
+    let mut geometry_contract = GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs, true);
     geometry_contract.dimensions = dimensions;
     geometry_contract.set_exact_geometry_types(geometry_types.into_iter().collect());
     geometry_contract
@@ -1933,13 +1934,8 @@ fn dxf_contract(
         "dxf.z_inference".to_owned(),
         "xyz_if_any_nonzero_z_else_xy".to_owned(),
     );
-    let crs_label = crs.id.as_deref().ok_or_else(|| {
-        PlenoraIoError::Crs(
-            "DXF: CRS risolto senza identificatore; vietato inventare DXF:GEODATA".to_owned(),
-        )
-    })?;
     let fields = vec![
-        with_geometry_contract_metadata(&geometry_field(GEOMETRY, crs_label), &geometry_contract),
+        with_geometry_contract_metadata(&geometry_field(GEOMETRY, &crs_label), &geometry_contract),
         Field::new("layer", DataType::Utf8, true),
         Field::new("dxf_type", DataType::Utf8, true),
         Field::new("text", DataType::Utf8, true),
@@ -1956,8 +1952,9 @@ fn batch_from_walker(
     let dimensions = contract
         .geometry
         .as_ref()
-        .map(|geometry| geometry.dimensions)
-        .unwrap_or(CoordinateDimensions::Unknown);
+        .map_or(CoordinateDimensions::Unknown, |geometry| {
+            geometry.dimensions
+        });
     let mut geometries = std::mem::take(&mut walker.geometries);
     let mut encoded = Vec::with_capacity(geometries.len());
     for (index, geometry) in geometries.iter_mut().enumerate() {
@@ -1998,8 +1995,9 @@ fn build_batch_cancellable(
     limits: &Limits,
     cancellation: &CancellationToken,
 ) -> Result<(RecordBatch, LossReport, DataContract)> {
-    check_cancelled(cancellation, ErrorPhase::Read)?;
     const DXF_OUTPUT_COLUMNS: usize = 4;
+
+    check_cancelled(cancellation, ErrorPhase::Read)?;
     if limits.max_columns < DXF_OUTPUT_COLUMNS {
         return Err(PlenoraIoError::LimitExceeded(format!(
             "DXF produce {DXF_OUTPUT_COLUMNS} colonne, oltre il limite di {}",
@@ -2041,7 +2039,7 @@ pub fn __fuzz_read_dxf(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::contract::GeometryType;
     use plenora_io_model::crs::CrsResolution;
@@ -2115,12 +2113,15 @@ mod tests {
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,
             spatial_pruning_hint: None,
-            scope: Default::default(),
+            scope: ReadScope::default(),
             batch_target: BatchTarget::default(),
-            cancellation: Default::default(),
+            cancellation: CancellationToken::default(),
         }
     }
 
+    // Un unico round-trip copre scrittura XYZ, CRS GEODATA embedded e
+    // rilettura: separarlo duplicherebbe la fixture e ne perderebbe la catena.
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn write_then_read_xyz_and_embedded_crs_round_trip() {
         let dir = tempfile::tempdir().unwrap();
@@ -2185,7 +2186,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: Some(geometry_contract),
                 },
             }],

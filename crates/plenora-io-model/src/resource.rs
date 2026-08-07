@@ -61,6 +61,12 @@ impl Default for ResourceLimits {
 }
 
 impl ResourceLimits {
+    /// Verifica gli invarianti dei limiti prima di costruire un budget.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se un limite è nullo o se
+    /// `cell_bytes` supera il budget di memoria.
     pub fn validate(&self) -> Result<()> {
         if self.memory_bytes == 0
             || self.rows == 0
@@ -97,7 +103,7 @@ struct Counters {
 }
 
 impl Counters {
-    fn new(limits: &ResourceLimits) -> Self {
+    const fn new(limits: &ResourceLimits) -> Self {
         Self {
             memory_bytes: AtomicU64::new(limits.memory_bytes),
             rows: AtomicU64::new(limits.rows),
@@ -131,6 +137,12 @@ pub struct ResourceBudget {
 }
 
 impl ResourceBudget {
+    /// Costruisce un budget condiviso con scadenza assoluta.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se i limiti non sono
+    /// validi o se la deadline non è rappresentabile da [`Instant`].
     pub fn new(limits: ResourceLimits) -> Result<Self> {
         limits.validate()?;
         let deadline = Instant::now()
@@ -164,6 +176,11 @@ impl ResourceBudget {
         self.deadline.checked_duration_since(Instant::now())
     }
 
+    /// Verifica che la finestra temporale del budget non sia esaurita.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se la deadline è passata.
     pub fn ensure_active(&self) -> Result<()> {
         if self.remaining_duration().is_none() {
             Err(limit("durata del budget di risorse esaurita"))
@@ -177,6 +194,12 @@ impl ResourceBudget {
         Arc::ptr_eq(&self.counters, &other.counters)
     }
 
+    /// Preleva una quota dal budget restituendo la lease corrispondente.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se `amount` è zero, se la
+    /// deadline è scaduta o se la quota residua non è sufficiente.
     pub fn try_lease(&self, kind: ResourceKind, amount: u64) -> Result<ResourceLease> {
         if amount == 0 {
             return Err(limit("una lease di risorsa deve essere maggiore di zero"));
@@ -205,6 +228,11 @@ impl ResourceBudget {
 
     /// Registra i byte fisici di input una volta risolta la sorgente. Il dato
     /// alimenta il limite di espansione dell'output e attraversa i clone.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se la deadline è scaduta
+    /// o se il conteggio dei byte di input andrebbe in overflow.
     pub fn observe_input_bytes(&self, amount: u64) -> Result<()> {
         self.ensure_active()?;
         let mut current = self.counters.input_bytes.load(Ordering::Acquire);
@@ -301,6 +329,12 @@ impl ResourceLease {
         self.amount
     }
 
+    /// Consuma `used` dalla lease e restituisce al budget la parte inutilizzata.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se `used` è zero o supera
+    /// la lease, oppure se la restituzione della quota residua fallisce.
     pub fn commit(mut self, used: u64) -> Result<()> {
         if used == 0 || used > self.amount {
             return Err(limit("consumo non valido per la lease di risorsa"));
@@ -313,6 +347,12 @@ impl ResourceLease {
         Ok(())
     }
 
+    /// Restituisce al budget l'intera quota prelevata.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se la restituzione
+    /// andrebbe in overflow o supererebbe la quota originaria.
     pub fn release(mut self) -> Result<()> {
         self.budget.release(self.kind, self.amount)?;
         self.released = true;
@@ -384,7 +424,11 @@ mod tests {
         })
         .unwrap();
         budget.observe_input_bytes(100).unwrap();
-        assert_eq!(budget.clone().output_limit(), 300);
+        // Il clone e' il soggetto dell'asserzione: verifica che l'input
+        // osservato sia condiviso fra i cloni, non un dettaglio ridondante.
+        #[allow(clippy::redundant_clone)]
+        let observed_by_clone = budget.clone().output_limit();
+        assert_eq!(observed_by_clone, 300);
     }
 
     #[test]

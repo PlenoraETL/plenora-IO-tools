@@ -1,4 +1,4 @@
-//! driver-shp — Shapefile ⇄ RecordBatch. Le shape XY/M/Z diventano WKB
+//! driver-shp — Shapefile ⇄ `RecordBatch`. Le shape XY/M/Z diventano WKB
 //! `geoarrow.wkb` XY/XYM/XYZ/XYZM senza passare da `geo-types`; il dbf fornisce
 //! gli attributi e il `.prj` (o `assume_crs`) il CRS.
 //!
@@ -221,7 +221,7 @@ struct ShpRowDiagnostics {
 }
 
 impl ShpRowDiagnostics {
-    fn new(config: ShpRowDiagnosticsConfig) -> Self {
+    const fn new(config: ShpRowDiagnosticsConfig) -> Self {
         Self {
             config,
             counts: BTreeMap::new(),
@@ -230,7 +230,7 @@ impl ShpRowDiagnostics {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.observed_total == 0
     }
 
@@ -386,14 +386,14 @@ fn publish_mode(path: &Path, opts: &WriteOptions) -> Result<ShapefilePublishMode
 }
 
 impl ShapefilePublishMode {
-    fn name(self) -> &'static str {
+    const fn name(self) -> &'static str {
         match self {
             Self::DirectoryDataset => DIRECTORY_DATASET_MODE,
             Self::LooseSet => LOOSE_SET_MODE,
         }
     }
 
-    fn destination_suffix(self) -> &'static str {
+    const fn destination_suffix(self) -> &'static str {
         match self {
             Self::DirectoryDataset => "*.shp.d",
             Self::LooseSet => "*.shp",
@@ -506,7 +506,7 @@ impl FormatDriver for ShpDriver {
             ));
         }
         let schema: SchemaRef = Arc::new(Schema::new(fields));
-        let contract = DataContract::new(schema.clone(), Some(geometry_contract.clone()));
+        let contract = DataContract::new(schema, Some(geometry_contract.clone()));
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -695,7 +695,7 @@ enum DbfKind {
 }
 
 impl DbfKind {
-    fn from(dt: &arrow_schema::DataType) -> Self {
+    const fn from(dt: &arrow_schema::DataType) -> Self {
         use arrow_schema::DataType as D;
         match dt {
             D::Int8
@@ -705,10 +705,10 @@ impl DbfKind {
             | D::UInt8
             | D::UInt16
             | D::UInt32
-            | D::UInt64 => DbfKind::Int,
-            D::Float16 | D::Float32 | D::Float64 => DbfKind::Float,
-            D::Boolean => DbfKind::Logical,
-            _ => DbfKind::Char,
+            | D::UInt64 => Self::Int,
+            D::Float16 | D::Float32 | D::Float64 => Self::Float,
+            D::Boolean => Self::Logical,
+            _ => Self::Char,
         }
     }
 }
@@ -755,19 +755,13 @@ impl FormatWriter for ShpWriter {
                 rejections.push((row, "shapefile.null_geometry_unsupported", GEOMETRY));
                 continue;
             }
-            let geometry = match decode_wkb(geom_col.value(row), &limits) {
-                Ok(geometry) => geometry,
-                Err(_) => {
-                    rejections.push((row, "shapefile.invalid_geometry", GEOMETRY));
-                    continue;
-                }
+            let Ok(geometry) = decode_wkb(geom_col.value(row), &limits) else {
+                rejections.push((row, "shapefile.invalid_geometry", GEOMETRY));
+                continue;
             };
-            let shape = match shape_from_wkb(geometry) {
-                Ok(shape) => shape,
-                Err(_) => {
-                    rejections.push((row, "shapefile.geometry_not_representable", GEOMETRY));
-                    continue;
-                }
+            let Ok(shape) = shape_from_wkb(geometry) else {
+                rejections.push((row, "shapefile.geometry_not_representable", GEOMETRY));
+                continue;
             };
             // Capability-check (ADR-IO 3): un unico tipo di geometria per file.
             let tag = shape_tag(&shape);
@@ -775,29 +769,19 @@ impl FormatWriter for ShpWriter {
                 rejections.push((row, "shapefile.geometry_type_unsupported", GEOMETRY));
                 continue;
             }
-            if !tag.is_empty() {
-                match st {
-                    None => {}
-                    Some(e) if e != tag => {
-                        rejections.push((row, "shapefile.mixed_geometry_type", GEOMETRY));
-                        continue;
-                    }
-                    _ => {}
-                }
+            if !tag.is_empty() && st.is_some_and(|existing| existing != tag) {
+                rejections.push((row, "shapefile.mixed_geometry_type", GEOMETRY));
+                continue;
             }
             let mut rec = Record::default();
             let mut valid_record = true;
             for (col, name, kind) in &self.attrs {
-                match cell_to_field(batch.column(*col), row, *kind) {
-                    Ok(value) => {
-                        rec.insert(name.clone(), value);
-                    }
-                    Err(_) => {
-                        rejections.push((row, "shapefile.cell_not_representable", name.as_str()));
-                        valid_record = false;
-                        break;
-                    }
-                }
+                let Ok(value) = cell_to_field(batch.column(*col), row, *kind) else {
+                    rejections.push((row, "shapefile.cell_not_representable", name.as_str()));
+                    valid_record = false;
+                    break;
+                };
+                rec.insert(name.clone(), value);
             }
             if valid_record {
                 if !tag.is_empty() && st.is_none() {
@@ -1158,7 +1142,7 @@ fn shape_from_wkb(geometry: WkbGeometry) -> Result<Shape> {
     }
 }
 
-fn shape_tag(s: &Shape) -> &'static str {
+const fn shape_tag(s: &Shape) -> &'static str {
     match s {
         Shape::Point(_) => "point-xy",
         Shape::PointM(_) => "point-m",
@@ -1213,7 +1197,7 @@ fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> Result<FieldVal
 
 fn wkt_for_id(id: Option<&str>) -> Option<String> {
     match id {
-        Some("EPSG:4326") | Some("OGC:CRS84") => Some(WGS84_WKT.to_owned()),
+        Some("EPSG:4326" | "OGC:CRS84") => Some(WGS84_WKT.to_owned()),
         _ => None,
     }
 }
@@ -1255,12 +1239,14 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
         let kind = crs_kind(&id, Some(&wkt));
         return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)));
     }
-    match &opts.assume_crs {
-        Some(id) => Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None)),
-        None => Err(PlenoraIoError::Crs(
-            "Shapefile senza .prj: fornire --assume-crs".to_owned(),
-        )),
-    }
+    opts.assume_crs.as_ref().map_or_else(
+        || {
+            Err(PlenoraIoError::Crs(
+                "Shapefile senza .prj: fornire --assume-crs".to_owned(),
+            ))
+        },
+        |id| Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None)),
+    )
 }
 
 fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
@@ -1321,7 +1307,7 @@ fn dbf_numeric_integer_precision_unverifiable(value: &FieldValue) -> bool {
 }
 
 /// Classe dbf per l'inferenza (Numeric/Double/Float=numero, Integer=int).
-fn classify(v: &FieldValue) -> ObservedValueClass {
+const fn classify(v: &FieldValue) -> ObservedValueClass {
     match v {
         FieldValue::Integer(_) => ObservedValueClass::Integer,
         FieldValue::Numeric(Some(_)) | FieldValue::Double(_) | FieldValue::Float(Some(_)) => {
@@ -1552,16 +1538,16 @@ impl DbfExactIntegerRows {
                 .buffer
                 .get(field.offset..end)
                 .ok_or_else(|| err("chiave DBF fuori record"))?;
-            match std::str::from_utf8(raw) {
-                Ok(text) => {
-                    let text = text.trim();
-                    (!text.is_empty()).then(|| text.to_owned())
-                }
-                Err(_) => {
+            std::str::from_utf8(raw).map_or_else(
+                |_| {
                     rejection_cause = Some(ATTRIBUTE_NUMERIC_INVALID_CAUSE);
                     None
-                }
-            }
+                },
+                |text| {
+                    let text = text.trim();
+                    (!text.is_empty()).then(|| text.to_owned())
+                },
+            )
         } else {
             None
         };
@@ -1779,6 +1765,10 @@ fn polygon_wkb<P: NativePoint>(
     })
 }
 
+// Un anello Shapefile e' chiuso se e solo se primo e ultimo vertice coincidono
+// bit a bit: il confronto esatto e' la definizione del formato, una tolleranza
+// accetterebbe come chiusi anelli che GDAL e il corpus reale considerano aperti.
+#[allow(clippy::float_cmp)]
 fn polygon_rejection_cause<P: NativePoint>(rings: &[PolygonRing<P>]) -> Option<&'static str> {
     if rings.is_empty() {
         return Some(POLYGON_WITHOUT_OUTER_CAUSE);
@@ -1797,6 +1787,9 @@ fn polygon_rejection_cause<P: NativePoint>(rings: &[PolygonRing<P>]) -> Option<&
         if points.len() < 4 {
             return true;
         }
+        // Niente mul_add/FMA: la fusione cambia l'arrotondamento IEEE e
+        // romperebbe il determinismo bit-esatto della somma dell'area doppia.
+        #[allow(clippy::suboptimal_flops)]
         let twice_area = points.windows(2).fold(0.0, |area, edge| {
             area + edge[0].x() * edge[1].y() - edge[1].x() * edge[0].y()
         });
@@ -1939,10 +1932,7 @@ fn header_geometry(shape_type: ShapeType) -> Result<(Option<&'static str>, Vec<G
 }
 
 fn shape_type_label(shape_type: Option<&str>) -> &str {
-    match shape_type {
-        Some(value) => value,
-        None => "null",
-    }
+    shape_type.unwrap_or("null")
 }
 
 /// Il tipo geometrico e' una proprieta' dell'header Shapefile. Per i tipi Z
@@ -1984,17 +1974,16 @@ fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometry
 }
 
 /// Pass 1: nomi campo, tipo DBF e contratto geometrico nativo, a RAM O(ncol).
+// Passata unica sul DBF: layout, accumulatori di tipo, righe cancellate e
+// rischio di precisione condividono lo stesso scorrimento dei record. Spezzarla
+// significherebbe rileggere il file e perdere la garanzia O(ncol).
+#[allow(clippy::too_many_lines)]
 fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     let dbf_layout = read_dbf_layout(path)?;
     let mut exact_rows = DbfExactIntegerRows::open(path, &dbf_layout)?;
     let geometry_info = infer_geometry_info(path, dbf_layout.record_count)?;
     let mut reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
         .map_err(|error| err(format!("apertura DBF: {error}")))?;
-    let order = dbf_layout
-        .fields
-        .iter()
-        .map(|field| field.name.clone())
-        .collect::<Vec<_>>();
     let mut accs: HashMap<String, TypeAccumulator> = dbf_layout
         .fields
         .iter()
@@ -2054,8 +2043,10 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     if records.next().is_some() {
         return Err(err("numero di record DBF incoerente con l'header"));
     }
-    let columns = order
-        .into_iter()
+    let columns = dbf_layout
+        .fields
+        .iter()
+        .map(|field| field.name.clone())
         .map(|name| {
             let column_type = accs
                 .get(&name)
@@ -2108,6 +2099,10 @@ struct ShpParserInput {
 }
 
 /// Pass 2: thread che scorre i record e produce batch da `batch_size` righe.
+// Corpo unico del thread di parsing: lo stato del ciclo (reader shp, reader
+// dbf, builder, diagnostica, scope) e' condiviso da tutte le fasi e spezzarlo
+// richiederebbe di esporre quello stato in strutture ausiliarie.
+#[allow(clippy::too_many_lines)]
 fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
     let ShpParserInput {
         path,
@@ -2250,36 +2245,29 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 );
                 continue;
             }
-            let converted_geometry = match shape_to_wkb(&shape, dimensions) {
-                Ok(geometry) => geometry,
-                Err(_) => {
-                    diagnostics.record(
-                        source_index,
-                        "shapefile.geometry_conversion_failed",
-                        Some(&record),
-                        raw_numeric_key.as_deref(),
-                    );
-                    continue;
-                }
+            let Ok(converted_geometry) = shape_to_wkb(&shape, dimensions) else {
+                diagnostics.record(
+                    source_index,
+                    "shapefile.geometry_conversion_failed",
+                    Some(&record),
+                    raw_numeric_key.as_deref(),
+                );
+                continue;
             };
-            let encoded_geometry = if include_geometry {
-                match converted_geometry {
-                    Some(geometry) => match encode_wkb(&geometry, WkbFlavor::Iso) {
-                        Ok(bytes) => Some(bytes),
-                        Err(_) => {
-                            diagnostics.record(
-                                source_index,
-                                "shapefile.geometry_encoding_failed",
-                                Some(&record),
-                                raw_numeric_key.as_deref(),
-                            );
-                            continue;
-                        }
-                    },
-                    None => None,
+            let encoded_geometry = match converted_geometry {
+                Some(geometry) if include_geometry => {
+                    let Ok(bytes) = encode_wkb(&geometry, WkbFlavor::Iso) else {
+                        diagnostics.record(
+                            source_index,
+                            "shapefile.geometry_encoding_failed",
+                            Some(&record),
+                            raw_numeric_key.as_deref(),
+                        );
+                        continue;
+                    };
+                    Some(bytes)
                 }
-            } else {
-                None
+                _ => None,
             };
             if !diagnostics.is_empty() {
                 // Dopo il primo rifiuto la scansione continua soltanto per
@@ -2423,9 +2411,17 @@ fn finish_batch(
 
 fn fv_i64(v: &FieldValue) -> Option<i64> {
     match v {
-        FieldValue::Integer(i) => Some(*i as i64),
+        FieldValue::Integer(i) => Some(i64::from(*i)),
+        // I campi DBF Numeric/Double/Float sono decodificati come virgola
+        // mobile dal parser dbase: la conversione a intero tronca verso zero e
+        // satura, esattamente come prima. Il caso davvero esatto (N con
+        // width>=10 e decimals=0) non passa da qui ma dallo slot
+        // `exact_integer_slot`, che legge i byte ASCII del record.
+        #[allow(clippy::cast_possible_truncation)]
         FieldValue::Numeric(Some(n)) => Some(*n as i64),
+        #[allow(clippy::cast_possible_truncation)]
         FieldValue::Double(d) => Some(*d as i64),
+        #[allow(clippy::cast_possible_truncation)]
         FieldValue::Float(Some(f)) => Some(*f as i64),
         _ => None,
     }
@@ -2435,13 +2431,13 @@ fn fv_f64(v: &FieldValue) -> Option<f64> {
     match v {
         FieldValue::Numeric(Some(n)) => Some(*n),
         FieldValue::Double(d) => Some(*d),
-        FieldValue::Float(Some(f)) => Some(*f as f64),
-        FieldValue::Integer(i) => Some(*i as f64),
+        FieldValue::Float(Some(f)) => Some(f64::from(*f)),
+        FieldValue::Integer(i) => Some(f64::from(*i)),
         _ => None,
     }
 }
 
-fn fv_bool(v: &FieldValue) -> Option<bool> {
+const fn fv_bool(v: &FieldValue) -> Option<bool> {
     match v {
         FieldValue::Logical(Some(b)) => Some(*b),
         _ => None,
@@ -2483,13 +2479,14 @@ mod tests {
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::wkb::to_wkb;
+    use plenora_io_model::CancellationToken;
 
     const EPSG_3003_WKT: &str = include_str!("../tests/fixtures/epsg3003.prj");
 
     fn read_opts() -> ReadOptions {
         ReadOptions {
             assume_crs: Some("EPSG:4326".to_owned()),
-            format_options: Default::default(),
+            format_options: BTreeMap::default(),
             ..ReadOptions::default()
         }
     }
@@ -2501,9 +2498,9 @@ mod tests {
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,
             spatial_pruning_hint: None,
-            scope: Default::default(),
+            scope: ReadScope::default(),
             batch_target: BatchTarget::default(),
-            cancellation: Default::default(),
+            cancellation: CancellationToken::default(),
         }
     }
 
@@ -2627,6 +2624,10 @@ mod tests {
         assert_eq!(polygon_rejection_cause(&rings), Some(DEGENERATE_RING_CAUSE));
     }
 
+    // Una sola fixture copre scrittura, corruzioni mirate e le varianti di
+    // configurazione della diagnostica: separarle duplicherebbe la costruzione
+    // dello shapefile e ne perderebbe la sequenza.
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn invalid_polygon_rows_return_complete_bounded_diagnostics() {
         let directory = tempfile::tempdir().unwrap();
@@ -2655,6 +2656,9 @@ mod tests {
                 vec![PolygonRing::Outer(points)]
             };
             let polygon = Polygon::with_rings(rings);
+            // source_index < 128: la conversione in f64 e' esatta.
+            #[allow(clippy::cast_precision_loss)]
+            let numeric_value = source_index as f64;
             let mut record = Record::default();
             record.insert(
                 "ID_PART".to_owned(),
@@ -2662,11 +2666,11 @@ mod tests {
             );
             record.insert(
                 "NUM_KEY".to_owned(),
-                FieldValue::Numeric(Some(source_index as f64)),
+                FieldValue::Numeric(Some(numeric_value)),
             );
             record.insert(
                 "INT_VALUE".to_owned(),
-                FieldValue::Numeric(Some(source_index as f64)),
+                FieldValue::Numeric(Some(numeric_value)),
             );
             writer.write_shape_and_record(&polygon, &record).unwrap();
         }
@@ -2826,10 +2830,9 @@ mod tests {
         missing_policy
             .format_options
             .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
-        let missing_policy_error = match ShpDriver.open(Source::Path(path.clone()), &missing_policy)
-        {
-            Ok(_) => panic!("key_field senza policy deve essere rifiutato"),
-            Err(error) => error,
+        let Err(missing_policy_error) = ShpDriver.open(Source::Path(path.clone()), &missing_policy)
+        else {
+            panic!("key_field senza policy deve essere rifiutato")
         };
         assert_eq!(
             missing_policy_error.category,
@@ -2840,9 +2843,8 @@ mod tests {
         zero_limit
             .format_options
             .insert("row_diagnostics.examples_limit".to_owned(), "0".to_owned());
-        let zero_limit_error = match ShpDriver.open(Source::Path(path.clone()), &zero_limit) {
-            Ok(_) => panic!("examples_limit zero deve essere rifiutato"),
-            Err(error) => error,
+        let Err(zero_limit_error) = ShpDriver.open(Source::Path(path.clone()), &zero_limit) else {
+            panic!("examples_limit zero deve essere rifiutato")
         };
         assert_eq!(
             zero_limit_error.category,
@@ -2937,7 +2939,7 @@ mod tests {
             let mut record = Record::default();
             record.insert(
                 "ID".to_owned(),
-                FieldValue::Numeric(Some(source_index as f64)),
+                FieldValue::Numeric(Some(f64::from(source_index))),
             );
             writer
                 .write_shape_and_record(&Polygon::with_rings(rings), &record)
@@ -3003,7 +3005,7 @@ mod tests {
             let mut record = Record::default();
             record.insert(
                 "ID".to_owned(),
-                FieldValue::Numeric(Some(source_index as f64)),
+                FieldValue::Numeric(Some(f64::from(source_index))),
             );
             writer
                 .write_shape_and_record(&Polygon::with_rings(rings), &record)
@@ -3287,7 +3289,7 @@ mod tests {
                     Some(wkb2.as_slice()),
                 ])),
                 Arc::new(StringArray::from(vec!["Roma", "Milano"])),
-                Arc::new(Int64Array::from(vec![2800000i64, 1400000])),
+                Arc::new(Int64Array::from(vec![2_800_000i64, 1_400_000])),
             ],
         )
         .unwrap();
@@ -3297,7 +3299,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -3533,7 +3535,8 @@ mod tests {
         let wkb: Vec<Vec<u8>> = (0..10)
             .map(|i| {
                 to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
-                    i as f64, i as f64,
+                    f64::from(i),
+                    f64::from(i),
                 )))
                 .unwrap()
             })
@@ -3558,7 +3561,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -3576,12 +3579,12 @@ mod tests {
             projection_mode: ProjectionMode::BestEffort,
             pruning_predicate: None,
             spatial_pruning_hint: None,
-            scope: Default::default(),
+            scope: ReadScope::default(),
             batch_target: BatchTarget {
                 target_bytes: 8 * 1024 * 1024,
                 max_rows: 4,
             },
-            cancellation: Default::default(),
+            cancellation: CancellationToken::default(),
         };
         let mut r = ds.open_layer_reader(&req).unwrap();
         let (mut total, mut batches) = (0, 0);
@@ -3615,13 +3618,13 @@ mod tests {
 
     fn round_trip_dimensional_point(
         dimensions: CoordinateDimensions,
-        geometry: WkbGeometry,
+        geometry: &WkbGeometry,
     ) -> WkbGeometry {
         use arrow_array::Int64Array;
 
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join(format!("{dimensions:?}.shp"));
-        let bytes = encode_wkb(&geometry, WkbFlavor::Iso).unwrap();
+        let bytes = encode_wkb(geometry, WkbFlavor::Iso).unwrap();
         let mut geometry_contract =
             GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
         geometry_contract.dimensions = dimensions;
@@ -3663,7 +3666,7 @@ mod tests {
         match dimensions {
             CoordinateDimensions::Xym => assert!(matches!(shape, Shape::PointM(_))),
             CoordinateDimensions::Xyz | CoordinateDimensions::Xyzm => {
-                assert!(matches!(shape, Shape::PointZ(_)))
+                assert!(matches!(shape, Shape::PointZ(_)));
             }
             _ => unreachable!("test solo dimensionale"),
         }
@@ -3694,7 +3697,7 @@ mod tests {
             dimensional_point(CoordinateDimensions::Xyzm, Some(123.25), Some(7.5)),
         ];
         for expected in cases {
-            let actual = round_trip_dimensional_point(expected.dimensions, expected.clone());
+            let actual = round_trip_dimensional_point(expected.dimensions, &expected);
             assert_eq!(actual, expected);
         }
     }

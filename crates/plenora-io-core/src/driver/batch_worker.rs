@@ -32,12 +32,19 @@ pub struct BatchEmitter {
 }
 
 impl BatchEmitter {
+    #[must_use]
     pub fn send(&self, batch: RecordBatch) -> bool {
         self.sender.send(BatchWorkerEvent::Batch(batch)).is_ok()
     }
 
     /// Consegna con backpressure senza rendere il producer cieco alla
     /// cancellazione mentre il canale bounded e' pieno.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce l'errore di cancellazione se il token viene attivato
+    /// durante l'attesa, oppure [`PlenoraIoError::format`] se il canale
+    /// restituisce un evento diverso dal batch inviato.
     pub fn send_cancellable(
         &self,
         mut batch: RecordBatch,
@@ -72,6 +79,7 @@ impl BatchEmitter {
     }
 
     /// Controlla senza bloccare se il consumer esiste ancora.
+    #[must_use]
     pub fn is_receiver_alive(&self) -> bool {
         match self.sender.try_send(BatchWorkerEvent::Heartbeat) {
             Ok(()) | Err(TrySendError::Full(_)) => true,
@@ -122,7 +130,8 @@ impl LayerReader for BatchWorkerReader {
         loop {
             match self.receiver.recv() {
                 Ok(BatchWorkerEvent::Batch(batch)) => return Ok(Some(batch)),
-                Ok(BatchWorkerEvent::Heartbeat) => continue,
+                // Heartbeat: nessuno stato terminale, si riprova la ricezione.
+                Ok(BatchWorkerEvent::Heartbeat) => {}
                 Ok(BatchWorkerEvent::Finished) => {
                     self.terminal = true;
                     self.join_worker()?;
@@ -155,6 +164,11 @@ impl LayerReader for BatchWorkerReader {
 /// Il wrapper emette sempre uno stato terminale esplicito. Gli errori conservano
 /// la variante `PlenoraIoError`; un panic viene intercettato al confine del
 /// thread e trasformato in errore di formato, mai in un falso EOF.
+///
+/// # Errors
+///
+/// Restituisce [`PlenoraIoError::format`] se il thread del worker non può
+/// essere avviato.
 pub fn spawn_batch_reader<F>(
     driver: &'static str,
     layer: LayerContract,

@@ -1,4 +1,4 @@
-//! driver-gpkg — GeoPackage ⇄ RecordBatch (Fase 1 + ottimizzazione mirata).
+//! driver-gpkg — `GeoPackage` ⇄ `RecordBatch` (Fase 1 + ottimizzazione mirata).
 //! Geometria WKB nativa: blob `GeoPackageBinaryHeader` + payload WKB, passato
 //! senza decodifica (V4). Multi-layer.
 //!
@@ -22,6 +22,8 @@ use arrow_array::{
     StringViewArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use std::collections::BTreeSet;
+
 use rusqlite::types::{ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{Connection, Statement};
 
@@ -57,8 +59,68 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("gpkg", reason)
 }
 
+// Firma per valore imposta dall'uso come funzione in `.map_err(sql_err)`:
+// prenderla per riferimento costringerebbe a una closure in ogni chiamata.
+#[allow(clippy::needless_pass_by_value)]
 fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
     err(format!("sqlite: {e}"))
+}
+
+// Categorie di perdita stabili, leggibili dagli harness di conformità. Stesso
+// stile di `driver-shp` (dbf_numeric_integer_precision_unverifiable): SQLite
+// non impone il tipo dichiarato dalla colonna, quindi un file legittimo può
+// consegnare un REAL dove il contratto dichiara INTEGER. La conversione resta
+// quella storica, ma smette di essere silenziosa (ADR-IO 5).
+const INTEGER_COLUMN_REAL_TRUNCATED: &str = "gpkg_integer_column_real_truncated";
+const INTEGER_COLUMN_REAL_SATURATED: &str = "gpkg_integer_column_real_saturated";
+const INTEGER_COLUMN_NON_FINITE_DISCARDED: &str = "gpkg_integer_column_non_finite_discarded";
+const REAL_COLUMN_INTEGER_PRECISION_UNVERIFIABLE: &str =
+    "gpkg_real_column_integer_precision_unverifiable";
+
+/// Primo intero f64 senza precisione unitaria: oltre questa soglia la
+/// conversione `i64 -> f64` non è più esatta. Stessa costante di `driver-shp`.
+const FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION: f64 = 9_007_199_254_740_992.0;
+
+/// Limite di saturazione di `f64 as i64`: 2^63, primo valore positivo non
+/// rappresentabile. `i64::MIN` vale esattamente -2^63 ed è rappresentabile,
+/// quindi la soglia negativa è stretta e quella positiva è inclusiva.
+const SATURATION_BOUND: f64 = 9_223_372_036_854_775_808.0;
+
+/// Esito della coercizione dinamica di `SQLite` verso il tipo dichiarato dal
+/// contratto. `None` significa che il valore era già rappresentabile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Coercion {
+    /// REAL con parte frazionaria in colonna INTEGER: il valore cambia.
+    RealTruncated,
+    /// REAL fuori dall'intervallo di `i64`: il valore satura ai limiti.
+    RealSaturated,
+    /// NaN o infinito in colonna INTEGER: scartato come null, mai convertito
+    /// in uno zero plausibile e falso.
+    NonFiniteDiscarded,
+    /// INTEGER oltre 2^53 in colonna REAL: perde la precisione unitaria.
+    IntegerPrecisionUnverifiable,
+}
+
+impl Coercion {
+    const fn category(self) -> &'static str {
+        match self {
+            Self::RealTruncated => INTEGER_COLUMN_REAL_TRUNCATED,
+            Self::RealSaturated => INTEGER_COLUMN_REAL_SATURATED,
+            Self::NonFiniteDiscarded => INTEGER_COLUMN_NON_FINITE_DISCARDED,
+            Self::IntegerPrecisionUnverifiable => REAL_COLUMN_INTEGER_PRECISION_UNVERIFIABLE,
+        }
+    }
+
+    const fn detail(self) -> &'static str {
+        match self {
+            Self::RealTruncated => "REAL con parte frazionaria troncato verso zero",
+            Self::RealSaturated => "REAL fuori dall'intervallo i64 saturato ai limiti",
+            Self::NonFiniteDiscarded => "valore non finito scartato come null",
+            Self::IntegerPrecisionUnverifiable => {
+                "INTEGER oltre 2^53 senza precisione intera unitaria"
+            }
+        }
+    }
 }
 
 const GPKG_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
@@ -157,8 +219,13 @@ impl FormatDriver for GpkgDriver {
             );
             let contract = DataContract::new(schema, Some(geometry));
             let runtime_schema = contract.schema.clone();
+            // `i` indicizza le feature table di `gpkg_contents`: il loro numero
+            // e' limitato dalle righe di `sqlite_master`, molti ordini di
+            // grandezza sotto 2^32. Nessun troncamento possibile.
+            #[allow(clippy::cast_possible_truncation)]
+            let layer_id = LayerId(i as u32);
             layers.push(LayerContract {
-                id: LayerId(i as u32),
+                id: layer_id,
                 name: table_meta.table.clone(),
                 contract,
             });
@@ -272,7 +339,27 @@ impl OpenDatasetHandle for GpkgDataset {
         &self.layers
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+        use plenora_io_core::loss::FidelityReasonCode;
+
+        // `Conditional` senza motivi direbbe solo che la fedeltà "dipende".
+        // ADR-IO 5 chiede di elencare cosa la renderebbe approssimante: qui e'
+        // la tipizzazione dinamica di SQLite, che non impone il tipo dichiarato
+        // dalla colonna. La valutazione resta preventiva; le occorrenze reali
+        // finiscono nel `LossReport` del reader.
+        let mut assessment = plenora_io_core::FidelityAssessment::for_format(
+            DESCRIPTOR.id,
+            DESCRIPTOR.fidelity_class,
+        );
+        assessment.add_reason(
+            FidelityReasonCode::TypeCoercion,
+            "SQLite non impone il tipo dichiarato: un REAL in colonna INTEGER viene troncato o \
+             saturato, un valore non finito viene scartato come null",
+        );
+        assessment.add_reason(
+            FidelityReasonCode::PrecisionChanged,
+            "un INTEGER oltre 2^53 in colonna REAL perde la precisione intera unitaria",
+        );
+        assessment
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
@@ -339,6 +426,8 @@ impl OpenDatasetHandle for GpkgDataset {
             ),
             last_rowid: 0,
             layer,
+            loss: LossReport::default(),
+            reported: BTreeSet::new(),
         });
         Ok(plenora_io_core::with_cancellation(
             reader,
@@ -430,11 +519,20 @@ struct GpkgReader {
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     last_rowid: i64,
     layer: LayerContract,
+    /// Perdite osservate leggendo: conteggi per categoria ed esempi bounded.
+    loss: LossReport,
+    /// Coppie (campo, categoria) già illustrate da un esempio: gli esempi sono
+    /// bounded e non devono ripetersi a ogni riga.
+    reported: BTreeSet<(String, &'static str)>,
 }
 
 impl LayerReader for GpkgReader {
     fn contract(&self) -> &LayerContract {
         &self.layer
+    }
+
+    fn loss_report(&self) -> LossReport {
+        self.loss.clone()
     }
 
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
@@ -447,19 +545,19 @@ impl LayerReader for GpkgReader {
             .collect();
         let mut count = 0usize;
         let mut max_rowid = self.last_rowid;
+        // Clamp identico al precedente `min(i64::MAX as usize) as i64`, senza
+        // cast: il LIMIT SQL satura a i64::MAX invece di avvolgersi.
+        let limit = i64::try_from(self.batch_sizer.rows()).unwrap_or(i64::MAX);
         let mut rows = match self.spatial_hint {
             Some(bbox) => stmt.query(rusqlite::params![
                 self.last_rowid,
-                self.batch_sizer.rows().min(i64::MAX as usize) as i64,
+                limit,
                 bbox.minx,
                 bbox.maxx,
                 bbox.miny,
                 bbox.maxy,
             ]),
-            None => stmt.query(rusqlite::params![
-                self.last_rowid,
-                self.batch_sizer.rows().min(i64::MAX as usize) as i64
-            ]),
+            None => stmt.query(rusqlite::params![self.last_rowid, limit]),
         }
         .map_err(sql_err)?;
         while let Some(row) = rows.next().map_err(sql_err)? {
@@ -475,7 +573,18 @@ impl LayerReader for GpkgReader {
                 column += 1;
             }
             for (i, b) in attr_builders.iter_mut().enumerate() {
-                b.append(row.get_ref(column + i).map_err(sql_err)?);
+                let Some(coercion) = b.append(row.get_ref(column + i).map_err(sql_err)?) else {
+                    continue;
+                };
+                let category = coercion.category();
+                self.loss.record(category, 1);
+                let name = self.attrs[i].0.clone();
+                if self.reported.insert((name.clone(), category)) {
+                    self.loss.add_example(plenora_io_core::loss::LossExample {
+                        category: category.to_owned(),
+                        context: format!("field={name}: {}", coercion.detail()),
+                    });
+                }
             }
             count += 1;
         }
@@ -509,43 +618,100 @@ enum ColBuilder {
 impl ColBuilder {
     fn new(dt: &DataType) -> Self {
         match dt {
-            DataType::Int64 => ColBuilder::I64(Int64Builder::new()),
-            DataType::Float64 => ColBuilder::F64(Float64Builder::new()),
-            DataType::Binary => ColBuilder::Bin(BinaryBuilder::new()),
-            _ => ColBuilder::Str(StringBuilder::new()),
+            DataType::Int64 => Self::I64(Int64Builder::new()),
+            DataType::Float64 => Self::F64(Float64Builder::new()),
+            DataType::Binary => Self::Bin(BinaryBuilder::new()),
+            _ => Self::Str(StringBuilder::new()),
         }
     }
-    fn append(&mut self, v: ValueRef) {
+    /// Restituisce la coercizione applicata, se il valore non era già
+    /// rappresentabile nel tipo dichiarato dal contratto. Il chiamante la
+    /// registra nel `LossReport`: la conversione resta quella storica, ma non
+    /// e' piu' silenziosa (ADR-IO 5).
+    fn append(&mut self, v: ValueRef) -> Option<Coercion> {
         match self {
-            ColBuilder::I64(b) => match v {
-                ValueRef::Integer(i) => b.append_value(i),
-                ValueRef::Real(r) => b.append_value(r as i64),
-                _ => b.append_null(),
+            Self::I64(b) => match v {
+                ValueRef::Integer(i) => {
+                    b.append_value(i);
+                    None
+                }
+                // SQLite e' tipizzato dinamicamente: un REAL puo' arrivare in
+                // una colonna dichiarata INTEGER anche in un file legittimo.
+                ValueRef::Real(r) => {
+                    if !r.is_finite() {
+                        // Un NaN convertito con `as i64` diventerebbe 0: un
+                        // valore plausibile e falso. Si scarta, come fa
+                        // `driver-xls` con la guardia `is_finite`.
+                        b.append_null();
+                        return Some(Coercion::NonFiniteDiscarded);
+                    }
+                    // `as` satura ai limiti di i64 e tronca verso zero: e' la
+                    // conversione storica e non va cambiata, ma i due casi
+                    // vanno distinti perche' la perdita e' di natura diversa.
+                    let saturated = !(-SATURATION_BOUND..SATURATION_BOUND).contains(&r);
+                    #[allow(clippy::cast_possible_truncation)]
+                    b.append_value(r as i64);
+                    if saturated {
+                        Some(Coercion::RealSaturated)
+                    } else if r.fract() == 0.0 {
+                        None
+                    } else {
+                        Some(Coercion::RealTruncated)
+                    }
+                }
+                _ => {
+                    b.append_null();
+                    None
+                }
             },
-            ColBuilder::F64(b) => match v {
-                ValueRef::Real(r) => b.append_value(r),
-                ValueRef::Integer(i) => b.append_value(i as f64),
-                _ => b.append_null(),
+            Self::F64(b) => match v {
+                ValueRef::Real(r) => {
+                    b.append_value(r);
+                    None
+                }
+                // Colonna dichiarata REAL: l'INTEGER SQLite viene rappresentato
+                // in f64. Oltre 2^53 la precisione unitaria si perde, ed e' la
+                // stessa condizione che `driver-shp` registra sui Numeric DBF.
+                ValueRef::Integer(i) => {
+                    #[allow(clippy::cast_precision_loss)]
+                    let value = i as f64;
+                    b.append_value(value);
+                    (value.abs() >= FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION)
+                        .then_some(Coercion::IntegerPrecisionUnverifiable)
+                }
+                _ => {
+                    b.append_null();
+                    None
+                }
             },
-            ColBuilder::Str(b) => match v {
-                ValueRef::Text(t) => b.append_value(String::from_utf8_lossy(t)),
-                ValueRef::Null => b.append_null(),
-                ValueRef::Integer(i) => b.append_value(i.to_string()),
-                ValueRef::Real(r) => b.append_value(r.to_string()),
-                ValueRef::Blob(_) => b.append_null(),
-            },
-            ColBuilder::Bin(b) => match v {
-                ValueRef::Blob(x) => b.append_value(x),
-                _ => b.append_null(),
-            },
+            Self::Str(b) => {
+                match v {
+                    ValueRef::Text(t) => b.append_value(String::from_utf8_lossy(t)),
+                    // La rappresentazione testuale di un intero o di un reale
+                    // e' fedele: nessuna perdita da dichiarare.
+                    ValueRef::Integer(i) => b.append_value(i.to_string()),
+                    ValueRef::Real(r) => b.append_value(r.to_string()),
+                    // NULL e BLOB in colonna testuale: nessuna transcodifica
+                    // implicita, si scrive null.
+                    ValueRef::Null | ValueRef::Blob(_) => b.append_null(),
+                }
+                None
+            }
+            Self::Bin(b) => {
+                match v {
+                    ValueRef::Blob(x) => b.append_value(x),
+                    _ => b.append_null(),
+                }
+                None
+            }
         }
     }
     fn finish(mut self) -> ArrayRef {
         match &mut self {
-            ColBuilder::I64(b) => Arc::new(b.finish()),
-            ColBuilder::F64(b) => Arc::new(b.finish()),
-            ColBuilder::Str(b) => Arc::new(b.finish()),
-            ColBuilder::Bin(b) => Arc::new(b.finish()),
+            Self::I64(b) => Arc::new(b.finish()),
+            Self::F64(b) => Arc::new(b.finish()),
+            Self::Str(b) => Arc::new(b.finish()),
+            Self::Bin(b) => Arc::new(b.finish()),
         }
     }
 }
@@ -635,10 +801,7 @@ fn execute_insert_row(
     geometry: Option<&[u8]>,
 ) -> Result<()> {
     let mut params = Vec::with_capacity(1 + attribute_indices.len());
-    params.push(match geometry {
-        Some(bytes) => BorrowedSqlValue::Blob(bytes),
-        None => BorrowedSqlValue::Null,
-    });
+    params.push(geometry.map_or(BorrowedSqlValue::Null, BorrowedSqlValue::Blob));
     for &index in attribute_indices {
         params.push(arrow_cell_to_sql_ref(batch.column(index), row)?);
     }
@@ -669,7 +832,7 @@ impl ToSql for BorrowedSqlValue<'_> {
     }
 }
 
-fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<BorrowedSqlValue<'a>> {
+fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValue<'_>> {
     if array.is_null(row) {
         return Ok(BorrowedSqlValue::Null);
     }
@@ -677,7 +840,7 @@ fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<Borrowed
     macro_rules! signed_integer {
         ($array:ty) => {
             if let Some(values) = a.downcast_ref::<$array>() {
-                return Ok(BorrowedSqlValue::Integer(values.value(row) as i64));
+                return Ok(BorrowedSqlValue::Integer(i64::from(values.value(row))));
             }
         };
     }
@@ -688,7 +851,7 @@ fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<Borrowed
     macro_rules! unsigned_integer {
         ($array:ty) => {
             if let Some(values) = a.downcast_ref::<$array>() {
-                return Ok(BorrowedSqlValue::Integer(values.value(row) as i64));
+                return Ok(BorrowedSqlValue::Integer(i64::from(values.value(row))));
             }
         };
     }
@@ -723,7 +886,7 @@ fn arrow_cell_to_sql_ref<'a>(array: &'a ArrayRef, row: usize) -> Result<Borrowed
         return Ok(BorrowedSqlValue::Real(value));
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
-        return Ok(BorrowedSqlValue::Integer(x.value(row) as i64));
+        return Ok(BorrowedSqlValue::Integer(i64::from(x.value(row))));
     }
     if let Some(x) = a.downcast_ref::<StringArray>() {
         return Ok(BorrowedSqlValue::Text(x.value(row)));
@@ -794,13 +957,11 @@ fn registered_rtree(conn: &Connection, table: &str, geom_col: &str) -> Result<Op
         return Ok(None);
     }
     let quoted = format!("\"{}\"", rtree.replace('"', "\"\""));
-    let mut statement = match conn.prepare(&format!("PRAGMA table_info({quoted})")) {
-        Ok(statement) => statement,
-        Err(_) => return Ok(None),
+    let Ok(mut statement) = conn.prepare(&format!("PRAGMA table_info({quoted})")) else {
+        return Ok(None);
     };
-    let columns = match statement.query_map([], |row| row.get::<_, String>(1)) {
-        Ok(columns) => columns,
-        Err(_) => return Ok(None),
+    let Ok(columns) = statement.query_map([], |row| row.get::<_, String>(1)) else {
+        return Ok(None);
     };
     let mut names = Vec::new();
     for column in columns {
@@ -856,7 +1017,7 @@ fn feature_tables(conn: &Connection) -> Result<Vec<FeatureTable>> {
     Ok(out)
 }
 
-fn gpkg_dimensions(z: i64, m: i64) -> CoordinateDimensions {
+const fn gpkg_dimensions(z: i64, m: i64) -> CoordinateDimensions {
     match (z, m) {
         (0, 0) => CoordinateDimensions::Xy,
         (1, 0) => CoordinateDimensions::Xyz,
@@ -878,7 +1039,8 @@ fn gpkg_geometry_type(name: &str) -> Option<GeometryType> {
         "MULTILINESTRING" => GeometryType::MultiLineString,
         "MULTIPOLYGON" => GeometryType::MultiPolygon,
         "GEOMETRYCOLLECTION" => GeometryType::GeometryCollection,
-        "GEOMETRY" => return None,
+        // "GEOMETRY" (tipo generico) e ogni altro nome non vincolano il
+        // contratto: nessun tipo esatto viene dichiarato.
         _ => return None,
     })
 }
@@ -1002,7 +1164,7 @@ fn strip_gpkg_header(blob: &[u8]) -> Result<&[u8]> {
     Ok(&blob[start..])
 }
 
-fn gpkg_header(srs_id: i32) -> [u8; 8] {
+const fn gpkg_header(srs_id: i32) -> [u8; 8] {
     let s = srs_id.to_le_bytes();
     [b'G', b'P', 0, 0x01, s[0], s[1], s[2], s[3]]
 }
@@ -1029,7 +1191,7 @@ fn init_gpkg(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn sqlite_type(dt: &DataType) -> &'static str {
+const fn sqlite_type(dt: &DataType) -> &'static str {
     match dt {
         DataType::Int8
         | DataType::Int16
@@ -1071,17 +1233,14 @@ fn layer_crs(
     (id, None)
 }
 
-/// Risolve il `srs_id` GeoPackage per il CRS dato, registrandolo in
+/// Risolve il `srs_id` `GeoPackage` per il CRS dato, registrandolo in
 /// `gpkg_spatial_ref_sys` se non è il WGS84 built-in. Senza WKT reale usa
 /// `definition='undefined'`: GDAL risolve comunque il CRS da organization+code.
 fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Result<i32> {
-    let id = match id {
-        Some(s) => s,
-        None => {
-            return Err(PlenoraIoError::Crs(
-                "GeoPackage richiede un CRS esplicito; nessun default implicito".to_owned(),
-            ))
-        }
+    let Some(id) = id else {
+        return Err(PlenoraIoError::Crs(
+            "GeoPackage richiede un CRS esplicito; nessun default implicito".to_owned(),
+        ));
     };
     if id.eq_ignore_ascii_case("EPSG:4326") {
         return Ok(4326);
@@ -1147,11 +1306,13 @@ fn create_feature_table(
     .map_err(sql_err)?;
     let geometry_type = geometry_contract
         .and_then(|contract| contract.geometry_types.first())
-        .map(|geometry_type| format!("{geometry_type:?}").to_ascii_uppercase())
-        .unwrap_or_else(|| "GEOMETRY".to_owned());
-    let dimensions = geometry_contract
-        .map(|contract| contract.dimensions)
-        .unwrap_or(CoordinateDimensions::Unknown);
+        .map_or_else(
+            || "GEOMETRY".to_owned(),
+            |geometry_type| format!("{geometry_type:?}").to_ascii_uppercase(),
+        );
+    let dimensions = geometry_contract.map_or(CoordinateDimensions::Unknown, |contract| {
+        contract.dimensions
+    });
     let (z, m) = match dimensions {
         CoordinateDimensions::Xy => (0, 0),
         CoordinateDimensions::Xyz => (1, 0),
@@ -1203,11 +1364,153 @@ pub fn __fuzz_gpkg_geometry(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plenora_io_core::request::{BatchTarget, ProjectionMode};
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::wkb::{
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
+    use plenora_io_model::CancellationToken;
+
+    /// Legge tutti i batch e restituisce il report di perdita accumulato.
+    fn read_all_and_loss(dataset: &dyn OpenDatasetHandle) -> LossReport {
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+        while reader.next_batch().unwrap().is_some() {}
+        reader.loss_report()
+    }
+
+    /// Scrive un gpkg con una colonna dichiarata INTEGER, poi vi inserisce
+    /// valori REAL con SQL diretto. `SQLite` ha affinita', non vincoli: un REAL
+    /// non convertibile senza perdita resta REAL anche in colonna INTEGER, ed
+    /// e' esattamente il caso che un file legittimo puo' produrre.
+    #[test]
+    fn real_values_in_an_integer_column_are_reported_as_loss_not_silently_coerced() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("coercion.gpkg");
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            geometry_field("geom", "EPSG:4326"),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let geometry =
+            to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0))).unwrap();
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(geometry.as_slice())])),
+                Arc::new(Int64Array::from(vec![1])),
+            ],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "features".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let driver = GpkgDriver;
+        let mut writer = driver
+            .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        // 7.0 viene convertito a INTEGER dall'affinita' (conversione lossless):
+        // nessuna perdita. 1.5 e 1e300 restano REAL.
+        conn.execute_batch(
+            "UPDATE features SET id = 1.5 WHERE fid = 1;
+             INSERT INTO features (fid, geom, id) SELECT 2, geom, 1e300 FROM features WHERE fid = 1;
+             INSERT INTO features (fid, geom, id) SELECT 3, geom, 7.0 FROM features WHERE fid = 1;",
+        )
+        .unwrap();
+        // Precondizione del test: l'affinita' si e' comportata come previsto.
+        let kinds: Vec<String> = conn
+            .prepare("SELECT typeof(id) FROM features ORDER BY fid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(std::result::Result::unwrap)
+            .collect();
+        assert_eq!(kinds, vec!["real", "real", "integer"]);
+        drop(conn);
+
+        let dataset = driver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let loss = read_all_and_loss(dataset.as_ref());
+
+        assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_TRUNCATED), Some(&1));
+        assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_SATURATED), Some(&1));
+        // Il 7.0 convertito dall'affinita' non e' una perdita.
+        assert_eq!(loss.counts.values().sum::<u64>(), 2);
+        // Un esempio per coppia (campo, categoria), mai uno per riga.
+        assert_eq!(loss.examples().len(), 2);
+        assert!(loss
+            .examples()
+            .iter()
+            .all(|example| example.context.starts_with("field=id:")));
+    }
+
+    /// Le due guardie difensive non sono raggiungibili da un file: `SQLite`
+    /// memorizza NaN come NULL e l'affinita' REAL converte gli interi in
+    /// virgola mobile prima che il driver li veda. Restano perche' rendono
+    /// esplicita un'invariante che oggi dipende dalle regole di affinita', e
+    /// si verificano al livello in cui sono scritte.
+    #[test]
+    fn non_finite_and_wide_integers_are_declared_never_silently_substituted() {
+        let mut integer_column = ColBuilder::new(&DataType::Int64);
+        assert_eq!(
+            integer_column.append(ValueRef::Real(f64::NAN)),
+            Some(Coercion::NonFiniteDiscarded)
+        );
+        assert_eq!(
+            integer_column.append(ValueRef::Real(f64::INFINITY)),
+            Some(Coercion::NonFiniteDiscarded)
+        );
+        // Un NaN non diventa mai lo zero plausibile e falso di `as i64`.
+        let values = integer_column.finish();
+        assert_eq!(values.null_count(), 2);
+
+        let mut real_column = ColBuilder::new(&DataType::Float64);
+        assert_eq!(
+            real_column.append(ValueRef::Integer(9_007_199_254_740_993)),
+            Some(Coercion::IntegerPrecisionUnverifiable)
+        );
+        assert_eq!(real_column.append(ValueRef::Integer(7)), None);
+    }
+
+    /// I valori gia' rappresentabili non producono perdita: il gate non deve
+    /// diventare rumoroso su file corretti.
+    #[test]
+    fn representable_values_produce_no_loss() {
+        let mut integer_column = ColBuilder::new(&DataType::Int64);
+        assert_eq!(integer_column.append(ValueRef::Integer(42)), None);
+        // REAL senza parte frazionaria e dentro l'intervallo: esatto.
+        assert_eq!(integer_column.append(ValueRef::Real(7.0)), None);
+        assert_eq!(integer_column.append(ValueRef::Real(-7.0)), None);
+        // Il limite negativo e' rappresentabile, quello positivo no.
+        assert_eq!(
+            integer_column.append(ValueRef::Real(-SATURATION_BOUND)),
+            None
+        );
+        assert_eq!(
+            integer_column.append(ValueRef::Real(SATURATION_BOUND)),
+            Some(Coercion::RealSaturated)
+        );
+    }
 
     #[test]
     fn fuzz_entrypoint_reports_the_envelope_offset_declared_by_the_flags() {
@@ -1299,9 +1602,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: Some(spatial_pruning_hint),
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let mut ids = Vec::new();
@@ -1319,6 +1622,10 @@ mod tests {
         ids
     }
 
+    // Il test copre in un solo scenario scrittura, registrazione dell'RTree e
+    // le tre letture (non registrato, registrato, hint invalido): spezzarlo
+    // duplicherebbe la fixture e ne perderebbe la sequenza.
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn spatial_pruning_uses_only_registered_rtree_and_never_filters_exactly() {
         let dir = tempfile::tempdir().unwrap();
@@ -1476,7 +1783,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "vani".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],
@@ -1499,9 +1806,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let out = reader.next_batch().unwrap().unwrap();
@@ -1530,9 +1837,9 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         assert!(attributes_only.contract().contract.geometry.is_none());
@@ -1549,9 +1856,9 @@ mod tests {
                 projection_mode: ProjectionMode::Required,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let projected = no_columns.next_batch().unwrap().unwrap();
@@ -1629,9 +1936,9 @@ mod tests {
                 projection_mode: ProjectionMode::BestEffort,
                 pruning_predicate: None,
                 spatial_pruning_hint: None,
-                scope: Default::default(),
+                scope: ReadScope::default(),
                 batch_target: BatchTarget::default(),
-                cancellation: Default::default(),
+                cancellation: CancellationToken::default(),
             })
             .unwrap();
         let output = reader.next_batch().unwrap().unwrap();
@@ -1685,14 +1992,14 @@ mod tests {
                 WriteLayer {
                     name: "vani".to_owned(),
                     contract: DataContract {
-                        schema: s0.clone(),
+                        schema: s0,
                         geometry: None,
                     },
                 },
                 WriteLayer {
                     name: "strade".to_owned(),
                     contract: DataContract {
-                        schema: s1.clone(),
+                        schema: s1,
                         geometry: None,
                     },
                 },
@@ -1725,9 +2032,9 @@ mod tests {
                     projection_mode: ProjectionMode::BestEffort,
                     pruning_predicate: None,
                     spatial_pruning_hint: None,
-                    scope: Default::default(),
+                    scope: ReadScope::default(),
                     batch_target: BatchTarget::default(),
-                    cancellation: Default::default(),
+                    cancellation: CancellationToken::default(),
                 })
                 .unwrap();
             let rb = r.next_batch().unwrap().unwrap();
@@ -1741,7 +2048,8 @@ mod tests {
         let path = dir.path().join("m3857.gpkg");
         // Un punto in EPSG:3857 (Web Mercator).
         let wkb = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(
-            1113194.0, 5621521.0,
+            1_113_194.0,
+            5_621_521.0,
         )))
         .unwrap();
         let schema: SchemaRef = Arc::new(Schema::new(vec![
@@ -1761,7 +2069,7 @@ mod tests {
             layers: vec![WriteLayer {
                 name: "l".to_owned(),
                 contract: DataContract {
-                    schema: schema.clone(),
+                    schema,
                     geometry: None,
                 },
             }],

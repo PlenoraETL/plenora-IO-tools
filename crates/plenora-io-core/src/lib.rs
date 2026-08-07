@@ -1,6 +1,6 @@
 //! plenora-io-core — il confine plug-in dei driver di formato + macchinari
-//! condivisi (descrittore, ReadRequest/WritePlan, registro, publish atomico,
-//! LossReport). Nessun parser di formato qui: solo i contratti.
+//! condivisi (descrittore, `ReadRequest`/`WritePlan`, registro, publish
+//! atomico, `LossReport`). Nessun parser di formato qui: solo i contratti.
 #![forbid(unsafe_code)]
 
 pub mod capabilities;

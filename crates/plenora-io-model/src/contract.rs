@@ -73,6 +73,7 @@ pub enum GeometryType {
 
 impl GeometryType {
     /// Nome wire canonico ratificato da R3.1.
+    #[must_use]
     pub const fn canonical_name(self) -> &'static str {
         match self {
             Self::Point => "point",
@@ -95,6 +96,7 @@ impl GeometryType {
     }
 
     /// Risolve esclusivamente un nome wire canonico supportato.
+    #[must_use]
     pub fn from_canonical_name(value: &str) -> Option<Self> {
         match value {
             "point" => Some(Self::Point),
@@ -187,7 +189,8 @@ impl GeometryColumnContract {
         }
     }
 
-    pub fn resolved_crs(&self) -> Option<&ResolvedCrs> {
+    #[must_use]
+    pub const fn resolved_crs(&self) -> Option<&ResolvedCrs> {
         self.crs.as_resolved()
     }
 
@@ -215,6 +218,9 @@ impl DataContract {
     /// Costruisce il contratto e inserisce la versione del protocollo nei
     /// metadati di schema quando sono presenti chiavi geometriche canoniche.
     #[must_use]
+    // Firma per valore: `DataContract::new` e' parte dell'identita' pubblica
+    // versionata; passare per riferimento la cambierebbe senza guadagno.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(schema: SchemaRef, geometry: Option<GeometryColumnContract>) -> Self {
         let schema = geometry.as_ref().map_or_else(
             || schema.clone(),
