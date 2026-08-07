@@ -8,14 +8,20 @@
 # (`scripts/fuzz-smoke.sh --include-quarantined`) e nella campagna lunga
 # `scripts/fuzz-campaign.sh`, che non legge questo file.
 #
-# Una riga si toglie solo quando il finding è chiuso a monte o quando è stata
-# presa una decisione esplicita sul confine (i finding aperti riguardano la
-# semantica di accettazione dei driver, quindi non sono correggibili senza
-# ratifica).
+# Una riga si toglie quando il finding è chiuso a monte, quando è stata presa
+# una decisione esplicita sul confine (i finding sulla semantica di accettazione
+# dei driver non sono correggibili senza ratifica), oppure quando il finding non
+# si riproduce in isolamento.
+#
+# Quest'ultimo caso non è teorico: un input va eseguito da solo, con la stessa
+# build strumentata, prima di finire qui. La campagna lancia tutti i target
+# insieme, e `-timeout` misura tempo di parete: sotto pressione di memoria un
+# input da decine di millisecondi viene archiviato come timeout. Una riga
+# scritta su un finding del genere non è un debito, è rumore travestito da
+# debito — e nasconde i difetti veri insieme ai falsi positivi.
 #
 # Formato: <target> <spazi> <riferimento del finding>
 
 geoparquet_reader  arrow-ipc convert.rs:354 — panic su Precision FloatingPoint sconosciuta nei metadati ARROW:schema
 ipc_reader         arrow-buffer immutable.rs:288 — panic su slice con offset oltre la lunghezza del buffer IPC
 ipc_to_gpkg        arrow-ipc convert.rs:514 — panic su Type NONE nello schema IPC
-xlsx_reader        timeout — 5,4 KiB di XLSX superano i 15 s per singola lettura
