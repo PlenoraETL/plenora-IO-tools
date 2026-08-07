@@ -591,6 +591,29 @@ impl LayerReader for GpkgReader {
         if count == 0 {
             return Ok(None);
         }
+        // La paginazione e' keyset su `rowid`: ogni pagina riparte da
+        // `WHERE rowid > last_rowid`. Se il massimo osservato non supera il
+        // cursore, la pagina successiva sarebbe identica a questa e il reader
+        // non terminerebbe mai.
+        //
+        // Su un GeoPackage sano non puo' accadere: la clausola garantisce
+        // `rowid > last_rowid` per ogni riga restituita. Su un file corrotto
+        // si': SQLite confronta la chiave del b-tree, mentre il valore
+        // restituito viene dal record, e i due possono divergere. Trovato dal
+        // fuzzing con un file di 32 KiB che restituiva all'infinito la stessa
+        // riga con `rowid` riportato 0, portando il processo oltre 4 GiB
+        // residenti — non per una singola allocazione, ma per milioni di
+        // iterazioni che allocano e liberano.
+        //
+        // Fail-closed: un file che non permette di avanzare e' incoerente, e
+        // proseguire produrrebbe righe duplicate all'infinito.
+        if max_rowid <= self.last_rowid {
+            return Err(err(format!(
+                "paginazione bloccata: rowid massimo {max_rowid} non supera il cursore {}; \
+                 il GeoPackage e' incoerente",
+                self.last_rowid
+            )));
+        }
         self.last_rowid = max_rowid;
         let mut arrays: Vec<ArrayRef> =
             Vec::with_capacity(usize::from(self.include_geometry) + attr_builders.len());
@@ -1129,6 +1152,30 @@ fn build_schema(
     let mut attrs: Vec<(String, DataType)> = Vec::new();
     for r in rows {
         let (name, decl, pk) = r.map_err(sql_err)?;
+        // La lettura pagina con `WHERE t.rowid > ?`, dove `rowid` e' l'alias
+        // implicito della chiave di riga. Se la tabella dichiara una colonna
+        // con quel nome, SQLite risolve l'alias sulla colonna *utente* e la
+        // paginazione avviene su valori arbitrari: righe saltate, ripetute, o
+        // un cursore che non avanza mai.
+        //
+        // SQLite ha tre alias per la chiave di riga e sono tutti oscurabili;
+        // non esiste una forma non oscurabile a cui ripiegare. L'unica difesa
+        // e' rifiutare la tabella, ed e' coerente con la semantica fail-closed
+        // del componente: meglio non leggere che leggere righe sbagliate senza
+        // dirlo.
+        //
+        // Il confronto e' senza distinzione di maiuscole perche' SQLite
+        // risolve i nomi di colonna in modo case-insensitive.
+        if matches!(
+            name.to_ascii_lowercase().as_str(),
+            "rowid" | "_rowid_" | "oid"
+        ) {
+            return Err(err(format!(
+                "la tabella \"{table}\" dichiara la colonna \"{name}\", che oscura l'alias della \
+                 chiave di riga usato per la paginazione; il GeoPackage non e' leggibile in modo \
+                 deterministico"
+            )));
+        }
         if name == geom_col || pk > 0 {
             continue;
         }
@@ -1759,6 +1806,126 @@ mod tests {
             vec![1, 2, 3, 4],
             "un hint invalido deve essere ignorato"
         );
+    }
+
+    /// Una colonna che oscura l'alias della chiave di riga rende la
+    /// paginazione non deterministica, e il driver deve rifiutare il file.
+    ///
+    /// Non serve un file corrotto: e' un `GeoPackage` sintatticamente valido,
+    /// scritto qui dal driver stesso e poi esteso con `ALTER TABLE`. Prima di
+    /// questo controllo il driver paginava sulla colonna utente senza dirlo,
+    /// con righe saltate o ripetute a seconda dei valori.
+    #[test]
+    fn una_colonna_che_oscura_il_rowid_viene_rifiutata() {
+        for nome in ["rowid", "_rowid_", "OID"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("shadow.gpkg");
+            let schema: SchemaRef = Arc::new(Schema::new(vec![
+                geometry_field("geom", "EPSG:4326"),
+                Field::new("id", DataType::Int64, false),
+            ]));
+            let geometry =
+                to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(0.0, 0.0))).unwrap();
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![
+                    Arc::new(BinaryArray::from(vec![Some(geometry.as_slice())])),
+                    Arc::new(Int64Array::from(vec![1])),
+                ],
+            )
+            .unwrap();
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "features".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: None,
+                    },
+                }],
+            };
+            let driver = GpkgDriver;
+            let mut writer = driver
+                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+
+            // Il file resta valido: aggiungiamo solo una colonna con un nome
+            // che SQLite risolve come alias della chiave di riga.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!(
+                "ALTER TABLE features ADD COLUMN \"{nome}\" INTEGER;"
+            ))
+            .unwrap();
+            drop(conn);
+
+            // `expect_err` richiederebbe `Debug` sul trait object restituito
+            // in caso di successo, che non lo implementa.
+            match driver.open(Source::Path(path), &ReadOptions::default()) {
+                Ok(_) => panic!("colonna {nome}: il file doveva essere rifiutato"),
+                Err(errore) => assert!(
+                    errore.to_string().contains("oscura l'alias"),
+                    "colonna {nome}: messaggio inatteso {errore}"
+                ),
+            }
+        }
+    }
+
+    /// Regressione sul file che il fuzzing ha usato per portare il reader
+    /// oltre 4 GiB residenti: 32 KiB di `GeoPackage` in cui 228 byte sono
+    /// stati scritti nello spazio libero delle pagine. `SQLite` legge la
+    /// chiave del b-tree, ma il `rowid` che restituisce viene dal record, e i
+    /// due divergono: la pagina successiva ripeteva la stessa riga senza mai
+    /// avanzare il cursore.
+    ///
+    /// Il file e' versionato in `fuzz/seeds/`, quindi la campagna lo ricarica
+    /// a ogni run e questa regressione resta coperta su entrambi i fronti.
+    #[test]
+    fn un_gpkg_che_non_fa_avanzare_la_paginazione_termina_con_errore() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/gpkg_reader/paginazione-bloccata.gpkg");
+        // Copiato in una directory temporanea: aprendolo `SQLite` puo'
+        // affiancargli journal o WAL, e l'albero versionato resta pulito.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("paginazione-bloccata.gpkg");
+        std::fs::copy(&seme, &path).unwrap();
+
+        let driver = GpkgDriver;
+        let Ok(dataset) = driver.open(Source::Path(path), &ReadOptions::default()) else {
+            // Il file e' corrotto: se una verifica a monte lo rifiuta prima
+            // ancora di leggerlo, il non-avanzamento e' comunque irraggiungibile.
+            return;
+        };
+        let mut reader = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: None,
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .unwrap();
+
+        // Il tetto non e' una soglia di merito: prima della correzione questo
+        // ciclo non terminava. Un limite basso trasforma la non terminazione
+        // in un fallimento immediato invece che in un test appeso.
+        for _ in 0..1_000 {
+            match reader.next_batch() {
+                Ok(None) => return,
+                Ok(Some(_)) => {}
+                Err(errore) => {
+                    assert!(
+                        errore.to_string().contains("paginazione bloccata"),
+                        "messaggio inatteso: {errore}"
+                    );
+                    return;
+                }
+            }
+        }
+        panic!("la lettura non e' terminata entro 1000 batch: la paginazione non avanza");
     }
 
     #[test]
