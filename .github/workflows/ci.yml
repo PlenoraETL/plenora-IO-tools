@@ -71,9 +71,22 @@ jobs:
       - name: Verify reviewed semantic fallbacks
         run: bash scripts/check_assurance_fallbacks.sh
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - name: Enforce safety lints on library code
+      # Il perimetro comprende i binari, non solo le librerie: `plenora-io-cli`
+      # viene distribuito, e fino a questo commit il suo `main.rs` era l'unico
+      # codice consegnato che poteva usare `unwrap`, `expect` o `panic!` senza
+      # che nulla lo vedesse. Data Tools ha sempre girato il gate su
+      # `--lib --bins`, questa e' la stessa forma.
+      #
+      # `plenora-bench` e `plenora-fuzz` restano fuori: sono attrezzaggio, non
+      # vengono consegnati, e li' un `panic!` e' il modo giusto di fermarsi.
+      # Sono esclusi per nome invece di elencare le crate da includere, cosi'
+      # un binario nuovo in una crate distribuibile entra nel gate da solo.
+      - name: Enforce safety lints on library and binary code
         run: >-
-          cargo clippy --workspace --lib --all-features --locked --
+          cargo clippy --workspace --lib --bins --all-features --locked
+          --exclude plenora-bench
+          --exclude plenora-fuzz
+          --
           -D warnings
           -D unsafe-code
           -D clippy::unwrap_used
