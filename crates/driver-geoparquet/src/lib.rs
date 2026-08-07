@@ -364,10 +364,23 @@ impl LayerReader for GeoParquetReader {
     }
 
     fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
-        match self.reader.next() {
+        // La barriera copre la decodifica dei buffer, non solo lo schema letto
+        // all'apertura: arrow decodifica il batch a ogni `next()`, e un offset
+        // oltre la lunghezza dichiarata panica invece di dare un errore.
+        //
+        // Dopo un panico catturato il reader resta in uno stato non definito.
+        // Non e' un problema: il chiamante riceve un errore e il contratto di
+        // `LayerReader` non prevede di proseguire dopo un errore.
+        let reader = &mut self.reader;
+        let prossimo =
+            plenora_io_core::driver::leggendo_arrow("parquet", move || match reader.next() {
+                None => Ok(None),
+                Some(Err(e)) => Err(fmt_err(format!("batch: {e}"))),
+                Some(Ok(batch)) => Ok(Some(batch)),
+            })?;
+        match prossimo {
             None => Ok(None),
-            Some(Err(e)) => Err(fmt_err(format!("batch: {e}"))),
-            Some(Ok(batch)) => {
+            Some(batch) => {
                 // Ri-etichetta lo schema (geometria -> geoarrow.wkb) senza toccare
                 // i buffer: pass-through delle colonne.
                 let options = RecordBatchOptions::new().with_row_count(Some(batch.num_rows()));
@@ -1133,6 +1146,36 @@ mod tests {
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
     use plenora_io_model::CancellationToken;
+
+    /// I file che facevano panicare arrow decodificando lo schema devono
+    /// uscire come errore del driver, non abbattere il processo. Un `.parquet`
+    /// ci arriva perche' il footer puo' portare `ARROW:schema`, che viene
+    /// decodificato dallo stesso codice dell'IPC.
+    ///
+    /// Il target di fuzzing non puo' verificarlo: `libfuzzer-sys` installa un
+    /// panic hook che chiama `abort()` prima dell'unwinding, quindi
+    /// `catch_unwind` non entra mai in gioco e il target continua a segnalare
+    /// un crash anche con la barriera al suo posto. Fuori dal fuzzer
+    /// l'unwinding e' quello di default — nel workspace non c'e' alcun
+    /// `panic = "abort"` — e la barriera si osserva.
+    #[test]
+    fn un_parquet_che_fa_panicare_arrow_diventa_un_errore_del_driver() {
+        for nome in [
+            "arrow-schema-che-fa-panicare.parquet",
+            "arrow-schema-che-fa-panicare-2.parquet",
+        ] {
+            let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fuzz/seeds/geoparquet_reader")
+                .join(nome);
+            match GeoParquetDriver.open(Source::Path(seme), &ReadOptions::default()) {
+                Ok(_) => panic!("{nome}: il file doveva essere rifiutato"),
+                Err(errore) => assert!(
+                    errore.to_string().contains("arrow in panico"),
+                    "{nome}: la barriera non e' scattata: {errore}"
+                ),
+            }
+        }
+    }
 
     fn geometry_field_meta(crs: &str) -> HashMap<String, String> {
         let mut m = HashMap::new();
