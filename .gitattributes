@@ -2,3 +2,12 @@
 * text=auto eol=lf
 *.sh text eol=lf
 *.rs text eol=lf
+
+# Semi binari del fuzzer (contenitori reali: SQLite, Parquet, Arrow IPC, ZIP,
+# blob geometria GeoPackage). Nessuna euristica di testo, nessuna
+# normalizzazione: un solo byte riscritto li rende semi invalidi.
+fuzz/seeds/**/*.gpkg binary
+fuzz/seeds/**/*.gpkgb binary
+fuzz/seeds/**/*.parquet binary
+fuzz/seeds/**/*.arrow binary
+fuzz/seeds/**/*.xlsx binary

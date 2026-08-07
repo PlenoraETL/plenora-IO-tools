@@ -50,6 +50,8 @@ use plenora_io_model::contract::{
     LayerContract, LayerId,
 };
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
+use plenora_io_model::limits::WkbLimits;
+use plenora_io_model::wkb::decode_wkb;
 
 use plenora_io_model::{PlenoraIoError, Result};
 
@@ -1344,6 +1346,21 @@ fn create_feature_table(
     })
 }
 
+/// Entry point non stabile per libFuzzer: esercita l'header binario
+/// `GeoPackageBinaryHeader` (magic, flag envelope, dimensionamento) e la
+/// decodifica del WKB che lo segue, senza I/O su filesystem. Il payload
+/// estratto e' esattamente quello che il reader mette in colonna geometria,
+/// quindi un solo input copre entrambi i confini.
+///
+/// Ritorna l'offset del payload dentro il blob: e' il dato su cui il target
+/// verifica che il salto dell'envelope resti quello dichiarato dai flag.
+#[doc(hidden)]
+pub fn __fuzz_gpkg_geometry(bytes: &[u8]) -> Result<usize> {
+    let payload = strip_gpkg_header(bytes)?;
+    decode_wkb(payload, &WkbLimits::default())?;
+    Ok(bytes.len() - payload.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1493,6 +1510,26 @@ mod tests {
             integer_column.append(ValueRef::Real(SATURATION_BOUND)),
             Some(Coercion::RealSaturated)
         );
+    }
+
+    #[test]
+    fn fuzz_entrypoint_reports_the_envelope_offset_declared_by_the_flags() {
+        let payload = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+
+        let mut senza_envelope = gpkg_header(4326).to_vec();
+        senza_envelope.extend_from_slice(&payload);
+        assert_eq!(__fuzz_gpkg_geometry(&senza_envelope).unwrap(), 8);
+
+        // Envelope XY dichiarato nei flag: 32 byte fra header e payload.
+        let mut con_envelope = gpkg_header(4326).to_vec();
+        con_envelope[3] |= 0x02;
+        con_envelope.extend_from_slice(&[0_u8; 32]);
+        con_envelope.extend_from_slice(&payload);
+        assert_eq!(__fuzz_gpkg_geometry(&con_envelope).unwrap(), 40);
+
+        // Magic assente e blob troncato restano rifiuti, non panic.
+        assert!(__fuzz_gpkg_geometry(b"XX\x00\x01\x00\x00\x00\x00").is_err());
+        assert!(__fuzz_gpkg_geometry(&senza_envelope[..7]).is_err());
     }
 
     #[test]

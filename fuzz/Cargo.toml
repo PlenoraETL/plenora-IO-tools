@@ -16,13 +16,21 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "=0.4.13"
 plenora-io-model = { path = "../crates/plenora-io-model" }
+plenora-io-core = { path = "../crates/plenora-io-core" }
 driver-common = { path = "../crates/driver-common" }
+driver-csv = { path = "../crates/driver-csv" }
 driver-dxf = { path = "../crates/driver-dxf" }
 driver-geojson = { path = "../crates/driver-geojson" }
 driver-geoparquet = { path = "../crates/driver-geoparquet" }
+driver-gpkg = { path = "../crates/driver-gpkg" }
+driver-ipc = { path = "../crates/driver-ipc" }
 driver-kml = { path = "../crates/driver-kml" }
 driver-shp = { path = "../crates/driver-shp" }
+driver-xls = { path = "../crates/driver-xls" }
 geo-types = "=0.7.19"
+# I driver di file leggono da `Source::Path`: l'input del fuzzer va
+# materializzato in un file temporaneo prima di raggiungerli.
+tempfile = "=3.27.0"
 
 [patch.crates-io]
 # Il workspace fuzz è intenzionalmente detached e non eredita le patch del
@@ -67,6 +75,62 @@ bench = false
 [[bin]]
 name = "dxf_reader"
 path = "fuzz_targets/dxf_reader.rs"
+test = false
+doc = false
+bench = false
+
+# Superfici di file esterni non fidati coperte dalla seconda ondata: i formati
+# contenitore (GeoPackage/SQLite, Parquet, XLSX/ZIP, Arrow IPC) e i tabellari,
+# più il blob geometria GeoPackage che il driver interpreta byte per byte.
+# Condividono `fuzz_targets/harness.rs` (materializzazione su file + drenaggio).
+
+[[bin]]
+name = "gpkg_geometry"
+path = "fuzz_targets/gpkg_geometry.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gpkg_reader"
+path = "fuzz_targets/gpkg_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "geoparquet_reader"
+path = "fuzz_targets/geoparquet_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipc_reader"
+path = "fuzz_targets/ipc_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "csv_reader"
+path = "fuzz_targets/csv_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xlsx_reader"
+path = "fuzz_targets/xlsx_reader.rs"
+test = false
+doc = false
+bench = false
+
+# Percorso di scrittura: l'unico raggiungibile offline con un contratto
+# interamente controllato dall'input (Arrow IPC è pass-through).
+[[bin]]
+name = "ipc_to_gpkg"
+path = "fuzz_targets/ipc_to_gpkg.rs"
 test = false
 doc = false
 bench = false
