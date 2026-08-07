@@ -216,7 +216,14 @@ pub fn parse_wkt(text: &str) -> Result<WkbGeometry> {
     let parsed: Wkt<f64> = text
         .parse()
         .map_err(|message| error(format!("sintassi non valida: {message}")))?;
-    geometry_from_wkt(&parsed)
+    let geometria = geometry_from_wkt(&parsed)?;
+    // Simmetria con la scrittura: quello che accettiamo da testo deve poter
+    // tornare a testo. Accettare in lettura una geometria che non sappiamo
+    // riscrivere e' una trappola — si legge un CSV e poi non lo si riesce a
+    // riprodurre — e non toglie nulla, perche' `POLYGON(EMPTY)` non ha mai
+    // fatto round-trip: veniva riletto come poligono senza anelli.
+    verifica_esprimibile(&geometria)?;
+    Ok(geometria)
 }
 
 fn coordinate_to_wkt(
@@ -790,6 +797,41 @@ mod tests {
                 parse_wkt(&testo).expect(nome),
                 geometria,
                 "{nome}: round-trip di {testo}"
+            );
+        }
+    }
+
+    /// Lettura e scrittura devono avere lo stesso perimetro: se non sappiamo
+    /// riscrivere una geometria, non dobbiamo accettarla nemmeno da testo.
+    ///
+    /// Non toglie nulla che funzionasse: `POLYGON(EMPTY)` non ha mai fatto
+    /// round-trip, veniva riletto come poligono senza anelli. Il fuzz target
+    /// `wkt_parse` asserisce esattamente questa simmetria — «WKT accettato deve
+    /// essere serializzabile» — ed e' cosi' che l'asimmetria e' venuta fuori.
+    #[test]
+    fn cio_che_accettiamo_da_testo_lo_sappiamo_riscrivere() {
+        for testo in [
+            "POLYGON(EMPTY)",
+            "MULTIPOLYGON((EMPTY))",
+            "MULTILINESTRING(EMPTY)",
+        ] {
+            let esito = parse_wkt(testo);
+            if let Ok(geometria) = &esito {
+                format_wkt(geometria).unwrap_or_else(|errore| {
+                    panic!("{testo}: accettato in lettura ma non riscrivibile: {errore}")
+                });
+            }
+        }
+
+        // Le forme vuote di primo livello restano accettate e riscrivibili.
+        for testo in ["POLYGON EMPTY", "LINESTRING EMPTY", "MULTIPOLYGON(EMPTY)"] {
+            let geometria = parse_wkt(testo).unwrap_or_else(|errore| panic!("{testo}: {errore}"));
+            let riscritto =
+                format_wkt(&geometria).unwrap_or_else(|errore| panic!("{testo}: {errore}"));
+            assert_eq!(
+                parse_wkt(&riscritto).unwrap_or_else(|errore| panic!("{testo}: {errore}")),
+                geometria,
+                "{testo}: round-trip via {riscritto}"
             );
         }
     }
