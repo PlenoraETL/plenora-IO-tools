@@ -404,11 +404,141 @@ pub fn format_wkt(geometry: &WkbGeometry) -> Result<String> {
 /// Restituisce gli stessi errori di [`format_wkt`], più
 /// [`PlenoraIoError::Wkb`] se la scrittura sul buffer fallisce.
 pub fn format_wkt_into(geometry: &WkbGeometry, output: &mut String) -> Result<()> {
+    let mut testo = String::new();
+    scrivi_geometria(geometry, &mut testo)?;
+    output.push_str(&testo);
+    Ok(())
+}
+
+/// Serializza una geometria delegando alla crate `wkt`, tranne dove quella non
+/// sa farlo.
+///
+/// `write_multi_polygon` (`wkt` 0.14.0, `to_wkt/geo_trait_impl.rs:240`) scrive
+/// `((` e poi fa `.unwrap()` sull'anello esterno del primo poligono: apre le
+/// parentesi prima di sapere se quel poligono ne ha uno. Un `MULTIPOLYGON` con
+/// un membro vuoto la fa quindi panicare, e non e' solo l'`unwrap`: cosi'
+/// com'e' scritta non potrebbe comunque emettere `MULTIPOLYGON(EMPTY)`.
+///
+/// Non e' un caso di laboratorio. Un poligono senza anelli e' rappresentabile
+/// in WKB — diciotto byte per il caso minimo — e i nostri codec lo accettano in
+/// entrambi i versi, quindi la geometria arriva qui dai reader, non solo dal
+/// testo. I chiamanti sono i writer CSV e XLSX: prima di questa correzione
+/// scrivere un dataset che la contenesse abbatteva il processo.
+///
+/// Trovato dallo smoke di fuzzing su `main` con l'input `MULtIpolygon(\nemPTy)`.
+/// Segnalato a monte a `georust/wkt`.
+///
+/// Le geometrie che gia' funzionavano continuano a passare dalla crate: la
+/// deviazione riguarda solo le forme che la crate non sa scrivere, e i membri
+/// non vuoti sono comunque serializzati da lei, cosi' la formattazione
+/// numerica resta identica byte per byte nel resto dell'output.
+fn scrivi_geometria(geometry: &WkbGeometry, output: &mut String) -> Result<()> {
     use std::fmt::Write as _;
 
-    let wkt = geometry_to_wkt(geometry)?;
-    write!(output, "{wkt}")
-        .map_err(|format_error| error(format!("serializzazione fallita: {format_error}")))
+    match &geometry.value {
+        WkbValue::MultiPolygon(membri) if membri.iter().any(poligono_senza_anelli) => {
+            scrivi_multipoligono_con_membri_vuoti(geometry, membri, output)
+        }
+        WkbValue::GeometryCollection(membri)
+            if membri.iter().any(contiene_multipoligono_con_membri_vuoti) =>
+        {
+            output.push_str("GEOMETRYCOLLECTION");
+            output.push_str(suffisso_dimensionale(geometry.dimensions)?);
+            output.push('(');
+            for (indice, membro) in membri.iter().enumerate() {
+                if membro.srid.is_some() || membro.dimensions != geometry.dimensions {
+                    return Err(error(
+                        "GeometryCollection WKB con membri dimensionalmente incoerenti",
+                    ));
+                }
+                if indice > 0 {
+                    output.push(',');
+                }
+                scrivi_geometria(membro, output)?;
+            }
+            output.push(')');
+            Ok(())
+        }
+        _ => {
+            let wkt = geometry_to_wkt(geometry)?;
+            write!(output, "{wkt}")
+                .map_err(|format_error| error(format!("serializzazione fallita: {format_error}")))
+        }
+    }
+}
+
+const fn poligono_senza_anelli(membro: &WkbGeometry) -> bool {
+    matches!(&membro.value, WkbValue::Polygon(anelli) if anelli.is_empty())
+}
+
+fn contiene_multipoligono_con_membri_vuoti(geometry: &WkbGeometry) -> bool {
+    match &geometry.value {
+        WkbValue::MultiPolygon(membri) => membri.iter().any(poligono_senza_anelli),
+        WkbValue::GeometryCollection(membri) => {
+            membri.iter().any(contiene_multipoligono_con_membri_vuoti)
+        }
+        _ => false,
+    }
+}
+
+/// Il suffisso che la crate `wkt` mette dopo il nome del tipo. Fallisce sulle
+/// stesse dimensionalità su cui fallisce [`dimension`], perché i due devono
+/// accettare esattamente le stesse geometrie.
+fn suffisso_dimensionale(dimensioni: CoordinateDimensions) -> Result<&'static str> {
+    match dimensioni {
+        CoordinateDimensions::Xy => Ok(""),
+        CoordinateDimensions::Xyz => Ok(" Z"),
+        CoordinateDimensions::Xym => Ok(" M"),
+        CoordinateDimensions::Xyzm => Ok(" ZM"),
+        CoordinateDimensions::Unknown => Err(error("dimensionalità ignota non serializzabile")),
+    }
+}
+
+/// Scrive `MULTIPOLYGON[ Z|M|ZM](membro,membro,...)`, dove un membro e'
+/// `EMPTY` oppure la parte fra parentesi di un `POLYGON`.
+///
+/// Ogni membro non vuoto viene serializzato dalla crate come `POLYGON…` e poi
+/// privato del proprio tag: e' l'unico modo di comporre il testo senza
+/// riscrivere la formattazione dei numeri, che deve restare quella usata da
+/// tutto il resto dell'output.
+fn scrivi_multipoligono_con_membri_vuoti(
+    geometry: &WkbGeometry,
+    membri: &[WkbGeometry],
+    output: &mut String,
+) -> Result<()> {
+    use std::fmt::Write as _;
+
+    let suffisso = suffisso_dimensionale(geometry.dimensions)?;
+    output.push_str("MULTIPOLYGON");
+    output.push_str(suffisso);
+    output.push('(');
+    for (indice, membro) in membri.iter().enumerate() {
+        // Stessa validazione degli altri rami: tipo, dimensioni e assenza di
+        // SRID annidati.
+        match checked_child(membro, geometry, GeometryType::Polygon)? {
+            WkbValue::Polygon(_) => {}
+            _ => return Err(error("MultiPolygon con membro non-Polygon")),
+        }
+        if indice > 0 {
+            output.push(',');
+        }
+        let poligono = geometry_to_wkt(membro)?;
+        let mut testo = String::new();
+        write!(testo, "{poligono}")
+            .map_err(|format_error| error(format!("serializzazione fallita: {format_error}")))?;
+        let corpo = testo
+            .strip_prefix("POLYGON")
+            .and_then(|resto| resto.strip_prefix(suffisso))
+            .ok_or_else(|| {
+                error(format!(
+                    "POLYGON atteso dalla crate wkt, ricevuto {testo:?}"
+                ))
+            })?;
+        // `POLYGON EMPTY` lascia uno spazio davanti a `EMPTY`.
+        output.push_str(corpo.trim_start());
+    }
+    output.push(')');
+    Ok(())
 }
 
 #[cfg(test)]
@@ -428,6 +558,113 @@ mod tests {
             let encoded = format_wkt(&geometry).unwrap();
             assert_eq!(parse_wkt(&encoded).unwrap(), geometry, "{encoded}");
         }
+    }
+
+    /// Un `MULTIPOLYGON` con un membro senza anelli deve serializzarsi, non
+    /// abbattere il processo.
+    ///
+    /// Il percorso di partenza e' il WKB, non il testo: e' quello che i writer
+    /// CSV e XLSX ricevono dai reader, e la geometria e' rappresentabile in
+    /// diciotto byte. Prima della correzione la crate `wkt` faceva `.unwrap()`
+    /// sull'anello esterno del primo poligono e il processo moriva.
+    #[test]
+    fn un_multipoligono_con_membro_vuoto_si_serializza_invece_di_panicare() {
+        let vuoto = |dimensioni| WkbGeometry {
+            value: WkbValue::Polygon(vec![]),
+            dimensions: dimensioni,
+            srid: None,
+        };
+        let quadrato = WkbGeometry {
+            value: WkbValue::Polygon(vec![vec![
+                WkbCoordinate {
+                    x: 0.0,
+                    y: 0.0,
+                    z: None,
+                    m: None,
+                },
+                WkbCoordinate {
+                    x: 1.0,
+                    y: 0.0,
+                    z: None,
+                    m: None,
+                },
+                WkbCoordinate {
+                    x: 1.0,
+                    y: 1.0,
+                    z: None,
+                    m: None,
+                },
+                WkbCoordinate {
+                    x: 0.0,
+                    y: 0.0,
+                    z: None,
+                    m: None,
+                },
+            ]]),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+
+        for (membri, atteso) in [
+            (vec![vuoto(CoordinateDimensions::Xy)], "MULTIPOLYGON(EMPTY)"),
+            (
+                vec![quadrato.clone(), vuoto(CoordinateDimensions::Xy)],
+                "MULTIPOLYGON(((0 0,1 0,1 1,0 0)),EMPTY)",
+            ),
+            (
+                vec![vuoto(CoordinateDimensions::Xy), quadrato],
+                "MULTIPOLYGON(EMPTY,((0 0,1 0,1 1,0 0)))",
+            ),
+        ] {
+            let geometria = WkbGeometry {
+                value: WkbValue::MultiPolygon(membri),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            };
+            let testo = format_wkt(&geometria).expect("serializzazione");
+            assert_eq!(testo, atteso);
+            assert_eq!(
+                parse_wkt(&testo).expect("rilettura"),
+                geometria,
+                "round-trip di {testo}"
+            );
+        }
+    }
+
+    /// Lo stesso caso annidato in una `GEOMETRYCOLLECTION`: la deviazione deve
+    /// propagarsi ai figli, altrimenti il panico resta raggiungibile passando
+    /// da un livello in piu'.
+    #[test]
+    fn il_membro_vuoto_e_gestito_anche_dentro_una_geometrycollection() {
+        let vuoto = WkbGeometry {
+            value: WkbValue::Polygon(vec![]),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let geometria = WkbGeometry {
+            value: WkbValue::GeometryCollection(vec![
+                WkbGeometry {
+                    value: WkbValue::Point(WkbCoordinate {
+                        x: 1.0,
+                        y: 2.0,
+                        z: None,
+                        m: None,
+                    }),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                },
+                WkbGeometry {
+                    value: WkbValue::MultiPolygon(vec![vuoto]),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                },
+            ]),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let testo = format_wkt(&geometria).expect("serializzazione");
+        assert_eq!(testo, "GEOMETRYCOLLECTION(POINT(1 2),MULTIPOLYGON(EMPTY))");
+        assert_eq!(parse_wkt(&testo).expect("rilettura"), geometria);
     }
 
     #[test]
