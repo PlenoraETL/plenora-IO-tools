@@ -95,8 +95,12 @@ impl FormatDriver for IpcDriver {
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path =
             source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
-        let reader = FileReader::try_new(File::open(&path)?, None)
-            .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
+        // `try_new` restituisce `Result`, ma arrow-ipc puo' comunque andare in
+        // panico decodificando lo schema: vedi `leggendo_arrow`.
+        let reader = plenora_io_core::driver::leggendo_arrow("arrow", || {
+            FileReader::try_new(File::open(&path)?, None)
+                .map_err(|e| err(format!("Arrow IPC non valido: {e}")))
+        })?;
         let schema = reader.schema();
         validate_contract_version(schema.as_ref())?;
         let canonical_version_present =
@@ -289,8 +293,11 @@ impl OpenDatasetHandle for IpcDataset {
                 )
             }
         };
-        let reader = FileReader::try_new(File::open(&self.path)?, projection)
-            .map_err(|e| err(format!("Arrow IPC non valido: {e}")))?;
+        let path = self.path.clone();
+        let reader = plenora_io_core::driver::leggendo_arrow("arrow", move || {
+            FileReader::try_new(File::open(&path)?, projection)
+                .map_err(|e| err(format!("Arrow IPC non valido: {e}")))
+        })?;
         Ok(plenora_io_core::with_batch_target(
             Box::new(IpcReader { reader, layer }),
             request.batch_target,

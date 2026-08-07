@@ -200,6 +200,75 @@ pub fn check_cancelled_periodically(
     Ok(())
 }
 
+/// Esegue una lettura Arrow convertendo in errore un panico della libreria.
+///
+/// `arrow-ipc` va in panico dentro `convert::fb_to_schema` su schemi che il
+/// decoder `FlatBuffer` accetta: `fields` e' opzionale e viene scartato con
+/// `unwrap()` (convert.rs:198), e la conversione dei tipi ha una ventina fra
+/// `panic!` e `unimplemented!` sui valori di enum che non riconosce. Ogni
+/// reader chiama quella funzione, e le API che la avvolgono si chiamano
+/// `try_*` ma sono fallibili solo sul parsing esterno: appena ottengono lo
+/// schema fanno `.map(fb_to_schema)`.
+///
+/// Non esiste quindi un percorso per leggere Arrow IPC — o un Parquet il cui
+/// footer porti la chiave `ARROW:schema` — che non possa abortire il processo
+/// su un file ostile. Questo componente legge file esterni non fidati per
+/// mestiere e promette una busta d'errore a quattro assi: la barriera
+/// ripristina il contratto, non lo aggira.
+///
+/// Segnalato a monte: apache/arrow-rs#10575. Va rimossa quando quella issue e'
+/// chiusa e il pin di arrow sale a una versione che rende fallibile la
+/// conversione dello schema.
+///
+/// # Correttezza dell'unwind safety
+///
+/// L'operazione costruisce stato locale che viene interamente scartato se il
+/// panico avviene, perche' il chiamante riceve `Err` e non vede nulla di
+/// parzialmente costruito. Nessun invariante osservabile puo' restare rotto.
+///
+/// # Nota per chi legge un fuzz target rosso
+///
+/// I target che esercitano questo percorso restano rossi **anche a barriera
+/// funzionante**: `libfuzzer-sys` installa un hook che chiama
+/// `std::process::abort()` prima che l'unwinding cominci (0.4.10,
+/// `src/lib.rs:92-95`), apposta perche' un `catch_unwind` nel codice sotto
+/// test non possa nascondere difetti al fuzzer. La copertura di questa
+/// barriera sono i test unitari dei driver, non il fuzzing.
+///
+/// # Errors
+///
+/// Propaga l'errore dell'operazione, oppure `PlenoraIoError::format` con il
+/// messaggio del panico se la libreria e' abortita.
+pub fn leggendo_arrow<T>(
+    driver: &'static str,
+    operazione: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione)) {
+        Ok(risultato) => risultato,
+        Err(panico) => Err(PlenoraIoError::format(
+            driver,
+            format!(
+                "arrow in panico sullo schema del payload: {}",
+                messaggio_del_panico(&panico)
+            ),
+        )),
+    }
+}
+
+/// Estrae il messaggio da un payload di panico senza assumerne il tipo:
+/// `panic!` con formato produce `String`, quello letterale `&'static str`.
+fn messaggio_del_panico(panico: &Box<dyn std::any::Any + Send>) -> String {
+    panico.downcast_ref::<&'static str>().map_or_else(
+        || {
+            panico
+                .downcast_ref::<String>()
+                .cloned()
+                .unwrap_or_else(|| "panico senza messaggio".to_owned())
+        },
+        |testo| (*testo).to_owned(),
+    )
+}
+
 pub trait FormatDriver: Send + Sync {
     fn descriptor(&self) -> &FormatDescriptor;
     /// Statico: header/schema/CRS, nessuna riga.
@@ -1475,6 +1544,54 @@ mod tests {
 
     use super::*;
     use crate::descriptor::WKB_XY_GEOMETRY;
+
+    /// La barriera contro i panic di arrow deve restituire un errore del
+    /// driver invece di far abortire il processo, e non deve interferire con
+    /// il percorso normale.
+    ///
+    /// Questo test e' l'unica copertura possibile del meccanismo: i fuzz
+    /// target che esercitano i percorsi Arrow e Parquet restano rossi anche a
+    /// barriera funzionante, perche' `libfuzzer-sys` chiama
+    /// `std::process::abort()` prima dell'unwinding (0.4.10, src/lib.rs:92-95)
+    /// apposta perche' un `catch_unwind` non possa nascondergli difetti.
+    #[test]
+    fn la_barriera_arrow_converte_il_panico_in_errore_del_driver() {
+        // L'hook del processo stamperebbe comunque su stderr e farebbe
+        // sembrare la suite fallita: silenziato per la durata del test.
+        let precedente = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        // Panico con messaggio formattato: il payload e' una `String`.
+        let formattato = leggendo_arrow("parquet", || -> Result<()> {
+            panic!("precisione {} non supportata", 194)
+        });
+        // Panico con letterale: il payload e' un `&'static str`.
+        let letterale = leggendo_arrow("arrow", || -> Result<()> {
+            panic!("Type NONE not supported")
+        });
+        // Percorso normale: la barriera non deve alterare nulla.
+        let riuscito = leggendo_arrow("arrow", || Ok(7_u8));
+        // Errore ordinario: deve passare invariato, non essere riclassificato.
+        let fallito = leggendo_arrow("arrow", || -> Result<u8> {
+            Err(PlenoraIoError::format("arrow", "payload troncato"))
+        });
+
+        std::panic::set_hook(precedente);
+
+        let errore = formattato.expect_err("il panico deve diventare errore");
+        assert!(
+            errore.to_string().contains("precisione 194 non supportata"),
+            "il messaggio del panico va conservato, ottenuto: {errore}"
+        );
+        let errore = letterale.expect_err("il panico deve diventare errore");
+        assert!(errore.to_string().contains("Type NONE not supported"));
+
+        assert_eq!(riuscito.expect("il percorso normale non e' toccato"), 7);
+        assert!(fallito
+            .expect_err("l'errore ordinario resta tale")
+            .to_string()
+            .contains("payload troncato"));
+    }
 
     #[test]
     fn periodic_cancellation_has_a_bounded_check_interval() {
