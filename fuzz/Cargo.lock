@@ -1286,6 +1286,7 @@ name = "plenora-io-core"
 version = "1.0.1"
 dependencies = [
  "arrow-array",
+ "arrow-ipc",
  "arrow-schema",
  "atomicwrites",
  "plenora-io-model",

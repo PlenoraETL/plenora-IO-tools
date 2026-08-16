@@ -34,6 +34,7 @@ use crate::request::{incremental_batch_memory_size, ReadRequest, WritePlan};
 
 mod batch_worker;
 mod reader_adapters;
+pub mod spool;
 pub use batch_worker::{spawn_batch_reader, BatchEmitter};
 pub use reader_adapters::{
     with_batch_target, with_cancellation, with_read_budget, SingleReaderGate,
