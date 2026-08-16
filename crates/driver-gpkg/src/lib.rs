@@ -11,6 +11,7 @@
 //! e conforme, senza trasformarsi in filtering geometrico esatto.
 #![forbid(unsafe_code)]
 
+use plenora_io_core::driver::bridge_richiede_legacy;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -176,8 +177,12 @@ impl FormatDriver for GpkgDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path =
-            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        let path = source.into_path_checked(
+            opts.max_input_bytes(),
+            opts.max_input_entries(),
+            opts.cancellation(),
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+        )?;
         let conn = Connection::open(&path).map_err(sql_err)?;
         let tables = feature_tables(&conn)?;
         if tables.is_empty() {
@@ -256,7 +261,9 @@ impl FormatDriver for GpkgDriver {
                 layers,
                 metas,
             }),
-            opts.resource_budget.clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
             false,
         ))
     }
@@ -267,7 +274,7 @@ impl FormatDriver for GpkgDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -324,9 +331,11 @@ impl FormatDriver for GpkgDriver {
             }),
             self.descriptor(),
             plan,
-            opts.limits,
-            opts.cancellation.clone(),
-            opts.resource_budget.clone(),
+            opts.write_limits(),
+            opts.cancellation().clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         )
     }
 }

@@ -8,6 +8,7 @@ use plenora_io_core::descriptor::{
     ArrowTypeClass, CrsHandling, Direction, Fidelity, FormatDescriptor, GeometryWriteSupport,
     ReadMode, ReaderConcurrency, Runtime, WriteMode,
 };
+use plenora_io_core::driver::bridge_richiede_legacy;
 use plenora_io_core::driver::{
     FormatDriver, FormatWriter, OpenDatasetHandle, ReadOptions, Sink, Source, WriteOptions,
 };
@@ -116,14 +117,20 @@ impl FormatDriver for FileGdbDriver {
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
+            // Risolto una volta sola fuori dalla chiusura: dentro, `?` non
+            // avrebbe un `Result` in cui propagare.
+            let budget = opts
+                .legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone();
             let path = source.into_path_checked(
-                &opts.limits,
-                &opts.cancellation,
-                &opts.resource_budget,
+                opts.max_input_bytes(),
+                opts.max_input_entries(),
+                opts.cancellation(),
+                &budget,
             )?;
-            return backend::open(&path, opts.assume_crs.as_deref()).map(|dataset| {
-                plenora_io_core::with_read_budget(dataset, opts.resource_budget.clone(), false)
-            });
+            return backend::open(&path, opts.assume_crs.as_deref())
+                .map(|dataset| plenora_io_core::with_read_budget(dataset, budget, false));
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
@@ -141,7 +148,7 @@ impl FormatDriver for FileGdbDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         #[cfg(feature = "gdal-backend")]
         {
             let Sink::Path(path) = sink;
@@ -150,9 +157,11 @@ impl FormatDriver for FileGdbDriver {
                     writer,
                     self.descriptor(),
                     plan,
-                    opts.limits,
-                    opts.cancellation.clone(),
-                    opts.resource_budget.clone(),
+                    opts.write_limits(),
+                    opts.cancellation().clone(),
+                    opts.legacy_budget()
+                        .ok_or_else(bridge_richiede_legacy)?
+                        .clone(),
                 )
             });
         }
@@ -2537,8 +2546,14 @@ mod backend {
                     None,
                 ))],
             };
-            let mut options = WriteOptions::default();
-            options.limits.max_output_bytes = 0;
+            let options = WriteOptions::from_legacy(
+                plenora_io_model::limits::Limits {
+                    max_output_bytes: 0,
+                    ..plenora_io_model::limits::Limits::default()
+                },
+                plenora_io_model::ResourceBudget::default(),
+                plenora_io_model::CancellationToken::default(),
+            );
             let writer = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &options)
                 .unwrap();

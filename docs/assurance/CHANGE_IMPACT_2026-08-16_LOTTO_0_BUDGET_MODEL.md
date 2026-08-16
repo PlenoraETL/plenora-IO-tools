@@ -603,3 +603,82 @@ prima di procedere, invece di affidarsi allo scheduler.
 
 Aggiunto anche `PipelineLimits::wkb_limits()`, che i driver useranno in
 S4.c al posto di `Limits::effective_wkb()`.
+
+## Registrazione S4.b del 2026-08-16 — payload transitorio e accessori centralizzati
+
+Secondo sottopasso di S4, sul bordo driver. `ReadOptions` e `WriteOptions`
+non espongono piu' i tre campi del modello legacy: al loro posto c'e' un
+campo privato `payload` di tipo `BudgetPayload`.
+
+**Perche' un enum e non tre `Option`.** Con i campi opzionali affiancati
+esisterebbe la combinazione "budget nuovo presente **e** limiti vecchi
+presenti", e nessun percorso saprebbe quale dei due lo governa. L'enum rende
+quello stato inesprimibile: o `Legacy { limits, resource_budget,
+cancellation }`, o `Pipeline { budget, permit, expected }`. `Default`
+costruisce esclusivamente `Legacy`; `from_read_parts`/`from_write_parts`
+costruiscono esclusivamente `Pipeline`; non esiste ripiego dal secondo al
+primo.
+
+**Gli accessori restituiscono scalari, mai un modello convertito.** Ogni
+percorso consulta un solo payload, e la scelta di quale ramo risponda e'
+centralizzata negli accessori invece di essere ripetuta nei driver. I valori
+restituiti — `max_columns`, `max_rows`, `max_input_bytes`,
+`max_input_entries`, `WkbLimits` — sono quote immutabili, non contatori:
+leggerle dal ramo che governa non e' una conversione di budget. Non esiste, e
+non deve esistere, un accessore che ricostruisca un `Limits` nel ramo
+`Pipeline`; per questo `legacy_limits()` restituisce `Option<&Limits>` e non
+un valore fabbricato. `WriteLimitsView` segue la stessa regola: tre scalari
+copiati, nessun contatore, nessun budget duplicato.
+
+**Il ponte fallisce, non ripiega.** Un driver ancora sul modello vecchio che
+riceva opzioni `Pipeline` ottiene `bridge_richiede_legacy()` — un
+`Unsupported` tipizzato — perche' un default silenzioso applicherebbe quote
+che nessuno ha chiesto e renderebbe invisibile lo stato della migrazione.
+
+**Permit, snapshot e budget passano per move.** `ReadBudgetParts::
+into_components` e `WriteBudgetParts::into_budget` consumano le parti invece
+di prestarne un riferimento da clonare. Clonare il budget sarebbe innocuo per
+i contatori — condividono il `PipelineContext` — ma renderebbe
+indistinguibile il passaggio dalla rigenerazione; e un permit rigenerato
+porterebbe un pipeline id che il context rifiuta.
+
+**I costruttori sostituiscono gli struct literal.** Con il payload privato la
+forma `ReadOptions { .., ..Default::default() }` non e' piu' esprimibile. I
+23 call site sono passati a `from_legacy` e ai builder pubblici
+`with_assume_crs`, `with_format_options`, `with_format_option`,
+`with_durable`. Sono API reale, non scorciatoie `cfg(test)`: nessun campo e'
+stato riaperto e nessun percorso di test aggira il bordo pubblico.
+
+**Un residuo emerso durante il lavoro.** `driver-filegdb` conteneva
+`options.limits.max_output_bytes = 0` dentro `#[cfg(feature =
+"gdal-backend")]`: fuori dalla build predefinita, quindi invisibile a
+`cargo build --all-targets`. Lo ha trovato l'inventario, che censisce il
+sorgente e non la build. E' migrato ai costruttori come tutti gli altri.
+
+**L'inventario misurava il testo sbagliato.** Le regex della prima versione
+contavano `opts.cancellation()` — l'accessore **nuovo** — nella categoria dei
+campi legacy, e `pub struct ReadOptions {` fra i literal. Il numero sarebbe
+salito mentre la migrazione procedeva. Le regex sono corrette; le cinque
+categorie `campo_*` e `*_literal` vanno percio' a zero, non per merito del
+conteggio ma perche' il payload privato rende quelle forme inesprimibili.
+Da qui in avanti il ponte si misura con tre categorie aggiunte —
+`costruttore_legacy` 13, `accessore_legacy` 50, `ponte_richiede_legacy` 50 —
+che contano le uniche vie rimaste verso il modello vecchio e scendono a zero
+in S4.e.
+
+**Verifica per mutazione**, cinque mutazioni tutte uccise da test nominati:
+far ricadere `max_columns` del ramo pipeline su `Limits::default()`; scartare
+il permit in `from_read_parts`; restituire un token di cancellazione
+rigenerato invece di quello del context; far leggere a `max_input_entries`
+legacy il campo dei byte; azzerare il permit in `into_components`. La quinta
+prima versione della terza mutazione non compilava, quindi non provava nulla:
+e' stata riscritta in forma valida prima di accettarne l'esito.
+
+**Non ancora fatto in S4.b**, e rinviato ai sottopassi che lo prevedono:
+`StagedSpool::push` riceve ancora una `ResourceLease` del modello vecchio
+invece della `InternalMemoryLease` gia' ridotta, quindi l'handoff di S4.a non
+e' ancora cablato sul percorso reale. Il preflight ha la firma definitiva —
+solo le due quote che consulta — ma la semantica e' invariata: enumerazione
+via il modello unificato e rimozione atomica dei controlli legacy restano
+S4.d, dove avvengono in un atto solo per non applicare le stesse quote due
+volte.

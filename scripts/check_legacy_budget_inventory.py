@@ -14,6 +14,23 @@ zero rimuovendo il tipo transitorio insieme al gate stesso.
 Non e' una misura semantica ma sintattica, come il registro dei fallback: un
 uso legacy scritto in una forma che la regex non riconosce non viene contato.
 Serve a impedire la crescita distratta, non a dimostrare l'assenza.
+
+## Ridefinizione delle categorie in S4.b
+
+Le regex della prima versione misuravano il testo sbagliato e vanno lette con
+questa avvertenza quando si confrontano i numeri fra S4.b parte 1 e parte 2:
+
+* `campo_*` intercettava anche `opts.cancellation()`, cioe' l'**accessore
+  nuovo**, non il campo legacy. Il numero saliva mentre la migrazione
+  procedeva. Ora una lookahead negativa esclude la chiamata.
+* `*_literal` intercettava `pub struct ReadOptions {`, `impl ReadOptions {` e
+  `-> ReadOptions {`: dichiarazioni, non costruzioni. Ora sono escluse.
+
+Le tre categorie `campo_*` e le due `*_literal` scendono percio' a zero in
+S4.b parte 2 — il payload privato rende quelle forme **inesprimibili**, non
+solo assenti — e restano a zero per costruzione. Non sono piu' la misura
+utile: da qui in avanti il ponte si misura con le categorie aggiunte sotto,
+che contano le uniche vie rimaste verso il modello legacy.
 """
 
 from __future__ import annotations
@@ -27,23 +44,43 @@ ROOT = Path(__file__).resolve().parents[1]
 # Tetto corrente per categoria. Ogni sottopasso di S4 lo abbassa; S4.e lo
 # porta a zero e rimuove questo script.
 TETTI: dict[str, int] = {
-    "read_options_default": 76,
-    "write_options_default": 76,
-    "read_options_literal": 20,
-    "write_options_literal": 6,
-    "campo_limits": 45,
-    "campo_resource_budget": 36,
-    "campo_cancellation": 28,
+    # Costruiscono il payload `Legacy` perche' `Default` non sa fare altro.
+    # Scendono a zero in S4.e, quando `Default` sparisce e ogni chiamante
+    # deve dichiarare il proprio `PipelineContext`.
+    "read_options_default": 74,
+    "write_options_default": 74,
+    # Inesprimibili da S4.b parte 2: il payload e' privato. Restano nel
+    # censimento come rete contro una riapertura dei campi.
+    "read_options_literal": 0,
+    "write_options_literal": 0,
+    "campo_limits": 0,
+    "campo_resource_budget": 0,
+    "campo_cancellation": 0,
+    # Le vie residue verso il modello legacy, tutte esplicite e marcate
+    # "punto di rimozione: S4.e".
+    "costruttore_legacy": 13,
+    "accessore_legacy": 50,
+    "ponte_richiede_legacy": 50,
 }
 
+# Le lookbehind escludono `struct X {`, `impl X {` e `-> X {`: sono
+# dichiarazioni del tipo, non costruzioni del payload legacy. `(?!\s*\()`
+# esclude gli accessori nuovi `opts.cancellation()` dai conteggi dei campi.
 MODELLI: dict[str, re.Pattern[str]] = {
     "read_options_default": re.compile(r"ReadOptions::default\(\)"),
     "write_options_default": re.compile(r"WriteOptions::default\(\)"),
-    "read_options_literal": re.compile(r"ReadOptions \{"),
-    "write_options_literal": re.compile(r"WriteOptions \{"),
-    "campo_limits": re.compile(r"\b(?:opts|options)\.limits\b"),
-    "campo_resource_budget": re.compile(r"\b(?:opts|options)\.resource_budget\b"),
-    "campo_cancellation": re.compile(r"\b(?:opts|options)\.cancellation\b"),
+    "read_options_literal": re.compile(
+        r"(?<!struct )(?<!impl )(?<!-> )ReadOptions \{"
+    ),
+    "write_options_literal": re.compile(
+        r"(?<!struct )(?<!impl )(?<!-> )WriteOptions \{"
+    ),
+    "campo_limits": re.compile(r"\b(?:opts|options)\.limits\b(?!\s*\()"),
+    "campo_resource_budget": re.compile(r"\b(?:opts|options)\.resource_budget\b(?!\s*\()"),
+    "campo_cancellation": re.compile(r"\b(?:opts|options)\.cancellation\b(?!\s*\()"),
+    "costruttore_legacy": re.compile(r"(?:ReadOptions|WriteOptions)::from_legacy\("),
+    "accessore_legacy": re.compile(r"\.legacy_(?:budget|limits)\(\)"),
+    "ponte_richiede_legacy": re.compile(r"bridge_richiede_legacy"),
 }
 
 

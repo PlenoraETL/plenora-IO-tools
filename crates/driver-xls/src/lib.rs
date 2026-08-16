@@ -4,6 +4,7 @@
 //! `format_options["sheet"]` o il primo. Multi-foglio: incremento futuro.
 #![forbid(unsafe_code)]
 
+use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, BufWriter, Read, Seek, Write as _};
 use std::path::PathBuf;
@@ -107,8 +108,12 @@ impl FormatDriver for XlsDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path =
-            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        let path = source.into_path_checked(
+            opts.max_input_bytes(),
+            opts.max_input_entries(),
+            opts.cancellation(),
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+        )?;
         if !path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -118,10 +123,13 @@ impl FormatDriver for XlsDriver {
                 "il driver supporta in lettura soltanto .xlsx; .xls non e instradato".to_owned(),
             ));
         }
-        validate_archive_ratio(&path, &opts.resource_budget)?;
+        validate_archive_ratio(
+            &path,
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+        )?;
         let mut wb: Xlsx<_> =
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
-        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
+        check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
         let sheet = opts
             .format_options
             .get("sheet")
@@ -136,9 +144,9 @@ impl FormatDriver for XlsDriver {
             &sheet,
             &opts.format_options,
             &crs,
-            &opts.cancellation,
-            &opts.limits,
-            &opts.resource_budget,
+            opts.cancellation(),
+            opts.legacy_limits().ok_or_else(bridge_richiede_legacy)?,
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
         )?;
         Ok(plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
@@ -151,7 +159,9 @@ impl FormatDriver for XlsDriver {
                 spool,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts.resource_budget.clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
             true,
         ))
     }
@@ -162,7 +172,7 @@ impl FormatDriver for XlsDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -193,14 +203,16 @@ impl FormatDriver for XlsDriver {
                 durable: opts.durable,
                 xy,
                 batches: Vec::new(),
-                wkb_limits: opts.limits.effective_wkb(),
+                wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
             }),
             self.descriptor(),
             plan,
-            opts.limits,
-            opts.cancellation.clone(),
-            opts.resource_budget.clone(),
+            opts.write_limits(),
+            opts.cancellation().clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         )
     }
 }
@@ -1135,12 +1147,9 @@ mod tests {
         w.write(&batch).unwrap();
         w.finish().unwrap();
 
-        let ropts = ReadOptions {
-            assume_crs: Some("EPSG:4326".to_owned()),
-            format_options: std::iter::once(("wkt_column".to_owned(), "geometry".to_owned()))
-                .collect(),
-            ..ReadOptions::default()
-        };
+        let ropts = ReadOptions::default()
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry");
         let ds = driver.open(Source::Path(out), &ropts).unwrap();
         let mut r = ds
             .open_layer_reader(&ReadRequest {
@@ -1183,15 +1192,9 @@ mod tests {
         let dataset = driver
             .open(
                 Source::Path(output),
-                &ReadOptions {
-                    assume_crs: Some("EPSG:4326".to_owned()),
-                    format_options: std::iter::once((
-                        "wkt_column".to_owned(),
-                        "geometry".to_owned(),
-                    ))
-                    .collect(),
-                    ..ReadOptions::default()
-                },
+                &ReadOptions::default()
+                    .with_assume_crs("EPSG:4326")
+                    .with_format_option("wkt_column", "geometry"),
             )
             .unwrap();
         let mut reader = dataset
@@ -1251,15 +1254,9 @@ mod tests {
         let dataset = driver
             .open(
                 Source::Path(output),
-                &ReadOptions {
-                    assume_crs: Some("EPSG:4326".to_owned()),
-                    format_options: std::iter::once((
-                        "wkt_column".to_owned(),
-                        "geometry".to_owned(),
-                    ))
-                    .collect(),
-                    ..ReadOptions::default()
-                },
+                &ReadOptions::default()
+                    .with_assume_crs("EPSG:4326")
+                    .with_format_option("wkt_column", "geometry"),
             )
             .unwrap();
         let cancellation = CancellationToken::new();
@@ -1301,16 +1298,16 @@ mod tests {
 
         let result = XlsDriver.open(
             Source::Path(output),
-            &ReadOptions {
-                assume_crs: Some("EPSG:4326".to_owned()),
-                format_options: std::iter::once(("wkt_column".to_owned(), "geometry".to_owned()))
-                    .collect(),
-                limits: Limits {
+            &ReadOptions::from_legacy(
+                Limits {
                     max_input_bytes: input_bytes,
                     ..Limits::default()
                 },
-                ..ReadOptions::default()
-            },
+                ResourceBudget::default(),
+                CancellationToken::default(),
+            )
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry"),
         );
         let error = result.err().expect("lo spool deve rispettare il limite");
         assert_eq!(error.code, plenora_io_model::IoErrorCode::LimitExceeded);
@@ -1334,13 +1331,13 @@ mod tests {
 
         let result = XlsDriver.open(
             Source::Path(output),
-            &ReadOptions {
-                assume_crs: Some("EPSG:4326".to_owned()),
-                format_options: std::iter::once(("wkt_column".to_owned(), "geometry".to_owned()))
-                    .collect(),
+            &ReadOptions::from_legacy(
+                Limits::default(),
                 resource_budget,
-                ..ReadOptions::default()
-            },
+                CancellationToken::default(),
+            )
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry"),
         );
         let error = result.err().expect("il rapporto deve fallire chiuso");
         assert_eq!(
@@ -1391,12 +1388,9 @@ mod tests {
         writer.write(&batch).unwrap();
         writer.finish().unwrap();
 
-        let read_options = ReadOptions {
-            assume_crs: Some("EPSG:4326".to_owned()),
-            format_options: std::iter::once(("wkt_column".to_owned(), "geometry".to_owned()))
-                .collect(),
-            ..ReadOptions::default()
-        };
+        let read_options = ReadOptions::default()
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry");
         let dataset = driver.open(Source::Path(output), &read_options).unwrap();
         let output_contract = dataset.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(output_contract.dimensions, CoordinateDimensions::Xym);

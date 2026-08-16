@@ -9,6 +9,7 @@
 //! esplicitamente quando il metadato è assente o non risolvibile.
 #![forbid(unsafe_code)]
 
+use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -230,15 +231,27 @@ impl FormatDriver for DxfDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path =
-            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        let path = source.into_path_checked(
+            opts.max_input_bytes(),
+            opts.max_input_entries(),
+            opts.cancellation(),
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+        )?;
         let mut stream = DrawingEntityReader::load_file(&path)
             .map_err(|e| err(format!("apertura DXF progressiva: {e}")))?;
-        check_cancelled(&opts.cancellation, ErrorPhase::Read)?;
-        let mut walker = Walker::new(stream.drawing(), &opts.limits, &opts.cancellation)?;
+        check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
+        let mut walker = Walker::new(
+            stream.drawing(),
+            opts.legacy_limits().ok_or_else(bridge_richiede_legacy)?,
+            opts.cancellation(),
+        )?;
         let mut stats = DxfContractStats::default();
-        let mut spool_writer =
-            DxfSpoolWriter::new(opts.limits.max_input_bytes, opts.resource_budget.clone());
+        let mut spool_writer = DxfSpoolWriter::new(
+            opts.max_input_bytes(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
+        );
         let mut source_index = 0_u64;
         while let Some(entity) = stream.next_entity().map_err(|e| {
             read_row_error(
@@ -248,7 +261,9 @@ impl FormatDriver for DxfDriver {
                 Some(GEOMETRY),
             )
         })? {
-            opts.resource_budget.ensure_active()?;
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .ensure_active()?;
             let mut visiting = HashSet::new();
             walker
                 .walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)
@@ -260,8 +275,8 @@ impl FormatDriver for DxfDriver {
                         Some(GEOMETRY),
                     )
                 })?;
-            stats.observe(&walker, &opts.cancellation)?;
-            spool_writer.write_and_clear(&mut walker, &opts.cancellation)?;
+            stats.observe(&walker, opts.cancellation())?;
+            spool_writer.write_and_clear(&mut walker, opts.cancellation())?;
             source_index = source_index
                 .checked_add(1)
                 .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe entita DXF".to_owned()))?;
@@ -287,11 +302,13 @@ impl FormatDriver for DxfDriver {
                 }],
                 spool,
                 rows: walker.emitted_rows,
-                wkb_limits: opts.limits.effective_wkb(),
+                wkb_limits: opts.wkb_limits(),
                 loss,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts.resource_budget.clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
             false,
         ))
     }
@@ -302,7 +319,7 @@ impl FormatDriver for DxfDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -337,14 +354,16 @@ impl FormatDriver for DxfDriver {
                 rows: 0,
                 input_total: None,
                 first: true,
-                wkb_limits: opts.limits.effective_wkb(),
+                wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
             }),
             self.descriptor(),
             plan,
-            opts.limits,
-            opts.cancellation.clone(),
-            opts.resource_budget.clone(),
+            opts.write_limits(),
+            opts.cancellation().clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         )
     }
 }
@@ -2311,10 +2330,7 @@ mod tests {
 
         let resolved = resolve_dxf_crs(
             &drawing,
-            &ReadOptions {
-                assume_crs: Some("EPSG:3857".to_owned()),
-                ..ReadOptions::default()
-            },
+            &ReadOptions::default().with_assume_crs("EPSG:3857"),
         )
         .unwrap();
         assert_eq!(resolved.id.as_deref(), Some("EPSG:3857"));
@@ -2372,10 +2388,7 @@ mod tests {
         let error = DxfDriver
             .open(
                 Source::Path(path),
-                &ReadOptions {
-                    assume_crs: Some("EPSG:4326".to_owned()),
-                    ..ReadOptions::default()
-                },
+                &ReadOptions::default().with_assume_crs("EPSG:4326"),
             )
             .err()
             .expect("il CIRCLE degenere deve essere rifiutato");

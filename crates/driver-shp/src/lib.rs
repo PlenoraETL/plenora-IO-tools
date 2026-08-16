@@ -11,6 +11,7 @@
 //! per WGS84; nessuna riproiezione (ADR-IO 4).
 #![forbid(unsafe_code)]
 
+use plenora_io_core::driver::bridge_richiede_legacy;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
@@ -462,9 +463,10 @@ impl FormatDriver for ShpDriver {
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = shapefile_source_path(source.into_path_checked(
-            &opts.limits,
-            &opts.cancellation,
-            &opts.resource_budget,
+            opts.max_input_bytes(),
+            opts.max_input_entries(),
+            opts.cancellation(),
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
         )?)?;
         let crs = resolve_crs(&path, opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
@@ -528,7 +530,9 @@ impl FormatDriver for ShpDriver {
                     contract,
                 }],
             }),
-            opts.resource_budget.clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
             false,
         ))
     }
@@ -539,7 +543,7 @@ impl FormatDriver for ShpDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         let Sink::Path(dest) = sink;
         let publish_mode = publish_mode(&dest, opts)?;
         if plan.layers.len() != 1 {
@@ -610,14 +614,16 @@ impl FormatDriver for ShpDriver {
                 shape_type: None,
                 rows: 0,
                 input_total: None,
-                wkb_limits: opts.limits.effective_wkb(),
+                wkb_limits: opts.wkb_limits(),
                 max_output_bytes: opts.max_output_bytes(),
             }),
             self.descriptor(),
             plan,
-            opts.limits,
-            opts.cancellation.clone(),
-            opts.resource_budget.clone(),
+            opts.write_limits(),
+            opts.cancellation().clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         )
     }
 }
@@ -2484,11 +2490,7 @@ mod tests {
     const EPSG_3003_WKT: &str = include_str!("../tests/fixtures/epsg3003.prj");
 
     fn read_opts() -> ReadOptions {
-        ReadOptions {
-            assume_crs: Some("EPSG:4326".to_owned()),
-            format_options: BTreeMap::default(),
-            ..ReadOptions::default()
-        }
+        ReadOptions::default().with_assume_crs("EPSG:4326")
     }
 
     fn req() -> ReadRequest {
@@ -3234,14 +3236,7 @@ mod tests {
     fn assumed_unknown_epsg_does_not_invent_an_axis_order() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("no-prj.shp");
-        let crs = resolve_crs(
-            &path,
-            &ReadOptions {
-                assume_crs: Some("EPSG:4258".to_owned()),
-                ..ReadOptions::default()
-            },
-        )
-        .unwrap();
+        let crs = resolve_crs(&path, &ReadOptions::default().with_assume_crs("EPSG:4258")).unwrap();
         assert_eq!(crs.kind, CrsKind::Unknown);
         assert_eq!(crs.axis_order, plenora_io_model::crs::AxisOrder::Unknown);
     }
@@ -3404,13 +3399,9 @@ mod tests {
                 },
             }],
         };
-        let mut options = WriteOptions {
-            durable: true,
-            ..WriteOptions::default()
-        };
-        options
-            .format_options
-            .insert("publish_mode".to_owned(), DIRECTORY_DATASET_MODE.to_owned());
+        let options = WriteOptions::default()
+            .with_durable(true)
+            .with_format_option("publish_mode", DIRECTORY_DATASET_MODE);
 
         let driver = ShpDriver;
         let mut writer = driver

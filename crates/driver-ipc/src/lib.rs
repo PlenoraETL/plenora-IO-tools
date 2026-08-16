@@ -5,6 +5,7 @@
 //! interscambio canonico fra plenora-IO-tools e plenora-data-tools.
 #![forbid(unsafe_code)]
 
+use plenora_io_core::driver::bridge_richiede_legacy;
 use std::fs::File;
 use std::io::{BufWriter, Write as _};
 use std::path::PathBuf;
@@ -93,8 +94,12 @@ impl FormatDriver for IpcDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path =
-            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        let path = source.into_path_checked(
+            opts.max_input_bytes(),
+            opts.max_input_entries(),
+            opts.cancellation(),
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+        )?;
         // `try_new` restituisce `Result`, ma arrow-ipc puo' comunque andare in
         // panico decodificando lo schema: vedi `leggendo_arrow`.
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", || {
@@ -171,7 +176,9 @@ impl FormatDriver for IpcDriver {
                     contract: DataContract::new(schema, geometry),
                 }],
             }),
-            opts.resource_budget.clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
             true,
         ))
     }
@@ -182,7 +189,7 @@ impl FormatDriver for IpcDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -232,9 +239,11 @@ impl FormatDriver for IpcDriver {
             }),
             self.descriptor(),
             plan,
-            opts.limits,
-            opts.cancellation.clone(),
-            opts.resource_budget.clone(),
+            opts.write_limits(),
+            opts.cancellation().clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         )
     }
 }

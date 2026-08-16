@@ -3,6 +3,7 @@
 //! `name`/`description` come proprietà. KMZ resta un incremento successivo.
 #![forbid(unsafe_code)]
 
+use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write as _};
@@ -255,32 +256,40 @@ impl FormatDriver for KmlDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path =
-            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        let path = source.into_path_checked(
+            opts.max_input_bytes(),
+            opts.max_input_entries(),
+            opts.cancellation(),
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+        )?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
         let spool = Arc::new(tempfile::NamedTempFile::new()?);
         let mut spool_writer = KmlSpoolWriter::new(
             spool.as_file(),
-            opts.limits.max_input_bytes,
-            opts.resource_budget.clone(),
+            opts.max_input_bytes(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         );
         while let Some(placemark) = stream.next_placemark(
-            &opts.cancellation,
+            opts.cancellation(),
             u64::try_from(stats.rows)
                 .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?,
         )? {
-            opts.resource_budget.ensure_active()?;
-            if stats.rows >= opts.limits.max_rows {
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .ensure_active()?;
+            if stats.rows >= opts.max_rows() {
                 return Err(PlenoraIoError::LimitExceeded(format!(
                     "KML: più di {} Placemark",
-                    opts.limits.max_rows
+                    opts.max_rows()
                 )));
             }
             let source_index = u64::try_from(stats.rows)
                 .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?;
             let geometry = stats
-                .observe(&placemark, &opts.cancellation)
+                .observe(&placemark, opts.cancellation())
                 .map_err(|error| {
                     read_row_error(
                         error,
@@ -314,7 +323,9 @@ impl FormatDriver for KmlDriver {
                 rows,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts.resource_budget.clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
             true,
         ))
     }
@@ -325,7 +336,7 @@ impl FormatDriver for KmlDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -355,13 +366,15 @@ impl FormatDriver for KmlDriver {
                 output,
                 rows: 0,
                 input_total: None,
-                wkb_limits: opts.limits.effective_wkb(),
+                wkb_limits: opts.wkb_limits(),
             }),
             self.descriptor(),
             plan,
-            opts.limits,
-            opts.cancellation.clone(),
-            opts.resource_budget.clone(),
+            opts.write_limits(),
+            opts.cancellation().clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         )
     }
 }

@@ -5,6 +5,7 @@
 //! snappy default, oppure zstd/gzip/brotli/lz4) — zstd via zstd-sys.
 #![forbid(unsafe_code)]
 
+use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::path::PathBuf;
@@ -93,14 +94,28 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
 
 pub struct GeoParquetDriver;
 
+/// Preflight della sorgente per il percorso di lettura.
+///
+/// Estratto perche' `open` sfiorava il tetto di righe, ma anche perche' in
+/// S4.d il cambio semantico del preflight — enumerazione via il modello
+/// unificato e rimozione dei controlli legacy — dovra' avvenire in un punto
+/// solo per driver, non sparso nel corpo di `open`.
+fn percorso_verificato(source: Source, opts: &ReadOptions) -> Result<PathBuf> {
+    source.into_path_checked(
+        opts.max_input_bytes(),
+        opts.max_input_entries(),
+        opts.cancellation(),
+        opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+    )
+}
+
 impl FormatDriver for GeoParquetDriver {
     fn descriptor(&self) -> &FormatDescriptor {
         &DESCRIPTOR
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path =
-            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        let path = percorso_verificato(source, opts)?;
         // Il footer Parquet puo' portare la chiave `ARROW:schema`, che e' un
         // messaggio Arrow IPC deserializzato qui dentro: un `.parquet` ostile
         // raggiunge quindi lo stesso panico di un `.arrow`. Vedi
@@ -228,7 +243,9 @@ impl FormatDriver for GeoParquetDriver {
                 visible_to_physical,
                 layers: vec![layer],
             }),
-            opts.resource_budget.clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
             true,
         ))
     }
@@ -239,7 +256,7 @@ impl FormatDriver for GeoParquetDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -308,13 +325,15 @@ impl FormatDriver for GeoParquetDriver {
                 geom_name,
                 crs_meta,
                 geometry_types: BTreeSet::new(),
-                wkb_limits: opts.limits.effective_wkb(),
+                wkb_limits: opts.wkb_limits(),
             }),
             self.descriptor(),
             plan,
-            opts.limits,
-            opts.cancellation.clone(),
-            opts.resource_budget.clone(),
+            opts.write_limits(),
+            opts.cancellation().clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         )
     }
 }
@@ -2089,12 +2108,7 @@ mod tests {
             }],
         };
         // Scrive compresso zstd.
-        let wopts = WriteOptions {
-            durable: false,
-            format_options: std::iter::once(("compression".to_owned(), "zstd".to_owned()))
-                .collect(),
-            ..WriteOptions::default()
-        };
+        let wopts = WriteOptions::default().with_format_option("compression", "zstd");
         let mut w = driver
             .create(Sink::Path(path.clone()), &plan, &wopts)
             .unwrap();

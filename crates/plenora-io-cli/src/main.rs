@@ -448,13 +448,11 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
     // preserva la semantica fail-closed dichiarata dal componente: un flag
     // fuori intervallo non deve degradare silenziosamente a un default.
     let resource_budget = resource_budget_from_limits(&cli.limits)?;
-    Ok(ReadOptions {
-        assume_crs: cli.assume_crs.clone(),
-        format_options: cli.opts.clone(),
-        limits: cli.limits,
-        resource_budget,
-        cancellation: CancellationToken::default(),
-    })
+    let mut opzioni =
+        ReadOptions::from_legacy(cli.limits, resource_budget, CancellationToken::default())
+            .with_format_options(cli.opts.clone());
+    opzioni.assume_crs.clone_from(&cli.assume_crs);
+    Ok(opzioni)
 }
 
 // --- comandi ----------------------------------------------------------------
@@ -655,17 +653,13 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let (read_budget, write_budget) =
         conversion_budgets_from_limits(&cli.limits).map_err(map_err)?;
 
-    let ropts = ReadOptions {
-        assume_crs: cli.assume_crs.clone(),
-        // Finding #11 della review 2026-08-15: `--opt` era accettato dal
-        // parser ma non consumato da `convert`. Ora `--opt` fa da base comune
-        // per ingresso e uscita; `--in-opt` (e `--out-opt`) sovrascrivono per
-        // chiave la stessa opzione, come dichiarato dal README.
-        format_options: opts_uniti(&cli.opts, &cli.in_opts),
-        limits: cli.limits,
-        resource_budget: read_budget,
-        cancellation: CancellationToken::default(),
-    };
+    let mut ropts = ReadOptions::from_legacy(cli.limits, read_budget, CancellationToken::default());
+    ropts.assume_crs.clone_from(&cli.assume_crs);
+    // Finding #11 della review 2026-08-15: `--opt` era accettato dal parser
+    // ma non consumato da `convert`. Ora `--opt` fa da base comune per
+    // ingresso e uscita; `--in-opt` (e `--out-opt`) sovrascrivono per chiave
+    // la stessa opzione, come dichiarato dal README.
+    ropts.format_options = opts_uniti(&cli.opts, &cli.in_opts);
     let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
     let initial_read_fidelity = ds.fidelity_assessment();
 
@@ -717,14 +711,11 @@ fn cmd_convert(cli: &Cli) -> CliResult {
             })
             .collect(),
     };
-    let wopts = WriteOptions {
-        durable: cli.durable,
-        // Finding #11: vedi commento speculare in `ropts`.
-        format_options: opts_uniti(&cli.opts, &cli.out_opts),
-        limits: cli.limits,
-        resource_budget: write_budget,
-        cancellation: CancellationToken::default(),
-    };
+    let mut wopts =
+        WriteOptions::from_legacy(cli.limits, write_budget, CancellationToken::default());
+    wopts.durable = cli.durable;
+    // Finding #11: vedi commento speculare in `ropts`.
+    wopts.format_options = opts_uniti(&cli.opts, &cli.out_opts);
     let mut writer = dst
         .create(Sink::Path(out_path), &plan, &wopts)
         .map_err(map_err)?;

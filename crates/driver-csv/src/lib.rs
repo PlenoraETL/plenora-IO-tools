@@ -12,6 +12,7 @@
 //! per righe (niente buffering dei batch).
 #![forbid(unsafe_code)]
 
+use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::fs::File;
@@ -132,8 +133,12 @@ impl FormatDriver for CsvDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path =
-            source.into_path_checked(&opts.limits, &opts.cancellation, &opts.resource_budget)?;
+        let path = source.into_path_checked(
+            opts.max_input_bytes(),
+            opts.max_input_entries(),
+            opts.cancellation(),
+            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+        )?;
         let delim = delimiter(&opts.format_options);
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::Crs("CSV con geometria richiede --assume-crs".to_owned())
@@ -229,7 +234,9 @@ impl FormatDriver for CsvDriver {
                     contract,
                 }],
             }),
-            opts.resource_budget.clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
             true,
         ))
     }
@@ -240,7 +247,7 @@ impl FormatDriver for CsvDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
+        validate_write(self.descriptor(), plan, opts.max_columns())?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -275,13 +282,15 @@ impl FormatDriver for CsvDriver {
                 writer: Some(writer),
                 xy,
                 header_written: false,
-                wkb_limits: opts.limits.effective_wkb(),
+                wkb_limits: opts.wkb_limits(),
             }),
             self.descriptor(),
             plan,
-            opts.limits,
-            opts.cancellation.clone(),
-            opts.resource_budget.clone(),
+            opts.write_limits(),
+            opts.cancellation().clone(),
+            opts.legacy_budget()
+                .ok_or_else(bridge_richiede_legacy)?
+                .clone(),
         )
     }
 }
@@ -716,11 +725,9 @@ mod tests {
     }
 
     fn read_opts(pairs: &[(&str, &str)]) -> ReadOptions {
-        ReadOptions {
-            assume_crs: Some("EPSG:4326".to_owned()),
-            format_options: opts(pairs),
-            ..ReadOptions::default()
-        }
+        ReadOptions::default()
+            .with_assume_crs("EPSG:4326")
+            .with_format_options(opts(pairs))
     }
 
     fn req(max_rows: usize) -> ReadRequest {

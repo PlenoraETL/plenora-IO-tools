@@ -1750,6 +1750,26 @@ impl ReadBudgetParts {
     pub const fn take_input_permit(&mut self) -> Option<InputPermit> {
         self.permit.take()
     }
+
+    /// Scompone le parti nei componenti trasportati, **per move**.
+    ///
+    /// E' il modo in cui il core costruisce le proprie opzioni. Clonare il
+    /// budget sarebbe innocuo per i contatori — condividono lo stesso
+    /// `PipelineContext` — ma renderebbe indistinguibile, a chi legge, il
+    /// passaggio dalla rigenerazione; e il permit non e' clonabile affatto,
+    /// perche' un secondo permit sullo stesso context non descriverebbe
+    /// alcuna osservazione reale. Consumare le parti rende esplicito che
+    /// quello trasportato e' l'unico esemplare.
+    #[must_use]
+    pub fn into_components(
+        self,
+    ) -> (
+        OperationBudget,
+        Option<InputPermit>,
+        Option<SourceFootprintSnapshot>,
+    ) {
+        (self.budget, self.permit, self.expected)
+    }
 }
 
 impl IntoReadParts for ReadBudgetParts {
@@ -1803,6 +1823,13 @@ impl WriteBudgetParts {
     #[must_use]
     pub const fn budget(&self) -> &OperationBudget {
         &self.budget
+    }
+
+    /// Estrae il budget **per move**, con la stessa motivazione di
+    /// [`ReadBudgetParts::into_components`].
+    #[must_use]
+    pub fn into_budget(self) -> OperationBudget {
+        self.budget
     }
 }
 

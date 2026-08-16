@@ -76,13 +76,14 @@ fn budget(memory_bytes: u64) -> ResourceBudget {
 fn read_options(budget: &ResourceBudget) -> ReadOptions {
     let mut format_options = std::collections::BTreeMap::new();
     format_options.insert("wkt_column".to_owned(), "geometry".to_owned());
-    ReadOptions {
-        assume_crs: Some("EPSG:4326".to_owned()),
-        format_options,
-        limits: Limits::default(),
-        resource_budget: budget.clone(),
-        cancellation: CancellationToken::default(),
-    }
+    let mut opzioni = ReadOptions::from_legacy(
+        Limits::default(),
+        budget.clone(),
+        CancellationToken::default(),
+    );
+    opzioni.assume_crs = Some("EPSG:4326".to_owned());
+    opzioni.format_options = format_options;
+    opzioni
 }
 
 /// Esito di una corsa.
@@ -147,12 +148,11 @@ fn convert(
         .create(
             Sink::Path(destination.to_owned()),
             &plan,
-            &WriteOptions {
-                limits: Limits::default(),
-                resource_budget: write_budget.clone(),
-                cancellation: CancellationToken::default(),
-                ..WriteOptions::default()
-            },
+            &WriteOptions::from_legacy(
+                Limits::default(),
+                write_budget.clone(),
+                CancellationToken::default(),
+            ),
         )
         .unwrap();
 

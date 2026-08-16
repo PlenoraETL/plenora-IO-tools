@@ -1878,6 +1878,46 @@ nessuna quota applicata due volte fra modello nuovo e legacy, e
 l'handoff della memoria senza finestra scoperta verificato dal test
 dedicato.
 
+#### Errata S4.b — forma effettiva del bordo migrato
+
+Il pacchetto prevedeva la sostituzione diretta dei campi di
+`ReadOptions`/`WriteOptions`. L'attuazione la esegue in due tempi per
+tenere ogni sottocommit verde, e la forma intermedia va registrata
+perche' non e' quella descritta sopra:
+
+1. I tre campi legacy non sono rimossi ma **resi inaccessibili**,
+   racchiusi in un campo privato `payload: BudgetPayload`. L'enum ha
+   due varianti, `Legacy` e `Pipeline`, e nessuna combinazione mista:
+   con tre `Option` affiancati esisterebbe lo stato "budget nuovo e
+   limiti vecchi entrambi presenti", in cui nessun percorso saprebbe
+   quale dei due lo governa.
+2. Gli accessori sono centralizzati sul payload e restituiscono
+   **scalari immutabili** — quote, non contatori. Non esiste, e il
+   pacchetto ne vieta l'introduzione, un accessore che ricostruisca un
+   `Limits` nel ramo `Pipeline`: sarebbe la copia fra modelli che la
+   migrazione deve evitare.
+3. Il ripiego da `Pipeline` a `Legacy` non esiste. Un driver non
+   ancora migrato che riceva opzioni del modello nuovo ottiene un
+   `Unsupported` tipizzato.
+4. Il tipo transitorio, la variante `Legacy` e `Default` sono privati
+   o interni al workspace, non sono ri-esportati e **non saranno mai
+   visibili dalla facade**. La loro rimozione e' M4/S4.e.
+
+Il **trasferimento della lease allo spool** descritto sopra non e'
+attuato in S4.b: `StagedSpool::push` riceve ancora una lease del
+modello vecchio. Il meccanismo esiste da S4.a
+(`InternalMemoryLease::shrink_to`) ed e' cablato sul percorso reale in
+S4.d, insieme al cambio semantico del preflight. In S4.b la firma di
+`Source::into_path_checked` e' gia' quella definitiva — le due sole
+quote che consulta invece di un `Limits` intero — ma la semantica e'
+invariata: anticipare il cambio senza rimuovere nello stesso atto i
+controlli legacy applicherebbe le stesse quote due volte.
+
+**Criterio di parita' aggiunto**: a configurazione equivalente i due
+rami devono produrre gli stessi valori scalari, verificato da test
+dedicati e ancorato ai valori attesi — non alla sola uguaglianza fra i
+rami, che due rami rotti allo stesso modo soddisferebbero.
+
 ### M4 — Rimozione del vecchio modello
 
 - `plenora-io-model::Limits`, `ResourceBudget`, `ResourceLimits`,
