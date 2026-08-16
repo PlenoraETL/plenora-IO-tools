@@ -113,7 +113,7 @@ fn read(path: &Path, runs: usize, mode: &str) {
     let driver = driver_filegdb::FileGdbDriver;
     for run in 0..=runs {
         let dataset = driver
-            .open(Source::Path(path.to_path_buf()), &ReadOptions::default())
+            .open(Source::Path(path.to_path_buf()), ReadOptions::default())
             .expect("apertura FileGDB");
         let source_fields = dataset.layers()[0].contract.schema.fields().len() - 1;
         // Il numero di campi di un layer FileGDB e' limitato dal formato a

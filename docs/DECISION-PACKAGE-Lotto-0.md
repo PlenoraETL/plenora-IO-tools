@@ -1664,11 +1664,16 @@ impl ReadOptions {
     pub fn expected_footprint(&self) -> Option<&SourceFootprintSnapshot>;
 
     /// Estrae il permit trasportato dalle parti. `None` se gia'
-    /// estratto o se le parti non ne trasportavano. Unico
-    /// chiamante legittimo: `Source::into_path_checked`. Il permit
-    /// resta legato al context di queste stesse opzioni, quindi
-    /// estrarlo non consente alcun incrocio.
-    pub fn take_input_permit(&mut self) -> Option<InputPermit>;
+    /// estratto o se le parti non ne trasportavano. Il permit resta
+    /// legato al context di queste stesse opzioni, quindi estrarlo
+    /// non consente alcun incrocio.
+    ///
+    /// **`pub(crate)` e non `pub`** (errata S4.b.3): l'unico
+    /// chiamante legittimo e' `Source::into_path_checked`, che vive
+    /// nello stesso crate. Esporlo darebbe a un driver — o domani
+    /// alla facade — un secondo punto da cui separare il permit dal
+    /// proprio context.
+    pub(crate) fn take_input_permit(&mut self) -> Option<InputPermit>;
 
     pub fn assume_crs(&self) -> Option<&str>;
     pub fn format_options(&self) -> &BTreeMap<String, String>;
@@ -2007,6 +2012,45 @@ del modello nuovo guarda deadline **e** cancellazione. Allineare i due
 rami ora evita che i cicli dei driver cambino comportamento il giorno
 del passaggio a `Pipeline`. E' l'unico cambio semantico di S4.c, ed e'
 volontario.
+
+#### S4.d parte 0 — ownership delle opzioni e gate irrobustiti
+
+Tre chiusure preliminari, prima dell'handoff vero e proprio.
+
+**`FormatDriver::open` consuma le opzioni per valore.** Il contratto
+ratificato lo diceva gia'; l'attuazione era rimasta a
+`&ReadOptions`, e in quella forma il preflight **non puo'** estrarre
+il permit, perche' `take_input_permit(&mut self)` non e' chiamabile
+attraverso un riferimento condiviso. Le vie per conservare
+`&ReadOptions` — un `Mutex<Option<InputPermit>>`, o un permit clonato
+— sono escluse: reintrodurrebbero uno stato mutabile nascosto dietro
+una firma immutabile e la possibilita' di osservare due volte lo
+stesso input, cioe' esattamente cio' che il permit esiste per
+impedire. `preflight_source` prende ora `&mut ReadOptions`; consumare
+il permit non consuma le opzioni, che restano leggibili dall'adapter.
+Il consumo effettivo resta S4.d: qui cambia la forma, non la
+semantica.
+
+**Il perimetro dei gate testuali era troppo stretto.** Guardavano solo
+`crates/*/src/**`: un test d'integrazione in `tests/`, un benchmark in
+`benches/`, un `examples/` o un `build.rs` potevano attraversare il
+confine del permit senza che nulla lo vedesse — e sono proprio i posti
+dove si scrive codice di servizio con meno attenzione. Riconoscevano
+inoltre la sola forma a metodo, mentre
+`ReadBudgetParts::into_components(parts)` in UFCS fa la stessa cosa; e
+cercavano `publish = false` come testo, che una riga commentata
+avrebbe soddisfatto. Ora il perimetro comprende ogni `.rs` di ogni
+crate piu' `fuzz/`, le forme riconosciute includono UFCS e il
+riferimento a funzione senza chiamata, e il manifesto e' letto come
+TOML.
+
+**Il gate dell'handoff si accontentava di una menzione.** Il nome del
+test bastava trovarlo in un punto qualsiasi del crate: un commento che
+spiegasse cosa mancava lo avrebbe sbloccato. Ora le condizioni sono
+ancorate ai due file del percorso comune — `spool.rs` e
+`reader_adapters.rs` devono essere liberi da `ResourceLease` e usare
+`InternalMemoryLease` con `shrink_to` — e il test e' cercato come
+**definizione** `#[test] fn`, non come stringa.
 
 ### M4 — Rimozione del vecchio modello
 

@@ -123,8 +123,8 @@ impl FormatDriver for GeoJsonDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = plenora_io_core::preflight_source(source, &mut opts)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let (schema, cols) = infer_schema(&path)?;
         let contract = DataContract::new(
@@ -151,7 +151,7 @@ impl FormatDriver for GeoJsonDriver {
                     contract,
                 }],
             }),
-            opts,
+            &opts,
             true,
         )
     }
@@ -1319,7 +1319,7 @@ mod tests {
 
     fn read_all(driver: &GeoJsonDriver, path: &Path) -> (RecordBatch, LayerContract) {
         let ds = driver
-            .open(Source::Path(path.to_owned()), &ReadOptions::default())
+            .open(Source::Path(path.to_owned()), ReadOptions::default())
             .unwrap();
         let layer = ds.layers()[0].clone();
         let mut reader = ds
@@ -1533,7 +1533,7 @@ mod tests {
         .unwrap();
         let driver = GeoJsonDriver;
         let dataset = driver
-            .open(Source::Path(src), &ReadOptions::default())
+            .open(Source::Path(src), ReadOptions::default())
             .unwrap();
         let mut reader = dataset
             .open_layer_reader(&ReadRequest {
@@ -1569,7 +1569,7 @@ mod tests {
         .unwrap();
         let driver = GeoJsonDriver;
         let dataset = driver
-            .open(Source::Path(src), &ReadOptions::default())
+            .open(Source::Path(src), ReadOptions::default())
             .unwrap();
         let mut reader = dataset
             .open_layer_reader(&ReadRequest {
@@ -1797,7 +1797,7 @@ mod tests {
 
         let driver = GeoJsonDriver;
         let ds = driver
-            .open(Source::Path(src), &ReadOptions::default())
+            .open(Source::Path(src), ReadOptions::default())
             .unwrap();
         let mut reader = ds
             .open_layer_reader(&ReadRequest {

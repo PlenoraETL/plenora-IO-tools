@@ -92,8 +92,8 @@ impl FormatDriver for IpcDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = plenora_io_core::preflight_source(source, &mut opts)?;
         // `try_new` restituisce `Result`, ma arrow-ipc puo' comunque andare in
         // panico decodificando lo schema: vedi `leggendo_arrow`.
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", || {
@@ -170,7 +170,7 @@ impl FormatDriver for IpcDriver {
                     contract: DataContract::new(schema, geometry),
                 }],
             }),
-            opts,
+            &opts,
             true,
         )
     }
@@ -414,7 +414,7 @@ mod tests {
         let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fuzz/seeds/ipc_reader/schema-che-fa-panicare-arrow.arrow");
 
-        let errore = match IpcDriver.open(Source::Path(seme), &ReadOptions::default()) {
+        let errore = match IpcDriver.open(Source::Path(seme), ReadOptions::default()) {
             Err(errore) => errore,
             Ok(dataset) => {
                 let request = ReadRequest {
@@ -464,7 +464,7 @@ mod tests {
         }
 
         let dataset = IpcDriver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         assert!(matches!(
             &dataset.layers()[0].contract.geometry.as_ref().unwrap().crs,
@@ -513,7 +513,7 @@ mod tests {
         }
 
         let dataset = IpcDriver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
         let raw = geometry.crs.raw().unwrap();
@@ -577,7 +577,7 @@ mod tests {
 
         let driver = IpcDriver;
         let dataset = driver
-            .open(Source::Path(input), &ReadOptions::default())
+            .open(Source::Path(input), ReadOptions::default())
             .unwrap();
         let layer = dataset.layers()[0].clone();
         let geometry = layer.contract.geometry.as_ref().unwrap();
@@ -669,7 +669,7 @@ mod tests {
         writer.finish().unwrap();
 
         assert!(IpcDriver
-            .open(Source::Path(input), &ReadOptions::default())
+            .open(Source::Path(input), ReadOptions::default())
             .is_err());
     }
 
@@ -702,7 +702,7 @@ mod tests {
         }
 
         let dataset = IpcDriver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(geometry.name, "geometry");
@@ -758,7 +758,7 @@ mod tests {
                 writer.finish().unwrap();
             }
             assert!(matches!(
-                IpcDriver.open(Source::Path(path), &ReadOptions::default()),
+                IpcDriver.open(Source::Path(path), ReadOptions::default()),
                 Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
             ));
         }
@@ -788,7 +788,7 @@ mod tests {
         }
 
         assert!(matches!(
-            IpcDriver.open(Source::Path(path), &ReadOptions::default()),
+            IpcDriver.open(Source::Path(path), ReadOptions::default()),
             Err(error) if error.code == plenora_io_model::IoErrorCode::Contract
         ));
     }
@@ -833,7 +833,7 @@ mod tests {
         w.finish().unwrap();
 
         let ds = driver
-            .open(Source::Path(out), &ReadOptions::default())
+            .open(Source::Path(out), ReadOptions::default())
             .unwrap();
         // Il CRS e la geometria sopravvivono nei metadati Arrow (pass-through).
         let g = ds.layers()[0].contract.geometry.as_ref().unwrap();
@@ -921,7 +921,7 @@ mod tests {
         writer.finish().unwrap();
 
         let dataset = driver
-            .open(Source::Path(out), &ReadOptions::default())
+            .open(Source::Path(out), ReadOptions::default())
             .unwrap();
         let mut reader = dataset
             .open_layer_reader(&ReadRequest {
@@ -1005,7 +1005,7 @@ mod tests {
         writer.finish().unwrap();
 
         let dataset = driver
-            .open(Source::Path(out), &ReadOptions::default())
+            .open(Source::Path(out), ReadOptions::default())
             .unwrap();
         let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(geometry.encoding, GeometryEncoding::Ewkb);
@@ -1100,7 +1100,7 @@ mod tests {
 
         let driver = IpcDriver;
         let dataset = driver
-            .open(Source::Path(source), &ReadOptions::default())
+            .open(Source::Path(source), ReadOptions::default())
             .unwrap();
         let layer = dataset.layers()[0].clone();
         let canonical_field = layer.contract.schema.field(0);

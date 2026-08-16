@@ -131,8 +131,8 @@ impl FormatDriver for CsvDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = plenora_io_core::preflight_source(source, &mut opts)?;
         let delim = delimiter(&opts.format_options);
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::Crs("CSV con geometria richiede --assume-crs".to_owned())
@@ -228,7 +228,7 @@ impl FormatDriver for CsvDriver {
                     contract,
                 }],
             }),
-            opts,
+            &opts,
             true,
         )
     }
@@ -744,7 +744,7 @@ mod tests {
         let ds = driver
             .open(
                 Source::Path(src),
-                &read_opts(&[("x_column", "lon"), ("y_column", "lat")]),
+                read_opts(&[("x_column", "lon"), ("y_column", "lat")]),
             )
             .unwrap();
         let geom = ds.layers()[0].contract.geometry.as_ref().unwrap();
@@ -784,7 +784,7 @@ mod tests {
         let dataset = CsvDriver
             .open(
                 Source::Path(source),
-                &read_opts(&[("x_column", "x"), ("y_column", "y")]),
+                read_opts(&[("x_column", "x"), ("y_column", "y")]),
             )
             .unwrap();
         let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
@@ -810,7 +810,7 @@ mod tests {
 
         let driver = CsvDriver;
         let ds = driver
-            .open(Source::Path(src), &read_opts(&[("wkt_column", "geom")]))
+            .open(Source::Path(src), read_opts(&[("wkt_column", "geom")]))
             .unwrap();
         let mut request = req(100);
         request.batch_target.target_bytes = 1;
@@ -836,7 +836,7 @@ mod tests {
 
         let driver = CsvDriver;
         let dataset = driver
-            .open(Source::Path(source), &read_opts(&[("wkt_column", "geom")]))
+            .open(Source::Path(source), read_opts(&[("wkt_column", "geom")]))
             .unwrap();
         let contract = dataset.layers()[0].contract.clone();
         let geometry_contract = contract.geometry.as_ref().unwrap();
@@ -870,7 +870,7 @@ mod tests {
         let reopened = driver
             .open(
                 Source::Path(output),
-                &read_opts(&[("wkt_column", "geometry")]),
+                read_opts(&[("wkt_column", "geometry")]),
             )
             .unwrap();
         assert_eq!(
@@ -903,7 +903,7 @@ mod tests {
         )
         .unwrap();
         let dataset = CsvDriver
-            .open(Source::Path(source), &read_opts(&[("wkt_column", "geom")]))
+            .open(Source::Path(source), read_opts(&[("wkt_column", "geom")]))
             .unwrap();
         assert_eq!(
             dataset.layers()[0]
@@ -944,7 +944,7 @@ mod tests {
         assert!(CsvDriver
             .open(
                 Source::Path(source),
-                &read_opts(&[("x_column", "x"), ("y_column", "y")]),
+                read_opts(&[("x_column", "x"), ("y_column", "y")]),
             )
             .is_err());
     }
@@ -957,7 +957,7 @@ mod tests {
         let dataset = CsvDriver
             .open(
                 Source::Path(source),
-                &read_opts(&[("x_column", "x"), ("y_column", "y")]),
+                read_opts(&[("x_column", "x"), ("y_column", "y")]),
             )
             .unwrap();
         let mut reader = dataset.open_layer_reader(&req(65_536)).unwrap();
@@ -973,7 +973,7 @@ mod tests {
         let dataset = CsvDriver
             .open(
                 Source::Path(source.clone()),
-                &read_opts(&[("wkt_column", "wkt")]),
+                read_opts(&[("wkt_column", "wkt")]),
             )
             .unwrap();
 

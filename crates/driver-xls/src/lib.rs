@@ -105,8 +105,8 @@ impl FormatDriver for XlsDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = plenora_io_core::preflight_source(source, &mut opts)?;
         if !path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -135,7 +135,7 @@ impl FormatDriver for XlsDriver {
             &opts.format_options,
             &crs,
             opts.cancellation(),
-            XlsxQuote::from_read_options(opts),
+            XlsxQuote::from_read_options(&opts),
             opts.resource_budget()?,
         )?;
         plenora_io_core::with_read_budget(
@@ -149,7 +149,7 @@ impl FormatDriver for XlsDriver {
                 spool,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts,
+            &opts,
             true,
         )
     }
@@ -1157,7 +1157,7 @@ mod tests {
         let ropts = ReadOptions::default()
             .with_assume_crs("EPSG:4326")
             .with_format_option("wkt_column", "geometry");
-        let ds = driver.open(Source::Path(out), &ropts).unwrap();
+        let ds = driver.open(Source::Path(out), ropts).unwrap();
         let mut r = ds
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),
@@ -1199,7 +1199,7 @@ mod tests {
         let dataset = driver
             .open(
                 Source::Path(output),
-                &ReadOptions::default()
+                ReadOptions::default()
                     .with_assume_crs("EPSG:4326")
                     .with_format_option("wkt_column", "geometry"),
             )
@@ -1261,7 +1261,7 @@ mod tests {
         let dataset = driver
             .open(
                 Source::Path(output),
-                &ReadOptions::default()
+                ReadOptions::default()
                     .with_assume_crs("EPSG:4326")
                     .with_format_option("wkt_column", "geometry"),
             )
@@ -1305,7 +1305,7 @@ mod tests {
 
         let result = XlsDriver.open(
             Source::Path(output),
-            &ReadOptions::from_legacy(
+            ReadOptions::from_legacy(
                 Limits {
                     max_input_bytes: input_bytes,
                     ..Limits::default()
@@ -1338,7 +1338,7 @@ mod tests {
 
         let result = XlsDriver.open(
             Source::Path(output),
-            &ReadOptions::from_legacy(
+            ReadOptions::from_legacy(
                 Limits::default(),
                 resource_budget,
                 CancellationToken::default(),
@@ -1398,7 +1398,7 @@ mod tests {
         let read_options = ReadOptions::default()
             .with_assume_crs("EPSG:4326")
             .with_format_option("wkt_column", "geometry");
-        let dataset = driver.open(Source::Path(output), &read_options).unwrap();
+        let dataset = driver.open(Source::Path(output), read_options).unwrap();
         let output_contract = dataset.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(output_contract.dimensions, CoordinateDimensions::Xym);
         assert_eq!(

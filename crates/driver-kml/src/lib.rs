@@ -254,8 +254,8 @@ impl FormatDriver for KmlDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = plenora_io_core::preflight_source(source, &mut opts)?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
         let spool = Arc::new(tempfile::NamedTempFile::new()?);
@@ -313,7 +313,7 @@ impl FormatDriver for KmlDriver {
                 rows,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts,
+            &opts,
             true,
         )
     }
@@ -1568,7 +1568,7 @@ mod tests {
         std::fs::write(&path, SAMPLE).unwrap();
         let driver = KmlDriver;
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         assert_eq!(
             ds.layers()[0]
@@ -1652,7 +1652,7 @@ mod tests {
         let path = dir.path().join("semantic-equivalence.kml");
         std::fs::write(&path, text).unwrap();
         let dataset = KmlDriver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let mut reader = dataset
             .open_layer_reader(&ReadRequest {
@@ -1729,7 +1729,7 @@ mod tests {
         );
 
         let ds = driver
-            .open(Source::Path(out), &ReadOptions::default())
+            .open(Source::Path(out), ReadOptions::default())
             .unwrap();
         let mut r = ds
             .open_layer_reader(&ReadRequest {
@@ -1811,7 +1811,7 @@ mod tests {
             .contains("12.5,45.9,123.25"));
 
         let dataset = driver
-            .open(Source::Path(out), &ReadOptions::default())
+            .open(Source::Path(out), ReadOptions::default())
             .unwrap();
         assert_eq!(
             dataset.layers()[0]

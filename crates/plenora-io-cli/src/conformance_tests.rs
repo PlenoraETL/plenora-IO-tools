@@ -843,7 +843,7 @@ fn materialize_point_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
 fn read_all_batches(driver: &dyn FormatDriver, source: PathBuf) -> Vec<RecordBatch> {
     let descriptor = driver.descriptor();
     let dataset = require_ok(
-        driver.open(Source::Path(source), &read_options(descriptor.id)),
+        driver.open(Source::Path(source), read_options(descriptor.id)),
         descriptor.id,
         "open determinismo",
     );
@@ -978,7 +978,7 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
         let directory = tempfile::tempdir().unwrap();
         let output = materialize_empty_dataset(driver.as_ref(), &directory);
         let dataset = driver
-            .open(Source::Path(output), &read_options(descriptor.id))
+            .open(Source::Path(output), read_options(descriptor.id))
             .unwrap_or_else(|error| panic!("{}: open dataset vuoto: {error}", descriptor.id));
         let request = ReadRequest {
             layer: LayerId(0),
@@ -1017,7 +1017,7 @@ fn every_exact_pure_rust_reader_supports_an_empty_projection() {
         }
         let directory = tempfile::tempdir().unwrap();
         let output = materialize_point_dataset(driver.as_ref(), &directory);
-        let dataset = match driver.open(Source::Path(output), &read_options(descriptor.id)) {
+        let dataset = match driver.open(Source::Path(output), read_options(descriptor.id)) {
             Ok(dataset) => dataset,
             Err(error) => panic!("{}: open projection: {error}", descriptor.id),
         };
@@ -1063,7 +1063,7 @@ fn single_active_reader_is_enforced_by_every_pure_rust_descriptor() {
         let directory = tempfile::tempdir().unwrap();
         let output = materialize_empty_dataset(driver.as_ref(), &directory);
         let dataset = driver
-            .open(Source::Path(output), &read_options(descriptor.id))
+            .open(Source::Path(output), read_options(descriptor.id))
             .unwrap_or_else(|error| panic!("{}: open dataset vuoto: {error}", descriptor.id));
         let first = dataset
             .open_layer_reader(&read_request())
@@ -1097,7 +1097,7 @@ fn independent_reader_descriptor_allows_two_live_readers() {
     let directory = tempfile::tempdir().unwrap();
     let output = materialize_empty_dataset(&driver, &directory);
     let dataset = driver
-        .open(Source::Path(output), &ReadOptions::default())
+        .open(Source::Path(output), ReadOptions::default())
         .unwrap();
 
     let first = dataset.open_layer_reader(&read_request()).unwrap();

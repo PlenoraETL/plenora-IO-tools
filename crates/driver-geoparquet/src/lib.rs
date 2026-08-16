@@ -99,7 +99,7 @@ pub struct GeoParquetDriver;
 /// S4.d il cambio semantico del preflight — enumerazione via il modello
 /// unificato e rimozione dei controlli legacy — dovra' avvenire in un punto
 /// solo per driver, non sparso nel corpo di `open`.
-fn percorso_verificato(source: Source, opts: &ReadOptions) -> Result<PathBuf> {
+fn percorso_verificato(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
     plenora_io_core::preflight_source(source, opts)
 }
 
@@ -108,8 +108,8 @@ impl FormatDriver for GeoParquetDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = percorso_verificato(source, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = percorso_verificato(source, &mut opts)?;
         // Il footer Parquet puo' portare la chiave `ARROW:schema`, che e' un
         // messaggio Arrow IPC deserializzato qui dentro: un `.parquet` ostile
         // raggiunge quindi lo stesso panico di un `.arrow`. Vedi
@@ -237,7 +237,7 @@ impl FormatDriver for GeoParquetDriver {
                 visible_to_physical,
                 layers: vec![layer],
             }),
-            opts,
+            &opts,
             true,
         )
     }
@@ -1367,7 +1367,7 @@ mod tests {
             let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("../../fuzz/seeds/geoparquet_reader")
                 .join(nome);
-            match GeoParquetDriver.open(Source::Path(seme), &ReadOptions::default()) {
+            match GeoParquetDriver.open(Source::Path(seme), ReadOptions::default()) {
                 Ok(_) => panic!("{nome}: il file doveva essere rifiutato"),
                 Err(errore) => assert!(
                     errore.to_string().contains("arrow in panico"),
@@ -1443,7 +1443,7 @@ mod tests {
         write_parquet_without_covering_metadata(&path);
 
         let dataset = GeoParquetDriver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let contract_schema = &dataset.layers()[0].contract.schema;
         // Tutte e 4 le colonne bbox restano visibili con i nomi originali.
@@ -1470,7 +1470,7 @@ mod tests {
         let mut opts = ReadOptions::default();
         opts.format_options
             .insert("bbox_legacy_by_name".to_owned(), "true".to_owned());
-        let dataset = GeoParquetDriver.open(Source::Path(path), &opts).unwrap();
+        let dataset = GeoParquetDriver.open(Source::Path(path), opts).unwrap();
         let contract_schema = &dataset.layers()[0].contract.schema;
         // Con opt-in le 4 colonne bbox sono nascoste (fallback legacy attivo).
         for name in BBOX_COLS {
@@ -1608,7 +1608,7 @@ mod tests {
 
         // open -> read back
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         assert_eq!(ds.layers().len(), 1);
         let layer = &ds.layers()[0];
@@ -1699,7 +1699,7 @@ mod tests {
 
         assert_eq!(wkb_bbox(&wkb), Some([12.5, 45.9, 12.5, 45.9]));
         let dataset = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(geometry.dimensions, CoordinateDimensions::Xyz);
@@ -1850,7 +1850,7 @@ mod tests {
 
         // Proietta SOLO la colonna "id" (indice 1) in modalità Required.
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let mut reader = ds
             .open_layer_reader(&ReadRequest {
@@ -1925,7 +1925,7 @@ mod tests {
 
         // Pruning "id > 150000": salta i row group con max(id) <= 150000.
         let ds = driver
-            .open(Source::Path(path.clone()), &ReadOptions::default())
+            .open(Source::Path(path.clone()), ReadOptions::default())
             .unwrap();
         let mut reader = ds
             .open_layer_reader(&ReadRequest {
@@ -1956,7 +1956,7 @@ mod tests {
         assert!(total >= n - 150_000, "under-return vietato, letti {total}");
 
         let legacy = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let mut legacy_reader = legacy
             .open_layer_reader(&ReadRequest {
@@ -2029,7 +2029,7 @@ mod tests {
         w.finish().unwrap();
 
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         // Il bbox covering NON è esposto: il contratto ha solo geometry + id.
         assert_eq!(ds.layers()[0].contract.schema.fields().len(), 2);
@@ -2105,7 +2105,7 @@ mod tests {
 
         // Rilegge il file zstd (prima veniva RIFIUTATO).
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let mut reader = ds
             .open_layer_reader(&ReadRequest {

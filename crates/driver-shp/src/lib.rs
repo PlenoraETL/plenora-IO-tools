@@ -460,9 +460,9 @@ impl FormatDriver for ShpDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = shapefile_source_path(plenora_io_core::preflight_source(source, opts)?)?;
-        let crs = resolve_crs(&path, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = shapefile_source_path(plenora_io_core::preflight_source(source, &mut opts)?)?;
+        let crs = resolve_crs(&path, &opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let ShpInference {
             cols,
@@ -524,7 +524,7 @@ impl FormatDriver for ShpDriver {
                     contract,
                 }],
             }),
-            opts,
+            &opts,
             false,
         )
     }
@@ -2696,9 +2696,7 @@ mod tests {
         options
             .format_options
             .insert("row_diagnostics.key_policy".to_owned(), "emit".to_owned());
-        let dataset = ShpDriver
-            .open(Source::Path(path.clone()), &options)
-            .unwrap();
+        let dataset = ShpDriver.open(Source::Path(path.clone()), options).unwrap();
         let request = ReadRequest {
             batch_target: BatchTarget {
                 target_bytes: 8 * 1024 * 1024,
@@ -2750,7 +2748,7 @@ mod tests {
             max_rows: 8,
         };
         let attribute_only_dataset = ShpDriver
-            .open(Source::Path(path.clone()), &read_opts())
+            .open(Source::Path(path.clone()), read_opts())
             .unwrap();
         let mut attribute_only_reader = attribute_only_dataset
             .open_layer_reader(&attribute_only_request)
@@ -2770,7 +2768,7 @@ mod tests {
             .format_options
             .insert("row_diagnostics.key_policy".to_owned(), "emit".to_owned());
         let numeric_key_dataset = ShpDriver
-            .open(Source::Path(path.clone()), &numeric_key_options)
+            .open(Source::Path(path.clone()), numeric_key_options)
             .unwrap();
         let mut numeric_key_reader = numeric_key_dataset.open_layer_reader(&request).unwrap();
         let (_, numeric_key_error) = consume_until_error(numeric_key_reader.as_mut());
@@ -2786,7 +2784,7 @@ mod tests {
         }
 
         let dataset_without_key = ShpDriver
-            .open(Source::Path(path.clone()), &read_opts())
+            .open(Source::Path(path.clone()), read_opts())
             .unwrap();
         let mut reader_without_key = dataset_without_key.open_layer_reader(&request).unwrap();
         let (_, error_without_key) = consume_until_error(reader_without_key.as_mut());
@@ -2805,7 +2803,7 @@ mod tests {
             .format_options
             .insert("row_diagnostics.key_policy".to_owned(), "redact".to_owned());
         let redacted_dataset = ShpDriver
-            .open(Source::Path(path.clone()), &redacted_options)
+            .open(Source::Path(path.clone()), redacted_options)
             .unwrap();
         let mut redacted_reader = redacted_dataset.open_layer_reader(&request).unwrap();
         let (_, redacted_error) = consume_until_error(redacted_reader.as_mut());
@@ -2820,7 +2818,7 @@ mod tests {
         missing_policy
             .format_options
             .insert("row_diagnostics.key_field".to_owned(), "ID_PART".to_owned());
-        let Err(missing_policy_error) = ShpDriver.open(Source::Path(path.clone()), &missing_policy)
+        let Err(missing_policy_error) = ShpDriver.open(Source::Path(path.clone()), missing_policy)
         else {
             panic!("key_field senza policy deve essere rifiutato")
         };
@@ -2833,7 +2831,7 @@ mod tests {
         zero_limit
             .format_options
             .insert("row_diagnostics.examples_limit".to_owned(), "0".to_owned());
-        let Err(zero_limit_error) = ShpDriver.open(Source::Path(path.clone()), &zero_limit) else {
+        let Err(zero_limit_error) = ShpDriver.open(Source::Path(path.clone()), zero_limit) else {
             panic!("examples_limit zero deve essere rifiutato")
         };
         assert_eq!(
@@ -2868,7 +2866,7 @@ mod tests {
         assert!(cancelled.total.is_none());
 
         let partial_dataset = ShpDriver
-            .open(Source::Path(path.clone()), &read_opts())
+            .open(Source::Path(path.clone()), read_opts())
             .unwrap();
         truncate_dbf_mid_record(&path, 50);
         let mut partial_reader = partial_dataset.open_layer_reader(&request).unwrap();
@@ -2890,7 +2888,7 @@ mod tests {
 
         overwrite_dbf_ascii_field(&malformed_path, 42, "INT_VALUE", "not-an-integer");
         let malformed_dataset = ShpDriver
-            .open(Source::Path(malformed_path), &read_opts())
+            .open(Source::Path(malformed_path), read_opts())
             .unwrap();
         let mut malformed_reader = malformed_dataset.open_layer_reader(&request).unwrap();
         let (_, malformed_error) = consume_until_error(malformed_reader.as_mut());
@@ -2942,7 +2940,7 @@ mod tests {
         // Fault-tail deterministico: il dataset e' inferito quando integro, poi
         // la coda oltre il prefisso richiesto diventa illeggibile.
         let dataset = ShpDriver
-            .open(Source::Path(path.clone()), &read_opts())
+            .open(Source::Path(path.clone()), read_opts())
             .unwrap();
         truncate_dbf_mid_record(&path, 200);
         let request = ReadRequest {
@@ -3005,7 +3003,7 @@ mod tests {
         std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
 
         let dataset = ShpDriver
-            .open(Source::Path(path.clone()), &read_opts())
+            .open(Source::Path(path.clone()), read_opts())
             .unwrap();
         let request = ReadRequest {
             scope: ReadScope::AcceptedRows(10),
@@ -3022,7 +3020,7 @@ mod tests {
         }
         assert_eq!(rows, vec![8, 8]);
 
-        let complete_dataset = ShpDriver.open(Source::Path(path), &read_opts()).unwrap();
+        let complete_dataset = ShpDriver.open(Source::Path(path), read_opts()).unwrap();
         let mut complete_request = request;
         complete_request.scope = ReadScope::Complete;
         let mut complete = complete_dataset
@@ -3114,7 +3112,7 @@ mod tests {
         drop(dbf);
 
         let dataset = ShpDriver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let assessment = dataset.fidelity_assessment();
         assert_eq!(assessment.level, Fidelity::Conditional);
@@ -3154,7 +3152,7 @@ mod tests {
         std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
 
         let dataset = ShpDriver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let schema = &dataset.layers()[0].contract.schema;
         assert_eq!(schema.field(1).data_type(), &DataType::Float64);
@@ -3201,7 +3199,7 @@ mod tests {
         drop(dbf);
 
         let error = ShpDriver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .err()
             .expect("il DBF con nomi duplicati deve essere rifiutato");
         assert!(error.to_string().contains("nomi campo DBF duplicati"));
@@ -3299,7 +3297,7 @@ mod tests {
         assert!(out.with_extension("prj").exists());
 
         // rilettura
-        let ds = driver.open(Source::Path(out), &read_opts()).unwrap();
+        let ds = driver.open(Source::Path(out), read_opts()).unwrap();
         let mut r = ds.open_layer_reader(&req()).unwrap();
         let rb = r.next_batch().unwrap().unwrap();
         assert_eq!(rb.num_rows(), 2);
@@ -3414,7 +3412,7 @@ mod tests {
         assert!(output.join("data.dbf").is_file());
         assert!(output.join("data.prj").is_file());
 
-        let dataset = driver.open(Source::Path(output), &read_opts()).unwrap();
+        let dataset = driver.open(Source::Path(output), read_opts()).unwrap();
         let mut reader = dataset.open_layer_reader(&req()).unwrap();
         assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
     }
@@ -3551,7 +3549,7 @@ mod tests {
         w.write(&batch).unwrap();
         w.finish().unwrap();
 
-        let ds = driver.open(Source::Path(out), &read_opts()).unwrap();
+        let ds = driver.open(Source::Path(out), read_opts()).unwrap();
         let req = ReadRequest {
             layer: LayerId(0),
             projected_fields: None,
@@ -3650,7 +3648,7 @@ mod tests {
             _ => unreachable!("test solo dimensionale"),
         }
 
-        let dataset = driver.open(Source::Path(out), &read_opts()).unwrap();
+        let dataset = driver.open(Source::Path(out), read_opts()).unwrap();
         let layer = &dataset.layers()[0];
         let output_contract = layer.contract.geometry.as_ref().unwrap();
         assert_eq!(output_contract.dimensions, dimensions);

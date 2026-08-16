@@ -113,12 +113,12 @@ impl FormatDriver for FileGdbDriver {
     // I `return` cfg-gated servono per il caso feature-on (il blocco feature-off,
     // pur rimosso, segue sintatticamente); clippy non lo coglie.
     #[allow(clippy::needless_return)]
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
-            let path = plenora_io_core::preflight_source(source, opts)?;
+            let path = plenora_io_core::preflight_source(source, &mut opts)?;
             let dataset = backend::open(&path, opts.assume_crs.as_deref())?;
-            return plenora_io_core::with_read_budget(dataset, opts, false);
+            return plenora_io_core::with_read_budget(dataset, &opts, false);
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
@@ -1516,7 +1516,7 @@ mod backend {
 
         fn assert_complete_point_dataset(path: PathBuf) {
             let dataset = super::super::FileGdbDriver
-                .open(Source::Path(path), &ReadOptions::default())
+                .open(Source::Path(path), ReadOptions::default())
                 .unwrap();
             let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
             assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
@@ -1686,7 +1686,7 @@ mod backend {
             writer.finish().unwrap();
 
             let dataset = driver
-                .open(Source::Path(path), &ReadOptions::default())
+                .open(Source::Path(path), ReadOptions::default())
                 .unwrap();
             let crs = dataset.layers()[0]
                 .contract
@@ -1765,7 +1765,7 @@ mod backend {
 
             let semantic_signature = |path: &Path| {
                 let dataset = driver
-                    .open(Source::Path(path.to_owned()), &ReadOptions::default())
+                    .open(Source::Path(path.to_owned()), ReadOptions::default())
                     .unwrap();
                 let layer = &dataset.layers()[0];
                 let geometry = layer.contract.geometry.as_ref().unwrap();
@@ -1856,7 +1856,7 @@ mod backend {
             );
 
             let dataset = driver
-                .open(Source::Path(path), &ReadOptions::default())
+                .open(Source::Path(path), ReadOptions::default())
                 .unwrap();
             let output_geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
             assert_eq!(output_geometry.dimensions, CoordinateDimensions::Xy);
@@ -2022,7 +2022,7 @@ mod backend {
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
             let dataset = driver
-                .open(Source::Path(path), &ReadOptions::default())
+                .open(Source::Path(path), ReadOptions::default())
                 .unwrap();
             let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
             let output = reader.next_batch().unwrap().unwrap();
@@ -2075,7 +2075,7 @@ mod backend {
             writer.finish().unwrap();
 
             let dataset = driver
-                .open(Source::Path(path), &ReadOptions::default())
+                .open(Source::Path(path), ReadOptions::default())
                 .unwrap();
             let output_contract = dataset.layers()[0].contract.geometry.as_ref().unwrap();
             assert_eq!(output_contract.dimensions, CoordinateDimensions::Xyz);
@@ -2142,7 +2142,7 @@ mod backend {
                 writer.finish().unwrap();
 
                 let dataset = driver
-                    .open(Source::Path(path), &ReadOptions::default())
+                    .open(Source::Path(path), ReadOptions::default())
                     .unwrap();
                 let output_contract = dataset.layers()[0].contract.geometry.as_ref().unwrap();
                 assert_eq!(output_contract.dimensions, dimensions);
@@ -2228,7 +2228,7 @@ mod backend {
             writer.finish().unwrap();
 
             let dataset = driver
-                .open(Source::Path(path), &ReadOptions::default())
+                .open(Source::Path(path), ReadOptions::default())
                 .unwrap();
             let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
             let output = reader.next_batch().unwrap().unwrap();
@@ -2260,7 +2260,7 @@ mod backend {
                 .unwrap();
 
             let dataset = driver
-                .open(Source::Path(path), &ReadOptions::default())
+                .open(Source::Path(path), ReadOptions::default())
                 .unwrap();
             assert_eq!(dataset.layers().len(), 1);
             let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
@@ -2605,7 +2605,7 @@ mod backend {
                 .unwrap();
 
             let dataset = driver
-                .open(Source::Path(path), &ReadOptions::default())
+                .open(Source::Path(path), ReadOptions::default())
                 .unwrap();
             assert_eq!(dataset.layers().len(), expected.len());
             for (layer, (expected_type, expected_dimensions)) in
@@ -2762,7 +2762,7 @@ mod tests {
     fn open_without_gdal_feature_is_typed() {
         // Nel build di default (senza feature) l'apertura fallisce tipizzata.
         let e = FileGdbDriver
-            .open(Source::Path("x.gdb".into()), &ReadOptions::default())
+            .open(Source::Path("x.gdb".into()), ReadOptions::default())
             .map(|_| ())
             .unwrap_err();
         assert!(matches!(

@@ -175,8 +175,8 @@ impl FormatDriver for GpkgDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = plenora_io_core::preflight_source(source, &mut opts)?;
         let conn = Connection::open(&path).map_err(sql_err)?;
         let tables = feature_tables(&conn)?;
         if tables.is_empty() {
@@ -255,7 +255,7 @@ impl FormatDriver for GpkgDriver {
                 layers,
                 metas,
             }),
-            opts,
+            &opts,
             false,
         )
     }
@@ -1761,7 +1761,7 @@ mod tests {
         drop(conn);
 
         let dataset = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let loss = read_all_and_loss(dataset.as_ref());
 
@@ -2157,7 +2157,7 @@ mod tests {
             maxy: 10.0,
         };
         let unregistered = driver
-            .open(Source::Path(path.clone()), &ReadOptions::default())
+            .open(Source::Path(path.clone()), ReadOptions::default())
             .unwrap();
         assert_eq!(
             unregistered.layers()[0]
@@ -2186,7 +2186,7 @@ mod tests {
         drop(conn);
 
         let indexed = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         assert_eq!(
             indexed.layers()[0]
@@ -2270,7 +2270,7 @@ mod tests {
 
             // `expect_err` richiederebbe `Debug` sul trait object restituito
             // in caso di successo, che non lo implementa.
-            match driver.open(Source::Path(path), &ReadOptions::default()) {
+            match driver.open(Source::Path(path), ReadOptions::default()) {
                 Ok(_) => panic!("colonna {nome}: il file doveva essere rifiutato"),
                 Err(errore) => assert!(
                     errore.to_string().contains("oscura l'alias"),
@@ -2300,7 +2300,7 @@ mod tests {
         std::fs::copy(&seme, &path).unwrap();
 
         let driver = GpkgDriver;
-        let Ok(dataset) = driver.open(Source::Path(path), &ReadOptions::default()) else {
+        let Ok(dataset) = driver.open(Source::Path(path), ReadOptions::default()) else {
             // Il file e' corrotto: se una verifica a monte lo rifiuta prima
             // ancora di leggerlo, il non-avanzamento e' comunque irraggiungibile.
             return;
@@ -2371,7 +2371,7 @@ mod tests {
         w.finish().unwrap();
 
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         assert_eq!(ds.layers().len(), 1);
         assert_eq!(ds.layers()[0].name, "vani");
@@ -2492,7 +2492,7 @@ mod tests {
         writer.finish().unwrap();
 
         let dataset = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(geometry.dimensions, CoordinateDimensions::Xyzm);
@@ -2589,7 +2589,7 @@ mod tests {
         w.finish().unwrap();
 
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         assert_eq!(ds.layers().len(), 2);
         let names: Vec<&str> = ds.layers().iter().map(|l| l.name.as_str()).collect();
@@ -2658,7 +2658,7 @@ mod tests {
 
         // Rilettura: il CRS NON è più 4326 fisso, è EPSG:3857.
         let ds = driver
-            .open(Source::Path(path), &ReadOptions::default())
+            .open(Source::Path(path), ReadOptions::default())
             .unwrap();
         let crs = ds.layers()[0].contract.geometry.as_ref().unwrap().crs.id();
         assert_eq!(crs, Some("EPSG:3857"));

@@ -818,3 +818,71 @@ solo scendere" vale anche quando salire sarebbe comodo.
 le opzioni del modello unificato e applica le quote su quelle legacy,
 `with_read_budget` idem, `resource_budget()` fallisce tipizzato, e i tre
 accessori neutri danno lo stesso valore nei due rami.
+
+## Registrazione S4.d parte 0 del 2026-08-16 — ownership delle opzioni e gate irrobustiti
+
+Tre chiusure preliminari prima dell'handoff. Nessun cambio di comportamento a
+runtime: cambia la forma delle firme e il rigore dei gate.
+
+**`FormatDriver::open` consuma le opzioni per valore.** Il pacchetto ratificato
+lo diceva gia'; l'attuazione era rimasta a `&ReadOptions`. In quella forma il
+preflight **non puo'** estrarre il permit, perche' `take_input_permit(&mut
+self)` non e' chiamabile attraverso un riferimento condiviso — e senza estrarlo
+non si osserva l'input, cioe' S4.d sarebbe stato impossibile senza toccare di
+nuovo tredici firme.
+
+Le due vie che avrebbero conservato `&ReadOptions` sono state escluse per la
+stessa ragione: un `Mutex<Option<InputPermit>>` metterebbe uno stato mutabile
+dietro una firma immutabile, e un permit clonato consentirebbe due
+osservazioni dello stesso input. Sono entrambe modi di riscrivere la
+proprieta' one-shot come convenzione, dopo che il tipo l'aveva resa un fatto.
+
+`preflight_source` prende ora `&mut ReadOptions`. Consumare il permit non
+consuma le opzioni: l'adapter le legge dopo. Il consumo effettivo resta S4.d.
+
+Interventi: firma del tratto, dieci `impl open`, cento call site, e i punti in
+cui `opts` posseduto va ripreso a prestito da chi si aspetta `&ReadOptions`.
+Copertura: `il_preflight_consuma_il_permit_una_volta_e_lascia_le_opzioni_usabili`
+verifica proprio la proprieta' richiesta — permit estraibile attraverso il
+prestito mutabile, una sola volta, opzioni ancora leggibili dopo.
+
+**Nota sulla verifica per mutazione.** Provando a rompere la proprieta'
+one-shot si scopre che **non e' esprimibile**: restituire un secondo permit
+richiederebbe clonarlo o costruirlo, e il tipo non consente ne' l'uno ne'
+l'altro. E' un risultato piu' forte di una mutazione uccisa — la garanzia sta
+nel tipo, non nella copertura. La mutazione che invece e' esprimibile — non
+restituire mai il permit — e' uccisa da due test nominati.
+
+**Il perimetro dei gate testuali era troppo stretto.** Guardavano solo
+`crates/*/src/**`: un test d'integrazione in `tests/`, un benchmark in
+`benches/`, un `examples/` o un `build.rs` potevano attraversare il confine
+del permit senza che nulla lo vedesse — e sono proprio i posti dove si scrive
+codice di servizio con meno attenzione. Riconoscevano inoltre la sola forma a
+metodo, mentre `ReadBudgetParts::into_components(parts)` in UFCS fa la stessa
+cosa, e un riferimento a funzione senza chiamata pure. Cercavano infine
+`publish = false` come testo, che una riga commentata avrebbe soddisfatto.
+
+Ora il perimetro comprende ogni `.rs` di ogni crate piu' `fuzz/`, le forme
+riconosciute includono UFCS e il riferimento senza chiamata, e il manifesto e'
+letto con `tomllib` — gestendo anche il caso `publish = ["registry"]`, che non
+e' `false`. Verificato in quattro prove negative: UFCS in `tests/`, metodo in
+`benches/`, `InputPermit` in `build.rs`, `publish` commentato.
+
+**Il gate dell'handoff si accontentava di una menzione.** Il nome del test
+bastava trovarlo in un punto qualsiasi del crate: i commenti scritti per
+spiegare cosa mancasse lo avrebbero sbloccato. Chiedeva inoltre
+`InternalMemoryLease` "da qualche parte nel core", che un `use` inutilizzato
+avrebbe soddisfatto.
+
+Ora le condizioni sono ancorate ai due file che devono davvero cambiare —
+`spool.rs` e `reader_adapters.rs` liberi da `ResourceLease`, entrambi con
+`InternalMemoryLease` e `shrink_to` — e il test e' cercato come **definizione**
+`#[test] fn`, non come stringa. Verificato nei tre stati: incompleto oggi,
+ancora incompleto con il test solo citato in un commento, completo con una
+vera `#[test] fn`.
+
+**Residuo documentale chiuso**: lo snippet normativo dichiarava ancora
+`pub fn take_input_permit`, ed e' ora `pub(crate) fn`; l'introduzione di
+`check_permit_boundary.py` diceva che INV-13 dichiara il permit non
+separabile, mentre lo dichiarava la formulazione **originaria**, corretta in
+S4.b.3.

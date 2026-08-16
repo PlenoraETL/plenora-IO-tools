@@ -835,11 +835,24 @@ pub trait FormatDriver: Send + Sync {
     fn descriptor(&self) -> &FormatDescriptor;
     /// Statico: header/schema/CRS, nessuna riga.
     ///
+    /// Consuma le opzioni **per valore**. Non e' una preferenza stilistica:
+    /// le opzioni trasportano l'`InputPermit`, che il preflight deve
+    /// estrarre per `move` — e da un `&ReadOptions` non si estrae nulla.
+    /// Le alternative che conservano il riferimento condiviso
+    /// (`Mutex<Option<InputPermit>>`, o un permit clonato) reintrodurrebbero
+    /// proprio cio' che il permit esiste per escludere: uno stato mutabile
+    /// nascosto dietro una firma immutabile, e la possibilita' di osservare
+    /// due volte lo stesso input.
+    ///
+    /// L'implementazione dichiara `mut opts` quando chiama il preflight, e
+    /// continua a usare `opts` dopo: consumare il permit non consuma le
+    /// opzioni.
+    ///
     /// # Errors
     ///
     /// Restituisce un errore se la sorgente non è accessibile, non è nel
     /// formato atteso o eccede i limiti dichiarati in `opts`.
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>>;
+    fn open(&self, source: Source, opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>>;
     /// Statico: verifica che il contratto sia rappresentabile (ADR-IO 3).
     ///
     /// # Errors
@@ -974,7 +987,7 @@ pub trait FormatWriter {
 /// Propaga l'errore del preflight, e [`bridge_richiede_legacy`] se le opzioni
 /// sono costruite sul modello unificato. **Punto di rimozione del ramo
 /// legacy: S4.d.**
-pub fn preflight_source(source: Source, opts: &ReadOptions) -> Result<PathBuf> {
+pub fn preflight_source(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
     source.into_path_checked(
         opts.max_input_bytes(),
         opts.max_input_entries(),
@@ -3379,11 +3392,40 @@ mod tests {
     // insieme, non uno alla volta.
 
     #[test]
+    fn il_preflight_consuma_il_permit_una_volta_e_lascia_le_opzioni_usabili() {
+        // Verifica la **forma** che S4.d usera'. Con `open` che riceve le
+        // opzioni per valore, una funzione che le prende `&mut` puo'
+        // estrarre il permit per move; con `&ReadOptions` non si estrae
+        // nulla, e le vie per aggirarlo — `Mutex<Option<InputPermit>>`, o un
+        // permit clonato — reintrodurrebbero proprio l'osservazione doppia
+        // che il permit esiste per escludere.
+        fn come_il_preflight(opts: &mut ReadOptions) -> Option<InputPermit> {
+            opts.take_input_permit()
+        }
+
+        let mut opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
+        assert!(
+            come_il_preflight(&mut opts).is_some(),
+            "il permit deve essere estraibile attraverso un prestito mutabile"
+        );
+        assert!(
+            come_il_preflight(&mut opts).is_none(),
+            "one-shot: la seconda estrazione non deve dare un secondo permit"
+        );
+
+        // E le opzioni restano utilizzabili: dopo il preflight e' l'adapter a
+        // leggerle, e consumare il permit non consuma le opzioni.
+        assert_eq!(opts.max_columns(), PARITA_COLUMNS);
+        assert_eq!(opts.max_input_bytes(), PARITA_INPUT_BYTES);
+        assert!(opts.pipeline_budget().is_some());
+    }
+
+    #[test]
     fn preflight_source_rifiuta_le_opzioni_del_modello_unificato() {
         let file = tempfile::NamedTempFile::new().expect("tempfile");
-        let opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
+        let mut opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
 
-        let errore = preflight_source(Source::Path(file.path().to_owned()), &opts)
+        let errore = preflight_source(Source::Path(file.path().to_owned()), &mut opts)
             .expect_err("il preflight legacy non sa osservare col modello nuovo");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
     }
@@ -3392,21 +3434,21 @@ mod tests {
     fn preflight_source_accetta_le_opzioni_legacy_e_applica_le_quote() {
         let mut file = tempfile::NamedTempFile::new().expect("tempfile");
         file.write_all(&[0_u8; 8]).expect("write");
-        let stretto = opzioni_legacy_con(
+        let mut stretto = opzioni_legacy_con(
             Limits {
                 max_input_bytes: 7,
                 ..Limits::default()
             },
             CancellationToken::new(),
         );
-        let errore = preflight_source(Source::Path(file.path().to_owned()), &stretto)
+        let errore = preflight_source(Source::Path(file.path().to_owned()), &mut stretto)
             .expect_err("otto byte non stanno in sette");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
 
         // Con quota capiente lo stesso file passa: il rifiuto sopra viene
         // dalla quota, non dal fatto che il percorso sia rotto.
-        let largo = opzioni_legacy_con(Limits::default(), CancellationToken::new());
-        assert!(preflight_source(Source::Path(file.path().to_owned()), &largo).is_ok());
+        let mut largo = opzioni_legacy_con(Limits::default(), CancellationToken::new());
+        assert!(preflight_source(Source::Path(file.path().to_owned()), &mut largo).is_ok());
     }
 
     #[test]

@@ -408,7 +408,7 @@ fn read_drain(
     let has_proj = projected.is_some();
     let driver = driver_by_id(id);
     let ds = driver
-        .open(Source::Path(path.to_owned()), &read_opts(id))
+        .open(Source::Path(path.to_owned()), read_opts(id))
         .unwrap();
     // Indice geometria dallo schema pieno (solo se NON stiamo proiettando).
     let geom_idx = if has_proj {

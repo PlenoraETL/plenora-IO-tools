@@ -522,7 +522,7 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
 fn cmd_inspect(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
-    let ds = driver.open(Source::Path(path), &ropts).map_err(map_err)?;
+    let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds.layers().iter().map(layer_json).collect();
     Ok(json!({
@@ -538,7 +538,7 @@ fn cmd_inspect(cli: &Cli) -> CliResult {
 fn cmd_layers(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
-    let ds = driver.open(Source::Path(path), &ropts).map_err(map_err)?;
+    let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds
         .layers()
@@ -582,7 +582,7 @@ fn read_request(layer_id: u32, scope: ReadScope) -> ReadRequest {
 fn cmd_read(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
     let ropts = read_options(cli).map_err(map_err)?;
-    let ds = driver.open(Source::Path(path), &ropts).map_err(map_err)?;
+    let ds = driver.open(Source::Path(path), ropts).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layer_id = cli.layer.unwrap_or(0);
     let contract = ds
@@ -660,7 +660,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     // ingresso e uscita; `--in-opt` (e `--out-opt`) sovrascrivono per chiave
     // la stessa opzione, come dichiarato dal README.
     ropts.format_options = opts_uniti(&cli.opts, &cli.in_opts);
-    let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
+    let ds = src.open(Source::Path(in_path), ropts).map_err(map_err)?;
     let initial_read_fidelity = ds.fidelity_assessment();
 
     // Layer da convertire: `--layer` ne sceglie uno, altrimenti tutti.
@@ -1510,7 +1510,7 @@ mod tests {
         let reopened = driver
             .open(
                 Source::Path(output),
-                &plenora_io_core::ReadOptions::default(),
+                plenora_io_core::ReadOptions::default(),
             )
             .unwrap();
         let reopened_geometry = reopened.layers()[0].contract.geometry.as_ref().unwrap();

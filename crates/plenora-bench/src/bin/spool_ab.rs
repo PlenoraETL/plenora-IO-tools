@@ -122,7 +122,7 @@ fn convert(
     let writer_driver = driver_geoparquet::GeoParquetDriver;
 
     let dataset = reader_driver
-        .open(Source::Path(source.to_owned()), &read_options(read_budget))
+        .open(Source::Path(source.to_owned()), read_options(read_budget))
         .unwrap();
     let contract = dataset.layers()[0].contract.clone();
     let mut reader = dataset

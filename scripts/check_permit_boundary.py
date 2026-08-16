@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Confine workspace-internal dell'`InputPermit` (INV-13, Lotto 0 / S4.b.3).
 
-INV-13 dichiara che il permit non e' separabile dal proprio bundle. Rust non
-sa esprimere quella garanzia fra crate distinti: `pub(crate)` non basta —
-`plenora-io-core` e' un crate diverso da `plenora-io-model` — e un
-`pub(workspace)` non esiste. Un'API che il core deve poter chiamare e'
-necessariamente `pub`, quindi visibile a chiunque aggiunga il modello fra le
-proprie dipendenze.
+La formulazione originaria di INV-13 dichiarava il permit "mai separabile"
+dal proprio bundle. Rust non sa esprimere quella garanzia fra crate distinti:
+`pub(crate)` non basta — `plenora-io-core` e' un crate diverso da
+`plenora-io-model` — e un `pub(workspace)` non esiste. Un'API che il core deve
+poter chiamare e' necessariamente `pub`, quindi visibile a chiunque aggiunga
+il modello fra le proprie dipendenze.
 
-La formulazione onesta e' percio' piu' stretta di quella originale: il permit
-e' **non costruibile, non clonabile e legato al context**, e queste tre sono
-garanzie del linguaggio; e' invece **separabile per move**, e quella
-separazione e' confinata al workspace da tre fatti verificabili, che questo
-gate controlla:
+INV-13 e' stato percio' corretto in S4.b.3, e dice ora qualcosa di piu'
+stretto ma vero: il permit e' **non costruibile, non clonabile e legato al
+context**, e queste tre sono garanzie del linguaggio; e' invece **separabile
+per move**, e quella separazione e' confinata al workspace da tre fatti
+verificabili, che questo gate controlla:
 
 1. entrambi i crate sono `publish = false`, quindi l'API non raggiunge un
    consumer esterno per la via del registry;
@@ -21,13 +21,29 @@ gate controlla:
 
 Non e' una prova di impossibilita' — nessun grep lo e'. E' cio' che rende il
 confine verificabile invece che dichiarato, ed e' esattamente la differenza
-che INV-13 nella vecchia formulazione nascondeva.
+che la vecchia formulazione di INV-13 nascondeva.
+
+## Perimetro e forme riconosciute (S4.d, parte 0)
+
+La prima versione guardava solo `crates/*/src/**` e la sola forma a metodo.
+Due buchi reali:
+
+* un test d'integrazione in `tests/`, un benchmark in `benches/`, un
+  `examples/` o un `build.rs` potevano attraversare il confine senza che
+  nulla lo vedesse — e sono proprio i posti dove si scrive codice "di
+  servizio" con meno attenzione;
+* `ReadBudgetParts::into_components(parts)` in forma UFCS fa esattamente cio'
+  che `.into_components()` fa, e non veniva contato.
+
+Allo stesso modo `publish = false` era cercato come testo: una riga
+commentata lo avrebbe soddisfatto. Ora il manifesto viene letto come TOML.
 """
 
 from __future__ import annotations
 
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,8 +51,14 @@ ROOT = Path(__file__).resolve().parents[1]
 # I due crate ai quali il confine e' riservato.
 CRATE_INTERNI = ("plenora-io-model", "plenora-io-core")
 
-# L'unica via di decomposizione rimasta, piu' il tipo che protegge.
-DECOMPOSIZIONE = re.compile(r"\.into_components\(\)|\.into_budget\(\)")
+# L'unica via di decomposizione rimasta, nelle forme in cui Rust la consente:
+# metodo, UFCS, e riferimento alla funzione senza chiamata. La parentesi non
+# e' richiesta: `let f = ReadBudgetParts::into_components;` attraversa il
+# confine esattamente come una chiamata, solo piu' tardi.
+DECOMPOSIZIONE = re.compile(
+    r"\.into_components\b|\.into_budget\b|"
+    r"\b(?:ReadBudgetParts|WriteBudgetParts)\s*::\s*into_(?:components|budget)\b"
+)
 PERMIT = re.compile(r"\bInputPermit\b")
 
 # Firme che non devono ricomparire.
@@ -46,8 +68,51 @@ DOC_HIDDEN = re.compile(
 )
 
 
-def errore(messaggi: list[str], testo: str) -> None:
-    messaggi.append(testo)
+def sorgenti_rust(root: Path) -> list[tuple[str, Path]]:
+    """Ogni `.rs` di ogni crate, non solo quelli sotto `src/`.
+
+    Restituisce coppie (crate, percorso). `target/` e' escluso perche'
+    contiene artefatti generati, non sorgenti del workspace.
+    """
+    trovati: list[tuple[str, Path]] = []
+    for crate_dir in sorted((root / "crates").iterdir()):
+        if not crate_dir.is_dir():
+            continue
+        for sorgente in sorted(crate_dir.rglob("*.rs")):
+            if "target" in sorgente.relative_to(crate_dir).parts:
+                continue
+            trovati.append((crate_dir.name, sorgente))
+    # Il crate di fuzzing vive fuori da `crates/` ma e' workspace a tutti gli
+    # effetti: i suoi target sono codice che compila contro il modello.
+    fuzz = root / "fuzz"
+    if fuzz.is_dir():
+        for sorgente in sorted(fuzz.rglob("*.rs")):
+            if "target" in sorgente.relative_to(fuzz).parts:
+                continue
+            trovati.append(("fuzz", sorgente))
+    return trovati
+
+
+def e_pubblicabile(manifest: Path) -> bool | None:
+    """`True`/`False` secondo il TOML, `None` se il manifesto non si legge.
+
+    Letto come TOML e non cercato come testo: `# publish = false` in un
+    commento soddisfaceva la ricerca letterale pur non avendo alcun effetto.
+    Il default di Cargo, in assenza della chiave, e' pubblicabile.
+    """
+    try:
+        dati = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    package = dati.get("package")
+    if not isinstance(package, dict):
+        return None
+    publish = package.get("publish", True)
+    # Cargo accetta anche una lista di registry: una lista vuota equivale a
+    # `false`, una non vuota consente la pubblicazione su quei registry.
+    if isinstance(publish, list):
+        return len(publish) > 0
+    return bool(publish)
 
 
 def main() -> int:
@@ -57,15 +122,20 @@ def main() -> int:
     for crate in CRATE_INTERNI:
         manifest = ROOT / "crates" / crate / "Cargo.toml"
         if not manifest.is_file():
-            errore(errori, f"{crate}: Cargo.toml assente")
+            errori.append(f"{crate}: Cargo.toml assente")
             continue
-        if "publish = false" not in manifest.read_text(encoding="utf-8"):
-            errore(
-                errori,
-                f"{crate}: manca `publish = false`. Il confine workspace-internal "
-                "del permit poggia sul fatto che questi crate non raggiungano un "
-                "consumer esterno; senza, la garanzia di INV-13 va riformulata di "
-                "nuovo, non solo il gate.",
+        pubblicabile = e_pubblicabile(manifest)
+        if pubblicabile is None:
+            errori.append(
+                f"{crate}: Cargo.toml illeggibile o senza sezione [package]; "
+                "il confine del permit non e' verificabile."
+            )
+        elif pubblicabile:
+            errori.append(
+                f"{crate}: risulta pubblicabile. Il confine workspace-internal "
+                "del permit poggia sul fatto che questi crate non raggiungano "
+                "un consumer esterno; senza, la garanzia di INV-13 va "
+                "riformulata di nuovo, non solo il gate."
             )
 
     budget = ROOT / "crates" / "plenora-io-model" / "src" / "budget.rs"
@@ -73,52 +143,46 @@ def main() -> int:
 
     # 2. Una sola via di decomposizione, e marcata.
     if ESTRATTORE_RIMOSSO.search(testo_budget):
-        errore(
-            errori,
+        errori.append(
             "plenora-io-model: e' ricomparso un `take_input_permit` pubblico. La "
             "decomposizione deve restare un solo punto: due vie per la stessa "
-            "separazione sono cio' che S4.b.3 ha rimosso.",
+            "separazione sono cio' che S4.b.3 ha rimosso."
         )
     marcati = set(DOC_HIDDEN.findall(testo_budget))
     for atteso in ("into_components", "into_budget"):
         if atteso not in marcati:
-            errore(
-                errori,
+            errori.append(
                 f"plenora-io-model: `{atteso}` non e' marcato `#[doc(hidden)]`. "
                 "La marcatura e' meta' del confine: senza, l'API compare nella "
-                "documentazione come se fosse d'uso generale.",
+                "documentazione come se fosse d'uso generale."
             )
 
-    # 3. Nessun altro crate attraversa il confine.
-    for sorgente in sorted((ROOT / "crates").glob("*/src/**/*.rs")):
-        crate = sorgente.relative_to(ROOT / "crates").parts[0]
+    # 3. Nessun altro crate attraversa il confine, in nessuna delle sue forme.
+    for crate, sorgente in sorgenti_rust(ROOT):
         if crate in CRATE_INTERNI:
             continue
         contenuto = sorgente.read_text(encoding="utf-8")
         percorso = sorgente.relative_to(ROOT).as_posix()
         if DECOMPOSIZIONE.search(contenuto):
-            errore(
-                errori,
+            errori.append(
                 f"{percorso}: usa l'API di decomposizione delle parti, riservata a "
                 f"{' e '.join(CRATE_INTERNI)}. Un driver riceve le opzioni gia' "
-                "costruite: non deve mai scomporre le parti da se'.",
+                "costruite: non deve mai scomporre le parti da se'."
             )
         if PERMIT.search(contenuto):
-            errore(
-                errori,
+            errori.append(
                 f"{percorso}: nomina `InputPermit`. Il permit non deve uscire dal "
-                "confine model/core nemmeno come tipo.",
+                "confine model/core nemmeno come tipo."
             )
 
     # 4. Lato core, l'estrattore non e' pubblico.
     driver = ROOT / "crates" / "plenora-io-core" / "src" / "driver.rs"
     testo_driver = driver.read_text(encoding="utf-8")
-    if not re.search(r"pub\(crate\) const fn take_input_permit", testo_driver):
-        errore(
-            errori,
+    if not re.search(r"pub\(crate\) (?:const )?fn take_input_permit", testo_driver):
+        errori.append(
             "plenora-io-core: `ReadOptions::take_input_permit` deve essere "
             "`pub(crate)`. L'unico chiamante legittimo e' il preflight, che vive "
-            "in questo crate.",
+            "in questo crate."
         )
 
     if errori:

@@ -229,14 +229,14 @@ impl FormatDriver for DxfDriver {
         &DESCRIPTOR
     }
 
-    fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, opts)?;
+    fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
+        let path = plenora_io_core::preflight_source(source, &mut opts)?;
         let mut stream = DrawingEntityReader::load_file(&path)
             .map_err(|e| err(format!("apertura DXF progressiva: {e}")))?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
         let mut walker = Walker::new(
             stream.drawing(),
-            DxfQuote::from_read_options(opts),
+            DxfQuote::from_read_options(&opts),
             opts.cancellation(),
         )?;
         let mut stats = DxfContractStats::default();
@@ -273,7 +273,7 @@ impl FormatDriver for DxfDriver {
         let drawing = stream
             .finish()
             .map_err(|e| err(format!("chiusura scansione DXF: {e}")))?;
-        let crs = resolve_dxf_crs(&drawing, opts)?;
+        let crs = resolve_dxf_crs(&drawing, &opts)?;
         let loss = walker.loss.clone();
         let contract = dxf_contract(crs, stats.dimensions(), stats.geometry_types)?;
         let name = path
@@ -294,7 +294,7 @@ impl FormatDriver for DxfDriver {
                 loss,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts,
+            &opts,
             false,
         )
     }
@@ -2261,7 +2261,7 @@ mod tests {
             .any(|reason| reason.detail.contains("occorrenze")));
 
         let ds = driver
-            .open(Source::Path(out), &ReadOptions::default())
+            .open(Source::Path(out), ReadOptions::default())
             .unwrap();
         assert_eq!(
             ds.fidelity_assessment().level,
@@ -2412,7 +2412,7 @@ mod tests {
         let error = DxfDriver
             .open(
                 Source::Path(path),
-                &ReadOptions::default().with_assume_crs("EPSG:4326"),
+                ReadOptions::default().with_assume_crs("EPSG:4326"),
             )
             .err()
             .expect("il CIRCLE degenere deve essere rifiutato");
@@ -2786,7 +2786,7 @@ mod tests {
         assert_eq!(published.loss.counts["MultiPoint esploso in entità DXF"], 2);
 
         let dataset = DxfDriver
-            .open(Source::Path(output), &ReadOptions::default())
+            .open(Source::Path(output), ReadOptions::default())
             .unwrap();
         let mut reader = dataset.open_layer_reader(&request()).unwrap();
         assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 2);
