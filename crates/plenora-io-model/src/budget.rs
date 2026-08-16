@@ -31,7 +31,7 @@
 //!
 //! // il preflight del core consuma il permit e osserva l'input una volta.
 //! let permit = read.take_input_permit().ok_or("permit assente")?;
-//! read.budget().context().observe_input(permit, 4_096, 1)?;
+//! read.budget().context().observe_input(permit, 4_096)?;
 //!
 //! // il writer vede l'input osservato dal reader: stesso context (INV-6).
 //! assert_eq!(
@@ -83,7 +83,7 @@ use std::cell::Cell;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -118,6 +118,147 @@ const INPUT_ALREADY_OBSERVED: &str = "input gia' osservato per questa pipeline";
 
 fn limit_error(message: &'static str) -> PlenoraIoError {
     PlenoraIoError::LimitExceeded(message.to_owned())
+}
+
+// FNV-1a a 64 bit, due volte con basi distinte: il digest e' a 128 bit e non
+// richiede una dipendenza nuova (i pin del workspace sono esatti e ogni
+// aggiunta passa da un gate). Non e' una funzione crittografica e non deve
+// esserlo: serve a rilevare mutazioni ordinarie della sorgente fra due
+// scansioni, non a resistere a un avversario che costruisce collisioni —
+// chi puo' riscrivere i file puo' comunque cambiarne il contenuto a
+// dimensione e mtime invariati, come dichiara la garanzia best-effort.
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+const FNV_BASIS_HIGH: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_BASIS_LOW: u64 = 0x9e37_79b9_7f4a_7c15;
+
+fn fnv1a(basis: u64, bytes: &[u8]) -> u64 {
+    let mut hash = basis;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// Identita' di una entry osservata dal preflight.
+///
+/// Il path arriva **gia' normalizzato** dal core: la normalizzazione dipende
+/// dal filesystem e dalla piattaforma, che il modello non conosce. Il
+/// modello si limita a renderla parte del digest.
+#[derive(Clone, Copy, Debug)]
+pub struct SourceEntry<'a> {
+    normalized_path: &'a [u8],
+    size_bytes: u64,
+    modified: Option<SystemTime>,
+}
+
+impl<'a> SourceEntry<'a> {
+    #[must_use]
+    pub const fn new(
+        normalized_path: &'a [u8],
+        size_bytes: u64,
+        modified: Option<SystemTime>,
+    ) -> Self {
+        Self {
+            normalized_path,
+            size_bytes,
+            modified,
+        }
+    }
+
+    #[must_use]
+    pub const fn normalized_path(&self) -> &'a [u8] {
+        self.normalized_path
+    }
+
+    #[must_use]
+    pub const fn size_bytes(&self) -> u64 {
+        self.size_bytes
+    }
+
+    #[must_use]
+    pub const fn modified(&self) -> Option<SystemTime> {
+        self.modified
+    }
+
+    /// Codifica canonica dell'entry: lunghezza del path, path, dimensione e
+    /// mtime con segno esplicito. La lunghezza in testa impedisce che due
+    /// insiemi di path diversi producano la stessa sequenza di byte.
+    fn canonical_bytes(&self) -> Vec<u8> {
+        let mut encoded = Vec::with_capacity(self.normalized_path.len() + 33);
+        encoded.extend_from_slice(&(self.normalized_path.len() as u64).to_le_bytes());
+        encoded.extend_from_slice(self.normalized_path);
+        encoded.extend_from_slice(&self.size_bytes.to_le_bytes());
+        match self.modified {
+            None => encoded.push(0),
+            Some(instant) => match instant.duration_since(UNIX_EPOCH) {
+                Ok(since_epoch) => {
+                    encoded.push(1);
+                    encoded.extend_from_slice(&since_epoch.as_nanos().to_le_bytes());
+                }
+                Err(before_epoch) => {
+                    encoded.push(2);
+                    encoded.extend_from_slice(&before_epoch.duration().as_nanos().to_le_bytes());
+                }
+            },
+        }
+        encoded
+    }
+}
+
+/// Accumulatore del digest: XOR dei valori per-entry.
+///
+/// Lo XOR e' **insensibile all'ordine**, e deve esserlo: l'ordine di
+/// enumerazione di una directory non e' stabile fra due scansioni ne' fra
+/// due filesystem, quindi un digest sensibile all'ordine segnalerebbe una
+/// mutazione che non c'e'. I path sono unici dentro una sorgente, quindi non
+/// esiste la coppia identica che lo XOR annullerebbe.
+#[derive(Debug)]
+struct DigestAccumulator {
+    high: AtomicU64,
+    low: AtomicU64,
+}
+
+impl DigestAccumulator {
+    const fn new() -> Self {
+        Self {
+            high: AtomicU64::new(0),
+            low: AtomicU64::new(0),
+        }
+    }
+
+    fn absorb(&self, entry: &SourceEntry<'_>) {
+        let encoded = entry.canonical_bytes();
+        self.high
+            .fetch_xor(fnv1a(FNV_BASIS_HIGH, &encoded), Ordering::AcqRel);
+        self.low
+            .fetch_xor(fnv1a(FNV_BASIS_LOW, &encoded), Ordering::AcqRel);
+    }
+
+    fn finish(&self) -> SourceDigest {
+        let mut bytes = [0_u8; 16];
+        bytes[..8].copy_from_slice(&self.high.load(Ordering::Acquire).to_le_bytes());
+        bytes[8..].copy_from_slice(&self.low.load(Ordering::Acquire).to_le_bytes());
+        SourceDigest(bytes)
+    }
+}
+
+/// Digest opaco a 128 bit sull'insieme delle entry osservate: path
+/// normalizzati, dimensione e mtime.
+///
+/// Copre quindi anche aggiunte e rimozioni, non solo le mutazioni in place.
+/// La garanzia e' **best-effort per costruzione**: una mutazione che
+/// preservi path, dimensione e mtime non e' rilevabile, e il Lotto 0 non
+/// ratifica alcuna variante forte.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SourceDigest([u8; 16]);
+
+impl SourceDigest {
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
 }
 
 /// Gauge lease-based: quota residua su una capacita' fissa, restituita al
@@ -199,6 +340,7 @@ pub struct PipelineLimits {
     max_wkb_cell_bytes: usize,
     max_wkb_components: usize,
     max_wkb_depth: usize,
+    max_vertices: usize,
     memory_bytes: u64,
     spill_bytes: u64,
     duration_ms: u64,
@@ -227,6 +369,7 @@ impl Default for PipelineLimits {
             max_wkb_cell_bytes: 64 * 1024 * 1024,
             max_wkb_components: 100_000,
             max_wkb_depth: 64,
+            max_vertices: 50_000_000,
             memory_bytes: 512 * 1024 * 1024,
             spill_bytes: 4 * 1024 * 1024 * 1024,
             duration_ms: 30_000,
@@ -264,10 +407,23 @@ impl PipelineLimits {
         max_wkb_cell_bytes: usize, with_max_wkb_cell_bytes;
         max_wkb_components: usize, with_max_wkb_components;
         max_wkb_depth: usize, with_max_wkb_depth;
+        max_vertices: usize, with_max_vertices;
         memory_bytes: u64, with_memory_bytes;
         spill_bytes: u64, with_spill_bytes;
         duration_ms: u64, with_duration_ms;
         decompression_ratio: u64, with_decompression_ratio;
+    }
+
+    /// Tetto effettivo dei componenti di **una singola geometria**: il
+    /// minimo fra il limite per cella e il tetto globale dei vertici.
+    ///
+    /// E' la stessa composizione di `Limits::effective_wkb()`, preservata
+    /// perche' `--max-vertices` e' un flag vivo della CLI: senza questo
+    /// metodo la migrazione al modello unificato allenterebbe in silenzio un
+    /// tetto che oggi un utente puo' stringere.
+    #[must_use]
+    pub fn effective_wkb_components(&self) -> usize {
+        self.max_wkb_components.min(self.max_vertices)
     }
 
     /// Verifica gli invarianti prima di costruire una pipeline.
@@ -298,6 +454,7 @@ impl PipelineLimits {
             self.max_wkb_cell_bytes,
             self.max_wkb_components,
             self.max_wkb_depth,
+            self.max_vertices,
         ];
         if positive_usize.contains(&0) {
             return Err(limit_error(LIMIT_MUST_BE_POSITIVE));
@@ -469,6 +626,7 @@ pub struct InputPermit {
 pub struct SourceFootprint {
     total_bytes: u64,
     entries_visited: u64,
+    digest: SourceDigest,
 }
 
 impl SourceFootprint {
@@ -482,19 +640,19 @@ impl SourceFootprint {
         self.entries_visited
     }
 
+    #[must_use]
+    pub const fn digest(&self) -> SourceDigest {
+        self.digest
+    }
+
     /// Snapshot serializzabile, conservato dal consumer come valore
     /// **atteso** di una successiva scansione.
-    ///
-    /// Lo snapshot di S1 porta byte ed entry osservati. Il `SourceDigest`
-    /// su path/size/mtime, che serve alla revalidation di `Dataset::scan`,
-    /// arriva con il preflight leggero del core in S4: qui non c'e' il
-    /// canale per riceverlo e inventarne uno derivato dai soli totali
-    /// darebbe una falsa sensazione di copertura.
     #[must_use]
     pub const fn snapshot(&self) -> SourceFootprintSnapshot {
         SourceFootprintSnapshot {
             total_bytes: self.total_bytes,
             entries_visited: self.entries_visited,
+            digest: self.digest,
         }
     }
 }
@@ -506,6 +664,7 @@ impl SourceFootprint {
 pub struct SourceFootprintSnapshot {
     total_bytes: u64,
     entries_visited: u64,
+    digest: SourceDigest,
 }
 
 impl SourceFootprintSnapshot {
@@ -517,6 +676,18 @@ impl SourceFootprintSnapshot {
     #[must_use]
     pub const fn entries_visited(&self) -> u64 {
         self.entries_visited
+    }
+
+    #[must_use]
+    pub const fn digest(&self) -> SourceDigest {
+        self.digest
+    }
+
+    /// Confronto di revalidation: le tre grandezze insieme, non una sola.
+    /// Il core lo usa dopo aver rieseguito il preflight leggero.
+    #[must_use]
+    pub fn matches(&self, observed: &Self) -> bool {
+        self == observed
     }
 }
 
@@ -530,6 +701,7 @@ struct ContextInner {
     memory: Gauge,
     spill: Gauge,
     entries_visited: AtomicU64,
+    digest: DigestAccumulator,
     pool: Option<ResourcePool>,
 }
 
@@ -623,6 +795,12 @@ impl PipelineContext {
     /// per `move` e non e' `Clone`, quindi una seconda osservazione con lo
     /// stesso permit non e' scrivibile.
     ///
+    /// Il conteggio delle entry e il digest **non** sono parametri: vengono
+    /// dal context, che li ha accumulati durante l'enumerazione via
+    /// [`Self::note_entry_visited`]. Passarli dall'esterno avrebbe creato
+    /// due sorgenti di verita' per lo stesso dato e reso fabbricabile il
+    /// valore che la revalidation confronta.
+    ///
     /// # Errors
     ///
     /// Restituisce [`PlenoraIoError::LimitExceeded`] se il permit appartiene
@@ -636,12 +814,7 @@ impl PipelineContext {
     // renderlo `Copy`, come suggerisce il lint — riaprirebbe esattamente il
     // buco che INV-13 chiude.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn observe_input(
-        &self,
-        permit: InputPermit,
-        bytes: u64,
-        entries: u64,
-    ) -> Result<SourceFootprint> {
+    pub fn observe_input(&self, permit: InputPermit, bytes: u64) -> Result<SourceFootprint> {
         // Destrutturare consuma il permit qui, non al termine dello scope:
         // dopo questa riga non esiste piu' un valore spendibile altrove.
         let InputPermit { pipeline_id } = permit;
@@ -665,19 +838,27 @@ impl PipelineContext {
             .store(true, Ordering::Release);
         Ok(SourceFootprint {
             total_bytes: bytes,
-            entries_visited: entries,
+            entries_visited: self.entries_visited(),
+            digest: self.inner.digest.finish(),
         })
     }
 
-    /// Registra una entry visitata durante l'enumerazione della sorgente e
-    /// applica `max_input_entries` (INV-9), prima che i byte vengano sommati.
+    /// Registra una entry visitata durante l'enumerazione della sorgente:
+    /// applica `max_input_entries` (INV-9) prima che i byte vengano sommati,
+    /// e assorbe l'identita' dell'entry nel digest del footprint.
+    ///
+    /// Le due cose stanno nello stesso metodo perche' sono lo stesso atto:
+    /// l'insieme su cui si conta e' l'insieme di cui si calcola il digest.
+    /// Tenerle separate avrebbe permesso un conteggio senza identita', cioe'
+    /// un footprint che dichiara N entry senza sapere quali.
     ///
     /// # Errors
     ///
     /// Restituisce [`PlenoraIoError::LimitExceeded`] se l'entry supererebbe
     /// il limite configurato o se il conteggio andrebbe in overflow, e
-    /// l'errore di [`Self::ensure_active`] se la pipeline non e' attiva.
-    pub fn note_entry_visited(&self) -> Result<()> {
+    /// l'errore di [`Self::ensure_active`] se la pipeline non e' attiva. Un
+    /// rifiuto non incrementa il contatore e non tocca il digest.
+    pub fn note_entry_visited(&self, entry: &SourceEntry<'_>) -> Result<()> {
         self.ensure_active()?;
         let ceiling = self.inner.limits.max_input_entries;
         let mut current = self.inner.entries_visited.load(Ordering::Acquire);
@@ -694,7 +875,10 @@ impl PipelineContext {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => return Ok(()),
+                Ok(_) => {
+                    self.inner.digest.absorb(entry);
+                    return Ok(());
+                }
                 Err(observed) => current = observed,
             }
         }
@@ -971,6 +1155,7 @@ impl PipelineBudgetBuilder {
                 memory: Gauge::new(limits.memory_bytes),
                 spill: Gauge::new(limits.spill_bytes),
                 entries_visited: AtomicU64::new(0),
+                digest: DigestAccumulator::new(),
                 pool: self.pool,
             }),
         };
@@ -1390,6 +1575,14 @@ mod tests {
             .expect("limiti validi devono costruire")
     }
 
+    fn entry(path: &[u8]) -> SourceEntry<'_> {
+        SourceEntry::new(
+            path,
+            1_024,
+            Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+        )
+    }
+
     fn pool(concurrent: u64, memory: u64) -> ResourcePool {
         ResourcePool::builder()
             .concurrent_operations(concurrent)
@@ -1511,7 +1704,7 @@ mod tests {
         let footprint = opened
             .budget()
             .context()
-            .observe_input(permit, 0, 0)
+            .observe_input(permit, 0)
             .expect("l'osservazione deve riuscire");
         let scan = bundle().into_scan_parts(footprint.snapshot());
         assert_eq!(
@@ -1645,7 +1838,7 @@ mod tests {
         parts
             .budget()
             .context()
-            .observe_input(permit, 0, 1)
+            .observe_input(permit, 0)
             .expect("un input vuoto e' osservabile");
         assert_eq!(
             parts.budget().output_limit(),
@@ -1664,7 +1857,7 @@ mod tests {
         parts
             .budget()
             .context()
-            .observe_input(permit, 100, 1)
+            .observe_input(permit, 100)
             .expect("l'osservazione deve riuscire");
         assert_eq!(parts.budget().output_limit(), 300);
     }
@@ -1678,7 +1871,7 @@ mod tests {
         let permit = read.take_input_permit().expect("il permit deve esserci");
         read.budget()
             .context()
-            .observe_input(permit, 100, 1)
+            .observe_input(permit, 100)
             .expect("l'osservazione deve riuscire");
         assert_eq!(
             write.budget().output_limit(),
@@ -1691,13 +1884,28 @@ mod tests {
     fn observe_input_consumes_permit_and_yields_footprint() {
         let mut parts = bundle().into_read_parts();
         let permit = parts.take_input_permit().expect("il permit deve esserci");
+        for path in [
+            b"a.csv".as_slice(),
+            b"b.csv".as_slice(),
+            b"c.csv".as_slice(),
+        ] {
+            parts
+                .budget()
+                .context()
+                .note_entry_visited(&entry(path))
+                .expect("l'enumerazione deve passare");
+        }
         let footprint = parts
             .budget()
             .context()
-            .observe_input(permit, 4_096, 3)
+            .observe_input(permit, 4_096)
             .expect("l'osservazione deve riuscire");
         assert_eq!(footprint.total_bytes(), 4_096);
-        assert_eq!(footprint.entries_visited(), 3);
+        assert_eq!(
+            footprint.entries_visited(),
+            3,
+            "le entry vengono dal context, non da un parametro fabbricabile"
+        );
         assert_eq!(
             parts.budget().context().observed_input(),
             ObservedInput::Bytes(4_096)
@@ -1713,7 +1921,7 @@ mod tests {
         let mut foreign = bundle().into_read_parts();
         let permit = foreign.take_input_permit().expect("il permit deve esserci");
         let target = bundle();
-        assert!(target.context().observe_input(permit, 1, 1).is_err());
+        assert!(target.context().observe_input(permit, 1).is_err());
         assert_eq!(
             target.context().observed_input(),
             ObservedInput::NotObserved
@@ -1730,11 +1938,7 @@ mod tests {
         let mut parts = built.into_read_parts();
         let permit = parts.take_input_permit().expect("il permit deve esserci");
         token.cancel();
-        assert!(parts
-            .budget()
-            .context()
-            .observe_input(permit, 512, 1)
-            .is_err());
+        assert!(parts.budget().context().observe_input(permit, 512).is_err());
         assert_eq!(
             parts.budget().context().observed_input(),
             ObservedInput::NotObserved
@@ -1755,15 +1959,24 @@ mod tests {
     fn scan_parts_carry_expected_snapshot_and_permit() {
         let mut opened = bundle().into_read_parts();
         let permit = opened.take_input_permit().expect("il permit deve esserci");
+        for index in 0..5_u8 {
+            let path = format!("parte-{index}.csv");
+            opened
+                .budget()
+                .context()
+                .note_entry_visited(&entry(path.as_bytes()))
+                .expect("l'enumerazione deve passare");
+        }
         let footprint = opened
             .budget()
             .context()
-            .observe_input(permit, 2_048, 5)
+            .observe_input(permit, 2_048)
             .expect("l'osservazione deve riuscire");
 
         let scan = bundle().into_scan_parts(footprint.snapshot());
         assert_eq!(scan.expected_footprint().total_bytes(), 2_048);
         assert_eq!(scan.expected_footprint().entries_visited(), 5);
+        assert_eq!(scan.expected_footprint().digest(), footprint.digest());
 
         let mut read = scan.into_read_budget_parts();
         assert!(
@@ -1792,13 +2005,14 @@ mod tests {
     #[test]
     fn directory_scan_with_10001_entries_rejects_with_typed_error() {
         let context = bundle().into_read_parts().budget().context().clone();
-        for _ in 0..PipelineLimits::default().max_input_entries() {
+        for index in 0..PipelineLimits::default().max_input_entries() {
+            let path = format!("layer-{index}.csv");
             context
-                .note_entry_visited()
+                .note_entry_visited(&entry(path.as_bytes()))
                 .expect("le entry entro il limite devono passare");
         }
         let error = context
-            .note_entry_visited()
+            .note_entry_visited(&entry(b"una-di-troppo.csv"))
             .expect_err("l'entry oltre il limite deve fallire");
         assert_eq!(error.code, crate::IoErrorCode::LimitExceeded);
         assert_eq!(
@@ -1813,9 +2027,13 @@ mod tests {
         let limits = PipelineLimits::default().with_max_input_entries(2);
         let bundle = bundle_with(limits);
         let context = bundle.context();
-        context.note_entry_visited().expect("prima entry");
-        context.note_entry_visited().expect("seconda entry");
-        assert!(context.note_entry_visited().is_err());
+        context
+            .note_entry_visited(&entry(b"a.csv"))
+            .expect("prima entry");
+        context
+            .note_entry_visited(&entry(b"b.csv"))
+            .expect("seconda entry");
+        assert!(context.note_entry_visited(&entry(b"c.csv")).is_err());
     }
 
     #[test]
@@ -2039,7 +2257,7 @@ mod tests {
         parts
             .budget()
             .context()
-            .observe_input(permit, 100, 1)
+            .observe_input(permit, 100)
             .expect("l'osservazione deve riuscire");
         assert_eq!(parts.budget().output_limit(), 200);
         parts
@@ -2064,6 +2282,189 @@ mod tests {
             .concurrent_operations(0)
             .build()
             .is_err());
+    }
+
+    fn digest_of(entries: &[SourceEntry<'_>], bytes: u64) -> SourceFootprintSnapshot {
+        let mut parts = bundle().into_read_parts();
+        let permit = parts.take_input_permit().expect("il permit deve esserci");
+        for visited in entries {
+            parts
+                .budget()
+                .context()
+                .note_entry_visited(visited)
+                .expect("l'enumerazione deve passare");
+        }
+        parts
+            .budget()
+            .context()
+            .observe_input(permit, bytes)
+            .expect("l'osservazione deve riuscire")
+            .snapshot()
+    }
+
+    #[test]
+    fn footprint_digest_is_stable_for_the_same_entry_set() {
+        let first = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 10);
+        let second = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 10);
+        assert_eq!(first.digest(), second.digest());
+        assert!(first.matches(&second));
+    }
+
+    #[test]
+    fn footprint_digest_is_order_insensitive() {
+        // L'ordine di enumerazione di una directory non e' stabile: un
+        // digest che ne dipendesse segnalerebbe mutazioni inesistenti.
+        let ascending = digest_of(&[entry(b"a.csv"), entry(b"b.csv"), entry(b"c.csv")], 10);
+        let descending = digest_of(&[entry(b"c.csv"), entry(b"b.csv"), entry(b"a.csv")], 10);
+        assert_eq!(ascending.digest(), descending.digest());
+    }
+
+    #[test]
+    fn footprint_digest_detects_added_and_removed_entries() {
+        let two = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 10);
+        let three = digest_of(&[entry(b"a.csv"), entry(b"b.csv"), entry(b"c.csv")], 10);
+        let one = digest_of(&[entry(b"a.csv")], 10);
+        assert_ne!(two.digest(), three.digest(), "un'aggiunta cambia il digest");
+        assert_ne!(two.digest(), one.digest(), "una rimozione cambia il digest");
+    }
+
+    #[test]
+    fn footprint_digest_detects_rename_size_and_mtime() {
+        let base = digest_of(&[entry(b"a.csv")], 10);
+
+        let renamed = digest_of(&[entry(b"a-bis.csv")], 10);
+        assert_ne!(base.digest(), renamed.digest());
+
+        let resized = digest_of(
+            &[SourceEntry::new(
+                b"a.csv",
+                2_048,
+                Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+            )],
+            10,
+        );
+        assert_ne!(base.digest(), resized.digest());
+
+        let touched = digest_of(
+            &[SourceEntry::new(
+                b"a.csv",
+                1_024,
+                Some(UNIX_EPOCH + Duration::from_secs(1_700_000_001)),
+            )],
+            10,
+        );
+        assert_ne!(base.digest(), touched.digest());
+
+        let without_mtime = digest_of(&[SourceEntry::new(b"a.csv", 1_024, None)], 10);
+        assert_ne!(base.digest(), without_mtime.digest());
+    }
+
+    #[test]
+    fn footprint_digest_separates_paths_that_share_a_concatenation() {
+        // Senza la lunghezza in testa alla codifica, "ab" + "c" e "a" + "bc"
+        // darebbero la stessa sequenza di byte.
+        let first = digest_of(&[entry(b"ab"), entry(b"c")], 10);
+        let second = digest_of(&[entry(b"a"), entry(b"bc")], 10);
+        assert_ne!(first.digest(), second.digest());
+    }
+
+    #[test]
+    fn snapshot_matches_only_when_bytes_entries_and_digest_agree() {
+        let base = digest_of(&[entry(b"a.csv")], 10);
+        let other_bytes = digest_of(&[entry(b"a.csv")], 11);
+        let other_entries = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 10);
+        assert!(
+            !base.matches(&other_bytes),
+            "i byte fanno parte del confronto"
+        );
+        assert!(!base.matches(&other_entries));
+    }
+
+    #[test]
+    fn snapshot_roundtrips_through_serde_without_losing_the_digest() {
+        let snapshot = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 42);
+        let encoded = serde_json::to_string(&snapshot).expect("serializzabile");
+        let decoded: SourceFootprintSnapshot =
+            serde_json::from_str(&encoded).expect("deserializzabile");
+        assert!(snapshot.matches(&decoded));
+    }
+
+    #[test]
+    fn rejected_entry_does_not_enter_the_digest() {
+        let limits = PipelineLimits::default().with_max_input_entries(1);
+        let mut parts = bundle_with(limits).into_read_parts();
+        let permit = parts.take_input_permit().expect("il permit deve esserci");
+        let context = parts.budget().context();
+        context
+            .note_entry_visited(&entry(b"a.csv"))
+            .expect("prima entry");
+        assert!(context.note_entry_visited(&entry(b"b.csv")).is_err());
+        let observed = context
+            .observe_input(permit, 10)
+            .expect("l'osservazione deve riuscire")
+            .snapshot();
+        assert!(
+            observed.matches(&digest_of(&[entry(b"a.csv")], 10)),
+            "l'entry rifiutata non deve lasciare traccia nel digest"
+        );
+    }
+
+    #[test]
+    fn effective_wkb_components_is_tightened_by_max_vertices() {
+        // `--max-vertices` e' un flag vivo della CLI: il modello unificato
+        // deve applicarlo come lo applica `Limits::effective_wkb()`, o la
+        // migrazione allenterebbe un tetto che l'utente ha stretto.
+        let limits = PipelineLimits::default()
+            .with_max_wkb_components(10)
+            .with_max_vertices(3);
+        assert_eq!(limits.effective_wkb_components(), 3);
+
+        let legacy = crate::limits::Limits {
+            max_vertices: 3,
+            wkb: crate::limits::WkbLimits {
+                max_components: 10,
+                ..crate::limits::WkbLimits::default()
+            },
+            ..crate::limits::Limits::default()
+        };
+        assert_eq!(
+            limits.effective_wkb_components(),
+            legacy.effective_wkb().max_components,
+            "la composizione deve coincidere con quella del modello legacy"
+        );
+    }
+
+    #[test]
+    fn unified_defaults_are_never_looser_than_either_legacy_model() {
+        // Il finding L0.2 era proprio la divergenza fra i due modelli. La
+        // regola di unificazione — vince il piu' stretto — resta verificata
+        // contro i default legacy finche' esistono, cosi' una modifica
+        // dell'uno o dell'altro non passa inosservata.
+        let unified = PipelineLimits::default();
+        let legacy = crate::limits::Limits::default();
+        let resource = crate::resource::ResourceLimits::default();
+
+        assert!(unified.max_input_bytes() <= legacy.max_input_bytes);
+        assert!(unified.max_rows() <= resource.rows);
+        assert!(unified.max_rows() <= legacy.max_rows as u64);
+        assert!(unified.max_columns() <= resource.columns);
+        assert!(unified.max_columns() <= legacy.max_columns as u64);
+        assert!(unified.max_output_bytes() <= resource.output_bytes);
+        assert!(unified.max_output_bytes() <= legacy.max_output_bytes);
+        assert!(unified.max_geometry_components() <= resource.geometry_components);
+        assert!(unified.memory_bytes() <= resource.memory_bytes);
+        assert!(unified.spill_bytes() <= resource.spill_bytes);
+        assert!(unified.duration_ms() <= resource.duration_ms);
+        assert!(unified.decompression_ratio() <= resource.decompression_ratio);
+        assert!(unified.output_expansion_ratio() <= resource.output_expansion_ratio);
+        assert_eq!(unified.max_vertices(), legacy.max_vertices);
+        assert_eq!(unified.max_wkb_components(), legacy.wkb.max_components);
+        assert_eq!(unified.max_wkb_depth(), legacy.wkb.max_depth);
+        assert_eq!(unified.max_wkb_cell_bytes(), legacy.wkb.max_cell_bytes);
+        assert_eq!(
+            unified.effective_wkb_components(),
+            legacy.effective_wkb().max_components
+        );
     }
 
     #[test]

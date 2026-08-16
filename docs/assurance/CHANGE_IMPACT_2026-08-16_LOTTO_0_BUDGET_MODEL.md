@@ -53,9 +53,10 @@ i piu' rilevanti per l'assurance:
   restituisce un `PipelineBundle` opaco che tiene insieme budget e
   `InputPermit`; il permit non e' costruibile ne' clonabile, e
   l'osservazione dell'input passa esclusivamente da
-  `PipelineContext::observe_input(permit, bytes, entries) ->
-  Result<SourceFootprint, PlenoraIoError>`. Un'osservazione fabbricata o
-  registrata su un context diverso non e' rappresentabile.
+  `PipelineContext::observe_input(permit, bytes) ->
+  Result<SourceFootprint, PlenoraIoError>`, che prende entry e digest dal
+  context invece che da parametri. Un'osservazione fabbricata o registrata
+  su un context diverso non e' rappresentabile.
 - **INV-3**: in `convert` reader e writer hanno contatori cumulativi
   distinti sotto lo stesso context. Il doppio conteggio di L0.10 non e'
   piu' esprimibile.
@@ -174,24 +175,49 @@ stesso. Poiche' `cargo test --all-targets` **non** esegue i doctest, la CI
 ha ora un passo dedicato: senza di esso quei gate esisterebbero nel sorgente
 senza girare mai.
 
-**Residui introdotti da S1**:
+## Registrazione S1.1 del 2026-08-16
 
-- `SourceDigest` non e' implementato. Il pacchetto lo definisce sui path
-  normalizzati piu' size e mtime, ma la firma ratificata
-  `observe_input(permit, bytes, entries)` non ha un canale per ricevere
-  l'identita' per-entry, che solo il preflight del core conosce. Lo
-  `SourceFootprintSnapshot` di S1 porta byte ed entry; il digest arriva in
-  S4 insieme al preflight leggero di `Dataset::scan`, e il pacchetto va
-  corretto in quel punto. Derivare intanto un digest dai soli totali
-  sarebbe stato peggio che non averlo: non distinguerebbe due sorgenti con
-  gli stessi totali e uno scambio di file.
-- `Limits::max_vertices` (tetto globale che oggi stringe
-  `WkbLimits::max_components`) non ha un corrispondente nel modello nuovo:
-  `max_geometry_components` e' cumulativo per operazione,
-  `max_wkb_components` e' per cella, e nessuno dei due riproduce la
-  composizione `effective_wkb()`. Va deciso in S4, prima che i driver
-  cambino modello, altrimenti la migrazione allenta un tetto senza dirlo.
-- `ObservedInput` non distingue ancora l'errore di osservazione dal caso
-  "mai osservato" nei tipi: entrambi restano `NotObserved`. E' voluto e
-  documentato, ma significa che un consumer non puo' sapere se un preflight
-  ha fallito. La distinzione, se servira', appartiene a S9.
+I due residui aperti da S1 sono chiusi con codice e test, non rinviati, e
+il pacchetto e' stato corretto di conseguenza: nessuna errata contrattuale
+resta pendente.
+
+**`SourceDigest` implementato**. Il digest e' accumulato entry per entry
+dentro il `PipelineContext` da `note_entry_visited(entry: &SourceEntry)`,
+che ora porta path normalizzato, dimensione e mtime. La combinazione e' uno
+XOR di FNV-1a a 64 bit applicato due volte con basi distinte:
+insensibile all'ordine — l'ordine di enumerazione di una directory non e'
+stabile e un digest che ne dipendesse segnalerebbe mutazioni inesistenti —
+con la lunghezza del path in testa alla codifica per-entry, cosi' due
+insiemi di path diversi non collassano sulla stessa sequenza di byte. Non
+e' una funzione crittografica e non deve esserlo: chi puo' riscrivere i
+file puo' comunque cambiarne il contenuto a dimensione e mtime invariati,
+che e' il limite gia' dichiarato dalla garanzia best-effort. Evita inoltre
+una dipendenza nuova, che nel workspace passa da un gate di pin.
+
+Di conseguenza `observe_input` perde i parametri `entries`: entry e digest
+vengono dal context che li ha osservati, non da argomenti che il chiamante
+poteva fabbricare. Restava altrimenti una doppia sorgente di verita' sullo
+stesso dato — ed era proprio il valore che la revalidation confronta.
+
+**`max_vertices` portato nel modello unificato**. Non era una quota
+astratta: `--max-vertices` e' un flag vivo della CLI e stringe il limite
+di componenti per cella. `PipelineLimits` lo espone come quota e
+`effective_wkb_components()` riproduce la composizione di
+`Limits::effective_wkb()`. Un test confronta i due risultati direttamente,
+cosi' la migrazione di S4 non puo' allentare il tetto senza rompere il
+test.
+
+**Default unificati vincolati da test**. `unified_defaults_are_never_looser_
+than_either_legacy_model` confronta ogni quota con i default di `Limits` e
+`ResourceLimits`: la regola "vince il piu' stretto" resta verificata contro
+i modelli legacy finche' esistono, quindi una modifica dell'uno o
+dell'altro non passa inosservata.
+
+**Verifica S1.1**: 51 test unitari nel modulo (da 41) piu' i 5 doctest.
+
+**Residuo che resta aperto e va chiuso nel lotto**:
+
+- `ObservedInput` non distingue l'errore di osservazione dal caso "mai
+  osservato": entrambi restano `NotObserved`. Un consumer non puo' sapere
+  se un preflight ha fallito. La distinzione richiede uno stato tipizzato
+  in piu' e va decisa insieme al modello d'errore strutturato di S9.
