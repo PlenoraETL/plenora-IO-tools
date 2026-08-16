@@ -538,3 +538,52 @@ statistica **paired/interlacciata** — coppie prima/dopo misurate adiacenti e
 delta calcolato per coppia, invece di confrontare due aggregati raccolti in
 momenti diversi. Finche' non esiste, il veto prestazionale di S2 e'
 soddisfatto in via provvisoria.
+
+## Registrazione S4.a del 2026-08-16 — handoff atomico della memoria
+
+Primo sottopasso di S4, sul solo modello: il meccanismo che i sottopassi
+successivi useranno per spostare la memoria dal materializzatore al custode
+del batch.
+
+**La forma scelta e' la riduzione, non il trasferimento.** Il materializzatore
+prenota largo — target del batch piu' tetto per cella — perche' prima di
+leggere non sa quanto occupera' davvero. A batch costruito la grandezza e'
+nota: `InternalMemoryLease::shrink_to` porta la prenotazione a quella,
+restituendo **solo l'eccedenza**. Poi la lease si sposta per `move` a chi
+custodisce il batch, e un `move` non tocca il gauge.
+
+Non serve quindi un'API di trasferimento fra due titolari: la combinazione
+"riduci, poi sposta" e' senza finestra per costruzione, perche' la quota
+contabilizzata scende da `RESERVED` a `ACTUAL` senza mai passare per zero.
+Rilasciare e riacquistare, che e' cio' che il codice di S2 fa oggi, lascia
+invece un istante in cui il batch e' in RAM e non lo conta nessuno.
+
+`shrink_to` **rifiuta di ingrandire**: sarebbe una seconda prenotazione, che
+puo' fallire, e lascerebbe il chiamante in uno stato ambiguo a meta' handoff.
+
+**Il test concorrente osserva la fase, non la corsa.** Fuori dall'handoff e'
+legittimo che risulti custodito un solo batch; durante l'handoff devono
+risultarne due — quello gia' custodito e quello in transito. Un secondo
+thread prova una prenotazione che entra **solo** se ne manca uno, e ogni
+successo dentro la fase e' un'intrusione.
+
+Costruirlo correttamente ha richiesto tre correzioni al test stesso, tutte
+casi in cui avrebbe dato un verde privo di significato:
+
+1. senza attendere l'avvio dell'osservatore, il ciclo poteva concludersi
+   prima che venisse schedulato: il test passava senza aver guardato nulla;
+2. rilasciando l'ultimo batch prima di fermare l'osservatore, una
+   prenotazione perfettamente legittima veniva contata come intrusione e il
+   test falliva su codice corretto;
+3. la prima soglia scelta non era discriminante: durante la finestra resta
+   comunque custodito un batch, quindi quella richiesta non poteva passare in
+   nessuno dei due casi.
+
+**Verifica per mutazione**: sostituendo la riduzione con rilascio e
+riacquisizione, il test fallisce 5 volte su 5; con l'implementazione corretta
+passa 8 volte su 8. L'osservatore si ferma alla prima intrusione, altrimenti
+sottrarrebbe quota al thread principale rendendo la corsa lentissima senza
+aggiungere informazione.
+
+Aggiunto anche `PipelineLimits::wkb_limits()`, che i driver useranno in
+S4.c al posto di `Limits::effective_wkb()`.

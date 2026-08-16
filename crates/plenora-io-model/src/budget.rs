@@ -158,6 +158,7 @@ const INPUT_ALREADY_OBSERVED: &str = "input gia' osservato per questa pipeline";
 const TOO_MANY_INPUT_BYTES: &str = "byte di input oltre il limite";
 const INPUT_BYTES_OVERFLOW: &str = "overflow nel conteggio dei byte di input";
 const PIPELINE_IDS_EXHAUSTED: &str = "spazio delle identita' di pipeline esaurito";
+const SHRINK_ABOVE_RESERVATION: &str = "la riduzione supera la quota gia' prenotata";
 
 fn limit_error(message: &'static str) -> PlenoraIoError {
     PlenoraIoError::LimitExceeded(message.to_owned())
@@ -567,6 +568,20 @@ impl PipelineLimits {
     #[must_use]
     pub fn effective_wkb_components(&self) -> usize {
         self.max_wkb_components.min(self.max_vertices)
+    }
+
+    /// Limiti WKB effettivi per singola geometria, nella forma che i driver
+    /// passano al decoder.
+    ///
+    /// E' il sostituto di `Limits::effective_wkb()`: stessi tre valori, con
+    /// il tetto dei componenti gia' composto con `max_vertices`.
+    #[must_use]
+    pub fn wkb_limits(&self) -> crate::limits::WkbLimits {
+        crate::limits::WkbLimits {
+            max_cell_bytes: self.max_wkb_cell_bytes,
+            max_components: self.effective_wkb_components(),
+            max_depth: self.max_wkb_depth,
+        }
     }
 
     /// Verifica gli invarianti prima di costruire una pipeline.
@@ -1515,6 +1530,43 @@ impl InternalMemoryLease {
     pub const fn bytes(&self) -> u64 {
         self.bytes
     }
+
+    /// Riduce la prenotazione a `bytes`, restituendo solo l'eccedenza.
+    ///
+    /// E' l'handoff della memoria fra chi materializza un batch e chi lo
+    /// custodisce. Il materializzatore prenota largo — target del batch piu'
+    /// il tetto per cella — perche' prima di leggere non sa quanto occupera'
+    /// davvero; a batch costruito la grandezza e' nota, e la prenotazione va
+    /// portata a quella.
+    ///
+    /// Deve avvenire **senza restituire e riprendere**. Rilasciare la lease e
+    /// riacquistarne una piu' piccola lascerebbe un istante in cui il batch e'
+    /// in RAM e non lo conta nessuno: con un budget condiviso — cioe'
+    /// `convert` — un'altra operazione puo' infilarsi in quella finestra e
+    /// prenotare memoria che di fatto non c'e'. Qui la quota contabilizzata
+    /// scende da `self.bytes` a `bytes` e basta: non passa mai per zero.
+    ///
+    /// Dopo la riduzione la lease si sposta per `move` a chi custodisce il
+    /// batch. Un `move` non tocca il gauge, quindi il passaggio di proprieta'
+    /// e' gratuito e per costruzione senza finestra.
+    ///
+    /// # Errors
+    ///
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se `bytes` supera la
+    /// quota gia' prenotata: questo metodo riduce soltanto. Ingrandire
+    /// richiederebbe di prenotare altro, che puo' fallire, e non sarebbe piu'
+    /// un handoff ma una seconda prenotazione.
+    pub fn shrink_to(&mut self, bytes: u64) -> Result<()> {
+        if bytes > self.bytes {
+            return Err(limit_error(SHRINK_ABOVE_RESERVATION));
+        }
+        let eccedenza = self.bytes - bytes;
+        if eccedenza > 0 {
+            self.bytes = bytes;
+            self.context.give_back_shared(eccedenza, GaugeKind::Memory);
+        }
+        Ok(())
+    }
 }
 
 impl Drop for InternalMemoryLease {
@@ -2259,6 +2311,159 @@ mod tests {
         assert!(context.lease_memory_internal(500).is_err());
         drop(lease);
         assert_eq!(context.remaining_memory(), 1_024);
+    }
+
+    #[test]
+    fn shrink_to_returns_only_the_excess() {
+        let limits = PipelineLimits::default()
+            .with_memory_bytes(10_000)
+            .with_max_wkb_cell_bytes(10_000);
+        let bundle = bundle_with(limits);
+        let context = bundle.context();
+        let mut lease = context
+            .lease_memory_internal(4_000)
+            .expect("la prenotazione larga deve passare");
+        assert_eq!(context.remaining_memory(), 6_000);
+
+        lease.shrink_to(2_500).expect("la riduzione deve riuscire");
+        assert_eq!(lease.bytes(), 2_500);
+        assert_eq!(
+            context.remaining_memory(),
+            7_500,
+            "torna solo l'eccedenza, non l'intera prenotazione"
+        );
+
+        drop(lease);
+        assert_eq!(context.remaining_memory(), 10_000);
+    }
+
+    #[test]
+    fn shrink_to_refuses_to_grow_the_reservation() {
+        let limits = PipelineLimits::default()
+            .with_memory_bytes(10_000)
+            .with_max_wkb_cell_bytes(10_000);
+        let bundle = bundle_with(limits);
+        let mut lease = bundle
+            .context()
+            .lease_memory_internal(1_000)
+            .expect("la prenotazione deve passare");
+        // Ingrandire non e' un handoff: sarebbe una seconda prenotazione, che
+        // puo' fallire e lasciare il chiamante in uno stato ambiguo.
+        assert!(lease.shrink_to(2_000).is_err());
+        assert_eq!(lease.bytes(), 1_000);
+    }
+
+    /// L'handoff non deve lasciare alcun istante in cui il batch e' in RAM e
+    /// non lo conta nessuno.
+    ///
+    /// Il test modella la pipeline reale: si prenota largo, si riduce alla
+    /// dimensione vera, si consegna la lease al custode e solo **dopo** si
+    /// rilascia quella del batch precedente.
+    ///
+    /// L'osservazione e' mirata alla **fase** di handoff, non a tutta la
+    /// corsa: fuori da quella fase e' del tutto legittimo che risulti
+    /// custodito un solo batch. Durante la fase, invece, devono risultare
+    /// contabilizzati due batch — quello gia' custodito e quello in
+    /// transito — quindi una richiesta che entrerebbe solo se ne mancasse
+    /// uno deve fallire sempre. Con un handoff fatto di rilascio e
+    /// riacquisizione quella richiesta passa, ed e' esattamente cio' che il
+    /// test rifiuta.
+    #[test]
+    fn memory_handoff_leaves_no_unaccounted_window() {
+        use std::sync::atomic::{AtomicBool, AtomicU64};
+
+        const CAPACITY: u64 = 1_000_000;
+        const RESERVED: u64 = 400_000;
+        const ACTUAL: u64 = 250_000;
+        // Entra solo se, durante l'handoff, risulta contabilizzato un solo
+        // batch invece di due.
+        const INTRUSIVA: u64 = CAPACITY - 2 * ACTUAL + 1;
+
+        let limits = PipelineLimits::default()
+            .with_memory_bytes(CAPACITY)
+            .with_max_wkb_cell_bytes(64 * 1024);
+        let bundle = bundle_with(limits);
+        let context = bundle.context().clone();
+
+        let in_handoff = AtomicBool::new(false);
+        let osservatore_avviato = AtomicBool::new(false);
+        let osservatore_fermo = AtomicBool::new(false);
+        let fermati = AtomicBool::new(false);
+        let intrusioni = AtomicU64::new(0);
+
+        std::thread::scope(|ambito| {
+            let osservatore = context.clone();
+            ambito.spawn(|| {
+                let contesto = osservatore;
+                osservatore_avviato.store(true, Ordering::Release);
+                while !fermati.load(Ordering::Acquire) {
+                    if in_handoff.load(Ordering::Acquire) {
+                        if let Ok(intrusa) = contesto.lease_memory_internal(INTRUSIVA) {
+                            // Ricontrolla la fase: la prenotazione puo' essere
+                            // riuscita subito dopo la sua fine, e sarebbe
+                            // legittima.
+                            let dentro_la_fase = in_handoff.load(Ordering::Acquire);
+                            drop(intrusa);
+                            if dentro_la_fase {
+                                intrusioni.fetch_add(1, Ordering::AcqRel);
+                                // Una sola prova basta: continuare
+                                // sottrarrebbe quota al thread principale e
+                                // renderebbe la corsa lentissima senza
+                                // aggiungere informazione.
+                                break;
+                            }
+                        }
+                    }
+                }
+                osservatore_fermo.store(true, Ordering::Release);
+            });
+
+            // Senza questa attesa il ciclo puo' concludersi prima che
+            // l'osservatore venga schedulato, e il test passerebbe senza aver
+            // guardato nulla.
+            while !osservatore_avviato.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+
+            let mut custodito: Option<InternalMemoryLease> = None;
+            for _ in 0..5_000_u32 {
+                // L'osservatore puo' avere quota in mano: l'acquisizione
+                // ritenta invece di fallire, cosi' l'unico segnale del test
+                // resta il contatore delle intrusioni.
+                let mut lease = loop {
+                    if let Ok(lease) = context.lease_memory_internal(RESERVED) {
+                        break lease;
+                    }
+                    std::thread::yield_now();
+                };
+                // La fase si apre solo quando esiste gia' un batch custodito:
+                // alla prima iterazione ce n'e' uno solo, e la richiesta
+                // intrusiva passerebbe legittimamente.
+                let osservabile = custodito.is_some();
+                if osservabile {
+                    in_handoff.store(true, Ordering::Release);
+                }
+                lease.shrink_to(ACTUAL).expect("la riduzione deve riuscire");
+                // Il nuovo batch entra in custodia **prima** che esca il
+                // precedente: la copertura non si interrompe.
+                let precedente = custodito.replace(lease);
+                in_handoff.store(false, Ordering::Release);
+                drop(precedente);
+            }
+
+            // L'ultimo batch va rilasciato dopo che l'osservatore ha smesso.
+            fermati.store(true, Ordering::Release);
+            while !osservatore_fermo.load(Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            drop(custodito);
+        });
+
+        assert_eq!(
+            intrusioni.load(Ordering::Acquire),
+            0,
+            "durante l'handoff e' passata una prenotazione che entra solo se un batch non e' contabilizzato"
+        );
     }
 
     #[test]
