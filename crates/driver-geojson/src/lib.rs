@@ -15,7 +15,6 @@ mod geometry;
 
 pub use geometry::{wkb_from_gj_value, write_geo_geojson};
 
-use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
@@ -125,12 +124,7 @@ impl FormatDriver for GeoJsonDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(
-            opts.max_input_bytes(),
-            opts.max_input_entries(),
-            opts.cancellation(),
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-        )?;
+        let path = plenora_io_core::preflight_source(source, opts)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let (schema, cols) = infer_schema(&path)?;
         let contract = DataContract::new(
@@ -147,7 +141,7 @@ impl FormatDriver for GeoJsonDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(GeoJsonDataset {
                 path,
                 cols,
@@ -157,11 +151,9 @@ impl FormatDriver for GeoJsonDriver {
                     contract,
                 }],
             }),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -201,11 +193,7 @@ impl FormatDriver for GeoJsonDriver {
             }),
             self.descriptor(),
             plan,
-            opts.write_limits(),
-            opts.cancellation().clone(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
         )
     }
 }

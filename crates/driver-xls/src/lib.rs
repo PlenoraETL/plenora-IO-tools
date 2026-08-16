@@ -4,7 +4,6 @@
 //! `format_options["sheet"]` o il primo. Multi-foglio: incremento futuro.
 #![forbid(unsafe_code)]
 
-use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufReader, BufWriter, Read, Seek, Write as _};
 use std::path::PathBuf;
@@ -49,7 +48,6 @@ use plenora_io_model::contract::{
 };
 use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 use plenora_io_model::geometry::with_geometry_contract_metadata;
-use plenora_io_model::limits::Limits;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{decode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
@@ -108,12 +106,7 @@ impl FormatDriver for XlsDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(
-            opts.max_input_bytes(),
-            opts.max_input_entries(),
-            opts.cancellation(),
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-        )?;
+        let path = plenora_io_core::preflight_source(source, opts)?;
         if !path
             .extension()
             .and_then(|extension| extension.to_str())
@@ -123,10 +116,7 @@ impl FormatDriver for XlsDriver {
                 "il driver supporta in lettura soltanto .xlsx; .xls non e instradato".to_owned(),
             ));
         }
-        validate_archive_ratio(
-            &path,
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-        )?;
+        validate_archive_ratio(&path, opts.resource_budget()?)?;
         let mut wb: Xlsx<_> =
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
@@ -145,10 +135,10 @@ impl FormatDriver for XlsDriver {
             &opts.format_options,
             &crs,
             opts.cancellation(),
-            opts.legacy_limits().ok_or_else(bridge_richiede_legacy)?,
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+            XlsxQuote::from_read_options(opts),
+            opts.resource_budget()?,
         )?;
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -159,11 +149,9 @@ impl FormatDriver for XlsDriver {
                 spool,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -208,11 +196,7 @@ impl FormatDriver for XlsDriver {
             }),
             self.descriptor(),
             plan,
-            opts.write_limits(),
-            opts.cancellation().clone(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
         )
     }
 }
@@ -726,6 +710,28 @@ impl<'a> BoundedSpoolWriter<'a> {
 // Inferenza di layout e contratto in una sola passata sul foglio: le fasi
 // (intestazioni, accumulatori di tipo, spool) condividono lo stato riga per riga
 // e separarle non ridurrebbe la complessità, solo la leggibilità.
+/// Le tre quote che l'inferenza del layout consulta.
+///
+/// Un config privato tipizzato invece di un `Limits` intero: sono i soli
+/// valori usati, e nel modello unificato quel tipo non esiste. Tenerli
+/// insieme evita anche di allungare la lista dei parametri oltre il tetto.
+#[derive(Clone, Copy)]
+struct XlsxQuote {
+    colonne: usize,
+    righe: usize,
+    byte_ingresso: u64,
+}
+
+impl XlsxQuote {
+    fn from_read_options(opts: &ReadOptions) -> Self {
+        Self {
+            colonne: opts.max_columns(),
+            righe: opts.max_rows(),
+            byte_ingresso: opts.max_input_bytes(),
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn infer_layout<RS>(
     workbook: &mut Xlsx<RS>,
@@ -733,7 +739,7 @@ fn infer_layout<RS>(
     opts: &BTreeMap<String, String>,
     crs: &str,
     cancellation: &CancellationToken,
-    limits: &Limits,
+    quote: XlsxQuote,
     resource_budget: &ResourceBudget,
 ) -> Result<(XlsxLayout, DataContract, Arc<tempfile::NamedTempFile>)>
 where
@@ -750,16 +756,16 @@ where
     };
     let width = data_row_width(bounds)?;
     let row_count = data_row_count(bounds)?;
-    if width > limits.max_columns {
+    if width > quote.colonne {
         return Err(PlenoraIoError::LimitExceeded(format!(
             "XLSX: {width} colonne eccedono il limite {}",
-            limits.max_columns
+            quote.colonne
         )));
     }
-    if row_count > limits.max_rows {
+    if row_count > quote.righe {
         return Err(PlenoraIoError::LimitExceeded(format!(
             "XLSX: {row_count} righe eccedono il limite {}",
-            limits.max_rows
+            quote.righe
         )));
     }
 
@@ -772,7 +778,7 @@ where
     let spool = Arc::new(tempfile::NamedTempFile::new()?);
     let mut spool_writer = BoundedSpoolWriter::new(
         spool.as_file(),
-        limits.max_input_bytes,
+        quote.byte_ingresso,
         resource_budget.clone(),
     );
     let mut wkb_buffer = Vec::new();
@@ -1072,6 +1078,7 @@ mod tests {
     use super::*;
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
+    use plenora_io_model::limits::Limits;
 
     #[test]
     fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {

@@ -25,8 +25,8 @@ pub use descriptor::{
     WKB_XY_XYZ_GEOMETRY,
 };
 pub use driver::{
-    check_cancelled, check_cancelled_periodically, read_row_error, spawn_batch_reader,
-    with_batch_target, with_cancellation, with_read_budget, with_write_limits,
+    check_cancelled, check_cancelled_periodically, preflight_source, read_row_error,
+    spawn_batch_reader, with_batch_target, with_cancellation, with_read_budget, with_write_limits,
     with_write_validation, write_row_rejection, BatchEmitter, FormatDriver, FormatWriter,
     LayerReader, OpenDatasetHandle, Published, ReadOptions, SingleReaderGate, Sink, Source,
     WriteOptions, CANCELLATION_CHECK_INTERVAL,

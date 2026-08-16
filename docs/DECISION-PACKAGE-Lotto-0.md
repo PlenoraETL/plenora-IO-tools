@@ -1987,6 +1987,27 @@ nessuno di essi passa al ramo `Pipeline` prima che le tre condizioni
 siano soddisfatte. Il gate si disattiva da solo quando lo sono, e va
 rimosso con il ponte in S4.e.
 
+#### Errata S4.c — cosa contiene davvero il sottopasso driver
+
+Con quel vincolo attivo, S4.c non e' "i driver passano al modello
+nuovo" ma **"i driver smettono di scegliere il modello"**. E' la
+condizione che rende possibile il cambio atomico di S4.d.
+
+Tre punti d'ingresso nel core prendono le opzioni invece dei pezzi
+gia' estratti — `preflight_source`, `with_read_budget`,
+`with_write_validation` — piu' tre accessori neutri per i percorsi su
+misura: `max_vertices()`, `ensure_active()`, `resource_budget()`.
+Dopo S4.c il ponte verso il modello legacy e' nominato **solo** dentro
+`plenora-io-core`, e l'inventario lo verifica come regola strutturale,
+non come conteggio.
+
+**`ensure_active()` stringe il ramo legacy, deliberatamente.**
+`ResourceBudget::ensure_active` guarda solo la deadline; il context
+del modello nuovo guarda deadline **e** cancellazione. Allineare i due
+rami ora evita che i cicli dei driver cambino comportamento il giorno
+del passaggio a `Pipeline`. E' l'unico cambio semantico di S4.c, ed e'
+volontario.
+
 ### M4 — Rimozione del vecchio modello
 
 - `plenora-io-model::Limits`, `ResourceBudget`, `ResourceLimits`,

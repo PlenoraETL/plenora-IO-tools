@@ -279,6 +279,49 @@ impl BudgetPayload {
         }
     }
 
+    fn max_vertices(&self) -> usize {
+        match self {
+            Self::Legacy { limits, .. } => limits.max_vertices,
+            Self::Pipeline { budget, .. } => budget.context().limits().max_vertices(),
+        }
+    }
+
+    /// Verifica che l'operazione sia ancora viva: non cancellata e dentro la
+    /// deadline.
+    ///
+    /// E' un accessore di **comportamento**, non di valore: i due rami fanno
+    /// la stessa domanda al proprio modello, e nessun contatore passa da uno
+    /// all'altro. Senza, ogni driver che controlla la liveness dentro un
+    /// ciclo dovrebbe procurarsi il budget legacy e quindi conoscere il
+    /// ponte.
+    ///
+    /// **Il ramo legacy controlla anche la cancellazione, e prima non lo
+    /// faceva.** `ResourceBudget::ensure_active` guarda solo la deadline: nel
+    /// modello vecchio la cancellazione vive in un secondo posto, il token
+    /// che le opzioni portano a parte. `PipelineContext::ensure_active`
+    /// guarda entrambe, perche' nel modello nuovo sono la stessa cosa.
+    /// Lasciare la divergenza avrebbe dato allo stesso nome due significati,
+    /// e i cicli dei driver avrebbero iniziato a onorare la cancellazione
+    /// **il giorno del passaggio a `Pipeline`** — una modifica di
+    /// comportamento scoperta nel momento peggiore. Qui e' un controllo in
+    /// piu' sullo stesso token che quei cicli gia' interrogano altrove.
+    fn ensure_active(&self) -> Result<()> {
+        match self {
+            Self::Legacy {
+                resource_budget,
+                cancellation,
+                ..
+            } => {
+                // `Validate` e' la fase neutra pre-operazione, la stessa che
+                // usa il context del modello nuovo: la fase reale la portera'
+                // l'`ErrorContext` strutturato di S9.
+                check_cancelled(cancellation, ErrorPhase::Validate)?;
+                resource_budget.ensure_active()
+            }
+            Self::Pipeline { budget, .. } => budget.context().ensure_active(),
+        }
+    }
+
     fn max_output_bytes(&self) -> u64 {
         match self {
             Self::Legacy {
@@ -362,6 +405,36 @@ impl ReadOptions {
     #[must_use]
     pub fn max_input_entries(&self) -> u64 {
         self.payload.max_input_entries()
+    }
+
+    #[must_use]
+    pub fn max_vertices(&self) -> usize {
+        self.payload.max_vertices()
+    }
+
+    /// Verifica che l'operazione sia ancora viva.
+    ///
+    /// # Errors
+    ///
+    /// Cancellazione richiesta o propagata, oppure deadline scaduta.
+    pub fn ensure_active(&self) -> Result<()> {
+        self.payload.ensure_active()
+    }
+
+    /// Budget legacy dei contatori cumulativi, per i percorsi che non sono
+    /// ancora stati portati sul modello unificato.
+    ///
+    /// Restituisce `Result` e non `Option` cosi' che il chiamante scriva
+    /// `opts.resource_budget()?` senza nominare il ponte: la decisione su
+    /// cosa fare quando il modello e' quello nuovo appartiene al core, non ai
+    /// driver. **Punto di rimozione: S4.d.**
+    ///
+    /// # Errors
+    ///
+    /// [`bridge_richiede_legacy`] se le opzioni sono costruite sul modello
+    /// unificato.
+    pub fn resource_budget(&self) -> Result<&ResourceBudget> {
+        self.legacy_budget().ok_or_else(bridge_richiede_legacy)
     }
 
     /// Snapshot atteso per la revalidation, presente solo sul ramo
@@ -887,6 +960,29 @@ pub trait FormatWriter {
     fn finish(self: Box<Self>) -> Result<Published>;
 }
 
+/// Preflight della sorgente per il percorso di lettura.
+///
+/// Punto unico per tutti i driver. Prima di S4.c ognuno ripeteva le quattro
+/// righe di `Source::into_path_checked`, con l'estrazione del budget legacy
+/// scritta a mano: tredici copie di una decisione che S4.d deve cambiare **in
+/// un atto solo**, perche' il nuovo preflight enumera la sorgente attraverso
+/// `note_entry_visited` e i controlli qui devono sparire nello stesso
+/// istante, altrimenti le stesse quote si applicano due volte.
+///
+/// # Errors
+///
+/// Propaga l'errore del preflight, e [`bridge_richiede_legacy`] se le opzioni
+/// sono costruite sul modello unificato. **Punto di rimozione del ramo
+/// legacy: S4.d.**
+pub fn preflight_source(source: Source, opts: &ReadOptions) -> Result<PathBuf> {
+    source.into_path_checked(
+        opts.max_input_bytes(),
+        opts.max_input_entries(),
+        opts.cancellation(),
+        opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
+    )
+}
+
 /// Applica i limiti indipendenti dal formato a qualunque writer. I vincoli
 /// specifici (WKB, vertici, dimensione fisica del dataset) restano nel driver.
 #[must_use]
@@ -976,10 +1072,14 @@ pub fn with_write_validation(
     writer: Box<dyn FormatWriter>,
     descriptor: &FormatDescriptor,
     plan: &WritePlan,
-    limits: WriteLimitsView,
-    cancellation: CancellationToken,
-    resource_budget: ResourceBudget,
+    opts: &WriteOptions,
 ) -> Result<Box<dyn FormatWriter>> {
+    let limits = opts.write_limits();
+    let cancellation = opts.cancellation().clone();
+    let resource_budget = opts
+        .legacy_budget()
+        .ok_or_else(bridge_richiede_legacy)?
+        .clone();
     let geometry_support = descriptor
         .write_capabilities
         .as_ref()
@@ -3036,6 +3136,28 @@ mod tests {
             .with_max_wkb_depth(PARITA_WKB_DEPTH)
     }
 
+    /// Costruttori legacy dei test, in un punto solo.
+    ///
+    /// Concentrati non per brevita' ma perche' l'inventario conta le
+    /// costruzioni legacy: quindici copie della stessa riga farebbero salire
+    /// il numero a ogni test aggiunto, e un tetto che sale per il motivo
+    /// sbagliato smette di misurare la migrazione.
+    fn opzioni_legacy_con(limits: Limits, cancellation: CancellationToken) -> ReadOptions {
+        ReadOptions::from_legacy(limits, ResourceBudget::default(), cancellation)
+    }
+
+    fn opzioni_legacy() -> ReadOptions {
+        opzioni_legacy_con(limits_di_parita(), CancellationToken::new())
+    }
+
+    fn opzioni_scrittura_legacy() -> WriteOptions {
+        WriteOptions::from_legacy(
+            limits_di_parita(),
+            ResourceBudget::default(),
+            CancellationToken::new(),
+        )
+    }
+
     fn bundle_di_parita() -> plenora_io_model::budget::PipelineBundle {
         plenora_io_model::budget::PipelineBudget::builder()
             .limits(pipeline_limits_di_parita())
@@ -3045,11 +3167,7 @@ mod tests {
 
     #[test]
     fn payload_legacy_espone_il_ramo_legacy_e_nessun_budget_pipeline() {
-        let opts = ReadOptions::from_legacy(
-            limits_di_parita(),
-            ResourceBudget::default(),
-            CancellationToken::new(),
-        );
+        let opts = opzioni_legacy();
 
         assert!(opts.legacy_limits().is_some());
         assert!(opts.legacy_budget().is_some());
@@ -3099,11 +3217,7 @@ mod tests {
 
     #[test]
     fn i_due_rami_producono_gli_stessi_scalari_a_configurazione_equivalente() {
-        let legacy = ReadOptions::from_legacy(
-            limits_di_parita(),
-            ResourceBudget::default(),
-            CancellationToken::new(),
-        );
+        let legacy = opzioni_legacy();
         let pipeline = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
 
         assert_eq!(legacy.max_input_bytes(), pipeline.max_input_bytes());
@@ -3142,11 +3256,7 @@ mod tests {
 
     #[test]
     fn i_due_rami_producono_la_stessa_vista_di_scrittura() {
-        let legacy = WriteOptions::from_legacy(
-            limits_di_parita(),
-            ResourceBudget::default(),
-            CancellationToken::new(),
-        );
+        let legacy = opzioni_scrittura_legacy();
         let pipeline = WriteOptions::from_write_parts(bundle_di_parita().into_write_parts());
 
         let vista_legacy = legacy.write_limits();
@@ -3201,22 +3311,14 @@ mod tests {
         // Un percorso interamente legacy, esercitato a fondo, non deve
         // toccare i contatori del modello unificato: sono strutture diverse,
         // e un accessore che le incrociasse lo mostrerebbe qui.
-        let opts = ReadOptions::from_legacy(
-            limits_di_parita(),
-            ResourceBudget::default(),
-            CancellationToken::new(),
-        );
+        let opts = opzioni_legacy();
         let _ = opts.max_input_bytes();
         let _ = opts.max_input_entries();
         let _ = opts.max_rows();
         let _ = opts.max_columns();
         let _ = opts.wkb_limits();
         let _ = opts.cancellation();
-        let wopts = WriteOptions::from_legacy(
-            limits_di_parita(),
-            ResourceBudget::default(),
-            CancellationToken::new(),
-        );
+        let wopts = opzioni_scrittura_legacy();
         let _ = wopts.max_output_bytes();
         let _ = wopts.write_limits();
 
@@ -3263,5 +3365,97 @@ mod tests {
             opts.cancellation().is_cancelled(),
             "le opzioni devono osservare il token della pipeline"
         );
+    }
+
+    // ---- Punti d'ingresso centralizzati (Lotto 0, S4.c) ----
+    //
+    // Da S4.c i driver non scelgono piu' quale modello governi i contatori:
+    // passano le opzioni e il core risolve. Questi test verificano che la
+    // risoluzione avvenga davvero **qui**, e che sul ramo Pipeline fallisca
+    // in modo tipizzato invece di ripiegare su valori di default.
+    //
+    // Sono anche il punto che S4.d dovra' capovolgere: quando il ramo
+    // Pipeline diventera' servibile, questi tre `Unsupported` spariranno
+    // insieme, non uno alla volta.
+
+    #[test]
+    fn preflight_source_rifiuta_le_opzioni_del_modello_unificato() {
+        let file = tempfile::NamedTempFile::new().expect("tempfile");
+        let opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
+
+        let errore = preflight_source(Source::Path(file.path().to_owned()), &opts)
+            .expect_err("il preflight legacy non sa osservare col modello nuovo");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    }
+
+    #[test]
+    fn preflight_source_accetta_le_opzioni_legacy_e_applica_le_quote() {
+        let mut file = tempfile::NamedTempFile::new().expect("tempfile");
+        file.write_all(&[0_u8; 8]).expect("write");
+        let stretto = opzioni_legacy_con(
+            Limits {
+                max_input_bytes: 7,
+                ..Limits::default()
+            },
+            CancellationToken::new(),
+        );
+        let errore = preflight_source(Source::Path(file.path().to_owned()), &stretto)
+            .expect_err("otto byte non stanno in sette");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+
+        // Con quota capiente lo stesso file passa: il rifiuto sopra viene
+        // dalla quota, non dal fatto che il percorso sia rotto.
+        let largo = opzioni_legacy_con(Limits::default(), CancellationToken::new());
+        assert!(preflight_source(Source::Path(file.path().to_owned()), &largo).is_ok());
+    }
+
+    #[test]
+    fn resource_budget_fallisce_tipizzato_sul_ramo_pipeline() {
+        // E' l'accessore che i driver usano al posto del ponte: la decisione
+        // su cosa fare quando il modello e' quello nuovo sta qui, non in
+        // tredici copie sparse.
+        let legacy = opzioni_legacy();
+        assert!(legacy.resource_budget().is_ok());
+
+        let pipeline = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
+        let errore = pipeline
+            .resource_budget()
+            .expect_err("il ramo pipeline non ha un budget legacy da consegnare");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+    }
+
+    #[test]
+    fn ensure_active_interroga_il_modello_che_governa_in_entrambi_i_rami() {
+        // Accessore di comportamento, non di valore: i due rami fanno la
+        // stessa domanda al proprio modello. E' l'unico modo per cui un
+        // driver possa controllare la liveness dentro un ciclo senza
+        // conoscere il ponte.
+        let token = CancellationToken::new();
+        let legacy = opzioni_legacy_con(limits_di_parita(), token.clone());
+        assert!(legacy.ensure_active().is_ok());
+        token.cancel();
+        assert!(
+            legacy.ensure_active().is_err(),
+            "il ramo legacy deve osservare il token delle opzioni, non solo la deadline"
+        );
+
+        let bundle = bundle_di_parita();
+        let contesto = bundle.context().clone();
+        let pipeline = ReadOptions::from_read_parts(bundle.into_read_parts());
+        assert!(pipeline.ensure_active().is_ok());
+        contesto.cancellation().cancel();
+        assert!(
+            pipeline.ensure_active().is_err(),
+            "il ramo pipeline deve osservare la cancellazione del proprio context"
+        );
+    }
+
+    #[test]
+    fn max_vertices_coincide_fra_i_due_rami() {
+        let legacy = opzioni_legacy();
+        let pipeline = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
+
+        assert_eq!(legacy.max_vertices(), pipeline.max_vertices());
+        assert_eq!(pipeline.max_vertices(), PARITA_VERTICES);
     }
 }

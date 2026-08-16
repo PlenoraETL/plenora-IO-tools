@@ -22,20 +22,39 @@ use crate::request::{effective_batch_rows, incremental_batch_memory_size, BatchT
 use super::{saturating_usize, LayerReader, OpenDatasetHandle};
 use crate::driver::spool::StagedSpool;
 
-/// Collega a un dataset un budget condiviso. Ogni reader consuma colonne,
-/// righe, byte e una quota di concorrenza dagli stessi contatori, anche quando
-/// il budget attraversa più componenti della pipeline.
-#[must_use]
+/// Collega a un dataset il budget dell'operazione.
+///
+/// Ogni reader consuma colonne, righe, byte e una quota di concorrenza dagli
+/// stessi contatori, anche quando il budget attraversa più componenti della
+/// pipeline.
+///
+/// Prende le **opzioni**, non un budget gia' estratto: la scelta di quale
+/// modello governi i contatori appartiene al core, non ai tredici driver.
+/// Prima di S4.c ogni driver scriveva da se'
+/// `opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?.clone()`, cioe'
+/// tredici copie della stessa decisione, che S4.d avrebbe dovuto cambiare una
+/// per una. Concentrandola qui il passaggio al modello unificato tocca un
+/// punto solo per direzione.
+///
+/// # Errors
+///
+/// Restituisce [`crate::driver::bridge_richiede_legacy`] se le opzioni sono
+/// costruite sul modello unificato: l'adapter preleva ancora dai contatori
+/// legacy, quindi non saprebbe cosa consumare. **Punto di rimozione: S4.d.**
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
-    budget: ResourceBudget,
+    opts: &crate::driver::ReadOptions,
     physical_row_indices_attestable: bool,
-) -> Box<dyn OpenDatasetHandle> {
-    Box::new(BudgetedDataset {
+) -> Result<Box<dyn OpenDatasetHandle>> {
+    let budget = opts
+        .legacy_budget()
+        .ok_or_else(crate::driver::bridge_richiede_legacy)?
+        .clone();
+    Ok(Box::new(BudgetedDataset {
         dataset,
         budget,
         physical_row_indices_attestable,
-    })
+    }))
 }
 
 struct BudgetedDataset {
@@ -2317,5 +2336,45 @@ mod tests {
         assert!(dataset.open_layer_reader(&request).is_err());
         assert_eq!(opens.load(AtomicOrdering::SeqCst), 0);
         drop(held);
+    }
+
+    #[test]
+    fn with_read_budget_rifiuta_le_opzioni_del_modello_unificato() {
+        // L'adapter preleva ancora dai contatori legacy: se ricevesse
+        // opzioni del modello nuovo non saprebbe cosa consumare, e ripiegare
+        // su un budget di default applicherebbe quote che nessuno ha chiesto.
+        // E' il punto unico che S4.d capovolge — da S4.c nessun driver
+        // ripete questa decisione.
+        let bundle = plenora_io_model::budget::PipelineBudget::builder()
+            .build()
+            .expect("il bundle deve costruirsi");
+        let opts = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
+        let dataset = Box::new(CountingDataset {
+            layers: Vec::new(),
+            opens: Arc::new(AtomicUsize::new(0)),
+        });
+
+        let esito = with_read_budget(dataset, &opts, true);
+        assert!(matches!(
+            esito,
+            Err(errore) if errore.code == plenora_io_model::IoErrorCode::Unsupported
+        ));
+    }
+
+    #[test]
+    fn with_read_budget_accetta_le_opzioni_legacy() {
+        // `from_legacy` e non `default()`: il conteggio dei default legacy
+        // e' un tetto che puo' solo scendere, e un test nuovo non deve farlo
+        // salire.
+        let opts = crate::driver::ReadOptions::from_legacy(
+            plenora_io_model::limits::Limits::default(),
+            ResourceBudget::default(),
+            CancellationToken::new(),
+        );
+        let dataset = Box::new(CountingDataset {
+            layers: Vec::new(),
+            opens: Arc::new(AtomicUsize::new(0)),
+        });
+        assert!(with_read_budget(dataset, &opts, true).is_ok());
     }
 }

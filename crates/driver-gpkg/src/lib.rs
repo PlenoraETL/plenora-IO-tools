@@ -11,7 +11,6 @@
 //! e conforme, senza trasformarsi in filtering geometrico esatto.
 #![forbid(unsafe_code)]
 
-use plenora_io_core::driver::bridge_richiede_legacy;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -177,12 +176,7 @@ impl FormatDriver for GpkgDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(
-            opts.max_input_bytes(),
-            opts.max_input_entries(),
-            opts.cancellation(),
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-        )?;
+        let path = plenora_io_core::preflight_source(source, opts)?;
         let conn = Connection::open(&path).map_err(sql_err)?;
         let tables = feature_tables(&conn)?;
         if tables.is_empty() {
@@ -255,17 +249,15 @@ impl FormatDriver for GpkgDriver {
                 layer_srs_id,
             });
         }
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(GpkgDataset {
                 path,
                 layers,
                 metas,
             }),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
             false,
-        ))
+        )
     }
 
     fn create(
@@ -331,11 +323,7 @@ impl FormatDriver for GpkgDriver {
             }),
             self.descriptor(),
             plan,
-            opts.write_limits(),
-            opts.cancellation().clone(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
         )
     }
 }

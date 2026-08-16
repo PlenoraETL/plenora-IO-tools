@@ -757,3 +757,64 @@ preparano, nessuno passa al ramo nuovo.
 
 **Inventario invariato** — 261 usi, tutti i tetti confermati. S4.b.3 non tocca
 il ponte legacy, quindi nessun valore doveva scendere e nessuno e' risalito.
+
+## Registrazione S4.c del 2026-08-16 — un punto di decisione per direzione
+
+Terzo sottopasso di S4, sui driver. **Nessun driver passa al ramo `Pipeline`**
+— il gate di S4.b.3 lo vieta finche' l'handoff non e' cablato — ma dopo
+questo commit nessuno di essi decide piu' quale modello governi i contatori.
+
+**Il problema che risolve.** Prima di S4.c ogni driver scriveva da se'
+`opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?`: tredici copie
+della stessa decisione, piu' undici copie del preflight inline. S4.d deve
+capovolgere quella decisione **in un atto solo**, perche' il nuovo preflight
+enumera la sorgente e i controlli vecchi devono sparire nello stesso istante,
+altrimenti le stesse quote si applicano due volte. Ventiquattro punti da
+cambiare insieme non e' un cambio atomico: e' una speranza.
+
+**La forma.** Tre punti d'ingresso nel core prendono ora le **opzioni**
+invece dei pezzi gia' estratti: `preflight_source(source, opts)` (nuovo),
+`with_read_budget(dataset, opts, attestable)` e
+`with_write_validation(writer, descriptor, plan, opts)`. Piu' tre accessori
+neutri — `max_vertices()`, `ensure_active()` e `resource_budget()` — per i
+percorsi su misura. I driver ricevono le opzioni e le passano; non le
+interrogano sul modello.
+
+**Risultato misurato**: `accessore_legacy` 50 → 18, `ponte_richiede_legacy`
+50 → 11, e le 29 occorrenze residue vivono **tutte** dentro
+`plenora-io-core`. Non e' piu' solo un conteggio: l'inventario ha una regola
+strutturale nuova che rifiuta qualunque uso del ponte fuori da quel crate,
+verificata in prova negativa.
+
+**Un cambio di comportamento deliberato, non un effetto collaterale.**
+`ReadOptions::ensure_active()` sul ramo legacy ora controlla **anche** la
+cancellazione. `ResourceBudget::ensure_active` guarda solo la deadline: nel
+modello vecchio la cancellazione vive in un secondo posto, il token che le
+opzioni portano a parte, mentre nel modello nuovo sono la stessa cosa.
+Lasciare la divergenza avrebbe dato allo stesso nome due significati, e i
+cicli dei driver DXF e KML avrebbero iniziato a onorare la cancellazione **il
+giorno del passaggio a `Pipeline`** — una modifica scoperta nel momento
+peggiore. E' un controllo in piu' sullo stesso token che quei cicli gia'
+interrogano altrove, quindi stringe senza sorprendere. Lo ha trovato un test
+di parita' fra i rami, non una lettura del codice.
+
+**Config privati tipizzati al posto di `Limits`.** `Walker::new` in DXF e
+`infer_layout` in XLSX prendevano un `Limits` intero per consultarne due o
+tre campi. Ora prendono `DxfQuote { colonne, righe, vertici }` e `XlsxQuote {
+colonne, righe, byte_ingresso }`: i soli valori usati, in una struct privata,
+senza tenere in vita un tipo che il modello unificato non ha.
+
+**Due volte l'inventario ha colto un errore mio**, entrambe salite del
+conteggio invece che discese. La prima: `DxfQuote::predefinite()` costruiva
+le quote del fuzz harness da `ReadOptions::default()`, legando un harness e
+due test unitari al default di produzione che la migrazione sta cambiando —
+sostituito da costanti esplicite, che e' anche cio' che un harness di fuzzing
+dovrebbe avere. La seconda: quindici copie della costruzione legacy nei test
+nuovi, concentrate in tre helper. Un tetto che sale per il motivo sbagliato
+smette di misurare la migrazione, ed e' il motivo per cui la regola "puo'
+solo scendere" vale anche quando salire sarebbe comodo.
+
+**Copertura**: sette test nuovi sui punti centralizzati — il preflight rifiuta
+le opzioni del modello unificato e applica le quote su quelle legacy,
+`with_read_budget` idem, `resource_budget()` fallisce tipizzato, e i tre
+accessori neutri danno lo stesso valore nei due rami.

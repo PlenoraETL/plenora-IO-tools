@@ -5,7 +5,6 @@
 //! snappy default, oppure zstd/gzip/brotli/lz4) — zstd via zstd-sys.
 #![forbid(unsafe_code)]
 
-use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::path::PathBuf;
@@ -101,12 +100,7 @@ pub struct GeoParquetDriver;
 /// unificato e rimozione dei controlli legacy — dovra' avvenire in un punto
 /// solo per driver, non sparso nel corpo di `open`.
 fn percorso_verificato(source: Source, opts: &ReadOptions) -> Result<PathBuf> {
-    source.into_path_checked(
-        opts.max_input_bytes(),
-        opts.max_input_entries(),
-        opts.cancellation(),
-        opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-    )
+    plenora_io_core::preflight_source(source, opts)
 }
 
 impl FormatDriver for GeoParquetDriver {
@@ -235,7 +229,7 @@ impl FormatDriver for GeoParquetDriver {
             name,
             contract,
         };
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(GeoParquetDataset {
                 path,
                 out_schema,
@@ -243,11 +237,9 @@ impl FormatDriver for GeoParquetDriver {
                 visible_to_physical,
                 layers: vec![layer],
             }),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -329,11 +321,7 @@ impl FormatDriver for GeoParquetDriver {
             }),
             self.descriptor(),
             plan,
-            opts.write_limits(),
-            opts.cancellation().clone(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
         )
     }
 }

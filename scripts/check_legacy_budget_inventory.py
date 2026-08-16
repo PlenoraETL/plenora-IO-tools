@@ -58,9 +58,9 @@ TETTI: dict[str, int] = {
     "campo_cancellation": 0,
     # Le vie residue verso il modello legacy, tutte esplicite e marcate
     # "punto di rimozione: S4.e".
-    "costruttore_legacy": 13,
-    "accessore_legacy": 50,
-    "ponte_richiede_legacy": 50,
+    "costruttore_legacy": 11,
+    "accessore_legacy": 18,
+    "ponte_richiede_legacy": 11,
 }
 
 # Le lookbehind escludono `struct X {`, `impl X {` e `-> X {`: sono
@@ -93,9 +93,37 @@ def conta(root: Path) -> dict[str, int]:
     return conteggi
 
 
+# Da S4.c il ponte verso il modello legacy e' nominato **solo** dentro
+# `plenora-io-core`. Non e' una questione di conteggio ma di struttura: se un
+# driver torna a scrivere `opts.legacy_budget().ok_or_else(...)`, S4.d dovra'
+# di nuovo cambiare tredici punti invece di due, ed e' esattamente cio' che
+# rende non atomico il passaggio al modello unificato.
+PONTE = re.compile(r"\.legacy_(?:budget|limits)\(\)|bridge_richiede_legacy")
+CRATE_DEL_PONTE = "plenora-io-core"
+
+
+def fuori_dal_core(root: Path) -> list[str]:
+    trovati: list[str] = []
+    for sorgente in sorted((root / "crates").glob("*/src/**/*.rs")):
+        crate = sorgente.relative_to(root / "crates").parts[0]
+        if crate == CRATE_DEL_PONTE:
+            continue
+        if PONTE.search(sorgente.read_text(encoding="utf-8")):
+            trovati.append(sorgente.relative_to(root).as_posix())
+    return trovati
+
+
 def main() -> int:
     conteggi = conta(ROOT)
     errori: list[str] = []
+
+    for percorso in fuori_dal_core(ROOT):
+        errori.append(
+            f"{percorso}: nomina il ponte verso il modello legacy. Da S4.c la "
+            f"scelta di quale modello governi i contatori appartiene a "
+            f"{CRATE_DEL_PONTE}: un driver riceve le opzioni e le passa, non "
+            "le interroga sul modello."
+        )
     for nome, tetto in sorted(TETTI.items()):
         trovati = conteggi[nome]
         if trovati > tetto:

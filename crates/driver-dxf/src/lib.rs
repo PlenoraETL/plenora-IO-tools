@@ -9,7 +9,6 @@
 //! esplicitamente quando il metadato è assente o non risolvibile.
 #![forbid(unsafe_code)]
 
-use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -54,7 +53,7 @@ use plenora_io_model::contract::{
 };
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::with_geometry_contract_metadata;
-use plenora_io_model::limits::{Limits, WkbLimits};
+use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, inspect_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
@@ -231,27 +230,18 @@ impl FormatDriver for DxfDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(
-            opts.max_input_bytes(),
-            opts.max_input_entries(),
-            opts.cancellation(),
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-        )?;
+        let path = plenora_io_core::preflight_source(source, opts)?;
         let mut stream = DrawingEntityReader::load_file(&path)
             .map_err(|e| err(format!("apertura DXF progressiva: {e}")))?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
         let mut walker = Walker::new(
             stream.drawing(),
-            opts.legacy_limits().ok_or_else(bridge_richiede_legacy)?,
+            DxfQuote::from_read_options(opts),
             opts.cancellation(),
         )?;
         let mut stats = DxfContractStats::default();
-        let mut spool_writer = DxfSpoolWriter::new(
-            opts.max_input_bytes(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
-        );
+        let mut spool_writer =
+            DxfSpoolWriter::new(opts.max_input_bytes(), opts.resource_budget()?.clone());
         let mut source_index = 0_u64;
         while let Some(entity) = stream.next_entity().map_err(|e| {
             read_row_error(
@@ -261,9 +251,7 @@ impl FormatDriver for DxfDriver {
                 Some(GEOMETRY),
             )
         })? {
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .ensure_active()?;
+            opts.ensure_active()?;
             let mut visiting = HashSet::new();
             walker
                 .walk_entity(&entity, Transform3::IDENTITY, "0", 0, &mut visiting)
@@ -293,7 +281,7 @@ impl FormatDriver for DxfDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(DxfDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -306,11 +294,9 @@ impl FormatDriver for DxfDriver {
                 loss,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
             false,
-        ))
+        )
     }
 
     fn create(
@@ -359,11 +345,7 @@ impl FormatDriver for DxfDriver {
             }),
             self.descriptor(),
             plan,
-            opts.write_limits(),
-            opts.cancellation().clone(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
         )
     }
 }
@@ -1335,7 +1317,10 @@ struct Walker {
 }
 
 impl Walker {
-    fn new(drawing: &Drawing, limits: &Limits, cancellation: &CancellationToken) -> Result<Self> {
+    /// Prende i due scalari che consulta invece di un `Limits`: e' la forma
+    /// che sopravvive alla migrazione, perche' nel modello unificato quel
+    /// tipo non esiste.
+    fn new(drawing: &Drawing, quote: DxfQuote, cancellation: &CancellationToken) -> Result<Self> {
         let mut blocks = HashMap::new();
         for (index, block) in drawing.blocks().enumerate() {
             check_cancelled_periodically(cancellation, ErrorPhase::Read, index)?;
@@ -1349,8 +1334,8 @@ impl Walker {
             texts: Vec::new(),
             loss: LossReport::default(),
             budget: MAX_ENTITIES,
-            max_rows: limits.max_rows,
-            remaining_vertices: limits.max_vertices,
+            max_rows: quote.righe,
+            remaining_vertices: quote.vertici,
             cancellation: cancellation.clone(),
             visited_entities: 0,
             emitted_rows: 0,
@@ -2000,30 +1985,69 @@ fn batch_from_walker(
         .map_err(|error| err(format!("batch DXF progressivo: {error}")))
 }
 
+/// Quote consultate dal percorso non streaming del driver.
+///
+/// Sono tre scalari e non un `Limits`: nel modello unificato quel tipo non
+/// esiste, e portarselo dietro per tre campi lo terrebbe in vita oltre la
+/// migrazione.
+#[derive(Clone, Copy)]
+struct DxfQuote {
+    colonne: usize,
+    righe: usize,
+    vertici: usize,
+}
+
+impl DxfQuote {
+    /// Quote per i percorsi che non ricevono opzioni: il fuzz harness e i
+    /// test unitari del batch.
+    ///
+    /// Costanti esplicite e non le opzioni predefinite. Passare da quelle
+    /// legherebbe un harness di fuzzing e due test unitari al
+    /// **default di produzione**, che la migrazione sta cambiando: il primo
+    /// effetto e' stato far salire di uno l'inventario legacy, e il secondo
+    /// sarebbe stato veder cambiare i limiti del fuzz quando cambia il
+    /// modello. Qui servono soltanto bound stabili che impediscano un OOM.
+    const fn predefinite() -> Self {
+        Self {
+            colonne: 4_096,
+            righe: 10_000_000,
+            vertici: 50_000_000,
+        }
+    }
+
+    fn from_read_options(opts: &ReadOptions) -> Self {
+        Self {
+            colonne: opts.max_columns(),
+            righe: opts.max_rows(),
+            vertici: opts.max_vertices(),
+        }
+    }
+}
+
 fn build_batch(
     drawing: &Drawing,
     crs: ResolvedCrs,
-    limits: &Limits,
+    quote: DxfQuote,
 ) -> Result<(RecordBatch, LossReport, DataContract)> {
-    build_batch_cancellable(drawing, crs, limits, &CancellationToken::new())
+    build_batch_cancellable(drawing, crs, quote, &CancellationToken::new())
 }
 
 fn build_batch_cancellable(
     drawing: &Drawing,
     crs: ResolvedCrs,
-    limits: &Limits,
+    quote: DxfQuote,
     cancellation: &CancellationToken,
 ) -> Result<(RecordBatch, LossReport, DataContract)> {
     const DXF_OUTPUT_COLUMNS: usize = 4;
 
     check_cancelled(cancellation, ErrorPhase::Read)?;
-    if limits.max_columns < DXF_OUTPUT_COLUMNS {
+    if quote.colonne < DXF_OUTPUT_COLUMNS {
         return Err(PlenoraIoError::LimitExceeded(format!(
             "DXF produce {DXF_OUTPUT_COLUMNS} colonne, oltre il limite di {}",
-            limits.max_columns
+            quote.colonne
         )));
     }
-    let mut walker = Walker::new(drawing, limits, cancellation)?;
+    let mut walker = Walker::new(drawing, quote, cancellation)?;
     let mut visiting: HashSet<String> = HashSet::new();
     for e in drawing.entities() {
         walker.walk_entity(e, Transform3::IDENTITY, "0", 0, &mut visiting)?;
@@ -2051,7 +2075,7 @@ pub fn __fuzz_read_dxf(bytes: &[u8]) -> Result<usize> {
     let drawing = Drawing::load(&mut Cursor::new(bytes))
         .map_err(|error| err(format!("DXF invalido: {error}")))?;
     let crs = ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None);
-    let (batch, _, _) = build_batch(&drawing, crs, &Limits::default())?;
+    let (batch, _, _) = build_batch(&drawing, crs, DxfQuote::predefinite())?;
     Ok(batch.num_rows())
 }
 
@@ -2287,7 +2311,7 @@ mod tests {
         std::fs::write(&path, dxf).unwrap();
         let drawing = Drawing::load_file(&path).unwrap();
         let (batch, _loss, _contract) =
-            build_batch(&drawing, resolved_wgs84(), &Limits::default()).unwrap();
+            build_batch(&drawing, resolved_wgs84(), DxfQuote::predefinite()).unwrap();
 
         let geom = batch
             .column(0)
@@ -2408,9 +2432,9 @@ mod tests {
         let row_error = build_batch(
             &drawing,
             resolved_wgs84(),
-            &Limits {
-                max_rows: 0,
-                ..Limits::default()
+            DxfQuote {
+                righe: 0,
+                ..DxfQuote::predefinite()
             },
         )
         .unwrap_err();
@@ -2419,9 +2443,9 @@ mod tests {
         let column_error = build_batch(
             &drawing,
             resolved_wgs84(),
-            &Limits {
-                max_columns: 3,
-                ..Limits::default()
+            DxfQuote {
+                colonne: 3,
+                ..DxfQuote::predefinite()
             },
         )
         .unwrap_err();

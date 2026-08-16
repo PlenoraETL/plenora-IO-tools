@@ -3,7 +3,6 @@
 //! `name`/`description` come proprietà. KMZ resta un incremento successivo.
 #![forbid(unsafe_code)]
 
-use plenora_io_core::driver::bridge_richiede_legacy;
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write as _};
@@ -256,30 +255,21 @@ impl FormatDriver for KmlDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(
-            opts.max_input_bytes(),
-            opts.max_input_entries(),
-            opts.cancellation(),
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-        )?;
+        let path = plenora_io_core::preflight_source(source, opts)?;
         let mut stream = PlacemarkStream::open(&path)?;
         let mut stats = KmlContractStats::default();
         let spool = Arc::new(tempfile::NamedTempFile::new()?);
         let mut spool_writer = KmlSpoolWriter::new(
             spool.as_file(),
             opts.max_input_bytes(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts.resource_budget()?.clone(),
         );
         while let Some(placemark) = stream.next_placemark(
             opts.cancellation(),
             u64::try_from(stats.rows)
                 .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?,
         )? {
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .ensure_active()?;
+            opts.ensure_active()?;
             if stats.rows >= opts.max_rows() {
                 return Err(PlenoraIoError::LimitExceeded(format!(
                     "KML: più di {} Placemark",
@@ -312,7 +302,7 @@ impl FormatDriver for KmlDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(KmlDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -323,11 +313,9 @@ impl FormatDriver for KmlDriver {
                 rows,
                 reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
             }),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -370,11 +358,7 @@ impl FormatDriver for KmlDriver {
             }),
             self.descriptor(),
             plan,
-            opts.write_limits(),
-            opts.cancellation().clone(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
         )
     }
 }

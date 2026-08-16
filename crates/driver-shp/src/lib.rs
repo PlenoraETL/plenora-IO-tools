@@ -11,7 +11,6 @@
 //! per WGS84; nessuna riproiezione (ADR-IO 4).
 #![forbid(unsafe_code)]
 
-use plenora_io_core::driver::bridge_richiede_legacy;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
@@ -462,12 +461,7 @@ impl FormatDriver for ShpDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = shapefile_source_path(source.into_path_checked(
-            opts.max_input_bytes(),
-            opts.max_input_entries(),
-            opts.cancellation(),
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-        )?)?;
+        let path = shapefile_source_path(plenora_io_core::preflight_source(source, opts)?)?;
         let crs = resolve_crs(&path, opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let ShpInference {
@@ -514,7 +508,7 @@ impl FormatDriver for ShpDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(ShpDataset {
                 path,
                 cols,
@@ -530,11 +524,9 @@ impl FormatDriver for ShpDriver {
                     contract,
                 }],
             }),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
             false,
-        ))
+        )
     }
 
     fn create(
@@ -619,11 +611,7 @@ impl FormatDriver for ShpDriver {
             }),
             self.descriptor(),
             plan,
-            opts.write_limits(),
-            opts.cancellation().clone(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
         )
     }
 }

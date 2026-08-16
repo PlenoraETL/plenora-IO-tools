@@ -5,7 +5,6 @@
 //! interscambio canonico fra plenora-IO-tools e plenora-data-tools.
 #![forbid(unsafe_code)]
 
-use plenora_io_core::driver::bridge_richiede_legacy;
 use std::fs::File;
 use std::io::{BufWriter, Write as _};
 use std::path::PathBuf;
@@ -94,12 +93,7 @@ impl FormatDriver for IpcDriver {
     }
 
     fn open(&self, source: Source, opts: &ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = source.into_path_checked(
-            opts.max_input_bytes(),
-            opts.max_input_entries(),
-            opts.cancellation(),
-            opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-        )?;
+        let path = plenora_io_core::preflight_source(source, opts)?;
         // `try_new` restituisce `Result`, ma arrow-ipc puo' comunque andare in
         // panico decodificando lo schema: vedi `leggendo_arrow`.
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", || {
@@ -167,7 +161,7 @@ impl FormatDriver for IpcDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        Ok(plenora_io_core::with_read_budget(
+        plenora_io_core::with_read_budget(
             Box::new(IpcDataset {
                 path,
                 layers: vec![LayerContract {
@@ -176,11 +170,9 @@ impl FormatDriver for IpcDriver {
                     contract: DataContract::new(schema, geometry),
                 }],
             }),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
             true,
-        ))
+        )
     }
 
     fn create(
@@ -239,11 +231,7 @@ impl FormatDriver for IpcDriver {
             }),
             self.descriptor(),
             plan,
-            opts.write_limits(),
-            opts.cancellation().clone(),
-            opts.legacy_budget()
-                .ok_or_else(bridge_richiede_legacy)?
-                .clone(),
+            opts,
         )
     }
 }
