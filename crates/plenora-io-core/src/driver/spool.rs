@@ -37,13 +37,32 @@
 //! utilizzabile la creazione **fallisce chiuso**, senza ripiegare su un'altra
 //! directory: un ripiego silenzioso metterebbe dati su un volume che
 //! l'operatore non ha scelto.
+//!
+//! # La quota segue le scritture fisiche
+//!
+//! La prenotazione di spill vive in [`SpillGuard`], che il writer consulta
+//! **prima di ogni `write` verso il file**. Applicarla piu' in alto —
+//! attorno alla scrittura del batch — significherebbe applicarla a una
+//! stima, mentre i byte trattenuti dal buffer raggiungerebbero il volume
+//! senza passare da alcun controllo.
+//!
+//! Le prenotazioni sono a blocchi, per non creare una lease per batch, con
+//! ripiego sull'importo esatto quando la quota configurata e' piu' piccola
+//! del blocco: altrimenti un tetto piccolo verrebbe arrotondato per eccesso
+//! e risulterebbe inutilizzabile.
+//!
+//! # Rilascio a fine rilettura
+//!
+//! Quando la rilettura si esaurisce, descrittore e prenotazioni vengono
+//! rilasciati subito, senza aspettare il drop dello spool. Il consumer puo'
+//! lavorare a lungo sui batch gia' ricevuti, e tenere occupati volume e
+//! quota per tutto quel tempo non servirebbe a nulla.
 
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use arrow_array::RecordBatch;
 use arrow_ipc::reader::StreamReader;
@@ -70,6 +89,7 @@ const SPOOL_CORRUPTION: &str = "il file di spool non rispetta il contratto attes
 const SPOOL_SCHEMA_MISMATCH: &str = "batch con schema diverso da quello del layer";
 const SPOOL_ALREADY_SEALED: &str = "spool gia' sigillato: nessun batch nuovo";
 const SPOOL_NOT_SEALED: &str = "spool non ancora sigillato: nessun batch da rileggere";
+const SPOOL_QUOTA_EXHAUSTED: &str = "quota di spill esaurita prima della scrittura";
 
 /// Costo minimo attribuito a ogni batch bufferizzato, oltre ai byte dei suoi
 /// buffer.
@@ -155,74 +175,155 @@ fn resolve_spill_directory(configured: Option<std::ffi::OsString>) -> Result<Pat
     }
 }
 
-/// Writer che conta i byte realmente consegnati al file.
+/// Stato della quota di spill: prenotazioni RAII e byte fisici scritti.
 ///
-/// La quota di spill deve seguire cio' che finisce su disco, non la stima di
-/// occupazione in RAM del batch: le due grandezze divergono di parecchio —
-/// l'IPC comprime i buffer di validita', allinea, aggiunge intestazioni — e
-/// contabilizzare la prima al posto della seconda significa dichiarare una
-/// quota che non corrisponde all'occupazione reale del volume.
-struct CountingWriter<W: Write> {
-    inner: W,
-    written: Arc<AtomicU64>,
-}
-
-impl<W: Write> CountingWriter<W> {
-    fn into_inner(self) -> W {
-        self.inner
-    }
-}
-
-impl<W: Write> Write for CountingWriter<W> {
-    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        let scritti = self.inner.write(buffer)?;
-        self.written.fetch_add(scritti as u64, Ordering::AcqRel);
-        Ok(scritti)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
-    }
-}
-
-/// Prenotazione della quota di spill, RAII.
-///
-/// Le lease restano vive quanto il file: al drop dello spool la quota torna
-/// al budget, perche' il file sparisce con lui. Con un `commit` la quota
-/// sarebbe stata consumata per sempre, e una pipeline lunga avrebbe esaurito
-/// lo spill accumulando file gia' rimossi.
-#[derive(Default)]
-struct SpillReservation {
+/// Vive dietro un mutex perche' e' condiviso fra lo spool e il writer che
+/// avvolge il file. Il writer e' l'unico punto che sa quanti byte stanno per
+/// raggiungere il disco, ed e' quindi l'unico punto dove il controllo di
+/// quota puo' precedere davvero la scrittura.
+struct SpillGuard {
+    budget: ResourceBudget,
     leases: Vec<ResourceLease>,
     reserved: u64,
+    written: u64,
+    /// Errore tipizzato dell'ultima prenotazione fallita. `Write::write` puo'
+    /// restituire solo `io::Error`, che perderebbe la categoria di limite: lo
+    /// spool lo rilegge da qui e propaga l'errore giusto.
+    failure: Option<PlenoraIoError>,
 }
 
-impl SpillReservation {
-    /// Garantisce che la quota prenotata copra `written` piu' `headroom`.
+impl SpillGuard {
+    const fn new(budget: ResourceBudget) -> Self {
+        Self {
+            budget,
+            leases: Vec::new(),
+            reserved: 0,
+            written: 0,
+            failure: None,
+        }
+    }
+
+    /// Garantisce che la quota prenotata copra i byte gia' scritti piu'
+    /// `additional`.
     ///
-    /// Prenota **prima** di scrivere: se la quota non basta il file non
-    /// cresce oltre cio' che e' gia' coperto.
-    fn ensure_covers(
-        &mut self,
-        budget: &ResourceBudget,
-        written: u64,
-        headroom: u64,
-    ) -> Result<()> {
-        let richiesto = written.saturating_add(headroom);
+    /// Prova prima una prenotazione a blocchi, che amortizza il costo su
+    /// tanti batch, e **ripiega sull'importo esatto** se il blocco non entra
+    /// nella quota. Senza il ripiego una quota di spill piu' piccola del
+    /// blocco fallirebbe sempre, anche quando basterebbe: il tetto
+    /// configurato verrebbe di fatto arrotondato per eccesso al blocco.
+    fn reserve_for(&mut self, additional: u64) -> Result<()> {
+        let richiesto = self.written.saturating_add(additional);
         if richiesto <= self.reserved {
             return Ok(());
         }
         let mancante = richiesto - self.reserved;
         let blocco = mancante.max(SPILL_RESERVATION_CHUNK);
-        let lease = budget.try_lease(ResourceKind::SpillBytes, blocco)?;
+        let lease = match self.budget.try_lease(ResourceKind::SpillBytes, blocco) {
+            Ok(lease) => lease,
+            Err(_) if blocco > mancante => {
+                self.budget.try_lease(ResourceKind::SpillBytes, mancante)?
+            }
+            Err(errore) => return Err(errore),
+        };
         self.reserved = self.reserved.saturating_add(lease.amount());
         self.leases.push(lease);
         Ok(())
     }
 
+    const fn note_written(&mut self, bytes: u64) {
+        self.written = self.written.saturating_add(bytes);
+    }
+
+    /// Restituisce ogni quota trattenuta. Chiamato quando il file cessa di
+    /// esistere: a fine rilettura o alla distruzione dello spool.
+    fn release(&mut self) {
+        self.leases.clear();
+        self.reserved = 0;
+    }
+
     #[cfg(test)]
     const fn reserved(&self) -> u64 {
         self.reserved
+    }
+
+    const fn take_failure(&mut self) -> Option<PlenoraIoError> {
+        self.failure.take()
+    }
+
+    #[cfg(test)]
+    const fn written(&self) -> u64 {
+        self.written
+    }
+}
+
+/// Errore da riportare quando una scrittura sul file di spool fallisce.
+///
+/// `Write::write` puo' restituire solo `io::Error`, che perde la categoria di
+/// limite: se il guardiano ha registrato il rifiuto tipizzato, e' quello a
+/// dover raggiungere il chiamante. Il ripiego copre il caso in cui la
+/// scrittura sia fallita per una ragione del filesystem e non per quota.
+fn write_failure(guard: &Mutex<SpillGuard>) -> PlenoraIoError {
+    guard_lock(guard)
+        .take_failure()
+        .unwrap_or_else(|| spool_error(SPOOL_WRITE_FAILED))
+}
+
+fn guard_lock(guard: &Mutex<SpillGuard>) -> MutexGuard<'_, SpillGuard> {
+    match guard.lock() {
+        Ok(acquisito) => acquisito,
+        // Un lock avvelenato significa che un thread e' andato in panico
+        // mentre teneva lo stato. Le prenotazioni restano coerenti: sono
+        // aggiunte a una lista dopo che la lease e' stata concessa, quindi
+        // non esiste il mezzo aggiornamento che il poisoning teme.
+        Err(avvelenato) => avvelenato.into_inner(),
+    }
+}
+
+/// Writer che applica la quota di spill **prima di ogni scrittura fisica**.
+///
+/// Avvolge il file, non il `BufWriter`: e' l'ultimo anello prima del disco,
+/// quindi `buffer` contiene esattamente i byte che stanno per essere
+/// consegnati. Applicare la quota piu' in alto — attorno a
+/// `StreamWriter::write` — la applicherebbe a una stima, e i byte del
+/// `BufWriter` raggiungerebbero il volume prima che qualcuno li conti.
+///
+/// La quota segue cosi' cio' che finisce su disco, non l'occupazione in RAM
+/// del batch: l'IPC allinea, comprime i buffer di validita' e aggiunge
+/// intestazioni, quindi le due grandezze divergono.
+struct GuardedWriter<W: Write> {
+    inner: W,
+    guard: Arc<Mutex<SpillGuard>>,
+}
+
+impl<W: Write> GuardedWriter<W> {
+    fn into_inner(self) -> W {
+        self.inner
+    }
+}
+
+impl<W: Write> Write for GuardedWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let richiesti = buffer.len() as u64;
+        let coperto = {
+            let mut guard = guard_lock(&self.guard);
+            match guard.reserve_for(richiesti) {
+                Ok(()) => true,
+                Err(errore) => {
+                    guard.failure = Some(errore);
+                    false
+                }
+            }
+        };
+        if !coperto {
+            return Err(std::io::Error::other(SPOOL_QUOTA_EXHAUSTED));
+        }
+        let scritti = self.inner.write(buffer)?;
+        guard_lock(&self.guard).note_written(scritti as u64);
+        Ok(scritti)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
     }
 }
 
@@ -238,17 +339,15 @@ enum Stage {
     /// Oltre soglia: i batch sono su file temporaneo senza nome. Una volta
     /// migrati non tornano in RAM.
     Writing {
-        writer: Box<StreamWriter<CountingWriter<BufWriter<File>>>>,
-        written: Arc<AtomicU64>,
-        spill: SpillReservation,
+        writer: Box<StreamWriter<BufWriter<GuardedWriter<File>>>>,
+        guard: Arc<Mutex<SpillGuard>>,
     },
     /// Sigillato: il file e' pronto per la rilettura in ordine. La
-    /// prenotazione di spill resta viva finche' il file esiste.
+    /// prenotazione resta viva finche' il file esiste, cioe' fino alla fine
+    /// della rilettura.
     Replaying {
         reader: Box<StreamReader<File>>,
-        /// Trattenuta, non letta: e' la prenotazione che tiene la quota di
-        /// spill impegnata finche' il file esiste.
-        _spill: SpillReservation,
+        guard: Arc<Mutex<SpillGuard>>,
     },
     /// Sigillato e vuoto, oppure esaurito.
     Drained,
@@ -301,13 +400,13 @@ impl StagedSpool {
     }
 
     /// Quota di spill attualmente prenotata dallo spool.
+    /// Quota di spill attualmente **prenotata** dallo spool. Non coincide
+    /// con i byte fisici: la prenotazione avviene a blocchi.
     #[cfg(test)]
-    const fn reserved_spill(&self) -> u64 {
-        // Il campo di `Replaying` esiste per il suo `Drop`, non per essere
-        // letto: qui lo si guarda solo per verificare la contabilita'.
+    fn reserved_spill(&self) -> u64 {
         match &self.stage {
-            Stage::Writing { spill, .. } | Stage::Replaying { _spill: spill, .. } => {
-                spill.reserved()
+            Stage::Writing { guard, .. } | Stage::Replaying { guard, .. } => {
+                guard_lock(guard).reserved()
             }
             Stage::Memory { .. } | Stage::Drained => 0,
         }
@@ -317,8 +416,10 @@ impl StagedSpool {
     #[cfg(test)]
     fn written_spill_bytes(&self) -> u64 {
         match &self.stage {
-            Stage::Writing { written, .. } => written.load(Ordering::Acquire),
-            _ => 0,
+            Stage::Writing { guard, .. } | Stage::Replaying { guard, .. } => {
+                guard_lock(guard).written()
+            }
+            Stage::Memory { .. } | Stage::Drained => 0,
         }
     }
 
@@ -376,20 +477,15 @@ impl StagedSpool {
                 *bytes = bytes.saturating_add(accounted);
                 Ok(())
             }
-            Stage::Writing {
-                writer,
-                written,
-                spill,
-            } => {
-                // La prenotazione precede la scrittura: se la quota non basta
-                // il file non cresce oltre cio' che e' gia' coperto.
-                spill.ensure_covers(&self.budget, written.load(Ordering::Acquire), accounted)?;
-                writer
-                    .write(&batch)
-                    .map_err(|_| spool_error(SPOOL_WRITE_FAILED))?;
-                // La stima puo' essere piu' bassa dei byte reali: la
-                // differenza si copre subito, non si lascia scoperta.
-                spill.ensure_covers(&self.budget, written.load(Ordering::Acquire), 0)
+            Stage::Writing { writer, guard } => {
+                // Nessuna prenotazione qui: la applica il writer prima di
+                // ogni scrittura fisica, sui byte veri invece che su una
+                // stima. Qui si traduce soltanto il suo esito nell'errore
+                // tipizzato, che `io::Error` non sa trasportare.
+                match writer.write(&batch) {
+                    Ok(()) => Ok(()),
+                    Err(_) => Err(write_failure(guard)),
+                }
             }
             Stage::Replaying { .. } | Stage::Drained => Err(contract_error(SPOOL_ALREADY_SEALED)),
         }
@@ -409,31 +505,23 @@ impl StagedSpool {
         let stage = std::mem::replace(&mut self.stage, Stage::Drained);
         self.stage = match stage {
             Stage::Memory { batches, bytes } => Stage::Memory { batches, bytes },
-            Stage::Writing {
-                writer,
-                written,
-                mut spill,
-            } => {
-                let mut counting = writer
+            Stage::Writing { writer, guard } => {
+                // Il flush consegna al file i byte che il buffer tratteneva:
+                // e' l'ultimo momento in cui la quota puo' essere superata, e
+                // il writer la applica anche li'.
+                let mut buffered = writer.into_inner().map_err(|_| write_failure(&guard))?;
+                buffered.flush().map_err(|_| write_failure(&guard))?;
+                let mut file = buffered
                     .into_inner()
-                    .map_err(|_| spool_error(SPOOL_SEAL_FAILED))?;
-                counting
-                    .flush()
-                    .map_err(|_| spool_error(SPOOL_SEAL_FAILED))?;
-                let mut file = counting
-                    .into_inner()
-                    .into_inner()
-                    .map_err(|_| spool_error(SPOOL_SEAL_FAILED))?;
-                // Il flush puo' aver consegnato al file byte che il buffer
-                // teneva ancora: la copertura si chiude qui, non prima.
-                spill.ensure_covers(&self.budget, written.load(Ordering::Acquire), 0)?;
+                    .map_err(|_| spool_error(SPOOL_SEAL_FAILED))?
+                    .into_inner();
                 file.seek(SeekFrom::Start(0))
                     .map_err(|_| spool_error(SPOOL_SEAL_FAILED))?;
                 let reader =
                     StreamReader::try_new(file, None).map_err(|_| spool_error(SPOOL_CORRUPTION))?;
                 Stage::Replaying {
                     reader: Box::new(reader),
-                    _spill: spill,
+                    guard,
                 }
             }
             other => other,
@@ -456,7 +544,7 @@ impl StagedSpool {
         // avrebbero effetto fino all'ultimo batch.
         check_cancelled(&self.cancellation, ErrorPhase::Read)?;
         self.budget.ensure_active()?;
-        match &mut self.stage {
+        let esito = match &mut self.stage {
             Stage::Memory { batches, bytes } => match batches.pop_front() {
                 // Il drop della lease restituisce la memoria nello stesso
                 // istante in cui il batch lascia la libreria: e' il transfer
@@ -481,7 +569,25 @@ impl StagedSpool {
             },
             Stage::Writing { .. } => Err(contract_error(SPOOL_NOT_SEALED)),
             Stage::Drained => Ok(None),
+        };
+        // Fine della rilettura: il file e la sua quota non servono piu'. Il
+        // passaggio a `Drained` chiude il descrittore — quindi libera lo
+        // spazio, perche' l'inode e' gia' scollegato — e restituisce le lease
+        // di spill. Aspettare il drop dello spool terrebbe occupati volume e
+        // quota per tutto il tempo in cui il consumer lavora sui batch che ha
+        // gia' ricevuto.
+        if matches!(esito, Ok(None)) && !matches!(self.stage, Stage::Drained) {
+            self.release_storage();
         }
+        esito
+    }
+
+    /// Rilascia file e prenotazioni, portando lo spool a `Drained`.
+    fn release_storage(&mut self) {
+        if let Stage::Writing { guard, .. } | Stage::Replaying { guard, .. } = &self.stage {
+            guard_lock(guard).release();
+        }
+        self.stage = Stage::Drained;
     }
 
     /// Svuota lo spool restituendo ogni quota trattenuta.
@@ -491,7 +597,7 @@ impl StagedSpool {
     /// deve restare prenotata mentre il drain prosegue per completare i
     /// conteggi.
     pub fn clear(&mut self) {
-        self.stage = Stage::Drained;
+        self.release_storage();
     }
 
     /// Costruisce uno spool gia' sigillato che rilegge da `file`.
@@ -504,6 +610,7 @@ impl StagedSpool {
     fn replaying_from(schema: SchemaRef, budget: ResourceBudget, file: File) -> Result<Self> {
         let reader =
             StreamReader::try_new(file, None).map_err(|_| spool_error(SPOOL_CORRUPTION))?;
+        let budget_per_guard = budget.clone();
         Ok(Self {
             schema,
             budget,
@@ -511,7 +618,7 @@ impl StagedSpool {
             memory_threshold: 0,
             stage: Stage::Replaying {
                 reader: Box::new(reader),
-                _spill: SpillReservation::default(),
+                guard: Arc::new(Mutex::new(SpillGuard::new(budget_per_guard))),
             },
             sealed: true,
         })
@@ -519,42 +626,33 @@ impl StagedSpool {
 
     fn migrate_to_disk(&mut self) -> Result<()> {
         let stage = std::mem::replace(&mut self.stage, Stage::Drained);
-        let Stage::Memory { batches, bytes } = stage else {
+        let Stage::Memory { batches, bytes: _ } = stage else {
             self.stage = stage;
             return Ok(());
         };
         let directory = spill_directory()?;
         let file =
             tempfile::tempfile_in(&directory).map_err(|_| spool_error(SPOOL_CREATE_FAILED))?;
-        let written = Arc::new(AtomicU64::new(0));
-        let counting = CountingWriter {
-            inner: BufWriter::new(file),
-            written: Arc::clone(&written),
+        let guard = Arc::new(Mutex::new(SpillGuard::new(self.budget.clone())));
+        let guarded = GuardedWriter {
+            inner: file,
+            guard: Arc::clone(&guard),
         };
-        let mut writer = StreamWriter::try_new(counting, self.schema.as_ref())
+        let mut writer = StreamWriter::try_new(BufWriter::new(guarded), self.schema.as_ref())
             .map_err(|_| spool_error(SPOOL_CREATE_FAILED))?;
-        let mut spill = SpillReservation::default();
-        // La prenotazione iniziale copre la stima dei batch gia' in RAM: se
-        // la quota di spill non basta si fallisce prima di scrivere.
-        spill.ensure_covers(&self.budget, 0, bytes)?;
         for (batch, lease) in batches {
             // La migrazione di uno spool pieno e' una sequenza lunga di
             // scritture: va interrompibile come il resto della lettura.
             check_cancelled(&self.cancellation, ErrorPhase::Read)?;
             self.budget.ensure_active()?;
-            spill.ensure_covers(&self.budget, written.load(Ordering::Acquire), 0)?;
-            writer
-                .write(&batch)
-                .map_err(|_| spool_error(SPOOL_WRITE_FAILED))?;
+            writer.write(&batch).map_err(|_| write_failure(&guard))?;
             // Il batch ha lasciato la RAM: la memoria torna subito, ed e'
             // proprio questo che rende il picco indipendente dal dataset.
             drop(lease);
         }
-        spill.ensure_covers(&self.budget, written.load(Ordering::Acquire), 0)?;
         self.stage = Stage::Writing {
             writer: Box::new(writer),
-            written,
-            spill,
+            guard,
         };
         Ok(())
     }
@@ -733,15 +831,20 @@ mod tests {
             budget(1 << 20, 500),
             2 * PER_BATCH_OVERHEAD_BYTES,
         );
-        spool.push(batch(&schema, 0, 4), 200).expect("primo push");
-        let errore = spool
-            .push(batch(&schema, 4, 4), 400)
-            .expect_err("lo spill oltre quota deve fallire");
+        // La quota si applica alle scritture fisiche, che il buffer
+        // differisce: il rifiuto arriva quando i byte raggiungono davvero il
+        // file, non quando il batch entra nel writer. E' il punto: prima si
+        // rifiutava una stima, ora si rifiuta cio' che sta per essere scritto.
+        let esito = spool
+            .push(batch(&schema, 0, 4), 200)
+            .and_then(|()| spool.push(batch(&schema, 4, 4), 400))
+            .and_then(|()| spool.seal());
+        let errore = esito.expect_err("lo spill oltre quota deve fallire");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
-        assert_eq!(
-            spool.written_spill_bytes(),
-            0,
-            "senza copertura non deve essere scritto nulla"
+        assert!(
+            spool.written_spill_bytes() <= 500,
+            "scritti {} byte con una quota di 500",
+            spool.written_spill_bytes()
         );
     }
 
@@ -861,12 +964,114 @@ mod tests {
                 .expect("push");
         }
         assert!(spool.spilled());
+        // I byte fisici compaiono quando il buffer li consegna: il sigillo
+        // forza il flush, quindi e' li' che la contabilita' e' completa.
+        spool.seal().expect("seal");
         let scritti = spool.written_spill_bytes();
         assert!(scritti > 0, "l'IPC deve aver prodotto byte reali");
         assert!(
             spool.reserved_spill() >= scritti,
             "prenotato {} < scritto {scritti}: la quota non copre il file",
             spool.reserved_spill()
+        );
+    }
+
+    #[test]
+    fn an_underestimated_batch_cannot_write_beyond_the_quota() {
+        // La stima passata a `push` e' deliberatamente ridicola rispetto ai
+        // byte che l'IPC produce. Con l'enforcement sulla stima il file
+        // sarebbe cresciuto ben oltre la quota; con l'enforcement sulle
+        // scritture fisiche la quota tiene comunque.
+        const QUOTA: u64 = 4_096;
+        let schema = schema();
+        let mut spool = StagedSpool::with_threshold(
+            Arc::clone(&schema),
+            budget(1 << 20, QUOTA),
+            2 * PER_BATCH_OVERHEAD_BYTES,
+        );
+        let mut esito = Ok(());
+        for indice in 0..64_i64 {
+            // 1 byte dichiarato per un batch da 64 righe: sottostima grossa.
+            esito = spool.push(batch(&schema, indice * 64, 64), 1);
+            if esito.is_err() {
+                break;
+            }
+        }
+        let esito = esito.and_then(|()| spool.seal());
+        assert!(
+            esito.is_err(),
+            "una sottostima non deve poter aggirare la quota di spill"
+        );
+        assert!(
+            spool.written_spill_bytes() <= QUOTA,
+            "scritti {} byte con una quota di {QUOTA}",
+            spool.written_spill_bytes()
+        );
+    }
+
+    #[test]
+    fn a_quota_smaller_than_the_reservation_chunk_is_usable() {
+        // La prenotazione a blocchi da 1 MiB non deve trasformare una quota
+        // piu' piccola in un rifiuto sistematico: il tetto configurato
+        // verrebbe arrotondato per eccesso al blocco, cioe' ignorato.
+        // Il test ha senso solo perche' la quota e' molto piu' piccola del
+        // blocco di prenotazione: `SPILL_RESERVATION_CHUNK` e' 1 MiB, la
+        // quota qui e' 64 KiB.
+        let schema = schema();
+        let mut spool = StagedSpool::with_threshold(
+            Arc::clone(&schema),
+            budget(1 << 20, 64 * 1024),
+            2 * PER_BATCH_OVERHEAD_BYTES,
+        );
+        for indice in 0..4_i64 {
+            spool
+                .push(batch(&schema, indice * 4, 4), 100)
+                .expect("una quota piccola ma sufficiente deve bastare");
+        }
+        spool.seal().expect("seal");
+        assert_eq!(drain(&mut spool).len(), 4);
+        assert!(spool.written_spill_bytes() <= 64 * 1024);
+    }
+
+    #[test]
+    fn reaching_eof_releases_file_and_quota_while_the_spool_is_still_alive() {
+        // Il consumer puo' lavorare a lungo sui batch gia' ricevuti: tenere
+        // occupati volume e quota fino al drop dello spool significherebbe
+        // tenerli occupati per tutto quel tempo, senza motivo.
+        let schema = schema();
+        let budget = budget(1 << 20, 1 << 24);
+        let iniziale = budget.remaining(ResourceKind::SpillBytes);
+        let mut spool = StagedSpool::with_threshold(
+            Arc::clone(&schema),
+            budget.clone(),
+            2 * PER_BATCH_OVERHEAD_BYTES,
+        );
+        for indice in 0..8_i64 {
+            spool
+                .push(batch(&schema, indice * 4, 4), 100)
+                .expect("push");
+        }
+        spool.seal().expect("seal");
+        assert!(
+            budget.remaining(ResourceKind::SpillBytes) < iniziale,
+            "durante la rilettura la quota deve risultare impegnata"
+        );
+
+        while spool.next_batch().expect("rilettura").is_some() {}
+
+        // Lo spool e' ancora vivo: non e' il suo `Drop` ad aver liberato.
+        assert_eq!(
+            budget.remaining(ResourceKind::SpillBytes),
+            iniziale,
+            "a fine rilettura la quota deve tornare senza aspettare il drop"
+        );
+        assert!(
+            !spool.spilled(),
+            "il file di spool non deve essere piu' aperto"
+        );
+        assert!(
+            spool.next_batch().expect("dopo l'esaurimento").is_none(),
+            "uno spool esaurito resta esaurito"
         );
     }
 

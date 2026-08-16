@@ -386,48 +386,108 @@ sezione M2 del pacchetto e PLN-ASR-004 della matrice di tracciabilita'.
 all'allineamento di 6 test le cui costanti dipendevano dalla vecchia
 contabilita'.
 
-## Benchmark A/B dello spool (S2, 2026-08-16)
+## Registrazione S2.e del 2026-08-16
+
+Quattro correzioni allo spool piu' la sostituzione delle sezioni normative
+residue sullo sweep.
+
+**L'enforcement della quota si sposta nel writer sottostante.** Prima la
+prenotazione avveniva attorno alla scrittura del batch, cioe' su una stima:
+i byte trattenuti dal `BufWriter` raggiungevano il volume senza passare da
+alcun controllo, e una stima bassa lasciava crescere il file oltre la quota.
+Ora il controllo vive in `GuardedWriter`, che avvolge il **file** — non il
+buffer — ed e' quindi l'ultimo anello prima del disco: `buffer` contiene
+esattamente i byte che stanno per essere consegnati. Il prezzo e' che il
+rifiuto arriva al flush invece che al `push`; il guadagno e' che rifiuta cio'
+che sta per essere scritto invece di una previsione. L'errore tipizzato viene
+trasportato attraverso `io::Error` con un canale dedicato, perche' `Write`
+non puo' restituire altro.
+
+**Quote piu' piccole del blocco di prenotazione sono ora utilizzabili.** La
+prenotazione a blocchi da 1 MiB serve a non creare una lease per batch, ma
+faceva fallire sistematicamente ogni quota di spill inferiore al blocco: il
+tetto configurato veniva di fatto arrotondato per eccesso, cioe' ignorato.
+Ora, se il blocco non entra, si ripiega sull'importo esatto.
+
+**File e quota si rilasciano a fine rilettura**, non al drop dello spool. Il
+consumer puo' lavorare a lungo sui batch gia' ricevuti, e tenere occupati
+volume e quota per tutto quel tempo non serve a nulla. Il passaggio a
+`Drained` chiude il descrittore — quindi libera lo spazio, perche' l'inode e'
+gia' scollegato — e restituisce le lease.
+
+**Sezioni normative sullo sweep sostituite in place.** Il pacchetto
+descriveva ancora directory `plenora-io-spool-*` con permessi 0700/DACL,
+lock file per-directory, init sweep con ownership UID/SID e rimozione
+ricorsiva symlink-safe, con cinque test dedicati. Nulla di tutto cio' esiste
+piu': il file non ha nome, quindi non esistono orfani da spazzare e i casi
+limite che quel meccanismo avrebbe dovuto gestire — PID recycling, clock
+skew, filesystem senza `flock` affidabile, race fra due processi che
+spazzano insieme — non si presentano. La sezione e' riscritta come "File di
+spool: politica di sicurezza (attuata in S2)" e la riga ADR-IO 7 A della
+tabella di accettazione elenca i test che esistono davvero.
+
+**Verifica S2.e**: 3 test nuovi — sottostima della stima che non aggira la
+quota, quota piu' piccola del blocco che resta utilizzabile, rilascio a fine
+rilettura con lo spool ancora vivo — piu' 2 test allineati alla nuova
+semantica di enforcement. 26 test nello spool.
+
+## Benchmark A/B dello spool (S2, rieseguito dopo S2.e)
 
 L'harness principale misura `read` e `write` separatamente e con i limiti di
 default: con quelli lo spool non si attiva quasi mai, e un risultato verde
 non direbbe nulla sul costo che interessa. Il binario
-`plenora-bench-spool-ab` misura invece un `convert` completo — CSV →
-GeoParquet, lettura attraverso l'adapter operation-atomic e scrittura via
-driver — in due varianti sullo stesso fixture:
+`plenora-bench-spool-ab` misura un `convert` completo — CSV → GeoParquet,
+con **budget separati per lettura e scrittura** come fa `cmd_convert` della
+CLI, perche' un budget condiviso conterebbe due volte la stessa riga e
+misurerebbe un percorso che la CLI non esegue — in due varianti sullo stesso
+fixture:
 
 - **no-spill**: quota di memoria 1 GiB, i batch verificati restano in RAM;
-- **forced-spill**: quota di memoria 8 MiB, la soglia adattiva e' 4 MiB e la
-  migrazione avviene.
+- **forced-spill**: quota 8 MiB, soglia adattiva 4 MiB, la migrazione avviene.
 
 Ogni corsa **dichiara se lo spill e' avvenuto davvero**, campionando la quota
-residua di `SpillBytes` **durante** il drain: la prenotazione e' RAII e al
-drop dello spool torna al budget, quindi una misura a posteriori vedrebbe
-zero. Un `forced-spill` che non spilla esce con errore, perche' misurerebbe
-lo stesso percorso del `no-spill` e sarebbe verde per costruzione.
+residua di `SpillBytes` **durante** il drain: la prenotazione e' RAII e viene
+restituita a fine rilettura, quindi una misura a posteriori vedrebbe zero. Un
+`forced-spill` che non spilla esce con errore, perche' misurerebbe lo stesso
+percorso del `no-spill` e sarebbe verde per costruzione.
 
-Baseline **prima**: `601a124`, cioe' lo spool presente ma non ancora cablato
-— l'adapter accumula ancora in `VecDeque`. Baseline **dopo**: `5690061`.
-Stessa macchina, stessa toolchain 1.92.0 nel container di sviluppo, 400.000
-righe, 7 batch, 5 campioni per variante, mediana.
+La grandezza riportata e' `spill_peak_reserved_bytes`, cioe' la quota
+**prenotata** al picco: non sono i byte fisici del file. La prenotazione
+avviene a blocchi, quindi e' un limite superiore all'occupazione reale del
+volume. I byte fisici li conosce solo lo spool e non sono osservabili dal
+benchmark; il rapporto fra le due grandezze e' verificato dai test dello
+spool, che asseriscono `scritti <= prenotati`.
+
+Baseline **prima**: `601a124` — spool presente ma non cablato, l'adapter
+accumula ancora in `VecDeque`. Baseline **dopo**: S2.e. 400.000 righe, 7
+batch, esecuzioni **alternate** campione per campione fra i due binari nello
+stesso processo, cosi' una deriva del carico colpisce entrambi allo stesso
+modo.
+
+**La statistica riportata e' il minimo, non la mediana, e la ragione va
+detta**: durante la campagna la macchina era sotto carico crescente e i
+campioni sono degradati da ~360 ms a oltre 2300 ms sullo stesso binario. Con
+rumore additivo di quella entita' la mediana misura il carico della macchina,
+non il codice; il minimo e' la stima piu' stabile del costo reale.
 
 | Variante | Prima | Dopo | Delta |
 |---|---|---|---|
-| no-spill | 334 ms | 343 ms | **+2,7%** |
-| forced-spill | **fallisce** `LimitExceeded` | 337 ms, 20,5 MB spillati | capability nuova |
+| no-spill | 357 ms | 335 ms | **-6%** (nel rumore: nessuna regressione) |
+| forced-spill | **non completa** `LimitExceeded` | 358 ms | +6,9% rispetto al no-spill |
 
-**Percorso comune (no-spill): +2,7%, dentro il veto del 10%.** I campioni si
-sovrappongono (prima 333-357 ms, dopo 327-354 ms): il delta e' nell'ordine
-del rumore di misura, non una regressione distinguibile.
+**Percorso comune: nessuna regressione.** Il valore "dopo" e' persino piu'
+basso del "prima", il che significa soltanto che il delta e' dentro il
+rumore residuo — non che lo spool acceleri qualcosa.
 
 **Percorso forced-spill: prima non completava affatto.** Con 8 MiB di quota
-il codice pre-spool falliva `batch materializzato oltre la quota prenotata`:
-e' esattamente il difetto che ADR-IO 7 esiste per chiudere. Dopo, la stessa
-conversione riesce in 337 ms — indistinguibile dal percorso senza spill —
-scrivendo 20,5 MB sul file temporaneo. Il costo di scrittura e rilettura
-Arrow IPC non domina il tempo utente.
+il codice pre-spool falliva `batch materializzato oltre la quota prenotata`,
+che e' esattamente il difetto che ADR-IO 7 esiste per chiudere. Dopo, la
+stessa conversione riesce a +6,9% rispetto al percorso senza spill: il costo
+di scrittura e rilettura Arrow IPC non domina il tempo utente.
 
-**Limite dichiarato della misura**: il file temporaneo vive sul filesystem
-del container, che su questa macchina e' veloce. Su un volume lento il
-rapporto scrittura/rilettura peserebbe di piu'. La misura dimostra che lo
-spool non introduce un costo strutturale sul percorso comune, non che lo
-spill sia gratuito su qualunque storage.
+**Limiti dichiarati della misura**: il file temporaneo vive sul filesystem
+del container, veloce su questa macchina; su un volume lento il rapporto
+scrittura/rilettura peserebbe di piu'. E la campagna e' stata eseguita su una
+macchina non isolata: il minimo di nove campioni alternati e' una stima
+difendibile, non una misura di laboratorio. Una campagna su runner dedicato
+resta il modo corretto di produrre l'evidenza di release.

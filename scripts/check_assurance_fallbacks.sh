@@ -57,6 +57,16 @@ set -eu
 # che qualcuno consumi: un default sbagliato qui fa misurare la cosa
 # sbagliata, e il benchmark lo dichiara nel proprio JSON. Nessuna revisione
 # H-01 dovuta.
+#
+# Sempre il 2026-08-16 lo spool bounded ha aggiunto un'occorrenza in
+# plenora-io-core (11 -> 12, totale 98 -> 99): in `write_failure`, quando una
+# scrittura sul file di spool fallisce e il guardiano della quota non ha
+# registrato un rifiuto tipizzato, l'errore diventa quello generico di
+# scrittura. Il fallback e' sulla *classificazione* dell'errore, non sul
+# dato: l'operazione fallisce comunque e nessun batch raggiunge il consumer.
+# Il ramo coperto e' il fallimento per una ragione del filesystem invece che
+# per quota. E' raccolto in un helper unico proprio per non moltiplicarsi sui
+# quattro punti di scrittura. Nessuna revisione H-01 dovuta.
 expected='
 driver-csv 3
 driver-dxf 15
@@ -69,7 +79,7 @@ driver-kml 3
 driver-shp 3
 driver-xls 1
 plenora-io-model 1
-plenora-io-core 11
+plenora-io-core 12
 plenora-io-cli 19
 plenora-bench 24
 plenora-fuzz 5
@@ -102,7 +112,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 98 ]; then
+if [ "${actual_total}" -ne 99 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

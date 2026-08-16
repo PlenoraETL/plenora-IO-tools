@@ -231,12 +231,12 @@ scostamenti taciuti:
    accorpata a quella del modello budget: le due modifiche condividono
    baseline, perimetro e hazard.
 
-7. **Campagna prestazionale bounded** eseguita con un percorso senza spill e
-   uno con spill forzato, entrambi su `convert` completo: sul percorso comune
-   il delta e' **+2,7%**, dentro il veto e nell'ordine del rumore; il
-   percorso con spill forzato **prima non completava affatto** e ora riesce
-   nello stesso tempo del percorso senza spill. Risultati e limiti della
-   misura in `CHANGE_IMPACT_2026-08-16_LOTTO_0_BUDGET_MODEL.md`.
+7. **Campagna prestazionale bounded** eseguita su `convert` completo con
+   budget separati read/write, in due varianti: senza spill e con spill
+   forzato. Sul percorso comune **nessuna regressione**; il percorso con
+   spill forzato **prima non completava affatto** e ora costa +6,9% rispetto
+   a quello senza spill. Risultati, statistica usata e limiti della misura in
+   `CHANGE_IMPACT_2026-08-16_LOTTO_0_BUDGET_MODEL.md`.
 
 ## Fuori scope di questa ADR
 

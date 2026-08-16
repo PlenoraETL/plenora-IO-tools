@@ -85,26 +85,43 @@ fn read_options(budget: &ResourceBudget) -> ReadOptions {
     }
 }
 
-/// Esito di una corsa: righe, batch e **picco** di spill osservato.
+/// Esito di una corsa.
+///
+/// `spill_peak_reserved_bytes` e' la quota **prenotata** al picco, non i byte
+/// fisici del file: la prenotazione avviene a blocchi, quindi e' un limite
+/// superiore all'occupazione reale del volume. I byte fisici li conosce solo
+/// lo spool, e non sono osservabili da qui — il file non ha nome e il reader
+/// non li espone. Il rapporto fra le due grandezze e' verificato dai test
+/// dello spool, che asseriscono `scritti <= prenotati`.
 struct Corsa {
     rows: usize,
     batches: usize,
-    spill_peak_bytes: u64,
+    spill_peak_reserved_bytes: u64,
 }
 
-/// Esegue un `convert` da CSV a `GeoParquet`.
+/// Esegue un `convert` da CSV a `GeoParquet` con **budget separati** per
+/// lettura e scrittura, come fa `cmd_convert` della CLI.
+///
+/// Condividere un solo budget farebbe contare due volte la stessa riga sui
+/// contatori cumulativi, e misurerebbe quindi un percorso che la CLI non
+/// esegue.
 ///
 /// Il picco di spill si campiona **durante** il drain, non alla fine: la
-/// quota di spill e' una prenotazione RAII, quindi al drop dello spool torna
-/// al budget e una misura a posteriori non vedrebbe nulla. Che e' proprio la
-/// proprieta' che si vuole avere, ma rende la misura a posteriori inutile.
-fn convert(source: &Path, destination: &Path, budget: &ResourceBudget) -> Corsa {
+/// quota e' una prenotazione RAII, quindi torna al budget quando lo spool
+/// rilascia il file — a fine rilettura, ancora prima del drop. Una misura a
+/// posteriori vedrebbe zero.
+fn convert(
+    source: &Path,
+    destination: &Path,
+    read_budget: &ResourceBudget,
+    write_budget: &ResourceBudget,
+) -> Corsa {
     std::fs::remove_file(destination).ok();
     let reader_driver = driver_csv::CsvDriver;
     let writer_driver = driver_geoparquet::GeoParquetDriver;
 
     let dataset = reader_driver
-        .open(Source::Path(source.to_owned()), &read_options(budget))
+        .open(Source::Path(source.to_owned()), &read_options(read_budget))
         .unwrap();
     let contract = dataset.layers()[0].contract.clone();
     let mut reader = dataset
@@ -132,19 +149,19 @@ fn convert(source: &Path, destination: &Path, budget: &ResourceBudget) -> Corsa 
             &plan,
             &WriteOptions {
                 limits: Limits::default(),
-                resource_budget: budget.clone(),
+                resource_budget: write_budget.clone(),
                 cancellation: CancellationToken::default(),
                 ..WriteOptions::default()
             },
         )
         .unwrap();
 
-    let spill_iniziale = budget.remaining(ResourceKind::SpillBytes);
+    let spill_iniziale = read_budget.remaining(ResourceKind::SpillBytes);
     let mut spill_minimo = spill_iniziale;
     let mut rows = 0;
     let mut batches = 0;
     while let Some(batch) = reader.next_batch().unwrap() {
-        spill_minimo = spill_minimo.min(budget.remaining(ResourceKind::SpillBytes));
+        spill_minimo = spill_minimo.min(read_budget.remaining(ResourceKind::SpillBytes));
         rows += batch.num_rows();
         batches += 1;
         writer.write(&batch).unwrap();
@@ -153,7 +170,7 @@ fn convert(source: &Path, destination: &Path, budget: &ResourceBudget) -> Corsa 
     Corsa {
         rows,
         batches,
-        spill_peak_bytes: spill_iniziale - spill_minimo,
+        spill_peak_reserved_bytes: spill_iniziale - spill_minimo,
     }
 }
 
@@ -188,17 +205,19 @@ fn main() {
     }
     let destinazione = directory.join(format!("spool-ab-{variante}.parquet"));
 
-    let budget = budget(memory_bytes);
+    // Budget separati per lettura e scrittura, come `cmd_convert`.
+    let read_budget = budget(memory_bytes);
+    let write_budget = budget(memory_bytes);
 
     let inizio = Instant::now();
-    let corsa = convert(&sorgente, &destinazione, &budget);
+    let corsa = convert(&sorgente, &destinazione, &read_budget, &write_budget);
     let durata = inizio.elapsed();
 
-    let ha_spillato = corsa.spill_peak_bytes > 0;
+    let ha_spillato = corsa.spill_peak_reserved_bytes > 0;
     assert_eq!(
-        budget.remaining(ResourceKind::SpillBytes),
+        read_budget.remaining(ResourceKind::SpillBytes),
         SPILL_BYTES,
-        "la quota di spill deve tornare interamente al drop dello spool"
+        "la quota di spill deve tornare interamente a fine rilettura"
     );
 
     println!(
@@ -210,7 +229,7 @@ fn main() {
             "memory_bytes": memory_bytes,
             "wall_ms": durata.as_millis(),
             "spilled": ha_spillato,
-            "spill_peak_bytes": corsa.spill_peak_bytes,
+            "spill_peak_reserved_bytes": corsa.spill_peak_reserved_bytes,
         })
     );
 

@@ -245,7 +245,8 @@ distinte** ed esclusivamente queste:
   intatta). Non producono `Partial`, perche' il writer non ha
   toccato la destinazione.
 - Recupero dei batch spool sopravvissuti a un crash. Il file di
-  spool orfano viene ripulito al riavvio dallo sweep del cleanup
+  spool non lascia orfani: il file non ha nome e il kernel ne
+  libera l'inode alla chiusura del descrittore
   handler (vedi ADR-IO 7 aggiornato), non ricostruito.
 
 `OperationAtomic` **non** copre nemmeno:
@@ -906,78 +907,64 @@ associata a questo documento.
   `O(batch_target)`: il bound non scala col numero di batch
   bufferizzati ne' con la dimensione del dataset.
 
-### Spill directory: politica di sicurezza
+### File di spool: politica di sicurezza (attuata in S2)
 
 Un file di spool contiene i batch validati che passeranno al
 writer. E' un canale sensibile: se un altro utente del filesystem
-puo' leggerlo, vede il payload post-parsing dell'input. Se puo'
+puo' leggerlo, vede il payload post-parsing dell'input; se puo'
 scriverlo, puo' iniettare batch arbitrari nella scrittura.
 
-**Requisiti obbligatori per la directory di spill**:
+**Il file non ha un nome.** E' creato con `tempfile::tempfile_in`,
+che su Unix lo scollega dal filesystem appena aperto e su Windows
+lo apre con `FILE_FLAG_DELETE_ON_CLOSE`. Ne discende tutto il
+resto:
 
-1. **Configurabilita' del path base**: variabile d'ambiente
-   `PLENORA_SPILL_DIR` (default: `TMPDIR` dell'OS). La directory
-   di spool **non deve** stare per forza sullo stesso filesystem
-   della destinazione del writer: il replay dallo spool passa
-   dal file system utente-space (read+write), non da rename
-   atomici. Un tmpfs, un disco SSD dedicato o un mount criptato
-   sono tutti scelte legittime. Vincolo `EXDEV` non applicabile.
-2. **Permessi ristretti** al processo corrente:
-   - Unix: `mkdir` con umask `0077`, verifica `st_mode & 0o777
-     == 0o700` post-creazione (fail-closed se il fs non
-     rispetta la umask).
-   - Windows: DACL con solo l'SID dell'utente corrente; niente
-     `Users` group.
-3. **Nome non predicibile**: prefisso `plenora-io-spool-` + PID
-   corrente + suffisso random (16 byte da csprng). Il PID e' un
-   discriminante per lo sweep di cleanup (vedi sotto).
-4. **Nessun symlink follow all'apertura dei file interni**:
-   Unix `O_NOFOLLOW`; Windows apertura con `FILE_FLAG_OPEN_REPARSE_POINT`
-   e failure esplicita su reparse point trovati.
+1. **Nessun altro processo puo' aprirlo**, perche' non esiste un
+   path da aprire. La riservatezza non dipende da permessi che il
+   filesystem potrebbe non rispettare, ne' da un nome non
+   predicibile.
+2. **Nessuna finestra TOCTOU** fra creazione e apertura, e nessun
+   symlink o reparse point da seguire: non c'e' una seconda
+   risoluzione del path.
+3. **Nessun orfano da spazzare**, nemmeno dopo un `SIGKILL` o un
+   crollo dell'alimentazione: il kernel libera l'inode alla
+   chiusura del descrittore. Non serve un `LOCK` per-directory, ne'
+   uno sweep all'avvio, ne' la distinzione fra directory vive e
+   morte — cioe' spariscono tutti i casi limite che quel
+   meccanismo avrebbe dovuto gestire correttamente (PID recycling,
+   clock skew, filesystem senza `flock` affidabile, race fra due
+   processi che spazzano insieme).
+4. **Rilascio anticipato**: a fine rilettura il descrittore viene
+   chiuso subito, senza aspettare il drop dello spool. Lo spazio
+   torna al volume mentre il consumer sta ancora lavorando sui
+   batch ricevuti.
 
-### Cleanup crash: solo dopo lock esclusivo (no PID/age fallback)
+**Configurabilita' del path base**: `PLENORA_SPILL_DIR` sceglie la
+directory che ospita l'inode — un tmpfs, un SSD dedicato, un mount
+criptato sono tutte scelte legittime. La directory di spool **non
+deve** stare sullo stesso filesystem della destinazione del writer:
+il replay passa dal filesystem in user space, non da rename
+atomici, quindi `EXDEV` non si applica. Se la variabile e'
+impostata ma non utilizzabile la creazione **fallisce chiuso**: un
+ripiego silenzioso metterebbe i dati su un volume che l'operatore
+non ha scelto.
 
-**Meccanismo unico — lock exclusive**:
+**Quota di spill applicata alle scritture fisiche**: il writer che
+avvolge il file prenota la quota **prima di ogni `write` verso il
+disco**, sui byte che stanno per essere consegnati. Applicarla piu'
+in alto, attorno alla scrittura del batch, la applicherebbe a una
+stima — e i byte bufferizzati raggiungerebbero il volume prima che
+qualcuno li conti. Le prenotazioni sono RAII e a blocchi, con
+ripiego sull'importo esatto quando la quota configurata e' piu'
+piccola del blocco: altrimenti un tetto piccolo verrebbe di fatto
+arrotondato per eccesso.
 
-1. **Lock file per-directory**: dentro ogni
-   `plenora-io-spool-<pid>-<rand>/` la libreria crea un file
-   `LOCK`:
-   - Unix: `flock(LOCK_EX | LOCK_NB)` mantenuto vivo dal
-     processo. Un altro processo prova `flock`; se non riesce
-     ad acquisirlo, la directory e' viva.
-   - Windows: apertura con `FILE_SHARE_NONE`. Un altro processo
-     che prova ad aprirlo riceve `ERROR_SHARING_VIOLATION` = viva.
-2. **Init sweep**: al primo `PipelineBudget::builder().build()`
-   di un processo, la libreria enumera le directory sotto
-   `PLENORA_SPILL_DIR` col pattern `plenora-io-spool-*` e:
-   - Skip se non proprietaria dallo stesso UID/SID (non tocca
-     lavoro di altri utenti).
-   - Prova ad acquisire il `LOCK` esclusivo. Se riesce, la
-     directory e' orfana → **rimossa in modo ricorsivo
-     symlink/reparse-safe**: la rimozione apre ogni sottodirectory
-     con `O_NOFOLLOW`/`O_DIRECTORY` (Unix) o
-     `FILE_FLAG_OPEN_REPARSE_POINT` (Windows), rifiuta di scendere
-     in symlink/junction/reparse point e cancella per-file via
-     `unlinkat`/handle senza mai seguire un link fuori dalla
-     directory di spool. Se non riesce ad acquisire il lock, skip.
-3. **Nessun fallback su PID o su age**: PID recycling e clock
-   skew rendono entrambi inaffidabili. Se il fs non supporta
-   `flock`/`FILE_SHARE_NONE` con la semantica attesa (per
-   esempio alcune NFS senza `nlockmgr`), il cleanup automatico
-   e' disattivato e le orfane restano; l'operatore rimuove
-   manualmente. La libreria emette una diagnostica al primo
-   fallimento del lock probing.
-4. **Robustezza**: sweep-fail (permessi, race) logga e non
-   blocca. Worst case: consumo disco, non correttezza.
-5. **Test dedicati**:
-   - `spool_lock_prevents_concurrent_sweep_unix`;
-   - `spool_lock_prevents_concurrent_sweep_windows`;
-   - `orphaned_spool_after_process_death_is_swept_when_lock_available`;
-   - `spool_of_other_uid_or_sid_is_not_touched`;
-   - `sweep_disabled_and_diagnostic_emitted_on_lock_unsupported_fs`.
-6. **Documentato**: comportamento specifico Windows/Unix in
-   `docs/assurance/CHANGE_IMPACT_YYYY-MM-DD_SPOOL_LIFECYCLE.md`
-   scritto in S2, non in questo pacchetto.
+**Test dedicati**: `an_unusable_spill_dir_fails_closed_instead_of_falling_back`;
+`a_spill_dir_that_is_a_file_is_rejected`;
+`an_underestimated_batch_cannot_write_beyond_the_quota`;
+`a_quota_smaller_than_the_reservation_chunk_is_usable`;
+`reaching_eof_releases_file_and_quota_while_the_spool_is_still_alive`;
+`spill_quota_returns_to_the_budget_when_the_spool_is_dropped`.
 
 ### Alternative considerate
 
@@ -2194,7 +2181,7 @@ verificabile. Nessuna decisione senza copertura API + test.
 | **INV-12** concorrenza via `ResourcePool` + composizione | `ResourcePool::builder().concurrent_operations(n).build()`; agganciato via `.resource_pool(pool)`. **Senza pool**: memory/spill sono gauge **locali** al context (quota = `PipelineLimits`), concorrenza **assente** e `lease_concurrency()` no-op. **Con pool**: memory/spill = min(quota locale, pool) con consumo di entrambi i gauge, concorrenza governata **solo** dal pool | Test `memory_lease_is_local_and_enforced_without_pool`; `memory_lease_uses_min_of_local_and_pool_quota`; `lease_concurrency_is_noop_without_pool`; `two_pipelines_sharing_pool_compete_on_concurrency_gauge`; `pipeline_without_pool_does_not_count_against_others` |
 | **INV-13** model→core vietato + permit opaco one-shot | `plenora-io-model::InputPermit` opaco non-Clone senza costruttori pubblici, emesso dentro il `PipelineBundle` **opaco** da `PipelineBudgetBuilder::build` e mai separabile da esso (esce solo dentro le parti); consumato per `move` da `PipelineContext::observe_input(permit) -> Result<SourceFootprint, PlenoraIoError>` (legato al context che lo ha emesso), estratto dal core con `ReadOptions::take_input_permit()`; nessun import di `plenora-io-core` dal `Cargo.toml` di `plenora-io-model` | Gate CI `check_api_boundary.py` verifica assenza di `plenora-io-core` fra le dep di `plenora-io-model`; doc test compile-fail `let _ = permit.clone();`; `let p = InputPermit { .. };`; `bundle.permit` (campo inesistente); test `observe_input_consumes_permit_by_move_and_second_call_does_not_compile` |
 | **INV-14** `FormatDescriptor` const-costruibile dai driver | `FormatDescriptor::const_new(...)` accessibile in contesto const | Compile test: ogni driver dichiara `static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(...)`; verifica di build |
-| **ADR-IO 7 A** spool bounded + spill dir sicura + cleanup solo-lock | `SpooledReader` in `plenora-io-core::driver::spool`; directory `plenora-io-spool-*` con perm 0700/DACL; startup sweep basato **solo** su lock esclusivo (`flock`/`FILE_SHARE_NONE`); nessun fallback PID/age | Test `spool_directory_has_owner_only_permissions`; `dataset_over_memory_bytes_succeeds_via_spool`; `orphaned_spool_after_process_death_is_swept_when_lock_available`; `spool_lock_prevents_concurrent_sweep_unix`/`windows`; `sweep_disabled_and_diagnostic_emitted_on_lock_unsupported_fs` |
+| **ADR-IO 7 A** spool bounded + file di spool senza nome | `StagedSpool` in `plenora-io-core::driver::spool`; file creato con `tempfile::tempfile_in`, scollegato dal filesystem all'apertura su Unix e `FILE_FLAG_DELETE_ON_CLOSE` su Windows; nessun path apribile, nessun orfano, nessuno sweep; `PLENORA_SPILL_DIR` sceglie il volume e fallisce chiuso se inutilizzabile; quota di spill RAII applicata alle scritture fisiche | Test `dataset_over_memory_bytes_succeeds_via_spool`; `an_unusable_spill_dir_fails_closed_instead_of_falling_back`; `a_spill_dir_that_is_a_file_is_rejected`; `an_underestimated_batch_cannot_write_beyond_the_quota`; `a_quota_smaller_than_the_reservation_chunk_is_usable`; `reaching_eof_releases_file_and_quota_while_the_spool_is_still_alive`; `spill_quota_returns_to_the_budget_when_the_spool_is_dropped`; `a_corrupted_spool_fails_typed_instead_of_truncating_silently` |
 | **L0.1** propagazione limiti in inferenza | `infer_types(path, &PipelineLimits)` / `infer_schema(path, &PipelineLimits)` / XLSX WKT parse con `PipelineLimits` reale (letto dal `PipelineContext`) | Test `inference_uses_configured_wkt_cell_bytes_not_default`; test `inference_respects_max_input_entries` |
 | **L0.5** validazione covering GeoParquet | Verifica di tipi FLOAT/DOUBLE, unicita' dei nomi covering, presenza contestuale prima dello strip | Test `geoparquet_covering_with_non_float_column_is_rejected`; test `geoparquet_covering_duplicated_names_is_rejected` |
 | **L0.7** schema dichiarativo `format_options` | Registry `plenora-io-model::format_options` con `FormatOptionsSchema` per driver; chiavi sconosciute → `PlenoraIoError::Unsupported`; valori invalidi → error tipizzato | Test snapshot `every_driver_has_a_schema_for_options`; test `unknown_option_key_produces_typed_error_not_silent_ignore`; test `unknown_compression_value_produces_typed_error_not_snappy_default` |
@@ -2255,11 +2242,10 @@ Correzioni applicate in questa iterazione:
   `ReadMode::from_native` automatico (residuo). Ogni driver
   dichiara esplicitamente `read_mode` in `const_new`; nessuna
   derivazione (INV-7).
-- **Spill cleanup**: rimosso fallback age/PID; solo lock
-  esclusivo (`flock`/`FILE_SHARE_NONE`) come criterio; rimozione
-  ricorsiva symlink/reparse-safe. Se il filesystem non supporta
-  lock affidabili, sweep disattivato e diagnostica emessa. Nessuna
-  cancellazione automatica basata su heuristiche.
+- **Spill cleanup**: superato in S2. Il file di spool non ha nome,
+  quindi non esistono orfani da spazzare e il cleanup — con lock,
+  ownership, rimozione ricorsiva e i loro casi limite — non serve
+  piu'. Vedi "File di spool: politica di sicurezza".
 - **`hostile_input_hardened` per-driver**: eliminato il flag
   globale. Ogni `FormatDescriptor` dichiara la propria
   capability; `catalog` la emette entry-per-entry.
@@ -2369,14 +2355,17 @@ Correzioni applicate in questa iterazione:
   `PipelineBudget` fornito dal consumer. Solo `convert` condivide
   un unico context fra reader e writer.
 
-**ADR-IO 7 — spill directory e cleanup** — sostituita.
+**ADR-IO 7 — file di spool** — sostituita due volte.
 - Prima: `same-filesystem` obbligatorio; sweep con `kill(pid, 0)`.
-- Dopo: no vincolo same-filesystem; permessi 0700/DACL,
-  `PLENORA_SPILL_DIR`, `O_NOFOLLOW`/`FILE_FLAG_OPEN_REPARSE_POINT`;
-  cleanup basato **solo** su lock esclusivo (`flock`/`FILE_SHARE_NONE`)
-  + ownership UID/SID, **nessun** fallback PID/age; rimozione
-  ricorsiva **symlink/reparse-safe**. Comportamento Unix e Windows
-  separati e verificabili. ADR resta **Draft** fino a S0.
+- Poi: directory 0700/DACL con `PLENORA_SPILL_DIR`, cleanup su lock
+  esclusivo e ownership, rimozione ricorsiva symlink-safe.
+- **Ora (S2, attuato)**: file **senza nome**
+  (`tempfile::tempfile_in`). Nessun path apribile da altri, nessun
+  orfano da spazzare, nessuna finestra TOCTOU, nessun symlink da
+  seguire: le proprieta' che le due versioni precedenti cercavano
+  di ottenere con permessi e lock discendono dal fatto che il file
+  non esiste nel namespace. `PLENORA_SPILL_DIR` resta per scegliere
+  il volume e fallisce chiuso se inutilizzabile.
 
 **Redazione errore DTO** — sostituita.
 - Prima: un unico invariante "conformita' v1" con nota che
