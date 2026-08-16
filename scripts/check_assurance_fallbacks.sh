@@ -100,11 +100,20 @@ set -eu
 # due e' codice spedito. Riscriverle come `match` per non far muovere il
 # contatore sarebbe stato il modo di eludere H-01 che questo registro
 # denuncia. Nessuna revisione dovuta.
+#
+# Il 2026-08-16 la propagazione dei limiti in inferenza (S5) ha aggiunto
+# un'occorrenza in driver-geojson (1 -> 2, totale 104 -> 105): il tetto sulle
+# feature visitate viene da `max_rows`, che il modello espone in `u64` mentre
+# il conteggio delle feature e' `u64` — la conversione e' da `usize` di
+# `opts.max_rows()`. Su un target a 64 bit non puo' fallire, e il saturante
+# verso `u64::MAX` sarebbe comunque il verso sicuro: un tetto piu' largo qui
+# non allenta nulla, perche' il contatore delle righe rifiuta prima.
+# Nessuna revisione H-01 dovuta.
 expected='
 driver-csv 3
 driver-dxf 15
 driver-filegdb 5
-driver-geojson 1
+driver-geojson 2
 driver-geoparquet 3
 driver-gpkg 3
 driver-ipc 1
@@ -145,7 +154,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 104 ]; then
+if [ "${actual_total}" -ne 105 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

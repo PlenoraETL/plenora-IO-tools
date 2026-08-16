@@ -32,7 +32,13 @@ FILE_VIETATI = ("crates/plenora-io-model/src/resource.rs",)
 
 VIETATI: list[tuple[re.Pattern[str], str]] = [
     (
-        re.compile(r"^\s*(?:pub\s+)?mod\s+resource\s*;", re.MULTILINE),
+        # Sia `mod resource;` sia il modulo inline `mod resource { ... }`: il
+        # secondo reintrodurrebbe il modello senza bisogno di ricreare il
+        # file, ed e' la forma che la prima versione del gate non vedeva.
+        re.compile(
+            r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+resource\s*[;{]",
+            re.MULTILINE,
+        ),
         "il modulo `resource` e' stato eliminato in S4.e insieme al modello "
         "legacy dei contatori",
     ),
@@ -60,9 +66,16 @@ VIETATI: list[tuple[re.Pattern[str], str]] = [
         "dai metodi del context per memoria, spill e concorrenza",
     ),
     (
-        # Il tipo esatto, non `PipelineLimits` ne' `WkbLimits`: la lookbehind
-        # esclude qualunque cosa lo preceda in un identificatore composto.
-        re.compile(r"(?<![A-Za-z0-9_])Limits\b(?!\s*::\s*wkb)"),
+        # Il tipo esatto, non `PipelineLimits` ne' `WkbLimits`: **la sola**
+        # lookbehind basta, perche' esclude qualunque cosa preceda il nome
+        # dentro un identificatore composto.
+        #
+        # La prima versione aggiungeva anche `(?!\s*::\s*wkb)`. Era un buco:
+        # non escludeva nulla di legittimo — `WkbLimits` e' gia' coperto dalla
+        # lookbehind — e lasciava passare un `Limits` reintrodotto con quello
+        # specifico accesso, che e' proprio la forma piu' probabile in un
+        # revert del vecchio `effective_wkb()`.
+        re.compile(r"(?<![A-Za-z0-9_])Limits\b"),
         "il tipo `Limits` e' sostituito da `PipelineLimits`. `WkbLimits` "
         "resta: e' un tipo del contratto geometrico, non del budget",
     ),

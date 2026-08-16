@@ -565,6 +565,7 @@ fn encode_geometry_cell(
     row: &[Data],
     bounds: SheetBounds,
     geom: XlsxGeomSpec,
+    cella_wkt: usize,
     detected_dimensions: &mut BTreeSet<CoordinateDimensions>,
     detected_types: &mut BTreeSet<GeometryType>,
     wkb_buffer: &mut Vec<u8>,
@@ -575,11 +576,11 @@ fn encode_geometry_cell(
             if text.trim().is_empty() {
                 return Ok(false);
             }
-            // Finding #6 review 2026-08-15: cap sulla lunghezza della
-            // cella WKT prima di costruire l'AST wkt. Il cap concreto usa
-            // il default `WkbLimits::default().max_cell_bytes` (64 MiB) in
-            // attesa che i limiti CLI arrivino fin qui (roadmap 1.1, L6).
-            let geometry = parse_wkt_bounded(text.trim(), WkbLimits::default().max_cell_bytes)?;
+            // Cap sulla lunghezza della cella WKT prima di costruire l'AST.
+            // Da S5 e' la quota **configurata** dal chiamante: chi stringe
+            // `--max-wkb-cell-bytes` vede il rifiuto qui, dove l'AST verrebbe
+            // allocato, invece che dopo.
+            let geometry = parse_wkt_bounded(text.trim(), cella_wkt)?;
             detected_dimensions.insert(geometry.dimensions);
             detected_types.insert(geometry.geometry_type());
             wkb_buffer.clear();
@@ -728,6 +729,10 @@ struct XlsxQuote {
     colonne: usize,
     righe: usize,
     byte_ingresso: u64,
+    /// Tetto sui byte di una cella WKT, applicato **prima** di costruire
+    /// l'AST. Fino a S5 il percorso di produzione usava qui il default del
+    /// contratto, quindi `--max-wkb-cell-bytes` non arrivava all'inferenza.
+    cella_wkt: usize,
 }
 
 impl XlsxQuote {
@@ -736,6 +741,7 @@ impl XlsxQuote {
             colonne: opts.max_columns(),
             righe: opts.max_rows(),
             byte_ingresso: opts.max_input_bytes(),
+            cella_wkt: opts.wkb_limits().max_cell_bytes,
         }
     }
 }
@@ -805,6 +811,7 @@ where
                 row,
                 bounds,
                 resolved_geom,
+                quote.cella_wkt,
                 &mut detected_dimensions,
                 &mut detected_types,
                 &mut wkb_buffer,
@@ -1088,6 +1095,52 @@ mod tests {
     /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
     /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
     /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    /// L'inferenza XLSX usa il tetto per cella **configurato**.
+    ///
+    /// Fino a S5 `encode_geometry_cell` passava
+    /// `WkbLimits::default().max_cell_bytes` — 64 MiB — quindi
+    /// `--max-wkb-cell-bytes` non arrivava al parsing WKT, e una cella oltre
+    /// la soglia richiesta veniva parsata comunque.
+    #[test]
+    fn inference_uses_configured_wkt_cell_bytes_not_default() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("punto.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "geometry").expect("intestazione");
+        sheet.write_string(1, 0, "POINT (1 2)").expect("cella");
+        workbook.save(&output).expect("salvataggio");
+
+        let opzioni = |byte: usize| {
+            opzioni_lettura_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_wkb_cell_bytes(byte),
+            )
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry")
+        };
+
+        assert!(
+            XlsDriver
+                .open(Source::Path(output.clone()), opzioni(64))
+                .is_ok(),
+            "una cella dentro il tetto configurato deve passare"
+        );
+
+        let esito = XlsDriver.open(Source::Path(output), opzioni(4));
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::LimitExceeded
+                    || errore.message.contains("limite")
+            ),
+            "una cella oltre il tetto configurato deve fallire"
+        );
+        assert!(
+            64 < plenora_io_model::limits::WkbLimits::default().max_cell_bytes,
+            "la soglia del test deve stare sotto il default"
+        );
+    }
+
     fn opzioni_lettura_con(limits: plenora_io_model::budget::PipelineLimits) -> ReadOptions {
         match plenora_io_model::budget::PipelineBudget::builder()
             .limits(limits)

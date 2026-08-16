@@ -2306,14 +2306,57 @@ quando il modello lo consente.
 | **S2** | M2 `StagedSpool` e `SpooledReader`; benchmark bounded | INV-5, INV-8, L0.3, L0.4 | S1 | 5-7 |
 | **S3** | L0.9 `max_input_entries` integrato in `PipelineContext` | INV-9 | S1 | 1-2 |
 | **S4** | M3 migrazione API `ReadOptions`/`WriteOptions`; CLI aggiornata | INV-2, INV-4, INV-6, L0.2, L0.10 | S1, S2 | 4-6 |
-| **S5** | L0.1 propagazione limiti in inferenza CSV/GeoJSON/XLSX | (usa il nuovo budget) | S4 | 3-4 |
+| ~~**S5**~~ | L0.1 propagazione limiti in inferenza CSV/GeoJSON/XLSX — **attuato** il 2026-08-16, con la deviazione registrata sotto | L0.1 | S4 | ~~3-4~~ |
 | **S6** | L0.7 schema dichiarativo `format_options` (design in doc separato, poi implementazione) | (necessario per comando `options` post-facade) | S4 | 4-6 |
-| **S7** | M4 rimozione vecchio modello; gate CI di grep | pulizia | S4, S5 | 1-2 |
+| ~~**S7**~~ | ~~M4 rimozione vecchio modello; gate CI di grep~~ — **eseguito dentro S4.e**, vedi errata sotto | pulizia | ~~S4, S5~~ | ~~1-2~~ |
 | **S8** | M5 descriptor split `native`/`effective`; CIA | INV-7 | S2, S4 | 2-3 |
 | **S9** | Bozza L0.6 → implementazione errori strutturati | INV-10 | S4 | 5-7 |
 | **S10** | L0.5 validazione completa covering GeoParquet 1.1 (tipi, unicita', coerenza) | driver-specific | indipendente | 2-3 |
 | **S11** | L0.8 `wkb_shape` ispeziona figli collection | driver-specific | indipendente | 1-2 |
 | **S12** | L6 pre-scansione WKT/GeoJSON, in-parse depth/components, fuzz target dedicati, `hostile_input_hardened` dichiarato per-driver | L6 (ratificato A) | S4, S6 | 6-9 |
+
+#### Errata — S7 anticipato dentro S4.e
+
+Il piano collocava la rimozione del modello vecchio in S7, **dopo** S5. Non e'
+andata cosi', e non per fretta: S4.d ha portato il percorso di lettura sul
+modello unificato, e da quel momento il ramo legacy non governava piu' nulla
+sul percorso di lettura ma restava costruibile — `ReadOptions::default()`
+esisteva ancora, e ogni test che lo usasse otteneva un oggetto che il codice
+di produzione rifiutava. Tenerlo in vita per due sottopassi in piu' avrebbe
+significato mantenere due modelli di cui uno gia' morto, con la superficie di
+errore che ne consegue.
+
+S4.e lo ha quindi eliminato, insieme al `Default` delle opzioni, e la
+riconciliazione successiva ha attuato anche il gate CI che S7 prevedeva —
+`check_no_legacy_budget.py`, permanente e senza tetti.
+
+**Conseguenze sul grafo.** S5 non dipende piu' da S7 e non lo precede: S7 non
+e' fra gli step rimanenti. Il contenuto di S5 cambia di conseguenza — la
+propagazione dei limiti in inferenza avviene verso `PipelineLimits`, non verso
+`Limits`, perche' il secondo non esiste.
+
+#### Errata S5 — `max_input_entries` non governa i record
+
+Il perimetro chiedeva un acceptance test
+`inference_respects_max_input_entries`. Non e' stato scritto con quel nome, e
+quella quota non e' stata applicata ai record.
+
+`max_input_entries` governa l'enumerazione della **sorgente**, e il preflight
+l'ha gia' applicata al file: riapplicarla ai record sarebbe la stessa quota
+contata due volte — l'errore che l'intero lotto ha evitato. Il suo default,
+10.000, e' calibrato sui file di una directory; ai record rifiuterebbe un CSV
+di dimensioni ordinarie, e il benchmark del repository ne genera 200.000.
+
+Il tetto sulle passate di inferenza e' percio' `max_rows`, e il test si chiama
+`inference_respects_max_rows_before_materialising`. Che il tetto sulle entry
+sia applicato prima dell'inferenza resta verificato dove quell'invariante vive:
+`directory_scan_over_max_input_entries_rejects_with_typed_error` nel preflight
+del core.
+
+**Residuo dichiarato.** `collect_read_violations` valida le geometrie del batch
+con il tetto predefinito, perche' non riceve le opzioni. E' fuori dal perimetro
+di S5 e resta aperto, censito da `check_wkb_limits_defaults.py`, che lo stampa
+a ogni corsa.
 
 Il grafo di dipendenza consente overlap significativo:
 - S3 in parallelo a S2.
@@ -2345,7 +2388,7 @@ Ripartizione per step:
 - S4 migrazione API: 4-6 gg-persona.
 - S5 propagazione limiti inferenza: 3-4 gg-persona.
 - S6 format options schema: 4-6 gg-persona.
-- S7 rimozione vecchio modello: 1-2 gg-persona.
+- ~~S7 rimozione vecchio modello: 1-2 gg-persona~~ — assorbito da S4.e.
 - S8 descriptor split: 2-3 gg-persona.
 - S9 errori strutturati: 5-7 gg-persona.
 - S10 covering GeoParquet: 2-3 gg-persona.

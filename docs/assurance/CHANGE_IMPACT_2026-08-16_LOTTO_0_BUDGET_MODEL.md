@@ -1206,3 +1206,113 @@ ora i due rami dallo stesso `ConvertBudgetParts` come il codice spedito:
 misurare una forma diversa da quella in produzione avrebbe reso la campagna
 poco utile. **Resta non verificato per compilazione**: e' lo stesso gap dei
 gate fuzz e coverage, assenti dal `Dockerfile.dev`.
+
+## Registrazione S5 del 2026-08-16 — i limiti configurati arrivano all'inferenza
+
+L0.1. Fino a S4 le passate di inferenza di CSV, GeoJSON e XLSX usavano
+`WkbLimits::default()` — 64 MiB per cella — con un commento che rimandava al
+lotto L6. `--max-wkb-cell-bytes` non le raggiungeva: chi stringeva il flag
+otteneva il rifiuto piu' tardi, o non lo otteneva affatto, e l'AST wkt veniva
+allocato comunque.
+
+**Cosa riceve ora i limiti reali.** In CSV `infer_types` e
+`infer_wkt_geometry`, piu' `append_geometry` sul percorso di lettura; in
+GeoJSON `infer_schema` e la deserializzazione della geometria nelle due
+passate; in XLSX `encode_geometry_cell`, che serve sia l'inferenza sia la
+materializzazione.
+
+**Nessun default indipendente, nessun contatore nuovo.** Ogni driver prende le
+quote dalle opzioni tramite un config privato tipizzato — `QuoteInferenza` in
+CSV e GeoJSON, il gia' esistente `XlsxQuote` — con i soli valori che consulta.
+Passare i `PipelineLimits` interi darebbe all'inferenza accesso a quote che non
+le competono, la memoria per esempio, che governa il batch e non il parsing di
+una cella.
+
+**Il limite precede l'allocazione.** Il tetto per cella e' applicato al testo
+grezzo prima di costruire l'AST; il tetto sulle righe prima di leggere la
+cella. Fermarsi dopo vorrebbe dire aver gia' allocato cio' che il limite
+doveva impedire.
+
+### Una deviazione dal perimetro, dichiarata
+
+Il perimetro chiedeva un acceptance test `inference_respects_max_input_entries`.
+**Non l'ho scritto con quel nome, e non ho applicato quella quota ai record.**
+
+`max_input_entries` governa l'enumerazione della **sorgente**, e il preflight
+l'ha gia' applicata al file: riapplicarla ai record sarebbe la stessa quota
+contata due volte, che e' l'errore che l'intero Lotto 0 ha evitato. Il suo
+valore predefinito — 10.000, calibrato sui file di una directory — ai record
+rifiuterebbe un CSV di dimensioni ordinarie: il benchmark del repository ne
+genera 200.000, e sarebbe stato rotto dal commit.
+
+Il test si chiama percio' `inference_respects_max_rows_before_materialising` e
+usa `max_rows`, che e' la quota che governa le righe. Che il tetto sulle entry
+sia applicato **prima** dell'inferenza resta verificato dove quell'invariante
+vive: `directory_scan_over_max_input_entries_rejects_with_typed_error` nel
+preflight del core. Un driver non raggiunge l'inferenza se la sorgente ha gia'
+sforato.
+
+Se il nome era vincolante piu' della semantica, va detto: il cambio e' un
+rename piu' l'accettazione che il default vada alzato.
+
+### Verifica per mutazione
+
+| Mutazione | Esito |
+|---|---|
+| inferenza WKT torna al default | **uccisa** da `inference_uses_configured_wkt_cell_bytes_not_default` |
+| entrambi i tetti di riga rimossi | **uccisa** da `inference_respects_max_rows_before_materialising` |
+| tetto di riga rimosso da `infer_types` soltanto | sopravvive |
+| tetto di riga rimosso da `infer_wkt_geometry` soltanto | sopravvive |
+| lettura torna al default | sopravvive |
+
+Le tre sopravvivenze non sono copertura mancante, e vanno lette per quello che
+sono. I due tetti di riga si coprono a vicenda: `infer_types` gira prima, quindi
+rimuovere il tetto da una sola passata lascia l'altra a fermare il file. La
+mutazione combinata e' uccisa, che e' la forma in cui la proprieta' e'
+verificabile.
+
+La lettura e' il caso piu' interessante. Inferenza e lettura parsano le stesse
+celle con la stessa quota, presa dalle stesse opzioni: dall'API pubblica non
+c'e' modo di stringere la seconda senza stringere la prima, quindi una cella
+oltre soglia e' sempre rifiutata dall'inferenza e la lettura non la vede mai.
+E' ridondanza fra due controlli sullo stesso dato, non un buco. Il test
+`il_percorso_completo_gira_sotto_un_tetto_non_predefinito` copre cio' che
+resta dimostrabile: che il percorso completo funzioni con un tetto configurato,
+cioe' che la lettura non usi un valore **incoerente** con l'inferenza — un file
+accettato all'apertura che fallisce a meta' drenaggio sarebbe il difetto
+peggiore, e quello e' escluso.
+
+Scrivendo quel test ho tarato la soglia sul solo testo WKT e il test e'
+fallito: il tetto governa **due** grandezze sullo stesso percorso — i byte del
+testo in inferenza e quelli del WKB codificato nella validazione del batch — e
+un punto occupa 11 byte in testo e 21 in WKB.
+
+### Censimento dei `WkbLimits::default()` residui
+
+Nuovo gate permanente `check_wkb_limits_defaults.py`. Non vieta il simbolo —
+sarebbe sbagliato, alcune occorrenze sono corrette — ma le classifica e fissa
+il conteggio per categoria, cosi' che una nuova non passi senza che qualcuno la
+collochi.
+
+| Categoria | Conteggio | Natura |
+|---|---|---|
+| test | 45 | `decode_wkb` su un WKB prodotto dal test stesso: il tetto non governa nulla |
+| attrezzaggio | 4 | `plenora-bench` e `plenora-fuzz`, non codice spedito |
+| produzione, legittimi | 2 | `__fuzz_gpkg_geometry` e `__fuzz_wkb_roundtrip`: entry point per libFuzzer, input gia' bounded a 1 MiB dall'harness, e nessuna opzione da cui prendere una quota |
+| produzione, **residui dichiarati** | 1 | vedi sotto |
+
+Il residuo e' `collect_read_violations` in `reader_adapters.rs:633`: valida le
+geometrie del batch con il tetto predefinito perche' non riceve le opzioni — la
+firma prende contratto, batch e offset. Un `--max-wkb-cell-bytes` piu' stretto
+del default non e' quindi applicato li', benche' lo sia in inferenza e nella
+materializzazione. **Fuori dal perimetro di S5**, che copre l'inferenza dei tre
+driver tabellari; chiuderlo richiede di portare i limiti dell'operazione dentro
+la validazione del contratto di lettura. Il gate lo stampa a ogni corsa, cosi'
+non diventa invisibile per abitudine.
+
+### Il fuzz resta un gap di qualifica
+
+I target di fuzzing sono stati adeguati alle nuove firme, ma **non compilano in
+questo ambiente**: il `Dockerfile.dev` non ha nightly ne' `cargo-fuzz`. Non
+sono percio' dichiarati verificati, e restano fra i gate non misurabili qui
+insieme alla coverage.

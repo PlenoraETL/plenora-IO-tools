@@ -175,10 +175,11 @@ impl FormatDriver for CsvDriver {
             };
 
         // Pass 1: inferenza tipi (RAM O(ncol), nessuna String per cella).
-        let attrs = infer_types(&path, delim, &headers, &geom_cols)?;
+        let quote = QuoteInferenza::from_read_options(&opts);
+        let attrs = infer_types(&path, delim, &headers, &geom_cols, quote)?;
 
         let (dimensions, geometry_types) = match geom {
-            GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi)?,
+            GeomSpec::Wkt(wi) => infer_wkt_geometry(&path, delim, wi, quote)?,
             GeomSpec::Xy(_, _) => (CoordinateDimensions::Xy, vec![GeometryType::Point]),
         };
         let kind = if crs == "OGC:CRS84" || crs == "EPSG:4326" {
@@ -221,6 +222,7 @@ impl FormatDriver for CsvDriver {
                 path,
                 delim,
                 geom,
+                wkb_limits: opts.wkb_limits(),
                 attrs,
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -289,6 +291,10 @@ struct CsvDataset {
     path: PathBuf,
     delim: u8,
     geom: GeomSpec,
+    /// Le quote WKB configurate, non i default del contratto: il dataset
+    /// sopravvive alle opzioni, e senza portarsele dietro la lettura tornerebbe
+    /// al default proprio dopo che l'inferenza ha rispettato il flag.
+    wkb_limits: WkbLimits,
     attrs: Vec<(usize, ColType)>,
     layers: Vec<LayerContract>,
 }
@@ -318,8 +324,11 @@ impl OpenDatasetHandle for CsvDataset {
             request.batch_target,
         );
         let reader = spawn_parser(
-            self.path.clone(),
-            self.delim,
+            SorgenteCsv {
+                path: self.path.clone(),
+                delim: self.delim,
+                cella_wkt: self.wkb_limits.max_cell_bytes,
+            },
             include_geometry.then_some(self.geom),
             attrs,
             layer.contract.schema.clone(),
@@ -356,11 +365,48 @@ fn classify(cell: &str) -> ObservedValueClass {
     ObservedValueClass::Text
 }
 
+/// Le quote che le due passate di inferenza consultano.
+///
+/// Un config privato tipizzato e non i `PipelineLimits` interi: sono le sole
+/// due che servono, e passarli tutti darebbe all'inferenza accesso a quote che
+/// non le competono — la memoria, per esempio, che governa il batch e non il
+/// parsing di una cella.
+#[derive(Clone, Copy)]
+struct QuoteInferenza {
+    /// Tetto sui byte di una singola cella WKT, **prima** di costruire l'AST.
+    cella_wkt: usize,
+    /// Tetto sulle righe visitate dalle passate di inferenza.
+    ///
+    /// Non e' `max_input_entries`: quella quota governa l'enumerazione della
+    /// **sorgente** e il preflight l'ha gia' applicata al file. Applicarla di
+    /// nuovo ai record sarebbe la stessa quota contata due volte, e al valore
+    /// predefinito — decine di migliaia, calibrato sui file di una directory —
+    /// rifiuterebbe un CSV di dimensioni ordinarie.
+    righe: usize,
+}
+
+impl QuoteInferenza {
+    fn from_read_options(opts: &ReadOptions) -> Self {
+        Self {
+            cella_wkt: opts.wkb_limits().max_cell_bytes,
+            righe: opts.max_rows(),
+        }
+    }
+}
+
+/// Errore di una passata di inferenza che supera il tetto di righe.
+fn oltre_le_righe(righe: usize) -> PlenoraIoError {
+    PlenoraIoError::LimitExceeded(format!(
+        "l'inferenza ha superato il limite di {righe} righe prima di completare"
+    ))
+}
+
 fn infer_types(
     path: &Path,
     delim: u8,
     headers: &[String],
     geom_cols: &HashSet<usize>,
+    quote: QuoteInferenza,
 ) -> Result<Vec<(usize, ColType)>> {
     let attr_idx: Vec<usize> = (0..headers.len())
         .filter(|i| !geom_cols.contains(i))
@@ -368,10 +414,19 @@ fn infer_types(
     let mut accs = vec![TypeAccumulator::default(); attr_idx.len()];
     let mut rdr = csv_reader(path, delim)?;
     let mut rec = csv::StringRecord::new();
+    let mut visitate = 0_usize;
     while rdr
         .read_record(&mut rec)
         .map_err(|e| err(format!("riga CSV non valida: {e}")))?
     {
+        // Prima di osservare le celle: un CSV ostile con miliardi di record
+        // rende la passata di inferenza illimitata nel tempo anche se ogni
+        // cella e' minuscola, e nessun contatore di riga e' ancora entrato in
+        // gioco perche' il reader non ha iniziato.
+        visitate = visitate.saturating_add(1);
+        if visitate > quote.righe {
+            return Err(oltre_le_righe(quote.righe));
+        }
         for (j, &ci) in attr_idx.iter().enumerate() {
             accs[j].observe(classify(required_cell(&rec, ci)?));
         }
@@ -387,24 +442,35 @@ fn infer_wkt_geometry(
     path: &Path,
     delim: u8,
     wkt_index: usize,
+    quote: QuoteInferenza,
 ) -> Result<(CoordinateDimensions, Vec<GeometryType>)> {
     let mut reader = csv_reader(path, delim)?;
     let mut record = csv::StringRecord::new();
     let mut dimensions = BTreeSet::new();
     let mut geometry_types = BTreeSet::new();
+    let mut visitate = 0_usize;
     while reader
         .read_record(&mut record)
         .map_err(|error| err(format!("riga CSV non valida: {error}")))?
     {
+        // Il tetto sulle righe si applica **prima** di leggere la cella:
+        // fermarsi dopo averla parsata vorrebbe dire aver gia' allocato cio'
+        // che il limite doveva impedire.
+        visitate = visitate.saturating_add(1);
+        if visitate > quote.righe {
+            return Err(oltre_le_righe(quote.righe));
+        }
         let text = required_cell(&record, wkt_index)?.trim();
         if text.is_empty() {
             continue;
         }
-        // Finding #6: cap a livello driver, in attesa che i `Limits` CLI
-        // arrivino fino a qui (roadmap 1.1, lotto L6). Il default WKB
-        // (`WkbLimits::default().max_cell_bytes`, 64 MiB) rifiuta payload
-        // che superano il contratto del bordo prima di allocare l'AST wkt.
-        let geometry = parse_wkt_bounded(text, WkbLimits::default().max_cell_bytes)?;
+        // Il tetto e' quello **configurato** dal chiamante, non il default
+        // del contratto: chi stringe `--max-wkb-cell-bytes` deve vedere il
+        // rifiuto anche qui, dove l'AST wkt verrebbe allocato. Fino a S5
+        // questa riga usava il default, quindi il flag non arrivava
+        // all'inferenza e una cella oltre la soglia configurata veniva
+        // parsata comunque.
+        let geometry = parse_wkt_bounded(text, quote.cella_wkt)?;
         dimensions.insert(geometry.dimensions);
         geometry_types.insert(geometry.geometry_type());
     }
@@ -420,15 +486,30 @@ fn infer_wkt_geometry(
     Ok((dimensions, geometry_types.into_iter().collect()))
 }
 
-fn spawn_parser(
+/// La sorgente e le quote che il parser consulta, in un solo argomento.
+///
+/// Raggrupparle non e' cosmetica: sono tre valori che viaggiano sempre
+/// insieme e che nessun chiamante deve poter accoppiare male — un delimitatore
+/// di un file con il tetto di un altro sarebbe un difetto silenzioso.
+struct SorgenteCsv {
     path: PathBuf,
     delim: u8,
+    cella_wkt: usize,
+}
+
+fn spawn_parser(
+    sorgente: SorgenteCsv,
     geom: Option<GeomSpec>,
     attrs: Vec<(usize, ColType)>,
     schema: SchemaRef,
     mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
 ) -> Result<Box<dyn LayerReader>> {
+    let SorgenteCsv {
+        path,
+        delim,
+        cella_wkt,
+    } = sorgente;
     spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
         let mut rdr = csv_reader(&path, delim)?;
         let mut rec = csv::StringRecord::new();
@@ -447,7 +528,7 @@ fn spawn_parser(
                 break;
             }
             if let (Some(builder), Some(spec)) = (&mut geom_b, geom) {
-                append_geometry(builder, spec, &rec, &mut wkb_buf)?;
+                append_geometry(builder, spec, &rec, &mut wkb_buf, cella_wkt)?;
             }
             for (k, (ci, _)) in attrs.iter().enumerate() {
                 builders[k].append_csv_cell(required_cell(&rec, *ci)?)?;
@@ -477,6 +558,7 @@ fn append_geometry(
     geom: GeomSpec,
     rec: &csv::StringRecord,
     buf: &mut Vec<u8>,
+    cella_wkt: usize,
 ) -> Result<()> {
     match geom {
         GeomSpec::Wkt(wi) => {
@@ -484,8 +566,10 @@ fn append_geometry(
             if cell.is_empty() {
                 geom_b.append_null();
             } else {
-                // Finding #6: vedi commento in `infer_wkt_geometry`.
-                let geometry = parse_wkt_bounded(cell, WkbLimits::default().max_cell_bytes)?;
+                // Stessa quota dell'inferenza, non il default: un flag che
+                // vale in una passata e non nell'altra sarebbe peggio che non
+                // averlo, perche' il rifiuto arriverebbe a meta' lettura.
+                let geometry = parse_wkt_bounded(cell, cella_wkt)?;
                 buf.clear();
                 encode_wkb_into(&geometry, WkbFlavor::Iso, buf)?;
                 geom_b.append_value(buf.as_slice());
@@ -716,6 +800,165 @@ mod tests {
             Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
             Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
         }
+    }
+
+    /// Opzioni con quote WKB strette, per i test di S5.
+    fn opzioni_con_cella(byte: usize, righe: u64) -> ReadOptions {
+        let limiti = plenora_io_model::budget::PipelineLimits::default()
+            .with_max_wkb_cell_bytes(byte)
+            .with_max_rows(righe);
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti)
+            .build()
+        {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts())
+                .with_assume_crs("EPSG:4326")
+                .with_format_option("wkt_column", "geometry"),
+            Err(error) => unreachable!("limiti di test non validi: {error:?}"),
+        }
+    }
+
+    fn csv_con_wkt(dir: &tempfile::TempDir, wkt: &str) -> std::path::PathBuf {
+        let percorso = dir.path().join("input.csv");
+        std::fs::write(&percorso, format!("id,geometry\n1,\"{wkt}\"\n")).expect("scrittura");
+        percorso
+    }
+
+    /// L'inferenza usa il tetto **configurato**, non il default del contratto.
+    ///
+    /// Fino a S5 `infer_wkt_geometry` passava `WkbLimits::default()
+    /// .max_cell_bytes` — 64 MiB — quindi `--max-wkb-cell-bytes` non arrivava
+    /// alla passata di inferenza: una cella oltre la soglia richiesta veniva
+    /// parsata comunque, e l'AST wkt allocato. Il rifiuto arrivava piu' tardi
+    /// o non arrivava affatto.
+    ///
+    /// Il test copre **entrambi** i lati della soglia con lo stesso tetto: se
+    /// coprisse solo il rifiuto, un tetto messo per sbaglio a zero lo
+    /// soddisferebbe.
+    #[test]
+    fn inference_uses_configured_wkt_cell_bytes_not_default() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let wkt = "POINT (1 2)";
+        let percorso = csv_con_wkt(&dir, wkt);
+        let soglia = wkt.len();
+
+        // Sotto soglia: la cella ci sta, e l'apertura riesce.
+        let sotto = CsvDriver
+            .open(
+                Source::Path(percorso.clone()),
+                opzioni_con_cella(soglia, 1_000),
+            )
+            .expect("una cella dentro il tetto configurato deve passare");
+        assert_eq!(sotto.layers().len(), 1);
+
+        // Sopra soglia: un byte in meno di tetto e la stessa cella e'
+        // rifiutata, prima di costruire l'AST.
+        // `Box<dyn OpenDatasetHandle>` non implementa `Debug`, quindi niente
+        // `expect_err`: si guarda direttamente il ramo di errore.
+        let esito = CsvDriver.open(Source::Path(percorso), opzioni_con_cella(soglia - 1, 1_000));
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::LimitExceeded
+            ),
+            "una cella oltre il tetto configurato deve fallire per quota"
+        );
+
+        // E il default non salva: con 64 MiB di tetto la stessa cella
+        // passerebbe, quindi il fallimento sopra viene davvero dal flag.
+        assert!(
+            soglia - 1 < plenora_io_model::limits::WkbLimits::default().max_cell_bytes,
+            "la soglia del test deve stare sotto il default, o non distinguerebbe nulla"
+        );
+    }
+
+    /// Il percorso completo — inferenza **e** lettura — gira sotto un tetto
+    /// non predefinito.
+    ///
+    /// # Cosa questo test puo' e non puo' dimostrare
+    ///
+    /// Le due passate parsano le stesse celle con la stessa quota, presa
+    /// dalle stesse opzioni: dall'API pubblica non c'e' modo di stringere la
+    /// seconda senza stringere la prima. Una cella oltre soglia viene percio'
+    /// sempre rifiutata dall'inferenza, e la lettura non la vede mai.
+    ///
+    /// Di conseguenza una mutazione che riportasse **solo** la lettura al
+    /// default sopravviverebbe: non e' copertura mancante, e' ridondanza fra
+    /// due controlli sullo stesso dato. Cio' che il test dimostra e' che il
+    /// percorso completo funziona con un tetto configurato — se la lettura
+    /// usasse un valore incoerente con l'inferenza, un file accettato
+    /// all'apertura fallirebbe a meta' drenaggio, ed e' quello il difetto che
+    /// qui si esclude.
+    #[test]
+    fn il_percorso_completo_gira_sotto_un_tetto_non_predefinito() {
+        // Il tetto governa **due** grandezze sullo stesso percorso: i byte
+        // del testo WKT in inferenza e quelli del WKB codificato nella
+        // validazione del batch. Un punto occupa 11 byte in testo e 21 in
+        // WKB, quindi una soglia tarata sul solo testo farebbe fallire la
+        // lettura per la ragione sbagliata — ed e' cosi' che questo test ha
+        // fallito in prima stesura.
+        const SOGLIA: usize = 64;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = csv_con_wkt(&dir, "POINT (1 2)");
+        assert!(
+            SOGLIA < plenora_io_model::limits::WkbLimits::default().max_cell_bytes,
+            "il tetto del test deve essere piu' stretto del default"
+        );
+
+        let dataset = CsvDriver
+            .open(Source::Path(percorso), opzioni_con_cella(SOGLIA, 1_000))
+            .expect("l'apertura deve riuscire: la cella sta nel tetto");
+        let mut reader = dataset
+            .open_layer_reader(&req(1_000))
+            .expect("il reader si apre");
+        let batch = reader
+            .next_batch()
+            .expect("la lettura non deve fallire a meta' drenaggio")
+            .expect("un batch");
+        assert_eq!(batch.num_rows(), 1);
+    }
+
+    /// Le passate di inferenza sono bounded sulle righe visitate.
+    ///
+    /// # Perche' `max_rows` e non `max_input_entries`
+    ///
+    /// `max_input_entries` governa l'enumerazione della **sorgente**, e il
+    /// preflight l'ha gia' applicata al file: riapplicarla ai record sarebbe
+    /// la stessa quota contata due volte. Il suo valore predefinito e'
+    /// calibrato sui file di una directory, e ai record rifiuterebbe un CSV di
+    /// dimensioni ordinarie — il benchmark del repository ne genera 200.000.
+    ///
+    /// Che il tetto sulle entry sia applicato **prima** dell'inferenza lo
+    /// verifica il preflight in `plenora-io-core`
+    /// (`directory_scan_over_max_input_entries_rejects_with_typed_error`): un
+    /// driver non raggiunge l'inferenza se la sorgente ha gia' sforato.
+    #[test]
+    fn inference_respects_max_rows_before_materialising() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = dir.path().join("molte.csv");
+        let righe: Vec<String> = (0..8_u32)
+            .map(|indice| format!("{indice},\"POINT (1 2)\""))
+            .collect();
+        let contenuto = format!("id,geometry\n{}\n", righe.join("\n"));
+        std::fs::write(&percorso, contenuto).expect("scrittura");
+
+        // Otto righe con tetto otto: passa.
+        assert!(CsvDriver
+            .open(Source::Path(percorso.clone()), opzioni_con_cella(4_096, 8))
+            .is_ok());
+
+        // Le stesse otto con tetto sette: l'inferenza si ferma.
+        let esito = CsvDriver.open(Source::Path(percorso), opzioni_con_cella(4_096, 7));
+        let Err(errore) = esito else {
+            unreachable!("l'inferenza deve fermarsi al tetto di righe");
+        };
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+        assert!(
+            errore.message.contains("inferenza"),
+            "il messaggio deve dire dove ci si e' fermati: {}",
+            errore.message
+        );
     }
 
     fn opzioni_lettura() -> ReadOptions {

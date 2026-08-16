@@ -126,7 +126,8 @@ impl FormatDriver for GeoJsonDriver {
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = plenora_io_core::preflight_source(source, &mut opts)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
-        let (schema, cols) = infer_schema(&path)?;
+        let quote = QuoteInferenza::from_read_options(&opts);
+        let (schema, cols) = infer_schema(&path, quote)?;
         let contract = DataContract::new(
             schema,
             Some(GeometryColumnContract::wkb_passthrough(
@@ -144,6 +145,7 @@ impl FormatDriver for GeoJsonDriver {
         Ok(plenora_io_core::with_read_budget(
             Box::new(GeoJsonDataset {
                 path,
+                quote,
                 cols,
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -202,6 +204,9 @@ impl FormatDriver for GeoJsonDriver {
 
 struct GeoJsonDataset {
     path: PathBuf,
+    /// Le quote configurate, portate dal dataset: senza, la lettura tornerebbe
+    /// al default proprio dopo che l'inferenza ha rispettato il flag.
+    quote: QuoteInferenza,
     cols: Vec<(String, ColType)>,
     layers: Vec<LayerContract>,
 }
@@ -232,7 +237,7 @@ impl OpenDatasetHandle for GeoJsonDataset {
             request.batch_target,
         );
         let reader = spawn_parser(
-            self.path.clone(),
+            (self.path.clone(), self.quote),
             layer.contract.schema.clone(),
             cols,
             property_names,
@@ -250,9 +255,40 @@ impl OpenDatasetHandle for GeoJsonDataset {
 /// Pass 1: unione chiavi proprietà + tipo, con un deserializer serde **streaming**
 /// che legge SOLO le chiavi e la classe di tipo dei valori — niente DOM, niente
 /// geometria, niente valori materializzati (allocazioni ~ solo le chiavi nuove).
-fn infer_schema(path: &Path) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
+/// Le quote che le due passate consultano.
+///
+/// Le stesse in inferenza e in lettura: un tetto che vale in una passata e non
+/// nell'altra sarebbe peggio che non averlo, perche' il rifiuto arriverebbe a
+/// meta' lettura invece che all'apertura.
+#[derive(Clone, Copy)]
+struct QuoteInferenza {
+    /// Tetto sui byte del testo grezzo di una geometria, applicato **prima**
+    /// di deserializzarla: e' li' che l'AST verrebbe allocato.
+    cella: usize,
+    /// Tetto sulle feature visitate.
+    ///
+    /// Non e' `max_input_entries`: quella governa l'enumerazione della
+    /// sorgente e il preflight l'ha gia' applicata al file. Applicarla di
+    /// nuovo alle feature sarebbe la stessa quota contata due volte, e al
+    /// valore predefinito rifiuterebbe un `GeoJSON` di dimensioni ordinarie.
+    feature: u64,
+}
+
+impl QuoteInferenza {
+    fn from_read_options(opts: &ReadOptions) -> Self {
+        Self {
+            cella: opts.wkb_limits().max_cell_bytes,
+            feature: u64::try_from(opts.max_rows()).unwrap_or(u64::MAX),
+        }
+    }
+}
+
+fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
     let file = File::open(path)?;
-    let mut accs = SchemaAccumulators::default();
+    let mut accs = SchemaAccumulators {
+        max_feature: quote.feature,
+        ..SchemaAccumulators::default()
+    };
     let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
     if let Err(error) = de.deserialize_map(TopVisitor { accs: &mut accs }) {
         let error = err(format!("GeoJSON non valido: {error}"));
@@ -282,6 +318,10 @@ struct SchemaAccumulators {
     indices: HashMap<String, usize>,
     values: Vec<TypeAccumulator>,
     source_rows_seen: u64,
+    /// Tetto sulle feature visitate dalla passata di inferenza. Zero significa
+    /// "non ancora configurato", e non puo' capitare: `infer_schema` lo
+    /// imposta prima di deserializzare.
+    max_feature: u64,
     in_feature: bool,
 }
 
@@ -521,6 +561,12 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
             .source_rows_seen
             .checked_add(1)
             .ok_or_else(|| A::Error::custom("troppe feature GeoJSON"))?;
+        if self.accs.source_rows_seen > self.accs.max_feature {
+            return Err(A::Error::custom(format!(
+                "l'inferenza ha superato il limite di {} feature prima di completare",
+                self.accs.max_feature
+            )));
+        }
         Ok(())
     }
 }
@@ -594,8 +640,11 @@ impl Visitor<'_> for SchemaKeyVisitor<'_> {
 
 /// Pass 2: thread che produce batch da `batch_size` righe via canale bounded
 /// (backpressure → memoria O(batch)).
+/// `sorgente` tiene insieme il percorso e le sue quote: separarli
+/// consentirebbe di accoppiare il file di un dataset con il tetto di un altro,
+/// ed e' anche cio' che tiene la lista dei parametri sotto il tetto di clippy.
 fn spawn_parser(
-    path: PathBuf,
+    sorgente: (PathBuf, QuoteInferenza),
     schema: SchemaRef,
     cols: Vec<(String, ColType)>,
     property_names: Vec<String>,
@@ -603,6 +652,7 @@ fn spawn_parser(
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     layer: LayerContract,
 ) -> Result<Box<dyn LayerReader>> {
+    let (path, quote) = sorgente;
     spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
         let file = File::open(&path)?;
         let ncols = cols.len();
@@ -624,6 +674,7 @@ fn spawn_parser(
             output: RowOutput::Worker(emitter),
             geom: include_geometry.then(BinaryBuilder::new),
             wkb_buf: Vec::new(),
+            max_cell_bytes: quote.cella,
             builders: cols
                 .iter()
                 .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
@@ -692,6 +743,7 @@ struct RowSink {
     output: RowOutput,
     geom: Option<BinaryBuilder>,
     wkb_buf: Vec<u8>,
+    max_cell_bytes: usize,
     builders: Vec<InferredColumnBuilder>,
     seen: Vec<bool>,
     property_seen: Vec<bool>,
@@ -846,7 +898,12 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                             None => geometry.append_null(),
                             Some(raw) => {
                                 let raw_text = raw.get();
-                                let max_bytes = WkbLimits::default().max_cell_bytes;
+                                // La quota **configurata**: fino a S5 questa
+                                // riga usava il default del contratto, quindi
+                                // `--max-wkb-cell-bytes` non arrivava fin qui
+                                // e una geometria oltre la soglia richiesta
+                                // veniva deserializzata comunque.
+                                let max_bytes = self.sink.max_cell_bytes;
                                 if raw_text.len() > max_bytes {
                                     return Err(<A::Error as DeError>::custom(format!(
                                         "geometria GeoJSON di {} byte oltre il limite {max_bytes}",
@@ -1131,7 +1188,16 @@ fn finish_batch(
 pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     use std::io::Cursor;
     // pass-1: schema
-    let mut accs = SchemaAccumulators::default();
+    // Quote della campagna: tetto per cella e per feature stretti apposta,
+    // cosi' un input ostile non allochi oltre il budget di libFuzzer.
+    let quote = QuoteInferenza {
+        cella: 1_048_576,
+        feature: 100_000,
+    };
+    let mut accs = SchemaAccumulators {
+        max_feature: quote.feature,
+        ..SchemaAccumulators::default()
+    };
     serde_json::Deserializer::from_reader(Cursor::new(bytes))
         .deserialize_map(TopVisitor { accs: &mut accs })
         .map_err(|e| e.to_string())?;
@@ -1155,6 +1221,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         output: RowOutput::Discard,
         geom: Some(BinaryBuilder::new()),
         wkb_buf: Vec::new(),
+        max_cell_bytes: quote.cella,
         builders: cols
             .iter()
             .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
@@ -1310,6 +1377,131 @@ fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn req() -> ReadRequest {
+        ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        }
+    }
+
+    /// Opzioni con tetto per cella e per feature configurabili.
+    fn opzioni_con_cella(byte: usize, feature: u64) -> ReadOptions {
+        let limiti = plenora_io_model::budget::PipelineLimits::default()
+            .with_max_wkb_cell_bytes(byte)
+            .with_max_rows(feature);
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti)
+            .build()
+        {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("limiti di test non validi: {error:?}"),
+        }
+    }
+
+    fn geojson_con_feature(dir: &tempfile::TempDir, quante: usize) -> std::path::PathBuf {
+        let percorso = dir.path().join("input.geojson");
+        let feature: Vec<String> = (0..quante)
+            .map(|indice| {
+                format!(
+                    r#"{{"type":"Feature","properties":{{"id":{indice}}},"geometry":{{"type":"Point","coordinates":[1,2]}}}}"#
+                )
+            })
+            .collect();
+        std::fs::write(
+            &percorso,
+            format!(
+                r#"{{"type":"FeatureCollection","features":[{}]}}"#,
+                feature.join(",")
+            ),
+        )
+        .expect("scrittura");
+        percorso
+    }
+
+    /// L'inferenza usa il tetto per cella **configurato**, non il default.
+    ///
+    /// Fino a S5 la deserializzazione della geometria confrontava il testo
+    /// grezzo con `WkbLimits::default().max_cell_bytes` — 64 MiB — quindi
+    /// `--max-wkb-cell-bytes` non arrivava fin qui e una geometria oltre la
+    /// soglia richiesta veniva deserializzata comunque.
+    #[test]
+    fn inference_uses_configured_wkt_cell_bytes_not_default() {
+        // Il testo grezzo della geometria e' `{"type":"Point","coordinates":[1,2]}`.
+        const GEOMETRIA: usize = 38;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = geojson_con_feature(&dir, 1);
+
+        // Sotto soglia: passa.
+        let dataset = GeoJsonDriver
+            .open(
+                Source::Path(percorso.clone()),
+                opzioni_con_cella(GEOMETRIA + 64, 1_000),
+            )
+            .expect("una geometria dentro il tetto configurato deve passare");
+        let mut reader = dataset
+            .open_layer_reader(&req())
+            .expect("il reader si apre");
+        assert!(reader.next_batch().is_ok());
+
+        // Sopra soglia: rifiutata prima di deserializzare.
+        let dataset = GeoJsonDriver
+            .open(Source::Path(percorso), opzioni_con_cella(8, 1_000))
+            .expect("l'inferenza non tocca il testo grezzo della geometria");
+        let mut reader = dataset
+            .open_layer_reader(&req())
+            .expect("il reader si apre");
+        let esito = reader.next_batch();
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::LimitExceeded
+                    || errore.message.contains("oltre il limite")
+            ),
+            "una geometria oltre il tetto configurato deve fallire: {esito:?}"
+        );
+        assert!(
+            8 < plenora_io_model::limits::WkbLimits::default().max_cell_bytes,
+            "la soglia del test deve stare sotto il default, o non distinguerebbe nulla"
+        );
+    }
+
+    /// La passata di inferenza e' bounded sulle feature visitate.
+    ///
+    /// Non e' `max_input_entries`: quella governa l'enumerazione della
+    /// sorgente e il preflight l'ha gia' applicata al file. Vedi la nota su
+    /// `QuoteInferenza`.
+    #[test]
+    fn inference_respects_max_rows_before_materialising() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = geojson_con_feature(&dir, 8);
+
+        assert!(GeoJsonDriver
+            .open(Source::Path(percorso.clone()), opzioni_con_cella(4_096, 8))
+            .is_ok());
+
+        let esito = GeoJsonDriver.open(Source::Path(percorso), opzioni_con_cella(4_096, 7));
+        let Err(errore) = esito else {
+            unreachable!("l'inferenza deve fermarsi al tetto di feature");
+        };
+        assert!(
+            errore.message.contains("inferenza"),
+            "il messaggio deve dire dove ci si e' fermati: {}",
+            errore.message
+        );
+    }
+
+    /// Quote dell'inferenza per i test, dai limiti predefiniti della pipeline.
+    fn quote_di_prova() -> QuoteInferenza {
+        QuoteInferenza::from_read_options(&opzioni_lettura())
+    }
 
     /// Opzioni di lettura sul modello unificato.
     ///
@@ -1531,8 +1723,8 @@ mod tests {
         )
         .unwrap();
 
-        let (za_schema, za_columns) = infer_schema(&za).unwrap();
-        let (az_schema, az_columns) = infer_schema(&az).unwrap();
+        let (za_schema, za_columns) = infer_schema(&za, quote_di_prova()).unwrap();
+        let (az_schema, az_columns) = infer_schema(&az, quote_di_prova()).unwrap();
         assert_eq!(za_schema, az_schema);
         assert_eq!(za_columns, az_columns);
         assert_eq!(
