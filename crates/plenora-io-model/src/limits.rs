@@ -22,6 +22,11 @@ impl Default for WkbLimits {
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {
     pub max_input_bytes: u64,
+    /// Numero massimo di entry visitate dallo scan della sorgente, directory
+    /// comprese. Senza questo tetto una directory ostile fa crescere senza
+    /// limite la coda dello scan prima ancora che il conteggio dei byte possa
+    /// intervenire: i byte si sommano solo sui file, la coda cresce su tutto.
+    pub max_input_entries: u64,
     pub max_rows: usize,
     pub max_columns: usize,
     pub max_vertices: usize,
@@ -33,6 +38,9 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             max_input_bytes: 268_435_456,
+            // Una directory di migliaia di file legittimi deve passare; uno
+            // scan illimitato no. Stesso ordine di grandezza di max_columns.
+            max_input_entries: 10_000,
             max_rows: 10_000_000,
             max_columns: 4_096,
             max_vertices: 50_000_000,

@@ -266,6 +266,9 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             "--max-input-bytes" => {
                 cli.limits.max_input_bytes = parse_u64(it.next(), "--max-input-bytes")?;
             }
+            "--max-input-entries" => {
+                cli.limits.max_input_entries = parse_u64(it.next(), "--max-input-entries")?;
+            }
             "--max-output-bytes" => {
                 cli.limits.max_output_bytes = parse_u64(it.next(), "--max-output-bytes")?;
             }

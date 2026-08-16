@@ -64,6 +64,28 @@ impl Source {
     ) -> Result<PathBuf> {
         let Self::Path(path) = self;
         let mut total = 0_u64;
+        // L0.9: il tetto sulle entry si applica **prima** della somma dei
+        // byte e conta anche le directory. I byte crescono solo sui file,
+        // quindi da soli non bounderebbero una sorgente fatta di sole
+        // directory annidate. Il conteggio avviene al momento della
+        // *scoperta*, non del prelievo: contando in coda al pop, una singola
+        // directory con milioni di voci avrebbe gia' allocato milioni di
+        // `PathBuf` prima che il tetto potesse intervenire. Cosi' invece
+        // `pending` non supera mai `max_input_entries`.
+        let mut visited = 0_u64;
+        let note_entry = |visited: &mut u64| -> Result<()> {
+            *visited = visited.checked_add(1).ok_or_else(|| {
+                PlenoraIoError::LimitExceeded("overflow nel conteggio delle entry".to_owned())
+            })?;
+            if *visited > limits.max_input_entries {
+                return Err(PlenoraIoError::LimitExceeded(format!(
+                    "scan della sorgente oltre il limite di {} entry",
+                    limits.max_input_entries
+                )));
+            }
+            Ok(())
+        };
+        note_entry(&mut visited)?;
         let mut pending = vec![path.clone()];
         while let Some(candidate) = pending.pop() {
             check_cancelled(cancellation, ErrorPhase::Probe)?;
@@ -76,6 +98,7 @@ impl Source {
             }
             if metadata.is_dir() {
                 for entry in std::fs::read_dir(&candidate)? {
+                    note_entry(&mut visited)?;
                     pending.push(entry?.path());
                 }
             } else if metadata.is_file() {
@@ -1597,6 +1620,73 @@ mod tests {
 
     use super::*;
     use crate::descriptor::WKB_XY_GEOMETRY;
+
+    fn scan_dir_with(entries: usize, limits: Limits) -> Result<PathBuf> {
+        let root = tempfile::tempdir().expect("tempdir");
+        for index in 0..entries {
+            let mut file = std::fs::File::create(root.path().join(format!("entry-{index}.bin")))
+                .expect("file");
+            file.write_all(b"x").expect("write");
+        }
+        Source::Path(root.path().to_path_buf()).into_path_checked(
+            &limits,
+            &CancellationToken::new(),
+            &ResourceBudget::default(),
+        )
+    }
+
+    /// L0.9: senza tetto sulle entry una directory ostile fa crescere la coda
+    /// dello scan senza limite, perche' i byte si sommano solo sui file.
+    #[test]
+    fn directory_scan_over_max_input_entries_rejects_with_typed_error() {
+        let limits = Limits {
+            max_input_entries: 4,
+            ..Limits::default()
+        };
+        // La radice conta come entry: 4 file piu' la directory sono 5.
+        let error = scan_dir_with(4, limits).expect_err("il quinto elemento deve far fallire");
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::LimitExceeded);
+        assert_eq!(
+            error.category,
+            plenora_io_model::ErrorCategory::ResourceLimit
+        );
+    }
+
+    #[test]
+    fn directory_scan_within_max_input_entries_succeeds() {
+        let limits = Limits {
+            max_input_entries: 4,
+            ..Limits::default()
+        };
+        assert!(
+            scan_dir_with(3, limits).is_ok(),
+            "radice + 3 file = 4 entry"
+        );
+    }
+
+    #[test]
+    fn max_input_entries_default_admits_a_realistic_directory() {
+        // Il default non deve rifiutare una directory di file legittimi:
+        // un tetto troppo stretto sarebbe un fail-closed inutile.
+        assert!(scan_dir_with(64, Limits::default()).is_ok());
+    }
+
+    #[test]
+    fn entry_cap_is_checked_before_the_byte_sum() {
+        // Con un tetto di entry raggiunto e un limite di byte larghissimo,
+        // deve vincere il tetto delle entry: e' l'ordine dichiarato da INV-9.
+        let limits = Limits {
+            max_input_entries: 2,
+            max_input_bytes: u64::MAX,
+            ..Limits::default()
+        };
+        let error = scan_dir_with(8, limits).expect_err("il tetto entry deve intervenire");
+        assert!(
+            error.message.contains("entry"),
+            "messaggio: {}",
+            error.message
+        );
+    }
 
     /// La barriera contro i panic di arrow deve restituire un errore del
     /// driver invece di far abortire il processo, e non deve interferire con

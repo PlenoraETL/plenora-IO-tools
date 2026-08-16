@@ -100,9 +100,13 @@ Il formato e' dedotto dall'estensione del percorso. Opzioni principali:
 - `--opt`, `--in-opt`, `--out-opt` in forma `chiave=valore`: opzioni di formato,
   rispettivamente comuni, di ingresso e di uscita;
 - `--durable`: forza la durabilita' del publish;
-- `--max-input-bytes`, `--max-output-bytes`, `--max-rows`, `--max-columns`,
-  `--max-vertices`, `--max-wkb-cell-bytes`, `--max-wkb-components`,
-  `--max-wkb-depth`: limiti di risorsa applicati fail-closed.
+- `--max-input-bytes`, `--max-input-entries`, `--max-output-bytes`,
+  `--max-rows`, `--max-columns`, `--max-vertices`, `--max-wkb-cell-bytes`,
+  `--max-wkb-components`, `--max-wkb-depth`: limiti di risorsa applicati
+  fail-closed. `--max-input-entries` (default `10_000`) limita il numero di
+  voci visitate dallo scan della sorgente, directory comprese: i byte si
+  sommano solo sui file, quindi da soli non bounderebbero una sorgente fatta
+  di sole directory annidate.
 
 Ogni comando emette un singolo documento JSON su stdout; gli errori vanno su
 stderr come envelope JSON con categoria, fase, effetto remoto e disposizione di
