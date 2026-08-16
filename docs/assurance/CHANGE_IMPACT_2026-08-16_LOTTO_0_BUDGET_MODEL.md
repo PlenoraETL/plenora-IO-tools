@@ -317,7 +317,14 @@ verifica che una riga oltre quota continui a fallire.
 una sotto, `OutputBytes` come quota consumata e non trattenuta, e
 `ConcurrentOperations` contato una volta sola e restituito al drop.
 
-**Verifica S2**: 14 test dello spool piu' 5 nell'adapter
+**INV-8 verificato sul ramo di replay**: un file di spool con un preambolo
+valido seguito da spazzatura produce un errore tipizzato dopo aver consegnato
+il primo batch integro — non un panico, e soprattutto non una fine
+silenziosa che farebbe passare per completa una lettura troncata. E' il caso
+in cui il consumer ha gia' ricevuto un `Ok`, quindi l'unico modo di
+sbagliare in silenzio.
+
+**Verifica S2**: 15 test dello spool piu' 5 nell'adapter
 (`dataset_over_memory_bytes_succeeds_via_spool`,
 `buffered_batches_do_not_permanently_consume_memory`,
 `reader_of_n_rows_with_max_rows_n_succeeds`,

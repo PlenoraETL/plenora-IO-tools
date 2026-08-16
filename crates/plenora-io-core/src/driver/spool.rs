@@ -352,6 +352,27 @@ impl StagedSpool {
         self.stage = Stage::Drained;
     }
 
+    /// Costruisce uno spool gia' sigillato che rilegge da `file`.
+    ///
+    /// Esiste per esercitare il ramo di replay su un payload che il writer
+    /// non produrrebbe mai: un file di spool corrotto e' l'unico modo di
+    /// provare che INV-8 vale anche quando la rilettura fallisce **dopo** la
+    /// validazione, cioe' quando il consumer ha gia' ricevuto un `Ok`.
+    #[cfg(test)]
+    fn replaying_from(schema: SchemaRef, budget: ResourceBudget, file: File) -> Result<Self> {
+        let reader =
+            StreamReader::try_new(file, None).map_err(|_| spool_error(SPOOL_CORRUPTION))?;
+        Ok(Self {
+            schema,
+            budget,
+            memory_threshold: 0,
+            stage: Stage::Replaying {
+                reader: Box::new(reader),
+            },
+            sealed: true,
+        })
+    }
+
     fn migrate_to_disk(&mut self) -> Result<()> {
         let stage = std::mem::replace(&mut self.stage, Stage::Drained);
         let Stage::Memory { batches, bytes } = stage else {
@@ -591,6 +612,43 @@ mod tests {
             10_000,
             "una violazione a meta' scansione non deve lasciare memoria prenotata"
         );
+    }
+
+    /// INV-8: un errore di replay dopo la validazione deve essere un errore
+    /// tipizzato, non un panico ne' una fine silenziosa che farebbe passare
+    /// per completa una lettura troncata.
+    #[test]
+    fn a_corrupted_spool_fails_typed_instead_of_truncating_silently() {
+        use std::io::Write as _;
+
+        let schema = schema();
+        // Un preambolo IPC valido seguito da spazzatura: il reader si
+        // costruisce, poi inciampa durante la rilettura.
+        let mut file = tempfile::tempfile().expect("file temporaneo");
+        {
+            let mut writer = StreamWriter::try_new(&mut file, schema.as_ref()).expect("writer IPC");
+            writer.write(&batch(&schema, 0, 4)).expect("primo batch");
+            writer.flush().expect("flush");
+        }
+        file.write_all(&[0xFF; 64]).expect("coda corrotta");
+        file.seek(SeekFrom::Start(0)).expect("riavvolgimento");
+
+        let mut spool = StagedSpool::replaying_from(schema, budget(1 << 20, 1 << 20), file)
+            .expect("il preambolo e' valido");
+        assert!(
+            spool
+                .next_batch()
+                .expect("il primo batch e' integro")
+                .is_some(),
+            "la corruzione arriva dopo un batch valido: e' il caso che INV-8 descrive"
+        );
+        let errore = spool
+            .next_batch()
+            .expect_err("la coda corrotta deve produrre un errore tipizzato");
+        assert!(matches!(
+            errore.code,
+            plenora_io_model::IoErrorCode::Io | plenora_io_model::IoErrorCode::Contract
+        ));
     }
 
     #[test]
