@@ -267,7 +267,7 @@ impl FormatDriver for GpkgDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, &opts.limits)?;
+        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));

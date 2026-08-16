@@ -141,7 +141,7 @@ impl FormatDriver for FileGdbDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, &opts.limits)?;
+        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
         #[cfg(feature = "gdal-backend")]
         {
             let Sink::Path(path) = sink;

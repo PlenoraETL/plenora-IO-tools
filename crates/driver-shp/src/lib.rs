@@ -539,7 +539,7 @@ impl FormatDriver for ShpDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, &opts.limits)?;
+        validate_write(self.descriptor(), plan, opts.limits.max_columns)?;
         let Sink::Path(dest) = sink;
         let publish_mode = publish_mode(&dest, opts)?;
         if plan.layers.len() != 1 {

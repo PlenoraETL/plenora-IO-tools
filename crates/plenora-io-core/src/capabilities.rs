@@ -6,7 +6,6 @@ use std::collections::BTreeSet;
 
 use arrow_schema::DataType;
 use plenora_io_model::crs::{definition_authority_srid, CrsResolution};
-use plenora_io_model::limits::Limits;
 use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
 
 use crate::descriptor::{
@@ -119,10 +118,17 @@ pub const fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
 // nel numero di vincoli del contratto, non in complessita' logica. Restano
 // nell'ordine per essere confrontabili con la matrice delle capability.
 #[allow(clippy::too_many_lines)]
+/// Verifica statica del piano di scrittura contro le capability del driver.
+///
+/// Prende `max_columns` invece dell'intero `Limits` perche' e' l'unica quota
+/// che consulta. La differenza non e' cosmetica: legare questa firma al tipo
+/// legacy costringerebbe ogni chiamante a possedere un `Limits` anche dopo la
+/// migrazione al modello unificato, cioe' terrebbe in vita il tipo vecchio
+/// per un campo solo.
 pub fn validate_write(
     descriptor: &FormatDescriptor,
     plan: &WritePlan,
-    limits: &Limits,
+    max_columns: usize,
 ) -> Result<()> {
     let driver = descriptor.id;
     let caps = descriptor.write_capabilities.as_ref().ok_or_else(|| {
@@ -161,12 +167,12 @@ pub fn validate_write(
                 format!("nome layer vuoto o duplicato: '{}'", layer.name),
             ));
         }
-        if layer.contract.schema.fields().len() > limits.max_columns {
+        if layer.contract.schema.fields().len() > max_columns {
             return Err(PlenoraIoError::LimitExceeded(format!(
                 "layer '{}' con {} colonne oltre il limite di {}",
                 layer.name,
                 layer.contract.schema.fields().len(),
-                limits.max_columns
+                max_columns
             )));
         }
 
@@ -424,6 +430,8 @@ pub fn validate_write(
 mod tests {
     use std::sync::Arc;
 
+    use plenora_io_model::limits::Limits;
+
     use arrow_schema::{DataType, Field, Schema};
     use plenora_io_model::contract::{DataContract, FieldId, GeometryColumnContract, GeometryType};
     use plenora_io_model::crs::{CrsKind, ResolvedCrs};
@@ -491,8 +499,12 @@ mod tests {
             vec![Field::new("field_name_too_long", DataType::Utf8, true)],
             None,
         );
-        let error =
-            validate_write(&descriptor(CrsWriteSupport::None), &p, &Limits::default()).unwrap_err();
+        let error = validate_write(
+            &descriptor(CrsWriteSupport::None),
+            &p,
+            Limits::default().max_columns,
+        )
+        .unwrap_err();
         assert_eq!(
             error.capability_reason,
             Some(CapabilityReason::FieldNameTooLong)
@@ -515,7 +527,7 @@ mod tests {
         let error = validate_write(
             &descriptor(CrsWriteSupport::Fixed("OGC:CRS84")),
             &p,
-            &Limits::default(),
+            Limits::default().max_columns,
         )
         .unwrap_err();
         assert_eq!(
@@ -538,7 +550,7 @@ mod tests {
             ..Limits::default()
         };
         assert!(matches!(
-            validate_write(&descriptor(CrsWriteSupport::None), &p, &limits),
+            validate_write(&descriptor(CrsWriteSupport::None), &p, limits.max_columns),
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
     }
@@ -552,7 +564,7 @@ mod tests {
         let p = plan(vec![Field::new("attribute", DataType::Utf8, false)], None);
 
         assert!(matches!(
-            validate_write(&descriptor, &p, &Limits::default()),
+            validate_write(&descriptor, &p, Limits::default().max_columns),
             Err(error)
                 if error.capability_reason == Some(CapabilityReason::TypeNotRepresentable)
         ));
@@ -567,11 +579,11 @@ mod tests {
         descriptor.write_capabilities = Some(capabilities);
 
         let accepted = plan(vec![Field::new("name", DataType::Utf8, false)], None);
-        assert!(validate_write(&descriptor, &accepted, &Limits::default()).is_ok());
+        assert!(validate_write(&descriptor, &accepted, Limits::default().max_columns).is_ok());
 
         let rejected = plan(vec![Field::new("secret", DataType::Utf8, false)], None);
         assert!(matches!(
-            validate_write(&descriptor, &rejected, &Limits::default()),
+            validate_write(&descriptor, &rejected, Limits::default().max_columns),
             Err(error)
                 if error.capability_reason == Some(CapabilityReason::TypeNotRepresentable)
         ));
@@ -586,7 +598,7 @@ mod tests {
         let p = plan(vec![Field::new("required", DataType::Utf8, true)], None);
 
         assert!(matches!(
-            validate_write(&descriptor, &p, &Limits::default()),
+            validate_write(&descriptor, &p, Limits::default().max_columns),
             Err(error) if error.capability_reason == Some(CapabilityReason::Nullability)
         ));
     }
@@ -609,7 +621,7 @@ mod tests {
             validate_write(
                 &descriptor(CrsWriteSupport::Embedded),
                 &p,
-                &Limits::default()
+                Limits::default().max_columns
             ),
             Err(error) if error.capability_reason == Some(CapabilityReason::MixedGeometry)
         ));
@@ -633,7 +645,7 @@ mod tests {
         assert!(validate_write(
             &descriptor(CrsWriteSupport::EmbeddedOptional),
             &p,
-            &Limits::default()
+            Limits::default().max_columns
         )
         .is_ok());
 
@@ -641,7 +653,7 @@ mod tests {
         let mut capabilities = selecting.write_capabilities.unwrap();
         capabilities.crs_representations.srid = CrsRepresentationState::Derived;
         selecting.write_capabilities = Some(capabilities);
-        let error = validate_write(&selecting, &p, &Limits::default()).unwrap_err();
+        let error = validate_write(&selecting, &p, Limits::default().max_columns).unwrap_err();
         assert_eq!(
             error.capability_reason,
             Some(CapabilityReason::CrsRepresentationsInconsistent)
@@ -676,13 +688,13 @@ mod tests {
         );
 
         let preserving = descriptor(CrsWriteSupport::EmbeddedOptional);
-        assert!(validate_write(&preserving, &p, &Limits::default()).is_ok());
+        assert!(validate_write(&preserving, &p, Limits::default().max_columns).is_ok());
 
         let mut selecting = descriptor(CrsWriteSupport::Embedded);
         let mut capabilities = selecting.write_capabilities.unwrap();
         capabilities.crs_representations.crs_definition = CrsRepresentationState::Derived;
         selecting.write_capabilities = Some(capabilities);
-        let error = validate_write(&selecting, &p, &Limits::default()).unwrap_err();
+        let error = validate_write(&selecting, &p, Limits::default().max_columns).unwrap_err();
         assert_eq!(
             error.capability_reason,
             Some(CapabilityReason::CrsRepresentationsInconsistent)

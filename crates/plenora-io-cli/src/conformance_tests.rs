@@ -304,7 +304,7 @@ fn every_writable_driver_accepts_its_declared_baseline() {
         validate_write(
             descriptor,
             &valid_geometry_plan(descriptor),
-            &Limits::default(),
+            Limits::default().max_columns,
         )
         .unwrap_or_else(|error| {
             panic!(
@@ -327,7 +327,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
             validate_write(
                 descriptor,
                 &WritePlan { layers: Vec::new() },
-                &Limits::default(),
+                Limits::default().max_columns,
             ),
             CapabilityReason::EmptyWritePlan,
         );
@@ -340,7 +340,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                         &["duplicate", "duplicate"],
                         &Field::new("value", DataType::Utf8, true),
                     ),
-                    &Limits::default(),
+                    Limits::default().max_columns,
                 ),
                 CapabilityReason::DuplicateLayerName,
             );
@@ -350,7 +350,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                 validate_write(
                     descriptor,
                     &attribute_plan(&["one", "two"], &Field::new("value", DataType::Utf8, true)),
-                    &Limits::default(),
+                    Limits::default().max_columns,
                 ),
                 CapabilityReason::MultipleLayers,
             );
@@ -384,7 +384,7 @@ fn crs_matrix_fails_closed() {
                 );
                 assert_capability(
                     descriptor.id,
-                    validate_write(descriptor, &plan, &Limits::default()),
+                    validate_write(descriptor, &plan, Limits::default().max_columns),
                     CapabilityReason::CrsUnresolved,
                 );
                 embedded += 1;
@@ -401,7 +401,7 @@ fn crs_matrix_fails_closed() {
                 );
                 assert_capability(
                     descriptor.id,
-                    validate_write(descriptor, &plan, &Limits::default()),
+                    validate_write(descriptor, &plan, Limits::default().max_columns),
                     CapabilityReason::ReprojectionRequired,
                 );
                 fixed += 1;
@@ -417,7 +417,7 @@ fn crs_matrix_fails_closed() {
                     vec![GeometryType::Point],
                 );
                 assert!(
-                    validate_write(descriptor, &plan, &Limits::default()).is_ok(),
+                    validate_write(descriptor, &plan, Limits::default().max_columns).is_ok(),
                     "{} dichiara CRS embedded opzionale ma rifiuta lo stato missing",
                     descriptor.id
                 );
@@ -440,7 +440,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     let mut ipc_plan = valid_geometry_plan(ipc.descriptor());
     ipc_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
     assert!(
-        validate_write(ipc.descriptor(), &ipc_plan, &Limits::default()).is_ok(),
+        validate_write(ipc.descriptor(), &ipc_plan, Limits::default().max_columns).is_ok(),
         "IPC deve preservare crs_id e srid discordanti senza sceglierne uno"
     );
 
@@ -449,7 +449,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     shp_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
     assert_capability(
         "shp",
-        validate_write(shp.descriptor(), &shp_plan, &Limits::default()),
+        validate_write(shp.descriptor(), &shp_plan, Limits::default().max_columns),
         CapabilityReason::CrsRepresentationsInconsistent,
     );
 }
@@ -561,7 +561,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Limits::default()),
+                validate_write(descriptor, &plan, Limits::default().max_columns),
                 CapabilityReason::CoordinateDimensions,
             );
             dimensions_checked += 1;
@@ -580,7 +580,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Limits::default()),
+                validate_write(descriptor, &plan, Limits::default().max_columns),
                 CapabilityReason::GeometryEncoding,
             );
             encodings_checked += 1;
@@ -599,7 +599,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Limits::default()),
+                validate_write(descriptor, &plan, Limits::default().max_columns),
                 CapabilityReason::SpatialSemantics,
             );
             semantics_checked += 1;
@@ -618,7 +618,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Limits::default()),
+                validate_write(descriptor, &plan, Limits::default().max_columns),
                 CapabilityReason::GeometryNotSupported,
             );
             types_checked += 1;
@@ -629,7 +629,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &unresolved, &Limits::default()),
+                validate_write(descriptor, &unresolved, Limits::default().max_columns),
                 CapabilityReason::GeometryNotSupported,
             );
             unresolved_checked += 1;
@@ -645,7 +645,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, &Limits::default()),
+                validate_write(descriptor, &plan, Limits::default().max_columns),
                 CapabilityReason::MixedGeometry,
             );
             mixed_checked += 1;
@@ -678,7 +678,7 @@ fn field_type_and_limit_matrix_is_enforced() {
             validate_write(
                 descriptor,
                 &attribute_plan(&["layer"], &Field::new("v", DataType::Utf8, true)),
-                &limits
+                limits.max_columns
             ),
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
@@ -690,7 +690,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new(name, DataType::Utf8, true)),
-                    &Limits::default(),
+                    Limits::default().max_columns,
                 ),
                 CapabilityReason::FieldNameTooLong,
             );
@@ -708,7 +708,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new("nested", nested, true)),
-                    &Limits::default(),
+                    Limits::default().max_columns,
                 ),
                 CapabilityReason::TypeNotRepresentable,
             );
@@ -727,7 +727,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                         &["layer"],
                         &Field::new("__not_a_native_attribute__", DataType::Utf8, true),
                     ),
-                    &Limits::default(),
+                    Limits::default().max_columns,
                 ),
                 CapabilityReason::TypeNotRepresentable,
             );
@@ -739,7 +739,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new("nullable", DataType::Utf8, true)),
-                    &Limits::default(),
+                    Limits::default().max_columns,
                 ),
                 CapabilityReason::Nullability,
             );

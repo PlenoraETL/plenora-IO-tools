@@ -70,6 +70,12 @@ jobs:
           cargo metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 > /dev/null
       - name: Verify reviewed semantic fallbacks
         run: bash scripts/check_assurance_fallbacks.sh
+      # Gate temporaneo del Lotto 0: i due modelli di budget coesistono per
+      # quattro sottopassi, ed e' la fase in cui un uso legacy nuovo passa
+      # inosservato — compila, i test sono verdi, il debito cresce. Il tetto
+      # scende a ogni sottopasso; S4.e lo porta a zero e rimuove il gate.
+      - name: Verify the shrinking legacy budget inventory
+        run: python3 scripts/check_legacy_budget_inventory.py
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       # Il perimetro comprende i binari, non solo le librerie: `plenora-io-cli`
       # viene distribuito, e fino a questo commit il suo `main.rs` era l'unico
