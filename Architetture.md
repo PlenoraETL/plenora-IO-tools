@@ -552,6 +552,16 @@ dei data-tools per non duplicare le regole del bordo condiviso:
   può onorare un suggerimento di pruning (capacità native: min/max row group,
   indice spaziale, partizioni) e quando deve ignorarlo lasciando il filtering a
   data-tools; divieto di approssimare un filtro; interazione con il batch sizing.
+- **ADR-IO 7 — Streaming vs operation-atomicity del reader comune**
+  (Accettato in Lotto 0/S0, 2026-08-16, non Fase 0): l'adapter comune
+  conserva l'operation-atomicity — nessun prefisso accepted esposto se una
+  violazione emerge in un punto qualsiasi della sorgente — e sostituisce
+  l'accumulo in RAM con uno spool bounded su file temporaneo governato dalla
+  quota di spill. Le opzioni streaming (nuova categoria d'errore
+  `TerminatedAfterAcceptedBatches`) e ibrida sono state valutate e scartate.
+  Il pacchetto `docs/DECISION-PACKAGE-Lotto-0.md` ne recepisce la decisione
+  come `effective_delivery = OperationAtomic` e
+  `buffering = AdaptiveMemoryThenDisk`.
 - **Rinvii**: contratto RecordBatch e set di tipi → §4.1 + `plenora-core` dei
   data-tools; validazione WKB → §2; `PropertyConfidence`/`Scope` → D25;
   determinismo geometrico → ADR 1 dei data-tools.
