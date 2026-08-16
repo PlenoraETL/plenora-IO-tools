@@ -15,6 +15,6 @@ fuzz_target!(|data: &[u8]| {
     // configurazioni coprono il ramo WKT e il ramo X/Y, che inferiscono tipi e
     // dimensioni in modo diverso.
     for options in harness::declared_geometry_read_options() {
-        let _ = harness::read_all(&driver_csv::CsvDriver, path.clone(), &options);
+        let _ = harness::read_all(&driver_csv::CsvDriver, path.clone(), options);
     }
 });

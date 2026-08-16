@@ -19,7 +19,7 @@ use plenora_io_core::request::{
     BatchTarget, ProjectionMode, ReadRequest, ReadScope, WriteLayer, WritePlan,
 };
 use plenora_io_model::contract::{DataContract, LayerContract, LayerId};
-use plenora_io_model::limits::{Limits, WkbLimits};
+use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
 use plenora_io_model::PlenoraIoError;
 
 /// Tetto sull'input accettato dal target, allineato a `__fuzz_read_dxf`: oltre
@@ -28,25 +28,36 @@ pub const MAX_FUZZ_INPUT_BYTES: usize = 1_048_576;
 
 /// Limiti della campagna: stessi rami di validazione dei limiti di produzione,
 /// tarati perché un input ostile non possa allocare oltre il budget di libFuzzer.
-pub fn limits() -> Limits {
-    Limits {
-        max_input_bytes: MAX_FUZZ_INPUT_BYTES as u64,
-        max_rows: 100_000,
-        max_columns: 256,
-        max_vertices: 1_000_000,
-        max_output_bytes: 16 * 1024 * 1024,
-        wkb: WkbLimits {
-            max_cell_bytes: MAX_FUZZ_INPUT_BYTES,
-            ..WkbLimits::default()
-        },
+///
+/// Memoria e spill sono stretti apposta: un target che potesse prenotare
+/// centinaia di MiB farebbe fallire libFuzzer per OOM invece di segnalare il
+/// difetto, e la campagna misurerebbe il proprio budget invece del codice.
+pub fn limits() -> PipelineLimits {
+    PipelineLimits::default()
+        .with_max_input_bytes(MAX_FUZZ_INPUT_BYTES as u64)
+        .with_max_rows(100_000)
+        .with_max_columns(256)
+        .with_max_vertices(1_000_000)
+        .with_max_output_bytes(16 * 1024 * 1024)
+        .with_max_wkb_cell_bytes(MAX_FUZZ_INPUT_BYTES)
+        .with_memory_bytes(64 * 1024 * 1024)
+        .with_spill_bytes(64 * 1024 * 1024)
+}
+
+/// Una pipeline della campagna.
+///
+/// Ogni chiamata ne costruisce una nuova: le opzioni portano un permit
+/// one-shot, e riusarne una gia' osservata farebbe fallire il preflight per
+/// una ragione che non ha nulla a che vedere con l'input sotto test.
+fn bundle() -> plenora_io_model::budget::PipelineBundle {
+    match PipelineBudget::builder().limits(limits()).build() {
+        Ok(bundle) => bundle,
+        Err(error) => unreachable!("limiti della campagna non validi: {error:?}"),
     }
 }
 
 pub fn read_options() -> ReadOptions {
-    ReadOptions {
-        limits: limits(),
-        ..ReadOptions::default()
-    }
+    ReadOptions::from_read_parts(bundle().into_read_parts())
 }
 
 /// Configurazioni per i formati tabellari (CSV/XLSX): senza `assume_crs` e
@@ -61,11 +72,10 @@ pub fn declared_geometry_read_options() -> Vec<ReadOptions> {
     ];
     [wkt.to_vec(), xy.to_vec()]
         .into_iter()
-        .map(|options| ReadOptions {
-            assume_crs: Some("EPSG:4326".to_owned()),
-            format_options: options.into_iter().collect(),
-            limits: limits(),
-            ..ReadOptions::default()
+        .map(|options| {
+            read_options()
+                .with_assume_crs("EPSG:4326")
+                .with_format_options(options.into_iter().collect())
         })
         .collect()
 }
@@ -139,14 +149,19 @@ pub fn spill_with_output(bytes: &[u8], name: &str, output: &str) -> Option<(Spil
 /// `convert` della CLI ridotto all'essenziale. Serve a portare sui writer
 /// contratti che l'input controlla per intero — schema, tipi, nullabilità,
 /// CRS, nomi di layer — invece dei soli contratti sintetizzati dai test.
+///
+/// I due rami escono dalle **stesse** parti, come nella CLI: contatori
+/// indipendenti, `PipelineContext` condiviso. Costruirne due separati qui
+/// farebbe misurare alla campagna una forma che il codice spedito non usa.
 pub fn convert(
     reader_driver: &dyn FormatDriver,
     input: PathBuf,
-    read_options: &ReadOptions,
     writer_driver: &dyn FormatDriver,
     output: PathBuf,
 ) -> plenora_io_model::Result<u64> {
-    let dataset = reader_driver.open(Source::Path(input), read_options)?;
+    let (read_parts, write_parts) = bundle().into_convert_parts().into_parts();
+    let write_options = WriteOptions::from_write_parts(write_parts);
+    let dataset = reader_driver.open(Source::Path(input), ReadOptions::from_read_parts(read_parts))?;
     let layers: Vec<LayerContract> = dataset.layers().to_vec();
     let plan = WritePlan {
         layers: layers
@@ -159,10 +174,6 @@ pub fn convert(
                 },
             })
             .collect(),
-    };
-    let write_options = WriteOptions {
-        limits: limits(),
-        ..WriteOptions::default()
     };
     let mut writer = writer_driver.create(Sink::Path(output), &plan, &write_options)?;
     for (index, layer) in layers.iter().enumerate() {
@@ -191,7 +202,7 @@ pub fn convert(
 pub fn read_all(
     driver: &dyn FormatDriver,
     path: std::path::PathBuf,
-    options: &ReadOptions,
+    options: ReadOptions,
 ) -> plenora_io_model::Result<usize> {
     let dataset = driver.open(Source::Path(path), options)?;
     let layer_ids: Vec<LayerId> = dataset.layers().iter().map(|layer| layer.id).collect();

@@ -15,6 +15,6 @@ fuzz_target!(|data: &[u8]| {
     let _ = harness::read_all(
         &driver_ipc::IpcDriver,
         file.path().to_path_buf(),
-        &harness::read_options(),
+        harness::read_options(),
     );
 });

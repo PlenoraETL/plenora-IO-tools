@@ -81,7 +81,7 @@ primitive esplicite di panic in tutti i target di libreria.
 | ADR-IO 4 — CRS | Parziale avanzato trasversale | `CrsResolution::{Resolved, DeclaredButUnresolved, Missing}`, `RawCrs`, formato della definizione e `AxisOrder` esplicito; R4.1.1 accetta ora `declared_unresolved` con il solo `crs_id`, senza inventare una definizione; gli schemi Arrow emettono e rileggono `crs_id`, `crs_resolution`, `crs_definition`, `crs_definition_format` e `axis_order`; `OGC:CRS84` lon/lat distinto da `EPSG:4326` lat/lon; il bordo di lettura confronta sintatticamente `EPSG:<codice>` con `plenora.geometry.srid`, preserva entrambe le rappresentazioni discordanti e le dichiara come `inconsistent_crs_representations` nel `LossReport`; CSV/XLSX richiedono `assume_crs`; CRS fissi KML/GeoJSON validati; SHP/DXF/GPKG/GeoParquet conservano il raw e falliscono con `CRS_UNRESOLVED` redatto quando il metadato dichiarato non è risolvibile; IPC rappresenta il CRS assente come `Missing`; Shapefile, GeoPackage e DXF rifiutano ora anche l'invariante impossibile di un `ResolvedCrs` senza ID invece di etichettarlo `unknown`, `OGC:CRS84` o `DXF:GEODATA`; FileGDB feature-on preserva WKT/authority/axis tramite GDAL, supporta `assume_crs`, rifiuta coppie id/definizione incoerenti e non rietichetta CRS84; matrice test raw/axis e gate di scrittura `Embedded`/`Fixed` | L’authority/axis resolver pure-Rust resta intenzionalmente limitato agli identificativi e WKT riconosciuti; DXF non-WGS84 richiede la definizione WKT/XML completa per serializzare senza perdita |
 | ADR-IO 5 — fedeltà | Parziale avanzato | `Fidelity` nel descrittore; `FidelityAssessment` bounded e serializzabile restituito da `open`/`create` e nel `Published`; motivi tipizzati per vincoli, attributi, coercion, nullability, struttura, precisione e metadati; il wrapper comune collega il contratto e promuove automaticamente l'esito a `Approximating` quando il `LossReport` osservato non è vuoto; un test trasversale verifica che tutti i cinque writer pure-Rust `Conditional` restino `Conditional` anche quando il report osservato è correttamente vuoto; Shapefile legge dal testo DBF originale gli interi `N(width>=10,0)` e rifiuta descrittori omonimi invece di perdere precisione o colonne; DXF registra tassellazioni, esplosioni INSERT, conversioni di testo/solidi, entità non gestite e attributi non rappresentati; FileGDB è `Conditional` e fail-closed sul profilo GDAL 3.6 verificato (`Int32`/`Float64`/`Utf8`, WKB XY/XYZ/XYM/XYZM nelle famiglie native Point/Multi*), conserva feature con geometria nulla e pubblica tipo/dimensioni OGR più tipo/width/precision degli attributi nei metadati del contratto | I profili dei driver `Conditional` restano conservativi e vanno raffinati per singolo tipo/valore; un report vuoto significa “nessuna perdita osservata”, non `Lossless`; il writer DBF basato su `Numeric(f64)` non ha ancora una prova di conservazione degli `Int64` oltre `2^53`; EWKB, temporali, booleani, binari e interi 64-bit FileGDB richiedono un modello nativo senza cambio di contratto e una matrice multi-versione GDAL; oracoli indipendenti e corpus reali non sono uniformi |
 | ADR-IO 6 — projection e pruning | Parziale avanzato trasversale | Contratto `ReadRequest` e schema effettivo; capability machine-readable per projection, pruning numerico e spaziale, determinismo e tipi geometrici; projection esatta CSV, GeoJSON, Shapefile, FileGDB, GeoParquet, IPC e GeoPackage, inclusa projection vuota e geometria non forzata per richieste tabellari; `Required` fail-closed su DXF, KML e XLSX; CSV/GeoJSON/SHP/FileGDB saltano parsing, conversione e costruzione delle colonne escluse; FileGDB applica inoltre il pushdown fisico degli attributi e della geometria esclusi tramite `OGR_L_SetIgnoredFields` nel fork governato `gdal 0.17.1`; `NumericComparison` GeoParquet precision-safe su statistiche min/max, con legacy `Opaque` fail-open; pruning spaziale GeoParquet e GeoPackage tramite RTree registrato/conforme; `target_bytes`/`max_rows` su tutti i reader e correzione adattiva condivisa sui byte Arrow osservati per CSV, GeoJSON, Shapefile, FileGDB e GeoPackage | Il pruning attributivo resta disponibile solo dove esistono statistiche a blocchi (GeoParquet): usare indici B-tree degli altri formati sarebbe filtering esatto; KML, DXF e XLSX restano non exact e non applicano pushdown fisico |
-| ADR-IO 7 — streaming vs operation-atomicity | Parziale avanzato | Decisione ratificata il 2026-08-16 (Lotto 0/S0) nell'opzione A: operation-atomicity conservata, accumulo in RAM sostituito da spool bounded governato dalla quota di spill; opzioni streaming e ibrida scartate; il pacchetto `DECISION-PACKAGE-Lotto-0.md` ne recepisce il vincolo come `effective_delivery = OperationAtomic` e `buffering = AdaptiveMemoryThenDisk`; S1 introduce il modulo `plenora-io-model::budget` accanto al modello esistente senza cambiare comportamento; S2 sostituisce la `VecDeque` dell'adapter comune con lo `StagedSpool` (`plenora-io-core::driver::spool`), che tiene i batch verificati in RAM sotto una soglia adattiva e li migra su un file temporaneo **senza nome** in Arrow IPC: il picco passa da O(dataset) a `soglia + batch corrente`, la memoria di ogni batch e' una prenotazione viva restituita quando il batch lascia la RAM (L0.3), e la quota di spill segue i byte realmente scritti con lease RAII S4.a aggiunge `InternalMemoryLease::shrink_to`, che riduce la prenotazione a grandezza nota e la sposta per `move`, chiudendo per costruzione la finestra non contabilizzata fra materializzazione e custodia; S4.b chiude il bordo driver: `ReadOptions`/`WriteOptions` non espongono piu' i campi del modello legacy ma un payload privato `BudgetPayload`, con accessori centralizzati che restituiscono scalari immutabili e un errore tipizzato — non un ripiego — quando un driver non migrato riceve opzioni del modello nuovo S4.b.3 riconcilia il confine dell'`InputPermit` — separabile per move dentro il workspace, con un'unica API marcata e un gate che ne verifica il confine — e vincola il ramo `Pipeline` a non essere dichiarabile utilizzabile finche' adapter e spool prenotano con la lease legacy; S4.c toglie ai driver la scelta del modello, concentrando in `plenora-io-core` i tre punti d'ingresso (`preflight_source`, `with_read_budget`, `with_write_validation`) piu' tre accessori neutri; S4.d porta il **percorso di lettura** interamente sul modello unificato: il preflight enumera con `note_entry_visited` e pubblica il footprint spendendo l'`InputPermit`, i controlli legacy duplicati spariscono nello stesso atto, adapter e `StagedSpool` prendono un `OperationBudget`, e la memoria del batch passa dalla prenotazione larga a quella esatta con `shrink_to` e si sposta nello spool per `move` — senza finestra scoperta, verificato da un test end-to-end che uccide 5 volte su 5 la mutazione rilascia-e-riacquista; S4.d.1 chiude due difetti dell'handoff — l'ingombro strutturale del batch ora entra nella prenotazione di memoria (e non in quella di output), con un controllo fail-closed prima della cessione, e il residuo e la capacita' effettivi compongono quota locale e pool, cosi' che un pool piu' stretto della pipeline faccia spillare invece di fallire — piu' l'identita' del percorso su byte nativi invece che su `to_string_lossy`, la liveness verificata per ogni voce e non per directory, e due guardie direzionali al posto di un unico messaggio falso nella meta' dei casi | I tre campi descriptor (`native_read_mode`, `effective_delivery`, `buffering`) sono dichiarati solo in S8, quindi il wire `catalog` non riflette ancora la semantica reale; il modello legacy e' **eliminato** (S4.e): via `BudgetPayload::Legacy`, i `Default` delle opzioni, i costruttori e accessori legacy, entrambe le guardie direzionali e i tipi `Limits`/`ResourceBudget`/`ResourceLease` con l'intero `resource.rs`; il ramo di scrittura preleva dai contatori dell'operazione e `convert` usa un solo `PipelineContext` per i due rami, con contatori indipendenti. Inventario a zero su tutte le categorie e gate temporanei rimossi: la regressione non e' piu' distratta ma **inesprimibile**, perche' i tipi non esistono |
+| ADR-IO 7 — streaming vs operation-atomicity | Parziale avanzato | **Stato corrente.** Operation-atomicity conservata (opzione A, ratificata il 2026-08-16). L'accumulo in RAM e' sostituito dallo `StagedSpool` (`plenora-io-core::driver::spool`): i batch verificati restano in RAM sotto una soglia derivata dalla capacita' **effettiva** — minimo fra quota locale e pool — e oltre quella migrano su un file temporaneo senza nome in Arrow IPC, da cui non tornano. Il picco e' `soglia + batch corrente`, indipendente dalla dimensione dell'input. La memoria di ogni batch e' una `InternalMemoryLease` viva: l'adapter prenota largo, misura, riduce con `shrink_to` all'ingombro reale piu' l'overhead strutturale, e **sposta la stessa lease** nello spool: fra materializzazione e custodia non c'e' un istante in cui il batch sia in RAM senza che nessuno lo conti. La quota di spill segue i byte realmente scritti, con lease RAII restituite alla chiusura del file. Il preflight enumera la sorgente addebitando ogni voce al context e pubblica il footprint spendendo un permit one-shot; il modello budget e' unico, senza rami legacy. **La cronaca dei dodici sottopassi — decisioni, difetti trovati, mutazioni — e' nella CIA `CHANGE_IMPACT_2026-08-16_LOTTO_0_BUDGET_MODEL.md`, non qui: questa colonna descrive cio' che e', non come ci si e' arrivati.** | I tre campi descriptor (`native_read_mode`, `effective_delivery`, `buffering`) sono dichiarati solo in S8, quindi il wire `catalog` non riflette ancora la semantica reale del bordo. |
 
 Lo sviluppo RC5 aggiunge alla capability di scrittura CRS i tre stati
 `preserved`, `absent` e `derived` per `crs_id`, `srid` e `crs_definition`.
@@ -109,10 +109,17 @@ canoniche e rifiuta metadati incompleti o un'estensione esterna discordante.
   lettura preserva e dichiara; il preflight writer applica la capability a tre
   stati. Definizioni senza identificatore EPSG radice restano fuori dal
   resolver conservativo e non vengono interpretate per supposizione.
-- R7.5-R7.7: `ResourceBudget` usa contatori atomici e lease checked condivise
-  fra reader e writer; governa memoria, righe, colonne, componenti geometrici,
-  depth, concorrenza, output, spill, cella, durata, espansione e decompressione
-  XLSX. La CPU è governata tramite durata, non tramite un contatore CPU.
+- R7.5-R7.7: il budget e' un `PipelineContext` unico per operazione, con
+  `OperationBudget` per i contatori cumulativi — righe, colonne, componenti
+  geometrici, byte di uscita — e lease RAII per le occupazioni: memoria,
+  spill, concorrenza. Le prime sono consumo definitivo, le seconde tornano al
+  gauge quando l'oggetto che le tratteneva muore, e la distinzione e' nei tipi
+  (`CountedLease` contro `InternalMemoryLease`/`SpillLease`). Reader e writer
+  di una stessa conversione condividono il context e tengono contatori
+  distinti: una riga non consuma due volte la stessa quota, ma memoria e
+  deadline sono contate una volta sola. Quote per singola geometria — cella,
+  profondita', componenti — restano nei limiti della pipeline e non nei
+  contatori. La CPU è governata tramite durata, non tramite un contatore CPU.
 - KML, DXF e XLSX effettuano una sola scansione della sorgente durante `open` e
   riusano lo spool bounded nel reader. Ridurla ulteriormente richiederebbe un
   contratto/schema fornito dal chiamante: senza quello, fermarsi prima della
@@ -241,9 +248,13 @@ canoniche e rifiuta metadati incompleti o un'estensione esterna discordante.
   Polygon e sette coppie A/B intercalate i delta mediani sono rispettivamente
   +6,59%, +12,59% e +48,64%, senza crescita della RSS. Baseline, veto e
   invarianti sono registrati nella CIA del 2026-07-29.
-- `Limits` è parte di `ReadOptions` e `WriteOptions`. La dimensione complessiva
-  dell’input è verificata prima del parser; righe e colonne sono conteggiate da
-  un wrapper comune dei writer; i writer geometrici v1 usano i limiti WKB
+- Le quote vivono in `PipelineLimits`, dentro il `PipelineContext` che le
+  opzioni trasportano; `ReadOptions` e `WriteOptions` non hanno `Default`,
+  perche' un budget nasce da una costruzione che puo' fallire. La dimensione
+  complessiva dell’input è verificata dal preflight, che enumera la sorgente
+  addebitando ogni voce al context e pubblica il footprint spendendo un
+  permit one-shot; righe e colonne sono conteggiate da un wrapper comune dei
+  writer; i writer geometrici v1 usano i limiti WKB
   forniti dal chiamante. Per i cinque writer pure-Rust a file singolo,
   `StagedFile` conserva il limite insieme allo staging e lo verifica nella
   transizione terminale di publish. `max_vertices` restringe il numero effettivo di
@@ -344,7 +355,7 @@ un target nuovo entra nello smoke senza toccare né lo script né la CI. Il budg
 è di 60 secondi per target sui push e 300 sulla finestra settimanale; la
 persistenza del corpus fra esecuzioni CI resta aperta.
 
-La prima campagna sui target nuovi ha prodotto cinque finding, tutti nel giro di
+**Sezione storica (2026-07/08).** La prima campagna sui target nuovi ha prodotto cinque finding, tutti nel giro di
 secondi e tutti sul percorso di lettura di file esterni. Tre sono panic in
 dipendenze: `arrow-ipc` `convert.rs` panica su un valore di enum sconosciuto nel
 FlatBuffer dello schema (precisione `FloatingPoint`, riga 354, e `Type::NONE`,
@@ -353,8 +364,14 @@ oltre la lunghezza del buffer. Sono raggiungibili da un `.parquet` (i metadati
 `ARROW:schema` sono un messaggio IPC incorporato) e da un `.arrow`: un file
 ostile termina il processo invece di produrre un `PlenoraIoError`. Gli altri due
 sono di risorsa: 32 KiB di GeoPackage portano il reader oltre 2 GiB residenti, e
-5,4 KiB di XLSX superano i 15 secondi per una singola lettura — i `Limits`
-attuali non li intercettano.
+5,4 KiB di XLSX superano i 15 secondi per una singola lettura — le quote di
+allora non li intercettavano.
+
+I due finding di risorsa vanno **rivalutati** contro il modello unificato: da
+S4.d la memoria e' governata da un `PipelineContext` con soglia di migrazione
+e spool su disco, quindi un reader non dovrebbe piu' poter crescere senza
+tetto. La rivalutazione non e' stata eseguita — il container di sviluppo non
+ha nightly ne' `cargo-fuzz` — e resta fra i gate non misurabili qui.
 
 Nessuno dei cinque è correggibile senza decidere cosa il driver deve accettare o
 rifiutare, quindi restano aperti e i target corrispondenti sono elencati in

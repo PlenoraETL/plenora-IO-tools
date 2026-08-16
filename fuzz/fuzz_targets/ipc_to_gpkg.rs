@@ -22,7 +22,6 @@ fuzz_target!(|data: &[u8]| {
     let _ = harness::convert(
         &driver_ipc::IpcDriver,
         input.path().to_path_buf(),
-        &harness::read_options(),
         &driver_gpkg::GpkgDriver,
         output,
     );

@@ -1120,3 +1120,89 @@ confine che il linguaggio non impone.
 due moduli di test. Il tetto di colonne passa da `u64` a `usize` perche'
 `validate_write` lo prende in `usize`; prima veniva da `Limits`, dove era gia'
 `usize`.
+
+### Tracciabilita' del delta dei test in S4.e: 483 → 471
+
+Il conteggio scende di dodici. Non e' una perdita netta di copertura ma il
+saldo fra **ventitre** test rimossi e **undici** aggiunti, e ogni rimozione ha
+una ragione. La tabella la registra perche' una diminuzione senza spiegazione
+e' indistinguibile da una copertura persa per distrazione.
+
+Due categorie, e vanno tenute separate.
+
+**Transitori (14).** Descrivevano la coesistenza dei due modelli. Senza un
+secondo modello non hanno un'invariante da conservare: riscriverli avrebbe
+prodotto asserzioni vere per costruzione.
+
+| Test rimosso | Dove viveva |
+|---|---|
+| `payload_legacy_espone_il_ramo_legacy_e_nessun_budget_pipeline` | core/driver.rs |
+| `payload_pipeline_non_lascia_leggere_il_ramo_legacy` | core/driver.rs |
+| `il_ponte_legacy_fallisce_tipizzato_sul_payload_pipeline` | core/driver.rs |
+| `il_ramo_legacy_non_muove_i_gauge_del_modello_nuovo` | core/driver.rs |
+| `il_ramo_pipeline_serve_gli_scalari_senza_costruire_limits` | core/driver.rs |
+| `i_due_rami_producono_gli_stessi_scalari_a_configurazione_equivalente` | core/driver.rs |
+| `i_due_rami_producono_la_stessa_vista_di_scrittura` | core/driver.rs |
+| `max_vertices_coincide_fra_i_due_rami` | core/driver.rs |
+| `resource_budget_fallisce_tipizzato_sul_ramo_pipeline` | core/driver.rs |
+| `il_preflight_rifiuta_le_opzioni_legacy` | core/driver.rs |
+| `budget_identity_is_explicit` | model/resource.rs |
+| `checked_commit_returns_only_unused_quota` | model/resource.rs |
+| `deadline_expires_for_every_clone` | model/resource.rs |
+| `leases_cross_clones_and_return_quota_on_drop` | model/resource.rs |
+
+Le quattro di `resource.rs` verificavano il comportamento del budget legacy —
+identita', commit parziale, deadline propagata ai cloni, lease che tornano al
+drop. Il modello unificato ha le proprie, gia' presenti in `budget.rs`:
+`operation_budget_clone_does_not_double_the_consumption`,
+`counted_lease_commit_returns_only_unused_quota`,
+`deadline_expiry_is_not_conflated_with_cancellation`,
+`internal_memory_lease_returns_quota_on_drop` e
+`spill_lease_returns_quota_on_drop`. Non sono state aggiunte ora: esistono da
+S1, e i nomi sono stati verificati contro il sorgente invece che ricostruiti a
+memoria — due dei quattro che avevo citato in prima stesura non esistevano.
+
+**Con invariante conservata (9).** Il test e' sparito, la proprieta' no.
+
+| Test rimosso | Chi ne conserva l'invariante |
+|---|---|
+| `unified_defaults_are_never_looser_than_either_legacy_model` | `unified_defaults_stay_at_the_tightest_historical_values` — stessa regola (finding L0.2), ma i valori attesi sono **fissati** con l'origine accanto invece di essere letti dalle strutture legacy. Scrivendolo si e' scoperto che quattro assert precedenti (memoria, spill, durata, rapporto di decompressione) confrontavano il modello con se' stesso e non sorvegliavano nulla |
+| `global_vertex_limit_tightens_wkb_components` | `effective_wkb_components_is_tightened_by_max_vertices`, esteso al verso opposto: quando e' il tetto per cella a essere piu' stretto, vince lui |
+| `resource_budget_riflette_i_flag_cli` | `i_flag_atterrano_nei_limiti_della_pipeline` — i flag ora atterrano direttamente in `PipelineLimits`, quindi il test parte da `parse()` invece che dal helper di traduzione, che non esiste piu' |
+| `resource_budget_rifiuta_flag_a_zero` | `la_pipeline_rifiuta_flag_a_zero` |
+| `resource_budget_non_deriva_geometry_components_dal_wkb_per_cella` | `geometry_components_non_deriva_dal_wkb_per_cella` — stessa asserzione, e in piu' verifica che il **per-cella** segua il flag, cosa che il test precedente non controllava |
+| `conversion_budgets_hanno_contatori_indipendenti` | `i_due_rami_di_convert_hanno_contatori_indipendenti_e_context_condiviso` — conserva l'indipendenza dei contatori e **aggiunge** la condivisione del context, che con due budget scollegati non era verificabile |
+| `with_read_budget_accetta_solo_il_modello_unificato` | `with_read_budget_collega_il_budget_dell_operazione` — non c'e' piu' un modello da rifiutare, quindi il test verifica il fatto positivo: che il reader consumi la quota di concorrenza del context collegato |
+| `ensure_active_interroga_il_modello_che_governa_in_entrambi_i_rami` | `ensure_active_osserva_la_cancellazione_del_context` |
+| `output_limit_uses_shared_observed_input` (model/resource.rs) | `convert_writer_sees_input_observed_by_reader` e `output_limit_applies_expansion_when_bytes_positive` in `budget.rs`, presenti da S1 |
+
+**Aggiunti (11).** Oltre agli otto sostituti nominati sopra:
+`gli_scalari_arrivano_dai_limiti_della_pipeline`,
+`la_vista_di_scrittura_arriva_dagli_stessi_limiti` e
+`i_limiti_wkb_predefiniti_sono_quelli_storici` — quest'ultimo perche', tolto
+`Limits`, i default di `WkbLimits` restavano senza alcun test.
+
+### Il gate permanente che sostituisce l'inventario
+
+`check_no_legacy_budget.py` sostituisce l'inventario a soglie decrescenti,
+rimosso con S4.e. Non e' lo stesso gate con un altro nome: l'inventario
+misurava una migrazione in corso e i suoi numeri scendevano a ogni sottopasso,
+questo dichiara uno stato raggiunto e non ammette gradazioni.
+
+Vieta `resource.rs` e `mod resource`, i quattro tipi `Resource*`, il tipo
+esatto `Limits` — con una lookbehind che risparmia `PipelineLimits` e
+`WkbLimits` — `BudgetPayload`, i costruttori `from_legacy`, gli accessori
+`legacy_*` e `resource_budget`, e il `Default` di `ReadOptions`/`WriteOptions`.
+Scandisce ogni `.rs` di ogni crate piu' `fuzz/`, e spoglia commenti e stringhe:
+un commento che spiega perche' un tipo e' stato rimosso ne nomina il nome, e
+senza lo spoglio il gate vieterebbe di documentare la propria ragione.
+
+**Ha trovato subito un residuo reale.** Il crate `fuzz` non entra nella build
+predefinita — richiede nightly e `cargo-fuzz` — e il suo harness costruiva
+ancora `Limits`, `ReadOptions { .. }` e `WriteOptions::default()`. Era rotto da
+S4.e e nessun gate lo vedeva, perche' `cargo metadata` verifica il grafo delle
+dipendenze e non la compilazione. L'harness e' migrato, e `convert` costruisce
+ora i due rami dallo stesso `ConvertBudgetParts` come il codice spedito:
+misurare una forma diversa da quella in produzione avrebbe reso la campagna
+poco utile. **Resta non verificato per compilazione**: e' lo stesso gap dei
+gate fuzz e coverage, assenti dal `Dockerfile.dev`.

@@ -13,6 +13,6 @@ fuzz_target!(|data: &[u8]| {
     };
     let path = file.path().to_path_buf();
     for options in harness::declared_geometry_read_options() {
-        let _ = harness::read_all(&driver_xls::XlsDriver, path.clone(), &options);
+        let _ = harness::read_all(&driver_xls::XlsDriver, path.clone(), options);
     }
 });
