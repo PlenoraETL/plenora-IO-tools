@@ -197,6 +197,12 @@ enum BudgetPayload {
     /// a `Legacy`: se qualcosa fallisce, fallisce.
     Pipeline {
         budget: OperationBudget,
+        /// **Punto di consumo: S4.d**, dove `Source::into_path_checked`
+        /// osserva la sorgente attraverso il modello unificato. Oggi il
+        /// permit viaggia gia' — perche' regenerarlo dopo non sarebbe
+        /// possibile — ma nessun percorso di produzione lo preleva ancora:
+        /// il preflight in vigore e' quello legacy, che non osserva.
+        #[allow(dead_code)]
         permit: Option<InputPermit>,
         expected: Option<SourceFootprintSnapshot>,
     },
@@ -371,7 +377,20 @@ impl ReadOptions {
     /// Estrae il permit di osservazione. Lo consumera' il preflight in S4.d;
     /// oggi nessun percorso lo preleva, ed e' corretto cosi': il preflight
     /// legacy non osserva ancora attraverso il modello nuovo.
-    pub const fn take_input_permit(&mut self) -> Option<InputPermit> {
+    ///
+    /// `pub(crate)` e non `pub`: l'unico chiamante legittimo e'
+    /// `Source::into_path_checked`, che vive in questo crate. Esporlo fuori
+    /// darebbe a un driver — o domani alla facade — un secondo punto da cui
+    /// separare il permit dal proprio context, cioe' esattamente cio' che
+    /// INV-13 esclude.
+    ///
+    /// **Punto di consumo: S4.d**, insieme al campo `permit` del payload.
+    /// Finche' il preflight in vigore e' quello legacy — che non osserva —
+    /// nessun percorso di produzione lo chiama, e il `dead_code` e' la
+    /// descrizione corretta dello stato, non un avviso da zittire: sparisce
+    /// quando `Source::into_path_checked` inizia a osservare davvero.
+    #[allow(dead_code)]
+    pub(crate) const fn take_input_permit(&mut self) -> Option<InputPermit> {
         match &mut self.payload {
             BudgetPayload::Legacy { .. } => None,
             BudgetPayload::Pipeline { permit, .. } => permit.take(),

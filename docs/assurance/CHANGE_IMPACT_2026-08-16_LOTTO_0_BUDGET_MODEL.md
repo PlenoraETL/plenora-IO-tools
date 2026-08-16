@@ -682,3 +682,78 @@ solo le due quote che consulta — ma la semantica e' invariata: enumerazione
 via il modello unificato e rimozione atomica dei controlli legacy restano
 S4.d, dove avvengono in un atto solo per non applicare le stesse quote due
 volte.
+
+## Registrazione S4.b.3 del 2026-08-16 — riconciliazione del confine del permit
+
+Riconciliazione fra cio' che INV-13 dichiarava e cio' che il codice imponeva.
+Nessun cambio di comportamento a runtime.
+
+**INV-13 prometteva piu' di quanto Rust possa mantenere.** Diceva che il
+permit non e' "mai separabile" dal proprio bundle. Ma `plenora-io-core` e' un
+crate distinto da `plenora-io-model`, quindi l'API che gli consente di
+prendere il permit deve essere `pub` — e `pub` significa raggiungibile da
+chiunque aggiunga il modello fra le proprie dipendenze. Un `pub(workspace)`
+non esiste. La promessa non era attuabile, e c'erano **due** vie pubbliche
+per la stessa separazione: `ReadBudgetParts::take_input_permit()` e
+`into_components()`.
+
+La formulazione ora separa cio' che impone il linguaggio da cio' che impone
+la convenzione. **Garantito dal tipo**: il permit non e' costruibile
+dall'esterno, non e' `Clone`, ed e' legato al context che lo ha emesso — un
+permit speso altrove e' un `Err`, non un'osservazione sbagliata. **Garantito
+dalla convenzione e verificato**: e' separabile per move dentro il workspace,
+attraverso un'unica API marcata `#[doc(hidden)]`.
+
+Non e' una garanzia indebolita per rassegnazione. Una promessa di
+impossibilita' che il compilatore non sostiene vale meno di un confine
+convenzionale sorvegliato: la prima si legge come chiusa e non lo e', il
+secondo dice cosa controlla e lo controlla davvero.
+
+**Interventi**: `ReadBudgetParts::take_input_permit` rimosso; i 12 siti che lo
+usavano — helper `observe` compreso, ora consumante — passati a
+`into_components`. `into_components` e `WriteBudgetParts::into_budget` marcati
+`#[doc(hidden)]`. `ReadOptions::take_input_permit` reso `pub(crate)`: l'unico
+chiamante legittimo e' `Source::into_path_checked`, che vive in quel crate.
+Nuovo gate `check_permit_boundary.py`, che verifica `publish = false` sui due
+crate, la marcatura, l'assenza di un estrattore pubblico nel modello e
+l'assenza di usi fuori da model/core.
+
+Un effetto collaterale utile: `into_components` consuma le parti, quindi
+l'unicita' del permit non e' piu' un `None` restituito alla seconda chiamata
+ma un fatto del tipo. Il test che verificava il comportamento a runtime e'
+stato sostituito da una nota, perche' non c'e' piu' nulla da verificare a
+runtime.
+
+**Il contratto d'errore di `observe_input` era sbagliato, in doc e nel
+pacchetto.** Diceva "in ogni caso di errore lo stato resta `Collecting`,
+quindi `NotObserved`". Falso nel caso del secondo publish: li' lo stato
+precedente e' `Published`, l'errore lo lascia `Published`, e `ObservedInput`
+continua a riportare il footprint registrato. La formulazione corretta e' che
+**un errore non modifica lo stato precedente** — la chiamata o pubblica, o non
+lascia traccia. Il test
+`second_observation_is_rejected_and_keeps_the_published_footprint` gia'
+verificava il comportamento reale: era la documentazione a divergere, non il
+codice. Corretta anche la firma normativa nel pacchetto, rimasta
+`observe_input(permit, bytes, entries)` mentre l'API reale prende il solo
+permit dal 2026-08-16 (S1.2).
+
+**"Costruibile" non e' "utilizzabile".** `from_read_parts` esiste dal commit
+S4.b, ma adapter e spool prenotano ancora con `ResourceLease`. Un driver che
+costruisse opzioni `Pipeline` oggi avrebbe i contatori di riga dal modello
+nuovo e la memoria dei batch da quello vecchio, con la finestra non
+contabilizzata aperta proprio sul percorso che `shrink_to` doveva chiudere.
+
+L'handoff reale resta **prerequisito iniziale di S4.d** — trascinare la
+riscrittura dello spool dentro una riconciliazione l'avrebbe resa
+irrevisionabile — ma il vincolo e' attivo da subito e meccanico. Il gate
+`check_pipeline_branch_gate.py` fallisce se un crate fuori da
+`plenora-io-core` costruisce opzioni `Pipeline` mentre manca anche una sola
+delle tre condizioni: `spool.rs` e `reader_adapters.rs` liberi da
+`ResourceLease`, `InternalMemoryLease` effettivamente usato nel core, e il
+test end-to-end `handoff_reale_della_memoria_senza_bridge_legacy`. Verificato
+nei due versi: verde oggi, rosso appena si simula un driver che costruisce
+`Pipeline`. **S4.c non chiude finche' il gate vincola**: i driver si
+preparano, nessuno passa al ramo nuovo.
+
+**Inventario invariato** — 261 usi, tutti i tetti confermati. S4.b.3 non tocca
+il ponte legacy, quindi nessun valore doveva scendere e nessuno e' risalito.

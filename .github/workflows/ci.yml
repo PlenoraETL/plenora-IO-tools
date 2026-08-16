@@ -76,6 +76,16 @@ jobs:
       # scende a ogni sottopasso; S4.e lo porta a zero e rimuove il gate.
       - name: Verify the shrinking legacy budget inventory
         run: python3 scripts/check_legacy_budget_inventory.py
+      # INV-13 dichiara il permit non separabile dal bundle. Fra crate
+      # distinti Rust non lo impone: il confine e' convenzionale e va
+      # verificato, non solo dichiarato.
+      - name: Verify the InputPermit workspace boundary
+        run: python3 scripts/check_permit_boundary.py
+      # "Costruibile" non e' "utilizzabile": finche' adapter e spool
+      # prenotano con la lease legacy, nessun crate fuori dal core puo'
+      # costruire opzioni sul ramo Pipeline.
+      - name: Verify the pipeline branch is not declared usable too early
+        run: python3 scripts/check_pipeline_branch_gate.py
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       # Il perimetro comprende i binari, non solo le librerie: `plenora-io-cli`
       # viene distribuito, e fino a questo commit il suo `main.rs` era l'unico

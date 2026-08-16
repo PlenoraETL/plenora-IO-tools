@@ -378,15 +378,41 @@ struct che il chiamante possa costruire con dati arbitrari:
 - Un permit e' **emesso una sola volta per pipeline** da
   `PipelineBudgetBuilder::build()?`, che restituisce un
   `PipelineBundle` **opaco**: budget e permit non sono campi
-  pubblici e il consumer non li maneggia mai separatamente. Il
-  permit e' **legato al `PipelineContext`** che lo ha emesso:
-  porta l'identita' di quel context e non e' spendibile su un
-  context diverso.
+  pubblici. Il permit e' **legato al `PipelineContext`** che lo ha
+  emesso: porta l'identita' di quel context e non e' spendibile su
+  un context diverso.
 - Il permit esce dal bundle **solo** dentro le parti opache
   (`ReadBudgetParts`, `ScanBudgetParts`, `ConvertBudgetParts`)
   prodotte dalle `PipelineBundle::into_*_parts`. Non esiste un
   punto in cui il consumer accoppi a mano un permit con un budget:
   l'unico accoppiamento e' quello emesso da `build()`.
+- **Errata S4.b.3 — separabilita'.** La formulazione originale
+  diceva che il permit non e' "mai separabile" dalle parti. Non e'
+  vero, e non puo' esserlo: il core e' un crate distinto dal
+  modello, quindi l'API che gli consente di prendere il permit deve
+  essere `pub`, e `pub` significa raggiungibile da chiunque aggiunga
+  `plenora-io-model` fra le proprie dipendenze. Rust non ha un
+  `pub(workspace)`. La formulazione corretta separa cio' che il
+  linguaggio impone da cio' che impone la convenzione:
+  - **garantito dal tipo**: il permit non e' costruibile
+    dall'esterno (nessun costruttore pubblico, nessun campo
+    pubblico), non e' `Clone`, ed e' legato al context che lo ha
+    emesso — un permit speso altrove e' un `Err`, non un'osservazione
+    sbagliata;
+  - **garantito dalla convenzione, e verificato**: il permit e'
+    separabile **per move** all'interno del workspace, tramite
+    l'unica API di decomposizione `ReadBudgetParts::into_components`,
+    marcata `#[doc(hidden)]`. Prima di S4.b.3 esisteva accanto a
+    questa un `take_input_permit()` pubblico: due vie per la stessa
+    separazione, ridotte a una. Il confine regge su tre fatti che il
+    gate `scripts/check_permit_boundary.py` controlla a ogni corsa —
+    `publish = false` su entrambi i crate, la marcatura, e l'assenza
+    di usi fuori da `plenora-io-model` e `plenora-io-core`.
+
+  Non e' una garanzia piu' debole per rassegnazione: e' la garanzia
+  che si puo' effettivamente mantenere, dichiarata per quello che e'.
+  Una promessa di impossibilita' che il compilatore non sostiene
+  varrebbe meno di un confine convenzionale sorvegliato.
 - Il permit e' consumato per `move` da `PipelineContext::
   observe_input(permit) -> Result<SourceFootprint,
   PlenoraIoError>` una volta sola. Il metodo appartiene al context
@@ -395,14 +421,22 @@ struct che il chiamante possa costruire con dati arbitrari:
   diverso. Restituisce `Err` se il permit proviene da un altro
   context, se `ensure_active()` fallisce (cancellazione o deadline
   scaduta) o se un'osservazione risulta gia' registrata (difesa in
-  profondita'); su `Err` lo stato resta `ObservedInput::NotObserved`.
+  profondita'). **Un errore non modifica lo stato precedente.** Non
+  equivale a dire che lo stato resti `NotObserved`: nel caso del
+  secondo publish lo stato precedente e' gia' pubblicato, l'errore lo
+  lascia pubblicato, e `ObservedInput` continua a riportare il
+  footprint registrato. La pubblicazione e' terminale nelle due
+  direzioni — non si ripubblica e non si torna indietro — e il test
+  `second_observation_is_rejected_and_keeps_the_published_footprint`
+  lo verifica.
   Consumato = non riutilizzabile; non essendo `Clone`, il tipo
   Rust garantisce l'unicita' dell'osservazione.
 - Il consumer del permit e' `Source::into_path_checked` in
   `plenora-io-core`, che lo estrae dalle `ReadOptions` ricevute
-  (`take_input_permit()`) e chiama
-  `context.observe_input(permit)?` sul context a
-  cui il permit e' legato.
+  (`ReadOptions::take_input_permit()`, **`pub(crate)`**: l'unico
+  chiamante legittimo vive in quel crate) e chiama
+  `context.observe_input(permit)?` sul context a cui il permit e'
+  legato.
 - Un permit non consumato al drop del bundle o delle parti non
   invalida nulla: significa che nessuna osservazione dell'input
   e' avvenuta, coerente con `ObservedInput::NotObserved`.
@@ -1413,8 +1447,9 @@ impl PipelineContext {
     /// `Err` se il permit appartiene a un altro context, se
     /// `ensure_active()` fallisce (cancellazione o deadline
     /// scaduta), o se un'osservazione risulta gia' registrata su
-    /// questo context; su `Err` lo stato resta `NotObserved`.
-    pub fn observe_input(&self, permit: InputPermit, bytes: u64, entries: u64)
+    /// questo context. **Un errore non modifica lo stato
+    /// precedente**: la chiamata o pubblica, o non lascia traccia.
+    pub fn observe_input(&self, permit: InputPermit)
         -> Result<SourceFootprint, PlenoraIoError>;
 
     // Gauge lease-based, restituiti dai Drop delle lease (INV-5).
@@ -1918,6 +1953,40 @@ rami devono produrre gli stessi valori scalari, verificato da test
 dedicati e ancorato ai valori attesi — non alla sola uguaglianza fra i
 rami, che due rami rotti allo stesso modo soddisferebbero.
 
+#### Gate S4.b.3 — "costruibile" non e' "utilizzabile"
+
+`ReadOptions::from_read_parts` esiste ed e' coperto da test dal commit
+S4.b, ma il **percorso comune** — l'adapter di lettura e lo
+`StagedSpool` — prenota ancora memoria con la `ResourceLease` del
+modello legacy. Un driver che costruisse opzioni `Pipeline` oggi
+otterrebbe un oggetto formalmente corretto e un comportamento a meta':
+i contatori di riga dal modello nuovo, la memoria dei batch da quello
+vecchio, e la finestra non contabilizzata che
+`InternalMemoryLease::shrink_to` esiste per chiudere resterebbe aperta
+proprio sul percorso che dovrebbe averla chiusa.
+
+**Il ramo `Pipeline` non e' dichiarabile utilizzabile prima
+dell'handoff reale.** L'handoff resta prerequisito iniziale di S4.d —
+non entra in S4.b.3, che e' una riconciliazione e non deve trascinare
+la riscrittura dello spool — ma il vincolo e' attivo da subito, e
+meccanico: il gate `scripts/check_pipeline_branch_gate.py` fallisce se
+un crate fuori da `plenora-io-core` costruisce opzioni `Pipeline`
+mentre anche una sola delle tre condizioni manca:
+
+1. `spool.rs` e `reader_adapters.rs` liberi da `ResourceLease`;
+2. `InternalMemoryLease` effettivamente usato nel core;
+3. il test end-to-end
+   `handoff_reale_della_memoria_senza_bridge_legacy`, che costruisce le
+   opzioni con `from_read_parts`, apre e legge **davvero** attraverso
+   adapter e spool con `shrink_to` + move, e lo fa senza passare dal
+   ponte legacy.
+
+**S4.c non chiude finche' il gate vincola.** I driver possono essere
+preparati — accessori, firme, rimozione degli usi legacy residui — ma
+nessuno di essi passa al ramo `Pipeline` prima che le tre condizioni
+siano soddisfatte. Il gate si disattiva da solo quando lo sono, e va
+rimosso con il ponte in S4.e.
+
 ### M4 — Rimozione del vecchio modello
 
 - `plenora-io-model::Limits`, `ResourceBudget`, `ResourceLimits`,
@@ -2249,7 +2318,7 @@ verificabile. Nessuna decisione senza copertura API + test.
 | **INV-10** redazione strutturale + DTO conforme v1 | `PlenoraIoError` con campi privati + `PublicMessage` enum (senza `WithContractIdentifier`); `Option<ContractIdentifier>` nell'`ErrorContext`, da cui il DTO deriva `field` del wire; `PublicErrorDto` privato serializza a JSON v1 | Doc test compile-fail: `PlenoraIoError { message: "raw".to_string(), .. }` non compila; test snapshot `error_envelope_v1_structure_conforms_to_baseline` (struttura wire invariata, normalizza `message` prima del confronto); test separato `error_message_text_matches_curated_rendering_baseline` sul solo campo `message` |
 | **INV-11** deadline cumulativa | `PipelineContext.deadline: Instant` unico | Test `convert_with_timeout_50ms_fails_within_60ms_total` (non 100ms totali) |
 | **INV-12** concorrenza via `ResourcePool` + composizione | `ResourcePool::builder().concurrent_operations(n).build()`; agganciato via `.resource_pool(pool)`. **Senza pool**: memory/spill sono gauge **locali** al context (quota = `PipelineLimits`), concorrenza **assente** e `lease_concurrency()` no-op. **Con pool**: memory/spill = min(quota locale, pool) con consumo di entrambi i gauge, concorrenza governata **solo** dal pool | Test `memory_lease_is_local_and_enforced_without_pool`; `memory_lease_uses_min_of_local_and_pool_quota`; `lease_concurrency_is_noop_without_pool`; `two_pipelines_sharing_pool_compete_on_concurrency_gauge`; `pipeline_without_pool_does_not_count_against_others` |
-| **INV-13** model→core vietato + permit opaco one-shot | `plenora-io-model::InputPermit` opaco non-Clone senza costruttori pubblici, emesso dentro il `PipelineBundle` **opaco** da `PipelineBudgetBuilder::build` e mai separabile da esso (esce solo dentro le parti); consumato per `move` da `PipelineContext::observe_input(permit) -> Result<SourceFootprint, PlenoraIoError>` (legato al context che lo ha emesso), estratto dal core con `ReadOptions::take_input_permit()`; nessun import di `plenora-io-core` dal `Cargo.toml` di `plenora-io-model` | Gate CI `check_api_boundary.py` verifica assenza di `plenora-io-core` fra le dep di `plenora-io-model`; doc test compile-fail `let _ = permit.clone();`; `let p = InputPermit { .. };`; `bundle.permit` (campo inesistente); test `observe_input_consumes_permit_by_move_and_second_call_does_not_compile` |
+| **INV-13** model→core vietato + permit opaco one-shot | `plenora-io-model::InputPermit` opaco non-Clone senza costruttori pubblici, emesso dentro il `PipelineBundle` **opaco** da `PipelineBudgetBuilder::build`; esce solo dentro le parti, e da queste si separa **per move** attraverso l'unica API di decomposizione `ReadBudgetParts::into_components`, `#[doc(hidden)]` e workspace-internal (errata S4.b.3: non "mai separabile" — fra crate distinti Rust non lo impone); consumato per `move` da `PipelineContext::observe_input(permit) -> Result<SourceFootprint, PlenoraIoError>` (legato al context che lo ha emesso), estratto dal core con `ReadOptions::take_input_permit()`, `pub(crate)`; nessun import di `plenora-io-core` dal `Cargo.toml` di `plenora-io-model` | Gate CI `check_api_boundary.py` verifica assenza di `plenora-io-core` fra le dep di `plenora-io-model`; gate CI `check_permit_boundary.py` verifica `publish = false` sui due crate, la marcatura `#[doc(hidden)]`, l'assenza di un `take_input_permit` pubblico nel modello e l'assenza di usi della decomposizione fuori da model/core; doc test compile-fail `let _ = permit.clone();`; `let p = InputPermit { .. };`; `bundle.permit` (campo inesistente); test `observe_input_consumes_permit_by_move_and_second_call_does_not_compile` |
 | **INV-14** `FormatDescriptor` const-costruibile dai driver | `FormatDescriptor::const_new(...)` accessibile in contesto const | Compile test: ogni driver dichiara `static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(...)`; verifica di build |
 | **ADR-IO 7 A** spool bounded + file di spool senza nome | `StagedSpool` in `plenora-io-core::driver::spool`; file creato con `tempfile::tempfile_in`, scollegato dal filesystem all'apertura su Unix e `FILE_FLAG_DELETE_ON_CLOSE` su Windows; nessun path apribile, nessun orfano, nessuno sweep; `PLENORA_SPILL_DIR` sceglie il volume e fallisce chiuso se inutilizzabile; quota di spill RAII applicata alle scritture fisiche | Test `dataset_over_memory_bytes_succeeds_via_spool`; `an_unusable_spill_dir_fails_closed_instead_of_falling_back`; `a_spill_dir_that_is_a_file_is_rejected`; `an_underestimated_batch_cannot_write_beyond_the_quota`; `a_quota_smaller_than_the_reservation_chunk_is_usable`; `reaching_eof_releases_file_and_quota_while_the_spool_is_still_alive`; `spill_quota_returns_to_the_budget_when_the_spool_is_dropped`; `a_corrupted_spool_fails_typed_instead_of_truncating_silently` |
 | **L0.1** propagazione limiti in inferenza | `infer_types(path, &PipelineLimits)` / `infer_schema(path, &PipelineLimits)` / XLSX WKT parse con `PipelineLimits` reale (letto dal `PipelineContext`) | Test `inference_uses_configured_wkt_cell_bytes_not_default`; test `inference_respects_max_input_entries` |

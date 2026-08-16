@@ -29,12 +29,15 @@
 //! let bundle = PipelineBudget::builder()
 //!     .limits(PipelineLimits::default().with_max_rows(1_000))
 //!     .build()?;
-//! let (mut read, write) = bundle.into_convert_parts().into_parts();
+//! let (read, write) = bundle.into_convert_parts().into_parts();
 //!
 //! // il preflight del core enumera la sorgente e poi consuma il permit:
 //! // byte, entry e digest sono tutti accumulati qui, non dichiarati.
-//! let permit = read.take_input_permit().ok_or("permit assente")?;
-//! let context = read.budget().context();
+//! // `into_components` e' l'unica via che separa il permit dalle parti, ed
+//! // e' workspace-internal: fuori da model/core il gate la rifiuta.
+//! let (read_budget, permit, _atteso) = read.into_components();
+//! let permit = permit.ok_or("permit assente")?;
+//! let context = read_budget.context();
 //! context.note_entry_visited(&SourceEntry::directory(b"dati", None))?;
 //! context.note_entry_visited(&SourceEntry::file(b"dati/a.csv", 4_096, None))?;
 //! context.observe_input(permit)?;
@@ -59,8 +62,9 @@
 //!
 //! ```compile_fail
 //! use plenora_io_model::budget::{InputPermit, PipelineBudget};
-//! let mut parts = PipelineBudget::builder().build().expect("costruito").into_read_parts();
-//! let permit = parts.take_input_permit().expect("permit presente");
+//! let parts = PipelineBudget::builder().build().expect("costruito").into_read_parts();
+//! let (_budget, permit, _atteso) = parts.into_components();
+//! let permit = permit.expect("permit presente");
 //! let secondo: InputPermit = permit.clone();
 //! ```
 //!
@@ -1057,9 +1061,16 @@ impl PipelineContext {
     ///
     /// Restituisce [`PlenoraIoError::LimitExceeded`] se il permit appartiene
     /// a un'altra pipeline o se l'input risulta gia' pubblicato, e l'errore
-    /// di [`Self::ensure_active`] se la pipeline non e' piu' attiva. In ogni
-    /// caso di errore lo stato resta `Collecting`, quindi
-    /// [`ObservedInput::NotObserved`].
+    /// di [`Self::ensure_active`] se la pipeline non e' piu' attiva.
+    ///
+    /// **Un errore non modifica lo stato precedente.** Detto altrimenti: la
+    /// chiamata o pubblica, o non lascia traccia. Non equivale a dire che lo
+    /// stato resti `Collecting` — formulazione che questa doc portava fino a
+    /// S4.b.3 ed era falsa nel caso del secondo publish: li' lo stato
+    /// precedente e' `Published`, l'errore lo lascia `Published`, e
+    /// [`ObservedInput`] continua a riportare il footprint gia' registrato.
+    /// La pubblicazione e' terminale in entrambe le direzioni: non si
+    /// ripubblica, e non si torna indietro.
     // Il passaggio per valore e' l'invariante, non una svista: il permit e'
     // one-shot e non `Clone`, quindi consumarlo qui e' cio' che rende
     // impossibile una seconda osservazione. Prenderlo per riferimento — o
@@ -1743,23 +1754,30 @@ impl ReadBudgetParts {
         self.expected.as_ref()
     }
 
-    /// Estrae il permit trasportato dalle parti; `None` se gia' estratto o
-    /// se le parti non ne trasportavano. L'unico chiamante legittimo e' il
-    /// preflight del core: il permit resta legato al context di queste
-    /// stesse parti, quindi estrarlo non consente alcun incrocio.
-    pub const fn take_input_permit(&mut self) -> Option<InputPermit> {
-        self.permit.take()
-    }
-
     /// Scompone le parti nei componenti trasportati, **per move**.
     ///
-    /// E' il modo in cui il core costruisce le proprie opzioni. Clonare il
-    /// budget sarebbe innocuo per i contatori — condividono lo stesso
-    /// `PipelineContext` — ma renderebbe indistinguibile, a chi legge, il
-    /// passaggio dalla rigenerazione; e il permit non e' clonabile affatto,
-    /// perche' un secondo permit sullo stesso context non descriverebbe
-    /// alcuna osservazione reale. Consumare le parti rende esplicito che
-    /// quello trasportato e' l'unico esemplare.
+    /// # API workspace-internal
+    ///
+    /// Questo e' l'**unico** punto in cui il permit si separa dalle parti, ed
+    /// e' riservato a `plenora-io-model` e `plenora-io-core`. Fino a S4.b.3
+    /// esisteva accanto a questo un `take_input_permit()` pubblico: due vie
+    /// per la stessa separazione, di cui una contraddiceva la lettera di
+    /// INV-13. Ne resta una, marcata e sorvegliata dal gate
+    /// `scripts/check_permit_boundary.py`.
+    ///
+    /// Rust non sa esprimere "pubblico dentro il workspace": `pub(crate)` non
+    /// basta — il core e' un crate distinto — e non esiste un `pub(workspace)`.
+    /// Il confine e' quindi convenzionale, e regge su tre fatti verificabili
+    /// invece che su una promessa del linguaggio: entrambi i crate sono
+    /// `publish = false`, l'elemento e' `#[doc(hidden)]`, e il gate rifiuta
+    /// qualunque uso fuori dai due crate.
+    ///
+    /// Consumare le parti, invece di prestarne un riferimento, e' cio' che
+    /// rende esplicito che quello trasportato e' l'unico esemplare: clonare
+    /// il budget sarebbe innocuo per i contatori — condividono lo stesso
+    /// `PipelineContext` — ma renderebbe indistinguibile il passaggio dalla
+    /// rigenerazione, e il permit non e' clonabile affatto.
+    #[doc(hidden)]
     #[must_use]
     pub fn into_components(
         self,
@@ -1825,8 +1843,12 @@ impl WriteBudgetParts {
         &self.budget
     }
 
-    /// Estrae il budget **per move**, con la stessa motivazione di
-    /// [`ReadBudgetParts::into_components`].
+    /// Estrae il budget **per move**, con la stessa motivazione e lo stesso
+    /// confine workspace-internal di [`ReadBudgetParts::into_components`].
+    ///
+    /// Non trasporta permit — il ramo write non osserva input — quindi qui il
+    /// confine protegge solo la distinzione fra move e rigenerazione.
+    #[doc(hidden)]
     #[must_use]
     pub fn into_budget(self) -> OperationBudget {
         self.budget
@@ -1886,20 +1908,27 @@ mod tests {
     }
 
     /// Enumera le entry indicate e pubblica il footprint.
-    fn observe(parts: &mut ReadBudgetParts, entries: &[SourceEntry<'_>]) -> SourceFootprint {
-        let permit = parts.take_input_permit().expect("il permit deve esserci");
+    ///
+    /// Consuma le parti perche' `into_components` e' l'unica via che separa
+    /// il permit, e restituisce il budget cosi' che il chiamante possa
+    /// continuare a interrogare lo stesso context.
+    fn observe(
+        parts: ReadBudgetParts,
+        entries: &[SourceEntry<'_>],
+    ) -> (OperationBudget, SourceFootprint) {
+        let (budget, permit, _atteso) = parts.into_components();
+        let permit = permit.expect("il permit deve esserci");
         for visited in entries {
-            parts
-                .budget()
+            budget
                 .context()
                 .note_entry_visited(visited)
                 .expect("l'enumerazione deve passare");
         }
-        parts
-            .budget()
+        let footprint = budget
             .context()
             .observe_input(permit)
-            .expect("l'osservazione deve riuscire")
+            .expect("l'osservazione deve riuscire");
+        (budget, footprint)
     }
 
     fn pool(concurrent: u64, memory: u64) -> ResourcePool {
@@ -2018,10 +2047,10 @@ mod tests {
 
     #[test]
     fn scan_parts_expose_their_budget() {
-        let mut opened = bundle().into_read_parts();
-        let permit = opened.take_input_permit().expect("il permit deve esserci");
-        let footprint = opened
-            .budget()
+        let opened = bundle().into_read_parts();
+        let (budget, permit, _atteso) = opened.into_components();
+        let permit = permit.expect("il permit deve esserci");
+        let footprint = budget
             .context()
             .observe_input(permit)
             .expect("l'osservazione deve riuscire");
@@ -2152,16 +2181,13 @@ mod tests {
         let limits = PipelineLimits::default()
             .with_max_output_bytes(1_000)
             .with_output_expansion_ratio(3);
-        let mut parts = bundle_with(limits).into_read_parts();
+        let parts = bundle_with(limits).into_read_parts();
         // Il preflight ha girato — una directory visitata — ma non ha
         // addebitato byte: e' `Bytes(0)`, non `NotObserved`.
-        observe(&mut parts, &[SourceEntry::directory(b"vuota", None)]);
+        let (budget, _) = observe(parts, &[SourceEntry::directory(b"vuota", None)]);
+        assert_eq!(budget.context().observed_input(), ObservedInput::Bytes(0));
         assert_eq!(
-            parts.budget().context().observed_input(),
-            ObservedInput::Bytes(0)
-        );
-        assert_eq!(
-            parts.budget().output_limit(),
+            budget.output_limit(),
             1_000,
             "un input vuoto non deve produrre un tetto zero"
         );
@@ -2172,9 +2198,9 @@ mod tests {
         let limits = PipelineLimits::default()
             .with_max_output_bytes(1_000)
             .with_output_expansion_ratio(3);
-        let mut parts = bundle_with(limits).into_read_parts();
-        observe(&mut parts, &[sized_entry(b"a.csv", 100)]);
-        assert_eq!(parts.budget().output_limit(), 300);
+        let parts = bundle_with(limits).into_read_parts();
+        let (budget, _) = observe(parts, &[sized_entry(b"a.csv", 100)]);
+        assert_eq!(budget.output_limit(), 300);
     }
 
     #[test]
@@ -2182,8 +2208,8 @@ mod tests {
         let limits = PipelineLimits::default()
             .with_max_output_bytes(1_000)
             .with_output_expansion_ratio(3);
-        let (mut read, write) = bundle_with(limits).into_convert_parts().into_parts();
-        observe(&mut read, &[sized_entry(b"a.csv", 100)]);
+        let (read, write) = bundle_with(limits).into_convert_parts().into_parts();
+        observe(read, &[sized_entry(b"a.csv", 100)]);
         assert_eq!(
             write.budget().output_limit(),
             300,
@@ -2193,9 +2219,9 @@ mod tests {
 
     #[test]
     fn observe_input_consumes_permit_and_yields_footprint() {
-        let mut parts = bundle().into_read_parts();
-        let footprint = observe(
-            &mut parts,
+        let parts = bundle().into_read_parts();
+        let (budget, footprint) = observe(
+            parts,
             &[
                 sized_entry(b"a.csv", 100),
                 sized_entry(b"b.csv", 200),
@@ -2213,20 +2239,16 @@ mod tests {
             4,
             "anche la directory conta come entry, pur senza addebitare byte"
         );
-        assert_eq!(
-            parts.budget().context().observed_input(),
-            ObservedInput::Bytes(600)
-        );
-        assert!(
-            parts.take_input_permit().is_none(),
-            "il permit e' one-shot: una seconda estrazione non deve darne un altro"
-        );
+        assert_eq!(budget.context().observed_input(), ObservedInput::Bytes(600));
+        // Una seconda estrazione non e' piu' scrivibile: `into_components`
+        // consuma le parti, quindi l'unicita' del permit e' garantita dal
+        // tipo e non da un `None` restituito a runtime.
     }
 
     #[test]
     fn observe_input_with_permit_from_other_pipeline_is_rejected() {
-        let mut foreign = bundle().into_read_parts();
-        let permit = foreign.take_input_permit().expect("il permit deve esserci");
+        let (_budget, permit, _atteso) = bundle().into_read_parts().into_components();
+        let permit = permit.expect("il permit deve esserci");
         let target = bundle();
         assert!(target.context().observe_input(permit).is_err());
         assert_eq!(
@@ -2242,12 +2264,13 @@ mod tests {
             .cancellation(token.clone())
             .build()
             .expect("il builder deve costruire");
-        let mut parts = built.into_read_parts();
-        let permit = parts.take_input_permit().expect("il permit deve esserci");
+        let parts = built.into_read_parts();
+        let (budget, permit, _atteso) = parts.into_components();
+        let permit = permit.expect("il permit deve esserci");
         token.cancel();
-        assert!(parts.budget().context().observe_input(permit).is_err());
+        assert!(budget.context().observe_input(permit).is_err());
         assert_eq!(
-            parts.budget().context().observed_input(),
+            budget.context().observed_input(),
             ObservedInput::NotObserved
         );
     }
@@ -2264,7 +2287,7 @@ mod tests {
 
     #[test]
     fn scan_parts_carry_expected_snapshot_and_permit() {
-        let mut opened = bundle().into_read_parts();
+        let opened = bundle().into_read_parts();
         let paths: Vec<String> = (0..5_u8)
             .map(|index| format!("parte-{index}.csv"))
             .collect();
@@ -2272,31 +2295,31 @@ mod tests {
             .iter()
             .map(|path| sized_entry(path.as_bytes(), 400))
             .collect();
-        let footprint = observe(&mut opened, &entries);
+        let (_budget, footprint) = observe(opened, &entries);
 
         let scan = bundle().into_scan_parts(footprint.snapshot());
         assert_eq!(scan.expected_footprint().total_bytes(), 2_000);
         assert_eq!(scan.expected_footprint().entries_visited(), 5);
         assert_eq!(scan.expected_footprint().digest(), footprint.digest());
 
-        let mut read = scan.into_read_budget_parts();
+        let read = scan.into_read_budget_parts();
         assert!(
             read.expected_footprint().is_some(),
             "la conversione scan->read deve preservare lo snapshot atteso"
         );
+        let (_budget, permit, atteso) = read.into_components();
         assert!(
-            read.take_input_permit().is_some(),
+            permit.is_some(),
             "la conversione scan->read deve preservare il permit"
         );
+        assert!(atteso.is_some());
     }
 
     #[test]
     fn convert_parts_split_into_read_and_write() {
-        let (mut read, write) = bundle().into_convert_parts().into_parts();
-        assert!(
-            read.take_input_permit().is_some(),
-            "il permit viaggia sul ramo read"
-        );
+        let (read, write) = bundle().into_convert_parts().into_parts();
+        let (_read_budget, permit, _atteso) = read.into_components();
+        assert!(permit.is_some(), "il permit viaggia sul ramo read");
         assert_eq!(
             write.budget().remaining(OperationCounter::OutputBytes),
             PipelineLimits::default().max_output_bytes()
@@ -2744,20 +2767,16 @@ mod tests {
         let limits = PipelineLimits::default()
             .with_max_output_bytes(10_000)
             .with_output_expansion_ratio(2);
-        let mut parts = bundle_with(limits).into_read_parts();
-        observe(&mut parts, &[sized_entry(b"a.csv", 100)]);
-        assert_eq!(parts.budget().output_limit(), 200);
-        parts
-            .budget()
+        let parts = bundle_with(limits).into_read_parts();
+        let (budget, _) = observe(parts, &[sized_entry(b"a.csv", 100)]);
+        assert_eq!(budget.output_limit(), 200);
+        budget
             .try_lease(OperationCounter::OutputBytes, 200)
             .expect("il tetto derivato consente 200 byte")
             .commit(200)
             .expect("il commit deve riuscire");
         assert!(
-            parts
-                .budget()
-                .try_lease(OperationCounter::OutputBytes, 1)
-                .is_err(),
+            budget.try_lease(OperationCounter::OutputBytes, 1).is_err(),
             "oltre il tetto derivato la lease deve fallire, non fermarsi al solo limite assoluto"
         );
     }
@@ -2772,8 +2791,8 @@ mod tests {
     }
 
     fn digest_of(entries: &[SourceEntry<'_>]) -> SourceFootprintSnapshot {
-        let mut parts = bundle().into_read_parts();
-        observe(&mut parts, entries).snapshot()
+        let parts = bundle().into_read_parts();
+        observe(parts, entries).1.snapshot()
     }
 
     #[test]
@@ -2857,9 +2876,10 @@ mod tests {
     #[test]
     fn rejected_entry_does_not_enter_the_digest() {
         let limits = PipelineLimits::default().with_max_input_entries(1);
-        let mut parts = bundle_with(limits).into_read_parts();
-        let permit = parts.take_input_permit().expect("il permit deve esserci");
-        let context = parts.budget().context();
+        let parts = bundle_with(limits).into_read_parts();
+        let (budget, permit, _atteso) = parts.into_components();
+        let permit = permit.expect("il permit deve esserci");
+        let context = budget.context();
         context
             .note_entry_visited(&entry(b"a.csv"))
             .expect("prima entry");
@@ -2937,9 +2957,9 @@ mod tests {
 
         // Una pipeline che vede solo le due entry accettate deve produrre
         // esattamente lo stesso footprint: i rifiuti non lasciano traccia.
-        let mut pulita = bundle_with(limits).into_read_parts();
-        let atteso = observe(
-            &mut pulita,
+        let pulita = bundle_with(limits).into_read_parts();
+        let (_budget_pulito, atteso) = observe(
+            pulita,
             &[sized_entry(b"a.csv", 400), sized_entry(b"b.csv", 100)],
         );
         let permit = InputPermit {
@@ -2953,9 +2973,9 @@ mod tests {
 
     #[test]
     fn note_entry_visited_after_publication_is_rejected() {
-        let mut parts = bundle().into_read_parts();
-        let footprint = observe(&mut parts, &[sized_entry(b"a.csv", 10)]);
-        let context = parts.budget().context();
+        let parts = bundle().into_read_parts();
+        let (budget, footprint) = observe(parts, &[sized_entry(b"a.csv", 10)]);
+        let context = budget.context();
         let error = context
             .note_entry_visited(&sized_entry(b"tardiva.csv", 10))
             .expect_err("dopo la pubblicazione l'insieme e' chiuso");
@@ -2970,16 +2990,19 @@ mod tests {
 
     #[test]
     fn second_observation_is_rejected_and_keeps_the_published_footprint() {
-        let mut parts = bundle().into_read_parts();
-        let first = observe(&mut parts, &[sized_entry(b"a.csv", 10)]);
+        let parts = bundle().into_read_parts();
+        let (budget, first) = observe(parts, &[sized_entry(b"a.csv", 10)]);
         // Un permit di questa stessa pipeline, ottenuto per altra via, non
         // deve poter ripubblicare: la transizione e' terminale.
         let second = PipelineBudget::builder().build().expect("costruito");
-        let mut other = second.into_read_parts();
-        let foreign = other.take_input_permit().expect("permit");
-        assert!(parts.budget().context().observe_input(foreign).is_err());
+        let (_altro_budget, foreign, _atteso) = second.into_read_parts().into_components();
+        let foreign = foreign.expect("permit");
+        assert!(budget.context().observe_input(foreign).is_err());
+        // E' il caso che smentiva la vecchia doc di `observe_input`: dopo un
+        // secondo publish fallito lo stato **non** torna a `Collecting`,
+        // resta `Published` con il footprint gia' registrato.
         assert_eq!(
-            parts.budget().context().observed_input(),
+            budget.context().observed_input(),
             ObservedInput::Bytes(first.total_bytes())
         );
     }
@@ -2995,9 +3018,8 @@ mod tests {
         let limits = PipelineLimits::default()
             .with_max_output_bytes(1_000_000)
             .with_output_expansion_ratio(2);
-        let mut parts = bundle_with(limits).into_read_parts();
-        observe(&mut parts, &[sized_entry(b"a.csv", 100)]);
-        let budget = parts.budget().clone();
+        let parts = bundle_with(limits).into_read_parts();
+        let (budget, _) = observe(parts, &[sized_entry(b"a.csv", 100)]);
         assert_eq!(budget.output_limit(), CEILING);
 
         let concessi = std::sync::atomic::AtomicU64::new(0);
