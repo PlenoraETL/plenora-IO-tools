@@ -18,3 +18,6 @@ __pycache__/
 /fuzz/corpus/
 /fuzz/logs/
 /fuzz/target/
+
+# Impostazioni locali dell'assistente (permessi per macchina, non di progetto)
+/.claude/settings.local.json

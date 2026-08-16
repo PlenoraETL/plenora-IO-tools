@@ -1,0 +1,52 @@
+# Ambiente di sviluppo che replica il job Linux della CI
+# (.github/workflows/ci.yml): stessa toolchain Rust pinnata in
+# rust-toolchain.toml, stessa versione GDAL Debian bookworm (3.6.2) usata dal
+# profilo FileGDB verificato, Python 3 per gli script di gate in scripts/.
+#
+# Uso tipico dalla radice del repo:
+#   docker build -f Dockerfile.dev -t plenora-io-dev .
+#   docker run --rm -it -v ${PWD}:/work -v plenora-io-cargo:/usr/local/cargo/registry plenora-io-dev
+# Dentro il container:
+#   cargo build --workspace --locked
+#   cargo test  --workspace --all-targets --locked
+#   cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+#   cargo run -p plenora-io-cli --features gdal-backend --locked -- catalog
+
+FROM rust:1.92-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CARGO_TERM_COLOR=always \
+    RUST_BACKTRACE=1
+
+# Dipendenze di sistema:
+# - build-essential, clang, pkg-config: bindgen e crate C-sys (rusqlite bundled,
+#   zlib, zstd, bzip2, GDAL)
+# - libgdal-dev, gdal-bin: header, .pc e ogrinfo per la feature gdal-backend e
+#   per il gate check_filegdb_catalog che invoca `ogrinfo --formats`
+# - python3: script di gate sotto scripts/ (check_*.py, test_check_*.py)
+# - bash, git, ca-certificates: shell script di assurance, fetch di eventuali
+#   git dep, verifica certificati TLS
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends \
+        build-essential \
+        clang \
+        pkg-config \
+        libgdal-dev \
+        gdal-bin \
+        python3 \
+        bash \
+        git \
+        ca-certificates \
+        curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Componenti Rust richiesti da rust-toolchain.toml e dai gate CI
+# (clippy per il gate anti-panic, rustfmt per `cargo fmt --check`,
+# llvm-tools-preview per la copertura LCOV).
+RUN rustup component add clippy rustfmt llvm-tools-preview
+
+WORKDIR /work
+
+# Default interattivo: se lanci `docker run` senza comando ti trovi in una
+# bash pronta dentro /work (che sarà il repo bind-mounted).
+CMD ["bash"]
