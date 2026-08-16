@@ -2273,6 +2273,23 @@ Correzioni applicate in questa iterazione:
   nella tabella decisioni; conteggio step corretto a **13**
   (S0-S12 inclusi); ADR-IO 7 stato **Draft** fino a S0.
 
+**Errata S2 (2026-08-16)** — chiuse in implementazione, non rinviate.
+- Il ponte `PipelineContext::delegating_to_legacy` **non serve** ed e'
+  rimosso dal piano. Lo `StagedSpool` di M2 e' scritto contro il
+  `ResourceBudget` legacy, quindi in M2 un solo modello tocca i
+  contatori: non c'e' nulla da ponteggiare e il doppio conteggio che
+  il ponte doveva evitare non esiste. S4 migra le chiamate dello
+  spool insieme al resto.
+- La directory di spill 0700 con sweep degli orfani su lock e'
+  sostituita da un file **senza nome** (`tempfile::tempfile_in`:
+  scollegato all'apertura su Unix, `FILE_FLAG_DELETE_ON_CLOSE` su
+  Windows). Nessun path che un altro processo possa aprire, nessun
+  orfano da spazzare dopo un SIGKILL, nessuna finestra TOCTOU,
+  nessun symlink da seguire. `PLENORA_SPILL_DIR` resta per scegliere
+  il volume e fallisce chiuso se inutilizzabile.
+- La quota esaurita non preempte piu' la scoperta dell'EOF: un
+  dataset di N righe con quota N deve riuscire, e prima falliva.
+
 **Errata S1.2 (2026-08-16)** — chiuse in implementazione, non rinviate.
 - `observe_input(permit, bytes)` → `observe_input(permit)`. Anche i
   byte vengono ora dallo stato accumulato: erano l'ultima grandezza

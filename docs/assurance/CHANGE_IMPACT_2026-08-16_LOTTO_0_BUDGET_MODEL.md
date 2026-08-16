@@ -267,3 +267,64 @@ sull'altra — il contrario esatto di cio' che l'identita' garantisce.
 L'allocatore fallisce chiuso ed e' testato con il contatore a `u64::MAX - 1`.
 
 **Verifica S1.2**: 58 test unitari nel modulo (da 51) piu' i 5 doctest.
+
+## Registrazione S2 (M2) del 2026-08-16
+
+`StagedSpool` sostituisce la `VecDeque` dell'adapter comune di lettura. La
+garanzia resta la stessa — nessun prefisso accepted esposto se una violazione
+emerge in un punto qualsiasi della sorgente — ma cambia dove stanno i batch
+verificati: in RAM sotto una soglia adattiva, poi su file temporaneo in Arrow
+IPC senza ritorno. Il picco di memoria passa da O(dataset) a
+`adaptive_memory_threshold + batch corrente`.
+
+**L0.3 chiuso.** La memoria dei batch bufferizzati non e' piu' consumata da
+`commit`, che la sottraeva per sempre. Ogni batch in RAM tiene una lease
+viva, restituita quando lascia la RAM: migrato su disco o consegnato al
+consumer. La prenotazione di materializzazione viene rilasciata **prima**
+che lo spool prenda la lease di residenza, altrimenti lo stesso batch
+resterebbe contabilizzato due volte — una per la prenotazione larga
+(target + cella) e una per l'occupazione reale — e una quota stretta
+fallirebbe su un batch che ci sta.
+
+**Errata: il ponte `delegating_to_legacy` non serve.** Il pacchetto lo
+prevedeva perche' assumeva che lo `SpooledReader` fosse scritto contro il
+modello nuovo mentre i driver stavano ancora sul vecchio. Lo spool e' invece
+scritto contro il `ResourceBudget` legacy, quindi non c'e' nulla da
+ponteggiare: in M2 un solo modello tocca i contatori, e il rischio di doppio
+conteggio che il ponte doveva evitare non esiste. Il costo di migrazione e'
+lo stesso — S4 riscrive le chiamate di budget dello spool insieme a tutto il
+resto — senza un tipo transitorio di cui dimostrare la correttezza.
+
+**Errata ADR-IO 7 sul file di spill.** Directory 0700 e sweep degli orfani su
+lock sostituiti da `tempfile::tempfile_in`: file scollegato dal filesystem
+appena aperto su Unix, `FILE_FLAG_DELETE_ON_CLOSE` su Windows. Nessun path da
+aprire per un altro processo, nessun orfano da spazzare dopo un SIGKILL,
+nessuna finestra TOCTOU, nessun symlink da seguire. `PLENORA_SPILL_DIR` resta
+per scegliere il volume e fallisce chiuso se inutilizzabile.
+
+**Difetto emerso durante l'implementazione, chiuso qui.** Un dataset di N
+righe letto con quota esattamente N falliva: consegnato l'ultimo batch, il
+giro successivo — fatto solo per scoprire la fine della sorgente — trovava
+zero righe residue e trasformava l'EOF in `LimitExceeded`. Ora, quando una
+quota e' esaurita, il reader prova comunque a leggere: se la sorgente e'
+finita esce pulito, se produce ancora un batch l'errore resta quello di
+prima. E' il comportamento che l'acceptance test
+`convert_of_n_rows_with_max_rows_n_succeeds` richiede, e un secondo test
+verifica che una riga oltre quota continui a fallire.
+
+**Criterio di uscita "parita' dei limiti pre/post M2"**: verificato da
+`limit_parity_pre_and_post_m2`, che esercita `Rows` alla soglia esatta e a
+una sotto, `OutputBytes` come quota consumata e non trattenuta, e
+`ConcurrentOperations` contato una volta sola e restituito al drop.
+
+**Verifica S2**: 14 test dello spool piu' 5 nell'adapter
+(`dataset_over_memory_bytes_succeeds_via_spool`,
+`buffered_batches_do_not_permanently_consume_memory`,
+`reader_of_n_rows_with_max_rows_n_succeeds`,
+`reader_of_n_plus_one_rows_with_max_rows_n_still_fails`,
+`limit_parity_pre_and_post_m2`).
+
+**Residuo aperto di S2**: il benchmark bounded sul percorso convert non e'
+ancora stato eseguito, quindi il veto prestazionale non e' verificato. Lo
+spool aggiunge una scrittura e una rilettura Arrow IPC sui dataset che
+superano la soglia; il costo va misurato prima della chiusura del lotto.

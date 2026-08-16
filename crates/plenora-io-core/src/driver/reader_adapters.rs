@@ -1,6 +1,6 @@
 //! Adattatori comuni applicati ai `LayerReader`.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -20,6 +20,7 @@ use crate::loss::{declare_crs_inconsistency, LossReport};
 use crate::request::{effective_batch_rows, incremental_batch_memory_size, BatchTarget, ReadScope};
 
 use super::{saturating_usize, LayerReader, OpenDatasetHandle};
+use crate::driver::spool::StagedSpool;
 
 /// Collega a un dataset un budget condiviso. Ogni reader consuma colonne,
 /// righe, byte e una quota di concorrenza dagli stessi contatori, anche quando
@@ -109,7 +110,9 @@ struct BudgetedReader {
     budget: ResourceBudget,
     rows_scanned: u64,
     physical_row_indices_attestable: bool,
-    buffered: VecDeque<RecordBatch>,
+    /// Costruito al primo batch, con lo schema effettivo di lettura: prima
+    /// di allora non c'e' uno schema da dichiarare allo spool.
+    spool: Option<StagedSpool>,
     drained: bool,
     terminal_error: Option<PlenoraIoError>,
     cancellation: CancellationToken,
@@ -140,7 +143,7 @@ impl BudgetedReader {
             budget,
             rows_scanned: 0,
             physical_row_indices_attestable,
-            buffered: VecDeque::new(),
+            spool: None,
             drained: false,
             terminal_error: None,
             cancellation,
@@ -176,13 +179,29 @@ impl BudgetedReader {
             let available_output =
                 bounded_reservation(&self.budget, ResourceKind::OutputBytes, batch_bytes);
             if available_memory == 0 || available_rows == 0 || available_output == 0 {
-                return Err(terminal_scan_error(
-                    PlenoraIoError::LimitExceeded(
-                        "budget esaurito prima della materializzazione del batch".to_owned(),
-                    ),
-                    &violations,
-                    self.physical_row_indices_attestable,
-                ));
+                // Quota esaurita non significa ancora violazione: puo' essere
+                // semplicemente la fine della sorgente. Chiedere una
+                // prenotazione non nulla solo per scoprire l'EOF faceva
+                // fallire un dataset di N righe letto con quota esattamente N
+                // — l'ultimo batch veniva consegnato, poi il giro successivo
+                // trovava zero righe residue e trasformava la fine in errore.
+                //
+                // Si prova quindi a leggere: se la sorgente e' finita si esce
+                // pulito, se produce ancora un batch la quota e' davvero
+                // superata e l'errore resta lo stesso di prima.
+                let next = self.inner.next_batch().map_err(|error| {
+                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                })?;
+                if next.is_some() {
+                    return Err(terminal_scan_error(
+                        PlenoraIoError::LimitExceeded(
+                            "budget esaurito prima della materializzazione del batch".to_owned(),
+                        ),
+                        &violations,
+                        self.physical_row_indices_attestable,
+                    ));
+                }
+                break;
             }
             // Ogni operazione prenota al massimo il target bounded del proprio
             // batch, non tutto il residuo condiviso. L'inutilizzato torna
@@ -286,15 +305,20 @@ impl BudgetedReader {
             } else {
                 drop(rows_lease);
             }
+            // L0.3: la memoria **non** si committa. `commit` la consumerebbe
+            // per sempre, e i batch bufferizzati la accumulerebbero fino a
+            // O(dataset). La lease di materializzazione resta viva finche' il
+            // batch non e' entrato nello spool, che prende la propria lease di
+            // residenza: da quel momento la memoria e' contabilizzata dove il
+            // batch vive davvero, e torna quando lo lascia.
+            //
+            // `OutputBytes` invece resta cumulativo: e' quota consumata, non
+            // occupazione trattenuta.
             if bytes > 0 {
-                memory_lease.commit(bytes).map_err(|error| {
-                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
-                })?;
                 output_lease.commit(bytes).map_err(|error| {
                     terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
                 })?;
             } else {
-                drop(memory_lease);
                 drop(output_lease);
             }
             if let Some(lease) = geometry_lease {
@@ -309,26 +333,51 @@ impl BudgetedReader {
                     self.physical_row_indices_attestable,
                 )
             })?;
+            // La prenotazione di materializzazione ha esaurito il suo scopo:
+            // il batch esiste ed e' misurato. Va rilasciata **prima** che lo
+            // spool prenda la lease di residenza, altrimenti lo stesso batch
+            // resterebbe contabilizzato due volte — una per la prenotazione
+            // larga (target + cella) e una per l'occupazione reale — e una
+            // quota stretta fallirebbe su un batch che ci sta.
+            drop(memory_lease);
             if violations.is_empty() {
-                self.buffered.push_back(batch);
+                let spool = match self.spool.as_mut() {
+                    Some(spool) => spool,
+                    None => self
+                        .spool
+                        .insert(StagedSpool::new(batch.schema(), self.budget.clone())),
+                };
+                spool.push(batch, bytes).map_err(|error| {
+                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                })?;
             } else {
                 // Non è più possibile esporre alcun prefisso accepted. Si
-                // continua il drain soltanto per completare i conteggi.
-                self.buffered.clear();
+                // continua il drain soltanto per completare i conteggi, e lo
+                // spool rilascia subito quota di memoria e batch.
+                if let Some(spool) = self.spool.as_mut() {
+                    spool.clear();
+                }
             }
             if matches!(self.scope, ReadScope::AcceptedRows(limit) if self.rows_scanned >= limit) {
                 return if violations.is_empty() {
-                    Ok(())
+                    self.seal_spool()
                 } else {
                     Err(violations.into_error(false, Some("read_scope_row_limit_reached")))
                 };
             }
         }
         if violations.is_empty() {
-            Ok(())
+            self.seal_spool()
         } else {
             Err(violations.into_error(true, None))
         }
+    }
+
+    /// Sigilla lo spool: da qui in poi si legge soltanto. Separare le due fasi
+    /// e' cio' che rende l'atomicita' operativa verificabile invece che
+    /// sperata — nessun batch puo' entrare dopo che il primo e' uscito.
+    fn seal_spool(&mut self) -> Result<()> {
+        self.spool.as_mut().map_or(Ok(()), StagedSpool::seal)
     }
 }
 
@@ -348,19 +397,32 @@ impl LayerReader for BudgetedReader {
             return Err(error.clone());
         }
         if let Err(error) = super::check_cancelled(&self.cancellation, ErrorPhase::Read) {
-            self.buffered.clear();
+            self.spool = None;
             self.terminal_error = Some(error.clone());
             return Err(error);
         }
         if !self.drained {
             self.drained = true;
             if let Err(error) = self.drain_operation() {
-                self.buffered.clear();
+                self.spool = None;
                 self.terminal_error = Some(error.clone());
                 return Err(error);
             }
         }
-        Ok(self.buffered.pop_front())
+        match self.spool.as_mut() {
+            None => Ok(None),
+            Some(spool) => match spool.next_batch() {
+                Ok(batch) => Ok(batch),
+                Err(error) => {
+                    // Un errore di replay dopo la validazione e' terminale e
+                    // tipizzato: il consumer non deve poter proseguire su uno
+                    // spool che non sa piu' rileggere (INV-8).
+                    self.spool = None;
+                    self.terminal_error = Some(error.clone());
+                    Err(error)
+                }
+            },
+        }
     }
 
     fn loss_report(&self) -> LossReport {
@@ -1251,6 +1313,197 @@ mod tests {
         budgeted_sequence_with_scope(events, ReadScope::Complete)
     }
 
+    fn budgeted_sequence_with_budget(
+        events: VecDeque<Result<Option<RecordBatch>>>,
+        budget: ResourceBudget,
+    ) -> BudgetedReader {
+        let operation = budget
+            .try_lease(ResourceKind::ConcurrentOperations, 1)
+            .unwrap();
+        BudgetedReader::new(
+            Box::new(SequenceReader {
+                contract: validating_contract(),
+                events,
+            }),
+            budget,
+            true,
+            CancellationToken::default(),
+            BatchTarget::default(),
+            ReadScope::Complete,
+            operation,
+        )
+        .unwrap()
+    }
+
+    /// Il caso che ADR-IO 7 esiste per risolvere: prima dello spool i batch
+    /// verificati restavano tutti in RAM, quindi un dataset piu' grande della
+    /// quota di memoria falliva `LimitExceeded` anche se ogni singolo batch ci
+    /// stava comodamente.
+    #[test]
+    fn dataset_over_memory_bytes_succeeds_via_spool() {
+        let contract = validating_contract();
+        // 40 batch da ~21 byte di payload ciascuno con una quota di memoria
+        // di 4 KiB: la somma supera la quota, il singolo batch no.
+        let eventi: VecDeque<Result<Option<RecordBatch>>> = (0..40)
+            .map(|_| Ok(Some(geometry_batch(&contract, &[true; 8]))))
+            .collect();
+        let budget = ResourceBudget::new(ResourceLimits {
+            memory_bytes: 4_096,
+            cell_bytes: 1_024,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let mut reader = budgeted_sequence_with_budget(eventi, budget.clone());
+
+        let mut consegnati = 0_usize;
+        while let Some(batch) = reader.next_batch().unwrap() {
+            assert_eq!(batch.num_rows(), 8);
+            consegnati += 1;
+        }
+        assert_eq!(consegnati, 40);
+        assert_eq!(
+            budget.remaining(ResourceKind::MemoryBytes),
+            4_096,
+            "a fine operazione nessuna quota di memoria deve restare trattenuta"
+        );
+    }
+
+    /// L0.3: la memoria dei batch bufferizzati non e' consumo definitivo. Con
+    /// il vecchio `commit` la quota residua calava monotonicamente e non
+    /// tornava piu'.
+    #[test]
+    fn buffered_batches_do_not_permanently_consume_memory() {
+        let contract = validating_contract();
+        let eventi: VecDeque<Result<Option<RecordBatch>>> = (0..6)
+            .map(|_| Ok(Some(geometry_batch(&contract, &[true; 4]))))
+            .collect();
+        let budget = ResourceBudget::default();
+        let iniziale = budget.remaining(ResourceKind::MemoryBytes);
+        let mut reader = budgeted_sequence_with_budget(eventi, budget.clone());
+
+        while reader.next_batch().unwrap().is_some() {}
+        assert_eq!(
+            budget.remaining(ResourceKind::MemoryBytes),
+            iniziale,
+            "la memoria deve tornare interamente al termine dell'operazione"
+        );
+    }
+
+    /// Un dataset di N righe letto con quota esattamente N deve riuscire.
+    /// Prima la quota si esauriva sull'ultimo batch e il giro successivo,
+    /// fatto solo per scoprire la fine della sorgente, trasformava l'EOF in
+    /// un `LimitExceeded`.
+    #[test]
+    fn reader_of_n_rows_with_max_rows_n_succeeds() {
+        let contract = validating_contract();
+        let eventi: VecDeque<Result<Option<RecordBatch>>> = (0..4)
+            .map(|_| Ok(Some(geometry_batch(&contract, &[true; 5]))))
+            .collect();
+        let budget = ResourceBudget::new(ResourceLimits {
+            rows: 20,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let mut reader = budgeted_sequence_with_budget(eventi, budget);
+        let mut righe = 0_usize;
+        while let Some(batch) = reader.next_batch().unwrap() {
+            righe += batch.num_rows();
+        }
+        assert_eq!(righe, 20);
+    }
+
+    /// Una riga oltre la quota deve continuare a fallire: la correzione
+    /// dell'EOF non deve allentare il limite.
+    #[test]
+    fn reader_of_n_plus_one_rows_with_max_rows_n_still_fails() {
+        let contract = validating_contract();
+        let eventi: VecDeque<Result<Option<RecordBatch>>> = (0..5)
+            .map(|_| Ok(Some(geometry_batch(&contract, &[true; 5]))))
+            .collect();
+        let budget = ResourceBudget::new(ResourceLimits {
+            rows: 20,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let mut reader = budgeted_sequence_with_budget(eventi, budget);
+        let mut esito = Ok(());
+        while let Ok(Some(_)) = reader.next_batch() {}
+        if let Err(error) = reader.next_batch() {
+            esito = Err(error);
+        }
+        assert!(esito.is_err(), "la riga oltre quota deve fallire");
+    }
+
+    /// Criterio di uscita di M2: gli assi che lo spool non governa devono
+    /// comportarsi esattamente come prima, e nessuno deve essere contato due
+    /// volte dal percorso nuovo.
+    #[test]
+    fn limit_parity_pre_and_post_m2() {
+        let contract = validating_contract();
+        let eventi = || -> VecDeque<Result<Option<RecordBatch>>> {
+            (0..4)
+                .map(|_| Ok(Some(geometry_batch(&contract, &[true; 5]))))
+                .collect()
+        };
+
+        // `Rows`: 20 righe con quota 20 passano, con quota 19 no.
+        let stretto = ResourceBudget::new(ResourceLimits {
+            rows: 19,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let mut reader = budgeted_sequence_with_budget(eventi(), stretto);
+        assert!(
+            reader.next_batch().is_err(),
+            "una riga in meno di quota deve ancora fallire"
+        );
+
+        let esatto = ResourceBudget::new(ResourceLimits {
+            rows: 20,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        let mut reader = budgeted_sequence_with_budget(eventi(), esatto.clone());
+        let mut righe = 0_usize;
+        while let Some(batch) = reader.next_batch().unwrap() {
+            righe += batch.num_rows();
+        }
+        assert_eq!(
+            righe, 20,
+            "la quota esatta deve bastare: nessun doppio conteggio"
+        );
+        assert_eq!(
+            esatto.remaining(ResourceKind::Rows),
+            0,
+            "le righe restano cumulative, consumate una volta sola"
+        );
+
+        // `OutputBytes` resta cumulativo e consumato, non restituito.
+        let output = ResourceBudget::default();
+        let prima = output.remaining(ResourceKind::OutputBytes);
+        let mut reader = budgeted_sequence_with_budget(eventi(), output.clone());
+        while reader.next_batch().unwrap().is_some() {}
+        assert!(
+            output.remaining(ResourceKind::OutputBytes) < prima,
+            "OutputBytes e' quota consumata, non occupazione trattenuta"
+        );
+
+        // `ConcurrentOperations` resta governato dal solo modello legacy.
+        let concorrenza = ResourceBudget::default();
+        let prima = concorrenza.remaining(ResourceKind::ConcurrentOperations);
+        let reader = budgeted_sequence_with_budget(eventi(), concorrenza.clone());
+        assert_eq!(
+            concorrenza.remaining(ResourceKind::ConcurrentOperations),
+            prima - 1,
+            "una sola operazione, contata una sola volta"
+        );
+        drop(reader);
+        assert_eq!(
+            concorrenza.remaining(ResourceKind::ConcurrentOperations),
+            prima
+        );
+    }
+
     fn budgeted_sequence_with_scope(
         events: VecDeque<Result<Option<RecordBatch>>>,
         scope: ReadScope,
@@ -1596,7 +1849,10 @@ mod tests {
         assert_eq!(diagnostics.observed_total, 2);
         assert_eq!(diagnostics.examples[0].source_index, 3);
         assert_eq!(diagnostics.examples[1].source_index, 4);
-        assert!(reader.buffered.is_empty());
+        assert!(
+            reader.spool.is_none(),
+            "una violazione non deve lasciare batch consegnabili"
+        );
 
         let repeated = reader.next_batch().unwrap_err();
         assert_eq!(repeated, first);
