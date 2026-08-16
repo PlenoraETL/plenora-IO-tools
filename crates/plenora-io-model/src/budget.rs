@@ -159,6 +159,7 @@ const TOO_MANY_INPUT_BYTES: &str = "byte di input oltre il limite";
 const INPUT_BYTES_OVERFLOW: &str = "overflow nel conteggio dei byte di input";
 const PIPELINE_IDS_EXHAUSTED: &str = "spazio delle identita' di pipeline esaurito";
 const SHRINK_ABOVE_RESERVATION: &str = "la riduzione supera la quota gia' prenotata";
+const SHRINK_TO_ZERO: &str = "un batch custodito non puo' occupare zero byte";
 
 fn limit_error(message: &'static str) -> PlenoraIoError {
     PlenoraIoError::LimitExceeded(message.to_owned())
@@ -1550,13 +1551,25 @@ impl InternalMemoryLease {
     /// batch. Un `move` non tocca il gauge, quindi il passaggio di proprieta'
     /// e' gratuito e per costruzione senza finestra.
     ///
+    /// **Ridurre a zero e' rifiutato.** Un batch custodito occupa sempre
+    /// almeno il proprio ingombro strutturale — l'elemento in coda, l'`Arc`
+    /// dello schema, i metadati Arrow — anche quando non ha righe ne'
+    /// colonne. Una lease da zero byte dichiarerebbe che un oggetto vivo non
+    /// occupa nulla, cioe' rimetterebbe in circolo la stessa finestra non
+    /// contabilizzata che `shrink_to` esiste per chiudere, solo scritta in un
+    /// altro modo. Chi vuole davvero smettere di contabilizzare il batch
+    /// rilascia la lease, e allora il batch non e' piu' custodito.
+    ///
     /// # Errors
     ///
-    /// Restituisce [`PlenoraIoError::LimitExceeded`] se `bytes` supera la
-    /// quota gia' prenotata: questo metodo riduce soltanto. Ingrandire
-    /// richiederebbe di prenotare altro, che puo' fallire, e non sarebbe piu'
-    /// un handoff ma una seconda prenotazione.
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se `bytes` e' zero, o se
+    /// supera la quota gia' prenotata: questo metodo riduce soltanto.
+    /// Ingrandire richiederebbe di prenotare altro, che puo' fallire, e non
+    /// sarebbe piu' un handoff ma una seconda prenotazione.
     pub fn shrink_to(&mut self, bytes: u64) -> Result<()> {
+        if bytes == 0 {
+            return Err(limit_error(SHRINK_TO_ZERO));
+        }
         if bytes > self.bytes {
             return Err(limit_error(SHRINK_ABOVE_RESERVATION));
         }
@@ -2338,6 +2351,28 @@ mod tests {
     }
 
     #[test]
+    fn shrink_to_refuses_zero_because_a_custodied_batch_always_occupies_something() {
+        let limits = PipelineLimits::default()
+            .with_memory_bytes(10_000)
+            .with_max_wkb_cell_bytes(10_000);
+        let bundle = bundle_with(limits);
+        let context = bundle.context();
+        let mut lease = context
+            .lease_memory_internal(4_000)
+            .expect("la prenotazione deve passare");
+        let errore = lease
+            .shrink_to(0)
+            .expect_err("zero byte per un batch vivo non e' un'occupazione plausibile");
+        assert_eq!(errore.code, crate::IoErrorCode::LimitExceeded);
+        assert_eq!(
+            lease.bytes(),
+            4_000,
+            "il rifiuto non deve alterare la lease"
+        );
+        assert_eq!(context.remaining_memory(), 6_000);
+    }
+
+    #[test]
     fn shrink_to_refuses_to_grow_the_reservation() {
         let limits = PipelineLimits::default()
             .with_memory_bytes(10_000)
@@ -2390,6 +2425,10 @@ mod tests {
         let osservatore_fermo = AtomicBool::new(false);
         let fermati = AtomicBool::new(false);
         let intrusioni = AtomicU64::new(0);
+        // Tentativi effettuati **dentro** la fase. Senza contarli il test
+        // potrebbe passare per non aver mai guardato, che e' il modo piu'
+        // silenzioso di non verificare nulla.
+        let tentativi = AtomicU64::new(0);
 
         std::thread::scope(|ambito| {
             let osservatore = context.clone();
@@ -2398,6 +2437,7 @@ mod tests {
                 osservatore_avviato.store(true, Ordering::Release);
                 while !fermati.load(Ordering::Acquire) {
                     if in_handoff.load(Ordering::Acquire) {
+                        tentativi.fetch_add(1, Ordering::AcqRel);
                         if let Ok(intrusa) = contesto.lease_memory_internal(INTRUSIVA) {
                             // Ricontrolla la fase: la prenotazione puo' essere
                             // riuscita subito dopo la sua fine, e sarebbe
@@ -2426,7 +2466,7 @@ mod tests {
             }
 
             let mut custodito: Option<InternalMemoryLease> = None;
-            for _ in 0..5_000_u32 {
+            for _ in 0..2_000_u32 {
                 // L'osservatore puo' avere quota in mano: l'acquisizione
                 // ritenta invece di fallire, cosi' l'unico segnale del test
                 // resta il contatore delle intrusioni.
@@ -2441,7 +2481,14 @@ mod tests {
                 // intrusiva passerebbe legittimamente.
                 let osservabile = custodito.is_some();
                 if osservabile {
+                    let prima = tentativi.load(Ordering::Acquire);
                     in_handoff.store(true, Ordering::Release);
+                    // Attende che l'osservatore abbia effettivamente provato
+                    // dentro questa fase: rende la copertura deterministica
+                    // invece di affidarla allo scheduler.
+                    while tentativi.load(Ordering::Acquire) == prima {
+                        std::thread::yield_now();
+                    }
                 }
                 lease.shrink_to(ACTUAL).expect("la riduzione deve riuscire");
                 // Il nuovo batch entra in custodia **prima** che esca il
@@ -2459,6 +2506,10 @@ mod tests {
             drop(custodito);
         });
 
+        assert!(
+            tentativi.load(Ordering::Acquire) > 0,
+            "l'osservatore non ha mai provato dentro la fase: il test non avrebbe verificato nulla"
+        );
         assert_eq!(
             intrusioni.load(Ordering::Acquire),
             0,

@@ -585,5 +585,21 @@ passa 8 volte su 8. L'osservatore si ferma alla prima intrusione, altrimenti
 sottrarrebbe quota al thread principale rendendo la corsa lentissima senza
 aggiungere informazione.
 
+**Ridurre a zero e' rifiutato.** Un batch custodito occupa sempre almeno il
+proprio ingombro strutturale — l'elemento in coda, l'`Arc` dello schema, i
+metadati Arrow — anche senza righe ne' colonne. Una lease da zero byte
+dichiarerebbe che un oggetto vivo non occupa nulla, cioe' rimetterebbe in
+circolo la stessa finestra non contabilizzata che `shrink_to` esiste per
+chiudere, solo scritta in un altro modo. Chi vuole smettere di
+contabilizzare il batch rilascia la lease, e allora il batch non e' piu'
+custodito.
+
+**Il test conta le proprie osservazioni.** L'osservatore incrementa un
+contatore ogni volta che prova dentro la fase, e il test asserisce che sia
+maggiore di zero: senza, un verde potrebbe voler dire soltanto che nessuno
+ha guardato. La copertura e' inoltre deterministica — il thread principale
+apre la fase e **attende** che l'osservatore abbia provato almeno una volta
+prima di procedere, invece di affidarsi allo scheduler.
+
 Aggiunto anche `PipelineLimits::wkb_limits()`, che i driver useranno in
 S4.c al posto di `Limits::effective_wkb()`.
