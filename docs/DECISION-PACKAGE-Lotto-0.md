@@ -2087,7 +2087,42 @@ vive nel pool (INV-12): senza pool la lease e' un no-op, quindi i test
 che verificano il tetto usano ora un `ResourcePool` esplicito.
 
 **Il gate `check_pipeline_branch_gate.py` si e' sbloccato da solo**, ed
-e' rimovibile con il ponte in S4.e. S4.c e S4.d si dichiarano chiusi.
+e' rimovibile con il ponte in S4.e.
+
+#### Errata S4.d.1 — due difetti dell'handoff e due guardie
+
+**L'ingombro strutturale non era sempre coperto.** La prenotazione
+valeva `target_bytes + max_wkb_cell_bytes`, l'ingombro contabilizzato
+`bytes + PER_BATCH_OVERHEAD_BYTES`: quando la somma dei primi due
+stava sotto l'overhead, allo spool arrivava una lease piu' piccola del
+batch. L'overhead entra ora nella prenotazione di **memoria** e solo in
+quella — quella di output conta byte prodotti, non occupazione interna
+— e prima della cessione un controllo esplicito
+`accounted <= memory_lease.bytes()` fallisce chiuso.
+
+**Il pool non entrava nel dimensionamento.** `remaining_memory()`
+riportava il solo gauge locale mentre `lease_memory_internal` compone
+locale e pool (INV-12): con pool stretto l'adapter chiedeva piu' di
+quanto entrasse e falliva invece di spillare, e
+`adaptive_memory_threshold` calcolava una soglia irraggiungibile. Il
+context espone ora residuo e capacita' **effettivi**, minimo fra
+locale e pool, per memoria e spill.
+
+**Identita' del percorso.** `to_string_lossy` faceva collassare due
+percorsi Unix non-UTF-8 distinti sullo stesso digest. Si usano ora i
+byte nativi dell'`OsStr`, con una forma normalizzata per piattaforma.
+
+**Cancellazione per voce**, non per directory: il controllo e' in testa
+a `scopri`.
+
+**Due guardie direzionali.** `richiede_modello_legacy` e
+`richiede_modello_unificato` sostituiscono l'unica precedente, che
+diceva "componente non ancora migrato" anche dove il componente e'
+migrato e sono le opzioni a essere vecchie. L'inventario le conta
+separatamente: la prima e' debito e deve scendere, la seconda e'
+progresso.
+
+**S4.c e S4.d si dichiarano chiusi.**
 
 ### M4 — Rimozione del vecchio modello
 

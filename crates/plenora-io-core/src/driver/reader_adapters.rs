@@ -33,14 +33,14 @@ use crate::driver::spool::StagedSpool;
 /// Prende le **opzioni**, non un budget gia' estratto: la scelta di quale
 /// modello governi i contatori appartiene al core, non ai tredici driver.
 /// Prima di S4.c ogni driver scriveva da se'
-/// `opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?.clone()`, cioe'
+/// `opts.legacy_budget().ok_or_else(...)?.clone()`, cioe'
 /// tredici copie della stessa decisione, che S4.d avrebbe dovuto cambiare una
 /// per una. Concentrandola qui il passaggio al modello unificato tocca un
 /// punto solo per direzione.
 ///
 /// # Errors
 ///
-/// Restituisce [`crate::driver::bridge_richiede_legacy`] se le opzioni sono
+/// Restituisce [`crate::driver::richiede_modello_unificato`] se le opzioni sono
 /// costruite sul modello **legacy**. Da S4.d il percorso di lettura vive
 /// interamente sul modello unificato: la memoria dei batch e' una
 /// [`InternalMemoryLease`], che esiste solo dentro un `PipelineContext`, e
@@ -52,7 +52,7 @@ pub fn with_read_budget(
 ) -> Result<Box<dyn OpenDatasetHandle>> {
     let budget = opts
         .pipeline_budget()
-        .ok_or_else(crate::driver::bridge_richiede_legacy)?
+        .ok_or_else(crate::driver::richiede_modello_unificato)?
         .clone();
     Ok(Box::new(BudgetedDataset {
         dataset,
@@ -190,13 +190,31 @@ impl BudgetedReader {
             self.budget.context().ensure_active().map_err(|error| {
                 terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
             })?;
-            let batch_bytes = u64::try_from(self.batch_target.target_bytes)
-                .unwrap_or(u64::MAX)
-                .saturating_add(cell_bytes_u64(self.budget.context()));
+            // **Due target distinti, non uno.** La memoria deve coprire anche
+            // l'ingombro strutturale del batch in coda allo spool, perche' e'
+            // quello che la lease dovra' contabilizzare dopo la riduzione;
+            // l'output no, perche' `PER_BATCH_OVERHEAD_BYTES` e' occupazione
+            // interna della libreria e non byte prodotti. Sommarlo anche li'
+            // avrebbe consumato quota di uscita che nessuno scrive.
+            //
+            // Senza l'addendo sulla memoria la prenotazione poteva risultare
+            // **piu' piccola** dell'ingombro contabilizzato — bastava un
+            // `max_wkb_cell_bytes` inferiore all'overhead — e allo spool
+            // sarebbe arrivata una lease sottodimensionata: `shrink_to`
+            // riduce, non allarga, e il ramo che la chiama scatta solo nel
+            // verso opposto.
+            let target_batch = u64::try_from(self.batch_target.target_bytes).unwrap_or(u64::MAX);
+            let batch_bytes_output =
+                target_batch.saturating_add(cell_bytes_u64(self.budget.context()));
+            let batch_bytes_memoria =
+                batch_bytes_output.saturating_add(crate::driver::spool::PER_BATCH_OVERHEAD_BYTES);
             let batch_rows = u64::try_from(self.batch_target.max_rows).unwrap_or(u64::MAX);
-            let available_memory = bounded(self.budget.context().remaining_memory(), batch_bytes);
+            let available_memory = bounded(
+                self.budget.context().effective_remaining_memory(),
+                batch_bytes_memoria,
+            );
             let available_rows = bounded(self.budget.remaining(OperationCounter::Rows), batch_rows);
-            let available_output = bounded(output_disponibile(&self.budget), batch_bytes);
+            let available_output = bounded(output_disponibile(&self.budget), batch_bytes_output);
             if available_memory == 0 {
                 // Senza memoria non si puo' materializzare nulla, nemmeno per
                 // scoprire la fine della sorgente: una sonda qui leggerebbe
@@ -395,6 +413,22 @@ impl BudgetedReader {
             // in coda, anche senza righe ne' colonne, ed e' lo stesso valore
             // che lo spool usa per decidere la migrazione.
             let accounted = bytes.saturating_add(crate::driver::spool::PER_BATCH_OVERHEAD_BYTES);
+            // Fail-closed prima della cessione. `shrink_to` riduce e basta:
+            // se l'ingombro contabilizzato eccedesse la prenotazione, lo
+            // spool custodirebbe un batch con una lease che non lo copre, e
+            // la contabilita' direbbe meno di quanto la libreria occupa
+            // davvero. Meglio fallire qui, dove la causa e' visibile.
+            if accounted > memory_lease.bytes() {
+                return Err(terminal_scan_error(
+                    PlenoraIoError::LimitExceeded(format!(
+                        "ingombro contabilizzato del batch ({accounted} byte) oltre la \
+                         prenotazione di materializzazione ({} byte)",
+                        memory_lease.bytes()
+                    )),
+                    &violations,
+                    self.physical_row_indices_attestable,
+                ));
+            }
             if accounted < memory_lease.bytes() {
                 memory_lease.shrink_to(accounted).map_err(|error| {
                     terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
@@ -1451,6 +1485,14 @@ mod tests {
         events: VecDeque<Result<Option<RecordBatch>>>,
         budget: OperationBudget,
     ) -> BudgetedReader {
+        budgeted_sequence_con_target(events, budget, BatchTarget::default())
+    }
+
+    fn budgeted_sequence_con_target(
+        events: VecDeque<Result<Option<RecordBatch>>>,
+        budget: OperationBudget,
+        batch_target: BatchTarget,
+    ) -> BudgetedReader {
         let operation = budget.context().lease_concurrency().unwrap();
         BudgetedReader::new(
             Box::new(SequenceReader {
@@ -1460,7 +1502,7 @@ mod tests {
             budget,
             true,
             CancellationToken::default(),
-            BatchTarget::default(),
+            batch_target,
             ReadScope::Complete,
             operation,
         )
@@ -2436,7 +2478,7 @@ mod tests {
     ///
     /// **Nessun ponte.** Le opzioni nascono da `from_read_parts`, cioe' dal
     /// modello unificato, e attraversano `with_read_budget` senza toccare
-    /// `bridge_richiede_legacy`: se un solo anello del percorso fosse ancora
+    /// la guardia del modello: se un solo anello del percorso fosse ancora
     /// legacy, `with_read_budget` restituirebbe `Unsupported` e il test
     /// fallirebbe alla prima riga utile.
     ///
@@ -2630,6 +2672,148 @@ mod tests {
         // memoria era occupazione trattenuta, non consumo definitivo.
         drop(reader);
         assert_eq!(contesto.remaining_memory(), CAPACITA);
+    }
+
+    /// Il tetto per cella piu' piccolo dell'ingombro strutturale.
+    ///
+    /// Prima di S4.d.1 la prenotazione di materializzazione valeva
+    /// `target_bytes + max_wkb_cell_bytes` e l'ingombro contabilizzato
+    /// `bytes + PER_BATCH_OVERHEAD_BYTES`. Con un tetto per cella minuscolo
+    /// il secondo poteva superare la prima, e allo spool arrivava una lease
+    /// **piu' piccola** del batch che doveva coprire: `shrink_to` riduce e
+    /// basta, e il ramo che lo chiama scatta solo nel verso opposto.
+    ///
+    /// Ora l'overhead entra nella prenotazione di memoria — e **solo** in
+    /// quella, non in quella di output, che conta byte prodotti e non
+    /// occupazione interna della libreria.
+    #[test]
+    fn l_ingombro_strutturale_e_coperto_anche_con_tetto_per_cella_minuscolo() {
+        // Sotto l'overhead strutturale ma sopra la geometria di prova: e' il
+        // caso in cui il vecchio calcolo produceva una prenotazione piu'
+        // piccola dell'ingombro contabilizzato.
+        const CELL: usize = 64;
+        // Anche il target del batch deve essere piccolo: con gli 8 MiB
+        // predefiniti la prenotazione coprirebbe l'overhead per caso, e il
+        // test non distinguerebbe il calcolo corretto da quello vecchio.
+        //
+        // `TARGET + CELL` sta sotto l'overhead — quindi il vecchio calcolo
+        // produceva una prenotazione insufficiente — ma sopra l'ingombro
+        // reale del batch, altrimenti a fallire sarebbe la prenotazione di
+        // output e il test misurerebbe un'altra cosa.
+        const TARGET: usize = 896;
+        assert!(
+            u64::try_from(TARGET + CELL).expect("piccolo")
+                < crate::driver::spool::PER_BATCH_OVERHEAD_BYTES,
+            "il caso ha senso solo se la vecchia prenotazione stava sotto l'overhead"
+        );
+
+        let budget = budget_con(
+            PipelineLimits::default()
+                // Memoria stretta ma sufficiente: due batch custoditi piu'
+                // una prenotazione di materializzazione.
+                .with_memory_bytes(8 * crate::driver::spool::PER_BATCH_OVERHEAD_BYTES)
+                .with_max_wkb_cell_bytes(CELL),
+        );
+        let contratto = validating_contract();
+        let mut eventi: VecDeque<Result<Option<RecordBatch>>> = VecDeque::new();
+        for _ in 0..4_u8 {
+            eventi.push_back(Ok(Some(geometry_batch(&contratto, &[true]))));
+        }
+        eventi.push_back(Ok(None));
+        let mut reader = budgeted_sequence_con_target(
+            eventi,
+            budget.clone(),
+            BatchTarget {
+                target_bytes: TARGET,
+                max_rows: 8,
+            },
+        );
+
+        let mut letti = 0_usize;
+        while let Some(batch) = match reader.next_batch() {
+            Ok(batch) => batch,
+            Err(error) => unreachable!("la lettura deve riuscire: {error:?}"),
+        } {
+            letti += batch.num_rows();
+        }
+        assert!(
+            letti > 0,
+            "il percorso deve consegnare i batch, non fallire"
+        );
+        drop(reader);
+        assert_eq!(
+            budget.context().effective_remaining_memory(),
+            8 * crate::driver::spool::PER_BATCH_OVERHEAD_BYTES,
+            "a lettura conclusa la memoria torna intera"
+        );
+    }
+
+    /// Un pool piu' stretto della pipeline deve far spillare, non fallire.
+    ///
+    /// `remaining_memory()` riporta il solo gauge locale, mentre
+    /// `lease_memory_internal` compone locale e pool (INV-12). Dimensionando
+    /// sul solo residuo locale l'adapter chiedeva piu' di quanto entrasse, e
+    /// la lease falliva: il chiamante leggeva "memoria esaurita" dove c'era
+    /// soltanto una richiesta mal dimensionata. E la soglia di migrazione,
+    /// derivata dal solo limite locale, era irraggiungibile — quindi lo spool
+    /// non migrava, cioe' restava inutile proprio nel caso che deve risolvere.
+    #[test]
+    fn un_pool_piu_stretto_della_pipeline_fa_spillare_e_completare() {
+        const POOL_MEMORIA: u64 = 96 * 1024;
+        const PIPELINE_MEMORIA: u64 = 8 * 1024 * 1024;
+
+        let pool = match ResourcePool::builder()
+            .memory_bytes(POOL_MEMORIA)
+            .spill_bytes(8 * 1024 * 1024)
+            .concurrent_operations(4)
+            .build()
+        {
+            Ok(pool) => pool,
+            Err(error) => unreachable!("pool di test: {error:?}"),
+        };
+        let budget = budget_con_pool(
+            PipelineLimits::default()
+                .with_memory_bytes(PIPELINE_MEMORIA)
+                .with_max_wkb_cell_bytes(4_096),
+            pool,
+        );
+
+        assert_eq!(
+            budget.context().remaining_memory(),
+            PIPELINE_MEMORIA,
+            "il residuo locale ignora il pool, ed e' il motivo per cui non basta"
+        );
+        assert_eq!(
+            budget.context().effective_remaining_memory(),
+            POOL_MEMORIA,
+            "il residuo effettivo e' il minimo fra locale e pool"
+        );
+        assert_eq!(
+            crate::driver::spool::adaptive_memory_threshold(&budget),
+            POOL_MEMORIA / 2,
+            "la soglia deriva dalla capacita' effettiva, non dal limite locale"
+        );
+
+        let contratto = validating_contract();
+        let mut eventi: VecDeque<Result<Option<RecordBatch>>> = VecDeque::new();
+        for _ in 0..64_u8 {
+            eventi.push_back(Ok(Some(geometry_batch(&contratto, &[true]))));
+        }
+        eventi.push_back(Ok(None));
+        let mut reader = budgeted_sequence_with_budget(eventi, budget.clone());
+
+        let mut letti = 0_usize;
+        while let Some(batch) = match reader.next_batch() {
+            Ok(batch) => batch,
+            Err(error) => {
+                unreachable!("con il pool stretto si deve spillare, non fallire: {error:?}")
+            }
+        } {
+            letti += batch.num_rows();
+        }
+        assert_eq!(letti, 64, "tutti i batch devono arrivare al consumer");
+        drop(reader);
+        assert_eq!(budget.context().effective_remaining_memory(), POOL_MEMORIA);
     }
 
     #[test]

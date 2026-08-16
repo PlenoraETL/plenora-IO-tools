@@ -1028,14 +1028,76 @@ impl PipelineContext {
         lock_recover(&self.inner.observation).charged_bytes()
     }
 
+    /// Residuo **locale** di memoria, senza guardare il pool.
+    ///
+    /// Serve a chi vuole sapere quanto resta a questa pipeline in isolamento.
+    /// Chi deve decidere quanto prenotare usi
+    /// [`Self::effective_remaining_memory`]: `lease_memory_internal` compone
+    /// locale e pool (INV-12), quindi il solo residuo locale sovrastima cio'
+    /// che entrerebbe davvero.
     #[must_use]
     pub fn remaining_memory(&self) -> u64 {
         self.inner.memory.remaining()
     }
 
+    /// Residuo locale di spill, senza guardare il pool. Vedi
+    /// [`Self::remaining_memory`].
     #[must_use]
     pub fn remaining_spill(&self) -> u64 {
         self.inner.spill.remaining()
+    }
+
+    /// Residuo di memoria **effettivo**: il minimo fra locale e pool.
+    ///
+    /// E' il numero che governa cio' che una prenotazione puo' ottenere. Con
+    /// quota locale ampia e pool stretto, dimensionare sul solo residuo
+    /// locale porta a chiedere piu' di quanto entri: la lease fallisce, e il
+    /// chiamante interpreta come "memoria esaurita" cio' che era soltanto una
+    /// richiesta mal dimensionata — invece di prenotare il possibile e
+    /// migrare su disco.
+    #[must_use]
+    pub fn effective_remaining_memory(&self) -> u64 {
+        self.effective_remaining(GaugeKind::Memory)
+    }
+
+    /// Residuo di spill effettivo, con la stessa composizione.
+    #[must_use]
+    pub fn effective_remaining_spill(&self) -> u64 {
+        self.effective_remaining(GaugeKind::Spill)
+    }
+
+    /// Capacita' di memoria effettiva: il minimo fra locale e pool.
+    ///
+    /// E' la grandezza da cui derivare una soglia, non
+    /// `PipelineLimits::memory_bytes`: con un pool piu' stretto, una soglia
+    /// calcolata sul solo limite locale sarebbe irraggiungibile, e lo spool
+    /// non migrerebbe mai — cioe' resterebbe inutile proprio nel caso in cui
+    /// serve.
+    #[must_use]
+    pub fn effective_memory_capacity(&self) -> u64 {
+        self.effective_capacity(GaugeKind::Memory)
+    }
+
+    /// Capacita' di spill effettiva, con la stessa composizione.
+    #[must_use]
+    pub fn effective_spill_capacity(&self) -> u64 {
+        self.effective_capacity(GaugeKind::Spill)
+    }
+
+    fn effective_remaining(&self, kind: GaugeKind) -> u64 {
+        let locale = kind.local(&self.inner).remaining();
+        self.inner
+            .pool
+            .as_ref()
+            .map_or(locale, |pool| locale.min(kind.pooled(pool).remaining()))
+    }
+
+    fn effective_capacity(&self, kind: GaugeKind) -> u64 {
+        let locale = kind.local(&self.inner).capacity();
+        self.inner
+            .pool
+            .as_ref()
+            .map_or(locale, |pool| locale.min(kind.pooled(pool).capacity()))
     }
 
     /// Osserva l'input consumando il `permit` e pubblica il footprint.

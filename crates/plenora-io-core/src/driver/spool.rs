@@ -139,7 +139,11 @@ fn contract_error(message: &'static str) -> PlenoraIoError {
 /// proprio nel caso che dovrebbe risolvere.
 #[must_use]
 pub fn adaptive_memory_threshold(budget: &OperationBudget) -> u64 {
-    (budget.context().limits().memory_bytes() / 2).max(1)
+    // Deriva dalla capacita' **effettiva**, non dal solo limite della
+    // pipeline: con un pool piu' stretto la meta' del limite locale sarebbe
+    // irraggiungibile, la soglia non scatterebbe mai e lo spool non
+    // migrerebbe — cioe' resterebbe inutile proprio nel caso in cui serve.
+    (budget.context().effective_memory_capacity() / 2).max(1)
 }
 
 /// Directory che ospitera' l'inode dello spool.
@@ -390,15 +394,10 @@ impl<W: Write> Write for GuardedWriter<W> {
 
 /// Dove vivono i batch gia' verificati.
 enum Stage {
-    /// Sotto soglia: i batch restano in RAM, ognuno con la propria lease di
-    /// memoria. La lease viene restituita quando il batch lascia la RAM —
-    /// consegnato al consumer o migrato su disco (INV-5).
+    /// Sotto soglia: i batch restano in RAM, ognuno con la lease ricevuta
+    /// dall'adapter. La lease viene restituita quando il batch lascia la RAM
+    /// — consegnato al consumer o migrato su disco (INV-5).
     Memory {
-        /// La lease e' quella **gia' ridotta dall'adapter**, trasferita per
-        /// `move`: lo spool non ne acquisisce una propria. Acquisirne una
-        /// seconda contabilizzerebbe due volte lo stesso batch, e fra il
-        /// rilascio della prima e la presa della seconda resterebbe la
-        /// finestra scoperta che l'handoff esiste per chiudere.
         batches: VecDeque<(RecordBatch, Option<InternalMemoryLease>)>,
         bytes: u64,
     },
@@ -512,10 +511,13 @@ impl StagedSpool {
         }
     }
 
-    /// Accoda un batch gia' verificato.
+    /// Accoda un batch gia' verificato, prendendone in custodia la memoria.
     ///
-    /// `memory_bytes` e' la stima di occupazione del batch: e' la grandezza su
-    /// cui si decide la migrazione e su cui si tiene la lease di memoria.
+    /// La lease arriva **gia' ridotta** dall'adapter all'ingombro reale del
+    /// batch: e' quella la grandezza su cui si decide la migrazione, e non una
+    /// stima ricalcolata qui. Lo spool non ne acquisisce una propria — sarebbe
+    /// una seconda contabilizzazione dello stesso batch, con in mezzo la
+    /// finestra scoperta che l'handoff esiste per chiudere.
     ///
     /// # Errors
     ///
@@ -529,10 +531,6 @@ impl StagedSpool {
         if batch.schema() != self.schema {
             return Err(contract_error(SPOOL_SCHEMA_MISMATCH));
         }
-        // La grandezza contabilizzata e' quella della lease che arriva:
-        // l'adapter l'ha gia' ridotta all'ingombro reale del batch piu'
-        // `PER_BATCH_OVERHEAD_BYTES`. Ricalcolarla qui vorrebbe dire fidarsi
-        // di una misura diversa da quella prenotata.
         let accounted = memory_lease.bytes();
         let migrate = match &self.stage {
             Stage::Memory { bytes, .. } => bytes.saturating_add(accounted) > self.memory_threshold,
@@ -544,9 +542,7 @@ impl StagedSpool {
         match &mut self.stage {
             Stage::Memory { batches, bytes } => {
                 // La lease resta viva quanto il batch: e' la memoria che la
-                // libreria detiene davvero (INV-5). E' la **stessa** lease
-                // che l'adapter ha ridotto, spostata qui per `move`: nessuna
-                // seconda acquisizione, nessuna finestra.
+                // libreria detiene davvero (INV-5).
                 batches.push_back((batch, Some(memory_lease)));
                 *bytes = bytes.saturating_add(accounted);
                 Ok(())

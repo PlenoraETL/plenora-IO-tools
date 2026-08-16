@@ -50,25 +50,6 @@ pub enum Source {
 }
 
 impl Source {
-    /// Risolve la sorgente e applica il limite complessivo prima che un parser
-    /// possa materializzarla. Le directory-dataset sono conteggiate senza
-    /// seguire symlink.
-    ///
-    /// # Errors
-    ///
-    /// Restituisce [`PlenoraIoError::Unsupported`] se la sorgente (o un suo
-    /// discendente) è un symlink, [`PlenoraIoError::LimitExceeded`] se i byte
-    /// totali superano `max_input_bytes` o vanno in overflow, l'errore di
-    /// cancellazione se il token è attivo, e l'errore di I/O se la sorgente
-    /// non è ispezionabile.
-    /// Preflight della sorgente.
-    ///
-    /// Prende le due quote che consulta invece di un `Limits` intero: e' la
-    /// forma che sopravvive alla migrazione, perche' nel modello unificato
-    /// quel tipo non esiste piu'. Il **cambio semantico** — enumerazione
-    /// attraverso `note_entry_visited` e rimozione dei controlli qui — resta
-    /// a S4.d, dove avviene in un atto solo per non applicare le stesse quote
-    /// due volte.
     /// Preflight della sorgente: enumera, addebita e pubblica il footprint.
     ///
     /// # La forma
@@ -101,8 +82,8 @@ impl Source {
     ///
     /// # Errors
     ///
-    /// [`bridge_richiede_legacy`] se le opzioni non portano un budget del
-    /// modello unificato; [`permit_gia_speso`] se l'osservazione e' gia'
+    /// [`richiede_modello_unificato`] se le opzioni sono costruite sul
+    /// modello legacy; [`permit_gia_speso`] se l'osservazione e' gia'
     /// avvenuta; l'errore di enumerazione se una voce supera una quota;
     /// l'errore di cancellazione o deadline; l'errore di I/O se la sorgente
     /// non e' accessibile; `Unsupported` su un symlink.
@@ -110,23 +91,18 @@ impl Source {
         let Self::Path(path) = self;
         let budget = opts
             .pipeline_budget()
-            .ok_or_else(bridge_richiede_legacy)?
+            .ok_or_else(richiede_modello_unificato)?
             .clone();
         let context = budget.context();
         let permit = opts.take_input_permit().ok_or_else(permit_gia_speso)?;
 
-        // Prima di qualunque sonda sul filesystem: una pipeline gia'
-        // cancellata non deve nemmeno leggere i metadata della radice.
-        check_cancelled(context.cancellation(), ErrorPhase::Probe)?;
-        context.ensure_active()?;
-
+        // La liveness la verifica `scopri` per **ogni** voce, radice
+        // compresa: qui non serve un controllo in piu'.
         let mut pending = Vec::new();
         if scopri(context, &path)? {
             pending.push(path.clone());
         }
         while let Some(directory) = pending.pop() {
-            check_cancelled(context.cancellation(), ErrorPhase::Probe)?;
-            context.ensure_active()?;
             for entry in std::fs::read_dir(&directory)? {
                 let figlio = entry?.path();
                 if scopri(context, &figlio)? {
@@ -154,34 +130,81 @@ fn permit_gia_speso() -> PlenoraIoError {
     )
 }
 
+/// Rappresentazione byte del percorso, senza conversioni con perdita.
+///
+/// `to_string_lossy` sostituisce ogni sequenza non valida con U+FFFD: su Unix
+/// due percorsi diversi ma entrambi non-UTF-8 possono cosi' collassare sulla
+/// **stessa** stringa, e quindi sullo stesso digest. Il footprint direbbe che
+/// due sorgenti distinte sono la stessa, ed e' esattamente cio' che il digest
+/// esiste per escludere.
+///
+/// Su Unix si usano i byte nativi dell'`OsStr`. Su Windows le unita' UTF-16
+/// vengono serializzate little-endian: non e' una stringa leggibile, ma non
+/// deve esserlo — deve solo essere **iniettiva e stabile**, cosi' che due
+/// corse sulla stessa sorgente producano lo stesso digest e due sorgenti
+/// diverse no. Il prefisso distingue le due codifiche, perche' un digest non
+/// deve dipendere dalla piattaforma senza dichiararlo.
+#[cfg(unix)]
+fn percorso_normalizzato(percorso: &std::path::Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut byte = Vec::with_capacity(percorso.as_os_str().len() + 1);
+    byte.push(b'u');
+    byte.extend_from_slice(percorso.as_os_str().as_bytes());
+    byte
+}
+
+#[cfg(windows)]
+fn percorso_normalizzato(percorso: &std::path::Path) -> Vec<u8> {
+    use std::os::windows::ffi::OsStrExt;
+    let mut byte = vec![b'w'];
+    for unita in percorso.as_os_str().encode_wide() {
+        byte.extend_from_slice(&unita.to_le_bytes());
+    }
+    byte
+}
+
+#[cfg(not(any(unix, windows)))]
+fn percorso_normalizzato(percorso: &std::path::Path) -> Vec<u8> {
+    // Nessuna piattaforma supportata cade qui. Se una ci cadesse, la forma
+    // lossy sarebbe meglio di niente ma non e' iniettiva: il prefisso lo
+    // dichiara, cosi' un digest costruito cosi' non si confonde con gli altri.
+    let mut byte = vec![b'?'];
+    byte.extend_from_slice(percorso.to_string_lossy().as_bytes());
+    byte
+}
+
 /// Registra una voce appena scoperta e dice se va esplorata.
 ///
-/// Fa tre cose in quest'ordine, e l'ordine conta: rifiuta i symlink **prima**
-/// di addebitare, addebita alla scoperta, e solo dopo dichiara se la voce e'
-/// una directory da mettere in coda.
+/// Fa quattro cose in quest'ordine, e l'ordine conta: verifica che
+/// l'operazione sia viva **prima** di toccare il filesystem, rifiuta i
+/// symlink prima di addebitare, addebita alla scoperta, e solo dopo dichiara
+/// se la voce e' una directory da mettere in coda.
 ///
-/// Il percorso normalizzato entra nel digest dell'identita'. `to_string_lossy`
-/// dà una forma stabile senza dipendere dalla codifica del sistema: due corse
-/// sulla stessa sorgente producono lo stesso digest.
+/// Il controllo di liveness sta qui e non solo prima di ogni directory: una
+/// singola directory con molte voci comporta altrettante `symlink_metadata`,
+/// e senza il controllo per voce una cancellazione non avrebbe effetto fino
+/// alla fine di quella directory.
 ///
 /// # Errors
 ///
-/// `Unsupported` su un symlink, l'errore di I/O se i metadata non si leggono,
-/// e l'errore di quota se la voce supera `max_input_entries` o
-/// `max_input_bytes`.
+/// Cancellazione o deadline scaduta; `Unsupported` su un symlink; l'errore di
+/// I/O se i metadata non si leggono; l'errore di quota se la voce supera
+/// `max_input_entries` o `max_input_bytes`.
 fn scopri(context: &PipelineContext, percorso: &std::path::Path) -> Result<bool> {
+    check_cancelled(context.cancellation(), ErrorPhase::Probe)?;
+    context.ensure_active()?;
     let metadata = std::fs::symlink_metadata(percorso)?;
     if metadata.file_type().is_symlink() {
         return Err(PlenoraIoError::Unsupported(
             "symlink non ammesso nella sorgente".to_owned(),
         ));
     }
-    let normalizzato = percorso.to_string_lossy();
+    let normalizzato = percorso_normalizzato(percorso);
     let modified = metadata.modified().ok();
     let entry = if metadata.is_dir() {
-        SourceEntry::directory(normalizzato.as_bytes(), modified)
+        SourceEntry::directory(&normalizzato, modified)
     } else {
-        SourceEntry::file(normalizzato.as_bytes(), metadata.len(), modified)
+        SourceEntry::file(&normalizzato, metadata.len(), modified)
     };
     context.note_entry_visited(&entry)?;
     Ok(metadata.is_dir())
@@ -216,20 +239,44 @@ impl WriteLimitsView {
     }
 }
 
-/// Errore di un percorso ancora sul ponte legacy che riceve opzioni
-/// costruite sul modello unificato.
+/// Errore di un percorso **ancora legacy** che riceve opzioni del modello
+/// unificato.
 ///
-/// Serve perche' non esiste ripiego da `Pipeline` a `Legacy`: un driver non
-/// ancora migrato deve **dichiarare** di non saper leggere quel payload,
+/// Serve perche' non esiste ripiego da `Pipeline` a `Legacy`: un componente
+/// non ancora migrato deve **dichiarare** di non saper leggere quel payload,
 /// invece di scivolare su valori di default. Un ripiego silenzioso
-/// applicherebbe quote che nessuno ha chiesto e renderebbe invisibile lo
-/// stato della migrazione.
+/// applicherebbe quote che nessuno ha chiesto.
 ///
-/// **Punto di rimozione: S4.e**, quando il ramo `Legacy` non esiste piu' e
-/// ogni percorso legge solo il `PipelineContext`.
+/// Da S4.d resta un solo consumatore, il ramo di scrittura. Il verso opposto
+/// — percorso nuovo che riceve opzioni vecchie — ha una guardia propria,
+/// [`richiede_modello_unificato`]: una sola funzione per entrambi avrebbe
+/// detto "componente non ancora migrato" anche dove il componente e' migrato
+/// e sono le opzioni a essere vecchie, cioe' avrebbe mentito nella meta' dei
+/// casi.
+///
+/// **Punto di rimozione: S4.e**, con il ramo `Legacy` stesso.
 #[must_use]
-pub fn bridge_richiede_legacy() -> PlenoraIoError {
-    PlenoraIoError::Unsupported("driver non ancora migrato al modello budget unificato".to_owned())
+pub fn richiede_modello_legacy() -> PlenoraIoError {
+    PlenoraIoError::Unsupported(
+        "componente non ancora migrato al modello budget unificato".to_owned(),
+    )
+}
+
+/// Errore di un percorso **gia' migrato** che riceve opzioni legacy.
+///
+/// E' il verso opposto di [`richiede_modello_legacy`], e da S4.d e' quello
+/// che copre il percorso di lettura: adapter e spool prenotano memoria con
+/// una `InternalMemoryLease`, che esiste solo dentro un `PipelineContext`.
+/// Senza contesto non c'e' nulla da prenotare, e fabbricarne uno sarebbe la
+/// conversione fra modelli che la migrazione esclude.
+///
+/// **Punto di rimozione: S4.e**, quando `Default` sparisce e opzioni legacy
+/// non sono piu' costruibili.
+#[must_use]
+pub fn richiede_modello_unificato() -> PlenoraIoError {
+    PlenoraIoError::Unsupported(
+        "il percorso richiede opzioni costruite sul modello budget unificato".to_owned(),
+    )
 }
 
 /// Ponte transitorio fra i due modelli di budget (Lotto 0, S4).
@@ -489,10 +536,11 @@ impl ReadOptions {
     ///
     /// # Errors
     ///
-    /// [`bridge_richiede_legacy`] se le opzioni sono costruite sul modello
-    /// legacy.
+    /// [`richiede_modello_unificato`] se le opzioni sono costruite sul
+    /// modello legacy.
     pub fn operation_budget(&self) -> Result<&OperationBudget> {
-        self.pipeline_budget().ok_or_else(bridge_richiede_legacy)
+        self.pipeline_budget()
+            .ok_or_else(richiede_modello_unificato)
     }
 
     /// Budget legacy dei contatori cumulativi, per i percorsi che non sono
@@ -505,10 +553,10 @@ impl ReadOptions {
     ///
     /// # Errors
     ///
-    /// [`bridge_richiede_legacy`] se le opzioni sono costruite sul modello
+    /// [`richiede_modello_legacy`] se le opzioni sono costruite sul modello
     /// unificato.
     pub fn resource_budget(&self) -> Result<&ResourceBudget> {
-        self.legacy_budget().ok_or_else(bridge_richiede_legacy)
+        self.legacy_budget().ok_or_else(richiede_modello_legacy)
     }
 
     /// Snapshot atteso per la revalidation, presente solo sul ramo
@@ -1058,7 +1106,7 @@ pub trait FormatWriter {
 ///
 /// # Errors
 ///
-/// Propaga l'errore del preflight, e [`bridge_richiede_legacy`] se le opzioni
+/// Propaga l'errore del preflight, e [`richiede_modello_unificato`] se le opzioni
 /// sono costruite sul modello unificato. **Punto di rimozione del ramo
 /// legacy: S4.d.**
 pub fn preflight_source(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
@@ -1160,7 +1208,7 @@ pub fn with_write_validation(
     let cancellation = opts.cancellation().clone();
     let resource_budget = opts
         .legacy_budget()
-        .ok_or_else(bridge_richiede_legacy)?
+        .ok_or_else(richiede_modello_legacy)?
         .clone();
     let geometry_support = descriptor
         .write_capabilities
@@ -3287,13 +3335,13 @@ mod tests {
         // applicherebbe quote che nessuno ha chiesto.
         let errore = opts
             .legacy_budget()
-            .ok_or_else(bridge_richiede_legacy)
+            .ok_or_else(richiede_modello_legacy)
             .expect_err("il payload pipeline non puo produrre un budget legacy");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
 
         let errore = opts
             .legacy_limits()
-            .ok_or_else(bridge_richiede_legacy)
+            .ok_or_else(richiede_modello_legacy)
             .expect_err("il payload pipeline non puo produrre limiti legacy");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
     }
@@ -3493,6 +3541,51 @@ mod tests {
         assert_eq!(opts.max_columns(), PARITA_COLUMNS);
         assert_eq!(opts.max_input_bytes(), PARITA_INPUT_BYTES);
         assert!(opts.pipeline_budget().is_some());
+    }
+
+    /// Due percorsi non-UTF-8 distinti non devono collassare sullo stesso
+    /// digest.
+    ///
+    /// `to_string_lossy` sostituisce ogni sequenza non valida con U+FFFD:
+    /// `b"\xff"` e `b"\xfe"` diventano **la stessa** stringa, e il footprint
+    /// direbbe che due sorgenti diverse sono la stessa. E' il caso che la
+    /// rappresentazione a byte esclude.
+    ///
+    /// Solo Unix: su Windows i nomi sono UTF-16 e la collisione non si pone
+    /// nella stessa forma.
+    #[cfg(unix)]
+    #[test]
+    fn percorsi_non_utf8_distinti_non_collidono_nel_digest() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let primo = std::path::PathBuf::from(OsStr::from_bytes(b"/tmp/\xff"));
+        let secondo = std::path::PathBuf::from(OsStr::from_bytes(b"/tmp/\xfe"));
+
+        assert_eq!(
+            primo.to_string_lossy(),
+            secondo.to_string_lossy(),
+            "la premessa del test: la forma lossy li rende indistinguibili"
+        );
+        assert_ne!(
+            percorso_normalizzato(&primo),
+            percorso_normalizzato(&secondo),
+            "la forma normalizzata deve restare iniettiva"
+        );
+    }
+
+    #[test]
+    fn la_forma_normalizzata_del_percorso_e_stabile() {
+        let percorso = std::path::PathBuf::from("dati/a.csv");
+        assert_eq!(
+            percorso_normalizzato(&percorso),
+            percorso_normalizzato(&percorso),
+            "due corse sullo stesso percorso devono dare lo stesso digest"
+        );
+        assert_ne!(
+            percorso_normalizzato(&percorso),
+            percorso_normalizzato(&std::path::PathBuf::from("dati/b.csv"))
+        );
     }
 
     #[test]

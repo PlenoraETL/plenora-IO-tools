@@ -976,3 +976,76 @@ inosservata una crescita.
 **Registro dei fallback** 99 → 102, con tre occorrenze nuove in
 plenora-io-core e quattro evitabili rimosse. Nessuna richiede H-01: una e' una
 conversione saturante fail-closed, due sono in moduli di test.
+
+## Registrazione S4.d.1 del 2026-08-16 — follow-up di S4.d
+
+Cinque correzioni su S4.d, due delle quali su difetti reali dell'handoff.
+
+**L'ingombro strutturale non era sempre coperto (HIGH).** La prenotazione di
+materializzazione valeva `target_bytes + max_wkb_cell_bytes`, ma l'ingombro
+contabilizzato ceduto allo spool e' `bytes + PER_BATCH_OVERHEAD_BYTES`. Con un
+tetto per cella e un target piccoli — bastava che la loro somma stesse sotto
+l'overhead — il secondo superava la prima, e allo spool arrivava una lease
+**piu' piccola** del batch che doveva coprire. `shrink_to` riduce e basta, e
+il ramo che lo chiama scattava solo nel verso opposto: nessuno se ne
+accorgeva, e la contabilita' diceva meno di quanto la libreria occupava.
+
+Ora l'overhead entra nella prenotazione di **memoria** — e solo in quella. La
+prenotazione di output resta separata, perche' `PER_BATCH_OVERHEAD_BYTES` e'
+occupazione interna della libreria, non byte prodotti: sommarlo anche li'
+avrebbe consumato quota di uscita che nessuno scrive. Prima della cessione
+c'e' inoltre un controllo esplicito `accounted <= memory_lease.bytes()` che
+fallisce chiuso: meglio fermarsi dove la causa e' visibile che custodire un
+batch con una lease che non lo copre.
+
+**Il pool non entrava nel dimensionamento (HIGH).**
+`PipelineContext::remaining_memory()` riportava il solo gauge locale, mentre
+`lease_memory_internal` compone locale e pool (INV-12). Con quota locale ampia
+e pool stretto l'adapter chiedeva piu' di quanto entrasse, la lease falliva, e
+il chiamante leggeva "memoria esaurita" dove c'era soltanto una richiesta mal
+dimensionata — invece di prenotare il possibile e migrare su disco. La stessa
+asimmetria colpiva `adaptive_memory_threshold`, derivata dal solo
+`PipelineLimits::memory_bytes`: con un pool piu' stretto la soglia era
+irraggiungibile e lo spool non migrava mai, cioe' restava inutile proprio nel
+caso che deve risolvere.
+
+Il context espone ora `effective_remaining_memory`,
+`effective_remaining_spill`, `effective_memory_capacity` e
+`effective_spill_capacity`, tutti come minimo fra locale e pool. Gli accessori
+locali restano, documentati per quello che sono.
+
+**Identita' del percorso.** `to_string_lossy` sostituisce ogni sequenza non
+valida con U+FFFD: su Unix `b"\xff"` e `b"\xfe"` diventano la **stessa**
+stringa, quindi lo stesso digest, e il footprint direbbe che due sorgenti
+distinte sono la stessa. Si usano ora i byte nativi dell'`OsStr` su Unix e le
+unita' UTF-16 serializzate little-endian su Windows, con un prefisso che
+distingue le due codifiche: la rappresentazione non e' leggibile, e non deve
+esserlo — deve essere iniettiva e stabile.
+
+**Cancellazione per voce.** `ensure_active` e `check_cancelled` erano
+all'inizio di ogni directory, non di ogni voce. Una singola directory con
+molte voci comporta altrettante `symlink_metadata`, e una cancellazione non
+avrebbe avuto effetto fino alla fine di quella directory. Il controllo e' ora
+in testa a `scopri`, quindi copre anche la radice: i due controlli che lo
+precedevano sono stati rimossi perche' ridondanti.
+
+**Le guardie sono due, direzionali.** `bridge_richiede_legacy` copriva due
+situazioni opposte con lo stesso messaggio: un percorso vecchio che rifiuta
+opzioni nuove, e un percorso gia' migrato che rifiuta opzioni vecchie. Nel
+secondo caso "componente non ancora migrato" era **falso**. Ora ci sono
+`richiede_modello_legacy` e `richiede_modello_unificato`, con due conteggi
+esatti nell'inventario: la prima misura il debito e deve scendere, la seconda
+misura il progresso. Entrambe spariscono in S4.e.
+
+**Rustdoc.** `into_path_observed` portava ancora, sopra la doc nuova, il
+blocco pre-S4.d di `into_path_checked` — due descrizioni contraddittorie sulla
+stessa funzione. In `spool.rs` la doc di `push` descriveva un parametro
+`memory_bytes` che non esiste piu', e la stessa spiegazione dell'handoff
+compariva tre volte fra doc di variante, doc di campo e commento nel corpo.
+
+**Verifica per mutazione**, tre su tre uccise: togliere l'overhead dalla
+prenotazione di memoria; dimensionare sul residuo locale invece che
+sull'effettivo; derivare la soglia dal limite locale invece che dalla capacita'
+effettiva. I due test nuovi coprono rispettivamente un tetto per cella sotto
+l'overhead con memoria stretta, e un pool piu' stretto della pipeline che deve
+spillare e completare.

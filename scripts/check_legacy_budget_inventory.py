@@ -60,23 +60,19 @@ TETTI: dict[str, int] = {
     # "punto di rimozione: S4.e".
     "costruttore_legacy": 6,
     "accessore_legacy": 16,
-    # **Questo valore e' salito in S4.d, deliberatamente** (11 -> 15), ed e'
-    # l'unica eccezione alla regola "puo' solo scendere" registrata finora.
+    # **Due guardie direzionali, due conteggi** (S4.d.1). Fino a S4.d ce
+    # n'era una sola, e finiva per coprire due situazioni opposte: un
+    # percorso vecchio che rifiuta opzioni nuove, e un percorso gia' migrato
+    # che rifiuta opzioni vecchie. Il messaggio "componente non ancora
+    # migrato" era falso nel secondo caso, e il conteggio unico saliva mentre
+    # il debito scendeva.
     #
-    # La categoria conta la guardia, non il debito. Fino a S4.c
-    # `bridge_richiede_legacy` proteggeva in una sola direzione: rifiutava le
-    # opzioni del modello **nuovo** dove il percorso era ancora vecchio. Da
-    # S4.d il percorso di lettura e' nuovo, e la stessa guardia rifiuta le
-    # opzioni **legacy**: ogni punto che prima diceva "non so leggere il
-    # nuovo" ora dice "non accetto il vecchio", e se ne sono aggiunti dove il
-    # confine e' comparso.
-    #
-    # Il debito legacy vero e' misurato dalle altre categorie, e in S4.d e'
-    # crollato: `read_options_default` da 74 a 1, `costruttore_legacy` da 11 a
-    # 6, `accessore_legacy` da 18 a 16. Alzare questo tetto senza dirlo
-    # sarebbe stato il modo di far passare inosservata una crescita; dirlo e'
-    # il motivo per cui il gate esiste.
-    "ponte_richiede_legacy": 15,
+    # `guardia_richiede_legacy` misura il debito vero: i punti ancora legacy.
+    # `guardia_richiede_unificato` misura il **progresso**: i punti gia'
+    # migrati che rifiutano il vecchio. Entrambe spariscono in S4.e, ma solo
+    # la prima deve scendere monotonicamente.
+    "guardia_richiede_legacy": 7,
+    "guardia_richiede_unificato": 9,
 }
 
 # Le lookbehind escludono `struct X {`, `impl X {` e `-> X {`: sono
@@ -96,7 +92,8 @@ MODELLI: dict[str, re.Pattern[str]] = {
     "campo_cancellation": re.compile(r"\b(?:opts|options)\.cancellation\b(?!\s*\()"),
     "costruttore_legacy": re.compile(r"(?:ReadOptions|WriteOptions)::from_legacy\("),
     "accessore_legacy": re.compile(r"\.legacy_(?:budget|limits)\(\)"),
-    "ponte_richiede_legacy": re.compile(r"bridge_richiede_legacy"),
+    "guardia_richiede_legacy": re.compile(r"richiede_modello_legacy"),
+    "guardia_richiede_unificato": re.compile(r"richiede_modello_unificato"),
 }
 
 
@@ -114,7 +111,7 @@ def conta(root: Path) -> dict[str, int]:
 # driver torna a scrivere `opts.legacy_budget().ok_or_else(...)`, S4.d dovra'
 # di nuovo cambiare tredici punti invece di due, ed e' esattamente cio' che
 # rende non atomico il passaggio al modello unificato.
-PONTE = re.compile(r"\.legacy_(?:budget|limits)\(\)|bridge_richiede_legacy")
+PONTE = re.compile(r"\.legacy_(?:budget|limits)\(\)|richiede_modello_legacy")
 CRATE_DEL_PONTE = "plenora-io-core"
 
 
