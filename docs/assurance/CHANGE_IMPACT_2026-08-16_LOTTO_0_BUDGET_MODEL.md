@@ -335,3 +335,55 @@ sbagliare in silenzio.
 ancora stato eseguito, quindi il veto prestazionale non e' verificato. Lo
 spool aggiunge una scrittura e una rilettura Arrow IPC sui dataset che
 superano la soglia; il costo va misurato prima della chiusura del lotto.
+
+## Registrazione S2.d del 2026-08-16
+
+Cinque difetti della prima stesura dello spool, tutti chiusi con codice e
+test. Nessuno era teorico: ognuno lasciava un modo di superare una quota o di
+non rispondere a una cancellazione.
+
+**La quota di spill segue i byte realmente scritti.** Addebitava la stima di
+occupazione in RAM del batch, che non e' la stessa grandezza dei byte su
+disco: l'IPC allinea, comprime i buffer di validita' e aggiunge intestazioni.
+Un writer che conta i byte consegnati al file rende la quota una misura
+dell'occupazione reale del volume. Ed era `commit`, cioe' consumo definitivo:
+una pipeline lunga avrebbe esaurito lo spill accumulando quota di file gia'
+rimossi. Ora e' una prenotazione RAII, rilasciata con lo spool. Le
+prenotazioni avvengono a blocchi di 1 MiB perche' una lease per batch
+significherebbe un milione di lease per un milione di batch; la copertura
+precede sempre la scrittura, e se la stima risulta bassa la differenza viene
+coperta subito invece di restare scoperta.
+
+**Boundedness indipendente dai dati.** Un batch senza righe, o senza colonne,
+veniva contato zero: la soglia non scattava mai e una sorgente che produce
+batch vuoti in serie faceva crescere la coda senza tetto. La boundedness si
+reggeva sull'ipotesi che ogni batch portasse dati, che e' esattamente cio'
+che una sorgente ostile non fa. Ogni batch costa ora almeno
+`PER_BATCH_OVERHEAD_BYTES`, e due test coprono il caso senza righe e quello
+senza colonne.
+
+**La sonda di EOF resta dentro quota.** La correzione di S2.b leggeva un
+batch senza alcuna prenotazione per distinguere la fine della sorgente da una
+violazione: se il driver avesse prodotto un batch grande, lo avrebbe
+materializzato fuori budget — cioe' proprio cio' che il budget vieta. La
+sonda avviene ora sotto una lease di memoria; senza memoria residua non si
+sonda affatto e si fallisce chiuso, con un errore che dice quale quota manca.
+
+**Cancellazione e deadline durante migrazione e replay.** Sono le due
+sequenze lunghe dello spool. Senza controlli un Ctrl+C o una deadline scaduta
+non avrebbero avuto effetto fino all'ultimo batch. Tre test coprono
+cancellazione in migrazione, cancellazione in rilettura e deadline scaduta.
+
+**Sezioni normative allineate in place.** ADR-IO 7 aveva ancora un "piano di
+rollout proposto" che l'implementazione ha superato in tre punti: modulo
+(`driver::spool`, non `publish`), file senza nome invece di directory 0700 con
+sweep, quota RAII sui byte reali invece di `commit` sulla stima. Ora l'ADR
+dichiara lo stato di attuazione e registra le divergenze come errata proprie,
+invece di lasciarle solo nella CIA. Aggiornati anche il rustdoc di
+`BudgetedReader` — diceva ancora "memoria O(dataset)" e rimandava a un ADR
+non ancora ratificato — la riga ADR-IO 7 di `IMPLEMENTATION_STATUS.md`, la
+sezione M2 del pacchetto e PLN-ASR-004 della matrice di tracciabilita'.
+
+**Verifica S2.d**: 8 test nuovi nello spool e 1 nell'adapter, oltre
+all'allineamento di 6 test le cui costanti dipendevano dalla vecchia
+contabilita'.

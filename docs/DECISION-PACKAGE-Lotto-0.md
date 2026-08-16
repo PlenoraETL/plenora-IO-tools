@@ -891,9 +891,10 @@ associata a questo documento.
 - **Contratto invariato**: `effective_delivery = OperationAtomic`
   resta il default e il comportamento osservabile per il consumer
   attuale.
-- **Memoria bounded**: `BudgetedReader` sostituisce `VecDeque` con
-  `StagedSpool` che scrive Arrow IPC su file temporaneo governato
-  da `PipelineContext.spill`.
+- **Memoria bounded**: `BudgetedReader` ha sostituito la `VecDeque`
+  con `StagedSpool` (attuato in S2), che scrive Arrow IPC su un file
+  temporaneo **senza nome** e ne addebita i byte realmente scritti
+  alla quota di spill con lease RAII.
 - **Nessuna rottura cross-component**: writer e aggregatori
   esistenti (CLI `convert`, futura data-tools chain) non
   cambiano interfaccia.
@@ -1788,38 +1789,37 @@ in un unico commit atomico.
 **Criteri di uscita**: nuovi tipi compilano, test dedicati verdi.
 Nessun cambio al comportamento del core.
 
-### M2 — Sostituzione del `BudgetedReader` con lo `SpooledReader`
+### M2 — Sostituzione del `BudgetedReader` con lo `SpooledReader` (attuato in S2)
 
 - Nuovo `plenora-io-core::driver::spool` con `StagedSpool` che
-  serializza `RecordBatch` in Arrow IPC su file temporaneo,
-  governato da `PipelineContext.lease_spill`.
-- **Delega condivisa transitoria (M2 precede M3)**: in M2 i driver
-  espongono ancora la vecchia API `Limits + ResourceBudget`,
-  mentre lo `SpooledReader` ha bisogno di un `PipelineContext` per
-  `lease_spill` **e** per decidere il passaggio memoria→disco. Il
-  ponte non e' un context finto:
-  `PipelineContext::delegating_to_legacy(&ResourceBudget)`
-  costruisce un context i cui gauge **memory** e **spill** e la cui
-  **deadline** sono viste sugli **stessi contatori** del
-  `ResourceBudget` legacy — delega condivisa, non copia — cosi' una
-  lease presa dal percorso nuovo e una presa dal percorso vecchio
-  si vedono a vicenda e non c'e' doppio conteggio.
-  **Nessuno dei tre puo' essere no-op**: con
-  `buffering = AdaptiveMemoryThenDisk` la soglia memoria→disco *e'*
-  il gauge memory, e un gauge memory no-op renderebbe la strategia
-  sempre-in-memoria (perdendo il bound) o sempre-su-disco
-  (perdendo la performance). La delega e' rimossa in M4 insieme al
-  vecchio modello.
-- **Assi non coperti dal bridge (fino a M3)**: il context ponte
-  governa **solo** memory, spill e deadline. `Rows`, `Columns`,
-  `GeometryComponents`, `OutputBytes` e `ConcurrentOperations`
-  restano interamente del `ResourceBudget` legacy: lo
-  `SpooledReader` li attraversa **esattamente una volta**, sul
-  percorso vecchio, e **non** li ri-conta sul context ponte, che
-  per questi assi non ha contatori propri. Il context ponte non ha
-  `ResourcePool` (INV-12), quindi il suo `lease_concurrency()` e'
-  no-op: la quota `concurrent_operations` continua a essere
-  applicata dal legacy, non duplicata.
+  serializza `RecordBatch` in Arrow IPC su un file temporaneo
+  **senza nome** (`tempfile::tempfile_in`), addebitandone alla quota
+  di spill i **byte realmente scritti** con lease RAII. La stima di
+  occupazione in RAM non e' la stessa grandezza dei byte su disco, e
+  un `commit` avrebbe consumato la quota per sempre anche dopo la
+  rimozione del file.
+- **Nessun ponte verso il modello nuovo**: lo spool di M2 e' scritto
+  contro il `ResourceBudget` legacy, quindi in M2 un solo modello
+  tocca i contatori. `Rows`, `Columns`, `GeometryComponents`,
+  `OutputBytes` e `ConcurrentOperations` restano interamente del
+  modello legacy e sono attraversati **esattamente una volta**; S4
+  migra le chiamate dello spool insieme al resto.
+- **Boundedness indipendente dai dati**: ogni batch bufferizzato
+  costa almeno `PER_BATCH_OVERHEAD_BYTES`, anche se non ha righe o
+  colonne. Senza quel minimo una sorgente che produce batch vuoti in
+  serie non farebbe mai scattare la soglia, e la boundedness si
+  reggerebbe sull'ipotesi che ogni batch porti dati — cioe' proprio
+  cio' che una sorgente ostile non fa.
+- **Interrompibilita'**: migrazione e rilettura controllano
+  cancellazione e deadline a ogni batch. Sono le due sequenze lunghe
+  dello spool, e senza controllo un Ctrl+C non avrebbe effetto fino
+  all'ultimo batch.
+- **La sonda di EOF resta dentro quota**: quando righe o output sono
+  esauriti il reader prova comunque a leggere per distinguere la fine
+  della sorgente da una violazione, ma lo fa sotto una lease di
+  memoria. Senza memoria residua non si sonda affatto e si fallisce
+  chiuso: materializzare fuori quota sarebbe esattamente cio' che il
+  budget vieta.
 - `BudgetedReader` sostituito internamente: il consumer non si
   accorge del cambio; il picco di RAM passa da O(dataset) a
   `adaptive_memory_threshold + current_batch`, bound indipendente

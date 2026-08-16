@@ -82,29 +82,29 @@ impl OpenDatasetHandle for BudgetedDataset {
 
 /// Adapter di lettura *operation-atomic*, non streaming.
 ///
-/// **Finding #2 review 2026-08-15**: nonostante l'API `LayerReader::next_batch`
-/// suggerisca un modello streaming (batch per batch, con backpressure), questo
-/// adapter esegue `drain_operation` durante la *prima* chiamata di
-/// `next_batch`: itera la sorgente fino a EOF, verifica il contratto su tutti
-/// i batch e li accumula in `buffered`. Solo dopo aver drenato l'intera
-/// sorgente restituisce il primo batch al chiamante.
+/// Nonostante l'API `LayerReader::next_batch` suggerisca un modello streaming
+/// (batch per batch, con backpressure), questo adapter esegue
+/// `drain_operation` durante la *prima* chiamata di `next_batch`: itera la
+/// sorgente fino a EOF e verifica il contratto su tutti i batch. Solo dopo
+/// aver drenato l'intera sorgente restituisce il primo batch al chiamante.
 ///
-/// La ragione e' l'atomicita' operativa (commento a `drain_operation`,
-/// paragrafo "Non è più possibile esporre alcun prefisso accepted"): se una
-/// violazione emerge in un qualsiasi punto della sorgente, il chiamante non
-/// deve aver mai visto un prefisso accepted; l'intera operazione viene
+/// La ragione e' l'atomicita' operativa, ratificata da ADR-IO 7 opzione A: se
+/// una violazione emerge in un qualsiasi punto della sorgente, il chiamante
+/// non deve aver mai visto un prefisso accepted; l'intera operazione viene
 /// rigettata come un blocco unico. Il pattern semplifica il rollback lato
-/// consumatore (writer, aggregazioni) al costo di:
+/// consumatore (writer, aggregazioni) al costo della latenza al primo batch,
+/// pari alla lettura completa della sorgente.
 ///
-/// - latenza al primo batch pari alla lettura completa della sorgente;
-/// - memoria O(dataset), limitata dal budget `MemoryBytes` (default 512
-///   MiB); superata quella soglia l'operazione fallisce fail-closed.
+/// **La memoria non e' piu' il prezzo di quella garanzia.** I batch verificati
+/// vivono in uno [`StagedSpool`]: restano in RAM sotto una soglia adattiva,
+/// poi migrano su un file temporaneo in Arrow IPC e non tornano indietro. Il
+/// picco e' `soglia + batch corrente`, indipendente dalla dimensione totale
+/// dell'input, e la quota di memoria di ogni batch e' una prenotazione viva
+/// che torna quando il batch lascia la RAM — non un consumo definitivo.
 ///
-/// L'alternativa (spool bounded su file temporaneo, o cambio di contratto
-/// verso streaming reale con errore terminale *dopo* batch consegnati) e'
-/// tracciata come lotto L2 di `docs/ROADMAP-1.1.0.md` e richiede prima
-/// l'ADR-IO 7 (PR-1). Fino ad allora questo adapter resta la semantica
-/// autoritativa per tutti i driver che passano dal budget comune.
+/// Lo streaming reale, con errore terminale *dopo* batch gia' consegnati,
+/// resta l'opzione B di ADR-IO 7: valutata e scartata, perche' cambia il
+/// contratto pubblico e richiede coordinamento cross-component.
 struct BudgetedReader {
     inner: Box<dyn LayerReader>,
     budget: ResourceBudget,
@@ -178,20 +178,39 @@ impl BudgetedReader {
             let available_rows = bounded_reservation(&self.budget, ResourceKind::Rows, batch_rows);
             let available_output =
                 bounded_reservation(&self.budget, ResourceKind::OutputBytes, batch_bytes);
-            if available_memory == 0 || available_rows == 0 || available_output == 0 {
-                // Quota esaurita non significa ancora violazione: puo' essere
-                // semplicemente la fine della sorgente. Chiedere una
-                // prenotazione non nulla solo per scoprire l'EOF faceva
-                // fallire un dataset di N righe letto con quota esattamente N
-                // — l'ultimo batch veniva consegnato, poi il giro successivo
-                // trovava zero righe residue e trasformava la fine in errore.
-                //
-                // Si prova quindi a leggere: se la sorgente e' finita si esce
-                // pulito, se produce ancora un batch la quota e' davvero
-                // superata e l'errore resta lo stesso di prima.
+            if available_memory == 0 {
+                // Senza memoria non si puo' materializzare nulla, nemmeno per
+                // scoprire la fine della sorgente: una sonda qui leggerebbe
+                // fuori quota, che e' esattamente cio' che il budget vieta.
+                return Err(terminal_scan_error(
+                    PlenoraIoError::LimitExceeded(
+                        "budget di memoria esaurito prima della materializzazione del batch"
+                            .to_owned(),
+                    ),
+                    &violations,
+                    self.physical_row_indices_attestable,
+                ));
+            }
+            if available_rows == 0 || available_output == 0 {
+                // Righe o output esauriti possono essere semplicemente la fine
+                // della sorgente: un dataset di N righe letto con quota N deve
+                // riuscire. La sonda pero' avviene **dentro** quota — la lease
+                // di memoria bounda cio' che il driver puo' materializzare
+                // mentre scopriamo se ha finito.
+                let probe = self
+                    .budget
+                    .try_lease(ResourceKind::MemoryBytes, available_memory)
+                    .map_err(|error| {
+                        terminal_scan_error(
+                            error,
+                            &violations,
+                            self.physical_row_indices_attestable,
+                        )
+                    })?;
                 let next = self.inner.next_batch().map_err(|error| {
                     terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
                 })?;
+                drop(probe);
                 if next.is_some() {
                     return Err(terminal_scan_error(
                         PlenoraIoError::LimitExceeded(
@@ -343,9 +362,11 @@ impl BudgetedReader {
             if violations.is_empty() {
                 let spool = match self.spool.as_mut() {
                     Some(spool) => spool,
-                    None => self
-                        .spool
-                        .insert(StagedSpool::new(batch.schema(), self.budget.clone())),
+                    None => self.spool.insert(StagedSpool::new(
+                        batch.schema(),
+                        self.budget.clone(),
+                        self.cancellation.clone(),
+                    )),
                 };
                 spool.push(batch, bytes).map_err(|error| {
                     terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
@@ -1410,6 +1431,33 @@ mod tests {
             righe += batch.num_rows();
         }
         assert_eq!(righe, 20);
+    }
+
+    /// La sonda che scopre l'EOF deve restare dentro quota: senza una lease
+    /// di memoria il driver materializzerebbe un batch che il budget non
+    /// copre, cioe' proprio cio' che il budget esiste per impedire.
+    #[test]
+    fn eof_probe_requires_memory_quota_instead_of_reading_outside_it() {
+        let contract = validating_contract();
+        let eventi: VecDeque<Result<Option<RecordBatch>>> =
+            VecDeque::from([Ok(Some(geometry_batch(&contract, &[true; 4])))]);
+        let budget = ResourceBudget::new(ResourceLimits {
+            memory_bytes: 4_096,
+            cell_bytes: 1_024,
+            ..ResourceLimits::default()
+        })
+        .unwrap();
+        // Nessuna memoria residua: non c'e' modo di materializzare nulla,
+        // nemmeno per scoprire se la sorgente e' finita.
+        let trattenuta = budget.try_lease(ResourceKind::MemoryBytes, 4_096).unwrap();
+        let mut reader = budgeted_sequence_with_budget(eventi, budget);
+        let errore = reader.next_batch().unwrap_err();
+        assert!(
+            errore.message.contains("memoria"),
+            "l'errore deve dire che manca la memoria, non confondersi con le altre quote: {}",
+            errore.message
+        );
+        drop(trattenuta);
     }
 
     /// Una riga oltre la quota deve continuare a fallire: la correzione

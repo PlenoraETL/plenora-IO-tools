@@ -195,23 +195,45 @@ l'atomicita' e' un beneficio che vale il costo del disco.
 L'opzione C e' l'opzione "non decidere": aggiunge complessita' senza
 risolvere.
 
-## Piano di rollout proposto (se ratificato)
+## Stato di attuazione (S2, 2026-08-16)
 
-1. Progettare `StagedSpool` in `plenora-io-core::publish` con:
-   - budget dichiarato da `ResourceKind::SpillBytes`;
-   - serializzazione Arrow IPC su file temporaneo same-directory;
-   - rilettura lazy attraverso l'iteratore esistente Arrow IPC;
-   - cleanup automatico al drop (RAII, gia' pattern usato dai driver).
-2. Sostituire la `VecDeque` in `BudgetedReader` con `StagedSpool`.
-3. Rimuovere il commento "non e' piu' possibile esporre alcun prefisso"
-   dal codice e aggiornare il rustdoc del `BudgetedReader` con la
-   nuova garanzia di memoria bounded.
-4. Aggiungere test end-to-end su dataset >memory_budget: prima del
-   fix falliscono con `LimitExceeded`, dopo il fix superano.
-5. Campagna prestazionale bounded su fixture reali: veto se
-   regressione mediana sensibile sul tempo utente.
-6. Registrare la CIA (change impact analysis) sotto
-   `docs/assurance/CHANGE_IMPACT_YYYY-MM-DD_ADR_IO_7.md`.
+Attuata. `StagedSpool` vive in `plenora-io-core::driver::spool` e
+`BudgetedReader` non usa piu' la `VecDeque`. I punti dove
+l'implementazione **diverge dal piano** sono errata di questa ADR, non
+scostamenti taciuti:
+
+1. **Modulo**: `driver::spool`, non `publish`. Lo spool serve la lettura;
+   `publish` governa la scrittura atomica e non ha nulla a che vedere.
+2. **File temporaneo senza nome**, non "same-directory" con permessi e
+   sweep degli orfani. `tempfile::tempfile_in` scollega l'inode appena
+   aperto su Unix e usa `FILE_FLAG_DELETE_ON_CLOSE` su Windows. E' piu'
+   forte del piano originale: nessun path che un altro processo possa
+   aprire, quindi la protezione non dipende dai permessi; nessun orfano
+   da spazzare nemmeno dopo un `SIGKILL`, quindi lo sweep su lock — con
+   i suoi casi limite e le sue race — sparisce invece di dover essere
+   reso corretto; nessuna finestra TOCTOU fra creazione e apertura;
+   nessun symlink da seguire. `PLENORA_SPILL_DIR` resta e sceglie il
+   volume che ospita l'inode, fallendo chiuso se inutilizzabile.
+3. **Quota di spill RAII sui byte realmente scritti**, non `commit` sulla
+   stima di occupazione in RAM. Le due grandezze divergono — l'IPC
+   allinea, comprime i buffer di validita', aggiunge intestazioni — e un
+   `commit` avrebbe consumato la quota per sempre, facendo esaurire lo
+   spill a una pipeline lunga che ha gia' rimosso i suoi file.
+4. **Memoria come prenotazione viva**, non consumo definitivo: e' il
+   finding L0.3, chiuso insieme allo spool perche' senza di esso lo
+   spool avrebbe spostato i byte su disco continuando a pagarli in RAM.
+5. **Test end-to-end** su dataset oltre `memory_bytes`: presente
+   (`dataset_over_memory_bytes_succeeds_via_spool`), insieme alla
+   copertura del replay corrotto e della cancellazione durante
+   migrazione e rilettura.
+6. **CIA** registrata in
+   `docs/assurance/CHANGE_IMPACT_2026-08-16_LOTTO_0_BUDGET_MODEL.md`,
+   accorpata a quella del modello budget: le due modifiche condividono
+   baseline, perimetro e hazard.
+
+Resta aperta la **campagna prestazionale bounded** con veto sul tempo
+utente, che deve confrontare un percorso senza spill e uno con spill
+forzato.
 
 ## Fuori scope di questa ADR
 
