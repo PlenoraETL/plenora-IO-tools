@@ -262,7 +262,7 @@ impl FormatDriver for KmlDriver {
         let mut spool_writer = KmlSpoolWriter::new(
             spool.as_file(),
             opts.max_input_bytes(),
-            opts.operation_budget()?.clone(),
+            opts.budget().clone(),
         );
         while let Some(placemark) = stream.next_placemark(
             opts.cancellation(),
@@ -302,7 +302,7 @@ impl FormatDriver for KmlDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        plenora_io_core::with_read_budget(
+        Ok(plenora_io_core::with_read_budget(
             Box::new(KmlDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -315,7 +315,7 @@ impl FormatDriver for KmlDriver {
             }),
             &opts,
             true,
-        )
+        ))
     }
 
     fn create(
@@ -1496,6 +1496,17 @@ mod tests {
     /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
     /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
     /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    /// Opzioni di scrittura sul modello unificato.
+    ///
+    /// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+    /// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+    fn opzioni_scrittura() -> WriteOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     fn opzioni_lettura() -> ReadOptions {
         match plenora_io_model::budget::PipelineBudget::builder().build() {
             Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
@@ -1735,7 +1746,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         w.write(&batch).unwrap();
         let published = w.finish().unwrap();
@@ -1820,7 +1831,7 @@ mod tests {
 
         let driver = KmlDriver;
         let mut writer = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         writer.write(&batch).unwrap();
         writer.finish().unwrap();
@@ -1889,7 +1900,7 @@ mod tests {
         };
         let driver = KmlDriver;
         assert!(driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .is_err());
         assert!(!out.exists());
     }
@@ -1984,7 +1995,7 @@ mod tests {
             }],
         };
         let mut writer = KmlDriver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         writer.declare_input_total(LayerId(0), 1).unwrap();
 

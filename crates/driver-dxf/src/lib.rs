@@ -240,8 +240,7 @@ impl FormatDriver for DxfDriver {
             opts.cancellation(),
         )?;
         let mut stats = DxfContractStats::default();
-        let mut spool_writer =
-            DxfSpoolWriter::new(opts.max_input_bytes(), opts.operation_budget()?.clone());
+        let mut spool_writer = DxfSpoolWriter::new(opts.max_input_bytes(), opts.budget().clone());
         let mut source_index = 0_u64;
         while let Some(entity) = stream.next_entity().map_err(|e| {
             read_row_error(
@@ -281,7 +280,7 @@ impl FormatDriver for DxfDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        plenora_io_core::with_read_budget(
+        Ok(plenora_io_core::with_read_budget(
             Box::new(DxfDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -296,7 +295,7 @@ impl FormatDriver for DxfDriver {
             }),
             &opts,
             false,
-        )
+        ))
     }
 
     fn create(
@@ -907,7 +906,7 @@ struct DxfSpoolWriter {
 fn budget_di_prova() -> Result<OperationBudget> {
     let bundle = plenora_io_model::budget::PipelineBudget::builder().build()?;
     Ok(ReadOptions::from_read_parts(bundle.into_read_parts())
-        .operation_budget()?
+        .budget()
         .clone())
 }
 
@@ -2114,6 +2113,17 @@ mod tests {
     /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
     /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
     /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    /// Opzioni di scrittura sul modello unificato.
+    ///
+    /// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+    /// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+    fn opzioni_scrittura() -> WriteOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     fn opzioni_lettura() -> ReadOptions {
         match plenora_io_model::budget::PipelineBudget::builder().build() {
             Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
@@ -2274,7 +2284,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         let planned_fidelity = w.fidelity_assessment();
         assert_eq!(
@@ -2516,7 +2526,7 @@ mod tests {
         };
 
         assert!(DxfDriver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .is_err());
         assert!(!output.exists());
     }
@@ -2579,7 +2589,7 @@ mod tests {
         )
         .unwrap();
         let mut writer = DxfDriver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         writer.declare_input_total(LayerId(0), 1).unwrap();
 
@@ -2640,7 +2650,7 @@ mod tests {
         )
         .unwrap();
         let mut writer = DxfDriver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         writer.declare_input_total(LayerId(0), 1).unwrap();
 
@@ -2682,7 +2692,7 @@ mod tests {
             .create(
                 Sink::Path(output.to_path_buf()),
                 &plan,
-                &WriteOptions::default(),
+                &opzioni_scrittura(),
             )
             .unwrap();
         writer.declare_input_total(LayerId(0), input_total).unwrap();
@@ -2840,7 +2850,7 @@ mod tests {
             }],
         };
         assert!(DxfDriver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .is_err());
         assert!(!output.exists());
     }

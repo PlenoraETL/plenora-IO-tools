@@ -1049,3 +1049,74 @@ sull'effettivo; derivare la soglia dal limite locale invece che dalla capacita'
 effettiva. I due test nuovi coprono rispettivamente un tetto per cella sotto
 l'overhead con memoria stretta, e un pool piu' stretto della pipeline che deve
 spillare e completare.
+
+## Registrazione S4.e del 2026-08-16 — il modello legacy non esiste piu'
+
+Ultimo sottopasso di S4. Con questo commit esiste **un solo** modello di
+budget, e la coesistenza che il Lotto 0 ha attraversato non e' piu'
+rappresentabile.
+
+**Cosa e' sparito.** La variante `BudgetPayload::Legacy` e l'enum stesso; i
+`Default` di `ReadOptions` e `WriteOptions`; i costruttori `from_legacy` e gli
+accessori `legacy_budget`, `legacy_limits`, `resource_budget`; entrambe le
+guardie direzionali; `Limits`, `ResourceBudget`, `ResourceLease`,
+`ResourceKind` e `ResourceLimits`, con l'intero `resource.rs`. In `limits.rs`
+resta il solo `WkbLimits`, che e' sempre stato un tipo del contratto e non del
+budget.
+
+**Le opzioni non hanno `Default`, e non e' una dimenticanza.** Portano un
+`OperationBudget`, che nasce da una costruzione che puo' fallire — limiti
+incoerenti, deadline scaduta. Un `Default` avrebbe dovuto scegliere fra il
+panico e quote inventate, ed era la seconda strada quella presa: costruiva un
+ramo legacy con i valori storici che nessun chiamante aveva chiesto.
+
+**Il ramo di scrittura e' entrato nella pipeline.** `with_write_validation` e
+`with_write_limits` prendono le opzioni e ne usano il budget; il writer preleva
+righe, output e componenti dai contatori dell'operazione, e la memoria dello
+staging e' una `InternalMemoryLease` restituita al drop invece di un consumo
+definitivo.
+
+**`convert` usa un solo context.** Fino a S4.d la CLI costruiva due
+`ResourceBudget` scollegati: risolveva il finding #3 — una riga non deve
+consumare due volte la stessa quota — ma contava due volte memoria e spill, e
+impediva al writer di vedere l'input osservato dal reader, che e' cio' da cui
+`output_expansion_ratio` deriva il tetto (INV-6). Ora i due rami escono dallo
+stesso `ConvertBudgetParts`: contatori indipendenti, context condiviso. Il test
+verifica entrambe le meta'.
+
+**I flag della CLI atterrano direttamente in `PipelineLimits`.** Il `Limits`
+intermedio non serviva a nulla se non a tenere in vita il modello vecchio nel
+punto piu' visibile del componente.
+
+**`with_read_budget` non restituisce piu' `Result`.** Con un solo modello non
+c'e' nulla da rifiutare, e una funzione che non puo' fallire non deve
+dichiarare di poterlo fare.
+
+**Test rimossi invece che riscritti.** Parita' fra i due rami, "il ramo
+pipeline non consulta `Limits`", "il ramo legacy non tocca i gauge nuovi", le
+guardie direzionali: senza un secondo modello non descrivono piu' nulla e
+sarebbero passati per costruzione. Sono stati eliminati. Restano, riscritti sul
+modello unico, quelli che dicono ancora qualcosa: gli scalari dai limiti della
+pipeline, la vista di scrittura, il permit one-shot, il context condiviso.
+
+I due test di parita' del modello — `effective_wkb_components` e i default
+unificati — confrontavano il nuovo con le strutture legacy. Rimosse quelle, il
+requisito resta: i default non devono allentarsi in silenzio, o il finding L0.2
+si riaprirebbe. I valori sono ora **fissati esplicitamente**, con l'origine
+scritta accanto a ciascuno.
+
+**Inventario: zero, tutte le undici categorie.** Il gate
+`check_legacy_budget_inventory.py` e' stato rimosso, come previsto fin dalla
+sua introduzione, insieme a `check_pipeline_branch_gate.py`, che sorvegliava
+una distinzione — "costruibile" contro "utilizzabile" — che non esiste piu'.
+
+Non e' un indebolimento della sorveglianza: **ora e' il compilatore il gate**.
+`ReadOptions::default()` non compila, `Limits` non esiste, un driver non puo'
+nominare un budget legacy perche' il tipo non c'e'. Una regressione non e'
+distratta: e' inesprimibile. Resta `check_permit_boundary.py`, che sorveglia un
+confine che il linguaggio non impone.
+
+**Registro dei fallback** 102 → 104: due occorrenze, la stessa conversione in
+due moduli di test. Il tetto di colonne passa da `u64` a `usize` perche'
+`validate_write` lo prende in `usize`; prima veniva da `Limits`, dove era gia'
+`usize`.

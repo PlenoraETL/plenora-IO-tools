@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
 use arrow_schema::{DataType, SchemaRef};
 use plenora_io_model::budget::{
-    InputPermit, OperationBudget, PipelineContext, ReadBudgetParts, SourceEntry,
+    ConcurrencyLease, CountedLease, InputPermit, InternalMemoryLease, OperationBudget,
+    OperationCounter, PipelineContext, PipelineLimits, ReadBudgetParts, SourceEntry,
     SourceFootprintSnapshot, WriteBudgetParts,
 };
 use plenora_io_model::contract::{
@@ -15,8 +16,7 @@ use plenora_io_model::contract::{
 };
 use plenora_io_model::crs::CrsResolution;
 use plenora_io_model::geometry::{is_geometry_field, read_geometry_contract_metadata};
-use plenora_io_model::limits::{Limits, WkbLimits};
-use plenora_io_model::resource::{ResourceBudget, ResourceKind, ResourceLease};
+use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{inspect_wkb, WkbInspection};
 use plenora_io_model::{
     CancellationReason, CancellationToken, CapabilityReason, ErrorCategory, ErrorPhase,
@@ -82,17 +82,13 @@ impl Source {
     ///
     /// # Errors
     ///
-    /// [`richiede_modello_unificato`] se le opzioni sono costruite sul
-    /// modello legacy; [`permit_gia_speso`] se l'osservazione e' gia'
+    /// [`permit_gia_speso`] se l'osservazione e' gia'
     /// avvenuta; l'errore di enumerazione se una voce supera una quota;
     /// l'errore di cancellazione o deadline; l'errore di I/O se la sorgente
     /// non e' accessibile; `Unsupported` su un symlink.
     pub fn into_path_observed(self, opts: &mut ReadOptions) -> Result<PathBuf> {
         let Self::Path(path) = self;
-        let budget = opts
-            .pipeline_budget()
-            .ok_or_else(richiede_modello_unificato)?
-            .clone();
+        let budget = opts.budget().clone();
         let context = budget.context();
         let permit = opts.take_input_permit().ok_or_else(permit_gia_speso)?;
 
@@ -130,7 +126,22 @@ fn permit_gia_speso() -> PlenoraIoError {
     )
 }
 
-/// Rappresentazione byte del percorso, senza conversioni con perdita.
+/// Codifica senza perdita del percorso **lessicale**.
+///
+/// # Non e' una normalizzazione
+///
+/// Il nome precedente, `byte_identita_percorso`, prometteva cio' che questa
+/// funzione non fa: `a/../b` e `b` restano distinti, e due hard link allo
+/// stesso inode pure. Produce una codifica **iniettiva e stabile** del
+/// percorso cosi' come il chiamante lo ha scritto, nient'altro.
+///
+/// La canonicalizzazione e' deliberatamente esclusa: `fs::canonicalize` segue
+/// i symlink, e il preflight li **rifiuta** invece di seguirli. Farla qui
+/// allargherebbe il contratto della sorgente nel punto in cui e' stato
+/// ristretto — e introdurrebbe una lettura del filesystem in piu' per ogni
+/// voce, prima ancora di sapere se la voce e' ammissibile.
+///
+/// # Perche' senza perdita
 ///
 /// `to_string_lossy` sostituisce ogni sequenza non valida con U+FFFD: su Unix
 /// due percorsi diversi ma entrambi non-UTF-8 possono cosi' collassare sulla
@@ -145,7 +156,7 @@ fn permit_gia_speso() -> PlenoraIoError {
 /// diverse no. Il prefisso distingue le due codifiche, perche' un digest non
 /// deve dipendere dalla piattaforma senza dichiararlo.
 #[cfg(unix)]
-fn percorso_normalizzato(percorso: &std::path::Path) -> Vec<u8> {
+fn byte_identita_percorso(percorso: &std::path::Path) -> Vec<u8> {
     use std::os::unix::ffi::OsStrExt;
     let mut byte = Vec::with_capacity(percorso.as_os_str().len() + 1);
     byte.push(b'u');
@@ -154,7 +165,7 @@ fn percorso_normalizzato(percorso: &std::path::Path) -> Vec<u8> {
 }
 
 #[cfg(windows)]
-fn percorso_normalizzato(percorso: &std::path::Path) -> Vec<u8> {
+fn byte_identita_percorso(percorso: &std::path::Path) -> Vec<u8> {
     use std::os::windows::ffi::OsStrExt;
     let mut byte = vec![b'w'];
     for unita in percorso.as_os_str().encode_wide() {
@@ -164,7 +175,7 @@ fn percorso_normalizzato(percorso: &std::path::Path) -> Vec<u8> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn percorso_normalizzato(percorso: &std::path::Path) -> Vec<u8> {
+fn byte_identita_percorso(percorso: &std::path::Path) -> Vec<u8> {
     // Nessuna piattaforma supportata cade qui. Se una ci cadesse, la forma
     // lossy sarebbe meglio di niente ma non e' iniettiva: il prefisso lo
     // dichiara, cosi' un digest costruito cosi' non si confonde con gli altri.
@@ -199,7 +210,7 @@ fn scopri(context: &PipelineContext, percorso: &std::path::Path) -> Result<bool>
             "symlink non ammesso nella sorgente".to_owned(),
         ));
     }
-    let normalizzato = percorso_normalizzato(percorso);
+    let normalizzato = byte_identita_percorso(percorso);
     let modified = metadata.modified().ok();
     let entry = if metadata.is_dir() {
         SourceEntry::directory(&normalizzato, modified)
@@ -229,434 +240,131 @@ pub struct WriteLimitsView {
 }
 
 impl WriteLimitsView {
+    /// Estrae le tre quote dai limiti della pipeline.
+    ///
+    /// `max_columns` e `max_rows` sono `u64` nel modello e `usize` qui: la
+    /// conversione satura, e su un target a 64 bit non puo' perdere nulla.
+    /// Saturare verso l'alto e' comunque il verso sicuro — il tetto che lega
+    /// resta quello del contatore, che rifiuta prima.
     #[must_use]
-    pub fn from_legacy(limits: &Limits) -> Self {
+    pub fn from_pipeline(limits: &PipelineLimits) -> Self {
         Self {
-            max_columns: limits.max_columns,
-            max_rows: limits.max_rows,
-            wkb: limits.effective_wkb(),
+            max_columns: saturating_usize(limits.max_columns()),
+            max_rows: saturating_usize(limits.max_rows()),
+            wkb: limits.wkb_limits(),
         }
     }
 }
 
-/// Errore di un percorso **ancora legacy** che riceve opzioni del modello
-/// unificato.
+/// Opzioni di lettura.
 ///
-/// Serve perche' non esiste ripiego da `Pipeline` a `Legacy`: un componente
-/// non ancora migrato deve **dichiarare** di non saper leggere quel payload,
-/// invece di scivolare su valori di default. Un ripiego silenzioso
-/// applicherebbe quote che nessuno ha chiesto.
-///
-/// Da S4.d resta un solo consumatore, il ramo di scrittura. Il verso opposto
-/// — percorso nuovo che riceve opzioni vecchie — ha una guardia propria,
-/// [`richiede_modello_unificato`]: una sola funzione per entrambi avrebbe
-/// detto "componente non ancora migrato" anche dove il componente e' migrato
-/// e sono le opzioni a essere vecchie, cioe' avrebbe mentito nella meta' dei
-/// casi.
-///
-/// **Punto di rimozione: S4.e**, con il ramo `Legacy` stesso.
-#[must_use]
-pub fn richiede_modello_legacy() -> PlenoraIoError {
-    PlenoraIoError::Unsupported(
-        "componente non ancora migrato al modello budget unificato".to_owned(),
-    )
-}
-
-/// Errore di un percorso **gia' migrato** che riceve opzioni legacy.
-///
-/// E' il verso opposto di [`richiede_modello_legacy`], e da S4.d e' quello
-/// che copre il percorso di lettura: adapter e spool prenotano memoria con
-/// una `InternalMemoryLease`, che esiste solo dentro un `PipelineContext`.
-/// Senza contesto non c'e' nulla da prenotare, e fabbricarne uno sarebbe la
-/// conversione fra modelli che la migrazione esclude.
-///
-/// **Punto di rimozione: S4.e**, quando `Default` sparisce e opzioni legacy
-/// non sono piu' costruibili.
-#[must_use]
-pub fn richiede_modello_unificato() -> PlenoraIoError {
-    PlenoraIoError::Unsupported(
-        "il percorso richiede opzioni costruite sul modello budget unificato".to_owned(),
-    )
-}
-
-/// Ponte transitorio fra i due modelli di budget (Lotto 0, S4).
-///
-/// E' un enum e non due campi opzionali perche' gli stati misti — meta'
-/// legacy e meta' pipeline — non devono essere rappresentabili. Finche' i due
-/// modelli coesistono, ogni percorso deve poter dire con certezza **quale**
-/// dei due lo governa, e un `Option` accanto ai campi vecchi lascerebbe
-/// invece esistere la combinazione in cui entrambi sono presenti e nessuno sa
-/// quale valga.
-///
-/// Il tipo e' privato e non e' ri-esportato: nessuna facade lo vedra' mai.
-/// **Punto di rimozione: S4.e**, che elimina la variante `Legacy`, il
-/// `Default` e l'enum stesso, rendendo il modello nuovo obbligatorio.
-enum BudgetPayload {
-    /// Costruito **solo** da `Default`. I valori sono quelli storici.
-    Legacy {
-        limits: Limits,
-        resource_budget: ResourceBudget,
-        cancellation: CancellationToken,
-    },
-    /// Costruito **solo** dai builder nuovi. Non esiste alcun ripiego da qui
-    /// a `Legacy`: se qualcosa fallisce, fallisce.
-    Pipeline {
-        budget: OperationBudget,
-        /// **Punto di consumo: S4.d**, dove `Source::into_path_checked`
-        /// osserva la sorgente attraverso il modello unificato. Oggi il
-        /// permit viaggia gia' — perche' regenerarlo dopo non sarebbe
-        /// possibile — ma nessun percorso di produzione lo preleva ancora:
-        /// il preflight in vigore e' quello legacy, che non osserva.
-        #[allow(dead_code)]
-        permit: Option<InputPermit>,
-        expected: Option<SourceFootprintSnapshot>,
-    },
-}
-
-impl Default for BudgetPayload {
-    fn default() -> Self {
-        Self::Legacy {
-            limits: Limits::default(),
-            resource_budget: ResourceBudget::default(),
-            cancellation: CancellationToken::default(),
-        }
-    }
-}
-
-// Accessori centralizzati. Ogni percorso consulta **un solo** payload: e' qui
-// che si decide quale modello risponde, non nei driver.
-//
-// I valori restituiti sono scalari immutabili — quote, non contatori — quindi
-// leggerli dal modello che governa non e' una conversione di budget. Non
-// esiste e non deve esistere un accessore che ricostruisca un `Limits` nel
-// ramo `Pipeline`: sarebbe esattamente la copia fra modelli che la
-// migrazione deve evitare.
-impl BudgetPayload {
-    fn cancellation(&self) -> &CancellationToken {
-        match self {
-            Self::Legacy { cancellation, .. } => cancellation,
-            Self::Pipeline { budget, .. } => budget.context().cancellation(),
-        }
-    }
-
-    fn wkb_limits(&self) -> WkbLimits {
-        match self {
-            Self::Legacy { limits, .. } => limits.effective_wkb(),
-            Self::Pipeline { budget, .. } => budget.context().limits().wkb_limits(),
-        }
-    }
-
-    fn write_limits(&self) -> WriteLimitsView {
-        WriteLimitsView {
-            max_columns: self.max_columns(),
-            max_rows: self.max_rows(),
-            wkb: self.wkb_limits(),
-        }
-    }
-
-    fn max_columns(&self) -> usize {
-        match self {
-            Self::Legacy { limits, .. } => limits.max_columns,
-            Self::Pipeline { budget, .. } => {
-                saturating_usize(budget.context().limits().max_columns())
-            }
-        }
-    }
-
-    fn max_rows(&self) -> usize {
-        match self {
-            Self::Legacy { limits, .. } => limits.max_rows,
-            Self::Pipeline { budget, .. } => saturating_usize(budget.context().limits().max_rows()),
-        }
-    }
-
-    fn max_input_bytes(&self) -> u64 {
-        match self {
-            Self::Legacy { limits, .. } => limits.max_input_bytes,
-            Self::Pipeline { budget, .. } => budget.context().limits().max_input_bytes(),
-        }
-    }
-
-    fn max_input_entries(&self) -> u64 {
-        match self {
-            Self::Legacy { limits, .. } => limits.max_input_entries,
-            Self::Pipeline { budget, .. } => budget.context().limits().max_input_entries(),
-        }
-    }
-
-    fn max_vertices(&self) -> usize {
-        match self {
-            Self::Legacy { limits, .. } => limits.max_vertices,
-            Self::Pipeline { budget, .. } => budget.context().limits().max_vertices(),
-        }
-    }
-
-    /// Verifica che l'operazione sia ancora viva: non cancellata e dentro la
-    /// deadline.
-    ///
-    /// E' un accessore di **comportamento**, non di valore: i due rami fanno
-    /// la stessa domanda al proprio modello, e nessun contatore passa da uno
-    /// all'altro. Senza, ogni driver che controlla la liveness dentro un
-    /// ciclo dovrebbe procurarsi il budget legacy e quindi conoscere il
-    /// ponte.
-    ///
-    /// **Il ramo legacy controlla anche la cancellazione, e prima non lo
-    /// faceva.** `ResourceBudget::ensure_active` guarda solo la deadline: nel
-    /// modello vecchio la cancellazione vive in un secondo posto, il token
-    /// che le opzioni portano a parte. `PipelineContext::ensure_active`
-    /// guarda entrambe, perche' nel modello nuovo sono la stessa cosa.
-    /// Lasciare la divergenza avrebbe dato allo stesso nome due significati,
-    /// e i cicli dei driver avrebbero iniziato a onorare la cancellazione
-    /// **il giorno del passaggio a `Pipeline`** — una modifica di
-    /// comportamento scoperta nel momento peggiore. Qui e' un controllo in
-    /// piu' sullo stesso token che quei cicli gia' interrogano altrove.
-    fn ensure_active(&self) -> Result<()> {
-        match self {
-            Self::Legacy {
-                resource_budget,
-                cancellation,
-                ..
-            } => {
-                // `Validate` e' la fase neutra pre-operazione, la stessa che
-                // usa il context del modello nuovo: la fase reale la portera'
-                // l'`ErrorContext` strutturato di S9.
-                check_cancelled(cancellation, ErrorPhase::Validate)?;
-                resource_budget.ensure_active()
-            }
-            Self::Pipeline { budget, .. } => budget.context().ensure_active(),
-        }
-    }
-
-    fn max_output_bytes(&self) -> u64 {
-        match self {
-            Self::Legacy {
-                limits,
-                resource_budget,
-                ..
-            } => limits.max_output_bytes.min(resource_budget.output_limit()),
-            Self::Pipeline { budget, .. } => budget.output_limit(),
-        }
-    }
-
-    /// Budget legacy, presente solo finche' il ramo `Legacy` esiste.
-    ///
-    /// **Punto di rimozione: S4.e.** Fino ad allora e' il modo in cui i driver
-    /// non ancora migrati raggiungono i propri contatori.
-    const fn legacy_budget(&self) -> Option<&ResourceBudget> {
-        match self {
-            Self::Legacy {
-                resource_budget, ..
-            } => Some(resource_budget),
-            Self::Pipeline { .. } => None,
-        }
-    }
-
-    /// Limiti legacy, presenti solo nel ramo `Legacy`.
-    ///
-    /// Restituisce `Option` e non un valore ricostruito proprio perche' nel
-    /// ramo `Pipeline` quel tipo non esiste e fabbricarlo sarebbe una copia
-    /// fra modelli. **Punto di rimozione: S4.e.**
-    const fn legacy_limits(&self) -> Option<&Limits> {
-        match self {
-            Self::Legacy { limits, .. } => Some(limits),
-            Self::Pipeline { .. } => None,
-        }
-    }
-
-    const fn pipeline_budget(&self) -> Option<&OperationBudget> {
-        match self {
-            Self::Legacy { .. } => None,
-            Self::Pipeline { budget, .. } => Some(budget),
-        }
-    }
-}
-
-#[derive(Default)]
+/// Non hanno `Default`, e non e' una dimenticanza: le opzioni portano un
+/// [`OperationBudget`], che nasce da un `PipelineBudget::builder().build()`
+/// e puo' **fallire** — limiti incoerenti, deadline gia' scaduta. Un
+/// `Default` avrebbe dovuto scegliere fra il panico e quote inventate, e
+/// fino a S4.d la seconda strada era quella presa: costruiva un ramo legacy
+/// con i valori storici, che nessun chiamante aveva chiesto.
 pub struct ReadOptions {
     /// CRS dichiarato per i formati che non lo portano (CSV/XLSX) — ADR-IO 4.
     pub assume_crs: Option<String>,
     /// Knob specifici del driver (es. csv: `x_column`/`y_column`/`wkt_column`/
     /// `delimiter`).
     pub format_options: BTreeMap<String, String>,
-    payload: BudgetPayload,
+    budget: OperationBudget,
+    /// Permit di osservazione, speso dal preflight. `None` dopo la spesa, o
+    /// se le parti non ne trasportavano.
+    permit: Option<InputPermit>,
+    /// Snapshot atteso per la revalidation di `scan`.
+    expected: Option<SourceFootprintSnapshot>,
 }
 
 impl ReadOptions {
-    #[must_use]
-    pub fn cancellation(&self) -> &CancellationToken {
-        self.payload.cancellation()
-    }
-
-    #[must_use]
-    pub fn wkb_limits(&self) -> WkbLimits {
-        self.payload.wkb_limits()
-    }
-
-    #[must_use]
-    pub fn max_columns(&self) -> usize {
-        self.payload.max_columns()
-    }
-
-    #[must_use]
-    pub fn max_rows(&self) -> usize {
-        self.payload.max_rows()
-    }
-
-    #[must_use]
-    pub fn max_input_bytes(&self) -> u64 {
-        self.payload.max_input_bytes()
-    }
-
-    #[must_use]
-    pub fn max_input_entries(&self) -> u64 {
-        self.payload.max_input_entries()
-    }
-
-    #[must_use]
-    pub fn max_vertices(&self) -> usize {
-        self.payload.max_vertices()
-    }
-
-    /// Verifica che l'operazione sia ancora viva.
+    /// Costruisce le opzioni dalle parti di lettura.
     ///
-    /// # Errors
-    ///
-    /// Cancellazione richiesta o propagata, oppure deadline scaduta.
-    pub fn ensure_active(&self) -> Result<()> {
-        self.payload.ensure_active()
-    }
-
-    /// Budget dell'operazione sul modello unificato.
-    ///
-    /// Restituisce `Result` e non `Option` cosi' che il chiamante scriva
-    /// `opts.operation_budget()?` senza nominare il ponte: la decisione su
-    /// cosa fare quando le opzioni sono legacy appartiene al core, non ai
-    /// driver. E' il gemello di [`Self::resource_budget`], e gli sopravvive:
-    /// in S4.e resta solo questo.
-    ///
-    /// # Errors
-    ///
-    /// [`richiede_modello_unificato`] se le opzioni sono costruite sul
-    /// modello legacy.
-    pub fn operation_budget(&self) -> Result<&OperationBudget> {
-        self.pipeline_budget()
-            .ok_or_else(richiede_modello_unificato)
-    }
-
-    /// Budget legacy dei contatori cumulativi, per i percorsi che non sono
-    /// ancora stati portati sul modello unificato.
-    ///
-    /// Restituisce `Result` e non `Option` cosi' che il chiamante scriva
-    /// `opts.resource_budget()?` senza nominare il ponte: la decisione su
-    /// cosa fare quando il modello e' quello nuovo appartiene al core, non ai
-    /// driver. **Punto di rimozione: S4.d.**
-    ///
-    /// # Errors
-    ///
-    /// [`richiede_modello_legacy`] se le opzioni sono costruite sul modello
-    /// unificato.
-    pub fn resource_budget(&self) -> Result<&ResourceBudget> {
-        self.legacy_budget().ok_or_else(richiede_modello_legacy)
-    }
-
-    /// Snapshot atteso per la revalidation, presente solo sul ramo
-    /// `Pipeline`. Lo consuma il preflight leggero di `scan` in S4.d.
-    #[must_use]
-    pub const fn expected_footprint(&self) -> Option<&SourceFootprintSnapshot> {
-        match &self.payload {
-            BudgetPayload::Legacy { .. } => None,
-            BudgetPayload::Pipeline { expected, .. } => expected.as_ref(),
-        }
-    }
-
-    /// Estrae il permit di osservazione. Lo consumera' il preflight in S4.d;
-    /// oggi nessun percorso lo preleva, ed e' corretto cosi': il preflight
-    /// legacy non osserva ancora attraverso il modello nuovo.
-    ///
-    /// `pub(crate)` e non `pub`: l'unico chiamante legittimo e'
-    /// `Source::into_path_checked`, che vive in questo crate. Esporlo fuori
-    /// darebbe a un driver — o domani alla facade — un secondo punto da cui
-    /// separare il permit dal proprio context, cioe' esattamente cio' che
-    /// INV-13 esclude.
-    ///
-    /// **Punto di consumo: S4.d**, insieme al campo `permit` del payload.
-    /// Finche' il preflight in vigore e' quello legacy — che non osserva —
-    /// nessun percorso di produzione lo chiama, e il `dead_code` e' la
-    /// descrizione corretta dello stato, non un avviso da zittire: sparisce
-    /// quando `Source::into_path_checked` inizia a osservare davvero.
-    #[allow(dead_code)]
-    pub(crate) const fn take_input_permit(&mut self) -> Option<InputPermit> {
-        match &mut self.payload {
-            BudgetPayload::Legacy { .. } => None,
-            BudgetPayload::Pipeline { permit, .. } => permit.take(),
-        }
-    }
-
-    /// **Punto di rimozione: S4.e.**
-    #[must_use]
-    pub const fn legacy_budget(&self) -> Option<&ResourceBudget> {
-        self.payload.legacy_budget()
-    }
-
-    /// **Punto di rimozione: S4.e.**
-    #[must_use]
-    pub const fn legacy_limits(&self) -> Option<&Limits> {
-        self.payload.legacy_limits()
-    }
-
-    #[must_use]
-    pub const fn pipeline_budget(&self) -> Option<&OperationBudget> {
-        self.payload.pipeline_budget()
-    }
-
-    /// Costruisce le opzioni sul ramo legacy.
-    ///
-    /// **Punto di rimozione: S4.e.** Esiste perche' il payload e' privato e i
-    /// call site storici costruivano le opzioni con uno struct literal; senza
-    /// questo costruttore dovrebbero conoscere il tipo transitorio, che e'
-    /// esattamente cio' che non deve uscire dal crate.
-    #[must_use]
-    pub const fn from_legacy(
-        limits: Limits,
-        resource_budget: ResourceBudget,
-        cancellation: CancellationToken,
-    ) -> Self {
-        Self {
-            assume_crs: None,
-            format_options: BTreeMap::new(),
-            payload: BudgetPayload::Legacy {
-                limits,
-                resource_budget,
-                cancellation,
-            },
-        }
-    }
-
-    /// Costruisce le opzioni sul modello unificato.
-    ///
-    /// Permit e snapshot attesi arrivano **per move** dalle parti, senza
-    /// essere rigenerati: rigenerarli darebbe un permit che il context non
-    /// riconosce e uno snapshot che non descrive nulla di osservato.
+    /// Permit e snapshot arrivano **per move**: rigenerarli darebbe un permit
+    /// che il context non riconosce e uno snapshot che non descrive nulla di
+    /// osservato.
     #[must_use]
     pub fn from_read_parts(parts: ReadBudgetParts) -> Self {
         let (budget, permit, expected) = parts.into_components();
         Self {
             assume_crs: None,
             format_options: BTreeMap::new(),
-            payload: BudgetPayload::Pipeline {
-                budget,
-                permit,
-                expected,
-            },
+            budget,
+            permit,
+            expected,
         }
     }
 
-    /// Dichiara il CRS per i formati che non lo trasportano.
+    /// Budget dell'operazione: contatori cumulativi e `PipelineContext`.
+    #[must_use]
+    pub const fn budget(&self) -> &OperationBudget {
+        &self.budget
+    }
+
+    #[must_use]
+    pub fn cancellation(&self) -> &CancellationToken {
+        self.budget.context().cancellation()
+    }
+
+    #[must_use]
+    pub fn wkb_limits(&self) -> WkbLimits {
+        self.budget.context().limits().wkb_limits()
+    }
+
+    #[must_use]
+    pub fn max_columns(&self) -> usize {
+        saturating_usize(self.budget.context().limits().max_columns())
+    }
+
+    #[must_use]
+    pub fn max_rows(&self) -> usize {
+        saturating_usize(self.budget.context().limits().max_rows())
+    }
+
+    #[must_use]
+    pub fn max_vertices(&self) -> usize {
+        self.budget.context().limits().max_vertices()
+    }
+
+    #[must_use]
+    pub fn max_input_bytes(&self) -> u64 {
+        self.budget.context().limits().max_input_bytes()
+    }
+
+    #[must_use]
+    pub fn max_input_entries(&self) -> u64 {
+        self.budget.context().limits().max_input_entries()
+    }
+
+    /// Verifica che l'operazione sia ancora viva: non cancellata e dentro la
+    /// deadline.
     ///
-    /// I builder esistono perche' il payload e' privato: senza di essi i call
-    /// site dovrebbero costruire le opzioni con uno struct literal, che il
-    /// tipo transitorio rende impossibile. Sono API reale, non scorciatoie di
-    /// test, e sopravvivono alla rimozione del ponte in S4.e.
+    /// # Errors
+    ///
+    /// Cancellazione richiesta o propagata, oppure deadline scaduta.
+    pub fn ensure_active(&self) -> Result<()> {
+        self.budget.context().ensure_active()
+    }
+
+    /// Snapshot atteso, presente solo se le opzioni derivano da
+    /// `ScanBudgetParts`.
+    #[must_use]
+    pub const fn expected_footprint(&self) -> Option<&SourceFootprintSnapshot> {
+        self.expected.as_ref()
+    }
+
+    /// Estrae il permit di osservazione.
+    ///
+    /// `pub(crate)` e non `pub`: l'unico chiamante legittimo e'
+    /// `Source::into_path_observed`, che vive in questo crate. Esporlo darebbe
+    /// a un driver — o domani alla facade — un secondo punto da cui separare
+    /// il permit dal proprio context, cioe' cio' che INV-13 esclude.
+    pub(crate) const fn take_input_permit(&mut self) -> Option<InputPermit> {
+        self.permit.take()
+    }
+
+    /// Dichiara il CRS per i formati che non lo trasportano.
     #[must_use]
     pub fn with_assume_crs(mut self, crs: impl Into<String>) -> Self {
         self.assume_crs = Some(crs.into());
@@ -680,89 +388,62 @@ impl ReadOptions {
     }
 }
 
-#[derive(Default)]
+/// Opzioni di scrittura. Come [`ReadOptions`], senza `Default`.
 pub struct WriteOptions {
     /// Profilo `DurableAtomicPublish` (fsync) invece di `AtomicPublish` — ADR-IO 2.
     pub durable: bool,
     /// Knob specifici del driver.
     pub format_options: BTreeMap<String, String>,
-    payload: BudgetPayload,
+    budget: OperationBudget,
 }
 
 impl WriteOptions {
-    /// Limite fisico effettivo, incluso il fattore massimo di espansione R7.7.
-    #[must_use]
-    pub fn max_output_bytes(&self) -> u64 {
-        self.payload.max_output_bytes()
-    }
-
-    #[must_use]
-    pub fn cancellation(&self) -> &CancellationToken {
-        self.payload.cancellation()
-    }
-
-    #[must_use]
-    pub fn wkb_limits(&self) -> WkbLimits {
-        self.payload.wkb_limits()
-    }
-
-    #[must_use]
-    pub fn max_columns(&self) -> usize {
-        self.payload.max_columns()
-    }
-
-    #[must_use]
-    pub fn write_limits(&self) -> WriteLimitsView {
-        self.payload.write_limits()
-    }
-
-    /// **Punto di rimozione: S4.e.**
-    #[must_use]
-    pub const fn legacy_budget(&self) -> Option<&ResourceBudget> {
-        self.payload.legacy_budget()
-    }
-
-    /// **Punto di rimozione: S4.e.**
-    #[must_use]
-    pub const fn legacy_limits(&self) -> Option<&Limits> {
-        self.payload.legacy_limits()
-    }
-
-    #[must_use]
-    pub const fn pipeline_budget(&self) -> Option<&OperationBudget> {
-        self.payload.pipeline_budget()
-    }
-
-    /// **Punto di rimozione: S4.e.**
-    #[must_use]
-    pub const fn from_legacy(
-        limits: Limits,
-        resource_budget: ResourceBudget,
-        cancellation: CancellationToken,
-    ) -> Self {
-        Self {
-            durable: false,
-            format_options: BTreeMap::new(),
-            payload: BudgetPayload::Legacy {
-                limits,
-                resource_budget,
-                cancellation,
-            },
-        }
-    }
-
-    /// Costruisce le opzioni sul modello unificato.
+    /// Costruisce le opzioni dalle parti di scrittura.
+    ///
+    /// In una conversione le parti write e read escono dallo stesso
+    /// `ConvertBudgetParts`, quindi condividono il `PipelineContext`: memoria,
+    /// spill e deadline sono gli stessi, mentre i contatori cumulativi restano
+    /// indipendenti. E' cio' che il finding #3 richiedeva — una riga non deve
+    /// consumare due volte la stessa quota — senza pero' tornare a due budget
+    /// scollegati, che e' quello che la CLI faceva fino a S4.d.
     #[must_use]
     pub fn from_write_parts(parts: WriteBudgetParts) -> Self {
         Self {
             durable: false,
             format_options: BTreeMap::new(),
-            payload: BudgetPayload::Pipeline {
-                budget: parts.into_budget(),
-                permit: None,
-                expected: None,
-            },
+            budget: parts.into_budget(),
         }
+    }
+
+    #[must_use]
+    pub const fn budget(&self) -> &OperationBudget {
+        &self.budget
+    }
+
+    /// Limite fisico effettivo, incluso il fattore massimo di espansione R7.7.
+    #[must_use]
+    pub fn max_output_bytes(&self) -> u64 {
+        self.budget.output_limit()
+    }
+
+    #[must_use]
+    pub fn cancellation(&self) -> &CancellationToken {
+        self.budget.context().cancellation()
+    }
+
+    #[must_use]
+    pub fn wkb_limits(&self) -> WkbLimits {
+        self.budget.context().limits().wkb_limits()
+    }
+
+    #[must_use]
+    pub fn max_columns(&self) -> usize {
+        saturating_usize(self.budget.context().limits().max_columns())
+    }
+
+    #[must_use]
+    pub fn write_limits(&self) -> WriteLimitsView {
+        WriteLimitsView::from_pipeline(self.budget.context().limits())
     }
 
     /// Seleziona il profilo `DurableAtomicPublish` invece di `AtomicPublish`.
@@ -1106,24 +787,28 @@ pub trait FormatWriter {
 ///
 /// # Errors
 ///
-/// Propaga l'errore del preflight, e [`richiede_modello_unificato`] se le opzioni
-/// sono costruite sul modello unificato. **Punto di rimozione del ramo
-/// legacy: S4.d.**
+/// Propaga l'errore dell'enumerazione: quota superata, cancellazione,
+/// deadline, symlink, o permit gia' speso.
 pub fn preflight_source(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
     source.into_path_observed(opts)
 }
 
 /// Applica i limiti indipendenti dal formato a qualunque writer. I vincoli
 /// specifici (WKB, vertici, dimensione fisica del dataset) restano nel driver.
+///
+/// Prende le **opzioni** e non una vista gia' estratta: e' da li' che vengono
+/// sia le quote sia il budget dei contatori, e chiederli separatamente
+/// lascerebbe al chiamante la possibilita' di accoppiare quote di
+/// un'operazione con i contatori di un'altra.
 #[must_use]
 pub fn with_write_limits(
     writer: Box<dyn FormatWriter>,
-    limits: WriteLimitsView,
+    opts: &WriteOptions,
 ) -> Box<dyn FormatWriter> {
     Box::new(LimitedWriter {
         inner: writer,
         driver: "writer",
-        limits,
+        limits: opts.write_limits(),
         rows: 0,
         layer_rows: vec![0],
         input_totals: vec![None],
@@ -1131,8 +816,8 @@ pub fn with_write_limits(
         contracts: Vec::new(),
         geometry_validation: None,
         planned_loss: LossReport::default(),
-        cancellation: CancellationToken::new(),
-        resource_budget: ResourceBudget::default(),
+        cancellation: opts.cancellation().clone(),
+        budget: opts.budget().clone(),
         _operation_lease: None,
         fidelity: FidelityAssessment::unassessed(
             "writer con soli limiti globali: assessment di formato non disponibile",
@@ -1206,10 +891,7 @@ pub fn with_write_validation(
 ) -> Result<Box<dyn FormatWriter>> {
     let limits = opts.write_limits();
     let cancellation = opts.cancellation().clone();
-    let resource_budget = opts
-        .legacy_budget()
-        .ok_or_else(richiede_modello_legacy)?
-        .clone();
+    let budget = opts.budget().clone();
     let geometry_support = descriptor
         .write_capabilities
         .as_ref()
@@ -1217,8 +899,8 @@ pub fn with_write_validation(
     let layers = geometry_contracts_for_validation(plan)?;
     let planned_loss = planned_write_loss(descriptor, plan);
     let fidelity = assess_write_contract(descriptor, plan).with_loss_report(&planned_loss);
-    resource_budget.ensure_active()?;
-    let operation_lease = resource_budget.try_lease(ResourceKind::ConcurrentOperations, 1)?;
+    budget.context().ensure_active()?;
+    let operation_lease = budget.context().lease_concurrency()?;
     let columns = plan.layers.iter().try_fold(0_u64, |total, layer| {
         total
             .checked_add(
@@ -1231,8 +913,8 @@ pub fn with_write_validation(
             })
     })?;
     if columns > 0 {
-        resource_budget
-            .try_lease(ResourceKind::Columns, columns)?
+        budget
+            .try_lease(OperationCounter::Columns, columns)?
             .commit(columns)?;
     }
     Ok(Box::new(LimitedWriter {
@@ -1251,7 +933,7 @@ pub fn with_write_validation(
         fidelity,
         planned_loss,
         cancellation,
-        resource_budget,
+        budget,
         _operation_lease: Some(operation_lease),
         geometry_validation: geometry_support.map(|support| GeometryValidation {
             driver: descriptor.id,
@@ -1457,18 +1139,20 @@ struct LimitedWriter {
     fidelity: FidelityAssessment,
     planned_loss: LossReport,
     cancellation: CancellationToken,
-    resource_budget: ResourceBudget,
-    _operation_lease: Option<ResourceLease>,
+    budget: OperationBudget,
+    _operation_lease: Option<ConcurrencyLease>,
 }
 
 struct WriteBatchResources {
     rows: u64,
     bytes: u64,
-    rows_lease: Option<ResourceLease>,
-    output_lease: Option<ResourceLease>,
-    memory_lease: Option<ResourceLease>,
+    rows_lease: Option<CountedLease>,
+    output_lease: Option<CountedLease>,
+    /// La memoria dello staging del writer: prenotazione viva, restituita al
+    /// drop come ogni occupazione interna (INV-5).
+    memory_lease: Option<InternalMemoryLease>,
     geometry_components: u64,
-    geometry_lease: Option<ResourceLease>,
+    geometry_lease: Option<CountedLease>,
 }
 
 impl WriteBatchResources {
@@ -1496,7 +1180,7 @@ impl LimitedWriter {
     // lunghezza e' nel numero di limiti, non in complessita' logica.
     #[allow(clippy::too_many_lines)]
     fn account(&mut self, layer: usize, batch: &RecordBatch) -> Result<WriteBatchResources> {
-        self.resource_budget.ensure_active()?;
+        self.budget.context().ensure_active()?;
         if let Some(contract) = self.contracts.get(layer) {
             if batch.schema().as_ref() != contract.as_ref() {
                 return Err(PlenoraIoError::new(
@@ -1559,15 +1243,14 @@ impl LimitedWriter {
             effective_limits.wkb.max_cell_bytes = effective_limits
                 .wkb
                 .max_cell_bytes
-                .min(saturating_usize(self.resource_budget.limits().cell_bytes));
-            effective_limits.wkb.max_components =
-                effective_limits.wkb.max_components.min(saturating_usize(
-                    self.resource_budget
-                        .remaining(ResourceKind::GeometryComponents),
-                ));
-            effective_limits.wkb.max_depth = effective_limits.wkb.max_depth.min(saturating_usize(
-                self.resource_budget.limits().nesting_depth,
-            ));
+                .min(self.budget.context().limits().max_wkb_cell_bytes());
+            effective_limits.wkb.max_components = effective_limits.wkb.max_components.min(
+                saturating_usize(self.budget.remaining(OperationCounter::GeometryComponents)),
+            );
+            effective_limits.wkb.max_depth = effective_limits
+                .wkb
+                .max_depth
+                .min(self.budget.context().limits().max_wkb_depth());
             validate_geometry_batch_at(
                 validation.driver,
                 validation.support,
@@ -1611,24 +1294,18 @@ impl LimitedWriter {
         Ok(WriteBatchResources {
             rows,
             bytes,
-            rows_lease: Some(self.resource_budget.try_lease(ResourceKind::Rows, rows)?),
+            rows_lease: Some(self.budget.try_lease(OperationCounter::Rows, rows)?),
             output_lease: (bytes > 0)
-                .then(|| {
-                    self.resource_budget
-                        .try_lease(ResourceKind::OutputBytes, bytes)
-                })
+                .then(|| self.budget.try_lease(OperationCounter::OutputBytes, bytes))
                 .transpose()?,
             memory_lease: (bytes > 0)
-                .then(|| {
-                    self.resource_budget
-                        .try_lease(ResourceKind::MemoryBytes, bytes)
-                })
+                .then(|| self.budget.context().lease_memory_internal(bytes))
                 .transpose()?,
             geometry_components,
             geometry_lease: (geometry_components > 0)
                 .then(|| {
-                    self.resource_budget
-                        .try_lease(ResourceKind::GeometryComponents, geometry_components)
+                    self.budget
+                        .try_lease(OperationCounter::GeometryComponents, geometry_components)
                 })
                 .transpose()?,
         })
@@ -1717,7 +1394,7 @@ impl FormatWriter for LimitedWriter {
 
     fn finish(self: Box<Self>) -> Result<Published> {
         check_cancelled(&self.cancellation, ErrorPhase::Finalize)?;
-        self.resource_budget.ensure_active()?;
+        self.budget.context().ensure_active()?;
         if self.failed {
             return Err(PlenoraIoError::format(
                 self.driver,
@@ -2286,17 +1963,6 @@ mod tests {
     use super::*;
     use crate::descriptor::WKB_XY_GEOMETRY;
 
-    /// Opzioni sul modello unificato, con i limiti indicati.
-    fn opzioni_pipeline(limits: plenora_io_model::budget::PipelineLimits) -> ReadOptions {
-        match plenora_io_model::budget::PipelineBudget::builder()
-            .limits(limits)
-            .build()
-        {
-            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
-            Err(error) => unreachable!("limiti di test non validi: {error:?}"),
-        }
-    }
-
     fn scan_dir_with(
         entries: usize,
         limits: plenora_io_model::budget::PipelineLimits,
@@ -2486,15 +2152,23 @@ mod tests {
     #[test]
     fn failed_write_poisons_writer_and_prevents_finish() {
         let finished = Arc::new(AtomicBool::new(false));
-        let limits = Limits {
-            max_rows: 0,
-            ..Limits::default()
-        };
+        let opts = WriteOptions::from_write_parts(
+            match plenora_io_model::budget::PipelineBudget::builder()
+                // Il modello rifiuta le quote nulle, quindi il tetto e' uno
+                // e il batch ne porta due: il rifiuto scatta comunque alla
+                // prima scrittura, che e' cio' che il test verifica.
+                .limits(limiti_di_prova().with_max_rows(1))
+                .build()
+            {
+                Ok(bundle) => bundle.into_write_parts(),
+                Err(error) => unreachable!("limiti di test: {error:?}"),
+            },
+        );
         let mut writer = with_write_limits(
             Box::new(FinishTrackingWriter {
                 finished: finished.clone(),
             }),
-            WriteLimitsView::from_legacy(&limits),
+            &opts,
         );
         let schema = Arc::new(Schema::new(vec![Field::new(
             "value",
@@ -2502,7 +2176,7 @@ mod tests {
             false,
         )]));
         let batch =
-            RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1]))]).unwrap();
+            RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1, 2]))]).unwrap();
 
         assert!(matches!(
             writer.write(&batch),
@@ -2526,7 +2200,7 @@ mod tests {
             Box::new(FinishTrackingWriter {
                 finished: finished.clone(),
             }),
-            WriteLimitsView::from_legacy(&Limits::default()),
+            &opzioni_scrittura(),
         );
         writer.declare_input_total(LayerId(0), 0).unwrap();
         let schema = Arc::new(Schema::new(vec![Field::new(
@@ -2551,7 +2225,7 @@ mod tests {
             Box::new(FinishTrackingWriter {
                 finished: finished.clone(),
             }),
-            WriteLimitsView::from_legacy(&Limits::default()),
+            &opzioni_scrittura(),
         );
         writer.declare_input_total(LayerId(0), 10).unwrap();
         let schema = Arc::new(Schema::new(vec![Field::new(
@@ -2579,7 +2253,7 @@ mod tests {
         let mut writer: Box<dyn FormatWriter> = Box::new(LimitedWriter {
             inner: Box::new(FinishTrackingWriter { finished }),
             driver: "test",
-            limits: WriteLimitsView::from_legacy(&Limits::default()),
+            limits: opzioni_scrittura().write_limits(),
             rows: 0,
             layer_rows: vec![0, 0],
             input_totals: vec![None, None],
@@ -2589,7 +2263,7 @@ mod tests {
             fidelity: FidelityAssessment::lossless(),
             planned_loss: LossReport::default(),
             cancellation: CancellationToken::new(),
-            resource_budget: ResourceBudget::default(),
+            budget: opzioni_scrittura().budget().clone(),
             _operation_lease: None,
         });
         writer.declare_input_total(LayerId(0), 1).unwrap();
@@ -2651,7 +2325,7 @@ mod tests {
                 finished: finished.clone(),
             }),
             driver: "test",
-            limits: WriteLimitsView::from_legacy(&Limits::default()),
+            limits: opzioni_scrittura().write_limits(),
             rows: 0,
             layer_rows: vec![0],
             input_totals: vec![None],
@@ -2661,7 +2335,7 @@ mod tests {
             fidelity: FidelityAssessment::lossless(),
             planned_loss: LossReport::default(),
             cancellation: token.clone(),
-            resource_budget: ResourceBudget::default(),
+            budget: opzioni_scrittura().budget().clone(),
             _operation_lease: None,
         });
         token.cancel();
@@ -2971,7 +2645,7 @@ mod tests {
             WKB_XY_GEOMETRY,
             Some(&xy_contract(true)),
             &geometry_batch(Some(&bytes)),
-            Limits::default().effective_wkb(),
+            PipelineLimits::default().wkb_limits(),
             0,
             Some(1),
         );
@@ -3000,7 +2674,7 @@ mod tests {
             WKB_XY_GEOMETRY,
             Some(&xy_contract(true)),
             &geometry_batch(Some(&bytes)),
-            Limits::default().effective_wkb(),
+            PipelineLimits::default().wkb_limits(),
             0,
             Some(1),
         );
@@ -3018,7 +2692,7 @@ mod tests {
             WKB_XY_GEOMETRY,
             Some(&xy_contract(false)),
             &geometry_batch(None),
-            Limits::default().effective_wkb(),
+            PipelineLimits::default().wkb_limits(),
             0,
             Some(1),
         );
@@ -3044,7 +2718,7 @@ mod tests {
             WKB_XY_GEOMETRY,
             Some(&xy_contract(false)),
             &batch,
-            Limits::default().effective_wkb(),
+            PipelineLimits::default().wkb_limits(),
             1_000,
             Some(1_003),
         )
@@ -3219,262 +2893,125 @@ mod tests {
         ));
     }
 
-    // ---- Copertura del ponte transitorio BudgetPayload (Lotto 0, S4.b) ----
+    // ---- Le opzioni sul modello unificato (Lotto 0, S4.e) ----
     //
-    // Questi test scadranno con S4.e insieme al ramo `Legacy`. Fino ad allora
-    // sono l'unica prova che i due modelli restano separati: il compilatore
-    // garantisce che il payload sia privato, non che nessuno lo attraversi
-    // nella direzione sbagliata.
+    // Fino a S4.d qui vivevano i test del ponte transitorio: parita' fra i
+    // due rami, guardie direzionali, "il ramo pipeline non consulta Limits".
+    // Con un solo modello non descrivono piu' nulla — non c'e' un secondo
+    // ramo con cui confrontarsi — e sono stati rimossi invece di essere
+    // riscritti in forme che passano per costruzione.
+    //
+    // Restano i test che dicono ancora qualcosa: che gli scalari arrivano
+    // dai limiti della pipeline, e che il permit e' one-shot.
 
-    /// Valori non-default e distinti fra loro, cosi' un accessore che
-    /// leggesse il campo sbagliato o ricadesse su un default lo mostrerebbe.
-    const PARITA_INPUT_BYTES: u64 = 4_242;
-    const PARITA_INPUT_ENTRIES: u64 = 37;
-    const PARITA_ROWS: usize = 911;
-    const PARITA_COLUMNS: usize = 17;
-    const PARITA_VERTICES: usize = 5_000;
-    const PARITA_WKB_CELL: usize = 8_192;
-    const PARITA_WKB_COMPONENTS: usize = 640;
-    const PARITA_WKB_DEPTH: usize = 9;
-    const PARITA_OUTPUT_BYTES: u64 = 77_000;
+    const QUOTA_INPUT_BYTES: u64 = 4_242;
+    const QUOTA_INPUT_ENTRIES: u64 = 37;
+    const QUOTA_ROWS: usize = 911;
+    const QUOTA_COLUMNS: usize = 17;
+    const QUOTA_VERTICES: usize = 5_000;
+    const QUOTA_WKB_CELL: usize = 8_192;
+    const QUOTA_WKB_COMPONENTS: usize = 640;
+    const QUOTA_WKB_DEPTH: usize = 9;
+    const QUOTA_OUTPUT_BYTES: u64 = 77_000;
 
-    fn limits_di_parita() -> Limits {
-        Limits {
-            max_input_bytes: PARITA_INPUT_BYTES,
-            max_input_entries: PARITA_INPUT_ENTRIES,
-            max_rows: PARITA_ROWS,
-            max_columns: PARITA_COLUMNS,
-            max_vertices: PARITA_VERTICES,
-            max_output_bytes: PARITA_OUTPUT_BYTES,
-            wkb: WkbLimits {
-                max_cell_bytes: PARITA_WKB_CELL,
-                max_components: PARITA_WKB_COMPONENTS,
-                max_depth: PARITA_WKB_DEPTH,
-            },
+    fn limiti_di_prova() -> PipelineLimits {
+        PipelineLimits::default()
+            .with_max_input_bytes(QUOTA_INPUT_BYTES)
+            .with_max_input_entries(QUOTA_INPUT_ENTRIES)
+            .with_max_rows(QUOTA_ROWS as u64)
+            .with_max_columns(QUOTA_COLUMNS as u64)
+            .with_max_vertices(QUOTA_VERTICES)
+            .with_max_output_bytes(QUOTA_OUTPUT_BYTES)
+            .with_max_wkb_cell_bytes(QUOTA_WKB_CELL)
+            .with_max_wkb_components(QUOTA_WKB_COMPONENTS)
+            .with_max_wkb_depth(QUOTA_WKB_DEPTH)
+    }
+
+    fn bundle_di_prova() -> plenora_io_model::budget::PipelineBundle {
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti_di_prova())
+            .build()
+        {
+            Ok(bundle) => bundle,
+            Err(error) => unreachable!("limiti di prova non validi: {error:?}"),
         }
     }
 
-    fn pipeline_limits_di_parita() -> plenora_io_model::budget::PipelineLimits {
-        plenora_io_model::budget::PipelineLimits::default()
-            .with_max_input_bytes(PARITA_INPUT_BYTES)
-            .with_max_input_entries(PARITA_INPUT_ENTRIES)
-            .with_max_rows(PARITA_ROWS as u64)
-            .with_max_columns(PARITA_COLUMNS as u64)
-            .with_max_vertices(PARITA_VERTICES)
-            .with_max_output_bytes(PARITA_OUTPUT_BYTES)
-            .with_max_wkb_cell_bytes(PARITA_WKB_CELL)
-            .with_max_wkb_components(PARITA_WKB_COMPONENTS)
-            .with_max_wkb_depth(PARITA_WKB_DEPTH)
+    fn opzioni_lettura() -> ReadOptions {
+        ReadOptions::from_read_parts(bundle_di_prova().into_read_parts())
     }
 
-    /// Costruttori legacy dei test, in un punto solo.
-    ///
-    /// Concentrati non per brevita' ma perche' l'inventario conta le
-    /// costruzioni legacy: quindici copie della stessa riga farebbero salire
-    /// il numero a ogni test aggiunto, e un tetto che sale per il motivo
-    /// sbagliato smette di misurare la migrazione.
-    fn opzioni_legacy_con(limits: Limits, cancellation: CancellationToken) -> ReadOptions {
-        ReadOptions::from_legacy(limits, ResourceBudget::default(), cancellation)
+    fn opzioni_scrittura() -> WriteOptions {
+        WriteOptions::from_write_parts(bundle_di_prova().into_write_parts())
     }
 
-    fn opzioni_legacy() -> ReadOptions {
-        opzioni_legacy_con(limits_di_parita(), CancellationToken::new())
-    }
-
-    fn opzioni_scrittura_legacy() -> WriteOptions {
-        WriteOptions::from_legacy(
-            limits_di_parita(),
-            ResourceBudget::default(),
-            CancellationToken::new(),
-        )
-    }
-
-    fn bundle_di_parita() -> plenora_io_model::budget::PipelineBundle {
-        plenora_io_model::budget::PipelineBudget::builder()
-            .limits(pipeline_limits_di_parita())
-            .build()
-            .expect("i limiti di parita sono validi")
-    }
-
-    #[test]
-    fn payload_legacy_espone_il_ramo_legacy_e_nessun_budget_pipeline() {
-        let opts = opzioni_legacy();
-
-        assert!(opts.legacy_limits().is_some());
-        assert!(opts.legacy_budget().is_some());
-        assert!(
-            opts.pipeline_budget().is_none(),
-            "il ramo legacy non deve esporre un budget del modello nuovo"
-        );
-        assert!(opts.expected_footprint().is_none());
-    }
-
-    #[test]
-    fn payload_pipeline_non_lascia_leggere_il_ramo_legacy() {
-        let opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
-
-        assert!(
-            opts.legacy_limits().is_none(),
-            "nessun Limits deve essere ricostruito dal ramo pipeline"
-        );
-        assert!(opts.legacy_budget().is_none());
-        assert!(opts.pipeline_budget().is_some());
-
-        let wopts = WriteOptions::from_write_parts(bundle_di_parita().into_write_parts());
-        assert!(wopts.legacy_limits().is_none());
-        assert!(wopts.legacy_budget().is_none());
-        assert!(wopts.pipeline_budget().is_some());
-    }
-
-    #[test]
-    fn il_ponte_legacy_fallisce_tipizzato_sul_payload_pipeline() {
-        let opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
-
-        // E' la forma esatta che usano i driver non ancora migrati: non c'e'
-        // ripiego, solo un errore. Un default silenzioso, al suo posto,
-        // applicherebbe quote che nessuno ha chiesto.
-        let errore = opts
-            .legacy_budget()
-            .ok_or_else(richiede_modello_legacy)
-            .expect_err("il payload pipeline non puo produrre un budget legacy");
-        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
-
-        let errore = opts
-            .legacy_limits()
-            .ok_or_else(richiede_modello_legacy)
-            .expect_err("il payload pipeline non puo produrre limiti legacy");
-        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
-    }
-
-    #[test]
-    fn i_due_rami_producono_gli_stessi_scalari_a_configurazione_equivalente() {
-        let legacy = opzioni_legacy();
-        let pipeline = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
-
-        assert_eq!(legacy.max_input_bytes(), pipeline.max_input_bytes());
-        assert_eq!(legacy.max_input_entries(), pipeline.max_input_entries());
-        assert_eq!(legacy.max_rows(), pipeline.max_rows());
-        assert_eq!(legacy.max_columns(), pipeline.max_columns());
-        // `WkbLimits` non implementa `PartialEq` e non lo si allarga qui:
-        // e' un tipo pubblico, e cambiarne la superficie per comodita' di un
-        // test e' esattamente il genere di deriva che il gate di identita'
-        // sorveglia.
-        assert_eq!(
-            legacy.wkb_limits().max_cell_bytes,
-            pipeline.wkb_limits().max_cell_bytes
-        );
-        assert_eq!(
-            legacy.wkb_limits().max_components,
-            pipeline.wkb_limits().max_components
-        );
-        assert_eq!(
-            legacy.wkb_limits().max_depth,
-            pipeline.wkb_limits().max_depth
-        );
-
-        // Ancorato ai valori attesi e non solo all'uguaglianza fra i due:
-        // due rami entrambi rotti allo stesso modo passerebbero un confronto
-        // che si limita a confrontarli.
-        assert_eq!(pipeline.max_input_bytes(), PARITA_INPUT_BYTES);
-        assert_eq!(pipeline.max_input_entries(), PARITA_INPUT_ENTRIES);
-        assert_eq!(pipeline.max_rows(), PARITA_ROWS);
-        assert_eq!(pipeline.max_columns(), PARITA_COLUMNS);
-        assert_eq!(pipeline.wkb_limits().max_cell_bytes, PARITA_WKB_CELL);
-        // Composto con max_vertices, come `Limits::effective_wkb()`.
-        assert_eq!(pipeline.wkb_limits().max_components, PARITA_WKB_COMPONENTS);
-        assert_eq!(pipeline.wkb_limits().max_depth, PARITA_WKB_DEPTH);
-    }
-
-    #[test]
-    fn i_due_rami_producono_la_stessa_vista_di_scrittura() {
-        let legacy = opzioni_scrittura_legacy();
-        let pipeline = WriteOptions::from_write_parts(bundle_di_parita().into_write_parts());
-
-        let vista_legacy = legacy.write_limits();
-        let vista_pipeline = pipeline.write_limits();
-        assert_eq!(vista_legacy.max_columns, vista_pipeline.max_columns);
-        assert_eq!(vista_legacy.max_rows, vista_pipeline.max_rows);
-        assert_eq!(
-            vista_legacy.wkb.max_cell_bytes,
-            vista_pipeline.wkb.max_cell_bytes
-        );
-        assert_eq!(
-            vista_legacy.wkb.max_components,
-            vista_pipeline.wkb.max_components
-        );
-        assert_eq!(vista_legacy.wkb.max_depth, vista_pipeline.wkb.max_depth);
-
-        // `max_output_bytes` non e' osservato in nessuno dei due rami, quindi
-        // nessuna espansione si applica e i due tetti assoluti coincidono.
-        assert_eq!(legacy.max_output_bytes(), PARITA_OUTPUT_BYTES);
-        assert_eq!(pipeline.max_output_bytes(), PARITA_OUTPUT_BYTES);
-    }
-
-    #[test]
-    fn il_ramo_pipeline_serve_gli_scalari_senza_costruire_limits() {
-        // `max_columns` scelto fuori da qualunque default: se l'accessore
-        // ricadesse su un `Limits` — costruito o di default — restituirebbe
-        // 4_096, non questo valore.
-        let limits = pipeline_limits_di_parita().with_max_columns(23);
-        let bundle = plenora_io_model::budget::PipelineBudget::builder()
+    fn opzioni_pipeline(limits: PipelineLimits) -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder()
             .limits(limits)
             .build()
-            .expect("limiti validi");
-        let opts = ReadOptions::from_read_parts(bundle.into_read_parts());
-
-        assert_eq!(opts.max_columns(), 23);
-        assert_ne!(opts.max_columns(), Limits::default().max_columns);
-        assert!(
-            opts.legacy_limits().is_none(),
-            "servire uno scalare non deve materializzare un Limits"
-        );
+        {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("limiti di test non validi: {error:?}"),
+        }
     }
 
     #[test]
-    fn il_ramo_legacy_non_muove_i_gauge_del_modello_nuovo() {
-        let bundle = bundle_di_parita();
-        let contesto = bundle.context().clone();
-        let memoria_iniziale = contesto.remaining_memory();
-        let spill_iniziale = contesto.remaining_spill();
-        let entry_iniziali = contesto.entries_visited();
-        let byte_iniziali = contesto.charged_input_bytes();
+    fn gli_scalari_arrivano_dai_limiti_della_pipeline() {
+        let opts = opzioni_lettura();
 
-        // Un percorso interamente legacy, esercitato a fondo, non deve
-        // toccare i contatori del modello unificato: sono strutture diverse,
-        // e un accessore che le incrociasse lo mostrerebbe qui.
-        let opts = opzioni_legacy();
-        let _ = opts.max_input_bytes();
-        let _ = opts.max_input_entries();
-        let _ = opts.max_rows();
-        let _ = opts.max_columns();
-        let _ = opts.wkb_limits();
-        let _ = opts.cancellation();
-        let wopts = opzioni_scrittura_legacy();
-        let _ = wopts.max_output_bytes();
-        let _ = wopts.write_limits();
+        assert_eq!(opts.max_input_bytes(), QUOTA_INPUT_BYTES);
+        assert_eq!(opts.max_input_entries(), QUOTA_INPUT_ENTRIES);
+        assert_eq!(opts.max_rows(), QUOTA_ROWS);
+        assert_eq!(opts.max_columns(), QUOTA_COLUMNS);
+        assert_eq!(opts.max_vertices(), QUOTA_VERTICES);
+        assert_eq!(opts.wkb_limits().max_cell_bytes, QUOTA_WKB_CELL);
+        // Composto con `max_vertices`, come faceva `Limits::effective_wkb()`.
+        assert_eq!(opts.wkb_limits().max_components, QUOTA_WKB_COMPONENTS);
+        assert_eq!(opts.wkb_limits().max_depth, QUOTA_WKB_DEPTH);
+    }
 
-        assert_eq!(contesto.remaining_memory(), memoria_iniziale);
-        assert_eq!(contesto.remaining_spill(), spill_iniziale);
-        assert_eq!(contesto.entries_visited(), entry_iniziali);
-        assert_eq!(contesto.charged_input_bytes(), byte_iniziali);
-        assert_eq!(
-            contesto.observed_input(),
-            plenora_io_model::budget::ObservedInput::NotObserved
-        );
+    #[test]
+    fn la_vista_di_scrittura_arriva_dagli_stessi_limiti() {
+        let wopts = opzioni_scrittura();
+        let vista = wopts.write_limits();
+
+        assert_eq!(vista.max_columns, QUOTA_COLUMNS);
+        assert_eq!(vista.max_rows, QUOTA_ROWS);
+        assert_eq!(vista.wkb.max_cell_bytes, QUOTA_WKB_CELL);
+        assert_eq!(vista.wkb.max_components, QUOTA_WKB_COMPONENTS);
+        assert_eq!(vista.wkb.max_depth, QUOTA_WKB_DEPTH);
+        // Senza input osservato non si applica alcuna espansione: il tetto e'
+        // quello assoluto.
+        assert_eq!(wopts.max_output_bytes(), QUOTA_OUTPUT_BYTES);
+    }
+
+    #[test]
+    fn ensure_active_osserva_la_cancellazione_del_context() {
+        let token = CancellationToken::new();
+        let bundle = match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti_di_prova())
+            .cancellation(token.clone())
+            .build()
+        {
+            Ok(bundle) => bundle,
+            Err(error) => unreachable!("bundle di prova: {error:?}"),
+        };
+        let opts = ReadOptions::from_read_parts(bundle.into_read_parts());
+
+        assert!(opts.ensure_active().is_ok());
+        token.cancel();
+        assert!(opts.ensure_active().is_err());
     }
 
     #[test]
     fn permit_snapshot_e_budget_attraversano_i_costruttori_senza_rigenerazione() {
-        let bundle = bundle_di_parita();
+        let bundle = bundle_di_prova();
         let contesto = bundle.context().clone();
         let mut opts = ReadOptions::from_read_parts(bundle.into_read_parts());
 
         // Il budget e' lo stesso, non uno nuovo con gli stessi limiti:
         // `is_same_pipeline` confronta l'identita' del context, non i valori.
-        let budget = opts
-            .pipeline_budget()
-            .expect("il ramo pipeline espone il proprio budget");
-        assert!(budget.context().is_same_pipeline(&contesto));
+        assert!(opts.budget().context().is_same_pipeline(&contesto));
 
         // Il permit e' l'esemplare unico trasportato dalle parti: lo prova il
         // fatto che il context lo accetti. Un permit rigenerato porterebbe un
@@ -3488,26 +3025,35 @@ mod tests {
             "il permit e' spendibile una sola volta"
         );
 
-        // La cancellazione e' quella del context, non un token nuovo: un
-        // token rigenerato non propagherebbe la cancellazione della pipeline.
+        // La cancellazione e' quella del context, non un token nuovo.
         assert!(!opts.cancellation().is_cancelled());
         contesto.cancellation().cancel();
-        assert!(
-            opts.cancellation().is_cancelled(),
-            "le opzioni devono osservare il token della pipeline"
-        );
+        assert!(opts.cancellation().is_cancelled());
     }
 
-    // ---- Punti d'ingresso centralizzati (Lotto 0, S4.c) ----
-    //
-    // Da S4.c i driver non scelgono piu' quale modello governi i contatori:
-    // passano le opzioni e il core risolve. Questi test verificano che la
-    // risoluzione avvenga davvero **qui**, e che sul ramo Pipeline fallisca
-    // in modo tipizzato invece di ripiegare su valori di default.
-    //
-    // Sono anche il punto che S4.d dovra' capovolgere: quando il ramo
-    // Pipeline diventera' servibile, questi tre `Unsupported` spariranno
-    // insieme, non uno alla volta.
+    #[test]
+    fn lo_snapshot_atteso_sopravvive_alla_costruzione_dalle_parti_di_scan() {
+        // Lo snapshot atteso viene da un'osservazione precedente: qui basta
+        // quello di un footprint qualunque, perche' il test guarda il
+        // trasporto e non il contenuto.
+        let bundle = bundle_di_prova();
+        let contesto = bundle.context().clone();
+        let (_budget, permit, _atteso) = bundle.into_read_parts().into_components();
+        let footprint = contesto
+            .observe_input(permit.expect("permit"))
+            .expect("osservazione");
+        let parts = bundle_di_prova().into_scan_parts(footprint.snapshot());
+        let atteso = *parts.expected_footprint();
+        let opts = ReadOptions::from_read_parts(
+            plenora_io_model::budget::IntoReadParts::into_read_budget_parts(parts),
+        );
+
+        assert_eq!(
+            opts.expected_footprint().copied(),
+            Some(atteso),
+            "lo snapshot attraversa il costruttore invariato"
+        );
+    }
 
     #[test]
     fn le_opzioni_per_valore_rendono_estraibile_il_permit_una_volta_sola() {
@@ -3520,13 +3066,13 @@ mod tests {
         // reintrodurrebbero l'osservazione doppia che il permit esiste per
         // escludere.
         //
-        // Il consumo vero del permit dentro il preflight e' esercitato dai
-        // test del preflight e da quello end-to-end, non da qui.
+        // Il consumo vero e' esercitato dai test del preflight e da quello
+        // end-to-end, non da qui.
         fn con_la_stessa_firma_del_preflight(opts: &mut ReadOptions) -> Option<InputPermit> {
             opts.take_input_permit()
         }
 
-        let mut opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
+        let mut opts = opzioni_lettura();
         assert!(
             con_la_stessa_firma_del_preflight(&mut opts).is_some(),
             "il permit deve essere estraibile attraverso un prestito mutabile"
@@ -3538,9 +3084,8 @@ mod tests {
 
         // E le opzioni restano utilizzabili: dopo il preflight e' l'adapter a
         // leggerle, e consumare il permit non consuma le opzioni.
-        assert_eq!(opts.max_columns(), PARITA_COLUMNS);
-        assert_eq!(opts.max_input_bytes(), PARITA_INPUT_BYTES);
-        assert!(opts.pipeline_budget().is_some());
+        assert_eq!(opts.max_columns(), QUOTA_COLUMNS);
+        assert_eq!(opts.max_input_bytes(), QUOTA_INPUT_BYTES);
     }
 
     /// Due percorsi non-UTF-8 distinti non devono collassare sullo stesso
@@ -3568,8 +3113,8 @@ mod tests {
             "la premessa del test: la forma lossy li rende indistinguibili"
         );
         assert_ne!(
-            percorso_normalizzato(&primo),
-            percorso_normalizzato(&secondo),
+            byte_identita_percorso(&primo),
+            byte_identita_percorso(&secondo),
             "la forma normalizzata deve restare iniettiva"
         );
     }
@@ -3578,28 +3123,14 @@ mod tests {
     fn la_forma_normalizzata_del_percorso_e_stabile() {
         let percorso = std::path::PathBuf::from("dati/a.csv");
         assert_eq!(
-            percorso_normalizzato(&percorso),
-            percorso_normalizzato(&percorso),
+            byte_identita_percorso(&percorso),
+            byte_identita_percorso(&percorso),
             "due corse sullo stesso percorso devono dare lo stesso digest"
         );
         assert_ne!(
-            percorso_normalizzato(&percorso),
-            percorso_normalizzato(&std::path::PathBuf::from("dati/b.csv"))
+            byte_identita_percorso(&percorso),
+            byte_identita_percorso(&std::path::PathBuf::from("dati/b.csv"))
         );
-    }
-
-    #[test]
-    fn il_preflight_rifiuta_le_opzioni_legacy() {
-        // Da S4.d il preflight osserva la sorgente attraverso il
-        // `PipelineContext`: senza contesto non c'e' nulla da osservare, e
-        // ripiegare sui controlli vecchi vorrebbe dire tenere in vita proprio
-        // il doppio conteggio che questo sottopasso ha rimosso.
-        let file = tempfile::NamedTempFile::new().expect("tempfile");
-        let mut opts = opzioni_legacy();
-
-        let errore = preflight_source(Source::Path(file.path().to_owned()), &mut opts)
-            .expect_err("il preflight non sa osservare col modello legacy");
-        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
     }
 
     #[test]
@@ -3617,10 +3148,7 @@ mod tests {
         // Con quota capiente lo stesso file passa, e il footprint pubblicato
         // descrive cio' che e' stato davvero osservato: un file, otto byte.
         let mut largo = opzioni_pipeline(plenora_io_model::budget::PipelineLimits::default());
-        let budget = largo
-            .pipeline_budget()
-            .expect("opzioni sul modello unificato")
-            .clone();
+        let budget = largo.budget().clone();
         assert_eq!(
             budget.context().observed_input(),
             plenora_io_model::budget::ObservedInput::NotObserved,
@@ -3645,55 +3173,5 @@ mod tests {
         let errore = preflight_source(Source::Path(file.path().to_owned()), &mut opts)
             .expect_err("il permit e' one-shot");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
-    }
-
-    #[test]
-    fn resource_budget_fallisce_tipizzato_sul_ramo_pipeline() {
-        // E' l'accessore che i driver usano al posto del ponte: la decisione
-        // su cosa fare quando il modello e' quello nuovo sta qui, non in
-        // tredici copie sparse.
-        let legacy = opzioni_legacy();
-        assert!(legacy.resource_budget().is_ok());
-
-        let pipeline = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
-        let errore = pipeline
-            .resource_budget()
-            .expect_err("il ramo pipeline non ha un budget legacy da consegnare");
-        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
-    }
-
-    #[test]
-    fn ensure_active_interroga_il_modello_che_governa_in_entrambi_i_rami() {
-        // Accessore di comportamento, non di valore: i due rami fanno la
-        // stessa domanda al proprio modello. E' l'unico modo per cui un
-        // driver possa controllare la liveness dentro un ciclo senza
-        // conoscere il ponte.
-        let token = CancellationToken::new();
-        let legacy = opzioni_legacy_con(limits_di_parita(), token.clone());
-        assert!(legacy.ensure_active().is_ok());
-        token.cancel();
-        assert!(
-            legacy.ensure_active().is_err(),
-            "il ramo legacy deve osservare il token delle opzioni, non solo la deadline"
-        );
-
-        let bundle = bundle_di_parita();
-        let contesto = bundle.context().clone();
-        let pipeline = ReadOptions::from_read_parts(bundle.into_read_parts());
-        assert!(pipeline.ensure_active().is_ok());
-        contesto.cancellation().cancel();
-        assert!(
-            pipeline.ensure_active().is_err(),
-            "il ramo pipeline deve osservare la cancellazione del proprio context"
-        );
-    }
-
-    #[test]
-    fn max_vertices_coincide_fra_i_due_rami() {
-        let legacy = opzioni_legacy();
-        let pipeline = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
-
-        assert_eq!(legacy.max_vertices(), pipeline.max_vertices());
-        assert_eq!(pipeline.max_vertices(), PARITA_VERTICES);
     }
 }

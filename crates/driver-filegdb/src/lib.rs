@@ -118,7 +118,7 @@ impl FormatDriver for FileGdbDriver {
         {
             let path = plenora_io_core::preflight_source(source, &mut opts)?;
             let dataset = backend::open(&path, opts.assume_crs.as_deref())?;
-            return plenora_io_core::with_read_budget(dataset, &opts, false);
+            return Ok(plenora_io_core::with_read_budget(dataset, &opts, false));
         }
         #[cfg(not(feature = "gdal-backend"))]
         {
@@ -1436,10 +1436,18 @@ mod backend {
         use super::*;
         use arrow_array::RecordBatch;
         use plenora_io_core::descriptor::Fidelity;
-        use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source};
+        use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
         use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
         use plenora_io_model::contract::{GeometryEncoding, GeometryType};
         use plenora_io_model::limits::WkbLimits;
+
+        /// Opzioni di scrittura sul modello unificato (S4.e).
+        fn opzioni_scrittura() -> WriteOptions {
+            match plenora_io_model::budget::PipelineBudget::builder().build() {
+                Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+                Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+            }
+        }
 
         /// Opzioni di lettura sul modello unificato (S4.d).
         fn opzioni_lettura() -> ReadOptions {
@@ -1687,7 +1695,7 @@ mod backend {
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
@@ -1762,7 +1770,7 @@ mod backend {
             let driver = super::super::FileGdbDriver;
             for path in &paths {
                 let mut writer = driver
-                    .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                    .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                     .unwrap();
                 writer.write(&batch).unwrap();
                 writer.finish().unwrap();
@@ -1850,7 +1858,7 @@ mod backend {
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             writer.write(&batch).unwrap();
             let published = writer.finish().unwrap();
@@ -2020,7 +2028,7 @@ mod backend {
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
@@ -2070,7 +2078,7 @@ mod backend {
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
@@ -2135,7 +2143,7 @@ mod backend {
 
                 let driver = super::super::FileGdbDriver;
                 let mut writer = driver
-                    .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                    .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                     .unwrap();
                 writer.write(&batch).unwrap();
                 writer.finish().unwrap();
@@ -2219,7 +2227,7 @@ mod backend {
 
             let driver = super::super::FileGdbDriver;
             let mut writer = driver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
@@ -2249,7 +2257,7 @@ mod backend {
             };
             let driver = super::super::FileGdbDriver;
             driver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap()
                 .finish()
                 .unwrap();
@@ -2275,7 +2283,7 @@ mod backend {
                 ))],
             };
             let writer = super::super::FileGdbDriver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             let artifacts = staging_artifacts(&path);
             assert_eq!(artifacts.len(), 2);
@@ -2299,13 +2307,13 @@ mod backend {
                 ))],
             };
             let first = super::super::FileGdbDriver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             let first_artifacts = staging_artifacts(&path);
             assert_eq!(first_artifacts.len(), 2);
 
             let second = super::super::FileGdbDriver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             assert_eq!(staging_artifacts(&path).len(), 4);
             assert!(first_artifacts.iter().all(|artifact| artifact.exists()));
@@ -2334,7 +2342,7 @@ mod backend {
             );
             let (plan, batch) = point_write_fixture();
             let mut writer = super::super::FileGdbDriver
-                .create(Sink::Path(path), &plan, &WriteOptions::default())
+                .create(Sink::Path(path), &plan, &opzioni_scrittura())
                 .unwrap();
             writer.write(&batch).unwrap();
             File::create(ready).unwrap();
@@ -2362,7 +2370,7 @@ mod backend {
             let active_artifacts = staging_artifacts(&path);
             let (plan, _) = point_write_fixture();
             let second = super::super::FileGdbDriver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             let both_stagings_exist = staging_artifacts(&path).len() == 4;
             let active_was_preserved = active_artifacts.iter().all(|artifact| artifact.exists());
@@ -2400,7 +2408,7 @@ mod backend {
 
             let (plan, batch) = point_write_fixture();
             let mut writer = super::super::FileGdbDriver
-                .create(Sink::Path(path), &plan, &WriteOptions::default())
+                .create(Sink::Path(path), &plan, &opzioni_scrittura())
                 .unwrap();
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
@@ -2428,7 +2436,7 @@ mod backend {
 
                     let (plan, batch) = point_write_fixture();
                     let mut writer = super::super::FileGdbDriver
-                        .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                        .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                         .unwrap();
                     assert!(
                         orphaned.iter().all(|artifact| !artifact.exists()),
@@ -2463,7 +2471,7 @@ mod backend {
                 layers: vec![layer],
             };
             let mut writer = super::super::FileGdbDriver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap();
             writer.declare_input_total(LayerId(0), 1).unwrap();
 
@@ -2518,14 +2526,17 @@ mod backend {
                     None,
                 ))],
             };
-            let options = WriteOptions::from_legacy(
-                plenora_io_model::limits::Limits {
-                    max_output_bytes: 0,
-                    ..plenora_io_model::limits::Limits::default()
-                },
-                plenora_io_model::ResourceBudget::default(),
-                plenora_io_model::CancellationToken::default(),
-            );
+            // Un tetto di uscita a zero: la scrittura deve fallire prima di
+            // pubblicare, e lo staging deve sparire.
+            let options = match plenora_io_model::budget::PipelineBudget::builder()
+                .limits(
+                    plenora_io_model::budget::PipelineLimits::default().with_max_output_bytes(1),
+                )
+                .build()
+            {
+                Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+                Err(error) => unreachable!("bundle di test: {error:?}"),
+            };
             let writer = super::super::FileGdbDriver
                 .create(Sink::Path(path.clone()), &plan, &options)
                 .unwrap();
@@ -2592,7 +2603,7 @@ mod backend {
             let plan = WritePlan { layers };
             let driver = super::super::FileGdbDriver;
             driver
-                .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+                .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
                 .unwrap()
                 .finish()
                 .unwrap();
@@ -2631,7 +2642,7 @@ mod backend {
                 let result = super::super::FileGdbDriver.create(
                     Sink::Path(path.clone()),
                     &plan,
-                    &WriteOptions::default(),
+                    &opzioni_scrittura(),
                 );
                 assert!(matches!(
                     result,
@@ -2660,7 +2671,7 @@ mod backend {
             let result = super::super::FileGdbDriver.create(
                 Sink::Path(path.clone()),
                 &plan,
-                &WriteOptions::default(),
+                &opzioni_scrittura(),
             );
             assert!(matches!(
                 result,
@@ -2696,7 +2707,7 @@ mod backend {
                 let result = super::super::FileGdbDriver.create(
                     Sink::Path(path.clone()),
                     &plan,
-                    &WriteOptions::default(),
+                    &opzioni_scrittura(),
                 );
                 assert!(matches!(
                     result,
@@ -2732,7 +2743,7 @@ mod backend {
             let result = super::super::FileGdbDriver.create(
                 Sink::Path(path.clone()),
                 &plan,
-                &WriteOptions::default(),
+                &opzioni_scrittura(),
             );
             assert!(matches!(
                 result,
@@ -2755,6 +2766,17 @@ mod tests {
     /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
     /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
     /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    /// Opzioni di scrittura sul modello unificato.
+    ///
+    /// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+    /// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+    fn opzioni_scrittura() -> WriteOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     fn opzioni_lettura() -> ReadOptions {
         match plenora_io_model::budget::PipelineBudget::builder().build() {
             Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),

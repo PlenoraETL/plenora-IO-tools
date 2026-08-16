@@ -141,7 +141,7 @@ impl FormatDriver for GeoJsonDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        plenora_io_core::with_read_budget(
+        Ok(plenora_io_core::with_read_budget(
             Box::new(GeoJsonDataset {
                 path,
                 cols,
@@ -153,7 +153,7 @@ impl FormatDriver for GeoJsonDriver {
             }),
             &opts,
             true,
-        )
+        ))
     }
 
     fn create(
@@ -1317,6 +1317,17 @@ mod tests {
     /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
     /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
     /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    /// Opzioni di scrittura sul modello unificato.
+    ///
+    /// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+    /// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+    fn opzioni_scrittura() -> WriteOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     fn opzioni_lettura() -> ReadOptions {
         match plenora_io_model::budget::PipelineBudget::builder().build() {
             Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
@@ -1402,7 +1413,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         w.write(&batch).unwrap();
         w.finish().unwrap();
@@ -1659,7 +1670,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         w.write(&batch).unwrap();
         w.finish().unwrap();
@@ -1728,7 +1739,7 @@ mod tests {
             }],
         };
         let mut writer = driver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         writer.write(&batch).unwrap();
         writer.finish().unwrap();

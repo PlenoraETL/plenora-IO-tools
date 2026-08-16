@@ -294,6 +294,14 @@ fn remove_dataset(id: &str, path: &Path) {
     }
 }
 
+/// Opzioni di scrittura sul modello unificato (S4.e).
+fn opzioni_scrittura() -> WriteOptions {
+    match plenora_io_model::budget::PipelineBudget::builder().build() {
+        Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+        Err(error) => unreachable!("bundle non costruibile: {error:?}"),
+    }
+}
+
 /// Opzioni di lettura sul modello unificato (S4.d).
 fn opzioni_lettura() -> ReadOptions {
     match plenora_io_model::budget::PipelineBudget::builder().build() {
@@ -331,7 +339,7 @@ fn feed_write(
         }],
     };
     let mut w = driver
-        .create(Sink::Path(path.to_owned()), &plan, &WriteOptions::default())
+        .create(Sink::Path(path.to_owned()), &plan, &opzioni_scrittura())
         .unwrap();
     let mut start = 0;
     let mut batches = 0;

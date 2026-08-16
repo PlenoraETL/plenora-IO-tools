@@ -430,7 +430,14 @@ pub fn validate_write(
 mod tests {
     use std::sync::Arc;
 
-    use plenora_io_model::limits::Limits;
+    /// Tetto di colonne dei test, dai limiti della pipeline.
+    ///
+    /// Era `Limits::default().max_columns`: il tipo legacy non esiste piu' nel
+    /// percorso core (S4.e).
+    fn colonne_predefinite() -> usize {
+        usize::try_from(plenora_io_model::budget::PipelineLimits::default().max_columns())
+            .unwrap_or(usize::MAX)
+    }
 
     use arrow_schema::{DataType, Field, Schema};
     use plenora_io_model::contract::{DataContract, FieldId, GeometryColumnContract, GeometryType};
@@ -502,7 +509,7 @@ mod tests {
         let error = validate_write(
             &descriptor(CrsWriteSupport::None),
             &p,
-            Limits::default().max_columns,
+            colonne_predefinite(),
         )
         .unwrap_err();
         assert_eq!(
@@ -527,7 +534,7 @@ mod tests {
         let error = validate_write(
             &descriptor(CrsWriteSupport::Fixed("OGC:CRS84")),
             &p,
-            Limits::default().max_columns,
+            colonne_predefinite(),
         )
         .unwrap_err();
         assert_eq!(
@@ -545,12 +552,9 @@ mod tests {
             ],
             None,
         );
-        let limits = Limits {
-            max_columns: 1,
-            ..Limits::default()
-        };
+
         assert!(matches!(
-            validate_write(&descriptor(CrsWriteSupport::None), &p, limits.max_columns),
+            validate_write(&descriptor(CrsWriteSupport::None), &p, 1),
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
     }
@@ -564,7 +568,7 @@ mod tests {
         let p = plan(vec![Field::new("attribute", DataType::Utf8, false)], None);
 
         assert!(matches!(
-            validate_write(&descriptor, &p, Limits::default().max_columns),
+            validate_write(&descriptor, &p, colonne_predefinite()),
             Err(error)
                 if error.capability_reason == Some(CapabilityReason::TypeNotRepresentable)
         ));
@@ -579,11 +583,11 @@ mod tests {
         descriptor.write_capabilities = Some(capabilities);
 
         let accepted = plan(vec![Field::new("name", DataType::Utf8, false)], None);
-        assert!(validate_write(&descriptor, &accepted, Limits::default().max_columns).is_ok());
+        assert!(validate_write(&descriptor, &accepted, colonne_predefinite()).is_ok());
 
         let rejected = plan(vec![Field::new("secret", DataType::Utf8, false)], None);
         assert!(matches!(
-            validate_write(&descriptor, &rejected, Limits::default().max_columns),
+            validate_write(&descriptor, &rejected, colonne_predefinite()),
             Err(error)
                 if error.capability_reason == Some(CapabilityReason::TypeNotRepresentable)
         ));
@@ -598,7 +602,7 @@ mod tests {
         let p = plan(vec![Field::new("required", DataType::Utf8, true)], None);
 
         assert!(matches!(
-            validate_write(&descriptor, &p, Limits::default().max_columns),
+            validate_write(&descriptor, &p, colonne_predefinite()),
             Err(error) if error.capability_reason == Some(CapabilityReason::Nullability)
         ));
     }
@@ -621,7 +625,7 @@ mod tests {
             validate_write(
                 &descriptor(CrsWriteSupport::Embedded),
                 &p,
-                Limits::default().max_columns
+                colonne_predefinite()
             ),
             Err(error) if error.capability_reason == Some(CapabilityReason::MixedGeometry)
         ));
@@ -645,7 +649,7 @@ mod tests {
         assert!(validate_write(
             &descriptor(CrsWriteSupport::EmbeddedOptional),
             &p,
-            Limits::default().max_columns
+            colonne_predefinite()
         )
         .is_ok());
 
@@ -653,7 +657,7 @@ mod tests {
         let mut capabilities = selecting.write_capabilities.unwrap();
         capabilities.crs_representations.srid = CrsRepresentationState::Derived;
         selecting.write_capabilities = Some(capabilities);
-        let error = validate_write(&selecting, &p, Limits::default().max_columns).unwrap_err();
+        let error = validate_write(&selecting, &p, colonne_predefinite()).unwrap_err();
         assert_eq!(
             error.capability_reason,
             Some(CapabilityReason::CrsRepresentationsInconsistent)
@@ -688,13 +692,13 @@ mod tests {
         );
 
         let preserving = descriptor(CrsWriteSupport::EmbeddedOptional);
-        assert!(validate_write(&preserving, &p, Limits::default().max_columns).is_ok());
+        assert!(validate_write(&preserving, &p, colonne_predefinite()).is_ok());
 
         let mut selecting = descriptor(CrsWriteSupport::Embedded);
         let mut capabilities = selecting.write_capabilities.unwrap();
         capabilities.crs_representations.crs_definition = CrsRepresentationState::Derived;
         selecting.write_capabilities = Some(capabilities);
-        let error = validate_write(&selecting, &p, Limits::default().max_columns).unwrap_err();
+        let error = validate_write(&selecting, &p, colonne_predefinite()).unwrap_err();
         assert_eq!(
             error.capability_reason,
             Some(CapabilityReason::CrsRepresentationsInconsistent)

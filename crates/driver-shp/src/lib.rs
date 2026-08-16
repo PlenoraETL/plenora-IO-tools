@@ -508,7 +508,7 @@ impl FormatDriver for ShpDriver {
             .and_then(|s| s.to_str())
             .unwrap_or("layer")
             .to_owned();
-        plenora_io_core::with_read_budget(
+        Ok(plenora_io_core::with_read_budget(
             Box::new(ShpDataset {
                 path,
                 cols,
@@ -526,7 +526,7 @@ impl FormatDriver for ShpDriver {
             }),
             &opts,
             false,
-        )
+        ))
     }
 
     fn create(
@@ -2475,6 +2475,17 @@ mod tests {
     /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
     /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
     /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    /// Opzioni di scrittura sul modello unificato.
+    ///
+    /// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+    /// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+    fn opzioni_scrittura() -> WriteOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     fn opzioni_lettura() -> ReadOptions {
         match plenora_io_model::budget::PipelineBudget::builder().build() {
             Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
@@ -3300,7 +3311,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         w.write(&batch).unwrap();
         w.finish().unwrap();
@@ -3352,7 +3363,7 @@ mod tests {
             }],
         };
         let mut writer = ShpDriver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         writer.declare_input_total(LayerId(0), 2).unwrap();
 
@@ -3399,7 +3410,7 @@ mod tests {
                 },
             }],
         };
-        let options = WriteOptions::default()
+        let options = opzioni_scrittura()
             .with_durable(true)
             .with_format_option("publish_mode", DIRECTORY_DATASET_MODE);
 
@@ -3447,7 +3458,7 @@ mod tests {
         };
 
         let writer = ShpDriver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         drop(writer);
 
@@ -3468,7 +3479,7 @@ mod tests {
                 },
             }],
         };
-        let mut options = WriteOptions::default();
+        let mut options = opzioni_scrittura();
         options
             .format_options
             .insert("publish_mode".to_owned(), DIRECTORY_DATASET_MODE.to_owned());
@@ -3506,7 +3517,7 @@ mod tests {
             .create(
                 Sink::Path(dir.path().join("x.shp")),
                 &plan,
-                &WriteOptions::default(),
+                &opzioni_scrittura(),
             )
             .map(|_| ())
             .unwrap_err();
@@ -3558,7 +3569,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         w.write(&batch).unwrap();
         w.finish().unwrap();
@@ -3647,7 +3658,7 @@ mod tests {
 
         let driver = ShpDriver;
         let mut writer = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         writer.write(&batch).unwrap();
         writer.finish().unwrap();

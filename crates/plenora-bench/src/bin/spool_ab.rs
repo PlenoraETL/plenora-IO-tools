@@ -28,9 +28,9 @@ use std::time::Instant;
 use plenora_io_core::driver::{ReadOptions, Sink, Source, WriteOptions};
 use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
 use plenora_io_core::{FormatDriver, WriteLayer, WritePlan};
+use plenora_io_model::budget::{PipelineBudget, PipelineContext, PipelineLimits};
 use plenora_io_model::contract::LayerId;
-use plenora_io_model::limits::Limits;
-use plenora_io_model::{CancellationToken, ResourceBudget, ResourceKind, ResourceLimits};
+use plenora_io_model::CancellationToken;
 
 /// Quota di memoria della variante senza spill: ampia abbastanza da tenere
 /// l'intero dataset di prova in RAM.
@@ -62,28 +62,27 @@ fn write_csv_fixture(path: &Path, total: usize) {
     writer.flush().unwrap();
 }
 
-fn budget(memory_bytes: u64) -> ResourceBudget {
-    ResourceBudget::new(ResourceLimits {
-        memory_bytes,
-        cell_bytes: 1024 * 1024,
-        spill_bytes: SPILL_BYTES,
-        duration_ms: 3_600_000,
-        ..ResourceLimits::default()
-    })
-    .unwrap()
-}
-
-fn read_options(budget: &ResourceBudget) -> ReadOptions {
-    let mut format_options = std::collections::BTreeMap::new();
-    format_options.insert("wkt_column".to_owned(), "geometry".to_owned());
-    let mut opzioni = ReadOptions::from_legacy(
-        Limits::default(),
-        budget.clone(),
-        CancellationToken::default(),
-    );
-    opzioni.assume_crs = Some("EPSG:4326".to_owned());
-    opzioni.format_options = format_options;
-    opzioni
+/// I due rami della conversione, dallo stesso context.
+///
+/// Fino a S4.d il benchmark costruiva due budget scollegati. Ora escono dalle
+/// stesse parti: e' cio' che il percorso reale fa, e misurare una forma
+/// diversa da quella spedita renderebbe il numero inutile.
+fn pipeline_di_conversione(memory_bytes: u64) -> (ReadOptions, WriteOptions, PipelineContext) {
+    let limiti = PipelineLimits::default()
+        .with_memory_bytes(memory_bytes)
+        .with_max_wkb_cell_bytes(1024 * 1024)
+        .with_spill_bytes(SPILL_BYTES)
+        .with_duration_ms(3_600_000);
+    let bundle = PipelineBudget::builder().limits(limiti).build().unwrap();
+    let contesto = bundle.context().clone();
+    let (read, write) = bundle.into_convert_parts().into_parts();
+    (
+        ReadOptions::from_read_parts(read)
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry"),
+        WriteOptions::from_write_parts(write),
+        contesto,
+    )
 }
 
 /// Esito di una corsa.
@@ -114,15 +113,16 @@ struct Corsa {
 fn convert(
     source: &Path,
     destination: &Path,
-    read_budget: &ResourceBudget,
-    write_budget: &ResourceBudget,
+    ropts: ReadOptions,
+    wopts: &WriteOptions,
+    contesto: &PipelineContext,
 ) -> Corsa {
     std::fs::remove_file(destination).ok();
     let reader_driver = driver_csv::CsvDriver;
     let writer_driver = driver_geoparquet::GeoParquetDriver;
 
     let dataset = reader_driver
-        .open(Source::Path(source.to_owned()), read_options(read_budget))
+        .open(Source::Path(source.to_owned()), ropts)
         .unwrap();
     let contract = dataset.layers()[0].contract.clone();
     let mut reader = dataset
@@ -145,23 +145,15 @@ fn convert(
         }],
     };
     let mut writer = writer_driver
-        .create(
-            Sink::Path(destination.to_owned()),
-            &plan,
-            &WriteOptions::from_legacy(
-                Limits::default(),
-                write_budget.clone(),
-                CancellationToken::default(),
-            ),
-        )
+        .create(Sink::Path(destination.to_owned()), &plan, wopts)
         .unwrap();
 
-    let spill_iniziale = read_budget.remaining(ResourceKind::SpillBytes);
+    let spill_iniziale = contesto.remaining_spill();
     let mut spill_minimo = spill_iniziale;
     let mut rows = 0;
     let mut batches = 0;
     while let Some(batch) = reader.next_batch().unwrap() {
-        spill_minimo = spill_minimo.min(read_budget.remaining(ResourceKind::SpillBytes));
+        spill_minimo = spill_minimo.min(contesto.remaining_spill());
         rows += batch.num_rows();
         batches += 1;
         writer.write(&batch).unwrap();
@@ -206,16 +198,15 @@ fn main() {
     let destinazione = directory.join(format!("spool-ab-{variante}.parquet"));
 
     // Budget separati per lettura e scrittura, come `cmd_convert`.
-    let read_budget = budget(memory_bytes);
-    let write_budget = budget(memory_bytes);
+    let (ropts, wopts, contesto) = pipeline_di_conversione(memory_bytes);
 
     let inizio = Instant::now();
-    let corsa = convert(&sorgente, &destinazione, &read_budget, &write_budget);
+    let corsa = convert(&sorgente, &destinazione, ropts, &wopts, &contesto);
     let durata = inizio.elapsed();
 
     let ha_spillato = corsa.spill_peak_reserved_bytes > 0;
     assert_eq!(
-        read_budget.remaining(ResourceKind::SpillBytes),
+        contesto.remaining_spill(),
         SPILL_BYTES,
         "la quota di spill deve tornare interamente a fine rilettura"
     );

@@ -434,6 +434,16 @@ pub struct StagedSpool {
     memory_threshold: u64,
     stage: Stage,
     sealed: bool,
+    /// Vero da quando i batch sono migrati su disco, e per sempre dopo.
+    ///
+    /// `spilled()` guarda lo stato **corrente**, che a rilettura conclusa
+    /// torna `Drained`: un test che vuole affermare "lo spill e' avvenuto"
+    /// non puo' leggerlo dopo la fine. Questo flag e' l'unico modo di
+    /// distinguere "non ha spillato" da "ha spillato e ha finito", e senza
+    /// un test che verifichi lo spill sotto quota stretta resterebbe da
+    /// dimostrare che il completamento non venga da una quota in realta'
+    /// sufficiente.
+    spilled_once: bool,
 }
 
 impl StagedSpool {
@@ -454,6 +464,7 @@ impl StagedSpool {
                 bytes: 0,
             },
             sealed: false,
+            spilled_once: false,
         }
     }
 
@@ -469,6 +480,7 @@ impl StagedSpool {
                 bytes: 0,
             },
             sealed: false,
+            spilled_once: false,
         }
     }
 
@@ -500,6 +512,14 @@ impl StagedSpool {
     #[must_use]
     pub const fn spilled(&self) -> bool {
         matches!(self.stage, Stage::Writing { .. } | Stage::Replaying { .. })
+    }
+
+    /// Vero se lo spool ha migrato su disco almeno una volta, anche se ha
+    /// gia' finito di rileggere. Vedi il campo omonimo.
+    #[cfg(test)]
+    #[must_use]
+    pub const fn spilled_once(&self) -> bool {
+        self.spilled_once
     }
 
     /// Byte attualmente trattenuti in RAM dai batch bufferizzati.
@@ -700,6 +720,9 @@ impl StagedSpool {
                 guard: Arc::new(Mutex::new(SpillGuard::new(budget_per_guard))),
             },
             sealed: true,
+            // Uno spool costruito in rilettura da un file esiste perche' lo
+            // spill e' gia' avvenuto.
+            spilled_once: true,
         })
     }
 
@@ -709,6 +732,7 @@ impl StagedSpool {
             self.stage = stage;
             return Ok(());
         };
+        self.spilled_once = true;
         let directory = spill_directory()?;
         let file =
             tempfile::tempfile_in(&directory).map_err(|_| spool_error(SPOOL_CREATE_FAILED))?;
@@ -1366,6 +1390,7 @@ mod tests {
                 bytes: 0,
             },
             sealed: false,
+            spilled_once: false,
         };
         spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("primo push");
         token.cancel();

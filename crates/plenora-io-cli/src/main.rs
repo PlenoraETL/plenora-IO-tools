@@ -20,10 +20,8 @@ use plenora_io_core::{
 use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
 use plenora_io_model::contract::{DataContract, LayerContract};
 use plenora_io_model::geometry::is_geometry_field;
-use plenora_io_model::limits::Limits;
 use plenora_io_model::{
-    CancellationToken, ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, ResourceBudget,
-    ResourceLimits, RetryDisposition,
+    CancellationToken, ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, RetryDisposition,
 };
 
 /// Errore CLI: (exit code, documento JSON d'errore).
@@ -211,7 +209,12 @@ struct Cli {
     opts: BTreeMap<String, String>,
     in_opts: BTreeMap<String, String>,
     out_opts: BTreeMap<String, String>,
-    limits: Limits,
+    /// I flag di quota, gia' nel tipo del modello unificato.
+    ///
+    /// Fino a S4.d atterravano in un `Limits` legacy e venivano tradotti piu'
+    /// tardi. Il tipo intermedio non serviva a nulla se non a tenere in vita
+    /// il modello vecchio nel punto piu' visibile del componente.
+    limits: PipelineLimits,
 }
 
 fn kv(s: &str) -> Result<(String, String), (i32, Value)> {
@@ -265,31 +268,49 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
                 );
             }
             "--max-input-bytes" => {
-                cli.limits.max_input_bytes = parse_u64(it.next(), "--max-input-bytes")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_input_bytes(parse_u64(it.next(), "--max-input-bytes")?);
             }
             "--max-input-entries" => {
-                cli.limits.max_input_entries = parse_u64(it.next(), "--max-input-entries")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_input_entries(parse_u64(it.next(), "--max-input-entries")?);
             }
             "--max-output-bytes" => {
-                cli.limits.max_output_bytes = parse_u64(it.next(), "--max-output-bytes")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_output_bytes(parse_u64(it.next(), "--max-output-bytes")?);
             }
             "--max-rows" => {
-                cli.limits.max_rows = parse_usize(it.next(), "--max-rows")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_rows(parse_u64(it.next(), "--max-rows")?);
             }
             "--max-columns" => {
-                cli.limits.max_columns = parse_usize(it.next(), "--max-columns")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_columns(parse_u64(it.next(), "--max-columns")?);
             }
             "--max-vertices" => {
-                cli.limits.max_vertices = parse_usize(it.next(), "--max-vertices")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_vertices(parse_usize(it.next(), "--max-vertices")?);
             }
             "--max-wkb-cell-bytes" => {
-                cli.limits.wkb.max_cell_bytes = parse_usize(it.next(), "--max-wkb-cell-bytes")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_wkb_cell_bytes(parse_usize(it.next(), "--max-wkb-cell-bytes")?);
             }
             "--max-wkb-components" => {
-                cli.limits.wkb.max_components = parse_usize(it.next(), "--max-wkb-components")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_wkb_components(parse_usize(it.next(), "--max-wkb-components")?);
             }
             "--max-wkb-depth" => {
-                cli.limits.wkb.max_depth = parse_usize(it.next(), "--max-wkb-depth")?;
+                cli.limits = cli
+                    .limits
+                    .with_max_wkb_depth(parse_usize(it.next(), "--max-wkb-depth")?);
             }
             "--durable" => cli.durable = true,
             "--opt" => {
@@ -354,65 +375,6 @@ fn layer_json(l: &LayerContract) -> Value {
     })
 }
 
-// Costruisce un `ResourceBudget` che riflette effettivamente i flag CLI
-// `--max-rows`, `--max-columns`, `--max-output-bytes` e `--max-wkb-cell-bytes`
-// / `--max-wkb-depth` (semantica per-cella).
-//
-// Storia del fix (finding #3 review 2026-08-15 + follow-up):
-// 1. Prima del fix la CLI passava `ResourceBudget::default()` accanto ai
-//    `Limits`, e i driver budget-driven ignoravano `--max-rows`/`--max-columns`.
-// 2. Il primo fix li cablo' correttamente ma introdusse due regressioni:
-//    (a) reader e writer condividevano lo stesso budget in `convert`, quindi
-//        una riga contava due volte (R righe consumavano ~2R di quota `Rows`);
-//    (b) `--max-wkb-components` (limite per singola cella WKB) veniva
-//        trasformato nel contatore `GeometryComponents` cumulativo del budget,
-//        che invece rappresenta il totale di componenti WKB su tutto il
-//        dataset. Con il default 100_000 anche molte geometrie piccole
-//        fallivano dopo 100k coordinate totali.
-// 3. Questo fix separa i due ambiti: il helper produce un budget per
-//    *singola operazione* (read o write); `cmd_convert` ne crea due copie
-//    indipendenti; `GeometryComponents` conserva il default di
-//    `ResourceLimits` (cumulativo, non derivato dal per-cella).
-//
-// Nota di perimetro: la fusione completa di `Limits` e `ResourceLimits` e'
-// il PR-2 della roadmap `1.1.0`.
-// Produce esplicitamente i due budget della pipeline `convert`: uno per il
-// reader e uno per il writer. Follow-up review 2026-08-15: rendere questo
-// il punto unico da cui `cmd_convert` prende i budget congela la regola
-// "una riga si conta una volta" in un helper che i test possono esercitare
-// direttamente. Il test associato deve continuare a passare se e solo se
-// i due budget hanno contatori indipendenti.
-/// Traduce i flag della CLI nei limiti del modello unificato.
-///
-/// E' il punto in cui `--max-rows` e compagni smettono di essere `Limits` e
-/// diventano `PipelineLimits`. La corrispondenza e' uno a uno dove esiste;
-/// dove la CLI non espone nulla restano i default del modello nuovo, che
-/// nascono dal **piu' stretto** dei due modelli precedenti (finding L0.2).
-///
-/// `max_geometry_components` conserva il default e **non** deriva dal
-/// per-cella `--max-wkb-components`: il primo e' cumulativo sul dataset, il
-/// secondo vale per singola geometria. Derivarlo farebbe esaurire a un
-/// dataset di molte piccole geometrie una quota pensata per una grande.
-fn pipeline_limits_from_cli(limits: &Limits) -> Result<PipelineLimits, PlenoraIoError> {
-    let wkb = limits.effective_wkb();
-    Ok(PipelineLimits::default()
-        .with_max_input_bytes(limits.max_input_bytes)
-        .with_max_input_entries(limits.max_input_entries)
-        .with_max_rows(
-            u64::try_from(limits.max_rows).map_err(|_| {
-                PlenoraIoError::LimitExceeded("--max-rows fuori intervallo".to_owned())
-            })?,
-        )
-        .with_max_columns(u64::try_from(limits.max_columns).map_err(|_| {
-            PlenoraIoError::LimitExceeded("--max-columns fuori intervallo".to_owned())
-        })?)
-        .with_max_output_bytes(limits.max_output_bytes)
-        .with_max_wkb_cell_bytes(wkb.max_cell_bytes)
-        .with_max_wkb_components(wkb.max_components)
-        .with_max_wkb_depth(wkb.max_depth)
-        .with_max_vertices(limits.max_vertices))
-}
-
 /// Costruisce la pipeline di lettura dai flag della CLI.
 ///
 /// # Errors
@@ -421,57 +383,33 @@ fn pipeline_limits_from_cli(limits: &Limits) -> Result<PipelineLimits, PlenoraIo
 /// modello: in entrambi i casi si fallisce chiuso invece di degradare a un
 /// default che l'utente non ha chiesto.
 fn read_pipeline(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
-    let bundle = PipelineBudget::builder()
-        .limits(pipeline_limits_from_cli(&cli.limits)?)
-        .build()?;
+    let bundle = PipelineBudget::builder().limits(cli.limits).build()?;
     Ok(ReadOptions::from_read_parts(bundle.into_read_parts()))
 }
 
-fn conversion_budgets_from_limits(
-    limits: &Limits,
-) -> Result<(ResourceBudget, ResourceBudget), PlenoraIoError> {
-    let read = resource_budget_from_limits(limits)?;
-    let write = resource_budget_from_limits(limits)?;
-    Ok((read, write))
-}
-
-fn resource_budget_from_limits(limits: &Limits) -> Result<ResourceBudget, PlenoraIoError> {
-    let defaults = ResourceLimits::default();
-    let wkb = limits.effective_wkb();
-    let resource_limits = ResourceLimits {
-        // Il campo Limits e' `usize`, il campo ResourceLimits e' `u64`: sui
-        // target supportati (64-bit) il cast e' esatto. La `try_from`
-        // conserva comunque la fail-closed su architetture ipotetiche 128-bit.
-        rows: u64::try_from(limits.max_rows)
-            .map_err(|_| PlenoraIoError::LimitExceeded("--max-rows fuori intervallo".to_owned()))?,
-        columns: u64::try_from(limits.max_columns).map_err(|_| {
-            PlenoraIoError::LimitExceeded("--max-columns fuori intervallo".to_owned())
-        })?,
-        // `nesting_depth` in `ResourceLimits` e `max_depth` in `WkbLimits`
-        // hanno la stessa semantica (profondita' massima di annidamento) e
-        // valgono per singola geometria, non cumulativi.
-        nesting_depth: u64::try_from(wkb.max_depth).map_err(|_| {
-            PlenoraIoError::LimitExceeded("--max-wkb-depth fuori intervallo".to_owned())
-        })?,
-        cell_bytes: u64::try_from(wkb.max_cell_bytes).map_err(|_| {
-            PlenoraIoError::LimitExceeded("--max-wkb-cell-bytes fuori intervallo".to_owned())
-        })?,
-        output_bytes: limits.max_output_bytes,
-        // `GeometryComponents` e' cumulativo (totale sul dataset). NON deriva
-        // dal per-cella `max_wkb_components`, che vive nei `Limits.wkb` e
-        // viene applicato dai driver a singola geometria via `WkbLimits`.
-        // Conservare il default evita che dataset di molte piccole geometrie
-        // (le piu' comuni) esauriscano una quota pensata per il per-cella.
-        geometry_components: defaults.geometry_components,
-        // Quote non esposte dalla CLI: restano ai default di `ResourceLimits`.
-        memory_bytes: defaults.memory_bytes,
-        concurrent_operations: defaults.concurrent_operations,
-        output_expansion_ratio: defaults.output_expansion_ratio,
-        duration_ms: defaults.duration_ms,
-        spill_bytes: defaults.spill_bytes,
-        decompression_ratio: defaults.decompression_ratio,
-    };
-    ResourceBudget::new(resource_limits)
+/// Costruisce i due rami di una conversione dallo **stesso** context.
+///
+/// Fino a S4.d la CLI costruiva due `ResourceBudget` scollegati: risolveva il
+/// finding #3 — una riga non deve consumare due volte la stessa quota — ma al
+/// prezzo di due pipeline che non sapevano l'una dell'altra. Memoria e spill
+/// erano contati due volte, e il writer non poteva vedere l'input osservato
+/// dal reader, che e' cio' da cui `output_expansion_ratio` deriva il proprio
+/// tetto (INV-6).
+///
+/// `ConvertBudgetParts` risolve entrambe le cose: contatori cumulativi
+/// indipendenti fra i due rami, `PipelineContext` condiviso.
+///
+/// # Errors
+///
+/// Un flag fuori intervallo, o limiti che non superano la validazione del
+/// modello.
+fn convert_pipeline(cli: &Cli) -> Result<(ReadOptions, WriteOptions), PlenoraIoError> {
+    let bundle = PipelineBudget::builder().limits(cli.limits).build()?;
+    let (read, write) = bundle.into_convert_parts().into_parts();
+    Ok((
+        ReadOptions::from_read_parts(read),
+        WriteOptions::from_write_parts(write),
+    ))
 }
 
 // Unisce due mappe di opzioni di formato preservando la precedenza
@@ -693,14 +631,10 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     // R/2 righe effettive). Il helper e' esposto come punto unico cosi'
     // che il test lo eserciti direttamente: qualunque futura tentazione di
     // riusare un solo budget deve passare da qui.
-    let (_read_budget, write_budget) =
-        conversion_budgets_from_limits(&cli.limits).map_err(map_err)?;
-
-    // Il ramo di lettura vive sul modello unificato da S4.d; quello di
-    // scrittura resta legacy fino a S4.e. Restano quindi due budget
-    // indipendenti, che e' cio' che il finding #3 richiedeva: condividerne
-    // uno solo farebbe consumare due volte la stessa riga.
-    let mut ropts = read_pipeline(cli).map_err(map_err)?;
+    // I due rami escono dalle stesse parti, quindi condividono il context:
+    // contatori indipendenti, memoria e spill contati una volta sola, e il
+    // writer vede l'input osservato dal reader (INV-6).
+    let (mut ropts, mut wopts) = convert_pipeline(cli).map_err(map_err)?;
     ropts.assume_crs.clone_from(&cli.assume_crs);
     // Finding #11 della review 2026-08-15: `--opt` era accettato dal parser
     // ma non consumato da `convert`. Ora `--opt` fa da base comune per
@@ -758,8 +692,6 @@ fn cmd_convert(cli: &Cli) -> CliResult {
             })
             .collect(),
     };
-    let mut wopts =
-        WriteOptions::from_legacy(cli.limits, write_budget, CancellationToken::default());
     wopts.durable = cli.durable;
     // Finding #11: vedi commento speculare in `ropts`.
     wopts.format_options = opts_uniti(&cli.opts, &cli.out_opts);
@@ -952,91 +884,109 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use plenora_io_model::budget::OperationCounter;
+
+    /// Opzioni di scrittura sul modello unificato, per i test.
+    fn opzioni_scrittura_di_prova() -> plenora_io_core::WriteOptions {
+        match PipelineBudget::builder().build() {
+            Ok(bundle) => {
+                plenora_io_core::WriteOptions::from_write_parts(bundle.into_write_parts())
+            }
+            Err(error) => unreachable!("bundle di test: {error:?}"),
+        }
+    }
 
     #[test]
-    fn resource_budget_riflette_i_flag_cli() {
-        // Finding #3: verifica che i flag CLI attraversino effettivamente il
-        // budget usato dai driver, invece di essere sovrascritti dai default
-        // di `ResourceLimits`.
-        use plenora_io_model::ResourceKind;
-        let limits = Limits {
-            max_rows: 7,
-            max_columns: 5,
-            max_output_bytes: 1_024,
-            ..Limits::default()
-        };
-        let budget = resource_budget_from_limits(&limits).unwrap();
-        assert_eq!(budget.remaining(ResourceKind::Rows), 7);
-        assert_eq!(budget.remaining(ResourceKind::Columns), 5);
-        assert_eq!(budget.limits().output_bytes, 1_024);
+    fn i_flag_atterrano_nei_limiti_della_pipeline() {
+        let cli = parse(&[
+            "convert".to_owned(),
+            "--max-rows".to_owned(),
+            "7".to_owned(),
+            "--max-columns".to_owned(),
+            "5".to_owned(),
+            "--max-output-bytes".to_owned(),
+            "1024".to_owned(),
+        ])
+        .expect("flag validi");
+
+        assert_eq!(cli.limits.max_rows(), 7);
+        assert_eq!(cli.limits.max_columns(), 5);
+        assert_eq!(cli.limits.max_output_bytes(), 1_024);
         // Le quote non esposte dalla CLI restano ai default del modello.
         assert_eq!(
-            budget.limits().memory_bytes,
-            ResourceLimits::default().memory_bytes
+            cli.limits.memory_bytes(),
+            PipelineLimits::default().memory_bytes()
         );
     }
 
     #[test]
-    fn resource_budget_rifiuta_flag_a_zero() {
-        // `ResourceLimits::validate` rifiuta i limiti pari a zero: il helper
+    fn la_pipeline_rifiuta_flag_a_zero() {
+        // `PipelineLimits::validate` rifiuta le quote nulle: la costruzione
         // propaga l'errore invece di degradare a un default silenzioso.
-        let limits = Limits {
-            max_rows: 0,
-            ..Limits::default()
-        };
-        assert!(resource_budget_from_limits(&limits).is_err());
+        let cli = parse(&[
+            "convert".to_owned(),
+            "--max-rows".to_owned(),
+            "0".to_owned(),
+        ])
+        .expect("il parser accetta lo zero, e' il modello a rifiutarlo");
+        assert!(PipelineBudget::builder()
+            .limits(cli.limits)
+            .build()
+            .is_err());
     }
 
     #[test]
-    fn resource_budget_non_deriva_geometry_components_dal_wkb_per_cella() {
-        // Follow-up review 2026-08-15: `--max-wkb-components` (per cella)
-        // NON deve alimentare il contatore cumulativo `GeometryComponents`.
-        // Dataset di molte geometrie piccole avrebbero altrimenti esaurito
-        // la quota dopo 100k coordinate totali (default WKB per-cella).
-        use plenora_io_model::ResourceKind;
-        let mut limits = Limits::default();
-        limits.wkb.max_components = 42;
-        let budget = resource_budget_from_limits(&limits).unwrap();
+    fn geometry_components_non_deriva_dal_wkb_per_cella() {
+        // Follow-up review 2026-08-15: `--max-wkb-components` (per cella) NON
+        // deve alimentare il contatore cumulativo `GeometryComponents`.
+        // Dataset di molte geometrie piccole avrebbero altrimenti esaurito la
+        // quota dopo 100k coordinate totali.
+        let cli = parse(&[
+            "convert".to_owned(),
+            "--max-wkb-components".to_owned(),
+            "42".to_owned(),
+        ])
+        .expect("flag validi");
+
         assert_eq!(
-            budget.remaining(ResourceKind::GeometryComponents),
-            ResourceLimits::default().geometry_components,
-            "GeometryComponents cumulativo non deve seguire il per-cella"
+            cli.limits.max_wkb_components(),
+            42,
+            "il per-cella segue il flag"
+        );
+        assert_eq!(
+            cli.limits.max_geometry_components(),
+            PipelineLimits::default().max_geometry_components(),
+            "il cumulativo non deve seguire il per-cella"
         );
     }
 
     #[test]
-    fn conversion_budgets_hanno_contatori_indipendenti() {
-        // Follow-up review 2026-08-15: il test precedente costruiva due
-        // budget separati "a mano" e sarebbe passato anche se
-        // `cmd_convert` fosse regredito a un budget unico. Qui esercitiamo
-        // direttamente il helper `conversion_budgets_from_limits`, che
-        // `cmd_convert` ora e' obbligato a usare come punto unico: una
-        // regressione che chiami due volte lo stesso `resource_budget_from_limits`
-        // andrebbe bene, ma sostituire il helper con un solo budget rompe
-        // il contratto verificato qui.
-        use plenora_io_model::ResourceKind;
-        let limits = Limits {
-            max_rows: 100,
-            ..Limits::default()
+    fn i_due_rami_di_convert_hanno_contatori_indipendenti_e_context_condiviso() {
+        // Il finding #3 chiedeva contatori indipendenti: una riga non deve
+        // consumare due volte la stessa quota. Fino a S4.d la CLI lo otteneva
+        // con due budget **scollegati**, che pero' contavano due volte anche
+        // memoria e spill e impedivano al writer di vedere l'input osservato
+        // dal reader (INV-6). Ora i due rami escono dalle stesse parti.
+        let cli = Cli {
+            limits: PipelineLimits::default().with_max_rows(100),
+            ..Cli::default()
         };
-        let (read_budget, write_budget) = conversion_budgets_from_limits(&limits).unwrap();
-        // Il reader "consuma" 60 righe della sua quota.
-        let read_lease = read_budget.try_lease(ResourceKind::Rows, 60).unwrap();
-        read_lease.commit(60).unwrap();
-        // Il writer deve ancora avere 100 righe intere.
-        assert_eq!(write_budget.remaining(ResourceKind::Rows), 100);
-        // E non condivide contatori con il read_budget.
-        assert!(!read_budget.is_same_budget(&write_budget));
-        // Simmetricamente, il writer consuma output_bytes: il reader non
-        // deve vederne l'effetto.
-        let write_lease = write_budget
-            .try_lease(ResourceKind::OutputBytes, 1_024)
-            .unwrap();
-        write_lease.commit(1_024).unwrap();
-        assert_eq!(
-            read_budget.remaining(ResourceKind::OutputBytes),
-            read_budget.limits().output_bytes
-        );
+        let (ropts, wopts) = convert_pipeline(&cli).expect("pipeline valida");
+
+        ropts
+            .budget()
+            .try_lease(OperationCounter::Rows, 60)
+            .expect("lease")
+            .commit(60)
+            .expect("commit");
+        assert_eq!(wopts.budget().remaining(OperationCounter::Rows), 100);
+        assert!(!ropts.budget().shares_counters_with(wopts.budget()));
+
+        // Context condiviso: memoria, spill e deadline sono gli stessi.
+        assert!(ropts
+            .budget()
+            .context()
+            .is_same_pipeline(wopts.budget().context()));
     }
 
     #[test]
@@ -1110,7 +1060,11 @@ mod tests {
             }],
         };
         let writer = driver_ipc::IpcDriver
-            .create(Sink::Path(path.clone()), &plan, &WriteOptions::default())
+            .create(
+                Sink::Path(path.clone()),
+                &plan,
+                &opzioni_scrittura_di_prova(),
+            )
             .unwrap();
         writer.finish().unwrap();
         path
@@ -1266,8 +1220,8 @@ mod tests {
         assert_eq!(cli.opts.get("wkt_column").map(String::as_str), Some("g"));
         assert!(cli.durable);
         assert_eq!(cli.layer, Some(2));
-        assert_eq!(cli.limits.max_rows, 123);
-        assert_eq!(cli.limits.wkb.max_depth, 9);
+        assert_eq!(cli.limits.max_rows(), 123);
+        assert_eq!(cli.limits.max_wkb_depth(), 9);
     }
 
     #[test]
@@ -1529,7 +1483,11 @@ mod tests {
         };
         let driver = driver_ipc::IpcDriver;
         let writer = driver
-            .create(Sink::Path(input.clone()), &plan, &WriteOptions::default())
+            .create(
+                Sink::Path(input.clone()),
+                &plan,
+                &opzioni_scrittura_di_prova(),
+            )
             .unwrap();
         writer.finish().unwrap();
 

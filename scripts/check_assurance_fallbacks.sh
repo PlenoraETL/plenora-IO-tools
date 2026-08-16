@@ -85,6 +85,21 @@ set -eu
 # traduzione meccanica dei test: `usize::try_from` su un letterale, e una
 # conversione eliminata cambiando il tipo del contatore in `AtomicU64`.
 # Nessuna revisione H-01 dovuta per le tre residue.
+#
+# Il 2026-08-16 la rimozione del modello legacy (S4.e) ha aggiunto due
+# occorrenze, una in plenora-io-core e una in plenora-io-cli (102 -> 104).
+# Sono la stessa conversione, in due moduli `#[cfg(test)]`: il tetto di
+# colonne predefinito passa da `u64` a `usize` perche' `validate_write` lo
+# prende in `usize`. Prima veniva da `Limits::default().max_columns`, che era
+# gia' `usize` e non richiedeva conversione; con `Limits` eliminato la fonte
+# e' `PipelineLimits`, dove la quota e' `u64`.
+#
+# Su un target a 64 bit la conversione non puo' fallire, e il saturante
+# verso `usize::MAX` sarebbe comunque il verso sicuro: un tetto piu' largo
+# qui non allenta nulla, perche' il contatore rifiuta prima. Nessuna delle
+# due e' codice spedito. Riscriverle come `match` per non far muovere il
+# contatore sarebbe stato il modo di eludere H-01 che questo registro
+# denuncia. Nessuna revisione dovuta.
 expected='
 driver-csv 3
 driver-dxf 15
@@ -97,8 +112,8 @@ driver-kml 3
 driver-shp 3
 driver-xls 1
 plenora-io-model 1
-plenora-io-core 15
-plenora-io-cli 19
+plenora-io-core 16
+plenora-io-cli 20
 plenora-bench 24
 plenora-fuzz 5
 '
@@ -130,7 +145,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 102 ]; then
+if [ "${actual_total}" -ne 104 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

@@ -1529,12 +1529,12 @@ impl SourceFootprintSnapshot {
 pub struct SourceEntry<'a> { /* opaque */ }
 impl<'a> SourceEntry<'a> {
     pub const fn file(
-        normalized_path: &'a [u8],
+        path_identity_bytes: &'a [u8],
         size_bytes: u64,
         modified: Option<SystemTime>,
     ) -> Self;
     pub const fn directory(
-        normalized_path: &'a [u8],
+        path_identity_bytes: &'a [u8],
         modified: Option<SystemTime>,
     ) -> Self;
     pub const fn metadata_size(&self) -> u64;
@@ -2110,7 +2110,16 @@ locale e pool, per memoria e spill.
 
 **Identita' del percorso.** `to_string_lossy` faceva collassare due
 percorsi Unix non-UTF-8 distinti sullo stesso digest. Si usano ora i
-byte nativi dell'`OsStr`, con una forma normalizzata per piattaforma.
+byte nativi dell'`OsStr`, con una codifica per piattaforma.
+
+Il campo si chiama `path_identity_bytes` e non piu' `normalized_path`:
+il nome vecchio prometteva una normalizzazione che nessuno faceva —
+`a/../b` e `b` restano distinti — e il pacchetto la dava per acquisita.
+E' una codifica **senza perdita del percorso lessicale**, non
+un'identita' canonica del filesystem. La canonicalizzazione resta
+esclusa: `fs::canonicalize` segue i symlink, che il preflight rifiuta,
+e farla qui allargherebbe il contratto proprio dove e' stato
+ristretto.
 
 **Cancellazione per voce**, non per directory: il controllo e' in testa
 a `scopri`.
@@ -2123,6 +2132,36 @@ separatamente: la prima e' debito e deve scendere, la seconda e'
 progresso.
 
 **S4.c e S4.d si dichiarano chiusi.**
+
+#### S4.e — il modello legacy non esiste piu'
+
+Ultimo sottopasso. Spariscono `BudgetPayload::Legacy` e l'enum
+stesso, i `Default` delle opzioni, i costruttori e gli accessori
+legacy, entrambe le guardie direzionali, e i tipi `Limits`,
+`ResourceBudget`, `ResourceLease`, `ResourceKind`, `ResourceLimits`
+con l'intero `resource.rs`. In `limits.rs` resta il solo `WkbLimits`,
+che e' un tipo del contratto e non del budget.
+
+Le opzioni **non hanno `Default`**: portano un `OperationBudget`, che
+nasce da una costruzione che puo' fallire, e un `Default` avrebbe
+dovuto scegliere fra il panico e quote inventate.
+
+Il ramo di scrittura entra nella pipeline: il writer preleva dai
+contatori dell'operazione e la memoria dello staging e' una
+`InternalMemoryLease`. `convert` usa **un solo context** — i due rami
+escono dallo stesso `ConvertBudgetParts`, con contatori indipendenti
+e memoria, spill e deadline condivisi — che chiude anche la parte di
+INV-6 che due budget scollegati rendevano irraggiungibile.
+
+**Inventario a zero su tutte le categorie**, senza eccezioni ne'
+tetti. I gate `check_legacy_budget_inventory.py` e
+`check_pipeline_branch_gate.py` sono rimossi: non sorvegliano piu'
+nulla, perche' ora e' il compilatore il gate — `ReadOptions::default()`
+non compila, `Limits` non esiste, un driver non puo' nominare un
+budget legacy perche' il tipo non c'e'. Una regressione non e'
+distratta: e' inesprimibile.
+
+**M4 del piano di migrazione e' attuato. S4 e' chiuso.**
 
 ### M4 — Rimozione del vecchio modello
 

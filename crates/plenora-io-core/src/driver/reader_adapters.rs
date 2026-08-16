@@ -33,32 +33,25 @@ use crate::driver::spool::StagedSpool;
 /// Prende le **opzioni**, non un budget gia' estratto: la scelta di quale
 /// modello governi i contatori appartiene al core, non ai tredici driver.
 /// Prima di S4.c ogni driver scriveva da se'
-/// `opts.legacy_budget().ok_or_else(...)?.clone()`, cioe'
-/// tredici copie della stessa decisione, che S4.d avrebbe dovuto cambiare una
-/// per una. Concentrandola qui il passaggio al modello unificato tocca un
-/// punto solo per direzione.
+/// il proprio accesso ai contatori, cioe' tredici copie della stessa
+/// decisione. Concentrarla qui e' cio' che ha reso possibile capovolgerla in
+/// un atto solo.
 ///
-/// # Errors
-///
-/// Restituisce [`crate::driver::richiede_modello_unificato`] se le opzioni sono
-/// costruite sul modello **legacy**. Da S4.d il percorso di lettura vive
-/// interamente sul modello unificato: la memoria dei batch e' una
-/// [`InternalMemoryLease`], che esiste solo dentro un `PipelineContext`, e
-/// senza contesto non c'e' nulla da prenotare.
+/// Non restituisce `Result`: con un solo modello di budget non c'e' piu' nulla
+/// da rifiutare. Fino a S4.d la firma portava un errore per le opzioni del
+/// modello sbagliato — prima quelle nuove, poi quelle vecchie — e ogni driver
+/// doveva propagarlo.
+#[must_use]
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
     opts: &crate::driver::ReadOptions,
     physical_row_indices_attestable: bool,
-) -> Result<Box<dyn OpenDatasetHandle>> {
-    let budget = opts
-        .pipeline_budget()
-        .ok_or_else(crate::driver::richiede_modello_unificato)?
-        .clone();
-    Ok(Box::new(BudgetedDataset {
+) -> Box<dyn OpenDatasetHandle> {
+    Box::new(BudgetedDataset {
         dataset,
-        budget,
+        budget: opts.budget().clone(),
         physical_row_indices_attestable,
-    }))
+    })
 }
 
 struct BudgetedDataset {
@@ -517,6 +510,19 @@ fn output_disponibile(budget: &OperationBudget) -> u64 {
 /// qui serve sommarlo a un target in byte.
 fn cell_bytes_u64(context: &plenora_io_model::budget::PipelineContext) -> u64 {
     u64::try_from(context.limits().max_wkb_cell_bytes()).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+impl BudgetedReader {
+    /// Vero se lo spool ha migrato su disco almeno una volta.
+    ///
+    /// Lo spool e' privato, e a rilettura conclusa il suo stato corrente non
+    /// distingue piu' "non ha spillato" da "ha spillato e ha finito". Senza
+    /// questo seam, un test che verifica il completamento sotto quota stretta
+    /// non potrebbe escludere che la quota fosse in realta' sufficiente.
+    fn ha_spillato(&self) -> bool {
+        self.spool.as_ref().is_some_and(StagedSpool::spilled_once)
+    }
 }
 
 impl LayerReader for BudgetedReader {
@@ -1362,6 +1368,19 @@ mod tests {
         match PipelineBudget::builder().limits(limits).build() {
             Ok(bundle) => bundle.into_write_parts().into_budget(),
             Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+        }
+    }
+
+    fn richiesta_completa() -> crate::request::ReadRequest {
+        crate::request::ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: crate::request::ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
         }
     }
 
@@ -2449,6 +2468,15 @@ mod tests {
         events: VecDeque<Result<Option<RecordBatch>>>,
         consegnati: Arc<std::sync::atomic::AtomicU64>,
         eof: Arc<std::sync::atomic::AtomicBool>,
+        /// Tentativi dell'osservatore, letti dal reader per **attendere**
+        /// che almeno uno sia avvenuto.
+        ///
+        /// Senza l'attesa la copertura dipende dallo scheduler: sotto la
+        /// suite completa l'osservatore puo' non essere schedulato per
+        /// l'intero drenaggio, e il test fallisce sull'asserzione "nessuno ha
+        /// guardato" pur essendo il codice corretto. Non e' flakiness da
+        /// tollerare: e' una sincronizzazione mancante.
+        tentativi: Arc<AtomicUsize>,
     }
 
     impl LayerReader for ReaderSegnalante {
@@ -2460,7 +2488,15 @@ mod tests {
             let esito = self.events.pop_front().unwrap_or(Ok(None));
             match esito {
                 Ok(Some(_)) => {
-                    self.consegnati.fetch_add(1, AtomicOrdering::SeqCst);
+                    let consegnati = self.consegnati.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                    if consegnati == 1 {
+                        // Il primo batch apre la fase in cui l'osservatore ha
+                        // qualcosa da difendere: da qui non si procede finche'
+                        // non ha guardato almeno una volta.
+                        while self.tentativi.load(AtomicOrdering::SeqCst) == 0 {
+                            std::hint::spin_loop();
+                        }
+                    }
                 }
                 // L'EOF chiude il drenaggio: da qui in poi la memoria torna
                 // legittimamente al gauge, batch dopo batch, e l'osservatore
@@ -2554,6 +2590,7 @@ mod tests {
 
         let consegnati = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let eof = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let tentativi = Arc::new(AtomicUsize::new(0));
         let mut eventi: VecDeque<Result<Option<RecordBatch>>> = VecDeque::new();
         for _ in 0..BATCH {
             eventi.push_back(Ok(Some(batch())));
@@ -2576,10 +2613,9 @@ mod tests {
                 events: eventi,
                 consegnati: consegnati.clone(),
                 eof: eof.clone(),
+                tentativi: tentativi.clone(),
             }),
-            opts.pipeline_budget()
-                .expect("opzioni sul modello unificato")
-                .clone(),
+            opts.budget().clone(),
             true,
             CancellationToken::default(),
             BatchTarget::default(),
@@ -2591,7 +2627,6 @@ mod tests {
         };
 
         let intrusioni = Arc::new(AtomicUsize::new(0));
-        let tentativi = Arc::new(AtomicUsize::new(0));
         let osservatore = {
             let contesto = contesto.clone();
             let intrusioni = intrusioni.clone();
@@ -2812,43 +2847,53 @@ mod tests {
             letti += batch.num_rows();
         }
         assert_eq!(letti, 64, "tutti i batch devono arrivare al consumer");
+        assert!(
+            reader.ha_spillato(),
+            "sotto la quota del pool i batch devono migrare su disco: senza              questa verifica il completamento potrebbe venire da una quota in              realta' sufficiente, e il test non direbbe nulla sul pool"
+        );
         drop(reader);
         assert_eq!(budget.context().effective_remaining_memory(), POOL_MEMORIA);
     }
 
     #[test]
-    fn with_read_budget_accetta_solo_il_modello_unificato() {
-        // Da S4.d la memoria dei batch e' una `InternalMemoryLease`, che
-        // esiste solo dentro un `PipelineContext`. Con opzioni legacy non
-        // c'e' contesto, quindi non c'e' nulla da prenotare: l'adapter
-        // dichiara `Unsupported` invece di ripiegare su un budget di default,
-        // che applicherebbe quote che nessuno ha chiesto.
-        let bundle = plenora_io_model::budget::PipelineBudget::builder()
+    fn with_read_budget_collega_il_budget_dell_operazione() {
+        // Da S4.e esiste un solo modello: le opzioni portano sempre un
+        // `OperationBudget`, e l'adapter vi si collega senza alternative da
+        // rifiutare. Che il collegamento sia avvenuto lo dimostra il fatto
+        // che il reader consumi la quota di concorrenza del pool.
+        let pool = match ResourcePool::builder().concurrent_operations(1).build() {
+            Ok(pool) => pool,
+            Err(error) => unreachable!("pool di test: {error:?}"),
+        };
+        let bundle = match plenora_io_model::budget::PipelineBudget::builder()
+            .resource_pool(pool.clone())
             .build()
-            .expect("il bundle deve costruirsi");
-        let pipeline = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
-        assert!(with_read_budget(
-            Box::new(CountingDataset {
-                layers: Vec::new(),
-                opens: Arc::new(AtomicUsize::new(0)),
-            }),
-            &pipeline,
-            true
-        )
-        .is_ok());
+        {
+            Ok(bundle) => bundle,
+            Err(error) => unreachable!("bundle di test: {error:?}"),
+        };
+        let opts = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
 
-        let legacy = crate::driver::ReadOptions::default();
-        let esito = with_read_budget(
+        let dataset = with_read_budget(
             Box::new(CountingDataset {
-                layers: Vec::new(),
+                layers: vec![validating_contract()],
                 opens: Arc::new(AtomicUsize::new(0)),
             }),
-            &legacy,
+            &opts,
             true,
         );
-        assert!(matches!(
-            esito,
-            Err(errore) if errore.code == plenora_io_model::IoErrorCode::Unsupported
-        ));
+
+        // Il posto del pool e' libero prima, occupato durante.
+        let posto = match pool_lease(&pool) {
+            Ok(lease) => lease,
+            Err(error) => unreachable!("il pool ha un posto: {error:?}"),
+        };
+        drop(posto);
+        let reader = dataset.open_layer_reader(&richiesta_completa());
+        assert!(reader.is_ok());
+        assert!(
+            pool_lease(&pool).is_err(),
+            "il reader deve tenere la quota di concorrenza del context collegato"
+        );
     }
 }

@@ -116,7 +116,7 @@ impl FormatDriver for XlsDriver {
                 "il driver supporta in lettura soltanto .xlsx; .xls non e instradato".to_owned(),
             ));
         }
-        validate_archive_ratio(&path, opts.operation_budget()?)?;
+        validate_archive_ratio(&path, opts.budget())?;
         let mut wb: Xlsx<_> =
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
@@ -136,9 +136,9 @@ impl FormatDriver for XlsDriver {
             &crs,
             opts.cancellation(),
             XlsxQuote::from_read_options(&opts),
-            opts.operation_budget()?,
+            opts.budget(),
         )?;
-        plenora_io_core::with_read_budget(
+        Ok(plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
                 layers: vec![LayerContract {
                     id: LayerId(0),
@@ -151,7 +151,7 @@ impl FormatDriver for XlsDriver {
             }),
             &opts,
             true,
-        )
+        ))
     }
 
     fn create(
@@ -1098,6 +1098,17 @@ mod tests {
         }
     }
 
+    /// Opzioni di scrittura sul modello unificato.
+    ///
+    /// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+    /// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+    fn opzioni_scrittura() -> WriteOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     fn opzioni_lettura() -> ReadOptions {
         match plenora_io_model::budget::PipelineBudget::builder().build() {
             Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
@@ -1138,7 +1149,7 @@ mod tests {
         };
 
         let error = XlsDriver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .err()
             .expect("la destinazione esistente deve essere rifiutata");
         assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
@@ -1177,7 +1188,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         w.write(&batch).unwrap();
         w.finish().unwrap();
@@ -1405,7 +1416,7 @@ mod tests {
 
         let driver = XlsDriver;
         let mut writer = driver
-            .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
             .unwrap();
         writer.write(&batch).unwrap();
         writer.finish().unwrap();

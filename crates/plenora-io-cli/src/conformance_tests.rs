@@ -23,7 +23,14 @@ use plenora_io_model::crs::{CrsKind, CrsResolution, ResolvedCrs};
 use plenora_io_model::geometry::{
     with_geometry_contract_metadata, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION,
 };
-use plenora_io_model::limits::Limits;
+/// Tetto di colonne, dai limiti della pipeline.
+///
+/// Era `colonne_predefinite()`: il tipo legacy non esiste piu' nel
+/// percorso core/driver (S4.e).
+fn colonne_predefinite() -> usize {
+    usize::try_from(plenora_io_model::budget::PipelineLimits::default().max_columns())
+        .unwrap_or(usize::MAX)
+}
 use plenora_io_model::{CancellationToken, CapabilityReason};
 
 const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
@@ -304,7 +311,7 @@ fn every_writable_driver_accepts_its_declared_baseline() {
         validate_write(
             descriptor,
             &valid_geometry_plan(descriptor),
-            Limits::default().max_columns,
+            colonne_predefinite(),
         )
         .unwrap_or_else(|error| {
             panic!(
@@ -327,7 +334,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
             validate_write(
                 descriptor,
                 &WritePlan { layers: Vec::new() },
-                Limits::default().max_columns,
+                colonne_predefinite(),
             ),
             CapabilityReason::EmptyWritePlan,
         );
@@ -340,7 +347,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                         &["duplicate", "duplicate"],
                         &Field::new("value", DataType::Utf8, true),
                     ),
-                    Limits::default().max_columns,
+                    colonne_predefinite(),
                 ),
                 CapabilityReason::DuplicateLayerName,
             );
@@ -350,7 +357,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                 validate_write(
                     descriptor,
                     &attribute_plan(&["one", "two"], &Field::new("value", DataType::Utf8, true)),
-                    Limits::default().max_columns,
+                    colonne_predefinite(),
                 ),
                 CapabilityReason::MultipleLayers,
             );
@@ -384,7 +391,7 @@ fn crs_matrix_fails_closed() {
                 );
                 assert_capability(
                     descriptor.id,
-                    validate_write(descriptor, &plan, Limits::default().max_columns),
+                    validate_write(descriptor, &plan, colonne_predefinite()),
                     CapabilityReason::CrsUnresolved,
                 );
                 embedded += 1;
@@ -401,7 +408,7 @@ fn crs_matrix_fails_closed() {
                 );
                 assert_capability(
                     descriptor.id,
-                    validate_write(descriptor, &plan, Limits::default().max_columns),
+                    validate_write(descriptor, &plan, colonne_predefinite()),
                     CapabilityReason::ReprojectionRequired,
                 );
                 fixed += 1;
@@ -417,7 +424,7 @@ fn crs_matrix_fails_closed() {
                     vec![GeometryType::Point],
                 );
                 assert!(
-                    validate_write(descriptor, &plan, Limits::default().max_columns).is_ok(),
+                    validate_write(descriptor, &plan, colonne_predefinite()).is_ok(),
                     "{} dichiara CRS embedded opzionale ma rifiuta lo stato missing",
                     descriptor.id
                 );
@@ -440,7 +447,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     let mut ipc_plan = valid_geometry_plan(ipc.descriptor());
     ipc_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
     assert!(
-        validate_write(ipc.descriptor(), &ipc_plan, Limits::default().max_columns).is_ok(),
+        validate_write(ipc.descriptor(), &ipc_plan, colonne_predefinite()).is_ok(),
         "IPC deve preservare crs_id e srid discordanti senza sceglierne uno"
     );
 
@@ -449,7 +456,7 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     shp_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
     assert_capability(
         "shp",
-        validate_write(shp.descriptor(), &shp_plan, Limits::default().max_columns),
+        validate_write(shp.descriptor(), &shp_plan, colonne_predefinite()),
         CapabilityReason::CrsRepresentationsInconsistent,
     );
 }
@@ -561,7 +568,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, Limits::default().max_columns),
+                validate_write(descriptor, &plan, colonne_predefinite()),
                 CapabilityReason::CoordinateDimensions,
             );
             dimensions_checked += 1;
@@ -580,7 +587,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, Limits::default().max_columns),
+                validate_write(descriptor, &plan, colonne_predefinite()),
                 CapabilityReason::GeometryEncoding,
             );
             encodings_checked += 1;
@@ -599,7 +606,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, Limits::default().max_columns),
+                validate_write(descriptor, &plan, colonne_predefinite()),
                 CapabilityReason::SpatialSemantics,
             );
             semantics_checked += 1;
@@ -618,7 +625,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, Limits::default().max_columns),
+                validate_write(descriptor, &plan, colonne_predefinite()),
                 CapabilityReason::GeometryNotSupported,
             );
             types_checked += 1;
@@ -629,7 +636,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &unresolved, Limits::default().max_columns),
+                validate_write(descriptor, &unresolved, colonne_predefinite()),
                 CapabilityReason::GeometryNotSupported,
             );
             unresolved_checked += 1;
@@ -645,7 +652,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, Limits::default().max_columns),
+                validate_write(descriptor, &plan, colonne_predefinite()),
                 CapabilityReason::MixedGeometry,
             );
             mixed_checked += 1;
@@ -670,15 +677,13 @@ fn field_type_and_limit_matrix_is_enforced() {
             continue;
         };
 
-        let limits = plenora_io_model::limits::Limits {
-            max_columns: 0,
-            ..Default::default()
-        };
+        // Tetto di colonne a zero: il piano ha una colonna, quindi il
+        // rifiuto deve arrivare prima di qualunque scrittura.
         assert!(matches!(
             validate_write(
                 descriptor,
                 &attribute_plan(&["layer"], &Field::new("v", DataType::Utf8, true)),
-                limits.max_columns
+                0
             ),
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
@@ -690,7 +695,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new(name, DataType::Utf8, true)),
-                    Limits::default().max_columns,
+                    colonne_predefinite(),
                 ),
                 CapabilityReason::FieldNameTooLong,
             );
@@ -708,7 +713,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new("nested", nested, true)),
-                    Limits::default().max_columns,
+                    colonne_predefinite(),
                 ),
                 CapabilityReason::TypeNotRepresentable,
             );
@@ -727,7 +732,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                         &["layer"],
                         &Field::new("__not_a_native_attribute__", DataType::Utf8, true),
                     ),
-                    Limits::default().max_columns,
+                    colonne_predefinite(),
                 ),
                 CapabilityReason::TypeNotRepresentable,
             );
@@ -739,7 +744,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new("nullable", DataType::Utf8, true)),
-                    Limits::default().max_columns,
+                    colonne_predefinite(),
                 ),
                 CapabilityReason::Nullability,
             );
@@ -789,7 +794,7 @@ fn materialize_empty_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
     let plan = valid_geometry_plan(descriptor);
     let batch = RecordBatch::new_empty(plan.layers[0].contract.schema.clone());
     let mut writer = driver
-        .create(Sink::Path(output.clone()), &plan, &WriteOptions::default())
+        .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
         .unwrap_or_else(|error| panic!("{}: create dataset vuoto: {error}", descriptor.id));
     writer
         .write(&batch)
@@ -831,7 +836,7 @@ fn materialize_point_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
     )
     .unwrap();
     let mut writer = require_ok(
-        driver.create(Sink::Path(output.clone()), &plan, &WriteOptions::default()),
+        driver.create(Sink::Path(output.clone()), &plan, &opzioni_scrittura()),
         descriptor.id,
         "create determinismo",
     );
@@ -912,7 +917,7 @@ fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
         let plan = valid_geometry_plan(descriptor);
         let batch = RecordBatch::new_empty(plan.layers[0].contract.schema.clone());
         let mut writer = driver
-            .create(Sink::Path(output), &plan, &WriteOptions::default())
+            .create(Sink::Path(output), &plan, &opzioni_scrittura())
             .unwrap_or_else(|error| panic!("{}: create: {error}", descriptor.id));
 
         let preventive = writer.fidelity_assessment().level;
@@ -953,6 +958,17 @@ fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
 }
 
 /// Opzioni di lettura sul modello unificato (S4.d).
+/// Opzioni di scrittura sul modello unificato.
+///
+/// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+/// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+fn opzioni_scrittura() -> WriteOptions {
+    match plenora_io_model::budget::PipelineBudget::builder().build() {
+        Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+        Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+    }
+}
+
 fn opzioni_lettura() -> ReadOptions {
     match plenora_io_model::budget::PipelineBudget::builder().build() {
         Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
@@ -1126,7 +1142,7 @@ fn create_is_no_clobber_for_every_pure_rust_writer() {
         let result = driver.create(
             Sink::Path(output.clone()),
             &valid_geometry_plan(descriptor),
-            &WriteOptions::default(),
+            &opzioni_scrittura(),
         );
         assert!(
             matches!(
@@ -1158,7 +1174,7 @@ fn dropping_writer_never_publishes_partial_output() {
             .create(
                 Sink::Path(output.clone()),
                 &valid_geometry_plan(descriptor),
-                &WriteOptions::default(),
+                &opzioni_scrittura(),
             )
             .unwrap_or_else(|error| panic!("{}: create valido: {error}", descriptor.id));
         drop(writer);

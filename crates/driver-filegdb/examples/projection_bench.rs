@@ -85,11 +85,7 @@ fn generate(path: &Path, rows: usize, field_count: usize) {
     let driver = driver_filegdb::FileGdbDriver;
     let plan = plan(field_count);
     let mut writer = driver
-        .create(
-            Sink::Path(path.to_path_buf()),
-            &plan,
-            &WriteOptions::default(),
-        )
+        .create(Sink::Path(path.to_path_buf()), &plan, &opzioni_scrittura())
         .expect("creazione FileGDB");
     let schema = plan.layers[0].contract.schema.clone();
     let mut first_row = 0;
@@ -110,6 +106,17 @@ fn generate(path: &Path, rows: usize, field_count: usize) {
 }
 
 /// Opzioni di lettura sul modello unificato (S4.d).
+/// Opzioni di scrittura sul modello unificato.
+///
+/// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
+/// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+fn opzioni_scrittura() -> WriteOptions {
+    match plenora_io_model::budget::PipelineBudget::builder().build() {
+        Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+        Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+    }
+}
+
 fn opzioni_lettura() -> ReadOptions {
     match plenora_io_model::budget::PipelineBudget::builder().build() {
         Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),

@@ -226,7 +226,7 @@ impl EntryKind {
 /// strutturale invece che una convenzione del chiamante.
 #[derive(Clone, Copy, Debug)]
 pub struct SourceEntry<'a> {
-    normalized_path: &'a [u8],
+    path_identity_bytes: &'a [u8],
     kind: EntryKind,
     metadata_size: u64,
     charged_input_bytes: u64,
@@ -238,12 +238,12 @@ impl<'a> SourceEntry<'a> {
     /// a `max_input_bytes`.
     #[must_use]
     pub const fn file(
-        normalized_path: &'a [u8],
+        path_identity_bytes: &'a [u8],
         size_bytes: u64,
         modified: Option<SystemTime>,
     ) -> Self {
         Self {
-            normalized_path,
+            path_identity_bytes,
             kind: EntryKind::File,
             metadata_size: size_bytes,
             charged_input_bytes: size_bytes,
@@ -254,9 +254,9 @@ impl<'a> SourceEntry<'a> {
     /// Entry di directory: conta per `max_input_entries`, non addebita byte
     /// e non porta dimensione nel digest.
     #[must_use]
-    pub const fn directory(normalized_path: &'a [u8], modified: Option<SystemTime>) -> Self {
+    pub const fn directory(path_identity_bytes: &'a [u8], modified: Option<SystemTime>) -> Self {
         Self {
-            normalized_path,
+            path_identity_bytes,
             kind: EntryKind::Directory,
             metadata_size: 0,
             charged_input_bytes: 0,
@@ -264,9 +264,26 @@ impl<'a> SourceEntry<'a> {
         }
     }
 
+    /// Codifica **senza perdita** del percorso lessicale, cosi' come il
+    /// chiamante lo ha visto.
+    ///
+    /// Non e' un percorso normalizzato e non e' un'identita' canonica del
+    /// filesystem: `a/../b` e `b` restano distinti, e due hard link allo
+    /// stesso inode pure. Lo dice il nome perche' il nome precedente,
+    /// `normalized_path`, prometteva una normalizzazione che nessuno faceva.
+    ///
+    /// La canonicalizzazione e' **deliberatamente esclusa**:
+    /// `std::fs::canonicalize` segue i symlink, e il preflight li rifiuta
+    /// invece di seguirli. Farla qui allargherebbe il contratto della
+    /// sorgente proprio nel punto in cui e' stato ristretto.
+    ///
+    /// Serve una sola proprieta': **iniettivita' e stabilita'**. Due corse
+    /// sulla stessa sorgente devono dare lo stesso digest, e due sorgenti
+    /// diverse no. Una conversione con perdita — `to_string_lossy` sostituisce
+    /// ogni sequenza non valida con U+FFFD — romperebbe la seconda meta'.
     #[must_use]
-    pub const fn normalized_path(&self) -> &'a [u8] {
-        self.normalized_path
+    pub const fn path_identity_bytes(&self) -> &'a [u8] {
+        self.path_identity_bytes
     }
 
     #[must_use]
@@ -294,9 +311,9 @@ impl<'a> SourceEntry<'a> {
     /// testa impedisce che due insiemi di path diversi producano la stessa
     /// sequenza di byte.
     fn canonical_bytes(&self) -> Vec<u8> {
-        let mut encoded = Vec::with_capacity(self.normalized_path.len() + 34);
-        encoded.extend_from_slice(&(self.normalized_path.len() as u64).to_le_bytes());
-        encoded.extend_from_slice(self.normalized_path);
+        let mut encoded = Vec::with_capacity(self.path_identity_bytes.len() + 34);
+        encoded.extend_from_slice(&(self.path_identity_bytes.len() as u64).to_le_bytes());
+        encoded.extend_from_slice(self.path_identity_bytes);
         encoded.push(self.kind.tag());
         encoded.extend_from_slice(&self.metadata_size.to_le_bytes());
         match self.modified {
@@ -3131,60 +3148,58 @@ mod tests {
 
     #[test]
     fn effective_wkb_components_is_tightened_by_max_vertices() {
-        // `--max-vertices` e' un flag vivo della CLI: il modello unificato
-        // deve applicarlo come lo applica `Limits::effective_wkb()`, o la
-        // migrazione allenterebbe un tetto che l'utente ha stretto.
+        // `--max-vertices` e' un flag vivo della CLI: il tetto per cella dei
+        // componenti deve restare composto con esso, o un utente che stringe
+        // quel flag non otterrebbe nulla.
         let limits = PipelineLimits::default()
             .with_max_wkb_components(10)
             .with_max_vertices(3);
         assert_eq!(limits.effective_wkb_components(), 3);
 
-        let legacy = crate::limits::Limits {
-            max_vertices: 3,
-            wkb: crate::limits::WkbLimits {
-                max_components: 10,
-                ..crate::limits::WkbLimits::default()
-            },
-            ..crate::limits::Limits::default()
-        };
-        assert_eq!(
-            limits.effective_wkb_components(),
-            legacy.effective_wkb().max_components,
-            "la composizione deve coincidere con quella del modello legacy"
-        );
+        // E il verso opposto: quando il tetto per cella e' il piu' stretto,
+        // e' lui a vincere.
+        let limits = PipelineLimits::default()
+            .with_max_wkb_components(3)
+            .with_max_vertices(10);
+        assert_eq!(limits.effective_wkb_components(), 3);
     }
 
+    /// I default del modello unificato, fissati ai valori attesi.
+    ///
+    /// Fino a S4.d questo test confrontava i default con quelli dei **due**
+    /// modelli legacy, e la regola di unificazione — vince il piu' stretto —
+    /// era verificata contro le loro strutture. Rimossi quei tipi (S4.e), il
+    /// confronto non e' scrivibile, ma il requisito resta: un allentamento
+    /// silenzioso di una di queste quote riaprirebbe il finding L0.2 senza
+    /// che nulla lo veda.
+    ///
+    /// I valori sono percio' fissati qui, con l'origine accanto. Cambiarli e'
+    /// legittimo; cambiarli **senza accorgersene** no.
     #[test]
-    fn unified_defaults_are_never_looser_than_either_legacy_model() {
-        // Il finding L0.2 era proprio la divergenza fra i due modelli. La
-        // regola di unificazione — vince il piu' stretto — resta verificata
-        // contro i default legacy finche' esistono, cosi' una modifica
-        // dell'uno o dell'altro non passa inosservata.
+    fn unified_defaults_stay_at_the_tightest_historical_values() {
         let unified = PipelineLimits::default();
-        let legacy = crate::limits::Limits::default();
-        let resource = crate::resource::ResourceLimits::default();
 
-        assert!(unified.max_input_bytes() <= legacy.max_input_bytes);
-        assert!(unified.max_rows() <= resource.rows);
-        assert!(unified.max_rows() <= legacy.max_rows as u64);
-        assert!(unified.max_columns() <= resource.columns);
-        assert!(unified.max_columns() <= legacy.max_columns as u64);
-        assert!(unified.max_output_bytes() <= resource.output_bytes);
-        assert!(unified.max_output_bytes() <= legacy.max_output_bytes);
-        assert!(unified.max_geometry_components() <= resource.geometry_components);
-        assert!(unified.memory_bytes() <= resource.memory_bytes);
-        assert!(unified.spill_bytes() <= resource.spill_bytes);
-        assert!(unified.duration_ms() <= resource.duration_ms);
-        assert!(unified.decompression_ratio() <= resource.decompression_ratio);
-        assert!(unified.output_expansion_ratio() <= resource.output_expansion_ratio);
-        assert_eq!(unified.max_vertices(), legacy.max_vertices);
-        assert_eq!(unified.max_wkb_components(), legacy.wkb.max_components);
-        assert_eq!(unified.max_wkb_depth(), legacy.wkb.max_depth);
-        assert_eq!(unified.max_wkb_cell_bytes(), legacy.wkb.max_cell_bytes);
-        assert_eq!(
-            unified.effective_wkb_components(),
-            legacy.effective_wkb().max_components
-        );
+        // Dal vecchio `Limits`, che era il piu' stretto dei due.
+        assert_eq!(unified.max_input_bytes(), 268_435_456);
+        assert_eq!(unified.max_rows(), 10_000_000);
+        assert_eq!(unified.max_columns(), 4_096);
+        assert_eq!(unified.max_output_bytes(), 1_073_741_824);
+        assert_eq!(unified.max_vertices(), 50_000_000);
+        assert_eq!(unified.max_wkb_components(), 100_000);
+        assert_eq!(unified.max_wkb_depth(), 64);
+        assert_eq!(unified.max_wkb_cell_bytes(), 64 * 1024 * 1024);
+
+        // Dal vecchio `ResourceLimits`, unico a portarle.
+        assert_eq!(unified.max_geometry_components(), 16_777_216);
+        assert_eq!(unified.memory_bytes(), 512 * 1024 * 1024);
+        assert_eq!(unified.spill_bytes(), 4 * 1024 * 1024 * 1024);
+        assert_eq!(unified.duration_ms(), 30_000);
+        assert_eq!(unified.decompression_ratio(), 1_000);
+        assert_eq!(unified.output_expansion_ratio(), 1_000);
+
+        // Nuova in S1 (INV-9): una directory di migliaia di file legittimi
+        // passa, uno scan illimitato no.
+        assert_eq!(unified.max_input_entries(), 10_000);
     }
 
     #[test]
