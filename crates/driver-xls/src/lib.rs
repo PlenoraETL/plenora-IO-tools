@@ -42,6 +42,7 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
+use plenora_io_model::budget::{OperationBudget, SpillLease};
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
@@ -49,7 +50,6 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
-use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{decode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
 use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
 
@@ -116,7 +116,7 @@ impl FormatDriver for XlsDriver {
                 "il driver supporta in lettura soltanto .xlsx; .xls non e instradato".to_owned(),
             ));
         }
-        validate_archive_ratio(&path, opts.resource_budget()?)?;
+        validate_archive_ratio(&path, opts.operation_budget()?)?;
         let mut wb: Xlsx<_> =
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
@@ -136,7 +136,7 @@ impl FormatDriver for XlsDriver {
             &crs,
             opts.cancellation(),
             XlsxQuote::from_read_options(&opts),
-            opts.resource_budget()?,
+            opts.operation_budget()?,
         )?;
         plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
@@ -201,15 +201,15 @@ impl FormatDriver for XlsDriver {
     }
 }
 
-fn validate_archive_ratio(path: &PathBuf, resource_budget: &ResourceBudget) -> Result<()> {
-    let maximum_ratio = resource_budget.limits().decompression_ratio;
+fn validate_archive_ratio(path: &PathBuf, budget: &OperationBudget) -> Result<()> {
+    let maximum_ratio = budget.context().limits().decompression_ratio();
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|error| err(format!("contenitore XLSX non valido: {error}")))?;
     let mut compressed = 0_u64;
     let mut expanded = 0_u64;
     for index in 0..archive.len() {
-        resource_budget.ensure_active()?;
+        budget.context().ensure_active()?;
         let entry = archive
             .by_index(index)
             .map_err(|error| err(format!("voce XLSX non valida: {error}")))?;
@@ -626,16 +626,24 @@ struct BoundedSpoolWriter<'a> {
     writer: BufWriter<&'a std::fs::File>,
     bytes: u64,
     limit: u64,
-    budget: ResourceBudget,
+    budget: OperationBudget,
+    /// Le prenotazioni di spill restano vive quanto il file temporaneo.
+    ///
+    /// Nel modello legacy si faceva `commit`, cioe' consumo definitivo: la
+    /// quota non tornava mai, nemmeno dopo che il file era stato rimosso. Nel
+    /// modello unificato lo spill e' occupazione trattenuta e la `SpillLease`
+    /// la restituisce al drop, insieme allo spool che l'ha creata.
+    leases: Vec<SpillLease>,
 }
 
 impl<'a> BoundedSpoolWriter<'a> {
-    fn new(file: &'a std::fs::File, limit: u64, budget: ResourceBudget) -> Self {
+    fn new(file: &'a std::fs::File, limit: u64, budget: OperationBudget) -> Self {
         Self {
             writer: BufWriter::new(file),
             bytes: 0,
             limit,
             budget,
+            leases: Vec::new(),
         }
     }
 
@@ -652,9 +660,9 @@ impl<'a> BoundedSpoolWriter<'a> {
                 self.limit
             )));
         }
-        let lease = self.budget.try_lease(ResourceKind::SpillBytes, length)?;
+        let lease = self.budget.context().lease_spill(length)?;
         self.writer.write_all(bytes)?;
-        lease.commit(length)?;
+        self.leases.push(lease);
         self.bytes = next;
         Ok(())
     }
@@ -740,7 +748,7 @@ fn infer_layout<RS>(
     crs: &str,
     cancellation: &CancellationToken,
     quote: XlsxQuote,
-    resource_budget: &ResourceBudget,
+    budget: &OperationBudget,
 ) -> Result<(XlsxLayout, DataContract, Arc<tempfile::NamedTempFile>)>
 where
     RS: Read + Seek,
@@ -776,15 +784,12 @@ where
     let mut detected_dimensions = BTreeSet::new();
     let mut detected_types = BTreeSet::new();
     let spool = Arc::new(tempfile::NamedTempFile::new()?);
-    let mut spool_writer = BoundedSpoolWriter::new(
-        spool.as_file(),
-        quote.byte_ingresso,
-        resource_budget.clone(),
-    );
+    let mut spool_writer =
+        BoundedSpoolWriter::new(spool.as_file(), quote.byte_ingresso, budget.clone());
     let mut wkb_buffer = Vec::new();
     let observed_cells =
         for_each_dense_row(&mut reader, bounds, cancellation, |row_index, row| {
-            resource_budget.ensure_active()?;
+            budget.context().ensure_active()?;
             if row_index == bounds.start.0 {
                 let row_headers: Vec<String> = row.iter().map(data_to_string).collect();
                 let (resolved_geom, resolved_columns) =
@@ -1076,9 +1081,32 @@ fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opzioni di lettura sul modello unificato.
+    ///
+    /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+    /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+    /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+    /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    fn opzioni_lettura_con(limits: plenora_io_model::budget::PipelineLimits) -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limits)
+            .build()
+        {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
+    fn opzioni_lettura() -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
-    use plenora_io_model::limits::Limits;
 
     #[test]
     fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {
@@ -1154,7 +1182,7 @@ mod tests {
         w.write(&batch).unwrap();
         w.finish().unwrap();
 
-        let ropts = ReadOptions::default()
+        let ropts = opzioni_lettura()
             .with_assume_crs("EPSG:4326")
             .with_format_option("wkt_column", "geometry");
         let ds = driver.open(Source::Path(out), ropts).unwrap();
@@ -1199,7 +1227,7 @@ mod tests {
         let dataset = driver
             .open(
                 Source::Path(output),
-                ReadOptions::default()
+                opzioni_lettura()
                     .with_assume_crs("EPSG:4326")
                     .with_format_option("wkt_column", "geometry"),
             )
@@ -1261,7 +1289,7 @@ mod tests {
         let dataset = driver
             .open(
                 Source::Path(output),
-                ReadOptions::default()
+                opzioni_lettura()
                     .with_assume_crs("EPSG:4326")
                     .with_format_option("wkt_column", "geometry"),
             )
@@ -1305,13 +1333,9 @@ mod tests {
 
         let result = XlsDriver.open(
             Source::Path(output),
-            ReadOptions::from_legacy(
-                Limits {
-                    max_input_bytes: input_bytes,
-                    ..Limits::default()
-                },
-                ResourceBudget::default(),
-                CancellationToken::default(),
+            opzioni_lettura_con(
+                plenora_io_model::budget::PipelineLimits::default()
+                    .with_max_input_bytes(input_bytes),
             )
             .with_assume_crs("EPSG:4326")
             .with_format_option("wkt_column", "geometry"),
@@ -1329,19 +1353,10 @@ mod tests {
         sheet.write_string(0, 0, "geometry").unwrap();
         sheet.write_string(1, 0, "POINT (1 2)").unwrap();
         workbook.save(&output).unwrap();
-        let resource_budget =
-            plenora_io_model::ResourceBudget::new(plenora_io_model::ResourceLimits {
-                decompression_ratio: 1,
-                ..plenora_io_model::ResourceLimits::default()
-            })
-            .unwrap();
-
         let result = XlsDriver.open(
             Source::Path(output),
-            ReadOptions::from_legacy(
-                Limits::default(),
-                resource_budget,
-                CancellationToken::default(),
+            opzioni_lettura_con(
+                plenora_io_model::budget::PipelineLimits::default().with_decompression_ratio(1),
             )
             .with_assume_crs("EPSG:4326")
             .with_format_option("wkt_column", "geometry"),
@@ -1395,7 +1410,7 @@ mod tests {
         writer.write(&batch).unwrap();
         writer.finish().unwrap();
 
-        let read_options = ReadOptions::default()
+        let read_options = opzioni_lettura()
             .with_assume_crs("EPSG:4326")
             .with_format_option("wkt_column", "geometry");
         let dataset = driver.open(Source::Path(output), read_options).unwrap();

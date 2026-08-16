@@ -17,6 +17,7 @@ use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadSco
 use plenora_io_core::{
     DriverRegistry, Fidelity, FidelityAssessment, LossReport, WriteLayer, WritePlan,
 };
+use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
 use plenora_io_model::contract::{DataContract, LayerContract};
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::Limits;
@@ -381,6 +382,51 @@ fn layer_json(l: &LayerContract) -> Value {
 // "una riga si conta una volta" in un helper che i test possono esercitare
 // direttamente. Il test associato deve continuare a passare se e solo se
 // i due budget hanno contatori indipendenti.
+/// Traduce i flag della CLI nei limiti del modello unificato.
+///
+/// E' il punto in cui `--max-rows` e compagni smettono di essere `Limits` e
+/// diventano `PipelineLimits`. La corrispondenza e' uno a uno dove esiste;
+/// dove la CLI non espone nulla restano i default del modello nuovo, che
+/// nascono dal **piu' stretto** dei due modelli precedenti (finding L0.2).
+///
+/// `max_geometry_components` conserva il default e **non** deriva dal
+/// per-cella `--max-wkb-components`: il primo e' cumulativo sul dataset, il
+/// secondo vale per singola geometria. Derivarlo farebbe esaurire a un
+/// dataset di molte piccole geometrie una quota pensata per una grande.
+fn pipeline_limits_from_cli(limits: &Limits) -> Result<PipelineLimits, PlenoraIoError> {
+    let wkb = limits.effective_wkb();
+    Ok(PipelineLimits::default()
+        .with_max_input_bytes(limits.max_input_bytes)
+        .with_max_input_entries(limits.max_input_entries)
+        .with_max_rows(
+            u64::try_from(limits.max_rows).map_err(|_| {
+                PlenoraIoError::LimitExceeded("--max-rows fuori intervallo".to_owned())
+            })?,
+        )
+        .with_max_columns(u64::try_from(limits.max_columns).map_err(|_| {
+            PlenoraIoError::LimitExceeded("--max-columns fuori intervallo".to_owned())
+        })?)
+        .with_max_output_bytes(limits.max_output_bytes)
+        .with_max_wkb_cell_bytes(wkb.max_cell_bytes)
+        .with_max_wkb_components(wkb.max_components)
+        .with_max_wkb_depth(wkb.max_depth)
+        .with_max_vertices(limits.max_vertices))
+}
+
+/// Costruisce la pipeline di lettura dai flag della CLI.
+///
+/// # Errors
+///
+/// Un flag fuori intervallo, o limiti che non superano la validazione del
+/// modello: in entrambi i casi si fallisce chiuso invece di degradare a un
+/// default che l'utente non ha chiesto.
+fn read_pipeline(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
+    let bundle = PipelineBudget::builder()
+        .limits(pipeline_limits_from_cli(&cli.limits)?)
+        .build()?;
+    Ok(ReadOptions::from_read_parts(bundle.into_read_parts()))
+}
+
 fn conversion_budgets_from_limits(
     limits: &Limits,
 ) -> Result<(ResourceBudget, ResourceBudget), PlenoraIoError> {
@@ -447,10 +493,7 @@ fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
     // Finding #3: il budget deve riflettere i flag CLI. Fallire chiuso qui
     // preserva la semantica fail-closed dichiarata dal componente: un flag
     // fuori intervallo non deve degradare silenziosamente a un default.
-    let resource_budget = resource_budget_from_limits(&cli.limits)?;
-    let mut opzioni =
-        ReadOptions::from_legacy(cli.limits, resource_budget, CancellationToken::default())
-            .with_format_options(cli.opts.clone());
+    let mut opzioni = read_pipeline(cli)?.with_format_options(cli.opts.clone());
     opzioni.assume_crs.clone_from(&cli.assume_crs);
     Ok(opzioni)
 }
@@ -650,10 +693,14 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     // R/2 righe effettive). Il helper e' esposto come punto unico cosi'
     // che il test lo eserciti direttamente: qualunque futura tentazione di
     // riusare un solo budget deve passare da qui.
-    let (read_budget, write_budget) =
+    let (_read_budget, write_budget) =
         conversion_budgets_from_limits(&cli.limits).map_err(map_err)?;
 
-    let mut ropts = ReadOptions::from_legacy(cli.limits, read_budget, CancellationToken::default());
+    // Il ramo di lettura vive sul modello unificato da S4.d; quello di
+    // scrittura resta legacy fino a S4.e. Restano quindi due budget
+    // indipendenti, che e' cio' che il finding #3 richiedeva: condividerne
+    // uno solo farebbe consumare due volte la stessa riga.
+    let mut ropts = read_pipeline(cli).map_err(map_err)?;
     ropts.assume_crs.clone_from(&cli.assume_crs);
     // Finding #11 della review 2026-08-15: `--opt` era accettato dal parser
     // ma non consumato da `convert`. Ora `--opt` fa da base comune per
@@ -1510,7 +1557,12 @@ mod tests {
         let reopened = driver
             .open(
                 Source::Path(output),
-                plenora_io_core::ReadOptions::default(),
+                match plenora_io_model::budget::PipelineBudget::builder().build() {
+                    Ok(bundle) => {
+                        plenora_io_core::ReadOptions::from_read_parts(bundle.into_read_parts())
+                    }
+                    Err(error) => unreachable!("bundle di test: {error:?}"),
+                },
             )
             .unwrap();
         let reopened_geometry = reopened.layers()[0].contract.geometry.as_ref().unwrap();

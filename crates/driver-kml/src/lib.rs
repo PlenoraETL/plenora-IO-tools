@@ -37,6 +37,7 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
+use plenora_io_model::budget::{OperationBudget, SpillLease};
 #[cfg(test)]
 use plenora_io_model::contract::GeometryType;
 use plenora_io_model::contract::{
@@ -45,7 +46,6 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
-use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
@@ -262,7 +262,7 @@ impl FormatDriver for KmlDriver {
         let mut spool_writer = KmlSpoolWriter::new(
             spool.as_file(),
             opts.max_input_bytes(),
-            opts.resource_budget()?.clone(),
+            opts.operation_budget()?.clone(),
         );
         while let Some(placemark) = stream.next_placemark(
             opts.cancellation(),
@@ -451,16 +451,24 @@ struct KmlSpoolWriter<'a> {
     output: BufWriter<&'a File>,
     bytes: u64,
     limit: u64,
-    budget: ResourceBudget,
+    budget: OperationBudget,
+    /// Le prenotazioni di spill restano vive quanto il file temporaneo.
+    ///
+    /// Nel modello legacy si faceva `commit`, cioe' consumo definitivo: la
+    /// quota non tornava mai, nemmeno dopo che il file era stato rimosso. Nel
+    /// modello unificato lo spill e' occupazione trattenuta e la `SpillLease`
+    /// la restituisce al drop, insieme allo spool che l'ha creata.
+    leases: Vec<SpillLease>,
 }
 
 impl<'a> KmlSpoolWriter<'a> {
-    fn new(file: &'a File, limit: u64, budget: ResourceBudget) -> Self {
+    fn new(file: &'a File, limit: u64, budget: OperationBudget) -> Self {
         Self {
             output: BufWriter::new(file),
             bytes: 0,
             limit,
             budget,
+            leases: Vec::new(),
         }
     }
 
@@ -477,9 +485,9 @@ impl<'a> KmlSpoolWriter<'a> {
                 self.limit
             )));
         }
-        let lease = self.budget.try_lease(ResourceKind::SpillBytes, length)?;
+        let lease = self.budget.context().lease_spill(length)?;
         self.output.write_all(bytes)?;
-        lease.commit(length)?;
+        self.leases.push(lease);
         self.bytes = next;
         Ok(())
     }
@@ -1481,6 +1489,20 @@ pub fn __fuzz_read_kml(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opzioni di lettura sul modello unificato.
+    ///
+    /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+    /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+    /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+    /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    fn opzioni_lettura() -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::wkb::to_wkb;
@@ -1567,9 +1589,7 @@ mod tests {
         let path = dir.path().join("in.kml");
         std::fs::write(&path, SAMPLE).unwrap();
         let driver = KmlDriver;
-        let ds = driver
-            .open(Source::Path(path), ReadOptions::default())
-            .unwrap();
+        let ds = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
         assert_eq!(
             ds.layers()[0]
                 .contract
@@ -1652,7 +1672,7 @@ mod tests {
         let path = dir.path().join("semantic-equivalence.kml");
         std::fs::write(&path, text).unwrap();
         let dataset = KmlDriver
-            .open(Source::Path(path), ReadOptions::default())
+            .open(Source::Path(path), opzioni_lettura())
             .unwrap();
         let mut reader = dataset
             .open_layer_reader(&ReadRequest {
@@ -1728,9 +1748,7 @@ mod tests {
             plenora_io_core::Fidelity::Approximating
         );
 
-        let ds = driver
-            .open(Source::Path(out), ReadOptions::default())
-            .unwrap();
+        let ds = driver.open(Source::Path(out), opzioni_lettura()).unwrap();
         let mut r = ds
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),
@@ -1810,9 +1828,7 @@ mod tests {
             .unwrap()
             .contains("12.5,45.9,123.25"));
 
-        let dataset = driver
-            .open(Source::Path(out), ReadOptions::default())
-            .unwrap();
+        let dataset = driver.open(Source::Path(out), opzioni_lettura()).unwrap();
         assert_eq!(
             dataset.layers()[0]
                 .contract

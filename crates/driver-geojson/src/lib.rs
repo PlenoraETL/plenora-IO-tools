@@ -1310,6 +1310,20 @@ fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opzioni di lettura sul modello unificato.
+    ///
+    /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+    /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+    /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+    /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    fn opzioni_lettura() -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::contract::{CoordinateDimensions, GeometryType};
@@ -1319,7 +1333,7 @@ mod tests {
 
     fn read_all(driver: &GeoJsonDriver, path: &Path) -> (RecordBatch, LayerContract) {
         let ds = driver
-            .open(Source::Path(path.to_owned()), ReadOptions::default())
+            .open(Source::Path(path.to_owned()), opzioni_lettura())
             .unwrap();
         let layer = ds.layers()[0].clone();
         let mut reader = ds
@@ -1532,9 +1546,7 @@ mod tests {
         )
         .unwrap();
         let driver = GeoJsonDriver;
-        let dataset = driver
-            .open(Source::Path(src), ReadOptions::default())
-            .unwrap();
+        let dataset = driver.open(Source::Path(src), opzioni_lettura()).unwrap();
         let mut reader = dataset
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),
@@ -1568,9 +1580,7 @@ mod tests {
         )
         .unwrap();
         let driver = GeoJsonDriver;
-        let dataset = driver
-            .open(Source::Path(src), ReadOptions::default())
-            .unwrap();
+        let dataset = driver.open(Source::Path(src), opzioni_lettura()).unwrap();
         let mut reader = dataset
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),
@@ -1796,9 +1806,7 @@ mod tests {
         std::fs::write(&src, s).unwrap();
 
         let driver = GeoJsonDriver;
-        let ds = driver
-            .open(Source::Path(src), ReadOptions::default())
-            .unwrap();
+        let ds = driver.open(Source::Path(src), opzioni_lettura()).unwrap();
         let mut reader = ds
             .open_layer_reader(&ReadRequest {
                 layer: LayerId(0),

@@ -700,6 +700,20 @@ fn cell_string(v: &JsonValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opzioni di lettura sul modello unificato.
+    ///
+    /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+    /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+    /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+    /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    fn opzioni_lettura() -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::CancellationToken;
@@ -713,7 +727,7 @@ mod tests {
     }
 
     fn read_opts(pairs: &[(&str, &str)]) -> ReadOptions {
-        ReadOptions::default()
+        opzioni_lettura()
             .with_assume_crs("EPSG:4326")
             .with_format_options(opts(pairs))
     }

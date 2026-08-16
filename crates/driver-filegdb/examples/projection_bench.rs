@@ -109,11 +109,19 @@ fn generate(path: &Path, rows: usize, field_count: usize) {
     );
 }
 
+/// Opzioni di lettura sul modello unificato (S4.d).
+fn opzioni_lettura() -> ReadOptions {
+    match plenora_io_model::budget::PipelineBudget::builder().build() {
+        Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+        Err(error) => unreachable!("bundle non costruibile: {error:?}"),
+    }
+}
+
 fn read(path: &Path, runs: usize, mode: &str) {
     let driver = driver_filegdb::FileGdbDriver;
     for run in 0..=runs {
         let dataset = driver
-            .open(Source::Path(path.to_path_buf()), ReadOptions::default())
+            .open(Source::Path(path.to_path_buf()), opzioni_lettura())
             .expect("apertura FileGDB");
         let source_fields = dataset.layers()[0].contract.schema.fields().len() - 1;
         // Il numero di campi di un layer FileGDB e' limitato dal formato a

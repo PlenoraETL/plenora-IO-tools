@@ -1677,6 +1677,20 @@ pub fn __fuzz_gpkg_geometry(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opzioni di lettura sul modello unificato.
+    ///
+    /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+    /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+    /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+    /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    fn opzioni_lettura() -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::wkb::{
@@ -1760,9 +1774,7 @@ mod tests {
         assert_eq!(kinds, vec!["real", "real", "integer"]);
         drop(conn);
 
-        let dataset = driver
-            .open(Source::Path(path), ReadOptions::default())
-            .unwrap();
+        let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
         let loss = read_all_and_loss(dataset.as_ref());
 
         assert_eq!(loss.counts.get(INTEGER_COLUMN_REAL_TRUNCATED), Some(&1));
@@ -2157,7 +2169,7 @@ mod tests {
             maxy: 10.0,
         };
         let unregistered = driver
-            .open(Source::Path(path.clone()), ReadOptions::default())
+            .open(Source::Path(path.clone()), opzioni_lettura())
             .unwrap();
         assert_eq!(
             unregistered.layers()[0]
@@ -2185,9 +2197,7 @@ mod tests {
         .unwrap();
         drop(conn);
 
-        let indexed = driver
-            .open(Source::Path(path), ReadOptions::default())
-            .unwrap();
+        let indexed = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
         assert_eq!(
             indexed.layers()[0]
                 .contract
@@ -2270,7 +2280,7 @@ mod tests {
 
             // `expect_err` richiederebbe `Debug` sul trait object restituito
             // in caso di successo, che non lo implementa.
-            match driver.open(Source::Path(path), ReadOptions::default()) {
+            match driver.open(Source::Path(path), opzioni_lettura()) {
                 Ok(_) => panic!("colonna {nome}: il file doveva essere rifiutato"),
                 Err(errore) => assert!(
                     errore.to_string().contains("oscura l'alias"),
@@ -2300,7 +2310,7 @@ mod tests {
         std::fs::copy(&seme, &path).unwrap();
 
         let driver = GpkgDriver;
-        let Ok(dataset) = driver.open(Source::Path(path), ReadOptions::default()) else {
+        let Ok(dataset) = driver.open(Source::Path(path), opzioni_lettura()) else {
             // Il file e' corrotto: se una verifica a monte lo rifiuta prima
             // ancora di leggerlo, il non-avanzamento e' comunque irraggiungibile.
             return;
@@ -2370,9 +2380,7 @@ mod tests {
         w.write(&batch).unwrap();
         w.finish().unwrap();
 
-        let ds = driver
-            .open(Source::Path(path), ReadOptions::default())
-            .unwrap();
+        let ds = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
         assert_eq!(ds.layers().len(), 1);
         assert_eq!(ds.layers()[0].name, "vani");
         let mut reader = ds
@@ -2491,9 +2499,7 @@ mod tests {
         writer.write(&batch).unwrap();
         writer.finish().unwrap();
 
-        let dataset = driver
-            .open(Source::Path(path), ReadOptions::default())
-            .unwrap();
+        let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
         let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
         assert_eq!(geometry.dimensions, CoordinateDimensions::Xyzm);
         assert_eq!(geometry.srid, Some(4326));
@@ -2588,9 +2594,7 @@ mod tests {
         w.write_to_layer(LayerId(1), &b1).unwrap();
         w.finish().unwrap();
 
-        let ds = driver
-            .open(Source::Path(path), ReadOptions::default())
-            .unwrap();
+        let ds = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
         assert_eq!(ds.layers().len(), 2);
         let names: Vec<&str> = ds.layers().iter().map(|l| l.name.as_str()).collect();
         assert!(
@@ -2657,9 +2661,7 @@ mod tests {
         w.finish().unwrap();
 
         // Rilettura: il CRS NON è più 4326 fisso, è EPSG:3857.
-        let ds = driver
-            .open(Source::Path(path), ReadOptions::default())
-            .unwrap();
+        let ds = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
         let crs = ds.layers()[0].contract.geometry.as_ref().unwrap().crs.id();
         assert_eq!(crs, Some("EPSG:3857"));
     }

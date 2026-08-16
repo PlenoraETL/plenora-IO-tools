@@ -2046,11 +2046,48 @@ TOML.
 
 **Il gate dell'handoff si accontentava di una menzione.** Il nome del
 test bastava trovarlo in un punto qualsiasi del crate: un commento che
-spiegasse cosa mancava lo avrebbe sbloccato. Ora le condizioni sono
-ancorate ai due file del percorso comune — `spool.rs` e
-`reader_adapters.rs` devono essere liberi da `ResourceLease` e usare
-`InternalMemoryLease` con `shrink_to` — e il test e' cercato come
-**definizione** `#[test] fn`, non come stringa.
+spiegasse cosa mancava lo avrebbe sbloccato. Le condizioni sono ora
+ancorate ai due file del percorso comune e descrivono **responsabilita'
+distinte**, non la presenza degli stessi simboli in entrambi:
+`reader_adapters.rs` acquisisce la lease, chiama `.shrink_to(...)` e la
+cede; `spool.rs` la riceve e la custodisce, e **non** deve acquisirne
+una seconda ne' ridurla di nuovo. Chiedere `shrink_to` in entrambi
+avrebbe spinto verso una chiamata duplicata, o verso un commento messo
+li' per accontentare il gate.
+
+Il sorgente viene inoltre **spogliato di commenti e stringhe** prima
+delle regex, e i moduli `#[cfg(test)]` sono esclusi dalle sole regole
+di responsabilita': un `/* #[test] fn handoff_reale... */` non
+descrive codice che gira, e un helper di test che imita l'adapter
+acquisisce legittimamente una lease.
+
+#### S4.d — handoff reale, preflight osservante, controlli legacy rimossi
+
+Il sottopasso e' atomico per necessita': consumo del permit, rimozione
+dei controlli duplicati e migrazione del percorso comune sono lo stesso
+cambiamento visto da tre lati.
+
+`Source::into_path_observed` sostituisce `into_path_checked`. Enumera
+chiamando `note_entry_visited` una volta per voce **scoperta** — non al
+prelievo, cosi' la coda resta bounded — e spende il permit in
+`observe_input` a enumerazione conclusa. I controlli vecchi non sono
+stati spostati: sono spariti nello stesso atto in cui il context ha
+iniziato ad applicarli.
+
+Adapter e spool prendono un `OperationBudget`: contatori dai suoi
+gauge, memoria e spill dal context. `with_read_budget` accetta ora
+**solo** il modello unificato. L'adapter prenota largo, misura, riduce
+con `shrink_to` all'ingombro reale piu' `PER_BATCH_OVERHEAD_BYTES`, e
+sposta la stessa lease nello spool per `move`.
+
+**Due allineamenti semantici, entrambi voluti.** La quota di spill dei
+driver DXF/KML/XLSX non e' piu' consumo definitivo ma occupazione
+trattenuta, restituita al drop del file temporaneo. E la concorrenza
+vive nel pool (INV-12): senza pool la lease e' un no-op, quindi i test
+che verificano il tetto usano ora un `ResourcePool` esplicito.
+
+**Il gate `check_pipeline_branch_gate.py` si e' sbloccato da solo**, ed
+e' rimovibile con il ponte in S4.e. S4.c e S4.d si dichiarano chiusi.
 
 ### M4 — Rimozione del vecchio modello
 

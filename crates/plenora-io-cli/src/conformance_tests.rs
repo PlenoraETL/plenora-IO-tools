@@ -952,8 +952,16 @@ fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
     assert_eq!(checked, 6, "catalogo Conditional pure Rust inatteso");
 }
 
+/// Opzioni di lettura sul modello unificato (S4.d).
+fn opzioni_lettura() -> ReadOptions {
+    match plenora_io_model::budget::PipelineBudget::builder().build() {
+        Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+        Err(error) => unreachable!("bundle non costruibile: {error:?}"),
+    }
+}
+
 fn read_options(driver: &str) -> ReadOptions {
-    let mut options = ReadOptions::default();
+    let mut options = opzioni_lettura();
     if matches!(driver, "csv" | "dxf" | "xls") {
         options.assume_crs = Some("EPSG:4326".to_owned());
     }
@@ -1097,7 +1105,7 @@ fn independent_reader_descriptor_allows_two_live_readers() {
     let directory = tempfile::tempdir().unwrap();
     let output = materialize_empty_dataset(&driver, &directory);
     let dataset = driver
-        .open(Source::Path(output), ReadOptions::default())
+        .open(Source::Path(output), opzioni_lettura())
         .unwrap();
 
     let first = dataset.open_layer_reader(&read_request()).unwrap();

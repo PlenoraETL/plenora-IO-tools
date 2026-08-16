@@ -294,8 +294,16 @@ fn remove_dataset(id: &str, path: &Path) {
     }
 }
 
+/// Opzioni di lettura sul modello unificato (S4.d).
+fn opzioni_lettura() -> ReadOptions {
+    match plenora_io_model::budget::PipelineBudget::builder().build() {
+        Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+        Err(error) => unreachable!("bundle non costruibile: {error:?}"),
+    }
+}
+
 fn read_opts(id: &str) -> ReadOptions {
-    let mut o = ReadOptions::default();
+    let mut o = opzioni_lettura();
     if matches!(id, "csv" | "xlsx") {
         o.assume_crs = Some("EPSG:4326".to_owned());
         o.format_options

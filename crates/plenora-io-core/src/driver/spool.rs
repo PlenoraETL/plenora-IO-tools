@@ -68,9 +68,10 @@ use arrow_array::RecordBatch;
 use arrow_ipc::reader::StreamReader;
 use arrow_ipc::writer::StreamWriter;
 use arrow_schema::SchemaRef;
+use plenora_io_model::budget::{InternalMemoryLease, OperationBudget, SpillLease};
 use plenora_io_model::{
     CancellationToken, ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, RemoteEffect,
-    ResourceBudget, ResourceKind, ResourceLease, Result, RetryDisposition,
+    Result, RetryDisposition,
 };
 
 use crate::driver::check_cancelled;
@@ -100,7 +101,7 @@ const SPOOL_QUOTA_EXHAUSTED: &str = "quota di spill esaurita prima della scrittu
 /// serie farebbe crescere la coda senza alcun tetto: la boundedness dello
 /// spool si reggerebbe sull'ipotesi che ogni batch porti dati, che e'
 /// esattamente cio' che una sorgente ostile non fa.
-const PER_BATCH_OVERHEAD_BYTES: u64 = 1_024;
+pub(crate) const PER_BATCH_OVERHEAD_BYTES: u64 = 1_024;
 
 /// Granularita' delle prenotazioni di spill.
 ///
@@ -137,8 +138,8 @@ fn contract_error(message: &'static str) -> PlenoraIoError {
 /// la materializzazione del batch successivo — cioe' rendere lo spool inutile
 /// proprio nel caso che dovrebbe risolvere.
 #[must_use]
-pub fn adaptive_memory_threshold(budget: &ResourceBudget) -> u64 {
-    (budget.limits().memory_bytes / 2).max(1)
+pub fn adaptive_memory_threshold(budget: &OperationBudget) -> u64 {
+    (budget.context().limits().memory_bytes() / 2).max(1)
 }
 
 /// Directory che ospitera' l'inode dello spool.
@@ -182,7 +183,7 @@ fn resolve_spill_directory(configured: Option<std::ffi::OsString>) -> Result<Pat
 /// raggiungere il disco, ed e' quindi l'unico punto dove il controllo di
 /// quota puo' precedere davvero la scrittura.
 struct SpillGuard {
-    budget: ResourceBudget,
+    budget: OperationBudget,
     leases: Vec<TrackedLease>,
     reserved: u64,
     written: u64,
@@ -193,7 +194,7 @@ struct SpillGuard {
 }
 
 impl SpillGuard {
-    const fn new(budget: ResourceBudget) -> Self {
+    const fn new(budget: OperationBudget) -> Self {
         Self {
             budget,
             leases: Vec::new(),
@@ -218,14 +219,12 @@ impl SpillGuard {
         }
         let mancante = richiesto - self.reserved;
         let blocco = mancante.max(SPILL_RESERVATION_CHUNK);
-        let lease = match self.budget.try_lease(ResourceKind::SpillBytes, blocco) {
+        let lease = match self.budget.context().lease_spill(blocco) {
             Ok(lease) => lease,
-            Err(_) if blocco > mancante => {
-                self.budget.try_lease(ResourceKind::SpillBytes, mancante)?
-            }
+            Err(_) if blocco > mancante => self.budget.context().lease_spill(mancante)?,
             Err(errore) => return Err(errore),
         };
-        self.reserved = self.reserved.saturating_add(lease.amount());
+        self.reserved = self.reserved.saturating_add(lease.bytes());
         self.leases.push(TrackedLease(lease));
         Ok(())
     }
@@ -294,7 +293,7 @@ fn nota_rilascio(evento: &'static str) {
 /// non quello in cui muore il guardiano che la conteneva: le due cose
 /// coincidono solo se nessuno svuota la lista prima del tempo, ed e'
 /// esattamente l'errore che il test deve poter vedere.
-struct TrackedLease(#[allow(dead_code)] ResourceLease);
+struct TrackedLease(#[allow(dead_code)] SpillLease);
 
 #[cfg(test)]
 impl Drop for TrackedLease {
@@ -395,7 +394,12 @@ enum Stage {
     /// memoria. La lease viene restituita quando il batch lascia la RAM —
     /// consegnato al consumer o migrato su disco (INV-5).
     Memory {
-        batches: VecDeque<(RecordBatch, Option<ResourceLease>)>,
+        /// La lease e' quella **gia' ridotta dall'adapter**, trasferita per
+        /// `move`: lo spool non ne acquisisce una propria. Acquisirne una
+        /// seconda contabilizzerebbe due volte lo stesso batch, e fra il
+        /// rilascio della prima e la presa della seconda resterebbe la
+        /// finestra scoperta che l'handoff esiste per chiudere.
+        batches: VecDeque<(RecordBatch, Option<InternalMemoryLease>)>,
         bytes: u64,
     },
     /// Oltre soglia: i batch sono su file temporaneo senza nome. Una volta
@@ -426,7 +430,7 @@ enum Stage {
 /// e' cio' che rende l'atomicita' operativa verificabile invece che sperata.
 pub struct StagedSpool {
     schema: SchemaRef,
-    budget: ResourceBudget,
+    budget: OperationBudget,
     cancellation: CancellationToken,
     memory_threshold: u64,
     stage: Stage,
@@ -435,7 +439,11 @@ pub struct StagedSpool {
 
 impl StagedSpool {
     #[must_use]
-    pub fn new(schema: SchemaRef, budget: ResourceBudget, cancellation: CancellationToken) -> Self {
+    pub fn new(
+        schema: SchemaRef,
+        budget: OperationBudget,
+        cancellation: CancellationToken,
+    ) -> Self {
         let memory_threshold = adaptive_memory_threshold(&budget);
         Self {
             schema,
@@ -451,7 +459,7 @@ impl StagedSpool {
     }
 
     #[cfg(test)]
-    fn with_threshold(schema: SchemaRef, budget: ResourceBudget, memory_threshold: u64) -> Self {
+    fn with_threshold(schema: SchemaRef, budget: OperationBudget, memory_threshold: u64) -> Self {
         Self {
             schema,
             budget,
@@ -514,17 +522,18 @@ impl StagedSpool {
     /// Restituisce un errore se lo spool e' gia' sigillato, se lo schema del
     /// batch diverge da quello del layer, se la quota di memoria o di spill
     /// non basta, o se la scrittura sul file temporaneo fallisce.
-    pub fn push(&mut self, batch: RecordBatch, memory_bytes: u64) -> Result<()> {
+    pub fn push(&mut self, batch: RecordBatch, memory_lease: InternalMemoryLease) -> Result<()> {
         if self.sealed {
             return Err(contract_error(SPOOL_ALREADY_SEALED));
         }
         if batch.schema() != self.schema {
             return Err(contract_error(SPOOL_SCHEMA_MISMATCH));
         }
-        // Ogni batch costa almeno l'occupazione della sua presenza in coda:
-        // senza questo minimo una sorgente che produce batch vuoti non
-        // farebbe mai scattare la soglia (vedi PER_BATCH_OVERHEAD_BYTES).
-        let accounted = memory_bytes.saturating_add(PER_BATCH_OVERHEAD_BYTES);
+        // La grandezza contabilizzata e' quella della lease che arriva:
+        // l'adapter l'ha gia' ridotta all'ingombro reale del batch piu'
+        // `PER_BATCH_OVERHEAD_BYTES`. Ricalcolarla qui vorrebbe dire fidarsi
+        // di una misura diversa da quella prenotata.
+        let accounted = memory_lease.bytes();
         let migrate = match &self.stage {
             Stage::Memory { bytes, .. } => bytes.saturating_add(accounted) > self.memory_threshold,
             _ => false,
@@ -535,11 +544,10 @@ impl StagedSpool {
         match &mut self.stage {
             Stage::Memory { batches, bytes } => {
                 // La lease resta viva quanto il batch: e' la memoria che la
-                // libreria detiene davvero (INV-5).
-                let lease = self
-                    .budget
-                    .try_lease(ResourceKind::MemoryBytes, accounted)?;
-                batches.push_back((batch, Some(lease)));
+                // libreria detiene davvero (INV-5). E' la **stessa** lease
+                // che l'adapter ha ridotto, spostata qui per `move`: nessuna
+                // seconda acquisizione, nessuna finestra.
+                batches.push_back((batch, Some(memory_lease)));
                 *bytes = bytes.saturating_add(accounted);
                 Ok(())
             }
@@ -609,14 +617,14 @@ impl StagedSpool {
         // senza questo controllo un Ctrl+C o una deadline scaduta non
         // avrebbero effetto fino all'ultimo batch.
         check_cancelled(&self.cancellation, ErrorPhase::Read)?;
-        self.budget.ensure_active()?;
+        self.budget.context().ensure_active()?;
         let esito = match &mut self.stage {
             Stage::Memory { batches, bytes } => match batches.pop_front() {
                 // Il drop della lease restituisce la memoria nello stesso
                 // istante in cui il batch lascia la libreria: e' il transfer
                 // di INV-5, non un rilascio differito.
                 Some((batch, lease)) => {
-                    let released = lease.map_or(0, |lease| lease.amount());
+                    let released = lease.map_or(0, |lease| lease.bytes());
                     *bytes = bytes.saturating_sub(released);
                     Ok(Some(batch))
                 }
@@ -682,7 +690,7 @@ impl StagedSpool {
     /// provare che INV-8 vale anche quando la rilettura fallisce **dopo** la
     /// validazione, cioe' quando il consumer ha gia' ricevuto un `Ok`.
     #[cfg(test)]
-    fn replaying_from(schema: SchemaRef, budget: ResourceBudget, file: File) -> Result<Self> {
+    fn replaying_from(schema: SchemaRef, budget: OperationBudget, file: File) -> Result<Self> {
         let reader = StreamReader::try_new(SpoolFile { inner: file }, None)
             .map_err(|_| spool_error(SPOOL_CORRUPTION))?;
         let budget_per_guard = budget.clone();
@@ -719,7 +727,7 @@ impl StagedSpool {
             // La migrazione di uno spool pieno e' una sequenza lunga di
             // scritture: va interrompibile come il resto della lettura.
             check_cancelled(&self.cancellation, ErrorPhase::Read)?;
-            self.budget.ensure_active()?;
+            self.budget.context().ensure_active()?;
             writer.write(&batch).map_err(|_| write_failure(&guard))?;
             // Il batch ha lasciato la RAM: la memoria torna subito, ed e'
             // proprio questo che rende il picco indipendente dal dataset.
@@ -739,9 +747,20 @@ mod tests {
 
     use arrow_array::{Int64Array, StringArray};
     use arrow_schema::{DataType, Field, Schema};
-    use plenora_io_model::ResourceLimits;
 
     use super::*;
+    use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
+
+    /// Budget dell'operazione per i test, dal modello unificato.
+    ///
+    /// Passa dal bundle e non costruisce il context a mano: e' l'unica via
+    /// che esiste, ed e' quella che i driver useranno.
+    fn budget_con(limits: PipelineLimits) -> OperationBudget {
+        match PipelineBudget::builder().limits(limits).build() {
+            Ok(bundle) => bundle.into_write_parts().into_budget(),
+            Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+        }
+    }
 
     fn schema() -> SchemaRef {
         Arc::new(Schema::new(vec![
@@ -765,16 +784,34 @@ mod tests {
         }
     }
 
-    fn budget(memory_bytes: u64, spill_bytes: u64) -> ResourceBudget {
-        match ResourceBudget::new(ResourceLimits {
-            memory_bytes,
-            cell_bytes: memory_bytes.min(64 * 1024 * 1024),
-            spill_bytes,
-            ..ResourceLimits::default()
-        }) {
-            Ok(budget) => budget,
-            Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
-        }
+    fn budget_di(memory_bytes: u64, spill_bytes: u64) -> OperationBudget {
+        budget_con(
+            PipelineLimits::default()
+                .with_memory_bytes(memory_bytes)
+                .with_spill_bytes(spill_bytes)
+                .with_max_wkb_cell_bytes(
+                    usize::try_from(memory_bytes.min(64 * 1024 * 1024)).unwrap_or(usize::MAX),
+                ),
+        )
+    }
+
+    /// Spinge un batch nello spool come fa l'adapter: prenota la memoria,
+    /// la dimensiona all'ingombro contabilizzato, e cede la lease per `move`.
+    ///
+    /// I test passano i byte del *payload*; l'ingombro strutturale lo aggiunge
+    /// qui, nello stesso punto in cui lo aggiunge il percorso reale. Chiamare
+    /// `push` con una lease costruita altrove renderebbe i test verdi su una
+    /// contabilita' che il codice di produzione non usa.
+    fn spingi(
+        spool: &mut StagedSpool,
+        budget: &OperationBudget,
+        batch: RecordBatch,
+        payload_bytes: u64,
+    ) -> Result<()> {
+        let lease = budget
+            .context()
+            .lease_memory_internal(payload_bytes.saturating_add(PER_BATCH_OVERHEAD_BYTES))?;
+        spool.push(batch, lease)
     }
 
     fn drain(spool: &mut StagedSpool) -> Vec<RecordBatch> {
@@ -788,13 +825,14 @@ mod tests {
     #[test]
     fn under_threshold_the_spool_stays_in_memory() {
         let schema = schema();
+        let budget = budget_di(1 << 20, 1 << 20);
         let mut spool = StagedSpool::with_threshold(
             Arc::clone(&schema),
-            budget(1 << 20, 1 << 20),
+            budget.clone(),
             4 * PER_BATCH_OVERHEAD_BYTES,
         );
-        spool.push(batch(&schema, 0, 4), 100).expect("push");
-        spool.push(batch(&schema, 4, 4), 100).expect("push");
+        spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("push");
+        spingi(&mut spool, &budget, batch(&schema, 4, 4), 100).expect("push");
         assert!(!spool.spilled());
         assert_eq!(
             spool.buffered_memory_bytes(),
@@ -807,15 +845,14 @@ mod tests {
     #[test]
     fn crossing_the_threshold_migrates_to_disk_and_preserves_order() {
         let schema = schema();
+        let budget = budget_di(1 << 20, 1 << 20);
         let mut spool = StagedSpool::with_threshold(
             Arc::clone(&schema),
-            budget(1 << 20, 1 << 20),
+            budget.clone(),
             2 * PER_BATCH_OVERHEAD_BYTES,
         );
         for indice in 0..6_i64 {
-            spool
-                .push(batch(&schema, indice * 4, 4), 100)
-                .expect("push");
+            spingi(&mut spool, &budget, batch(&schema, indice * 4, 4), 100).expect("push");
         }
         assert!(spool.spilled(), "oltre soglia i batch devono migrare");
         spool.seal().expect("seal");
@@ -838,21 +875,21 @@ mod tests {
         // budget, altrimenti lo spool sposta i byte su disco ma continua a
         // pagarli in RAM.
         let schema = schema();
-        let budget = budget(10_000, 1 << 24);
+        let budget = budget_di(10_000, 1 << 24);
         let mut spool = StagedSpool::with_threshold(
             Arc::clone(&schema),
             budget.clone(),
             2 * PER_BATCH_OVERHEAD_BYTES,
         );
-        spool.push(batch(&schema, 0, 4), 100).expect("push");
+        spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("push");
         assert_eq!(
-            budget.remaining(ResourceKind::MemoryBytes),
+            budget.context().remaining_memory(),
             10_000 - (100 + PER_BATCH_OVERHEAD_BYTES)
         );
-        spool.push(batch(&schema, 4, 4), 100).expect("push");
+        spingi(&mut spool, &budget, batch(&schema, 4, 4), 100).expect("push");
         assert!(spool.spilled());
         assert_eq!(
-            budget.remaining(ResourceKind::MemoryBytes),
+            budget.context().remaining_memory(),
             10_000,
             "dopo la migrazione nessun batch trattiene memoria"
         );
@@ -862,20 +899,20 @@ mod tests {
     #[test]
     fn delivering_a_batch_returns_its_memory() {
         let schema = schema();
-        let budget = budget(10_000, 1 << 20);
+        let budget = budget_di(10_000, 1 << 20);
         let mut spool = StagedSpool::with_threshold(Arc::clone(&schema), budget.clone(), 10_000);
         let primo = 400 + PER_BATCH_OVERHEAD_BYTES;
         let secondo = 600 + PER_BATCH_OVERHEAD_BYTES;
-        spool.push(batch(&schema, 0, 4), 400).expect("push");
-        spool.push(batch(&schema, 4, 4), 600).expect("push");
+        spingi(&mut spool, &budget, batch(&schema, 0, 4), 400).expect("push");
+        spingi(&mut spool, &budget, batch(&schema, 4, 4), 600).expect("push");
         assert_eq!(
-            budget.remaining(ResourceKind::MemoryBytes),
+            budget.context().remaining_memory(),
             10_000 - primo - secondo
         );
         spool.seal().expect("seal");
         let _consegnato = spool.next_batch().expect("primo");
         assert_eq!(
-            budget.remaining(ResourceKind::MemoryBytes),
+            budget.context().remaining_memory(),
             10_000 - secondo,
             "la memoria torna al transfer del batch, non alla fine dell'operazione"
         );
@@ -887,11 +924,14 @@ mod tests {
         // Prima dello spool questo caso falliva `LimitExceeded`: i batch
         // verificati restavano tutti in RAM.
         let schema = schema();
-        let budget = budget(4_096, 1 << 20);
-        let mut spool = StagedSpool::new(Arc::clone(&schema), budget, CancellationToken::default());
+        let budget = budget_di(4_096, 1 << 20);
+        let mut spool = StagedSpool::new(
+            Arc::clone(&schema),
+            budget.clone(),
+            CancellationToken::default(),
+        );
         for indice in 0..64_i64 {
-            spool
-                .push(batch(&schema, indice * 8, 8), 1_024)
+            spingi(&mut spool, &budget, batch(&schema, indice * 8, 8), 1_024)
                 .expect("un dataset oltre la quota di memoria deve passare");
         }
         spool.seal().expect("seal");
@@ -901,18 +941,18 @@ mod tests {
     #[test]
     fn spill_quota_is_enforced() {
         let schema = schema();
+        let budget = budget_di(1 << 20, 500);
         let mut spool = StagedSpool::with_threshold(
             Arc::clone(&schema),
-            budget(1 << 20, 500),
+            budget.clone(),
             2 * PER_BATCH_OVERHEAD_BYTES,
         );
         // La quota si applica alle scritture fisiche, che il buffer
         // differisce: il rifiuto arriva quando i byte raggiungono davvero il
         // file, non quando il batch entra nel writer. E' il punto: prima si
         // rifiutava una stima, ora si rifiuta cio' che sta per essere scritto.
-        let esito = spool
-            .push(batch(&schema, 0, 4), 200)
-            .and_then(|()| spool.push(batch(&schema, 4, 4), 400))
+        let esito = spingi(&mut spool, &budget, batch(&schema, 0, 4), 200)
+            .and_then(|()| spingi(&mut spool, &budget, batch(&schema, 4, 4), 400))
             .and_then(|()| spool.seal());
         let errore = esito.expect_err("lo spill oltre quota deve fallire");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
@@ -934,51 +974,50 @@ mod tests {
             Ok(batch) => batch,
             Err(error) => unreachable!("batch di test: {error}"),
         };
-        let mut spool = StagedSpool::new(
-            schema,
-            budget(1 << 20, 1 << 20),
-            CancellationToken::default(),
-        );
-        assert!(spool.push(estraneo, 10).is_err());
+        let budget = budget_di(1 << 20, 1 << 20);
+        let mut spool = StagedSpool::new(schema, budget.clone(), CancellationToken::default());
+        assert!(spingi(&mut spool, &budget, estraneo, 10).is_err());
     }
 
     #[test]
     fn pushing_after_seal_is_rejected() {
         let schema = schema();
+        let budget = budget_di(1 << 20, 1 << 20);
         let mut spool = StagedSpool::new(
             Arc::clone(&schema),
-            budget(1 << 20, 1 << 20),
+            budget.clone(),
             CancellationToken::default(),
         );
         spool.seal().expect("seal");
-        assert!(spool.push(batch(&schema, 0, 4), 10).is_err());
+        assert!(spingi(&mut spool, &budget, batch(&schema, 0, 4), 10).is_err());
     }
 
     #[test]
     fn reading_before_seal_is_rejected() {
         let schema = schema();
+        let budget = budget_di(1 << 20, 1 << 20);
         let mut spool = StagedSpool::new(
             Arc::clone(&schema),
-            budget(1 << 20, 1 << 20),
+            budget.clone(),
             CancellationToken::default(),
         );
-        spool.push(batch(&schema, 0, 4), 10).expect("push");
+        spingi(&mut spool, &budget, batch(&schema, 0, 4), 10).expect("push");
         assert!(spool.next_batch().is_err());
     }
 
     #[test]
     fn clear_releases_every_reservation() {
         let schema = schema();
-        let budget = budget(10_000, 1 << 20);
+        let budget = budget_di(10_000, 1 << 20);
         let mut spool = StagedSpool::with_threshold(Arc::clone(&schema), budget.clone(), 10_000);
-        spool.push(batch(&schema, 0, 4), 500).expect("push");
+        spingi(&mut spool, &budget, batch(&schema, 0, 4), 500).expect("push");
         assert_eq!(
-            budget.remaining(ResourceKind::MemoryBytes),
+            budget.context().remaining_memory(),
             10_000 - (500 + PER_BATCH_OVERHEAD_BYTES)
         );
         spool.clear();
         assert_eq!(
-            budget.remaining(ResourceKind::MemoryBytes),
+            budget.context().remaining_memory(),
             10_000,
             "una violazione a meta' scansione non deve lasciare memoria prenotata"
         );
@@ -1003,7 +1042,7 @@ mod tests {
         file.write_all(&[0xFF; 64]).expect("coda corrotta");
         file.seek(SeekFrom::Start(0)).expect("riavvolgimento");
 
-        let mut spool = StagedSpool::replaying_from(schema, budget(1 << 20, 1 << 20), file)
+        let mut spool = StagedSpool::replaying_from(schema, budget_di(1 << 20, 1 << 20), file)
             .expect("il preambolo e' valido");
         assert!(
             spool
@@ -1028,15 +1067,14 @@ mod tests {
         // contabilizzare la seconda dichiarerebbe un'occupazione del volume
         // che non corrisponde a quella reale.
         let schema = schema();
+        let budget = budget_di(1 << 20, 1 << 24);
         let mut spool = StagedSpool::with_threshold(
             Arc::clone(&schema),
-            budget(1 << 20, 1 << 24),
+            budget.clone(),
             2 * PER_BATCH_OVERHEAD_BYTES,
         );
         for indice in 0..8_i64 {
-            spool
-                .push(batch(&schema, indice * 4, 4), 100)
-                .expect("push");
+            spingi(&mut spool, &budget, batch(&schema, indice * 4, 4), 100).expect("push");
         }
         assert!(spool.spilled());
         // I byte fisici compaiono quando il buffer li consegna: il sigillo
@@ -1059,15 +1097,16 @@ mod tests {
         // scritture fisiche la quota tiene comunque.
         const QUOTA: u64 = 4_096;
         let schema = schema();
+        let budget = budget_di(1 << 20, QUOTA);
         let mut spool = StagedSpool::with_threshold(
             Arc::clone(&schema),
-            budget(1 << 20, QUOTA),
+            budget.clone(),
             2 * PER_BATCH_OVERHEAD_BYTES,
         );
         let mut esito = Ok(());
         for indice in 0..64_i64 {
             // 1 byte dichiarato per un batch da 64 righe: sottostima grossa.
-            esito = spool.push(batch(&schema, indice * 64, 64), 1);
+            esito = spingi(&mut spool, &budget, batch(&schema, indice * 64, 64), 1);
             if esito.is_err() {
                 break;
             }
@@ -1093,14 +1132,14 @@ mod tests {
         // blocco di prenotazione: `SPILL_RESERVATION_CHUNK` e' 1 MiB, la
         // quota qui e' 64 KiB.
         let schema = schema();
+        let budget = budget_di(1 << 20, 64 * 1024);
         let mut spool = StagedSpool::with_threshold(
             Arc::clone(&schema),
-            budget(1 << 20, 64 * 1024),
+            budget.clone(),
             2 * PER_BATCH_OVERHEAD_BYTES,
         );
         for indice in 0..4_i64 {
-            spool
-                .push(batch(&schema, indice * 4, 4), 100)
+            spingi(&mut spool, &budget, batch(&schema, indice * 4, 4), 100)
                 .expect("una quota piccola ma sufficiente deve bastare");
         }
         spool.seal().expect("seal");
@@ -1126,13 +1165,14 @@ mod tests {
     #[test]
     fn the_file_closes_before_the_quota_returns() {
         let schema = schema();
-        let budget = budget(1 << 20, 1 << 24);
-        let mut spool =
-            StagedSpool::with_threshold(Arc::clone(&schema), budget, 2 * PER_BATCH_OVERHEAD_BYTES);
+        let budget = budget_di(1 << 20, 1 << 24);
+        let mut spool = StagedSpool::with_threshold(
+            Arc::clone(&schema),
+            budget.clone(),
+            2 * PER_BATCH_OVERHEAD_BYTES,
+        );
         for indice in 0..8_i64 {
-            spool
-                .push(batch(&schema, indice * 4, 4), 100)
-                .expect("push");
+            spingi(&mut spool, &budget, batch(&schema, indice * 4, 4), 100).expect("push");
         }
         spool.seal().expect("seal");
         azzera_registro();
@@ -1164,13 +1204,14 @@ mod tests {
     #[test]
     fn clearing_mid_scan_closes_the_file_before_returning_the_quota() {
         let schema = schema();
-        let budget = budget(1 << 20, 1 << 24);
-        let mut spool =
-            StagedSpool::with_threshold(Arc::clone(&schema), budget, 2 * PER_BATCH_OVERHEAD_BYTES);
+        let budget = budget_di(1 << 20, 1 << 24);
+        let mut spool = StagedSpool::with_threshold(
+            Arc::clone(&schema),
+            budget.clone(),
+            2 * PER_BATCH_OVERHEAD_BYTES,
+        );
         for indice in 0..32_i64 {
-            spool
-                .push(batch(&schema, indice * 512, 512), 100)
-                .expect("push");
+            spingi(&mut spool, &budget, batch(&schema, indice * 512, 512), 100).expect("push");
         }
         assert!(
             spool.written_spill_bytes() > 0,
@@ -1198,21 +1239,19 @@ mod tests {
         // occupati volume e quota fino al drop dello spool significherebbe
         // tenerli occupati per tutto quel tempo, senza motivo.
         let schema = schema();
-        let budget = budget(1 << 20, 1 << 24);
-        let iniziale = budget.remaining(ResourceKind::SpillBytes);
+        let budget = budget_di(1 << 20, 1 << 24);
+        let iniziale = budget.context().remaining_spill();
         let mut spool = StagedSpool::with_threshold(
             Arc::clone(&schema),
             budget.clone(),
             2 * PER_BATCH_OVERHEAD_BYTES,
         );
         for indice in 0..8_i64 {
-            spool
-                .push(batch(&schema, indice * 4, 4), 100)
-                .expect("push");
+            spingi(&mut spool, &budget, batch(&schema, indice * 4, 4), 100).expect("push");
         }
         spool.seal().expect("seal");
         assert!(
-            budget.remaining(ResourceKind::SpillBytes) < iniziale,
+            budget.context().remaining_spill() < iniziale,
             "durante la rilettura la quota deve risultare impegnata"
         );
 
@@ -1220,7 +1259,7 @@ mod tests {
 
         // Lo spool e' ancora vivo: non e' il suo `Drop` ad aver liberato.
         assert_eq!(
-            budget.remaining(ResourceKind::SpillBytes),
+            budget.context().remaining_spill(),
             iniziale,
             "a fine rilettura la quota deve tornare senza aspettare il drop"
         );
@@ -1239,8 +1278,8 @@ mod tests {
         // Con un `commit` la quota sarebbe consumata per sempre e una
         // pipeline lunga esaurirebbe lo spill accumulando file gia' rimossi.
         let schema = schema();
-        let budget = budget(1 << 20, 1 << 24);
-        let iniziale = budget.remaining(ResourceKind::SpillBytes);
+        let budget = budget_di(1 << 20, 1 << 24);
+        let iniziale = budget.context().remaining_spill();
         {
             let mut spool = StagedSpool::with_threshold(
                 Arc::clone(&schema),
@@ -1248,18 +1287,16 @@ mod tests {
                 2 * PER_BATCH_OVERHEAD_BYTES,
             );
             for indice in 0..8_i64 {
-                spool
-                    .push(batch(&schema, indice * 4, 4), 100)
-                    .expect("push");
+                spingi(&mut spool, &budget, batch(&schema, indice * 4, 4), 100).expect("push");
             }
             spool.seal().expect("seal");
             assert!(
-                budget.remaining(ResourceKind::SpillBytes) < iniziale,
+                budget.context().remaining_spill() < iniziale,
                 "durante la vita dello spool la quota deve risultare impegnata"
             );
         }
         assert_eq!(
-            budget.remaining(ResourceKind::SpillBytes),
+            budget.context().remaining_spill(),
             iniziale,
             "il file sparisce con lo spool: la quota deve tornare"
         );
@@ -1271,10 +1308,10 @@ mod tests {
         // vuoti in serie non farebbe mai scattare la soglia e la coda
         // crescerebbe senza tetto.
         let schema = schema();
-        let mut spool =
-            StagedSpool::with_threshold(Arc::clone(&schema), budget(1 << 20, 1 << 24), 4_096);
+        let budget = budget_di(1 << 20, 1 << 24);
+        let mut spool = StagedSpool::with_threshold(Arc::clone(&schema), budget.clone(), 4_096);
         for _ in 0..16_u8 {
-            spool.push(batch(&schema, 0, 0), 0).expect("push vuoto");
+            spingi(&mut spool, &budget, batch(&schema, 0, 0), 0).expect("push vuoto");
         }
         assert!(
             spool.spilled(),
@@ -1287,11 +1324,11 @@ mod tests {
     #[test]
     fn empty_batches_still_consume_the_memory_quota() {
         let schema = schema();
-        let budget = budget(4_096, 1 << 24);
+        let budget = budget_di(4_096, 1 << 24);
         let mut spool = StagedSpool::with_threshold(Arc::clone(&schema), budget.clone(), 1 << 20);
-        spool.push(batch(&schema, 0, 0), 0).expect("push vuoto");
+        spingi(&mut spool, &budget, batch(&schema, 0, 0), 0).expect("push vuoto");
         assert!(
-            budget.remaining(ResourceKind::MemoryBytes) < 4_096,
+            budget.context().remaining_memory() < 4_096,
             "un batch vuoto occupa comunque un posto in coda"
         );
     }
@@ -1307,10 +1344,10 @@ mod tests {
             Ok(batch) => batch,
             Err(error) => unreachable!("batch senza colonne: {error}"),
         };
-        let mut spool =
-            StagedSpool::with_threshold(Arc::clone(&vuoto), budget(1 << 20, 1 << 24), 4_096);
+        let budget = budget_di(1 << 20, 1 << 24);
+        let mut spool = StagedSpool::with_threshold(Arc::clone(&vuoto), budget.clone(), 4_096);
         for _ in 0..16_u8 {
-            spool.push(batch_vuoto.clone(), 0).expect("push");
+            spingi(&mut spool, &budget, batch_vuoto.clone(), 0).expect("push");
         }
         assert!(
             spool.spilled(),
@@ -1322,9 +1359,10 @@ mod tests {
     fn migration_stops_on_cancellation() {
         let schema = schema();
         let token = CancellationToken::new();
+        let budget = budget_di(1 << 20, 1 << 24);
         let mut spool = StagedSpool {
             schema: Arc::clone(&schema),
-            budget: budget(1 << 20, 1 << 24),
+            budget: budget.clone(),
             cancellation: token.clone(),
             memory_threshold: 2 * PER_BATCH_OVERHEAD_BYTES,
             stage: Stage::Memory {
@@ -1333,10 +1371,9 @@ mod tests {
             },
             sealed: false,
         };
-        spool.push(batch(&schema, 0, 4), 100).expect("primo push");
+        spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("primo push");
         token.cancel();
-        let errore = spool
-            .push(batch(&schema, 4, 4), 100)
+        let errore = spingi(&mut spool, &budget, batch(&schema, 4, 4), 100)
             .expect_err("la migrazione deve interrompersi");
         assert_eq!(errore.category, plenora_io_model::ErrorCategory::Cancelled);
     }
@@ -1345,9 +1382,9 @@ mod tests {
     fn replay_stops_on_cancellation() {
         let schema = schema();
         let token = CancellationToken::new();
-        let mut spool =
-            StagedSpool::new(Arc::clone(&schema), budget(1 << 20, 1 << 24), token.clone());
-        spool.push(batch(&schema, 0, 4), 100).expect("push");
+        let budget = budget_di(1 << 20, 1 << 24);
+        let mut spool = StagedSpool::new(Arc::clone(&schema), budget.clone(), token.clone());
+        spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("push");
         spool.seal().expect("seal");
         token.cancel();
         let errore = spool
@@ -1359,16 +1396,13 @@ mod tests {
     #[test]
     fn replay_stops_when_the_deadline_expires() {
         let schema = schema();
-        let scaduto = match ResourceBudget::new(ResourceLimits {
-            duration_ms: 1,
-            ..ResourceLimits::default()
-        }) {
-            Ok(budget) => budget,
-            Err(error) => unreachable!("budget di test: {error:?}"),
-        };
-        let mut spool =
-            StagedSpool::new(Arc::clone(&schema), scaduto, CancellationToken::default());
-        spool.push(batch(&schema, 0, 4), 100).expect("push");
+        let budget = budget_con(PipelineLimits::default().with_duration_ms(1));
+        let mut spool = StagedSpool::new(
+            Arc::clone(&schema),
+            budget.clone(),
+            CancellationToken::default(),
+        );
+        spingi(&mut spool, &budget, batch(&schema, 0, 4), 100).expect("push");
         spool.seal().expect("seal");
         std::thread::sleep(std::time::Duration::from_millis(5));
         let errore = spool

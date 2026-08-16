@@ -1434,13 +1434,20 @@ mod backend {
     #[cfg(test)]
     mod tests {
         use super::*;
-
         use arrow_array::RecordBatch;
         use plenora_io_core::descriptor::Fidelity;
         use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source};
         use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
         use plenora_io_model::contract::{GeometryEncoding, GeometryType};
         use plenora_io_model::limits::WkbLimits;
+
+        /// Opzioni di lettura sul modello unificato (S4.d).
+        fn opzioni_lettura() -> ReadOptions {
+            match plenora_io_model::budget::PipelineBudget::builder().build() {
+                Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+                Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+            }
+        }
         use plenora_io_model::wkb::{
             decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
         };
@@ -1516,7 +1523,7 @@ mod backend {
 
         fn assert_complete_point_dataset(path: PathBuf) {
             let dataset = super::super::FileGdbDriver
-                .open(Source::Path(path), ReadOptions::default())
+                .open(Source::Path(path), opzioni_lettura())
                 .unwrap();
             let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
             assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 1);
@@ -1685,9 +1692,7 @@ mod backend {
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
 
-            let dataset = driver
-                .open(Source::Path(path), ReadOptions::default())
-                .unwrap();
+            let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
             let crs = dataset.layers()[0]
                 .contract
                 .geometry
@@ -1765,7 +1770,7 @@ mod backend {
 
             let semantic_signature = |path: &Path| {
                 let dataset = driver
-                    .open(Source::Path(path.to_owned()), ReadOptions::default())
+                    .open(Source::Path(path.to_owned()), opzioni_lettura())
                     .unwrap();
                 let layer = &dataset.layers()[0];
                 let geometry = layer.contract.geometry.as_ref().unwrap();
@@ -1855,9 +1860,7 @@ mod backend {
                 Some(&1)
             );
 
-            let dataset = driver
-                .open(Source::Path(path), ReadOptions::default())
-                .unwrap();
+            let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
             let output_geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
             assert_eq!(output_geometry.dimensions, CoordinateDimensions::Xy);
             assert_eq!(output_geometry.geometry_types, vec![GeometryType::Point]);
@@ -2021,9 +2024,7 @@ mod backend {
                 .unwrap();
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
-            let dataset = driver
-                .open(Source::Path(path), ReadOptions::default())
-                .unwrap();
+            let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
             let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
             let output = reader.next_batch().unwrap().unwrap();
             let actual = output
@@ -2074,9 +2075,7 @@ mod backend {
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
 
-            let dataset = driver
-                .open(Source::Path(path), ReadOptions::default())
-                .unwrap();
+            let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
             let output_contract = dataset.layers()[0].contract.geometry.as_ref().unwrap();
             assert_eq!(output_contract.dimensions, CoordinateDimensions::Xyz);
             assert_eq!(output_contract.geometry_types, vec![GeometryType::Point]);
@@ -2141,9 +2140,7 @@ mod backend {
                 writer.write(&batch).unwrap();
                 writer.finish().unwrap();
 
-                let dataset = driver
-                    .open(Source::Path(path), ReadOptions::default())
-                    .unwrap();
+                let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
                 let output_contract = dataset.layers()[0].contract.geometry.as_ref().unwrap();
                 assert_eq!(output_contract.dimensions, dimensions);
                 let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
@@ -2227,9 +2224,7 @@ mod backend {
             writer.write(&batch).unwrap();
             writer.finish().unwrap();
 
-            let dataset = driver
-                .open(Source::Path(path), ReadOptions::default())
-                .unwrap();
+            let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
             let mut reader = dataset.open_layer_reader(&read_request()).unwrap();
             let output = reader.next_batch().unwrap().unwrap();
             let geometry = output
@@ -2259,9 +2254,7 @@ mod backend {
                 .finish()
                 .unwrap();
 
-            let dataset = driver
-                .open(Source::Path(path), ReadOptions::default())
-                .unwrap();
+            let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
             assert_eq!(dataset.layers().len(), 1);
             let geometry = dataset.layers()[0].contract.geometry.as_ref().unwrap();
             assert_eq!(geometry.dimensions, CoordinateDimensions::Xy);
@@ -2604,9 +2597,7 @@ mod backend {
                 .finish()
                 .unwrap();
 
-            let dataset = driver
-                .open(Source::Path(path), ReadOptions::default())
-                .unwrap();
+            let dataset = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
             assert_eq!(dataset.layers().len(), expected.len());
             for (layer, (expected_type, expected_dimensions)) in
                 dataset.layers().iter().zip(expected)
@@ -2758,11 +2749,24 @@ mod backend {
 mod tests {
     use super::*;
 
+    /// Opzioni di lettura sul modello unificato.
+    ///
+    /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+    /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+    /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+    /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    fn opzioni_lettura() -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     #[test]
     fn open_without_gdal_feature_is_typed() {
         // Nel build di default (senza feature) l'apertura fallisce tipizzata.
         let e = FileGdbDriver
-            .open(Source::Path("x.gdb".into()), ReadOptions::default())
+            .open(Source::Path("x.gdb".into()), opzioni_lettura())
             .map(|_| ())
             .unwrap_err();
         assert!(matches!(

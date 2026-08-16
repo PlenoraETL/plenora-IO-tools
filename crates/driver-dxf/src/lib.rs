@@ -47,6 +47,7 @@ use plenora_io_core::{
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
+use plenora_io_model::budget::{OperationBudget, SpillLease};
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
     LayerContract, LayerId,
@@ -54,7 +55,6 @@ use plenora_io_model::contract::{
 use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
-use plenora_io_model::resource::{ResourceBudget, ResourceKind};
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, inspect_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
@@ -241,7 +241,7 @@ impl FormatDriver for DxfDriver {
         )?;
         let mut stats = DxfContractStats::default();
         let mut spool_writer =
-            DxfSpoolWriter::new(opts.max_input_bytes(), opts.resource_budget()?.clone());
+            DxfSpoolWriter::new(opts.max_input_bytes(), opts.operation_budget()?.clone());
         let mut source_index = 0_u64;
         while let Some(entity) = stream.next_entity().map_err(|e| {
             read_row_error(
@@ -889,11 +889,30 @@ struct DxfSpoolWriter {
     bytes: u64,
     limit: u64,
     memory_limit: u64,
-    budget: ResourceBudget,
+    budget: OperationBudget,
+    /// Le prenotazioni di spill restano vive quanto il file temporaneo.
+    ///
+    /// Nel modello legacy si faceva `commit`, cioe' consumo definitivo: la
+    /// quota non tornava mai, nemmeno dopo che il file era stato rimosso. Nel
+    /// modello unificato lo spill e' occupazione trattenuta e la `SpillLease`
+    /// la restituisce al drop, insieme allo spool che l'ha creata.
+    leases: Vec<SpillLease>,
+}
+
+/// Budget dell'operazione per i costruttori di prova dello spool DXF.
+///
+/// Passa dalle opzioni pubbliche, non dalla decomposizione delle parti: la
+/// seconda e' riservata a `plenora-io-model` e `plenora-io-core` (INV-13).
+#[cfg(test)]
+fn budget_di_prova() -> Result<OperationBudget> {
+    let bundle = plenora_io_model::budget::PipelineBudget::builder().build()?;
+    Ok(ReadOptions::from_read_parts(bundle.into_read_parts())
+        .operation_budget()?
+        .clone())
 }
 
 impl DxfSpoolWriter {
-    const fn new(limit: u64, budget: ResourceBudget) -> Self {
+    const fn new(limit: u64, budget: OperationBudget) -> Self {
         Self {
             output: DxfSpoolOutput::Memory {
                 rows: Vec::new(),
@@ -903,6 +922,7 @@ impl DxfSpoolWriter {
             limit,
             memory_limit: DXF_SPOOL_MEMORY_LIMIT,
             budget,
+            leases: Vec::new(),
         }
     }
 
@@ -916,7 +936,15 @@ impl DxfSpoolWriter {
             bytes: 0,
             limit,
             memory_limit,
-            budget: ResourceBudget::default(),
+            // Il test misura solo la soglia di migrazione in memoria: una
+            // pipeline coi limiti predefiniti basta, e non serve un pool.
+            // Passa dalle opzioni e non dalla decomposizione delle parti:
+            // quest'ultima e' riservata a model/core (INV-13).
+            budget: match budget_di_prova() {
+                Ok(budget) => budget,
+                Err(error) => unreachable!("budget di test: {error:?}"),
+            },
+            leases: Vec::new(),
         }
     }
 
@@ -959,13 +987,13 @@ impl DxfSpoolWriter {
         let tempfile = Arc::new(tempfile::NamedTempFile::new()?);
         let mut output = BufWriter::new(tempfile.reopen()?);
         let lease = (self.bytes > 0)
-            .then(|| self.budget.try_lease(ResourceKind::SpillBytes, self.bytes))
+            .then(|| self.budget.context().lease_spill(self.bytes))
             .transpose()?;
         for row in &rows {
             Self::write_file_row(&mut output, row)?;
         }
         if let Some(lease) = lease {
-            lease.commit(self.bytes)?;
+            self.leases.push(lease);
         }
         self.output = DxfSpoolOutput::File { tempfile, output };
         Ok(())
@@ -993,10 +1021,7 @@ impl DxfSpoolWriter {
             self.spill_to_file()?;
         }
         let file_lease = matches!(&self.output, DxfSpoolOutput::File { .. })
-            .then(|| {
-                self.budget
-                    .try_lease(ResourceKind::SpillBytes, logical_bytes)
-            })
+            .then(|| self.budget.context().lease_spill(logical_bytes))
             .transpose()?;
         match &mut self.output {
             DxfSpoolOutput::Memory { rows, bytes } => {
@@ -1006,7 +1031,7 @@ impl DxfSpoolWriter {
             DxfSpoolOutput::File { output, .. } => Self::write_file_row(output, &row)?,
         }
         if let Some(lease) = file_lease {
-            lease.commit(logical_bytes)?;
+            self.leases.push(lease);
         }
         self.bytes = next;
         Ok(())
@@ -2082,6 +2107,20 @@ pub fn __fuzz_read_dxf(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opzioni di lettura sul modello unificato.
+    ///
+    /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+    /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+    /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+    /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    fn opzioni_lettura() -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
     use plenora_io_model::contract::GeometryType;
@@ -2260,9 +2299,7 @@ mod tests {
             .iter()
             .any(|reason| reason.detail.contains("occorrenze")));
 
-        let ds = driver
-            .open(Source::Path(out), ReadOptions::default())
-            .unwrap();
+        let ds = driver.open(Source::Path(out), opzioni_lettura()).unwrap();
         assert_eq!(
             ds.fidelity_assessment().level,
             plenora_io_core::Fidelity::Approximating
@@ -2349,14 +2386,11 @@ mod tests {
     #[test]
     fn missing_geodata_requires_explicit_assumption() {
         let drawing = Drawing::new();
-        let error = resolve_dxf_crs(&drawing, &ReadOptions::default()).unwrap_err();
+        let error = resolve_dxf_crs(&drawing, &opzioni_lettura()).unwrap_err();
         assert!(error.to_string().contains("assume-crs"));
 
-        let resolved = resolve_dxf_crs(
-            &drawing,
-            &ReadOptions::default().with_assume_crs("EPSG:3857"),
-        )
-        .unwrap();
+        let resolved =
+            resolve_dxf_crs(&drawing, &opzioni_lettura().with_assume_crs("EPSG:3857")).unwrap();
         assert_eq!(resolved.id.as_deref(), Some("EPSG:3857"));
     }
 
@@ -2367,7 +2401,7 @@ mod tests {
             coordinate_system_definition: WGS84_ESRI_WKT.to_owned(),
             ..Default::default()
         })));
-        let resolved = resolve_dxf_crs(&drawing, &ReadOptions::default()).unwrap();
+        let resolved = resolve_dxf_crs(&drawing, &opzioni_lettura()).unwrap();
         assert_eq!(resolved.id.as_deref(), Some("EPSG:4326"));
         assert_eq!(resolved.kind, CrsKind::Geographic);
         assert_eq!(resolved.definition.as_deref(), Some(WGS84_ESRI_WKT));
@@ -2382,7 +2416,7 @@ mod tests {
             ..Default::default()
         })));
 
-        let error = resolve_dxf_crs(&drawing, &ReadOptions::default()).unwrap_err();
+        let error = resolve_dxf_crs(&drawing, &opzioni_lettura()).unwrap_err();
         assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
         assert_eq!(error.driver.as_deref(), Some("dxf"));
         assert!(!error.to_string().contains("survey-grid-secret"));
@@ -2412,7 +2446,7 @@ mod tests {
         let error = DxfDriver
             .open(
                 Source::Path(path),
-                ReadOptions::default().with_assume_crs("EPSG:4326"),
+                opzioni_lettura().with_assume_crs("EPSG:4326"),
             )
             .err()
             .expect("il CIRCLE degenere deve essere rifiutato");
@@ -2786,7 +2820,7 @@ mod tests {
         assert_eq!(published.loss.counts["MultiPoint esploso in entità DXF"], 2);
 
         let dataset = DxfDriver
-            .open(Source::Path(output), ReadOptions::default())
+            .open(Source::Path(output), opzioni_lettura())
             .unwrap();
         let mut reader = dataset.open_layer_reader(&request()).unwrap();
         assert_eq!(reader.next_batch().unwrap().unwrap().num_rows(), 2);

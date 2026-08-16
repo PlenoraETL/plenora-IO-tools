@@ -886,3 +886,93 @@ vera `#[test] fn`.
 `check_permit_boundary.py` diceva che INV-13 dichiara il permit non
 separabile, mentre lo dichiarava la formulazione **originaria**, corretta in
 S4.b.3.
+
+## Registrazione S4.d del 2026-08-16 — handoff reale e preflight osservante
+
+Quarto sottopasso di S4, atomico per necessita': il consumo del permit, la
+rimozione dei controlli legacy e la migrazione del percorso comune sono lo
+stesso cambiamento visto da tre lati, e separarli avrebbe applicato le stesse
+quote due volte.
+
+**Il preflight osserva davvero.** `Source::into_path_observed` sostituisce
+`into_path_checked`: enumera la sorgente chiamando `note_entry_visited` una
+volta per voce **scoperta**, e quella singola chiamata applica insieme
+`max_input_entries`, i byte addebitati e il digest dell'identita'. Erano tre
+controlli separati scritti a mano; separarli rendeva osservabile uno stato
+intermedio e possibile un aggiornamento parziale. A enumerazione conclusa il
+permit viene speso in `observe_input`, che pubblica il footprint.
+
+I controlli vecchi non sono stati spostati: sono spariti **nello stesso atto**
+in cui `note_entry_visited` ha iniziato ad applicarli. Lasciarli avrebbe
+applicato due volte le stesse quote, la seconda contro contatori che la prima
+aveva gia' consumato, e un input al limite sarebbe stato rifiutato per una
+quota che in realta' bastava.
+
+**Il percorso comune vive sul modello unificato.** Adapter e `StagedSpool`
+prendono un `OperationBudget`: i contatori cumulativi dai suoi gauge, memoria
+e spill dal `PipelineContext`. `with_read_budget` ha invertito la propria
+guardia — accetta solo il modello nuovo — perche' la memoria dei batch e' una
+`InternalMemoryLease`, che senza contesto non esiste.
+
+**L'handoff.** L'adapter prenota largo (target del batch piu' tetto per
+cella), misura il batch, riduce la prenotazione con `shrink_to` all'ingombro
+reale piu' `PER_BATCH_OVERHEAD_BYTES`, e sposta **la stessa lease** nello
+spool per `move`. Lo spool la custodisce e non ne acquisisce una seconda: la
+grandezza contabilizzata e' quella della lease che arriva, non una misura
+ricalcolata.
+
+**Il test end-to-end e' costato tre correzioni**, tutte casi in cui avrebbe
+dato un verde privo di significato:
+
+1. l'osservatore girava anche durante la riconsegna, dove la memoria torna
+   legittimamente al gauge: scambiava per intrusione il comportamento
+   corretto. Ora sorveglia il solo drenaggio, e il reader segnala l'EOF;
+2. la soglia era **fissa**. Ma l'occupazione da difendere cresce con i batch
+   custoditi: dal secondo in poi una soglia fissa e' sempre superata, e il
+   test tornava verde anche con il rilascia-e-riacquista. Ora la soglia e'
+   `capacita - k * accounted + 1`, con `k` i batch consegnati;
+3. con sei batch la finestra veniva colta due volte su cinque — non
+   abbastanza per essere evidenza. Con quattrocento le occasioni sono due
+   ordini di grandezza in piu'.
+
+**Verifica per mutazione**: sostituendo `shrink_to` + `move` con
+rilascia-e-riacquista, il test fallisce **5 volte su 5**; con
+l'implementazione corretta passa **10 volte su 10**.
+
+**Un difetto trovato dai test, non dalla lettura.** Il nuovo preflight
+sondava i metadata della radice prima di controllare la cancellazione: una
+pipeline gia' cancellata leggeva comunque il filesystem. Lo ha colto
+`cancelled_source_is_rejected_before_filesystem_probe`, che esiste proprio
+per quello.
+
+**Una differenza di modello emersa in corsa.** `OperationBudget::remaining`
+riporta il solo contatore cumulativo, mentre `try_lease` applica anche il
+tetto derivato dall'input osservato (`output_expansion_ratio`). Nel modello
+legacy l'osservazione restringeva direttamente il contatore, quindi la
+differenza non si vedeva; qui il tetto e' una proiezione calcolata a ogni
+lease. L'adapter prenotava sulla base del solo contatore e un round-trip CSV
+di pochi byte falliva. La composizione ora e' esplicita in
+`output_disponibile`.
+
+**Lo spill dei driver non e' piu' consumo definitivo.** DXF, KML e XLSX
+facevano `commit` sulla quota di spill: non tornava mai, nemmeno dopo la
+rimozione del file. Ora tengono le `SpillLease` vive quanto il file
+temporaneo, che e' la semantica RAII del modello nuovo.
+
+**La concorrenza vive nel pool.** `ConcurrentOperations` non esiste in
+`PipelineLimits` (INV-12): senza pool la lease e' un no-op. I due test che
+verificavano il tetto sono stati riallineati con un `ResourcePool` esplicito;
+non e' un indebolimento ma la semantica ratificata.
+
+**Inventario**: `read_options_default` 74 → 1, `costruttore_legacy` 11 → 6,
+`accessore_legacy` 18 → 16. **`ponte_richiede_legacy` e' salito, 11 → 15**, ed
+e' la prima eccezione registrata alla regola "puo' solo scendere": quella
+categoria conta la *guardia*, non il debito, e da S4.d la guardia protegge
+nella direzione opposta — ogni punto che diceva "non so leggere il nuovo" ora
+dice "non accetto il vecchio". Il tetto e' stato alzato con la motivazione
+scritta nello script: alzarlo in silenzio sarebbe stato il modo di far passare
+inosservata una crescita.
+
+**Registro dei fallback** 99 → 102, con tre occorrenze nuove in
+plenora-io-core e quattro evitabili rimosse. Nessuna richiede H-01: una e' una
+conversione saturante fail-closed, due sono in moduli di test.

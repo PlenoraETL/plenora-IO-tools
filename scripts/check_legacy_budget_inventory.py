@@ -47,7 +47,7 @@ TETTI: dict[str, int] = {
     # Costruiscono il payload `Legacy` perche' `Default` non sa fare altro.
     # Scendono a zero in S4.e, quando `Default` sparisce e ogni chiamante
     # deve dichiarare il proprio `PipelineContext`.
-    "read_options_default": 74,
+    "read_options_default": 1,
     "write_options_default": 74,
     # Inesprimibili da S4.b parte 2: il payload e' privato. Restano nel
     # censimento come rete contro una riapertura dei campi.
@@ -58,9 +58,25 @@ TETTI: dict[str, int] = {
     "campo_cancellation": 0,
     # Le vie residue verso il modello legacy, tutte esplicite e marcate
     # "punto di rimozione: S4.e".
-    "costruttore_legacy": 11,
-    "accessore_legacy": 18,
-    "ponte_richiede_legacy": 11,
+    "costruttore_legacy": 6,
+    "accessore_legacy": 16,
+    # **Questo valore e' salito in S4.d, deliberatamente** (11 -> 15), ed e'
+    # l'unica eccezione alla regola "puo' solo scendere" registrata finora.
+    #
+    # La categoria conta la guardia, non il debito. Fino a S4.c
+    # `bridge_richiede_legacy` proteggeva in una sola direzione: rifiutava le
+    # opzioni del modello **nuovo** dove il percorso era ancora vecchio. Da
+    # S4.d il percorso di lettura e' nuovo, e la stessa guardia rifiuta le
+    # opzioni **legacy**: ogni punto che prima diceva "non so leggere il
+    # nuovo" ora dice "non accetto il vecchio", e se ne sono aggiunti dove il
+    # confine e' comparso.
+    #
+    # Il debito legacy vero e' misurato dalle altre categorie, e in S4.d e'
+    # crollato: `read_options_default` da 74 a 1, `costruttore_legacy` da 11 a
+    # 6, `accessore_legacy` da 18 a 16. Alzare questo tetto senza dirlo
+    # sarebbe stato il modo di far passare inosservata una crescita; dirlo e'
+    # il motivo per cui il gate esiste.
+    "ponte_richiede_legacy": 15,
 }
 
 # Le lookbehind escludono `struct X {`, `impl X {` e `-> X {`: sono

@@ -5,9 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
+use plenora_io_model::budget::{
+    ConcurrencyLease, InternalMemoryLease, OperationBudget, OperationCounter,
+};
 use plenora_io_model::contract::{CoordinateDimensions, GeometryEncoding, LayerContract, LayerId};
 use plenora_io_model::limits::WkbLimits;
-use plenora_io_model::resource::{ResourceBudget, ResourceKind, ResourceLease};
 use plenora_io_model::wkb::inspect_wkb;
 use plenora_io_model::{
     CancellationToken, ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, Result,
@@ -39,15 +41,17 @@ use crate::driver::spool::StagedSpool;
 /// # Errors
 ///
 /// Restituisce [`crate::driver::bridge_richiede_legacy`] se le opzioni sono
-/// costruite sul modello unificato: l'adapter preleva ancora dai contatori
-/// legacy, quindi non saprebbe cosa consumare. **Punto di rimozione: S4.d.**
+/// costruite sul modello **legacy**. Da S4.d il percorso di lettura vive
+/// interamente sul modello unificato: la memoria dei batch e' una
+/// [`InternalMemoryLease`], che esiste solo dentro un `PipelineContext`, e
+/// senza contesto non c'e' nulla da prenotare.
 pub fn with_read_budget(
     dataset: Box<dyn OpenDatasetHandle>,
     opts: &crate::driver::ReadOptions,
     physical_row_indices_attestable: bool,
 ) -> Result<Box<dyn OpenDatasetHandle>> {
     let budget = opts
-        .legacy_budget()
+        .pipeline_budget()
         .ok_or_else(crate::driver::bridge_richiede_legacy)?
         .clone();
     Ok(Box::new(BudgetedDataset {
@@ -59,7 +63,7 @@ pub fn with_read_budget(
 
 struct BudgetedDataset {
     dataset: Box<dyn OpenDatasetHandle>,
-    budget: ResourceBudget,
+    budget: OperationBudget,
     physical_row_indices_attestable: bool,
 }
 
@@ -76,12 +80,10 @@ impl OpenDatasetHandle for BudgetedDataset {
         &self,
         request: &crate::request::ReadRequest,
     ) -> Result<Box<dyn LayerReader>> {
-        self.budget.ensure_active()?;
+        self.budget.context().ensure_active()?;
         // Il lease precede intenzionalmente la creazione del reader: diversi
         // driver avviano qui il worker parser e non devono farlo fuori quota.
-        let operation_lease = self
-            .budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)?;
+        let operation_lease = self.budget.context().lease_concurrency()?;
         let reader = self.dataset.open_layer_reader(request)?;
         let physical_row_indices_attestable = self.physical_row_indices_attestable
             && request.pruning_predicate.is_none()
@@ -126,7 +128,7 @@ impl OpenDatasetHandle for BudgetedDataset {
 /// contratto pubblico e richiede coordinamento cross-component.
 struct BudgetedReader {
     inner: Box<dyn LayerReader>,
-    budget: ResourceBudget,
+    budget: OperationBudget,
     rows_scanned: u64,
     physical_row_indices_attestable: bool,
     /// Costruito al primo batch, con lo schema effettivo di lettura: prima
@@ -137,24 +139,24 @@ struct BudgetedReader {
     cancellation: CancellationToken,
     batch_target: BatchTarget,
     scope: ReadScope,
-    _operation_lease: ResourceLease,
+    _operation_lease: ConcurrencyLease,
 }
 
 impl BudgetedReader {
     fn new(
         inner: Box<dyn LayerReader>,
-        budget: ResourceBudget,
+        budget: OperationBudget,
         physical_row_indices_attestable: bool,
         cancellation: CancellationToken,
         batch_target: BatchTarget,
         scope: ReadScope,
-        operation_lease: ResourceLease,
+        operation_lease: ConcurrencyLease,
     ) -> Result<Self> {
         let columns = u64::try_from(inner.contract().contract.schema.fields().len())
             .map_err(|_| PlenoraIoError::LimitExceeded("troppe colonne nel reader".to_owned()))?;
         if columns > 0 {
             budget
-                .try_lease(ResourceKind::Columns, columns)?
+                .try_lease(OperationCounter::Columns, columns)?
                 .commit(columns)?;
         }
         Ok(Self {
@@ -185,18 +187,16 @@ impl BudgetedReader {
             READ_DIAGNOSTIC_EXAMPLES_LIMIT,
         );
         loop {
-            self.budget.ensure_active().map_err(|error| {
+            self.budget.context().ensure_active().map_err(|error| {
                 terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
             })?;
             let batch_bytes = u64::try_from(self.batch_target.target_bytes)
                 .unwrap_or(u64::MAX)
-                .saturating_add(self.budget.limits().cell_bytes);
+                .saturating_add(cell_bytes_u64(self.budget.context()));
             let batch_rows = u64::try_from(self.batch_target.max_rows).unwrap_or(u64::MAX);
-            let available_memory =
-                bounded_reservation(&self.budget, ResourceKind::MemoryBytes, batch_bytes);
-            let available_rows = bounded_reservation(&self.budget, ResourceKind::Rows, batch_rows);
-            let available_output =
-                bounded_reservation(&self.budget, ResourceKind::OutputBytes, batch_bytes);
+            let available_memory = bounded(self.budget.context().remaining_memory(), batch_bytes);
+            let available_rows = bounded(self.budget.remaining(OperationCounter::Rows), batch_rows);
+            let available_output = bounded(output_disponibile(&self.budget), batch_bytes);
             if available_memory == 0 {
                 // Senza memoria non si puo' materializzare nulla, nemmeno per
                 // scoprire la fine della sorgente: una sonda qui leggerebbe
@@ -218,7 +218,8 @@ impl BudgetedReader {
                 // mentre scopriamo se ha finito.
                 let probe = self
                     .budget
-                    .try_lease(ResourceKind::MemoryBytes, available_memory)
+                    .context()
+                    .lease_memory_internal(available_memory)
                     .map_err(|error| {
                         terminal_scan_error(
                             error,
@@ -244,21 +245,26 @@ impl BudgetedReader {
             // Ogni operazione prenota al massimo il target bounded del proprio
             // batch, non tutto il residuo condiviso. L'inutilizzato torna
             // subito al budget.
-            let memory_lease = self
+            // Il tipo e' annotato perche' qui inizia la proprieta' della
+            // memoria del batch: da questa riga fino allo spool c'e' un solo
+            // titolare, e il nome lo rende leggibile senza risalire al
+            // context.
+            let mut memory_lease: InternalMemoryLease = self
                 .budget
-                .try_lease(ResourceKind::MemoryBytes, available_memory)
+                .context()
+                .lease_memory_internal(available_memory)
                 .map_err(|error| {
                     terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
                 })?;
             let rows_lease = self
                 .budget
-                .try_lease(ResourceKind::Rows, available_rows)
+                .try_lease(OperationCounter::Rows, available_rows)
                 .map_err(|error| {
                     terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
                 })?;
             let output_lease = self
                 .budget
-                .try_lease(ResourceKind::OutputBytes, available_output)
+                .try_lease(OperationCounter::OutputBytes, available_output)
                 .map_err(|error| {
                     terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
                 })?;
@@ -288,7 +294,7 @@ impl BudgetedReader {
                 )
             })?;
             if rows > rows_lease.amount()
-                || bytes > memory_lease.amount()
+                || bytes > memory_lease.bytes()
                 || bytes > output_lease.amount()
             {
                 return Err(terminal_scan_error(
@@ -330,7 +336,7 @@ impl BudgetedReader {
             let geometry_lease = (geometry_components > 0)
                 .then(|| {
                     self.budget
-                        .try_lease(ResourceKind::GeometryComponents, geometry_components)
+                        .try_lease(OperationCounter::GeometryComponents, geometry_components)
                 })
                 .transpose()
                 .map_err(|error| {
@@ -371,22 +377,29 @@ impl BudgetedReader {
                     self.physical_row_indices_attestable,
                 )
             })?;
-            // La prenotazione di materializzazione ha esaurito il suo scopo:
-            // il batch esiste ed e' misurato. Va rilasciata **prima** che lo
-            // spool prenda la lease di residenza, altrimenti lo stesso batch
-            // resterebbe contabilizzato due volte — una per la prenotazione
-            // larga (target + cella) e una per l'occupazione reale — e una
-            // quota stretta fallirebbe su un batch che ci sta.
+            // **Handoff senza finestra.** La prenotazione di
+            // materializzazione era larga per necessita' — target del batch
+            // piu' tetto per cella, perche' prima di leggere non si sa quanto
+            // occupera'. Ora la grandezza e' nota: `shrink_to` porta la
+            // prenotazione a quella, restituendo **solo** l'eccedenza, e la
+            // lease ridotta si sposta per `move` nello spool.
             //
-            // Resta pero' una finestra: fra questo drop e la lease presa dallo
-            // spool il batch e' in RAM e non lo conta nessuno. Con un budget
-            // condiviso — cioe' `convert` — un'altra operazione puo'
-            // infilarcisi e prenotare memoria che non c'e'. Chiuderla richiede
-            // un trasferimento atomico che ridimensioni la prenotazione senza
-            // restituirla al gauge, e il `ResourceLease` legacy non sa farlo:
-            // e' un criterio obbligatorio di S4, dove il gauge appartiene al
-            // `PipelineContext`.
-            drop(memory_lease);
+            // Rilasciare e riacquistare — che e' cio' che questo punto faceva
+            // fino a S4.c — lasciava un istante in cui il batch e' in RAM e
+            // non lo conta nessuno. Con un budget condiviso, cioe' `convert`,
+            // un'altra operazione poteva infilarcisi e prenotare memoria che
+            // di fatto non c'era.
+            //
+            // La grandezza include `PER_BATCH_OVERHEAD_BYTES`: un batch
+            // custodito occupa sempre almeno l'ingombro della propria presenza
+            // in coda, anche senza righe ne' colonne, ed e' lo stesso valore
+            // che lo spool usa per decidere la migrazione.
+            let accounted = bytes.saturating_add(crate::driver::spool::PER_BATCH_OVERHEAD_BYTES);
+            if accounted < memory_lease.bytes() {
+                memory_lease.shrink_to(accounted).map_err(|error| {
+                    terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
+                })?;
+            }
             if violations.is_empty() {
                 let spool = match self.spool.as_mut() {
                     Some(spool) => spool,
@@ -396,7 +409,7 @@ impl BudgetedReader {
                         self.cancellation.clone(),
                     )),
                 };
-                spool.push(batch, bytes).map_err(|error| {
+                spool.push(batch, memory_lease).map_err(|error| {
                     terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
                 })?;
             } else {
@@ -432,8 +445,44 @@ impl BudgetedReader {
 
 const READ_DIAGNOSTIC_EXAMPLES_LIMIT: u64 = 64;
 
-fn bounded_reservation(budget: &ResourceBudget, kind: ResourceKind, batch_cap: u64) -> u64 {
-    budget.remaining(kind).min(batch_cap.max(1))
+/// Prenotazione bounded: mai piu' del residuo, mai meno di uno.
+///
+/// Il minimo a uno serve a distinguere "quota finita" da "target nullo": con
+/// zero non si potrebbe nemmeno sondare la fine della sorgente.
+const fn bounded(residuo: u64, batch_cap: u64) -> u64 {
+    let cap = if batch_cap == 0 { 1 } else { batch_cap };
+    if residuo < cap {
+        residuo
+    } else {
+        cap
+    }
+}
+
+/// Quota di output ancora prelevabile, sotto **entrambi** i vincoli.
+///
+/// `remaining(OutputBytes)` riporta il solo contatore cumulativo, mentre
+/// `try_lease` applica anche il tetto derivato dall'input osservato
+/// (`output_expansion_ratio`). Prenotare sulla base del solo contatore
+/// significherebbe chiedere una quota che la lease rifiuta: un round-trip di
+/// pochi byte fallirebbe perche' l'adapter ha chiesto il target del batch
+/// invece di cio' che il tetto derivato concede.
+///
+/// Nel modello legacy la differenza non si vedeva perche' l'osservazione
+/// dell'input restringeva direttamente il contatore; qui il tetto e' una
+/// proiezione calcolata a ogni lease, e va composta esplicitamente.
+fn output_disponibile(budget: &OperationBudget) -> u64 {
+    let capacita = budget.context().limits().max_output_bytes();
+    let residuo = budget.remaining(OperationCounter::OutputBytes);
+    let consumato = capacita.saturating_sub(residuo);
+    residuo.min(budget.output_limit().saturating_sub(consumato))
+}
+
+/// Tetto per cella in `u64`, saturante.
+///
+/// `PipelineLimits` lo espone in `usize` perche' e' la grandezza di un buffer;
+/// qui serve sommarlo a un target in byte.
+fn cell_bytes_u64(context: &plenora_io_model::budget::PipelineContext) -> u64 {
+    u64::try_from(context.limits().max_wkb_cell_bytes()).unwrap_or(u64::MAX)
 }
 
 impl LayerReader for BudgetedReader {
@@ -975,7 +1024,7 @@ fn merge_interrupted_read_diagnostics(
 fn geometry_components(
     contract: &LayerContract,
     batch: &RecordBatch,
-    budget: &ResourceBudget,
+    budget: &OperationBudget,
 ) -> Result<u64> {
     let Some(geometry) = &contract.contract.geometry else {
         return Ok(0);
@@ -989,10 +1038,13 @@ fn geometry_components(
         // Una projection tabellare può escludere legittimamente la geometria.
         return Ok(0);
     };
+    // Il tetto per singola geometria e' il residuo del contatore: una
+    // geometria non puo' consumare piu' di quanto resti all'intera
+    // operazione.
     let limits = WkbLimits {
-        max_cell_bytes: saturating_usize(budget.limits().cell_bytes),
-        max_components: saturating_usize(budget.remaining(ResourceKind::GeometryComponents)),
-        max_depth: saturating_usize(budget.limits().nesting_depth),
+        max_cell_bytes: budget.context().limits().max_wkb_cell_bytes(),
+        max_components: saturating_usize(budget.remaining(OperationCounter::GeometryComponents)),
+        max_depth: budget.context().limits().max_wkb_depth(),
     };
     let array = batch.column(index);
     let mut total = 0_u64;
@@ -1263,9 +1315,42 @@ mod tests {
     use arrow_schema::{DataType, Field, Schema};
     use plenora_io_model::contract::{DataContract, FieldId, GeometryColumnContract, LayerId};
     use plenora_io_model::crs::CrsResolution;
-    use plenora_io_model::resource::ResourceLimits;
 
     use super::*;
+    use plenora_io_model::budget::{PipelineBudget, PipelineLimits, ResourcePool};
+    use plenora_io_model::wkb::{encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
+
+    /// Budget dell'operazione per i test, dal modello unificato.
+    ///
+    /// Passa dal bundle e non costruisce il context a mano: e' l'unica via
+    /// che esiste, ed e' quella che i driver useranno.
+    fn budget_con(limits: PipelineLimits) -> OperationBudget {
+        match PipelineBudget::builder().limits(limits).build() {
+            Ok(bundle) => bundle.into_write_parts().into_budget(),
+            Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+        }
+    }
+
+    /// Prende una lease di concorrenza dal pool, passando da un budget
+    /// agganciato: e' l'unica via, il pool non si interroga da solo.
+    fn pool_lease(pool: &ResourcePool) -> Result<plenora_io_model::budget::ConcurrencyLease> {
+        budget_con_pool(PipelineLimits::default(), pool.clone())
+            .context()
+            .lease_concurrency()
+    }
+
+    /// Come [`budget_con`], ma agganciato a un pool: serve solo dove il test
+    /// verifica la concorrenza, che senza pool e' un no-op (INV-12).
+    fn budget_con_pool(limits: PipelineLimits, pool: ResourcePool) -> OperationBudget {
+        match PipelineBudget::builder()
+            .limits(limits)
+            .resource_pool(pool)
+            .build()
+        {
+            Ok(bundle) => bundle.into_write_parts().into_budget(),
+            Err(error) => unreachable!("budget di test non costruibile: {error:?}"),
+        }
+    }
 
     struct OneBatchReader {
         contract: LayerContract,
@@ -1364,11 +1449,9 @@ mod tests {
 
     fn budgeted_sequence_with_budget(
         events: VecDeque<Result<Option<RecordBatch>>>,
-        budget: ResourceBudget,
+        budget: OperationBudget,
     ) -> BudgetedReader {
-        let operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let operation = budget.context().lease_concurrency().unwrap();
         BudgetedReader::new(
             Box::new(SequenceReader {
                 contract: validating_contract(),
@@ -1396,12 +1479,11 @@ mod tests {
         let eventi: VecDeque<Result<Option<RecordBatch>>> = (0..40)
             .map(|_| Ok(Some(geometry_batch(&contract, &[true; 8]))))
             .collect();
-        let budget = ResourceBudget::new(ResourceLimits {
-            memory_bytes: 4_096,
-            cell_bytes: 1_024,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
+        let budget = budget_con(
+            PipelineLimits::default()
+                .with_memory_bytes(4_096)
+                .with_max_wkb_cell_bytes(1_024),
+        );
         let mut reader = budgeted_sequence_with_budget(eventi, budget.clone());
 
         let mut consegnati = 0_usize;
@@ -1411,7 +1493,7 @@ mod tests {
         }
         assert_eq!(consegnati, 40);
         assert_eq!(
-            budget.remaining(ResourceKind::MemoryBytes),
+            budget.context().remaining_memory(),
             4_096,
             "a fine operazione nessuna quota di memoria deve restare trattenuta"
         );
@@ -1426,13 +1508,13 @@ mod tests {
         let eventi: VecDeque<Result<Option<RecordBatch>>> = (0..6)
             .map(|_| Ok(Some(geometry_batch(&contract, &[true; 4]))))
             .collect();
-        let budget = ResourceBudget::default();
-        let iniziale = budget.remaining(ResourceKind::MemoryBytes);
+        let budget = budget_con(PipelineLimits::default());
+        let iniziale = budget.context().remaining_memory();
         let mut reader = budgeted_sequence_with_budget(eventi, budget.clone());
 
         while reader.next_batch().unwrap().is_some() {}
         assert_eq!(
-            budget.remaining(ResourceKind::MemoryBytes),
+            budget.context().remaining_memory(),
             iniziale,
             "la memoria deve tornare interamente al termine dell'operazione"
         );
@@ -1448,11 +1530,7 @@ mod tests {
         let eventi: VecDeque<Result<Option<RecordBatch>>> = (0..4)
             .map(|_| Ok(Some(geometry_batch(&contract, &[true; 5]))))
             .collect();
-        let budget = ResourceBudget::new(ResourceLimits {
-            rows: 20,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
+        let budget = budget_con(PipelineLimits::default().with_max_rows(20));
         let mut reader = budgeted_sequence_with_budget(eventi, budget);
         let mut righe = 0_usize;
         while let Some(batch) = reader.next_batch().unwrap() {
@@ -1469,15 +1547,14 @@ mod tests {
         let contract = validating_contract();
         let eventi: VecDeque<Result<Option<RecordBatch>>> =
             VecDeque::from([Ok(Some(geometry_batch(&contract, &[true; 4])))]);
-        let budget = ResourceBudget::new(ResourceLimits {
-            memory_bytes: 4_096,
-            cell_bytes: 1_024,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
+        let budget = budget_con(
+            PipelineLimits::default()
+                .with_memory_bytes(4_096)
+                .with_max_wkb_cell_bytes(1_024),
+        );
         // Nessuna memoria residua: non c'e' modo di materializzare nulla,
         // nemmeno per scoprire se la sorgente e' finita.
-        let trattenuta = budget.try_lease(ResourceKind::MemoryBytes, 4_096).unwrap();
+        let trattenuta = budget.context().lease_memory_internal(4_096).unwrap();
         let mut reader = budgeted_sequence_with_budget(eventi, budget);
         let errore = reader.next_batch().unwrap_err();
         assert!(
@@ -1496,11 +1573,7 @@ mod tests {
         let eventi: VecDeque<Result<Option<RecordBatch>>> = (0..5)
             .map(|_| Ok(Some(geometry_batch(&contract, &[true; 5]))))
             .collect();
-        let budget = ResourceBudget::new(ResourceLimits {
-            rows: 20,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
+        let budget = budget_con(PipelineLimits::default().with_max_rows(20));
         let mut reader = budgeted_sequence_with_budget(eventi, budget);
         let mut esito = Ok(());
         while let Ok(Some(_)) = reader.next_batch() {}
@@ -1523,22 +1596,14 @@ mod tests {
         };
 
         // `Rows`: 20 righe con quota 20 passano, con quota 19 no.
-        let stretto = ResourceBudget::new(ResourceLimits {
-            rows: 19,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
+        let stretto = budget_con(PipelineLimits::default().with_max_rows(19));
         let mut reader = budgeted_sequence_with_budget(eventi(), stretto);
         assert!(
             reader.next_batch().is_err(),
             "una riga in meno di quota deve ancora fallire"
         );
 
-        let esatto = ResourceBudget::new(ResourceLimits {
-            rows: 20,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
+        let esatto = budget_con(PipelineLimits::default().with_max_rows(20));
         let mut reader = budgeted_sequence_with_budget(eventi(), esatto.clone());
         let mut righe = 0_usize;
         while let Some(batch) = reader.next_batch().unwrap() {
@@ -1549,45 +1614,53 @@ mod tests {
             "la quota esatta deve bastare: nessun doppio conteggio"
         );
         assert_eq!(
-            esatto.remaining(ResourceKind::Rows),
+            esatto.remaining(OperationCounter::Rows),
             0,
             "le righe restano cumulative, consumate una volta sola"
         );
 
         // `OutputBytes` resta cumulativo e consumato, non restituito.
-        let output = ResourceBudget::default();
-        let prima = output.remaining(ResourceKind::OutputBytes);
+        let output = budget_con(PipelineLimits::default());
+        let prima = output.remaining(OperationCounter::OutputBytes);
         let mut reader = budgeted_sequence_with_budget(eventi(), output.clone());
         while reader.next_batch().unwrap().is_some() {}
         assert!(
-            output.remaining(ResourceKind::OutputBytes) < prima,
+            output.remaining(OperationCounter::OutputBytes) < prima,
             "OutputBytes e' quota consumata, non occupazione trattenuta"
         );
 
-        // `ConcurrentOperations` resta governato dal solo modello legacy.
-        let concorrenza = ResourceBudget::default();
-        let prima = concorrenza.remaining(ResourceKind::ConcurrentOperations);
-        let reader = budgeted_sequence_with_budget(eventi(), concorrenza.clone());
-        assert_eq!(
-            concorrenza.remaining(ResourceKind::ConcurrentOperations),
-            prima - 1,
-            "una sola operazione, contata una sola volta"
+        // La concorrenza vive nel pool (INV-12): senza pool la lease e' un
+        // no-op, quindi qui si verifica con un pool esplicito che una sola
+        // operazione consumi una sola quota.
+        let pool = match ResourcePool::builder().concurrent_operations(2).build() {
+            Ok(pool) => pool,
+            Err(error) => unreachable!("pool di test: {error:?}"),
+        };
+        let concorrenza = budget_con_pool(PipelineLimits::default(), pool.clone());
+        let reader = budgeted_sequence_with_budget(eventi(), concorrenza);
+        // Con due posti e uno occupato dal reader, ne resta esattamente uno.
+        let secondo = match pool_lease(&pool) {
+            Ok(lease) => lease,
+            Err(error) => unreachable!("il secondo posto deve essere libero: {error:?}"),
+        };
+        assert!(
+            pool_lease(&pool).is_err(),
+            "una sola operazione, contata una sola volta: il terzo posto non esiste"
         );
+        drop(secondo);
         drop(reader);
-        assert_eq!(
-            concorrenza.remaining(ResourceKind::ConcurrentOperations),
-            prima
-        );
+        // Rilasciati entrambi, il pool torna capiente: la quota di
+        // concorrenza e' occupazione trattenuta, non consumo definitivo.
+        assert!(pool_lease(&pool).is_ok());
+        assert!(pool_lease(&pool).is_ok());
     }
 
     fn budgeted_sequence_with_scope(
         events: VecDeque<Result<Option<RecordBatch>>>,
         scope: ReadScope,
     ) -> BudgetedReader {
-        let budget = ResourceBudget::default();
-        let operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let budget = budget_con(PipelineLimits::default());
+        let operation = budget.context().lease_concurrency().unwrap();
         BudgetedReader::new(
             Box::new(SequenceReader {
                 contract: validating_contract(),
@@ -1638,10 +1711,8 @@ mod tests {
 
     #[test]
     fn accepted_rows_zero_never_polls_the_inner_reader() {
-        let budget = ResourceBudget::default();
-        let operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let budget = budget_con(PipelineLimits::default());
+        let operation = budget.context().lease_concurrency().unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let mut reader = BudgetedReader::new(
             Box::new(CountingReader {
@@ -1713,18 +1784,15 @@ mod tests {
 
     #[test]
     fn row_quota_is_shared_across_independent_readers() {
-        let budget = ResourceBudget::new(ResourceLimits {
-            rows: 3,
-            columns: 10,
-            memory_bytes: 1024 * 1024,
-            cell_bytes: 1024,
-            output_bytes: 1024 * 1024,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
-        let first_operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let budget = budget_con(
+            PipelineLimits::default()
+                .with_max_rows(3)
+                .with_max_columns(10)
+                .with_memory_bytes(1024 * 1024)
+                .with_max_wkb_cell_bytes(1024)
+                .with_max_output_bytes(1024 * 1024),
+        );
+        let first_operation = budget.context().lease_concurrency().unwrap();
         let mut first = BudgetedReader::new(
             Box::new(OneBatchReader::new(vec![1, 2])),
             budget.clone(),
@@ -1738,9 +1806,7 @@ mod tests {
         assert_eq!(first.next_batch().unwrap().unwrap().num_rows(), 2);
         drop(first);
 
-        let second_operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let second_operation = budget.context().lease_concurrency().unwrap();
         let mut second = BudgetedReader::new(
             Box::new(OneBatchReader::new(vec![3, 4])),
             budget,
@@ -2080,10 +2146,8 @@ mod tests {
     #[test]
     fn non_attestable_interruption_preserves_both_knowledge_limits() {
         let contract = validating_contract();
-        let budget = ResourceBudget::default();
-        let operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let budget = budget_con(PipelineLimits::default());
+        let operation = budget.context().lease_concurrency().unwrap();
         let mut reader = BudgetedReader::new(
             Box::new(SequenceReader {
                 contract: contract.clone(),
@@ -2151,7 +2215,7 @@ mod tests {
 
     struct BudgetObservingReader {
         inner: OneBatchReader,
-        budget: ResourceBudget,
+        budget: OperationBudget,
         observed_memory: Arc<AtomicUsize>,
     }
 
@@ -2162,7 +2226,7 @@ mod tests {
 
         fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
             self.observed_memory.store(
-                usize::try_from(self.budget.remaining(ResourceKind::MemoryBytes)).unwrap(),
+                usize::try_from(self.budget.context().remaining_memory()).unwrap(),
                 AtomicOrdering::SeqCst,
             );
             self.inner.next_batch()
@@ -2171,19 +2235,18 @@ mod tests {
 
     #[test]
     fn drain_does_not_reserve_the_entire_shared_budget() {
-        let budget = ResourceBudget::new(ResourceLimits {
-            memory_bytes: 1_048_576,
-            cell_bytes: 1_024,
-            rows: 1_000,
-            output_bytes: 1_048_576,
-            concurrent_operations: 2,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
+        // La concorrenza nel modello unificato e' governata dal pool, non
+        // dai limiti dell'operazione (INV-12): senza pool non c'e' tetto, ed
+        // e' esattamente cio' che questo test vuole — due reader ammessi.
+        let budget = budget_con(
+            PipelineLimits::default()
+                .with_memory_bytes(1_048_576)
+                .with_max_wkb_cell_bytes(1_024)
+                .with_max_rows(1_000)
+                .with_max_output_bytes(1_048_576),
+        );
         let observed_memory = Arc::new(AtomicUsize::new(0));
-        let operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let operation = budget.context().lease_concurrency().unwrap();
         let mut reader = BudgetedReader::new(
             Box::new(BudgetObservingReader {
                 inner: OneBatchReader::new(vec![1]),
@@ -2225,10 +2288,8 @@ mod tests {
         assert!(sliced_batch.get_array_memory_size() > 72 * 1024 * 1024);
         assert!(incremental_batch_memory_size(&sliced_batch) < 1024);
 
-        let budget = ResourceBudget::default();
-        let operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let budget = budget_con(PipelineLimits::default());
+        let operation = budget.context().lease_concurrency().unwrap();
         let mut sliced_reader = BudgetedReader::new(
             Box::new(OneBatchReader {
                 contract: contract.clone(),
@@ -2250,14 +2311,8 @@ mod tests {
             RecordBatch::try_new(schema, vec![Arc::new(UInt8Array::from(vec![0_u8; LARGE]))])
                 .unwrap();
         assert!(incremental_batch_memory_size(&large_batch) > 72 * 1024 * 1024);
-        let budget = ResourceBudget::new(ResourceLimits {
-            rows: u64::try_from(LARGE).unwrap(),
-            ..ResourceLimits::default()
-        })
-        .unwrap();
-        let operation = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        let budget = budget_con(PipelineLimits::default().with_max_rows(1_000_000));
+        let operation = budget.context().lease_concurrency().unwrap();
         let mut large_reader = BudgetedReader::new(
             Box::new(OneBatchReader {
                 contract,
@@ -2305,14 +2360,17 @@ mod tests {
 
     #[test]
     fn concurrency_budget_is_acquired_before_reader_creation() {
-        let budget = ResourceBudget::new(ResourceLimits {
-            concurrent_operations: 1,
-            ..ResourceLimits::default()
-        })
-        .unwrap();
-        let held = budget
-            .try_lease(ResourceKind::ConcurrentOperations, 1)
-            .unwrap();
+        // Il tetto di concorrenza vive nel pool (INV-12): senza pool la
+        // lease e' un no-op e non ci sarebbe nulla da esaurire.
+        let pool = match ResourcePool::builder().concurrent_operations(1).build() {
+            Ok(pool) => pool,
+            Err(error) => unreachable!("pool di test non costruibile: {error:?}"),
+        };
+        let budget = budget_con_pool(PipelineLimits::default(), pool);
+        let held = match budget.context().lease_concurrency() {
+            Ok(lease) => lease,
+            Err(error) => unreachable!("la prima lease deve passare: {error:?}"),
+        };
         let opens = Arc::new(AtomicUsize::new(0));
         let dataset = BudgetedDataset {
             dataset: Box::new(CountingDataset {
@@ -2338,43 +2396,275 @@ mod tests {
         drop(held);
     }
 
+    /// Reader che segnala quando l'adapter gli chiede il batch successivo.
+    ///
+    /// Serve a sapere quando **almeno un batch e' gia' custodito** dallo
+    /// spool: l'adapter chiede il batch `k+1` solo dopo aver spinto il `k`.
+    /// Prima di quel momento non c'e' occupazione da difendere, e un
+    /// osservatore che prenotasse allora non starebbe intrudendo.
+    struct ReaderSegnalante {
+        contract: LayerContract,
+        events: VecDeque<Result<Option<RecordBatch>>>,
+        consegnati: Arc<std::sync::atomic::AtomicU64>,
+        eof: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl LayerReader for ReaderSegnalante {
+        fn contract(&self) -> &LayerContract {
+            &self.contract
+        }
+
+        fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+            let esito = self.events.pop_front().unwrap_or(Ok(None));
+            match esito {
+                Ok(Some(_)) => {
+                    self.consegnati.fetch_add(1, AtomicOrdering::SeqCst);
+                }
+                // L'EOF chiude il drenaggio: da qui in poi la memoria torna
+                // legittimamente al gauge, batch dopo batch, e l'osservatore
+                // deve smettere di guardare.
+                Ok(None) => self.eof.store(true, AtomicOrdering::SeqCst),
+                Err(_) => {}
+            }
+            esito
+        }
+    }
+
+    /// L'handoff sul percorso reale, senza ponte legacy e senza finestra.
+    ///
+    /// # Cosa dimostra
+    ///
+    /// **Nessun ponte.** Le opzioni nascono da `from_read_parts`, cioe' dal
+    /// modello unificato, e attraversano `with_read_budget` senza toccare
+    /// `bridge_richiede_legacy`: se un solo anello del percorso fosse ancora
+    /// legacy, `with_read_budget` restituirebbe `Unsupported` e il test
+    /// fallirebbe alla prima riga utile.
+    ///
+    /// **Nessuna finestra.** Un osservatore concorrente prova a prenotare
+    /// `capacita - accounted + 1` byte: una prenotazione che entra **solo**
+    /// se la memoria custodita e' scesa sotto l'ingombro di un batch. Con
+    /// `shrink_to` + `move` la quota contabilizzata passa da RESERVED ad
+    /// ACCOUNTED senza mai tornare al gauge, quindi quella soglia non entra
+    /// mai. Con il vecchio rilascia-e-riacquista ci sarebbe un istante in cui
+    /// entra, ed e' esattamente l'istante in cui il batch e' in RAM senza che
+    /// nessuno lo conti.
+    ///
+    /// L'osservatore conta i propri tentativi e il test verifica che siano
+    /// stati piu' di zero: senza, un verde direbbe soltanto che nessuno ha
+    /// guardato.
+    // Il test descrive una corsa completa: costruzione della pipeline,
+    // osservatore concorrente, drenaggio e riconsegna. Spezzarlo in
+    // funzioni renderebbe meno leggibile proprio l'ordine dei passi, che e'
+    // cio' che dimostra.
+    #[allow(clippy::too_many_lines)]
     #[test]
-    fn with_read_budget_rifiuta_le_opzioni_del_modello_unificato() {
-        // L'adapter preleva ancora dai contatori legacy: se ricevesse
-        // opzioni del modello nuovo non saprebbe cosa consumare, e ripiegare
-        // su un budget di default applicherebbe quote che nessuno ha chiesto.
-        // E' il punto unico che S4.d capovolge — da S4.c nessun driver
-        // ripete questa decisione.
+    fn handoff_reale_della_memoria_senza_bridge_legacy() {
+        const CAPACITA: u64 = 4 * 1024 * 1024;
+        // Molti batch, non pochi: la finestra dura pochi nanosecondi e si
+        // riapre a ogni batch. Con sei occasioni un osservatore la coglieva
+        // due volte su cinque — non abbastanza per essere evidenza. Con
+        // quattrocento le occasioni sono due ordini di grandezza in piu', e
+        // l'occupazione totale (400 x ~1,2 KiB) resta comodamente dentro la
+        // capacita' e sotto la soglia di migrazione.
+        const BATCH: usize = 400;
+
+        let batch = || {
+            let schema = Arc::new(Schema::new(vec![Field::new(
+                "geometry",
+                DataType::Binary,
+                true,
+            )]));
+            let punto = WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x: 1.0,
+                    y: 2.0,
+                    z: None,
+                    m: None,
+                }),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            };
+            let geometria = encode_wkb(&punto, WkbFlavor::Iso).expect("wkb");
+            RecordBatch::try_new(
+                schema,
+                vec![Arc::new(BinaryArray::from(vec![geometria.as_slice()]))],
+            )
+            .expect("batch")
+        };
+
+        // Il percorso nasce sul modello unificato: nessun `from_legacy` qui.
+        let bundle = match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(
+                PipelineLimits::default()
+                    .with_memory_bytes(CAPACITA)
+                    // Il tetto per cella entra nella prenotazione di
+                    // materializzazione: col default da 64 MiB non starebbe
+                    // dentro la capacita' di questo test.
+                    .with_max_wkb_cell_bytes(4_096),
+            )
+            .build()
+        {
+            Ok(bundle) => bundle,
+            Err(error) => unreachable!("bundle di test: {error:?}"),
+        };
+        let contesto = bundle.context().clone();
+        let opts = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
+
+        let consegnati = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let eof = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut eventi: VecDeque<Result<Option<RecordBatch>>> = VecDeque::new();
+        for _ in 0..BATCH {
+            eventi.push_back(Ok(Some(batch())));
+        }
+        eventi.push_back(Ok(None));
+
+        // L'ingombro contabilizzato di un batch: e' la soglia che
+        // l'osservatore usa per distinguere "custodito" da "scoperto".
+        let accounted = u64::try_from(incremental_batch_memory_size(&batch()))
+            .expect("ingombro rappresentabile")
+            .saturating_add(crate::driver::spool::PER_BATCH_OVERHEAD_BYTES);
+
+        let operation = match contesto.lease_concurrency() {
+            Ok(lease) => lease,
+            Err(error) => unreachable!("lease di concorrenza: {error:?}"),
+        };
+        let mut reader = match BudgetedReader::new(
+            Box::new(ReaderSegnalante {
+                contract: validating_contract(),
+                events: eventi,
+                consegnati: consegnati.clone(),
+                eof: eof.clone(),
+            }),
+            opts.pipeline_budget()
+                .expect("opzioni sul modello unificato")
+                .clone(),
+            true,
+            CancellationToken::default(),
+            BatchTarget::default(),
+            ReadScope::Complete,
+            operation,
+        ) {
+            Ok(reader) => reader,
+            Err(error) => unreachable!("reader di test: {error:?}"),
+        };
+
+        let intrusioni = Arc::new(AtomicUsize::new(0));
+        let tentativi = Arc::new(AtomicUsize::new(0));
+        let osservatore = {
+            let contesto = contesto.clone();
+            let intrusioni = intrusioni.clone();
+            let tentativi = tentativi.clone();
+            std::thread::spawn(move || {
+                while !eof.load(AtomicOrdering::SeqCst) {
+                    // **La soglia cresce con i batch custoditi.** Quando il
+                    // reader ha consegnato `k` batch, l'adapter tiene la
+                    // residenza dei primi `k-1` piu' la prenotazione del
+                    // `k`-esimo: almeno `k * accounted`. Una prenotazione da
+                    // `capacita - k * accounted + 1` entra percio' solo se la
+                    // memoria trattenuta e' scesa **sotto** quella soglia,
+                    // cioe' solo dentro la finestra.
+                    //
+                    // Una soglia fissa non discriminerebbe: dal secondo batch
+                    // in poi l'occupazione accumulata la supererebbe sempre,
+                    // e il test tornerebbe verde anche con il vecchio
+                    // rilascia-e-riacquista.
+                    let k = consegnati.load(AtomicOrdering::SeqCst);
+                    if k == 0 {
+                        std::hint::spin_loop();
+                        continue;
+                    }
+                    let Some(soglia) = CAPACITA.checked_sub(k * accounted).map(|resto| resto + 1)
+                    else {
+                        break;
+                    };
+                    let prima = eof.load(AtomicOrdering::SeqCst);
+                    tentativi.fetch_add(1, AtomicOrdering::SeqCst);
+                    let esito = contesto.lease_memory_internal(soglia);
+                    let dopo = eof.load(AtomicOrdering::SeqCst);
+                    if let Ok(lease) = esito {
+                        drop(lease);
+                        // Scartata se l'EOF e' arrivato durante il tentativo:
+                        // li' la riconsegna ha gia' iniziato a restituire
+                        // memoria, e non sarebbe un'intrusione.
+                        if !prima && !dopo {
+                            intrusioni.fetch_add(1, AtomicOrdering::SeqCst);
+                        }
+                    }
+                }
+            })
+        };
+
+        // La finestra da sorvegliare e' il **drenaggio**, che avviene tutto
+        // dentro la prima `next_batch`: e' li' che i batch vengono
+        // materializzati e ceduti allo spool. Dopo, la riconsegna restituisce
+        // legittimamente la memoria batch per batch, e un osservatore ancora
+        // attivo la scambierebbe per un'intrusione.
+        let primo = match reader.next_batch() {
+            Ok(batch) => batch,
+            Err(error) => unreachable!("la lettura deve riuscire: {error:?}"),
+        };
+        osservatore.join().expect("osservatore");
+
+        let mut letti = 0_usize;
+        let mut corrente = primo;
+        while let Some(batch) = corrente {
+            assert_eq!(batch.num_rows(), 1);
+            letti += 1;
+            corrente = match reader.next_batch() {
+                Ok(batch) => batch,
+                Err(error) => unreachable!("la lettura deve riuscire: {error:?}"),
+            };
+        }
+
+        assert_eq!(letti, BATCH, "tutti i batch devono arrivare al consumer");
+        assert!(
+            tentativi.load(AtomicOrdering::SeqCst) > 0,
+            "l'osservatore non ha mai guardato: il verde non direbbe nulla"
+        );
+        assert_eq!(
+            intrusioni.load(AtomicOrdering::SeqCst),
+            0,
+            "la memoria del batch non deve mai tornare al gauge durante l'handoff"
+        );
+        // A batch consegnati e reader chiuso, la quota torna intera: la
+        // memoria era occupazione trattenuta, non consumo definitivo.
+        drop(reader);
+        assert_eq!(contesto.remaining_memory(), CAPACITA);
+    }
+
+    #[test]
+    fn with_read_budget_accetta_solo_il_modello_unificato() {
+        // Da S4.d la memoria dei batch e' una `InternalMemoryLease`, che
+        // esiste solo dentro un `PipelineContext`. Con opzioni legacy non
+        // c'e' contesto, quindi non c'e' nulla da prenotare: l'adapter
+        // dichiara `Unsupported` invece di ripiegare su un budget di default,
+        // che applicherebbe quote che nessuno ha chiesto.
         let bundle = plenora_io_model::budget::PipelineBudget::builder()
             .build()
             .expect("il bundle deve costruirsi");
-        let opts = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
-        let dataset = Box::new(CountingDataset {
-            layers: Vec::new(),
-            opens: Arc::new(AtomicUsize::new(0)),
-        });
+        let pipeline = crate::driver::ReadOptions::from_read_parts(bundle.into_read_parts());
+        assert!(with_read_budget(
+            Box::new(CountingDataset {
+                layers: Vec::new(),
+                opens: Arc::new(AtomicUsize::new(0)),
+            }),
+            &pipeline,
+            true
+        )
+        .is_ok());
 
-        let esito = with_read_budget(dataset, &opts, true);
+        let legacy = crate::driver::ReadOptions::default();
+        let esito = with_read_budget(
+            Box::new(CountingDataset {
+                layers: Vec::new(),
+                opens: Arc::new(AtomicUsize::new(0)),
+            }),
+            &legacy,
+            true,
+        );
         assert!(matches!(
             esito,
             Err(errore) if errore.code == plenora_io_model::IoErrorCode::Unsupported
         ));
-    }
-
-    #[test]
-    fn with_read_budget_accetta_le_opzioni_legacy() {
-        // `from_legacy` e non `default()`: il conteggio dei default legacy
-        // e' un tetto che puo' solo scendere, e un test nuovo non deve farlo
-        // salire.
-        let opts = crate::driver::ReadOptions::from_legacy(
-            plenora_io_model::limits::Limits::default(),
-            ResourceBudget::default(),
-            CancellationToken::new(),
-        );
-        let dataset = Box::new(CountingDataset {
-            layers: Vec::new(),
-            opens: Arc::new(AtomicUsize::new(0)),
-        });
-        assert!(with_read_budget(dataset, &opts, true).is_ok());
     }
 }

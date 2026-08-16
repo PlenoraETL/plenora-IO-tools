@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use arrow_array::{Array, BinaryArray, LargeBinaryArray, RecordBatch};
 use arrow_schema::{DataType, SchemaRef};
 use plenora_io_model::budget::{
-    InputPermit, OperationBudget, ReadBudgetParts, SourceFootprintSnapshot, WriteBudgetParts,
+    InputPermit, OperationBudget, PipelineContext, ReadBudgetParts, SourceEntry,
+    SourceFootprintSnapshot, WriteBudgetParts,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, FieldId, GeometryColumnContract, GeometryEncoding, GeometryType,
@@ -68,65 +69,122 @@ impl Source {
     /// attraverso `note_entry_visited` e rimozione dei controlli qui — resta
     /// a S4.d, dove avviene in un atto solo per non applicare le stesse quote
     /// due volte.
-    pub fn into_path_checked(
-        self,
-        max_input_bytes: u64,
-        max_input_entries: u64,
-        cancellation: &CancellationToken,
-        resource_budget: &ResourceBudget,
-    ) -> Result<PathBuf> {
+    /// Preflight della sorgente: enumera, addebita e pubblica il footprint.
+    ///
+    /// # La forma
+    ///
+    /// L'enumerazione chiama [`PipelineContext::note_entry_visited`] una
+    /// volta per voce **scoperta**, e quella singola chiamata applica insieme
+    /// le tre grandezze che descrivono l'insieme osservato:
+    /// `max_input_entries`, i byte addebitati contro `max_input_bytes`, e il
+    /// digest dell'identita'. Erano tre controlli separati scritti qui;
+    /// separarli rendeva osservabile uno stato intermedio e possibile un
+    /// aggiornamento parziale.
+    ///
+    /// Il conteggio avviene alla scoperta e non al prelievo: contando in coda
+    /// al pop, una directory con milioni di voci avrebbe gia' allocato
+    /// milioni di `PathBuf` prima che il tetto potesse intervenire. Cosi'
+    /// `pending` non supera mai `max_input_entries`.
+    ///
+    /// A enumerazione conclusa il permit viene speso in
+    /// [`PipelineContext::observe_input`], che pubblica il footprint
+    /// accumulato. Il permit e' preso per `move` e non e' `Clone`: una
+    /// seconda osservazione non e' scrivibile.
+    ///
+    /// # I controlli legacy sono spariti qui dentro
+    ///
+    /// Non sono stati spostati: sono stati **rimossi nello stesso atto** in
+    /// cui `note_entry_visited` ha iniziato ad applicarli. Lasciarli avrebbe
+    /// applicato due volte le stesse quote — la seconda contro contatori che
+    /// la prima aveva gia' consumato — e un input al limite sarebbe stato
+    /// rifiutato per una quota che in realta' bastava.
+    ///
+    /// # Errors
+    ///
+    /// [`bridge_richiede_legacy`] se le opzioni non portano un budget del
+    /// modello unificato; [`permit_gia_speso`] se l'osservazione e' gia'
+    /// avvenuta; l'errore di enumerazione se una voce supera una quota;
+    /// l'errore di cancellazione o deadline; l'errore di I/O se la sorgente
+    /// non e' accessibile; `Unsupported` su un symlink.
+    pub fn into_path_observed(self, opts: &mut ReadOptions) -> Result<PathBuf> {
         let Self::Path(path) = self;
-        let mut total = 0_u64;
-        // L0.9: il tetto sulle entry si applica **prima** della somma dei
-        // byte e conta anche le directory. I byte crescono solo sui file,
-        // quindi da soli non bounderebbero una sorgente fatta di sole
-        // directory annidate. Il conteggio avviene al momento della
-        // *scoperta*, non del prelievo: contando in coda al pop, una singola
-        // directory con milioni di voci avrebbe gia' allocato milioni di
-        // `PathBuf` prima che il tetto potesse intervenire. Cosi' invece
-        // `pending` non supera mai `max_input_entries`.
-        let mut visited = 0_u64;
-        let note_entry = |visited: &mut u64| -> Result<()> {
-            *visited = visited.checked_add(1).ok_or_else(|| {
-                PlenoraIoError::LimitExceeded("overflow nel conteggio delle entry".to_owned())
-            })?;
-            if *visited > max_input_entries {
-                return Err(PlenoraIoError::LimitExceeded(format!(
-                    "scan della sorgente oltre il limite di {max_input_entries} entry"
-                )));
-            }
-            Ok(())
-        };
-        note_entry(&mut visited)?;
-        let mut pending = vec![path.clone()];
-        while let Some(candidate) = pending.pop() {
-            check_cancelled(cancellation, ErrorPhase::Probe)?;
-            resource_budget.ensure_active()?;
-            let metadata = std::fs::symlink_metadata(&candidate)?;
-            if metadata.file_type().is_symlink() {
-                return Err(PlenoraIoError::Unsupported(
-                    "symlink non ammesso nella sorgente".to_owned(),
-                ));
-            }
-            if metadata.is_dir() {
-                for entry in std::fs::read_dir(&candidate)? {
-                    note_entry(&mut visited)?;
-                    pending.push(entry?.path());
-                }
-            } else if metadata.is_file() {
-                total = total.checked_add(metadata.len()).ok_or_else(|| {
-                    PlenoraIoError::LimitExceeded("overflow nel conteggio dell'input".to_owned())
-                })?;
-                if total > max_input_bytes {
-                    return Err(PlenoraIoError::LimitExceeded(format!(
-                        "input da {total} byte oltre il limite di {max_input_bytes}"
-                    )));
+        let budget = opts
+            .pipeline_budget()
+            .ok_or_else(bridge_richiede_legacy)?
+            .clone();
+        let context = budget.context();
+        let permit = opts.take_input_permit().ok_or_else(permit_gia_speso)?;
+
+        // Prima di qualunque sonda sul filesystem: una pipeline gia'
+        // cancellata non deve nemmeno leggere i metadata della radice.
+        check_cancelled(context.cancellation(), ErrorPhase::Probe)?;
+        context.ensure_active()?;
+
+        let mut pending = Vec::new();
+        if scopri(context, &path)? {
+            pending.push(path.clone());
+        }
+        while let Some(directory) = pending.pop() {
+            check_cancelled(context.cancellation(), ErrorPhase::Probe)?;
+            context.ensure_active()?;
+            for entry in std::fs::read_dir(&directory)? {
+                let figlio = entry?.path();
+                if scopri(context, &figlio)? {
+                    pending.push(figlio);
                 }
             }
         }
-        resource_budget.observe_input_bytes(total)?;
+
+        context.observe_input(permit)?;
         Ok(path)
     }
+}
+
+/// Errore di un preflight che trova il permit gia' speso.
+///
+/// Non e' un caso ordinario: significa che questa sorgente e' gia' stata
+/// osservata con queste opzioni. Fallire e' l'unica risposta corretta —
+/// proseguire senza osservare lascerebbe il footprint vuoto e
+/// `output_expansion_ratio` senza base su cui derivare il tetto di uscita.
+fn permit_gia_speso() -> PlenoraIoError {
+    PlenoraIoError::LimitExceeded(
+        "il permit di osservazione dell'input e' gia' stato speso: la sorgente \
+         non puo' essere osservata due volte"
+            .to_owned(),
+    )
+}
+
+/// Registra una voce appena scoperta e dice se va esplorata.
+///
+/// Fa tre cose in quest'ordine, e l'ordine conta: rifiuta i symlink **prima**
+/// di addebitare, addebita alla scoperta, e solo dopo dichiara se la voce e'
+/// una directory da mettere in coda.
+///
+/// Il percorso normalizzato entra nel digest dell'identita'. `to_string_lossy`
+/// dà una forma stabile senza dipendere dalla codifica del sistema: due corse
+/// sulla stessa sorgente producono lo stesso digest.
+///
+/// # Errors
+///
+/// `Unsupported` su un symlink, l'errore di I/O se i metadata non si leggono,
+/// e l'errore di quota se la voce supera `max_input_entries` o
+/// `max_input_bytes`.
+fn scopri(context: &PipelineContext, percorso: &std::path::Path) -> Result<bool> {
+    let metadata = std::fs::symlink_metadata(percorso)?;
+    if metadata.file_type().is_symlink() {
+        return Err(PlenoraIoError::Unsupported(
+            "symlink non ammesso nella sorgente".to_owned(),
+        ));
+    }
+    let normalizzato = percorso.to_string_lossy();
+    let modified = metadata.modified().ok();
+    let entry = if metadata.is_dir() {
+        SourceEntry::directory(normalizzato.as_bytes(), modified)
+    } else {
+        SourceEntry::file(normalizzato.as_bytes(), metadata.len(), modified)
+    };
+    context.note_entry_visited(&entry)?;
+    Ok(metadata.is_dir())
 }
 
 /// Destinazione di scrittura (scheletro Fase 0).
@@ -419,6 +477,22 @@ impl ReadOptions {
     /// Cancellazione richiesta o propagata, oppure deadline scaduta.
     pub fn ensure_active(&self) -> Result<()> {
         self.payload.ensure_active()
+    }
+
+    /// Budget dell'operazione sul modello unificato.
+    ///
+    /// Restituisce `Result` e non `Option` cosi' che il chiamante scriva
+    /// `opts.operation_budget()?` senza nominare il ponte: la decisione su
+    /// cosa fare quando le opzioni sono legacy appartiene al core, non ai
+    /// driver. E' il gemello di [`Self::resource_budget`], e gli sopravvive:
+    /// in S4.e resta solo questo.
+    ///
+    /// # Errors
+    ///
+    /// [`bridge_richiede_legacy`] se le opzioni sono costruite sul modello
+    /// legacy.
+    pub fn operation_budget(&self) -> Result<&OperationBudget> {
+        self.pipeline_budget().ok_or_else(bridge_richiede_legacy)
     }
 
     /// Budget legacy dei contatori cumulativi, per i percorsi che non sono
@@ -988,12 +1062,7 @@ pub trait FormatWriter {
 /// sono costruite sul modello unificato. **Punto di rimozione del ramo
 /// legacy: S4.d.**
 pub fn preflight_source(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
-    source.into_path_checked(
-        opts.max_input_bytes(),
-        opts.max_input_entries(),
-        opts.cancellation(),
-        opts.legacy_budget().ok_or_else(bridge_richiede_legacy)?,
-    )
+    source.into_path_observed(opts)
 }
 
 /// Applica i limiti indipendenti dal formato a qualunque writer. I vincoli
@@ -2169,29 +2238,36 @@ mod tests {
     use super::*;
     use crate::descriptor::WKB_XY_GEOMETRY;
 
-    fn scan_dir_with(entries: usize, limits: Limits) -> Result<PathBuf> {
+    /// Opzioni sul modello unificato, con i limiti indicati.
+    fn opzioni_pipeline(limits: plenora_io_model::budget::PipelineLimits) -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limits)
+            .build()
+        {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("limiti di test non validi: {error:?}"),
+        }
+    }
+
+    fn scan_dir_with(
+        entries: usize,
+        limits: plenora_io_model::budget::PipelineLimits,
+    ) -> Result<PathBuf> {
         let root = tempfile::tempdir().expect("tempdir");
         for index in 0..entries {
             let mut file = std::fs::File::create(root.path().join(format!("entry-{index}.bin")))
                 .expect("file");
             file.write_all(b"x").expect("write");
         }
-        Source::Path(root.path().to_path_buf()).into_path_checked(
-            limits.max_input_bytes,
-            limits.max_input_entries,
-            &CancellationToken::new(),
-            &ResourceBudget::default(),
-        )
+        let mut opts = opzioni_pipeline(limits);
+        preflight_source(Source::Path(root.path().to_path_buf()), &mut opts)
     }
 
     /// L0.9: senza tetto sulle entry una directory ostile fa crescere la coda
     /// dello scan senza limite, perche' i byte si sommano solo sui file.
     #[test]
     fn directory_scan_over_max_input_entries_rejects_with_typed_error() {
-        let limits = Limits {
-            max_input_entries: 4,
-            ..Limits::default()
-        };
+        let limits = plenora_io_model::budget::PipelineLimits::default().with_max_input_entries(4);
         // La radice conta come entry: 4 file piu' la directory sono 5.
         let error = scan_dir_with(4, limits).expect_err("il quinto elemento deve far fallire");
         assert_eq!(error.code, plenora_io_model::IoErrorCode::LimitExceeded);
@@ -2203,10 +2279,7 @@ mod tests {
 
     #[test]
     fn directory_scan_within_max_input_entries_succeeds() {
-        let limits = Limits {
-            max_input_entries: 4,
-            ..Limits::default()
-        };
+        let limits = plenora_io_model::budget::PipelineLimits::default().with_max_input_entries(4);
         assert!(
             scan_dir_with(3, limits).is_ok(),
             "radice + 3 file = 4 entry"
@@ -2217,18 +2290,16 @@ mod tests {
     fn max_input_entries_default_admits_a_realistic_directory() {
         // Il default non deve rifiutare una directory di file legittimi:
         // un tetto troppo stretto sarebbe un fail-closed inutile.
-        assert!(scan_dir_with(64, Limits::default()).is_ok());
+        assert!(scan_dir_with(64, plenora_io_model::budget::PipelineLimits::default()).is_ok());
     }
 
     #[test]
     fn entry_cap_is_checked_before_the_byte_sum() {
         // Con un tetto di entry raggiunto e un limite di byte larghissimo,
         // deve vincere il tetto delle entry: e' l'ordine dichiarato da INV-9.
-        let limits = Limits {
-            max_input_entries: 2,
-            max_input_bytes: u64::MAX,
-            ..Limits::default()
-        };
+        let limits = plenora_io_model::budget::PipelineLimits::default()
+            .with_max_input_entries(2)
+            .with_max_input_bytes(u64::MAX);
         let error = scan_dir_with(8, limits).expect_err("il tetto entry deve intervenire");
         assert!(
             error.message.contains("entry"),
@@ -2490,16 +2561,10 @@ mod tests {
     fn source_size_is_checked_before_parsing() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&[0_u8; 8]).unwrap();
-        let limits = Limits {
-            max_input_bytes: 7,
-            ..Limits::default()
-        };
-        let result = Source::Path(file.path().to_owned()).into_path_checked(
-            limits.max_input_bytes,
-            limits.max_input_entries,
-            &CancellationToken::new(),
-            &ResourceBudget::default(),
+        let mut opts = opzioni_pipeline(
+            plenora_io_model::budget::PipelineLimits::default().with_max_input_bytes(7),
         );
+        let result = preflight_source(Source::Path(file.path().to_owned()), &mut opts);
         assert!(matches!(
             result,
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
@@ -2510,11 +2575,16 @@ mod tests {
     fn cancelled_source_is_rejected_before_filesystem_probe() {
         let token = CancellationToken::new();
         token.cancel();
-        let result = Source::Path(std::path::PathBuf::from("not-observed")).into_path_checked(
-            Limits::default().max_input_bytes,
-            Limits::default().max_input_entries,
-            &token,
-            &ResourceBudget::default(),
+        let mut opts = match plenora_io_model::budget::PipelineBudget::builder()
+            .cancellation(token)
+            .build()
+        {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test: {error:?}"),
+        };
+        let result = preflight_source(
+            Source::Path(std::path::PathBuf::from("not-observed")),
+            &mut opts,
         );
         assert!(matches!(
             result,
@@ -3392,24 +3462,29 @@ mod tests {
     // insieme, non uno alla volta.
 
     #[test]
-    fn il_preflight_consuma_il_permit_una_volta_e_lascia_le_opzioni_usabili() {
-        // Verifica la **forma** che S4.d usera'. Con `open` che riceve le
-        // opzioni per valore, una funzione che le prende `&mut` puo'
-        // estrarre il permit per move; con `&ReadOptions` non si estrae
-        // nulla, e le vie per aggirarlo — `Mutex<Option<InputPermit>>`, o un
-        // permit clonato — reintrodurrebbero proprio l'osservazione doppia
-        // che il permit esiste per escludere.
-        fn come_il_preflight(opts: &mut ReadOptions) -> Option<InputPermit> {
+    fn le_opzioni_per_valore_rendono_estraibile_il_permit_una_volta_sola() {
+        // Verifica la **forma**, non il comportamento del preflight: la
+        // funzione locale sotto imita la firma che `preflight_source` usa,
+        // non e' `preflight_source`. Con `open` che riceve le opzioni per
+        // valore, una funzione che le prende `&mut` puo' estrarre il permit
+        // per move; con `&ReadOptions` non si estrae nulla, e le vie per
+        // aggirarlo — `Mutex<Option<InputPermit>>`, o un permit clonato —
+        // reintrodurrebbero l'osservazione doppia che il permit esiste per
+        // escludere.
+        //
+        // Il consumo vero del permit dentro il preflight e' esercitato dai
+        // test del preflight e da quello end-to-end, non da qui.
+        fn con_la_stessa_firma_del_preflight(opts: &mut ReadOptions) -> Option<InputPermit> {
             opts.take_input_permit()
         }
 
         let mut opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
         assert!(
-            come_il_preflight(&mut opts).is_some(),
+            con_la_stessa_firma_del_preflight(&mut opts).is_some(),
             "il permit deve essere estraibile attraverso un prestito mutabile"
         );
         assert!(
-            come_il_preflight(&mut opts).is_none(),
+            con_la_stessa_firma_del_preflight(&mut opts).is_none(),
             "one-shot: la seconda estrazione non deve dare un secondo permit"
         );
 
@@ -3421,34 +3496,62 @@ mod tests {
     }
 
     #[test]
-    fn preflight_source_rifiuta_le_opzioni_del_modello_unificato() {
+    fn il_preflight_rifiuta_le_opzioni_legacy() {
+        // Da S4.d il preflight osserva la sorgente attraverso il
+        // `PipelineContext`: senza contesto non c'e' nulla da osservare, e
+        // ripiegare sui controlli vecchi vorrebbe dire tenere in vita proprio
+        // il doppio conteggio che questo sottopasso ha rimosso.
         let file = tempfile::NamedTempFile::new().expect("tempfile");
-        let mut opts = ReadOptions::from_read_parts(bundle_di_parita().into_read_parts());
+        let mut opts = opzioni_legacy();
 
         let errore = preflight_source(Source::Path(file.path().to_owned()), &mut opts)
-            .expect_err("il preflight legacy non sa osservare col modello nuovo");
+            .expect_err("il preflight non sa osservare col modello legacy");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
     }
 
     #[test]
-    fn preflight_source_accetta_le_opzioni_legacy_e_applica_le_quote() {
+    fn il_preflight_applica_le_quote_e_pubblica_il_footprint() {
         let mut file = tempfile::NamedTempFile::new().expect("tempfile");
         file.write_all(&[0_u8; 8]).expect("write");
-        let mut stretto = opzioni_legacy_con(
-            Limits {
-                max_input_bytes: 7,
-                ..Limits::default()
-            },
-            CancellationToken::new(),
+
+        let mut stretto = opzioni_pipeline(
+            plenora_io_model::budget::PipelineLimits::default().with_max_input_bytes(7),
         );
         let errore = preflight_source(Source::Path(file.path().to_owned()), &mut stretto)
             .expect_err("otto byte non stanno in sette");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
 
-        // Con quota capiente lo stesso file passa: il rifiuto sopra viene
-        // dalla quota, non dal fatto che il percorso sia rotto.
-        let mut largo = opzioni_legacy_con(Limits::default(), CancellationToken::new());
+        // Con quota capiente lo stesso file passa, e il footprint pubblicato
+        // descrive cio' che e' stato davvero osservato: un file, otto byte.
+        let mut largo = opzioni_pipeline(plenora_io_model::budget::PipelineLimits::default());
+        let budget = largo
+            .pipeline_budget()
+            .expect("opzioni sul modello unificato")
+            .clone();
+        assert_eq!(
+            budget.context().observed_input(),
+            plenora_io_model::budget::ObservedInput::NotObserved,
+            "prima del preflight nulla e' osservato"
+        );
         assert!(preflight_source(Source::Path(file.path().to_owned()), &mut largo).is_ok());
+        assert_eq!(
+            budget.context().observed_input(),
+            plenora_io_model::budget::ObservedInput::Bytes(8)
+        );
+        assert_eq!(budget.context().entries_visited(), 1);
+    }
+
+    #[test]
+    fn il_preflight_spende_il_permit_e_non_osserva_due_volte() {
+        let file = tempfile::NamedTempFile::new().expect("tempfile");
+        let mut opts = opzioni_pipeline(plenora_io_model::budget::PipelineLimits::default());
+
+        assert!(preflight_source(Source::Path(file.path().to_owned()), &mut opts).is_ok());
+        // Il permit e' stato speso: una seconda osservazione non ha nulla con
+        // cui pubblicare, e fallisce invece di lasciare il footprint vuoto.
+        let errore = preflight_source(Source::Path(file.path().to_owned()), &mut opts)
+            .expect_err("il permit e' one-shot");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
     }
 
     #[test]

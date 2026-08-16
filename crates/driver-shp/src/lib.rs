@@ -2468,6 +2468,20 @@ pub fn __fuzz_wkb_roundtrip(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opzioni di lettura sul modello unificato.
+    ///
+    /// Da S4.d il percorso di lettura vive interamente li': la memoria dei
+    /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
+    /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
+    /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    fn opzioni_lettura() -> ReadOptions {
+        match plenora_io_model::budget::PipelineBudget::builder().build() {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     use std::io::Write as _;
 
     use plenora_io_core::request::{BatchTarget, ProjectionMode};
@@ -2478,7 +2492,7 @@ mod tests {
     const EPSG_3003_WKT: &str = include_str!("../tests/fixtures/epsg3003.prj");
 
     fn read_opts() -> ReadOptions {
-        ReadOptions::default().with_assume_crs("EPSG:4326")
+        opzioni_lettura().with_assume_crs("EPSG:4326")
     }
 
     fn req() -> ReadRequest {
@@ -3047,7 +3061,7 @@ mod tests {
         )
         .unwrap();
 
-        let crs = resolve_crs(&path, &ReadOptions::default()).unwrap();
+        let crs = resolve_crs(&path, &opzioni_lettura()).unwrap();
         assert_eq!(crs.id.as_deref(), Some("EPSG:4326"));
         assert_eq!(
             crs.axis_order,
@@ -3061,7 +3075,7 @@ mod tests {
         let path = dir.path().join("parcels.shp");
         std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
 
-        let crs = resolve_crs(&path, &ReadOptions::default()).unwrap();
+        let crs = resolve_crs(&path, &opzioni_lettura()).unwrap();
         assert_eq!(crs.id.as_deref(), Some("EPSG:3003"));
         assert_eq!(crs.kind, CrsKind::Projected);
         assert_eq!(
@@ -3112,7 +3126,7 @@ mod tests {
         drop(dbf);
 
         let dataset = ShpDriver
-            .open(Source::Path(path), ReadOptions::default())
+            .open(Source::Path(path), opzioni_lettura())
             .unwrap();
         let assessment = dataset.fidelity_assessment();
         assert_eq!(assessment.level, Fidelity::Conditional);
@@ -3152,7 +3166,7 @@ mod tests {
         std::fs::write(path.with_extension("prj"), EPSG_3003_WKT).unwrap();
 
         let dataset = ShpDriver
-            .open(Source::Path(path), ReadOptions::default())
+            .open(Source::Path(path), opzioni_lettura())
             .unwrap();
         let schema = &dataset.layers()[0].contract.schema;
         assert_eq!(schema.field(1).data_type(), &DataType::Float64);
@@ -3199,7 +3213,7 @@ mod tests {
         drop(dbf);
 
         let error = ShpDriver
-            .open(Source::Path(path), ReadOptions::default())
+            .open(Source::Path(path), opzioni_lettura())
             .err()
             .expect("il DBF con nomi duplicati deve essere rifiutato");
         assert!(error.to_string().contains("nomi campo DBF duplicati"));
@@ -3212,7 +3226,7 @@ mod tests {
         let definition = "LOCAL_CS[\"survey-grid-secret\"]";
         std::fs::write(path.with_extension("prj"), definition).unwrap();
 
-        let error = resolve_crs(&path, &ReadOptions::default()).unwrap_err();
+        let error = resolve_crs(&path, &opzioni_lettura()).unwrap_err();
         assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
         assert_eq!(error.driver.as_deref(), Some("shp"));
         assert!(!error.to_string().contains("survey-grid-secret"));
@@ -3222,7 +3236,7 @@ mod tests {
     fn assumed_unknown_epsg_does_not_invent_an_axis_order() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("no-prj.shp");
-        let crs = resolve_crs(&path, &ReadOptions::default().with_assume_crs("EPSG:4258")).unwrap();
+        let crs = resolve_crs(&path, &opzioni_lettura().with_assume_crs("EPSG:4258")).unwrap();
         assert_eq!(crs.kind, CrsKind::Unknown);
         assert_eq!(crs.axis_order, plenora_io_model::crs::AxisOrder::Unknown);
     }
