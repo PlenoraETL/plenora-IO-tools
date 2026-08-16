@@ -96,6 +96,14 @@ jobs:
           -D clippy::todo
           -D clippy::unimplemented
       - run: cargo test --workspace --all-targets --locked
+      # `--all-targets` NON esegue i doctest. Il modello budget del Lotto 0
+      # usa doctest `compile_fail` per provare invarianti che nessun test
+      # runtime puo' dimostrare — un `PipelineBundle` non destrutturabile, un
+      # `InputPermit` non clonabile, un `SourceFootprint` non costruibile,
+      # trait delle parti sealed (INV-2, INV-13). Senza questo passo quei
+      # gate esisterebbero nel sorgente ma non girerebbero mai.
+      - name: Run doctests, including the compile-fail API gates
+        run: cargo test --workspace --doc --locked
       - name: Test FileGDB crash recovery
         run: cargo test -p driver-filegdb --features gdal-backend --locked
       - name: Test cross-filesystem publish rejection

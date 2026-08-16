@@ -144,3 +144,54 @@ sua suite dedicata, senza alcun cambio di comportamento del core.
   permessi, cleanup su lock esclusivo) gia' analizzata in ADR-IO 7 ma non
   ancora esercitata su una matrice di filesystem reali.
 - La revisione indipendente resta non disponibile (PLN-ASR-012).
+
+## Registrazione S1 (M1) del 2026-08-16
+
+Introdotto `crates/plenora-io-model/src/budget.rs` accanto a `limits.rs` e
+`resource.rs`, che restano invariati. Nessun crate consuma il modulo nuovo:
+`plenora-io-core`, i driver e la CLI non cambiano di una riga, quindi il
+comportamento osservabile del bordo e' identico a quello del commit base.
+
+I tipi del modulo **non** sono ri-esportati alla radice del crate: durante la
+convivenza dei due modelli un import dichiara sempre quale dei due sta
+usando (`plenora_io_model::budget::PipelineLimits` contro
+`plenora_io_model::Limits`).
+
+**Default unificati**: dove i due modelli legacy divergevano — il finding
+L0.2 — vince il valore piu' stretto, cosi' l'unificazione non allenta in
+silenzio una quota gia' applicata: `max_rows` `10_000_000` e `max_columns`
+`4_096` da `Limits` (contro `u64::MAX` e `65_536` di `ResourceLimits`),
+`max_output_bytes` 1 GiB da `Limits` (contro `u64::MAX`). La scelta e'
+osservabile solo da S4, quando i driver passano al modello nuovo.
+
+**Verifica**: 41 test unitari nel modulo piu' 5 doctest, di cui 4
+`compile_fail` che provano invarianti non dimostrabili a runtime —
+`PipelineBundle` non destrutturabile (E0451), `InputPermit` non clonabile
+(E0599), `SourceFootprint` non costruibile (E0639), trait delle parti sealed
+(E0277). I quattro motivi di fallimento sono stati verificati uno per uno:
+un `compile_fail` che fallisse per un errore di battitura passerebbe lo
+stesso. Poiche' `cargo test --all-targets` **non** esegue i doctest, la CI
+ha ora un passo dedicato: senza di esso quei gate esisterebbero nel sorgente
+senza girare mai.
+
+**Residui introdotti da S1**:
+
+- `SourceDigest` non e' implementato. Il pacchetto lo definisce sui path
+  normalizzati piu' size e mtime, ma la firma ratificata
+  `observe_input(permit, bytes, entries)` non ha un canale per ricevere
+  l'identita' per-entry, che solo il preflight del core conosce. Lo
+  `SourceFootprintSnapshot` di S1 porta byte ed entry; il digest arriva in
+  S4 insieme al preflight leggero di `Dataset::scan`, e il pacchetto va
+  corretto in quel punto. Derivare intanto un digest dai soli totali
+  sarebbe stato peggio che non averlo: non distinguerebbe due sorgenti con
+  gli stessi totali e uno scambio di file.
+- `Limits::max_vertices` (tetto globale che oggi stringe
+  `WkbLimits::max_components`) non ha un corrispondente nel modello nuovo:
+  `max_geometry_components` e' cumulativo per operazione,
+  `max_wkb_components` e' per cella, e nessuno dei due riproduce la
+  composizione `effective_wkb()`. Va deciso in S4, prima che i driver
+  cambino modello, altrimenti la migrazione allenta un tetto senza dirlo.
+- `ObservedInput` non distingue ancora l'errore di osservazione dal caso
+  "mai osservato" nei tipi: entrambi restano `NotObserved`. E' voluto e
+  documentato, ma significa che un consumer non puo' sapere se un preflight
+  ha fallito. La distinzione, se servira', appartiene a S9.

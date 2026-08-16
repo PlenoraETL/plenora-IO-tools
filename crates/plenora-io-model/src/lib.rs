@@ -6,6 +6,13 @@
 pub use arrow_array;
 pub use arrow_schema;
 
+/// Modello budget unificato del Lotto 0.
+///
+/// Convive con [`limits`] e [`resource`] fino allo step M4/S7, che rimuove
+/// il modello legacy. I tipi **non** sono ri-esportati alla radice: durante
+/// la convivenza i due modelli restano nominabili solo dal proprio
+/// percorso, cosi' un import dice sempre quale dei due sta usando.
+pub mod budget;
 pub mod cancellation;
 pub mod contract;
 pub mod crs;
