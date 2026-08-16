@@ -331,10 +331,8 @@ sbagliare in silenzio.
 `reader_of_n_plus_one_rows_with_max_rows_n_still_fails`,
 `limit_parity_pre_and_post_m2`).
 
-**Residuo aperto di S2**: il benchmark bounded sul percorso convert non e'
-ancora stato eseguito, quindi il veto prestazionale non e' verificato. Lo
-spool aggiunge una scrittura e una rilettura Arrow IPC sui dataset che
-superano la soglia; il costo va misurato prima della chiusura del lotto.
+**Veto prestazionale verificato** — vedi la registrazione del benchmark A/B
+in fondo a questo documento.
 
 ## Registrazione S2.d del 2026-08-16
 
@@ -387,3 +385,49 @@ sezione M2 del pacchetto e PLN-ASR-004 della matrice di tracciabilita'.
 **Verifica S2.d**: 8 test nuovi nello spool e 1 nell'adapter, oltre
 all'allineamento di 6 test le cui costanti dipendevano dalla vecchia
 contabilita'.
+
+## Benchmark A/B dello spool (S2, 2026-08-16)
+
+L'harness principale misura `read` e `write` separatamente e con i limiti di
+default: con quelli lo spool non si attiva quasi mai, e un risultato verde
+non direbbe nulla sul costo che interessa. Il binario
+`plenora-bench-spool-ab` misura invece un `convert` completo — CSV →
+GeoParquet, lettura attraverso l'adapter operation-atomic e scrittura via
+driver — in due varianti sullo stesso fixture:
+
+- **no-spill**: quota di memoria 1 GiB, i batch verificati restano in RAM;
+- **forced-spill**: quota di memoria 8 MiB, la soglia adattiva e' 4 MiB e la
+  migrazione avviene.
+
+Ogni corsa **dichiara se lo spill e' avvenuto davvero**, campionando la quota
+residua di `SpillBytes` **durante** il drain: la prenotazione e' RAII e al
+drop dello spool torna al budget, quindi una misura a posteriori vedrebbe
+zero. Un `forced-spill` che non spilla esce con errore, perche' misurerebbe
+lo stesso percorso del `no-spill` e sarebbe verde per costruzione.
+
+Baseline **prima**: `601a124`, cioe' lo spool presente ma non ancora cablato
+— l'adapter accumula ancora in `VecDeque`. Baseline **dopo**: `5690061`.
+Stessa macchina, stessa toolchain 1.92.0 nel container di sviluppo, 400.000
+righe, 7 batch, 5 campioni per variante, mediana.
+
+| Variante | Prima | Dopo | Delta |
+|---|---|---|---|
+| no-spill | 334 ms | 343 ms | **+2,7%** |
+| forced-spill | **fallisce** `LimitExceeded` | 337 ms, 20,5 MB spillati | capability nuova |
+
+**Percorso comune (no-spill): +2,7%, dentro il veto del 10%.** I campioni si
+sovrappongono (prima 333-357 ms, dopo 327-354 ms): il delta e' nell'ordine
+del rumore di misura, non una regressione distinguibile.
+
+**Percorso forced-spill: prima non completava affatto.** Con 8 MiB di quota
+il codice pre-spool falliva `batch materializzato oltre la quota prenotata`:
+e' esattamente il difetto che ADR-IO 7 esiste per chiudere. Dopo, la stessa
+conversione riesce in 337 ms — indistinguibile dal percorso senza spill —
+scrivendo 20,5 MB sul file temporaneo. Il costo di scrittura e rilettura
+Arrow IPC non domina il tempo utente.
+
+**Limite dichiarato della misura**: il file temporaneo vive sul filesystem
+del container, che su questa macchina e' veloce. Su un volume lento il
+rapporto scrittura/rilettura peserebbe di piu'. La misura dimostra che lo
+spool non introduce un costo strutturale sul percorso comune, non che lo
+spill sia gratuito su qualunque storage.

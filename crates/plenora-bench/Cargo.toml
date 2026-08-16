@@ -9,6 +9,14 @@ publish = false
 name = "plenora-bench"
 path = "src/main.rs"
 
+# Benchmark A/B del percorso convert con e senza spill (S2). Sta in un binario
+# separato perche' misura una cosa diversa dall'harness principale: non la
+# velocita' di un driver, ma il costo che lo spool bounded aggiunge quando si
+# attiva davvero.
+[[bin]]
+name = "plenora-bench-spool-ab"
+path = "src/bin/spool_ab.rs"
+
 # Unica deroga al `forbid(unsafe_code)` di workspace: questo harness misura
 # allocazioni e rusage e richiede un `GlobalAlloc` contatore e `getrusage`.
 # Non e' codice di libreria, non entra nel perimetro spedito e resta escluso

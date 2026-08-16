@@ -48,6 +48,15 @@ set -eu
 # far muovere il contatore sarebbe stato il modo di eludere H-01.
 # **Serve ratifica H-01, con la stessa motivazione dell'occorrenza di
 # plenora-io-core.**
+#
+# Il 2026-08-16 il benchmark A/B dello spool ha aggiunto tre occorrenze in
+# plenora-bench (21 -> 24, totale 95 -> 98). Sono default di argomenti da
+# riga di comando dell'harness — directory dei fixture, numero di righe,
+# nome della variante — non fallback su dati letti da un file. plenora-bench
+# non e' codice spedito, non entra nel gate anti-panic e non produce output
+# che qualcuno consumi: un default sbagliato qui fa misurare la cosa
+# sbagliata, e il benchmark lo dichiara nel proprio JSON. Nessuna revisione
+# H-01 dovuta.
 expected='
 driver-csv 3
 driver-dxf 15
@@ -62,7 +71,7 @@ driver-xls 1
 plenora-io-model 1
 plenora-io-core 11
 plenora-io-cli 19
-plenora-bench 21
+plenora-bench 24
 plenora-fuzz 5
 '
 
@@ -93,7 +102,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 95 ]; then
+if [ "${actual_total}" -ne 98 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi
