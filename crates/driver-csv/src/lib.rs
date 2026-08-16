@@ -57,7 +57,7 @@ use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
-    decode_wkb, encode_wkb_into, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+    decode_wkb, encode_wkb_into_bounded, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
 use plenora_io_model::{PlenoraIoError, Result};
 
@@ -571,7 +571,7 @@ fn append_geometry(
                 // averlo, perche' il rifiuto arriverebbe a meta' lettura.
                 let geometry = parse_wkt_bounded(cell, cella_wkt)?;
                 buf.clear();
-                encode_wkb_into(&geometry, WkbFlavor::Iso, buf)?;
+                encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, buf, cella_wkt)?;
                 geom_b.append_value(buf.as_slice());
             }
         }
@@ -604,7 +604,7 @@ fn append_geometry(
                 srid: None,
             };
             buf.clear();
-            encode_wkb_into(&geometry, WkbFlavor::Iso, buf)?;
+            encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, buf, cella_wkt)?;
             geom_b.append_value(buf.as_slice());
         }
     }
@@ -800,6 +800,133 @@ mod tests {
             Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
             Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
         }
+    }
+
+    /// Il testo sta nel tetto, il WKB codificato no.
+    ///
+    /// I driver tabellari controllano la **rappresentazione d'ingresso** — qui
+    /// il testo WKT — prima di costruire l'AST. Ma la codifica WKB puo' essere
+    /// piu' grande di quel testo: `POINT (1 2)` occupa 11 caratteri e 21 byte
+    /// in WKB, perche' due `f64` costano 16 byte da soli.
+    ///
+    /// Fino a S5.1 il buffer cresceva comunque fino a 21 byte e il rifiuto
+    /// arrivava dall'adapter, a memoria gia' allocata. Ora l'encoder e'
+    /// bounded e si ferma al tetto.
+    #[test]
+    fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta() {
+        // Fra la lunghezza del testo (11) e quella del WKB (21).
+        const SOGLIA: usize = 15;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = csv_con_wkt(&dir, "POINT (1 2)");
+        assert!(
+            "POINT (1 2)".len() <= SOGLIA,
+            "la premessa: il testo deve stare nel tetto"
+        );
+
+        // L'inferenza passa — il testo ci sta — e il rifiuto arriva dalla
+        // codifica, non dal controllo sul testo.
+        let esito = CsvDriver.open(Source::Path(percorso), opzioni_con_cella(SOGLIA, 1_000));
+        let Ok(dataset) = esito else {
+            unreachable!("l'inferenza deve passare: il testo sta nel tetto");
+        };
+        let mut reader = dataset
+            .open_layer_reader(&req(1_000))
+            .expect("il reader si apre");
+        let esito = reader.next_batch();
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.message.contains("oltre il limite")
+            ),
+            "la codifica WKB deve fermarsi al tetto: {esito:?}"
+        );
+    }
+
+    /// `infer_types` applica il proprio tetto di righe, da solo.
+    ///
+    /// I due punti di enforcement dell'inferenza si coprono a vicenda quando
+    /// li si esercita da `open`, perche' `infer_types` gira per primo: una
+    /// mutazione su uno solo sopravvive. Chiamarli direttamente — sono privati,
+    /// ma il modulo di test li raggiunge — verifica ciascuno in isolamento.
+    #[test]
+    fn infer_types_si_ferma_al_tetto_di_righe() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = csv_con_righe(&dir, 8);
+        let headers = vec!["id".to_owned(), "geometry".to_owned()];
+        let geom_cols = HashSet::from([1_usize]);
+
+        assert!(infer_types(&percorso, b',', &headers, &geom_cols, quote(8)).is_ok());
+
+        let errore = infer_types(&percorso, b',', &headers, &geom_cols, quote(7))
+            .expect_err("otto righe con tetto sette devono fermare la passata");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    }
+
+    /// `infer_wkt_geometry` applica il proprio tetto di righe, da solo.
+    #[test]
+    fn infer_wkt_geometry_si_ferma_al_tetto_di_righe() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = csv_con_righe(&dir, 8);
+
+        assert!(infer_wkt_geometry(&percorso, b',', 1, quote(8)).is_ok());
+
+        let errore = infer_wkt_geometry(&percorso, b',', 1, quote(7))
+            .expect_err("otto righe con tetto sette devono fermare la passata");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    }
+
+    /// `infer_wkt_geometry` applica il tetto per cella, da solo.
+    #[test]
+    fn infer_wkt_geometry_applica_il_tetto_per_cella() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = csv_con_wkt(&dir, "POINT (1 2)");
+
+        assert!(infer_wkt_geometry(&percorso, b',', 1, quote_con_cella(11, 100)).is_ok());
+
+        let errore = infer_wkt_geometry(&percorso, b',', 1, quote_con_cella(10, 100))
+            .expect_err("undici caratteri con tetto dieci devono fallire");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    }
+
+    /// `append_geometry` applica il tetto per cella sul percorso di lettura.
+    ///
+    /// E' il gemello di `infer_wkt_geometry`: la stessa quota, applicata nella
+    /// seconda passata. Esercitarlo da `open` non lo isolerebbe — l'inferenza
+    /// rifiuta per prima — quindi il test lo chiama direttamente.
+    #[test]
+    fn append_geometry_applica_il_tetto_per_cella() {
+        let record = csv::StringRecord::from(vec!["1", "POINT (1 2)"]);
+        let mut buffer = Vec::new();
+
+        let mut builder = BinaryBuilder::new();
+        assert!(
+            append_geometry(&mut builder, GeomSpec::Wkt(1), &record, &mut buffer, 64).is_ok(),
+            "con un tetto capiente la cella passa"
+        );
+
+        let mut builder = BinaryBuilder::new();
+        let errore = append_geometry(&mut builder, GeomSpec::Wkt(1), &record, &mut buffer, 10)
+            .expect_err("undici caratteri con tetto dieci devono fallire");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
+    }
+
+    fn quote(righe: usize) -> QuoteInferenza {
+        quote_con_cella(4_096, righe)
+    }
+
+    const fn quote_con_cella(cella_wkt: usize, righe: usize) -> QuoteInferenza {
+        QuoteInferenza { cella_wkt, righe }
+    }
+
+    fn csv_con_righe(dir: &tempfile::TempDir, quante: u32) -> std::path::PathBuf {
+        let percorso = dir.path().join("molte.csv");
+        let righe: Vec<String> = (0..quante)
+            .map(|indice| format!("{indice},\"POINT (1 2)\""))
+            .collect();
+        let contenuto = format!("id,geometry\n{}\n", righe.join("\n"));
+        std::fs::write(&percorso, contenuto).expect("scrittura");
+        percorso
     }
 
     /// Opzioni con quote WKB strette, per i test di S5.

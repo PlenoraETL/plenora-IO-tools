@@ -10,8 +10,8 @@ use crate::error::Result;
 use crate::limits::WkbLimits;
 
 pub use crate::wkb_lossless::{
-    decode_wkb, encode_wkb, encode_wkb_into, inspect_wkb, WkbCoordinate, WkbFlavor, WkbGeometry,
-    WkbInspection, WkbValue,
+    decode_wkb, encode_wkb, encode_wkb_into, encode_wkb_into_bounded, inspect_wkb, WkbCoordinate,
+    WkbFlavor, WkbGeometry, WkbInspection, WkbValue,
 };
 
 /// Serializza una geometria `geo-types` in WKB XY little-endian, riusando il
@@ -53,6 +53,50 @@ pub fn from_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<Geometry<f64>> {
 
 #[cfg(test)]
 mod tests {
+    /// Il buffer non cresce oltre il tetto, nemmeno di un byte.
+    ///
+    /// E' la proprieta' che distingue un encoder bounded da un controllo
+    /// a posteriori: il secondo scopre l'eccesso quando la memoria e' gia'
+    /// allocata, ed e' esattamente cio' che i driver tabellari facevano prima
+    /// di S5.1 — controllavano il testo d'ingresso, non la codifica.
+    #[test]
+    fn l_encoder_bounded_non_supera_mai_il_tetto() {
+        let punti: Vec<WkbCoordinate> = (0..64)
+            .map(|indice| WkbCoordinate {
+                x: f64::from(indice),
+                y: f64::from(indice),
+                z: None,
+                m: None,
+            })
+            .collect();
+        let geometria = WkbGeometry {
+            value: WkbValue::LineString(punti),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+
+        let intera = encode_wkb(&geometria, WkbFlavor::Iso).expect("codifica");
+        assert!(intera.len() > 64, "la geometria deve essere non banale");
+
+        for tetto in [1_usize, 9, 21, intera.len() - 1] {
+            let mut buffer = Vec::new();
+            let esito = encode_wkb_into_bounded(&geometria, WkbFlavor::Iso, &mut buffer, tetto);
+            assert!(esito.is_err(), "tetto {tetto}: la codifica deve fallire");
+            assert!(
+                buffer.len() <= tetto,
+                "tetto {tetto}: il buffer e' cresciuto fino a {} byte",
+                buffer.len()
+            );
+        }
+
+        // Al tetto esatto passa: il confronto e' `>`, non `>=`.
+        let mut buffer = Vec::new();
+        assert!(
+            encode_wkb_into_bounded(&geometria, WkbFlavor::Iso, &mut buffer, intera.len()).is_ok()
+        );
+        assert_eq!(buffer, intera);
+    }
+
     use geo_types::{
         Coord, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point,
         Polygon,

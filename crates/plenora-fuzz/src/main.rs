@@ -576,7 +576,7 @@ fn geojson_geom_roundtrip(g: &Geometry<f64>) -> Result<(), String> {
         )
     })?;
     let mut wkb = Vec::new();
-    driver_geojson::wkb_from_gj_value(&geom.value, &mut wkb)
+    driver_geojson::wkb_from_gj_value(&geom.value, &mut wkb, LIM.max_cell_bytes)
         .map_err(|e| format!("wkb_from_gj_value fallisce sul nostro output: {e}"))?;
     let g2 = from_wkb(&wkb, &LIM)
         .map_err(|e| format!("WKB da wkb_from_gj_value non decodificabile: {e}"))?;
@@ -599,7 +599,7 @@ fn geojson_geom_roundtrip(g: &Geometry<f64>) -> Result<(), String> {
 fn check_gj_value(v: &geojson::Value) -> Result<(), String> {
     let mut wkb = Vec::new();
     // Se produce WKB (Ok), dev'essere decodificabile; Err = rifiuto pulito.
-    if driver_geojson::wkb_from_gj_value(v, &mut wkb).is_ok() {
+    if driver_geojson::wkb_from_gj_value(v, &mut wkb, LIM.max_cell_bytes).is_ok() {
         from_wkb(&wkb, &LIM)
             .map_err(|e| format!("wkb_from_gj_value produce WKB indecodificabile: {e}"))?;
     }

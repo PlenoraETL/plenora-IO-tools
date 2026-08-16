@@ -700,29 +700,70 @@ fn validate_coordinate(coordinate: &WkbCoordinate, dimensions: CoordinateDimensi
     }
 }
 
+/// Buffer di uscita con un tetto verificato **a ogni scrittura**.
+///
+/// # Perche' non un calcolo della dimensione
+///
+/// L'alternativa era stimare la lunghezza codificata prima di scrivere e
+/// rifiutare in anticipo. Sarebbe stata una seconda implementazione del
+/// formato, che puo' divergere dalla prima: una stima sbagliata per difetto
+/// lascia passare cio' che doveva fermare, una per eccesso rifiuta geometrie
+/// valide, e in nessuno dei due casi il compilatore se ne accorge.
+///
+/// Il sink invece **e'** il writer: il tetto vale su cio' che viene scritto
+/// davvero, e il buffer non supera mai il limite nemmeno di un byte, perche'
+/// il controllo precede l'`extend_from_slice`.
+struct BoundedSink<'a> {
+    output: &'a mut Vec<u8>,
+    /// Byte massimi che il buffer puo' raggiungere, contati dalla lunghezza
+    /// iniziale: il chiamante puo' passare un buffer non vuoto.
+    max_bytes: usize,
+}
+
+impl BoundedSink<'_> {
+    const fn oltre_il_tetto(&self, aggiunta: usize) -> bool {
+        self.output.len().saturating_add(aggiunta) > self.max_bytes
+    }
+
+    fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<()> {
+        if self.oltre_il_tetto(bytes.len()) {
+            return Err(error(format!(
+                "WKB codificato oltre il limite di {} byte per cella",
+                self.max_bytes
+            )));
+        }
+        self.output.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    fn push(&mut self, byte: u8) -> Result<()> {
+        self.extend_from_slice(&[byte])
+    }
+}
+
 fn write_coordinate(
-    output: &mut Vec<u8>,
+    output: &mut BoundedSink<'_>,
     coordinate: &WkbCoordinate,
     dimensions: CoordinateDimensions,
 ) -> Result<()> {
     validate_coordinate(coordinate, dimensions)?;
-    output.extend_from_slice(&coordinate.x.to_le_bytes());
-    output.extend_from_slice(&coordinate.y.to_le_bytes());
+    output.extend_from_slice(&coordinate.x.to_le_bytes())?;
+    output.extend_from_slice(&coordinate.y.to_le_bytes())?;
     if let Some(z) = coordinate.z {
-        output.extend_from_slice(&z.to_le_bytes());
+        output.extend_from_slice(&z.to_le_bytes())?;
     }
     if let Some(m) = coordinate.m {
-        output.extend_from_slice(&m.to_le_bytes());
+        output.extend_from_slice(&m.to_le_bytes())?;
     }
     Ok(())
 }
 
 fn write_coordinates(
-    output: &mut Vec<u8>,
+    output: &mut BoundedSink<'_>,
     coordinates: &[WkbCoordinate],
     dimensions: CoordinateDimensions,
 ) -> Result<()> {
-    output.extend_from_slice(&count_u32(coordinates.len())?.to_le_bytes());
+    output.extend_from_slice(&count_u32(coordinates.len())?.to_le_bytes())?;
     for coordinate in coordinates {
         write_coordinate(output, coordinate, dimensions)?;
     }
@@ -749,7 +790,11 @@ const fn base(value: &WkbValue) -> u32 {
     }
 }
 
-fn write_geometry(output: &mut Vec<u8>, geometry: &WkbGeometry, flavor: WkbFlavor) -> Result<()> {
+fn write_geometry(
+    output: &mut BoundedSink<'_>,
+    geometry: &WkbGeometry,
+    flavor: WkbFlavor,
+) -> Result<()> {
     let (z, m) = dimension_flags(geometry.dimensions)?;
     let type_code = match flavor {
         WkbFlavor::Iso => {
@@ -775,12 +820,12 @@ fn write_geometry(output: &mut Vec<u8>, geometry: &WkbGeometry, flavor: WkbFlavo
                 }
         }
     };
-    output.push(1);
-    output.extend_from_slice(&type_code.to_le_bytes());
+    output.push(1)?;
+    output.extend_from_slice(&type_code.to_le_bytes())?;
     if let Some(srid) = geometry.srid {
         // Inverso esatto della lettura: i quattro byte del SRID vengono
         // riemessi tali e quali, senza normalizzazioni del segno.
-        output.extend_from_slice(&srid.cast_unsigned().to_le_bytes());
+        output.extend_from_slice(&srid.cast_unsigned().to_le_bytes())?;
     }
 
     match &geometry.value {
@@ -789,7 +834,7 @@ fn write_geometry(output: &mut Vec<u8>, geometry: &WkbGeometry, flavor: WkbFlavo
             write_coordinates(output, coordinates, geometry.dimensions)?;
         }
         WkbValue::Polygon(rings) | WkbValue::Triangle(rings) => {
-            output.extend_from_slice(&count_u32(rings.len())?.to_le_bytes());
+            output.extend_from_slice(&count_u32(rings.len())?.to_le_bytes())?;
             for ring in rings {
                 write_coordinates(output, ring, geometry.dimensions)?;
             }
@@ -815,7 +860,7 @@ fn write_geometry(output: &mut Vec<u8>, geometry: &WkbGeometry, flavor: WkbFlavo
                     child.geometry_type()
                 )));
             }
-            output.extend_from_slice(&count_u32(values.len())?.to_le_bytes());
+            output.extend_from_slice(&count_u32(values.len())?.to_le_bytes())?;
             for value in values {
                 write_geometry(output, value, flavor)?;
             }
@@ -838,10 +883,36 @@ pub fn encode_wkb_into(
     flavor: WkbFlavor,
     output: &mut Vec<u8>,
 ) -> Result<()> {
+    encode_wkb_into_bounded(geometry, flavor, output, usize::MAX)
+}
+
+/// Codifica l'AST WKB nel buffer fornito, **senza mai superare** `max_bytes`.
+///
+/// Il buffer viene svuotato prima di scrivere, e il tetto e' verificato a ogni
+/// scrittura: se la geometria non ci sta, l'errore arriva quando il buffer ha
+/// raggiunto il limite, non dopo averlo superato.
+///
+/// Serve perche' i driver tabellari controllano la **rappresentazione
+/// d'ingresso** — il testo WKT, il JSON grezzo — prima di costruire l'AST, ma
+/// la codifica WKB puo' essere piu' grande di quel testo. Senza questo tetto
+/// il buffer cresceva oltre `max_wkb_cell_bytes` e il rifiuto arrivava piu'
+/// tardi, dall'adapter, quando la memoria era gia' stata allocata.
+///
+/// # Errors
+///
+/// Gli stessi di [`encode_wkb_into`], piu' [`PlenoraIoError::Wkb`] se la
+/// codifica raggiunge `max_bytes`.
+pub fn encode_wkb_into_bounded(
+    geometry: &WkbGeometry,
+    flavor: WkbFlavor,
+    output: &mut Vec<u8>,
+    max_bytes: usize,
+) -> Result<()> {
     #[cfg(feature = "metrics")]
     crate::metrics::inc_encode();
     output.clear();
-    write_geometry(output, geometry, flavor)
+    let mut sink = BoundedSink { output, max_bytes };
+    write_geometry(&mut sink, geometry, flavor)
 }
 
 /// Codifica l'AST WKB in un buffer nuovo.

@@ -1310,9 +1310,146 @@ driver tabellari; chiuderlo richiede di portare i limiti dell'operazione dentro
 la validazione del contratto di lettura. Il gate lo stampa a ogni corsa, cosi'
 non diventa invisibile per abitudine.
 
+> **Superato da S5.1.** "Fuori dal perimetro" era sbagliato nel merito: quel
+> punto sta sul percorso comune che ogni driver attraversa. Il residuo e' stato
+> chiuso con codice, il censimento e' a zero, e la possibilita' stessa di
+> dichiarare un residuo e' stata tolta dallo script. Vedi la sezione S5.1.
+
+Analogamente, le tre mutazioni sopravvissute qui sopra sono tutte uccise da
+S5.1: le funzioni sono private, ma i test del modulo le raggiungono, e
+chiamarle direttamente isola cio' che l'esercizio attraverso `open` mascherava.
+
 ### Il fuzz resta un gap di qualifica
 
 I target di fuzzing sono stati adeguati alle nuove firme, ma **non compilano in
 questo ambiente**: il `Dockerfile.dev` non ha nightly ne' `cargo-fuzz`. Non
 sono percio' dichiarati verificati, e restano fra i gate non misurabili qui
 insieme alla coverage.
+
+---
+
+## S5.1 — chiusura dei residui aperti da S5
+
+S5 aveva lasciato tre cose in sospeso e una quarta l'ho trovata scrivendone i
+test. Nessuna e' stata chiusa con documentazione.
+
+### 1. `collect_read_violations` riceve i limiti dell'operazione
+
+Era il residuo dichiarato dal censimento, ed era classificato "fuori dal
+perimetro di S5". La classificazione era sbagliata nel merito: quella funzione
+sta sul **percorso comune di lettura**, quello che ogni driver attraversa, ed
+era l'unico punto dove un `--max-wkb-cell-bytes` piu' stretto del default non
+arrivava. Chi stringeva il flag lo vedeva applicato in inferenza e nella
+materializzazione, ma non nella validazione del batch.
+
+La firma prende ora `wkb: &WkbLimits`, e il chiamante nel drenaggio passa
+`&self.budget.context().limits().wkb_limits()`. La stessa firma attraversa
+`validate_read_batch`, l'helper `#[cfg(test)]`.
+
+Il censimento e' percio' passato da un residuo dichiarato a **zero**, e il
+meccanismo che permetteva di dichiararne uno e' stato rimosso dallo script: da
+S5.1 una occorrenza di produzione ha due sole uscite, `LEGITTIME` con la
+ragione scritta oppure il codice cambia. Dichiarare e rinviare era il
+meccanismo che teneva aperto il difetto.
+
+### 2. `geometry_components` compone i due tetti
+
+Costruiva `WkbLimits.max_components` dal solo residuo del contatore cumulativo
+`GeometryComponents`. Con il default di quel contatore — oltre sedici milioni —
+il residuo non legava praticamente mai, quindi `--max-wkb-components`, che e'
+un tetto **per cella**, non aveva effetto sulla validazione del batch: una
+singola geometria arbitrariamente complessa passava, purche' l'operazione nel
+complesso avesse ancora quota. I due limiti hanno significato diverso e vanno
+composti:
+
+```rust
+max_components: context_limits.effective_wkb_components().min(saturating_usize(
+    budget.remaining(OperationCounter::GeometryComponents),
+)),
+```
+
+Il test `il_tetto_per_cella_dei_componenti_lega_anche_con_quota_cumulativa_ampia`
+prende una `LineString` di quattro punti, quota cumulativa un milione e tetto
+per cella due: deve fallire. Con tetto per cella sedici la stessa geometria
+passa, cosi' il rifiuto e' attribuibile al per-cella e non ad altro.
+
+### 3. Encoder WKB bounded
+
+CSV, GeoJSON e XLSX controllano la **rappresentazione d'ingresso** — il testo
+WKT, il JSON grezzo — prima di costruire l'AST. E' il controllo giusto per
+fermare un documento enorme senza allocarlo, ma non e' una maggiorazione della
+dimensione codificata: `POINT (1 2)` occupa 11 caratteri e 21 byte in WKB,
+perche' due `f64` costano 16 byte da soli. Il `Vec` cresceva quindi oltre
+`max_wkb_cell_bytes` e il rifiuto arrivava dall'adapter, a memoria gia'
+allocata.
+
+**Scelta: un sink bounded, non un calcolo della dimensione.** Il perimetro
+lasciava aperte le due strade. Una stima della lunghezza codificata sarebbe
+stata una seconda implementazione del formato, che puo' divergere dalla prima:
+sbagliata per difetto lascia passare cio' che doveva fermare, per eccesso
+rifiuta geometrie valide, e in nessuno dei due casi il compilatore se ne
+accorge. `BoundedSink` invece **e'** il writer — il tetto e' verificato prima
+di ogni `extend_from_slice`, quindi il buffer non supera il limite nemmeno di
+un byte.
+
+`encode_wkb_into` resta e delega a `encode_wkb_into_bounded(.., usize::MAX)`:
+i chiamanti che non hanno una quota non cambiano.
+
+| Test | Grandezza osservata |
+|---|---|
+| `l_encoder_bounded_non_supera_mai_il_tetto` (model) | `buffer.len()` per tetti 1/9/21/len-1, e che al tetto esatto passi |
+| `wkb_from_gj_value_non_fa_crescere_il_buffer_oltre_il_tetto` (GeoJSON) | `buffer.len()` sul confine del driver |
+| `il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta` (CSV, XLSX) | l'errore dal reader, con testo sotto soglia |
+| `il_wkb_codificato_non_supera_il_tetto_anche_se_il_json_ci_sta` (GeoJSON) | idem, con una `LineString` di dieci punti |
+
+Il caso GeoJSON ha richiesto una geometria costruita apposta: il JSON e'
+verboso e per un punto pesa piu' del WKB. Una `LineString` spende sei byte per
+punto in JSON (`[1,2],`) e sedici in WKB, quindi da tre punti in su la codifica
+supera il testo; il test ne usa dieci e verifica la premessa invece di
+assumerla.
+
+### 4. Le mutazioni sopravvissute a S5 non erano non-isolabili
+
+La registrazione di S5 spiegava tre sopravvivenze come ridondanza fra controlli.
+La spiegazione era sbagliata: le funzioni sono private, ma **i test del modulo
+le raggiungono**. Bastava chiamarle direttamente invece di esercitarle
+attraverso `open`, dove `infer_types` gira per primo e maschera l'altra passata.
+
+| Mutazione | Prima | Ora |
+|---|---|---|
+| tetto di riga rimosso da `infer_types` soltanto | sopravvive | **uccisa** da `infer_types_si_ferma_al_tetto_di_righe` |
+| tetto di riga rimosso da `infer_wkt_geometry` soltanto | sopravvive | **uccisa** da `infer_wkt_geometry_si_ferma_al_tetto_di_righe` |
+| lettura torna al default | sopravvive | **uccisa** da `append_geometry_applica_il_tetto_per_cella` |
+| `collect_read_violations` torna al default | n/d | **uccisa** da `collect_read_violations_usa_i_limiti_ricevuti` |
+| encoder torna a non-bounded (CSV) | n/d | **uccisa** da `il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta` |
+| encoder torna a non-bounded (GeoJSON) | n/d | **uccisa** da due test |
+| encoder torna a non-bounded (XLSX) | n/d | **uccisa** da `il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta` |
+
+Zero sopravvivenze.
+
+### 5. Correzioni documentali e registrazioni
+
+- La tabella decisionale L0.1 citava ancora
+  `inference_respects_max_input_entries`; riporta ora
+  `inference_respects_max_rows_before_materialising`, con il rimando
+  all'errata. Il test sulle entry resta nel preflight e non e' duplicato sui
+  record.
+- I cinque entry point `__fuzz_*` sono registrati nel contenuto di S12, da
+  mettere dietro una feature `fuzzing`: `doc(hidden)` li toglie dalla
+  documentazione, non dalla superficie pubblica. Il censimento ne classificava
+  due perche' sono gli unici che usano `WkbLimits::default()`; gli altri tre —
+  `__fuzz_read_dxf`, `__fuzz_read_geojson`, `__fuzz_read_kml` — hanno la stessa
+  natura.
+- Il censimento spogliava il sorgente senza rimuovere commenti e stringhe, e
+  alla prima corsa dopo S5.1 ha contato come residuo la doc che spiegava
+  perche' un default era stato rimosso. Usa ora lo stesso spoglio degli altri
+  due gate; una sonda conferma che continua a intercettare codice vero.
+
+### Conteggi del censimento dopo S5.1
+
+| Categoria | Prima | Dopo |
+|---|---|---|
+| test | 45 | 47 |
+| attrezzaggio | 4 | 4 |
+| produzione, legittimi | 2 | 2 |
+| produzione, **residui** | 1 | **0** |

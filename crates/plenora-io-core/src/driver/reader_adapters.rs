@@ -320,6 +320,7 @@ impl BudgetedReader {
                 self.inner.contract(),
                 &batch,
                 self.rows_scanned,
+                &self.budget.context().limits().wkb_limits(),
             )
             .map_err(|error| {
                 terminal_scan_error(error, &violations, self.physical_row_indices_attestable)
@@ -574,8 +575,9 @@ fn validate_read_batch(
     batch: &RecordBatch,
     row_offset: u64,
     physical_row_indices_attestable: bool,
+    wkb: &WkbLimits,
 ) -> Result<()> {
-    let violations = collect_read_violations(contract, batch, row_offset)?;
+    let violations = collect_read_violations(contract, batch, row_offset, wkb)?;
     if violations.is_empty() {
         Ok(())
     } else {
@@ -591,10 +593,18 @@ fn validate_read_batch(
 // Sequenza lineare di controlli, uno per vincolo del contratto di lettura: la
 // lunghezza e' nel numero di vincoli, non in complessita' logica.
 #[allow(clippy::too_many_lines)]
+/// Raccoglie le violazioni del contratto di lettura su un batch.
+///
+/// `wkb` sono i limiti **dell'operazione**, non i default del contratto: fino
+/// a S5.1 questa funzione usava `WkbLimits::default()` perche' non li
+/// riceveva, quindi un `--max-wkb-cell-bytes` piu' stretto era applicato in
+/// inferenza e nella materializzazione ma non qui — l'unico punto del percorso
+/// comune che ogni driver attraversa.
 fn collect_read_violations(
     contract: &LayerContract,
     batch: &RecordBatch,
     row_offset: u64,
+    wkb: &WkbLimits,
 ) -> Result<BTreeMap<u64, (&'static str, String)>> {
     if !read_schemas_are_compatible(batch.schema().as_ref(), contract.contract.schema.as_ref()) {
         return Err(read_schema_mismatch());
@@ -630,7 +640,7 @@ fn collect_read_violations(
                 batch.num_columns()
             ))
         })?;
-        let limits = WkbLimits::default();
+        let limits = *wkb;
         let mut inspect = |row: usize, bytes: Option<&[u8]>| -> Result<()> {
             let source_index = physical_index(row_offset, row)?;
             if violations.contains_key(&source_index) {
@@ -1078,13 +1088,24 @@ fn geometry_components(
         // Una projection tabellare può escludere legittimamente la geometria.
         return Ok(0);
     };
-    // Il tetto per singola geometria e' il residuo del contatore: una
-    // geometria non puo' consumare piu' di quanto resti all'intera
-    // operazione.
+    // **Due tetti, entrambi validi.** Il primo e' per singola geometria —
+    // `effective_wkb_components()`, gia' composto con `max_vertices` — e il
+    // secondo e' il residuo del contatore cumulativo: una geometria non puo'
+    // superare ne' il proprio tetto ne' quanto resta all'intera operazione.
+    //
+    // Fino a S5.1 qui compariva solo il secondo. Con una quota cumulativa
+    // ampia — il default e' oltre sedici milioni — il tetto per cella non
+    // legava mai, e `--max-wkb-components` non aveva effetto sulla
+    // validazione del batch.
+    let context_limits = budget.context().limits();
     let limits = WkbLimits {
-        max_cell_bytes: budget.context().limits().max_wkb_cell_bytes(),
-        max_components: saturating_usize(budget.remaining(OperationCounter::GeometryComponents)),
-        max_depth: budget.context().limits().max_wkb_depth(),
+        max_cell_bytes: context_limits.max_wkb_cell_bytes(),
+        max_components: context_limits
+            .effective_wkb_components()
+            .min(saturating_usize(
+                budget.remaining(OperationCounter::GeometryComponents),
+            )),
+        max_depth: context_limits.max_wkb_depth(),
     };
     let array = batch.column(index);
     let mut total = 0_u64;
@@ -1914,14 +1935,16 @@ mod tests {
         )
         .unwrap();
 
-        let attestable = validate_read_batch(&contract, &batch, 10, true).unwrap_err();
+        let attestable =
+            validate_read_batch(&contract, &batch, 10, true, &WkbLimits::default()).unwrap_err();
         let diagnostics = attestable.row_diagnostics.as_deref().unwrap();
         assert_eq!(diagnostics.observed_total, 2);
         assert_eq!(diagnostics.examples[0].source_index, 10);
         assert_eq!(diagnostics.examples[1].source_index, 11);
         assert!(diagnostics.validate().is_ok());
 
-        let non_attestable = validate_read_batch(&contract, &batch, 10, false).unwrap_err();
+        let non_attestable =
+            validate_read_batch(&contract, &batch, 10, false, &WkbLimits::default()).unwrap_err();
         let diagnostics = non_attestable.row_diagnostics.as_deref().unwrap();
         assert_eq!(
             diagnostics.completeness,
@@ -1990,7 +2013,8 @@ mod tests {
                 .map(|field| new_empty_array(field.data_type()))
                 .collect();
             let batch = RecordBatch::try_new(schema, columns).unwrap();
-            let error = validate_read_batch(&contract, &batch, 0, true).unwrap_err();
+            let error =
+                validate_read_batch(&contract, &batch, 0, true, &WkbLimits::default()).unwrap_err();
             assert_eq!(error.category, ErrorCategory::Schema);
             assert_eq!(error.phase, ErrorPhase::Read);
             assert!(with_effective_read_schema(&contract, batch).is_err());
@@ -2853,6 +2877,116 @@ mod tests {
         );
         drop(reader);
         assert_eq!(budget.context().effective_remaining_memory(), POOL_MEMORIA);
+    }
+
+    /// Il tetto **per cella** dei componenti lega anche con quota cumulativa
+    /// ampia.
+    ///
+    /// Fino a S5.1 `geometry_components` costruiva `max_components` dal solo
+    /// residuo del contatore cumulativo. Con il default — oltre sedici
+    /// milioni — quel residuo non legava mai, e `--max-wkb-components` non
+    /// aveva effetto sulla validazione del batch: una singola geometria
+    /// enorme passava, purche' l'operazione nel complesso avesse ancora quota.
+    #[test]
+    fn il_tetto_per_cella_dei_componenti_lega_anche_con_quota_cumulativa_ampia() {
+        let contratto = validating_contract();
+        // Una LineString di quattro punti: quattro componenti.
+        let punti: Vec<WkbCoordinate> = (0..4)
+            .map(|indice| WkbCoordinate {
+                x: f64::from(indice),
+                y: f64::from(indice),
+                z: None,
+                m: None,
+            })
+            .collect();
+        let geometria = WkbGeometry {
+            value: WkbValue::LineString(punti),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let bytes = encode_wkb(&geometria, WkbFlavor::Iso).expect("wkb");
+        let batch = RecordBatch::try_new(
+            contratto.contract.schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![bytes.as_slice()]))],
+        )
+        .expect("batch");
+
+        // Quota cumulativa ampia, tetto per cella stretto: il secondo deve
+        // legare.
+        let stretto = budget_con(
+            PipelineLimits::default()
+                .with_max_geometry_components(1_000_000)
+                .with_max_wkb_components(2),
+        );
+        let esito = geometry_components(&contratto, &batch, &stretto);
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Wkb
+                    || errore.code == plenora_io_model::IoErrorCode::LimitExceeded
+            ),
+            "quattro componenti con tetto per cella due devono fallire: {esito:?}"
+        );
+
+        // Con il tetto per cella capiente la stessa geometria passa: il
+        // rifiuto sopra viene dal per-cella, non da altro.
+        let largo = budget_con(
+            PipelineLimits::default()
+                .with_max_geometry_components(1_000_000)
+                .with_max_wkb_components(16),
+        );
+        assert_eq!(
+            geometry_components(&contratto, &batch, &largo).expect("deve passare"),
+            4
+        );
+    }
+
+    /// `collect_read_violations` usa i limiti che riceve, non un default.
+    ///
+    /// La funzione e' privata, ma i test del modulo la raggiungono: e' il
+    /// punto di enforcement piu' importante del percorso comune, perche' ogni
+    /// driver ci passa. Verificarlo indirettamente attraverso un driver
+    /// lascerebbe la copertura alla ridondanza con altri controlli.
+    #[test]
+    fn collect_read_violations_usa_i_limiti_ricevuti() {
+        let contratto = validating_contract();
+        let punti: Vec<WkbCoordinate> = (0..4)
+            .map(|indice| WkbCoordinate {
+                x: f64::from(indice),
+                y: f64::from(indice),
+                z: None,
+                m: None,
+            })
+            .collect();
+        let geometria = WkbGeometry {
+            value: WkbValue::LineString(punti),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let bytes = encode_wkb(&geometria, WkbFlavor::Iso).expect("wkb");
+        let batch = RecordBatch::try_new(
+            contratto.contract.schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![bytes.as_slice()]))],
+        )
+        .expect("batch");
+
+        // Tetto capiente: nessuna violazione.
+        let violazioni = collect_read_violations(&contratto, &batch, 0, &WkbLimits::default())
+            .expect("con il default non ci sono violazioni");
+        assert!(violazioni.is_empty());
+
+        // Tetto stretto sui byte della cella: la stessa geometria viola.
+        let stretto = WkbLimits {
+            max_cell_bytes: bytes.len() - 1,
+            ..WkbLimits::default()
+        };
+        let violazioni = collect_read_violations(&contratto, &batch, 0, &stretto)
+            .expect("il tetto produce una violazione, non un errore");
+        assert_eq!(
+            violazioni.len(),
+            1,
+            "il tetto ricevuto deve essere applicato, non quello predefinito"
+        );
     }
 
     #[test]

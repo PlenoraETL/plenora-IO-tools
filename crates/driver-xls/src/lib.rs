@@ -584,7 +584,12 @@ fn encode_geometry_cell(
             detected_dimensions.insert(geometry.dimensions);
             detected_types.insert(geometry.geometry_type());
             wkb_buffer.clear();
-            plenora_io_model::wkb::encode_wkb_into(&geometry, WkbFlavor::Iso, wkb_buffer)?;
+            plenora_io_model::wkb::encode_wkb_into_bounded(
+                &geometry,
+                WkbFlavor::Iso,
+                wkb_buffer,
+                cella_wkt,
+            )?;
         }
         XlsxGeomSpec::Xy(x_column, y_column) => {
             let x = coordinate_cell(Some(cell_at(row, bounds, x_column)?), "X")?;
@@ -602,7 +607,12 @@ fn encode_geometry_cell(
                         srid: None,
                     };
                     wkb_buffer.clear();
-                    plenora_io_model::wkb::encode_wkb_into(&geometry, WkbFlavor::Iso, wkb_buffer)?;
+                    plenora_io_model::wkb::encode_wkb_into_bounded(
+                        &geometry,
+                        WkbFlavor::Iso,
+                        wkb_buffer,
+                        cella_wkt,
+                    )?;
                 }
                 (None, None) => return Ok(false),
                 _ => {
@@ -1138,6 +1148,46 @@ mod tests {
         assert!(
             64 < plenora_io_model::limits::WkbLimits::default().max_cell_bytes,
             "la soglia del test deve stare sotto il default"
+        );
+    }
+
+    /// Il testo della cella sta nel tetto, il WKB codificato no.
+    ///
+    /// `POINT (1 2)` occupa undici caratteri e ventuno byte in WKB: due `f64`
+    /// costano sedici byte da soli. Il controllo sul testo, che XLSX fa prima
+    /// di costruire l'AST, non e' quindi una maggiorazione della dimensione
+    /// codificata, e fino a S5.1 il buffer cresceva oltre il tetto prima che
+    /// qualcuno se ne accorgesse.
+    #[test]
+    fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_testo_ci_sta() {
+        // Fra la lunghezza del testo (11) e quella del WKB (21).
+        const SOGLIA: usize = 15;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("punto-stretto.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "geometry").expect("intestazione");
+        sheet.write_string(1, 0, "POINT (1 2)").expect("cella");
+        workbook.save(&output).expect("salvataggio");
+        assert!(
+            "POINT (1 2)".len() <= SOGLIA,
+            "la premessa: il testo deve stare nel tetto"
+        );
+
+        let opzioni = opzioni_lettura_con(
+            plenora_io_model::budget::PipelineLimits::default().with_max_wkb_cell_bytes(SOGLIA),
+        )
+        .with_assume_crs("EPSG:4326")
+        .with_format_option("wkt_column", "geometry");
+
+        let messaggio = XlsDriver
+            .open(Source::Path(output), opzioni)
+            .err()
+            .map(|errore| errore.message);
+        assert!(
+            matches!(messaggio, Some(ref testo) if testo.contains("oltre il limite")),
+            "la codifica WKB deve fermarsi al tetto, non il parsing del testo: {messaggio:?}"
         );
     }
 

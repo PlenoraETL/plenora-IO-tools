@@ -23,7 +23,11 @@ qualcuno la classifichi.
 * **produzione** — tutto il resto. Ogni occorrenza qui deve avere una ragione
   scritta accanto, e il gate la elenca perche' sia visibile in review.
 
-Come il registro dei fallback, la misura e' sintattica.
+Come il registro dei fallback la misura e' sintattica, ma il sorgente viene
+prima **spogliato di commenti e stringhe**: la doc che spiega perche' un
+default e' stato rimosso ne nomina il simbolo, e senza lo spoglio il gate
+conterebbe la propria motivazione come residuo. E' successo alla prima corsa
+dopo S5.1.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ OCCORRENZA = re.compile(r"WkbLimits::default\(\)")
 
 # Conteggio atteso per categoria. `produzione` puo' solo scendere: e' il
 # residuo del difetto che S5 ha corretto.
-ATTESI = {"test": 45, "attrezzaggio": 4, "produzione": 3}
+ATTESI = {"test": 47, "attrezzaggio": 4, "produzione": 2}
 
 # Occorrenze di produzione **legittime**: il default e' la scelta giusta, non
 # un residuo. Chiave: `percorso:riga`.
@@ -47,27 +51,26 @@ LEGITTIME: dict[str, str] = {
         "`__fuzz_gpkg_geometry`, entry point `#[doc(hidden)]` per libFuzzer. "
         "L'input del fuzzer e' gia' bounded a 1 MiB dall'harness, quindi il "
         "tetto di 64 MiB non governa nulla; e non ci sono opzioni da cui "
-        "prendere una quota, perche' il target non apre un dataset"
+        "prendere una quota, perche' il target non apre un dataset. "
+        "**Da mettere dietro la feature `fuzzing` in S12**: `doc(hidden)` lo "
+        "toglie dalla documentazione, non dalla superficie pubblica"
     ),
     "crates/driver-shp/src/lib.rs:2460": (
-        "`__fuzz_wkb_roundtrip`, stessa natura del precedente"
+        "`__fuzz_wkb_roundtrip`, stessa natura del precedente, stessa azione "
+        "in S12"
     ),
 }
 
-# Occorrenze di produzione che sono **residui dichiarati**: il default arriva
-# dove una quota configurata dovrebbe arrivare. Non fanno fallire il gate —
-# sono note — ma restano visibili a ogni corsa, con cio' che le chiuderebbe.
-RESIDUI: dict[str, str] = {
-    "crates/plenora-io-core/src/driver/reader_adapters.rs:633": (
-        "`collect_read_violations` valida le geometrie del batch con il tetto "
-        "predefinito perche' non riceve le opzioni: la firma prende contratto, "
-        "batch e offset. Un `--max-wkb-cell-bytes` piu' stretto del default "
-        "non viene quindi applicato qui, benche' lo sia in inferenza e nella "
-        "materializzazione. **Fuori dal perimetro di S5**, che copre "
-        "l'inferenza dei tre driver tabellari; chiuderlo richiede di portare i "
-        "limiti dell'operazione dentro la validazione del contratto di lettura"
-    ),
-}
+# Non esiste piu' una categoria "residuo dichiarato". S5 ne aveva lasciata una,
+# `collect_read_violations`, sul percorso comune di lettura che ogni driver
+# attraversa: la firma non riceveva le opzioni, quindi un
+# `--max-wkb-cell-bytes` piu' stretto del default era applicato in inferenza e
+# nella materializzazione ma non nella validazione del batch. S5.1 l'ha chiusa
+# passando `&WkbLimits` dal `PipelineContext`.
+#
+# Da allora una occorrenza di produzione ha due sole uscite: sta in LEGITTIME
+# con la ragione scritta, oppure il codice cambia. Dichiararla e rinviarla non
+# e' piu' un esito accettato — era il meccanismo che teneva aperto il difetto.
 
 ATTREZZAGGIO = ("plenora-bench", "plenora-fuzz", "fuzz")
 
@@ -82,6 +85,67 @@ def sorgenti(root: Path) -> list[Path]:
                 continue
             trovati.append(sorgente)
     return trovati
+
+
+def spoglia(sorgente: str) -> str:
+    """Rimuove commenti e stringhe, sostituendoli con spazi.
+
+    Un commento che spiega **perche'** un tipo e' stato rimosso ne nomina il
+    nome, ed e' esattamente cio' che questo file fa in ogni sua riga. Senza lo
+    spoglio, un gate del genere vieterebbe di documentare la propria ragione.
+    """
+    fuori: list[str] = []
+    i = 0
+    n = len(sorgente)
+    while i < n:
+        c = sorgente[i]
+        due = sorgente[i : i + 2]
+        if due == "//":
+            j = sorgente.find("\n", i)
+            j = n if j == -1 else j
+            fuori.append(" " * (j - i))
+            i = j
+        elif due == "/*":
+            profondita = 1
+            j = i + 2
+            while j < n and profondita:
+                if sorgente[j : j + 2] == "/*":
+                    profondita += 1
+                    j += 2
+                elif sorgente[j : j + 2] == "*/":
+                    profondita -= 1
+                    j += 2
+                else:
+                    j += 1
+            fuori.append("".join(" " if ch != "\n" else "\n" for ch in sorgente[i:j]))
+            i = j
+        elif c == "r" and sorgente[i + 1 : i + 2] in ('"', "#"):
+            m = re.match(r'r(#*)"', sorgente[i:])
+            if not m:
+                fuori.append(c)
+                i += 1
+                continue
+            chiusura = '"' + m.group(1)
+            j = sorgente.find(chiusura, i + m.end())
+            j = n if j == -1 else j + len(chiusura)
+            fuori.append("".join(" " if ch != "\n" else "\n" for ch in sorgente[i:j]))
+            i = j
+        elif c == '"':
+            j = i + 1
+            while j < n:
+                if sorgente[j] == "\\":
+                    j += 2
+                    continue
+                if sorgente[j] == '"':
+                    j += 1
+                    break
+                j += 1
+            fuori.append("".join(" " if ch != "\n" else "\n" for ch in sorgente[i:j]))
+            i = j
+        else:
+            fuori.append(c)
+            i += 1
+    return "".join(fuori)
 
 
 def righe_di_test(testo: str) -> set[int]:
@@ -120,7 +184,7 @@ def main() -> int:
     produzione: list[tuple[str, int]] = []
 
     for sorgente in sorgenti(ROOT):
-        testo = sorgente.read_text(encoding="utf-8")
+        testo = spoglia(sorgente.read_text(encoding="utf-8"))
         if not OCCORRENZA.search(testo):
             continue
         percorso = sorgente.relative_to(ROOT).as_posix()
@@ -147,13 +211,14 @@ def main() -> int:
 
     for percorso, riga in produzione:
         chiave = f"{percorso}:{riga}"
-        if chiave not in LEGITTIME and chiave not in RESIDUI:
+        if chiave not in LEGITTIME:
             errori.append(
                 f"{chiave}: `WkbLimits::default()` su un percorso di produzione "
                 "non censito. S5 ha portato le quote configurate fino "
-                "all'inferenza: un default qui le riporterebbe indietro. "
-                "Classificarlo in LEGITTIME, con la ragione, o in RESIDUI, con "
-                "cio' che lo chiuderebbe."
+                "all'inferenza e S5.1 fino alla validazione del batch: un "
+                "default qui le riporterebbe indietro. O il codice prende la "
+                "quota dal `PipelineContext`, o l'occorrenza entra in LEGITTIME "
+                "con la ragione per cui il default e' la scelta giusta."
             )
 
     if errori:
@@ -163,13 +228,10 @@ def main() -> int:
 
     print(
         "WkbLimits::default() censiti: "
-        f"{len(LEGITTIME)} legittimi in produzione, "
-        f"{len(RESIDUI)} residui dichiarati, "
+        f"{len(LEGITTIME)} legittimi in produzione, zero residui, "
         f"{conteggi['test']} nei test, "
         f"{conteggi['attrezzaggio']} nell'attrezzaggio"
     )
-    for chiave, motivo in sorted(RESIDUI.items()):
-        print(f"  residuo aperto — {chiave}: {motivo}")
     return 0
 
 

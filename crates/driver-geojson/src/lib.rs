@@ -913,7 +913,7 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                                 let gj: GjGeometry = serde_json::from_str(raw_text)
                                     .map_err(<A::Error as DeError>::custom)?;
                                 self.sink.wkb_buf.clear();
-                                wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf)
+                                wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf, max_bytes)
                                     .map_err(<A::Error as DeError>::custom)?;
                                 geometry.append_value(&self.sink.wkb_buf);
                             }
@@ -1423,6 +1423,97 @@ mod tests {
         )
         .expect("scrittura");
         percorso
+    }
+
+    /// Una `LineString` il cui JSON compatto e' piu' corto del WKB codificato.
+    ///
+    /// Il JSON spende sei byte per punto (`[1,2],`), il WKB ne spende sedici:
+    /// due `f64`. Da tre punti in su la codifica supera il testo, e il
+    /// controllo sul testo grezzo smette di essere sufficiente.
+    fn geojson_con_linestring(dir: &tempfile::TempDir, punti: usize) -> std::path::PathBuf {
+        let percorso = dir.path().join("linea.geojson");
+        let coordinate: Vec<String> = (0..punti).map(|indice| format!("[{indice},2]")).collect();
+        std::fs::write(
+            &percorso,
+            format!(
+                r#"{{"type":"FeatureCollection","features":[{{"type":"Feature","properties":{{"id":0}},"geometry":{{"type":"LineString","coordinates":[{}]}}}}]}}"#,
+                coordinate.join(",")
+            ),
+        )
+        .expect("scrittura");
+        percorso
+    }
+
+    /// Il JSON grezzo sta nel tetto, il WKB codificato no.
+    ///
+    /// `GeoJSON` controlla `raw.get()` prima di deserializzare, ed e' il
+    /// controllo giusto per fermare un documento enorme senza costruire l'AST.
+    /// Ma non e' una maggiorazione della dimensione codificata: con dieci punti
+    /// il testo pesa meno del WKB, e fino a S5.1 il `Vec` cresceva comunque
+    /// oltre `max_wkb_cell_bytes`, con il rifiuto rimandato all'adapter.
+    #[test]
+    fn il_wkb_codificato_non_supera_il_tetto_anche_se_il_json_ci_sta() {
+        const PUNTI: usize = 10;
+        // Nove byte di intestazione WKB piu' sedici per punto.
+        const WKB: usize = 9 + PUNTI * 16;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = geojson_con_linestring(&dir, PUNTI);
+        let documento = std::fs::read_to_string(&percorso).expect("lettura");
+        let grezzo = documento
+            .rfind(r#"{"type":"LineString""#)
+            .map(|inizio| documento.len() - inizio - "}]}".len())
+            .expect("la geometria e' nel documento");
+        assert!(
+            grezzo < WKB,
+            "la premessa del test: il JSON ({grezzo}) deve stare sotto il WKB ({WKB})"
+        );
+
+        // Tetto fra le due grandezze: il testo passa, la codifica no.
+        let soglia = WKB - 1;
+        assert!(grezzo <= soglia, "il testo grezzo deve stare nel tetto");
+        let dataset = GeoJsonDriver
+            .open(Source::Path(percorso), opzioni_con_cella(soglia, 1_000))
+            .expect("l'inferenza non tocca la codifica");
+        let mut reader = dataset
+            .open_layer_reader(&req())
+            .expect("il reader si apre");
+        let esito = reader.next_batch();
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.message.contains("oltre il limite")
+            ),
+            "la codifica WKB deve fermarsi al tetto: {esito:?}"
+        );
+    }
+
+    /// Il buffer non cresce oltre il tetto, misurato direttamente.
+    ///
+    /// Il test sopra osserva l'esito dal reader — un errore. Questo osserva la
+    /// grandezza che il tetto governa davvero: quanti byte il `Vec` arriva a
+    /// contenere. Un rifiuto a posteriori darebbe lo stesso errore con il
+    /// buffer gia' cresciuto.
+    #[test]
+    fn wkb_from_gj_value_non_fa_crescere_il_buffer_oltre_il_tetto() {
+        let coordinate: Vec<geojson::Position> =
+            (0..10).map(|indice| vec![f64::from(indice), 2.0]).collect();
+        let valore = geojson::Value::LineString(coordinate);
+
+        for soglia in [1_usize, 9, 40, 168] {
+            let mut buffer = Vec::new();
+            let esito = wkb_from_gj_value(&valore, &mut buffer, soglia);
+            assert!(esito.is_err(), "tetto {soglia}: la codifica deve fallire");
+            assert!(
+                buffer.len() <= soglia,
+                "tetto {soglia}: il buffer e' cresciuto fino a {} byte",
+                buffer.len()
+            );
+        }
+
+        let mut buffer = Vec::new();
+        wkb_from_gj_value(&valore, &mut buffer, 169).expect("al tetto esatto la codifica passa");
+        assert_eq!(buffer.len(), 169);
     }
 
     /// L'inferenza usa il tetto per cella **configurato**, non il default.
@@ -1954,6 +2045,7 @@ mod tests {
         let result = wkb_from_gj_value(
             &geojson::Value::Point(vec![1.0, 2.0, 3.0, 4.0]),
             &mut output,
+            usize::MAX,
         );
         assert!(result.is_err());
     }
@@ -1961,10 +2053,16 @@ mod tests {
     #[test]
     fn empty_geometry_does_not_invent_xy_dimensions() {
         let mut output = Vec::new();
-        assert!(wkb_from_gj_value(&geojson::Value::LineString(vec![]), &mut output).is_err());
         assert!(
-            wkb_from_gj_value(&geojson::Value::GeometryCollection(vec![]), &mut output).is_err()
+            wkb_from_gj_value(&geojson::Value::LineString(vec![]), &mut output, usize::MAX)
+                .is_err()
         );
+        assert!(wkb_from_gj_value(
+            &geojson::Value::GeometryCollection(vec![]),
+            &mut output,
+            usize::MAX
+        )
+        .is_err());
     }
 
     #[test]

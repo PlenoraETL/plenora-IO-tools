@@ -1,7 +1,9 @@
 use std::io::Write;
 
 use plenora_io_model::contract::CoordinateDimensions;
-use plenora_io_model::wkb::{encode_wkb_into, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
+use plenora_io_model::wkb::{
+    encode_wkb_into_bounded, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
+};
 use plenora_io_model::{PlenoraIoError, Result};
 
 fn format_error(reason: impl Into<String>) -> PlenoraIoError {
@@ -172,12 +174,20 @@ fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, String> {
 /// una quarta ordinata è rifiutata perché GeoJSON non le assegna una semantica
 /// M interoperabile.
 #[doc(hidden)] // esposto anche per il fuzzer (plenora-fuzz)
+/// Converte una geometria `GeoJSON` in WKB, **senza superare** `max_bytes`.
+///
+/// Il tetto e' quello configurato: il testo JSON grezzo e' gia' stato
+/// controllato dal chiamante, ma la codifica WKB puo' essere piu' grande di
+/// quel testo — una `LineString` con poche cifre per coordinata occupa meno
+/// caratteri di quanti byte servano ai suoi `f64`.
 pub fn wkb_from_gj_value(
     value: &geojson::Value,
     out: &mut Vec<u8>,
+    max_bytes: usize,
 ) -> std::result::Result<(), String> {
     let geometry = convert(value)?;
-    encode_wkb_into(&geometry, WkbFlavor::Iso, out).map_err(|error| error.to_string())
+    encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, out, max_bytes)
+        .map_err(|error| error.to_string())
 }
 
 /// Scrive direttamente il modello WKB lossless come `GeoJSON`, preservando Z.

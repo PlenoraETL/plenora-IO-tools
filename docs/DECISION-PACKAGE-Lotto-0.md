@@ -2437,6 +2437,30 @@ questo pacchetto.
   fixture rappresentative; il veto prestazionale si applica come
   per gli altri step (regressione mediana oltre il 10% =
   revisione).
+- **Mette dietro una feature `fuzzing` i cinque entry point
+  `__fuzz_*`** elencati sotto. Registrato in S5.1, quando il
+  censimento dei `WkbLimits::default()` ne ha classificati due
+  come legittimi: sono `#[doc(hidden)]`, ma `doc(hidden)` li
+  toglie dalla documentazione, non dalla superficie pubblica. Oggi
+  chiunque dipenda dal crate puo' chiamarli, e girano con quote
+  predefinite invece che con quelle dell'operazione, perche' non
+  aprono un dataset da cui prenderle. La feature non e' abilitata
+  di default, quindi il codice sparisce dalle build spedite; il
+  fuzz harness la abilita esplicitamente. E' il posto giusto per
+  farlo perche' S12 tocca comunque i target di fuzzing.
+
+  | Entry point | Crate |
+  | --- | --- |
+  | `__fuzz_read_dxf` | `driver-dxf` |
+  | `__fuzz_read_geojson` | `driver-geojson` |
+  | `__fuzz_gpkg_geometry` | `driver-gpkg` |
+  | `__fuzz_read_kml` | `driver-kml` |
+  | `__fuzz_wkb_roundtrip` | `driver-shp` |
+
+  Il gate `check_wkb_limits_defaults.py` ne cita due nelle
+  motivazioni di `LEGITTIME`; gli altri tre non usano
+  `WkbLimits::default()` e quindi non compaiono in quel
+  censimento, ma hanno la stessa natura.
 
 **Effort S12**: 6-9 giorni-persona.
 
@@ -2540,7 +2564,7 @@ verificabile. Nessuna decisione senza copertura API + test.
 | **INV-13** model→core vietato + permit opaco one-shot | `plenora-io-model::InputPermit` opaco non-Clone senza costruttori pubblici, emesso dentro il `PipelineBundle` **opaco** da `PipelineBudgetBuilder::build`; esce solo dentro le parti, e da queste si separa **per move** attraverso l'unica API di decomposizione `ReadBudgetParts::into_components`, `#[doc(hidden)]` e workspace-internal (errata S4.b.3: non "mai separabile" — fra crate distinti Rust non lo impone); consumato per `move` da `PipelineContext::observe_input(permit) -> Result<SourceFootprint, PlenoraIoError>` (legato al context che lo ha emesso), estratto dal core con `ReadOptions::take_input_permit()`, `pub(crate)`; nessun import di `plenora-io-core` dal `Cargo.toml` di `plenora-io-model` | Gate CI `check_api_boundary.py` verifica assenza di `plenora-io-core` fra le dep di `plenora-io-model`; gate CI `check_permit_boundary.py` verifica `publish = false` sui due crate, la marcatura `#[doc(hidden)]`, l'assenza di un `take_input_permit` pubblico nel modello e l'assenza di usi della decomposizione fuori da model/core; doc test compile-fail `let _ = permit.clone();`; `let p = InputPermit { .. };`; `bundle.permit` (campo inesistente); test `observe_input_consumes_permit_by_move_and_second_call_does_not_compile` |
 | **INV-14** `FormatDescriptor` const-costruibile dai driver | `FormatDescriptor::const_new(...)` accessibile in contesto const | Compile test: ogni driver dichiara `static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(...)`; verifica di build |
 | **ADR-IO 7 A** spool bounded + file di spool senza nome | `StagedSpool` in `plenora-io-core::driver::spool`; file creato con `tempfile::tempfile_in`, scollegato dal filesystem all'apertura su Unix e `FILE_FLAG_DELETE_ON_CLOSE` su Windows; nessun path apribile, nessun orfano, nessuno sweep; `PLENORA_SPILL_DIR` sceglie il volume e fallisce chiuso se inutilizzabile; quota di spill RAII applicata alle scritture fisiche | Test `dataset_over_memory_bytes_succeeds_via_spool`; `an_unusable_spill_dir_fails_closed_instead_of_falling_back`; `a_spill_dir_that_is_a_file_is_rejected`; `an_underestimated_batch_cannot_write_beyond_the_quota`; `a_quota_smaller_than_the_reservation_chunk_is_usable`; `reaching_eof_releases_file_and_quota_while_the_spool_is_still_alive`; `spill_quota_returns_to_the_budget_when_the_spool_is_dropped`; `a_corrupted_spool_fails_typed_instead_of_truncating_silently` |
-| **L0.1** propagazione limiti in inferenza | `infer_types(path, &PipelineLimits)` / `infer_schema(path, &PipelineLimits)` / XLSX WKT parse con `PipelineLimits` reale (letto dal `PipelineContext`) | Test `inference_uses_configured_wkt_cell_bytes_not_default`; test `inference_respects_max_input_entries` |
+| **L0.1** propagazione limiti in inferenza | `infer_types(path, &PipelineLimits)` / `infer_schema(path, &PipelineLimits)` / XLSX WKT parse con `PipelineLimits` reale (letto dal `PipelineContext`) | Test `inference_uses_configured_wkt_cell_bytes_not_default`; test `inference_respects_max_rows_before_materialising` (vedi errata S5: `max_input_entries` governa l'enumerazione della sorgente, e il preflight l'ha gia' applicata al file — riapplicarla ai record sarebbe la stessa quota contata due volte) |
 | **L0.5** validazione covering GeoParquet | Verifica di tipi FLOAT/DOUBLE, unicita' dei nomi covering, presenza contestuale prima dello strip | Test `geoparquet_covering_with_non_float_column_is_rejected`; test `geoparquet_covering_duplicated_names_is_rejected` |
 | **L0.7** schema dichiarativo `format_options` | Registry `plenora-io-model::format_options` con `FormatOptionsSchema` per driver; chiavi sconosciute → `PlenoraIoError::Unsupported`; valori invalidi → error tipizzato | Test snapshot `every_driver_has_a_schema_for_options`; test `unknown_option_key_produces_typed_error_not_silent_ignore`; test `unknown_compression_value_produces_typed_error_not_snappy_default` |
 | **L0.8** `wkb_shape` figli collection | `wkb_shape` ispeziona ricorsivamente i figli e propaga `Empty` se tutti empty | Test `multipoint_of_two_empty_points_is_empty`; test `geometrycollection_of_empty_children_is_empty` |
