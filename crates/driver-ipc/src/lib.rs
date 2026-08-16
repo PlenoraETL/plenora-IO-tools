@@ -131,14 +131,29 @@ impl FormatDriver for IpcDriver {
                 // Indice di colonna di uno schema Arrow: limitato a poche
                 // migliaia di campi, il cast a u32 non puo' troncare.
                 #[allow(clippy::cast_possible_truncation)]
-                let field_id = FieldId(i as u32);
+                let physical_field_id = FieldId(i as u32);
                 let mut contract = GeometryColumnContract::wkb_passthrough(
-                    field_id,
+                    physical_field_id,
                     f.name(),
                     crs,
                     f.is_nullable(),
                 );
                 read_geometry_contract_metadata(f, &mut contract)?;
+                // Finding #1 review 2026-08-15: `read_geometry_contract_metadata`
+                // sovrascrive `field_id` con il valore letto dai metadati
+                // (`plenora.field_id`). Un file `.arrow` ostile puo'
+                // dichiarare un indice fuori range che a valle produrrebbe
+                // `batch.column(index)` panic. Il metadato per convenzione
+                // deve coincidere con la posizione fisica del campo
+                // geometrico nello schema: divergenze indicano un file
+                // corrotto o crafted, e vengono rifiutate come contratto
+                // invece di essere accettate silenziosamente.
+                if contract.field_id != physical_field_id {
+                    return Err(PlenoraIoError::Contract(format!(
+                        "Arrow IPC: plenora.field_id={} non coincide con l'indice fisico {} del campo geometria",
+                        contract.field_id.0, physical_field_id.0
+                    )));
+                }
                 Some(contract)
             }
         };

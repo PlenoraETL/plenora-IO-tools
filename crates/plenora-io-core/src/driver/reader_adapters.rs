@@ -79,6 +79,31 @@ impl OpenDatasetHandle for BudgetedDataset {
     }
 }
 
+/// Adapter di lettura *operation-atomic*, non streaming.
+///
+/// **Finding #2 review 2026-08-15**: nonostante l'API `LayerReader::next_batch`
+/// suggerisca un modello streaming (batch per batch, con backpressure), questo
+/// adapter esegue `drain_operation` durante la *prima* chiamata di
+/// `next_batch`: itera la sorgente fino a EOF, verifica il contratto su tutti
+/// i batch e li accumula in `buffered`. Solo dopo aver drenato l'intera
+/// sorgente restituisce il primo batch al chiamante.
+///
+/// La ragione e' l'atomicita' operativa (commento a `drain_operation`,
+/// paragrafo "Non è più possibile esporre alcun prefisso accepted"): se una
+/// violazione emerge in un qualsiasi punto della sorgente, il chiamante non
+/// deve aver mai visto un prefisso accepted; l'intera operazione viene
+/// rigettata come un blocco unico. Il pattern semplifica il rollback lato
+/// consumatore (writer, aggregazioni) al costo di:
+///
+/// - latenza al primo batch pari alla lettura completa della sorgente;
+/// - memoria O(dataset), limitata dal budget `MemoryBytes` (default 512
+///   MiB); superata quella soglia l'operazione fallisce fail-closed.
+///
+/// L'alternativa (spool bounded su file temporaneo, o cambio di contratto
+/// verso streaming reale con errore terminale *dopo* batch consegnati) e'
+/// tracciata come lotto L2 di `docs/ROADMAP-1.1.0.md` e richiede prima
+/// l'ADR-IO 7 (PR-1). Fino ad allora questo adapter resta la semantica
+/// autoritativa per tutti i driver che passano dal budget comune.
 struct BudgetedReader {
     inner: Box<dyn LayerReader>,
     budget: ResourceBudget,
@@ -393,7 +418,18 @@ fn collect_read_violations(
         let index = usize::try_from(geometry.field_id.0).map_err(|_| {
             PlenoraIoError::Schema("field_id geometrico fuori intervallo".to_owned())
         })?;
-        let array = batch.column(index);
+        // Finding #1 review 2026-08-15: `RecordBatch::column` panica su OOB.
+        // Il driver IPC verifica ora `field_id` contro la posizione fisica
+        // dello schema all'`open`, ma la barriera runtime qui e' comunque
+        // necessaria: batch prodotti da driver che non applicano la stessa
+        // verifica, batch materializzati in test, o schemi che divergono da
+        // quelli attesi dal contratto non devono terminare il processo.
+        let array = batch.columns().get(index).ok_or_else(|| {
+            PlenoraIoError::Schema(format!(
+                "field_id geometrico {index} fuori dai {} campi del batch",
+                batch.num_columns()
+            ))
+        })?;
         let limits = WkbLimits::default();
         let mut inspect = |row: usize, bytes: Option<&[u8]>| -> Result<()> {
             let source_index = physical_index(row_offset, row)?;

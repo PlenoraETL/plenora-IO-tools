@@ -86,7 +86,15 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
     spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
     crs_handling: CrsHandling::FixedWgs84,
-    fidelity_class: Fidelity::Lossless,
+    // Finding #8 review 2026-08-15: dichiarare `Lossless` staticamente non
+    // riflette il comportamento reale del driver, che non conserva `id`,
+    // `bbox` ne' foreign members al re-encode (writer a riga 1088+ emette
+    // solo `type`, `geometry` e `properties`). Il principio scritto in
+    // `IMPLEMENTATION_STATUS.md` — "un report vuoto significa 'nessuna
+    // perdita osservata', non `Lossless`" — vale anche qui: il descrittore
+    // dichiara la classe potenziale, il `LossReport` dichiara le perdite
+    // osservate.
+    fidelity_class: Fidelity::Conditional,
     runtime: Runtime::PureRust,
     write_capabilities: Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
@@ -388,13 +396,50 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un oggetto GeoJSON")
     }
+    // Finding #8 review 2026-08-15: prima del fix il top-visitor cercava
+    // soltanto la chiave `features` e trattava come vuoto qualunque
+    // documento, incluso `{}` o un `Feature` singolo. La specifica GeoJSON
+    // (RFC 7946 §3) rende `type` obbligatorio; qui il driver e' single-layer
+    // e supporta solo `FeatureCollection`. Fallire chiuso su un `type`
+    // assente o inatteso e' meno pericoloso di esporre un dataset vuoto
+    // silenziosamente.
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        let mut type_observed: Option<String> = None;
+        let mut features_observed = false;
         while let Some(key) = map.next_key::<String>()? {
-            if key == "features" {
-                map.next_value_seed(FeaturesSeed { accs: self.accs })?;
-            } else {
-                map.next_value::<IgnoredAny>()?;
+            match key.as_str() {
+                "type" => {
+                    let value: String = map.next_value()?;
+                    if value != "FeatureCollection" {
+                        return Err(<A::Error as DeError>::custom(format!(
+                            "GeoJSON top-level type '{value}' non supportato: atteso 'FeatureCollection'"
+                        )));
+                    }
+                    type_observed = Some(value);
+                }
+                "features" => {
+                    map.next_value_seed(FeaturesSeed { accs: self.accs })?;
+                    features_observed = true;
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
             }
+        }
+        if type_observed.is_none() {
+            return Err(<A::Error as DeError>::custom(
+                "GeoJSON senza campo 'type' al livello top",
+            ));
+        }
+        // Follow-up review 2026-08-15: la specifica GeoJSON (RFC 7946 §3.3)
+        // dichiara `features` obbligatorio per un `FeatureCollection`. Un
+        // documento con solo `{"type":"FeatureCollection"}` non e' vuoto
+        // per definizione: e' incompleto. Fail-closed invece di trattarlo
+        // come un dataset di zero righe.
+        if !features_observed {
+            return Err(<A::Error as DeError>::custom(
+                "FeatureCollection GeoJSON senza campo 'features'",
+            ));
         }
         Ok(())
     }
@@ -445,13 +490,33 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
         self.accs.in_feature = true;
+        // Follow-up review 2026-08-15: la specifica GeoJSON impone
+        // `type=Feature` per ogni oggetto Feature (RFC 7946 §3.2). La
+        // pass-1 valida il campo per rifiutare documenti con oggetti che
+        // hanno tipo diverso (es. Geometry standalone in un array di
+        // features) o che omettono il tipo del tutto.
+        let mut type_observed: Option<String> = None;
         while let Some(key) = map.next_key_seed(FeatKeySeed)? {
             match key {
                 FeatKey::Props => map.next_value_seed(PropsSeed { accs: self.accs })?,
+                FeatKey::Type => {
+                    let value: String = map.next_value()?;
+                    if value != "Feature" {
+                        return Err(<A::Error as DeError>::custom(format!(
+                            "membro di features con type '{value}': atteso 'Feature'"
+                        )));
+                    }
+                    type_observed = Some(value);
+                }
                 FeatKey::Geom | FeatKey::Other => {
                     map.next_value::<IgnoredAny>()?;
                 }
             }
+        }
+        if type_observed.is_none() {
+            return Err(<A::Error as DeError>::custom(
+                "membro di features senza campo 'type'",
+            ));
         }
         self.accs.in_feature = false;
         self.accs.source_rows_seen = self
@@ -651,14 +716,43 @@ impl<'de> Visitor<'de> for TopSink<'_> {
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un oggetto GeoJSON")
     }
+    // Finding #8: la pass-2 replica la validazione della pass-1. Un
+    // documento che ha superato la pass-1 non dovrebbe fallire qui, ma il
+    // controllo va replicato perche' la pass-2 non riceve garanzie dalla
+    // pass-1 e potrebbe essere usata da soli in test o campagne future.
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
         self.sink.in_feature = true;
+        let mut type_observed = false;
+        let mut features_observed = false;
         while let Some(key) = map.next_key::<String>()? {
-            if key == "features" {
-                map.next_value_seed(FeaturesSink { sink: self.sink })?;
-            } else {
-                map.next_value::<IgnoredAny>()?;
+            match key.as_str() {
+                "type" => {
+                    let value: String = map.next_value()?;
+                    if value != "FeatureCollection" {
+                        return Err(<A::Error as DeError>::custom(format!(
+                            "GeoJSON top-level type '{value}' non supportato: atteso 'FeatureCollection'"
+                        )));
+                    }
+                    type_observed = true;
+                }
+                "features" => {
+                    map.next_value_seed(FeaturesSink { sink: self.sink })?;
+                    features_observed = true;
+                }
+                _ => {
+                    map.next_value::<IgnoredAny>()?;
+                }
             }
+        }
+        if !type_observed {
+            return Err(<A::Error as DeError>::custom(
+                "GeoJSON senza campo 'type' al livello top",
+            ));
+        }
+        if !features_observed {
+            return Err(<A::Error as DeError>::custom(
+                "FeatureCollection GeoJSON senza campo 'features'",
+            ));
         }
         Ok(())
     }
@@ -701,6 +795,11 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.write_str("un Feature")
     }
+    // Il visitor gestisce tutte le chiavi di una Feature: type, geometry,
+    // properties, dup-check, budget cap sulla geometria (finding #6), e le
+    // append fisse su builder/geom. Estrarre parti in helper dedicati
+    // rompe la sequenza degli stati del sink senza guadagno di leggibilita'.
+    #[allow(clippy::too_many_lines)]
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
         for s in &mut self.sink.seen {
             *s = false;
@@ -710,8 +809,23 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
         }
         let mut geom_seen = false;
         let mut props_seen = false;
+        let mut type_seen = false;
         while let Some(fk) = map.next_key_seed(FeatKeySeed)? {
             match fk {
+                FeatKey::Type if type_seen => {
+                    return Err(<A::Error as DeError>::custom(
+                        "chiave type duplicata nella feature GeoJSON",
+                    ));
+                }
+                FeatKey::Type => {
+                    let value: String = map.next_value()?;
+                    if value != "Feature" {
+                        return Err(<A::Error as DeError>::custom(format!(
+                            "membro di features con type '{value}': atteso 'Feature'"
+                        )));
+                    }
+                    type_seen = true;
+                }
                 FeatKey::Geom if geom_seen => {
                     return Err(<A::Error as DeError>::custom(
                         "chiave geometry duplicata nella feature GeoJSON",
@@ -719,10 +833,31 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                 }
                 FeatKey::Geom => {
                     if let Some(geometry) = &mut self.sink.geom {
-                        let g = map.next_value::<Option<GjGeometry>>()?;
-                        match g {
+                        // Finding #6 review 2026-08-15: la deserializzazione
+                        // di `GjGeometry` costruisce ricorsivamente `Vec` di
+                        // coordinate/anelli/geometrie prima che qualunque
+                        // budget veda il risultato. Intercettando prima come
+                        // `RawValue` conosciamo la lunghezza in byte della
+                        // geometria e possiamo rifiutare payload oltre il
+                        // cap del bordo (default WKB `max_cell_bytes`, 64
+                        // MiB) senza mai materializzare l'AST. Un fix
+                        // completo (contatori vertici/depth applicati
+                        // durante il parse) richiede un Visitor dedicato:
+                        // vedi lotto L6 di ROADMAP-1.1.0.md.
+                        let raw = map.next_value::<Option<Box<serde_json::value::RawValue>>>()?;
+                        match raw {
                             None => geometry.append_null(),
-                            Some(gj) => {
+                            Some(raw) => {
+                                let raw_text = raw.get();
+                                let max_bytes = WkbLimits::default().max_cell_bytes;
+                                if raw_text.len() > max_bytes {
+                                    return Err(<A::Error as DeError>::custom(format!(
+                                        "geometria GeoJSON di {} byte oltre il limite {max_bytes}",
+                                        raw_text.len()
+                                    )));
+                                }
+                                let gj: GjGeometry = serde_json::from_str(raw_text)
+                                    .map_err(<A::Error as DeError>::custom)?;
                                 self.sink.wkb_buf.clear();
                                 wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf)
                                     .map_err(<A::Error as DeError>::custom)?;
@@ -747,6 +882,14 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                     map.next_value::<IgnoredAny>()?;
                 }
             }
+        }
+        // Follow-up review 2026-08-15: pass-2 replica il controllo di
+        // pass-1 sul `type` obbligatorio di ogni Feature. Se qui manca,
+        // fail-closed prima di allineare le colonne.
+        if !type_seen {
+            return Err(<A::Error as DeError>::custom(
+                "membro di features senza campo 'type'",
+            ));
         }
         // Allinea le colonne: una append per builder per feature.
         if !geom_seen {
@@ -792,6 +935,13 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
 enum FeatKey {
     Geom,
     Props,
+    /// Follow-up review 2026-08-15: prima del fix ogni Feature riconosceva
+    /// solo `geometry` e `properties`, ignorando il proprio `type`. La
+    /// specifica `GeoJSON` (RFC 7946 §3.2) rende `type` obbligatorio per
+    /// ogni oggetto Feature. Distinguerlo qui permette al chiamante di
+    /// controllarne il valore e rifiutare Feature con `type` diverso o
+    /// mancante.
+    Type,
     Other,
 }
 struct FeatKeySeed;
@@ -810,6 +960,7 @@ impl Visitor<'_> for FeatKeySeed {
         Ok(match s {
             "geometry" => FeatKey::Geom,
             "properties" => FeatKey::Props,
+            "type" => FeatKey::Type,
             _ => FeatKey::Other,
         })
     }

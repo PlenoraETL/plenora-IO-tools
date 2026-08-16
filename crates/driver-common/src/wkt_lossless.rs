@@ -213,6 +213,34 @@ fn geometry_from_wkt(value: &Wkt<f64>) -> Result<WkbGeometry> {
 /// dimensionalità è incoerente fra geometria e coordinate, se una coordinata
 /// non è finita o se la geometria non è rappresentabile nel core WKB.
 pub fn parse_wkt(text: &str) -> Result<WkbGeometry> {
+    parse_wkt_bounded(text, usize::MAX)
+}
+
+/// Come [`parse_wkt`] ma rifiuta a monte i testi WKT piu' lunghi di
+/// `max_bytes`.
+///
+/// Finding #6 review 2026-08-15: il parser `wkt` costruisce l'AST intero
+/// prima che qualsiasi budget veda il risultato; una singola cella
+/// CSV/XLSX ostile puo' superare i limiti dichiarati dal chiamante senza
+/// che il driver se ne accorga. Il cap sulla lunghezza del testo e' una
+/// prima linea di difesa: e' esatto quando la cella e' UTF-8 e non ha
+/// bisogno di conoscere la struttura interna.
+///
+/// La bound completa (`max_components`/`max_depth` applicati durante il
+/// parse e non solo su `verifica_esprimibile` / `inspect_wkb` a valle)
+/// richiede un parser progressivo diverso da `wkt 0.14.0`. Vedi lotto L6
+/// di `docs/ROADMAP-1.1.0.md`.
+///
+/// # Errors
+///
+/// Le stesse di [`parse_wkt`] piu' `LimitExceeded` se `text.len() > max_bytes`.
+pub fn parse_wkt_bounded(text: &str, max_bytes: usize) -> Result<WkbGeometry> {
+    if text.len() > max_bytes {
+        return Err(PlenoraIoError::LimitExceeded(format!(
+            "cella WKT di {} byte oltre il limite {max_bytes}",
+            text.len()
+        )));
+    }
     let parsed: Wkt<f64> = text
         .parse()
         .map_err(|message| error(format!("sintassi non valida: {message}")))?;

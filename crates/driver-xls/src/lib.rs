@@ -16,7 +16,11 @@ use calamine::{open_workbook, Data, Reader, Xlsx, XlsxCellReader};
 use rust_xlsxwriter::Workbook;
 use serde_json::Value as JsonValue;
 
-use driver_common::wkt_lossless::{format_wkt, parse_wkt};
+use driver_common::wkt_lossless::{format_wkt, parse_wkt_bounded};
+// `parse_wkt` resta usato dai test unitari (fixture su geometrie note): il
+// codice di produzione ora passa dalla variante bounded (finding #6).
+#[cfg(test)]
+use driver_common::wkt_lossless::parse_wkt;
 use driver_common::{
     classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
@@ -575,7 +579,11 @@ fn encode_geometry_cell(
             if text.trim().is_empty() {
                 return Ok(false);
             }
-            let geometry = parse_wkt(text.trim())?;
+            // Finding #6 review 2026-08-15: cap sulla lunghezza della
+            // cella WKT prima di costruire l'AST wkt. Il cap concreto usa
+            // il default `WkbLimits::default().max_cell_bytes` (64 MiB) in
+            // attesa che i limiti CLI arrivino fin qui (roadmap 1.1, L6).
+            let geometry = parse_wkt_bounded(text.trim(), WkbLimits::default().max_cell_bytes)?;
             detected_dimensions.insert(geometry.dimensions);
             detected_types.insert(geometry.geometry_type());
             wkb_buffer.clear();

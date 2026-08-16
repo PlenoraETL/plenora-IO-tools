@@ -229,12 +229,25 @@ impl FormatDriver for GpkgDriver {
                 name: table_meta.table.clone(),
                 contract,
             });
+            // `srs_id` di tabella e' i64 in `gpkg_geometry_columns`; l'header
+            // per-feature codifica un i32 (finding #7). Se la tabella
+            // dichiara un valore fuori range i32 il file e' gia'
+            // non-conforme: fallire chiuso qui evita di normalizzarlo
+            // silenziosamente prima ancora di leggere una feature.
+            let layer_srs_id = i32::try_from(table_meta.srs_id).map_err(|_| {
+                err(format!(
+                    "gpkg_geometry_columns.srs_id={} fuori dal range i32; \
+                     GeoPackage non conforme",
+                    table_meta.srs_id
+                ))
+            })?;
             metas.push(LayerRead {
                 rtree_table,
                 table: table_meta.table,
                 geom_col: table_meta.geom_col,
                 schema: runtime_schema,
                 attrs,
+                layer_srs_id,
             });
         }
         Ok(plenora_io_core::with_read_budget(
@@ -326,6 +339,13 @@ struct LayerRead {
     rtree_table: Option<String>,
     schema: SchemaRef,
     attrs: Vec<(String, DataType)>,
+    /// SRS ID del layer come dichiarato in `gpkg_geometry_columns`. Il reader
+    /// lo confronta con l'`srs_id` dell'header di ogni feature: la
+    /// specifica `GeoPackage` vieta la coesistenza di sistemi di riferimento
+    /// diversi nella stessa feature table, e una discordanza silenziosa
+    /// verrebbe interpretata con il CRS sbagliato (finding #7 review
+    /// 2026-08-15).
+    layer_srs_id: i32,
 }
 
 struct GpkgDataset {
@@ -390,12 +410,21 @@ impl OpenDatasetHandle for GpkgDataset {
             format!("t.rowid, {}", selected_cols.join(", "))
         };
         let spatial_hint = request.spatial_pruning_hint.filter(valid_bbox);
+        // Finding #5 della review 2026-08-15: la paginazione keyset con cursore
+        // `i64` inizializzato a zero perdeva le feature con `rowid <= 0`.
+        // SQLite consente rowid negativi o zero se assegnati esplicitamente
+        // dall'INSERT; senza un `Option<i64>` la prima query eseguirebbe
+        // `WHERE rowid > 0` e le scarterebbe silenziosamente. Il pattern
+        // `(?1 IS NULL OR t.rowid > ?1)` accetta il primo tick con cursore
+        // NULL e i successivi con l'ultimo rowid osservato. `ORDER BY
+        // t.rowid LIMIT ?2` conserva l'accesso ordinato al b-tree del rowid
+        // in entrambi i rami.
         let (sql, spatial_hint) = match (&m.rtree_table, spatial_hint) {
             (Some(rtree), Some(bbox)) => (
                 format!(
                     "SELECT {select} FROM {} AS t
                      JOIN {} AS r ON r.id = t.rowid
-                     WHERE t.rowid > ?1
+                     WHERE (?1 IS NULL OR t.rowid > ?1)
                        AND r.maxx >= ?3 AND r.minx <= ?4
                        AND r.maxy >= ?5 AND r.miny <= ?6
                      ORDER BY t.rowid LIMIT ?2",
@@ -407,7 +436,7 @@ impl OpenDatasetHandle for GpkgDataset {
             _ => (
                 format!(
                     "SELECT {select} FROM {} AS t
-                     WHERE t.rowid > ?1 ORDER BY t.rowid LIMIT ?2",
+                     WHERE (?1 IS NULL OR t.rowid > ?1) ORDER BY t.rowid LIMIT ?2",
                     quote(&m.table),
                 ),
                 None,
@@ -424,7 +453,8 @@ impl OpenDatasetHandle for GpkgDataset {
                 schema.as_ref(),
                 request.batch_target,
             ),
-            last_rowid: 0,
+            last_rowid: None,
+            layer_srs_id: m.layer_srs_id,
             layer,
             loss: LossReport::default(),
             reported: BTreeSet::new(),
@@ -517,7 +547,13 @@ struct GpkgReader {
     include_geometry: bool,
     attrs: Vec<(String, DataType)>,
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
-    last_rowid: i64,
+    /// Cursore keyset per la paginazione. `None` prima della prima pagina;
+    /// dopo la prima pagina resta `Some(rowid)` dell'ultimo record osservato.
+    /// Usare `Option` invece di un sentinel `i64` copre anche i rowid `<= 0`
+    /// che `SQLite` consente esplicitamente (finding #5).
+    last_rowid: Option<i64>,
+    /// SRS ID di tabella per il confronto per-feature (finding #7).
+    layer_srs_id: i32,
     layer: LayerContract,
     /// Perdite osservate leggendo: conteggi per categoria ed esempi bounded.
     loss: LossReport,
@@ -544,7 +580,10 @@ impl LayerReader for GpkgReader {
             .map(|(_, dt)| ColBuilder::new(dt))
             .collect();
         let mut count = 0usize;
-        let mut max_rowid = self.last_rowid;
+        // Prima della prima pagina il massimo osservato non esiste. Diventa
+        // `Some(rowid)` non appena una riga viene letta e serve poi come
+        // nuovo cursore keyset e come guardia anti-loop.
+        let mut max_rowid: Option<i64> = self.last_rowid;
         // Clamp identico al precedente `min(i64::MAX as usize) as i64`, senza
         // cast: il LIMIT SQL satura a i64::MAX invece di avvolgersi.
         let limit = i64::try_from(self.batch_sizer.rows()).unwrap_or(i64::MAX);
@@ -562,12 +601,31 @@ impl LayerReader for GpkgReader {
         .map_err(sql_err)?;
         while let Some(row) = rows.next().map_err(sql_err)? {
             let rowid: i64 = row.get(0).map_err(sql_err)?;
-            max_rowid = max_rowid.max(rowid);
+            // `Option::max` conserva il maggiore per confronto totale su i64.
+            max_rowid = Some(max_rowid.map_or(rowid, |current| current.max(rowid)));
             let mut column = 1;
             if self.include_geometry {
                 match row.get_ref(column).map_err(sql_err)? {
                     ValueRef::Null => geom.append_null(),
-                    ValueRef::Blob(b) => geom.append_value(strip_gpkg_header(b)?),
+                    ValueRef::Blob(b) => {
+                        let header = parse_gpkg_header(b)?;
+                        // Finding #7: SRS discordante fra header per-feature
+                        // e dichiarazione di tabella e' un GeoPackage non
+                        // conforme: proseguire etichetterebbe le coordinate
+                        // con il CRS sbagliato. Fail-closed anche nel caso
+                        // simmetrico di layer con srs_id "undefined" (0/-1):
+                        // il file dichiara di essere consistente, se non lo
+                        // e' non spetta al reader inventare quale delle due
+                        // dichiarazioni sia autoritativa.
+                        if header.srs_id != self.layer_srs_id {
+                            return Err(err(format!(
+                                "SRS per-feature {} discordante dal layer {}; \
+                                 GeoPackage non conforme",
+                                header.srs_id, self.layer_srs_id
+                            )));
+                        }
+                        geom.append_value(header.payload);
+                    }
                     _ => return Err(err("colonna geometria non è un BLOB")),
                 }
                 column += 1;
@@ -606,15 +664,28 @@ impl LayerReader for GpkgReader {
         // iterazioni che allocano e liberano.
         //
         // Fail-closed: un file che non permette di avanzare e' incoerente, e
-        // proseguire produrrebbe righe duplicate all'infinito.
-        if max_rowid <= self.last_rowid {
-            return Err(err(format!(
-                "paginazione bloccata: rowid massimo {max_rowid} non supera il cursore {}; \
+        // proseguire produrrebbe righe duplicate all'infinito. Con cursore
+        // `Option<i64>` la guardia deve considerare `None` (prima pagina):
+        // se una prima pagina non produce alcun rowid oltre nessun cursore,
+        // il caso `count == 0` sopra ha gia' restituito Ok(None). Qui siamo
+        // dopo che almeno una riga e' stata osservata, quindi `max_rowid` e'
+        // sempre `Some(_)`. La guardia scatta se il cursore precedente esiste
+        // ed e' >= del nuovo massimo.
+        let Some(observed_max) = max_rowid else {
+            return Err(err(
+                "paginazione bloccata: pagina non vuota senza rowid osservato; \
                  il GeoPackage e' incoerente",
-                self.last_rowid
-            )));
+            ));
+        };
+        if let Some(previous) = self.last_rowid {
+            if observed_max <= previous {
+                return Err(err(format!(
+                    "paginazione bloccata: rowid massimo {observed_max} non supera il cursore {previous}; \
+                     il GeoPackage e' incoerente"
+                )));
+            }
         }
-        self.last_rowid = max_rowid;
+        self.last_rowid = Some(observed_max);
         let mut arrays: Vec<ArrayRef> =
             Vec::with_capacity(usize::from(self.include_geometry) + attr_builders.len());
         if self.include_geometry {
@@ -807,8 +878,14 @@ fn insert_batch(conn: &Connection, a: &ActiveLayer, batch: &RecordBatch) -> Resu
         let geometry = if geom_col.is_null(row) {
             None
         } else {
-            geometry_blob.extend_from_slice(&gpkg_header(a.srs_id));
-            geometry_blob.extend_from_slice(geom_col.value(row));
+            let payload = geom_col.value(row);
+            // Finding #12 follow-up review 2026-08-15: `wkb_shape` fallisce
+            // chiuso su payload troncati o byte-order/flavor non validi.
+            // Un WKB ambiguo non viene scritto con un flag "empty"
+            // arbitrario: la feature viene rifiutata a monte del publish.
+            let shape = wkb_shape(payload)?;
+            geometry_blob.extend_from_slice(&gpkg_header(a.srs_id, shape.is_empty()));
+            geometry_blob.extend_from_slice(payload);
             Some(geometry_blob.as_slice())
         };
         execute_insert_row(&mut stmt, batch, &attr_idx, row, geometry)?;
@@ -1193,7 +1270,18 @@ fn build_schema(
     Ok((Arc::new(Schema::new(fields)), attrs))
 }
 
-fn strip_gpkg_header(blob: &[u8]) -> Result<&[u8]> {
+/// Header `GeoPackage` estratto dal blob geometria (`StandardGeoPackageBinary`).
+///
+/// Il chiamante confronta `srs_id` con quello del layer (finding #7 della
+/// review 2026-08-15): un blob con SRS discordante non deve essere esposto
+/// come se avesse il CRS della tabella, perche' le coordinate sarebbero
+/// interpretate in un sistema sbagliato senza alcuna diagnostica.
+struct GpkgBlobHeader<'a> {
+    srs_id: i32,
+    payload: &'a [u8],
+}
+
+fn parse_gpkg_header(blob: &[u8]) -> Result<GpkgBlobHeader<'_>> {
     if blob.len() < 8 || &blob[0..2] != b"GP" {
         return Err(err("blob geometria GeoPackage non valido (magic)"));
     }
@@ -1208,12 +1296,187 @@ fn strip_gpkg_header(blob: &[u8]) -> Result<&[u8]> {
     if blob.len() < start {
         return Err(err("blob geometria GeoPackage troncato"));
     }
-    Ok(&blob[start..])
+    // Byte 3 bit 0 = byte order (0 big endian, 1 little endian) per l'header;
+    // per il payload la endianess e' nel primo byte del WKB. Qui interpreta
+    // solo il campo srs_id dell'header GeoPackage secondo la stessa flag.
+    let little_endian = (blob[3] & 0x01) == 0x01;
+    let bytes: [u8; 4] = [blob[4], blob[5], blob[6], blob[7]];
+    let srs_id = if little_endian {
+        i32::from_le_bytes(bytes)
+    } else {
+        i32::from_be_bytes(bytes)
+    };
+    Ok(GpkgBlobHeader {
+        srs_id,
+        payload: &blob[start..],
+    })
 }
 
-const fn gpkg_header(srs_id: i32) -> [u8; 8] {
+/// API storica: preserva l'estrazione del solo payload per i chiamanti che
+/// non hanno accesso al CRS del layer (per esempio i test o gli helper di
+/// utilita' su blob singoli). I reader di produzione usano
+/// [`parse_gpkg_header`] e confrontano `srs_id`.
+fn strip_gpkg_header(blob: &[u8]) -> Result<&[u8]> {
+    parse_gpkg_header(blob).map(|header| header.payload)
+}
+
+/// Header `StandardGeoPackageBinary` (8 byte, senza envelope) per un payload
+/// WKB. Il byte di flag comprende endianess (bit 0) e, dalla review
+/// 2026-08-15 finding #12, il bit "empty geometry" (bit 4). Prima del fix
+/// la bandiera restava sempre 0x01 anche per geometrie vuote.
+const fn gpkg_header(srs_id: i32, is_empty: bool) -> [u8; 8] {
     let s = srs_id.to_le_bytes();
-    [b'G', b'P', 0, 0x01, s[0], s[1], s[2], s[3]]
+    // Bit 0 = 1 (little-endian). Bit 4 = 1 se il payload rappresenta una
+    // geometria vuota, come richiesto dallo standard GeoPackage 1.3
+    // (Clause 2.1.3.1.1 GeoPackageBinaryHeader).
+    let flags: u8 = if is_empty { 0x11 } else { 0x01 };
+    [b'G', b'P', 0, flags, s[0], s[1], s[2], s[3]]
+}
+
+/// Classifica un payload WKB come vuoto o non vuoto per l'unica
+/// finalita' del bit "empty" nell'header `GeoPackage`. Supporta:
+///
+/// - ISO WKB XY / XYZ / XYM / XYZM (tipi 1-7 e le famiglie +1000/+2000/+3000);
+/// - EWKB (`PostGIS`) con flag Z/M/SRID e prefisso SRID opzionale;
+/// - `POINT EMPTY` codificato come coordinate tutte `NaN`;
+/// - collezioni (Multi*, `GeometryCollection`) e famiglie `LineString`/
+///   `Polygon` con conteggio zero.
+///
+/// Fail-closed: un payload troncato, con byte order non valido o con
+/// flavor ISO sconosciuto restituisce `Err` invece di indovinare — il
+/// caller (finding #12 follow-up review 2026-08-15) rifiuta la feature
+/// invece di scrivere un header incoerente. I tipi geometrici che
+/// stanno fuori dall'insieme dei sette canonici (per esempio le
+/// varianti curve/superfici estese) sono considerati non-empty come
+/// safe-default: emettere il flag "non vuoto" su una geometria
+/// realmente vuota di quel tipo e' meno grave di segnalare vuoto un
+/// payload che ha contenuto reale.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WkbShape {
+    Empty,
+    NonEmpty,
+}
+
+impl WkbShape {
+    const fn is_empty(self) -> bool {
+        matches!(self, Self::Empty)
+    }
+}
+
+// `read_u32` / `read_f64` sono le due primitive canoniche di lettura WKB
+// nella stessa endianess: rinominarle per soddisfare `similar_names`
+// renderebbe meno chiaro il pattern.
+#[allow(clippy::similar_names)]
+fn wkb_shape(payload: &[u8]) -> Result<WkbShape> {
+    if payload.len() < 5 {
+        return Err(err("WKB troppo corto per l'header base"));
+    }
+    let little_endian = match payload[0] {
+        0x00 => false,
+        0x01 => true,
+        other => {
+            return Err(err(format!("byte order WKB non valido: 0x{other:02x}")));
+        }
+    };
+    let read_u32 = |slice: &[u8]| -> u32 {
+        let bytes = [slice[0], slice[1], slice[2], slice[3]];
+        if little_endian {
+            u32::from_le_bytes(bytes)
+        } else {
+            u32::from_be_bytes(bytes)
+        }
+    };
+    let read_f64 = |slice: &[u8]| -> f64 {
+        let mut bytes = [0_u8; 8];
+        bytes.copy_from_slice(&slice[..8]);
+        if little_endian {
+            f64::from_le_bytes(bytes)
+        } else {
+            f64::from_be_bytes(bytes)
+        }
+    };
+    let raw_type = read_u32(&payload[1..5]);
+    let mut cursor: usize = 5;
+
+    // EWKB (PostGIS): riconosciuto dai bit di flag alti del type. Un
+    // qualsiasi bit alto attivo classifica il payload come EWKB; ISO WKB
+    // resta l'ipotesi di default.
+    let ewkb_flag_z = raw_type & 0x8000_0000 != 0;
+    let ewkb_flag_m = raw_type & 0x4000_0000 != 0;
+    let ewkb_flag_srid = raw_type & 0x2000_0000 != 0;
+    let is_ewkb = ewkb_flag_z || ewkb_flag_m || ewkb_flag_srid;
+
+    let (base_type, dims) = if is_ewkb {
+        let base = raw_type & 0x0000_00FF;
+        let dims: usize = 2 + usize::from(ewkb_flag_z) + usize::from(ewkb_flag_m);
+        if ewkb_flag_srid {
+            if payload.len() < cursor + 4 {
+                return Err(err("WKB EWKB troncato: manca il SRID"));
+            }
+            cursor += 4;
+        }
+        (base, dims)
+    } else {
+        let base = raw_type % 1000;
+        let flavor = raw_type / 1000;
+        let dims = match flavor {
+            0 => 2,     // XY
+            1 | 2 => 3, // XYZ o XYM
+            3 => 4,     // XYZM
+            other => {
+                return Err(err(format!("flavor WKB ISO non riconosciuto: {other}")));
+            }
+        };
+        (base, dims)
+    };
+
+    let coord_bytes = dims
+        .checked_mul(8)
+        .ok_or_else(|| err("overflow dimensioni coordinate WKB"))?;
+
+    match base_type {
+        1 => {
+            // Point: se tutte le coordinate sono NaN, la geometria e' EMPTY
+            // (convenzione standard). Un payload troncato prima delle
+            // coordinate e' un errore, non un default.
+            if payload.len() < cursor + coord_bytes {
+                return Err(err("WKB Point troncato: mancano le coordinate"));
+            }
+            let mut all_nan = true;
+            for i in 0..dims {
+                let offset = cursor + i * 8;
+                if !read_f64(&payload[offset..offset + 8]).is_nan() {
+                    all_nan = false;
+                    break;
+                }
+            }
+            Ok(if all_nan {
+                WkbShape::Empty
+            } else {
+                WkbShape::NonEmpty
+            })
+        }
+        2..=7 | 15..=17 => {
+            // LineString/Polygon/Multi*/GeometryCollection/PolyhedralSurface/
+            // Tin/Triangle: subito dopo l'header c'e' un uint32 con il
+            // conteggio degli elementi. Zero → EMPTY.
+            if payload.len() < cursor + 4 {
+                return Err(err("WKB troncato: manca il conteggio"));
+            }
+            let count = read_u32(&payload[cursor..cursor + 4]);
+            Ok(if count == 0 {
+                WkbShape::Empty
+            } else {
+                WkbShape::NonEmpty
+            })
+        }
+        _ => {
+            // Tipo estese non gestite (curve, superfici circolari, ecc.):
+            // safe default non-empty, per non segnalare vuoto un contenuto
+            // che non sappiamo classificare.
+            Ok(WkbShape::NonEmpty)
+        }
+    }
 }
 
 fn init_gpkg(conn: &Connection) -> Result<()> {
@@ -1224,7 +1487,8 @@ fn init_gpkg(conn: &Connection) -> Result<()> {
             organization TEXT NOT NULL, organization_coordsys_id INTEGER NOT NULL,
             definition TEXT NOT NULL, description TEXT);
          CREATE TABLE gpkg_contents (table_name TEXT PRIMARY KEY, data_type TEXT NOT NULL,
-            identifier TEXT, description TEXT DEFAULT '', last_change TEXT,
+            identifier TEXT, description TEXT DEFAULT '',
+            last_change DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
             min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE, srs_id INTEGER);
          CREATE TABLE gpkg_geometry_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL,
             geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL,
@@ -1346,8 +1610,13 @@ fn create_feature_table(
         [],
     )
     .map_err(sql_err)?;
+    // Finding #12 review 2026-08-15: `gpkg_contents.last_change` e' nullable
+    // ma la specifica GeoPackage lo richiede come `%Y-%m-%dT%H:%M:%fZ`
+    // (ISO 8601 UTC). Compilarlo alla CREATE evita che i validator conformi
+    // rifiutino il file per un metadato omesso.
     conn.execute(
-        "INSERT INTO gpkg_contents (table_name, data_type, identifier, srs_id) VALUES (?1,'features',?1,?2)",
+        "INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, srs_id) \
+         VALUES (?1, 'features', ?1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?2)",
         rusqlite::params![name, srs_id],
     )
     .map_err(sql_err)?;
@@ -1563,12 +1832,12 @@ mod tests {
     fn fuzz_entrypoint_reports_the_envelope_offset_declared_by_the_flags() {
         let payload = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
 
-        let mut senza_envelope = gpkg_header(4326).to_vec();
+        let mut senza_envelope = gpkg_header(4326, false).to_vec();
         senza_envelope.extend_from_slice(&payload);
         assert_eq!(__fuzz_gpkg_geometry(&senza_envelope).unwrap(), 8);
 
         // Envelope XY dichiarato nei flag: 32 byte fra header e payload.
-        let mut con_envelope = gpkg_header(4326).to_vec();
+        let mut con_envelope = gpkg_header(4326, false).to_vec();
         con_envelope[3] |= 0x02;
         con_envelope.extend_from_slice(&[0_u8; 32]);
         con_envelope.extend_from_slice(&payload);
@@ -1577,6 +1846,149 @@ mod tests {
         // Magic assente e blob troncato restano rifiuti, non panic.
         assert!(__fuzz_gpkg_geometry(b"XX\x00\x01\x00\x00\x00\x00").is_err());
         assert!(__fuzz_gpkg_geometry(&senza_envelope[..7]).is_err());
+    }
+
+    // Helper solo per test: header WKB `little-endian` per un tipo dato.
+    fn wkb_le_header(geometry_type: u32) -> Vec<u8> {
+        let mut buffer = vec![0x01_u8];
+        buffer.extend_from_slice(&geometry_type.to_le_bytes());
+        buffer
+    }
+
+    #[test]
+    fn wkb_shape_riconosce_point_empty_come_nan_nan() {
+        // Finding #12 follow-up review 2026-08-15: POINT EMPTY viene
+        // codificato con coordinate tutte NaN. Il flag "empty" del header
+        // GeoPackage deve rispecchiare questa condizione, altrimenti i
+        // validator conformi rifiutano il file.
+        let mut payload = wkb_le_header(1); // ISO WKB Point XY
+        payload.extend_from_slice(&f64::NAN.to_le_bytes());
+        payload.extend_from_slice(&f64::NAN.to_le_bytes());
+        assert_eq!(wkb_shape(&payload).unwrap(), WkbShape::Empty);
+
+        // Un Point con coordinate finite deve restare non-empty.
+        let mut concreto = wkb_le_header(1);
+        concreto.extend_from_slice(&1.5_f64.to_le_bytes());
+        concreto.extend_from_slice(&2.5_f64.to_le_bytes());
+        assert_eq!(wkb_shape(&concreto).unwrap(), WkbShape::NonEmpty);
+    }
+
+    #[test]
+    fn wkb_shape_riconosce_point_empty_anche_in_xyz_e_xyzm() {
+        // POINT Z EMPTY: type = 1001, 3 doubles NaN.
+        let mut xyz = wkb_le_header(1001);
+        for _ in 0..3 {
+            xyz.extend_from_slice(&f64::NAN.to_le_bytes());
+        }
+        assert_eq!(wkb_shape(&xyz).unwrap(), WkbShape::Empty);
+
+        // POINT ZM EMPTY: type = 3001, 4 doubles NaN.
+        let mut xyzm = wkb_le_header(3001);
+        for _ in 0..4 {
+            xyzm.extend_from_slice(&f64::NAN.to_le_bytes());
+        }
+        assert_eq!(wkb_shape(&xyzm).unwrap(), WkbShape::Empty);
+
+        // Point Z con Z finita e X/Y NaN NON e' empty (basta una
+        // coordinata finita per contare come non-empty).
+        let mut mixed = wkb_le_header(1001);
+        mixed.extend_from_slice(&f64::NAN.to_le_bytes());
+        mixed.extend_from_slice(&f64::NAN.to_le_bytes());
+        mixed.extend_from_slice(&42.0_f64.to_le_bytes());
+        assert_eq!(wkb_shape(&mixed).unwrap(), WkbShape::NonEmpty);
+    }
+
+    #[test]
+    fn wkb_shape_supporta_ewkb_con_srid() {
+        // EWKB Point con SRID (flag 0x2000_0000 | tipo 1): dopo il type
+        // c'e' l'SRID (4 byte) e poi le coordinate. Un POINT (1,2) SRID=4326
+        // deve risultare non-empty.
+        let mut payload = vec![0x01_u8];
+        let type_flags: u32 = 0x2000_0000 | 1;
+        payload.extend_from_slice(&type_flags.to_le_bytes());
+        payload.extend_from_slice(&4326_u32.to_le_bytes()); // SRID
+        payload.extend_from_slice(&1.0_f64.to_le_bytes());
+        payload.extend_from_slice(&2.0_f64.to_le_bytes());
+        assert_eq!(wkb_shape(&payload).unwrap(), WkbShape::NonEmpty);
+
+        // Stesso layout con NaN,NaN e' Point EMPTY.
+        let mut empty = vec![0x01_u8];
+        empty.extend_from_slice(&type_flags.to_le_bytes());
+        empty.extend_from_slice(&4326_u32.to_le_bytes());
+        empty.extend_from_slice(&f64::NAN.to_le_bytes());
+        empty.extend_from_slice(&f64::NAN.to_le_bytes());
+        assert_eq!(wkb_shape(&empty).unwrap(), WkbShape::Empty);
+
+        // MULTIPOINT EMPTY EWKB con SRID: type 4 + SRID flag, poi
+        // 4 byte SRID e 4 byte count=0.
+        let mut multi_empty = vec![0x01_u8];
+        let multi_type: u32 = 0x2000_0000 | 4;
+        multi_empty.extend_from_slice(&multi_type.to_le_bytes());
+        multi_empty.extend_from_slice(&4326_u32.to_le_bytes());
+        multi_empty.extend_from_slice(&0_u32.to_le_bytes());
+        assert_eq!(wkb_shape(&multi_empty).unwrap(), WkbShape::Empty);
+    }
+
+    #[test]
+    fn wkb_shape_fallisce_chiuso_sui_payload_ambigui() {
+        // Header troncato: 5 byte minimi non presenti.
+        assert!(wkb_shape(&[0x01, 0x01]).is_err());
+        // Byte-order invalido.
+        assert!(wkb_shape(&[0x02, 0x00, 0x00, 0x00, 0x01]).is_err());
+        // Point ISO con coordinate mancanti (solo header, niente doubles).
+        assert!(wkb_shape(&wkb_le_header(1)).is_err());
+        // LineString ISO senza il conteggio.
+        assert!(wkb_shape(&wkb_le_header(2)).is_err());
+        // Flavor ISO invalido (type = 4123 → flavor 4 sconosciuto).
+        assert!(wkb_shape(&wkb_le_header(4123)).is_err());
+        // EWKB con SRID ma payload che finisce prima dell'SRID.
+        let mut ewkb_troncato = vec![0x01_u8];
+        let type_flags: u32 = 0x2000_0000 | 1;
+        ewkb_troncato.extend_from_slice(&type_flags.to_le_bytes());
+        // niente 4 byte SRID: il payload finisce qui
+        assert!(wkb_shape(&ewkb_troncato).is_err());
+    }
+
+    #[test]
+    fn wkb_shape_rileva_le_collezioni_vuote() {
+        // MULTIPOINT EMPTY (ISO): type 4, count 0.
+        let mut mp = wkb_le_header(4);
+        mp.extend_from_slice(&0_u32.to_le_bytes());
+        assert_eq!(wkb_shape(&mp).unwrap(), WkbShape::Empty);
+
+        // MULTIPOINT con un elemento: non-empty.
+        let mut mp_full = wkb_le_header(4);
+        mp_full.extend_from_slice(&1_u32.to_le_bytes());
+        // (il payload del figlio non e' letto da wkb_shape: basta il count>0)
+        assert_eq!(wkb_shape(&mp_full).unwrap(), WkbShape::NonEmpty);
+    }
+
+    #[test]
+    fn last_change_gpkg_contents_e_not_null_con_default_valido() {
+        // Finding #12 follow-up: la DDL deve dichiarare NOT NULL e un
+        // default valido, non solo compilarlo nell'INSERT del driver. Un
+        // consumer che scriva altri record in gpkg_contents senza
+        // fornire last_change deve trovare comunque un valore ISO 8601.
+        let conn = Connection::open_in_memory().unwrap();
+        init_gpkg(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO gpkg_contents (table_name, data_type, identifier, srs_id) \
+             VALUES ('probe', 'features', 'probe', 4326)",
+            [],
+        )
+        .unwrap();
+        let last_change: String = conn
+            .query_row(
+                "SELECT last_change FROM gpkg_contents WHERE table_name = 'probe'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        // Formato dichiarato: `YYYY-MM-DDTHH:MM:SS.sssZ`.
+        assert!(
+            last_change.ends_with('Z') && last_change.contains('T'),
+            "last_change atteso in formato ISO 8601 UTC: {last_change}"
+        );
     }
 
     #[test]

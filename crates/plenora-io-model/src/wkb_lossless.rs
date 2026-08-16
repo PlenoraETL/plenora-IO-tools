@@ -489,6 +489,16 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
         4..=7 | 9..=12 | 15..=16 => {
             let count = reader.u32(little_endian)?;
             let count = reader.ensure_count(count, 9)?;
+            // Finding #9 review 2026-08-15 + follow-up: il conteggio
+            // `max_components` deve includere anche le geometrie figlie
+            // (docstring a riga 66). Il primo fix addebitava per figlio
+            // dentro il loop, ma `Vec::with_capacity(count)` era gia'
+            // eseguito PRIMA: un `count` ostile enorme allocava comunque
+            // il vettore prima che il limite fermasse il parser. Addebitare
+            // l'intero `count` PRIMA della `with_capacity` chiude il canale
+            // di amplificazione: un WKB fatto di sole aggregate vuote
+            // satura la quota senza toccare il heap.
+            reader.charge_coordinates(count)?;
             let mut values = Vec::with_capacity(count);
             for _ in 0..count {
                 values.push(read_geometry(reader, depth + 1)?);
@@ -584,6 +594,12 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
         4..=7 | 9..=12 | 15..=16 => {
             let count = reader.u32(little_endian)?;
             let count = reader.ensure_count(count, 9)?;
+            // Finding #9 follow-up: vedi commento speculare in
+            // `read_geometry`. `inspect_geometry` non alloca il vettore dei
+            // figli, quindi non c'era canale di amplificazione da chiudere;
+            // l'addebito upfront resta comunque per simmetria di conteggio
+            // fra i due percorsi (scanner AST vs visitor senza AST).
+            reader.charge_coordinates(count)?;
             for _ in 0..count {
                 let child = inspect_geometry(reader, depth + 1)?;
                 if !child_type_allowed(base, child.geometry_type) {

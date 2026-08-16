@@ -112,8 +112,85 @@ impl FormatDriver for GeoParquetDriver {
         let parquet_schema = builder.schema().clone();
         let geo = read_geo_meta(&builder);
         let (geom_name, crs) = resolve_geometry_and_crs(&parquet_schema, geo.as_ref())?;
-        let out_schema = retag_schema(&parquet_schema, &geom_name, &crs);
-        let has_bbox = BBOX_COLS.iter().all(|n| parquet_schema.index_of(n).is_ok());
+        // Finding #4 follow-up follow-up review 2026-08-15: il fallback
+        // legacy per-nome (accettare `_bbox_minx/miny/maxx/maxy` come
+        // covering anche in assenza di metadata `covering.bbox`) e' stato
+        // rimosso dal percorso predefinito perche' un GeoParquet esterno
+        // con attributi utente omonimi veniva silenziosamente trattato
+        // come covering — perdendo colonne o applicando pruning
+        // sbagliato. Il fallback e' ora un opt-in esplicito via
+        // `format_options["bbox_legacy_by_name"] = "true"`: chi ha file
+        // scritti prima del covering GeoParquet 1.1 lo abilita
+        // esplicitamente, prendendosi responsabilita' del comportamento
+        // documentato.
+        let legacy_by_name_opt_in = opts
+            .format_options
+            .get("bbox_legacy_by_name")
+            .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes"));
+        let covering_names = covering_bbox_columns(geo.as_ref(), &geom_name);
+        // Retag strippa SOLO i nomi realmente dichiarati come covering o —
+        // se il caller ha chiesto il fallback legacy — quelli
+        // convenzionali. Un file senza covering metadata e senza opt-in
+        // conserva tutte le colonne utente esattamente come sono.
+        // Il ramo `map_or_else` suggerito da clippy annida due rami
+        // logici distinti dentro una sola espressione: qui l'`if let`
+        // separa "dichiarato dal metadata" da "opt-in legacy" in modo
+        // lineare.
+        #[allow(clippy::option_if_let_else)]
+        let strip_names: Option<Vec<String>> = if let Some(names) = &covering_names {
+            Some(names.clone())
+        } else if legacy_by_name_opt_in
+            && BBOX_COLS.iter().all(|n| parquet_schema.index_of(n).is_ok())
+        {
+            Some(BBOX_COLS.iter().map(|s| (*s).to_owned()).collect())
+        } else {
+            None
+        };
+        let out_schema = retag_schema(&parquet_schema, &geom_name, &crs, strip_names.as_deref());
+        // Il covering realmente utilizzabile per il pruning: solo se
+        // dichiarato dal metadata E tutte le colonne dichiarate sono
+        // presenti, oppure se l'opt-in legacy e' attivo E i quattro nomi
+        // convenzionali sono presenti. In ogni altro caso il pruning
+        // spaziale resta disabilitato.
+        #[allow(clippy::option_if_let_else)]
+        let bbox_covering: Option<[String; 4]> = if let Some(declared) = &covering_names {
+            let all_present = declared.iter().all(|n| parquet_schema.index_of(n).is_ok());
+            if all_present && declared.len() == 4 {
+                Some([
+                    declared[0].clone(),
+                    declared[1].clone(),
+                    declared[2].clone(),
+                    declared[3].clone(),
+                ])
+            } else {
+                None
+            }
+        } else if legacy_by_name_opt_in
+            && BBOX_COLS.iter().all(|n| parquet_schema.index_of(n).is_ok())
+        {
+            Some([
+                BBOX_COLS[0].to_owned(),
+                BBOX_COLS[1].to_owned(),
+                BBOX_COLS[2].to_owned(),
+                BBOX_COLS[3].to_owned(),
+            ])
+        } else {
+            None
+        };
+        // Mappa logico → fisico prima di consumare `out_schema` per il
+        // contratto. Ogni campo esposto viene localizzato per nome nello
+        // schema Parquet originale. Un campo esposto senza corrispondente
+        // fisico e' un errore di contratto (mai atteso, ma fail-closed).
+        let mut visible_to_physical: Vec<usize> = Vec::with_capacity(out_schema.fields().len());
+        for field in out_schema.fields() {
+            let index = parquet_schema.index_of(field.name()).map_err(|_| {
+                fmt_err(format!(
+                    "campo esposto '{}' non presente nello schema Parquet fisico",
+                    field.name()
+                ))
+            })?;
+            visible_to_physical.push(index);
+        }
         let geom_idx = out_schema
             .index_of(&geom_name)
             .map_err(|e| fmt_err(format!("colonna geometria: {e}")))?;
@@ -147,7 +224,8 @@ impl FormatDriver for GeoParquetDriver {
             Box::new(GeoParquetDataset {
                 path,
                 out_schema,
-                has_bbox,
+                bbox_covering,
+                visible_to_physical,
                 layers: vec![layer],
             }),
             opts.resource_budget.clone(),
@@ -182,6 +260,26 @@ impl FormatDriver for GeoParquetDriver {
         }
         let layer = &plan.layers[0];
         let schema = layer.contract.schema.clone();
+        // Finding #4 review 2026-08-15: prima del fix il writer aggiungeva
+        // sempre le 4 colonne bbox interne alle colonne utente, senza
+        // controllare che non esistessero gia' con quei nomi. Il risultato
+        // era una sovrascrittura silenziosa che alterava il contratto
+        // dichiarato dall'utente. Fail-closed qui rifiuta il piano prima
+        // di aprire il sink: e' la stessa policy di collisione applicata
+        // dagli altri driver ai propri metadati interni.
+        if let Some(collision) = schema
+            .fields()
+            .iter()
+            .map(|field| field.name().as_str())
+            .find(|name| is_bbox_col(name))
+        {
+            return Err(fmt_err(format!(
+                "GeoParquet: colonna utente '{collision}' entrerebbe in collisione con \
+                 le colonne bbox interne del covering spaziale ({}); rinominare la colonna \
+                 utente prima della scrittura",
+                BBOX_COLS.join(", ")
+            )));
+        }
         let (geom_idx, geom_name, legacy_crs_meta) = geometry_field(&schema)?;
         let crs_meta = crs_meta_for_write(layer.contract.geometry.as_ref(), legacy_crs_meta);
         // Schema di scrittura = utente + colonne bbox covering (spatial pruning).
@@ -238,7 +336,21 @@ fn crs_meta_for_write(
 struct GeoParquetDataset {
     path: PathBuf,
     out_schema: SchemaRef,
-    has_bbox: bool,
+    /// Nomi delle colonne bbox del covering spaziale, se il file dichiara
+    /// `covering.bbox` nel metadata `GeoParquet` 1.1 o, in fallback, se sono
+    /// presenti tutti e quattro i nomi convenzionali `_bbox_minx`/... .
+    /// Il pruning spaziale legge min/max da queste colonne (finding #4
+    /// review 2026-08-15 + follow-up).
+    bbox_covering: Option<[String; 4]>,
+    /// Mappa dagli indici logici dello schema esposto (`out_schema`, senza
+    /// le colonne bbox interne) agli indici fisici root dello schema
+    /// `Parquet`. Prima del follow-up review 2026-08-15 la CLI passava
+    /// direttamente `0..out_schema.len()` a `ProjectionMask::roots`, che
+    /// coincide col fisico solo se le colonne rimosse sono in coda: un
+    /// `GeoParquet` esterno con bbox intercalate produceva colonne
+    /// sbagliate o errore di schema. Ora la mappa e' calcolata una volta
+    /// all'apertura e ogni projection la usa per tradurre.
+    visible_to_physical: Vec<usize>,
     layers: Vec<LayerContract>,
 }
 
@@ -261,10 +373,19 @@ impl OpenDatasetHandle for GeoParquetDataset {
 
         // Projection pushdown (Fase 2C): se richiesto, leggi SOLO quelle colonne.
         // Con bbox covering, le colonne bbox interne sono SEMPRE proiettate via.
+        //
+        // Finding #4 follow-up review 2026-08-15: `ProjectionMask::roots`
+        // interpreta gli indici come fisici (root Parquet). Gli indici
+        // logici dello schema esposto NON coincidono col fisico quando le
+        // colonne bbox interne sono intercalate — cosa che i nostri writer
+        // non producono ma un GeoParquet esterno puo'. `visible_to_physical`
+        // fa la traduzione una volta all'apertura e ogni projection la usa.
         let (builder, out_schema, layer) = match &request.projected_fields {
-            None if self.has_bbox => {
-                let idx: Vec<usize> = (0..self.out_schema.fields().len()).collect();
-                let mask = ProjectionMask::roots(builder.parquet_schema(), idx);
+            None if self.bbox_covering.is_some() => {
+                let mask = ProjectionMask::roots(
+                    builder.parquet_schema(),
+                    self.visible_to_physical.iter().copied(),
+                );
                 (
                     builder.with_projection(mask),
                     self.out_schema.clone(),
@@ -274,7 +395,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
             None => (builder, self.out_schema.clone(), self.layers[0].clone()),
             Some(field_ids) => {
                 let ncols = self.out_schema.fields().len();
-                let mut idx: Vec<usize> = Vec::new();
+                let mut logical_idx: Vec<usize> = Vec::new();
                 for fid in field_ids {
                     let i = fid.0 as usize;
                     if i >= ncols {
@@ -286,14 +407,14 @@ impl OpenDatasetHandle for GeoParquetDataset {
                         }
                         continue;
                     }
-                    if !idx.contains(&i) {
-                        idx.push(i);
+                    if !logical_idx.contains(&i) {
+                        logical_idx.push(i);
                     }
                 }
-                idx.sort_unstable();
+                logical_idx.sort_unstable();
                 // Schema proiettato: sottoinsieme in ordine originale (geometria già
                 // ri-etichettata geoarrow.wkb se presente fra le colonne scelte).
-                let fields: Vec<Field> = idx
+                let fields: Vec<Field> = logical_idx
                     .iter()
                     .map(|&i| self.out_schema.field(i).as_ref().clone())
                     .collect();
@@ -301,7 +422,13 @@ impl OpenDatasetHandle for GeoParquetDataset {
                     fields,
                     self.out_schema.metadata().clone(),
                 ));
-                let mask = ProjectionMask::roots(builder.parquet_schema(), idx.iter().copied());
+                // Traduce gli indici logici richiesti nei corrispondenti
+                // indici fisici prima di costruire la mask.
+                let physical_idx: Vec<usize> = logical_idx
+                    .iter()
+                    .map(|&i| self.visible_to_physical[i])
+                    .collect();
+                let mask = ProjectionMask::roots(builder.parquet_schema(), physical_idx);
                 let mut layer = self.layers[0].clone();
                 layer.contract = DataContract {
                     schema: projected.clone(),
@@ -334,7 +461,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
         let builder = apply_spatial_pruning(
             builder,
             request.spatial_pruning_hint.as_ref(),
-            self.has_bbox,
+            self.bbox_covering.as_ref(),
         );
 
         let reader = builder
@@ -618,18 +745,23 @@ fn apply_pruning(
 fn apply_spatial_pruning(
     builder: ParquetRecordBatchReaderBuilder<File>,
     hint: Option<&Bbox>,
-    has_bbox: bool,
+    // Finding #4 follow-up: i nomi delle 4 colonne bbox (xmin, ymin, xmax,
+    // ymax) sono passati dal chiamante, che li ha risolti da
+    // `covering.bbox` GeoParquet 1.1 o dal fallback storico su `BBOX_COLS`.
+    // Non piu' hard-coded: un covering con nomi personalizzati viene ora
+    // realmente usato dal pruning.
+    covering: Option<&[String; 4]>,
 ) -> ParquetRecordBatchReaderBuilder<File> {
-    let (Some(q), true) = (hint, has_bbox) else {
+    let (Some(q), Some(covering)) = (hint, covering) else {
         return builder;
     };
     let schema = builder.parquet_schema();
     let leaf = |name: &str| (0..schema.num_columns()).find(|&i| schema.column(i).name() == name);
     let (Some(cminx), Some(cminy), Some(cmaxx), Some(cmaxy)) = (
-        leaf("_bbox_minx"),
-        leaf("_bbox_miny"),
-        leaf("_bbox_maxx"),
-        leaf("_bbox_maxy"),
+        leaf(&covering[0]),
+        leaf(&covering[1]),
+        leaf(&covering[2]),
+        leaf(&covering[3]),
     ) else {
         return builder;
     };
@@ -1007,13 +1139,60 @@ fn build_bbox_columns(geom: &BinaryArray) -> Vec<ArrayRef> {
     ]
 }
 
+/// Estrae dai metadati `geo.columns.<primary>.covering.bbox` la lista dei
+/// nomi delle colonne bbox del covering spaziale (finding #4 review
+/// 2026-08-15). Un file scritto dal writer post-fix dichiara esplicitamente
+/// il mapping; per i file legacy (anche quelli emessi dai nostri writer
+/// precedenti) il chiamante puo' fare fallback ai nomi convenzionali
+/// `BBOX_COLS`.
+fn covering_bbox_columns(geo: Option<&serde_json::Value>, primary: &str) -> Option<Vec<String>> {
+    let covering = geo?
+        .get("columns")?
+        .get(primary)?
+        .get("covering")?
+        .get("bbox")?;
+    let mut names = Vec::with_capacity(4);
+    for edge in ["xmin", "ymin", "xmax", "ymax"] {
+        // Il covering `GeoParquet` 1.1 espone i column path come array di
+        // stringhe; la specifica ammette anche path annidati per campi
+        // dentro struct (es. `["bbox", "xmin"]`). Il pruning del driver
+        // opera sui root fields Parquet, quindi accetta esplicitamente
+        // solo path di lunghezza 1. Un covering annidato non viene
+        // interpretato: il fallback documentato torna al comportamento
+        // "nessun covering utilizzabile" invece di prendere il primo
+        // elemento e perdere il leaf (follow-up review 2026-08-15).
+        let path = covering.get(edge)?.as_array()?;
+        if path.len() != 1 {
+            return None;
+        }
+        let name = path.first()?.as_str()?.to_owned();
+        names.push(name);
+    }
+    Some(names)
+}
+
 /// Ricostruisce lo schema marcando la geometria come `geoarrow.wkb`+`crs` ed
-/// ESCLUDENDO le colonne bbox covering (interne, non esposte al consumatore).
-fn retag_schema(schema: &Schema, geom_name: &str, crs: &ResolvedCrs) -> SchemaRef {
+/// ESCLUDENDO le colonne dichiarate come covering in `covering_names`.
+///
+/// Finding #4 follow-up follow-up review 2026-08-15: la funzione non ha
+/// piu' un fallback per-nome implicito. Il caller (`open()`) decide se
+/// includere i nomi convenzionali `BBOX_COLS` sulla base di
+/// `format_options["bbox_legacy_by_name"]`. `None` significa "non
+/// strippare nulla" — cosi' un file esterno con colonne omonime NON
+/// perde dati.
+fn retag_schema(
+    schema: &Schema,
+    geom_name: &str,
+    crs: &ResolvedCrs,
+    covering_names: Option<&[String]>,
+) -> SchemaRef {
+    let is_internal = |name: &str| -> bool {
+        covering_names.is_some_and(|names| names.iter().any(|declared| declared == name))
+    };
     let fields: Vec<Field> = schema
         .fields()
         .iter()
-        .filter(|f| !is_bbox_col(f.name()))
+        .filter(|f| !is_internal(f.name()))
         .map(|f| {
             if f.name() == geom_name {
                 let mut md = f.metadata().clone();
@@ -1111,9 +1290,23 @@ fn build_geo_metadata(
     // Mantiene l'ordine lessicografico emesso dal precedente BTreeSet<String>:
     // l'ottimizzazione non deve cambiare neppure incidentalmente il metadato.
     geometry_types.sort_unstable();
+    // Finding #4: covering GeoParquet 1.1 dichiarato in modo esplicito. Il
+    // lettore usa questa dichiarazione per identificare le colonne bbox
+    // interne invece di dipendere dai soli nomi. La forma segue lo schema
+    // pubblico `covering.bbox.<edge>` di GeoParquet
+    // (https://geoparquet.org/releases/v1.1.0/) ed e' additiva rispetto ai
+    // consumer che ignorano l'attributo.
     let mut column = serde_json::json!({
         "encoding": "WKB",
         "geometry_types": geometry_types,
+        "covering": {
+            "bbox": {
+                "xmin": [BBOX_COLS[0]],
+                "ymin": [BBOX_COLS[1]],
+                "xmax": [BBOX_COLS[2]],
+                "ymax": [BBOX_COLS[3]],
+            }
+        },
     });
     // crs "AUTH:CODE" -> {"id":{authority,code}}, altrimenti null.
     if let Some(id) = crs {
@@ -1185,6 +1378,102 @@ mod tests {
         );
         m.insert(GEO_CRS_KEY.to_owned(), crs.to_owned());
         m
+    }
+
+    // Scrive un Parquet minimo senza metadata `geo` (simula un file legacy
+    // o esterno) con colonne: geometry (WKB pass-through), i 4 nomi
+    // convenzionali `_bbox_*` popolati con f64, e un attributo utente
+    // `id`. Il file NON dichiara covering `GeoParquet` 1.1: il driver deve
+    // trattare le `_bbox_*` come attributi utente per default.
+    // `minx`/`miny`/`maxx`/`maxy` sono le componenti canoniche di un
+    // bounding box: rinominarle per soddisfare `similar_names` peggiorerebbe
+    // la leggibilita' del test.
+    #[allow(clippy::similar_names)]
+    fn write_parquet_without_covering_metadata(path: &std::path::Path) {
+        use arrow_array::Float64Array;
+        let wkb: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let geom = BinaryArray::from(vec![Some(wkb.as_slice()), Some(wkb.as_slice())]);
+        let minx = Float64Array::from(vec![1.0, 2.0]);
+        let miny = Float64Array::from(vec![1.0, 2.0]);
+        let maxx = Float64Array::from(vec![1.0, 2.0]);
+        let maxy = Float64Array::from(vec![1.0, 2.0]);
+        let ids = Int64Array::from(vec![1_i64, 2]);
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, false),
+            Field::new(BBOX_COLS[0], DataType::Float64, true),
+            Field::new(BBOX_COLS[1], DataType::Float64, true),
+            Field::new(BBOX_COLS[2], DataType::Float64, true),
+            Field::new(BBOX_COLS[3], DataType::Float64, true),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(geom),
+                Arc::new(minx),
+                Arc::new(miny),
+                Arc::new(maxx),
+                Arc::new(maxy),
+                Arc::new(ids),
+            ],
+        )
+        .unwrap();
+        let file = File::create(path).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.close().unwrap();
+    }
+
+    #[test]
+    fn legacy_bbox_names_are_preserved_by_default() {
+        // Finding #4 follow-up follow-up review 2026-08-15: senza
+        // metadata `covering.bbox` e senza opt-in, le colonne
+        // `_bbox_minx/miny/maxx/maxy` devono restare esposte come dati
+        // utente. Prima del fix il driver le nascondeva silenziosamente,
+        // perdendo dati per i consumer che le usano legittimamente.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.parquet");
+        write_parquet_without_covering_metadata(&path);
+
+        let dataset = GeoParquetDriver
+            .open(Source::Path(path), &ReadOptions::default())
+            .unwrap();
+        let contract_schema = &dataset.layers()[0].contract.schema;
+        // Tutte e 4 le colonne bbox restano visibili con i nomi originali.
+        for name in BBOX_COLS {
+            assert!(
+                contract_schema.index_of(name).is_ok(),
+                "colonna {name} deve restare esposta senza opt-in"
+            );
+        }
+        // La colonna id resta visibile e la geometria resta la prima.
+        assert!(contract_schema.index_of("id").is_ok());
+        assert!(contract_schema.index_of("geometry").is_ok());
+    }
+
+    #[test]
+    fn legacy_bbox_names_are_hidden_with_explicit_opt_in() {
+        // Simmetrica del test precedente: chi ha davvero un file scritto
+        // dal writer plenora-io pre-fix (senza covering metadata) puo'
+        // riattivare il vecchio comportamento via format_option esplicito.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy_optin.parquet");
+        write_parquet_without_covering_metadata(&path);
+
+        let mut opts = ReadOptions::default();
+        opts.format_options
+            .insert("bbox_legacy_by_name".to_owned(), "true".to_owned());
+        let dataset = GeoParquetDriver.open(Source::Path(path), &opts).unwrap();
+        let contract_schema = &dataset.layers()[0].contract.schema;
+        // Con opt-in le 4 colonne bbox sono nascoste (fallback legacy attivo).
+        for name in BBOX_COLS {
+            assert!(
+                contract_schema.index_of(name).is_err(),
+                "colonna {name} deve essere nascosta con bbox_legacy_by_name=true"
+            );
+        }
+        assert!(contract_schema.index_of("id").is_ok());
+        assert!(contract_schema.index_of("geometry").is_ok());
     }
 
     #[test]

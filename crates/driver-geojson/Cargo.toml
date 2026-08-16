@@ -17,5 +17,10 @@ arrow-schema.workspace = true
 geojson.workspace = true
 geo-types.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# Finding #6 review 2026-08-15: `serde_json::value::RawValue` serve al
+# `FeatureSink` per cappare la dimensione di una singola geometria GeoJSON
+# prima di deserializzarla nella struttura tipizzata `GjGeometry`. La
+# feature `raw_value` non porta dipendenze aggiuntive: espone solo il
+# newtype `RawValue` che serde_json usa internamente.
+serde_json = { workspace = true, features = ["raw_value"] }
 tempfile.workspace = true

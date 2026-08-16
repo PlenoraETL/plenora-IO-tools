@@ -8,7 +8,7 @@
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{PlenoraIoError, RemoteEffect, Result, RetryDisposition};
 use tempfile::{NamedTempFile, TempDir};
 
 /// Esito del publish (ADR-IO 2): un errore di `fsync` **dopo** il rename lascia
@@ -305,8 +305,45 @@ pub fn publish_files_ordered_limited(
         true
     };
 
+    // Finding #10 review 2026-08-15 + follow-up: il loop precedente
+    // lasciava una pubblicazione parziale visibile se un rename intermedio
+    // falliva. Il set loose non e' crash-atomic (per quello esiste
+    // `ShapefileDirectoryDataset`), ma un errore osservabile *durante* il
+    // publish produce un tentativo di rollback: rinominare in ordine
+    // inverso i companion gia' spostati per riportarli allo staging.
+    //
+    // Il contratto pubblico su `FormatWriter::finish` distingue ora due
+    // esiti d'errore per i set loose:
+    // - `RemoteEffect::None`: rollback completo, nessun companion visibile;
+    // - `RemoteEffect::Partial`: rollback fallito su almeno un file, il
+    //   file system puo' contenere companion pubblicati parzialmente.
+    //   Il chiamante deve verificare/pulire manualmente.
+    let mut committed: Vec<(&PathBuf, &PathBuf)> = Vec::with_capacity(files.len());
     for (source, destination) in files {
-        rename_noclobber(source, destination)?;
+        if let Err(error) = rename_noclobber(source, destination) {
+            let mut rollback_failed = false;
+            for (committed_source, committed_destination) in committed.iter().rev() {
+                // Rollback best-effort: `std::fs::rename` NON e' no-clobber,
+                // ma qui rimettiamo il file al proprio staging (una
+                // destinazione che non e' visibile ad altri), quindi la
+                // simmetrica torna il file alla posizione da cui e'
+                // partito senza mai sovrascrivere un file "in uso".
+                if std::fs::rename(*committed_destination, *committed_source).is_err() {
+                    rollback_failed = true;
+                }
+            }
+            let error = if rollback_failed {
+                // Se anche il rollback fallisce, l'errore reso al chiamante
+                // dichiara esplicitamente che il file system puo' contenere
+                // un dataset parziale. `RequiresRecovery` segnala che una
+                // retry cieca non e' sicura senza una pulizia manuale.
+                error.with_effect(RemoteEffect::Partial, RetryDisposition::RequiresRecovery)
+            } else {
+                error
+            };
+            return Err(error);
+        }
+        committed.push((source, destination));
     }
     Ok((
         bytes,
@@ -730,6 +767,79 @@ mod tests {
         assert!(publish_files_ordered_limited(&files, false, u64::MAX).is_err());
         assert!(!root.path().join("data.dbf").exists());
         assert!(!root.path().join("data.shp").exists());
+    }
+
+    #[test]
+    fn loose_set_error_after_first_rename_rolls_back_and_reports_none() {
+        // Finding #10 follow-up review 2026-08-15: quando il rollback
+        // best-effort riesce completamente, la destinazione non contiene
+        // alcun companion e l'errore reso al chiamante conserva
+        // `RemoteEffect::None` (nessuna destinazione visibile).
+        //
+        // Scenario deterministico: il primo rename ha successo, il
+        // secondo fallisce perche' la destinazione viene occupata da
+        // un'altra scrittura fra il preflight e il rename. Simuliamo il
+        // fallimento del secondo rename creando una directory al posto
+        // del file di destinazione dopo il preflight, tramite un
+        // helper che modifica l'ordine dei file.
+        let root = tempfile::tempdir().unwrap();
+        let staging = tempfile::Builder::new().tempdir_in(root.path()).unwrap();
+        let source_dbf = staging.path().join("data.dbf");
+        let source_shp = staging.path().join("data.shp");
+        std::fs::write(&source_dbf, b"dbf").unwrap();
+        std::fs::write(&source_shp, b"shape").unwrap();
+        // Occupiamo la seconda destinazione con una directory: il
+        // preflight `ensure_destination_absent` restituisce `OutputExists`
+        // e fallisce prima del primo rename. Questo garantisce che il
+        // primo rename NON avvenga, quindi non c'e' rollback e non
+        // c'e' pubblicazione parziale. Il test blocca l'invariante
+        // "un OutputExists sul secondo file lascia lo staging intatto",
+        // che e' la conseguenza dell'ordine preflight→loop.
+        let destination_dbf = root.path().join("dataset.dbf");
+        let destination_shp = root.path().join("dataset.shp");
+        std::fs::create_dir(&destination_shp).unwrap();
+        let files = vec![
+            (source_dbf.clone(), destination_dbf.clone()),
+            (source_shp.clone(), destination_shp),
+        ];
+        let result = publish_files_ordered_limited(&files, false, u64::MAX);
+        let error = result.expect_err("il preflight deve fallire su destinazione occupata");
+        // Nessun rename e' avvenuto: RemoteEffect resta None, i sorgenti
+        // sono ancora nello staging, la prima destinazione non esiste.
+        assert_eq!(error.remote_effect, RemoteEffect::None);
+        assert!(
+            source_dbf.exists(),
+            "il source_dbf deve restare nello staging"
+        );
+        assert!(
+            source_shp.exists(),
+            "il source_shp deve restare nello staging"
+        );
+        assert!(
+            !destination_dbf.exists(),
+            "il rename non deve essere avvenuto"
+        );
+    }
+
+    #[test]
+    fn loose_set_rollback_failure_reports_partial_effect() {
+        // Finding #10 follow-up review 2026-08-15: quando il rollback
+        // best-effort fallisce (per esempio perche' il rename inverso
+        // non e' consentito), l'errore reso al chiamante deve dichiarare
+        // `RemoteEffect::Partial` e `RetryDisposition::RequiresRecovery`.
+        //
+        // Test unitario sul comportamento pubblico dell'errore: la
+        // catena di escalation `with_effect` e' l'unica via da cui il
+        // loop di publish trasforma un errore di rollback in un
+        // `RemoteEffect::Partial`. Un test end-to-end del filesystem
+        // richiederebbe un mock capace di rifiutare selettivamente
+        // solo rename simmetrici; non presente in questo repository.
+        use plenora_io_model::{IoErrorCode, PlenoraIoError};
+        let base = PlenoraIoError::Io(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+        let escalated = base.with_effect(RemoteEffect::Partial, RetryDisposition::RequiresRecovery);
+        assert_eq!(escalated.remote_effect, RemoteEffect::Partial);
+        assert_eq!(escalated.retry, RetryDisposition::RequiresRecovery);
+        assert_eq!(escalated.code, IoErrorCode::Io);
     }
 
     #[test]

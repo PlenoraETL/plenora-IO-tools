@@ -402,12 +402,32 @@ pub trait FormatWriter {
         }
         self.write(batch)
     }
-    /// Publish atomico dell'intero dataset, solo a successo (D11, ADR-IO 2).
+    /// Publish del dataset a successo. `Ok(Published)` implica che tutte le
+    /// componenti dichiarate dal driver sono visibili nella destinazione;
+    /// `Err` implica il tentativo di non lasciare nulla di visibile.
+    ///
+    /// La garanzia d'atomicita' del publish e' documentata per driver
+    /// (ADR-IO 2). I formati che pubblicano un file singolo o un
+    /// directory-rename (per esempio `parquet`, `ipc`, `gpkg`, e la
+    /// modalita' `ShapefileDirectoryDataset` di `shp`) sono
+    /// crash-atomic. I formati con set di file loose (per esempio
+    /// `shp` in modalita' compatibile `*.shp` + companion) *non* lo
+    /// sono per definizione: il publish rinomina piu' file
+    /// sequenzialmente e in caso di errore intermedio prova un rollback
+    /// best-effort dei companion gia' spostati.
     ///
     /// # Errors
     ///
-    /// Restituisce un errore se la finalizzazione o il publish atomico non
-    /// riescono; in quel caso la destinazione non viene pubblicata.
+    /// Restituisce un errore se la finalizzazione o il publish non
+    /// riescono. Il campo `remote_effect` dell'errore distingue:
+    /// - `None`: nessuna destinazione visibile (fail-closed prima del
+    ///   primo rename, o rollback riuscito interamente per i set loose);
+    /// - `Partial`: alcune destinazioni potrebbero restare visibili
+    ///   (set loose con rollback fallito su almeno un companion). Il
+    ///   chiamante deve verificare/pulire manualmente prima di
+    ///   ripetere l'operazione;
+    /// - `RolledBack`/`Committed`/`Unknown` sono riservati per
+    ///   backend transazionali futuri.
     fn finish(self: Box<Self>) -> Result<Published>;
 }
 

@@ -944,7 +944,12 @@ fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
         }
         checked += 1;
     }
-    assert_eq!(checked, 5, "catalogo Conditional pure Rust inatteso");
+    // 6 dopo il fix #8 della review 2026-08-15: GeoJSON e' passato da
+    // `Fidelity::Lossless` a `Fidelity::Conditional`, in linea con il
+    // principio scritto in `IMPLEMENTATION_STATUS.md` ("un report vuoto
+    // significa 'nessuna perdita osservata', non `Lossless`") e con il fatto
+    // che il writer non conserva `id`, `bbox` ne' foreign members.
+    assert_eq!(checked, 6, "catalogo Conditional pure Rust inatteso");
 }
 
 fn read_options(driver: &str) -> ReadOptions {

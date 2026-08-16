@@ -26,7 +26,7 @@ use arrow_array::{
 use arrow_schema::{Field, Schema, SchemaRef};
 use serde_json::Value as JsonValue;
 
-use driver_common::wkt_lossless::{format_wkt_into, parse_wkt};
+use driver_common::wkt_lossless::{format_wkt_into, parse_wkt_bounded};
 use driver_common::{
     classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
@@ -403,7 +403,11 @@ fn infer_wkt_geometry(
         if text.is_empty() {
             continue;
         }
-        let geometry = parse_wkt(text)?;
+        // Finding #6: cap a livello driver, in attesa che i `Limits` CLI
+        // arrivino fino a qui (roadmap 1.1, lotto L6). Il default WKB
+        // (`WkbLimits::default().max_cell_bytes`, 64 MiB) rifiuta payload
+        // che superano il contratto del bordo prima di allocare l'AST wkt.
+        let geometry = parse_wkt_bounded(text, WkbLimits::default().max_cell_bytes)?;
         dimensions.insert(geometry.dimensions);
         geometry_types.insert(geometry.geometry_type());
     }
@@ -483,7 +487,8 @@ fn append_geometry(
             if cell.is_empty() {
                 geom_b.append_null();
             } else {
-                let geometry = parse_wkt(cell)?;
+                // Finding #6: vedi commento in `infer_wkt_geometry`.
+                let geometry = parse_wkt_bounded(cell, WkbLimits::default().max_cell_bytes)?;
                 buf.clear();
                 encode_wkb_into(&geometry, WkbFlavor::Iso, buf)?;
                 geom_b.append_value(buf.as_slice());

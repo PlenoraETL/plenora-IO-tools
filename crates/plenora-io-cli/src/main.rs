@@ -22,7 +22,7 @@ use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::Limits;
 use plenora_io_model::{
     CancellationToken, ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, ResourceBudget,
-    RetryDisposition,
+    ResourceLimits, RetryDisposition,
 };
 
 /// Errore CLI: (exit code, documento JSON d'errore).
@@ -350,14 +350,108 @@ fn layer_json(l: &LayerContract) -> Value {
     })
 }
 
-fn read_options(cli: &Cli) -> ReadOptions {
-    ReadOptions {
+// Costruisce un `ResourceBudget` che riflette effettivamente i flag CLI
+// `--max-rows`, `--max-columns`, `--max-output-bytes` e `--max-wkb-cell-bytes`
+// / `--max-wkb-depth` (semantica per-cella).
+//
+// Storia del fix (finding #3 review 2026-08-15 + follow-up):
+// 1. Prima del fix la CLI passava `ResourceBudget::default()` accanto ai
+//    `Limits`, e i driver budget-driven ignoravano `--max-rows`/`--max-columns`.
+// 2. Il primo fix li cablo' correttamente ma introdusse due regressioni:
+//    (a) reader e writer condividevano lo stesso budget in `convert`, quindi
+//        una riga contava due volte (R righe consumavano ~2R di quota `Rows`);
+//    (b) `--max-wkb-components` (limite per singola cella WKB) veniva
+//        trasformato nel contatore `GeometryComponents` cumulativo del budget,
+//        che invece rappresenta il totale di componenti WKB su tutto il
+//        dataset. Con il default 100_000 anche molte geometrie piccole
+//        fallivano dopo 100k coordinate totali.
+// 3. Questo fix separa i due ambiti: il helper produce un budget per
+//    *singola operazione* (read o write); `cmd_convert` ne crea due copie
+//    indipendenti; `GeometryComponents` conserva il default di
+//    `ResourceLimits` (cumulativo, non derivato dal per-cella).
+//
+// Nota di perimetro: la fusione completa di `Limits` e `ResourceLimits` e'
+// il PR-2 della roadmap `1.1.0`.
+// Produce esplicitamente i due budget della pipeline `convert`: uno per il
+// reader e uno per il writer. Follow-up review 2026-08-15: rendere questo
+// il punto unico da cui `cmd_convert` prende i budget congela la regola
+// "una riga si conta una volta" in un helper che i test possono esercitare
+// direttamente. Il test associato deve continuare a passare se e solo se
+// i due budget hanno contatori indipendenti.
+fn conversion_budgets_from_limits(
+    limits: &Limits,
+) -> Result<(ResourceBudget, ResourceBudget), PlenoraIoError> {
+    let read = resource_budget_from_limits(limits)?;
+    let write = resource_budget_from_limits(limits)?;
+    Ok((read, write))
+}
+
+fn resource_budget_from_limits(limits: &Limits) -> Result<ResourceBudget, PlenoraIoError> {
+    let defaults = ResourceLimits::default();
+    let wkb = limits.effective_wkb();
+    let resource_limits = ResourceLimits {
+        // Il campo Limits e' `usize`, il campo ResourceLimits e' `u64`: sui
+        // target supportati (64-bit) il cast e' esatto. La `try_from`
+        // conserva comunque la fail-closed su architetture ipotetiche 128-bit.
+        rows: u64::try_from(limits.max_rows)
+            .map_err(|_| PlenoraIoError::LimitExceeded("--max-rows fuori intervallo".to_owned()))?,
+        columns: u64::try_from(limits.max_columns).map_err(|_| {
+            PlenoraIoError::LimitExceeded("--max-columns fuori intervallo".to_owned())
+        })?,
+        // `nesting_depth` in `ResourceLimits` e `max_depth` in `WkbLimits`
+        // hanno la stessa semantica (profondita' massima di annidamento) e
+        // valgono per singola geometria, non cumulativi.
+        nesting_depth: u64::try_from(wkb.max_depth).map_err(|_| {
+            PlenoraIoError::LimitExceeded("--max-wkb-depth fuori intervallo".to_owned())
+        })?,
+        cell_bytes: u64::try_from(wkb.max_cell_bytes).map_err(|_| {
+            PlenoraIoError::LimitExceeded("--max-wkb-cell-bytes fuori intervallo".to_owned())
+        })?,
+        output_bytes: limits.max_output_bytes,
+        // `GeometryComponents` e' cumulativo (totale sul dataset). NON deriva
+        // dal per-cella `max_wkb_components`, che vive nei `Limits.wkb` e
+        // viene applicato dai driver a singola geometria via `WkbLimits`.
+        // Conservare il default evita che dataset di molte piccole geometrie
+        // (le piu' comuni) esauriscano una quota pensata per il per-cella.
+        geometry_components: defaults.geometry_components,
+        // Quote non esposte dalla CLI: restano ai default di `ResourceLimits`.
+        memory_bytes: defaults.memory_bytes,
+        concurrent_operations: defaults.concurrent_operations,
+        output_expansion_ratio: defaults.output_expansion_ratio,
+        duration_ms: defaults.duration_ms,
+        spill_bytes: defaults.spill_bytes,
+        decompression_ratio: defaults.decompression_ratio,
+    };
+    ResourceBudget::new(resource_limits)
+}
+
+// Unisce due mappe di opzioni di formato preservando la precedenza
+// direzionale: `direzionali` sovrascrive per chiave `comuni`, cosi' una
+// stessa chiave passata come `--opt` puo' essere ridefinita da `--in-opt` o
+// `--out-opt` senza dipendere dall'ordine sulla riga di comando.
+fn opts_uniti(
+    comuni: &BTreeMap<String, String>,
+    direzionali: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut risultato = comuni.clone();
+    for (chiave, valore) in direzionali {
+        risultato.insert(chiave.clone(), valore.clone());
+    }
+    risultato
+}
+
+fn read_options(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
+    // Finding #3: il budget deve riflettere i flag CLI. Fallire chiuso qui
+    // preserva la semantica fail-closed dichiarata dal componente: un flag
+    // fuori intervallo non deve degradare silenziosamente a un default.
+    let resource_budget = resource_budget_from_limits(&cli.limits)?;
+    Ok(ReadOptions {
         assume_crs: cli.assume_crs.clone(),
         format_options: cli.opts.clone(),
         limits: cli.limits,
-        resource_budget: ResourceBudget::default(),
+        resource_budget,
         cancellation: CancellationToken::default(),
-    }
+    })
 }
 
 // --- comandi ----------------------------------------------------------------
@@ -426,9 +520,8 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
 
 fn cmd_inspect(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
-    let ds = driver
-        .open(Source::Path(path), &read_options(cli))
-        .map_err(map_err)?;
+    let ropts = read_options(cli).map_err(map_err)?;
+    let ds = driver.open(Source::Path(path), &ropts).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds.layers().iter().map(layer_json).collect();
     Ok(json!({
@@ -443,9 +536,8 @@ fn cmd_inspect(cli: &Cli) -> CliResult {
 
 fn cmd_layers(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
-    let ds = driver
-        .open(Source::Path(path), &read_options(cli))
-        .map_err(map_err)?;
+    let ropts = read_options(cli).map_err(map_err)?;
+    let ds = driver.open(Source::Path(path), &ropts).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layers: Vec<Value> = ds
         .layers()
@@ -488,9 +580,8 @@ fn read_request(layer_id: u32, scope: ReadScope) -> ReadRequest {
 
 fn cmd_read(cli: &Cli) -> CliResult {
     let (driver, path) = open_source(cli)?;
-    let ds = driver
-        .open(Source::Path(path), &read_options(cli))
-        .map_err(map_err)?;
+    let ropts = read_options(cli).map_err(map_err)?;
+    let ds = driver.open(Source::Path(path), &ropts).map_err(map_err)?;
     let fidelity = ds.fidelity_assessment();
     let layer_id = cli.layer.unwrap_or(0);
     let contract = ds
@@ -550,13 +641,26 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let out_path = PathBuf::from(&cli.positionals[1]);
     let src = driver_for_path(&in_path)?;
     let dst = driver_for_path(&out_path)?;
-    let resource_budget = ResourceBudget::default();
+    // Finding #3 (follow-up review 2026-08-15): reader e writer devono avere
+    // budget INDIPENDENTI. Condividere lo stesso `ResourceBudget` fa
+    // consumare la quota `Rows`/`OutputBytes`/`GeometryComponents` due
+    // volte per la stessa riga, quindi una conversione di R righe
+    // esaurirebbe un budget da R (una `--max-rows R` fallirebbe intorno a
+    // R/2 righe effettive). Il helper e' esposto come punto unico cosi'
+    // che il test lo eserciti direttamente: qualunque futura tentazione di
+    // riusare un solo budget deve passare da qui.
+    let (read_budget, write_budget) =
+        conversion_budgets_from_limits(&cli.limits).map_err(map_err)?;
 
     let ropts = ReadOptions {
         assume_crs: cli.assume_crs.clone(),
-        format_options: cli.in_opts.clone(),
+        // Finding #11 della review 2026-08-15: `--opt` era accettato dal
+        // parser ma non consumato da `convert`. Ora `--opt` fa da base comune
+        // per ingresso e uscita; `--in-opt` (e `--out-opt`) sovrascrivono per
+        // chiave la stessa opzione, come dichiarato dal README.
+        format_options: opts_uniti(&cli.opts, &cli.in_opts),
         limits: cli.limits,
-        resource_budget: resource_budget.clone(),
+        resource_budget: read_budget,
         cancellation: CancellationToken::default(),
     };
     let ds = src.open(Source::Path(in_path), &ropts).map_err(map_err)?;
@@ -612,9 +716,10 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     };
     let wopts = WriteOptions {
         durable: cli.durable,
-        format_options: cli.out_opts.clone(),
+        // Finding #11: vedi commento speculare in `ropts`.
+        format_options: opts_uniti(&cli.opts, &cli.out_opts),
         limits: cli.limits,
-        resource_budget,
+        resource_budget: write_budget,
         cancellation: CancellationToken::default(),
     };
     let mut writer = dst
@@ -713,12 +818,92 @@ fn run() -> CliResult {
     }
 }
 
+// Impronta stabile e non invertibile del messaggio di un panico. Duplica per
+// scelta l'FNV-1a a 64 bit di `plenora-io-core::driver::impronta_del_panico`
+// invece di importarlo: l'implementazione core resta interna alla libreria
+// (nota di perimetro in `driver.rs:277-281`) e l'algoritmo qui deve restare
+// stabile fra versioni di Rust, quindi non usiamo `DefaultHasher`.
+fn impronta_del_panico(messaggio: &str) -> String {
+    let mut stato: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in messaggio.as_bytes() {
+        stato ^= u64::from(*byte);
+        stato = stato.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{stato:016x}")
+}
+
+// Estrae il messaggio da un payload di panico senza assumerne il tipo:
+// `panic!` con formato produce `String`, quello letterale `&'static str`.
+fn messaggio_del_panico(payload: &(dyn std::any::Any + Send)) -> String {
+    payload.downcast_ref::<&'static str>().map_or_else(
+        || {
+            payload
+                .downcast_ref::<String>()
+                .cloned()
+                .unwrap_or_else(|| "panico senza messaggio".to_owned())
+        },
+        |testo| (*testo).to_owned(),
+    )
+}
+
+// Hook silenzioso per il binario CLI.
+//
+// Storia (finding #13 review 2026-08-15 + follow-up):
+// 1. Il default hook di Rust scriveva su stderr il messaggio completo del
+//    panico, che nel nostro caso puo' contenere payload derivati dal file
+//    letto (per esempio `arrow-buffer` riporta `slice offset=...`). La
+//    CLI promette redazione dei valori derivati dall'input.
+// 2. Il primo fix installava un hook che scriveva su stderr
+//    `[panic] impronta=... location=...`. La redazione era rispettata, ma
+//    la CLI promette anche "un solo documento JSON su stderr per errore".
+//    Nel caso di panico caught dalla barriera `leggendo_arrow`, l'hook
+//    stampava una riga E la CLI stampava l'envelope JSON: due uscite.
+// 3. Questo fix silenzia il hook. Il wrapping `catch_unwind` in `main`
+//    intercetta i panici che sfuggono al `run()` e li converte in un
+//    unico envelope `plenora-io-error-v1` su stderr. La correlabilita' e'
+//    preservata via l'impronta calcolata dentro l'envelope; il caso
+//    "panico caught dentro la libreria" resta invisibile perche' la
+//    libreria stessa produce gia' l'envelope corretto tramite
+//    `PlenoraIoError`.
+fn installa_hook_silenzioso() {
+    std::panic::set_hook(Box::new(|_| {}));
+}
+
+fn envelope_panico(payload: &(dyn std::any::Any + Send)) -> Value {
+    let messaggio = messaggio_del_panico(payload);
+    let impronta = impronta_del_panico(&messaggio);
+    let error = json!({
+        "category": ErrorCategory::Internal,
+        "phase": ErrorPhase::Read,
+        "remote_effect": RemoteEffect::None,
+        "retry": RetryDisposition::Never,
+        "code": "PANIC",
+        // Il messaggio NON contiene il payload del panico: solo l'impronta
+        // FNV-1a a 64 bit del messaggio e la conferma testuale che questo
+        // e' un panico non catturato dalla barriera della libreria.
+        "message": format!("panico non catturato (impronta {impronta})"),
+    });
+    json!({
+        "status": "error",
+        "protocol_version": 1,
+        "contract": "plenora-io-error-v1",
+        "error": error,
+    })
+}
+
 fn main() {
-    match run() {
-        Ok(doc) => println!("{doc}"),
-        Err((exit, doc)) => {
+    installa_hook_silenzioso();
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+        Ok(Ok(doc)) => println!("{doc}"),
+        Ok(Err((exit, doc))) => {
             eprintln!("{doc}");
             std::process::exit(exit);
+        }
+        Err(payload) => {
+            eprintln!("{}", envelope_panico(payload.as_ref()));
+            // Exit code 2 riservato agli errori di runtime del binario,
+            // distinto dagli errori tipizzati che scelgono il proprio exit.
+            std::process::exit(2);
         }
     }
 }
@@ -726,6 +911,113 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resource_budget_riflette_i_flag_cli() {
+        // Finding #3: verifica che i flag CLI attraversino effettivamente il
+        // budget usato dai driver, invece di essere sovrascritti dai default
+        // di `ResourceLimits`.
+        use plenora_io_model::ResourceKind;
+        let limits = Limits {
+            max_rows: 7,
+            max_columns: 5,
+            max_output_bytes: 1_024,
+            ..Limits::default()
+        };
+        let budget = resource_budget_from_limits(&limits).unwrap();
+        assert_eq!(budget.remaining(ResourceKind::Rows), 7);
+        assert_eq!(budget.remaining(ResourceKind::Columns), 5);
+        assert_eq!(budget.limits().output_bytes, 1_024);
+        // Le quote non esposte dalla CLI restano ai default del modello.
+        assert_eq!(
+            budget.limits().memory_bytes,
+            ResourceLimits::default().memory_bytes
+        );
+    }
+
+    #[test]
+    fn resource_budget_rifiuta_flag_a_zero() {
+        // `ResourceLimits::validate` rifiuta i limiti pari a zero: il helper
+        // propaga l'errore invece di degradare a un default silenzioso.
+        let limits = Limits {
+            max_rows: 0,
+            ..Limits::default()
+        };
+        assert!(resource_budget_from_limits(&limits).is_err());
+    }
+
+    #[test]
+    fn resource_budget_non_deriva_geometry_components_dal_wkb_per_cella() {
+        // Follow-up review 2026-08-15: `--max-wkb-components` (per cella)
+        // NON deve alimentare il contatore cumulativo `GeometryComponents`.
+        // Dataset di molte geometrie piccole avrebbero altrimenti esaurito
+        // la quota dopo 100k coordinate totali (default WKB per-cella).
+        use plenora_io_model::ResourceKind;
+        let mut limits = Limits::default();
+        limits.wkb.max_components = 42;
+        let budget = resource_budget_from_limits(&limits).unwrap();
+        assert_eq!(
+            budget.remaining(ResourceKind::GeometryComponents),
+            ResourceLimits::default().geometry_components,
+            "GeometryComponents cumulativo non deve seguire il per-cella"
+        );
+    }
+
+    #[test]
+    fn conversion_budgets_hanno_contatori_indipendenti() {
+        // Follow-up review 2026-08-15: il test precedente costruiva due
+        // budget separati "a mano" e sarebbe passato anche se
+        // `cmd_convert` fosse regredito a un budget unico. Qui esercitiamo
+        // direttamente il helper `conversion_budgets_from_limits`, che
+        // `cmd_convert` ora e' obbligato a usare come punto unico: una
+        // regressione che chiami due volte lo stesso `resource_budget_from_limits`
+        // andrebbe bene, ma sostituire il helper con un solo budget rompe
+        // il contratto verificato qui.
+        use plenora_io_model::ResourceKind;
+        let limits = Limits {
+            max_rows: 100,
+            ..Limits::default()
+        };
+        let (read_budget, write_budget) = conversion_budgets_from_limits(&limits).unwrap();
+        // Il reader "consuma" 60 righe della sua quota.
+        let read_lease = read_budget.try_lease(ResourceKind::Rows, 60).unwrap();
+        read_lease.commit(60).unwrap();
+        // Il writer deve ancora avere 100 righe intere.
+        assert_eq!(write_budget.remaining(ResourceKind::Rows), 100);
+        // E non condivide contatori con il read_budget.
+        assert!(!read_budget.is_same_budget(&write_budget));
+        // Simmetricamente, il writer consuma output_bytes: il reader non
+        // deve vederne l'effetto.
+        let write_lease = write_budget
+            .try_lease(ResourceKind::OutputBytes, 1_024)
+            .unwrap();
+        write_lease.commit(1_024).unwrap();
+        assert_eq!(
+            read_budget.remaining(ResourceKind::OutputBytes),
+            read_budget.limits().output_bytes
+        );
+    }
+
+    #[test]
+    fn opts_uniti_preserva_precedenza_direzionale() {
+        // Finding #11 della review 2026-08-15: la precedenza deve essere
+        // "direzionale sovrascrive comune" e non deve dipendere dall'ordine
+        // sulla riga di comando. Il test blocca la regola in modo che una
+        // regressione la rompa esplicitamente.
+        let mut comuni = BTreeMap::new();
+        comuni.insert("delim".to_owned(), ",".to_owned());
+        comuni.insert("shared".to_owned(), "base".to_owned());
+        let mut direzionali = BTreeMap::new();
+        direzionali.insert("shared".to_owned(), "override".to_owned());
+        direzionali.insert("only-out".to_owned(), "yes".to_owned());
+        let uniti = opts_uniti(&comuni, &direzionali);
+        assert_eq!(uniti.get("delim").map(String::as_str), Some(","));
+        assert_eq!(uniti.get("shared").map(String::as_str), Some("override"));
+        assert_eq!(uniti.get("only-out").map(String::as_str), Some("yes"));
+        // Le mappe di ingresso restano invariate.
+        assert_eq!(comuni.get("shared").map(String::as_str), Some("base"));
+        assert_eq!(direzionali.get("delim"), None);
+    }
 
     fn assert_candidate_envelope(name: &str, document: &Value) {
         let manifest: Value =

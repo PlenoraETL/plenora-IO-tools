@@ -34,6 +34,20 @@ set -eu
 # viene prodotta. Riscriverlo come `match` per non far muovere il contatore
 # era possibile ed e' stato scartato: sarebbe stato esattamente il modo di
 # eludere H-01 che questo commento denuncia. **Serve ratifica H-01.**
+#
+# Il 2026-08-16 la barriera anti-panic del binario CLI ha aggiunto la stessa
+# occorrenza in plenora-io-cli (18 -> 19, totale 94 -> 95): in
+# `messaggio_del_panico`, il payload di un panico che non e' ne'
+# `&'static str` ne' `String` diventa "panico senza messaggio". E' lo stesso
+# fallback gia' analizzato per plenora-io-core, applicato al confine del
+# binario invece che a quello della libreria, e ha la stessa natura: cade sul
+# testo diagnostico, non sul dato. Qualunque sia il payload il processo sta
+# comunque terminando per panico, l'envelope `plenora-io-error-v1` viene
+# emesso ugualmente e nessun valore derivato dall'input entra nel messaggio,
+# che porta solo l'impronta FNV-1a. Anche qui riscriverlo come `match` per non
+# far muovere il contatore sarebbe stato il modo di eludere H-01.
+# **Serve ratifica H-01, con la stessa motivazione dell'occorrenza di
+# plenora-io-core.**
 expected='
 driver-csv 3
 driver-dxf 15
@@ -47,7 +61,7 @@ driver-shp 3
 driver-xls 1
 plenora-io-model 1
 plenora-io-core 11
-plenora-io-cli 18
+plenora-io-cli 19
 plenora-bench 21
 plenora-fuzz 5
 '
@@ -79,7 +93,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 94 ]; then
+if [ "${actual_total}" -ne 95 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi
