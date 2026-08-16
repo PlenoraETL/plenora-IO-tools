@@ -21,7 +21,9 @@
 //! diverso da quello che lo ha emesso.
 //!
 //! ```
-//! use plenora_io_model::budget::{ObservedInput, PipelineBudget, PipelineLimits};
+//! use plenora_io_model::budget::{
+//!     ObservedInput, PipelineBudget, PipelineLimits, SourceEntry,
+//! };
 //!
 //! // convert: un solo bundle, due rami con contatori indipendenti.
 //! let bundle = PipelineBudget::builder()
@@ -29,9 +31,13 @@
 //!     .build()?;
 //! let (mut read, write) = bundle.into_convert_parts().into_parts();
 //!
-//! // il preflight del core consuma il permit e osserva l'input una volta.
+//! // il preflight del core enumera la sorgente e poi consuma il permit:
+//! // byte, entry e digest sono tutti accumulati qui, non dichiarati.
 //! let permit = read.take_input_permit().ok_or("permit assente")?;
-//! read.budget().context().observe_input(permit, 4_096)?;
+//! let context = read.budget().context();
+//! context.note_entry_visited(&SourceEntry::directory(b"dati", None))?;
+//! context.note_entry_visited(&SourceEntry::file(b"dati/a.csv", 4_096, None))?;
+//! context.observe_input(permit)?;
 //!
 //! // il writer vede l'input osservato dal reader: stesso context (INV-6).
 //! assert_eq!(
@@ -81,8 +87,8 @@
 
 use std::cell::Cell;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -95,6 +101,40 @@ use crate::error::{ErrorPhase, PlenoraIoError, Result};
 /// confronto di puntatori: l'indirizzo di un `Arc` liberato puo' essere
 /// riusato, un id no.
 static NEXT_PIPELINE_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Alloca un'identita' di pipeline senza wrap.
+///
+/// `fetch_add` avvolge in silenzio: all'esaurimento dello spazio degli id
+/// due pipeline distinte riceverebbero lo stesso valore, e il permit
+/// dell'una diventerebbe spendibile sull'altra. E' il contrario esatto di
+/// cio' che l'identita' serve a garantire, quindi qui si fallisce chiuso.
+///
+/// L'ultimo id non viene mai consegnato: il contatore conserva il
+/// *prossimo* valore, e rifiutarsi di superarlo tiene l'invariante
+/// "contatore sempre incrementabile" senza casi limite.
+fn allocate_pipeline_id(counter: &AtomicU64) -> Result<u64> {
+    let mut current = counter.load(Ordering::Acquire);
+    loop {
+        let Some(next) = current.checked_add(1) else {
+            return Err(limit_error(PIPELINE_IDS_EXHAUSTED));
+        };
+        match counter.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(_) => return Ok(current),
+            Err(observed) => current = observed,
+        }
+    }
+}
+
+fn lock_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        // Un lock avvelenato significa che un thread e' andato in panico
+        // mentre teneva lo stato. Lo stato resta comunque coerente: ogni
+        // transizione qui e' un'assegnazione singola dopo tutti i controlli,
+        // quindi non esiste il mezzo aggiornamento che il poisoning teme.
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 // Messaggi curati: `&'static str`, mai derivati dal payload (INV-10). La
 // tipizzazione in `LimitKind` arriva con S9, che sostituisce il testo libero
@@ -115,6 +155,9 @@ const TOO_MANY_ENTRIES: &str = "numero di entry di input oltre il limite";
 const ENTRIES_OVERFLOW: &str = "overflow nel conteggio delle entry di input";
 const PERMIT_FOREIGN: &str = "permit non emesso da questa pipeline";
 const INPUT_ALREADY_OBSERVED: &str = "input gia' osservato per questa pipeline";
+const TOO_MANY_INPUT_BYTES: &str = "byte di input oltre il limite";
+const INPUT_BYTES_OVERFLOW: &str = "overflow nel conteggio dei byte di input";
+const PIPELINE_IDS_EXHAUSTED: &str = "spazio delle identita' di pipeline esaurito";
 
 fn limit_error(message: &'static str) -> PlenoraIoError {
     PlenoraIoError::LimitExceeded(message.to_owned())
@@ -140,28 +183,77 @@ fn fnv1a(basis: u64, bytes: &[u8]) -> u64 {
     hash
 }
 
+/// Natura dell'entry. Entra nel digest come tag esplicito: senza, un file
+/// vuoto e una directory sullo stesso path avrebbero la stessa codifica.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EntryKind {
+    File,
+    Directory,
+}
+
+impl EntryKind {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::File => 1,
+            Self::Directory => 2,
+        }
+    }
+}
+
 /// Identita' di una entry osservata dal preflight.
 ///
 /// Il path arriva **gia' normalizzato** dal core: la normalizzazione dipende
-/// dal filesystem e dalla piattaforma, che il modello non conosce. Il
-/// modello si limita a renderla parte del digest.
+/// dal filesystem e dalla piattaforma, che il modello non conosce.
+///
+/// I due valori in byte sono distinti e non intercambiabili:
+///
+/// - `metadata_size` entra nel **digest**: e' cio' che rende rilevabile una
+///   mutazione in place;
+/// - `charged_input_bytes` conta verso **`max_input_bytes`**: e' cio' che il
+///   bordo si impegna a leggere davvero.
+///
+/// Per una directory il secondo e' zero — non c'e' contenuto da leggere — e
+/// anche il primo lo e': la dimensione riportata di una directory e' un
+/// artefatto del filesystem, e le sue voci sono gia' nel digest una per una,
+/// quindi includerla aggiungerebbe rumore senza aggiungere rilevazione. Le
+/// due costruzioni sono metodi distinti proprio perche' la regola resti
+/// strutturale invece che una convenzione del chiamante.
 #[derive(Clone, Copy, Debug)]
 pub struct SourceEntry<'a> {
     normalized_path: &'a [u8],
-    size_bytes: u64,
+    kind: EntryKind,
+    metadata_size: u64,
+    charged_input_bytes: u64,
     modified: Option<SystemTime>,
 }
 
 impl<'a> SourceEntry<'a> {
+    /// Entry di file: la dimensione entra nel digest **e** viene addebitata
+    /// a `max_input_bytes`.
     #[must_use]
-    pub const fn new(
+    pub const fn file(
         normalized_path: &'a [u8],
         size_bytes: u64,
         modified: Option<SystemTime>,
     ) -> Self {
         Self {
             normalized_path,
-            size_bytes,
+            kind: EntryKind::File,
+            metadata_size: size_bytes,
+            charged_input_bytes: size_bytes,
+            modified,
+        }
+    }
+
+    /// Entry di directory: conta per `max_input_entries`, non addebita byte
+    /// e non porta dimensione nel digest.
+    #[must_use]
+    pub const fn directory(normalized_path: &'a [u8], modified: Option<SystemTime>) -> Self {
+        Self {
+            normalized_path,
+            kind: EntryKind::Directory,
+            metadata_size: 0,
+            charged_input_bytes: 0,
             modified,
         }
     }
@@ -172,8 +264,18 @@ impl<'a> SourceEntry<'a> {
     }
 
     #[must_use]
-    pub const fn size_bytes(&self) -> u64 {
-        self.size_bytes
+    pub const fn metadata_size(&self) -> u64 {
+        self.metadata_size
+    }
+
+    #[must_use]
+    pub const fn charged_input_bytes(&self) -> u64 {
+        self.charged_input_bytes
+    }
+
+    #[must_use]
+    pub const fn is_directory(&self) -> bool {
+        matches!(self.kind, EntryKind::Directory)
     }
 
     #[must_use]
@@ -181,14 +283,16 @@ impl<'a> SourceEntry<'a> {
         self.modified
     }
 
-    /// Codifica canonica dell'entry: lunghezza del path, path, dimensione e
-    /// mtime con segno esplicito. La lunghezza in testa impedisce che due
-    /// insiemi di path diversi producano la stessa sequenza di byte.
+    /// Codifica canonica dell'entry: lunghezza del path, path, tipo,
+    /// dimensione di metadata e mtime con segno esplicito. La lunghezza in
+    /// testa impedisce che due insiemi di path diversi producano la stessa
+    /// sequenza di byte.
     fn canonical_bytes(&self) -> Vec<u8> {
-        let mut encoded = Vec::with_capacity(self.normalized_path.len() + 33);
+        let mut encoded = Vec::with_capacity(self.normalized_path.len() + 34);
         encoded.extend_from_slice(&(self.normalized_path.len() as u64).to_le_bytes());
         encoded.extend_from_slice(self.normalized_path);
-        encoded.extend_from_slice(&self.size_bytes.to_le_bytes());
+        encoded.push(self.kind.tag());
+        encoded.extend_from_slice(&self.metadata_size.to_le_bytes());
         match self.modified {
             None => encoded.push(0),
             Some(instant) => match instant.duration_since(UNIX_EPOCH) {
@@ -213,38 +317,34 @@ impl<'a> SourceEntry<'a> {
 /// due filesystem, quindi un digest sensibile all'ordine segnalerebbe una
 /// mutazione che non c'e'. I path sono unici dentro una sorgente, quindi non
 /// esiste la coppia identica che lo XOR annullerebbe.
-#[derive(Debug)]
+///
+/// Non usa atomiche: vive dentro lo stato di osservazione, protetto dallo
+/// stesso mutex che rende conteggio, byte e digest un aggiornamento unico.
+#[derive(Clone, Copy, Debug, Default)]
 struct DigestAccumulator {
-    high: AtomicU64,
-    low: AtomicU64,
+    high: u64,
+    low: u64,
 }
 
 impl DigestAccumulator {
-    const fn new() -> Self {
-        Self {
-            high: AtomicU64::new(0),
-            low: AtomicU64::new(0),
-        }
-    }
-
-    fn absorb(&self, entry: &SourceEntry<'_>) {
+    fn absorb(&mut self, entry: &SourceEntry<'_>) {
         let encoded = entry.canonical_bytes();
-        self.high
-            .fetch_xor(fnv1a(FNV_BASIS_HIGH, &encoded), Ordering::AcqRel);
-        self.low
-            .fetch_xor(fnv1a(FNV_BASIS_LOW, &encoded), Ordering::AcqRel);
+        self.high ^= fnv1a(FNV_BASIS_HIGH, &encoded);
+        self.low ^= fnv1a(FNV_BASIS_LOW, &encoded);
     }
 
-    fn finish(&self) -> SourceDigest {
-        let mut bytes = [0_u8; 16];
-        bytes[..8].copy_from_slice(&self.high.load(Ordering::Acquire).to_le_bytes());
-        bytes[8..].copy_from_slice(&self.low.load(Ordering::Acquire).to_le_bytes());
-        SourceDigest(bytes)
+    const fn finish(self) -> SourceDigest {
+        let high = self.high.to_le_bytes();
+        let low = self.low.to_le_bytes();
+        SourceDigest([
+            high[0], high[1], high[2], high[3], high[4], high[5], high[6], high[7], low[0], low[1],
+            low[2], low[3], low[4], low[5], low[6], low[7],
+        ])
     }
 }
 
 /// Digest opaco a 128 bit sull'insieme delle entry osservate: path
-/// normalizzati, dimensione e mtime.
+/// normalizzati, tipo, dimensione di metadata e mtime.
 ///
 /// Copre quindi anche aggiunte e rimozioni, non solo le mutazioni in place.
 /// La garanzia e' **best-effort per costruzione**: una mutazione che
@@ -296,6 +396,42 @@ impl Gauge {
         }
     }
 
+    /// Preleva `amount` rispettando **insieme** la capacita' residua e un
+    /// tetto derivato sul consumo cumulativo, in una sola osservazione
+    /// atomica.
+    ///
+    /// Calcolare il consumo proiettato con una `load` e poi prelevare con una
+    /// `compare_exchange` separata lascia una finestra fra le due: due
+    /// richieste concorrenti possono osservare lo stesso consumo, superare
+    /// entrambe il controllo del tetto e prelevare entrambe. Il tetto
+    /// verrebbe cosi' sforato senza che nessuna delle due lo veda. Qui
+    /// proiezione e prelievo avvengono sullo **stesso** valore osservato:
+    /// se il CAS fallisce, il tetto viene riproiettato sul valore nuovo.
+    fn try_take_bounded(&self, amount: u64, ceiling: u64) -> TakeOutcome {
+        let mut current = self.remaining.load(Ordering::Acquire);
+        loop {
+            let consumed = self.capacity.saturating_sub(current);
+            let Some(projected) = consumed.checked_add(amount) else {
+                return TakeOutcome::AboveCeiling;
+            };
+            if projected > ceiling {
+                return TakeOutcome::AboveCeiling;
+            }
+            let Some(next) = current.checked_sub(amount) else {
+                return TakeOutcome::Exhausted;
+            };
+            match self.remaining.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return TakeOutcome::Taken,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
     fn give_back(&self, amount: u64) {
         let mut current = self.remaining.load(Ordering::Acquire);
         loop {
@@ -319,6 +455,13 @@ impl Gauge {
     const fn capacity(&self) -> u64 {
         self.capacity
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TakeOutcome {
+    Taken,
+    Exhausted,
+    AboveCeiling,
 }
 
 /// Limiti immutabili della pipeline (INV-1): unificano `Limits` e le parti
@@ -579,28 +722,108 @@ pub enum ObservedInput {
     Bytes(u64),
 }
 
+/// Osservazione della sorgente come **state machine linearizzabile**.
+///
+/// Conteggio delle entry, byte addebitati e digest non sono tre contatori
+/// indipendenti: sono tre facce dello stesso fatto, "quali entry ho
+/// osservato". Tenerli in atomiche separate avrebbe reso osservabile uno
+/// stato intermedio — entry gia' contata e byte non ancora sommati, o
+/// viceversa — e avrebbe reso possibile un aggiornamento parziale in caso di
+/// errore. Sotto un mutex unico la transizione e' una sola assegnazione dopo
+/// tutti i controlli: o passa tutta o non passa niente.
+///
+/// La pubblicazione e' terminale: dopo `Published` nessuna entry nuova e'
+/// accettabile, perche' il footprint gia' consegnato dichiara un insieme che
+/// non puo' piu' cambiare.
 #[derive(Debug)]
-struct Observation {
-    claimed: AtomicBool,
-    published: AtomicBool,
-    bytes: AtomicU64,
+enum SourceObservation {
+    Collecting {
+        entries: u64,
+        total_bytes: u64,
+        digest: DigestAccumulator,
+    },
+    Published(SourceFootprint),
 }
 
-impl Observation {
+impl SourceObservation {
     const fn new() -> Self {
-        Self {
-            claimed: AtomicBool::new(false),
-            published: AtomicBool::new(false),
-            bytes: AtomicU64::new(0),
+        Self::Collecting {
+            entries: 0,
+            total_bytes: 0,
+            digest: DigestAccumulator { high: 0, low: 0 },
         }
     }
 
-    fn state(&self) -> ObservedInput {
-        if self.published.load(Ordering::Acquire) {
-            ObservedInput::Bytes(self.bytes.load(Ordering::Acquire))
-        } else {
-            ObservedInput::NotObserved
+    const fn observed_input(&self) -> ObservedInput {
+        match self {
+            Self::Collecting { .. } => ObservedInput::NotObserved,
+            Self::Published(footprint) => ObservedInput::Bytes(footprint.total_bytes),
         }
+    }
+
+    const fn entries(&self) -> u64 {
+        match self {
+            Self::Collecting { entries, .. } => *entries,
+            Self::Published(footprint) => footprint.entries_visited,
+        }
+    }
+
+    const fn charged_bytes(&self) -> u64 {
+        match self {
+            Self::Collecting { total_bytes, .. } => *total_bytes,
+            Self::Published(footprint) => footprint.total_bytes,
+        }
+    }
+
+    /// Accetta una entry aggiornando conteggio, byte e digest in un atto
+    /// unico. Tutti i controlli precedono ogni scrittura: un rifiuto non
+    /// lascia nulla di aggiornato.
+    fn accept(&mut self, entry: &SourceEntry<'_>, limits: &PipelineLimits) -> Result<()> {
+        let Self::Collecting {
+            entries,
+            total_bytes,
+            digest,
+        } = self
+        else {
+            return Err(limit_error(INPUT_ALREADY_OBSERVED));
+        };
+
+        let next_entries = entries
+            .checked_add(1)
+            .ok_or_else(|| limit_error(ENTRIES_OVERFLOW))?;
+        if next_entries > limits.max_input_entries {
+            return Err(limit_error(TOO_MANY_ENTRIES));
+        }
+        let next_bytes = total_bytes
+            .checked_add(entry.charged_input_bytes)
+            .ok_or_else(|| limit_error(INPUT_BYTES_OVERFLOW))?;
+        if next_bytes > limits.max_input_bytes {
+            return Err(limit_error(TOO_MANY_INPUT_BYTES));
+        }
+
+        *entries = next_entries;
+        *total_bytes = next_bytes;
+        digest.absorb(entry);
+        Ok(())
+    }
+
+    /// Transizione terminale: sigilla l'insieme osservato in un footprint.
+    fn publish(&mut self) -> Result<SourceFootprint> {
+        let Self::Collecting {
+            entries,
+            total_bytes,
+            digest,
+        } = self
+        else {
+            return Err(limit_error(INPUT_ALREADY_OBSERVED));
+        };
+        let footprint = SourceFootprint {
+            total_bytes: *total_bytes,
+            entries_visited: *entries,
+            digest: digest.finish(),
+        };
+        *self = Self::Published(footprint);
+        Ok(footprint)
     }
 }
 
@@ -697,11 +920,9 @@ struct ContextInner {
     deadline: Instant,
     cancellation: CancellationToken,
     limits: PipelineLimits,
-    observation: Observation,
+    observation: Mutex<SourceObservation>,
     memory: Gauge,
     spill: Gauge,
-    entries_visited: AtomicU64,
-    digest: DigestAccumulator,
     pool: Option<ResourcePool>,
 }
 
@@ -770,12 +991,21 @@ impl PipelineContext {
 
     #[must_use]
     pub fn observed_input(&self) -> ObservedInput {
-        self.inner.observation.state()
+        lock_recover(&self.inner.observation).observed_input()
     }
 
+    /// Entry osservate finora, o quelle del footprint dopo la pubblicazione.
     #[must_use]
     pub fn entries_visited(&self) -> u64 {
-        self.inner.entries_visited.load(Ordering::Acquire)
+        lock_recover(&self.inner.observation).entries()
+    }
+
+    /// Byte addebitati a `max_input_bytes` finora. Le directory non ne
+    /// addebitano, quindi questo valore non e' il numero di entry per la
+    /// dimensione media: e' cio' che il bordo si impegna a leggere.
+    #[must_use]
+    pub fn charged_input_bytes(&self) -> u64 {
+        lock_recover(&self.inner.observation).charged_bytes()
     }
 
     #[must_use]
@@ -788,25 +1018,31 @@ impl PipelineContext {
         self.inner.spill.remaining()
     }
 
-    /// Osserva l'input consumando il `permit` e registra il footprint.
+    /// Osserva l'input consumando il `permit` e pubblica il footprint.
     ///
     /// Unica fabbrica di [`SourceFootprint`] e unico canale di
     /// registrazione (INV-13). One-shot per costruzione: il permit e' preso
     /// per `move` e non e' `Clone`, quindi una seconda osservazione con lo
     /// stesso permit non e' scrivibile.
     ///
-    /// Il conteggio delle entry e il digest **non** sono parametri: vengono
-    /// dal context, che li ha accumulati durante l'enumerazione via
-    /// [`Self::note_entry_visited`]. Passarli dall'esterno avrebbe creato
-    /// due sorgenti di verita' per lo stesso dato e reso fabbricabile il
-    /// valore che la revalidation confronta.
+    /// **Non ha parametri oltre al permit.** Byte, entry e digest sono tutti
+    /// accumulati dal context durante l'enumerazione via
+    /// [`Self::note_entry_visited`]: il footprint pubblicato descrive
+    /// esattamente cio' che il preflight ha osservato, e non c'e' alcun
+    /// valore che il chiamante possa dichiarare senza averlo misurato. Con i
+    /// byte come parametro sarebbe rimasta una seconda sorgente di verita'
+    /// per la grandezza che governa `output_expansion_ratio`.
+    ///
+    /// La pubblicazione e' **terminale**: dopo questa chiamata ogni nuova
+    /// entry viene rifiutata, perche' il footprint consegnato dichiara un
+    /// insieme che non puo' piu' cambiare.
     ///
     /// # Errors
     ///
     /// Restituisce [`PlenoraIoError::LimitExceeded`] se il permit appartiene
-    /// a un'altra pipeline o se un'osservazione risulta gia' registrata su
-    /// questo context, e l'errore di [`Self::ensure_active`] se la pipeline
-    /// non e' piu' attiva. In ogni caso di errore lo stato resta
+    /// a un'altra pipeline o se l'input risulta gia' pubblicato, e l'errore
+    /// di [`Self::ensure_active`] se la pipeline non e' piu' attiva. In ogni
+    /// caso di errore lo stato resta `Collecting`, quindi
     /// [`ObservedInput::NotObserved`].
     // Il passaggio per valore e' l'invariante, non una svista: il permit e'
     // one-shot e non `Clone`, quindi consumarlo qui e' cio' che rende
@@ -814,7 +1050,7 @@ impl PipelineContext {
     // renderlo `Copy`, come suggerisce il lint — riaprirebbe esattamente il
     // buco che INV-13 chiude.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn observe_input(&self, permit: InputPermit, bytes: u64) -> Result<SourceFootprint> {
+    pub fn observe_input(&self, permit: InputPermit) -> Result<SourceFootprint> {
         // Destrutturare consuma il permit qui, non al termine dello scope:
         // dopo questa riga non esiste piu' un valore spendibile altrove.
         let InputPermit { pipeline_id } = permit;
@@ -822,66 +1058,34 @@ impl PipelineContext {
             return Err(limit_error(PERMIT_FOREIGN));
         }
         self.ensure_active()?;
-        if self
-            .inner
-            .observation
-            .claimed
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return Err(limit_error(INPUT_ALREADY_OBSERVED));
-        }
-        self.inner.observation.bytes.store(bytes, Ordering::Release);
-        self.inner
-            .observation
-            .published
-            .store(true, Ordering::Release);
-        Ok(SourceFootprint {
-            total_bytes: bytes,
-            entries_visited: self.entries_visited(),
-            digest: self.inner.digest.finish(),
-        })
+        lock_recover(&self.inner.observation).publish()
     }
 
-    /// Registra una entry visitata durante l'enumerazione della sorgente:
-    /// applica `max_input_entries` (INV-9) prima che i byte vengano sommati,
-    /// e assorbe l'identita' dell'entry nel digest del footprint.
+    /// Registra una entry visitata durante l'enumerazione della sorgente.
     ///
-    /// Le due cose stanno nello stesso metodo perche' sono lo stesso atto:
-    /// l'insieme su cui si conta e' l'insieme di cui si calcola il digest.
-    /// Tenerle separate avrebbe permesso un conteggio senza identita', cioe'
-    /// un footprint che dichiara N entry senza sapere quali.
+    /// E' l'unico punto in cui la sorgente viene osservata, e applica in un
+    /// solo atto le tre grandezze che descrivono l'insieme osservato:
+    /// `max_input_entries` (INV-9), `max_input_bytes` sui byte addebitati
+    /// dall'entry, e il digest dell'identita'. Sono tre facce dello stesso
+    /// fatto, non tre contatori indipendenti: separarle avrebbe reso
+    /// osservabile uno stato intermedio e possibile un aggiornamento
+    /// parziale.
+    ///
+    /// I controlli precedono ogni scrittura, quindi **un rifiuto non lascia
+    /// nulla di aggiornato**: ne' il conteggio, ne' i byte, ne' il digest.
+    ///
+    /// Una directory conta per il numero di entry ma addebita zero byte: e'
+    /// proprio la parte che `max_input_bytes` da solo non vedrebbe.
     ///
     /// # Errors
     ///
-    /// Restituisce [`PlenoraIoError::LimitExceeded`] se l'entry supererebbe
-    /// il limite configurato o se il conteggio andrebbe in overflow, e
-    /// l'errore di [`Self::ensure_active`] se la pipeline non e' attiva. Un
-    /// rifiuto non incrementa il contatore e non tocca il digest.
+    /// Restituisce [`PlenoraIoError::LimitExceeded`] se l'input e' gia'
+    /// pubblicato, se l'entry supererebbe `max_input_entries` o
+    /// `max_input_bytes`, o se uno dei due conteggi andrebbe in overflow; e
+    /// l'errore di [`Self::ensure_active`] se la pipeline non e' attiva.
     pub fn note_entry_visited(&self, entry: &SourceEntry<'_>) -> Result<()> {
         self.ensure_active()?;
-        let ceiling = self.inner.limits.max_input_entries;
-        let mut current = self.inner.entries_visited.load(Ordering::Acquire);
-        loop {
-            let Some(next) = current.checked_add(1) else {
-                return Err(limit_error(ENTRIES_OVERFLOW));
-            };
-            if next > ceiling {
-                return Err(limit_error(TOO_MANY_ENTRIES));
-            }
-            match self.inner.entries_visited.compare_exchange_weak(
-                current,
-                next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    self.inner.digest.absorb(entry);
-                    return Ok(());
-                }
-                Err(observed) => current = observed,
-            }
-        }
+        lock_recover(&self.inner.observation).accept(entry, &self.inner.limits)
     }
 
     /// Prenota memoria che la libreria detiene **internamente** (buffer del
@@ -1144,18 +1348,16 @@ impl PipelineBudgetBuilder {
         let deadline = Instant::now()
             .checked_add(Duration::from_millis(limits.duration_ms))
             .ok_or_else(|| limit_error(DEADLINE_BEYOND_INSTANT))?;
-        let pipeline_id = NEXT_PIPELINE_ID.fetch_add(1, Ordering::Relaxed);
+        let pipeline_id = allocate_pipeline_id(&NEXT_PIPELINE_ID)?;
         let context = PipelineContext {
             inner: Arc::new(ContextInner {
                 pipeline_id,
                 deadline,
                 cancellation: self.cancellation,
                 limits,
-                observation: Observation::new(),
+                observation: Mutex::new(SourceObservation::new()),
                 memory: Gauge::new(limits.memory_bytes),
                 spill: Gauge::new(limits.spill_bytes),
-                entries_visited: AtomicU64::new(0),
-                digest: DigestAccumulator::new(),
                 pool: self.pool,
             }),
         };
@@ -1266,26 +1468,32 @@ impl OperationBudget {
             return Err(limit_error(LEASE_MUST_BE_POSITIVE));
         }
         self.context.ensure_active()?;
-        if counter == OperationCounter::OutputBytes {
-            let gauge = self.counters.get(counter);
-            let consumed = gauge.capacity().saturating_sub(gauge.remaining());
-            let projected = consumed
-                .checked_add(amount)
-                .ok_or_else(|| limit_error(COUNTER_EXHAUSTED))?;
-            if projected > self.output_limit() {
-                return Err(limit_error(OUTPUT_LIMIT_EXCEEDED));
-            }
-        }
-        if self.counters.get(counter).try_take(amount) {
-            Ok(CountedLease {
+        let gauge = self.counters.get(counter);
+        // Il tetto derivato vincola solo l'output: per gli altri contatori
+        // coincide con la capacita', quindi non e' mai il vincolo che lega.
+        // Il tetto si legge una volta sola ed e' corretto farlo: deriva
+        // dall'osservazione dell'input, che e' one-shot e viene pubblicata
+        // dal preflight prima che esista un `OperationBudget` da cui
+        // prelevare output.
+        let ceiling = if counter == OperationCounter::OutputBytes {
+            self.output_limit()
+        } else {
+            gauge.capacity()
+        };
+        match gauge.try_take_bounded(amount, ceiling) {
+            TakeOutcome::Taken => Ok(CountedLease {
                 budget: self.clone(),
                 counter,
                 amount,
                 released: false,
                 not_sync: PhantomData,
-            })
-        } else {
-            Err(limit_error(COUNTER_EXHAUSTED))
+            }),
+            TakeOutcome::AboveCeiling if counter == OperationCounter::OutputBytes => {
+                Err(limit_error(OUTPUT_LIMIT_EXCEEDED))
+            }
+            TakeOutcome::AboveCeiling | TakeOutcome::Exhausted => {
+                Err(limit_error(COUNTER_EXHAUSTED))
+            }
         }
     }
 }
@@ -1575,12 +1783,31 @@ mod tests {
             .expect("limiti validi devono costruire")
     }
 
+    const MTIME: Duration = Duration::from_secs(1_700_000_000);
+
     fn entry(path: &[u8]) -> SourceEntry<'_> {
-        SourceEntry::new(
-            path,
-            1_024,
-            Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
-        )
+        SourceEntry::file(path, 1_024, Some(UNIX_EPOCH + MTIME))
+    }
+
+    fn sized_entry(path: &[u8], bytes: u64) -> SourceEntry<'_> {
+        SourceEntry::file(path, bytes, Some(UNIX_EPOCH + MTIME))
+    }
+
+    /// Enumera le entry indicate e pubblica il footprint.
+    fn observe(parts: &mut ReadBudgetParts, entries: &[SourceEntry<'_>]) -> SourceFootprint {
+        let permit = parts.take_input_permit().expect("il permit deve esserci");
+        for visited in entries {
+            parts
+                .budget()
+                .context()
+                .note_entry_visited(visited)
+                .expect("l'enumerazione deve passare");
+        }
+        parts
+            .budget()
+            .context()
+            .observe_input(permit)
+            .expect("l'osservazione deve riuscire")
     }
 
     fn pool(concurrent: u64, memory: u64) -> ResourcePool {
@@ -1704,7 +1931,7 @@ mod tests {
         let footprint = opened
             .budget()
             .context()
-            .observe_input(permit, 0)
+            .observe_input(permit)
             .expect("l'osservazione deve riuscire");
         let scan = bundle().into_scan_parts(footprint.snapshot());
         assert_eq!(
@@ -1834,12 +2061,13 @@ mod tests {
             .with_max_output_bytes(1_000)
             .with_output_expansion_ratio(3);
         let mut parts = bundle_with(limits).into_read_parts();
-        let permit = parts.take_input_permit().expect("il permit deve esserci");
-        parts
-            .budget()
-            .context()
-            .observe_input(permit, 0)
-            .expect("un input vuoto e' osservabile");
+        // Il preflight ha girato — una directory visitata — ma non ha
+        // addebitato byte: e' `Bytes(0)`, non `NotObserved`.
+        observe(&mut parts, &[SourceEntry::directory(b"vuota", None)]);
+        assert_eq!(
+            parts.budget().context().observed_input(),
+            ObservedInput::Bytes(0)
+        );
         assert_eq!(
             parts.budget().output_limit(),
             1_000,
@@ -1853,12 +2081,7 @@ mod tests {
             .with_max_output_bytes(1_000)
             .with_output_expansion_ratio(3);
         let mut parts = bundle_with(limits).into_read_parts();
-        let permit = parts.take_input_permit().expect("il permit deve esserci");
-        parts
-            .budget()
-            .context()
-            .observe_input(permit, 100)
-            .expect("l'osservazione deve riuscire");
+        observe(&mut parts, &[sized_entry(b"a.csv", 100)]);
         assert_eq!(parts.budget().output_limit(), 300);
     }
 
@@ -1868,11 +2091,7 @@ mod tests {
             .with_max_output_bytes(1_000)
             .with_output_expansion_ratio(3);
         let (mut read, write) = bundle_with(limits).into_convert_parts().into_parts();
-        let permit = read.take_input_permit().expect("il permit deve esserci");
-        read.budget()
-            .context()
-            .observe_input(permit, 100)
-            .expect("l'osservazione deve riuscire");
+        observe(&mut read, &[sized_entry(b"a.csv", 100)]);
         assert_eq!(
             write.budget().output_limit(),
             300,
@@ -1883,32 +2102,28 @@ mod tests {
     #[test]
     fn observe_input_consumes_permit_and_yields_footprint() {
         let mut parts = bundle().into_read_parts();
-        let permit = parts.take_input_permit().expect("il permit deve esserci");
-        for path in [
-            b"a.csv".as_slice(),
-            b"b.csv".as_slice(),
-            b"c.csv".as_slice(),
-        ] {
-            parts
-                .budget()
-                .context()
-                .note_entry_visited(&entry(path))
-                .expect("l'enumerazione deve passare");
-        }
-        let footprint = parts
-            .budget()
-            .context()
-            .observe_input(permit, 4_096)
-            .expect("l'osservazione deve riuscire");
-        assert_eq!(footprint.total_bytes(), 4_096);
+        let footprint = observe(
+            &mut parts,
+            &[
+                sized_entry(b"a.csv", 100),
+                sized_entry(b"b.csv", 200),
+                SourceEntry::directory(b"sub", None),
+                sized_entry(b"sub/c.csv", 300),
+            ],
+        );
+        assert_eq!(
+            footprint.total_bytes(),
+            600,
+            "il footprint usa i byte accumulati dalle entry, non un parametro"
+        );
         assert_eq!(
             footprint.entries_visited(),
-            3,
-            "le entry vengono dal context, non da un parametro fabbricabile"
+            4,
+            "anche la directory conta come entry, pur senza addebitare byte"
         );
         assert_eq!(
             parts.budget().context().observed_input(),
-            ObservedInput::Bytes(4_096)
+            ObservedInput::Bytes(600)
         );
         assert!(
             parts.take_input_permit().is_none(),
@@ -1921,7 +2136,7 @@ mod tests {
         let mut foreign = bundle().into_read_parts();
         let permit = foreign.take_input_permit().expect("il permit deve esserci");
         let target = bundle();
-        assert!(target.context().observe_input(permit, 1).is_err());
+        assert!(target.context().observe_input(permit).is_err());
         assert_eq!(
             target.context().observed_input(),
             ObservedInput::NotObserved
@@ -1938,7 +2153,7 @@ mod tests {
         let mut parts = built.into_read_parts();
         let permit = parts.take_input_permit().expect("il permit deve esserci");
         token.cancel();
-        assert!(parts.budget().context().observe_input(permit, 512).is_err());
+        assert!(parts.budget().context().observe_input(permit).is_err());
         assert_eq!(
             parts.budget().context().observed_input(),
             ObservedInput::NotObserved
@@ -1958,23 +2173,17 @@ mod tests {
     #[test]
     fn scan_parts_carry_expected_snapshot_and_permit() {
         let mut opened = bundle().into_read_parts();
-        let permit = opened.take_input_permit().expect("il permit deve esserci");
-        for index in 0..5_u8 {
-            let path = format!("parte-{index}.csv");
-            opened
-                .budget()
-                .context()
-                .note_entry_visited(&entry(path.as_bytes()))
-                .expect("l'enumerazione deve passare");
-        }
-        let footprint = opened
-            .budget()
-            .context()
-            .observe_input(permit, 2_048)
-            .expect("l'osservazione deve riuscire");
+        let paths: Vec<String> = (0..5_u8)
+            .map(|index| format!("parte-{index}.csv"))
+            .collect();
+        let entries: Vec<SourceEntry<'_>> = paths
+            .iter()
+            .map(|path| sized_entry(path.as_bytes(), 400))
+            .collect();
+        let footprint = observe(&mut opened, &entries);
 
         let scan = bundle().into_scan_parts(footprint.snapshot());
-        assert_eq!(scan.expected_footprint().total_bytes(), 2_048);
+        assert_eq!(scan.expected_footprint().total_bytes(), 2_000);
         assert_eq!(scan.expected_footprint().entries_visited(), 5);
         assert_eq!(scan.expected_footprint().digest(), footprint.digest());
 
@@ -2253,12 +2462,7 @@ mod tests {
             .with_max_output_bytes(10_000)
             .with_output_expansion_ratio(2);
         let mut parts = bundle_with(limits).into_read_parts();
-        let permit = parts.take_input_permit().expect("il permit deve esserci");
-        parts
-            .budget()
-            .context()
-            .observe_input(permit, 100)
-            .expect("l'osservazione deve riuscire");
+        observe(&mut parts, &[sized_entry(b"a.csv", 100)]);
         assert_eq!(parts.budget().output_limit(), 200);
         parts
             .budget()
@@ -2284,28 +2488,15 @@ mod tests {
             .is_err());
     }
 
-    fn digest_of(entries: &[SourceEntry<'_>], bytes: u64) -> SourceFootprintSnapshot {
+    fn digest_of(entries: &[SourceEntry<'_>]) -> SourceFootprintSnapshot {
         let mut parts = bundle().into_read_parts();
-        let permit = parts.take_input_permit().expect("il permit deve esserci");
-        for visited in entries {
-            parts
-                .budget()
-                .context()
-                .note_entry_visited(visited)
-                .expect("l'enumerazione deve passare");
-        }
-        parts
-            .budget()
-            .context()
-            .observe_input(permit, bytes)
-            .expect("l'osservazione deve riuscire")
-            .snapshot()
+        observe(&mut parts, entries).snapshot()
     }
 
     #[test]
     fn footprint_digest_is_stable_for_the_same_entry_set() {
-        let first = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 10);
-        let second = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 10);
+        let first = digest_of(&[entry(b"a.csv"), entry(b"b.csv")]);
+        let second = digest_of(&[entry(b"a.csv"), entry(b"b.csv")]);
         assert_eq!(first.digest(), second.digest());
         assert!(first.matches(&second));
     }
@@ -2314,48 +2505,38 @@ mod tests {
     fn footprint_digest_is_order_insensitive() {
         // L'ordine di enumerazione di una directory non e' stabile: un
         // digest che ne dipendesse segnalerebbe mutazioni inesistenti.
-        let ascending = digest_of(&[entry(b"a.csv"), entry(b"b.csv"), entry(b"c.csv")], 10);
-        let descending = digest_of(&[entry(b"c.csv"), entry(b"b.csv"), entry(b"a.csv")], 10);
+        let ascending = digest_of(&[entry(b"a.csv"), entry(b"b.csv"), entry(b"c.csv")]);
+        let descending = digest_of(&[entry(b"c.csv"), entry(b"b.csv"), entry(b"a.csv")]);
         assert_eq!(ascending.digest(), descending.digest());
     }
 
     #[test]
     fn footprint_digest_detects_added_and_removed_entries() {
-        let two = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 10);
-        let three = digest_of(&[entry(b"a.csv"), entry(b"b.csv"), entry(b"c.csv")], 10);
-        let one = digest_of(&[entry(b"a.csv")], 10);
+        let two = digest_of(&[entry(b"a.csv"), entry(b"b.csv")]);
+        let three = digest_of(&[entry(b"a.csv"), entry(b"b.csv"), entry(b"c.csv")]);
+        let one = digest_of(&[entry(b"a.csv")]);
         assert_ne!(two.digest(), three.digest(), "un'aggiunta cambia il digest");
         assert_ne!(two.digest(), one.digest(), "una rimozione cambia il digest");
     }
 
     #[test]
     fn footprint_digest_detects_rename_size_and_mtime() {
-        let base = digest_of(&[entry(b"a.csv")], 10);
+        let base = digest_of(&[entry(b"a.csv")]);
 
-        let renamed = digest_of(&[entry(b"a-bis.csv")], 10);
+        let renamed = digest_of(&[entry(b"a-bis.csv")]);
         assert_ne!(base.digest(), renamed.digest());
 
-        let resized = digest_of(
-            &[SourceEntry::new(
-                b"a.csv",
-                2_048,
-                Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
-            )],
-            10,
-        );
+        let resized = digest_of(&[sized_entry(b"a.csv", 2_048)]);
         assert_ne!(base.digest(), resized.digest());
 
-        let touched = digest_of(
-            &[SourceEntry::new(
-                b"a.csv",
-                1_024,
-                Some(UNIX_EPOCH + Duration::from_secs(1_700_000_001)),
-            )],
-            10,
-        );
+        let touched = digest_of(&[SourceEntry::file(
+            b"a.csv",
+            1_024,
+            Some(UNIX_EPOCH + Duration::from_secs(1_700_000_001)),
+        )]);
         assert_ne!(base.digest(), touched.digest());
 
-        let without_mtime = digest_of(&[SourceEntry::new(b"a.csv", 1_024, None)], 10);
+        let without_mtime = digest_of(&[SourceEntry::file(b"a.csv", 1_024, None)]);
         assert_ne!(base.digest(), without_mtime.digest());
     }
 
@@ -2363,26 +2544,27 @@ mod tests {
     fn footprint_digest_separates_paths_that_share_a_concatenation() {
         // Senza la lunghezza in testa alla codifica, "ab" + "c" e "a" + "bc"
         // darebbero la stessa sequenza di byte.
-        let first = digest_of(&[entry(b"ab"), entry(b"c")], 10);
-        let second = digest_of(&[entry(b"a"), entry(b"bc")], 10);
+        let first = digest_of(&[entry(b"ab"), entry(b"c")]);
+        let second = digest_of(&[entry(b"a"), entry(b"bc")]);
         assert_ne!(first.digest(), second.digest());
     }
 
     #[test]
     fn snapshot_matches_only_when_bytes_entries_and_digest_agree() {
-        let base = digest_of(&[entry(b"a.csv")], 10);
-        let other_bytes = digest_of(&[entry(b"a.csv")], 11);
-        let other_entries = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 10);
+        let base = digest_of(&[entry(b"a.csv")]);
+        let other_bytes = digest_of(&[sized_entry(b"a.csv", 2_048)]);
+        let other_entries = digest_of(&[entry(b"a.csv"), entry(b"b.csv")]);
+        assert_ne!(base.total_bytes(), other_bytes.total_bytes());
         assert!(
             !base.matches(&other_bytes),
-            "i byte fanno parte del confronto"
+            "i byte addebitati fanno parte del confronto"
         );
         assert!(!base.matches(&other_entries));
     }
 
     #[test]
     fn snapshot_roundtrips_through_serde_without_losing_the_digest() {
-        let snapshot = digest_of(&[entry(b"a.csv"), entry(b"b.csv")], 42);
+        let snapshot = digest_of(&[entry(b"a.csv"), entry(b"b.csv")]);
         let encoded = serde_json::to_string(&snapshot).expect("serializzabile");
         let decoded: SourceFootprintSnapshot =
             serde_json::from_str(&encoded).expect("deserializzabile");
@@ -2400,13 +2582,184 @@ mod tests {
             .expect("prima entry");
         assert!(context.note_entry_visited(&entry(b"b.csv")).is_err());
         let observed = context
-            .observe_input(permit, 10)
+            .observe_input(permit)
             .expect("l'osservazione deve riuscire")
             .snapshot();
         assert!(
-            observed.matches(&digest_of(&[entry(b"a.csv")], 10)),
+            observed.matches(&digest_of(&[entry(b"a.csv")])),
             "l'entry rifiutata non deve lasciare traccia nel digest"
         );
+    }
+
+    #[test]
+    fn entry_beyond_max_input_bytes_is_rejected() {
+        let limits = PipelineLimits::default().with_max_input_bytes(1_000);
+        let bundle = bundle_with(limits);
+        let context = bundle.context();
+        context
+            .note_entry_visited(&sized_entry(b"a.csv", 600))
+            .expect("la prima entry sta sotto il limite");
+        let error = context
+            .note_entry_visited(&sized_entry(b"b.csv", 500))
+            .expect_err("la somma supera il limite");
+        assert_eq!(error.code, crate::IoErrorCode::LimitExceeded);
+    }
+
+    #[test]
+    fn directories_count_as_entries_without_charging_bytes() {
+        let limits = PipelineLimits::default().with_max_input_bytes(10);
+        let bundle = bundle_with(limits);
+        let context = bundle.context();
+        for index in 0..50_u8 {
+            let path = format!("livello-{index}");
+            context
+                .note_entry_visited(&SourceEntry::directory(path.as_bytes(), None))
+                .expect("una directory non addebita byte");
+        }
+        assert_eq!(context.entries_visited(), 50);
+        assert_eq!(context.charged_input_bytes(), 0);
+    }
+
+    #[test]
+    fn rejected_entry_leaves_no_partial_update() {
+        // Il rifiuto deve essere totale: ne' conteggio, ne' byte, ne' digest.
+        // Un aggiornamento parziale renderebbe il footprint successivo una
+        // descrizione di un insieme che nessuno ha osservato.
+        let limits = PipelineLimits::default()
+            .with_max_input_entries(2)
+            .with_max_input_bytes(1_000);
+        let bundle = bundle_with(limits);
+        let context = bundle.context();
+        context
+            .note_entry_visited(&sized_entry(b"a.csv", 400))
+            .expect("prima entry");
+
+        // Rifiuto per byte.
+        assert!(context
+            .note_entry_visited(&sized_entry(b"grande.csv", 700))
+            .is_err());
+        assert_eq!(context.entries_visited(), 1);
+        assert_eq!(context.charged_input_bytes(), 400);
+
+        context
+            .note_entry_visited(&sized_entry(b"b.csv", 100))
+            .expect("seconda entry");
+
+        // Rifiuto per numero di entry.
+        assert!(context
+            .note_entry_visited(&sized_entry(b"c.csv", 1))
+            .is_err());
+        assert_eq!(context.entries_visited(), 2);
+        assert_eq!(context.charged_input_bytes(), 500);
+
+        // Una pipeline che vede solo le due entry accettate deve produrre
+        // esattamente lo stesso footprint: i rifiuti non lasciano traccia.
+        let mut pulita = bundle_with(limits).into_read_parts();
+        let atteso = observe(
+            &mut pulita,
+            &[sized_entry(b"a.csv", 400), sized_entry(b"b.csv", 100)],
+        );
+        let permit = InputPermit {
+            pipeline_id: context.inner.pipeline_id,
+        };
+        let osservato = context
+            .observe_input(permit)
+            .expect("l'osservazione deve riuscire");
+        assert_eq!(atteso, osservato);
+    }
+
+    #[test]
+    fn note_entry_visited_after_publication_is_rejected() {
+        let mut parts = bundle().into_read_parts();
+        let footprint = observe(&mut parts, &[sized_entry(b"a.csv", 10)]);
+        let context = parts.budget().context();
+        let error = context
+            .note_entry_visited(&sized_entry(b"tardiva.csv", 10))
+            .expect_err("dopo la pubblicazione l'insieme e' chiuso");
+        assert_eq!(error.code, crate::IoErrorCode::LimitExceeded);
+        assert_eq!(
+            context.charged_input_bytes(),
+            footprint.total_bytes(),
+            "l'entry tardiva non deve alterare il footprint gia' pubblicato"
+        );
+        assert_eq!(context.entries_visited(), footprint.entries_visited());
+    }
+
+    #[test]
+    fn second_observation_is_rejected_and_keeps_the_published_footprint() {
+        let mut parts = bundle().into_read_parts();
+        let first = observe(&mut parts, &[sized_entry(b"a.csv", 10)]);
+        // Un permit di questa stessa pipeline, ottenuto per altra via, non
+        // deve poter ripubblicare: la transizione e' terminale.
+        let second = PipelineBudget::builder().build().expect("costruito");
+        let mut other = second.into_read_parts();
+        let foreign = other.take_input_permit().expect("permit");
+        assert!(parts.budget().context().observe_input(foreign).is_err());
+        assert_eq!(
+            parts.budget().context().observed_input(),
+            ObservedInput::Bytes(first.total_bytes())
+        );
+    }
+
+    #[test]
+    fn output_bytes_ceiling_holds_under_concurrent_requests() {
+        // Il tetto derivato e' molto piu' stretto del limite assoluto: se
+        // proiezione e prelievo non avvenissero sulla stessa osservazione
+        // atomica, piu' richieste concorrenti potrebbero superarlo insieme
+        // senza che nessuna se ne accorga.
+        const CEILING: u64 = 200;
+        const CHUNK: u64 = 7;
+        let limits = PipelineLimits::default()
+            .with_max_output_bytes(1_000_000)
+            .with_output_expansion_ratio(2);
+        let mut parts = bundle_with(limits).into_read_parts();
+        observe(&mut parts, &[sized_entry(b"a.csv", 100)]);
+        let budget = parts.budget().clone();
+        assert_eq!(budget.output_limit(), CEILING);
+
+        let concessi = std::sync::atomic::AtomicU64::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..8_u8 {
+                scope.spawn(|| {
+                    for _ in 0..64_u8 {
+                        if let Ok(lease) = budget.try_lease(OperationCounter::OutputBytes, CHUNK) {
+                            concessi.fetch_add(CHUNK, std::sync::atomic::Ordering::AcqRel);
+                            lease.commit(CHUNK).expect("commit");
+                        }
+                    }
+                });
+            }
+        });
+
+        let totale = concessi.load(std::sync::atomic::Ordering::Acquire);
+        let consumato = 1_000_000 - budget.remaining(OperationCounter::OutputBytes);
+        assert!(
+            totale <= CEILING,
+            "concesso {totale} oltre il tetto derivato {CEILING}"
+        );
+        assert_eq!(totale, consumato, "consumo e concessioni devono coincidere");
+        assert!(totale > 0, "almeno una richiesta deve passare");
+        assert!(
+            budget
+                .try_lease(OperationCounter::OutputBytes, CHUNK)
+                .is_err()
+                || totale + CHUNK <= CEILING,
+            "oltre il tetto nessuna richiesta ulteriore deve passare"
+        );
+    }
+
+    #[test]
+    fn pipeline_id_allocation_fails_closed_instead_of_wrapping() {
+        let counter = AtomicU64::new(u64::MAX - 1);
+        assert_eq!(
+            allocate_pipeline_id(&counter).expect("l'ultimo id disponibile"),
+            u64::MAX - 1
+        );
+        // Il contatore ora vale u64::MAX: non c'e' un successivo, e avvolgere
+        // riassegnerebbe identita' gia' consegnate.
+        let error = allocate_pipeline_id(&counter).expect_err("niente wrap");
+        assert_eq!(error.code, crate::IoErrorCode::LimitExceeded);
+        assert_eq!(counter.load(Ordering::Acquire), u64::MAX);
     }
 
     #[test]

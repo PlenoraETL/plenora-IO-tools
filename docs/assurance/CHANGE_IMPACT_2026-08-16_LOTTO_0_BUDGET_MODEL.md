@@ -53,9 +53,9 @@ i piu' rilevanti per l'assurance:
   restituisce un `PipelineBundle` opaco che tiene insieme budget e
   `InputPermit`; il permit non e' costruibile ne' clonabile, e
   l'osservazione dell'input passa esclusivamente da
-  `PipelineContext::observe_input(permit, bytes) ->
-  Result<SourceFootprint, PlenoraIoError>`, che prende entry e digest dal
-  context invece che da parametri. Un'osservazione fabbricata o registrata
+  `PipelineContext::observe_input(permit) ->
+  Result<SourceFootprint, PlenoraIoError>`, che prende byte, entry e digest
+  dallo stato accumulato invece che da parametri. Un'osservazione fabbricata o registrata
   su un context diverso non e' rappresentabile.
 - **INV-3**: in `convert` reader e writer hanno contatori cumulativi
   distinti sotto lo stesso context. Il doppio conteggio di L0.10 non e'
@@ -221,3 +221,49 @@ dell'altro non passa inosservata.
   osservato": entrambi restano `NotObserved`. Un consumer non puo' sapere
   se un preflight ha fallito. La distinzione richiede uno stato tipizzato
   in piu' e va decisa insieme al modello d'errore strutturato di S9.
+
+## Registrazione S1.2 del 2026-08-16
+
+Tre finding aperti sulla superficie introdotta da S1, chiusi con codice e
+test. Nessuno era una questione di stile: ognuno lasciava un modo di
+osservare o produrre uno stato che il modello dichiara impossibile.
+
+**L'osservazione diventa una state machine linearizzabile.** Conteggio
+entry, byte addebitati e digest erano tre contatori indipendenti, due dei
+quali atomici e uno protetto solo dal CAS dell'altro. Erano quindi
+osservabili stati intermedi — entry gia' contata, byte non ancora sommati —
+e un errore poteva lasciare un aggiornamento parziale. Ora vivono in
+`Mutex<SourceObservation>` con due soli stati, `Collecting { entries,
+total_bytes, digest }` e `Published(SourceFootprint)`: i controlli
+precedono ogni scrittura, l'aggiornamento e' un atto unico, e la
+pubblicazione e' terminale — dopo `observe_input` ogni entry nuova e'
+rifiutata, perche' il footprint consegnato dichiara un insieme che non puo'
+piu' cambiare.
+
+**`observe_input` perde anche il parametro `bytes`.** Era l'ultima
+grandezza del footprint che il chiamante poteva dichiarare senza averla
+misurata, e per giunta quella che governa `output_expansion_ratio`: la
+stessa classe di difetto di L0.10, spostata dentro il modello nuovo. Ora
+`SourceEntry` distingue `metadata_size`, che entra nel digest, da
+`charged_input_bytes`, che conta verso `max_input_bytes`, con costruzioni
+separate `file()` e `directory()` perche' la regola "una directory addebita
+zero byte" resti strutturale invece che una convenzione del chiamante.
+`max_input_bytes` e' cosi' applicato dallo stesso atto che applica
+`max_input_entries`.
+
+**`OutputBytes` usa un unico loop CAS.** Proiettare il consumo con una
+`load` e prelevare con una `compare_exchange` separata lascia una finestra
+fra le due: due richieste concorrenti possono osservare lo stesso consumo,
+superare entrambe il controllo del tetto derivato e prelevare entrambe,
+sforandolo senza che nessuna lo veda. Proiezione e prelievo avvengono ora
+sulla stessa osservazione atomica, e un test concorrente con otto thread
+sotto un tetto derivato molto piu' stretto del limite assoluto verifica che
+il totale concesso non lo superi mai.
+
+**L'identita' di pipeline si alloca con incremento checked.** `fetch_add`
+avvolge in silenzio: all'esaurimento dello spazio degli id due pipeline
+riceverebbero lo stesso valore e il permit dell'una diventerebbe spendibile
+sull'altra — il contrario esatto di cio' che l'identita' garantisce.
+L'allocatore fallisce chiuso ed e' testato con il contatore a `u64::MAX - 1`.
+
+**Verifica S1.2**: 58 test unitari nel modulo (da 51) piu' i 5 doctest.

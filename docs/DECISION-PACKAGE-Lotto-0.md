@@ -387,7 +387,7 @@ struct che il chiamante possa costruire con dati arbitrari:
   punto in cui il consumer accoppi a mano un permit con un budget:
   l'unico accoppiamento e' quello emesso da `build()`.
 - Il permit e' consumato per `move` da `PipelineContext::
-  observe_input(permit, bytes) -> Result<SourceFootprint,
+  observe_input(permit) -> Result<SourceFootprint,
   PlenoraIoError>` una volta sola. Il metodo appartiene al context
   e registra il footprint **esclusivamente** nel context che ha
   emesso il permit: nessun footprint puo' finire in un context
@@ -400,20 +400,20 @@ struct che il chiamante possa costruire con dati arbitrari:
 - Il consumer del permit e' `Source::into_path_checked` in
   `plenora-io-core`, che lo estrae dalle `ReadOptions` ricevute
   (`take_input_permit()`) e chiama
-  `context.observe_input(permit, bytes)?` sul context a
+  `context.observe_input(permit)?` sul context a
   cui il permit e' legato.
 - Un permit non consumato al drop del bundle o delle parti non
   invalida nulla: significa che nessuna osservazione dell'input
   e' avvenuta, coerente con `ObservedInput::NotObserved`.
-- **Entry e digest non sono parametri** di `observe_input`. Il
-  conteggio delle entry e il `SourceDigest` vengono dal context,
-  che li ha accumulati durante l'enumerazione via
-  `note_entry_visited(entry)`. Passarli dall'esterno avrebbe
-  creato due sorgenti di verita' per lo stesso dato e reso
-  fabbricabile proprio il valore che la revalidation confronta:
-  un chiamante avrebbe potuto dichiarare N entry e un digest
-  qualsiasi senza averli osservati. Solo i byte totali restano un
-  parametro, perche' li somma il preflight del core.
+- **`observe_input` non ha parametri oltre al permit.** Byte,
+  entry e digest vengono tutti dal context, che li ha accumulati
+  durante l'enumerazione via `note_entry_visited(entry)`. Nessuno
+  dei tre e' dichiarabile dal chiamante: il footprint pubblicato
+  descrive esattamente cio' che il preflight ha misurato. Con i
+  byte come parametro sarebbe rimasta una seconda sorgente di
+  verita' proprio per la grandezza che governa
+  `output_expansion_ratio` — la stessa classe di difetto di L0.10,
+  spostata dentro il modello nuovo.
 
 `observe_input` e' l'**unica** fabbrica di `SourceFootprint` e
 l'**unico** canale di registrazione: non esiste una funzione
@@ -470,9 +470,11 @@ PipelineBudget (root, non Clone — token di costruzione one-shot)
 │   │     se presente: memory/spill = min(locale, pool);
 │   │     concorrenza governata solo da qui. Se assente:
 │   │     nessun gauge di concorrenza esiste (lease no-op)
-│   ├── entries_visited: AtomicU64                         (INV-9)
-│   ├── digest: DigestAccumulator                          (footprint)
-│   │     XOR per-entry, insensibile all'ordine
+│   ├── observation: Mutex<SourceObservation>              (INV-6/9)
+│   │     Collecting { entries, total_bytes, digest }
+│   │       -> Published(SourceFootprint), terminale.
+│   │     Le tre grandezze sono un aggiornamento unico:
+│   │     un rifiuto non ne lascia nessuna aggiornata.
 │   ├── cancellation: CancellationToken                    (unico per pipeline)
 │   └── limits: PipelineLimits                             (immutable)
 │
@@ -703,7 +705,7 @@ nome per l'attuale `open_layer_reader`)
   memorizzata: il suo `snapshot()` entra nelle `ScanBudgetParts`
   come valore **atteso**, non come valore riusato. I
   `total_bytes`/`entries_visited` che il nuovo context osserva via
-  `observe_input(permit, bytes)?` sono quelli
+  `observe_input(permit)?` sono quelli
   **ricalcolati** dal preflight leggero descritto sotto (il permit
   e' quello del nuovo bundle). Il riuso evita l'**ispezione dei
   contenuti** — parsing, schema, metadata di formato — **non**
@@ -755,7 +757,7 @@ perche' salti l'enumerazione della sorgente. Nell'ordine:
    `PlenoraIoError::Contract(FootprintChanged)` e nulla viene
    osservato;
 5. osserva i valori **correnti** con
-   `observe_input(permit, bytes)?`: il context della
+   `observe_input(permit)?`: il context della
    scansione porta byte ed entry di adesso, non quelli copiati
    dallo snapshot.
 
@@ -1491,13 +1493,30 @@ impl SourceFootprintSnapshot {
 /// Identita' di una entry, fornita dal core a `note_entry_visited`.
 /// Il path arriva **gia' normalizzato**: la normalizzazione dipende
 /// da filesystem e piattaforma, che il modello non conosce.
+///
+/// I due valori in byte sono distinti e non intercambiabili:
+/// `metadata_size` entra nel **digest** ed e' cio' che rende
+/// rilevabile una mutazione in place; `charged_input_bytes` conta
+/// verso **`max_input_bytes`** ed e' cio' che il bordo si impegna a
+/// leggere. Per una directory sono entrambi zero: non c'e'
+/// contenuto da leggere, e la dimensione riportata di una directory
+/// e' un artefatto del filesystem le cui voci sono gia' nel digest
+/// una per una. Le due costruzioni sono metodi distinti perche' la
+/// regola resti strutturale e non una convenzione del chiamante.
 pub struct SourceEntry<'a> { /* opaque */ }
 impl<'a> SourceEntry<'a> {
-    pub const fn new(
+    pub const fn file(
         normalized_path: &'a [u8],
         size_bytes: u64,
         modified: Option<SystemTime>,
     ) -> Self;
+    pub const fn directory(
+        normalized_path: &'a [u8],
+        modified: Option<SystemTime>,
+    ) -> Self;
+    pub const fn metadata_size(&self) -> u64;
+    pub const fn charged_input_bytes(&self) -> u64;
+    pub const fn is_directory(&self) -> bool;
 }
 
 /// Digest opaco a 128 bit sull'insieme dei path normalizzati con
@@ -1581,7 +1600,7 @@ impl CountedLease {
 **Nota su moduli e dipendenze (INV-13)**: tutto sopra vive in
 `plenora-io-model::budget`. Il `Cargo.toml` di `plenora-io-model`
 **non** dichiara `plenora-io-core` fra le dipendenze. Il metodo
-`PipelineContext::observe_input(permit, bytes)` consuma
+`PipelineContext::observe_input(permit)` consuma
 il permit per costruire e registrare la `SourceFootprint`;
 `Source::into_path_checked` in core lo invoca con `?` dopo aver
 eseguito il proprio preflight. La protezione non e' un grep: e' il
@@ -1668,8 +1687,8 @@ API del core; le options sono sempre prese **per valore**):
 
 | API del core | Options consumate | Preflight |
 |---|---|---|
-| `open(path, ReadOptions) -> Result<Dataset>` | da `ReadBudgetParts` | **completo**: `Source::into_path_checked` estrae il permit con `take_input_permit()`, visita le entry (`note_entry_visited`, INV-9), somma i byte, poi `context.observe_input(permit, bytes)?` |
-| `Dataset::scan(&self, request, ReadOptions) -> Result<DatasetReader>` | da `ScanBudgetParts` | **leggero** (= niente parsing dei contenuti, **non** niente walk): enumera tutte le entry correnti applicando `max_input_entries` (`note_entry_visited`), legge size+mtime, ricalcola il `SourceDigest` e lo confronta con `expected_footprint()`; divergenza (inclusa aggiunta/rimozione di entry) → `Contract(FootprintChanged)`; poi `observe_input(permit, bytes)?` con i valori **correnti** |
+| `open(path, ReadOptions) -> Result<Dataset>` | da `ReadBudgetParts` | **completo**: `Source::into_path_checked` estrae il permit con `take_input_permit()` ed enumera la sorgente chiamando `note_entry_visited(entry)` una volta per voce — che applica insieme `max_input_entries`, `max_input_bytes` sui byte addebitati e il digest — poi `context.observe_input(permit)?` pubblica il footprint accumulato |
+| `Dataset::scan(&self, request, ReadOptions) -> Result<DatasetReader>` | da `ScanBudgetParts` | **leggero** (= niente parsing dei contenuti, **non** niente walk): enumera tutte le entry correnti applicando `max_input_entries` (`note_entry_visited`), legge size+mtime, ricalcola il `SourceDigest` e lo confronta con `expected_footprint()`; divergenza (inclusa aggiunta/rimozione di entry) → `Contract(FootprintChanged)`; poi `observe_input(permit)?` pubblica i valori **correnti**, riaccumulati dall'enumerazione appena eseguita |
 | `convert(source, destination, ReadOptions, WriteOptions) -> Result<Published>` | da `ConvertBudgetParts::into_parts()` | come `open`, sul **solo** ramo read; il writer legge `observed_input()` dal context condiviso (INV-6) |
 | `create(sink, plan, WriteOptions) -> Result<Writer>` | da `WriteBudgetParts` | **nessuno**: nessun permit trasportato, `ObservedInput::NotObserved` |
 
@@ -2166,14 +2185,14 @@ verificabile. Nessuna decisione senza copertura API + test.
 | **INV-3** no doppio conteggio in convert | `PipelineBundle::into_convert_parts()` restituisce `ConvertBudgetParts`; `into_parts(self) -> (ReadBudgetParts, WriteBudgetParts)` da' due rami a contatori cumulativi indipendenti sotto lo stesso `PipelineContext` | Test unit `convert_of_n_rows_with_max_rows_n_succeeds` (esattamente `--max-rows N` per un dataset di N righe); test `read_and_write_counters_do_not_share_atomic_ptr` |
 | **INV-4** grandezze pipeline-wide condivise | `PipelineContext` fields: `deadline`, `observed_input`, `memory`, `spill`, `pool: Option<ResourcePool>`, `entries_visited`, `cancellation` | Test unit `context_arc_is_shared_between_split_children`; test `cancel_pipeline_cancels_both_operation_budgets` |
 | **INV-5** memoria posseduta internamente, rilasciata al transfer | `InternalMemoryLease` in `plenora-io-model::budget`: tipi **pubblici ma opachi, workspace-internal** — non restituiti insieme al batch e non ri-esportati dalla facade `plenora-io-api`; rilascio nel corpo dell'adapter interno al `return Ok(Some(batch))` di `next_batch` | Test integration `dataset_reader_releases_internal_memory_lease_on_batch_transfer`; test `long_lived_dataset_never_accumulates_memory` |
-| **INV-6** `ObservedInput` tipizzato + `output_expansion_ratio` corretto | `PipelineContext::observed_input() -> ObservedInput`; `OperationBudget::output_limit()` con regole esplicite per `NotObserved`, `Bytes(0)`, `Bytes(n>0)` | Test unit `output_limit_no_expansion_when_not_observed`; `output_limit_no_expansion_when_bytes_zero`; `output_limit_applies_expansion_when_bytes_positive`; test integration `convert_writer_sees_input_observed_by_reader` |
+| **INV-6** `ObservedInput` tipizzato + `output_expansion_ratio` corretto | `PipelineContext::observed_input() -> ObservedInput` derivato dallo stato di osservazione; `OperationBudget::output_limit()` con regole esplicite per `NotObserved`, `Bytes(0)`, `Bytes(n>0)`; il prelievo di `OutputBytes` proietta il consumo e sottrae la quota nella **stessa** osservazione atomica, cosi' richieste concorrenti non superano insieme il tetto derivato | Test unit `output_limit_no_expansion_when_not_observed`; `output_limit_no_expansion_when_bytes_zero`; `output_limit_applies_expansion_when_bytes_positive`; test integration `convert_writer_sees_input_observed_by_reader`; test concorrente `output_bytes_ceiling_holds_under_concurrent_requests` |
 | **INV-7** descriptor tre assi | `FormatDescriptor` con `native_read_mode`, `effective_delivery`, `buffering` (piu' `read_mode` legacy) | Test snapshot `catalog_envelope_v1_includes_legacy_read_mode_and_new_axes`; test trasversale `every_driver_declares_delivery_matching_actual_behavior` |
 | **INV-8** validation atomicity + publish atomicity + IPC replay tipizzato | Struttura interna del `SpooledReader` con fase `validate` → `replay` → `publish`; errori di replay come `ErrorKind::Io(IoErrorKind::SpoolReplay)` o `ErrorKind::Contract(SpoolCorruption)` | Test end-to-end `convert_with_invalid_source_leaves_destination_absent`; test `spool_replay_error_after_validation_produces_typed_error_and_leaves_destination_absent` (simula corruzione del file spool) |
-| **INV-9** `max_input_entries` | `PipelineLimits.max_input_entries: u64`; `PipelineContext.note_entry_visited(entry)` conta l'entry **e** ne assorbe l'identita' nel digest, e fallisce quando supera il limite senza incrementare il contatore ne' toccare il digest | Test unit `directory_scan_with_10001_entries_rejects_with_typed_error` (default `10_000`); `custom_max_input_entries_is_honored`; `rejected_entry_does_not_enter_the_digest` |
+| **INV-9** `max_input_entries` + `max_input_bytes` atomici | `PipelineLimits.max_input_entries: u64`; `PipelineContext.note_entry_visited(entry)` applica in un solo atto, sotto lo stesso mutex, conteggio entry, byte addebitati e digest. I controlli precedono ogni scrittura, quindi un rifiuto non lascia nulla di aggiornato. Le directory contano come entry e addebitano zero byte | Test unit `directory_scan_with_10001_entries_rejects_with_typed_error` (default `10_000`); `custom_max_input_entries_is_honored`; `entry_beyond_max_input_bytes_is_rejected`; `rejected_entry_leaves_no_partial_update`; `rejected_entry_does_not_enter_the_digest`; `directories_count_as_entries_without_charging_bytes`; `note_entry_visited_after_publication_is_rejected` |
 | **INV-10** redazione strutturale + DTO conforme v1 | `PlenoraIoError` con campi privati + `PublicMessage` enum (senza `WithContractIdentifier`); `Option<ContractIdentifier>` nell'`ErrorContext`, da cui il DTO deriva `field` del wire; `PublicErrorDto` privato serializza a JSON v1 | Doc test compile-fail: `PlenoraIoError { message: "raw".to_string(), .. }` non compila; test snapshot `error_envelope_v1_structure_conforms_to_baseline` (struttura wire invariata, normalizza `message` prima del confronto); test separato `error_message_text_matches_curated_rendering_baseline` sul solo campo `message` |
 | **INV-11** deadline cumulativa | `PipelineContext.deadline: Instant` unico | Test `convert_with_timeout_50ms_fails_within_60ms_total` (non 100ms totali) |
 | **INV-12** concorrenza via `ResourcePool` + composizione | `ResourcePool::builder().concurrent_operations(n).build()`; agganciato via `.resource_pool(pool)`. **Senza pool**: memory/spill sono gauge **locali** al context (quota = `PipelineLimits`), concorrenza **assente** e `lease_concurrency()` no-op. **Con pool**: memory/spill = min(quota locale, pool) con consumo di entrambi i gauge, concorrenza governata **solo** dal pool | Test `memory_lease_is_local_and_enforced_without_pool`; `memory_lease_uses_min_of_local_and_pool_quota`; `lease_concurrency_is_noop_without_pool`; `two_pipelines_sharing_pool_compete_on_concurrency_gauge`; `pipeline_without_pool_does_not_count_against_others` |
-| **INV-13** model→core vietato + permit opaco one-shot | `plenora-io-model::InputPermit` opaco non-Clone senza costruttori pubblici, emesso dentro il `PipelineBundle` **opaco** da `PipelineBudgetBuilder::build` e mai separabile da esso (esce solo dentro le parti); consumato per `move` da `PipelineContext::observe_input(permit, bytes) -> Result<SourceFootprint, PlenoraIoError>` (legato al context che lo ha emesso), estratto dal core con `ReadOptions::take_input_permit()`; nessun import di `plenora-io-core` dal `Cargo.toml` di `plenora-io-model` | Gate CI `check_api_boundary.py` verifica assenza di `plenora-io-core` fra le dep di `plenora-io-model`; doc test compile-fail `let _ = permit.clone();`; `let p = InputPermit { .. };`; `bundle.permit` (campo inesistente); test `observe_input_consumes_permit_by_move_and_second_call_does_not_compile` |
+| **INV-13** model→core vietato + permit opaco one-shot | `plenora-io-model::InputPermit` opaco non-Clone senza costruttori pubblici, emesso dentro il `PipelineBundle` **opaco** da `PipelineBudgetBuilder::build` e mai separabile da esso (esce solo dentro le parti); consumato per `move` da `PipelineContext::observe_input(permit) -> Result<SourceFootprint, PlenoraIoError>` (legato al context che lo ha emesso), estratto dal core con `ReadOptions::take_input_permit()`; nessun import di `plenora-io-core` dal `Cargo.toml` di `plenora-io-model` | Gate CI `check_api_boundary.py` verifica assenza di `plenora-io-core` fra le dep di `plenora-io-model`; doc test compile-fail `let _ = permit.clone();`; `let p = InputPermit { .. };`; `bundle.permit` (campo inesistente); test `observe_input_consumes_permit_by_move_and_second_call_does_not_compile` |
 | **INV-14** `FormatDescriptor` const-costruibile dai driver | `FormatDescriptor::const_new(...)` accessibile in contesto const | Compile test: ogni driver dichiara `static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(...)`; verifica di build |
 | **ADR-IO 7 A** spool bounded + spill dir sicura + cleanup solo-lock | `SpooledReader` in `plenora-io-core::driver::spool`; directory `plenora-io-spool-*` con perm 0700/DACL; startup sweep basato **solo** su lock esclusivo (`flock`/`FILE_SHARE_NONE`); nessun fallback PID/age | Test `spool_directory_has_owner_only_permissions`; `dataset_over_memory_bytes_succeeds_via_spool`; `orphaned_spool_after_process_death_is_swept_when_lock_available`; `spool_lock_prevents_concurrent_sweep_unix`/`windows`; `sweep_disabled_and_diagnostic_emitted_on_lock_unsupported_fs` |
 | **L0.1** propagazione limiti in inferenza | `infer_types(path, &PipelineLimits)` / `infer_schema(path, &PipelineLimits)` / XLSX WKT parse con `PipelineLimits` reale (letto dal `PipelineContext`) | Test `inference_uses_configured_wkt_cell_bytes_not_default`; test `inference_respects_max_input_entries` |
@@ -2182,7 +2201,7 @@ verificabile. Nessuna decisione senza copertura API + test.
 | **L0.8** `wkb_shape` figli collection | `wkb_shape` ispeziona ricorsivamente i figli e propaga `Empty` se tutti empty | Test `multipoint_of_two_empty_points_is_empty`; test `geometrycollection_of_empty_children_is_empty` |
 | **L6 (ratificato A, S12)** parser progressivo | Pre-scansione lineare WKT/GeoJSON + in-parse `max_depth`/`max_components`; capability **per-driver** `hostile_input_hardened: bool` dichiarata nel `FormatDescriptor` di ogni driver e riemessa in `catalog` entry-per-entry | Test `wkt_prescan_rejects_depth_over_limit_without_allocating_ast`; `geojson_prescan_rejects_components_over_limit`; fuzz target `wkt_prescan_bounded`, `geojson_prescan_bounded` in `scripts/fuzz-smoke.sh` verdi; snapshot `catalog_v1_hostile_input_hardened_per_driver` verifica il valore atteso per ogni driver |
 | **`SourceFootprint` snapshot + revalidation (best-effort)** | `SourceFootprint::snapshot() -> SourceFootprintSnapshot` con `digest()` **best-effort** accumulato entry per entry da `note_entry_visited` (XOR di FNV-1a, insensibile all'ordine) e `matches()` che confronta byte, entry e digest insieme; `PipelineBundle::into_scan_parts(expected)` accetta lo snapshot; il core rivalida **sempre** con preflight leggero — enumerazione completa delle entry + `max_input_entries` + size/mtime, senza parsing dei contenuti — e produce `PlenoraIoError::Contract(FootprintChanged)` se diverge. **Nessuna variante forte ratificata in Lotto 0** (niente content hashing, file identity o locking) | Test `footprint_digest_is_stable_for_the_same_entry_set`; `footprint_digest_is_order_insensitive`; `footprint_digest_detects_added_and_removed_entries`; `footprint_digest_detects_rename_size_and_mtime`; `footprint_digest_separates_paths_that_share_a_concatenation`; `snapshot_matches_only_when_bytes_entries_and_digest_agree`; `snapshot_roundtrips_through_serde_without_losing_the_digest`; `scan_with_matching_snapshot_succeeds`; `scan_with_stale_snapshot_returns_footprint_changed`; `scan_detects_added_and_removed_entries`; `scan_preflight_applies_max_input_entries`; `scan_observes_current_bytes_and_entries_not_snapshot_values` |
-| **`observe_input` fabbrica unica del footprint** | `PipelineContext::observe_input(permit, bytes) -> Result<SourceFootprint, PlenoraIoError>`; consuma il permit per `move`; legato al context che lo ha emesso; unica via di costruzione e registrazione di `SourceFootprint`; entry e digest vengono dal context, non da parametri fabbricabili; su `Err` lo stato resta `NotObserved` | Doc test compile-fail: `SourceFootprint { .. }` non compila; test `observe_input_consumes_permit_and_yields_footprint`; `observe_input_with_permit_from_other_pipeline_is_rejected`; `observe_input_err_leaves_observed_input_not_observed` |
+| **`observe_input` fabbrica unica del footprint** | `PipelineContext::observe_input(permit) -> Result<SourceFootprint, PlenoraIoError>`, senza altri parametri; consuma il permit per `move`; legato al context che lo ha emesso; byte, entry e digest vengono tutti dallo stato accumulato, non da valori dichiarabili; la pubblicazione e' **terminale**, quindi ogni entry successiva e' rifiutata; su `Err` lo stato resta `Collecting` | Doc test compile-fail: `SourceFootprint { .. }` non compila; test `observe_input_consumes_permit_and_yields_footprint`; `observe_input_with_permit_from_other_pipeline_is_rejected`; `observe_input_err_leaves_observed_input_not_observed`; `second_observation_is_rejected_and_keeps_the_published_footprint` |
 
 Ogni test elencato **deve essere committato** insieme al codice
 che lo copre. Il gate di release verifica presenza dei nomi di
@@ -2212,7 +2231,7 @@ Correzioni applicate in questa iterazione:
 - **Permit**: rimossi `InputObservationToken` e
   `PreflightEvidence` dalle sezioni normative (restano solo in
   "Alternative scartate"); l'osservazione passa da
-  `PipelineContext::observe_input(permit, bytes) ->
+  `PipelineContext::observe_input(permit) ->
   Result<SourceFootprint, PlenoraIoError>`, unico canale di
   costruzione e registrazione, legato al context che ha emesso il
   permit (niente `observe_measurement` libera, niente
@@ -2253,6 +2272,25 @@ Correzioni applicate in questa iterazione:
 - **Editorial**: `&Limits` sostituito con `&PipelineLimits`
   nella tabella decisioni; conteggio step corretto a **13**
   (S0-S12 inclusi); ADR-IO 7 stato **Draft** fino a S0.
+
+**Errata S1.2 (2026-08-16)** — chiuse in implementazione, non rinviate.
+- `observe_input(permit, bytes)` → `observe_input(permit)`. Anche i
+  byte vengono ora dallo stato accumulato: erano l'ultima grandezza
+  del footprint che il chiamante poteva dichiarare senza averla
+  misurata, e governano `output_expansion_ratio`.
+- `SourceEntry` distingue `metadata_size` (entra nel digest) da
+  `charged_input_bytes` (conta verso `max_input_bytes`), con
+  costruzioni separate `file()` e `directory()`: una directory conta
+  come entry e addebita zero byte.
+- L'osservazione e' una **state machine sotto mutex**
+  (`Collecting { entries, total_bytes, digest }` → `Published`), non
+  tre atomiche indipendenti. Conteggio, byte e digest si aggiornano
+  insieme dopo tutti i controlli; la pubblicazione e' terminale.
+- Il prelievo di `OutputBytes` usa un unico loop CAS che proietta il
+  consumo e sottrae la quota sulla stessa osservazione.
+- L'identita' di pipeline si alloca con incremento **checked**: un
+  `fetch_add` che avvolge riassegnerebbe identita' gia' consegnate,
+  rendendo il permit dell'una spendibile sull'altra.
 
 **Errata S1.1 (2026-08-16)** — chiuse in implementazione, non rinviate.
 - `observe_input(permit, bytes, entries)` → `observe_input(permit,
@@ -2302,7 +2340,7 @@ Correzioni applicate in questa iterazione:
   `into_read_parts` / `into_scan_parts` / `into_convert_parts` /
   `into_write_parts`, cosi' budget e permit non sono incrociabili a
   mano. `SourceFootprint` si ottiene solo da
-  `PipelineContext::observe_input(permit, bytes) ->
+  `PipelineContext::observe_input(permit) ->
   Result<..>`, unico canale (niente
   `observe_measurement`/`record_footprint`).
 
