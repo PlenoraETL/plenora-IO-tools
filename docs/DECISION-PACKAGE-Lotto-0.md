@@ -1845,8 +1845,38 @@ asse allentato dal bridge, nessun asse contato due volte.
   `PipelineContext` ottenuto dalle parti.
 - INV-6 attivo: writer ora legge `observed_input_bytes` dal context
   condiviso; `L0.10` chiuso.
+- **Rimozione contestuale dell'applicazione legacy di
+  `max_input_bytes`** in `Source::into_path_checked`: dal momento in
+  cui l'enumerazione passa da `note_entry_visited`, il tetto e'
+  applicato dal modello nuovo e lasciarlo anche nel vecchio
+  significherebbe applicarlo due volte. Deve avvenire nello stesso
+  commit, non dopo.
+- **Handoff atomico della lease di memoria** (criterio obbligatorio).
+  Oggi, in `reader_adapters.rs`, la lease di materializzazione viene
+  droppata **prima** che `spool.push()` prenda quella di residenza:
+  fra le due c'e' una finestra in cui il batch esiste in RAM e non e'
+  contabilizzato da nessuno. Con un budget condiviso — cioe' proprio
+  il caso di `convert` — un'altra operazione puo' infilarsi in quella
+  finestra e prenotare memoria che di fatto non c'e'.
+  Tenere entrambe le lease vive contemporaneamente non e' la
+  soluzione: conterebbe due volte lo stesso batch, con la
+  prenotazione larga (target + cella) sommata all'occupazione reale,
+  e una quota stretta fallirebbe su un batch che ci sta — e' l'errore
+  che ha fatto fallire il reader KML in S2.b.
+  La migrazione deve quindi introdurre un **trasferimento**: la
+  prenotazione passa dal materializzatore allo spool senza tornare al
+  gauge nel mezzo, ridimensionandosi dalla quota larga a quella
+  effettiva in un'unica operazione atomica sul gauge. Il modello
+  nuovo ha il punto giusto dove metterlo — `PipelineContext` possiede
+  il gauge — mentre il `ResourceLease` legacy non sa ridimensionarsi.
+  Test richiesto: `memory_handoff_leaves_no_unaccounted_window`, che
+  osserva il gauge da un secondo thread durante il transito e
+  verifica che non scenda mai sotto l'occupazione reale del batch.
 
-**Criteri di uscita**: tutti i test verdi, gate anti-panic verde.
+**Criteri di uscita**: tutti i test verdi, gate anti-panic verde,
+nessuna quota applicata due volte fra modello nuovo e legacy, e
+l'handoff della memoria senza finestra scoperta verificato dal test
+dedicato.
 
 ### M4 — Rimozione del vecchio modello
 

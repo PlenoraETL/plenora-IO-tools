@@ -60,7 +60,7 @@
 
 use std::collections::VecDeque;
 use std::fs::File;
-use std::io::{BufWriter, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -183,7 +183,7 @@ fn resolve_spill_directory(configured: Option<std::ffi::OsString>) -> Result<Pat
 /// quota puo' precedere davvero la scrittura.
 struct SpillGuard {
     budget: ResourceBudget,
-    leases: Vec<ResourceLease>,
+    leases: Vec<TrackedLease>,
     reserved: u64,
     written: u64,
     /// Errore tipizzato dell'ultima prenotazione fallita. `Write::write` puo'
@@ -226,19 +226,12 @@ impl SpillGuard {
             Err(errore) => return Err(errore),
         };
         self.reserved = self.reserved.saturating_add(lease.amount());
-        self.leases.push(lease);
+        self.leases.push(TrackedLease(lease));
         Ok(())
     }
 
     const fn note_written(&mut self, bytes: u64) {
         self.written = self.written.saturating_add(bytes);
-    }
-
-    /// Restituisce ogni quota trattenuta. Chiamato quando il file cessa di
-    /// esistere: a fine rilettura o alla distruzione dello spool.
-    fn release(&mut self) {
-        self.leases.clear();
-        self.reserved = 0;
     }
 
     #[cfg(test)]
@@ -276,6 +269,75 @@ fn guard_lock(guard: &Mutex<SpillGuard>) -> MutexGuard<'_, SpillGuard> {
         // aggiunte a una lista dopo che la lease e' stata concessa, quindi
         // non esiste il mezzo aggiornamento che il poisoning teme.
         Err(avvelenato) => avvelenato.into_inner(),
+    }
+}
+
+// Registro dell'ordine di distruzione, attivo solo nei test.
+//
+// L'ordine con cui file e quota vengono rilasciati e' una garanzia del
+// modulo; una garanzia che nessuno verifica e' una speranza. Il registro e'
+// per-thread, quindi ogni test vede solo i propri eventi.
+#[cfg(test)]
+thread_local! {
+    static REGISTRO_RILASCI: std::cell::RefCell<Vec<&'static str>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn nota_rilascio(evento: &'static str) {
+    REGISTRO_RILASCI.with(|registro| registro.borrow_mut().push(evento));
+}
+
+/// Lease di spill, avvolta per poterne osservare il rilascio nei test.
+///
+/// Il registro deve segnare il momento in cui la **quota torna al budget**,
+/// non quello in cui muore il guardiano che la conteneva: le due cose
+/// coincidono solo se nessuno svuota la lista prima del tempo, ed e'
+/// esattamente l'errore che il test deve poter vedere.
+struct TrackedLease(#[allow(dead_code)] ResourceLease);
+
+#[cfg(test)]
+impl Drop for TrackedLease {
+    fn drop(&mut self) {
+        nota_rilascio("quota");
+    }
+}
+
+/// Il file temporaneo dello spool.
+///
+/// E' un newtype e non un `File` nudo per due ragioni: dargli un nome nel
+/// tipo, e poterne osservare la chiusura nei test — che e' l'unico modo di
+/// verificare davvero l'ordine di rilascio invece di affermarlo.
+struct SpoolFile {
+    inner: File,
+}
+
+impl Write for SpoolFile {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.inner.write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl Read for SpoolFile {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.read(buffer)
+    }
+}
+
+impl Seek for SpoolFile {
+    fn seek(&mut self, posizione: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(posizione)
+    }
+}
+
+#[cfg(test)]
+impl Drop for SpoolFile {
+    fn drop(&mut self) {
+        nota_rilascio("file");
     }
 }
 
@@ -339,14 +401,18 @@ enum Stage {
     /// Oltre soglia: i batch sono su file temporaneo senza nome. Una volta
     /// migrati non tornano in RAM.
     Writing {
-        writer: Box<StreamWriter<BufWriter<GuardedWriter<File>>>>,
+        writer: Box<StreamWriter<BufWriter<GuardedWriter<SpoolFile>>>>,
         guard: Arc<Mutex<SpillGuard>>,
     },
     /// Sigillato: il file e' pronto per la rilettura in ordine. La
     /// prenotazione resta viva finche' il file esiste, cioe' fino alla fine
     /// della rilettura.
     Replaying {
-        reader: Box<StreamReader<File>>,
+        reader: Box<StreamReader<SpoolFile>>,
+        /// Non viene mai letto: il suo unico compito e' essere distrutto
+        /// **dopo** il reader, restituendo la quota solo quando il file e'
+        /// gia' chiuso. Dichiararlo dopo `reader` e' cio' che fissa l'ordine.
+        #[allow(dead_code)]
         guard: Arc<Mutex<SpillGuard>>,
     },
     /// Sigillato e vuoto, oppure esaurito.
@@ -583,10 +649,19 @@ impl StagedSpool {
     }
 
     /// Rilascia file e prenotazioni, portando lo spool a `Drained`.
+    /// Rilascia file e prenotazioni portando lo spool a `Drained`.
+    ///
+    /// L'assegnazione **e' il rilascio**: distrugge il valore precedente, e i
+    /// campi di `Stage` sono dichiarati nell'ordine in cui devono sparire —
+    /// prima il writer o il reader, che chiudono il descrittore, poi il
+    /// guardiano, che restituisce le lease.
+    ///
+    /// L'ordine conta e non e' cosmetico: restituire la quota prima di aver
+    /// chiuso il file annuncerebbe spazio che il volume non ha ancora
+    /// liberato, e un'altra operazione potrebbe prenderlo e trovarsi il disco
+    /// pieno. Liberare esplicitamente le lease qui era esattamente questo
+    /// errore, con l'aggravante di sembrare piu' accurato.
     fn release_storage(&mut self) {
-        if let Stage::Writing { guard, .. } | Stage::Replaying { guard, .. } = &self.stage {
-            guard_lock(guard).release();
-        }
         self.stage = Stage::Drained;
     }
 
@@ -608,8 +683,8 @@ impl StagedSpool {
     /// validazione, cioe' quando il consumer ha gia' ricevuto un `Ok`.
     #[cfg(test)]
     fn replaying_from(schema: SchemaRef, budget: ResourceBudget, file: File) -> Result<Self> {
-        let reader =
-            StreamReader::try_new(file, None).map_err(|_| spool_error(SPOOL_CORRUPTION))?;
+        let reader = StreamReader::try_new(SpoolFile { inner: file }, None)
+            .map_err(|_| spool_error(SPOOL_CORRUPTION))?;
         let budget_per_guard = budget.clone();
         Ok(Self {
             schema,
@@ -635,7 +710,7 @@ impl StagedSpool {
             tempfile::tempfile_in(&directory).map_err(|_| spool_error(SPOOL_CREATE_FAILED))?;
         let guard = Arc::new(Mutex::new(SpillGuard::new(self.budget.clone())));
         let guarded = GuardedWriter {
-            inner: file,
+            inner: SpoolFile { inner: file },
             guard: Arc::clone(&guard),
         };
         let mut writer = StreamWriter::try_new(BufWriter::new(guarded), self.schema.as_ref())
@@ -1031,6 +1106,90 @@ mod tests {
         spool.seal().expect("seal");
         assert_eq!(drain(&mut spool).len(), 4);
         assert!(spool.written_spill_bytes() <= 64 * 1024);
+    }
+
+    fn rilasci_registrati() -> Vec<&'static str> {
+        REGISTRO_RILASCI.with(|registro| registro.borrow().clone())
+    }
+
+    fn azzera_registro() {
+        REGISTRO_RILASCI.with(|registro| registro.borrow_mut().clear());
+    }
+
+    /// Il file deve chiudersi **prima** che la quota torni al budget.
+    ///
+    /// L'ordine inverso annuncerebbe spazio che il volume non ha ancora
+    /// liberato: un'altra operazione potrebbe prendere la quota e trovarsi il
+    /// disco pieno. La garanzia sta nell'ordine di dichiarazione dei campi di
+    /// `Stage`, quindi e' fragile a un riordino distratto — ed e' esattamente
+    /// il genere di garanzia che va verificata invece che affermata.
+    #[test]
+    fn the_file_closes_before_the_quota_returns() {
+        let schema = schema();
+        let budget = budget(1 << 20, 1 << 24);
+        let mut spool =
+            StagedSpool::with_threshold(Arc::clone(&schema), budget, 2 * PER_BATCH_OVERHEAD_BYTES);
+        for indice in 0..8_i64 {
+            spool
+                .push(batch(&schema, indice * 4, 4), 100)
+                .expect("push");
+        }
+        spool.seal().expect("seal");
+        azzera_registro();
+
+        while spool.next_batch().expect("rilettura").is_some() {}
+
+        let registro = rilasci_registrati();
+        assert_eq!(
+            registro.first(),
+            Some(&"file"),
+            "il descrittore deve chiudersi prima che le lease tornino al budget: {registro:?}"
+        );
+        assert!(
+            registro.len() >= 2 && registro.iter().skip(1).all(|evento| *evento == "quota"),
+            "dopo la chiusura devono seguire solo rilasci di quota: {registro:?}"
+        );
+    }
+
+    /// Stessa garanzia sul percorso che non arriva a EOF: una violazione a
+    /// meta' scansione distrugge lo spool con `clear`, e anche li' l'ordine
+    /// deve essere quello.
+    ///
+    /// I batch sono volutamente grandi: con pochi byte il `BufWriter` non
+    /// consegnerebbe nulla al file prima del drop, nessuna lease esisterebbe
+    /// al momento di `clear` e il test non potrebbe distinguere l'ordine
+    /// giusto da quello sbagliato — passerebbe comunque, che e' il modo
+    /// peggiore di fallire. L'asserzione sui byte scritti tiene ferma questa
+    /// precondizione.
+    #[test]
+    fn clearing_mid_scan_closes_the_file_before_returning_the_quota() {
+        let schema = schema();
+        let budget = budget(1 << 20, 1 << 24);
+        let mut spool =
+            StagedSpool::with_threshold(Arc::clone(&schema), budget, 2 * PER_BATCH_OVERHEAD_BYTES);
+        for indice in 0..32_i64 {
+            spool
+                .push(batch(&schema, indice * 512, 512), 100)
+                .expect("push");
+        }
+        assert!(
+            spool.written_spill_bytes() > 0,
+            "senza scritture fisiche il test non osserverebbe alcun rilascio di quota"
+        );
+        azzera_registro();
+
+        spool.clear();
+
+        let registro = rilasci_registrati();
+        assert_eq!(
+            registro.first(),
+            Some(&"file"),
+            "anche interrompendo a meta' il descrittore va chiuso per primo: {registro:?}"
+        );
+        assert!(
+            registro.len() >= 2 && registro.iter().skip(1).all(|evento| *evento == "quota"),
+            "dopo la chiusura devono seguire solo rilasci di quota: {registro:?}"
+        );
     }
 
     #[test]

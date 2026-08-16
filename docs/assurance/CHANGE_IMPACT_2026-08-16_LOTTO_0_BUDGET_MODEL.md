@@ -386,6 +386,47 @@ sezione M2 del pacchetto e PLN-ASR-004 della matrice di tracciabilita'.
 all'allineamento di 6 test le cui costanti dipendevano dalla vecchia
 contabilita'.
 
+## Registrazione S2.f del 2026-08-16
+
+`release_storage` liberava esplicitamente le lease **prima** di assegnare
+`Stage::Drained`, cioe' prima che il descrittore del file venisse chiuso.
+L'ordine era invertito rispetto a quello sicuro: restituire la quota prima di
+chiudere il file annuncia spazio che il volume non ha ancora liberato, e
+un'altra operazione puo' prenderlo e trovarsi il disco pieno. L'errore aveva
+per giunta l'aria di essere piu' accurato del codice corretto.
+
+Ora la transizione e' una sola assegnazione: `self.stage = Stage::Drained`
+distrugge il valore precedente, e i campi di `Stage` sono dichiarati
+nell'ordine in cui devono sparire — prima writer o reader, che chiudono il
+descrittore, poi il guardiano, che restituisce le lease. Il metodo
+`SpillGuard::release` e' stato rimosso: non esiste piu' un modo di rilasciare
+la quota fuori tempo.
+
+**La garanzia e' verificata, non affermata.** L'ordine dipende dalla
+dichiarazione dei campi, quindi e' fragile a un riordino distratto. Due test
+lo fissano registrando gli eventi di distruzione: il file e' un newtype
+`SpoolFile` e le lease sono avvolte in `TrackedLease`, cosi' il registro
+segna il momento in cui la **quota torna al budget** e non quello in cui
+muore il guardiano che la conteneva — le due cose coincidono solo se nessuno
+svuota la lista prima del tempo, che e' esattamente l'errore da vedere.
+Entrambi i test sono stati verificati per mutazione: reintroducendo il
+rilascio anticipato, falliscono.
+
+Il test sul percorso `clear` ha richiesto batch piu' grandi. Con pochi byte
+il `BufWriter` non consegna nulla al file prima del drop, nessuna lease
+esiste al momento di `clear`, e il test passerebbe comunque senza poter
+distinguere l'ordine giusto da quello sbagliato — il modo peggiore di
+fallire. Un'asserzione sui byte fisici scritti tiene ferma la precondizione.
+
+**Residuo noto, assegnato a S4 come criterio obbligatorio**: fra il rilascio
+della prenotazione di materializzazione e la lease di residenza presa dallo
+spool esiste una finestra in cui il batch e' in RAM e non e' contabilizzato.
+Con un budget condiviso — `convert` — un'altra operazione puo' infilarcisi.
+Non e' chiudibile qui: servirebbe un trasferimento atomico che ridimensioni
+la prenotazione senza restituirla al gauge, e il `ResourceLease` legacy non
+sa ridimensionarsi. Il modello nuovo ha il punto giusto dove farlo, quindi il
+criterio e' registrato in M3/S4 con il test che dovra' dimostrarlo.
+
 ## Registrazione S2.e del 2026-08-16
 
 Quattro correzioni allo spool piu' la sostituzione delle sezioni normative
@@ -460,9 +501,9 @@ spool, che asseriscono `scritti <= prenotati`.
 
 Baseline **prima**: `601a124` — spool presente ma non cablato, l'adapter
 accumula ancora in `VecDeque`. Baseline **dopo**: S2.e. 400.000 righe, 7
-batch, esecuzioni **alternate** campione per campione fra i due binari nello
-stesso processo, cosi' una deriva del carico colpisce entrambi allo stesso
-modo.
+batch, con i due eseguibili invocati **alternati campione per campione nella
+stessa campagna** — processi distinti, non due binari nello stesso processo —
+cosi' una deriva del carico colpisce entrambi allo stesso modo.
 
 **La statistica riportata e' il minimo, non la mediana, e la ragione va
 detta**: durante la campagna la macchina era sotto carico crescente e i
@@ -485,9 +526,15 @@ che e' esattamente il difetto che ADR-IO 7 esiste per chiudere. Dopo, la
 stessa conversione riesce a +6,9% rispetto al percorso senza spill: il costo
 di scrittura e rilettura Arrow IPC non domina il tempo utente.
 
-**Limiti dichiarati della misura**: il file temporaneo vive sul filesystem
-del container, veloce su questa macchina; su un volume lento il rapporto
-scrittura/rilettura peserebbe di piu'. E la campagna e' stata eseguita su una
-macchina non isolata: il minimo di nove campioni alternati e' una stima
-difendibile, non una misura di laboratorio. Una campagna su runner dedicato
-resta il modo corretto di produrre l'evidenza di release.
+**Questa misura e' evidenza provvisoria, non evidenza di release.** Il file
+temporaneo vive sul filesystem del container, veloce su questa macchina; su
+un volume lento il rapporto scrittura/rilettura peserebbe di piu'. E la
+campagna e' girata su una macchina non isolata, con carico crescente durante
+l'esecuzione: il minimo di nove campioni alternati e' la stima piu'
+difendibile ricavabile in quelle condizioni, ma resta una stima.
+
+L'evidenza di release deve essere prodotta su **runner isolato**, con
+statistica **paired/interlacciata** — coppie prima/dopo misurate adiacenti e
+delta calcolato per coppia, invece di confrontare due aggregati raccolti in
+momenti diversi. Finche' non esiste, il veto prestazionale di S2 e'
+soddisfatto in via provvisoria.

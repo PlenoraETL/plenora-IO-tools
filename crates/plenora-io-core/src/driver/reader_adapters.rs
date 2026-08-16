@@ -358,6 +358,15 @@ impl BudgetedReader {
             // resterebbe contabilizzato due volte — una per la prenotazione
             // larga (target + cella) e una per l'occupazione reale — e una
             // quota stretta fallirebbe su un batch che ci sta.
+            //
+            // Resta pero' una finestra: fra questo drop e la lease presa dallo
+            // spool il batch e' in RAM e non lo conta nessuno. Con un budget
+            // condiviso — cioe' `convert` — un'altra operazione puo'
+            // infilarcisi e prenotare memoria che non c'e'. Chiuderla richiede
+            // un trasferimento atomico che ridimensioni la prenotazione senza
+            // restituirla al gauge, e il `ResourceLease` legacy non sa farlo:
+            // e' un criterio obbligatorio di S4, dove il gauge appartiene al
+            // `PipelineContext`.
             drop(memory_lease);
             if violations.is_empty() {
                 let spool = match self.spool.as_mut() {
