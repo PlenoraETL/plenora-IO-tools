@@ -715,8 +715,13 @@ fn validate_coordinate(coordinate: &WkbCoordinate, dimensions: CoordinateDimensi
 /// il controllo precede l'`extend_from_slice`.
 struct BoundedSink<'a> {
     output: &'a mut Vec<u8>,
-    /// Byte massimi che il buffer puo' raggiungere, contati dalla lunghezza
-    /// iniziale: il chiamante puo' passare un buffer non vuoto.
+    /// Lunghezza massima che il buffer puo' raggiungere. Il tetto e' assoluto,
+    /// non un incremento: chi costruisce il sink lo fa su un buffer vuoto —
+    /// [`encode_wkb_into_bounded`] lo svuota prima — quindi `max_bytes` e'
+    /// esattamente la dimensione massima della codifica.
+    ///
+    /// Il confronto e' `>`, non `>=`: una geometria lunga esattamente
+    /// `max_bytes` byte passa.
     max_bytes: usize,
 }
 
@@ -888,9 +893,13 @@ pub fn encode_wkb_into(
 
 /// Codifica l'AST WKB nel buffer fornito, **senza mai superare** `max_bytes`.
 ///
-/// Il buffer viene svuotato prima di scrivere, e il tetto e' verificato a ogni
-/// scrittura: se la geometria non ci sta, l'errore arriva quando il buffer ha
-/// raggiunto il limite, non dopo averlo superato.
+/// Il buffer viene svuotato prima di scrivere, quindi `max_bytes` e' la
+/// dimensione massima della codifica, non un incremento su cio' che il buffer
+/// gia' conteneva. Il tetto e' verificato prima di ogni scrittura, cosi' il
+/// buffer non lo supera in nessun istante intermedio.
+///
+/// Una codifica lunga **esattamente** `max_bytes` byte e' accettata: il tetto
+/// e' un massimo, non un valore proibito.
 ///
 /// Serve perche' i driver tabellari controllano la **rappresentazione
 /// d'ingresso** — il testo WKT, il JSON grezzo — prima di costruire l'AST, ma
@@ -898,10 +907,19 @@ pub fn encode_wkb_into(
 /// il buffer cresceva oltre `max_wkb_cell_bytes` e il rifiuto arrivava piu'
 /// tardi, dall'adapter, quando la memoria era gia' stata allocata.
 ///
+/// # Stato del buffer in caso di errore
+///
+/// **Il buffer viene lasciato vuoto.** Vale per ogni errore, non solo per il
+/// superamento del tetto: anche una geometria incoerente rifiutata a meta'
+/// codifica lascia il buffer vuoto. Un prefisso WKB parziale e' un valore
+/// perfettamente plausibile da riutilizzare per sbaglio — e' una sequenza di
+/// byte ben formata fino a dove arriva — e non c'e' ragione per cui il
+/// chiamante debba ricordarsi di ripulire.
+///
 /// # Errors
 ///
 /// Gli stessi di [`encode_wkb_into`], piu' [`PlenoraIoError::Wkb`] se la
-/// codifica raggiunge `max_bytes`.
+/// codifica **supera** `max_bytes`.
 pub fn encode_wkb_into_bounded(
     geometry: &WkbGeometry,
     flavor: WkbFlavor,
@@ -912,7 +930,11 @@ pub fn encode_wkb_into_bounded(
     crate::metrics::inc_encode();
     output.clear();
     let mut sink = BoundedSink { output, max_bytes };
-    write_geometry(&mut sink, geometry, flavor)
+    let esito = write_geometry(&mut sink, geometry, flavor);
+    if esito.is_err() {
+        output.clear();
+    }
+    esito
 }
 
 /// Codifica l'AST WKB in un buffer nuovo.
@@ -924,4 +946,74 @@ pub fn encode_wkb(geometry: &WkbGeometry, flavor: WkbFlavor) -> Result<Vec<u8>> 
     let mut output = Vec::new();
     encode_wkb_into(geometry, flavor, &mut output)?;
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        write_geometry, BoundedSink, CoordinateDimensions, WkbCoordinate, WkbFlavor, WkbGeometry,
+        WkbValue,
+    };
+
+    fn linea(punti: usize) -> WkbGeometry {
+        WkbGeometry {
+            value: WkbValue::LineString(
+                (0..punti)
+                    .map(|indice| WkbCoordinate {
+                        #[allow(clippy::cast_precision_loss)]
+                        x: indice as f64,
+                        y: 2.0,
+                        z: None,
+                        m: None,
+                    })
+                    .collect(),
+            ),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        }
+    }
+
+    /// Il buffer non supera il tetto **in nessun istante**, non solo alla fine.
+    ///
+    /// E' il test che deve stare a questo livello. `encode_wkb_into_bounded`
+    /// svuota il buffer quando fallisce, quindi osservarne la lunghezza dopo
+    /// l'errore non distingue piu' un sink bounded da uno che cresce e poi
+    /// ripulisce: entrambi lascerebbero zero. Qui il sink e' costruito a mano
+    /// e nessuno ripulisce, quindi la lunghezza residua e' davvero il massimo
+    /// raggiunto.
+    #[test]
+    fn il_sink_non_lascia_mai_crescere_il_buffer_oltre_il_tetto() {
+        let geometria = linea(10);
+        for tetto in [0_usize, 1, 8, 9, 24, 168] {
+            let mut buffer = Vec::new();
+            let mut sink = BoundedSink {
+                output: &mut buffer,
+                max_bytes: tetto,
+            };
+            let esito = write_geometry(&mut sink, &geometria, WkbFlavor::Iso);
+            assert!(esito.is_err(), "tetto {tetto}: la codifica deve fallire");
+            assert!(
+                buffer.len() <= tetto,
+                "tetto {tetto}: il buffer ha raggiunto {} byte",
+                buffer.len()
+            );
+        }
+    }
+
+    /// Al tetto esatto la codifica passa: il confronto e' `>`, non `>=`.
+    #[test]
+    fn il_tetto_esatto_e_ammesso() {
+        let geometria = linea(10);
+        // Nove byte di intestazione piu' sedici per punto.
+        let esatta = 9 + 10 * 16;
+
+        let mut buffer = Vec::new();
+        let mut sink = BoundedSink {
+            output: &mut buffer,
+            max_bytes: esatta,
+        };
+        write_geometry(&mut sink, &geometria, WkbFlavor::Iso)
+            .expect("una codifica lunga esattamente il tetto e' ammessa");
+        assert_eq!(buffer.len(), esatta);
+    }
 }

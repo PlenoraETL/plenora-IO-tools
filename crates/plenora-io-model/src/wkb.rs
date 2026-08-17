@@ -53,14 +53,20 @@ pub fn from_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<Geometry<f64>> {
 
 #[cfg(test)]
 mod tests {
-    /// Il buffer non cresce oltre il tetto, nemmeno di un byte.
+    /// Su errore il buffer resta vuoto, e al tetto esatto la codifica passa.
     ///
-    /// E' la proprieta' che distingue un encoder bounded da un controllo
-    /// a posteriori: il secondo scopre l'eccesso quando la memoria e' gia'
-    /// allocata, ed e' esattamente cio' che i driver tabellari facevano prima
-    /// di S5.1 — controllavano il testo d'ingresso, non la codifica.
+    /// Che il buffer non **cresca** oltre il tetto e' verificato dove si puo'
+    /// osservare, cioe' sul sink: qui lo svuotamento su `Err` renderebbe
+    /// l'assert indistinguibile fra un encoder bounded e uno che cresce e poi
+    /// ripulisce. Vedi `il_sink_non_lascia_mai_crescere_il_buffer_oltre_il_tetto`
+    /// in `wkb_lossless`.
+    ///
+    /// Cio' che resta osservabile da qui e' il contratto pubblico: nessun
+    /// prefisso WKB parziale sopravvive all'errore. Un prefisso e' una
+    /// sequenza di byte ben formata fino a dove arriva, quindi riutilizzabile
+    /// per sbaglio senza che nulla protesti.
     #[test]
-    fn l_encoder_bounded_non_supera_mai_il_tetto() {
+    fn l_encoder_bounded_lascia_il_buffer_vuoto_su_errore() {
         let punti: Vec<WkbCoordinate> = (0..64)
             .map(|indice| WkbCoordinate {
                 x: f64::from(indice),
@@ -83,11 +89,33 @@ mod tests {
             let esito = encode_wkb_into_bounded(&geometria, WkbFlavor::Iso, &mut buffer, tetto);
             assert!(esito.is_err(), "tetto {tetto}: la codifica deve fallire");
             assert!(
-                buffer.len() <= tetto,
-                "tetto {tetto}: il buffer e' cresciuto fino a {} byte",
+                buffer.is_empty(),
+                "tetto {tetto}: il buffer conserva {} byte di prefisso",
                 buffer.len()
             );
         }
+
+        // Anche un errore che non e' il tetto lascia il buffer vuoto: qui una
+        // coordinata Z su una geometria dichiarata XY.
+        let incoerente = WkbGeometry {
+            value: WkbValue::Point(WkbCoordinate {
+                x: 1.0,
+                y: 2.0,
+                z: Some(3.0),
+                m: None,
+            }),
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        };
+        let mut buffer = Vec::new();
+        assert!(
+            encode_wkb_into_bounded(&incoerente, WkbFlavor::Iso, &mut buffer, usize::MAX).is_err(),
+            "una geometria incoerente deve essere rifiutata"
+        );
+        assert!(
+            buffer.is_empty(),
+            "anche un errore non di tetto deve lasciare il buffer vuoto"
+        );
 
         // Al tetto esatto passa: il confronto e' `>`, non `>=`.
         let mut buffer = Vec::new();

@@ -2353,10 +2353,20 @@ sia applicato prima dell'inferenza resta verificato dove quell'invariante vive:
 `directory_scan_over_max_input_entries_rejects_with_typed_error` nel preflight
 del core.
 
-**Residuo dichiarato.** `collect_read_violations` valida le geometrie del batch
-con il tetto predefinito, perche' non riceve le opzioni. E' fuori dal perimetro
-di S5 e resta aperto, censito da `check_wkb_limits_defaults.py`, che lo stampa
-a ogni corsa.
+#### Errata S5.1 — il residuo di `collect_read_violations` era mal classificato
+
+S5 aveva dichiarato `collect_read_violations` un residuo "fuori dal perimetro",
+censito da `check_wkb_limits_defaults.py` e rinviato. La classificazione era
+sbagliata nel merito: quella funzione valida le geometrie del batch sul
+**percorso comune di lettura**, quello che ogni driver attraversa, ed era
+l'unico punto dove un `--max-wkb-cell-bytes` piu' stretto del default non
+arrivava — applicato in inferenza e nella materializzazione, ignorato li'.
+
+S5.1 lo ha chiuso con codice: la firma prende `wkb: &WkbLimits` e il chiamante
+nel drenaggio passa quelli del `PipelineContext`. **Nessun residuo aperto
+rimane su questo asse**, e il censimento non ha piu' un meccanismo per
+dichiararne uno: una occorrenza di produzione sta in `LEGITTIME` con la ragione
+scritta, oppure il codice cambia.
 
 Il grafo di dipendenza consente overlap significativo:
 - S3 in parallelo a S2.

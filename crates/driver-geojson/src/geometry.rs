@@ -180,12 +180,17 @@ fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, String> {
 /// controllato dal chiamante, ma la codifica WKB puo' essere piu' grande di
 /// quel testo — una `LineString` con poche cifre per coordinata occupa meno
 /// caratteri di quanti byte servano ai suoi `f64`.
+///
+/// Su errore `out` e' lasciato **vuoto**, come in
+/// [`encode_wkb_into_bounded`]: la postcondizione e' uniforme, il buffer
+/// contiene una codifica completa oppure niente. Vale anche quando a fallire
+/// e' la conversione, prima che venga scritto un solo byte.
 pub fn wkb_from_gj_value(
     value: &geojson::Value,
     out: &mut Vec<u8>,
     max_bytes: usize,
 ) -> std::result::Result<(), String> {
-    let geometry = convert(value)?;
+    let geometry = convert(value).inspect_err(|_| out.clear())?;
     encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, out, max_bytes)
         .map_err(|error| error.to_string())
 }

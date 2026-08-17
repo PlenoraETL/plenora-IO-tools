@@ -1453,3 +1453,72 @@ Zero sopravvivenze.
 | attrezzaggio | 4 | 4 |
 | produzione, legittimi | 2 | 2 |
 | produzione, **residui** | 1 | **0** |
+
+---
+
+## S5.1a — riconciliazione del contratto dell'encoder bounded
+
+Quattro correzioni, tre documentali e una di comportamento.
+
+### Il pacchetto dichiarava ancora aperto un residuo chiuso
+
+La sezione "Errata S5" del decision package descriveva
+`collect_read_violations` come residuo fuori perimetro, censito e rinviato.
+E' sostituita da un'errata S5.1 che registra la chiusura e dice perche' la
+classificazione originaria era sbagliata: quel punto sta sul percorso comune
+di lettura, non ai margini.
+
+### Il rustdoc di `BoundedSink` descriveva un tetto incrementale
+
+Diceva che `max_bytes` e' contato dalla lunghezza iniziale, perche' "il
+chiamante puo' passare un buffer non vuoto". Non e' cosi':
+`encode_wkb_into_bounded` svuota sempre il buffer prima di costruire il sink,
+quindi il tetto e' la dimensione massima della codifica, assoluta. Con un
+buffer preesistente la vecchia formulazione avrebbe descritto un limite piu'
+permissivo di quello reale.
+
+### "Fallisce se raggiunge `max_bytes`" era falso
+
+Il confronto e' `>`, non `>=`: una codifica lunga esattamente `max_bytes`
+passa, ed e' il comportamento voluto — un tetto e' un massimo, non un valore
+proibito. Il test `il_tetto_esatto_e_ammesso` fissa il confine, cosi' un
+irrigidimento accidentale a `>=` non passa silenziosamente.
+
+### Su errore il buffer resta vuoto
+
+Prima lo stato del buffer dopo un `Err` non era definito: conteneva il
+prefisso scritto fino al rifiuto. Un prefisso WKB parziale e' una sequenza di
+byte ben formata fino a dove arriva, quindi riutilizzabile per sbaglio senza
+che nulla protesti — e' esattamente il tipo di valore che sopravvive a un
+`if let Err(_) = ... { /* log */ }` distratto.
+
+`encode_wkb_into_bounded` svuota ora il buffer su qualunque errore, non solo
+sul superamento del tetto: anche una geometria incoerente rifiutata a meta'
+codifica lo lascia vuoto. `wkb_from_gj_value` allinea la stessa postcondizione
+sul confine del driver, includendo il fallimento della **conversione**, che
+avviene prima che venga scritto un byte: il buffer contiene una codifica
+completa oppure niente, indipendentemente da dove l'errore sia nato.
+
+### Lo svuotamento avrebbe mascherato il test sulla crescita
+
+E' la conseguenza che andava gestita, non un dettaglio. I test scritti in S5.1
+asserivano `buffer.len() <= tetto` dopo l'errore. Con lo svuotamento quella
+misura vale zero **sempre**, quindi non distingue piu' un encoder bounded da
+uno che cresce fino in fondo e poi ripulisce — cioe' proprio il difetto che
+S5.1 aveva corretto.
+
+La verifica della crescita e' percio' scesa al livello dove resta osservabile:
+un test in `wkb_lossless` costruisce `BoundedSink` a mano, chiama
+`write_geometry` e misura il buffer, dove nessuno ripulisce. Ai livelli
+superiori i test asseriscono ora la postcondizione pubblica, che il buffer sia
+vuoto.
+
+Verificato per mutazione, ed e' il risultato che giustifica lo spostamento:
+
+| Mutazione | Esito |
+|---|---|
+| rimosso lo svuotamento su `Err` | **uccisa** da `l_encoder_bounded_lascia_il_buffer_vuoto_su_errore` e da `wkb_from_gj_value_lascia_il_buffer_vuoto_su_errore` |
+| il sink scrive e poi rifiuta a posteriori | **uccisa** dal solo `il_sink_non_lascia_mai_crescere_il_buffer_oltre_il_tetto`; **tutti** i test dei tre driver passano |
+
+La seconda riga e' la misura di quanto la copertura sarebbe stata illusoria
+lasciando gli assert dov'erano.

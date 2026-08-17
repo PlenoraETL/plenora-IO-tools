@@ -1488,14 +1488,17 @@ mod tests {
         );
     }
 
-    /// Il buffer non cresce oltre il tetto, misurato direttamente.
+    /// Su errore il buffer resta vuoto, sul confine del driver.
     ///
-    /// Il test sopra osserva l'esito dal reader — un errore. Questo osserva la
-    /// grandezza che il tetto governa davvero: quanti byte il `Vec` arriva a
-    /// contenere. Un rifiuto a posteriori darebbe lo stesso errore con il
-    /// buffer gia' cresciuto.
+    /// Il test sopra osserva l'esito dal reader — un errore. Questo osserva lo
+    /// stato in cui il buffer viene lasciato, che e' la meta' del contratto
+    /// piu' facile da violare: un prefisso WKB parziale e' una sequenza ben
+    /// formata fino a dove arriva, quindi riutilizzabile per sbaglio.
+    ///
+    /// Che il buffer non **cresca** oltre il tetto e' verificato sul sink, in
+    /// `plenora-io-model`, dove lo svuotamento non maschera la misura.
     #[test]
-    fn wkb_from_gj_value_non_fa_crescere_il_buffer_oltre_il_tetto() {
+    fn wkb_from_gj_value_lascia_il_buffer_vuoto_su_errore() {
         let coordinate: Vec<geojson::Position> =
             (0..10).map(|indice| vec![f64::from(indice), 2.0]).collect();
         let valore = geojson::Value::LineString(coordinate);
@@ -1505,11 +1508,22 @@ mod tests {
             let esito = wkb_from_gj_value(&valore, &mut buffer, soglia);
             assert!(esito.is_err(), "tetto {soglia}: la codifica deve fallire");
             assert!(
-                buffer.len() <= soglia,
-                "tetto {soglia}: il buffer e' cresciuto fino a {} byte",
+                buffer.is_empty(),
+                "tetto {soglia}: il buffer conserva {} byte di prefisso",
                 buffer.len()
             );
         }
+
+        // Anche il fallimento della conversione, prima di scrivere un byte,
+        // lascia il buffer vuoto: la postcondizione non dipende da dove
+        // l'errore e' nato.
+        let mut buffer = vec![0xAA; 8];
+        assert!(
+            wkb_from_gj_value(&geojson::Value::LineString(vec![]), &mut buffer, usize::MAX)
+                .is_err(),
+            "una LineString vuota e' rifiutata dalla conversione"
+        );
+        assert!(buffer.is_empty(), "il buffer preesistente non sopravvive");
 
         let mut buffer = Vec::new();
         wkb_from_gj_value(&valore, &mut buffer, 169).expect("al tetto esatto la codifica passa");
