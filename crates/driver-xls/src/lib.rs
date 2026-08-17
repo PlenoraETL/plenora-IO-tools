@@ -62,6 +62,141 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("xls", reason)
 }
 
+/// Esegue una chiamata a `calamine` convertendo un suo panico in errore
+/// tipizzato (XLSX-HARDENING).
+///
+/// `calamine` converte il riferimento testuale di una cella (`A1`) in
+/// coordinate accumulando senza controlli: `col = col * 26 + …` e
+/// `row = row * 10 + …` su `u32` (0.36.1, `src/xlsx/mod.rs:2837-2853`). Un
+/// riferimento con abbastanza lettere trabocca — sette bastano — e il
+/// workspace tiene `overflow-checks = true` **anche in release**, per scelta
+/// dichiarata in `Cargo.toml`: l'overflow e' quindi un panico anche nel
+/// binario spedito, non solo sotto il profilo di fuzzing. Senza quella riga
+/// sarebbe peggio, non meglio: la moltiplicazione avvolgerebbe in silenzio e
+/// il foglio verrebbe letto a coordinate sbagliate.
+///
+/// Il driver legge file esterni non fidati per mestiere e promette una busta
+/// d'errore a quattro assi: la barriera ripristina il contratto, non lo aggira.
+/// Un aggiornamento di `calamine` che renda fallibile quella conversione
+/// **non** la sostituisce — chiude questo difetto, non la classe.
+///
+/// # Perimetro
+///
+/// Avvolge le sole chiamate che toccano l'input non fidato — apertura del
+/// workbook, nomi dei fogli, creazione del lettore di celle, dimensioni,
+/// `next_cell` e l'estrazione di posizione e valore — e non la logica del
+/// driver che ci sta attorno. Avvolgerla tutta trasformerebbe in "panico di
+/// calamine" anche un difetto nostro, che invece deve restare visibile.
+///
+/// # Correttezza dell'unwind safety
+///
+/// `AssertUnwindSafe` dichiara che lo stato attraversato dal panico non viene
+/// piu' osservato, e qui e' vero per costruzione, non per promessa: il
+/// chiamante riceve `Err`, e ogni struttura `calamine` toccata dal panico
+/// viene scartata prima che l'errore risalga — il lettore di celle da
+/// [`LettoreCelleSorvegliato`], che si invalida da solo, e il workbook da
+/// `open`, che lo lascia cadere prima di propagare. Nessuno stato parziale
+/// resta raggiungibile, quindi non c'e' invariante rotta da osservare.
+///
+/// # Nota per chi legge un fuzz target rosso
+///
+/// `xlsx_reader` resta rosso **anche a barriera funzionante**: `libfuzzer-sys`
+/// installa un hook che chiama `std::process::abort()` prima che l'unwinding
+/// cominci (0.4.10, `src/lib.rs:92-95`), apposta perche' un `catch_unwind` nel
+/// codice sotto test non possa nascondere difetti al fuzzer. La copertura di
+/// questa barriera e' il test del driver sul seme versionato, non il fuzzing.
+///
+/// # Errors
+///
+/// Propaga l'errore dell'operazione, oppure `PlenoraIoError::format` — fase
+/// `Read` — con la sola impronta redatta del panico: mai il testo del panico,
+/// il percorso del file o un valore di cella.
+fn leggendo_calamine<T>(operazione: impl FnOnce() -> Result<T>) -> Result<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione)) {
+        Ok(risultato) => risultato,
+        Err(panico) => Err(err(format!(
+            "calamine in panico durante la lettura (impronta {})",
+            plenora_io_core::driver::impronta_di_panico(panico.as_ref())
+        ))),
+    }
+}
+
+const LETTORE_INVALIDATO: &str = "lettore XLSX invalidato da un errore precedente";
+
+/// Lettore di celle `calamine` che non sopravvive a un proprio fallimento.
+///
+/// Il contratto «dopo un panico il lettore viene scartato» qui non e' una
+/// convenzione da rispettare a ogni chiamata: e' il tipo a imporlo. Al primo
+/// fallimento il lettore viene lasciato cadere e ogni chiamata successiva
+/// trova `None`, quindi non esiste un modo di continuare a leggere celle da
+/// uno stato che il panico ha attraversato — nemmeno per distrazione, in un
+/// ciclo che oggi non c'e' e domani potrebbe esserci.
+///
+/// Vale per qualunque fallimento, non solo per i panici: dopo un errore di
+/// `calamine` il flusso XML e' comunque a meta', e proseguire darebbe celle
+/// non attribuibili a una posizione. Nessun percorso del driver ci prova —
+/// tutti propagano — ma qui il "nessuno ci prova" e' verificato dal
+/// compilatore invece che riletto.
+struct LettoreCelleSorvegliato<'a, RS: Read + Seek> {
+    lettore: Option<XlsxCellReader<'a, RS>>,
+}
+
+impl<'a, RS: Read + Seek> LettoreCelleSorvegliato<'a, RS> {
+    /// Apre il lettore di celle del foglio, sorvegliando `calamine`.
+    fn nuovo(workbook: &'a mut Xlsx<RS>, foglio: &str) -> Result<Self> {
+        let lettore = leggendo_calamine(|| {
+            workbook
+                .worksheet_cells_reader(foglio)
+                .map_err(|errore| err(format!("foglio XLSX non leggibile: {errore}")))
+        })?;
+        Ok(Self {
+            lettore: Some(lettore),
+        })
+    }
+
+    /// Dimensioni dichiarate dal foglio.
+    fn dimensioni(&mut self) -> Result<SheetBounds> {
+        let Some(lettore) = self.lettore.as_mut() else {
+            return Err(err(LETTORE_INVALIDATO));
+        };
+        let esito = leggendo_calamine(|| {
+            let dimensioni = lettore.dimensions();
+            Ok(SheetBounds {
+                start: dimensioni.start,
+                end: dimensioni.end,
+            })
+        });
+        if esito.is_err() {
+            self.lettore = None;
+        }
+        esito
+    }
+
+    /// La cella successiva come dato **nostro**: posizione e valore lasciano
+    /// la barriera gia' copiati, cosi' nessun tipo di `calamine` sopravvive
+    /// alla chiamata e non c'e' un accessore che possa panicare piu' tardi,
+    /// fuori dal `catch_unwind`.
+    fn prossima_cella(&mut self) -> Result<Option<(u32, u32, Data)>> {
+        let Some(lettore) = self.lettore.as_mut() else {
+            return Err(err(LETTORE_INVALIDATO));
+        };
+        let esito = leggendo_calamine(|| {
+            let cella = lettore
+                .next_cell()
+                .map_err(|errore| err(format!("lettura celle XLSX: {errore}")))?;
+            Ok(cella.map(|cella| {
+                let (riga, colonna) = cella.get_position();
+                let valore: Data = cella.get_value().clone().into();
+                (riga, colonna, valore)
+            }))
+        });
+        if esito.is_err() {
+            self.lettore = None;
+        }
+        esito
+    }
+}
+
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "xls",
     direction: Direction::Bidirectional,
@@ -117,19 +252,25 @@ impl FormatDriver for XlsDriver {
             ));
         }
         validate_archive_ratio(&path, opts.budget())?;
-        let mut wb: Xlsx<_> =
-            open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))?;
+        let mut wb: Xlsx<_> = leggendo_calamine(|| {
+            open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))
+        })?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
-        let sheet = opts
-            .format_options
-            .get("sheet")
-            .cloned()
-            .or_else(|| wb.sheet_names().first().cloned())
-            .ok_or_else(|| err("nessun foglio nel workbook"))?;
+        let sheet = match opts.format_options.get("sheet").cloned() {
+            Some(dichiarato) => dichiarato,
+            None => leggendo_calamine(|| Ok(wb.sheet_names().first().cloned()))?
+                .ok_or_else(|| err("nessun foglio nel workbook"))?,
+        };
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::Crs("XLSX con geometria richiede --assume-crs".to_owned())
         })?;
-        let (layout, contract, spool) = infer_layout(
+        // Il workbook viene lasciato cadere **prima** di propagare l'esito, non
+        // dopo: se `infer_layout` e' rientrato per un panico di calamine, lo
+        // stato attraversato dal panico smette di esistere qui, e non c'e' un
+        // ramo d'errore che possa ancora toccarlo. E' la meta' che riguarda il
+        // workbook della promessa di `leggendo_calamine`; l'altra meta', il
+        // lettore di celle, se la impone da solo.
+        let inferenza = infer_layout(
             &mut wb,
             &sheet,
             &opts.format_options,
@@ -137,7 +278,9 @@ impl FormatDriver for XlsDriver {
             opts.cancellation(),
             XlsxQuote::from_read_options(&opts),
             opts.budget(),
-        )?;
+        );
+        drop(wb);
+        let (layout, contract, spool) = inferenza?;
         Ok(plenora_io_core::with_read_budget(
             Box::new(XlsDataset {
                 layers: vec![LayerContract {
@@ -466,7 +609,7 @@ fn data_row_count(bounds: SheetBounds) -> Result<usize> {
 }
 
 fn for_each_dense_row<RS, F>(
-    reader: &mut XlsxCellReader<'_, RS>,
+    reader: &mut LettoreCelleSorvegliato<'_, RS>,
     bounds: SheetBounds,
     cancellation: &CancellationToken,
     mut visit: F,
@@ -486,17 +629,11 @@ where
             let next = if let Some(cell) = pending.take() {
                 Some(cell)
             } else {
-                let cell = reader
-                    .next_cell()
-                    .map_err(|error| err(format!("lettura celle XLSX: {error}")))?;
+                let cell = reader.prossima_cella()?;
                 if cell.is_some() {
                     observed_cells += 1;
                 }
-                cell.map(|cell| {
-                    let (cell_row, cell_column) = cell.get_position();
-                    let value: Data = cell.get_value().clone().into();
-                    (cell_row, cell_column, value)
-                })
+                cell
             };
             let Some((cell_row, cell_column, value)) = next else {
                 break;
@@ -770,14 +907,8 @@ where
     RS: Read + Seek,
 {
     check_cancelled(cancellation, ErrorPhase::Read)?;
-    let mut reader = workbook
-        .worksheet_cells_reader(sheet)
-        .map_err(|error| err(format!("foglio '{sheet}': {error}")))?;
-    let dimensions = reader.dimensions();
-    let bounds = SheetBounds {
-        start: dimensions.start,
-        end: dimensions.end,
-    };
+    let mut reader = LettoreCelleSorvegliato::nuovo(workbook, sheet)?;
+    let bounds = reader.dimensioni()?;
     let width = data_row_width(bounds)?;
     let row_count = data_row_count(bounds)?;
     if width > quote.colonne {
@@ -1221,6 +1352,106 @@ mod tests {
 
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
+
+    /// Un `.xlsx` che fa panicare `calamine` deve uscire come errore del
+    /// driver, non abbattere il processo (XLSX-HARDENING).
+    ///
+    /// Il seme e' l'input che ha prodotto il finding nello smoke del
+    /// 2026-08-17: il foglio porta riferimenti di cella con otto lettere, che
+    /// `calamine` accumula in base 26 fino a superare `u32::MAX`
+    /// (`xlsx/mod.rs:2838`). Digest e provenienza in `fuzz/seeds/README.md`.
+    ///
+    /// Il target di fuzzing non puo' verificarlo: `libfuzzer-sys` installa un
+    /// panic hook che chiama `abort()` prima dell'unwinding, quindi
+    /// `catch_unwind` non entra mai in gioco e `xlsx_reader` continua a
+    /// segnalare un crash anche con la barriera al suo posto — per questo e'
+    /// in `fuzz/quarantine.txt`. Fuori dal fuzzer l'unwinding e' quello di
+    /// default (nel workspace non c'e' alcun `panic = "abort"`) e la barriera
+    /// si osserva. Se questo test viene rimosso, la mitigazione non e' piu'
+    /// verificata da niente.
+    #[test]
+    fn un_xlsx_che_fa_panicare_calamine_diventa_un_errore_del_driver() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/xlsx_reader/riferimento-cella-oltre-u32.xlsx");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+        // Le stesse due dichiarazioni di geometria che usa il fuzz target:
+        // il difetto e' nel parser delle celle, non nella geometria, e la
+        // barriera deve valere per entrambe.
+        let dichiarazioni: [Vec<(&str, &str)>; 2] = [
+            vec![("wkt_column", "geometry")],
+            vec![("x_column", "x"), ("y_column", "y")],
+        ];
+
+        let mut barriera_scattata = 0_usize;
+        for dichiarazione in &dichiarazioni {
+            let mut opzioni = opzioni_lettura().with_assume_crs("EPSG:4326");
+            for (chiave, valore) in dichiarazione {
+                opzioni = opzioni.with_format_option(*chiave, *valore);
+            }
+
+            // Nessun panico: se la barriera non c'e', questa riga abbatte il
+            // processo di test invece di restituire.
+            let esito = XlsDriver.open(Source::Path(seme.clone()), opzioni);
+
+            // Nessun dataset parziale: `open` non consegna un handle a meta'.
+            // La prova e' che non ne consegna affatto uno.
+            let Err(errore) = esito else {
+                panic!("{dichiarazione:?}: l'input doveva essere rifiutato")
+            };
+
+            assert!(
+                errore.message.contains("calamine in panico"),
+                "{dichiarazione:?}: la barriera non e' scattata: {errore}"
+            );
+            barriera_scattata += 1;
+
+            // Errore tipizzato, fase Read.
+            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::DataMapping
+            );
+            assert_eq!(errore.phase, ErrorPhase::Read);
+            assert_eq!(errore.driver.as_deref(), Some("xls"));
+
+            // Messaggio pubblico redatto: nessun testo del panico, nessun
+            // percorso, nessun valore dell'input.
+            let messaggio = errore.message.as_str();
+            for vietato in [
+                "overflow",          // testo del panico di Rust
+                "multiply",          // idem, in inglese
+                "riferimento-cella", // nome del file
+                "fuzz/seeds",        // percorso
+                "Bncasufw",          // valore di cella dell'input
+                "xlsx/mod.rs",       // percorso sorgente a monte
+            ] {
+                assert!(
+                    !messaggio.contains(vietato),
+                    "il messaggio pubblico non deve contenere {vietato:?}: {messaggio}"
+                );
+            }
+
+            // Al posto del testo c'e' l'impronta: sedici cifre esadecimali,
+            // stabili fra esecuzioni, da cui non si risale al messaggio.
+            let impronta = messaggio
+                .rsplit_once("impronta ")
+                .map(|(_, coda)| coda.trim_end_matches(')').to_owned())
+                .expect("il messaggio deve portare l'impronta del panico");
+            assert_eq!(impronta.len(), 16, "impronta inattesa: {impronta}");
+            assert!(
+                impronta.chars().all(|c| c.is_ascii_hexdigit()),
+                "impronta non esadecimale: {impronta}"
+            );
+        }
+
+        assert_eq!(
+            barriera_scattata,
+            dichiarazioni.len(),
+            "la barriera deve scattare su ogni dichiarazione: il difetto e' nel \
+             parser delle celle, che le precede tutte"
+        );
+    }
 
     #[test]
     fn coordinate_cells_fail_closed_on_invalid_or_lossy_values() {

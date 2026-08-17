@@ -581,10 +581,25 @@ pub fn leggendo_arrow<T>(
             driver,
             format!(
                 "arrow in panico durante la decodifica (impronta {})",
-                impronta_del_panico(&messaggio_del_panico(&panico))
+                impronta_di_panico(panico.as_ref())
             ),
         )),
     }
+}
+
+/// Impronta redatta del payload di un panico, per chi costruisce una barriera.
+///
+/// Esposta perche' `arrow` non e' l'unica libreria che puo' andare in panico su
+/// input non fidato: `driver-xls` ha la propria barriera attorno a `calamine`
+/// (XLSX-HARDENING). La redazione **non** va riscritta accanto a ogni barriera:
+/// l'impronta vale come identificatore solo se e' la stessa funzione ovunque,
+/// altrimenti due occorrenze dello stesso difetto non si correlano piu'.
+///
+/// Il perimetro e' quello descritto in [`impronta_del_panico`]: redige
+/// l'errore strutturato, non l'hook di panico del processo.
+#[must_use]
+pub fn impronta_di_panico(panico: &(dyn std::any::Any + Send)) -> String {
+    impronta_del_panico(&messaggio_del_panico(panico))
 }
 
 /// Impronta stabile e non invertibile del messaggio di un panico.
@@ -622,7 +637,7 @@ fn impronta_del_panico(messaggio: &str) -> String {
 
 /// Estrae il messaggio da un payload di panico senza assumerne il tipo:
 /// `panic!` con formato produce `String`, quello letterale `&'static str`.
-fn messaggio_del_panico(panico: &Box<dyn std::any::Any + Send>) -> String {
+fn messaggio_del_panico(panico: &(dyn std::any::Any + Send)) -> String {
     panico.downcast_ref::<&'static str>().map_or_else(
         || {
             panico

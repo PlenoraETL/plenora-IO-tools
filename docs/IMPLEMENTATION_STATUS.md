@@ -385,3 +385,29 @@ rifiutare, quindi restano aperti e i target corrispondenti sono elencati in
 nello smoke, perché un gate che fallisce sempre smette di essere letto e copre le
 regressioni nuove. `scripts/fuzz-smoke.sh --include-quarantined` e la campagna
 lunga li eseguono comunque.
+
+**XLSX-HARDENING (2026-08-17).** Lo smoke eseguito dopo INFRA-0 ha prodotto un
+finding nuovo su `xlsx_reader`, target che non era in quarantena: `calamine`
+0.36.1 converte il riferimento testuale di una cella accumulando in `u32` senza
+controlli (`xlsx/mod.rs:2837-2853`), e sette lettere bastano a farlo traboccare.
+Il workspace tiene `overflow-checks = true` anche in release, quindi era un
+panico nel binario spedito, non un artefatto del profilo di fuzzing; e il
+percorso è `FormatDriver::open`, cioè l'API pubblica.
+
+`driver-xls` ha ora una barriera propria — `leggendo_calamine` — attorno alle
+sole chiamate che toccano l'input non fidato: apertura del workbook, nomi dei
+fogli, creazione del lettore, dimensioni e `next_cell`. Il lettore di celle si
+invalida al primo fallimento, il workbook viene lasciato cadere prima che
+l'errore risalga, e l'errore è tipizzato di fase `Read` con il solo digest
+redatto del panico. La mitigazione è verificata da
+`un_xlsx_che_fa_panicare_calamine_diventa_un_errore_del_driver` sul seme
+versionato, e verificata **per mutazione**: rimossa la barriera, quel test
+fallisce con il panico di `calamine`.
+
+`xlsx_reader` entra in quarantena solo dopo la mitigazione, e per una ragione
+di strumento e non di rischio: `libfuzzer-sys` trasforma il panico in `abort()`
+prima dell'unwinding, quindi il target resta rosso anche a barriera
+funzionante. La segnalazione a monte è pronta e **non pubblicata** in
+[`assurance/UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md`](assurance/UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md);
+un eventuale aggiornamento di `calamine` chiuderebbe questo difetto, non la
+classe, e non sostituisce la barriera.
