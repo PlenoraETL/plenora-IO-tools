@@ -70,6 +70,14 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_toolchain_pins
           python3 scripts/check_toolchain_pins.py
+      # Lo scope della coverage e' "library coverage": la soglia vale sulle
+      # librerie, non sull'attrezzaggio. La regex di esclusione e' derivata dal
+      # workspace invece che ricopiata, cosi' una crate binaria nuova non entra
+      # nel denominatore in silenzio — e nemmeno una libreria ne esce.
+      - name: Verify the declared coverage scope
+        run: |
+          python3 -m unittest scripts.test_check_coverage_exclusions
+          python3 scripts/check_coverage_exclusions.py
       - name: Verify governed GDAL fork
         run: python3 scripts/check_gdal_fork.py
       - name: Verify governed DXF fork
@@ -327,14 +335,26 @@ jobs:
         env:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
         run: cargo llvm-cov --workspace --all-targets --locked --no-report
+      # Il report esportato porta le stesse esclusioni della soglia. Prima non
+      # le portava, e l'artefatto pubblicato come "coverage" descriveva un
+      # perimetro diverso da quello su cui la soglia veniva applicata: due
+      # misure con lo stesso nome.
       - name: Export LCOV report
-        run: cargo llvm-cov report --lcov --output-path lcov.info
+        run: >-
+          cargo llvm-cov report --lcov --output-path lcov.info
+          --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         with:
           name: rust-coverage-lcov
           path: lcov.info
+      # La regex dichiara l'intenzione; questo passo legge il risultato. Un
+      # binario nuovo sotto `src/bin/` non rientra piu' in silenzio nella
+      # misura, e una regex troppo larga che togliesse una libreria dal
+      # denominatore verrebbe vista allo stesso modo.
+      - name: Verify the coverage report respects the declared scope
+        run: python3 scripts/check_coverage_exclusions.py --lcov lcov.info
       - name: Enforce library coverage threshold
         run: >-
           cargo llvm-cov report --summary-only
-          --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/main\.rs$'
+          --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
           --fail-under-lines 80

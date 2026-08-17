@@ -274,16 +274,28 @@ canoniche e rifiuta metadati incompleti o un'estensione esterna discordante.
 
 ## Copertura CI
 
-Il report LCOV conserva l'intera workspace, inclusi CLI, benchmark e harness
-fuzz. Il gate quantitativo è invece applicato al solo codice di libreria:
-esclude esclusivamente gli entry point `main.rs` di `plenora-io-cli`,
-`plenora-bench` e `plenora-fuzz`, che richiedono test end-to-end o campagne
-dedicate e falsavano il dato delle librerie. La CI candidata immutabile
-`3f3562a` supera il gate fail-closed fissato all'80%; l'artifact LCOV
-`8743219769` e il relativo digest sono registrati nel bundle di evidenza.
-Raccolta, pubblicazione
-dell'artifact e verifica della soglia sono passi distinti, così un eventuale
-calo resta diagnosticabile.
+Lo scope della misura è **library coverage**: le crate che non dichiarano una
+libreria — `plenora-io-cli`, `plenora-bench`, `plenora-fuzz` — restano fuori
+dal denominatore, perché richiedono test end-to-end o campagne dedicate e
+falsavano il dato delle librerie. Da INFRA-0.1 ne sono esclusi **tutti** i
+sorgenti e non i soli `main.rs`: la regex precedente lasciava dentro
+`plenora-bench/src/bin/spool_ab.rs`, 146 righe a 0%. Le stesse esclusioni sono
+ora applicate anche all'export LCOV, che prima le ignorava: l'artifact
+pubblicato e la soglia descrivono lo stesso perimetro.
+
+`scripts/check_coverage_exclusions.py` deriva l'esclusione dal workspace invece
+di ricopiarla, verifica che ogni invocazione di `cargo llvm-cov report` la
+dichiari e osserva il report LCOV prodotto — nessun file delle crate non
+libreria nel denominatore, ogni crate libreria presente. Una crate binaria
+nuova, o un binario nuovo sotto `src/bin/`, non rientra più in silenzio.
+
+La soglia fail-closed resta fissata all'**80%**, e il gate rifiuta anche chi la
+sposta: se la copertura scende sotto soglia si aggiungono test. La CI candidata
+immutabile `3f3562a` la superava con il perimetro di allora; l'artifact LCOV
+`8743219769` e il relativo digest restano registrati nel bundle di evidenza
+come misura storica. Raccolta, pubblicazione
+dell'artifact, verifica delle esclusioni e verifica della soglia sono passi
+distinti, così un eventuale calo resta diagnosticabile.
 
 ## Decisione sui fuzz test
 

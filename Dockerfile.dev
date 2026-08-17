@@ -20,6 +20,13 @@
 #   cargo run -p plenora-io-cli --features gdal-backend --locked -- catalog
 #   bash scripts/fuzz-smoke.sh                       # 13 target sotto ASan
 #   cargo llvm-cov --workspace --all-targets --locked --no-report
+#   cargo llvm-cov report --summary-only --fail-under-lines 80 \
+#     --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
+#
+# L'esclusione fa parte della misura, non e' un dettaglio del comando: lo scope
+# e' "library coverage", e senza il filtro la percentuale misurata qui non e'
+# quella che la CI confronta con la soglia. E' la stessa regex del workflow, e
+# `scripts/check_coverage_exclusions.py` verifica che non ne esistano due.
 #
 # Per fuzz e coverage conviene spostare la directory di build su un filesystem
 # nativo: su un bind mount la build strumentata e' di un ordine di grandezza

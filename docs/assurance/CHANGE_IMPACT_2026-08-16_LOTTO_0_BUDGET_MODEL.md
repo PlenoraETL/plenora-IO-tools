@@ -1631,3 +1631,167 @@ misura. La soglia passa comunque, e non l'ho toccata — correggerla alzerebbe l
 percentuale storica senza che nessuno lo abbia deciso, e la misura va cambiata
 per scelta, non come effetto collaterale di un commit di infrastruttura.
 Registrato qui perche' sia una decisione e non una svista.
+
+---
+
+## INFRA-0.1 — la coverage misura lo scope che dichiara
+
+INFRA-0 ha registrato la regex sbagliata come decisione invece che correggerla
+sull'onda di un commit di infrastruttura. Questa e' la correzione, presa per
+scelta e con il numero prima e dopo scritti entrambi.
+
+### Cosa cambia nella misura
+
+L'esclusione nominava un file per crate, `.../src/main\.rs$`. Lo scope
+dichiarato non e' "tutto tranne tre `main.rs`", e' **library coverage**: quello
+che non e' libreria sta fuori dal denominatore, non uno dei suoi file. La regex
+e' ora `(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$`.
+
+Il confronto sotto e' misurato su `15dc4e5`, cioe' la revisione di INFRA-0:
+stessa revisione, stessa immagine, stessi dati di profilo, cambia **solo** il
+perimetro del report. E' l'unico modo di attribuire la differenza alla regex
+invece che al codice. Il valore sulla revisione di questo commit — che nel
+frattempo porta XLSX-HARDENING — e' registrato più sotto, in «Esecuzione
+reale».
+
+| a `15dc4e5` | perimetro precedente | perimetro corretto |
+|---|---|---|
+| file nel denominatore | 36 | **35** |
+| righe | 28.171 | **28.025** |
+| righe non coperte | 3.857 | **3.711** |
+| **copertura di riga** | **86,31%** | **86,76%** |
+| copertura di regione | 85,19% | 85,64% |
+| copertura di funzione | 79,87% | 80,22% |
+
+La soglia resta **80%**, non toccata: il valore corretto la supera con 6,76
+punti di margine, e se fosse sceso sotto la risposta sarebbe stata aggiungere
+test. Il gate ora rifiuta anche chi la **alza**: una soglia che segue la misura
+non e' una soglia.
+
+L'unico file che esce dal denominatore della soglia e'
+`plenora-bench/src/bin/spool_ab.rs` — 146 righe, tutte non coperte, ed e'
+esattamente la differenza fra le due colonne (28.171 − 28.025 = 3.857 − 3.711 =
+146). Gli altri tre `main.rs` erano gia' fuori dalla soglia; erano invece
+**dentro** l'artefatto LCOV pubblicato, che fino a qui veniva esportato senza
+filtro. `plenora-io-cli/src/conformance_tests.rs` non compare in nessuna delle
+due colonne: non entra negli artefatti strumentati di questa misura.
+
+**Una differenza non spiegata, registrata perche' non passi per esattezza.**
+Riprodotta oggi con la regex *precedente*, la misura da 86,31% (3.857 righe non
+coperte) contro l'86,33% (3.852) registrato in INFRA-0. Il denominatore e'
+identico — 28.171 righe — quindi il perimetro e' lo stesso e la differenza sta
+nell'esecuzione: cinque righe che una corsa percorre e l'altra no. Non l'ho
+inseguita: non sposta nessuna decisione, ma il valore storico non e'
+riproducibile al centesimo e dirlo costa meno che scoprirlo dopo.
+
+### Il gate: la regex e' derivata, non ricopiata
+
+Correggere la regex non impedisce di sbagliarla di nuovo, e il modo di
+sbagliarla non era finito con `spool_ab.rs`: un binario nuovo sotto `src/bin/`,
+o un modulo accanto al `main.rs`, sarebbe rientrato allo stesso modo — in
+silenzio, perche' una percentuale che supera la soglia non fa rumore.
+
+`scripts/check_coverage_exclusions.py` **deriva** la regex dal workspace invece
+di confrontarla con una costante: una crate e' libreria se dichiara una
+libreria (`src/lib.rs` o una sezione `[lib]`), e non lo e' altrimenti. La regex
+canonica e' quindi una funzione dell'albero, e una crate binaria nuova la
+cambia da sola: chi la aggiunge senza aggiornare il workflow trova il gate
+rosso.
+
+Sopra la derivazione ci sono tre verifiche, e servono tutte e tre:
+
+* **presenza** — ogni invocazione di `cargo llvm-cov report` nel workflow
+  dichiara l'esclusione. Ogni invocazione, non una: un report esportato senza
+  filtro e una soglia applicata con filtro sono due misure diverse che si
+  presentano con lo stesso nome. E' il difetto che l'artefatto LCOV aveva.
+* **esclusivita'** — nessun altro valore di `--ignore-filename-regex` compare
+  nei file sorvegliati (`ci.yml`, `Dockerfile.dev`). Cercare il valore atteso
+  trova sempre quello giusto e mai quello sbagliato.
+* **osservazione del report** — sul LCOV prodotto davvero nessun file delle tre
+  crate non libreria compare, **e ogni crate libreria compare**. Le prime due
+  leggono l'intenzione scritta nel workflow, questa legge il risultato: una
+  regex puo' essere quella giusta e non fare cio' che si crede.
+
+La seconda meta' dell'ultima verifica sorveglia l'errore speculare, che e' il
+piu' comodo da commettere: una regex troppo larga alza la percentuale togliendo
+dal denominatore proprio il codice che la soglia doveva sorvegliare.
+
+Diciassette sonde negative in `scripts/test_check_coverage_exclusions.py`
+costruiscono un workspace finto e verificano che ogni indebolimento plausibile
+venga intercettato: la regex che nomina solo `main.rs`, quella che dimentica una
+crate binaria, quella che ne esclude una libreria, la crate binaria nuova non
+ancora esclusa, l'esclusione cancellata dall'export o dalla soglia, la soglia
+cancellata, abbassata o alzata, il report con un binario sotto `src/bin/`, il
+report senza una libreria, il report vuoto e quello assente. Tre verifiche
+positive accompagnano le sonde: l'albero conforme che deve passare, la regex
+derivata dal workspace, e la crate che dichiara `[lib]` senza `src/lib.rs` —
+che e' libreria e resta nel denominatore.
+
+Il gate gira due volte in CI: nel job `rust` senza report — verifica statica del
+workflow, insieme alle sonde — e nel job `coverage` con `--lcov lcov.info`,
+dopo l'export e prima della soglia.
+
+### `scripts/fuzz-probe.sh` rimosso
+
+Era la sonda di fattibilita' scritta prima che il fuzzing entrasse
+nell'immagine: installava clang, nightly e `cargo-fuzz` per rispondere alla
+domanda "si riesce a farlo girare?". INFRA-0 ha risposto di si' in modo
+permanente, e da allora lo script non era referenziato da nulla.
+
+Tenerlo sarebbe costato piu' che rimuoverlo: usava il canale **mobile**
+`nightly` e installava `cargo-fuzz` **senza versione**, cioe' esattamente le due
+divergenze che `check_toolchain_pins.py` esiste per impedire, e non era nel
+perimetro di quel gate; non aveva `set -euo pipefail`; e la riga finale
+`echo "=== RUN OK (exit $?) ==="` osservava l'exit code di `tail`, non quello
+del fuzzing, quindi stampava "OK" anche su un crash. Le alternative erano
+allinearlo ai pin canonici e portarlo nel gate, oppure rimuoverlo: rimosso,
+perche' `scripts/fuzz-smoke.sh` fa la stessa cosa meglio e su tutti i target.
+
+### Esecuzione reale
+
+| Verifica | Esito |
+|---|---|
+| `python3 -m unittest scripts.test_check_coverage_exclusions` | **20 test verdi**, di cui 17 sonde negative |
+| `check_coverage_exclusions.py` (statico, sul workflow) | superato |
+| `check_coverage_exclusions.py --lcov` sul report corretto | superato |
+| `check_coverage_exclusions.py --lcov` sul report della **regex precedente** | **rifiutato**: `plenora-bench/src/bin/spool_ab.rs` |
+| `check_coverage_exclusions.py --lcov` sul report non filtrato | **rifiutato**, 4 file delle tre crate |
+| `check_toolchain_pins.py` + sonde | superato dopo la rimozione di `fuzz-probe.sh` |
+| soglia line coverage ≥ 80% con la regex corretta, a `15dc4e5` | **86,76%** (28.025 righe, 3.711 non coperte) |
+
+### Sulla revisione di questo commit
+
+Il commit non sta piu' su `15dc4e5`: sopra c'e' XLSX-HARDENING, che aggiunge la
+barriera `calamine` e il suo test. La coverage e' stata quindi rimisurata sulla
+revisione che il commit porta davvero, perche' un numero registrato per una
+revisione diversa non e' il numero che il gate vedra'.
+
+| a `4edce6f` + INFRA-0.1 | perimetro precedente | perimetro corretto |
+|---|---|---|
+| file nel denominatore | 36 | **35** |
+| righe | 28.269 | **28.123** |
+| righe non coperte | 3.863 | **3.717** |
+| **copertura di riga** | **86,33%** | **86,78%** |
+| copertura di regione | 85,23% | 85,67% |
+| copertura di funzione | 79,97% | 80,32% |
+
+La differenza fra le due colonne resta **esattamente 146 righe** — 28.269 −
+28.123 = 3.863 − 3.717 — cioe' `plenora-bench/src/bin/spool_ab.rs`, tutte non
+coperte, su una revisione diversa e con codice nuovo in mezzo. È la conferma
+che il perimetro corretto toglie quel file e nient'altro.
+
+Il gate osserva il LCOV prodotto davvero: 35 file, nessuno delle tre crate non
+libreria, tutte e 13 le crate libreria presenti. La soglia dell'80% passa con
+6,78 punti di margine.
+
+| Verifica sull'albero finale | Esito |
+|---|---|
+| gate completi del job `rust` piu' quelli Python/shell | **25/25 verdi** |
+| suite | 491 test unit+integration, 5 doctest |
+| smoke fuzz, 60 s per target | **9 eseguiti senza finding**, 4 saltati per quarantena ma compilati |
+
+Lo smoke e' stato eseguito da solo, senza altri container attivi:
+`fuzz/quarantine.txt` avverte che `-timeout` misura tempo di parete, e sotto
+carico un input veloce verrebbe archiviato come timeout — cioe' un finding
+inventato. I target saltati sono quattro e non piu' tre: `xlsx_reader` si e'
+aggiunto con XLSX-HARDENING, dopo la mitigazione e non prima.
