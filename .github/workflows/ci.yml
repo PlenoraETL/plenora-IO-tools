@@ -60,6 +60,16 @@ jobs:
           python3 scripts/generate_shared_wkb_corpus.py --check
       - name: Verify exact dependency pins
         run: python3 scripts/check_dependency_pins.py
+      # I pin di toolchain sono replicati come letterali in sei posti, perche'
+      # un Dockerfile non legge un file fuori dal contesto di build e una CI
+      # che facesse `source` renderebbe i pin invisibili a chi la legge. Il
+      # rischio e' che un aggiornamento ne tocchi cinque su sei: fuzzing su un
+      # nightly diverso da quello dell'immagine, o copertura misurata da due
+      # versioni diverse dello stesso strumento.
+      - name: Verify toolchain pins do not diverge
+        run: |
+          python3 -m unittest scripts.test_check_toolchain_pins
+          python3 scripts/check_toolchain_pins.py
       - name: Verify governed GDAL fork
         run: python3 scripts/check_gdal_fork.py
       - name: Verify governed DXF fork
@@ -305,9 +315,14 @@ jobs:
         with:
           toolchain: "1.92.0"
           components: llvm-tools-preview
+      # Versione esatta, la stessa di Dockerfile.dev: la percentuale
+      # confrontata con la soglia dipende da come lo strumento aggrega le
+      # regioni, quindi la versione fa parte della misura. Senza pin, immagine
+      # di sviluppo e CI potrebbero riportare due valori entrambi plausibili e
+      # diversi. Allineamento verificato da scripts/check_toolchain_pins.py.
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-llvm-cov
         with:
-          tool: cargo-llvm-cov
+          tool: cargo-llvm-cov@0.9.0
       - name: Measure coverage
         env:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm

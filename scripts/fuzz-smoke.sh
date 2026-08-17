@@ -18,6 +18,21 @@ if [ "${1:-}" = "--include-quarantined" ]; then
     shift
 fi
 
+# La toolchain e' scelta **qui**, non ereditata dall'ambiente. -Zsanitizer
+# richiede nightly, e senza una scelta esplicita lo script userebbe cio' che
+# capita: rust-toolchain.toml lo porterebbe su stable 1.92.0, dove la build
+# strumentata fallisce con "only accepted on nightly"; un RUSTUP_TOOLCHAIN
+# impostato altrove lo porterebbe su un nightly qualsiasi, e due esecuzioni
+# della stessa revisione produrrebbero binari diversi. Il pin e' lo stesso di
+# scripts/toolchain-pins.env, verificato da check_toolchain_pins.py.
+toolchain="${PLENORA_FUZZ_TOOLCHAIN:-nightly-2026-07-21}"
+if ! rustup toolchain list | grep -q "^${toolchain}"; then
+    echo "toolchain ${toolchain} non installata: e' quella che serve a -Zsanitizer=address" >&2
+    echo "installala con: rustup toolchain install ${toolchain} --profile minimal" >&2
+    exit 1
+fi
+echo "toolchain fuzz: ${toolchain}"
+
 duration="${1:-${PLENORA_FUZZ_SECONDS:-60}}"
 rss_limit_mb="${PLENORA_FUZZ_RSS_MB:-2048}"
 max_len="${PLENORA_FUZZ_MAX_LEN:-65536}"
@@ -31,7 +46,7 @@ fi
 
 # La lista dei target e' derivata dal manifest, non riscritta qui: un target
 # nuovo entra nello smoke senza toccare questo script ne' la CI.
-mapfile -t targets < <(cargo fuzz list)
+mapfile -t targets < <(cargo +"${toolchain}" fuzz list)
 if [ "${#targets[@]}" -eq 0 ]; then
     echo "nessun target fuzz dichiarato in fuzz/Cargo.toml" >&2
     exit 1
@@ -58,7 +73,7 @@ is_quarantined() {
 }
 
 echo "=== build strumentata (${#targets[@]} target) ==="
-cargo fuzz build "${options[@]}"
+cargo +"${toolchain}" fuzz build "${options[@]}"
 
 if [ "${#quarantined[@]}" -ne 0 ]; then
     echo
@@ -90,7 +105,7 @@ for target in "${targets[@]}"; do
         continue
     fi
     echo "=== ${target}: ${duration}s ==="
-    if ! cargo fuzz run "${options[@]}" "${target}" -- \
+    if ! cargo +"${toolchain}" fuzz run "${options[@]}" "${target}" -- \
         "-max_total_time=${duration}" \
         "-rss_limit_mb=${rss_limit_mb}" \
         "-max_len=${max_len}" \

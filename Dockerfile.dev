@@ -3,6 +3,13 @@
 # rust-toolchain.toml, stessa versione GDAL Debian bookworm (3.6.2) usata dal
 # profilo FileGDB verificato, Python 3 per gli script di gate in scripts/.
 #
+# Da INFRA-0 l'immagine porta anche cio' che serve a misurare fuzz e coverage,
+# che prima erano gli unici due gate non eseguibili qui: nightly datato per
+# -Zsanitizer=address, cargo-fuzz e cargo-llvm-cov a versione esatta. I pin
+# sono gli stessi di fuzz/Dockerfile e della CI, e `scripts/toolchain-pins.env`
+# ne e' la fonte unica; `scripts/check_toolchain_pins.py` verifica che non
+# divergano.
+#
 # Uso tipico dalla radice del repo:
 #   docker build -f Dockerfile.dev -t plenora-io-dev .
 #   docker run --rm -it -v ${PWD}:/work -v plenora-io-cargo:/usr/local/cargo/registry plenora-io-dev
@@ -11,8 +18,20 @@
 #   cargo test  --workspace --all-targets --locked
 #   cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 #   cargo run -p plenora-io-cli --features gdal-backend --locked -- catalog
+#   bash scripts/fuzz-smoke.sh                       # 13 target sotto ASan
+#   cargo llvm-cov --workspace --all-targets --locked --no-report
+#
+# Per fuzz e coverage conviene spostare la directory di build su un filesystem
+# nativo: su un bind mount la build strumentata e' di un ordine di grandezza
+# piu' lenta. Per il fuzz basta PLENORA_FUZZ_TARGET_DIR, per la coverage
+# CARGO_TARGET_DIR.
 
 FROM rust:1.92-slim-bookworm
+
+# Tenuti allineati a scripts/toolchain-pins.env dal gate check_toolchain_pins.py.
+ARG PLENORA_RUST_NIGHTLY=nightly-2026-07-21
+ARG PLENORA_CARGO_FUZZ_VERSION=0.13.2
+ARG PLENORA_CARGO_LLVM_COV_VERSION=0.9.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     CARGO_TERM_COLOR=always \
@@ -44,6 +63,21 @@ RUN apt-get update \
 # (clippy per il gate anti-panic, rustfmt per `cargo fmt --check`,
 # llvm-tools-preview per la copertura LCOV).
 RUN rustup component add clippy rustfmt llvm-tools-preview
+
+# Nightly **accanto** a stable, non al posto suo: `rustup default` resta
+# 1.92.0, che e' la toolchain con cui il workspace viene costruito e testata.
+# Il nightly e' raggiungibile solo con `cargo +${PLENORA_RUST_NIGHTLY}` o
+# tramite RUSTUP_TOOLCHAIN, quindi nessun comando lo usa per sbaglio: se il
+# fuzzing sfuggisse a stable senza che nessuno lo abbia chiesto, il gate
+# anti-panic e clippy girerebbero su un compilatore diverso da quello spedito.
+RUN rustup toolchain install "${PLENORA_RUST_NIGHTLY}" --profile minimal  && rustup component add --toolchain "${PLENORA_RUST_NIGHTLY}" rustfmt
+
+# cargo-fuzz e' costruito con nightly perche' e' il compilatore che poi usera'
+# per i target strumentati; cargo-llvm-cov con stable, che e' quello su cui
+# misura. Entrambi a versione esatta e con --locked: la percentuale di
+# copertura e i flag passati a libFuzzer fanno parte della misura, e uno
+# strumento mobile la farebbe cambiare a parita' di revisione.
+RUN cargo +"${PLENORA_RUST_NIGHTLY}" install cargo-fuzz         --version "${PLENORA_CARGO_FUZZ_VERSION}" --locked  && cargo install cargo-llvm-cov         --version "${PLENORA_CARGO_LLVM_COV_VERSION}" --locked  && rm -rf /usr/local/cargo/registry
 
 WORKDIR /work
 

@@ -370,8 +370,14 @@ allora non li intercettavano.
 I due finding di risorsa vanno **rivalutati** contro il modello unificato: da
 S4.d la memoria e' governata da un `PipelineContext` con soglia di migrazione
 e spool su disco, quindi un reader non dovrebbe piu' poter crescere senza
-tetto. La rivalutazione non e' stata eseguita — il container di sviluppo non
-ha nightly ne' `cargo-fuzz` — e resta fra i gate non misurabili qui.
+tetto. La rivalutazione **non e' ancora stata eseguita**, ma da INFRA-0 non e'
+piu' bloccata dallo strumento: `Dockerfile.dev` porta nightly datato,
+`cargo-fuzz` e `cargo-llvm-cov`, e i tredici target compilano e girano
+localmente. E' lavoro di S12, che tocca comunque i target di fuzzing.
+
+I cinque finding quarantinati **restano aperti**: poter eseguire il fuzzing non
+li chiude, e nessuno di essi e' correggibile senza decidere cosa il driver deve
+accettare o rifiutare.
 
 Nessuno dei cinque è correggibile senza decidere cosa il driver deve accettare o
 rifiutare, quindi restano aperti e i target corrispondenti sono elencati in

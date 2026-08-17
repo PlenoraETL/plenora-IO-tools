@@ -1326,6 +1326,11 @@ questo ambiente**: il `Dockerfile.dev` non ha nightly ne' `cargo-fuzz`. Non
 sono percio' dichiarati verificati, e restano fra i gate non misurabili qui
 insieme alla coverage.
 
+> **Superato da INFRA-0.** L'immagine porta ora nightly, `cargo-fuzz` e
+> `cargo-llvm-cov`, e i tredici target compilano sotto AddressSanitizer:
+> l'adeguamento delle firme e' verificato, non piu' assunto. Vedi la sezione
+> INFRA-0.
+
 ---
 
 ## S5.1 — chiusura dei residui aperti da S5
@@ -1522,3 +1527,107 @@ Verificato per mutazione, ed e' il risultato che giustifica lo spostamento:
 
 La seconda riga e' la misura di quanto la copertura sarebbe stata illusoria
 lasciando gli assert dov'erano.
+
+---
+
+## INFRA-0 — fuzz e coverage entrano nell'immagine di sviluppo
+
+Fino a qui ogni registrazione si e' chiusa con la stessa riga: fuzz e coverage
+"non misurabili qui". Non era una proprieta' del codice, era una proprieta'
+dell'immagine — e significava che due gate su diciannove venivano dichiarati
+sulla fiducia. Il caso peggiore lo si e' visto in S4.e e in S5: l'harness di
+fuzzing e' stato migrato al modello unificato **senza mai compilarlo**, e la
+registrazione ha dovuto dire esattamente questo.
+
+### Cosa c'e' ora nell'immagine
+
+| Strumento | Versione | Toolchain con cui e' costruito |
+|---|---|---|
+| Rust stable | 1.92.0 | resta il **default**: `rustup default` non cambia |
+| Rust nightly | `nightly-2026-07-21` | installato accanto, raggiungibile solo con `cargo +...` |
+| `cargo-fuzz` | 0.13.2 `--locked` | nightly, che e' il compilatore che poi usera' |
+| `cargo-llvm-cov` | 0.9.0 `--locked` | stable, che e' quello su cui misura |
+
+Nightly **non** e' impostato globalmente, ed e' una scelta di sicurezza, non di
+stile: se il fuzzing riuscisse a trascinare l'intero workspace su nightly senza
+che nessuno lo abbia chiesto, il gate anti-panic e clippy girerebbero su un
+compilatore diverso da quello con cui il codice viene spedito. Le loro diagnosi
+divergono, e la divergenza sarebbe silenziosa.
+
+### Il gate anti-divergenza dei pin
+
+I quattro pin sono replicati come letterali in sei posti. La duplicazione e'
+inevitabile — un Dockerfile non legge un file fuori dal contesto di build senza
+`--build-arg`, e una CI che facesse `source` di un env file renderebbe i pin
+invisibili a chi legge il workflow — quindi va resa sicura invece che evitata.
+
+`scripts/toolchain-pins.env` e' la fonte unica e `scripts/check_toolchain_pins.py`
+verifica **due** proprieta', perche' una sola non basta:
+
+* **presenza** — ogni consumatore obbligatorio dichiara il pin. Senza questa,
+  cancellare la riga farebbe passare il gate.
+* **esclusivita'** — nessun valore della stessa famiglia diverso da quello
+  canonico compare nei file sorvegliati. Senza questa, aggiungere un secondo
+  nightly accanto a quello giusto passerebbe.
+
+La seconda e' il motivo per cui la famiglia e' descritta da un pattern
+(`nightly-AAAA-MM-GG`, `--version X.Y.Z` accanto al nome dello strumento) e non
+da una ricerca del valore atteso: cercare cio' che ci si aspetta trova sempre
+quello che c'e' di giusto e mai quello che c'e' di sbagliato.
+
+Quindici sonde negative in `scripts/test_check_toolchain_pins.py` costruiscono
+un albero finto e verificano che ogni divergenza plausibile venga intercettata:
+nightly diverso in ciascuno dei cinque consumatori, `cargo-fuzz` diverso fra CI
+e immagine, `cargo-llvm-cov` diverso fra CI e immagine, stable diverso in
+`rust-toolchain.toml`, tag dell'immagine base diverso, toolchain diversa in un
+job CI, e due casi di pin **cancellato** invece che divergente. L'albero e'
+finto apposta: mutare i file veri lascerebbe il repository sporco se un test si
+interrompe, ed e' la condizione in cui `readiness` diventa rosso senza una
+causa leggibile.
+
+`cargo-llvm-cov` in CI era l'unico strumento **non** pinnato (`tool:
+cargo-llvm-cov`, cioe' l'ultima disponibile). E' ora `cargo-llvm-cov@0.9.0`,
+che e' anche l'ultima al momento del cambio: il numero misurato non cambia
+oggi, ma smette di poter cambiare domani senza che nessuno lo decida.
+
+### `fuzz-smoke.sh` sceglie la toolchain invece di ereditarla
+
+Prima lo script chiamava `cargo fuzz` e basta, e la toolchain arrivava da
+`RUSTUP_TOOLCHAIN` impostato dal job CI. Fuori dalla CI questo significa una di
+due cose, entrambe sbagliate: senza la variabile `rust-toolchain.toml` lo porta
+su stable 1.92.0, dove la build strumentata fallisce con "only accepted on
+nightly"; con una variabile impostata per altro lo porta su un nightly
+qualsiasi, e due esecuzioni della stessa revisione producono binari diversi.
+
+Lo script usa ora `cargo +"${PLENORA_FUZZ_TOOLCHAIN:-nightly-2026-07-21}"` su
+tutte e tre le invocazioni, verifica che la toolchain sia installata e lo
+stampa in testa all'esecuzione.
+
+### Esecuzione reale
+
+Immagine ricostruita da zero, non aggiornata in incrementale.
+
+| Verifica | Esito |
+|---|---|
+| build dei fuzz target sotto AddressSanitizer | **13/13 compilati** in 2m54s |
+| smoke fuzz, 60 s per target | **10 eseguiti senza finding**, 3 saltati per quarantena ma compilati |
+| coverage `--workspace --all-targets` | 490 test verdi, LCOV esportato |
+| soglia line coverage ≥ 80% | **86,33%** (28.171 righe, 3.852 non coperte), regioni 85,21%, funzioni 79,87% |
+
+I tredici target compilati chiudono il gap dichiarato in S4.e e S5: l'harness
+migrato al modello unificato **compila davvero**.
+
+### Due cose che l'esecuzione ha reso visibili
+
+**La quarantena resta aperta.** I cinque finding di `fuzz/quarantine.txt` non
+sono chiusi da INFRA-0: poter eseguire il fuzzing non corregge nulla. Tre
+target — `geoparquet_reader`, `ipc_reader`, `ipc_to_gpkg` — restano saltati
+nello smoke e lo script li stampa a ogni corsa. Restano espliciti fino a S12.
+
+**La regex di esclusione della coverage non copre cio' che intende.** Esclude
+`(plenora-bench|plenora-fuzz|plenora-io-cli)/src/main\.rs`, ma il binario di
+benchmark e' `plenora-bench/src/bin/spool_ab.rs`: 146 righe a 0% entrano nella
+misura. La soglia passa comunque, e non l'ho toccata — correggerla alzerebbe la
+percentuale storica senza che nessuno lo abbia deciso, e la misura va cambiata
+per scelta, non come effetto collaterale di un commit di infrastruttura.
+Registrato qui perche' sia una decisione e non una svista.
