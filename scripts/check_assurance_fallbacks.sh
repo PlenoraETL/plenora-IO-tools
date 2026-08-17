@@ -109,17 +109,35 @@ set -eu
 # verso `u64::MAX` sarebbe comunque il verso sicuro: un tetto piu' largo qui
 # non allenta nulla, perche' il contatore delle righe rifiuta prima.
 # Nessuna revisione H-01 dovuta.
+# Il 2026-08-17 la prevalidazione dei metadati Thrift (FZ-0) ha aggiunto
+# un'occorrenza in driver-geoparquet (3 -> 4, totale 105 -> 106): l'inizio di un
+# chunk di colonna e' l'offset della pagina di dizionario **se presente**,
+# altrimenti quello della prima pagina dati. Non e' una degradazione a un
+# default: e' la regola del formato, ed e' la stessa che applica
+# `ColumnChunkMetaData::byte_range`, che noi non possiamo chiamare perche'
+# asserisce su offset negativi invece di restituirli. Riscriverla come `match`
+# per non far muovere il contatore sarebbe il modo di eludere H-01 che questo
+# registro denuncia. Nessuna revisione H-01 dovuta.
+# Sempre il 2026-08-17, un rilievo di clippy (`manual_unwrap_or_else`) ha
+# convertito il `match` sul `catch_unwind` della barriera XLSX in
+# `unwrap_or_else`, spostando driver-xls da 1 a 2 (totale 106 -> 107). Non e' un
+# fallback nel senso di H-01: non degrada un valore mancante a un default, e'
+# il ramo che converte un panico della libreria in errore tipizzato. Tenere il
+# `match` per non far muovere il contatore avrebbe richiesto un `allow` locale
+# su un lint che il workspace applica ovunque: registrarlo e' piu' onesto che
+# esentarlo. La stessa conversione nel core lascia il conteggio invariato,
+# perche' la rimozione del macchinario dell'impronta ne ha tolta una.
 expected='
 driver-csv 3
 driver-dxf 15
 driver-filegdb 5
 driver-geojson 2
-driver-geoparquet 3
+driver-geoparquet 4
 driver-gpkg 3
 driver-ipc 1
 driver-kml 3
 driver-shp 3
-driver-xls 1
+driver-xls 2
 plenora-io-model 1
 plenora-io-core 16
 plenora-io-cli 20
@@ -154,7 +172,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 105 ]; then
+if [ "${actual_total}" -ne 107 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

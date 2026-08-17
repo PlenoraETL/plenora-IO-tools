@@ -452,6 +452,7 @@ name = "driver-common"
 version = "1.0.1"
 dependencies = [
  "arrow-array",
+ "arrow-ipc",
  "arrow-schema",
  "plenora-io-model",
  "serde_json",
@@ -507,6 +508,8 @@ version = "1.0.1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "base64",
+ "driver-common",
  "geo-types",
  "parquet",
  "plenora-io-core",
@@ -536,6 +539,7 @@ dependencies = [
  "arrow-array",
  "arrow-ipc",
  "arrow-schema",
+ "driver-common",
  "plenora-io-core",
  "plenora-io-model",
  "tempfile",
@@ -581,6 +585,7 @@ dependencies = [
  "driver-common",
  "plenora-io-core",
  "plenora-io-model",
+ "quick-xml",
  "rust_xlsxwriter",
  "serde_json",
  "tempfile",

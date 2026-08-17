@@ -416,10 +416,46 @@ redatto del panico. La mitigazione è verificata da
 versionato, e verificata **per mutazione**: rimossa la barriera, quel test
 fallisce con il panico di `calamine`.
 
-`xlsx_reader` entra in quarantena solo dopo la mitigazione, e per una ragione
-di strumento e non di rischio: `libfuzzer-sys` trasforma il panico in `abort()`
-prima dell'unwinding, quindi il target resta rosso anche a barriera
-funzionante. La segnalazione a monte è pronta e **non pubblicata** in
-[`assurance/UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md`](assurance/UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md);
-un eventuale aggiornamento di `calamine` chiuderebbe questo difetto, non la
-classe, e non sostituisce la barriera.
+`xlsx_reader` era entrato in quarantena solo dopo la mitigazione, e per una
+ragione di strumento e non di rischio: `libfuzzer-sys` trasforma il panico in
+`abort()` prima dell'unwinding, quindi il target restava rosso anche a barriera
+funzionante. **FZ-0 ha poi tolto il difetto alla radice** e il target e' uscito
+dalla quarantena. La segnalazione a monte resta pronta e **non pubblicata** in
+[`assurance/UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md`](assurance/UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md).
+
+**FZ-0 (2026-08-17) — il panico e' impedito, non catturato.** Una barriera
+`catch_unwind` ripristina il contratto d'errore ma non chiude un finding: il
+panico e' comunque avvenuto, e sotto `libfuzzer-sys` diventa `abort()` prima
+dell'unwinding. FZ-0 ha spostato la difesa a monte del decoder, senza patch ne'
+fork di dipendenze esterne e senza restringere `ALL_ARROW_TYPES`:
+
+* **XLSX** — i riferimenti di cella sono verificati contro i limiti del formato
+  (ultima colonna `XFD`, ultima riga 1.048.576) prima che `calamine` veda il
+  foglio;
+* **Arrow IPC** — `driver-common::prevalida_arrow` deriva da ogni tipo una
+  classe di layout che dice quanti nodi e buffer il decoder consuma e in quale
+  ordine, e verifica bitmap di validita', buffer di offset, unioni, viste,
+  dizionari e annidamenti, con aritmetica checked e tetti prima delle
+  allocazioni. Cio' che `ArrayData::try_new` valida gia' in modo fallibile non
+  viene duplicato;
+* **GeoParquet** — offset, lunghezze e somme dei metadati Thrift sono verificati
+  prima di costruire il reader;
+* `scripts/check_prevalidazione_decoder.py` impedisce che un percorso nuovo
+  raggiunga il decoder senza prevalidazione; `scripts/fuzz-replay.sh` riesegue
+  corpus, semi e artefatti in modo deterministico, quarantena inclusa.
+
+Tre target su quattro sono usciti dalla quarantena, con replay pulito e fuzzing
+attivo senza crash: `xlsx_reader` (60.511 esecuzioni), `ipc_reader` (149.425),
+`ipc_to_gpkg` (139.272).
+
+**`geoparquet_reader` resta in quarantena e FZ-0 resta aperto.** `parquet`
+prende il bit width degli indici di dizionario dal primo byte della sezione
+valori senza validarlo (`arrow/decoder/dictionary_index.rs:46`). Il panico
+esiste anche nella release distribuita — a `bit_util.rs:719` per
+`overflow-checks`, non al `debug_assert!` che in release non scatta — ed e'
+catturato dalla barriera: `read` esce con 2 e un errore tipizzato di fase
+`Read`, zero righe emesse, 25 ms, deterministico. Prevalidarlo richiederebbe
+replicare la logica di layout della pagina e decomprimere l'intero file una
+seconda volta a ogni lettura: condizione di arresto accettata, si attende la
+correzione a monte. Dettagli in
+[`assurance/CHANGE_IMPACT_2026-08-17_FZ0_PREVALIDAZIONE.md`](assurance/CHANGE_IMPACT_2026-08-17_FZ0_PREVALIDAZIONE.md).

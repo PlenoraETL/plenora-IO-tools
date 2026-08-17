@@ -51,6 +51,96 @@ use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::inspect_wkb;
 use plenora_io_model::{PlenoraIoError, Result};
 
+/// Verifica lo schema Arrow incorporato nel footer Parquet (FZ-0).
+///
+/// Un `.parquet` puo' portare la chiave `ARROW:schema` fra i metadati del
+/// footer: e' un messaggio Arrow IPC in base64, deserializzato dalla stessa
+/// conversione infallibile che fa panicare `arrow-ipc` su un `.arrow` ostile.
+/// Il footer Thrift viene quindi letto **prima**, con l'API che non tocca
+/// arrow, e lo schema incorporato viene verificato prima che la libreria lo
+/// converta.
+///
+/// # Fail-closed
+///
+/// Un footer illeggibile, un base64 non decodificabile o uno schema non
+/// conforme fermano la lettura. Un file senza `ARROW:schema` passa: non c'e'
+/// niente da convertire, e la chiave e' opzionale nel formato.
+fn valida_schema_arrow_incorporato(path: &std::path::Path) -> Result<()> {
+    use base64::Engine as _;
+    use parquet::file::reader::FileReader as _;
+
+    const CHIAVE: &str = "ARROW:schema";
+
+    let dimensione = std::fs::metadata(path)?.len();
+    let file = File::open(path)?;
+    // `SerializedFileReader` legge il footer Thrift e si ferma li': non
+    // costruisce lo schema Arrow ne' i lettori di colonna, quindi non
+    // raggiunge ne' la conversione che panica ne' `byte_range`. E' l'unico
+    // ingresso nella libreria che precede la prevalidazione, perche' **e'** la
+    // lettura dei metadati da validare; sta comunque sotto la barriera.
+    let lettore = plenora_io_core::driver::leggendo_arrow("parquet", || {
+        parquet::file::reader::SerializedFileReader::new(file)
+            .map_err(|e| fmt_err(format!("footer Parquet non valido: {e}")))
+    })?;
+    let metadati = lettore.metadata();
+
+    // I metadati Thrift portano offset e lunghezze firmati, e il lettore li
+    // usa senza controlli: `ColumnChunkMetaData::byte_range` asserisce
+    // `col_start >= 0 && col_len >= 0` (parquet 59.1.0,
+    // `file/metadata/mod.rs:1063`), quindi un footer con un offset negativo
+    // abbatte il processo prima di leggere un solo byte di dati.
+    for gruppo in metadati.row_groups() {
+        if gruppo.num_rows() < 0 || gruppo.total_byte_size() < 0 {
+            return Err(fmt_err(
+                "gruppo di righe Parquet con conteggio o dimensione negativi",
+            ));
+        }
+        for colonna in gruppo.columns() {
+            let inizio = colonna
+                .dictionary_page_offset()
+                .unwrap_or_else(|| colonna.data_page_offset());
+            let lunghezza = colonna.compressed_size();
+            if inizio < 0 || lunghezza < 0 || colonna.data_page_offset() < 0 {
+                return Err(fmt_err(
+                    "chunk di colonna Parquet con offset o lunghezza negativi",
+                ));
+            }
+            // Rappresentabili e dentro il file: un chunk che dichiara byte
+            // oltre la fine non e' un chunk corto, e' un chunk che non c'e'.
+            let primo_byte = u64::try_from(inizio)
+                .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
+            let byte_dichiarati = u64::try_from(lunghezza)
+                .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
+            let oltre_il_chunk = primo_byte
+                .checked_add(byte_dichiarati)
+                .ok_or_else(|| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
+            if oltre_il_chunk > dimensione {
+                return Err(fmt_err("chunk di colonna Parquet oltre la fine del file"));
+            }
+            if colonna.num_values() < 0 {
+                return Err(fmt_err("chunk di colonna Parquet con conteggio negativo"));
+            }
+        }
+    }
+
+    let Some(chiavi) = metadati.file_metadata().key_value_metadata() else {
+        return Ok(());
+    };
+    for voce in chiavi {
+        if voce.key != CHIAVE {
+            continue;
+        }
+        let Some(valore) = voce.value.as_ref() else {
+            return Err(fmt_err("chiave ARROW:schema priva di valore"));
+        };
+        let byte = base64::engine::general_purpose::STANDARD
+            .decode(valore)
+            .map_err(|_| fmt_err("ARROW:schema non decodificabile da base64"))?;
+        driver_common::prevalida_arrow::valida_messaggio_schema("parquet", &byte)?;
+    }
+    Ok(())
+}
+
 fn fmt_err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("geoparquet", reason)
 }
@@ -114,6 +204,7 @@ impl FormatDriver for GeoParquetDriver {
         // messaggio Arrow IPC deserializzato qui dentro: un `.parquet` ostile
         // raggiunge quindi lo stesso panico di un `.arrow`. Vedi
         // `leggendo_arrow`.
+        valida_schema_arrow_incorporato(&path)?;
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", || {
             ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
                 .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
@@ -373,6 +464,9 @@ impl OpenDatasetHandle for GeoParquetDataset {
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         let path = self.path.clone();
+        // Riaperto qui, quindi riverificato qui: fra `open` e questa chiamata
+        // il file su disco puo' essere cambiato.
+        valida_schema_arrow_incorporato(&path)?;
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", move || {
             ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
                 .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
@@ -1394,10 +1488,16 @@ mod tests {
                 .join(nome);
             match GeoParquetDriver.open(Source::Path(seme), opzioni_lettura()) {
                 Ok(_) => panic!("{nome}: il file doveva essere rifiutato"),
-                Err(errore) => assert!(
-                    errore.to_string().contains("arrow in panico"),
-                    "{nome}: la barriera non e' scattata: {errore}"
-                ),
+                Err(errore) => {
+                    // FZ-0: il rifiuto precede arrow. Se il messaggio parlasse
+                    // di panico, la conversione sarebbe stata raggiunta lo
+                    // stesso e la prevalidazione non servirebbe a niente.
+                    assert!(
+                        !errore.to_string().contains("in panico"),
+                        "{nome}: il rifiuto deve precedere arrow: {errore}"
+                    );
+                    assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+                }
             }
         }
     }

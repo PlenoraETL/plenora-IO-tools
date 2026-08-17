@@ -3,6 +3,7 @@
 //! conversione array Arrow → JSON. Nessuna logica di formato qui.
 #![forbid(unsafe_code)]
 
+pub mod prevalida_arrow;
 pub mod wkt_lossless;
 
 use std::borrow::Cow;

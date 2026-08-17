@@ -94,8 +94,12 @@ impl FormatDriver for IpcDriver {
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = plenora_io_core::preflight_source(source, &mut opts)?;
-        // `try_new` restituisce `Result`, ma arrow-ipc puo' comunque andare in
-        // panico decodificando lo schema: vedi `leggendo_arrow`.
+        // FZ-0: schema e buffer dichiarati vengono verificati **prima** che
+        // arrow li converta. `try_new` restituisce `Result`, ma la conversione
+        // dello schema e l'affettamento del corpo sono infallibili nel tipo e
+        // panicano sull'input non conforme; la barriera `leggendo_arrow` sotto
+        // resta come difesa in profondita', non come mitigazione.
+        driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", || {
             FileReader::try_new(File::open(&path)?, None)
                 .map_err(|e| err(format!("Arrow IPC non valido: {e}")))
@@ -306,6 +310,11 @@ impl OpenDatasetHandle for IpcDataset {
             }
         };
         let path = self.path.clone();
+        // Il file viene riaperto qui, quindi viene riverificato qui: fra
+        // `open` e questa chiamata il contenuto su disco puo' essere cambiato,
+        // e una verifica fatta una volta sola varrebbe per un file che non e'
+        // piu' quello.
+        driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", move || {
             FileReader::try_new(File::open(&path)?, projection)
                 .map_err(|e| err(format!("Arrow IPC non valido: {e}")))
@@ -421,21 +430,20 @@ mod tests {
     };
     use plenora_io_model::CancellationToken;
 
-    /// Il file che faceva panicare arrow decodificando lo schema IPC deve
-    /// uscire come errore del driver, non abbattere il processo.
+    /// Il file che faceva panicare arrow viene ora **rifiutato prima** che
+    /// arrow lo tocchi (FZ-0).
     ///
-    /// Il target di fuzzing non puo' verificarlo: `libfuzzer-sys` installa un
-    /// panic hook che chiama `abort()` prima dell'unwinding, quindi
-    /// `catch_unwind` non entra mai in gioco e il target continua a segnalare
-    /// un crash anche con la barriera al suo posto. Fuori dal fuzzer
-    /// l'unwinding e' quello di default — nel workspace non c'e' alcun
-    /// `panic = "abort"` — e la barriera si osserva.
+    /// Prima di FZ-0 questo test osservava la barriera `catch_unwind`: il
+    /// panico avveniva e veniva convertito. Non bastava — un panico catturato
+    /// e' pur sempre un panico, e sotto `libfuzzer-sys` diventa `abort()`
+    /// prima dell'unwinding, quindi il target restava rosso e in quarantena.
+    ///
+    /// Ora il difetto e' impedito: `valida_file_ipc` verifica schema e buffer
+    /// dichiarati contro il corpo del messaggio, e questo file dichiara un
+    /// buffer oltre la fine del proprio corpo. La verifica e' che l'errore
+    /// **non** venga dalla barriera.
     #[test]
-    fn un_ipc_che_fa_panicare_arrow_diventa_un_errore_del_driver() {
-        // Su questo file `open` riesce: lo schema del footer si legge, e arrow
-        // panica piu' avanti, decodificando i buffer del primo batch. La
-        // barriera va quindi osservata sull'intero percorso di lettura, non
-        // solo sull'apertura — e sono due `leggendo_arrow` distinti.
+    fn un_ipc_non_conforme_e_rifiutato_prima_di_arrow() {
         let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fuzz/seeds/ipc_reader/schema-che-fa-panicare-arrow.arrow");
 
@@ -465,9 +473,25 @@ mod tests {
             }
         };
         assert!(
-            errore.to_string().contains("arrow in panico"),
-            "la barriera non e' scattata: {errore}"
+            !errore.to_string().contains("in panico"),
+            "il rifiuto deve precedere arrow, non seguirne il panico: {errore}"
         );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    }
+
+    /// Un IPC conforme continua a essere letto: la prevalidazione non rifiuta
+    /// cio' che il formato ammette.
+    ///
+    /// Senza questo, una verifica troppo severa passerebbe il test sopra e
+    /// romperebbe ogni file reale senza che nessuno se ne accorgesse qui.
+    #[test]
+    fn un_ipc_conforme_supera_la_prevalidazione() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/ipc_reader/minimal.arrow");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+        driver_common::prevalida_arrow::valida_file_ipc("arrow", &seme)
+            .expect("un IPC conforme non deve essere rifiutato");
     }
 
     #[test]

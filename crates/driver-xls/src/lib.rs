@@ -109,17 +109,23 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
 /// # Errors
 ///
 /// Propaga l'errore dell'operazione, oppure `PlenoraIoError::format` — fase
-/// `Read` — con la sola impronta redatta del panico: mai il testo del panico,
-/// il percorso del file o un valore di cella.
+/// `Read` — con un messaggio **statico**: mai il testo del panico, il percorso
+/// del file o un valore di cella.
 fn leggendo_calamine<T>(operazione: impl FnOnce() -> Result<T>) -> Result<T> {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione)) {
-        Ok(risultato) => risultato,
-        Err(panico) => Err(err(format!(
-            "calamine in panico durante la lettura (impronta {})",
-            plenora_io_core::driver::impronta_di_panico(panico.as_ref())
-        ))),
-    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione))
+        .unwrap_or_else(|_| Err(err(MESSAGGIO_PANICO_CALAMINE)))
 }
+
+/// Messaggio pubblico del panico di `calamine`, statico e curato.
+///
+/// Non porta impronta del panico. Un'impronta derivata dal messaggio e' un
+/// valore che nasce dall'input e finisce in un errore serializzato e
+/// registrato: per un componente che promette di non far uscire nulla che
+/// derivi dal payload e' una promessa in meno, in cambio di una correlazione
+/// che i log del processo — dove l'hook di panico scrive comunque il testo
+/// completo — gia' permettono.
+const MESSAGGIO_PANICO_CALAMINE: &str =
+    "la libreria XLSX e' andata in panico su un input non conforme";
 
 const LETTORE_INVALIDATO: &str = "lettore XLSX invalidato da un errore precedente";
 
@@ -252,6 +258,10 @@ impl FormatDriver for XlsDriver {
             ));
         }
         validate_archive_ratio(&path, opts.budget())?;
+        // FZ-0: il panico di calamine sui riferimenti di cella e' impedito
+        // qui, prima che la libreria veda il foglio. La barriera resta sotto,
+        // ma un panico catturato e' pur sempre un panico avvenuto.
+        valida_riferimenti_cella(&path, opts.budget())?;
         let mut wb: Xlsx<_> = leggendo_calamine(|| {
             open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))
         })?;
@@ -378,6 +388,155 @@ fn validate_archive_ratio(path: &PathBuf, budget: &OperationBudget) -> Result<()
         return Err(PlenoraIoError::LimitExceeded(format!(
             "XLSX: {expanded} byte decompressi superano il rapporto massimo {maximum_ratio}:1"
         )));
+    }
+    Ok(())
+}
+
+/// Limiti del **formato** XLSX per un riferimento di cella, non nostri:
+/// ECMA-376 fissa l'ultima colonna a `XFD` e l'ultima riga a 1.048.576, cioe'
+/// tre lettere e sette cifre. Un riferimento piu' lungo non e' un foglio
+/// grande: e' un file che non rispetta il formato che dichiara.
+const MAX_LETTERE_RIFERIMENTO: usize = 3;
+const MAX_CIFRE_RIFERIMENTO: usize = 7;
+
+/// Tetto sui byte di XML ispezionati per singola parte. La prevalidazione deve
+/// essere bounded quanto la lettura che protegge: un `.xlsx` ostile non deve
+/// poter spendere memoria o tempo illimitati *nel controllo*.
+const MAX_BYTE_PARTE_XML: u64 = 64 * 1024 * 1024;
+
+/// Numero massimo di parti XML ispezionate. Un workbook conforme ne ha una per
+/// foglio piu' il manifesto; migliaia sono un abuso del contenitore.
+const MAX_PARTI_XML: usize = 4096;
+
+/// Impedisce il panico di `calamine` **prima** che avvenga (FZ-0).
+///
+/// `calamine` 0.36.1 converte il riferimento testuale di una cella in
+/// coordinate accumulando in `u32` senza controlli
+/// (`src/xlsx/mod.rs:2837-2853`): `col = col * 26 + …` e `row = row * 10 + …`.
+/// Sette lettere bastano a superare `u32::MAX`. Con `overflow-checks = true`,
+/// che il workspace tiene anche in release, e' un panico; senza, sarebbe un
+/// avvolgimento silenzioso e coordinate false.
+///
+/// La barriera `leggendo_calamine` resta come difesa in profondita', ma non
+/// chiude il finding: un panico catturato e' pur sempre un panico avvenuto, e
+/// sotto `libfuzzer-sys` diventa `abort()` prima dell'unwinding. Qui il panico
+/// non avviene.
+///
+/// # Perche' non e' una reimplementazione di `calamine`
+///
+/// Il controllo non indovina cosa la libreria sappia digerire: applica il
+/// limite che **il formato stesso** dichiara. `XFD` e 1.048.576 sono
+/// nell'ECMA-376, non nel codice di `calamine`, quindi il criterio non cambia
+/// quando cambia la libreria — e nessun file conforme viene rifiutato.
+///
+/// # Fail-closed
+///
+/// Un contenitore che non si apre, una parte che non si decomprime, un CRC che
+/// non torna, un XML malformato o piu' parti/byte dei tetti sopra fermano la
+/// lettura con un errore tipizzato. Non c'e' un ramo che, non riuscendo a
+/// controllare, prosegua lo stesso.
+fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<()> {
+    let file = std::fs::File::open(path)?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|error| err(format!("contenitore XLSX non valido: {error}")))?;
+
+    if archive.len() > MAX_PARTI_XML {
+        return Err(PlenoraIoError::LimitExceeded(format!(
+            "XLSX: {} parti nel contenitore superano il tetto {MAX_PARTI_XML}",
+            archive.len()
+        )));
+    }
+
+    // Le parti che portano riferimenti A1 e che il lettore di celle attraversa.
+    // `xl/workbook.xml` entra perche' vi compaiono i nomi definiti, che sono
+    // riferimenti anch'essi.
+    let parti: Vec<String> = (0..archive.len())
+        .filter_map(|indice| {
+            let nome = archive.by_index(indice).ok()?.name().to_owned();
+            let minuscolo = nome.to_ascii_lowercase();
+            let e_foglio = minuscolo.starts_with("xl/worksheets/")
+                && std::path::Path::new(&minuscolo)
+                    .extension()
+                    .is_some_and(|estensione| estensione.eq_ignore_ascii_case("xml"));
+            (e_foglio || minuscolo == "xl/workbook.xml").then_some(nome)
+        })
+        .collect();
+
+    for nome in parti {
+        budget.context().ensure_active()?;
+        let membro = archive
+            .by_name(&nome)
+            .map_err(|error| err(format!("parte XLSX non leggibile: {error}")))?;
+        if membro.size() > MAX_BYTE_PARTE_XML {
+            return Err(PlenoraIoError::LimitExceeded(format!(
+                "XLSX: una parte XML supera il tetto di {MAX_BYTE_PARTE_XML} byte"
+            )));
+        }
+        ispeziona_parte_xml(BufReader::new(membro), budget)?;
+    }
+    Ok(())
+}
+
+/// Scorre una parte XML e verifica ogni attributo che porta un riferimento.
+fn ispeziona_parte_xml<R: std::io::BufRead>(sorgente: R, budget: &OperationBudget) -> Result<()> {
+    let mut lettore = quick_xml::Reader::from_reader(sorgente);
+    let mut buffer = Vec::new();
+    let mut eventi = 0usize;
+    loop {
+        buffer.clear();
+        // Un CRC che non torna o un flusso troncato arrivano qui come errore di
+        // lettura, e fermano la lettura invece di proseguire su dati parziali.
+        let prossimo = lettore
+            .read_event_into(&mut buffer)
+            .map_err(|errore| err(format!("XML XLSX non valido: {errore}")))?;
+        let elemento = match prossimo {
+            quick_xml::events::Event::Start(elemento)
+            | quick_xml::events::Event::Empty(elemento) => elemento,
+            quick_xml::events::Event::Eof => return Ok(()),
+            _ => continue,
+        };
+        eventi = eventi.saturating_add(1);
+        check_cancelled_periodically(budget.context().cancellation(), ErrorPhase::Read, eventi)?;
+
+        for attributo in elemento.attributes().with_checks(true) {
+            let attributo =
+                attributo.map_err(|errore| err(format!("attributo XLSX non valido: {errore}")))?;
+            // Solo gli attributi che il lettore di celle interpreta come
+            // riferimento: `r` su `<row>` e `<c>`, `ref` su `<dimension>`.
+            // Un `r:id` di relazione ha il prefisso e non entra qui.
+            if !matches!(attributo.key.as_ref(), b"r" | b"ref") {
+                continue;
+            }
+            valida_valore_riferimento(attributo.value.as_ref())?;
+        }
+    }
+}
+
+/// Verifica un valore di attributo: puo' contenere piu' riferimenti
+/// (`A1:C4`, o una lista separata da spazi), ognuno dei quali va nei limiti.
+fn valida_valore_riferimento(valore: &[u8]) -> Result<()> {
+    for token in valore
+        .split(|byte| matches!(byte, b':' | b' ' | b',' | b'$'))
+        .filter(|token| !token.is_empty())
+    {
+        let lettere = token
+            .iter()
+            .take_while(|byte| byte.is_ascii_alphabetic())
+            .count();
+        let resto = &token[lettere..];
+        let cifre = resto
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if lettere + cifre != token.len() {
+            return Err(err(
+                "riferimento di cella XLSX non conforme: atteso stile A1",
+            ));
+        }
+        if lettere > MAX_LETTERE_RIFERIMENTO || cifre > MAX_CIFRE_RIFERIMENTO {
+            return Err(err("riferimento di cella XLSX oltre i limiti del formato \
+                 (ultima colonna XFD, ultima riga 1048576)"));
+        }
     }
     Ok(())
 }
@@ -1353,104 +1512,135 @@ mod tests {
     use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadScope};
     use plenora_io_core::WriteLayer;
 
-    /// Un `.xlsx` che fa panicare `calamine` deve uscire come errore del
-    /// driver, non abbattere il processo (XLSX-HARDENING).
+    /// Un `.xlsx` con riferimenti oltre i limiti del formato viene rifiutato
+    /// **prima** che `calamine` lo veda, quindi il panico non avviene (FZ-0).
     ///
-    /// Il seme e' l'input che ha prodotto il finding nello smoke del
-    /// 2026-08-17: il foglio porta riferimenti di cella con otto lettere, che
-    /// `calamine` accumula in base 26 fino a superare `u32::MAX`
-    /// (`xlsx/mod.rs:2838`). Digest e provenienza in `fuzz/seeds/README.md`.
+    /// I due input sono complementari:
     ///
-    /// Il target di fuzzing non puo' verificarlo: `libfuzzer-sys` installa un
-    /// panic hook che chiama `abort()` prima dell'unwinding, quindi
-    /// `catch_unwind` non entra mai in gioco e `xlsx_reader` continua a
-    /// segnalare un crash anche con la barriera al suo posto — per questo e'
-    /// in `fuzz/quarantine.txt`. Fuori dal fuzzer l'unwinding e' quello di
-    /// default (nel workspace non c'e' alcun `panic = "abort"`) e la barriera
-    /// si osserva. Se questo test viene rimosso, la mitigazione non e' piu'
-    /// verificata da niente.
+    /// * `riferimento-cella-oltre-u32.xlsx` e' l'input che ha prodotto il
+    ///   finding nello smoke del 2026-08-17, conservato intatto;
+    /// * `riferimento-cella-nove-lettere.xlsx` e' costruito da zero con CRC
+    ///   corretti e un riferimento `AAAAAAAAA1`. Serve perche' il primo ha il
+    ///   CRC rotto dalla mutazione e verrebbe fermato gia' da quello: senza il
+    ///   secondo, il controllo sui limiti del formato non sarebbe osservato da
+    ///   nessun test.
+    ///
+    /// La verifica e' che l'errore **non** venga dalla barriera: se il
+    /// messaggio parlasse di panico, vorrebbe dire che `calamine` e' stato
+    /// raggiunto lo stesso e che la prevalidazione non serve a niente.
     #[test]
-    fn un_xlsx_che_fa_panicare_calamine_diventa_un_errore_del_driver() {
-        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../fuzz/seeds/xlsx_reader/riferimento-cella-oltre-u32.xlsx");
-        assert!(seme.is_file(), "seme assente: {}", seme.display());
-
-        // Le stesse due dichiarazioni di geometria che usa il fuzz target:
-        // il difetto e' nel parser delle celle, non nella geometria, e la
-        // barriera deve valere per entrambe.
+    fn un_riferimento_oltre_i_limiti_del_formato_e_rifiutato_prima_di_calamine() {
+        let semi = [
+            "riferimento-cella-oltre-u32.xlsx",
+            "riferimento-cella-nove-lettere.xlsx",
+        ];
+        // Le stesse due dichiarazioni di geometria che usa il fuzz target: il
+        // rifiuto precede la geometria, quindi vale per entrambe.
         let dichiarazioni: [Vec<(&str, &str)>; 2] = [
             vec![("wkt_column", "geometry")],
             vec![("x_column", "x"), ("y_column", "y")],
         ];
 
-        let mut barriera_scattata = 0_usize;
-        for dichiarazione in &dichiarazioni {
-            let mut opzioni = opzioni_lettura().with_assume_crs("EPSG:4326");
-            for (chiave, valore) in dichiarazione {
-                opzioni = opzioni.with_format_option(*chiave, *valore);
-            }
-
-            // Nessun panico: se la barriera non c'e', questa riga abbatte il
-            // processo di test invece di restituire.
-            let esito = XlsDriver.open(Source::Path(seme.clone()), opzioni);
-
-            // Nessun dataset parziale: `open` non consegna un handle a meta'.
-            // La prova e' che non ne consegna affatto uno.
-            let Err(errore) = esito else {
-                panic!("{dichiarazione:?}: l'input doveva essere rifiutato")
-            };
-
+        for nome in semi {
+            let percorso_seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fuzz/seeds/xlsx_reader")
+                .join(nome);
             assert!(
-                errore.message.contains("calamine in panico"),
-                "{dichiarazione:?}: la barriera non e' scattata: {errore}"
+                percorso_seme.is_file(),
+                "seme assente: {}",
+                percorso_seme.display()
             );
-            barriera_scattata += 1;
 
-            // Errore tipizzato, fase Read.
-            assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
-            assert_eq!(
-                errore.category,
-                plenora_io_model::ErrorCategory::DataMapping
-            );
-            assert_eq!(errore.phase, ErrorPhase::Read);
-            assert_eq!(errore.driver.as_deref(), Some("xls"));
+            for dichiarazione in &dichiarazioni {
+                let mut opzioni = opzioni_lettura().with_assume_crs("EPSG:4326");
+                for (chiave, valore) in dichiarazione {
+                    opzioni = opzioni.with_format_option(*chiave, *valore);
+                }
 
-            // Messaggio pubblico redatto: nessun testo del panico, nessun
-            // percorso, nessun valore dell'input.
-            let messaggio = errore.message.as_str();
-            for vietato in [
-                "overflow",          // testo del panico di Rust
-                "multiply",          // idem, in inglese
-                "riferimento-cella", // nome del file
-                "fuzz/seeds",        // percorso
-                "Bncasufw",          // valore di cella dell'input
-                "xlsx/mod.rs",       // percorso sorgente a monte
-            ] {
-                assert!(
-                    !messaggio.contains(vietato),
-                    "il messaggio pubblico non deve contenere {vietato:?}: {messaggio}"
+                // Nessun panico: senza la prevalidazione questa riga abbatte
+                // il processo di test invece di restituire.
+                let esito = XlsDriver.open(Source::Path(percorso_seme.clone()), opzioni);
+
+                // Nessun dataset parziale: `open` non consegna un handle a
+                // meta'. La prova e' che non ne consegna affatto uno.
+                let Err(errore) = esito else {
+                    panic!("{nome} {dichiarazione:?}: l'input doveva essere rifiutato")
+                };
+
+                // Errore tipizzato, fase Read.
+                assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+                assert_eq!(
+                    errore.category,
+                    plenora_io_model::ErrorCategory::DataMapping
                 );
+                assert_eq!(errore.phase, ErrorPhase::Read);
+                assert_eq!(errore.driver.as_deref(), Some("xls"));
+
+                // Il panico e' *impedito*, non catturato: se il messaggio
+                // venisse dalla barriera, `calamine` sarebbe stato raggiunto.
+                assert!(
+                    !errore.message.contains("in panico"),
+                    "{nome}: il rifiuto deve precedere calamine: {errore}"
+                );
+
+                // Messaggio pubblico redatto: nessun percorso, nessun valore
+                // dell'input.
+                let messaggio = errore.message.as_str();
+                for vietato in ["riferimento-cella", "fuzz/seeds", "Bncasufw", "AAAAAAAAA"] {
+                    assert!(
+                        !messaggio.contains(vietato),
+                        "il messaggio pubblico non deve contenere {vietato:?}: {messaggio}"
+                    );
+                }
             }
-
-            // Al posto del testo c'e' l'impronta: sedici cifre esadecimali,
-            // stabili fra esecuzioni, da cui non si risale al messaggio.
-            let impronta = messaggio
-                .rsplit_once("impronta ")
-                .map(|(_, coda)| coda.trim_end_matches(')').to_owned())
-                .expect("il messaggio deve portare l'impronta del panico");
-            assert_eq!(impronta.len(), 16, "impronta inattesa: {impronta}");
-            assert!(
-                impronta.chars().all(|c| c.is_ascii_hexdigit()),
-                "impronta non esadecimale: {impronta}"
-            );
         }
+    }
 
+    /// Il seme conforme continua a essere letto: la prevalidazione non rifiuta
+    /// cio' che il formato ammette.
+    ///
+    /// Senza questo, un controllo troppo severo — per esempio uno che
+    /// rifiutasse ogni riferimento con lettere — passerebbe il test sopra e
+    /// romperebbe ogni XLSX reale, senza che nessuno se ne accorgesse qui.
+    #[test]
+    fn un_xlsx_conforme_supera_la_prevalidazione() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/xlsx_reader/minimal.xlsx");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+        let opzioni = opzioni_lettura();
+        valida_riferimenti_cella(&seme, opzioni.budget())
+            .expect("un workbook conforme non deve essere rifiutato");
+    }
+
+    /// La barriera resta come difesa in profondita' ed e' verificata **da
+    /// sola**, senza dipendere da un input che faccia ancora panicare la
+    /// libreria.
+    ///
+    /// E' la forma giusta dopo FZ-0: la prevalidazione impedisce il panico
+    /// noto, ma non puo' dimostrare che nessun altro percorso di `calamine`
+    /// ne produca uno. Se domani ne comparisse un altro, la barriera lo
+    /// converte comunque in errore tipizzato — e questo test lo dimostra
+    /// invece di dedurlo.
+    #[test]
+    fn la_barriera_converte_un_panico_di_calamine_in_errore_tipizzato() {
+        let errore = leggendo_calamine::<()>(|| panic!("panico simulato della libreria"))
+            .expect_err("un panico deve diventare un errore");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
         assert_eq!(
-            barriera_scattata,
-            dichiarazioni.len(),
-            "la barriera deve scattare su ogni dichiarazione: il difetto e' nel \
-             parser delle celle, che le precede tutte"
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping
         );
+        assert_eq!(errore.phase, ErrorPhase::Read);
+        assert_eq!(errore.driver.as_deref(), Some("xls"));
+        // Messaggio statico curato: niente testo del panico, niente impronta.
+        assert!(
+            !errore.message.contains("panico simulato"),
+            "il testo del panico non deve raggiungere il messaggio pubblico: {errore}"
+        );
+        assert_eq!(errore.message, MESSAGGIO_PANICO_CALAMINE);
+
+        // Percorso normale: la barriera non altera nulla.
+        assert_eq!(leggendo_calamine(|| Ok(7_u8)).unwrap(), 7);
     }
 
     #[test]

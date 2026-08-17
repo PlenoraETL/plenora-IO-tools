@@ -78,6 +78,14 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_coverage_exclusions
           python3 scripts/check_coverage_exclusions.py
+      # FZ-0: arrow-ipc e parquet convertono l'input con funzioni infallibili
+      # che panicano su cio' che non riconoscono. I driver prevalidano prima di
+      # consegnare, ma nulla lega le due chiamate: basta un percorso nuovo che
+      # costruisca il reader senza passarci e il difetto rientra.
+      - name: Verify no decoder is reached without prevalidation
+        run: |
+          python3 -m unittest scripts.test_check_prevalidazione_decoder
+          python3 scripts/check_prevalidazione_decoder.py
       - name: Verify governed GDAL fork
         run: python3 scripts/check_gdal_fork.py
       - name: Verify governed DXF fork

@@ -575,79 +575,21 @@ pub fn leggendo_arrow<T>(
     driver: &'static str,
     operazione: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione)) {
-        Ok(risultato) => risultato,
-        Err(panico) => Err(PlenoraIoError::format(
-            driver,
-            format!(
-                "arrow in panico durante la decodifica (impronta {})",
-                impronta_di_panico(panico.as_ref())
-            ),
-        )),
-    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione))
+        .unwrap_or_else(|_| Err(PlenoraIoError::format(driver, MESSAGGIO_PANICO_ARROW)))
 }
 
-/// Impronta redatta del payload di un panico, per chi costruisce una barriera.
+/// Messaggio pubblico del panico di arrow, statico e curato (FZ-0).
 ///
-/// Esposta perche' `arrow` non e' l'unica libreria che puo' andare in panico su
-/// input non fidato: `driver-xls` ha la propria barriera attorno a `calamine`
-/// (XLSX-HARDENING). La redazione **non** va riscritta accanto a ogni barriera:
-/// l'impronta vale come identificatore solo se e' la stessa funzione ovunque,
-/// altrimenti due occorrenze dello stesso difetto non si correlano piu'.
-///
-/// Il perimetro e' quello descritto in [`impronta_del_panico`]: redige
-/// l'errore strutturato, non l'hook di panico del processo.
-#[must_use]
-pub fn impronta_di_panico(panico: &(dyn std::any::Any + Send)) -> String {
-    impronta_del_panico(&messaggio_del_panico(panico))
-}
-
-/// Impronta stabile e non invertibile del messaggio di un panico.
-///
-/// `PlenoraIoError::message` dichiara di non contenere «payload, definizioni
-/// CRS, percorsi assoluti o valori di cella». Il messaggio di un panico non
-/// rispetta quella promessa: arriva da una libreria di terze parti, e' derivato
-/// dal file in lettura e non ha un formato su cui poter fare affidamento. Il
-/// panico di `arrow-buffer` che questa barriera cattura, per esempio, riporta
-/// `slice offset=… length=… selflen=…`, cioe' misure prese dal file; un'altra
-/// libreria potrebbe metterci un percorso o il contenuto di una cella.
-///
-/// L'impronta conserva quello che serve senza portare il contenuto: due
-/// esecuzioni sullo stesso difetto danno lo stesso valore, quindi si possono
-/// correlare le occorrenze e associarle a un reproducer, ma dall'impronta non
-/// si risale al testo.
-///
-/// FNV-1a a 64 bit scritto qui invece di `DefaultHasher`: quest'ultimo non
-/// garantisce lo stesso risultato fra versioni di Rust, e un'impronta che
-/// cambia da sola non correla piu' niente.
-///
-/// Nota di perimetro: questo redige l'errore strutturato, cioe' quello che
-/// viene serializzato, registrato e passato agli altri componenti. L'hook di
-/// panico globale resta quello del processo e continua a scrivere il testo
-/// completo su stderr; sostituirlo sarebbe scorretto per una libreria, che non
-/// possiede quella risorsa.
-fn impronta_del_panico(messaggio: &str) -> String {
-    let mut stato: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in messaggio.as_bytes() {
-        stato ^= u64::from(*byte);
-        stato = stato.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{stato:016x}")
-}
-
-/// Estrae il messaggio da un payload di panico senza assumerne il tipo:
-/// `panic!` con formato produce `String`, quello letterale `&'static str`.
-fn messaggio_del_panico(panico: &(dyn std::any::Any + Send)) -> String {
-    panico.downcast_ref::<&'static str>().map_or_else(
-        || {
-            panico
-                .downcast_ref::<String>()
-                .cloned()
-                .unwrap_or_else(|| "panico senza messaggio".to_owned())
-        },
-        |testo| (*testo).to_owned(),
-    )
-}
+/// Prima portava un'impronta FNV del messaggio del panico. L'impronta e' stata
+/// tolta: e' un valore che nasce dall'input e finisce in un errore
+/// serializzato, registrato e passato agli altri componenti, e per un bordo che
+/// promette di non far uscire nulla di derivato dal payload e' una promessa in
+/// meno. La correlazione fra occorrenze resta possibile dai log del processo,
+/// dove l'hook di panico scrive comunque il testo completo — che e' una
+/// risorsa del processo, non di questa libreria.
+pub(crate) const MESSAGGIO_PANICO_ARROW: &str =
+    "arrow e' andata in panico decodificando un input non conforme";
 
 pub trait FormatDriver: Send + Sync {
     fn descriptor(&self) -> &FormatDescriptor;
@@ -2068,8 +2010,7 @@ mod tests {
             Err(PlenoraIoError::format("arrow", "payload troncato"))
         });
 
-        // Stesso panico del primo: l'impronta deve coincidere, altrimenti non
-        // correla niente.
+        // Stesso panico del primo: il messaggio pubblico deve coincidere.
         let ripetuto = leggendo_arrow("parquet", || -> Result<()> {
             panic!("precisione {} non supportata", 194)
         });
@@ -2085,8 +2026,8 @@ mod tests {
             "il messaggio del panico non deve finire nell'errore pubblico: {formattato}"
         );
         assert!(
-            formattato.to_string().contains("impronta"),
-            "serve l'impronta per correlare le occorrenze: {formattato}"
+            formattato.to_string().contains(MESSAGGIO_PANICO_ARROW),
+            "il messaggio pubblico e' quello statico curato: {formattato}"
         );
 
         let letterale = letterale.expect_err("il panico deve diventare errore");
@@ -2095,34 +2036,24 @@ mod tests {
             "nemmeno il payload letterale deve comparire: {letterale}"
         );
 
-        // Panici diversi devono dare impronte diverse, altrimenti non
-        // distinguono nulla.
-        assert_ne!(formattato.to_string(), letterale.to_string());
-
-        // E lo stesso panico deve dare la stessa impronta.
+        // Il messaggio non distingue piu' un panico dall'altro, ed e' voluto:
+        // FZ-0 ha tolto l'impronta perche' era un valore derivato dall'input
+        // che finiva in un errore serializzato. Cio' che distingue le
+        // occorrenze sono i log del processo, dove l'hook di panico scrive il
+        // testo completo.
         let ripetuto = ripetuto.expect_err("il panico deve diventare errore");
         assert_eq!(formattato.to_string(), ripetuto.to_string());
+        assert_eq!(
+            formattato.to_string(),
+            letterale.to_string(),
+            "il messaggio e' statico, quindi identico per qualunque panico"
+        );
 
         assert_eq!(riuscito.expect("il percorso normale non e' toccato"), 7);
         assert!(fallito
             .expect_err("l'errore ordinario resta tale")
             .to_string()
             .contains("payload troncato"));
-    }
-
-    /// L'impronta deve essere stabile nel tempo, non solo dentro una singola
-    /// esecuzione: un valore che cambia fra due versioni di Rust non permette
-    /// piu' di correlare un'occorrenza di oggi con una di ieri. FNV-1a e'
-    /// scritto a mano proprio per questo, e il valore atteso e' fissato qui.
-    #[test]
-    fn l_impronta_del_panico_e_stabile_fra_esecuzioni() {
-        assert_eq!(impronta_del_panico(""), "cbf29ce484222325");
-        assert_eq!(impronta_del_panico("a"), "af63dc4c8601ec8c");
-        assert_eq!(
-            impronta_del_panico("Type NONE not supported").len(),
-            16,
-            "l'impronta e' sempre di sedici cifre esadecimali"
-        );
     }
 
     #[test]
