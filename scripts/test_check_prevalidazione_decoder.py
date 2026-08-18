@@ -63,6 +63,15 @@ impl FormatDriver for GeoParquetDriver {
         Ok(builder)
     }
 }
+
+fn valida_bit_width_dizionario(sorgente: &Arc<File>, chunk: &ColumnChunkMetaData) -> Result<()> {
+    pagine::valida_chunk(sorgente, inizio, lunghezza, non_compressi)?;
+    let mut lettore_pagine = SerializedPageReader::new(Arc::clone(sorgente), chunk, righe, None)?;
+    while let Some(pagina) = lettore_pagine.get_next_page()? {
+        valida_pagina_a_dizionario(&pagina)?;
+    }
+    Ok(())
+}
 """
 
 ALBERO = {
@@ -149,6 +158,36 @@ class SondeChiamataNuda(unittest.TestCase):
         )
         esito = self.violazioni(verifica(self.albero({"crates/driver-ipc/src/lib.rs": mutato})))
         self.assertTrue(esito, "ogni funzione che costruisce deve prevalidare")
+
+    def test_lettore_di_pagine_senza_prevalidazione(self) -> None:
+        """FZ-0.2: senza `pagine::valida_chunk` l'allocazione la decide il file.
+
+        E' il caso peggiore della famiglia, perche' l'esito non e' un panico ma
+        un **abort**: nessun `catch_unwind` lo intercetta, quindi la barriera a
+        valle non lo trasforma in errore. Deve fermarsi qui o non si ferma.
+        """
+        mutato = PARQUET_CONFORME.replace("    pagine::valida_chunk(sorgente, inizio, lunghezza, non_compressi)?;\n", "")
+        esito = self.violazioni(
+            verifica(self.albero({"crates/driver-geoparquet/src/lib.rs": mutato}))
+        )
+        self.assertTrue(
+            any("SerializedPageReader::new" in voce for voce in esito),
+            f"la chiamata nuda al lettore di pagine non e' stata intercettata: {esito}",
+        )
+
+    def test_lettore_di_pagine_prevalidato_dopo(self) -> None:
+        """Prevalidare dopo aver costruito il lettore non protegge niente."""
+        mutato = PARQUET_CONFORME.replace(
+            "    pagine::valida_chunk(sorgente, inizio, lunghezza, non_compressi)?;\n    let mut lettore_pagine = SerializedPageReader::new(Arc::clone(sorgente), chunk, righe, None)?;",
+            "    let mut lettore_pagine = SerializedPageReader::new(Arc::clone(sorgente), chunk, righe, None)?;\n    pagine::valida_chunk(sorgente, inizio, lunghezza, non_compressi)?;",
+        )
+        esito = self.violazioni(
+            verifica(self.albero({"crates/driver-geoparquet/src/lib.rs": mutato}))
+        )
+        self.assertTrue(
+            any("SerializedPageReader::new" in voce for voce in esito),
+            f"l'ordine invertito non e' stato intercettato: {esito}",
+        )
 
     def test_costruzione_spostata_in_un_altra_crate(self) -> None:
         """Spostare la chiamata fuori dal driver non la mette al sicuro."""

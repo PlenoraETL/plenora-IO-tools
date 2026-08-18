@@ -195,5 +195,6 @@ Residui dichiarati:
   schema (gpkg 1673 → 1681, shp 2460 → 2513): stesse occorrenze, stesso codice.
   Il gate va riallineato a ogni spostamento di riga, ed è fragile per
   costruzione — fuori dal perimetro di S6.
-* Il residuo `PageHeader.uncompressed_page_size` (FZ-0.1) resta aperto e
-  separato: S6 non lo tocca.
+* Il residuo `PageHeader.uncompressed_page_size` (FZ-0.1) era aperto e
+  separato quando S6 e' stato scritto: S6 non lo tocca. **Chiuso da FZ-0.2 il
+  2026-08-18.**

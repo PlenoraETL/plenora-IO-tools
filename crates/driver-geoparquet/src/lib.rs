@@ -78,21 +78,28 @@ use plenora_io_model::{PlenoraIoError, Result};
 /// dichiari un chunk piccolo e una pagina enorme supera questo tetto e fa
 /// comunque chiedere fino a circa 2 GiB per pagina.
 ///
-/// E' un rischio di esaurimento di risorse registrato a parte, e riguarda il
-/// lettore quanto la verifica: entrambi decomprimono le stesse pagine. Questo
-/// tetto **non** va quindi descritto come protezione dagli header incoerenti:
-/// e' un filtro sui metadati che scarta il caso grossolano prima di aprire il
-/// lettore di pagine, non una garanzia sull'allocazione.
+/// Era il residuo di FZ-0.1: questo tetto, da solo, **non** e' protezione dagli
+/// header di pagina incoerenti — e' un filtro sui metadati che scarta il caso
+/// grossolano prima di aprire il lettore di pagine.
 ///
-/// `PageMetadata`, l'unica cosa che `peek_next_page` restituisce, non porta le
-/// dimensioni: con l'API pubblica una verifica per pagina **prima**
-/// dell'allocazione non e' possibile.
+/// FZ-0.2 l'ha chiuso: `pagine::valida_chunk` verifica ogni header **prima**
+/// che il decoder allochi, e in particolare che nessuna pagina dichiari piu'
+/// byte non compressi del proprio chunk. Da quel momento questo tetto e' una
+/// garanzia effettiva sull'allocazione, perche' non esiste piu' una pagina che
+/// lo scavalchi. Le due cose vanno insieme: descriverlo come garanzia **senza**
+/// la prevalidazione di pagina sarebbe di nuovo falso.
+///
+/// L'API pubblica di `parquet` non basta a farlo — `PageMetadata` non porta le
+/// dimensioni e `PageHeader` e' `pub(crate)` — quindi l'header lo leggiamo noi,
+/// bounded, in `pagine`.
 ///
 /// Il valore e' assoluto e volutamente largo: un chunk che ne dichiara di piu'
 /// non e' un chunk grande, e' una dichiarazione su cui rifiutiamo di agire. Un
 /// tetto sul **rapporto** di decompressione — come quello che il contenitore
 /// XLSX applica — rifiuterebbe anche file leciti molto comprimibili, e sarebbe
 /// un restringimento del contratto invece di una difesa.
+mod pagine;
+
 const MAX_BYTE_CHUNK_ISPEZIONATO: i64 = 1 << 30;
 
 /// Messaggi pubblici della prevalidazione Parquet: **statici**.
@@ -109,6 +116,8 @@ const MSG_CODIFICA_LIVELLI_IGNOTA: &str = "codifica dei livelli Parquet non rico
 const MSG_LIVELLI_TRONCATI: &str = "data page Parquet troncata sui livelli";
 const MSG_SEZIONE_NON_RAPPRESENTABILE: &str = "sezione dei livelli Parquet non rappresentabile";
 const MSG_FOOTER_NON_VALIDO: &str = "footer Parquet non valido";
+const MSG_DIZIONARIO_DOPO_I_DATI: &str =
+    "chunk di colonna Parquet con pagina di dizionario dopo le pagine dati";
 const MSG_CHUNK_OLTRE_TETTO: &str =
     "chunk di colonna Parquet oltre il tetto di dimensione non compressa";
 
@@ -150,6 +159,7 @@ fn valida_bit_width_dizionario(
     metadati: &parquet::file::metadata::ParquetMetaData,
     maschera: &ProjectionMask,
     gruppi: Option<&[usize]>,
+    budget_ingresso: u64,
 ) -> Result<()> {
     use parquet::column::page::PageReader as _;
     let tutti: Vec<usize> = (0..metadati.num_row_groups()).collect();
@@ -184,14 +194,30 @@ fn valida_bit_width_dizionario(
             let (max_rep, max_def) = (descrittore.max_rep_level(), descrittore.max_def_level());
             let righe = usize::try_from(blocco.num_rows())
                 .map_err(|_| fmt_err("numero di righe del row group Parquet negativo"))?;
-            let mut pagine = parquet::file::serialized_reader::SerializedPageReader::new(
+            // FZ-0.2: le dimensioni di **questo** chunk si verificano qui, non
+            // solo nel passaggio d'insieme che precede la costruzione del
+            // reader. Questa funzione legge le pagine con `get_next_page`, che
+            // alloca quanto l'header dichiara: dedurre la protezione dal
+            // chiamante e' esattamente cio' che FZ-0 ha mostrato non reggere,
+            // ed e' quello che il gate anti-chiamata-nuda verifica.
+            pagine::valida_chunk(
+                sorgente,
+                u64::try_from(inizio_del_chunk(chunk)?)
+                    .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?,
+                u64::try_from(chunk.compressed_size())
+                    .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?,
+                non_compressi,
+                budget_ingresso,
+            )?;
+
+            let mut lettore_pagine = parquet::file::serialized_reader::SerializedPageReader::new(
                 Arc::clone(sorgente),
                 chunk,
                 righe,
                 None,
             )
             .map_err(|_| fmt_err(MSG_PAGINE_NON_LEGGIBILI))?;
-            while let Some(pagina) = pagine
+            while let Some(pagina) = lettore_pagine
                 .get_next_page()
                 .map_err(|_| fmt_err(MSG_PAGINE_NON_LEGGIBILI))?
             {
@@ -200,6 +226,123 @@ fn valida_bit_width_dizionario(
         }
     }
     Ok(())
+}
+
+/// Verifica le dimensioni dichiarate dagli header di pagina, prima che il
+/// decoder ne allochi una (FZ-0.2).
+///
+/// Cammina gli stessi chunk di `valida_bit_width_dizionario` — quelli che
+/// projection e pruning porteranno davvero al decoder — ma **tutti**, non solo
+/// quelli a dizionario: l'allocazione della decompressione non dipende dalla
+/// codifica.
+///
+/// Va eseguita **prima** di `valida_bit_width_dizionario`, che per leggere le
+/// pagine usa `get_next_page` e quindi e' esposta alla stessa allocazione che
+/// questa impedisce. La prevalidazione non e' al riparo per il fatto di essere
+/// prevalidazione: passa dallo stesso lettore.
+///
+/// # Errors
+///
+/// `DataMapping` con messaggio statico se una pagina dichiara piu' byte non
+/// compressi del tetto o del proprio chunk.
+fn valida_dimensioni_pagine(
+    sorgente: &Arc<File>,
+    metadati: &parquet::file::metadata::ParquetMetaData,
+    maschera: &ProjectionMask,
+    gruppi: Option<&[usize]>,
+    budget_ingresso: u64,
+) -> Result<()> {
+    let tutti: Vec<usize> = (0..metadati.num_row_groups()).collect();
+    let gruppi = match gruppi {
+        Some(selezionati) => selezionati,
+        None => &tutti,
+    };
+    for &indice_gruppo in gruppi {
+        let blocco = metadati
+            .row_groups()
+            .get(indice_gruppo)
+            .ok_or_else(|| fmt_err("indice di row group Parquet fuori intervallo"))?;
+        for (foglia, chunk) in blocco.columns().iter().enumerate() {
+            if !maschera.leaf_included(foglia) {
+                continue;
+            }
+            // Gli offset e le lunghezze sono gia' passati da
+            // `valida_metadati_thrift`: non negativi, rappresentabili e dentro
+            // il file. Qui restano da convertire, non da verificare.
+            let inizio = inizio_del_chunk(chunk)?;
+            let primo_byte = u64::try_from(inizio)
+                .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
+            let byte_compressi = u64::try_from(chunk.compressed_size())
+                .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
+            pagine::valida_chunk(
+                sorgente,
+                primo_byte,
+                byte_compressi,
+                chunk.uncompressed_size(),
+                budget_ingresso,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Le due prevalidazioni che precedono il decoder, **in ordine**.
+///
+/// L'ordine e' la sostanza: `valida_bit_width_dizionario` legge le pagine con
+/// `get_next_page`, che alloca quanto l'header dichiara, quindi e' esposta alla
+/// stessa cosa da cui difende. Prima si verificano le dimensioni degli header,
+/// poi si guarda dentro le pagine.
+///
+/// Entrambe guardano i chunk che projection e pruning hanno appena selezionato,
+/// sullo stesso snapshot di metadati della lettura: se ne leggessero uno
+/// proprio, validazione e lettura potrebbero guardare due file diversi.
+///
+/// # Errors
+///
+/// Il primo rifiuto delle due, con il proprio messaggio statico.
+fn prevalida_cio_che_il_decoder_leggera(
+    sorgente: &Arc<File>,
+    metadati: &parquet::file::metadata::ParquetMetaData,
+    maschera: &ProjectionMask,
+    gruppi: Option<&[usize]>,
+    budget_ingresso: u64,
+) -> Result<()> {
+    // FZ-0.2
+    valida_dimensioni_pagine(sorgente, metadati, maschera, gruppi, budget_ingresso)?;
+    // FZ-0.1
+    valida_bit_width_dizionario(sorgente, metadati, maschera, gruppi, budget_ingresso)
+}
+
+/// Il primo byte di un chunk di colonna.
+///
+/// **E' la regola del formato, non un default di ripiego**: un chunk comincia
+/// con la pagina di dizionario se c'e', altrimenti con la prima pagina dati.
+/// E' anche la regola di `parquet`: in 59.1.0 ogni consumatore — il lettore di
+/// pagine e quello arrow — passa da `ColumnChunkMetaData::byte_range`, che fa
+/// esattamente questa scelta. Non possiamo chiamarla perche' asserisce su
+/// offset negativi invece di restituirli.
+///
+/// Sta in una funzione sola perche' la usano tre prevalidazioni: ripeterla
+/// significherebbe tre occorrenze da giustificare nel registro dei fallback per
+/// una regola che e' una.
+///
+/// # Errors
+///
+/// Se il file dichiara una pagina di dizionario **dopo** la prima pagina dati.
+/// Nessun chunk legittimo lo fa — il dizionario precede sempre i dati che
+/// indicizza — e la coerenza fra cio' che verifichiamo e cio' che il decoder
+/// legge dipende oggi dal fatto che `parquet` scelga come noi. Rifiutarlo
+/// rende quell'accordo strutturale invece che condizionato: se domani `parquet`
+/// prendesse il minore dei due, su questi file non ci sarebbe piu' un file su
+/// cui divergere.
+fn inizio_del_chunk(chunk: &parquet::file::metadata::ColumnChunkMetaData) -> Result<i64> {
+    let Some(dizionario) = chunk.dictionary_page_offset() else {
+        return Ok(chunk.data_page_offset());
+    };
+    if dizionario > chunk.data_page_offset() {
+        return Err(fmt_err(MSG_DIZIONARIO_DOPO_I_DATI));
+    }
+    Ok(dizionario)
 }
 
 const fn e_a_dizionario(codifica: parquet::basic::Encoding) -> bool {
@@ -356,9 +499,7 @@ fn valida_metadati_thrift(
             ));
         }
         for colonna in gruppo.columns() {
-            let inizio = colonna
-                .dictionary_page_offset()
-                .unwrap_or_else(|| colonna.data_page_offset());
+            let inizio = inizio_del_chunk(colonna)?;
             let lunghezza = colonna.compressed_size();
             if inizio < 0 || lunghezza < 0 || colonna.data_page_offset() < 0 {
                 return Err(fmt_err(
@@ -663,6 +804,7 @@ impl FormatDriver for GeoParquetDriver {
                 bbox_covering,
                 visible_to_physical,
                 layers: vec![layer],
+                budget_ingresso: opts.max_input_bytes(),
             }),
             &opts,
             true,
@@ -791,6 +933,13 @@ struct GeoParquetDataset {
     /// all'apertura e ogni projection la usa per tradurre.
     visible_to_physical: Vec<usize>,
     layers: Vec<LayerContract>,
+    /// Il budget di ingresso dichiarato all'apertura (FZ-0.2).
+    ///
+    /// E' il tetto che la prevalidazione applica a una singola pagina non
+    /// compressa. Viene dallo stesso snapshot di opzioni con cui il dataset e'
+    /// stato aperto, non riletto a ogni `open_layer_reader`: due chiamate sullo
+    /// stesso handle non devono poter usare quote diverse.
+    budget_ingresso: u64,
 }
 
 impl GeoParquetDataset {
@@ -970,17 +1119,18 @@ impl OpenDatasetHandle for GeoParquetDataset {
         //
         // I due pruning restituiscono la selezione invece di applicarla: e' lo
         // stesso valore che alimenta il builder e la prevalidazione, quindi le
-        // due non possono guardare insiemi diversi. La composizione resta
-        // quella di prima — lo spaziale sostituisce il numerico quando entrambi
-        // si applicano — e il difetto che ne segue e' registrato a parte: e'
-        // pruning perso, non righe sbagliate, perche' l'over-return e'
-        // dichiarato ammesso.
+        // due non possono guardare insiemi diversi. La composizione e' per
+        // **intersezione**: un row group viene letto solo se entrambi i criteri
+        // lo tengono.
         let gruppi = self.gruppi_da_leggere(&builder, request);
 
-        // FZ-0.1: il bit width degli indici di dizionario viene verificato
-        // **prima** che il decoder lo usi, e solo sui chunk che projection e
-        // pruning hanno appena selezionato.
-        valida_bit_width_dizionario(&sorgente, builder.metadata(), &maschera, gruppi.as_deref())?;
+        prevalida_cio_che_il_decoder_leggera(
+            &sorgente,
+            builder.metadata(),
+            &maschera,
+            gruppi.as_deref(),
+            self.budget_ingresso,
+        )?;
 
         let builder = match gruppi {
             Some(gruppi) => builder.with_row_groups(gruppi),
@@ -1897,6 +2047,438 @@ mod tests {
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
     use plenora_io_model::CancellationToken;
+
+    /// Opzioni di lettura con un budget di ingresso scelto.
+    fn opzioni_lettura_con_budget(byte: u64) -> ReadOptions {
+        let limiti = plenora_io_model::budget::PipelineLimits::default().with_max_input_bytes(byte);
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti)
+            .build()
+        {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(errore) => panic!("bundle non costruibile: {errore:?}"),
+        }
+    }
+
+    /// La richiesta di lettura minima: nessuna projection, nessun pruning.
+    fn richiesta_semplice() -> ReadRequest {
+        ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        }
+    }
+
+    /// Una pagina **coerente** col proprio chunk ma sopra il budget dichiarato
+    /// viene comunque rifiutata (FZ-0.2, revisione).
+    ///
+    /// E' il caso che il solo controllo di coerenza non prende: un chunk da
+    /// 800 MiB con una pagina da 700 MiB non mente su niente, e aborta lo
+    /// stesso su un processo che di memoria ne ha mezza. Qui la stessa forma in
+    /// piccolo — un file molto comprimibile, il cui unico dato non compresso e'
+    /// piu' grande del budget che il chiamante ha dichiarato.
+    ///
+    /// Il file **passa** il preflight: e' piu' piccolo del budget. E' la pagina
+    /// decompressa a non entrarci, ed e' esattamente cio' che il budget dice di
+    /// non potersi permettere.
+    #[test]
+    fn una_pagina_coerente_ma_sopra_il_budget_e_rifiutata() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("comprimibile.parquet");
+        // **Una riga sola**, con una geometria grande.
+        //
+        // Le prime versioni usavano molte righe: o i valori si ripetevano — e
+        // il dizionario riduceva la pagina piu' grande a venticinque byte — o
+        // erano distinti, e allora portavano entropia sufficiente a rendere il
+        // file piu' grande della pagina. In mezzo non c'e' spazio: per battere
+        // il dizionario servono decine di migliaia di valori diversi, e quelli
+        // non si comprimono.
+        //
+        // Un unico WKB da un megabyte scioglie la tensione: la pagina e' grande
+        // per costruzione, le quattro colonne bbox del covering hanno una riga
+        // sola e non pesano niente, e le coordinate quasi identiche si
+        // comprimono benissimo. Il file resta di qualche decina di kilobyte.
+        let vertici: Vec<WkbCoordinate> = (0..60_000)
+            .map(|i| {
+                let x = f64::from(i).mul_add(1e-12, 1.0);
+                WkbCoordinate {
+                    x,
+                    y: x,
+                    z: None,
+                    m: None,
+                }
+            })
+            .collect();
+        let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )
+        .with_metadata(geometry_field_meta("EPSG:4326"))]));
+        let wkb = encode_wkb(
+            &WkbGeometry {
+                value: WkbValue::LineString(vertici),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+        )
+        .unwrap();
+        let colonna = BinaryArray::from(vec![Some(wkb.as_slice())]);
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(colonna)]).unwrap();
+        let mut geometria = GeometryColumnContract::wkb_passthrough(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+            true,
+        );
+        geometria.set_exact_geometry_types(vec![GeometryType::LineString]);
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometria),
+                },
+            }],
+        };
+        let mut writer = GeoParquetDriver
+            .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        let byte_su_disco = std::fs::metadata(&path).unwrap().len();
+        let pagina_piu_grande = pagina_non_compressa_massima(&path);
+        // Il budget deve stare **sopra** il file — altrimenti il preflight lo
+        // rifiuta e il test misurerebbe un altro controllo — e **sotto** la
+        // pagina non compressa. Esiste solo se il file e' abbastanza
+        // comprimibile, quindi la condizione e' verificata invece che sperata:
+        // un file poco comprimibile renderebbe il test verde senza provare
+        // niente.
+        assert!(
+            pagina_piu_grande > byte_su_disco,
+            "file poco comprimibile: pagina {pagina_piu_grande} B, file {byte_su_disco} B"
+        );
+        let budget = pagina_piu_grande - 1;
+
+        let mut opzioni = opzioni_lettura_con_budget(budget);
+        opzioni.assume_crs = None;
+        let dataset = GeoParquetDriver
+            .open(Source::Path(path), opzioni)
+            .expect("il file sta sotto il budget: l'apertura riesce");
+        let errore = match dataset.open_layer_reader(&richiesta_semplice()) {
+            Err(errore) => errore,
+            Ok(mut lettore) => match lettore.next_batch() {
+                Err(errore) => errore,
+                Ok(_) => panic!("la pagina doveva essere rifiutata"),
+            },
+        };
+        assert_eq!(
+            errore.message,
+            pagine::MSG_PAGINA_OLTRE_IL_BUDGET,
+            "{errore}"
+        );
+
+        // Controprova: con il budget predefinito lo stesso file si legge.
+        let dataset = GeoParquetDriver
+            .open(Source::Path(dir.path().join("comprimibile.parquet")), {
+                let mut o = opzioni_lettura();
+                o.assume_crs = None;
+                o
+            })
+            .unwrap();
+        let mut lettore = dataset.open_layer_reader(&richiesta_semplice()).unwrap();
+        assert!(lettore.next_batch().unwrap().is_some());
+    }
+
+    /// La piu' grande `uncompressed_page_size` dichiarata dal file.
+    ///
+    /// Serve al test sopra per **verificare** la premessa invece di assumerla:
+    /// un file poco comprimibile renderebbe il test verde senza provare niente.
+    fn pagina_non_compressa_massima(path: &std::path::Path) -> u64 {
+        use std::io::{Read, Seek, SeekFrom};
+        let sorgente = Arc::new(File::open(path).unwrap());
+        let builder =
+            ParquetRecordBatchReaderBuilder::try_new(sorgente.try_clone().unwrap()).unwrap();
+        let mut massima = 0_u64;
+        for gruppo in builder.metadata().row_groups() {
+            for chunk in gruppo.columns() {
+                let mut offset = u64::try_from(inizio_del_chunk(chunk).unwrap()).unwrap();
+                let fine = offset + u64::try_from(chunk.compressed_size()).unwrap();
+                let mut handle = sorgente.try_clone().unwrap();
+                while offset < fine {
+                    handle.seek(SeekFrom::Start(offset)).unwrap();
+                    let quanti = usize::try_from((fine - offset).min(65_536)).unwrap();
+                    let mut buffer = vec![0_u8; quanti];
+                    let mut letti = 0;
+                    while letti < buffer.len() {
+                        match handle.read(&mut buffer[letti..]) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => letti += n,
+                        }
+                    }
+                    let testa = pagine::leggi_intestazione(&buffer[..letti]).unwrap();
+                    massima = massima.max(u64::try_from(testa.non_compressi).unwrap());
+                    offset += u64::try_from(testa.byte_header).unwrap()
+                        + u64::try_from(testa.compressi).unwrap();
+                }
+            }
+        }
+        massima
+    }
+
+    /// Un chunk che dichiara la pagina di dizionario **dopo** le pagine dati
+    /// viene rifiutato invece di essere interpretato (FZ-0.2, revisione).
+    ///
+    /// In parquet 59.1.0 ogni consumatore passa da `byte_range`, che sceglie il
+    /// dizionario quando c'e' — la stessa regola nostra — quindi oggi non c'e'
+    /// divergenza. Ma quell'accordo e' **condizionato**: dipende dal fatto che
+    /// la libreria continui a scegliere come noi. Su un chunk che non puo'
+    /// esistere — il dizionario precede sempre i dati che indicizza — rifiutare
+    /// e' piu' economico che restare d'accordo per fortuna.
+    #[test]
+    fn un_chunk_con_il_dizionario_dopo_i_dati_e_rifiutato() {
+        use parquet::basic::{Encoding, Type as PhysicalType};
+        use parquet::schema::types::{ColumnDescriptor, ColumnPath, Type as SchemaType};
+
+        let tipo = Arc::new(
+            SchemaType::primitive_type_builder("c", PhysicalType::INT32)
+                .build()
+                .unwrap(),
+        );
+        let descrittore = Arc::new(ColumnDescriptor::new(tipo, 0, 0, ColumnPath::new(vec![])));
+
+        let coerente = parquet::file::metadata::ColumnChunkMetaData::builder(descrittore.clone())
+            .set_encodings(vec![Encoding::PLAIN])
+            .set_dictionary_page_offset(Some(100))
+            .set_data_page_offset(200)
+            .set_total_compressed_size(50)
+            .set_total_uncompressed_size(50)
+            .build()
+            .unwrap();
+        assert_eq!(inizio_del_chunk(&coerente).unwrap(), 100);
+
+        let invertito = parquet::file::metadata::ColumnChunkMetaData::builder(descrittore.clone())
+            .set_encodings(vec![Encoding::PLAIN])
+            .set_dictionary_page_offset(Some(300))
+            .set_data_page_offset(200)
+            .set_total_compressed_size(50)
+            .set_total_uncompressed_size(50)
+            .build()
+            .unwrap();
+        let errore = inizio_del_chunk(&invertito).expect_err("gli offset invertiti sono rifiutati");
+        assert_eq!(errore.message, MSG_DIZIONARIO_DOPO_I_DATI, "{errore}");
+
+        // Senza dizionario si prende la prima pagina dati, come fa `byte_range`.
+        let senza = parquet::file::metadata::ColumnChunkMetaData::builder(descrittore)
+            .set_encodings(vec![Encoding::PLAIN])
+            .set_data_page_offset(200)
+            .set_total_compressed_size(50)
+            .set_total_uncompressed_size(50)
+            .build()
+            .unwrap();
+        assert_eq!(inizio_del_chunk(&senza).unwrap(), 200);
+    }
+
+    /// La catena delle pagine deve chiudere **esattamente** sulla fine del
+    /// chunk (FZ-0.2, revisione).
+    ///
+    /// Fermarsi a «l'abbiamo superata» lascerebbe passare un'ultima pagina che
+    /// sborda: i byte oltre il chunk sono di un'altra colonna, e una pagina che
+    /// li rivendica non e' lunga, e' un chunk che mente.
+    #[test]
+    fn la_catena_delle_pagine_deve_chiudere_esatta() {
+        const BUDGET: u64 = 1 << 20;
+
+        let dir = tempfile::tempdir().unwrap();
+
+        // Header valido: type=0, uncompressed=4, compressed=4, poi 4 byte di
+        // dati. In tutto 11 byte.
+        let mut pagina = vec![0x15, 0x00, 0x15, 0x08, 0x15, 0x08, 0x00];
+        pagina.extend_from_slice(&[1, 2, 3, 4]);
+        assert_eq!(pagina.len(), 11);
+
+        let scrivi = |nome: &str, dati: &[u8]| {
+            let path = dir.path().join(nome);
+            std::fs::write(&path, dati).unwrap();
+            File::open(path).unwrap()
+        };
+
+        // Chunk lungo esattamente quanto la pagina: chiude.
+        let file = scrivi("esatto", &pagina);
+        pagine::valida_chunk(&file, 0, 11, 64, BUDGET).expect("la catena chiude esatta");
+
+        // Chunk dichiarato piu' corto della pagina: la pagina sborda.
+        let file = scrivi("corto", &pagina);
+        let errore = pagine::valida_chunk(&file, 0, 9, 64, BUDGET)
+            .expect_err("una pagina che sborda dal chunk e' rifiutata");
+        assert_eq!(
+            errore.message,
+            pagine::MSG_CATENA_PAGINE_NON_CHIUDE,
+            "{errore}"
+        );
+
+        // Chunk dichiarato piu' lungo: resta un buco che nessuna pagina copre.
+        let mut lungo = pagina.clone();
+        lungo.extend_from_slice(&[0; 3]);
+        let file = scrivi("lungo", &lungo);
+        let errore = pagine::valida_chunk(&file, 0, 14, 64, BUDGET)
+            .expect_err("un chunk con byte non coperti da pagine e' rifiutato");
+        assert_eq!(
+            errore.message,
+            pagine::MSG_HEADER_PAGINA_ILLEGGIBILE,
+            "{errore}"
+        );
+
+        // Il budget morde anche su una pagina coerente col chunk.
+        let file = scrivi("budget", &pagina);
+        let errore = pagine::valida_chunk(&file, 0, 11, 64, 2)
+            .expect_err("una pagina sopra il budget e' rifiutata");
+        assert_eq!(
+            errore.message,
+            pagine::MSG_PAGINA_OLTRE_IL_BUDGET,
+            "{errore}"
+        );
+    }
+
+    /// Una pagina che dichiara piu' byte non compressi del proprio chunk viene
+    /// rifiutata **prima** che il decoder ne allochi la decompressione (FZ-0.2).
+    ///
+    /// La verifica non e' "non va in panico", e non potrebbe esserlo: senza
+    /// questa prevalidazione l'esito non e' un panico ma un **abort**.
+    /// `Vec::with_capacity` che fallisce chiama l'alloc error handler, che
+    /// termina il processo senza unwinding — nessun `catch_unwind` lo vede, e
+    /// nessun test lo sopravvive per raccontarlo. Misurato sul seme sotto
+    /// `RLIMIT_AS` di 512 MiB:
+    ///
+    /// ```text
+    /// memory allocation of 2000000000 bytes failed
+    /// exit 134 (SIGABRT)
+    /// ```
+    ///
+    /// Questo test puo' quindi provare solo il verso positivo — il rifiuto
+    /// tipizzato — e lo dice invece di lasciar credere che copra l'abort. La
+    /// prova che senza la prevalidazione l'abort avviene sta in
+    /// `fuzz-findings/2026-08-18-parquet-uncompressed-page-size/dimostra.sh`,
+    /// che gira in sottoprocesso apposta perche' l'esito non e' catturabile.
+    #[test]
+    fn una_pagina_oltre_il_proprio_chunk_e_rifiutata_prima_dell_allocazione() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/geoparquet_reader/pagina-oltre-il-chunk.parquet");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+        let dataset = GeoParquetDriver
+            .open(Source::Path(seme), opzioni_lettura())
+            .expect("l'apertura legge i soli metadati e riesce");
+        let richiesta = ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        };
+
+        let errore = match dataset.open_layer_reader(&richiesta) {
+            Err(errore) => errore,
+            Ok(mut lettore) => match lettore.next_batch() {
+                Err(errore) => errore,
+                Ok(_) => panic!("il file doveva essere rifiutato"),
+            },
+        };
+
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping
+        );
+        // Il messaggio e' una delle costanti statiche del modulo: non porta
+        // niente che venga dal file.
+        assert!(
+            errore.message == pagine::MSG_PAGINA_OLTRE_IL_BUDGET
+                || errore.message == pagine::MSG_PAGINA_OLTRE_IL_CHUNK,
+            "messaggio inatteso: {errore}"
+        );
+        assert!(
+            !errore.message.contains("in panico"),
+            "il rifiuto deve precedere il decoder: {errore}"
+        );
+    }
+
+    /// Gli header di pagina si leggono senza allocare, e i casi ostili si
+    /// fermano invece di far girare il ciclo.
+    #[test]
+    fn il_lettore_di_header_di_pagina_regge_gli_input_ostili() {
+        // Header minimo valido: campo 1 (type) = 0, campo 2 = 10, campo 3 = 12.
+        let valido = [0x15, 0x00, 0x15, 0x14, 0x15, 0x18, 0x00];
+        let letto = pagine::leggi_intestazione(&valido).expect("header valido");
+        assert_eq!(letto.non_compressi, 10);
+        assert_eq!(letto.compressi, 12);
+        assert_eq!(letto.byte_header, valido.len());
+
+        // Troncato a meta': non si inventa il resto.
+        assert!(pagine::leggi_intestazione(&valido[..3]).is_err());
+        // Senza STOP: la fetta finisce prima.
+        assert!(pagine::leggi_intestazione(&valido[..valido.len() - 1]).is_err());
+        // Campo 3 assente: mancherebbe il passo della catena.
+        assert!(pagine::leggi_intestazione(&[0x15, 0x00, 0x15, 0x14, 0x00]).is_err());
+        // Tipo Thrift inesistente (0x0F).
+        assert!(pagine::leggi_intestazione(&[0x1F, 0x00, 0x00]).is_err());
+        // Varint che non termina mai.
+        assert!(pagine::leggi_intestazione(&[0x15, 0xFF, 0xFF, 0xFF, 0xFF]).is_err());
+        // Struct annidate all'infinito: la profondita' e' limitata.
+        let mut annidate = vec![0x15, 0x00, 0x15, 0x14, 0x15, 0x18];
+        annidate.extend(std::iter::repeat_n(0x1C_u8, 64)); // campo struct, ripetuto
+        assert!(pagine::leggi_intestazione(&annidate).is_err());
+
+        // --- limiti che la revisione di FZ-0.2 ha imposto ------------------
+
+        // Un elenco che dichiara piu' elementi dei byte residui non e' lungo,
+        // e' falso: ogni elemento ne consuma almeno uno. Senza il controllo il
+        // ciclo girerebbe finche' il primo salto non fallisce — esito giusto,
+        // tempo arbitrario.
+        let elenco_enorme = [
+            0x15, 0x00, 0x15, 0x14, 0x15, 0x18, // campi 1, 2, 3
+            0x19, 0xF5, // campo 4: lista di i32, conteggio in forma lunga
+            0xFF, 0xFF, 0xFF, 0xFF, 0x0F, // 4 294 967 295 elementi
+            0x00,
+        ];
+        assert!(pagine::leggi_intestazione(&elenco_enorme).is_err());
+
+        // Un booleano **dentro un elenco** e' un byte a se'; dentro una struct
+        // sta nel field header. Trattarli allo stesso modo legge l'elenco senza
+        // avanzare, e da li' ogni offset e' sbagliato. Qui la lista dichiara
+        // due booleani e li porta davvero: l'header deve leggersi.
+        let booleani_in_lista = [
+            0x15, 0x00, 0x15, 0x14, 0x15, 0x18, // campi 1, 2, 3
+            0x19, 0x21, // campo 4: lista di 2 booleani
+            0x01, 0x02, // i due byte degli elementi
+            0x00,
+        ];
+        let letto = pagine::leggi_intestazione(&booleani_in_lista)
+            .expect("i booleani in lista consumano un byte ciascuno");
+        assert_eq!(letto.byte_header, booleani_in_lista.len());
+        // Se gli elementi non fossero consumati, lo STOP finirebbe due byte
+        // prima e l'header risulterebbe piu' corto: e' esattamente il difetto.
+        let senza_i_due_byte = [0x15, 0x00, 0x15, 0x14, 0x15, 0x18, 0x19, 0x21, 0x00];
+        assert!(pagine::leggi_intestazione(&senza_i_due_byte).is_err());
+
+        // Un varint che non entra in u64: il byte terminale porta bit che il
+        // file non poteva scrivere. Troncarlo in silenzio darebbe un valore
+        // diverso da quello che il decoder leggera'.
+        let varint_troppo_largo = [
+            0x15, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x00,
+        ];
+        assert!(pagine::leggi_intestazione(&varint_troppo_largo).is_err());
+    }
 
     /// Il seme che faceva panicare `parquet` sul bit width degli indici di
     /// dizionario viene ora rifiutato **prima** che il decoder lo usi (FZ-0.1).

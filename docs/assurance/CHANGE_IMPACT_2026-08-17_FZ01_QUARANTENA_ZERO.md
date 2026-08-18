@@ -87,6 +87,16 @@ esaurimento di risorse, riguarda il lettore quanto la verifica — entrambi
 decomprimono le stesse pagine — ed e' registrato a parte in
 `fuzz-findings/2026-08-18-parquet-uncompressed-page-size/`.
 
+> **Aggiornamento 2026-08-18 (FZ-0.2).** Il residuo e' chiuso: la
+> prevalidazione degli header di pagina (`driver-geoparquet::pagine`) rifiuta
+> una pagina che dichiari piu' byte non compressi del proprio chunk, prima che
+> il decoder allochi. Da allora questo tetto **e'** una garanzia effettiva
+> sull'allocazione — ma solo insieme a quella, e il paragrafo sopra resta vero
+> per il tetto preso da solo. La misura ha anche corretto la descrizione del
+> rischio: l'esito non e' un panico ma un **abort** del processo, che nessun
+> `catch_unwind` intercetta. Vedi
+> [`CHANGE_IMPACT_2026-08-18_FZ_0_2_PREVALIDAZIONE_PAGINE.md`](CHANGE_IMPACT_2026-08-18_FZ_0_2_PREVALIDAZIONE_PAGINE.md).
+
 ## Costo misurato
 
 Mediana di nove esecuzioni, stesso file, stessa esecuzione, misurando

@@ -71,6 +71,15 @@ SORVEGLIATI = (
         "conversione infallibile, e i suoi offset Thrift vengono usati senza "
         "controlli",
     ),
+    Sorvegliato(
+        "SerializedPageReader::new",
+        "pagine::valida_chunk",
+        ("crates/driver-geoparquet/src/lib.rs",),
+        "la decompressione di una pagina alloca in un colpo solo quanto "
+        "l'header di pagina dichiara, e nessun controllo di parquet lo lega al "
+        "totale del chunk: senza prevalidazione l'esito e' un abort del "
+        "processo, che nessun catch_unwind vede (FZ-0.2)",
+    ),
 )
 
 # Le crate che possono legittimamente nominare i decoder sorvegliati. Un uso
@@ -78,6 +87,7 @@ SORVEGLIATI = (
 CRATE_AMMESSE = {
     "FileReader::try_new": ("crates/driver-ipc",),
     "ParquetRecordBatchReaderBuilder::try_new": ("crates/driver-geoparquet",),
+    "SerializedPageReader::new": ("crates/driver-geoparquet",),
 }
 
 INIZIO_FUNZIONE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)")
