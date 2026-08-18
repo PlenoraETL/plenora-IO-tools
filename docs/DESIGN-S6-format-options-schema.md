@@ -48,7 +48,7 @@ Chi lo ha chiesto crede di avere zstd finché non misura.
 | xls | `geometry_encoding` | scrittura | `xy` | **degrada** come csv |
 | geoparquet | `compression` | scrittura | `zstd`\|`gzip`\|`brotli`\|`lz4`\|`none`\|`uncompressed` | **degrada** a snappy |
 | geoparquet | `bbox_legacy_by_name` | lettura | booleano | `1`\|`true`\|`yes` è vero, **tutto il resto è falso** |
-| shp | `publish_mode` | scrittura | `directory_dataset`\|`loose_set` | **già tipizzato**: valore ignoto → `Unsupported` |
+| shp | `publish_mode` | scrittura | `shapefile_directory_dataset`\|`loose_shapefile_set` | **già tipizzato**: valore ignoto → errore |
 
 `shp` è il modello: rifiuta il valore ignoto nominando quelli ammessi. S6
 estende quel comportamento a tutte le opzioni, e aggiunge il rifiuto delle
@@ -222,7 +222,10 @@ problema di prima. Chi scrive `on` riceve l'elenco esatto delle forme ammesse.
 | xls | `geometry_encoding` | enumerato | `wkt`, `xy` |
 | geoparquet | `compression` | enumerato | `snappy`, `zstd`, `gzip`, `brotli`, `lz4`, `none`, `uncompressed` |
 | geoparquet | `bbox_legacy_by_name` | booleano | forme vere e false sopra |
-| shp | `publish_mode` | enumerato | `directory_dataset`, `loose_set` |
+| shp | `publish_mode` | enumerato | `shapefile_directory_dataset`, `loose_shapefile_set` |
+| shp | `row_diagnostics.key_field` | testo | non vuoto |
+| shp | `row_diagnostics.key_policy` | enumerato | `emit`, `redact` |
+| shp | `row_diagnostics.examples_limit` | intero | `1`–`64`, default `64` |
 
 `compression` include **esplicitamente** `snappy`: era il default silenzioso, e
 un default che non si può nominare è un default che non si può nemmeno
@@ -302,3 +305,42 @@ esplicitamente (`on`, stringa vuota, `1.0`, maiuscole).
 
 I passi 1-2 sono indipendenti e non rompono niente; il 3 è il cambio meccanico
 sui dieci driver; il 4 è dove il comportamento cambia davvero.
+
+## Errata di ratifica (2026-08-18, in implementazione)
+
+Il documento è stato ratificato con un censimento incompleto e con una scelta
+di categoria che l'implementazione ha corretto. Le quattro divergenze, tutte
+risolte **verso il codice** e non verso il documento:
+
+1. **`publish_mode` — valori sbagliati.** Il censimento riportava
+   `directory_dataset` e `loose_set`; le costanti reali sono
+   `shapefile_directory_dataset` e `loose_shapefile_set`
+   (`crates/driver-shp/src/lib.rs`). Uno schema con i valori del documento
+   avrebbe rifiutato ciò che il driver accetta — cioè avrebbe rotto il
+   contratto invece di dichiararlo.
+
+2. **Tre chiavi mancanti.** `driver-shp` interpreta anche
+   `row_diagnostics.key_field`, `row_diagnostics.key_policy` e
+   `row_diagnostics.examples_limit`. Nessuna era nel censimento.
+
+3. **Una forma in più: `intero`.** `row_diagnostics.examples_limit` è
+   numerico con estremi `1..=64`, e la grammatica ratificata non aveva una
+   forma per rappresentarlo. È stata aggiunta `ValoreAmmesso::Intero { min,
+   max }`. Non è una tolleranza in più — è una forma in più, con gli estremi
+   dichiarati nello schema invece che sepolti nel driver. Segue la stessa
+   regola delle altre: **una sola grafia**, cioè sole cifre ASCII (`+8` è
+   rifiutato benché `u64::from_str` lo accetti).
+
+4. **Categoria d'errore: `InvalidConfiguration`, non `Unsupported`.** Il
+   documento indicava `PlenoraIoError::Unsupported` per tutti e tre i rifiuti.
+   L'implementazione usa `InvalidConfiguration` / fase `Validate` / retry
+   `Never`. La ragione: `Unsupported` è una risposta **sul prodotto** («questo
+   driver non sa farlo») e davanti a essa un chiamante automatico cambia
+   driver; qui la risposta è **sull'input**, che non è ben formato per il
+   driver scelto, e la reazione corretta è correggere la richiesta. È anche la
+   categoria che `driver-shp` già produceva per gli stessi controlli su
+   `row_diagnostics.*`: adottarla ovunque toglie una differenza che non aveva
+   motivo. `publish_mode` e la compressione cambiano categoria di conseguenza.
+
+Il testo sopra la linea è lasciato com'era stato ratificato, salvo le tabelle
+dei punti 1–3, che riportavano dati falsi sul codice.

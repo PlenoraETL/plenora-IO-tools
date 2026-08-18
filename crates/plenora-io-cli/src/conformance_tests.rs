@@ -27,6 +27,13 @@ use plenora_io_model::geometry::{
 ///
 /// Era `colonne_predefinite()`: il tipo legacy non esiste piu' nel
 /// percorso core/driver (S4.e).
+/// La conformita' verifica le capability di scrittura, non lo schema delle
+/// opzioni: nessuno di questi piani ne dichiara, e la mappa vuota e' valida
+/// per tutti e dieci i driver.
+fn senza_opzioni() -> std::collections::BTreeMap<String, String> {
+    std::collections::BTreeMap::new()
+}
+
 fn colonne_predefinite() -> usize {
     usize::try_from(plenora_io_model::budget::PipelineLimits::default().max_columns())
         .unwrap_or(usize::MAX)
@@ -312,6 +319,7 @@ fn every_writable_driver_accepts_its_declared_baseline() {
             descriptor,
             &valid_geometry_plan(descriptor),
             colonne_predefinite(),
+            &senza_opzioni(),
         )
         .unwrap_or_else(|error| {
             panic!(
@@ -335,6 +343,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                 descriptor,
                 &WritePlan { layers: Vec::new() },
                 colonne_predefinite(),
+                &senza_opzioni(),
             ),
             CapabilityReason::EmptyWritePlan,
         );
@@ -348,6 +357,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                         &Field::new("value", DataType::Utf8, true),
                     ),
                     colonne_predefinite(),
+                    &senza_opzioni(),
                 ),
                 CapabilityReason::DuplicateLayerName,
             );
@@ -358,6 +368,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
                     descriptor,
                     &attribute_plan(&["one", "two"], &Field::new("value", DataType::Utf8, true)),
                     colonne_predefinite(),
+                    &senza_opzioni(),
                 ),
                 CapabilityReason::MultipleLayers,
             );
@@ -391,7 +402,7 @@ fn crs_matrix_fails_closed() {
                 );
                 assert_capability(
                     descriptor.id,
-                    validate_write(descriptor, &plan, colonne_predefinite()),
+                    validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                     CapabilityReason::CrsUnresolved,
                 );
                 embedded += 1;
@@ -408,7 +419,7 @@ fn crs_matrix_fails_closed() {
                 );
                 assert_capability(
                     descriptor.id,
-                    validate_write(descriptor, &plan, colonne_predefinite()),
+                    validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                     CapabilityReason::ReprojectionRequired,
                 );
                 fixed += 1;
@@ -424,7 +435,8 @@ fn crs_matrix_fails_closed() {
                     vec![GeometryType::Point],
                 );
                 assert!(
-                    validate_write(descriptor, &plan, colonne_predefinite()).is_ok(),
+                    validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni())
+                        .is_ok(),
                     "{} dichiara CRS embedded opzionale ma rifiuta lo stato missing",
                     descriptor.id
                 );
@@ -447,7 +459,13 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     let mut ipc_plan = valid_geometry_plan(ipc.descriptor());
     ipc_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
     assert!(
-        validate_write(ipc.descriptor(), &ipc_plan, colonne_predefinite()).is_ok(),
+        validate_write(
+            ipc.descriptor(),
+            &ipc_plan,
+            colonne_predefinite(),
+            &senza_opzioni()
+        )
+        .is_ok(),
         "IPC deve preservare crs_id e srid discordanti senza sceglierne uno"
     );
 
@@ -456,7 +474,12 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
     shp_plan.layers[0].contract.geometry.as_mut().unwrap().srid = Some(3003);
     assert_capability(
         "shp",
-        validate_write(shp.descriptor(), &shp_plan, colonne_predefinite()),
+        validate_write(
+            shp.descriptor(),
+            &shp_plan,
+            colonne_predefinite(),
+            &senza_opzioni(),
+        ),
         CapabilityReason::CrsRepresentationsInconsistent,
     );
 }
@@ -568,7 +591,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, colonne_predefinite()),
+                validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::CoordinateDimensions,
             );
             dimensions_checked += 1;
@@ -587,7 +610,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, colonne_predefinite()),
+                validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::GeometryEncoding,
             );
             encodings_checked += 1;
@@ -606,7 +629,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, colonne_predefinite()),
+                validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::SpatialSemantics,
             );
             semantics_checked += 1;
@@ -625,7 +648,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, colonne_predefinite()),
+                validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::GeometryNotSupported,
             );
             types_checked += 1;
@@ -636,7 +659,12 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &unresolved, colonne_predefinite()),
+                validate_write(
+                    descriptor,
+                    &unresolved,
+                    colonne_predefinite(),
+                    &senza_opzioni(),
+                ),
                 CapabilityReason::GeometryNotSupported,
             );
             unresolved_checked += 1;
@@ -652,7 +680,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             );
             assert_capability(
                 descriptor.id,
-                validate_write(descriptor, &plan, colonne_predefinite()),
+                validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::MixedGeometry,
             );
             mixed_checked += 1;
@@ -683,8 +711,7 @@ fn field_type_and_limit_matrix_is_enforced() {
             validate_write(
                 descriptor,
                 &attribute_plan(&["layer"], &Field::new("v", DataType::Utf8, true)),
-                0
-            ),
+                0, &senza_opzioni()),
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
 
@@ -696,6 +723,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new(name, DataType::Utf8, true)),
                     colonne_predefinite(),
+                    &senza_opzioni(),
                 ),
                 CapabilityReason::FieldNameTooLong,
             );
@@ -714,6 +742,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new("nested", nested, true)),
                     colonne_predefinite(),
+                    &senza_opzioni(),
                 ),
                 CapabilityReason::TypeNotRepresentable,
             );
@@ -733,6 +762,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                         &Field::new("__not_a_native_attribute__", DataType::Utf8, true),
                     ),
                     colonne_predefinite(),
+                    &senza_opzioni(),
                 ),
                 CapabilityReason::TypeNotRepresentable,
             );
@@ -745,6 +775,7 @@ fn field_type_and_limit_matrix_is_enforced() {
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new("nullable", DataType::Utf8, true)),
                     colonne_predefinite(),
+                    &senza_opzioni(),
                 ),
                 CapabilityReason::Nullability,
             );
@@ -1194,4 +1225,377 @@ fn dropping_writer_never_publishes_partial_output() {
             residuals.len()
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// L0.7 / S6 — lo schema dichiarativo delle `format_options`
+// ---------------------------------------------------------------------------
+
+use plenora_io_model::format_options::{FaseOpzione, ValoreAmmesso};
+
+/// Il registro delle opzioni, composto in core dall'elenco dei driver.
+fn registro_opzioni() -> plenora_io_core::DriverRegistry {
+    let mut registry = plenora_io_core::DriverRegistry::new();
+    for driver in drivers() {
+        registry.register(driver);
+    }
+    registry
+}
+
+/// La destinazione che un valore enumerato pretende, quando la pretende.
+///
+/// `publish_mode` e' l'unico caso oggi: il suo valore deve concordare con il
+/// suffisso del sink, un vincolo che lega due cose — opzione e destinazione —
+/// e che nessuna grammatica su un singolo valore puo' esprimere. La tabella
+/// sta qui, esplicita, invece di far saltare il caso al test: se domani
+/// un'altra opzione avesse lo stesso accoppiamento, si aggiunge una riga e
+/// resta visibile che l'accoppiamento esiste.
+fn destinazione_richiesta(chiave: &str, valore: &str) -> Option<&'static str> {
+    match (chiave, valore) {
+        ("publish_mode", "shapefile_directory_dataset") => Some("shp.d"),
+        ("publish_mode", "loose_shapefile_set") => Some("shp"),
+        _ => None,
+    }
+}
+
+fn opzioni_scrittura_con(chiave: &str, valore: &str) -> WriteOptions {
+    let mut opts = opzioni_scrittura();
+    opts.format_options
+        .insert(chiave.to_owned(), valore.to_owned());
+    opts
+}
+
+/// Scrive un dataset minimo e restituisce l'esito, senza `unwrap`.
+fn scrive_con(
+    driver: &dyn FormatDriver,
+    destinazione: PathBuf,
+    opts: &WriteOptions,
+) -> plenora_io_model::Result<()> {
+    let descriptor = driver.descriptor();
+    let plan = valid_geometry_plan(descriptor);
+    let batch = RecordBatch::new_empty(plan.layers[0].contract.schema.clone());
+    let mut writer = driver.create(Sink::Path(destinazione), &plan, opts)?;
+    writer.write(&batch)?;
+    writer.finish()?;
+    Ok(())
+}
+
+#[test]
+fn every_driver_has_a_schema_for_options() {
+    let registro = registro_opzioni();
+    let schemi = registro.format_options();
+    let attesi: Vec<&str> = drivers()
+        .iter()
+        .map(|driver| driver.descriptor().id)
+        .collect();
+
+    assert_eq!(
+        schemi.len(),
+        attesi.len(),
+        "il registro non copre l'elenco dei driver"
+    );
+    for id in &attesi {
+        assert!(
+            schemi.iter().any(|(registrato, _)| registrato == id),
+            "{id}: assente dal registro delle format_options"
+        );
+    }
+
+    // Il registro e' derivato, quindi la copertura e' garantita dal tipo: qui
+    // si sorveglia che resti derivato. Cio' che invece un tipo non garantisce
+    // e' che le chiavi siano sensate — nessun duplicato, nessuna vuota — e che
+    // un default dichiarato sia esso stesso valido secondo la propria forma.
+    for (id, schema) in schemi {
+        let mut viste = std::collections::BTreeSet::new();
+        for opzione in schema.opzioni {
+            assert!(!opzione.chiave.is_empty(), "{id}: opzione con chiave vuota");
+            assert!(
+                viste.insert(opzione.chiave),
+                "{id}: chiave '{}' dichiarata due volte",
+                opzione.chiave
+            );
+            assert!(
+                !opzione.descrizione.is_empty(),
+                "{id}: '{}' senza descrizione",
+                opzione.chiave
+            );
+            if let Some(predefinito) = opzione.predefinito {
+                assert!(
+                    opzione.valore.verifica(predefinito).is_ok(),
+                    "{id}: il default '{predefinito}' di '{}' non rispetta la propria forma",
+                    opzione.chiave
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn unknown_option_key_produces_typed_error_not_silent_ignore() {
+    let directory = tempfile::tempdir().unwrap();
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        // Senza il tier GDB, FileGDB rifiuta per driver indisponibile prima di
+        // guardare le opzioni. Non e' un'ignoranza silenziosa — e' un rifiuto
+        // che precede — e pretendere qui la categoria dello schema misurerebbe
+        // l'ordine dei controlli invece del controllo. Con la feature attiva
+        // (gate «test FileGDB feature-on») il driver rientra nel giro.
+        if descriptor.id == "filegdb" && !cfg!(feature = "gdal-backend") {
+            continue;
+        }
+        let mut opts = read_options(descriptor.id);
+        opts.format_options
+            .insert("optzione_inesistente".to_owned(), "x".to_owned());
+
+        let esito = driver.open(
+            Source::Path(directory.path().join("non-serve-che-esista")),
+            opts,
+        );
+        let Err(errore) = esito else {
+            panic!(
+                "{}: una chiave sconosciuta e' stata ignorata",
+                descriptor.id
+            )
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::InvalidConfiguration,
+            "{}: categoria sbagliata per una chiave sconosciuta ({errore})",
+            descriptor.id
+        );
+        let testo = errore.to_string();
+        assert!(
+            testo.contains("optzione_inesistente"),
+            "{}: l'errore non nomina la chiave rifiutata: {errore}",
+            descriptor.id
+        );
+        // L'errore deve elencare cosa si accetta, non solo cosa si rifiuta:
+        // altrimenti chi ha sbagliato a scrivere non sa dove guardare.
+        let attese = descriptor.format_options.chiavi(FaseOpzione::Lettura);
+        if attese.is_empty() {
+            assert!(
+                testo.contains("nessuna"),
+                "{}: schema vuoto, ma l'errore non lo dice: {errore}",
+                descriptor.id
+            );
+        } else {
+            for chiave in attese {
+                assert!(
+                    testo.contains(chiave),
+                    "{}: l'errore non elenca '{chiave}': {errore}",
+                    descriptor.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn unknown_compression_value_produces_typed_error_not_snappy_default() {
+    let directory = tempfile::tempdir().unwrap();
+    let driver = driver_geoparquet::GeoParquetDriver;
+
+    // Il caso peggiore del censimento: `zstsd` e' un refuso di `zstd`, e prima
+    // produceva un file valido compresso con snappy — nessun errore, nessun
+    // avviso, e la compressione richiesta semplicemente non applicata.
+    let destinazione = directory.path().join("refuso.parquet");
+    let esito = scrive_con(
+        &driver,
+        destinazione.clone(),
+        &opzioni_scrittura_con("compression", "zstsd"),
+    );
+    let Err(errore) = esito else {
+        panic!("un valore di compressione ignoto e' degradato a snappy in silenzio")
+    };
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::InvalidConfiguration,
+        "categoria sbagliata: {errore}"
+    );
+    let testo = errore.to_string();
+    assert!(
+        testo.contains("zstsd"),
+        "l'errore non nomina il valore rifiutato: {errore}"
+    );
+    assert!(
+        testo.contains("zstd"),
+        "l'errore non elenca i valori ammessi: {errore}"
+    );
+
+    // E il file non deve esistere: un errore che lascia un artefatto parziale
+    // sposta il problema piu' avanti invece di fermarlo.
+    assert!(
+        !destinazione.exists(),
+        "il rifiuto ha lasciato un file al suo posto"
+    );
+}
+
+#[test]
+fn una_chiave_di_scrittura_passata_in_lettura_e_rifiutata() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut provati = 0;
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        for opzione in descriptor.format_options.opzioni {
+            if opzione.fase != FaseOpzione::Scrittura {
+                continue;
+            }
+            provati += 1;
+            let mut opts = read_options(descriptor.id);
+            let valore = match opzione.valore {
+                ValoreAmmesso::Enumerato(ammessi) => {
+                    (*ammessi.first().expect("enumerazione senza valori")).to_owned()
+                }
+                ValoreAmmesso::Booleano => "true".to_owned(),
+                ValoreAmmesso::Carattere => ";".to_owned(),
+                ValoreAmmesso::Intero { minimo, .. } => minimo.to_string(),
+                ValoreAmmesso::Testo => "x".to_owned(),
+            };
+            opts.format_options
+                .insert(opzione.chiave.to_owned(), valore);
+
+            let esito = driver.open(Source::Path(directory.path().join("qualunque")), opts);
+            let Err(errore) = esito else {
+                panic!(
+                    "{}: '{}' vale in scrittura ma la lettura l'ha accettata",
+                    descriptor.id, opzione.chiave
+                )
+            };
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::InvalidConfiguration,
+                "{}: '{}' rifiutata con la categoria sbagliata: {errore}",
+                descriptor.id,
+                opzione.chiave
+            );
+            // L'errore deve dire *perche'*: la fase, non un generico rifiuto.
+            assert!(
+                errore.to_string().contains("scrittura"),
+                "{}: '{}' rifiutata senza nominare la fase: {errore}",
+                descriptor.id,
+                opzione.chiave
+            );
+        }
+    }
+    assert!(
+        provati > 0,
+        "nessuna opzione di sola scrittura: il test non ha verificato niente"
+    );
+}
+
+#[test]
+fn ogni_valore_ammesso_dallo_schema_e_accettato_dal_driver() {
+    // Copre le enumerazioni di **scrittura** con una scrittura vera: e' li'
+    // che lo schema puo' promettere piu' di quanto il driver mantenga, perche'
+    // il driver traduce il valore in una scelta (un codec, un encoding, una
+    // forma di pubblicazione) e la traduzione puo' non avere il caso.
+    //
+    // Le enumerazioni di **lettura** — oggi solo `row_diagnostics.key_policy`
+    // — pretendono un dataset con una chiave gia' presente, cioe' un fixture
+    // che vive nel driver: `emit` e `redact` sono esercitate entrambe dai test
+    // di `driver-shp`. Questo test non le duplica e non finge di coprirle.
+    let directory = tempfile::tempdir().unwrap();
+    let mut provati = 0;
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.write_capabilities.is_none() {
+            continue;
+        }
+        for opzione in descriptor.format_options.opzioni {
+            let ValoreAmmesso::Enumerato(ammessi) = opzione.valore else {
+                continue;
+            };
+            if !opzione.fase.copre(FaseOpzione::Scrittura) {
+                continue;
+            }
+            for valore in ammessi {
+                provati += 1;
+                let suffisso = destinazione_richiesta(opzione.chiave, valore)
+                    .unwrap_or_else(|| extension(descriptor.id));
+                let destinazione = directory.path().join(format!(
+                    "{}-{}-{valore}.{suffisso}",
+                    descriptor.id, opzione.chiave
+                ));
+                if let Err(errore) = scrive_con(
+                    &*driver,
+                    destinazione,
+                    &opzioni_scrittura_con(opzione.chiave, valore),
+                ) {
+                    panic!(
+                        "{}: lo schema promette '{valore}' per '{}', il driver lo rifiuta: {errore}",
+                        descriptor.id, opzione.chiave
+                    );
+                }
+            }
+        }
+    }
+    assert!(
+        provati > 0,
+        "nessun valore enumerato di scrittura: il test non ha verificato niente"
+    );
+}
+
+#[test]
+fn il_default_dichiarato_e_quello_applicato() {
+    // Un default dichiarato che il driver non applica e' peggio di un default
+    // non dichiarato: promette un comportamento e ne produce un altro. La
+    // prova e' l'uguaglianza byte a byte fra l'omissione e la dichiarazione
+    // esplicita — se il driver usasse un altro valore, i due file
+    // divergerebbero.
+    let directory = tempfile::tempdir().unwrap();
+    let mut provati = 0;
+    for driver in drivers() {
+        let descriptor = driver.descriptor();
+        if descriptor.write_capabilities.is_none() {
+            continue;
+        }
+        for opzione in descriptor.format_options.opzioni {
+            let Some(predefinito) = opzione.predefinito else {
+                continue;
+            };
+            if !opzione.fase.copre(FaseOpzione::Scrittura) {
+                continue;
+            }
+            provati += 1;
+            let estensione = extension(descriptor.id);
+            let omesso = directory.path().join(format!(
+                "{}-{}-omesso.{estensione}",
+                descriptor.id, opzione.chiave
+            ));
+            let esplicito = directory.path().join(format!(
+                "{}-{}-esplicito.{estensione}",
+                descriptor.id, opzione.chiave
+            ));
+
+            scrive_con(&*driver, omesso.clone(), &opzioni_scrittura()).unwrap_or_else(|error| {
+                panic!(
+                    "{}: scrittura senza '{}': {error}",
+                    descriptor.id, opzione.chiave
+                )
+            });
+            scrive_con(
+                &*driver,
+                esplicito.clone(),
+                &opzioni_scrittura_con(opzione.chiave, predefinito),
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{}: scrittura con '{}' = '{predefinito}': {error}",
+                    descriptor.id, opzione.chiave
+                )
+            });
+
+            assert_eq!(
+                std::fs::read(&omesso).expect("lettura del file omesso"),
+                std::fs::read(&esplicito).expect("lettura del file esplicito"),
+                "{}: omettere '{}' non equivale a dichiararlo '{predefinito}'",
+                descriptor.id,
+                opzione.chiave
+            );
+        }
+    }
+    assert!(
+        provati > 0,
+        "nessun default di scrittura dichiarato: il test non ha verificato niente"
+    );
 }

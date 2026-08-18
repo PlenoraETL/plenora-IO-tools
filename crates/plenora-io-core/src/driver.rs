@@ -745,8 +745,24 @@ pub trait FormatWriter {
 /// # Errors
 ///
 /// Propaga l'errore dell'enumerazione: quota superata, cancellazione,
-/// deadline, symlink, o permit gia' speso.
-pub fn preflight_source(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
+/// deadline, symlink, o permit gia' speso. Fallisce inoltre se le
+/// `format_options` non rispettano lo schema dichiarato dal driver (L0.7).
+pub fn preflight_source(
+    descriptor: &crate::descriptor::FormatDescriptor,
+    source: Source,
+    opts: &mut ReadOptions,
+) -> Result<PathBuf> {
+    // Le `format_options` si validano **prima** di toccare il filesystem: una
+    // chiave sbagliata e' un errore di configurazione, e diventa un errore di
+    // I/O solo se qualcuno la scopre dopo aver aperto il file. Il descrittore
+    // e' un parametro e non un campo delle opzioni perche' cosi' un driver che
+    // salta la validazione non compila: la firma e' il vincolo.
+    plenora_io_model::format_options::valida_opzioni(
+        descriptor.id,
+        descriptor.format_options,
+        &opts.format_options,
+        plenora_io_model::format_options::FaseOpzione::Lettura,
+    )?;
     source.into_path_observed(opts)
 }
 
@@ -1903,6 +1919,35 @@ pub struct Published {
 
 #[cfg(test)]
 mod tests {
+
+    /// Descrittore minimo per i test del preflight.
+    ///
+    /// Questi test verificano l'enumerazione della sorgente, non lo schema
+    /// delle opzioni: schema vuoto e mappa vuota li lasciano invariati, e la
+    /// validazione che `preflight_source` ora esegue non entra in mezzo.
+    const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
+        crate::descriptor::FormatDescriptor {
+            id: "prova",
+            direction: crate::descriptor::Direction::Read,
+            read_mode: crate::descriptor::ReadMode::StreamingSequential,
+            read_determinism: crate::descriptor::DeterminismLevel::Semantic,
+            write_mode: None,
+            write_determinism: None,
+            multi_layer: false,
+            multi_file: false,
+            reader_concurrency: crate::descriptor::ReaderConcurrency::SingleActiveReader,
+            projection_support: crate::descriptor::ProjectionSupport::None,
+            predicate_pruning_support: crate::descriptor::PredicatePruningSupport::None,
+            spatial_pruning_support: crate::descriptor::SpatialPruningSupport::None,
+            crs_handling: crate::descriptor::CrsHandling::None,
+            fidelity_class: crate::descriptor::Fidelity::Lossless,
+            runtime: crate::descriptor::Runtime::PureRust,
+            write_capabilities: None,
+            format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+            semantic_version: 1,
+            driver_version: 1,
+            descriptor_version: 1,
+        };
     use std::collections::HashMap;
     use std::io::Write;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1931,7 +1976,11 @@ mod tests {
             file.write_all(b"x").expect("write");
         }
         let mut opts = opzioni_pipeline(limits);
-        preflight_source(Source::Path(root.path().to_path_buf()), &mut opts)
+        preflight_source(
+            &DESCRITTORE_DI_PROVA,
+            Source::Path(root.path().to_path_buf()),
+            &mut opts,
+        )
     }
 
     /// L0.9: senza tetto sulle entry una directory ostile fa crescere la coda
@@ -2232,7 +2281,11 @@ mod tests {
         let mut opts = opzioni_pipeline(
             plenora_io_model::budget::PipelineLimits::default().with_max_input_bytes(7),
         );
-        let result = preflight_source(Source::Path(file.path().to_owned()), &mut opts);
+        let result = preflight_source(
+            &DESCRITTORE_DI_PROVA,
+            Source::Path(file.path().to_owned()),
+            &mut opts,
+        );
         assert!(matches!(
             result,
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
@@ -2251,6 +2304,7 @@ mod tests {
             Err(error) => unreachable!("bundle di test: {error:?}"),
         };
         let result = preflight_source(
+            &DESCRITTORE_DI_PROVA,
             Source::Path(std::path::PathBuf::from("not-observed")),
             &mut opts,
         );
@@ -3087,8 +3141,12 @@ mod tests {
         let mut stretto = opzioni_pipeline(
             plenora_io_model::budget::PipelineLimits::default().with_max_input_bytes(7),
         );
-        let errore = preflight_source(Source::Path(file.path().to_owned()), &mut stretto)
-            .expect_err("otto byte non stanno in sette");
+        let errore = preflight_source(
+            &DESCRITTORE_DI_PROVA,
+            Source::Path(file.path().to_owned()),
+            &mut stretto,
+        )
+        .expect_err("otto byte non stanno in sette");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
 
         // Con quota capiente lo stesso file passa, e il footprint pubblicato
@@ -3100,7 +3158,12 @@ mod tests {
             plenora_io_model::budget::ObservedInput::NotObserved,
             "prima del preflight nulla e' osservato"
         );
-        assert!(preflight_source(Source::Path(file.path().to_owned()), &mut largo).is_ok());
+        assert!(preflight_source(
+            &DESCRITTORE_DI_PROVA,
+            Source::Path(file.path().to_owned()),
+            &mut largo
+        )
+        .is_ok());
         assert_eq!(
             budget.context().observed_input(),
             plenora_io_model::budget::ObservedInput::Bytes(8)
@@ -3113,11 +3176,20 @@ mod tests {
         let file = tempfile::NamedTempFile::new().expect("tempfile");
         let mut opts = opzioni_pipeline(plenora_io_model::budget::PipelineLimits::default());
 
-        assert!(preflight_source(Source::Path(file.path().to_owned()), &mut opts).is_ok());
+        assert!(preflight_source(
+            &DESCRITTORE_DI_PROVA,
+            Source::Path(file.path().to_owned()),
+            &mut opts
+        )
+        .is_ok());
         // Il permit e' stato speso: una seconda osservazione non ha nulla con
         // cui pubblicare, e fallisce invece di lasciare il footprint vuoto.
-        let errore = preflight_source(Source::Path(file.path().to_owned()), &mut opts)
-            .expect_err("il permit e' one-shot");
+        let errore = preflight_source(
+            &DESCRITTORE_DI_PROVA,
+            Source::Path(file.path().to_owned()),
+            &mut opts,
+        )
+        .expect_err("il permit e' one-shot");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
     }
 }

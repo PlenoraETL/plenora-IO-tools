@@ -121,7 +121,8 @@ pub const fn arrow_type_class(data_type: &DataType) -> ArrowTypeClass {
 /// Verifica statica del piano di scrittura contro le capability del driver.
 ///
 /// Prende `max_columns` invece dell'intero `Limits` perche' e' l'unica quota
-/// che consulta. La differenza non e' cosmetica: legare questa firma al tipo
+/// che consulta; le `format_options` sono un parametro a parte per la stessa
+/// ragione, e non l'intero `WriteOptions`. La differenza non e' cosmetica: legare questa firma al tipo
 /// legacy costringerebbe ogni chiamante a possedere un `Limits` anche dopo la
 /// migrazione al modello unificato, cioe' terrebbe in vita il tipo vecchio
 /// per un campo solo.
@@ -129,8 +130,17 @@ pub fn validate_write(
     descriptor: &FormatDescriptor,
     plan: &WritePlan,
     max_columns: usize,
+    format_options: &std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
     let driver = descriptor.id;
+    // Stesso motivo della lettura: le opzioni arrivano per parametro, cosi'
+    // nessun driver puo' scrivere senza averle sottoposte allo schema.
+    plenora_io_model::format_options::valida_opzioni(
+        driver,
+        descriptor.format_options,
+        format_options,
+        plenora_io_model::format_options::FaseOpzione::Scrittura,
+    )?;
     let caps = descriptor.write_capabilities.as_ref().ok_or_else(|| {
         violation(
             driver,
@@ -450,9 +460,17 @@ mod tests {
     };
     use crate::request::WriteLayer;
 
+    /// I test di questo modulo verificano le capability, non le opzioni: il
+    /// descrittore di prova dichiara schema vuoto, quindi la mappa vuota e'
+    /// l'unica che lo soddisfa.
+    fn senza_opzioni() -> std::collections::BTreeMap<String, String> {
+        std::collections::BTreeMap::new()
+    }
+
     fn descriptor(crs: CrsWriteSupport) -> FormatDescriptor {
         FormatDescriptor {
             id: "test",
+            format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
             direction: Direction::Bidirectional,
             read_mode: ReadMode::StreamingSequential,
             read_determinism: crate::descriptor::DeterminismLevel::Semantic,
@@ -510,6 +528,7 @@ mod tests {
             &descriptor(CrsWriteSupport::None),
             &p,
             colonne_predefinite(),
+            &senza_opzioni(),
         )
         .unwrap_err();
         assert_eq!(
@@ -535,6 +554,7 @@ mod tests {
             &descriptor(CrsWriteSupport::Fixed("OGC:CRS84")),
             &p,
             colonne_predefinite(),
+            &senza_opzioni(),
         )
         .unwrap_err();
         assert_eq!(
@@ -554,7 +574,7 @@ mod tests {
         );
 
         assert!(matches!(
-            validate_write(&descriptor(CrsWriteSupport::None), &p, 1),
+            validate_write(&descriptor(CrsWriteSupport::None), &p, 1, &senza_opzioni()),
             Err(error) if error.code == plenora_io_model::IoErrorCode::LimitExceeded
         ));
     }
@@ -568,7 +588,7 @@ mod tests {
         let p = plan(vec![Field::new("attribute", DataType::Utf8, false)], None);
 
         assert!(matches!(
-            validate_write(&descriptor, &p, colonne_predefinite()),
+            validate_write(&descriptor, &p, colonne_predefinite(), &senza_opzioni()),
             Err(error)
                 if error.capability_reason == Some(CapabilityReason::TypeNotRepresentable)
         ));
@@ -583,11 +603,17 @@ mod tests {
         descriptor.write_capabilities = Some(capabilities);
 
         let accepted = plan(vec![Field::new("name", DataType::Utf8, false)], None);
-        assert!(validate_write(&descriptor, &accepted, colonne_predefinite()).is_ok());
+        assert!(validate_write(
+            &descriptor,
+            &accepted,
+            colonne_predefinite(),
+            &senza_opzioni()
+        )
+        .is_ok());
 
         let rejected = plan(vec![Field::new("secret", DataType::Utf8, false)], None);
         assert!(matches!(
-            validate_write(&descriptor, &rejected, colonne_predefinite()),
+            validate_write(&descriptor, &rejected, colonne_predefinite(), &senza_opzioni()),
             Err(error)
                 if error.capability_reason == Some(CapabilityReason::TypeNotRepresentable)
         ));
@@ -602,7 +628,7 @@ mod tests {
         let p = plan(vec![Field::new("required", DataType::Utf8, true)], None);
 
         assert!(matches!(
-            validate_write(&descriptor, &p, colonne_predefinite()),
+            validate_write(&descriptor, &p, colonne_predefinite(), &senza_opzioni()),
             Err(error) if error.capability_reason == Some(CapabilityReason::Nullability)
         ));
     }
@@ -625,8 +651,7 @@ mod tests {
             validate_write(
                 &descriptor(CrsWriteSupport::Embedded),
                 &p,
-                colonne_predefinite()
-            ),
+                colonne_predefinite(), &senza_opzioni()),
             Err(error) if error.capability_reason == Some(CapabilityReason::MixedGeometry)
         ));
     }
@@ -649,7 +674,8 @@ mod tests {
         assert!(validate_write(
             &descriptor(CrsWriteSupport::EmbeddedOptional),
             &p,
-            colonne_predefinite()
+            colonne_predefinite(),
+            &senza_opzioni()
         )
         .is_ok());
 
@@ -657,7 +683,8 @@ mod tests {
         let mut capabilities = selecting.write_capabilities.unwrap();
         capabilities.crs_representations.srid = CrsRepresentationState::Derived;
         selecting.write_capabilities = Some(capabilities);
-        let error = validate_write(&selecting, &p, colonne_predefinite()).unwrap_err();
+        let error =
+            validate_write(&selecting, &p, colonne_predefinite(), &senza_opzioni()).unwrap_err();
         assert_eq!(
             error.capability_reason,
             Some(CapabilityReason::CrsRepresentationsInconsistent)
@@ -692,13 +719,14 @@ mod tests {
         );
 
         let preserving = descriptor(CrsWriteSupport::EmbeddedOptional);
-        assert!(validate_write(&preserving, &p, colonne_predefinite()).is_ok());
+        assert!(validate_write(&preserving, &p, colonne_predefinite(), &senza_opzioni()).is_ok());
 
         let mut selecting = descriptor(CrsWriteSupport::Embedded);
         let mut capabilities = selecting.write_capabilities.unwrap();
         capabilities.crs_representations.crs_definition = CrsRepresentationState::Derived;
         selecting.write_capabilities = Some(capabilities);
-        let error = validate_write(&selecting, &p, colonne_predefinite()).unwrap_err();
+        let error =
+            validate_write(&selecting, &p, colonne_predefinite(), &senza_opzioni()).unwrap_err();
         assert_eq!(
             error.capability_reason,
             Some(CapabilityReason::CrsRepresentationsInconsistent)

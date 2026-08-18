@@ -423,6 +423,19 @@ pub struct FormatDescriptor {
     pub fidelity_class: Fidelity,
     pub runtime: Runtime,
     pub write_capabilities: Option<FormatWriteCapabilities>,
+    /// Le `format_options` che il driver interpreta (L0.7, S6).
+    ///
+    /// Il campo e' **obbligatorio**, e non `Option`: un driver che non
+    /// interpreta alcuna opzione dichiara `SchemaOpzioniFormato::VUOTO`, che e'
+    /// un'affermazione — qualunque chiave e' sconosciuta — mentre l'assenza
+    /// sarebbe un'omissione indistinguibile da una dimenticanza.
+    ///
+    /// Sta qui e non in una tabella indicizzata per `id` perche' il legame
+    /// dev'essere **strutturale**: un driver senza schema non compila, invece
+    /// di lasciare un buco che solo un test troverebbe. Il registry per il
+    /// comando `options` si compone dall'elenco dei driver, che il core ha
+    /// gia'.
+    pub format_options: plenora_io_model::format_options::SchemaOpzioniFormato,
     // Versioni esplicite: il fingerprint del catalogo deriva da queste (D17).
     pub semantic_version: u32,
     pub driver_version: u32,

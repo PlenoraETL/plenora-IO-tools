@@ -111,9 +111,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,
     }),
+    // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
+    // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
+    format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
     semantic_version: 1,
     driver_version: 6,
-    descriptor_version: 7,
+    descriptor_version: 8,
 };
 
 pub struct GeoJsonDriver;
@@ -124,7 +127,7 @@ impl FormatDriver for GeoJsonDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, &mut opts)?;
+        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let quote = QuoteInferenza::from_read_options(&opts);
         let (schema, cols) = infer_schema(&path, quote)?;
@@ -164,7 +167,12 @@ impl FormatDriver for GeoJsonDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.max_columns())?;
+        validate_write(
+            self.descriptor(),
+            plan,
+            opts.max_columns(),
+            &opts.format_options,
+        )?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));

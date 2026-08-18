@@ -127,8 +127,25 @@ set -eu
 # su un lint che il workspace applica ovunque: registrarlo e' piu' onesto che
 # esentarlo. La stessa conversione nel core lascia il conteggio invariato,
 # perche' la rimozione del macchinario dell'impronta ne ha tolta una.
+# Il 2026-08-18, S6 ha tolto un'occorrenza a driver-csv (3 -> 2, totale
+# 107 -> 106): `delimiter` degradava a virgola qualunque cosa ricevesse —
+# `unwrap_or(b',')` sul primo byte — cioe' era un fallback di H-01 nel senso
+# stretto, un valore mancante o malformato sostituito da un default senza
+# dirlo. Ora lo schema ammette esattamente un carattere ASCII e la funzione
+# restituisce `Option`: l'assenza dell'opzione vale il default **dichiarato**,
+# ogni altra cosa e' un errore. E' l'unico verso in cui questo contatore deve
+# muoversi da solo. Nessuna revisione H-01 dovuta.
+# Sempre S6, tre occorrenze in piu' in plenora-io-cli (20 -> 23, totale
+# 106 -> 109), tutte nei sei test trasversali di `conformance_tests.rs`: due
+# sono `unwrap_or_else(|error| panic!(...))`, cioe' il modo in cui questo file
+# gia' riporta il fallimento di una scrittura, non una degradazione a default;
+# la terza e' `destinazione_richiesta(...).unwrap_or_else(|| extension(id))`,
+# che sceglie il suffisso del sink quando l'opzione non ne impone uno. Nessuna
+# governa un percorso di produzione. Riscriverle come `match` per non far
+# muovere il contatore incontrerebbe `manual_unwrap_or_else`, cioe' scambierebbe
+# un rilievo di clippy per un numero fermo. Nessuna revisione H-01 dovuta.
 expected='
-driver-csv 3
+driver-csv 2
 driver-dxf 15
 driver-filegdb 5
 driver-geojson 2
@@ -140,7 +157,7 @@ driver-shp 3
 driver-xls 2
 plenora-io-model 1
 plenora-io-core 16
-plenora-io-cli 20
+plenora-io-cli 23
 plenora-bench 24
 plenora-fuzz 5
 '
@@ -172,7 +189,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 107 ]; then
+if [ "${actual_total}" -ne 109 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

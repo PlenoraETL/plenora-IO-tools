@@ -417,6 +417,49 @@ fn shapefile_source_path(path: PathBuf) -> Result<PathBuf> {
     Ok(source)
 }
 
+use plenora_io_model::format_options::{
+    FaseOpzione, OpzioneFormato, SchemaOpzioniFormato, ValoreAmmesso,
+};
+
+/// Le `format_options` interpretate dal driver Shapefile (L0.7, S6).
+///
+/// Gli estremi di `row_diagnostics.examples_limit` sono gli stessi che il
+/// driver applica: dichiararli qui non sposta il controllo, lo rende leggibile
+/// prima di aprire il file.
+const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
+    OpzioneFormato {
+        chiave: "publish_mode",
+        fase: FaseOpzione::Scrittura,
+        valore: ValoreAmmesso::Enumerato(&[DIRECTORY_DATASET_MODE, LOOSE_SET_MODE]),
+        predefinito: None,
+        descrizione: "forma di pubblicazione; in assenza si deduce dall'estensione",
+    },
+    OpzioneFormato {
+        chiave: "row_diagnostics.examples_limit",
+        fase: FaseOpzione::Lettura,
+        valore: ValoreAmmesso::Intero {
+            minimo: 1,
+            massimo: MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT,
+        },
+        predefinito: Some("64"),
+        descrizione: "numero massimo di righe di esempio per diagnostica",
+    },
+    OpzioneFormato {
+        chiave: "row_diagnostics.key_field",
+        fase: FaseOpzione::Lettura,
+        valore: ValoreAmmesso::Testo,
+        predefinito: None,
+        descrizione: "campo DBF usato come chiave nelle diagnostiche di riga",
+    },
+    OpzioneFormato {
+        chiave: "row_diagnostics.key_policy",
+        fase: FaseOpzione::Lettura,
+        valore: ValoreAmmesso::Enumerato(&["emit", "redact"]),
+        predefinito: None,
+        descrizione: "se emettere o redigere la chiave; richiede row_diagnostics.key_field",
+    },
+]);
+
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "shp",
     direction: Direction::Bidirectional,
@@ -448,9 +491,10 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
     }),
+    format_options: SCHEMA_OPZIONI,
     semantic_version: 1,
     driver_version: 9,
-    descriptor_version: 7,
+    descriptor_version: 8,
 };
 
 pub struct ShpDriver;
@@ -461,7 +505,11 @@ impl FormatDriver for ShpDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = shapefile_source_path(plenora_io_core::preflight_source(source, &mut opts)?)?;
+        let path = shapefile_source_path(plenora_io_core::preflight_source(
+            self.descriptor(),
+            source,
+            &mut opts,
+        )?)?;
         let crs = resolve_crs(&path, &opts)?;
         // Pass 1: inferenza schema (nomi + tipi) dai record, a RAM O(ncol).
         let ShpInference {
@@ -535,7 +583,12 @@ impl FormatDriver for ShpDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.max_columns())?;
+        validate_write(
+            self.descriptor(),
+            plan,
+            opts.max_columns(),
+            &opts.format_options,
+        )?;
         let Sink::Path(dest) = sink;
         let publish_mode = publish_mode(&dest, opts)?;
         if plan.layers.len() != 1 {

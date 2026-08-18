@@ -47,7 +47,7 @@ ATTESI = {"test": 47, "attrezzaggio": 4, "produzione": 2}
 # Occorrenze di produzione **legittime**: il default e' la scelta giusta, non
 # un residuo. Chiave: `percorso:riga`.
 LEGITTIME: dict[str, str] = {
-    "crates/driver-gpkg/src/lib.rs:1673": (
+    "crates/driver-gpkg/src/lib.rs:1681": (
         "`__fuzz_gpkg_geometry`, entry point `#[doc(hidden)]` per libFuzzer. "
         "L'input del fuzzer e' gia' bounded a 1 MiB dall'harness, quindi il "
         "tetto di 64 MiB non governa nulla; e non ci sono opzioni da cui "
@@ -55,7 +55,7 @@ LEGITTIME: dict[str, str] = {
         "**Da mettere dietro la feature `fuzzing` in S12**: `doc(hidden)` lo "
         "toglie dalla documentazione, non dalla superficie pubblica"
     ),
-    "crates/driver-shp/src/lib.rs:2460": (
+    "crates/driver-shp/src/lib.rs:2513": (
         "`__fuzz_wkb_roundtrip`, stessa natura del precedente, stessa azione "
         "in S12"
     ),

@@ -430,6 +430,40 @@ fn fmt_err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("geoparquet", reason)
 }
 
+use plenora_io_model::format_options::{
+    FaseOpzione, OpzioneFormato, SchemaOpzioniFormato, ValoreAmmesso,
+};
+
+/// Le `format_options` interpretate dal driver `GeoParquet` (L0.7, S6).
+///
+/// `uncompressed` e `none` sono due nomi dello stesso esito e restano
+/// entrambi: erano gia' accettati, toglierne uno sarebbe una rottura di
+/// contratto travestita da pulizia dello schema.
+const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
+    OpzioneFormato {
+        chiave: "bbox_legacy_by_name",
+        fase: FaseOpzione::Lettura,
+        valore: ValoreAmmesso::Booleano,
+        predefinito: Some("false"),
+        descrizione: "opt-in al riconoscimento per nome delle colonne bbox legacy",
+    },
+    OpzioneFormato {
+        chiave: "compression",
+        fase: FaseOpzione::Scrittura,
+        valore: ValoreAmmesso::Enumerato(&[
+            "brotli",
+            "gzip",
+            "lz4",
+            "none",
+            "snappy",
+            "uncompressed",
+            "zstd",
+        ]),
+        predefinito: Some("snappy"),
+        descrizione: "codec di compressione delle pagine",
+    },
+]);
+
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "geoparquet",
     direction: Direction::Bidirectional,
@@ -461,9 +495,10 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,
     }),
+    format_options: SCHEMA_OPZIONI,
     semantic_version: 1,
     driver_version: 5,
-    descriptor_version: 6,
+    descriptor_version: 7,
 };
 
 pub struct GeoParquetDriver;
@@ -474,8 +509,21 @@ pub struct GeoParquetDriver;
 /// S4.d il cambio semantico del preflight — enumerazione via il modello
 /// unificato e rimozione dei controlli legacy — dovra' avvenire in un punto
 /// solo per driver, non sparso nel corpo di `open`.
+/// L'opt-in al riconoscimento per nome delle colonne bbox legacy.
+///
+/// La forma booleana e' quella dello schema, non una lista scritta a mano qui:
+/// prima "false" e "pippo" erano indistinguibili — entrambi "non vero" — e un
+/// opt-in scritto male taceva invece di correggersi.
+fn opt_in_bbox_legacy(format_options: &std::collections::BTreeMap<String, String>) -> Result<bool> {
+    format_options
+        .get("bbox_legacy_by_name")
+        .map_or(Ok(false), |valore| {
+            plenora_io_model::format_options::booleano("geoparquet", "bbox_legacy_by_name", valore)
+        })
+}
+
 fn percorso_verificato(source: Source, opts: &mut ReadOptions) -> Result<PathBuf> {
-    plenora_io_core::preflight_source(source, opts)
+    plenora_io_core::preflight_source(&DESCRIPTOR, source, opts)
 }
 
 impl FormatDriver for GeoParquetDriver {
@@ -514,10 +562,7 @@ impl FormatDriver for GeoParquetDriver {
         // scritti prima del covering GeoParquet 1.1 lo abilita
         // esplicitamente, prendendosi responsabilita' del comportamento
         // documentato.
-        let legacy_by_name_opt_in = opts
-            .format_options
-            .get("bbox_legacy_by_name")
-            .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes"));
+        let legacy_by_name_opt_in = opt_in_bbox_legacy(&opts.format_options)?;
         let covering_names = covering_bbox_columns(geo.as_ref(), &geom_name);
         // Retag strippa SOLO i nomi realmente dichiarati come covering o —
         // se il caller ha chiesto il fallback legacy — quelli
@@ -630,7 +675,12 @@ impl FormatDriver for GeoParquetDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.max_columns())?;
+        validate_write(
+            self.descriptor(),
+            plan,
+            opts.max_columns(),
+            &opts.format_options,
+        )?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -685,7 +735,7 @@ impl FormatDriver for GeoParquetDriver {
         // Row group da 64k righe: statistiche min/max abbastanza granulari da
         // rendere efficace il row-group pruning in lettura (Fase 2C).
         let props = WriterProperties::builder()
-            .set_compression(compression_from(opts))
+            .set_compression(compression_from(opts)?)
             .set_max_row_group_row_count(Some(65_536))
             .build();
         let writer = ArrowWriter::try_new(staging.reopen()?, write_schema.clone(), Some(props))
@@ -1271,14 +1321,30 @@ fn gruppi_dopo_pruning_spaziale(
 
 /// Compressione dal `format_options["compression"]` (default snappy). zstd via
 /// zstd-sys (unica dep C oltre a GDAL/filegdb), sia in lettura che scrittura.
-fn compression_from(opts: &WriteOptions) -> Compression {
-    match opts.format_options.get("compression").map(String::as_str) {
-        Some("zstd") => Compression::ZSTD(ZstdLevel::default()),
-        Some("gzip") => Compression::GZIP(GzipLevel::default()),
-        Some("brotli") => Compression::BROTLI(BrotliLevel::default()),
-        Some("lz4") => Compression::LZ4,
-        Some("none" | "uncompressed") => Compression::UNCOMPRESSED,
-        _ => Compression::SNAPPY,
+fn compression_from(opts: &WriteOptions) -> Result<Compression> {
+    // Nessun ramo `_`. Prima, un valore fuori elenco diventava snappy in
+    // silenzio: chi scriveva `compression=zstsd` otteneva un file valido,
+    // compresso in un altro modo, senza mai saperlo. Ora l'unica assenza
+    // ammessa e' l'opzione non specificata, che vale il default dichiarato
+    // nello schema; ogni altro caso e' gia' stato respinto da `validate_write`,
+    // e il ramo finale lo riafferma invece di assorbirlo.
+    let Some(valore) = opts.format_options.get("compression").map(String::as_str) else {
+        return Ok(Compression::SNAPPY);
+    };
+    match valore {
+        "snappy" => Ok(Compression::SNAPPY),
+        "zstd" => Ok(Compression::ZSTD(ZstdLevel::default())),
+        "gzip" => Ok(Compression::GZIP(GzipLevel::default())),
+        "brotli" => Ok(Compression::BROTLI(BrotliLevel::default())),
+        "lz4" => Ok(Compression::LZ4),
+        "none" | "uncompressed" => Ok(Compression::UNCOMPRESSED),
+        altro => Err(PlenoraIoError::new(
+            plenora_io_model::ErrorCategory::InvalidConfiguration,
+            plenora_io_model::ErrorPhase::Validate,
+            plenora_io_model::RemoteEffect::None,
+            plenora_io_model::RetryDisposition::Never,
+            format!("geoparquet: compressione '{altro}' non riconosciuta"),
+        )),
     }
 }
 

@@ -67,6 +67,54 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("csv", reason)
 }
 
+use plenora_io_model::format_options::{
+    FaseOpzione, OpzioneFormato, SchemaOpzioniFormato, ValoreAmmesso,
+};
+
+/// Le `format_options` interpretate dal driver CSV (L0.7, S6).
+///
+/// La geometria in lettura si dichiara con `wkt_column`, oppure con la coppia
+/// `x_column`/`y_column`: lo schema elenca le chiavi, il vincolo che siano
+/// mutuamente esclusive resta nel driver perche' e' una relazione fra chiavi,
+/// non una proprieta' di un valore.
+const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
+    OpzioneFormato {
+        chiave: "delimiter",
+        fase: FaseOpzione::Entrambe,
+        valore: ValoreAmmesso::Carattere,
+        predefinito: Some(","),
+        descrizione: "separatore di campo, esattamente un carattere ASCII",
+    },
+    OpzioneFormato {
+        chiave: "geometry_encoding",
+        fase: FaseOpzione::Scrittura,
+        valore: ValoreAmmesso::Enumerato(&["wkt", "xy"]),
+        predefinito: Some("wkt"),
+        descrizione: "come scrivere la geometria: colonna WKT o colonne x/y",
+    },
+    OpzioneFormato {
+        chiave: "wkt_column",
+        fase: FaseOpzione::Lettura,
+        valore: ValoreAmmesso::Testo,
+        predefinito: None,
+        descrizione: "colonna che contiene la geometria in WKT",
+    },
+    OpzioneFormato {
+        chiave: "x_column",
+        fase: FaseOpzione::Lettura,
+        valore: ValoreAmmesso::Testo,
+        predefinito: None,
+        descrizione: "colonna dell'ascissa, da usare insieme a y_column",
+    },
+    OpzioneFormato {
+        chiave: "y_column",
+        fase: FaseOpzione::Lettura,
+        valore: ValoreAmmesso::Testo,
+        predefinito: None,
+        descrizione: "colonna dell'ordinata, da usare insieme a x_column",
+    },
+]);
+
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "csv",
     direction: Direction::Bidirectional,
@@ -98,17 +146,42 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
     }),
+    format_options: SCHEMA_OPZIONI,
     semantic_version: 1,
     driver_version: 6,
-    descriptor_version: 7,
+    descriptor_version: 8,
 };
 
 pub struct CsvDriver;
 
-fn delimiter(opts: &std::collections::BTreeMap<String, String>) -> u8 {
-    opts.get("delimiter")
-        .and_then(|s| s.bytes().next())
-        .unwrap_or(b',')
+/// Il separatore dichiarato, o la virgola se non e' dichiarato.
+///
+/// Prima prendeva il **primo byte** di qualunque stringa: `delimiter=";;"`
+/// diventava `;` e `delimiter=""` diventava `,`, entrambi in silenzio. Lo
+/// schema ammette ora esattamente un carattere ASCII, e questa funzione
+/// restituisce quel carattere o niente — non un byte pescato da una stringa
+/// piu' lunga. Il `None` finale e' irraggiungibile dopo la validazione, e
+/// resta perche' la funzione non deve dipendere dall'averla eseguita.
+fn delimiter(opts: &std::collections::BTreeMap<String, String>) -> Option<u8> {
+    let Some(dichiarato) = opts.get("delimiter") else {
+        return Some(b',');
+    };
+    let mut byte = dichiarato.bytes();
+    match (byte.next(), byte.next()) {
+        (Some(uno), None) if uno.is_ascii() => Some(uno),
+        _ => None,
+    }
+}
+
+/// Errore per un separatore che la validazione avrebbe dovuto respingere.
+fn delimiter_non_valido() -> PlenoraIoError {
+    PlenoraIoError::new(
+        plenora_io_model::ErrorCategory::InvalidConfiguration,
+        plenora_io_model::ErrorPhase::Validate,
+        plenora_io_model::RemoteEffect::None,
+        plenora_io_model::RetryDisposition::Never,
+        "csv: delimiter deve essere esattamente un carattere ASCII",
+    )
 }
 
 fn csv_reader(path: &Path, delim: u8) -> Result<csv::Reader<File>> {
@@ -132,8 +205,8 @@ impl FormatDriver for CsvDriver {
     }
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
-        let path = plenora_io_core::preflight_source(source, &mut opts)?;
-        let delim = delimiter(&opts.format_options);
+        let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
+        let delim = delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?;
         let crs = opts.assume_crs.clone().ok_or_else(|| {
             PlenoraIoError::Crs("CSV con geometria richiede --assume-crs".to_owned())
         })?;
@@ -241,7 +314,12 @@ impl FormatDriver for CsvDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.max_columns())?;
+        validate_write(
+            self.descriptor(),
+            plan,
+            opts.max_columns(),
+            &opts.format_options,
+        )?;
         let Sink::Path(path) = sink;
         if path.exists() {
             return Err(PlenoraIoError::OutputExists(path.display().to_string()));
@@ -260,15 +338,30 @@ impl FormatDriver for CsvDriver {
                 "CSV: un solo layer per file".to_owned(),
             ));
         }
-        let xy = matches!(
-            opts.format_options
-                .get("geometry_encoding")
-                .map(String::as_str),
-            Some("xy")
-        );
+        // Prima: `matches!(..., Some("xy"))`, cioe' qualunque valore diverso
+        // da "xy" — compreso "XY", "WKB" o un refuso — significava WKT senza
+        // dirlo. Ora le due grafie ammesse sono trattate come due casi, e
+        // l'assenza vale il default dichiarato nello schema.
+        let xy = match opts
+            .format_options
+            .get("geometry_encoding")
+            .map(String::as_str)
+        {
+            Some("xy") => true,
+            None | Some("wkt") => false,
+            Some(altro) => {
+                return Err(PlenoraIoError::new(
+                    plenora_io_model::ErrorCategory::InvalidConfiguration,
+                    plenora_io_model::ErrorPhase::Validate,
+                    plenora_io_model::RemoteEffect::None,
+                    plenora_io_model::RetryDisposition::Never,
+                    format!("csv: geometry_encoding '{altro}' non riconosciuto"),
+                ))
+            }
+        };
         let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
         let writer = csv::WriterBuilder::new()
-            .delimiter(delimiter(&opts.format_options))
+            .delimiter(delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?)
             .from_writer(staging.reopen()?);
         with_write_validation(
             Box::new(CsvWriter {

@@ -77,9 +77,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
     }),
+    // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
+    // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
+    format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
     semantic_version: 1,
     driver_version: 10,
-    descriptor_version: 9,
+    descriptor_version: 10,
 };
 
 pub struct FileGdbDriver;
@@ -116,7 +119,7 @@ impl FormatDriver for FileGdbDriver {
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
-            let path = plenora_io_core::preflight_source(source, &mut opts)?;
+            let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
             let dataset = backend::open(&path, opts.assume_crs.as_deref())?;
             return Ok(plenora_io_core::with_read_budget(dataset, &opts, false));
         }
@@ -136,7 +139,12 @@ impl FormatDriver for FileGdbDriver {
         plan: &WritePlan,
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
-        validate_write(self.descriptor(), plan, opts.max_columns())?;
+        validate_write(
+            self.descriptor(),
+            plan,
+            opts.max_columns(),
+            &opts.format_options,
+        )?;
         #[cfg(feature = "gdal-backend")]
         {
             let Sink::Path(path) = sink;
