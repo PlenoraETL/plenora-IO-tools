@@ -109,7 +109,19 @@ Residui dichiarati:
 * **Senza `input_total` non c'è report, quindi non ci sono esempi né conteggi.**
   Chi vuole le diagnostiche complete deve dichiarare il totale. Ora l'errore
   dice *cosa* è andato storto, non *quali righe*.
-* **La causa nel messaggio è la prima violazione**, non tutte. Con violazioni di
-  cause diverse nello stesso batch, il messaggio ne nomina una sola. Con il
-  report ci sarebbero i conteggi per causa; senza, la scelta è fra una causa e
+* **La causa nel messaggio è la prima violazione**, non tutte — e questo è
+  **comportamento accettato in ratifica**, non un residuo da chiudere. Con
+  violazioni di cause diverse nello stesso batch il messaggio ne nomina una
+  sola: è un **fail-fast deterministico**, non un campione. Nessuna
+  aggregazione e nessun totale inventato; con il report ci sarebbero i conteggi
+  per causa, senza la scelta è fra una causa e nessuna, e una è meglio di
   nessuna.
+
+  Deterministico perché le violazioni stanno in una `BTreeMap` ordinata per
+  indice di riga: la causa riportata è sempre quella della **prima riga
+  rifiutata**, non una a caso fra quelle del batch. Due esecuzioni sullo stesso
+  input danno lo stesso messaggio.
+
+  L'eventuale modello per cause multiple appartiene a **S9**, insieme agli
+  errori strutturati: è lì che va deciso come si rappresentano più cause senza
+  moltiplicare gli errori, non qui a lato di una correzione.

@@ -237,10 +237,66 @@ fn parse_u64(value: Option<&String>, flag: &str) -> Result<u64, (i32, Value)> {
         .map_err(|_| usage_err(format!("{flag} richiede un intero non negativo")))
 }
 
+/// I flag che governano una quota, tutti insieme.
+///
+/// Estratti da `parse` perche' la funzione superava il tetto di righe, ma
+/// stanno bene insieme anche di merito: sono l'unico gruppo di flag che
+/// finisce nello stesso posto — `PipelineLimits` — e che condivide la stessa
+/// disciplina fail-closed. Nessuno di loro degrada a un default quando il
+/// valore e' assente o malformato.
+///
+/// Ritorna `None` se il flag non e' una quota, cosi' `parse` prosegue con i
+/// propri casi invece di dover sapere quali sono.
+///
+/// # Errors
+///
+/// Se il flag e' una quota ma il valore manca o non e' un intero.
+fn limite_da_flag<'a>(
+    flag: &str,
+    limiti: PipelineLimits,
+    it: &mut impl Iterator<Item = &'a String>,
+) -> Result<Option<PipelineLimits>, (i32, Value)> {
+    let aggiornati = match flag {
+        "--max-input-bytes" => {
+            limiti.with_max_input_bytes(parse_u64(it.next(), "--max-input-bytes")?)
+        }
+        // Quota di memoria, distinta da quella dell'ingresso: da FZ-0.2.1
+        // il tetto su una pagina Parquet non compressa ne e' la meta'.
+        // Zero e incoerenze le rifiuta il modello, non il parser; la
+        // motivazione estesa sta nel README.
+        "--memory-bytes" => limiti.with_memory_bytes(parse_u64(it.next(), "--memory-bytes")?),
+        "--max-input-entries" => {
+            limiti.with_max_input_entries(parse_u64(it.next(), "--max-input-entries")?)
+        }
+        "--max-output-bytes" => {
+            limiti.with_max_output_bytes(parse_u64(it.next(), "--max-output-bytes")?)
+        }
+        "--max-rows" => limiti.with_max_rows(parse_u64(it.next(), "--max-rows")?),
+        "--max-columns" => limiti.with_max_columns(parse_u64(it.next(), "--max-columns")?),
+        "--max-vertices" => limiti.with_max_vertices(parse_usize(it.next(), "--max-vertices")?),
+        "--max-wkb-cell-bytes" => {
+            limiti.with_max_wkb_cell_bytes(parse_usize(it.next(), "--max-wkb-cell-bytes")?)
+        }
+        "--max-wkb-components" => {
+            limiti.with_max_wkb_components(parse_usize(it.next(), "--max-wkb-components")?)
+        }
+        "--max-wkb-depth" => limiti.with_max_wkb_depth(parse_usize(it.next(), "--max-wkb-depth")?),
+        _ => return Ok(None),
+    };
+    Ok(Some(aggiornati))
+}
+
 fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
     let mut cli = Cli::default();
     let mut it = args.iter();
     while let Some(a) = it.next() {
+        // Le quote si riconoscono prima: sono un gruppo omogeneo che finisce
+        // tutto in `PipelineLimits`, e tenerle qui allungava `parse` senza
+        // aggiungere niente a chi la legge.
+        if let Some(aggiornati) = limite_da_flag(a.as_str(), cli.limits, &mut it)? {
+            cli.limits = aggiornati;
+            continue;
+        }
         match a.as_str() {
             "--assume-crs" => {
                 cli.assume_crs = Some(
@@ -266,51 +322,6 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
                     v.parse()
                         .map_err(|_| usage_err("--limit richiede un intero"))?,
                 );
-            }
-            "--max-input-bytes" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_input_bytes(parse_u64(it.next(), "--max-input-bytes")?);
-            }
-            "--max-input-entries" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_input_entries(parse_u64(it.next(), "--max-input-entries")?);
-            }
-            "--max-output-bytes" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_output_bytes(parse_u64(it.next(), "--max-output-bytes")?);
-            }
-            "--max-rows" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_rows(parse_u64(it.next(), "--max-rows")?);
-            }
-            "--max-columns" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_columns(parse_u64(it.next(), "--max-columns")?);
-            }
-            "--max-vertices" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_vertices(parse_usize(it.next(), "--max-vertices")?);
-            }
-            "--max-wkb-cell-bytes" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_wkb_cell_bytes(parse_usize(it.next(), "--max-wkb-cell-bytes")?);
-            }
-            "--max-wkb-components" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_wkb_components(parse_usize(it.next(), "--max-wkb-components")?);
-            }
-            "--max-wkb-depth" => {
-                cli.limits = cli
-                    .limits
-                    .with_max_wkb_depth(parse_usize(it.next(), "--max-wkb-depth")?);
             }
             "--durable" => cli.durable = true,
             "--opt" => {
@@ -933,6 +944,264 @@ mod tests {
             .limits(cli.limits)
             .build()
             .is_err());
+    }
+
+    #[test]
+    fn memory_bytes_ha_un_default_e_un_flag_che_lo_cambia() {
+        // Il default non si muove: chi non passa il flag ottiene ciò che
+        // otteneva prima.
+        let senza = parse(&["read".to_owned(), "x".to_owned()]).expect("flag validi");
+        assert_eq!(
+            senza.limits.memory_bytes(),
+            PipelineLimits::default().memory_bytes()
+        );
+
+        let con = parse(&[
+            "read".to_owned(),
+            "x".to_owned(),
+            "--memory-bytes".to_owned(),
+            "134217728".to_owned(),
+        ])
+        .expect("flag validi");
+        assert_eq!(con.limits.memory_bytes(), 134_217_728);
+        // La memoria non tocca le altre quote: sono distinte apposta.
+        assert_eq!(
+            con.limits.max_input_bytes(),
+            PipelineLimits::default().max_input_bytes()
+        );
+    }
+
+    #[test]
+    fn memory_bytes_rifiuta_zero_e_valori_non_rappresentabili() {
+        // Non rappresentabile: il parser si ferma prima del modello.
+        for grezzo in ["0x10", "-1", "1.5", "18446744073709551616", ""] {
+            assert!(
+                parse(&[
+                    "read".to_owned(),
+                    "x".to_owned(),
+                    "--memory-bytes".to_owned(),
+                    grezzo.to_owned(),
+                ])
+                .is_err(),
+                "'{grezzo}' doveva essere rifiutato dal parser"
+            );
+        }
+        // Valore mancante.
+        assert!(parse(&[
+            "read".to_owned(),
+            "x".to_owned(),
+            "--memory-bytes".to_owned(),
+        ])
+        .is_err());
+
+        // Zero: il parser lo accetta come intero, il **modello** lo rifiuta.
+        // La divisione dei compiti è voluta — il parser sa cos'è un numero, il
+        // modello sa quali numeri hanno senso insieme.
+        let cli = parse(&[
+            "read".to_owned(),
+            "x".to_owned(),
+            "--memory-bytes".to_owned(),
+            "0".to_owned(),
+        ])
+        .expect("il parser accetta lo zero");
+        assert!(PipelineBudget::builder()
+            .limits(cli.limits)
+            .build()
+            .is_err());
+
+        // Sotto `max_wkb_cell_bytes` senza abbassarla: rifiutato, perché una
+        // cella non può valere più di tutta la memoria.
+        let cli = parse(&[
+            "read".to_owned(),
+            "x".to_owned(),
+            "--memory-bytes".to_owned(),
+            "1024".to_owned(),
+        ])
+        .expect("il parser accetta il valore");
+        assert!(PipelineBudget::builder()
+            .limits(cli.limits)
+            .build()
+            .is_err());
+    }
+
+    #[test]
+    fn memory_bytes_arriva_a_lettura_e_scrittura_dallo_stesso_context() {
+        let cli = parse(&[
+            "convert".to_owned(),
+            "a".to_owned(),
+            "b".to_owned(),
+            "--memory-bytes".to_owned(),
+            "134217728".to_owned(),
+        ])
+        .expect("flag validi");
+        let (ropts, wopts) = convert_pipeline(&cli).expect("pipeline valida");
+
+        assert_eq!(
+            ropts.budget().context().limits().memory_bytes(),
+            134_217_728
+        );
+        assert_eq!(
+            wopts.budget().context().limits().memory_bytes(),
+            134_217_728
+        );
+        // Non due context uguali: **lo stesso**. È la proprietà che S4.d aveva
+        // stabilito e che un flag nuovo potrebbe rompere passando da una strada
+        // laterale.
+        assert!(ropts
+            .budget()
+            .context()
+            .is_same_pipeline(wopts.budget().context()));
+
+        // E la lettura semplice lo riceve dallo stesso posto.
+        let solo_lettura = read_pipeline(&cli).expect("pipeline valida");
+        assert_eq!(
+            solo_lettura.budget().context().limits().memory_bytes(),
+            134_217_728
+        );
+    }
+
+    /// Un `GeoParquet` con molte righe e celle minuscole.
+    ///
+    /// La forma conta: la pagina deve essere grande **senza** che nessuna
+    /// singola cella lo sia, altrimenti abbassando la memoria scatterebbe
+    /// `max_wkb_cell_bytes` e il test misurerebbe un altro controllo.
+    fn scrivi_molte_geometrie_piccole(path: &std::path::Path) {
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        use arrow_array::{BinaryArray, RecordBatch};
+        use arrow_schema::{DataType, Field, Schema, SchemaRef};
+        use plenora_io_core::{FormatDriver, Sink, WriteLayer, WritePlan};
+        use plenora_io_model::contract::{
+            CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
+        };
+        use plenora_io_model::crs::{CrsKind, ResolvedCrs};
+        use plenora_io_model::geometry::{
+            ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY,
+        };
+        use plenora_io_model::wkb::{encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
+
+        let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )
+        .with_metadata(HashMap::from([
+            (
+                ARROW_EXTENSION_NAME_KEY.to_owned(),
+                GEOARROW_WKB_EXTENSION.to_owned(),
+            ),
+            (GEO_CRS_KEY.to_owned(), "EPSG:4326".to_owned()),
+        ]))]));
+        let celle: Vec<Vec<u8>> = (0..50_000)
+            .map(|i| {
+                let x = f64::from(i);
+                encode_wkb(
+                    &WkbGeometry {
+                        value: WkbValue::Point(WkbCoordinate {
+                            x,
+                            y: x,
+                            z: None,
+                            m: None,
+                        }),
+                        dimensions: CoordinateDimensions::Xy,
+                        srid: None,
+                    },
+                    WkbFlavor::Iso,
+                )
+                .unwrap()
+            })
+            .collect();
+        let colonna =
+            BinaryArray::from(celle.iter().map(|c| Some(c.as_slice())).collect::<Vec<_>>());
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(colonna)]).unwrap();
+
+        let mut geometria = GeometryColumnContract::wkb_passthrough(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+            true,
+        );
+        geometria.set_exact_geometry_types(vec![GeometryType::Point]);
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometria),
+                },
+            }],
+        };
+        let driver = driver_geoparquet::GeoParquetDriver;
+        let mut writer = driver
+            .create(
+                Sink::Path(path.to_path_buf()),
+                &plan,
+                &convert_pipeline(&Cli::default()).unwrap().1,
+            )
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+    }
+
+    /// Abbassare `--memory-bytes` abbassa il tetto sulla pagina `GeoParquet`.
+    ///
+    /// È la ragione per cui il flag esiste: senza, dentro un container con meno
+    /// memoria del predefinito il tetto restava a 256 MiB — cioè proprio dove
+    /// andrebbe stretto non si poteva stringerlo.
+    ///
+    /// Il file ha molte righe con celle minuscole, non una cella grande: così
+    /// la pagina è grande senza che `--max-wkb-cell-bytes` c'entri, e il rifiuto
+    /// che si osserva è quello sotto esame e non un altro.
+    #[test]
+    fn abbassare_memory_bytes_abbassa_il_tetto_della_pagina_geoparquet() {
+        use plenora_io_core::{
+            BatchTarget, FormatDriver, ProjectionMode, ReadRequest, ReadScope, Source,
+        };
+        use plenora_io_model::contract::LayerId;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("pagine.parquet");
+        scrivi_molte_geometrie_piccole(&path);
+
+        let richiesta = ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: plenora_io_model::CancellationToken::default(),
+        };
+        let driver = driver_geoparquet::GeoParquetDriver;
+        let leggi = |flag: &[&str]| -> Result<(), plenora_io_model::PlenoraIoError> {
+            let mut argomenti = vec!["read".to_owned(), path.display().to_string()];
+            argomenti.extend(flag.iter().map(|f| (*f).to_owned()));
+            let cli = parse(&argomenti).expect("flag validi");
+            let opzioni = read_pipeline(&cli).expect("pipeline valida");
+            let dataset = driver
+                .open(Source::Path(path.clone()), opzioni)
+                .expect("il file sta sotto le quote di ingresso");
+            match dataset.open_layer_reader(&richiesta) {
+                Err(errore) => Err(errore),
+                Ok(mut lettore) => lettore.next_batch().map(|_| ()),
+            }
+        };
+
+        // Con il predefinito il tetto è 256 MiB e la pagina passa.
+        leggi(&[]).expect("con la memoria predefinita il file si legge");
+
+        // Abbassando la memoria il tetto scende sotto la pagina. Le celle sono
+        // di ventuno byte, quindi `--max-wkb-cell-bytes` non è il vincolo che
+        // scatta: è la memoria.
+        let errore = leggi(&["--memory-bytes", "2000000", "--max-wkb-cell-bytes", "1000"])
+            .expect_err("con meno memoria il tetto scende sotto la pagina");
+        assert_eq!(
+            errore.message,
+            "pagina Parquet che dichiara piu' byte non compressi della memoria disponibile",
+            "{errore}"
+        );
     }
 
     #[test]

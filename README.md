@@ -106,7 +106,14 @@ Il formato e' dedotto dall'estensione del percorso. Opzioni principali:
   fail-closed. `--max-input-entries` (default `10_000`) limita il numero di
   voci visitate dallo scan della sorgente, directory comprese: i byte si
   sommano solo sui file, quindi da soli non bounderebbero una sorgente fatta
-  di sole directory annidate.
+  di sole directory annidate;
+- `--memory-bytes` (default `512 MiB`): la quota di **memoria**, distinta da
+  quella dell'ingresso. Governa le allocazioni temporanee, e ne deriva il tetto
+  su una singola pagina Parquet non compressa, che ne e' la meta'. Serve dentro
+  container con meno memoria del predefinito: senza, quel tetto resterebbe a
+  256 MiB proprio dove andrebbe stretto. Scendere sotto `--max-wkb-cell-bytes`
+  (default 64 MiB) e' rifiutato — una cella non puo' valere piu' di tutta la
+  memoria — quindi sotto quella soglia i due flag si abbassano insieme.
 
 Ogni comando emette un singolo documento JSON su stdout; gli errori vanno su
 stderr come envelope JSON con categoria, fase, effetto remoto e disposizione di
