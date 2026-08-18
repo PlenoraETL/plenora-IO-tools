@@ -1535,13 +1535,66 @@ fn ogni_valore_ammesso_dallo_schema_e_accettato_dal_driver() {
     );
 }
 
+/// Il contratto del primo layer, riletto dal file appena scritto.
+///
+/// E' la forma di uguaglianza che `DeterminismLevel::Semantic` promette: due
+/// scritture della stessa cosa possono differire nei byte, non in cio' che si
+/// rilegge.
+fn contratto_riletto(driver: &dyn FormatDriver, path: &std::path::Path) -> String {
+    let dataset = driver
+        .open(
+            Source::Path(path.to_path_buf()),
+            read_options(driver.descriptor().id),
+        )
+        .unwrap_or_else(|error| panic!("rilettura di {}: {error}", path.display()));
+    let layer = &dataset.layers()[0];
+    let campi: Vec<String> = layer
+        .contract
+        .schema
+        .fields()
+        .iter()
+        .map(|campo| {
+            format!(
+                "{}:{:?}:{}",
+                campo.name(),
+                campo.data_type(),
+                campo.is_nullable()
+            )
+        })
+        .collect();
+    let geometria = layer.contract.geometry.as_ref().map(|g| {
+        format!(
+            "{}/{:?}/{:?}/{:?}",
+            g.name, g.encoding, g.dimensions, g.spatial_semantics
+        )
+    });
+    format!("{campi:?}|{geometria:?}")
+}
+
 #[test]
 fn il_default_dichiarato_e_quello_applicato() {
     // Un default dichiarato che il driver non applica e' peggio di un default
-    // non dichiarato: promette un comportamento e ne produce un altro. La
-    // prova e' l'uguaglianza byte a byte fra l'omissione e la dichiarazione
-    // esplicita — se il driver usasse un altro valore, i due file
-    // divergerebbero.
+    // non dichiarato: promette un comportamento e ne produce un altro.
+    //
+    // La prima stesura confrontava i **byte** dei due file. Era sbagliato per
+    // contratto: tutti e dieci i driver dichiarano
+    // `write_determinism: Semantic`, non `ByteForByte`, quindi nessuno promette
+    // che due scritture della stessa cosa diano gli stessi byte. Passava per
+    // fortuna — finche' due scritture XLSX non sono cadute a cavallo di un
+    // secondo, e i timestamp dentro il contenitore ZIP le hanno rese diverse.
+    // Un test che pretende una garanzia che nessuno ha fatto non e' severo:
+    // e' rumoroso, e prima o poi viene messo a tacere.
+    //
+    // Il confronto e' ora sul **contratto riletto**: si riaprono i due file e
+    // si confrontano schema e geometria del layer. E' cio' che il livello
+    // `Semantic` promette, ed e' discriminante per le opzioni che governano la
+    // forma dell'uscita — `geometry_encoding` fra `wkt` e `xy` cambia le
+    // colonne, `delimiter` cambia come si rileggono.
+    //
+    // Cosa **non** copre: un'opzione che governi una proprieta' invisibile al
+    // contratto. Oggi e' `compression` di GeoParquet, coperta a parte dai test
+    // del driver, che leggono il codec dal footer. Detto qui perche' un test
+    // trasversale che tace su cio' che non vede e' peggio di uno che lo dice.
     let directory = tempfile::tempdir().unwrap();
     let mut provati = 0;
     for driver in drivers() {
@@ -1586,8 +1639,8 @@ fn il_default_dichiarato_e_quello_applicato() {
             });
 
             assert_eq!(
-                std::fs::read(&omesso).expect("lettura del file omesso"),
-                std::fs::read(&esplicito).expect("lettura del file esplicito"),
+                contratto_riletto(&*driver, &omesso),
+                contratto_riletto(&*driver, &esplicito),
                 "{}: omettere '{}' non equivale a dichiararlo '{predefinito}'",
                 descriptor.id,
                 opzione.chiave

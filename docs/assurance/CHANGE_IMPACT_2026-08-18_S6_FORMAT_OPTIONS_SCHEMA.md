@@ -105,7 +105,7 @@ Tutti e sei obbligatori in ratifica, in `plenora-io-cli/src/conformance_tests.rs
 | `unknown_compression_value_produces_typed_error_not_snappy_default` | `compression=zstsd` fallisce, nomina `zstsd` e `zstd`, e **non lascia il file** |
 | `una_chiave_di_scrittura_passata_in_lettura_e_rifiutata` | la fase è parte dello schema; l'errore nomina la fase |
 | `ogni_valore_ammesso_dallo_schema_e_accettato_dal_driver` | **tredici scritture reali**, una per valore enumerato di scrittura |
-| `il_default_dichiarato_e_quello_applicato` | omettere l'opzione e dichiararla al default producono file **identici byte a byte** |
+| `il_default_dichiarato_e_quello_applicato` | omettere l'opzione e dichiararla al default producono lo **stesso contratto riletto** (vedi errata) |
 
 Gli ultimi due sono i più importanti perché non erano nell'elenco di L0.7:
 senza di essi lo schema diventerebbe documentazione, cioè una seconda verità
@@ -117,9 +117,8 @@ codec, un encoding, una forma di pubblicazione — e la traduzione può non aver
 il caso. `lz4` per GeoParquet e `shapefile_directory_dataset` per Shapefile sono
 esercitati da una scrittura completa, non da un `assert` sullo schema.
 
-`il_default_dichiarato…` confronta i byte perché è l'unico modo di distinguere
-«il driver applica il default dichiarato» da «il driver applica un default suo
-che per caso oggi coincide».
+`il_default_dichiarato…` confronta ciò che si rilegge — vedi l'errata sotto:
+la prima stesura confrontava i byte, ed era sbagliato per contratto.
 
 A questi si aggiungono **11 test di grammatica** in `format_options.rs`: per
 ogni forma un valore accettato e uno rifiutato, incluse le varianti che la
@@ -198,3 +197,30 @@ Residui dichiarati:
 * Il residuo `PageHeader.uncompressed_page_size` (FZ-0.1) era aperto e
   separato quando S6 e' stato scritto: S6 non lo tocca. **Chiuso da FZ-0.2 il
   2026-08-18.**
+
+## Errata (2026-08-18) — il confronto byte a byte era sbagliato per contratto
+
+`il_default_dichiarato_e_quello_applicato` confrontava i **byte** dei due file.
+Tutti e dieci i driver dichiarano `write_determinism: Semantic`, non
+`ByteForByte`: **nessuno promette che due scritture della stessa cosa diano gli
+stessi byte.** Il test pretendeva una garanzia che nessuno ha fatto.
+
+Passava per fortuna. È caduto la prima volta su XLSX, quando due scritture sono
+finite a cavallo di un secondo e i timestamp dentro il contenitore ZIP le hanno
+rese diverse. Un test così non è severo: è rumoroso, e prima o poi viene messo a
+tacere invece che ascoltato — che è il modo in cui un test smette di proteggere.
+
+Il confronto è ora sul **contratto riletto**: si riaprono i due file e si
+confrontano schema e geometria del layer. È ciò che il livello `Semantic`
+promette, ed è discriminante per le opzioni che governano la forma dell'uscita —
+`geometry_encoding` fra `wkt` e `xy` cambia le colonne.
+
+Resta scoperta un'opzione che governa una proprietà **invisibile al contratto**:
+`compression` di GeoParquet. Due file identici nel contratto possono essere
+compressi in modo diverso, ed è proprio il caso che S6 esisteva per chiudere. È
+coperta da `il_default_di_compression_e_snappy` nei test del driver, che legge
+il codec dal footer e distingue tre casi — omesso, dichiarato al default,
+dichiarato diverso. Senza il terzo, «omesso == snappy» potrebbe voler dire che
+il driver ignora l'opzione del tutto.
+
+Il test trasversale dice nel proprio commento cosa non vede, invece di tacerlo.

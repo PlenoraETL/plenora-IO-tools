@@ -2278,6 +2278,90 @@ mod tests {
         assert!(!path.exists(), "nemmeno qui si pubblica niente");
     }
 
+    /// Omettere `compression` equivale a dichiararla `snappy` (S6, correzione).
+    ///
+    /// Il test trasversale `il_default_dichiarato_e_quello_applicato` confronta
+    /// il **contratto riletto**, che e' cio' che `DeterminismLevel::Semantic`
+    /// promette. Il codec non compare li': due file identici nel contratto
+    /// possono essere compressi in modo diverso, ed e' proprio il caso che S6
+    /// esisteva per chiudere.
+    ///
+    /// Qui il codec si legge dove sta davvero, nel footer, e i tre casi sono
+    /// distinti: omesso, dichiarato al default, dichiarato diverso. Senza il
+    /// terzo, «omesso == snappy» potrebbe voler dire che il driver ignora
+    /// l'opzione del tutto.
+    #[test]
+    fn il_default_di_compression_e_snappy() {
+        let dir = tempfile::tempdir().unwrap();
+        let codec_di = |nome: &str, opzioni: WriteOptions| {
+            let path = dir.path().join(format!("{nome}.parquet"));
+            let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+                "geometry",
+                DataType::Binary,
+                true,
+            )
+            .with_metadata(geometry_field_meta("EPSG:4326"))]));
+            let wkb = encode_wkb(
+                &WkbGeometry {
+                    value: WkbValue::Point(WkbCoordinate {
+                        x: 1.0,
+                        y: 2.0,
+                        z: None,
+                        m: None,
+                    }),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: None,
+                },
+                WkbFlavor::Iso,
+            )
+            .unwrap();
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(BinaryArray::from(vec![Some(wkb.as_slice())]))],
+            )
+            .unwrap();
+            let mut geometria = GeometryColumnContract::wkb_passthrough(
+                FieldId(0),
+                "geometry",
+                ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+                true,
+            );
+            geometria.set_exact_geometry_types(vec![GeometryType::Point]);
+            let plan = WritePlan {
+                layers: vec![WriteLayer {
+                    name: "l".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: Some(geometria),
+                    },
+                }],
+            };
+            let mut writer = GeoParquetDriver
+                .create(Sink::Path(path.clone()), &plan, &opzioni)
+                .unwrap();
+            writer.write(&batch).unwrap();
+            writer.finish().unwrap();
+            let builder =
+                ParquetRecordBatchReaderBuilder::try_new(File::open(&path).unwrap()).unwrap();
+            builder.metadata().row_groups()[0].columns()[0].compression()
+        };
+
+        let mut esplicito = opzioni_scrittura();
+        esplicito
+            .format_options
+            .insert("compression".to_owned(), "snappy".to_owned());
+        let mut diverso = opzioni_scrittura();
+        diverso
+            .format_options
+            .insert("compression".to_owned(), "zstd".to_owned());
+
+        let omesso = codec_di("omesso", opzioni_scrittura());
+        assert_eq!(omesso, codec_di("esplicito", esplicito));
+        assert_eq!(omesso, Compression::SNAPPY);
+        // Controprova: l'opzione non viene ignorata.
+        assert_ne!(omesso, codec_di("diverso", diverso));
+    }
+
     /// Il tetto per pagina si deriva dalla **memoria dichiarata**, e da nulla
     /// altro (FZ-0.2.1).
     ///
