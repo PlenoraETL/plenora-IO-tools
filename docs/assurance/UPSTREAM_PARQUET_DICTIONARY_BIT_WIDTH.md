@@ -1,33 +1,20 @@
 # Segnalazione a monte — `parquet`: bit width degli indici di dizionario non validato
 
-Stato: **bozza pronta, non pubblicata**. Richiede autorizzazione esplicita prima
-di essere aperta su `apache/arrow-rs` o inviata altrove. Il testo sotto la linea
-è già in inglese e pronto da incollare; sopra la linea c'è quello che serve a
-noi.
+Stato: **pubblicata** il 2026-08-18 — apache/arrow-rs#10722, https://github.com/apache/arrow-rs/issues/10722
 
-## Perché è preparata e non aperta
+`parquet` prende il bit width degli indici di dizionario dal primo byte della
+sezione valori di una data page senza validarlo.
 
-Vale la stessa regola della segnalazione a `calamine`: aprire una issue è una
-comunicazione pubblica a nome del progetto, e la decide chi ne ha titolo. Il
-contenuto è verificato — origine tracciata sullo stack, comportamento misurato
-in tre configurazioni — e resta qui finché non viene autorizzato.
-
-Il reproducer allegato è **costruito da zero** e non contiene nostri artefatti:
-il seme che ha prodotto il finding
-(`fuzz/seeds/geoparquet_reader/bit-width-dizionario-fuori-intervallo.parquet`,
-SHA-256 `962759c9…fb972`) è una mutazione del nostro corpus e a monte non serve.
+Il testo sotto la linea e' quello inviato, ripulito da ogni riferimento interno:
+nessun percorso, nessun nome di componente, nessun artefatto del nostro
+fuzzing. Il reproducer e' costruito da zero e non contiene input del nostro
+corpus.
 
 ## Rapporto con la mitigazione locale
 
-`driver-geoparquet` non ha una prevalidazione per questo parametro, e non
-l'avrà: raggiungerlo richiederebbe replicare la logica di layout della pagina e
-un secondo passaggio di decompressione. La difesa è la barriera
-`leggendo_arrow`, che converte il panico in `PlenoraIoError` di fase `Read` con
-zero output parziale — misurato, non dedotto. Una correzione a monte non
-sostituisce la barriera: chiude questo difetto, non la classe.
-
-Caratterizzazione completa in
-`fuzz-findings/2026-08-17-geoparquet-bitwidth-dizionario/CARATTERIZZAZIONE.md`.
+La correzione a monte **non sostituisce** la difesa che abbiamo: chiuderebbe
+questo difetto, non la classe. La prevalidazione e la barriera si tolgono per
+decisione separata, se e quando la libreria dichiara fallibile la conversione.
 
 ---
 

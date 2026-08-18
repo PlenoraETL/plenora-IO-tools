@@ -65,21 +65,34 @@ use plenora_io_model::{PlenoraIoError, Result};
 /// Un footer illeggibile, un base64 non decodificabile o uno schema non
 /// conforme fermano la lettura. Un file senza `ARROW:schema` passa: non c'e'
 /// niente da convertire, e la chiave e' opzionale nel formato.
-/// Tetto sulla dimensione **non compressa** dichiarata da un chunk di colonna.
+/// Tetto sulla dimensione non compressa **dichiarata dai metadati** di un
+/// chunk di colonna.
 ///
-/// `SerializedPageReader` decomprime ogni pagina prima di restituirla, quindi
-/// il tetto va applicato **prima** di chiedergliela: i metadati dichiarano la
-/// dimensione non compressa del chunk, ed e' l'unico numero disponibile prima
-/// che l'allocazione avvenga. `PageMetadata`, che `peek_next_page` restituisce,
-/// non porta le dimensioni, quindi una verifica per pagina non e' possibile con
-/// l'API pubblica.
+/// # Cosa limita, e cosa no
+///
+/// Limita il totale che il *footer* dichiara per il chunk. **Non** limita
+/// l'allocazione che la decompressione compie: `SerializedPageReader` alloca
+/// con `Vec::with_capacity(uncompressed_page_size)` (parquet 59.1.0,
+/// `file/serialized_reader.rs:447`) usando il valore dell'**header di
+/// pagina**, che e' un `i32` indipendente dal totale del chunk. Un file che
+/// dichiari un chunk piccolo e una pagina enorme supera questo tetto e fa
+/// comunque chiedere fino a circa 2 GiB per pagina.
+///
+/// E' un rischio di esaurimento di risorse registrato a parte, e riguarda il
+/// lettore quanto la verifica: entrambi decomprimono le stesse pagine. Questo
+/// tetto **non** va quindi descritto come protezione dagli header incoerenti:
+/// e' un filtro sui metadati che scarta il caso grossolano prima di aprire il
+/// lettore di pagine, non una garanzia sull'allocazione.
+///
+/// `PageMetadata`, l'unica cosa che `peek_next_page` restituisce, non porta le
+/// dimensioni: con l'API pubblica una verifica per pagina **prima**
+/// dell'allocazione non e' possibile.
 ///
 /// Il valore e' assoluto e volutamente largo: un chunk che ne dichiara di piu'
-/// non e' un chunk grande, e' una dichiarazione su cui rifiutiamo di agire.
-/// Un tetto sul **rapporto** di decompressione — come quello che il
-/// contenitore XLSX applica — rifiuterebbe anche file leciti molto
-/// comprimibili, e sarebbe un restringimento del contratto invece di una
-/// difesa: qui serve solo che l'allocazione non sia illimitata.
+/// non e' un chunk grande, e' una dichiarazione su cui rifiutiamo di agire. Un
+/// tetto sul **rapporto** di decompressione — come quello che il contenitore
+/// XLSX applica — rifiuterebbe anche file leciti molto comprimibili, e sarebbe
+/// un restringimento del contratto invece di una difesa.
 const MAX_BYTE_CHUNK_ISPEZIONATO: i64 = 1 << 30;
 
 /// Messaggi pubblici della prevalidazione Parquet: **statici**.

@@ -68,17 +68,24 @@ registrato: la stessa promessa che FZ-0 aveva appena ripristinato togliendo
 l'impronta FNV, violata nella correzione successiva. Tutti i messaggi della
 prevalidazione Parquet sono ora costanti.
 
-**Tetto prima dell'allocazione.** `SerializedPageReader::get_next_page`
+**Tetto sui metadati, e cosa non copre.** `SerializedPageReader::get_next_page`
 decomprime prima di restituire, e `PageMetadata` — l'unica cosa che
 `peek_next_page` offre — non porta le dimensioni: una verifica per pagina non e'
 possibile con l'API pubblica. Il tetto e' quindi per chunk, sul
-`uncompressed_size()` dichiarato nei metadati, che e' l'unico numero disponibile
-prima che l'allocazione avvenga.
+`uncompressed_size()` dichiarato nel footer.
 
 E' **assoluto** e non un rapporto di decompressione: il rapporto, come quello
 applicato al contenitore XLSX, rifiuterebbe anche file leciti molto
 comprimibili, e sarebbe un restringimento del contratto invece di una difesa.
-Qui serve solo che l'allocazione non sia illimitata.
+
+**Non e' pero' una protezione dagli header incoerenti**, e descriverlo cosi'
+sarebbe sbagliato: l'allocazione segue `PageHeader.uncompressed_page_size`
+(`file/serialized_reader.rs:447`), un `i32` per pagina indipendente dal totale
+del chunk. Un file che dichiari un chunk piccolo e una pagina enorme supera
+questo tetto e fa comunque chiedere fino a circa 2 GiB per pagina. E'
+esaurimento di risorse, riguarda il lettore quanto la verifica — entrambi
+decomprimono le stesse pagine — ed e' registrato a parte in
+`fuzz-findings/2026-08-18-parquet-uncompressed-page-size/`.
 
 ## Costo misurato
 
@@ -155,8 +162,7 @@ Residui dichiarati:
   layout della pagina. È dieci righe e rifiuta le codifiche che non riconosce,
   ma resta allineata alla **versione pinnata** di `parquet`: un aggiornamento va
   accompagnato da una rilettura, come per la validazione IPC;
-* il difetto a monte non è chiuso. La bozza di segnalazione resta pronta e non
-  pubblicata in
+* il difetto a monte non è chiuso. La segnalazione e' **pubblicata** (apache/arrow-rs#10722) e registrata in
   [`UPSTREAM_PARQUET_DICTIONARY_BIT_WIDTH.md`](UPSTREAM_PARQUET_DICTIONARY_BIT_WIDTH.md);
   una correzione a monte non sostituirebbe la prevalidazione, come non la
   sostituisce la barriera;

@@ -1,33 +1,20 @@
 # Segnalazione a monte — `calamine`: overflow di `u32` sul riferimento di cella
 
-Stato: **pronta, non pubblicata**. Richiede autorizzazione esplicita prima di
-essere aperta su `tafia/calamine` o inviata altrove. Il testo sotto la linea è
-già in inglese e pronto da incollare; sopra la linea c'è quello che serve a noi.
+Stato: **pubblicata** il 2026-08-18 — tafia/calamine#709, https://github.com/tafia/calamine/issues/709
 
-## Perché è preparata e non aperta
+`calamine` accumula colonna e riga di un riferimento `A1` in `u32` senza
+controlli.
 
-Il difetto è stato trovato dal nostro fuzzing (smoke del 2026-08-17, target
-`xlsx_reader`) e riguarda una libreria di terze parti. Aprire una issue è una
-comunicazione pubblica a nome del progetto: la decide chi ne ha titolo, non chi
-la scrive. Il contenuto è quindi pronto e verificato, e resta qui finché non
-viene autorizzato.
-
-Il reproducer allegato **non** contiene nostri artefatti: è generato da uno
-script di venti righe che costruisce un `.xlsx` minimo. L'input che ha prodotto
-il finding — `fuzz/seeds/xlsx_reader/riferimento-cella-oltre-u32.xlsx` — è una
-mutazione del nostro corpus e non serve a monte.
+Il testo sotto la linea e' quello inviato, ripulito da ogni riferimento interno:
+nessun percorso, nessun nome di componente, nessun artefatto del nostro
+fuzzing. Il reproducer e' costruito da zero e non contiene input del nostro
+corpus.
 
 ## Rapporto con la mitigazione locale
 
-`driver-xls` ha una barriera propria (`leggendo_calamine`, XLSX-HARDENING) che
-converte il panico in `PlenoraIoError` di fase `Read`. **Un aggiornamento di
-`calamine` non la sostituisce**: chiuderebbe questo difetto, non la classe di
-difetti. La barriera si toglie solo se e quando la libreria dichiara fallibile
-quella conversione, e comunque per decisione separata — la stessa regola che
-vale per la barriera arrow.
-
-Verificato che il difetto è ancora presente in `calamine 0.36.1`, che è il pin
-esatto del workspace.
+La correzione a monte **non sostituisce** la difesa che abbiamo: chiuderebbe
+questo difetto, non la classe. La prevalidazione e la barriera si tolgono per
+decisione separata, se e quando la libreria dichiara fallibile la conversione.
 
 ---
 

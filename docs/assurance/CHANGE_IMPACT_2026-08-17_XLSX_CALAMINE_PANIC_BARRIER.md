@@ -162,7 +162,7 @@ prodotto. È il motivo per cui l'ordine è questo.
 
 ## A monte
 
-Segnalazione pronta e **non pubblicata**, con reproducer costruito da zero (non
+Segnalazione **pubblicata** (tafia/calamine#709), con reproducer costruito da zero (non
 un nostro artefatto), in
 [`UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md`](UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md).
 Richiede autorizzazione: aprire una issue è una comunicazione pubblica a nome

@@ -1,7 +1,16 @@
 # Design S6 — schema dichiarativo `format_options` (L0.7)
 
-Stato: **proposta di design, da ratificare prima dell'implementazione**.
-Baseline: `4c96f94`. Dipendenza dichiarata: S4 (chiuso).
+Stato: **ratificato** il 2026-08-18. Baseline: `d4ece2e`. Dipendenza
+dichiarata: S4 (chiuso).
+
+Le tre decisioni sono state prese come segue, e le sezioni che seguono le
+riportano nella forma decisa invece che come opzioni:
+
+| Decisione | Esito |
+|---|---|
+| D1 — dove vive lo schema | **opzione C**, con un vincolo in piu': il riferimento allo schema sta **dentro** il `FormatDescriptor`, cosi' il legame e' strutturale e non per stringa |
+| D2 — dove si impone | firme di `preflight_source` e `validate_write` cambiate: un driver che salta la validazione **non compila** |
+| D3 — severita' | modalita' rigorosa, **nessun** escape hatch |
 
 ## Problema
 
@@ -116,13 +125,17 @@ pub fn valida_opzioni(
 | **B. Campo nel `FormatDescriptor`** | il legame è per costruzione: un driver senza schema non compila, e `every_driver_has_a_schema_for_options` diventa una tautologia invece di un test | contraddice la lettera di L0.7; il descrittore vive in `plenora-io-core`, quindi il modello non lo vede |
 | **C. Tipi nel modello, schemi nei driver, registry in core** | il legame resta per costruzione e i tipi restano dove L0.7 li vuole | tre posti invece di uno |
 
-**Raccomandazione: C.** I tipi in `plenora-io-model::format_options`, come
-chiede L0.7; ogni driver dichiara il proprio `static SCHEMA_OPZIONI` accanto al
-proprio `static DESCRIPTOR`, come già fa per le capability; il registry per il
+**Deciso: C, con il legame nel descrittore.** I tipi in
+`plenora-io-model::format_options`, come chiede L0.7; ogni driver dichiara il
+proprio schema accanto al proprio `static DESCRIPTOR`; il registry per il
 comando `options` si compone in core dall'elenco dei driver, che lì esiste già.
-Il test `every_driver_has_a_schema_for_options` resta, ma verifica che il
-registry sia **completo rispetto all'elenco dei driver**, non che qualcuno si
-sia ricordato di aggiungere una riga.
+
+Il vincolo aggiunto in ratifica è che **`FormatDescriptor` porti il riferimento
+allo schema**, non l'id del driver come chiave in una tabella a parte. La
+differenza è che un driver senza schema smette di compilare invece di produrre
+un buco che solo un test troverebbe: `every_driver_has_a_schema_for_options`
+resta, ma verifica una proprietà già garantita dal tipo, che è la forma in cui
+un test serve — a sorvegliare, non a reggere.
 
 ### D2 — dove la validazione viene imposta
 
@@ -138,11 +151,12 @@ obbligato:
 * scrittura — `validate_write(descriptor, plan, max_columns)`, idem, e prende
   **già** il descrittore.
 
-**Raccomandazione:** cambiare le due firme in
+**Deciso:** cambiare le due firme in
 `preflight_source(descriptor, source, &mut opts)` e
 `validate_write(descriptor, plan, opts)`, e validare lì dentro. Un driver che
 dimentichi la validazione non compila. Non serve un gate, e il precedente di
-FZ-0 dice perché conviene.
+FZ-0 dice perché conviene: là la prevalidazione è corretta ma legata per
+convenzione, e per sorvegliarla è servito scrivere un gate apposta.
 
 Costo: due firme cambiate in dieci driver. È un cambio meccanico, e
 `validate_write` riceverebbe le opzioni invece di `max_columns()` — che è
@@ -167,12 +181,56 @@ un risultato diverso da quello chiesto, senza dirlo. Vanno però dichiarate nel
 change impact, perché una pipeline che oggi passa una chiave sbagliata domani
 si ferma.
 
-**Domanda aperta per la ratifica:** serve una via d'uscita — per esempio
-`--allow-unknown-options` — per chi ha script che passano chiavi di altri
-strumenti? La mia raccomandazione è **no**: una via d'uscita generale
-riporterebbe il difetto sotto un altro nome, e chi ha davvero questo problema
-può filtrare le chiavi prima di chiamarci. Se serve, va ratificata come
-eccezione esplicita e non come default.
+**Deciso: nessun escape hatch.** Niente `--allow-unknown-options`. Chiave
+sconosciuta, fase errata e valore invalido producono tutti `Unsupported`. Una
+via d'uscita generale riporterebbe il difetto sotto un altro nome, e chi passa
+chiavi destinate ad altri strumenti può filtrarle prima di chiamarci.
+
+## Grammatica dei valori — fissata in ratifica
+
+Non è una preferenza di stile: è il contratto che l'implementazione deve
+rispettare alla lettera, e che i test verificano.
+
+| Forma | Accettato | Rifiutato |
+|---|---|---|
+| **Enumerato** | ASCII minuscolo, confronto **case-sensitive** | qualunque variante maiuscola |
+| **Booleano vero** | `true`, `1`, `yes` | — |
+| **Booleano falso** | `false`, `0`, `no` | — |
+| **Booleano, altro** | — | `on`, `off`, `1.0`, stringa vuota, `True`, `YES` |
+| **Carattere** (`delimiter`) | esattamente un carattere ASCII | zero caratteri, più di uno, non ASCII |
+| **Testo libero** | non vuoto | stringa vuota |
+
+Il case-sensitive è la scelta meno comoda e la più onesta: accettare `ZSTD`
+accanto a `zstd` significa decidere caso per caso quali varianti tollerare, e
+la prima volta che se ne dimentica una il messaggio d'errore dice che il valore
+non esiste mentre il vicino identico funziona. Un solo modo di scriverlo è più
+facile da spiegare che sette modi che quasi sempre funzionano.
+
+`on` è rifiutato di proposito, benché sia diffuso: un booleano che accetta tre
+forme vere e tre false è già una tolleranza, e allargarla a piacere riporta al
+problema di prima. Chi scrive `on` riceve l'elenco esatto delle forme ammesse.
+
+### Valori per chiave
+
+| Driver | Chiave | Forma | Valori |
+|---|---|---|---|
+| csv | `delimiter` | carattere | un carattere ASCII, default `,` |
+| csv | `wkt_column`, `x_column`, `y_column` | testo | non vuoto |
+| csv | `geometry_encoding` | enumerato | `wkt`, `xy` |
+| xls | `sheet` | testo | non vuoto |
+| xls | `wkt_column`, `x_column`, `y_column` | testo | non vuoto |
+| xls | `geometry_encoding` | enumerato | `wkt`, `xy` |
+| geoparquet | `compression` | enumerato | `snappy`, `zstd`, `gzip`, `brotli`, `lz4`, `none`, `uncompressed` |
+| geoparquet | `bbox_legacy_by_name` | booleano | forme vere e false sopra |
+| shp | `publish_mode` | enumerato | `directory_dataset`, `loose_set` |
+
+`compression` include **esplicitamente** `snappy`: era il default silenzioso, e
+un default che non si può nominare è un default che non si può nemmeno
+confermare. Chi vuole snappy ora lo scrive.
+
+`geometry_encoding` ammette **solo** `wkt` e `xy`. Oggi qualunque valore diverso
+da `xy` significa WKT, quindi `geometry_encoding=wkb` produce silenziosamente
+WKT: dopo S6 produce un errore che elenca i due valori validi.
 
 ## Forma degli errori
 
@@ -213,9 +271,14 @@ il driver accetta davvero.
 | `ogni_valore_ammesso_dallo_schema_e_accettato_dal_driver` | per ogni `Enumerato`, ogni valore elencato viene davvero accettato: impedisce che lo schema prometta più di quanto il driver mantenga |
 | `il_default_dichiarato_e_quello_applicato` | il default dello schema è quello che il driver usa quando la chiave manca |
 
-Gli ultimi due sono i più importanti e non sono nell'elenco di L0.7: senza di
+Tutti e sei sono **obbligatori** in ratifica, non solo i tre di L0.7. Gli
+ultimi due sono i più importanti proprio perché non erano nell'elenco: senza di
 essi lo schema diventa documentazione, cioè una seconda verità che diverge dal
 codice in silenzio — esattamente il difetto che S6 esiste per chiudere.
+
+A questi si aggiungono i test della grammatica: per ogni forma, un valore
+accettato e uno rifiutato, incluse le varianti che la ratifica esclude
+esplicitamente (`on`, stringa vuota, `1.0`, maiuscole).
 
 ## Cosa S6 non fa
 

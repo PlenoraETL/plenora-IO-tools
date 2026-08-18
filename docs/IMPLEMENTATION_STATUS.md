@@ -420,7 +420,7 @@ fallisce con il panico di `calamine`.
 ragione di strumento e non di rischio: `libfuzzer-sys` trasforma il panico in
 `abort()` prima dell'unwinding, quindi il target restava rosso anche a barriera
 funzionante. **FZ-0 ha poi tolto il difetto alla radice** e il target e' uscito
-dalla quarantena. La segnalazione a monte resta pronta e **non pubblicata** in
+dalla quarantena. La segnalazione a monte è **pubblicata** (tafia/calamine#709) e registrata in
 [`assurance/UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md`](assurance/UPSTREAM_CALAMINE_CELL_REFERENCE_OVERFLOW.md).
 
 **FZ-0 (2026-08-17) — il panico e' impedito, non catturato.** Una barriera
