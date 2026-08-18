@@ -757,12 +757,12 @@ impl GeoParquetDataset {
     /// stesso valore che alimenta la lettura e la prevalidazione, quindi le due
     /// non possono guardare insiemi diversi.
     ///
-    /// La composizione e' quella storica — lo spaziale **sostituisce** il
-    /// numerico quando entrambi si applicano — ed e' conservata di proposito.
-    /// Il pruning numerico perso in quel caso e' un difetto preesistente,
-    /// registrato a parte: e' ottimizzazione persa, non righe sbagliate, perche'
-    /// l'over-return e' dichiarato ammesso. Correggerlo e' una decisione, non un
-    /// effetto collaterale.
+    /// I due pruning si compongono per **intersezione**: un row group viene
+    /// letto solo se entrambi i criteri lo tengono. Fino a FZ-0.1 lo spaziale
+    /// sostituiva il numerico — `with_row_groups` veniva chiamato due volte e
+    /// la seconda vinceva — e con predicato e hint insieme il pruning numerico
+    /// andava perso. Non erano righe sbagliate, perche' l'over-return e'
+    /// dichiarato ammesso: era lavoro fatto per niente.
     fn gruppi_da_leggere(
         &self,
         builder: &ParquetRecordBatchReaderBuilder<File>,
@@ -774,13 +774,25 @@ impl GeoParquetDataset {
             self.out_schema.as_ref(),
             builder.parquet_schema(),
         );
-        gruppi_dopo_pruning_spaziale(
+        let spaziali = gruppi_dopo_pruning_spaziale(
             builder.metadata(),
             builder.parquet_schema(),
             request.spatial_pruning_hint.as_ref(),
             self.bbox_covering.as_ref(),
-        )
-        .or(numerici)
+        );
+        match (numerici, spaziali) {
+            // Un row group va letto solo se **entrambi** i pruning lo tengono.
+            // Ognuno esclude cio' che il proprio criterio ha gia' escluso, e
+            // l'intersezione e' l'unica composizione che li rispetta entrambi.
+            (Some(numerici), Some(spaziali)) => Some(
+                numerici
+                    .into_iter()
+                    .filter(|gruppo| spaziali.contains(gruppo))
+                    .collect(),
+            ),
+            (Some(soli), None) | (None, Some(soli)) => Some(soli),
+            (None, None) => None,
+        }
     }
 }
 
@@ -2571,6 +2583,125 @@ mod tests {
             "spatial pruning deve saltare row group, letti {total}"
         );
         assert!(total >= 10_000, "under-return vietato, letti {total}");
+    }
+
+    /// Con **entrambi** i pruning attivi il driver legge l'intersezione, non
+    /// l'ultimo dei due.
+    ///
+    /// Fino a FZ-0.1 `apply_spatial_pruning` iterava su tutti i row group e
+    /// chiamava `with_row_groups`, sovrascrivendo la selezione del pruning
+    /// numerico: con predicato e hint insieme il numerico andava perso. Non
+    /// erano righe sbagliate — l'over-return e' ammesso — ma lavoro fatto per
+    /// niente, e nessun test lo copriva perche' i due erano verificati
+    /// separatamente.
+    ///
+    /// Il dataset ha 200.000 righe in row group da 65.536, con `x` e `id`
+    /// entrambi crescenti con l'indice. I due filtri sono scelti **disgiunti**:
+    /// l'hint spaziale tiene i row group finali, il predicato numerico quelli
+    /// iniziali. L'intersezione e' vuota, quindi la lettura non produce righe;
+    /// con la composizione vecchia ne produrrebbe decine di migliaia.
+    #[test]
+    fn entrambi_i_pruning_si_compongono_per_intersezione() {
+        use plenora_io_core::request::{Bbox, PruningComparison, PruningPredicate, PruningScalar};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("intersezione.parquet");
+        let n = 200_000usize;
+        // `i` < 200_000 < 2^53: la conversione a f64 e' esatta.
+        #[allow(clippy::cast_precision_loss)]
+        let wkb: Vec<Vec<u8>> = (0..n)
+            .map(|i| to_wkb(&Geometry::Point(Point::new(i as f64 * 0.001, 45.0))).unwrap())
+            .collect();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true)
+                .with_metadata(geometry_field_meta("EPSG:4326")),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        // `n` e' la costante 200_000: il cast a i64 e' esatto.
+        #[allow(clippy::cast_possible_wrap)]
+        let rows = n as i64;
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(
+                    wkb.iter().map(|w| Some(w.as_slice())).collect::<Vec<_>>(),
+                )),
+                Arc::new(Int64Array::from((0..rows).collect::<Vec<_>>())),
+            ],
+        )
+        .unwrap();
+
+        let driver = GeoParquetDriver;
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut w = driver
+            .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+            .unwrap();
+        w.write(&batch).unwrap();
+        w.finish().unwrap();
+
+        let ds = driver.open(Source::Path(path), opzioni_lettura()).unwrap();
+
+        let leggi = |predicato, hint| {
+            let mut reader = ds
+                .open_layer_reader(&ReadRequest {
+                    layer: LayerId(0),
+                    projected_fields: None,
+                    projection_mode: ProjectionMode::BestEffort,
+                    pruning_predicate: predicato,
+                    spatial_pruning_hint: hint,
+                    scope: ReadScope::default(),
+                    batch_target: BatchTarget::default(),
+                    cancellation: CancellationToken::default(),
+                })
+                .unwrap();
+            let mut totale = 0;
+            while let Some(b) = reader.next_batch().unwrap() {
+                totale += b.num_rows();
+            }
+            totale
+        };
+
+        // `x` in [190, 210]: tiene i row group finali.
+        let hint = Bbox {
+            minx: 190.0,
+            miny: 40.0,
+            maxx: 210.0,
+            maxy: 50.0,
+        };
+        // `id` < 70.000: tiene i row group iniziali. `id` e' il campo 1 dello
+        // schema esposto.
+        let predicato = PruningPredicate::NumericComparison {
+            field: FieldId(1),
+            comparison: PruningComparison::LessThan,
+            value: PruningScalar::Int64(70_000),
+        };
+
+        let solo_spaziale = leggi(None, Some(hint));
+        let solo_numerico = leggi(Some(predicato.clone()), None);
+        let entrambi = leggi(Some(predicato), Some(hint));
+
+        assert!(
+            solo_spaziale > 0 && solo_spaziale < n,
+            "il solo hint spaziale deve potare qualcosa: {solo_spaziale}"
+        );
+        assert!(
+            solo_numerico > 0 && solo_numerico < n,
+            "il solo predicato deve potare qualcosa: {solo_numerico}"
+        );
+        // I due insiemi sono disgiunti per costruzione: l'intersezione e'
+        // vuota. Con la composizione vecchia si leggerebbe `solo_spaziale`.
+        assert_eq!(
+            entrambi, 0,
+            "con entrambi i filtri si legge l'intersezione, non l'ultimo dei due"
+        );
     }
 
     #[test]
