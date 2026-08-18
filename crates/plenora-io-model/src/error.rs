@@ -32,10 +32,28 @@ pub enum CapabilityReason {
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCategory {
     InvalidPlan,
+    /// La richiesta non e' ben formata per il driver scelto.
+    ///
+    /// Regola normativa (errata S6 del pacchetto decisionale del Lotto 0):
+    /// chiave sconosciuta, fase errata, valore malformato o fuori dominio
+    /// stanno **qui**; una richiesta valida che il driver o il formato non
+    /// sanno servire sta in [`ErrorCategory::Unsupported`].
+    ///
+    /// La differenza non e' terminologica. `Unsupported` e' una risposta sul
+    /// prodotto, e davanti a essa un chiamante automatico cambia driver o
+    /// formato; questa e' una risposta sull'input, e la reazione corretta e'
+    /// correggere la richiesta. Instradare un refuso verso `Unsupported`
+    /// manda chi automatizza nella direzione sbagliata.
     InvalidConfiguration,
     Schema,
     DataMapping,
     Crs,
+    /// La richiesta e' ben formata, ma il driver o il formato non hanno la
+    /// capability che serve.
+    ///
+    /// L'altro lato della regola su [`ErrorCategory::InvalidConfiguration`]:
+    /// qui non c'e' niente da correggere nella richiesta — si cambia driver,
+    /// formato, o si rinuncia.
     Unsupported,
     NotFound,
     Conflict,

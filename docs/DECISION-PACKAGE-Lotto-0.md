@@ -2368,6 +2368,39 @@ rimane su questo asse**, e il censimento non ha piu' un meccanismo per
 dichiararne uno: una occorrenza di produzione sta in `LEGITTIME` con la ragione
 scritta, oppure il codice cambia.
 
+#### Errata S6 — la categoria d'errore delle `format_options` e' `InvalidConfiguration`
+
+Il pacchetto prescriveva `PlenoraIoError::Unsupported` per le chiavi
+sconosciute, e il design S6 lo aveva ripreso per tutti e tre i rifiuti. In
+implementazione la categoria e' **`InvalidConfiguration`**, fase `Validate`,
+retry `Never`. La regola normativa, d'ora in poi valida per l'intero prodotto:
+
+| Situazione | Categoria |
+|---|---|
+| chiave sconosciuta, fase errata, valore malformato o fuori dominio | `InvalidConfiguration` |
+| richiesta valida ma capability non disponibile nel driver o nel formato | `Unsupported` |
+
+La differenza non e' terminologica: `Unsupported` e' una risposta **sul
+prodotto** — «questo driver non sa farlo» — e davanti a essa un chiamante
+automatico cambia driver o formato; `InvalidConfiguration` e' una risposta
+**sull'input**, e la reazione corretta e' correggere la richiesta. Instradare
+un refuso verso `Unsupported` manda chi automatizza nella direzione sbagliata.
+
+E' anche la categoria che `driver-shp` gia' produceva per i propri controlli su
+`row_diagnostics.*`: adottarla ovunque toglie una differenza che non aveva
+motivo di esistere.
+
+**Cambio osservabile, accettato in ratifica** insieme al bump di
+`descriptor_version` (+1 su tutti e dieci i driver): `publish_mode` e
+`compression` cambiano categoria da `Unsupported` a `InvalidConfiguration`.
+
+Il pacchetto conteneva inoltre un censimento incompleto delle chiavi reali; le
+altre tre divergenze — valori di `publish_mode`, tre chiavi
+`row_diagnostics.*` mancanti, forma `Intero` assente dalla grammatica — sono
+registrate nell'errata di
+[`DESIGN-S6-format-options-schema.md`](DESIGN-S6-format-options-schema.md) e
+in [`CHANGE_IMPACT_2026-08-18_S6_FORMAT_OPTIONS_SCHEMA.md`](assurance/CHANGE_IMPACT_2026-08-18_S6_FORMAT_OPTIONS_SCHEMA.md).
+
 Il grafo di dipendenza consente overlap significativo:
 - S3 in parallelo a S2.
 - S10 e S11 completamente indipendenti, in parallelo a S1-S9.
@@ -2576,7 +2609,7 @@ verificabile. Nessuna decisione senza copertura API + test.
 | **ADR-IO 7 A** spool bounded + file di spool senza nome | `StagedSpool` in `plenora-io-core::driver::spool`; file creato con `tempfile::tempfile_in`, scollegato dal filesystem all'apertura su Unix e `FILE_FLAG_DELETE_ON_CLOSE` su Windows; nessun path apribile, nessun orfano, nessuno sweep; `PLENORA_SPILL_DIR` sceglie il volume e fallisce chiuso se inutilizzabile; quota di spill RAII applicata alle scritture fisiche | Test `dataset_over_memory_bytes_succeeds_via_spool`; `an_unusable_spill_dir_fails_closed_instead_of_falling_back`; `a_spill_dir_that_is_a_file_is_rejected`; `an_underestimated_batch_cannot_write_beyond_the_quota`; `a_quota_smaller_than_the_reservation_chunk_is_usable`; `reaching_eof_releases_file_and_quota_while_the_spool_is_still_alive`; `spill_quota_returns_to_the_budget_when_the_spool_is_dropped`; `a_corrupted_spool_fails_typed_instead_of_truncating_silently` |
 | **L0.1** propagazione limiti in inferenza | `infer_types(path, &PipelineLimits)` / `infer_schema(path, &PipelineLimits)` / XLSX WKT parse con `PipelineLimits` reale (letto dal `PipelineContext`) | Test `inference_uses_configured_wkt_cell_bytes_not_default`; test `inference_respects_max_rows_before_materialising` (vedi errata S5: `max_input_entries` governa l'enumerazione della sorgente, e il preflight l'ha gia' applicata al file — riapplicarla ai record sarebbe la stessa quota contata due volte) |
 | **L0.5** validazione covering GeoParquet | Verifica di tipi FLOAT/DOUBLE, unicita' dei nomi covering, presenza contestuale prima dello strip | Test `geoparquet_covering_with_non_float_column_is_rejected`; test `geoparquet_covering_duplicated_names_is_rejected` |
-| **L0.7** schema dichiarativo `format_options` | Registry `plenora-io-model::format_options` con `FormatOptionsSchema` per driver; chiavi sconosciute → `PlenoraIoError::Unsupported`; valori invalidi → error tipizzato | Test snapshot `every_driver_has_a_schema_for_options`; test `unknown_option_key_produces_typed_error_not_silent_ignore`; test `unknown_compression_value_produces_typed_error_not_snappy_default` |
+| **L0.7** schema dichiarativo `format_options` | Registry `plenora-io-model::format_options` con `SchemaOpzioniFormato` per driver, riferito **strutturalmente** dal `FormatDescriptor`; chiavi sconosciute, fase errata e valori invalidi → `InvalidConfiguration` (vedi errata S6) | Test snapshot `every_driver_has_a_schema_for_options`; test `unknown_option_key_produces_typed_error_not_silent_ignore`; test `unknown_compression_value_produces_typed_error_not_snappy_default` |
 | **L0.8** `wkb_shape` figli collection | `wkb_shape` ispeziona ricorsivamente i figli e propaga `Empty` se tutti empty | Test `multipoint_of_two_empty_points_is_empty`; test `geometrycollection_of_empty_children_is_empty` |
 | **L6 (ratificato A, S12)** parser progressivo | Pre-scansione lineare WKT/GeoJSON + in-parse `max_depth`/`max_components`; capability **per-driver** `hostile_input_hardened: bool` dichiarata nel `FormatDescriptor` di ogni driver e riemessa in `catalog` entry-per-entry | Test `wkt_prescan_rejects_depth_over_limit_without_allocating_ast`; `geojson_prescan_rejects_components_over_limit`; fuzz target `wkt_prescan_bounded`, `geojson_prescan_bounded` in `scripts/fuzz-smoke.sh` verdi; snapshot `catalog_v1_hostile_input_hardened_per_driver` verifica il valore atteso per ogni driver |
 | **`SourceFootprint` snapshot + revalidation (best-effort)** | `SourceFootprint::snapshot() -> SourceFootprintSnapshot` con `digest()` **best-effort** accumulato entry per entry da `note_entry_visited` (XOR di FNV-1a, insensibile all'ordine) e `matches()` che confronta byte, entry e digest insieme; `PipelineBundle::into_scan_parts(expected)` accetta lo snapshot; il core rivalida **sempre** con preflight leggero — enumerazione completa delle entry + `max_input_entries` + size/mtime, senza parsing dei contenuti — e produce `PlenoraIoError::Contract(FootprintChanged)` se diverge. **Nessuna variante forte ratificata in Lotto 0** (niente content hashing, file identity o locking) | Test `footprint_digest_is_stable_for_the_same_entry_set`; `footprint_digest_is_order_insensitive`; `footprint_digest_detects_added_and_removed_entries`; `footprint_digest_detects_rename_size_and_mtime`; `footprint_digest_separates_paths_that_share_a_concatenation`; `snapshot_matches_only_when_bytes_entries_and_digest_agree`; `snapshot_roundtrips_through_serde_without_losing_the_digest`; `scan_with_matching_snapshot_succeeds`; `scan_with_stale_snapshot_returns_footprint_changed`; `scan_detects_added_and_removed_entries`; `scan_preflight_applies_max_input_entries`; `scan_observes_current_bytes_and_entries_not_snapshot_values` |
