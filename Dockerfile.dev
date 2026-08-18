@@ -19,6 +19,8 @@
 #   cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 #   cargo run -p plenora-io-cli --features gdal-backend --locked -- catalog
 #   bash scripts/fuzz-smoke.sh                       # 13 target sotto ASan
+#   bash scripts/fuzz-smoke.sh --seconds 10 wkt_parse   # un sottoinsieme
+#   bash scripts/fuzz-replay.sh wkt_parse            # stessa interfaccia
 #   cargo llvm-cov --workspace --all-targets --locked --no-report
 #   cargo llvm-cov report --summary-only --fail-under-lines 80 \
 #     --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'

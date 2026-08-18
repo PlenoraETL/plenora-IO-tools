@@ -31,17 +31,44 @@ if [ -n "${PLENORA_FUZZ_TARGET_DIR:-}" ]; then
     options=(--target-dir "${PLENORA_FUZZ_TARGET_DIR}")
 fi
 
-if [ "$#" -gt 0 ]; then
-    targets=("$@")
-else
-    mapfile -t targets < <(cargo +"${toolchain}" fuzz list)
-fi
-if [ "${#targets[@]}" -eq 0 ]; then
+mapfile -t dichiarati < <(cargo +"${toolchain}" fuzz list)
+if [ "${#dichiarati[@]}" -eq 0 ]; then
     echo "nessun target fuzz dichiarato in fuzz/Cargo.toml" >&2
     exit 1
 fi
 
-echo "=== build strumentata (${#targets[@]} target) ==="
+# Un sottoinsieme richiesto viene verificato contro il manifest: un nome
+# sbagliato si ferma subito e dice quali sono i nomi buoni, invece di fallire
+# dopo la build con un messaggio che non elenca le alternative.
+if [ "$#" -gt 0 ]; then
+    targets=("$@")
+    ignoti=()
+    for richiesto in "${targets[@]}"; do
+        trovato=0
+        for dichiarato in "${dichiarati[@]}"; do
+            if [ "${richiesto}" = "${dichiarato}" ]; then
+                trovato=1
+                break
+            fi
+        done
+        if [ "${trovato}" -eq 0 ]; then
+            ignoti+=("${richiesto}")
+        fi
+    done
+    if [ "${#ignoti[@]}" -ne 0 ]; then
+        echo "target non dichiarati in fuzz/Cargo.toml: ${ignoti[*]}" >&2
+        echo "dichiarati: ${dichiarati[*]}" >&2
+        exit 2
+    fi
+    echo "sottoinsieme richiesto: ${#targets[@]} di ${#dichiarati[@]} target"
+else
+    targets=("${dichiarati[@]}")
+fi
+
+# `cargo fuzz build` senza nome costruisce **tutti** i target, anche quando ne
+# e' stato richiesto un sottoinsieme. La riga lo dice invece di annunciare il
+# numero del sottoinsieme mentre ne costruisce tredici.
+echo "=== build strumentata (tutti i ${#dichiarati[@]} target dichiarati) ==="
 if ! cargo +"${toolchain}" fuzz build "${options[@]}"; then
     echo "build strumentata fallita" >&2
     exit 1
