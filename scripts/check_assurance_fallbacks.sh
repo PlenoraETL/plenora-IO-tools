@@ -135,23 +135,31 @@ set -eu
 # restituisce `Option`: l'assenza dell'opzione vale il default **dichiarato**,
 # ogni altra cosa e' un errore. E' l'unico verso in cui questo contatore deve
 # muoversi da solo. Nessuna revisione H-01 dovuta.
-# Il 2026-08-18, FZ-0.2 lascia driver-geoparquet **invariato** a 4, e non e' un
-# caso: la prevalidazione delle pagine ne avrebbe aggiunte due, ed entrambe sono
-# state chiuse invece che registrate.
-# La prima, `usize::try_from(...).unwrap_or(FINESTRA_HEADER)`, era un default
-# vero: avrebbe letto la finestra intera oltre la fine del chunk se il
-# `try_from` fosse mai fallito. Tolta prendendo il minimo in u64 **prima** della
-# conversione, che cosi' non puo' fallire.
-# La seconda, `dictionary_page_offset().unwrap_or_else(|| data_page_offset())`,
-# non e' un fallback ma la regola del formato — un chunk comincia con la pagina
-# di dizionario se c'e' — ed era gia' presente per la prevalidazione Thrift.
-# Invece di ripeterla in tre siti e' stata estratta in `inizio_del_chunk`, che
-# la esprime una volta sola: il contatore torna esattamente dove stava.
-# Nota di metodo: la prima stesura dell'estrazione usava un `match` invece di
-# `unwrap_or_else`, e il contatore sarebbe sceso a 3. Sarebbe stato il modo di
-# eludere H-01 che questo registro denuncia — un numero piu' basso a parita' di
-# codice — quindi e' stata riscritta nella forma idiomatica. Nessuna revisione
-# H-01 dovuta.
+# Il 2026-08-18, FZ-0.2 e FZ-0.2.1 portano driver-geoparquet da 4 a 3
+# (totale 109 -> 108). Quattro movimenti, tutti nella direzione giusta.
+#   1. `usize::try_from(...).unwrap_or(FINESTRA_HEADER)`, introdotta e subito
+#      tolta: era un default vero, avrebbe letto la finestra intera oltre la
+#      fine del chunk se il `try_from` fosse mai fallito. Chiusa prendendo il
+#      minimo in u64 **prima** della conversione, che cosi' non puo' fallire.
+#   2. `dictionary_page_offset().unwrap_or_else(|| data_page_offset())`, che non
+#      e' un fallback ma la regola del formato, e' stata estratta in
+#      `inizio_del_chunk` da tre siti a uno — e li' e' scritta con `let ... else`
+#      perche' la funzione deve anche **rifiutare** gli offset invertiti. La
+#      forma non e' scelta per il contatore: e' scelta perche' c'e' un terzo
+#      esito oltre ai due dell'`unwrap_or_else`.
+#   3. FZ-0.2 aveva aggiunto `i64::try_from(tetto).unwrap_or(i64::MAX)` per
+#      confrontare il tetto con il valore letto. FZ-0.2.1 l'ha tolta convertendo
+#      il numero **letto dal file** invece del tetto: un ripiego su un tetto e'
+#      un tetto che a volte non c'e'.
+#   4. Nell'helper di test la conversione usa `expect` e non un ripiego a
+#      `usize::MAX`, che darebbe in silenzio un limite di cella assurdo proprio
+#      nel test che lo sta scegliendo.
+# Nota di metodo, due volte. La prima stesura di `inizio_del_chunk` usava un
+# `match` dove bastava `unwrap_or_else`, e il contatore sarebbe sceso a parita'
+# di codice: riscritta. E a fine FZ-0.2 il conteggio era rimasto **4**, il che
+# sembrava una conferma e non lo era — erano il punto 2 in calo e il punto 3 in
+# aumento che si annullavano. Un contatore fermo non dice che niente si e'
+# mosso. Nessuna revisione H-01 dovuta.
 # Sempre S6, tre occorrenze in piu' in plenora-io-cli (20 -> 23, totale
 # 106 -> 109), tutte nei sei test trasversali di `conformance_tests.rs`: due
 # sono `unwrap_or_else(|error| panic!(...))`, cioe' il modo in cui questo file
@@ -166,7 +174,7 @@ driver-csv 2
 driver-dxf 15
 driver-filegdb 5
 driver-geojson 2
-driver-geoparquet 4
+driver-geoparquet 3
 driver-gpkg 3
 driver-ipc 1
 driver-kml 3
@@ -206,7 +214,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 109 ]; then
+if [ "${actual_total}" -ne 108 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

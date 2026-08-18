@@ -168,13 +168,12 @@ codifica.
 
 ### In sottoprocesso bounded, cinque casi
 
-| | File | `RLIMIT_AS` | Budget | Esito |
+| | File | `RLIMIT_AS` | Quote | Esito |
 |---|---|---|---|---|
-| A | integro | 512 MiB | predefinito | exit 0 |
-| B | pagina incoerente (2 GiB dentro trenta byte) | 512 MiB | predefinito | errore tipizzato, exit 2 |
-| C | pagina **coerente** da 960 KB | 512 MiB | 256 MiB | exit 0 — non si over-rifiuta |
-| D | stessa pagina | 512 MiB | 600 KB | `pagina … oltre il budget di ingresso`, exit 2 |
-| E | stessa pagina | 512 MiB | 100 KB | `byte di input oltre il limite` — è il **preflight** a fermarsi, non noi |
+| A | integro | 512 MiB | predefinite | exit 0 |
+| B | pagina incoerente (2 GiB dentro trenta byte) | 512 MiB | predefinite | errore tipizzato, exit 2 |
+| C | pagina **coerente** da 960 KB | 512 MiB | predefinite (tetto 256 MiB) | exit 0 — non si over-rifiuta |
+| E | stessa pagina | 512 MiB | ingresso 100 KB | `byte di input oltre il limite` — è il **preflight** a fermarsi, non noi |
 
 Prima del rimedio, il caso B sotto lo stesso limite produceva
 `memory allocation of 2000000000 bytes failed`, exit 134 (SIGABRT). Le due
@@ -184,6 +183,13 @@ verifica per mutazione, nell'ordine giusto.
 C ed E esistono per delimitare: senza C la difesa potrebbe rifiutare tutto e
 sembrare corretta; senza E si potrebbe attribuire a questa prevalidazione un
 rifiuto che viene da un altro controllo.
+
+I casi che stringono la **memoria** non compaiono qui, e la ragione è una
+lacuna che vale la pena nominare: **la CLI non espone `--memory-bytes`**, quindi
+da riga di comando quella quota vale sempre il predefinito e non è
+raggiungibile. Sono coperti dai test del driver, che le opzioni le costruiscono
+direttamente — quattro casi, incluso quello in cui l'ingresso è quadruplicato e
+il tetto non si muove.
 
 ### In repo
 
@@ -232,17 +238,80 @@ fallback ma la regola del formato, ed era già registrata per la prevalidazione
 Thrift. Invece di registrarla una terza volta è stata estratta in
 `inizio_del_chunk`: tre siti che ripetevano una regola sola diventano uno.
 
-`driver-geoparquet` resta a 4, il totale a 109 — esattamente dov'erano prima di
-FZ-0.2. Ci si arriva **solo** guardando perché il numero saliva: registrare le
-due occorrenze sarebbe stato più veloce e avrebbe lasciato in piedi un difetto
-e una duplicazione.
+Contando anche FZ-0.2.1, `driver-geoparquet` passa da 4 a **3** e il totale da
+109 a 108. Ci si arriva **solo** guardando perché il numero si muoveva:
+registrare le occorrenze sarebbe stato più veloce e avrebbe lasciato in piedi un
+difetto e una duplicazione.
 
-Una nota di metodo, perché è il tipo di errore che questo registro esiste per
-prendere. La prima stesura di `inizio_del_chunk` usava un `match` invece di
-`unwrap_or_else`, e il contatore sarebbe sceso a 3 — a parità di codice. È il
-modo di eludere H-01 che l'intestazione del registro denuncia, e non diventa
-lecito per il fatto di essere involontario: la funzione è stata riscritta nella
-forma idiomatica, e il numero è tornato dove deve stare.
+Due note di metodo, perché sono il tipo di errore che questo registro esiste per
+prendere.
+
+La prima stesura di `inizio_del_chunk` usava un `match` dove bastava
+`unwrap_or_else`, e il contatore sarebbe sceso a parità di codice — il modo di
+eludere H-01 che l'intestazione del registro denuncia, e non diventa lecito per
+il fatto di essere involontario. Riscritta. (La forma finale usa `let … else`,
+ma per un'altra ragione: la funzione ha un terzo esito, il rifiuto degli offset
+invertiti, che nessun `unwrap_or_else` può esprimere.)
+
+La seconda è più insidiosa. **A fine FZ-0.2 il conteggio era rimasto 4**, e
+sembrava una conferma che nulla si fosse mosso. Non lo era: erano
+`inizio_del_chunk` in calo e `i64::try_from(tetto).unwrap_or(i64::MAX)` in
+aumento che si annullavano. Un contatore fermo non dice che niente si è mosso,
+e la seconda occorrenza — un ripiego su un *tetto*, cioè un tetto che a volte
+non c'è — è stata vista solo perché FZ-0.2.1 ha riguardato quella riga.
+
+## FZ-0.2.1 — il tetto passa dalla quota di memoria
+
+FZ-0.2 aveva legato il tetto per pagina a `max_input_bytes`. Funzionava e
+chiudeva il caso misurato, ma confondeva due quote che il modello tiene
+distinte apposta: `max_input_bytes` governa quanto è grande la **sorgente**,
+mentre una pagina decompressa è **memoria temporanea**. L'effetto pratico era
+che alzare il tetto sul file alzava anche quello sulla memoria — cioè rispondeva
+a una domanda che chi lo alza non aveva fatto.
+
+Il tetto è ora **metà della capacità di memoria effettiva**:
+
+```rust
+fn tetto_pagina(context: &PipelineContext) -> u64 {
+    context.effective_memory_capacity() / 2
+}
+```
+
+Tre scelte, tutte deliberate:
+
+* **memoria e non ingresso**, per la ragione sopra;
+* **capacità *effettiva*** — il minimo fra limite della pipeline e limite del
+  pool — e non `PipelineLimits::memory_bytes`: con un pool più stretto, una
+  soglia calcolata sul solo limite locale sarebbe irraggiungibile. È la stessa
+  ragione per cui il modello espone `effective_memory_capacity`;
+* **metà e non tutta**: la pagina decompressa non è sola in memoria — accanto ci
+  sono la pagina compressa da cui viene, i buffer del decoder e gli array Arrow
+  che ne escono. Concedere l'intera capacità a una sola allocazione
+  significherebbe dichiararla l'unica.
+
+Con i valori predefiniti il tetto resta **256 MiB**, metà dei 512 MiB
+dichiarati: lo stesso numero di FZ-0.2, per una strada diversa.
+
+### I quattro casi
+
+| Caso | Esito |
+|---|---|
+| memoria stretta | rifiutato, con il messaggio della memoria |
+| **ingresso quadruplicato, memoria invariata** | ancora rifiutato — l'ingresso non governa la memoria |
+| memoria quadruplicata | la pagina entra |
+| valori predefiniti | il file si legge come qualunque altro |
+
+Più `il_tetto_per_pagina_segue_la_memoria_dichiarata`, che fissa la derivazione
+numero per numero, incluso il caso che conta di più.
+
+### Il confine di responsabilità, scritto
+
+Dichiarare quattro gigabyte su una macchina che ne ha mezzo produce un tetto da
+due gigabyte, e **la libreria non se ne accorge**. È un errore di deployment,
+non qualcosa che questa funzione prometta di rilevare: leggere la memoria reale
+del processo è instabile e non portabile, e una promessa del genere sarebbe
+falsa su qualche piattaforma. Il test lo fissa come comportamento atteso invece
+di lasciarlo come lacuna.
 
 ## Perimetro e rischi residui
 
@@ -261,17 +330,13 @@ Residui dichiarati:
   come apache/arrow-rs#10734, con l'account PlenoraETL indicato in
   autorizzazione; testo in
   [`UPSTREAM_PARQUET_PAGE_ALLOCATION.md`](UPSTREAM_PARQUET_PAGE_ALLOCATION.md).
-* **Il budget resta una dichiarazione, non una misura.** `max_input_bytes` dice
-  quanto il chiamante *afferma* di potersi permettere. Un chiamante che dichiari
-  4 GiB su un processo che ne ha mezzo torna esposto all'abort, con lo stesso
-  meccanismo del caso B. La prevalidazione lega il tetto al numero dichiarato;
-  non può verificare che il numero sia vero, e non c'è modo di leggere il
-  budget reale del processo da dentro la libreria. Va detto così invece di
-  lasciar credere che l'abort sia impossibile.
-* **Un file molto comprimibile con un budget stretto viene rifiutato.** È il
-  significato voluto del budget — una pagina che da sola chiede più memoria di
-  tutto l'ingresso dichiarato non è servibile — ma è un rifiuto che prima non
-  c'era, ed è visibile al chiamante come errore tipizzato, non come degrado.
+* **La memoria dichiarata resta una dichiarazione, non una misura** (sopra).
+  Chi dichiara più di quanto la macchina abbia torna esposto all'abort, con lo
+  stesso meccanismo del caso B.
+* **Un file molto comprimibile con poca memoria dichiarata viene rifiutato.** È
+  il significato voluto della quota — una pagina che da sola chiede metà della
+  memoria disponibile non è servibile — ma è un rifiuto che prima non c'era, ed
+  è visibile al chiamante come errore tipizzato, non come degrado.
 * **Copre le pagine, non tutte le allocazioni di `parquet`.** Page index e
   bloom filter hanno allocazioni proprie, guidate da altri campi. Non sono nel
   percorso che leggiamo oggi — non attiviamo `with_page_index` — ma se un giorno

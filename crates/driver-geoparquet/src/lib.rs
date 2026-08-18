@@ -159,7 +159,7 @@ fn valida_bit_width_dizionario(
     metadati: &parquet::file::metadata::ParquetMetaData,
     maschera: &ProjectionMask,
     gruppi: Option<&[usize]>,
-    budget_ingresso: u64,
+    tetto_pagina: u64,
 ) -> Result<()> {
     use parquet::column::page::PageReader as _;
     let tutti: Vec<usize> = (0..metadati.num_row_groups()).collect();
@@ -207,7 +207,7 @@ fn valida_bit_width_dizionario(
                 u64::try_from(chunk.compressed_size())
                     .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?,
                 non_compressi,
-                budget_ingresso,
+                tetto_pagina,
             )?;
 
             let mut lettore_pagine = parquet::file::serialized_reader::SerializedPageReader::new(
@@ -250,7 +250,7 @@ fn valida_dimensioni_pagine(
     metadati: &parquet::file::metadata::ParquetMetaData,
     maschera: &ProjectionMask,
     gruppi: Option<&[usize]>,
-    budget_ingresso: u64,
+    tetto_pagina: u64,
 ) -> Result<()> {
     let tutti: Vec<usize> = (0..metadati.num_row_groups()).collect();
     let gruppi = match gruppi {
@@ -279,11 +279,44 @@ fn valida_dimensioni_pagine(
                 primo_byte,
                 byte_compressi,
                 chunk.uncompressed_size(),
-                budget_ingresso,
+                tetto_pagina,
             )?;
         }
     }
     Ok(())
+}
+
+/// Il tetto per una singola pagina non compressa (FZ-0.2.1).
+///
+/// **Meta' della capacita' di memoria effettiva**, cioe' del minimo fra il
+/// limite della pipeline e quello del pool. Con i valori predefiniti sono 256
+/// MiB, meta' dei 512 MiB dichiarati.
+///
+/// Tre scelte, tutte deliberate.
+///
+/// *Memoria e non ingresso.* FZ-0.2 aveva usato `max_input_bytes`: funzionava,
+/// ma confondeva due quote che il modello tiene distinte apposta.
+/// `max_input_bytes` governa quanto e' grande la **sorgente**; una pagina
+/// decompressa e' **memoria temporanea**. Con quella quota, alzare il tetto sul
+/// file alzava anche quello sulla memoria — che non e' cio' che chi lo alza sta
+/// chiedendo.
+///
+/// *Capacita' effettiva e non `PipelineLimits::memory_bytes`.* Con un pool piu'
+/// stretto del limite locale, una soglia calcolata sul solo limite locale
+/// sarebbe irraggiungibile: e' la stessa ragione per cui il modello espone
+/// `effective_memory_capacity`, ed e' scritta li'.
+///
+/// *Meta' e non tutta.* La pagina decompressa non e' sola in memoria: accanto
+/// ci sono la pagina compressa da cui viene, i buffer del decoder e gli array
+/// Arrow che ne escono. Concedere l'intera capacita' a una sola allocazione
+/// significherebbe dichiararla l'unica, e non lo e'.
+///
+/// La libreria **non** misura la memoria reale del processo, e non promette di
+/// farlo: leggerla e' instabile e non portabile. Configurare quattro gigabyte
+/// su una macchina che ne ha mezzo resta un errore di deployment, che questa
+/// funzione non puo' vedere ne' correggere.
+fn tetto_pagina(context: &plenora_io_model::budget::PipelineContext) -> u64 {
+    context.effective_memory_capacity() / 2
 }
 
 /// Le due prevalidazioni che precedono il decoder, **in ordine**.
@@ -305,12 +338,12 @@ fn prevalida_cio_che_il_decoder_leggera(
     metadati: &parquet::file::metadata::ParquetMetaData,
     maschera: &ProjectionMask,
     gruppi: Option<&[usize]>,
-    budget_ingresso: u64,
+    tetto_pagina: u64,
 ) -> Result<()> {
     // FZ-0.2
-    valida_dimensioni_pagine(sorgente, metadati, maschera, gruppi, budget_ingresso)?;
+    valida_dimensioni_pagine(sorgente, metadati, maschera, gruppi, tetto_pagina)?;
     // FZ-0.1
-    valida_bit_width_dizionario(sorgente, metadati, maschera, gruppi, budget_ingresso)
+    valida_bit_width_dizionario(sorgente, metadati, maschera, gruppi, tetto_pagina)
 }
 
 /// Il primo byte di un chunk di colonna.
@@ -804,7 +837,7 @@ impl FormatDriver for GeoParquetDriver {
                 bbox_covering,
                 visible_to_physical,
                 layers: vec![layer],
-                budget_ingresso: opts.max_input_bytes(),
+                tetto_pagina: tetto_pagina(opts.budget().context()),
             }),
             &opts,
             true,
@@ -933,13 +966,13 @@ struct GeoParquetDataset {
     /// all'apertura e ogni projection la usa per tradurre.
     visible_to_physical: Vec<usize>,
     layers: Vec<LayerContract>,
-    /// Il budget di ingresso dichiarato all'apertura (FZ-0.2).
+    /// Il tetto per una singola pagina non compressa, derivato all'apertura.
     ///
-    /// E' il tetto che la prevalidazione applica a una singola pagina non
-    /// compressa. Viene dallo stesso snapshot di opzioni con cui il dataset e'
-    /// stato aperto, non riletto a ogni `open_layer_reader`: due chiamate sullo
-    /// stesso handle non devono poter usare quote diverse.
-    budget_ingresso: u64,
+    /// Viene dallo stesso snapshot di opzioni con cui il dataset e' stato
+    /// aperto, non ricalcolato a ogni `open_layer_reader`: due letture sullo
+    /// stesso handle non devono poter usare quote diverse. Vedi
+    /// [`tetto_pagina`].
+    tetto_pagina: u64,
 }
 
 impl GeoParquetDataset {
@@ -1129,7 +1162,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
             builder.metadata(),
             &maschera,
             gruppi.as_deref(),
-            self.budget_ingresso,
+            self.tetto_pagina,
         )?;
 
         let builder = match gruppi {
@@ -2049,8 +2082,28 @@ mod tests {
     use plenora_io_model::CancellationToken;
 
     /// Opzioni di lettura con un budget di ingresso scelto.
-    fn opzioni_lettura_con_budget(byte: u64) -> ReadOptions {
-        let limiti = plenora_io_model::budget::PipelineLimits::default().with_max_input_bytes(byte);
+    /// Opzioni di lettura con memoria e ingresso scelti separatamente.
+    ///
+    /// I due parametri sono distinti perche' e' esattamente cio' che i test di
+    /// FZ-0.2.1 devono poter muovere uno alla volta: il tetto sulla pagina
+    /// segue la memoria, non l'ingresso.
+    ///
+    /// `max_wkb_cell_bytes` scende insieme alla memoria perche' il modello lo
+    /// pretende — una cella non puo' valere piu' di tutta la memoria — ma resta
+    /// **sopra** la geometria dei test, cosi' un rifiuto per cella non si
+    /// travesta da rifiuto per pagina.
+    fn opzioni_lettura_con(memoria: u64, ingresso: u64) -> ReadOptions {
+        let limiti = plenora_io_model::budget::PipelineLimits::default()
+            .with_memory_bytes(memoria)
+            .with_max_input_bytes(ingresso)
+            .with_max_wkb_cell_bytes(
+                // `expect` e non un ripiego: il minimo con 64 MiB rende la
+                // conversione impossibile da fallire, e degradare a `usize::MAX`
+                // darebbe in silenzio un limite di cella assurdo proprio nel
+                // test che lo sta scegliendo.
+                usize::try_from(memoria.min(64 * 1024 * 1024))
+                    .expect("64 MiB stanno in un usize su qualunque piattaforma"),
+            );
         match plenora_io_model::budget::PipelineBudget::builder()
             .limits(limiti)
             .build()
@@ -2072,6 +2125,40 @@ mod tests {
             batch_target: BatchTarget::default(),
             cancellation: CancellationToken::default(),
         }
+    }
+
+    /// Il tetto per pagina si deriva dalla **memoria dichiarata**, e da nulla
+    /// altro (FZ-0.2.1).
+    ///
+    /// L'ultimo caso e' il piu' importante e non e' un'omissione: dichiarare
+    /// quattro gigabyte su una macchina che ne ha mezzo produce un tetto da due
+    /// gigabyte, e la libreria **non** se ne accorge. E' un errore di
+    /// deployment, non qualcosa che questa funzione prometta di rilevare:
+    /// leggere la memoria reale del processo e' instabile e non portabile, e
+    /// una promessa del genere sarebbe falsa su qualche piattaforma.
+    #[test]
+    fn il_tetto_per_pagina_segue_la_memoria_dichiarata() {
+        let tetto_di = |memoria: u64, ingresso: u64| {
+            let opzioni = opzioni_lettura_con(memoria, ingresso);
+            tetto_pagina(opzioni.budget().context())
+        };
+
+        // Meta' della memoria, quale che sia l'ingresso.
+        assert_eq!(tetto_di(512 * 1024 * 1024, 1 << 20), 256 * 1024 * 1024);
+        assert_eq!(tetto_di(512 * 1024 * 1024, 1 << 34), 256 * 1024 * 1024);
+        // Meno memoria, meno tetto.
+        assert_eq!(tetto_di(8 * 1024 * 1024, 1 << 30), 4 * 1024 * 1024);
+        // Piu' memoria di quanta la macchina ne abbia: il tetto la segue
+        // comunque, perche' e' la dichiarazione a governare.
+        assert_eq!(
+            tetto_di(4 * 1024 * 1024 * 1024, 1 << 20),
+            2 * 1024 * 1024 * 1024
+        );
+        // I predefiniti sono quelli attesi: 512 MiB dichiarati, 256 di tetto.
+        assert_eq!(
+            tetto_pagina(opzioni_lettura().budget().context()),
+            256 * 1024 * 1024
+        );
     }
 
     /// Una pagina **coerente** col proprio chunk ma sopra il budget dichiarato
@@ -2155,44 +2242,60 @@ mod tests {
 
         let byte_su_disco = std::fs::metadata(&path).unwrap().len();
         let pagina_piu_grande = pagina_non_compressa_massima(&path);
-        // Il budget deve stare **sopra** il file — altrimenti il preflight lo
-        // rifiuta e il test misurerebbe un altro controllo — e **sotto** la
-        // pagina non compressa. Esiste solo se il file e' abbastanza
-        // comprimibile, quindi la condizione e' verificata invece che sperata:
-        // un file poco comprimibile renderebbe il test verde senza provare
-        // niente.
+        // La pagina decompressa deve essere piu' grande del file: e' la
+        // condizione che rende il caso interessante — il file passa il
+        // preflight, la memoria no. Verificata invece che sperata, perche' un
+        // file poco comprimibile renderebbe il test verde senza provare niente.
         assert!(
             pagina_piu_grande > byte_su_disco,
             "file poco comprimibile: pagina {pagina_piu_grande} B, file {byte_su_disco} B"
         );
-        let budget = pagina_piu_grande - 1;
 
-        let mut opzioni = opzioni_lettura_con_budget(budget);
-        opzioni.assume_crs = None;
-        let dataset = GeoParquetDriver
-            .open(Source::Path(path), opzioni)
-            .expect("il file sta sotto il budget: l'apertura riesce");
-        let errore = match dataset.open_layer_reader(&richiesta_semplice()) {
-            Err(errore) => errore,
-            Ok(mut lettore) => match lettore.next_batch() {
-                Err(errore) => errore,
-                Ok(_) => panic!("la pagina doveva essere rifiutata"),
-            },
+        // Memoria appena sotto il doppio della pagina: il tetto e' la meta',
+        // quindi cade appena sotto la pagina.
+        let memoria_stretta = (pagina_piu_grande - 1) * 2;
+        let ingresso_largo = 1 << 30;
+        let leggi = |memoria: u64, ingresso: u64| {
+            let mut opzioni = opzioni_lettura_con(memoria, ingresso);
+            opzioni.assume_crs = None;
+            let dataset = GeoParquetDriver
+                .open(Source::Path(path.clone()), opzioni)
+                .expect("il file sta dentro l'ingresso: l'apertura riesce");
+            match dataset.open_layer_reader(&richiesta_semplice()) {
+                Err(errore) => Err(errore),
+                Ok(mut lettore) => lettore.next_batch().map(|_| ()),
+            }
         };
+
+        // (1) Memoria stretta: rifiutato, e con il messaggio della memoria.
+        let errore = leggi(memoria_stretta, ingresso_largo)
+            .expect_err("la pagina non entra nella memoria dichiarata");
         assert_eq!(
             errore.message,
-            pagine::MSG_PAGINA_OLTRE_IL_BUDGET,
+            pagine::MSG_PAGINA_OLTRE_LA_MEMORIA,
             "{errore}"
         );
 
-        // Controprova: con il budget predefinito lo stesso file si legge.
-        let dataset = GeoParquetDriver
-            .open(Source::Path(dir.path().join("comprimibile.parquet")), {
-                let mut o = opzioni_lettura();
-                o.assume_crs = None;
-                o
-            })
-            .unwrap();
+        // (2) **Alzare l'ingresso non alza il tetto sulla pagina.** E' la
+        // ragione per cui FZ-0.2.1 ha cambiato quota: con `max_input_bytes` un
+        // ingresso piu' largo rendeva ammissibile una pagina piu' grande, cioe'
+        // rispondeva a una domanda che nessuno aveva fatto.
+        let errore = leggi(memoria_stretta, ingresso_largo * 4)
+            .expect_err("l'ingresso non governa la memoria");
+        assert_eq!(
+            errore.message,
+            pagine::MSG_PAGINA_OLTRE_LA_MEMORIA,
+            "{errore}"
+        );
+
+        // (3) Alzare la memoria lo alza: stessa pagina, stesso file.
+        leggi(memoria_stretta * 4, ingresso_largo).expect("con piu' memoria la pagina entra");
+
+        // (4) E con i valori predefiniti — 512 MiB di memoria, tetto 256 MiB —
+        // il file si legge come qualunque altro.
+        let mut opzioni = opzioni_lettura();
+        opzioni.assume_crs = None;
+        let dataset = GeoParquetDriver.open(Source::Path(path), opzioni).unwrap();
         let mut lettore = dataset.open_layer_reader(&richiesta_semplice()).unwrap();
         assert!(lettore.next_batch().unwrap().is_some());
     }
@@ -2342,7 +2445,7 @@ mod tests {
             .expect_err("una pagina sopra il budget e' rifiutata");
         assert_eq!(
             errore.message,
-            pagine::MSG_PAGINA_OLTRE_IL_BUDGET,
+            pagine::MSG_PAGINA_OLTRE_LA_MEMORIA,
             "{errore}"
         );
     }
@@ -2403,7 +2506,7 @@ mod tests {
         // Il messaggio e' una delle costanti statiche del modulo: non porta
         // niente che venga dal file.
         assert!(
-            errore.message == pagine::MSG_PAGINA_OLTRE_IL_BUDGET
+            errore.message == pagine::MSG_PAGINA_OLTRE_LA_MEMORIA
                 || errore.message == pagine::MSG_PAGINA_OLTRE_IL_CHUNK,
             "messaggio inatteso: {errore}"
         );

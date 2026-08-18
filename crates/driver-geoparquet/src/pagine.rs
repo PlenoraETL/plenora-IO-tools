@@ -80,8 +80,8 @@ const FINESTRA_HEADER: usize = 64 * 1024;
 const PROFONDITA_MASSIMA: u32 = 16;
 
 pub const MSG_HEADER_PAGINA_ILLEGGIBILE: &str = "header di pagina Parquet non leggibile";
-pub const MSG_PAGINA_OLTRE_IL_BUDGET: &str =
-    "pagina Parquet che dichiara piu' byte non compressi del budget di ingresso";
+pub const MSG_PAGINA_OLTRE_LA_MEMORIA: &str =
+    "pagina Parquet che dichiara piu' byte non compressi della memoria disponibile";
 pub const MSG_PAGINA_OLTRE_IL_CHUNK: &str =
     "pagina Parquet che dichiara piu' byte non compressi del proprio chunk";
 pub const MSG_CATENA_PAGINE_NON_PROGREDISCE: &str = "catena di pagine Parquet che non avanza";
@@ -325,16 +325,21 @@ pub fn leggi_intestazione(dati: &[u8]) -> Result<Intestazione> {
 ///   tutto. E' l'invariante del formato, non una quota nostra: la somma delle
 ///   pagine non compresse **e'** il totale del chunk, quindi una sola pagina
 ///   non puo' superarlo;
-/// * `uncompressed_page_size` dentro il **budget di ingresso della pipeline**.
+/// * `uncompressed_page_size` dentro il tetto per pagina, che il chiamante
+///   calcola dalla **memoria** dichiarata e passa qui.
 ///
 /// Il secondo non e' un numero scelto qui, ed e' il controllo che conta. Una
 /// pagina puo' essere coerente col proprio chunk e comunque troppo grande per
 /// il processo che la legge: un chunk da 800 MiB con una pagina da 700 MiB
 /// soddisfa il primo controllo e aborta lo stesso sotto mezzo gigabyte di
-/// memoria. Il tetto che serve e' quello che il chiamante ha **dichiarato** di
-/// potersi permettere — `max_input_bytes`, 256 MiB per difetto — non una
-/// costante scritta accanto alla difesa, che sarebbe di nuovo un numero senza
-/// rapporto con la macchina su cui gira.
+/// memoria.
+///
+/// La quota giusta e' quella della **memoria**, non quella dell'ingresso.
+/// `max_input_bytes` governa la dimensione della sorgente; una pagina
+/// decompressa e' memoria temporanea, e usare la prima per la seconda
+/// confonderebbe due quote che il modello tiene distinte apposta — con
+/// l'effetto pratico che alzare il tetto sul file alzerebbe anche quello sulla
+/// memoria, che non e' cio' che chi lo alza sta chiedendo.
 ///
 /// La catena deve finire **esattamente** sulla fine del chunk. Fermarsi a
 /// «l'abbiamo superata» lascerebbe passare un'ultima pagina che sborda: i byte
@@ -350,12 +355,11 @@ pub fn valida_chunk(
     primo_byte: u64,
     byte_compressi: u64,
     non_compressi_del_chunk: i64,
-    budget_ingresso: u64,
+    tetto_pagina: u64,
 ) -> Result<()> {
     if byte_compressi == 0 {
         return Ok(());
     }
-    let budget = i64::try_from(budget_ingresso).unwrap_or(i64::MAX);
     let mut lettore = sorgente
         .try_clone()
         .map_err(|_| errore(MSG_HEADER_PAGINA_ILLEGGIBILE))?;
@@ -384,8 +388,16 @@ pub fn valida_chunk(
         if intestazione.non_compressi > non_compressi_del_chunk {
             return Err(errore(MSG_PAGINA_OLTRE_IL_CHUNK));
         }
-        if intestazione.non_compressi > budget {
-            return Err(errore(MSG_PAGINA_OLTRE_IL_BUDGET));
+        // Il confronto con il tetto avviene in `u64`, convertendo il numero
+        // **letto dal file** e non il tetto: convertire il tetto avrebbe
+        // richiesto un ripiego per il caso in cui non entra in `i64`, e un
+        // ripiego su un tetto e' un tetto che a volte non c'e'. Il segno e'
+        // gia' stato verificato sopra, quindi qui la conversione non puo'
+        // fallire — ma resta fallibile invece che assunta.
+        let non_compressi = u64::try_from(intestazione.non_compressi)
+            .map_err(|_| errore(MSG_HEADER_PAGINA_ILLEGGIBILE))?;
+        if non_compressi > tetto_pagina {
+            return Err(errore(MSG_PAGINA_OLTRE_LA_MEMORIA));
         }
 
         let passo = u64::try_from(intestazione.byte_header)
