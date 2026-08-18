@@ -65,26 +65,273 @@ use plenora_io_model::{PlenoraIoError, Result};
 /// Un footer illeggibile, un base64 non decodificabile o uno schema non
 /// conforme fermano la lettura. Un file senza `ARROW:schema` passa: non c'e'
 /// niente da convertire, e la chiave e' opzionale nel formato.
-fn valida_schema_arrow_incorporato(path: &std::path::Path) -> Result<()> {
-    use base64::Engine as _;
-    use parquet::file::reader::FileReader as _;
+/// Tetto sulla dimensione **non compressa** dichiarata da un chunk di colonna.
+///
+/// `SerializedPageReader` decomprime ogni pagina prima di restituirla, quindi
+/// il tetto va applicato **prima** di chiedergliela: i metadati dichiarano la
+/// dimensione non compressa del chunk, ed e' l'unico numero disponibile prima
+/// che l'allocazione avvenga. `PageMetadata`, che `peek_next_page` restituisce,
+/// non porta le dimensioni, quindi una verifica per pagina non e' possibile con
+/// l'API pubblica.
+///
+/// Il valore e' assoluto e volutamente largo: un chunk che ne dichiara di piu'
+/// non e' un chunk grande, e' una dichiarazione su cui rifiutiamo di agire.
+/// Un tetto sul **rapporto** di decompressione — come quello che il
+/// contenitore XLSX applica — rifiuterebbe anche file leciti molto
+/// comprimibili, e sarebbe un restringimento del contratto invece di una
+/// difesa: qui serve solo che l'allocazione non sia illimitata.
+const MAX_BYTE_CHUNK_ISPEZIONATO: i64 = 1 << 30;
 
-    const CHIAVE: &str = "ARROW:schema";
+/// Messaggi pubblici della prevalidazione Parquet: **statici**.
+///
+/// Un messaggio che riportasse il bit width letto, la codifica trovata o il
+/// testo dell'errore della libreria porterebbe fuori un valore derivato dal
+/// payload, e `PlenoraIoError::message` dichiara di non contenerne. Il valore
+/// che serve a correggere il file sta nel file, non nell'errore.
+const MSG_BIT_WIDTH_OLTRE_MASSIMO: &str =
+    "bit width degli indici di dizionario Parquet oltre il massimo del formato";
+const MSG_PAGINE_NON_LEGGIBILI: &str = "pagine Parquet non leggibili";
+const MSG_SEZIONE_VALORI_ASSENTE: &str = "data page a dizionario Parquet senza sezione valori";
+const MSG_CODIFICA_LIVELLI_IGNOTA: &str = "codifica dei livelli Parquet non riconosciuta";
+const MSG_LIVELLI_TRONCATI: &str = "data page Parquet troncata sui livelli";
+const MSG_SEZIONE_NON_RAPPRESENTABILE: &str = "sezione dei livelli Parquet non rappresentabile";
+const MSG_FOOTER_NON_VALIDO: &str = "footer Parquet non valido";
+const MSG_CHUNK_OLTRE_TETTO: &str =
+    "chunk di colonna Parquet oltre il tetto di dimensione non compressa";
 
-    let dimensione = std::fs::metadata(path)?.len();
-    let file = File::open(path)?;
-    // `SerializedFileReader` legge il footer Thrift e si ferma li': non
-    // costruisce lo schema Arrow ne' i lettori di colonna, quindi non
-    // raggiunge ne' la conversione che panica ne' `byte_range`. E' l'unico
-    // ingresso nella libreria che precede la prevalidazione, perche' **e'** la
-    // lettura dei metadati da validare; sta comunque sotto la barriera.
-    let lettore = plenora_io_core::driver::leggendo_arrow("parquet", || {
-        parquet::file::reader::SerializedFileReader::new(file)
-            .map_err(|e| fmt_err(format!("footer Parquet non valido: {e}")))
-    })?;
-    let metadati = lettore.metadata();
+/// Bit width massimo per un indice di dizionario letto come `i32`.
+///
+/// E' il limite del **formato**: gli indici stanno in `i32`, quindi
+/// trentadue bit li esauriscono. Non e' una regola nostra.
+const MAX_BIT_WIDTH_INDICI: u8 = 32;
 
-    // I metadati Thrift portano offset e lunghezze firmati, e il lettore li
+/// Impedisce il panico di `parquet` sul bit width degli indici (FZ-0.1).
+///
+/// `DictIndexDecoder::new` prende il bit width dal primo byte della sezione
+/// valori di una data page a dizionario e lo passa a `RleDecoder` senza
+/// controllarne l'intervallo (`arrow/decoder/dictionary_index.rs:46`). Un
+/// valore oltre trentadue arriva a `BitReader::get_batch::<i32>` e fa panicare
+/// la libreria: al `debug_assert!` sotto fuzzing, all'aritmetica non
+/// controllata nel profilo release che spediamo. La barriera lo converte in
+/// errore tipizzato, ma il panico e' avvenuto.
+///
+/// # Perimetro: solo cio' che verra' letto davvero
+///
+/// La verifica non scorre il file: guarda i soli chunk che **projection e
+/// pruning hanno gia' selezionato**, e fra quelli solo i dictionary-encoded.
+/// Un file senza dizionario non paga niente, perche' `encodings()` lo dice dai
+/// metadati senza toccare una pagina; un file con dizionario paga la lettura
+/// delle sole colonne proiettate nei soli row group sopravvissuti al pruning.
+///
+/// Lo snapshot dei metadati e' **quello della lettura**, passato dal
+/// chiamante: se ne rileggesse uno proprio, validazione e lettura potrebbero
+/// guardare due file diversi.
+///
+/// # Bounded
+///
+/// Le pagine sono lette una per volta dal `PageReader` della libreria e non
+/// vengono trattenute; la validazione guarda un byte per pagina. Nessuna
+/// allocazione proporzionale al file.
+fn valida_bit_width_dizionario(
+    sorgente: &Arc<File>,
+    metadati: &parquet::file::metadata::ParquetMetaData,
+    maschera: &ProjectionMask,
+    gruppi: Option<&[usize]>,
+) -> Result<()> {
+    use parquet::column::page::PageReader as _;
+    let tutti: Vec<usize> = (0..metadati.num_row_groups()).collect();
+    // `None` significa "nessun pruning applicato", cioe' tutti i row group:
+    // non e' un default di ripiego, e' il significato dell'assenza.
+    let gruppi = match gruppi {
+        Some(selezionati) => selezionati,
+        None => &tutti,
+    };
+
+    for &indice_gruppo in gruppi {
+        let blocco = metadati
+            .row_groups()
+            .get(indice_gruppo)
+            .ok_or_else(|| fmt_err("indice di row group Parquet fuori intervallo"))?;
+        for (foglia, chunk) in blocco.columns().iter().enumerate() {
+            if !maschera.leaf_included(foglia) {
+                continue;
+            }
+            // Filtro dai metadati: senza codifica a dizionario non c'e' bit
+            // width da leggere, e nessuna pagina viene toccata.
+            if !chunk.encodings().any(e_a_dizionario) {
+                continue;
+            }
+            // Tetto prima dell'allocazione: la decompressione avviene dentro
+            // `get_next_page`, quindi il rifiuto deve precedere la chiamata.
+            let non_compressi = chunk.uncompressed_size();
+            if !(0..=MAX_BYTE_CHUNK_ISPEZIONATO).contains(&non_compressi) {
+                return Err(fmt_err(MSG_CHUNK_OLTRE_TETTO));
+            }
+            let descrittore = chunk.column_descr();
+            let (max_rep, max_def) = (descrittore.max_rep_level(), descrittore.max_def_level());
+            let righe = usize::try_from(blocco.num_rows())
+                .map_err(|_| fmt_err("numero di righe del row group Parquet negativo"))?;
+            let mut pagine = parquet::file::serialized_reader::SerializedPageReader::new(
+                Arc::clone(sorgente),
+                chunk,
+                righe,
+                None,
+            )
+            .map_err(|_| fmt_err(MSG_PAGINE_NON_LEGGIBILI))?;
+            while let Some(pagina) = pagine
+                .get_next_page()
+                .map_err(|_| fmt_err(MSG_PAGINE_NON_LEGGIBILI))?
+            {
+                valida_pagina_a_dizionario(&pagina, max_rep, max_def)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+const fn e_a_dizionario(codifica: parquet::basic::Encoding) -> bool {
+    matches!(
+        codifica,
+        parquet::basic::Encoding::RLE_DICTIONARY | parquet::basic::Encoding::PLAIN_DICTIONARY
+    )
+}
+
+/// Verifica il bit width di una singola pagina, se e' una data page a
+/// dizionario.
+fn valida_pagina_a_dizionario(
+    pagina: &parquet::column::page::Page,
+    max_rep: i16,
+    max_def: i16,
+) -> Result<()> {
+    use parquet::column::page::Page;
+
+    let (buffer, inizio_valori) = match pagina {
+        // La pagina di dizionario porta i **valori**, non gli indici: il suo
+        // primo byte non e' un bit width e guardarlo sarebbe un errore.
+        Page::DictionaryPage { .. } => return Ok(()),
+        Page::DataPage {
+            buf,
+            num_values,
+            encoding,
+            def_level_encoding,
+            rep_level_encoding,
+            ..
+        } => {
+            if !e_a_dizionario(*encoding) {
+                return Ok(());
+            }
+            let inizio = inizio_valori_v1(
+                buf,
+                *num_values,
+                max_rep,
+                max_def,
+                *rep_level_encoding,
+                *def_level_encoding,
+            )?;
+            (buf, inizio)
+        }
+        Page::DataPageV2 {
+            buf,
+            encoding,
+            def_levels_byte_len,
+            rep_levels_byte_len,
+            ..
+        } => {
+            if !e_a_dizionario(*encoding) {
+                return Ok(());
+            }
+            // In V2 le due lunghezze sono dichiarate nell'header: non c'e'
+            // niente da dedurre.
+            let inizio = (*rep_levels_byte_len as usize)
+                .checked_add(*def_levels_byte_len as usize)
+                .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?;
+            (buf, inizio)
+        }
+    };
+
+    let bit_width = buffer
+        .get(inizio_valori)
+        .ok_or_else(|| fmt_err(MSG_SEZIONE_VALORI_ASSENTE))?;
+    if *bit_width > MAX_BIT_WIDTH_INDICI {
+        return Err(fmt_err(MSG_BIT_WIDTH_OLTRE_MASSIMO));
+    }
+    Ok(())
+}
+
+/// Dove cominciano i valori in una data page V1.
+///
+/// Prima dei valori stanno le sezioni dei livelli, presenti solo se il livello
+/// massimo della colonna e' maggiore di zero. `RLE` porta un prefisso di
+/// quattro byte con la lunghezza; `BIT_PACKED` — deprecata ma ammessa dallo
+/// spec — non lo porta, e la sua dimensione si calcola da `num_values` e dai
+/// bit necessari al livello massimo.
+///
+/// Una codifica diversa da queste due ferma la lettura invece di far tirare a
+/// indovinare l'offset.
+#[allow(deprecated)]
+fn inizio_valori_v1(
+    buffer: &[u8],
+    num_values: u32,
+    max_rep: i16,
+    max_def: i16,
+    rep_level_encoding: parquet::basic::Encoding,
+    def_level_encoding: parquet::basic::Encoding,
+) -> Result<usize> {
+    use parquet::basic::Encoding;
+
+    let mut inizio = 0usize;
+    for (livello_massimo, codifica) in
+        [(max_rep, rep_level_encoding), (max_def, def_level_encoding)]
+    {
+        if livello_massimo <= 0 {
+            continue;
+        }
+        inizio = match codifica {
+            Encoding::RLE => {
+                let dopo_prefisso = inizio
+                    .checked_add(4)
+                    .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?;
+                let prefisso = buffer
+                    .get(inizio..dopo_prefisso)
+                    .ok_or_else(|| fmt_err(MSG_LIVELLI_TRONCATI))?;
+                let lunghezza =
+                    u32::from_le_bytes([prefisso[0], prefisso[1], prefisso[2], prefisso[3]])
+                        as usize;
+                dopo_prefisso
+                    .checked_add(lunghezza)
+                    .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?
+            }
+            Encoding::BIT_PACKED => {
+                let livello = u64::try_from(livello_massimo)
+                    .map_err(|_| fmt_err("livello massimo Parquet negativo"))?;
+                let bit_totali = (num_values as usize)
+                    .checked_mul(bit_necessari(livello) as usize)
+                    .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?;
+                inizio
+                    .checked_add(bit_totali.div_ceil(8))
+                    .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?
+            }
+            _ => return Err(fmt_err(MSG_CODIFICA_LIVELLI_IGNOTA)),
+        };
+    }
+    Ok(inizio)
+}
+
+/// Bit necessari a rappresentare un valore, come fa `parquet` per i livelli.
+const fn bit_necessari(valore: u64) -> u32 {
+    u64::BITS - valore.leading_zeros()
+}
+
+/// Verifica offset, lunghezze e somme dichiarati dai metadati Thrift.
+///
+/// Il lettore li usa senza controlli: `ColumnChunkMetaData::byte_range`
+/// asserisce `col_start >= 0 && col_len >= 0` (parquet 59.1.0,
+/// `file/metadata/mod.rs:1063`), quindi un footer con un offset negativo
+/// abbatte il processo prima di leggere un solo byte di dati.
+fn valida_metadati_thrift(
+    metadati: &parquet::file::metadata::ParquetMetaData,
+    dimensione: u64,
+) -> Result<()> {
     // usa senza controlli: `ColumnChunkMetaData::byte_range` asserisce
     // `col_start >= 0 && col_len >= 0` (parquet 59.1.0,
     // `file/metadata/mod.rs:1063`), quindi un footer con un offset negativo
@@ -122,6 +369,31 @@ fn valida_schema_arrow_incorporato(path: &std::path::Path) -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn valida_schema_arrow_incorporato(file: File, dimensione: u64) -> Result<()> {
+    use base64::Engine as _;
+    use parquet::file::reader::FileReader as _;
+
+    const CHIAVE: &str = "ARROW:schema";
+
+    // `SerializedFileReader` legge il footer Thrift e si ferma li': non
+    // costruisce lo schema Arrow ne' i lettori di colonna, quindi non
+    // raggiunge ne' la conversione che panica ne' `byte_range`. E' l'unico
+    // ingresso nella libreria che precede la prevalidazione, perche' **e'** la
+    // lettura dei metadati da validare; sta comunque sotto la barriera.
+    let lettore = plenora_io_core::driver::leggendo_arrow("parquet", || {
+        // Statico come gli altri messaggi della prevalidazione: il testo
+        // dell'errore della libreria e' derivato dal file, e `message`
+        // dichiara di non contenere payload.
+        parquet::file::reader::SerializedFileReader::new(file)
+            .map_err(|_| fmt_err(MSG_FOOTER_NON_VALIDO))
+    })?;
+    let metadati = lettore.metadata();
+
+    valida_metadati_thrift(metadati, dimensione)?;
 
     let Some(chiavi) = metadati.file_metadata().key_value_metadata() else {
         return Ok(());
@@ -204,9 +476,15 @@ impl FormatDriver for GeoParquetDriver {
         // messaggio Arrow IPC deserializzato qui dentro: un `.parquet` ostile
         // raggiunge quindi lo stesso panico di un `.arrow`. Vedi
         // `leggendo_arrow`.
-        valida_schema_arrow_incorporato(&path)?;
+        // Una sola apertura, poi handle clonati: due `open` distinti possono
+        // cadere su due file diversi se il percorso viene sostituito fra l'uno
+        // e l'altro, e la verifica varrebbe per un file che non e' quello
+        // letto.
+        let sorgente = File::open(&path)?;
+        let dimensione = sorgente.metadata()?.len();
+        valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione)?;
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", || {
-            ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
+            ParquetRecordBatchReaderBuilder::try_new(sorgente.try_clone()?)
                 .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
         })?;
         let parquet_schema = builder.schema().clone();
@@ -452,6 +730,60 @@ struct GeoParquetDataset {
     layers: Vec<LayerContract>,
 }
 
+impl GeoParquetDataset {
+    /// Apre il file **una sola volta** e ne restituisce l'handle condiviso
+    /// insieme al builder, con lo schema Arrow incorporato gia' verificato.
+    ///
+    /// Il file viene riaperto a ogni `open_layer_reader`, quindi riverificato:
+    /// fra l'apertura del dataset e questa chiamata il contenuto su disco puo'
+    /// essere cambiato. Gli handle sono cloni della stessa apertura, cosi'
+    /// verifica e lettura non possono finire su due file diversi — cosa che due
+    /// `open` distinti non garantiscono.
+    fn apri_verificato(&self) -> Result<(Arc<File>, ParquetRecordBatchReaderBuilder<File>)> {
+        let sorgente = Arc::new(File::open(&self.path)?);
+        let dimensione = sorgente.metadata()?.len();
+        valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione)?;
+        let per_builder = sorgente.try_clone()?;
+        let builder = plenora_io_core::driver::leggendo_arrow("parquet", move || {
+            ParquetRecordBatchReaderBuilder::try_new(per_builder)
+                .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
+        })?;
+        Ok((sorgente, builder))
+    }
+
+    /// I row group che la lettura toccherà davvero, dopo entrambi i pruning.
+    ///
+    /// I due restituiscono la selezione invece di applicarla al builder: e' lo
+    /// stesso valore che alimenta la lettura e la prevalidazione, quindi le due
+    /// non possono guardare insiemi diversi.
+    ///
+    /// La composizione e' quella storica — lo spaziale **sostituisce** il
+    /// numerico quando entrambi si applicano — ed e' conservata di proposito.
+    /// Il pruning numerico perso in quel caso e' un difetto preesistente,
+    /// registrato a parte: e' ottimizzazione persa, non righe sbagliate, perche'
+    /// l'over-return e' dichiarato ammesso. Correggerlo e' una decisione, non un
+    /// effetto collaterale.
+    fn gruppi_da_leggere(
+        &self,
+        builder: &ParquetRecordBatchReaderBuilder<File>,
+        request: &ReadRequest,
+    ) -> Option<Vec<usize>> {
+        let numerici = gruppi_dopo_pruning(
+            builder.metadata(),
+            request.pruning_predicate.as_ref(),
+            self.out_schema.as_ref(),
+            builder.parquet_schema(),
+        );
+        gruppi_dopo_pruning_spaziale(
+            builder.metadata(),
+            builder.parquet_schema(),
+            request.spatial_pruning_hint.as_ref(),
+            self.bbox_covering.as_ref(),
+        )
+        .or(numerici)
+    }
+}
+
 impl OpenDatasetHandle for GeoParquetDataset {
     fn layers(&self) -> &[LayerContract] {
         &self.layers
@@ -463,14 +795,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
-        let path = self.path.clone();
-        // Riaperto qui, quindi riverificato qui: fra `open` e questa chiamata
-        // il file su disco puo' essere cambiato.
-        valida_schema_arrow_incorporato(&path)?;
-        let builder = plenora_io_core::driver::leggendo_arrow("parquet", move || {
-            ParquetRecordBatchReaderBuilder::try_new(File::open(&path)?)
-                .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
-        })?;
+        let (sorgente, builder) = self.apri_verificato()?;
 
         // Projection pushdown (Fase 2C): se richiesto, leggi SOLO quelle colonne.
         // Con bbox covering, le colonne bbox interne sono SEMPRE proiettate via.
@@ -481,19 +806,28 @@ impl OpenDatasetHandle for GeoParquetDataset {
         // colonne bbox interne sono intercalate — cosa che i nostri writer
         // non producono ma un GeoParquet esterno puo'. `visible_to_physical`
         // fa la traduzione una volta all'apertura e ogni projection la usa.
-        let (builder, out_schema, layer) = match &request.projected_fields {
+        // La maschera esce dal `match` insieme al builder: serve anche alla
+        // prevalidazione, che deve guardare le stesse colonne che verranno
+        // lette. Ricalcolarla la' sarebbe una seconda verita' che diverge.
+        let (builder, out_schema, layer, maschera) = match &request.projected_fields {
             None if self.bbox_covering.is_some() => {
                 let mask = ProjectionMask::roots(
                     builder.parquet_schema(),
                     self.visible_to_physical.iter().copied(),
                 );
                 (
-                    builder.with_projection(mask),
+                    builder.with_projection(mask.clone()),
                     self.out_schema.clone(),
                     self.layers[0].clone(),
+                    mask,
                 )
             }
-            None => (builder, self.out_schema.clone(), self.layers[0].clone()),
+            None => (
+                builder,
+                self.out_schema.clone(),
+                self.layers[0].clone(),
+                ProjectionMask::all(),
+            ),
             Some(field_ids) => {
                 let ncols = self.out_schema.fields().len();
                 let mut logical_idx: Vec<usize> = Vec::new();
@@ -543,7 +877,12 @@ impl OpenDatasetHandle for GeoParquetDataset {
                         })
                     }),
                 };
-                (builder.with_projection(mask), projected, layer)
+                (
+                    builder.with_projection(mask.clone()),
+                    projected,
+                    layer,
+                    mask,
+                )
             }
         };
 
@@ -553,17 +892,25 @@ impl OpenDatasetHandle for GeoParquetDataset {
         let builder = builder.with_batch_size(batch_size);
         // Row-group pruning (2C): salta i row group esclusi dalle statistiche
         // min/max (mai filtering riga-per-riga; over-return, mai under-return).
-        let builder = apply_pruning(
-            builder,
-            request.pruning_predicate.as_ref(),
-            self.out_schema.as_ref(),
-        );
-        // Spatial pruning (2C): salta i row group il cui bbox non interseca l'hint.
-        let builder = apply_spatial_pruning(
-            builder,
-            request.spatial_pruning_hint.as_ref(),
-            self.bbox_covering.as_ref(),
-        );
+        //
+        // I due pruning restituiscono la selezione invece di applicarla: e' lo
+        // stesso valore che alimenta il builder e la prevalidazione, quindi le
+        // due non possono guardare insiemi diversi. La composizione resta
+        // quella di prima — lo spaziale sostituisce il numerico quando entrambi
+        // si applicano — e il difetto che ne segue e' registrato a parte: e'
+        // pruning perso, non righe sbagliate, perche' l'over-return e'
+        // dichiarato ammesso.
+        let gruppi = self.gruppi_da_leggere(&builder, request);
+
+        // FZ-0.1: il bit width degli indici di dizionario viene verificato
+        // **prima** che il decoder lo usi, e solo sui chunk che projection e
+        // pruning hanno appena selezionato.
+        valida_bit_width_dizionario(&sorgente, builder.metadata(), &maschera, gruppi.as_deref())?;
+
+        let builder = match gruppi {
+            Some(gruppi) => builder.with_row_groups(gruppi),
+            None => builder,
+        };
 
         let reader = builder
             .build()
@@ -790,14 +1137,13 @@ fn comparison_matches<T: PartialOrd + Copy>(
 
 /// Seleziona i row group che POSSONO soddisfare il predicato (over-return: se le
 /// statistiche mancano o il predicato non è riconosciuto, tiene tutto).
-fn apply_pruning(
-    builder: ParquetRecordBatchReaderBuilder<File>,
+fn gruppi_dopo_pruning(
+    metadati: &parquet::file::metadata::ParquetMetaData,
     pred: Option<&PruningPredicate>,
     arrow_schema: &Schema,
-) -> ParquetRecordBatchReaderBuilder<File> {
-    let Some(predicate) = pred else {
-        return builder;
-    };
+    schema: &parquet::schema::types::SchemaDescriptor,
+) -> Option<Vec<usize>> {
+    let predicate = pred?;
     let resolved = match predicate {
         PruningPredicate::NumericComparison {
             field,
@@ -809,19 +1155,14 @@ fn apply_pruning(
             .map(|field| (field.name().clone(), *comparison, *value)),
         PruningPredicate::Opaque(expression) => parse_opaque_predicate(expression),
     };
-    let Some((column, comparison, value)) = resolved else {
-        return builder;
-    };
-    let schema = builder.parquet_schema();
+    let (column, comparison, value) = resolved?;
     let mut matching =
         (0..schema.num_columns()).filter(|&i| schema.column(i).name() == column.as_str());
-    let Some(cidx) = matching.next() else {
-        return builder;
-    };
+    let cidx = matching.next()?;
     if matching.next().is_some() {
-        return builder;
+        return None;
     }
-    let md = builder.metadata();
+    let md = metadati;
     let mut keep = Vec::new();
     for rg in 0..md.num_row_groups() {
         let keep_it = md
@@ -834,7 +1175,7 @@ fn apply_pruning(
             keep.push(rg);
         }
     }
-    builder.with_row_groups(keep)
+    Some(keep)
 }
 
 /// Spatial pruning: tiene i row group il cui estensione bbox interseca l'hint.
@@ -843,8 +1184,9 @@ fn apply_pruning(
 // bounding box: rinominarle per soddisfare `similar_names` renderebbe il codice
 // meno leggibile, non più.
 #[allow(clippy::similar_names)]
-fn apply_spatial_pruning(
-    builder: ParquetRecordBatchReaderBuilder<File>,
+fn gruppi_dopo_pruning_spaziale(
+    metadati: &parquet::file::metadata::ParquetMetaData,
+    schema: &parquet::schema::types::SchemaDescriptor,
     hint: Option<&Bbox>,
     // Finding #4 follow-up: i nomi delle 4 colonne bbox (xmin, ymin, xmax,
     // ymax) sono passati dal chiamante, che li ha risolti da
@@ -852,11 +1194,10 @@ fn apply_spatial_pruning(
     // Non piu' hard-coded: un covering con nomi personalizzati viene ora
     // realmente usato dal pruning.
     covering: Option<&[String; 4]>,
-) -> ParquetRecordBatchReaderBuilder<File> {
+) -> Option<Vec<usize>> {
     let (Some(q), Some(covering)) = (hint, covering) else {
-        return builder;
+        return None;
     };
-    let schema = builder.parquet_schema();
     let leaf = |name: &str| (0..schema.num_columns()).find(|&i| schema.column(i).name() == name);
     let (Some(cminx), Some(cminy), Some(cmaxx), Some(cmaxy)) = (
         leaf(&covering[0]),
@@ -864,9 +1205,9 @@ fn apply_spatial_pruning(
         leaf(&covering[2]),
         leaf(&covering[3]),
     ) else {
-        return builder;
+        return None;
     };
-    let md = builder.metadata();
+    let md = metadati;
     let mut keep = Vec::new();
     for rg in 0..md.num_row_groups() {
         let g = md.row_group(rg);
@@ -900,7 +1241,7 @@ fn apply_spatial_pruning(
             keep.push(rg);
         }
     }
-    builder.with_row_groups(keep)
+    Some(keep)
 }
 
 /// Compressione dal `format_options["compression"]` (default snappy). zstd via
@@ -1465,6 +1806,57 @@ mod tests {
         encode_wkb, to_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
     };
     use plenora_io_model::CancellationToken;
+
+    /// Il seme che faceva panicare `parquet` sul bit width degli indici di
+    /// dizionario viene ora rifiutato **prima** che il decoder lo usi (FZ-0.1).
+    ///
+    /// La verifica non e' "non va in panico": e' che la lettura si fermi con un
+    /// errore tipizzato e senza aver emesso righe. Un file che venisse accettato
+    /// e letto in silenzio sarebbe un esito peggiore del panico.
+    #[test]
+    fn un_bit_width_di_dizionario_fuori_intervallo_e_rifiutato_prima_del_decoder() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../fuzz/seeds/geoparquet_reader/bit-width-dizionario-fuori-intervallo.parquet",
+        );
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+        let dataset = GeoParquetDriver
+            .open(Source::Path(seme), opzioni_lettura())
+            .expect("l'apertura legge i soli metadati e riesce");
+        let richiesta = ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        };
+
+        // Il rifiuto arriva da `open_layer_reader`, dove projection e pruning
+        // sono noti: e' li' che la prevalidazione guarda i chunk selezionati.
+        let errore = match dataset.open_layer_reader(&richiesta) {
+            Err(errore) => errore,
+            Ok(mut lettore) => match lettore.next_batch() {
+                Err(errore) => errore,
+                Ok(_) => panic!("il file doveva essere rifiutato"),
+            },
+        };
+
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+        // Il panico e' *impedito*: se il messaggio venisse dalla barriera,
+        // il decoder sarebbe stato raggiunto lo stesso.
+        assert!(
+            !errore.message.contains("in panico"),
+            "il rifiuto deve precedere il decoder: {errore}"
+        );
+        assert!(
+            errore.message.contains("bit width"),
+            "l'errore deve dire cosa non va: {errore}"
+        );
+    }
 
     /// I file che facevano panicare arrow decodificando lo schema devono
     /// uscire come errore del driver, non abbattere il processo. Un `.parquet`

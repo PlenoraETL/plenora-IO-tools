@@ -86,6 +86,13 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_prevalidazione_decoder
           python3 scripts/check_prevalidazione_decoder.py
+      # FZ-0: la quarantena dei fuzz target e' vuota, e deve restare tale. Un
+      # target quarantinato non viene eseguito dallo smoke, quindi le sue
+      # regressioni nuove non le vede nessuno.
+      - name: Verify the fuzz quarantine is empty
+        run: |
+          python3 -m unittest scripts.test_check_quarantena_fuzz
+          python3 scripts/check_quarantena_fuzz.py
       - name: Verify governed GDAL fork
         run: python3 scripts/check_gdal_fork.py
       - name: Verify governed DXF fork

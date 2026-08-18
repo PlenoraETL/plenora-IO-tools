@@ -448,14 +448,27 @@ Tre target su quattro sono usciti dalla quarantena, con replay pulito e fuzzing
 attivo senza crash: `xlsx_reader` (60.511 esecuzioni), `ipc_reader` (149.425),
 `ipc_to_gpkg` (139.272).
 
-**`geoparquet_reader` resta in quarantena e FZ-0 resta aperto.** `parquet`
-prende il bit width degli indici di dizionario dal primo byte della sezione
-valori senza validarlo (`arrow/decoder/dictionary_index.rs:46`). Il panico
-esiste anche nella release distribuita — a `bit_util.rs:719` per
-`overflow-checks`, non al `debug_assert!` che in release non scatta — ed e'
-catturato dalla barriera: `read` esce con 2 e un errore tipizzato di fase
-`Read`, zero righe emesse, 25 ms, deterministico. Prevalidarlo richiederebbe
-replicare la logica di layout della pagina e decomprimere l'intero file una
-seconda volta a ogni lettura: condizione di arresto accettata, si attende la
-correzione a monte. Dettagli in
-[`assurance/CHANGE_IMPACT_2026-08-17_FZ0_PREVALIDAZIONE.md`](assurance/CHANGE_IMPACT_2026-08-17_FZ0_PREVALIDAZIONE.md).
+**FZ-0.1 (2026-08-17) — quarantena zero.** `geoparquet_reader` era rimasto
+aperto: `parquet` prende il bit width degli indici di dizionario dal primo byte
+della sezione valori di una data page senza validarlo
+(`arrow/decoder/dictionary_index.rs:46`), e il panico esiste anche nella release
+distribuita. L'arresto precedente assumeva che prevalidarlo richiedesse un
+secondo passaggio sull'intero file; non e' cosi'. La verifica gira in
+`open_layer_reader`, **dopo** che projection e pruning hanno prodotto la
+selezione, e guarda i soli chunk selezionati che dichiarano una codifica a
+dizionario nei metadati — un file senza dizionario non tocca una pagina.
+
+Costo misurato, mediana di nove esecuzioni: **+0,8 µs** senza dizionario,
+**+65 µs** con dizionario, **+624 µs** nel caso peggiore (sedici colonne a
+dizionario compresse zstd) contro 7,5 ms di drenaggio. E' una decompressione in
+piu' delle sole colonne a dizionario effettivamente lette, non del file.
+
+Il seme e' rifiutato con errore tipizzato di fase `Read` **prima** che il
+decoder lo veda; replay di 839 input e fuzzing attivo di 122.801 esecuzioni
+senza crash; projection e pruning conservati. Lo smoke esegue ora **13 target su
+13** senza finding e `fuzz/quarantine.txt` non ha righe attive.
+`scripts/check_quarantena_fuzz.py` rende una riga attiva un blocco al rilascio:
+il meccanismo di skip resta, ma non puo' piu' diventare arredamento.
+
+Dettagli in
+[`assurance/CHANGE_IMPACT_2026-08-17_FZ01_QUARANTENA_ZERO.md`](assurance/CHANGE_IMPACT_2026-08-17_FZ01_QUARANTENA_ZERO.md).
