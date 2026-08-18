@@ -1688,6 +1688,38 @@ fn inspect_geometry_row(
     Ok(())
 }
 
+/// L'errore di righe rifiutate quando il report non e' emettibile.
+///
+/// Conserva **categoria, fase e causa** del rifiuto reale: quelle non dipendono
+/// da `input_total`, che governa solo il report. La causa passa nel messaggio
+/// perche' senza report non avrebbe dove stare, ed e' un vocabolario chiuso
+/// (`contract.nullability`, `conversion.invalid_geometry`, ...) — non un valore
+/// derivato dal payload, che non potrebbe uscire.
+///
+/// Il totale **resta assente**. Il report non viene allegato invece di essere
+/// allegato con un totale inventato: un report che dichiara un totale che
+/// nessuno ha dichiarato e' peggio di un report che non c'e'.
+fn errore_di_rifiuto_senza_report(
+    driver: &'static str,
+    causa: Option<&'static str>,
+    capability_reason: Option<CapabilityReason>,
+) -> PlenoraIoError {
+    let messaggio = causa.map_or_else(
+        || format!("righe rifiutate prima della scrittura {driver}"),
+        |causa| format!("righe rifiutate prima della scrittura {driver}: {causa}"),
+    );
+    let mut error = PlenoraIoError::new(
+        ErrorCategory::DataMapping,
+        ErrorPhase::Write,
+        RemoteEffect::None,
+        RetryDisposition::Never,
+        messaggio,
+    );
+    error.driver = Some(driver.to_owned());
+    error.capability_reason = capability_reason;
+    error
+}
+
 fn write_rejection_error(
     driver: &'static str,
     _batch_rows: u64,
@@ -1696,9 +1728,22 @@ fn write_rejection_error(
     input_total: Option<u64>,
 ) -> PlenoraIoError {
     const EXAMPLES_LIMIT: u64 = 64;
+    let prima = violations.values().next();
+    let first_reason = prima.map(|violation| violation.capability_reason);
     let Some(input_total) = input_total.filter(|total| *total > 0) else {
-        return PlenoraIoError::Contract(
-            "input_total esatto richiesto prima della validazione row-scoped".to_owned(),
+        // Senza `input_total` il **report** non e' emettibile — il contratto
+        // `plenora-io-row-diagnostics-v1` lo pretende positivo, e inventarlo
+        // sarebbe peggio che ometterlo. L'**errore** pero' esiste comunque, ed
+        // e' lo stesso: righe rifiutate prima della scrittura.
+        //
+        // Prima si restituiva un `Contract` sull'`input_total` mancante, cioe'
+        // si sostituiva la causa primaria con una condizione dell'infrastruttura
+        // diagnostica. Chi leggeva l'errore vedeva un problema interno al posto
+        // del proprio: la riga era invalida, e il messaggio parlava d'altro.
+        return errore_di_rifiuto_senza_report(
+            driver,
+            prima.map(|violation| violation.cause),
+            first_reason,
         );
     };
     let observed_total = saturating_u64(violations.len());
@@ -1725,10 +1770,6 @@ fn write_rejection_error(
             }
         })
         .collect::<Vec<_>>();
-    let first_reason = violations
-        .values()
-        .next()
-        .map(|violation| violation.capability_reason);
     let diagnostics = RowDiagnostics {
         contract: ROW_DIAGNOSTICS_CONTRACT.to_owned(),
         scope: RowDiagnosticScope::Write,
@@ -2735,14 +2776,44 @@ mod tests {
         assert!(diagnostics.validate().is_ok());
     }
 
+    /// Senza `input_total` manca il **report**, non la causa.
+    ///
+    /// Questo test asseriva l'opposto: che l'errore diventasse un `Contract`
+    /// sull'`input_total` mancante, con categoria `InvalidPlan` e fase
+    /// `Validate`. Fissava un difetto come requisito — la causa primaria, cioe'
+    /// la riga rifiutata, veniva sostituita da una condizione
+    /// dell'infrastruttura diagnostica, e chi leggeva l'errore vedeva un
+    /// problema interno al posto del proprio.
+    ///
+    /// Il report resta assente, perche' `plenora-io-row-diagnostics-v1`
+    /// pretende `input_total` positivo e inventarlo sarebbe peggio che
+    /// ometterlo. Tutto il resto sopravvive: categoria, fase, causa, e la
+    /// ragione di capability.
     #[test]
-    fn row_scoped_write_rejection_without_input_total_is_a_contract_error() {
+    fn row_scoped_write_rejection_without_input_total_keeps_the_primary_cause() {
         let error = write_row_rejection("test", 0, 1, &[(0, "test.rejected", "value")], None);
 
-        assert_eq!(error.code, plenora_io_model::IoErrorCode::Contract);
-        assert_eq!(error.category, ErrorCategory::InvalidPlan);
-        assert_eq!(error.phase, ErrorPhase::Validate);
+        assert_eq!(error.category, ErrorCategory::DataMapping);
+        assert_eq!(error.phase, ErrorPhase::Write);
+        assert_eq!(error.driver.as_deref(), Some("test"));
+        assert!(
+            error.message.contains("test.rejected"),
+            "senza report la causa deve stare nel messaggio: {error}"
+        );
+        assert!(
+            !error.message.contains("input_total"),
+            "l'assenza del totale non e' la causa del rifiuto: {error}"
+        );
+        // Il totale non viene inventato.
         assert!(error.row_diagnostics.is_none());
+
+        // Controprova: con il totale il report c'e', e porta la stessa causa.
+        let con_totale =
+            write_row_rejection("test", 0, 1, &[(0, "test.rejected", "value")], Some(1));
+        let report = con_totale.row_diagnostics.as_deref().unwrap();
+        assert_eq!(report.input_total, Some(1));
+        assert_eq!(report.counts["test.rejected"], 1);
+        assert_eq!(con_totale.category, ErrorCategory::DataMapping);
     }
 
     #[test]

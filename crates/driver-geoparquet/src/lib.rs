@@ -2127,6 +2127,157 @@ mod tests {
         }
     }
 
+    /// Una riga rifiutata resta una riga rifiutata anche senza `input_total`.
+    ///
+    /// Il report diagnostico pretende `input_total` positivo — è il contratto
+    /// `plenora-io-row-diagnostics-v1` — e chi scrive non è obbligato a
+    /// dichiararlo. Prima, in quel caso, l'errore diventava
+    /// `PlenoraIoError::Contract("input_total esatto richiesto …")`: la causa
+    /// primaria veniva sostituita da una condizione dell'infrastruttura
+    /// diagnostica, e chi leggeva vedeva un problema interno al posto del
+    /// proprio.
+    ///
+    /// Il test fissa le quattro cose che devono restare vere: categoria, fase,
+    /// causa, e il fatto che il totale **non** venga inventato.
+    #[test]
+    fn una_riga_rifiutata_senza_input_total_conserva_causa_e_categoria() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rifiutato.parquet");
+
+        // Contratto con geometria **non nullable**, batch con un nullo: e' la
+        // violazione piu' economica da produrre, e passa dallo stesso percorso
+        // di tutte le altre.
+        let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )
+        .with_metadata(geometry_field_meta("EPSG:4326"))]));
+        let colonna = BinaryArray::from(vec![None::<&[u8]>]);
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(colonna)]).unwrap();
+        let mut geometria = GeometryColumnContract::wkb_passthrough(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+            false,
+        );
+        geometria.set_exact_geometry_types(vec![GeometryType::Point]);
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometria),
+                },
+            }],
+        };
+
+        let mut writer = GeoParquetDriver
+            .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+            .expect("il piano e' valido: e' la riga a non esserlo");
+        // Nessun `declare_input_total`: e' il caso in esame.
+        let errore = writer
+            .write(&batch)
+            .expect_err("una geometria nulla su contratto non nullable e' rifiutata");
+
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping
+        );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Write);
+        assert!(
+            errore.message.contains("contract.nullability"),
+            "la causa primaria deve sopravvivere: {errore}"
+        );
+        assert!(
+            !errore.message.contains("input_total"),
+            "l'assenza del totale non e' la causa del rifiuto: {errore}"
+        );
+        // Il totale non viene inventato: senza `input_total` non c'e' report.
+        assert!(
+            errore.row_diagnostics.is_none(),
+            "un report con un totale che nessuno ha dichiarato sarebbe peggio \
+             di nessun report"
+        );
+
+        // Nessuna pubblicazione e nessun output parziale: lo staging non
+        // diventa mai il file di destinazione.
+        drop(writer);
+        assert!(
+            !path.exists(),
+            "una scrittura rifiutata non deve lasciare il file: {}",
+            path.display()
+        );
+        let residui: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|voce| voce.unwrap().file_name())
+            .collect();
+        assert!(
+            residui.is_empty(),
+            "la directory deve restare vuota, trovato: {residui:?}"
+        );
+    }
+
+    /// Con `input_total` dichiarato il report c'e', e porta la stessa causa.
+    ///
+    /// E' la controprova del test sopra: senza di essa «nessun report» potrebbe
+    /// voler dire «il report non funziona piu'» invece di «qui non e'
+    /// emettibile».
+    #[test]
+    fn una_riga_rifiutata_con_input_total_porta_il_report() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rifiutato-con-totale.parquet");
+
+        let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )
+        .with_metadata(geometry_field_meta("EPSG:4326"))]));
+        let colonna = BinaryArray::from(vec![None::<&[u8]>]);
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(colonna)]).unwrap();
+        let mut geometria = GeometryColumnContract::wkb_passthrough(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None),
+            false,
+        );
+        geometria.set_exact_geometry_types(vec![GeometryType::Point]);
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometria),
+                },
+            }],
+        };
+
+        let mut writer = GeoParquetDriver
+            .create(Sink::Path(path.clone()), &plan, &opzioni_scrittura())
+            .unwrap();
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+        let errore = writer.write(&batch).expect_err("la riga e' rifiutata");
+
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping
+        );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Write);
+        let report = errore
+            .row_diagnostics
+            .as_ref()
+            .expect("con il totale dichiarato il report e' emettibile");
+        assert_eq!(report.input_total, Some(1));
+        assert!(
+            report.counts.contains_key("contract.nullability"),
+            "{report:?}"
+        );
+
+        drop(writer);
+        assert!(!path.exists(), "nemmeno qui si pubblica niente");
+    }
+
     /// Il tetto per pagina si deriva dalla **memoria dichiarata**, e da nulla
     /// altro (FZ-0.2.1).
     ///
