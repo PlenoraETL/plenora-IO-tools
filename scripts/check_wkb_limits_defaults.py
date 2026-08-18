@@ -7,10 +7,24 @@ fino ad allora quelle passate usavano il default del contratto, e
 rifiuto piu' tardi, o non lo otteneva affatto.
 
 Restano occorrenze legittime, e vanno tenute distinte da quelle che sarebbero
-un ritorno del difetto. Questo gate le classifica e fissa il conteggio per
-categoria: **non** vieta il simbolo — sarebbe sbagliato, alcune di quelle
-occorrenze sono corrette — ma impedisce che ne compaia una nuova senza che
-qualcuno la classifichi.
+un ritorno del difetto. Questo gate le classifica e fissa il conteggio: **non**
+vieta il simbolo — sarebbe sbagliato, alcune di quelle occorrenze sono corrette
+— ma impedisce che ne compaia una nuova senza che qualcuno la classifichi.
+
+## Il censimento e' strutturale, non per riga
+
+Fino a S6 la chiave era `percorso:riga`. Era fragile per costruzione: qualunque
+modifica sopra un'occorrenza — una dichiarazione aggiunta, una riformattazione,
+un commento — la spostava, e il gate diventava rosso a codice **invariato**. E'
+successo con le dichiarazioni di schema di S6, e sarebbe successo ancora. Un
+gate che si accende sui movimenti insegna a riallinearlo senza guardare, che e'
+il modo in cui un gate smette di essere letto.
+
+La chiave e' ora `percorso::funzione` con il **numero di occorrenze attese
+dentro quella funzione**. Sposta pure il codice, riformattalo, aggiungi righe
+sopra: la chiave non cambia. Aggiungi una `WkbLimits::default()` in una
+funzione nuova, o una seconda in una gia' censita, e il gate diventa rosso —
+che e' l'unico caso in cui deve.
 
 ## Le categorie
 
@@ -39,25 +53,30 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 OCCORRENZA = re.compile(r"WkbLimits::default\(\)")
+DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 
 # Conteggio atteso per categoria. `produzione` puo' solo scendere: e' il
 # residuo del difetto che S5 ha corretto.
 ATTESI = {"test": 47, "attrezzaggio": 4, "produzione": 2}
 
 # Occorrenze di produzione **legittime**: il default e' la scelta giusta, non
-# un residuo. Chiave: `percorso:riga`.
-LEGITTIME: dict[str, str] = {
-    "crates/driver-gpkg/src/lib.rs:1681": (
-        "`__fuzz_gpkg_geometry`, entry point `#[doc(hidden)]` per libFuzzer. "
-        "L'input del fuzzer e' gia' bounded a 1 MiB dall'harness, quindi il "
-        "tetto di 64 MiB non governa nulla; e non ci sono opzioni da cui "
-        "prendere una quota, perche' il target non apre un dataset. "
-        "**Da mettere dietro la feature `fuzzing` in S12**: `doc(hidden)` lo "
-        "toglie dalla documentazione, non dalla superficie pubblica"
+# un residuo. Chiave: `percorso::funzione`; valore: `(quante, perche')`.
+#
+# La funzione e' il contesto strutturale, non il numero di riga: spostare il
+# codice non tocca la chiave, aggiungere un'occorrenza si'.
+LEGITTIME: dict[str, tuple[int, str]] = {
+    "crates/driver-gpkg/src/lib.rs::__fuzz_gpkg_geometry": (
+        1,
+        "entry point `#[doc(hidden)]` per libFuzzer. L'input del fuzzer e' "
+        "gia' bounded a 1 MiB dall'harness, quindi il tetto di 64 MiB non "
+        "governa nulla; e non ci sono opzioni da cui prendere una quota, "
+        "perche' il target non apre un dataset. **Da mettere dietro la "
+        "feature `fuzzing` in S12**: `doc(hidden)` lo toglie dalla "
+        "documentazione, non dalla superficie pubblica",
     ),
-    "crates/driver-shp/src/lib.rs:2513": (
-        "`__fuzz_wkb_roundtrip`, stessa natura del precedente, stessa azione "
-        "in S12"
+    "crates/driver-shp/src/lib.rs::__fuzz_wkb_roundtrip": (
+        1,
+        "stessa natura del precedente, stessa azione in S12",
     ),
 }
 
@@ -74,14 +93,16 @@ LEGITTIME: dict[str, str] = {
 
 ATTREZZAGGIO = ("plenora-bench", "plenora-fuzz", "fuzz")
 
+FUORI_DA_UNA_FUNZIONE = "<modulo>"
 
-def sorgenti(root: Path) -> list[Path]:
+
+def sorgenti(radice: Path) -> list[Path]:
     trovati: list[Path] = []
-    for radice in (root / "crates", root / "fuzz"):
-        if not radice.is_dir():
+    for sotto in (radice / "crates", radice / "fuzz"):
+        if not sotto.is_dir():
             continue
-        for sorgente in sorted(radice.rglob("*.rs")):
-            if "target" in sorgente.relative_to(radice).parts:
+        for sorgente in sorted(sotto.rglob("*.rs")):
+            if "target" in sorgente.relative_to(sotto).parts:
                 continue
             trovati.append(sorgente)
     return trovati
@@ -148,6 +169,71 @@ def spoglia(sorgente: str) -> str:
     return "".join(fuori)
 
 
+def _corpo(testo: str, dopo_il_nome: int) -> tuple[int, int] | None:
+    """Estremi del corpo della funzione che comincia a `dopo_il_nome`.
+
+    Salta generics e argomenti bilanciando le tonde, poi prende la prima
+    graffa. Un `;` a tonde chiuse significa dichiarazione senza corpo — un
+    metodo di trait — e non apre nessun intervallo.
+    """
+    n = len(testo)
+    i = dopo_il_nome
+    tonde = 0
+    while i < n:
+        c = testo[i]
+        if c == "(":
+            tonde += 1
+        elif c == ")":
+            tonde -= 1
+        elif tonde == 0 and c == ";":
+            return None
+        elif tonde == 0 and c == "{":
+            break
+        i += 1
+    if i >= n:
+        return None
+    profondita = 0
+    j = i
+    while j < n:
+        if testo[j] == "{":
+            profondita += 1
+        elif testo[j] == "}":
+            profondita -= 1
+            if profondita == 0:
+                return (i, j)
+        j += 1
+    return None
+
+
+def intervalli_di_funzione(testo: str) -> list[tuple[int, int, str]]:
+    """`(inizio, fine, nome)` per ogni funzione con un corpo."""
+    intervalli: list[tuple[int, int, str]] = []
+    for m in DICHIARAZIONE_FN.finditer(testo):
+        estremi = _corpo(testo, m.end())
+        if estremi is not None:
+            intervalli.append((estremi[0], estremi[1], m.group(1)))
+    return intervalli
+
+
+def funzione_che_racchiude(
+    intervalli: list[tuple[int, int, str]], posizione: int
+) -> str:
+    """Il nome della funzione piu' interna che contiene `posizione`.
+
+    La piu' interna e' quella che comincia piu' tardi fra quelle che la
+    contengono: le funzioni annidate sono rare in Rust, ma esistono, e
+    attribuire l'occorrenza a quella esterna renderebbe la chiave meno stabile
+    proprio dove serve.
+    """
+    candidato = FUORI_DA_UNA_FUNZIONE
+    inizio_migliore = -1
+    for inizio, fine, nome in intervalli:
+        if inizio <= posizione <= fine and inizio > inizio_migliore:
+            candidato = nome
+            inizio_migliore = inizio
+    return candidato
+
+
 def righe_di_test(testo: str) -> set[int]:
     """Numeri di riga (1-based) dentro un modulo `#[cfg(test)]`."""
     dentro: set[int] = set()
@@ -179,17 +265,20 @@ def righe_di_test(testo: str) -> set[int]:
     return dentro
 
 
-def main() -> int:
+def verifica(radice: Path) -> tuple[list[str], dict[str, int]]:
+    """Ritorna `(violazioni, conteggi per categoria)`."""
     conteggi = {nome: 0 for nome in ATTESI}
-    produzione: list[tuple[str, int]] = []
+    produzione: dict[str, int] = {}
 
-    for sorgente in sorgenti(ROOT):
+    for sorgente in sorgenti(radice):
         testo = spoglia(sorgente.read_text(encoding="utf-8"))
         if not OCCORRENZA.search(testo):
             continue
-        percorso = sorgente.relative_to(ROOT).as_posix()
-        crate = sorgente.relative_to(ROOT).parts[1 if percorso.startswith("crates/") else 0]
+        percorso = sorgente.relative_to(radice).as_posix()
+        parti = sorgente.relative_to(radice).parts
+        crate = parti[1] if percorso.startswith("crates/") else parti[0]
         in_test = righe_di_test(testo)
+        intervalli = intervalli_di_funzione(testo)
         for trovata in OCCORRENZA.finditer(testo):
             riga = testo.count("\n", 0, trovata.start()) + 1
             if crate in ATTREZZAGGIO:
@@ -198,7 +287,11 @@ def main() -> int:
                 conteggi["test"] += 1
             else:
                 conteggi["produzione"] += 1
-                produzione.append((percorso, riga))
+                chiave = (
+                    f"{percorso}::"
+                    f"{funzione_che_racchiude(intervalli, trovata.start())}"
+                )
+                produzione[chiave] = produzione.get(chiave, 0) + 1
 
     errori: list[str] = []
     for nome, atteso in sorted(ATTESI.items()):
@@ -209,9 +302,10 @@ def main() -> int:
                 "cosi' una nuova occorrenza non passa senza essere classificata."
             )
 
-    for percorso, riga in produzione:
-        chiave = f"{percorso}:{riga}"
-        if chiave not in LEGITTIME:
+    for chiave in sorted(produzione):
+        trovate = produzione[chiave]
+        censite = LEGITTIME.get(chiave)
+        if censite is None:
             errori.append(
                 f"{chiave}: `WkbLimits::default()` su un percorso di produzione "
                 "non censito. S5 ha portato le quote configurate fino "
@@ -220,7 +314,29 @@ def main() -> int:
                 "quota dal `PipelineContext`, o l'occorrenza entra in LEGITTIME "
                 "con la ragione per cui il default e' la scelta giusta."
             )
+        elif trovate != censite[0]:
+            errori.append(
+                f"{chiave}: {trovate} occorrenze, {censite[0]} censite. Un "
+                "default in piu' dentro una funzione gia' censita non e' "
+                "coperto dalla ragione scritta per quello che c'era: o e' la "
+                "stessa ragione, e il conteggio sale nello stesso commit, "
+                "oppure e' un residuo."
+            )
 
+    for chiave in sorted(LEGITTIME):
+        if chiave not in produzione:
+            errori.append(
+                f"{chiave}: censita in LEGITTIME ma non piu' presente nel "
+                "codice. Una voce che sopravvive alla propria occorrenza "
+                "tiene in vita una ragione che nessuno rilegge: va tolta nello "
+                "stesso commit che toglie il codice."
+            )
+
+    return errori, conteggi
+
+
+def main() -> int:
+    errori, conteggi = verifica(ROOT)
     if errori:
         for messaggio in errori:
             print(messaggio, file=sys.stderr)
@@ -228,7 +344,8 @@ def main() -> int:
 
     print(
         "WkbLimits::default() censiti: "
-        f"{len(LEGITTIME)} legittimi in produzione, zero residui, "
+        f"{len(LEGITTIME)} legittimi in produzione (per funzione, non per riga), "
+        "zero residui, "
         f"{conteggi['test']} nei test, "
         f"{conteggi['attrezzaggio']} nell'attrezzaggio"
     )

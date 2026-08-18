@@ -111,8 +111,13 @@ jobs:
       # S5 ha portato le quote configurate fino all'inferenza dei driver
       # tabellari. Il censimento tiene distinti i default legittimi dai
       # residui, e impedisce che ne compaia uno nuovo senza classificarlo.
+      # La chiave e' `percorso::funzione`, non `percorso:riga`: le sonde
+      # provano entrambi gli obblighi opposti — tollerare gli spostamenti,
+      # accendersi su una nuova occorrenza.
       - name: Census WkbLimits::default() on production paths
-        run: python3 scripts/check_wkb_limits_defaults.py
+        run: |
+          python3 -m unittest scripts.test_check_wkb_limits_defaults
+          python3 scripts/check_wkb_limits_defaults.py
       # INV-13 dichiara il permit non separabile dal bundle. Fra crate
       # distinti Rust non lo impone: il confine e' convenzionale e va
       # verificato, non solo dichiarato.
