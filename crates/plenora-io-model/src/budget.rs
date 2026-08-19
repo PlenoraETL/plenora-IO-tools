@@ -98,7 +98,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::cancellation::CancellationToken;
-use crate::error::{ErrorPhase, PlenoraIoError, Result};
+use crate::error::{ErrorPhase, PlenoraIoError, PublicMessage, Result};
 
 /// Identita' di pipeline, usata per legare un [`InputPermit`] al
 /// [`PipelineContext`] che lo ha emesso. Un contatore monotono e non un
@@ -165,8 +165,14 @@ const PIPELINE_IDS_EXHAUSTED: &str = "spazio delle identita' di pipeline esaurit
 const SHRINK_ABOVE_RESERVATION: &str = "la riduzione supera la quota gia' prenotata";
 const SHRINK_TO_ZERO: &str = "un batch custodito non puo' occupare zero byte";
 
+/// Una quota superata.
+///
+/// Il parametro era gia' `&'static str` prima di S9 — nessuno di questi
+/// messaggi e' mai stato costruito a runtime — quindi la migrazione qui e' un
+/// cambio di costruttore e nient'altro: stesso testo, stesso wire, ma ora il
+/// tipo dice che non puo' essere altrimenti.
 fn limit_error(message: &'static str) -> PlenoraIoError {
-    PlenoraIoError::LimitExceeded(message.to_owned())
+    PlenoraIoError::limite_redatto(&PublicMessage::Curated(message))
 }
 
 // FNV-1a a 64 bit, due volte con basi distinte: il digest e' a 128 bit e non

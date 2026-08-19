@@ -114,6 +114,14 @@ jobs:
       # La chiave e' `percorso::funzione`, non `percorso:riga`: le sonde
       # provano entrambi gli obblighi opposti — tollerare gli spostamenti,
       # accendersi su una nuova occorrenza.
+      # S9: la migrazione ai costruttori redatti e' staged, e questo gate la
+      # governa. Non conta quanti usi legacy restano nel workspace, conta
+      # **dove**: un crate dichiarato migrato non puo' tornare indietro, e un
+      # totale fermo non dimostra che niente si e' mosso.
+      - name: Census legacy error constructors, per crate
+        run: |
+          python3 -m unittest scripts.test_check_errori_redatti
+          python3 scripts/check_errori_redatti.py
       - name: Census WkbLimits::default() on production paths
         run: |
           python3 -m unittest scripts.test_check_wkb_limits_defaults

@@ -4,11 +4,15 @@ use geo_types::{
 };
 
 use crate::contract::{CoordinateDimensions, GeometryType};
-use crate::error::{PlenoraIoError, Result};
+use crate::error::{PlenoraIoError, PublicMessage, Result};
 use crate::limits::WkbLimits;
 
-fn error(message: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Wkb(message.into())
+/// Un errore WKB redatto.
+///
+/// Prende un [`PublicMessage`] e non piu' `impl Into<String>`: e' il punto in
+/// cui questo modulo smette di poter costruire testo a runtime.
+fn error(message: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::wkb_redatto(message)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,7 +138,11 @@ impl WkbGeometry {
                     .map(Self::from_geo_xy)
                     .collect::<Result<_>>()?,
             ),
-            _ => return Err(error("geometria non rappresentabile in WKB standard")),
+            _ => {
+                return Err(error(&PublicMessage::Curated(
+                    "geometria non rappresentabile in WKB standard",
+                )))
+            }
         };
         Ok(Self {
             value,
@@ -179,7 +187,9 @@ impl WkbGeometry {
         fn point(value: &WkbGeometry) -> Result<Point<f64>> {
             match &value.value {
                 WkbValue::Point(c) => Ok(Point(coord(*c))),
-                _ => Err(error("MultiPoint con membro non-Point")),
+                _ => Err(error(&PublicMessage::Curated(
+                    "MultiPoint con membro non-Point",
+                ))),
             }
         }
         fn line(value: &WkbGeometry) -> Result<LineString<f64>> {
@@ -187,7 +197,9 @@ impl WkbGeometry {
                 WkbValue::LineString(coords) => {
                     Ok(LineString(coords.iter().copied().map(coord).collect()))
                 }
-                _ => Err(error("MultiLineString con membro non-LineString")),
+                _ => Err(error(&PublicMessage::Curated(
+                    "MultiLineString con membro non-LineString",
+                ))),
             }
         }
         fn polygon(value: &WkbGeometry) -> Result<Polygon<f64>> {
@@ -204,7 +216,9 @@ impl WkbGeometry {
                         Ok(Polygon::new(exterior, rings))
                     }
                 }
-                _ => Err(error("MultiPolygon con membro non-Polygon")),
+                _ => Err(error(&PublicMessage::Curated(
+                    "MultiPolygon con membro non-Polygon",
+                ))),
             }
         }
 
@@ -234,9 +248,9 @@ impl WkbGeometry {
             | WkbValue::PolyhedralSurface(_)
             | WkbValue::Tin(_)
             | WkbValue::Triangle(_) => {
-                return Err(error(
+                return Err(error(&PublicMessage::Curated(
                     "tipo WKB esteso non rappresentabile dall'adattatore geo-types XY",
-                ))
+                )))
             }
         })
     }
@@ -258,11 +272,11 @@ impl<'a> Reader<'a> {
         let end = self
             .pos
             .checked_add(count)
-            .ok_or_else(|| error("overflow nella posizione WKB"))?;
+            .ok_or_else(|| error(&PublicMessage::Curated("overflow nella posizione WKB")))?;
         let bytes = self
             .bytes
             .get(self.pos..end)
-            .ok_or_else(|| error("WKB troncato"))?;
+            .ok_or_else(|| error(&PublicMessage::Curated("WKB troncato")))?;
         self.pos = end;
         Ok(bytes)
     }
@@ -272,19 +286,21 @@ impl<'a> Reader<'a> {
             .take(1)?
             .first()
             .copied()
-            .ok_or_else(|| error("WKB senza byte-order"))?
+            .ok_or_else(|| error(&PublicMessage::Curated("WKB senza byte-order")))?
         {
             0 => Ok(false),
             1 => Ok(true),
-            other => Err(error(format!("byte-order WKB non valido: {other}"))),
+            // Il byte letto non esce: viene dal payload (ratifica S9).
+            _other => Err(error(&PublicMessage::Curated("byte-order WKB non valido"))),
         }
     }
 
     fn u32(&mut self, little_endian: bool) -> Result<u32> {
-        let bytes: [u8; 4] = self
-            .take(4)?
-            .try_into()
-            .map_err(|_| error("WKB troncato durante la lettura di u32"))?;
+        let bytes: [u8; 4] = self.take(4)?.try_into().map_err(|_| {
+            error(&PublicMessage::Curated(
+                "WKB troncato durante la lettura di u32",
+            ))
+        })?;
         Ok(if little_endian {
             u32::from_le_bytes(bytes)
         } else {
@@ -293,10 +309,11 @@ impl<'a> Reader<'a> {
     }
 
     fn f64(&mut self, little_endian: bool) -> Result<f64> {
-        let bytes: [u8; 8] = self
-            .take(8)?
-            .try_into()
-            .map_err(|_| error("WKB troncato durante la lettura di f64"))?;
+        let bytes: [u8; 8] = self.take(8)?.try_into().map_err(|_| {
+            error(&PublicMessage::Curated(
+                "WKB troncato durante la lettura di f64",
+            ))
+        })?;
         Ok(if little_endian {
             f64::from_le_bytes(bytes)
         } else {
@@ -308,13 +325,17 @@ impl<'a> Reader<'a> {
         let count = count as usize;
         match count.checked_mul(unit) {
             Some(required) if required <= self.remaining() => Ok(count),
-            _ => Err(error("conteggio WKB oltre i byte disponibili")),
+            _ => Err(error(&PublicMessage::Curated(
+                "conteggio WKB oltre i byte disponibili",
+            ))),
         }
     }
 
     fn charge_coordinate(&mut self) -> Result<()> {
         if self.components_left == 0 {
-            return Err(error("troppi componenti nella geometria"));
+            return Err(error(&PublicMessage::Curated(
+                "troppi componenti nella geometria",
+            )));
         }
         self.components_left -= 1;
         Ok(())
@@ -322,7 +343,9 @@ impl<'a> Reader<'a> {
 
     fn charge_coordinates(&mut self, count: usize) -> Result<()> {
         if count > self.components_left {
-            return Err(error("troppi componenti nella geometria"));
+            return Err(error(&PublicMessage::Curated(
+                "troppi componenti nella geometria",
+            )));
         }
         self.components_left -= count;
         Ok(())
@@ -335,7 +358,9 @@ fn dimension_flags(dimensions: CoordinateDimensions) -> Result<(bool, bool)> {
         CoordinateDimensions::Xyz => Ok((true, false)),
         CoordinateDimensions::Xym => Ok((false, true)),
         CoordinateDimensions::Xyzm => Ok((true, true)),
-        CoordinateDimensions::Unknown => Err(error("dimensionalità WKB ignota non serializzabile")),
+        CoordinateDimensions::Unknown => Err(error(&PublicMessage::Curated(
+            "dimensionalità WKB ignota non serializzabile",
+        ))),
     }
 }
 
@@ -356,9 +381,10 @@ fn decode_type(raw: u32) -> Result<(u32, CoordinateDimensions, bool)> {
         1 => CoordinateDimensions::Xyz,
         2 => CoordinateDimensions::Xym,
         3 => CoordinateDimensions::Xyzm,
-        dimension => {
-            return Err(error(format!(
-                "codice dimensionale WKB non valido: {dimension}"
+        // Il codice letto non esce: viene dal payload.
+        _dimension => {
+            return Err(error(&PublicMessage::Curated(
+                "codice dimensionale WKB non valido",
             )))
         }
     };
@@ -382,7 +408,7 @@ fn geometry_type_from_base(base: u32) -> Result<GeometryType> {
         15 => Ok(GeometryType::PolyhedralSurface),
         16 => Ok(GeometryType::Tin),
         17 => Ok(GeometryType::Triangle),
-        _ => Err(error(format!("tipo WKB non supportato: {base}"))),
+        _ => Err(error(&PublicMessage::Curated("tipo WKB non supportato"))),
     }
 }
 
@@ -455,11 +481,14 @@ fn read_coordinates(
 
 fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
     if depth > reader.max_depth {
-        return Err(error("WKB annidato troppo in profondità"));
+        return Err(error(&PublicMessage::Curated(
+            "WKB annidato troppo in profondità",
+        )));
     }
     let little_endian = reader.byte_order()?;
     let (base, dimensions, has_srid) = decode_type(reader.u32(little_endian)?)?;
-    let geometry_type = geometry_type_from_base(base)?;
+    // Il tipo serve alla validazione, non al messaggio.
+    let _geometry_type = geometry_type_from_base(base)?;
     // Il SRID EWKB e' un intero con segno a 32 bit sul filo: la
     // reinterpretazione dei quattro byte deve restare bit-esatta, non un
     // cast controllato che rifiuterebbe i valori con bit alto acceso.
@@ -503,13 +532,12 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
             for _ in 0..count {
                 values.push(read_geometry(reader, depth + 1)?);
             }
-            if let Some(child) = values
+            if let Some(_child) = values
                 .iter()
                 .find(|child| !child_type_allowed(base, child.geometry_type()))
             {
-                return Err(error(format!(
-                    "{geometry_type:?} con membro {:?}",
-                    child.geometry_type()
+                return Err(error(&PublicMessage::Curated(
+                    "aggregato WKB con membro di tipo non ammesso",
                 )));
             }
             match base {
@@ -523,18 +551,14 @@ fn read_geometry(reader: &mut Reader, depth: usize) -> Result<WkbGeometry> {
                 12 => WkbValue::MultiSurface(values),
                 15 => WkbValue::PolyhedralSurface(values),
                 16 => WkbValue::Tin(values),
-                aggregate_type => {
-                    return Err(error(format!(
-                        "tipo WKB aggregato non supportato: {aggregate_type}"
+                _aggregate_type => {
+                    return Err(error(&PublicMessage::Curated(
+                        "tipo WKB aggregato non supportato",
                     )))
                 }
             }
         }
-        unsupported_type => {
-            return Err(error(format!(
-                "tipo WKB non supportato: {unsupported_type}"
-            )))
-        }
+        _unsupported_type => return Err(error(&PublicMessage::Curated("tipo WKB non supportato"))),
     };
 
     Ok(WkbGeometry {
@@ -553,9 +577,11 @@ fn skip_coordinates(
     let coordinate_bytes = coordinate_size(dimensions)?;
     let count = reader.ensure_count(count, coordinate_bytes)?;
     reader.charge_coordinates(count)?;
-    let bytes = count
-        .checked_mul(coordinate_bytes)
-        .ok_or_else(|| error("overflow nella dimensione delle coordinate WKB"))?;
+    let bytes = count.checked_mul(coordinate_bytes).ok_or_else(|| {
+        error(&PublicMessage::Curated(
+            "overflow nella dimensione delle coordinate WKB",
+        ))
+    })?;
     let _ = reader.take(bytes)?;
     Ok(())
 }
@@ -563,7 +589,9 @@ fn skip_coordinates(
 fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> {
     let components_before = reader.components_left;
     if depth > reader.max_depth {
-        return Err(error("WKB annidato troppo in profondità"));
+        return Err(error(&PublicMessage::Curated(
+            "WKB annidato troppo in profondità",
+        )));
     }
     let little_endian = reader.byte_order()?;
     let (base, dimensions, has_srid) = decode_type(reader.u32(little_endian)?)?;
@@ -603,9 +631,8 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
             for _ in 0..count {
                 let child = inspect_geometry(reader, depth + 1)?;
                 if !child_type_allowed(base, child.geometry_type) {
-                    return Err(error(format!(
-                        "{geometry_type:?} con membro {:?}",
-                        child.geometry_type
+                    return Err(error(&PublicMessage::Curated(
+                        "aggregato WKB con membro di tipo non ammesso",
                     )));
                 }
                 nested_dimensions_coherent &=
@@ -613,7 +640,11 @@ fn inspect_geometry(reader: &mut Reader, depth: usize) -> Result<WkbInspection> 
                 contains_srid |= child.contains_srid;
             }
         }
-        _ => return Err(error("tipo WKB non supportato durante l'ispezione")),
+        _ => {
+            return Err(error(&PublicMessage::Curated(
+                "tipo WKB non supportato durante l'ispezione",
+            )))
+        }
     }
 
     Ok(WkbInspection {
@@ -637,7 +668,9 @@ pub fn inspect_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbInspection> {
     #[cfg(feature = "metrics")]
     crate::metrics::inc_decode();
     if bytes.len() > limits.max_cell_bytes {
-        return Err(error("cella WKB oltre il limite di byte"));
+        return Err(error(&PublicMessage::Curated(
+            "cella WKB oltre il limite di byte",
+        )));
     }
     let mut reader = Reader {
         bytes,
@@ -647,7 +680,9 @@ pub fn inspect_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbInspection> {
     };
     let inspection = inspect_geometry(&mut reader, 0)?;
     if reader.pos != bytes.len() {
-        return Err(error("byte residui dopo la geometria WKB"));
+        return Err(error(&PublicMessage::Curated(
+            "byte residui dopo la geometria WKB",
+        )));
     }
     Ok(inspection)
 }
@@ -662,7 +697,9 @@ pub fn decode_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbGeometry> {
     #[cfg(feature = "metrics")]
     crate::metrics::inc_decode();
     if bytes.len() > limits.max_cell_bytes {
-        return Err(error("cella WKB oltre il limite di byte"));
+        return Err(error(&PublicMessage::Curated(
+            "cella WKB oltre il limite di byte",
+        )));
     }
     let mut reader = Reader {
         bytes,
@@ -672,15 +709,19 @@ pub fn decode_wkb(bytes: &[u8], limits: &WkbLimits) -> Result<WkbGeometry> {
     };
     let geometry = read_geometry(&mut reader, 0)?;
     if reader.pos != bytes.len() {
-        return Err(error("byte residui dopo la geometria WKB"));
+        return Err(error(&PublicMessage::Curated(
+            "byte residui dopo la geometria WKB",
+        )));
     }
     Ok(geometry)
 }
 
 fn count_u32(count: usize) -> Result<u32> {
-    count
-        .try_into()
-        .map_err(|_| error("troppi componenti per il formato WKB"))
+    count.try_into().map_err(|_| {
+        error(&PublicMessage::Curated(
+            "troppi componenti per il formato WKB",
+        ))
+    })
 }
 
 fn validate_coordinate(coordinate: &WkbCoordinate, dimensions: CoordinateDimensions) -> Result<()> {
@@ -694,9 +735,9 @@ fn validate_coordinate(coordinate: &WkbCoordinate, dimensions: CoordinateDimensi
     if valid {
         Ok(())
     } else {
-        Err(error(
+        Err(error(&PublicMessage::Curated(
             "ordinate non coerenti con la dimensionalità dichiarata",
-        ))
+        )))
     }
 }
 
@@ -732,9 +773,9 @@ impl BoundedSink<'_> {
 
     fn extend_from_slice(&mut self, bytes: &[u8]) -> Result<()> {
         if self.oltre_il_tetto(bytes.len()) {
-            return Err(error(format!(
-                "WKB codificato oltre il limite di {} byte per cella",
-                self.max_bytes
+            return Err(error(&PublicMessage::CuratedWith(
+                "WKB codificato oltre il limite per cella, in byte:",
+                crate::error::NumeroStrutturale::Limite(self.max_bytes as u64),
             )));
         }
         self.output.extend_from_slice(bytes);
@@ -804,7 +845,9 @@ fn write_geometry(
     let type_code = match flavor {
         WkbFlavor::Iso => {
             if geometry.srid.is_some() {
-                return Err(error("WKB ISO non può rappresentare un SRID"));
+                return Err(error(&PublicMessage::Curated(
+                    "WKB ISO non può rappresentare un SRID",
+                )));
             }
             base(&geometry.value)
                 + match (z, m) {
@@ -855,14 +898,12 @@ fn write_geometry(
         | WkbValue::PolyhedralSurface(values)
         | WkbValue::Tin(values) => {
             let parent = base(&geometry.value);
-            if let Some(child) = values
+            if let Some(_child) = values
                 .iter()
                 .find(|child| !child_type_allowed(parent, child.geometry_type()))
             {
-                return Err(error(format!(
-                    "{:?} con membro {:?}",
-                    geometry.geometry_type(),
-                    child.geometry_type()
+                return Err(error(&PublicMessage::Curated(
+                    "aggregato WKB con membro di tipo non ammesso",
                 )));
             }
             output.extend_from_slice(&count_u32(values.len())?.to_le_bytes())?;

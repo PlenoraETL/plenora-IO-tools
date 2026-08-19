@@ -26,7 +26,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::{PlenoraIoError, Result};
+use crate::{PlenoraIoError, PublicMessage, Result};
 
 /// Il numero massimo di caratteri che un token di opzione rifiutata porta
 /// fuori.
@@ -240,6 +240,40 @@ pub enum ValoreAmmesso {
 }
 
 impl ValoreAmmesso {
+    /// I valori ammessi, quando la forma li enumera.
+    ///
+    /// Sono `&'static str` — vengono dallo schema del driver — quindi la
+    /// ratifica di S9 li ammette senza eccezioni. S6 pretende che l'errore li
+    /// elenchi, ed e' la proprieta' che i suoi test verificano.
+    #[must_use]
+    pub fn ammessi(self) -> Vec<&'static str> {
+        match self {
+            Self::Enumerato(valori) => valori.to_vec(),
+            Self::Booleano => {
+                let mut tutti = BOOLEANI_VERI.to_vec();
+                tutti.extend_from_slice(&BOOLEANI_FALSI);
+                tutti
+            }
+            Self::Testo | Self::Carattere | Self::Intero { .. } => Vec::new(),
+        }
+    }
+
+    /// Il nome della forma, come `&'static str`.
+    ///
+    /// `verifica` compone una descrizione con gli estremi, che per l'intero e'
+    /// costruita a runtime; qui serve solo il **nome della forma**, che e'
+    /// sempre nostro e sempre statico.
+    #[must_use]
+    pub const fn forma(self) -> &'static str {
+        match self {
+            Self::Testo => "testo non vuoto",
+            Self::Enumerato(_) => "uno dei valori enumerati dallo schema",
+            Self::Booleano => "un booleano",
+            Self::Carattere => "un solo carattere ASCII",
+            Self::Intero { .. } => "un intero nell'intervallo dichiarato",
+        }
+    }
+
     /// Verifica un valore; l'errore descrive cosa sarebbe stato ammesso.
     ///
     /// Pubblica perche' lo schema serve a chi costruisce la richiesta, non
@@ -313,11 +347,15 @@ pub fn booleano(driver: &'static str, chiave: &str, valore: &str) -> Result<bool
     if BOOLEANI_FALSI.contains(&valore) {
         return Ok(false);
     }
-    Err(scarto(format!(
-        "{driver}: '{chiave}' vuole un booleano; ammessi: {}, {}",
-        BOOLEANI_VERI.join(", "),
-        BOOLEANI_FALSI.join(", ")
-    )))
+    let mut ammesse: Vec<&'static str> = BOOLEANI_VERI.to_vec();
+    ammesse.extend_from_slice(&BOOLEANI_FALSI);
+    Err(scarto(&PublicMessage::OpzioneRifiutata {
+        driver,
+        testo: "l'opzione vuole un booleano",
+        token: RejectedOptionToken::conia(chiave),
+        dettaglio: "",
+        ammesse,
+    }))
 }
 
 /// Una singola opzione dichiarata da un driver.
@@ -391,8 +429,9 @@ impl SchemaOpzioniFormato {
 /// sull'input, che non e' ben formato per il driver scelto. La distinzione
 /// conta per chi automatizza: davanti a `Unsupported` si cambia driver,
 /// davanti a `InvalidConfiguration` si corregge la richiesta.
-fn scarto(messaggio: String) -> PlenoraIoError {
-    PlenoraIoError::new(
+fn scarto(messaggio: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::redatto(
+        crate::IoErrorCode::Unsupported,
         crate::ErrorCategory::InvalidConfiguration,
         crate::ErrorPhase::Validate,
         crate::RemoteEffect::None,
@@ -431,31 +470,35 @@ pub fn valida_opzioni(
         // runtime da un errore.
         let Some(dichiarata) = schema.opzione(chiave) else {
             let ammesse = schema.chiavi(fase);
-            return Err(scarto(format!(
-                "{driver}: opzione '{}' sconosciuta in {}; accettate: {}",
-                RejectedOptionToken::conia(chiave),
-                fase.nome(),
-                if ammesse.is_empty() {
-                    "nessuna".to_owned()
-                } else {
-                    ammesse.join(", ")
-                }
-            )));
+            return Err(scarto(&PublicMessage::OpzioneRifiutata {
+                driver,
+                testo: "opzione sconosciuta in",
+                token: RejectedOptionToken::conia(chiave),
+                dettaglio: fase.nome(),
+                ammesse,
+            }));
         };
         if !dichiarata.fase.copre(fase) {
-            return Err(scarto(format!(
-                "{driver}: opzione '{}' vale in {}, non in {}",
-                RejectedOptionToken::conia(chiave),
-                dichiarata.fase.nome(),
-                fase.nome()
-            )));
+            return Err(scarto(&PublicMessage::OpzioneRifiutata {
+                driver,
+                testo: "opzione non valida in questa fase; vale in",
+                token: RejectedOptionToken::conia(chiave),
+                dettaglio: dichiarata.fase.nome(),
+                ammesse: Vec::new(),
+            }));
         }
         if let Err(ammessi) = dichiarata.valore.verifica(valore) {
-            return Err(scarto(format!(
-                "{driver}: valore '{}' non valido per '{}'; ammessi: {ammessi}",
-                RejectedOptionToken::conia(valore),
-                RejectedOptionToken::conia(chiave),
-            )));
+            // `ammessi` e' la descrizione della forma, gia' `&'static str` per
+            // ogni variante di `ValoreAmmesso` salvo l'intero, che compone il
+            // proprio intervallo: il testo resta nostro in entrambi i casi.
+            let _ = ammessi;
+            return Err(scarto(&PublicMessage::OpzioneRifiutata {
+                driver,
+                testo: "valore non valido per l'opzione",
+                token: RejectedOptionToken::conia(valore),
+                dettaglio: dichiarata.valore.forma(),
+                ammesse: dichiarata.valore.ammessi(),
+            }));
         }
     }
     Ok(())

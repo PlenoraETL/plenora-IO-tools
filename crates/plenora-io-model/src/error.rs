@@ -486,7 +486,19 @@ pub enum PublicMessage {
     /// Il token e' bounded, scappato e troncato alla costruzione, e si conia
     /// solo dentro `format_options::valida_opzioni`. Vedi l'errata normativa
     /// del 2026-08-19.
-    OpzioneRifiutata(&'static str, crate::format_options::RejectedOptionToken),
+    ///
+    /// Gli altri campi **non** sono testo runtime: `driver`, `testo` e
+    /// `dettaglio` sono `&'static str`, e `ammesse` e' un elenco di
+    /// `&'static str` — le chiavi che lo schema dichiara. La lista e' costruita
+    /// a runtime, i suoi elementi no, ed e' la differenza che conta: nessuno di
+    /// quei caratteri viene dal file o da una dipendenza.
+    OpzioneRifiutata {
+        driver: &'static str,
+        testo: &'static str,
+        token: crate::format_options::RejectedOptionToken,
+        dettaglio: &'static str,
+        ammesse: Vec<&'static str>,
+    },
 }
 
 impl std::fmt::Display for PublicMessage {
@@ -498,7 +510,27 @@ impl std::fmt::Display for PublicMessage {
                 write!(f, "{testo} {primo} {mezzo} {secondo}")
             }
             Self::Capability(reason) => write!(f, "capability non disponibile: {reason:?}"),
-            Self::OpzioneRifiutata(testo, token) => write!(f, "{testo}: '{token}'"),
+            Self::OpzioneRifiutata {
+                driver,
+                testo,
+                token,
+                dettaglio,
+                ammesse,
+            } => {
+                write!(f, "{driver}: {testo} '{token}'")?;
+                if !dettaglio.is_empty() {
+                    write!(f, " {dettaglio}")?;
+                }
+                // «nessuna» invece del silenzio: un elenco vuoto e' esso
+                // stesso l'informazione — questo driver non accetta alcuna
+                // opzione in questa fase — e ometterlo lascerebbe credere che
+                // l'elenco sia stato dimenticato.
+                if ammesse.is_empty() {
+                    f.write_str("; accettate: nessuna")
+                } else {
+                    write!(f, "; accettate: {}", ammesse.join(", "))
+                }
+            }
         }
     }
 }
@@ -589,6 +621,89 @@ impl PlenoraIoError {
             message: limita_messaggio(message.into()),
             row_diagnostics: None,
         }
+    }
+
+    /// Costruttore **redatto**: non accetta testo libero, per costruzione.
+    ///
+    /// È la via nuova di S9. Coesiste con i costruttori storici finché la
+    /// migrazione non arriva a zero in ogni crate; il gate per-crate
+    /// (`scripts/check_errori_redatti.py`) impedisce che un crate già migrato
+    /// torni indietro.
+    ///
+    /// Il messaggio è renderizzato **una volta**, alla costruzione, e passa dal
+    /// tetto globale come qualunque altro: `plenora-io-error-v1` resta
+    /// invariato, perché sul wire finisce la stessa `String` di prima. Ciò che
+    /// cambia è chi ha deciso quel testo — un tipo, non un `format!`.
+    #[must_use]
+    pub fn redatto(
+        code: IoErrorCode,
+        category: ErrorCategory,
+        phase: ErrorPhase,
+        remote_effect: RemoteEffect,
+        retry: RetryDisposition,
+        message: &PublicMessage,
+    ) -> Self {
+        let mut errore = Self::new(category, phase, remote_effect, retry, message.to_string());
+        errore.code = code;
+        errore
+    }
+
+    /// Un errore WKB redatto.
+    #[must_use]
+    pub fn wkb_redatto(message: &PublicMessage) -> Self {
+        Self::redatto(
+            IoErrorCode::Wkb,
+            ErrorCategory::DataMapping,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        )
+    }
+
+    /// Una quota superata, redatta.
+    #[must_use]
+    pub fn limite_redatto(message: &PublicMessage) -> Self {
+        Self::redatto(
+            IoErrorCode::LimitExceeded,
+            ErrorCategory::ResourceLimit,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        )
+    }
+
+    /// Una violazione di contratto, redatta.
+    #[must_use]
+    pub fn contratto_redatto(message: &PublicMessage) -> Self {
+        Self::redatto(
+            IoErrorCode::Contract,
+            ErrorCategory::InvalidPlan,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        )
+    }
+
+    /// Attacca il contesto strutturato.
+    ///
+    /// `ErrorContext` è semantico e non sa niente del wire: da qui si
+    /// travasano nei campi che `plenora-io-error-v1` già conosce, e nient'altro
+    /// esce. Sarà il DTO di contracts-next a decidere il resto.
+    #[must_use]
+    pub fn con_contesto(mut self, context: &ErrorContext) -> Self {
+        if let Some(driver) = context.driver() {
+            self.driver = Some(driver.to_owned());
+        }
+        if let Some(identificatore) = context.identificatore() {
+            self.field = Some(identificatore.to_string());
+        }
+        if let Some(reason) = context.capability_reason() {
+            self.capability_reason = Some(reason);
+        }
+        self
     }
 
     #[must_use]

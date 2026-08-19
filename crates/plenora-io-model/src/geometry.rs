@@ -7,7 +7,7 @@ use crate::contract::{
 use crate::crs::{
     definition_format, AxisOrder, CrsDefinitionFormat, CrsResolution, RawCrs, ResolvedCrs,
 };
-use crate::{PlenoraIoError, Result};
+use crate::{PlenoraIoError, PublicMessage, Result};
 use std::sync::Arc;
 
 /// Nome dell'estensione `GeoArrow` per una colonna geometria WKB.
@@ -96,7 +96,7 @@ pub fn validate_geometry_field_identity(
 
     if canonical {
         if !schema_contract_version_present {
-            return Err(invalid_metadata(field, PLENORA_CONTRACT_VERSION_KEY));
+            return Err(invalid_metadata(field, &METADATO_VERSIONE_NON_VALIDO));
         }
         for key in [
             PLENORA_ENCODING_KEY,
@@ -105,11 +105,11 @@ pub fn validate_geometry_field_identity(
             PLENORA_TYPES_DECLARATION_KEY,
         ] {
             if !field.metadata().contains_key(key) {
-                return Err(invalid_metadata(field, key));
+                return Err(invalid_metadata(field, &METADATO_NAMESPACED_NON_VALIDO));
             }
         }
         if extension.is_some_and(|value| value != GEOARROW_WKB_EXTENSION) {
-            return Err(invalid_metadata(field, ARROW_EXTENSION_NAME_KEY));
+            return Err(invalid_metadata(field, &METADATO_ESTENSIONE_NON_VALIDO));
         }
     }
 
@@ -119,7 +119,7 @@ pub fn validate_geometry_field_identity(
             arrow_schema::DataType::Binary | arrow_schema::DataType::LargeBinary
         )
     {
-        return Err(invalid_metadata(field, PLENORA_ENCODING_KEY));
+        return Err(invalid_metadata(field, &METADATO_ENCODING_NON_VALIDO));
     }
     Ok(())
 }
@@ -150,9 +150,9 @@ pub fn validate_contract_version(schema: &arrow_schema::Schema) -> Result<()> {
     match schema.metadata().get(PLENORA_CONTRACT_VERSION_KEY) {
         None => Ok(()),
         Some(version) if version == PLENORA_CONTRACT_VERSION => Ok(()),
-        Some(_) => Err(PlenoraIoError::Contract(
-            "versione del protocollo metadati non supportata".to_owned(),
-        )),
+        Some(_) => Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+            "versione del protocollo metadati non supportata",
+        ))),
     }
 }
 
@@ -325,12 +325,52 @@ pub fn with_geometry_contract_metadata(
     field.clone().with_metadata(metadata)
 }
 
-fn invalid_metadata(field: &arrow_schema::Field, key: &str) -> PlenoraIoError {
-    PlenoraIoError::Contract(format!(
-        "campo geometria '{}': metadato {key} non valido",
-        field.name()
-    ))
+/// Un metadato di campo non valido.
+///
+/// Il **messaggio** arriva gia' fatto dal chiamante come costante: e' l'unico
+/// modo di nominare la chiave senza costruire testo a runtime, e le chiavi sono
+/// quattro, tutte costanti di questo modulo.
+///
+/// Il **nome del campo** non entra nel messaggio. Viene dallo schema, quindi
+/// sarebbe ammesso come `ContractIdentifier`, ma un identificatore vive nel
+/// contesto e non nel testo: sara' il DTO a decidere se emetterlo. Qui va nel
+/// campo `field`, dove stava anche prima.
+fn invalid_metadata(field: &arrow_schema::Field, message: &PublicMessage) -> PlenoraIoError {
+    let mut errore = PlenoraIoError::contratto_redatto(message);
+    errore.field = Some(field.name().clone());
+    errore
 }
+
+const METADATO_VERSIONE_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato di versione del contratto non valido");
+const METADATO_ESTENSIONE_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato di estensione Arrow non valido");
+const METADATO_ENCODING_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato di encoding geometrico non valido");
+const METADATO_FIELD_ID_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato di identificatore di campo non valido");
+const METADATO_DIMENSIONI_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato di dimensionalita' geometrica non valido");
+const METADATO_SEMANTICA_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato di semantica spaziale non valido");
+const METADATO_AXIS_ORDER_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato 'axis order' di campo geometria non valido");
+const METADATO_CRS_DEFINITION_FORMAT_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato 'crs definition format' di campo geometria non valido");
+const METADATO_CRS_RESOLUTION_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato 'crs resolution' di campo geometria non valido");
+const METADATO_GEOMETRY_TYPES_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato 'geometry types' di campo geometria non valido");
+const METADATO_NATIVE_PREFIX_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato 'native prefix' di campo geometria non valido");
+const METADATO_PRECISION_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato 'precision' di campo geometria non valido");
+const METADATO_SRID_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato 'srid' di campo geometria non valido");
+const METADATO_TYPES_DECLARATION_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato 'types declaration' di campo geometria non valido");
+const METADATO_NAMESPACED_NON_VALIDO: PublicMessage =
+    PublicMessage::Curated("metadato namespaced di campo geometria non valido");
 
 /// Applica al contratto base gli eventuali metadati namespaced del campo.
 ///
@@ -359,14 +399,14 @@ pub fn read_geometry_contract_metadata(
         parsed.field_id = crate::contract::FieldId(
             value
                 .parse()
-                .map_err(|_| invalid_metadata(field, PLENORA_FIELD_ID_KEY))?,
+                .map_err(|_| invalid_metadata(field, &METADATO_FIELD_ID_NON_VALIDO))?,
         );
     }
     if let Some(value) = metadata.get(PLENORA_ENCODING_KEY) {
         parsed.encoding = match value.as_str() {
             "wkb" => GeometryEncoding::Wkb,
             "ewkb" => GeometryEncoding::Ewkb,
-            _ => return Err(invalid_metadata(field, PLENORA_ENCODING_KEY)),
+            _ => return Err(invalid_metadata(field, &METADATO_ENCODING_NON_VALIDO)),
         };
     }
     if let Some(value) = metadata.get(PLENORA_DIMENSIONS_KEY) {
@@ -377,14 +417,14 @@ pub fn read_geometry_contract_metadata(
             "xym" => CoordinateDimensions::Xym,
             "xyzm" => CoordinateDimensions::Xyzm,
             "unknown" => CoordinateDimensions::Unknown,
-            _ => return Err(invalid_metadata(field, PLENORA_DIMENSIONS_KEY)),
+            _ => return Err(invalid_metadata(field, &METADATO_DIMENSIONI_NON_VALIDO)),
         };
     }
     if let Some(value) = metadata.get(PLENORA_SPATIAL_SEMANTICS_KEY) {
         parsed.spatial_semantics = match value.as_str() {
             "geometry" => SpatialSemantics::Geometry,
             "geography" => SpatialSemantics::Geography,
-            _ => return Err(invalid_metadata(field, PLENORA_SPATIAL_SEMANTICS_KEY)),
+            _ => return Err(invalid_metadata(field, &METADATO_SEMANTICA_NON_VALIDO)),
         };
     }
     if let Some(value) = metadata.get(PLENORA_PRECISION_KEY) {
@@ -392,14 +432,14 @@ pub fn read_geometry_contract_metadata(
             "float64" => CoordinatePrecision::Float64,
             "float32" => CoordinatePrecision::Float32,
             "native" => CoordinatePrecision::Native,
-            _ => return Err(invalid_metadata(field, PLENORA_PRECISION_KEY)),
+            _ => return Err(invalid_metadata(field, &METADATO_PRECISION_NON_VALIDO)),
         };
     }
     if let Some(value) = metadata.get(PLENORA_SRID_KEY) {
         parsed.srid = Some(
             value
                 .parse()
-                .map_err(|_| invalid_metadata(field, PLENORA_SRID_KEY))?,
+                .map_err(|_| invalid_metadata(field, &METADATO_SRID_NON_VALIDO))?,
         );
     }
     if let Some(value) = metadata.get(PLENORA_GEOMETRY_TYPES_KEY) {
@@ -407,12 +447,12 @@ pub fn read_geometry_contract_metadata(
         if !value.is_empty() {
             for value in value.split(',') {
                 let geometry_type = GeometryType::from_canonical_name(value)
-                    .ok_or_else(|| invalid_metadata(field, PLENORA_GEOMETRY_TYPES_KEY))?;
+                    .ok_or_else(|| invalid_metadata(field, &METADATO_GEOMETRY_TYPES_NON_VALIDO))?;
                 if geometry_types
                     .last()
                     .is_some_and(|previous| *previous >= geometry_type)
                 {
-                    return Err(invalid_metadata(field, PLENORA_GEOMETRY_TYPES_KEY));
+                    return Err(invalid_metadata(field, &METADATO_GEOMETRY_TYPES_NON_VALIDO));
                 }
                 geometry_types.push(geometry_type);
             }
@@ -424,17 +464,25 @@ pub fn read_geometry_contract_metadata(
             "exact" => TypesDeclaration::Exact,
             "mixed" => TypesDeclaration::Mixed,
             "unresolved" => TypesDeclaration::Unresolved,
-            _ => return Err(invalid_metadata(field, PLENORA_TYPES_DECLARATION_KEY)),
+            _ => {
+                return Err(invalid_metadata(
+                    field,
+                    &METADATO_TYPES_DECLARATION_NON_VALIDO,
+                ))
+            }
         };
     } else {
         parsed.types_declaration = TypesDeclaration::LegacyUndeclared;
     }
     match parsed.types_declaration {
         TypesDeclaration::Exact if parsed.geometry_types.is_empty() => {
-            return Err(invalid_metadata(field, PLENORA_GEOMETRY_TYPES_KEY));
+            return Err(invalid_metadata(field, &METADATO_GEOMETRY_TYPES_NON_VALIDO));
         }
         TypesDeclaration::Unresolved if !parsed.geometry_types.is_empty() => {
-            return Err(invalid_metadata(field, PLENORA_TYPES_DECLARATION_KEY));
+            return Err(invalid_metadata(
+                field,
+                &METADATO_TYPES_DECLARATION_NON_VALIDO,
+            ));
         }
         TypesDeclaration::Exact
         | TypesDeclaration::Mixed
@@ -451,7 +499,10 @@ pub fn read_geometry_contract_metadata(
                 "wkt" => Ok(CrsDefinitionFormat::Wkt),
                 "wkt2" => Ok(CrsDefinitionFormat::Wkt2),
                 "projjson" => Ok(CrsDefinitionFormat::Projjson),
-                _ => Err(invalid_metadata(field, PLENORA_CRS_DEFINITION_FORMAT_KEY)),
+                _ => Err(invalid_metadata(
+                    field,
+                    &METADATO_CRS_DEFINITION_FORMAT_NON_VALIDO,
+                )),
             })
             .transpose()?;
         let axis_order = metadata
@@ -463,19 +514,22 @@ pub fn read_geometry_contract_metadata(
                 "northing_easting" => Ok(AxisOrder::NorthingEasting),
                 "other" => Ok(AxisOrder::Other),
                 "unknown" => Ok(AxisOrder::Unknown),
-                _ => Err(invalid_metadata(field, PLENORA_AXIS_ORDER_KEY)),
+                _ => Err(invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO)),
             })
             .transpose()?;
         if definition.is_some() != definition_format.is_some() {
-            return Err(invalid_metadata(field, PLENORA_CRS_DEFINITION_FORMAT_KEY));
+            return Err(invalid_metadata(
+                field,
+                &METADATO_CRS_DEFINITION_FORMAT_NON_VALIDO,
+            ));
         }
         parsed.crs = match resolution.as_str() {
             "resolved" => {
                 if id.is_none() && definition.is_none() {
-                    return Err(invalid_metadata(field, PLENORA_CRS_RESOLUTION_KEY));
+                    return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
                 }
-                let axis_order =
-                    axis_order.ok_or_else(|| invalid_metadata(field, PLENORA_AXIS_ORDER_KEY))?;
+                let axis_order = axis_order
+                    .ok_or_else(|| invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?;
                 let kind = match axis_order {
                     AxisOrder::LongitudeLatitude | AxisOrder::LatitudeLongitude => {
                         crate::crs::CrsKind::Geographic
@@ -493,13 +547,14 @@ pub fn read_geometry_contract_metadata(
             "declared_unresolved" => {
                 let has_structured_representation = id.is_some() || definition.is_some();
                 if !has_structured_representation && parsed.srid.is_none() {
-                    return Err(invalid_metadata(field, PLENORA_CRS_RESOLUTION_KEY));
+                    return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO));
                 }
                 if !has_structured_representation && axis_order.is_some() {
-                    return Err(invalid_metadata(field, PLENORA_AXIS_ORDER_KEY));
+                    return Err(invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO));
                 }
                 let axis_order = if has_structured_representation {
-                    axis_order.ok_or_else(|| invalid_metadata(field, PLENORA_AXIS_ORDER_KEY))?
+                    axis_order
+                        .ok_or_else(|| invalid_metadata(field, &METADATO_AXIS_ORDER_NON_VALIDO))?
                 } else {
                     AxisOrder::Unknown
                 };
@@ -518,13 +573,13 @@ pub fn read_geometry_contract_metadata(
             {
                 CrsResolution::Missing
             }
-            _ => return Err(invalid_metadata(field, PLENORA_CRS_RESOLUTION_KEY)),
+            _ => return Err(invalid_metadata(field, &METADATO_CRS_RESOLUTION_NON_VALIDO)),
         };
     }
     for (key, value) in metadata {
         if let Some(key) = key.strip_prefix(PLENORA_NATIVE_PREFIX) {
             if key.is_empty() {
-                return Err(invalid_metadata(field, PLENORA_NATIVE_PREFIX));
+                return Err(invalid_metadata(field, &METADATO_NATIVE_PREFIX_NON_VALIDO));
             }
             parsed.native_metadata.insert(key.to_owned(), value.clone());
         }
