@@ -638,29 +638,29 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
     },
 ]);
 
-static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
-    id: "geoparquet",
-    direction: Direction::Bidirectional,
-    read_mode: ReadMode::StreamingColumnar,
+static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
+    "geoparquet",
+    Direction::Bidirectional,
+    ReadMode::StreamingColumnar,
     // INV-7: row group indirizzabili, `SeekFrom::Start` sugli offset del footer.
-    native_read_mode: plenora_io_core::NativeReadMode::StreamingRandom,
+    plenora_io_core::NativeReadMode::StreamingRandom,
     // Il drenaggio e lo spool sono dell'adapter comune, non di
     // questo driver: `BudgetedReader` li impone a tutti.
-    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
-    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
-    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
-    write_mode: Some(WriteMode::Streaming),
-    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
-    multi_layer: false,
-    multi_file: false,
-    reader_concurrency: ReaderConcurrency::MultipleIndependentReaders, // Parquet è seekable
-    projection_support: plenora_io_core::ProjectionSupport::Exact,
-    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::NumericMinMaxStatistics,
-    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::BoundingBoxStatistics,
-    crs_handling: CrsHandling::Embedded,
-    fidelity_class: Fidelity::Lossless,
-    runtime: Runtime::PureRust,
-    write_capabilities: Some(FormatWriteCapabilities {
+    plenora_io_core::DeliverySemantics::OperationAtomic,
+    plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
+    plenora_io_core::DeterminismLevel::Semantic,
+    Some(WriteMode::Streaming),
+    Some(plenora_io_core::DeterminismLevel::Semantic),
+    false,
+    false,
+    ReaderConcurrency::MultipleIndependentReaders, // Parquet è seekable
+    plenora_io_core::ProjectionSupport::Exact,
+    plenora_io_core::PredicatePruningSupport::NumericMinMaxStatistics,
+    plenora_io_core::SpatialPruningSupport::BoundingBoxStatistics,
+    CrsHandling::Embedded,
+    Fidelity::Lossless,
+    Runtime::PureRust,
+    Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: ALL_ARROW_TYPES,
         type_coercion: TypeCoercionPolicy::Reject,
@@ -675,11 +675,11 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,
     }),
-    format_options: SCHEMA_OPZIONI,
-    semantic_version: 1,
-    driver_version: 5,
-    descriptor_version: 8,
-};
+    SCHEMA_OPZIONI,
+    1,
+    5,
+    8,
+);
 
 pub struct GeoParquetDriver;
 
@@ -1053,7 +1053,10 @@ impl OpenDatasetHandle for GeoParquetDataset {
     }
 
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+        plenora_io_core::FidelityAssessment::for_format(
+            DESCRIPTOR.id(),
+            DESCRIPTOR.fidelity_class(),
+        )
     }
 
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {

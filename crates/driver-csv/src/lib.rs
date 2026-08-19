@@ -115,29 +115,29 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
     },
 ]);
 
-static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
-    id: "csv",
-    direction: Direction::Bidirectional,
-    read_mode: ReadMode::StreamingSequential,
+static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
+    "csv",
+    Direction::Bidirectional,
+    ReadMode::StreamingSequential,
     // INV-7: `read_record` riga per riga, canale a profondita' 2.
-    native_read_mode: plenora_io_core::NativeReadMode::StreamingSequential,
+    plenora_io_core::NativeReadMode::StreamingSequential,
     // Il drenaggio e lo spool sono dell'adapter comune, non di
     // questo driver: `BudgetedReader` li impone a tutti.
-    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
-    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
-    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
-    write_mode: Some(WriteMode::Streaming),
-    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
-    multi_layer: false,
-    multi_file: false,
-    reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-    projection_support: plenora_io_core::ProjectionSupport::Exact,
-    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
-    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
-    crs_handling: CrsHandling::None,
-    fidelity_class: Fidelity::Conditional,
-    runtime: Runtime::PureRust,
-    write_capabilities: Some(FormatWriteCapabilities {
+    plenora_io_core::DeliverySemantics::OperationAtomic,
+    plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
+    plenora_io_core::DeterminismLevel::Semantic,
+    Some(WriteMode::Streaming),
+    Some(plenora_io_core::DeterminismLevel::Semantic),
+    false,
+    false,
+    ReaderConcurrency::MultipleIndependentReaders,
+    plenora_io_core::ProjectionSupport::Exact,
+    plenora_io_core::PredicatePruningSupport::None,
+    plenora_io_core::SpatialPruningSupport::None,
+    CrsHandling::None,
+    Fidelity::Conditional,
+    Runtime::PureRust,
+    Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,
         type_coercion: TypeCoercionPolicy::ExplicitText,
@@ -152,11 +152,11 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: false,
     }),
-    format_options: SCHEMA_OPZIONI,
-    semantic_version: 1,
-    driver_version: 6,
-    descriptor_version: 9,
-};
+    SCHEMA_OPZIONI,
+    1,
+    6,
+    9,
+);
 
 pub struct CsvDriver;
 
@@ -403,7 +403,10 @@ impl OpenDatasetHandle for CsvDataset {
         &self.layers
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+        plenora_io_core::FidelityAssessment::for_format(
+            DESCRIPTOR.id(),
+            DESCRIPTOR.fidelity_class(),
+        )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
@@ -609,7 +612,7 @@ fn spawn_parser(
         delim,
         cella_wkt,
     } = sorgente;
-    spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
+    spawn_batch_reader(DESCRIPTOR.id(), layer, 2, move |emitter: BatchEmitter| {
         let mut rdr = csv_reader(&path, delim)?;
         let mut rec = csv::StringRecord::new();
         let mut geom_b = geom.map(|_| BinaryBuilder::new());

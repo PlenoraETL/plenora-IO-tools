@@ -132,16 +132,16 @@ pub fn validate_write(
     max_columns: usize,
     format_options: &std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
-    let driver = descriptor.id;
+    let driver = descriptor.id();
     // Stesso motivo della lettura: le opzioni arrivano per parametro, cosi'
     // nessun driver puo' scrivere senza averle sottoposte allo schema.
     plenora_io_model::format_options::valida_opzioni(
         driver,
-        descriptor.format_options,
+        descriptor.format_options(),
         format_options,
         plenora_io_model::format_options::FaseOpzione::Scrittura,
     )?;
-    let caps = descriptor.write_capabilities.as_ref().ok_or_else(|| {
+    let caps = descriptor.write_capabilities().ok_or_else(|| {
         violation(
             driver,
             None,
@@ -468,29 +468,28 @@ mod tests {
     }
 
     fn descriptor(crs: CrsWriteSupport) -> FormatDescriptor {
-        FormatDescriptor {
-            id: "test",
+        FormatDescriptor::const_new(
+            "test",
+            Direction::Bidirectional,
+            ReadMode::StreamingSequential,
             // I tre assi di INV-7: il descrittore di prova dichiara la
             // combinazione che tutti i driver reali dichiarano.
-            native_read_mode: crate::descriptor::NativeReadMode::StreamingSequential,
-            effective_delivery: crate::descriptor::DeliverySemantics::OperationAtomic,
-            buffering: crate::descriptor::BufferingStrategy::AdaptiveMemoryThenDisk,
-            format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-            direction: Direction::Bidirectional,
-            read_mode: ReadMode::StreamingSequential,
-            read_determinism: crate::descriptor::DeterminismLevel::Semantic,
-            write_mode: Some(WriteMode::Streaming),
-            write_determinism: Some(crate::descriptor::DeterminismLevel::Semantic),
-            multi_layer: false,
-            multi_file: false,
-            reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-            projection_support: crate::descriptor::ProjectionSupport::None,
-            predicate_pruning_support: crate::descriptor::PredicatePruningSupport::None,
-            spatial_pruning_support: crate::descriptor::SpatialPruningSupport::None,
-            crs_handling: crate::descriptor::CrsHandling::Embedded,
-            fidelity_class: Fidelity::Conditional,
-            runtime: Runtime::PureRust,
-            write_capabilities: Some(FormatWriteCapabilities {
+            crate::descriptor::NativeReadMode::StreamingSequential,
+            crate::descriptor::DeliverySemantics::OperationAtomic,
+            crate::descriptor::BufferingStrategy::AdaptiveMemoryThenDisk,
+            crate::descriptor::DeterminismLevel::Semantic,
+            Some(WriteMode::Streaming),
+            Some(crate::descriptor::DeterminismLevel::Semantic),
+            false,
+            false,
+            ReaderConcurrency::MultipleIndependentReaders,
+            crate::descriptor::ProjectionSupport::None,
+            crate::descriptor::PredicatePruningSupport::None,
+            crate::descriptor::SpatialPruningSupport::None,
+            crate::descriptor::CrsHandling::Embedded,
+            Fidelity::Conditional,
+            Runtime::PureRust,
+            Some(FormatWriteCapabilities {
                 field_names: DBF_FIELD_NAMES,
                 allowed_types: SCALAR_TYPES,
                 type_coercion: TypeCoercionPolicy::Reject,
@@ -505,10 +504,11 @@ mod tests {
                 nullability: NullabilitySupport::Preserve,
                 multi_layer: false,
             }),
-            semantic_version: 1,
-            driver_version: 1,
-            descriptor_version: 1,
-        }
+            plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+            1,
+            1,
+            1,
+        )
     }
 
     fn plan(fields: Vec<Field>, geometry: Option<GeometryColumnContract>) -> WritePlan {
@@ -586,10 +586,10 @@ mod tests {
 
     #[test]
     fn attribute_none_rejects_every_non_geometry_field() {
-        let mut descriptor = descriptor(CrsWriteSupport::None);
-        let mut capabilities = descriptor.write_capabilities.unwrap();
+        let descriptor = descriptor(CrsWriteSupport::None);
+        let mut capabilities = descriptor.write_capabilities().unwrap();
         capabilities.attributes = AttributeWriteSupport::None;
-        descriptor.write_capabilities = Some(capabilities);
+        let descriptor = descriptor.con_write_capabilities(Some(capabilities));
         let p = plan(vec![Field::new("attribute", DataType::Utf8, false)], None);
 
         assert!(matches!(
@@ -602,10 +602,10 @@ mod tests {
     #[test]
     fn named_attribute_subset_accepts_only_the_declared_names() {
         static ALLOWED: &[&str] = &["name"];
-        let mut descriptor = descriptor(CrsWriteSupport::None);
-        let mut capabilities = descriptor.write_capabilities.unwrap();
+        let descriptor = descriptor(CrsWriteSupport::None);
+        let mut capabilities = descriptor.write_capabilities().unwrap();
         capabilities.attributes = AttributeWriteSupport::NamedSubset(ALLOWED);
-        descriptor.write_capabilities = Some(capabilities);
+        let descriptor = descriptor.con_write_capabilities(Some(capabilities));
 
         let accepted = plan(vec![Field::new("name", DataType::Utf8, false)], None);
         assert!(validate_write(
@@ -626,10 +626,10 @@ mod tests {
 
     #[test]
     fn no_nulls_rejects_nullable_contract_fields() {
-        let mut descriptor = descriptor(CrsWriteSupport::None);
-        let mut capabilities = descriptor.write_capabilities.unwrap();
+        let descriptor = descriptor(CrsWriteSupport::None);
+        let mut capabilities = descriptor.write_capabilities().unwrap();
         capabilities.nullability = NullabilitySupport::NoNulls;
-        descriptor.write_capabilities = Some(capabilities);
+        let descriptor = descriptor.con_write_capabilities(Some(capabilities));
         let p = plan(vec![Field::new("required", DataType::Utf8, true)], None);
 
         assert!(matches!(
@@ -684,10 +684,10 @@ mod tests {
         )
         .is_ok());
 
-        let mut selecting = descriptor(CrsWriteSupport::Embedded);
-        let mut capabilities = selecting.write_capabilities.unwrap();
+        let selecting = descriptor(CrsWriteSupport::Embedded);
+        let mut capabilities = selecting.write_capabilities().unwrap();
         capabilities.crs_representations.srid = CrsRepresentationState::Derived;
-        selecting.write_capabilities = Some(capabilities);
+        let selecting = selecting.con_write_capabilities(Some(capabilities));
         let error =
             validate_write(&selecting, &p, colonne_predefinite(), &senza_opzioni()).unwrap_err();
         assert_eq!(
@@ -726,10 +726,10 @@ mod tests {
         let preserving = descriptor(CrsWriteSupport::EmbeddedOptional);
         assert!(validate_write(&preserving, &p, colonne_predefinite(), &senza_opzioni()).is_ok());
 
-        let mut selecting = descriptor(CrsWriteSupport::Embedded);
-        let mut capabilities = selecting.write_capabilities.unwrap();
+        let selecting = descriptor(CrsWriteSupport::Embedded);
+        let mut capabilities = selecting.write_capabilities().unwrap();
         capabilities.crs_representations.crs_definition = CrsRepresentationState::Derived;
-        selecting.write_capabilities = Some(capabilities);
+        let selecting = selecting.con_write_capabilities(Some(capabilities));
         let error =
             validate_write(&selecting, &p, colonne_predefinite(), &senza_opzioni()).unwrap_err();
         assert_eq!(

@@ -67,7 +67,7 @@ fn resolved(id: &str) -> CrsResolution {
 
 fn valid_crs(descriptor: &FormatDescriptor) -> CrsResolution {
     match descriptor
-        .write_capabilities
+        .write_capabilities()
         .expect("driver scrivibile senza capability")
         .crs
     {
@@ -99,7 +99,7 @@ fn geometry_plan(
     let field = with_geometry_contract_metadata(&base, &geometry);
     WritePlan {
         layers: vec![WriteLayer {
-            name: format!("{}_layer", descriptor.id),
+            name: format!("{}_layer", descriptor.id()),
             contract: DataContract {
                 schema: Arc::new(Schema::new(vec![field])),
                 geometry: Some(geometry),
@@ -110,7 +110,7 @@ fn geometry_plan(
 
 fn valid_geometry_plan(descriptor: &FormatDescriptor) -> WritePlan {
     let support = descriptor
-        .write_capabilities
+        .write_capabilities()
         .expect("driver scrivibile senza capability")
         .geometry;
     let dimensions = support
@@ -170,39 +170,39 @@ fn descriptor_matrix_is_internally_coherent() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
         assert!(
-            descriptor.descriptor_version >= 5,
+            descriptor.descriptor_version() >= 5,
             "{}: descriptor legacy",
-            descriptor.id
+            descriptor.id()
         );
         assert!(
-            descriptor.driver_version >= 2,
+            descriptor.driver_version() >= 2,
             "{}: versione implementazione non aggiornata",
-            descriptor.id
+            descriptor.id()
         );
         assert_eq!(
-            descriptor.write_mode.is_some(),
-            descriptor.write_capabilities.is_some(),
+            descriptor.write_mode().is_some(),
+            descriptor.write_capabilities().is_some(),
             "{}: write mode e capability incoerenti",
-            descriptor.id
+            descriptor.id()
         );
         assert_eq!(
-            descriptor.write_mode.is_some(),
-            descriptor.write_determinism.is_some(),
+            descriptor.write_mode().is_some(),
+            descriptor.write_determinism().is_some(),
             "{}: write mode e determinismo incoerenti",
-            descriptor.id
+            descriptor.id()
         );
         assert_ne!(
-            descriptor.read_determinism,
+            descriptor.read_determinism(),
             DeterminismLevel::Unordered,
             "{}: sorgente locale dichiarata non ordinata senza snapshot remoto",
-            descriptor.id
+            descriptor.id()
         );
-        if let Some(capabilities) = descriptor.write_capabilities {
+        if let Some(capabilities) = descriptor.write_capabilities() {
             assert_eq!(
                 capabilities.geometry.supported,
                 !capabilities.geometry.geometry_types.is_empty(),
                 "{}: tipi geometrici e supporto incoerenti",
-                descriptor.id
+                descriptor.id()
             );
             let unique_types = capabilities
                 .geometry
@@ -214,18 +214,19 @@ fn descriptor_matrix_is_internally_coherent() {
                 unique_types.len(),
                 capabilities.geometry.geometry_types.len(),
                 "{}: tipi geometrici duplicati",
-                descriptor.id
+                descriptor.id()
             );
             assert_eq!(
-                descriptor.multi_layer, capabilities.multi_layer,
+                descriptor.multi_layer(),
+                capabilities.multi_layer,
                 "{}: multi_layer incoerente",
-                descriptor.id
+                descriptor.id()
             );
             assert_ne!(
-                descriptor.direction,
+                descriptor.direction(),
                 Direction::Read,
                 "{}: capability di scrittura su driver read-only",
-                descriptor.id
+                descriptor.id()
             );
         }
     }
@@ -237,11 +238,11 @@ fn pruning_capabilities_match_the_implemented_native_paths() {
     let mut spatial = Vec::new();
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.predicate_pruning_support != PredicatePruningSupport::None {
-            predicate.push((descriptor.id, descriptor.predicate_pruning_support));
+        if descriptor.predicate_pruning_support() != PredicatePruningSupport::None {
+            predicate.push((descriptor.id(), descriptor.predicate_pruning_support()));
         }
-        if descriptor.spatial_pruning_support != SpatialPruningSupport::None {
-            spatial.push((descriptor.id, descriptor.spatial_pruning_support));
+        if descriptor.spatial_pruning_support() != SpatialPruningSupport::None {
+            spatial.push((descriptor.id(), descriptor.spatial_pruning_support()));
         }
     }
     assert_eq!(
@@ -275,21 +276,21 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
     let mut exact = Vec::new();
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        match descriptor.projection_support {
+        match descriptor.projection_support() {
             ProjectionSupport::Exact => {
                 plenora_io_core::validate_read_projection(descriptor, &request)
-                    .unwrap_or_else(|error| panic!("{}: exact respinta: {error}", descriptor.id));
-                exact.push(descriptor.id);
+                    .unwrap_or_else(|error| panic!("{}: exact respinta: {error}", descriptor.id()));
+                exact.push(descriptor.id());
             }
             ProjectionSupport::None => assert!(
                 matches!(
                     plenora_io_core::validate_read_projection(descriptor, &request),
                     Err(error)
                         if error.code == plenora_io_model::IoErrorCode::ProjectionUnsupported
-                            && error.driver.as_deref() == Some(descriptor.id)
+                            && error.driver.as_deref() == Some(descriptor.id())
                 ),
                 "{}: Required non respinta fail-closed",
-                descriptor.id
+                descriptor.id()
             ),
         }
     }
@@ -312,7 +313,7 @@ fn projection_contract_is_machine_readable_and_fail_closed() {
 fn every_writable_driver_accepts_its_declared_baseline() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.write_capabilities.is_none() {
+        if descriptor.write_capabilities().is_none() {
             continue;
         }
         validate_write(
@@ -324,7 +325,7 @@ fn every_writable_driver_accepts_its_declared_baseline() {
         .unwrap_or_else(|error| {
             panic!(
                 "{}: il contratto baseline derivato dal descrittore è stato respinto: {error}",
-                descriptor.id
+                descriptor.id()
             )
         });
     }
@@ -334,11 +335,11 @@ fn every_writable_driver_accepts_its_declared_baseline() {
 fn every_driver_rejects_invalid_layer_lifecycle() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.write_capabilities.is_none() {
+        if descriptor.write_capabilities().is_none() {
             continue;
         }
         assert_capability(
-            descriptor.id,
+            descriptor.id(),
             validate_write(
                 descriptor,
                 &WritePlan { layers: Vec::new() },
@@ -347,9 +348,9 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
             ),
             CapabilityReason::EmptyWritePlan,
         );
-        if descriptor.multi_layer {
+        if descriptor.multi_layer() {
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(
                     descriptor,
                     &attribute_plan(
@@ -363,7 +364,7 @@ fn every_driver_rejects_invalid_layer_lifecycle() {
             );
         } else {
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(
                     descriptor,
                     &attribute_plan(&["one", "two"], &Field::new("value", DataType::Utf8, true)),
@@ -383,7 +384,7 @@ fn crs_matrix_fails_closed() {
     let mut fixed = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        let Some(capabilities) = descriptor.write_capabilities else {
+        let Some(capabilities) = descriptor.write_capabilities() else {
             continue;
         };
         if !capabilities.geometry.supported {
@@ -401,7 +402,7 @@ fn crs_matrix_fails_closed() {
                     vec![GeometryType::Point],
                 );
                 assert_capability(
-                    descriptor.id,
+                    descriptor.id(),
                     validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                     CapabilityReason::CrsUnresolved,
                 );
@@ -418,7 +419,7 @@ fn crs_matrix_fails_closed() {
                     vec![GeometryType::Point],
                 );
                 assert_capability(
-                    descriptor.id,
+                    descriptor.id(),
                     validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                     CapabilityReason::ReprojectionRequired,
                 );
@@ -438,7 +439,7 @@ fn crs_matrix_fails_closed() {
                     validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni())
                         .is_ok(),
                     "{} dichiara CRS embedded opzionale ma rifiuta lo stato missing",
-                    descriptor.id
+                    descriptor.id()
                 );
                 optional_embedded += 1;
             }
@@ -534,10 +535,10 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
         assert_eq!(
-            descriptor.write_capabilities.unwrap().crs_representations,
-            expected[descriptor.id],
+            descriptor.write_capabilities().unwrap().crs_representations,
+            expected[descriptor.id()],
             "{} ha una capability CRS diversa dalla matrice revisionata",
-            descriptor.id
+            descriptor.id()
         );
     }
 }
@@ -569,7 +570,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
 
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        let Some(capabilities) = descriptor.write_capabilities else {
+        let Some(capabilities) = descriptor.write_capabilities() else {
             continue;
         };
         let support = capabilities.geometry;
@@ -590,7 +591,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
                 vec![GeometryType::Point],
             );
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::CoordinateDimensions,
             );
@@ -609,7 +610,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
                 vec![GeometryType::Point],
             );
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::GeometryEncoding,
             );
@@ -628,7 +629,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
                 vec![GeometryType::Point],
             );
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::SpatialSemantics,
             );
@@ -647,7 +648,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
                 vec![*unsupported],
             );
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::GeometryNotSupported,
             );
@@ -658,7 +659,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
             geometry.geometry_types.clear();
             geometry.types_declaration = plenora_io_model::contract::TypesDeclaration::Unresolved;
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(
                     descriptor,
                     &unresolved,
@@ -679,7 +680,7 @@ fn geometry_capability_matrix_rejects_every_unsupported_axis() {
                 vec![GeometryType::Point, GeometryType::LineString],
             );
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(descriptor, &plan, colonne_predefinite(), &senza_opzioni()),
                 CapabilityReason::MixedGeometry,
             );
@@ -701,7 +702,7 @@ fn field_type_and_limit_matrix_is_enforced() {
     let mut rejected_types_checked = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        let Some(capabilities) = descriptor.write_capabilities else {
+        let Some(capabilities) = descriptor.write_capabilities() else {
             continue;
         };
 
@@ -718,7 +719,7 @@ fn field_type_and_limit_matrix_is_enforced() {
         if let Some(max_bytes) = capabilities.field_names.max_bytes {
             let name = "x".repeat(max_bytes + 1);
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new(name, DataType::Utf8, true)),
@@ -737,7 +738,7 @@ fn field_type_and_limit_matrix_is_enforced() {
         {
             let nested = DataType::List(Arc::new(Field::new("item", DataType::Int64, true)));
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new("nested", nested, true)),
@@ -754,7 +755,7 @@ fn field_type_and_limit_matrix_is_enforced() {
             AttributeWriteSupport::None | AttributeWriteSupport::NamedSubset(_)
         ) {
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(
                     descriptor,
                     &attribute_plan(
@@ -770,7 +771,7 @@ fn field_type_and_limit_matrix_is_enforced() {
 
         if capabilities.nullability == NullabilitySupport::NoNulls {
             assert_capability(
-                descriptor.id,
+                descriptor.id(),
                 validate_write(
                     descriptor,
                     &attribute_plan(&["layer"], &Field::new("nullable", DataType::Utf8, true)),
@@ -821,18 +822,18 @@ fn read_request() -> ReadRequest {
 
 fn materialize_empty_dataset(driver: &dyn FormatDriver, directory: &tempfile::TempDir) -> PathBuf {
     let descriptor = driver.descriptor();
-    let output = output_path(directory, descriptor.id);
+    let output = output_path(directory, descriptor.id());
     let plan = valid_geometry_plan(descriptor);
     let batch = RecordBatch::new_empty(plan.layers[0].contract.schema.clone());
     let mut writer = driver
         .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
-        .unwrap_or_else(|error| panic!("{}: create dataset vuoto: {error}", descriptor.id));
+        .unwrap_or_else(|error| panic!("{}: create dataset vuoto: {error}", descriptor.id()));
     writer
         .write(&batch)
-        .unwrap_or_else(|error| panic!("{}: write dataset vuoto: {error}", descriptor.id));
+        .unwrap_or_else(|error| panic!("{}: write dataset vuoto: {error}", descriptor.id()));
     writer
         .finish()
-        .unwrap_or_else(|error| panic!("{}: finish dataset vuoto: {error}", descriptor.id));
+        .unwrap_or_else(|error| panic!("{}: finish dataset vuoto: {error}", descriptor.id()));
     output
 }
 
@@ -858,7 +859,7 @@ fn require_ok<T, E: std::fmt::Display>(
 
 fn materialize_point_dataset(driver: &dyn FormatDriver, directory: &tempfile::TempDir) -> PathBuf {
     let descriptor = driver.descriptor();
-    let output = output_path(directory, descriptor.id);
+    let output = output_path(directory, descriptor.id());
     let plan = valid_geometry_plan(descriptor);
     let geometry = point_wkb(12.5, -7.25);
     let batch = RecordBatch::try_new(
@@ -868,28 +869,28 @@ fn materialize_point_dataset(driver: &dyn FormatDriver, directory: &tempfile::Te
     .unwrap();
     let mut writer = require_ok(
         driver.create(Sink::Path(output.clone()), &plan, &opzioni_scrittura()),
-        descriptor.id,
+        descriptor.id(),
         "create determinismo",
     );
-    require_ok(writer.write(&batch), descriptor.id, "write determinismo");
-    require_ok(writer.finish(), descriptor.id, "finish determinismo");
+    require_ok(writer.write(&batch), descriptor.id(), "write determinismo");
+    require_ok(writer.finish(), descriptor.id(), "finish determinismo");
     output
 }
 
 fn read_all_batches(driver: &dyn FormatDriver, source: PathBuf) -> Vec<RecordBatch> {
     let descriptor = driver.descriptor();
     let dataset = require_ok(
-        driver.open(Source::Path(source), read_options(descriptor.id)),
-        descriptor.id,
+        driver.open(Source::Path(source), read_options(descriptor.id())),
+        descriptor.id(),
         "open determinismo",
     );
     let mut reader = require_ok(
         dataset.open_layer_reader(&read_request()),
-        descriptor.id,
+        descriptor.id(),
         "reader determinismo",
     );
     let mut batches = Vec::new();
-    while let Some(batch) = require_ok(reader.next_batch(), descriptor.id, "next determinismo") {
+    while let Some(batch) = require_ok(reader.next_batch(), descriptor.id(), "next determinismo") {
         batches.push(batch);
     }
     batches
@@ -900,7 +901,7 @@ fn repeated_local_operations_preserve_semantic_results() {
     let mut checked = Vec::new();
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.runtime != Runtime::PureRust || descriptor.write_capabilities.is_none() {
+        if descriptor.runtime() != Runtime::PureRust || descriptor.write_capabilities().is_none() {
             continue;
         }
         let first_directory = tempfile::tempdir().unwrap();
@@ -912,9 +913,9 @@ fn repeated_local_operations_preserve_semantic_results() {
             read_all_batches(driver.as_ref(), first),
             read_all_batches(driver.as_ref(), second),
             "{}: due esecuzioni equivalenti hanno prodotto risultati semantici diversi",
-            descriptor.id
+            descriptor.id()
         );
-        checked.push(descriptor.id);
+        checked.push(descriptor.id());
     }
     assert_eq!(
         checked,
@@ -937,45 +938,49 @@ fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
     let mut checked = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.runtime != Runtime::PureRust
-            || descriptor.fidelity_class != Fidelity::Conditional
-            || descriptor.write_capabilities.is_none()
+        if descriptor.runtime() != Runtime::PureRust
+            || descriptor.fidelity_class() != Fidelity::Conditional
+            || descriptor.write_capabilities().is_none()
         {
             continue;
         }
         let directory = tempfile::tempdir().unwrap();
-        let output = output_path(&directory, descriptor.id);
+        let output = output_path(&directory, descriptor.id());
         let plan = valid_geometry_plan(descriptor);
         let batch = RecordBatch::new_empty(plan.layers[0].contract.schema.clone());
         let mut writer = driver
             .create(Sink::Path(output), &plan, &opzioni_scrittura())
-            .unwrap_or_else(|error| panic!("{}: create: {error}", descriptor.id));
+            .unwrap_or_else(|error| panic!("{}: create: {error}", descriptor.id()));
 
         let preventive = writer.fidelity_assessment().level;
         writer
             .write(&batch)
-            .unwrap_or_else(|error| panic!("{}: write: {error}", descriptor.id));
+            .unwrap_or_else(|error| panic!("{}: write: {error}", descriptor.id()));
         let published = writer
             .finish()
-            .unwrap_or_else(|error| panic!("{}: finish: {error}", descriptor.id));
+            .unwrap_or_else(|error| panic!("{}: finish: {error}", descriptor.id()));
         assert_eq!(
-            published.fidelity.level, preventive,
+            published.fidelity.level,
+            preventive,
             "{}: assessment finale divergente",
-            descriptor.id
+            descriptor.id()
         );
         match preventive {
             Fidelity::Conditional => assert!(
                 published.loss.is_empty(),
                 "{}: loss inattesa",
-                descriptor.id
+                descriptor.id()
             ),
             Fidelity::Approximating => assert!(
                 !published.loss.is_empty(),
                 "{}: perdita pianificata senza LossReport",
-                descriptor.id
+                descriptor.id()
             ),
             Fidelity::Lossless => {
-                panic!("{}: classe Conditional degradata a Lossless", descriptor.id)
+                panic!(
+                    "{}: classe Conditional degradata a Lossless",
+                    descriptor.id()
+                )
             }
         }
         checked += 1;
@@ -1025,16 +1030,16 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
     let mut checked = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.runtime != Runtime::PureRust
-            || descriptor.projection_support != ProjectionSupport::None
+        if descriptor.runtime() != Runtime::PureRust
+            || descriptor.projection_support() != ProjectionSupport::None
         {
             continue;
         }
         let directory = tempfile::tempdir().unwrap();
         let output = materialize_empty_dataset(driver.as_ref(), &directory);
         let dataset = driver
-            .open(Source::Path(output), read_options(descriptor.id))
-            .unwrap_or_else(|error| panic!("{}: open dataset vuoto: {error}", descriptor.id));
+            .open(Source::Path(output), read_options(descriptor.id()))
+            .unwrap_or_else(|error| panic!("{}: open dataset vuoto: {error}", descriptor.id()));
         let request = ReadRequest {
             layer: LayerId(0),
             projected_fields: Some(vec![FieldId(0)]),
@@ -1050,10 +1055,10 @@ fn required_projection_is_rejected_at_reader_open_by_non_exact_drivers() {
                 dataset.open_layer_reader(&request),
                 Err(error)
                     if error.code == plenora_io_model::IoErrorCode::ProjectionUnsupported
-                        && error.driver.as_deref() == Some(descriptor.id)
+                        && error.driver.as_deref() == Some(descriptor.id())
             ),
             "{}: Required non respinta all'apertura",
-            descriptor.id
+            descriptor.id()
         );
         checked += 1;
     }
@@ -1065,16 +1070,16 @@ fn every_exact_pure_rust_reader_supports_an_empty_projection() {
     let mut checked = Vec::new();
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.runtime != Runtime::PureRust
-            || descriptor.projection_support != ProjectionSupport::Exact
+        if descriptor.runtime() != Runtime::PureRust
+            || descriptor.projection_support() != ProjectionSupport::Exact
         {
             continue;
         }
         let directory = tempfile::tempdir().unwrap();
         let output = materialize_point_dataset(driver.as_ref(), &directory);
-        let dataset = match driver.open(Source::Path(output), read_options(descriptor.id)) {
+        let dataset = match driver.open(Source::Path(output), read_options(descriptor.id())) {
             Ok(dataset) => dataset,
-            Err(error) => panic!("{}: open projection: {error}", descriptor.id),
+            Err(error) => panic!("{}: open projection: {error}", descriptor.id()),
         };
         let mut reader = match dataset.open_layer_reader(&ReadRequest {
             layer: LayerId(0),
@@ -1087,16 +1092,16 @@ fn every_exact_pure_rust_reader_supports_an_empty_projection() {
             cancellation: CancellationToken::default(),
         }) {
             Ok(reader) => reader,
-            Err(error) => panic!("{}: projection vuota: {error}", descriptor.id),
+            Err(error) => panic!("{}: projection vuota: {error}", descriptor.id()),
         };
         let batch = match reader.next_batch() {
             Ok(Some(batch)) => batch,
-            Ok(None) => panic!("{}: projection ha perso la riga", descriptor.id),
-            Err(error) => panic!("{}: next projection: {error}", descriptor.id),
+            Ok(None) => panic!("{}: projection ha perso la riga", descriptor.id()),
+            Err(error) => panic!("{}: next projection: {error}", descriptor.id()),
         };
-        assert_eq!(batch.num_rows(), 1, "{}", descriptor.id);
-        assert_eq!(batch.num_columns(), 0, "{}", descriptor.id);
-        checked.push(descriptor.id);
+        assert_eq!(batch.num_rows(), 1, "{}", descriptor.id());
+        assert_eq!(batch.num_columns(), 0, "{}", descriptor.id());
+        checked.push(descriptor.id());
     }
     checked.sort_unstable();
     assert_eq!(
@@ -1110,33 +1115,33 @@ fn single_active_reader_is_enforced_by_every_pure_rust_descriptor() {
     let mut checked = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.runtime != Runtime::PureRust
-            || descriptor.reader_concurrency != ReaderConcurrency::SingleActiveReader
+        if descriptor.runtime() != Runtime::PureRust
+            || descriptor.reader_concurrency() != ReaderConcurrency::SingleActiveReader
         {
             continue;
         }
         let directory = tempfile::tempdir().unwrap();
         let output = materialize_empty_dataset(driver.as_ref(), &directory);
         let dataset = driver
-            .open(Source::Path(output), read_options(descriptor.id))
-            .unwrap_or_else(|error| panic!("{}: open dataset vuoto: {error}", descriptor.id));
+            .open(Source::Path(output), read_options(descriptor.id()))
+            .unwrap_or_else(|error| panic!("{}: open dataset vuoto: {error}", descriptor.id()));
         let first = dataset
             .open_layer_reader(&read_request())
-            .unwrap_or_else(|error| panic!("{}: primo reader: {error}", descriptor.id));
+            .unwrap_or_else(|error| panic!("{}: primo reader: {error}", descriptor.id()));
         assert!(
             matches!(
                 dataset.open_layer_reader(&read_request()),
                 Err(error)
                     if error.code == plenora_io_model::IoErrorCode::ReaderBusy
-                        && error.driver.as_deref() == Some(descriptor.id)
+                        && error.driver.as_deref() == Some(descriptor.id())
             ),
             "{}: secondo reader concorrente non respinto",
-            descriptor.id
+            descriptor.id()
         );
         drop(first);
         dataset
             .open_layer_reader(&read_request())
-            .unwrap_or_else(|error| panic!("{}: reader dopo drop: {error}", descriptor.id));
+            .unwrap_or_else(|error| panic!("{}: reader dopo drop: {error}", descriptor.id()));
         checked += 1;
     }
     assert_eq!(checked, 3, "catalogo SingleActiveReader inatteso");
@@ -1146,7 +1151,7 @@ fn single_active_reader_is_enforced_by_every_pure_rust_descriptor() {
 fn independent_reader_descriptor_allows_two_live_readers() {
     let driver = driver_ipc::IpcDriver;
     assert_eq!(
-        driver.descriptor().reader_concurrency,
+        driver.descriptor().reader_concurrency(),
         ReaderConcurrency::MultipleIndependentReaders
     );
     let directory = tempfile::tempdir().unwrap();
@@ -1164,11 +1169,11 @@ fn independent_reader_descriptor_allows_two_live_readers() {
 fn create_is_no_clobber_for_every_pure_rust_writer() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.runtime != Runtime::PureRust || descriptor.write_capabilities.is_none() {
+        if descriptor.runtime() != Runtime::PureRust || descriptor.write_capabilities().is_none() {
             continue;
         }
         let directory = tempfile::tempdir().unwrap();
-        let output = output_path(&directory, descriptor.id);
+        let output = output_path(&directory, descriptor.id());
         std::fs::write(&output, b"existing").unwrap();
         let result = driver.create(
             Sink::Path(output.clone()),
@@ -1181,13 +1186,13 @@ fn create_is_no_clobber_for_every_pure_rust_writer() {
                 Err(error) if error.code == plenora_io_model::IoErrorCode::OutputExists
             ),
             "{}: create non ha rispettato no-clobber",
-            descriptor.id
+            descriptor.id()
         );
         assert_eq!(
             std::fs::read(&output).unwrap(),
             b"existing",
             "{}: create ha modificato un output preesistente",
-            descriptor.id
+            descriptor.id()
         );
     }
 }
@@ -1196,23 +1201,23 @@ fn create_is_no_clobber_for_every_pure_rust_writer() {
 fn dropping_writer_never_publishes_partial_output() {
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.runtime != Runtime::PureRust || descriptor.write_capabilities.is_none() {
+        if descriptor.runtime() != Runtime::PureRust || descriptor.write_capabilities().is_none() {
             continue;
         }
         let directory = tempfile::tempdir().unwrap();
-        let output = output_path(&directory, descriptor.id);
+        let output = output_path(&directory, descriptor.id());
         let writer = driver
             .create(
                 Sink::Path(output.clone()),
                 &valid_geometry_plan(descriptor),
                 &opzioni_scrittura(),
             )
-            .unwrap_or_else(|error| panic!("{}: create valido: {error}", descriptor.id));
+            .unwrap_or_else(|error| panic!("{}: create valido: {error}", descriptor.id()));
         drop(writer);
         assert!(
             !output.exists(),
             "{}: output pubblicato senza finish",
-            descriptor.id
+            descriptor.id()
         );
         let residuals = std::fs::read_dir(directory.path())
             .unwrap()
@@ -1221,7 +1226,7 @@ fn dropping_writer_never_publishes_partial_output() {
         assert!(
             residuals.is_empty(),
             "{}: drop ha lasciato {} residui temporanei",
-            descriptor.id,
+            descriptor.id(),
             residuals.len()
         );
     }
@@ -1286,7 +1291,7 @@ fn every_driver_has_a_schema_for_options() {
     let schemi = registro.format_options();
     let attesi: Vec<&str> = drivers()
         .iter()
-        .map(|driver| driver.descriptor().id)
+        .map(|driver| driver.descriptor().id())
         .collect();
 
     assert_eq!(
@@ -1340,10 +1345,10 @@ fn unknown_option_key_produces_typed_error_not_silent_ignore() {
         // che precede — e pretendere qui la categoria dello schema misurerebbe
         // l'ordine dei controlli invece del controllo. Con la feature attiva
         // (gate «test FileGDB feature-on») il driver rientra nel giro.
-        if descriptor.id == "filegdb" && !cfg!(feature = "gdal-backend") {
+        if descriptor.id() == "filegdb" && !cfg!(feature = "gdal-backend") {
             continue;
         }
-        let mut opts = read_options(descriptor.id);
+        let mut opts = read_options(descriptor.id());
         opts.format_options
             .insert("optzione_inesistente".to_owned(), "x".to_owned());
 
@@ -1354,36 +1359,36 @@ fn unknown_option_key_produces_typed_error_not_silent_ignore() {
         let Err(errore) = esito else {
             panic!(
                 "{}: una chiave sconosciuta e' stata ignorata",
-                descriptor.id
+                descriptor.id()
             )
         };
         assert_eq!(
             errore.category,
             plenora_io_model::ErrorCategory::InvalidConfiguration,
             "{}: categoria sbagliata per una chiave sconosciuta ({errore})",
-            descriptor.id
+            descriptor.id()
         );
         let testo = errore.to_string();
         assert!(
             testo.contains("optzione_inesistente"),
             "{}: l'errore non nomina la chiave rifiutata: {errore}",
-            descriptor.id
+            descriptor.id()
         );
         // L'errore deve elencare cosa si accetta, non solo cosa si rifiuta:
         // altrimenti chi ha sbagliato a scrivere non sa dove guardare.
-        let attese = descriptor.format_options.chiavi(FaseOpzione::Lettura);
+        let attese = descriptor.format_options().chiavi(FaseOpzione::Lettura);
         if attese.is_empty() {
             assert!(
                 testo.contains("nessuna"),
                 "{}: schema vuoto, ma l'errore non lo dice: {errore}",
-                descriptor.id
+                descriptor.id()
             );
         } else {
             for chiave in attese {
                 assert!(
                     testo.contains(chiave),
                     "{}: l'errore non elenca '{chiave}': {errore}",
-                    descriptor.id
+                    descriptor.id()
                 );
             }
         }
@@ -1436,12 +1441,12 @@ fn una_chiave_di_scrittura_passata_in_lettura_e_rifiutata() {
     let mut provati = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        for opzione in descriptor.format_options.opzioni {
+        for opzione in descriptor.format_options().opzioni {
             if opzione.fase != FaseOpzione::Scrittura {
                 continue;
             }
             provati += 1;
-            let mut opts = read_options(descriptor.id);
+            let mut opts = read_options(descriptor.id());
             let valore = match opzione.valore {
                 ValoreAmmesso::Enumerato(ammessi) => {
                     (*ammessi.first().expect("enumerazione senza valori")).to_owned()
@@ -1458,21 +1463,22 @@ fn una_chiave_di_scrittura_passata_in_lettura_e_rifiutata() {
             let Err(errore) = esito else {
                 panic!(
                     "{}: '{}' vale in scrittura ma la lettura l'ha accettata",
-                    descriptor.id, opzione.chiave
+                    descriptor.id(),
+                    opzione.chiave
                 )
             };
             assert_eq!(
                 errore.category,
                 plenora_io_model::ErrorCategory::InvalidConfiguration,
                 "{}: '{}' rifiutata con la categoria sbagliata: {errore}",
-                descriptor.id,
+                descriptor.id(),
                 opzione.chiave
             );
             // L'errore deve dire *perche'*: la fase, non un generico rifiuto.
             assert!(
                 errore.to_string().contains("scrittura"),
                 "{}: '{}' rifiutata senza nominare la fase: {errore}",
-                descriptor.id,
+                descriptor.id(),
                 opzione.chiave
             );
         }
@@ -1498,10 +1504,10 @@ fn ogni_valore_ammesso_dallo_schema_e_accettato_dal_driver() {
     let mut provati = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.write_capabilities.is_none() {
+        if descriptor.write_capabilities().is_none() {
             continue;
         }
-        for opzione in descriptor.format_options.opzioni {
+        for opzione in descriptor.format_options().opzioni {
             let ValoreAmmesso::Enumerato(ammessi) = opzione.valore else {
                 continue;
             };
@@ -1511,10 +1517,11 @@ fn ogni_valore_ammesso_dallo_schema_e_accettato_dal_driver() {
             for valore in ammessi {
                 provati += 1;
                 let suffisso = destinazione_richiesta(opzione.chiave, valore)
-                    .unwrap_or_else(|| extension(descriptor.id));
+                    .unwrap_or_else(|| extension(descriptor.id()));
                 let destinazione = directory.path().join(format!(
                     "{}-{}-{valore}.{suffisso}",
-                    descriptor.id, opzione.chiave
+                    descriptor.id(),
+                    opzione.chiave
                 ));
                 if let Err(errore) = scrive_con(
                     &*driver,
@@ -1523,7 +1530,7 @@ fn ogni_valore_ammesso_dallo_schema_e_accettato_dal_driver() {
                 ) {
                     panic!(
                         "{}: lo schema promette '{valore}' per '{}', il driver lo rifiuta: {errore}",
-                        descriptor.id, opzione.chiave
+                        descriptor.id(), opzione.chiave
                     );
                 }
             }
@@ -1544,7 +1551,7 @@ fn contratto_riletto(driver: &dyn FormatDriver, path: &std::path::Path) -> Strin
     let dataset = driver
         .open(
             Source::Path(path.to_path_buf()),
-            read_options(driver.descriptor().id),
+            read_options(driver.descriptor().id()),
         )
         .unwrap_or_else(|error| panic!("rilettura di {}: {error}", path.display()));
     let layer = &dataset.layers()[0];
@@ -1599,10 +1606,10 @@ fn il_default_dichiarato_e_quello_applicato() {
     let mut provati = 0;
     for driver in drivers() {
         let descriptor = driver.descriptor();
-        if descriptor.write_capabilities.is_none() {
+        if descriptor.write_capabilities().is_none() {
             continue;
         }
-        for opzione in descriptor.format_options.opzioni {
+        for opzione in descriptor.format_options().opzioni {
             let Some(predefinito) = opzione.predefinito else {
                 continue;
             };
@@ -1610,20 +1617,23 @@ fn il_default_dichiarato_e_quello_applicato() {
                 continue;
             }
             provati += 1;
-            let estensione = extension(descriptor.id);
+            let estensione = extension(descriptor.id());
             let omesso = directory.path().join(format!(
                 "{}-{}-omesso.{estensione}",
-                descriptor.id, opzione.chiave
+                descriptor.id(),
+                opzione.chiave
             ));
             let esplicito = directory.path().join(format!(
                 "{}-{}-esplicito.{estensione}",
-                descriptor.id, opzione.chiave
+                descriptor.id(),
+                opzione.chiave
             ));
 
             scrive_con(&*driver, omesso.clone(), &opzioni_scrittura()).unwrap_or_else(|error| {
                 panic!(
                     "{}: scrittura senza '{}': {error}",
-                    descriptor.id, opzione.chiave
+                    descriptor.id(),
+                    opzione.chiave
                 )
             });
             scrive_con(
@@ -1634,7 +1644,8 @@ fn il_default_dichiarato_e_quello_applicato() {
             .unwrap_or_else(|error| {
                 panic!(
                     "{}: scrittura con '{}' = '{predefinito}': {error}",
-                    descriptor.id, opzione.chiave
+                    descriptor.id(),
+                    opzione.chiave
                 )
             });
 
@@ -1642,7 +1653,7 @@ fn il_default_dichiarato_e_quello_applicato() {
                 contratto_riletto(&*driver, &omesso),
                 contratto_riletto(&*driver, &esplicito),
                 "{}: omettere '{}' non equivale a dichiararlo '{predefinito}'",
-                descriptor.id,
+                descriptor.id(),
                 opzione.chiave
             );
         }

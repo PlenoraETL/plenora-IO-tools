@@ -72,26 +72,26 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("geojson", reason)
 }
 
-static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
-    id: "geojson",
-    direction: Direction::Bidirectional,
-    read_mode: ReadMode::StreamingSequential, // array `features` scorso in streaming
+static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
+    "geojson",
+    Direction::Bidirectional,
+    ReadMode::StreamingSequential, // array `features` scorso in streaming
     // INV-7: deserializer serde streaming direttamente nei builder.
-    native_read_mode: plenora_io_core::NativeReadMode::StreamingSequential,
+    plenora_io_core::NativeReadMode::StreamingSequential,
     // Il drenaggio e lo spool sono dell'adapter comune, non di
     // questo driver: `BudgetedReader` li impone a tutti.
-    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
-    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
-    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
-    write_mode: Some(WriteMode::Streaming), // feature-per-feature, niente buffering
-    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
-    multi_layer: false,
-    multi_file: false,
-    reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-    projection_support: plenora_io_core::ProjectionSupport::Exact,
-    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
-    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
-    crs_handling: CrsHandling::FixedWgs84,
+    plenora_io_core::DeliverySemantics::OperationAtomic,
+    plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
+    plenora_io_core::DeterminismLevel::Semantic,
+    Some(WriteMode::Streaming), // feature-per-feature, niente buffering
+    Some(plenora_io_core::DeterminismLevel::Semantic),
+    false,
+    false,
+    ReaderConcurrency::MultipleIndependentReaders,
+    plenora_io_core::ProjectionSupport::Exact,
+    plenora_io_core::PredicatePruningSupport::None,
+    plenora_io_core::SpatialPruningSupport::None,
+    CrsHandling::FixedWgs84,
     // Finding #8 review 2026-08-15: dichiarare `Lossless` staticamente non
     // riflette il comportamento reale del driver, che non conserva `id`,
     // `bbox` ne' foreign members al re-encode (writer a riga 1088+ emette
@@ -100,9 +100,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     // perdita osservata', non `Lossless`" — vale anche qui: il descrittore
     // dichiara la classe potenziale, il `LossReport` dichiara le perdite
     // osservate.
-    fidelity_class: Fidelity::Conditional,
-    runtime: Runtime::PureRust,
-    write_capabilities: Some(FormatWriteCapabilities {
+    Fidelity::Conditional,
+    Runtime::PureRust,
+    Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,
         type_coercion: TypeCoercionPolicy::Reject,
@@ -119,11 +119,11 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
-    format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-    semantic_version: 1,
-    driver_version: 6,
-    descriptor_version: 9,
-};
+    plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+    1,
+    6,
+    9,
+);
 
 pub struct GeoJsonDriver;
 
@@ -230,7 +230,10 @@ impl OpenDatasetHandle for GeoJsonDataset {
         &self.layers
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+        plenora_io_core::FidelityAssessment::for_format(
+            DESCRIPTOR.id(),
+            DESCRIPTOR.fidelity_class(),
+        )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
@@ -667,7 +670,7 @@ fn spawn_parser(
     layer: LayerContract,
 ) -> Result<Box<dyn LayerReader>> {
     let (path, quote) = sorgente;
-    spawn_batch_reader(DESCRIPTOR.id, layer, 2, move |emitter: BatchEmitter| {
+    spawn_batch_reader(DESCRIPTOR.id(), layer, 2, move |emitter: BatchEmitter| {
         let file = File::open(&path)?;
         let ncols = cols.len();
         let col_idx: HashMap<String, usize> = cols

@@ -758,8 +758,8 @@ pub fn preflight_source(
     // e' un parametro e non un campo delle opzioni perche' cosi' un driver che
     // salta la validazione non compila: la firma e' il vincolo.
     plenora_io_model::format_options::valida_opzioni(
-        descriptor.id,
-        descriptor.format_options,
+        descriptor.id(),
+        descriptor.format_options(),
         &opts.format_options,
         plenora_io_model::format_options::FaseOpzione::Lettura,
     )?;
@@ -866,8 +866,7 @@ pub fn with_write_validation(
     let cancellation = opts.cancellation().clone();
     let budget = opts.budget().clone();
     let geometry_support = descriptor
-        .write_capabilities
-        .as_ref()
+        .write_capabilities()
         .map(|capabilities| capabilities.geometry);
     let layers = geometry_contracts_for_validation(plan)?;
     let planned_loss = planned_write_loss(descriptor, plan);
@@ -892,7 +891,7 @@ pub fn with_write_validation(
     }
     Ok(Box::new(LimitedWriter {
         inner: writer,
-        driver: descriptor.id,
+        driver: descriptor.id(),
         limits,
         rows: 0,
         layer_rows: vec![0; plan.layers.len()],
@@ -909,7 +908,7 @@ pub fn with_write_validation(
         budget,
         _operation_lease: Some(operation_lease),
         geometry_validation: geometry_support.map(|support| GeometryValidation {
-            driver: descriptor.id,
+            driver: descriptor.id(),
             support,
             layers,
         }),
@@ -918,7 +917,7 @@ pub fn with_write_validation(
 
 fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossReport {
     let mut loss = LossReport::default();
-    let Some(capabilities) = descriptor.write_capabilities else {
+    let Some(capabilities) = descriptor.write_capabilities() else {
         return loss;
     };
 
@@ -972,8 +971,8 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                     capabilities.type_coercion,
                     TypeCoercionPolicy::ExplicitText | TypeCoercionPolicy::LossReported
                 );
-            let kml_scalar_to_text = descriptor.id == "kml" && type_class != ArrowTypeClass::Utf8;
-            let gpkg_type_normalization = descriptor.id == "gpkg"
+            let kml_scalar_to_text = descriptor.id() == "kml" && type_class != ArrowTypeClass::Utf8;
+            let gpkg_type_normalization = descriptor.id() == "gpkg"
                 && !matches!(
                     field.data_type(),
                     DataType::Int64 | DataType::Float64 | DataType::Utf8 | DataType::Binary
@@ -1020,8 +1019,9 @@ fn record_crs_representation_loss(
 }
 
 fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> FidelityAssessment {
-    let mut assessment = FidelityAssessment::for_format(descriptor.id, descriptor.fidelity_class);
-    let Some(capabilities) = descriptor.write_capabilities else {
+    let mut assessment =
+        FidelityAssessment::for_format(descriptor.id(), descriptor.fidelity_class());
+    let Some(capabilities) = descriptor.write_capabilities() else {
         return assessment;
     };
 
@@ -1071,7 +1071,7 @@ fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> Fid
             }
         }
 
-        if descriptor.id == "dxf"
+        if descriptor.id() == "dxf"
             && layer.contract.geometry.as_ref().is_some_and(|geometry| {
                 geometry.geometry_types.iter().any(|geometry_type| {
                     matches!(
@@ -1967,33 +1967,33 @@ mod tests {
     /// delle opzioni: schema vuoto e mappa vuota li lasciano invariati, e la
     /// validazione che `preflight_source` ora esegue non entra in mezzo.
     const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
-        crate::descriptor::FormatDescriptor {
-            id: "prova",
+        crate::descriptor::FormatDescriptor::const_new(
+            "prova",
+            crate::descriptor::Direction::Read,
+            crate::descriptor::ReadMode::StreamingSequential,
             // I tre assi di INV-7: il descrittore di prova dichiara la
             // combinazione che tutti i driver reali dichiarano.
-            native_read_mode: crate::descriptor::NativeReadMode::StreamingSequential,
-            effective_delivery: crate::descriptor::DeliverySemantics::OperationAtomic,
-            buffering: crate::descriptor::BufferingStrategy::AdaptiveMemoryThenDisk,
-            direction: crate::descriptor::Direction::Read,
-            read_mode: crate::descriptor::ReadMode::StreamingSequential,
-            read_determinism: crate::descriptor::DeterminismLevel::Semantic,
-            write_mode: None,
-            write_determinism: None,
-            multi_layer: false,
-            multi_file: false,
-            reader_concurrency: crate::descriptor::ReaderConcurrency::SingleActiveReader,
-            projection_support: crate::descriptor::ProjectionSupport::None,
-            predicate_pruning_support: crate::descriptor::PredicatePruningSupport::None,
-            spatial_pruning_support: crate::descriptor::SpatialPruningSupport::None,
-            crs_handling: crate::descriptor::CrsHandling::None,
-            fidelity_class: crate::descriptor::Fidelity::Lossless,
-            runtime: crate::descriptor::Runtime::PureRust,
-            write_capabilities: None,
-            format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-            semantic_version: 1,
-            driver_version: 1,
-            descriptor_version: 1,
-        };
+            crate::descriptor::NativeReadMode::StreamingSequential,
+            crate::descriptor::DeliverySemantics::OperationAtomic,
+            crate::descriptor::BufferingStrategy::AdaptiveMemoryThenDisk,
+            crate::descriptor::DeterminismLevel::Semantic,
+            None,
+            None,
+            false,
+            false,
+            crate::descriptor::ReaderConcurrency::SingleActiveReader,
+            crate::descriptor::ProjectionSupport::None,
+            crate::descriptor::PredicatePruningSupport::None,
+            crate::descriptor::SpatialPruningSupport::None,
+            crate::descriptor::CrsHandling::None,
+            crate::descriptor::Fidelity::Lossless,
+            crate::descriptor::Runtime::PureRust,
+            None,
+            plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+            1,
+            1,
+            1,
+        );
     use std::collections::HashMap;
     use std::io::Write;
     use std::sync::atomic::{AtomicBool, Ordering};

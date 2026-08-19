@@ -166,9 +166,9 @@ pub fn validate_read_projection(
 ) -> Result<()> {
     if request.projection_mode == ProjectionMode::Required
         && request.projected_fields.is_some()
-        && descriptor.projection_support != ProjectionSupport::Exact
+        && descriptor.projection_support() != ProjectionSupport::Exact
     {
-        return Err(PlenoraIoError::projection_unsupported(descriptor.id));
+        return Err(PlenoraIoError::projection_unsupported(descriptor.id()));
     }
     Ok(())
 }

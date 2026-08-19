@@ -474,10 +474,58 @@ pub enum SpatialPruningSupport {
     OptionalRtreeIndex,
 }
 
+/// Il descrittore di un driver: le sue capability, dichiarate.
+///
+/// # INV-14 — costruzione solo via [`FormatDescriptor::const_new`]
+///
+/// La struct e' `#[non_exhaustive]` e tutti i campi sono privati, quindi il
+/// literal non compila da fuori:
+///
+/// ```compile_fail
+/// use plenora_io_core::{Direction, FormatDescriptor, ReadMode};
+/// let _ = FormatDescriptor {
+///     id: "finto",
+///     direction: Direction::Read,
+///     read_mode: ReadMode::StreamingSequential,
+/// };
+/// ```
+///
+/// Nemmeno con l'aggiornamento funzionale, che `#[non_exhaustive]` vieta
+/// altrettanto:
+///
+/// ```compile_fail
+/// use plenora_io_core::FormatDescriptor;
+/// fn variante(base: &FormatDescriptor) -> FormatDescriptor {
+///     FormatDescriptor { id: "finto", ..base.clone() }
+/// }
+/// ```
+///
+/// E i campi non si leggono direttamente, solo con i getter:
+///
+/// ```compile_fail
+/// fn identita(descriptor: &plenora_io_core::FormatDescriptor) -> &'static str {
+///     descriptor.id
+/// }
+/// ```
+///
+/// Che invece con il getter compila:
+///
+/// ```
+/// fn identita(descriptor: &plenora_io_core::FormatDescriptor) -> &'static str {
+///     descriptor.id()
+/// }
+/// ```
+///
+/// Non e' una formalita'. Un campo aggiunto a `const_new` diventa un errore di
+/// compilazione in tutti e dieci i driver: chi lo aggiunge deve decidere il
+/// valore per ognuno, invece di lasciarne dieci al default di qualcun altro.
+/// I tre assi di INV-7 esistono perche' un descrittore che tace **e'** un
+/// descrittore che mente.
 #[derive(Clone, Debug, Serialize)]
+#[non_exhaustive]
 pub struct FormatDescriptor {
-    pub id: &'static str,
-    pub direction: Direction,
+    id: &'static str,
+    direction: Direction,
     /// **Legacy**, e preservato driver per driver, byte per byte.
     ///
     /// Conflava i tre assi di INV-7 in un valore solo, ed e' la ragione per
@@ -487,33 +535,33 @@ pub struct FormatDescriptor {
     /// consumatori senza aggiungere verita' — la divergenza fra i due **e'**
     /// l'informazione. `FileGDB` e' l'esempio: qui `Materializing`, nativamente
     /// una passata sola.
-    pub read_mode: ReadMode,
+    read_mode: ReadMode,
     /// Cosa fa il parser grezzo (INV-7).
-    pub native_read_mode: NativeReadMode,
+    native_read_mode: NativeReadMode,
     /// Cosa osserva il consumatore (INV-7).
-    pub effective_delivery: DeliverySemantics,
+    effective_delivery: DeliverySemantics,
     /// Come e' bounded la memoria interna (INV-7).
-    pub buffering: BufferingStrategy,
+    buffering: BufferingStrategy,
     /// Garanzia dell'operazione di lettura sul medesimo snapshot locale.
-    pub read_determinism: DeterminismLevel,
-    pub write_mode: Option<WriteMode>,
+    read_determinism: DeterminismLevel,
+    write_mode: Option<WriteMode>,
     /// Garanzia dell'operazione di scrittura; `None` per i driver read-only.
-    pub write_determinism: Option<DeterminismLevel>,
-    pub multi_layer: bool,
-    pub multi_file: bool,
+    write_determinism: Option<DeterminismLevel>,
+    multi_layer: bool,
+    multi_file: bool,
     /// Concorrenza dei reader ammessa dal formato (ADR-IO 1).
-    pub reader_concurrency: ReaderConcurrency,
+    reader_concurrency: ReaderConcurrency,
     /// Garanzia di projection applicabile al `ReadRequest` (ADR-IO 6).
-    pub projection_support: ProjectionSupport,
+    projection_support: ProjectionSupport,
     /// Pruning attributivo disponibile senza filtering riga-per-riga.
-    pub predicate_pruning_support: PredicatePruningSupport,
+    predicate_pruning_support: PredicatePruningSupport,
     /// Pruning spaziale nativo; può dipendere dal dataset aperto.
-    pub spatial_pruning_support: SpatialPruningSupport,
-    pub crs_handling: CrsHandling,
+    spatial_pruning_support: SpatialPruningSupport,
+    crs_handling: CrsHandling,
     /// Capacità generale di fedeltà; la valutazione per-contratto è in open/create.
-    pub fidelity_class: Fidelity,
-    pub runtime: Runtime,
-    pub write_capabilities: Option<FormatWriteCapabilities>,
+    fidelity_class: Fidelity,
+    runtime: Runtime,
+    write_capabilities: Option<FormatWriteCapabilities>,
     /// Le `format_options` che il driver interpreta (L0.7, S6).
     ///
     /// Il campo e' **obbligatorio**, e non `Option`: un driver che non
@@ -526,9 +574,210 @@ pub struct FormatDescriptor {
     /// di lasciare un buco che solo un test troverebbe. Il registry per il
     /// comando `options` si compone dall'elenco dei driver, che il core ha
     /// gia'.
-    pub format_options: plenora_io_model::format_options::SchemaOpzioniFormato,
+    format_options: plenora_io_model::format_options::SchemaOpzioniFormato,
     // Versioni esplicite: il fingerprint del catalogo deriva da queste (D17).
-    pub semantic_version: u32,
-    pub driver_version: u32,
-    pub descriptor_version: u32,
+    semantic_version: u32,
+    driver_version: u32,
+    descriptor_version: u32,
+}
+
+impl FormatDescriptor {
+    /// Costruttore `const` per i driver del workspace (INV-14).
+    ///
+    /// E' l'**unico** modo di costruire un descrittore da fuori: la struct e'
+    /// `#[non_exhaustive]` e i campi sono privati, quindi il literal non
+    /// compila piu'. Non e' una formalita': un campo aggiunto qui diventa un
+    /// errore di compilazione in tutti e dieci i driver, che e' esattamente
+    /// cio' che serve — un descrittore incompleto e' un descrittore che mente,
+    /// e i tre assi di INV-7 esistono perche' era gia' successo.
+    ///
+    /// Tutti i parametri sono obbligatori, `read_mode` compreso. **Non c'e'
+    /// nessun mapping automatico** da `native_read_mode`: i due divergono in
+    /// sette driver su dieci, e derivare l'uno dall'altro cancellerebbe proprio
+    /// l'informazione per cui lo split e' stato fatto.
+    #[must_use]
+    #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
+    pub const fn const_new(
+        id: &'static str,
+        direction: Direction,
+        read_mode: ReadMode,
+        native_read_mode: NativeReadMode,
+        effective_delivery: DeliverySemantics,
+        buffering: BufferingStrategy,
+        read_determinism: DeterminismLevel,
+        write_mode: Option<WriteMode>,
+        write_determinism: Option<DeterminismLevel>,
+        multi_layer: bool,
+        multi_file: bool,
+        reader_concurrency: ReaderConcurrency,
+        projection_support: ProjectionSupport,
+        predicate_pruning_support: PredicatePruningSupport,
+        spatial_pruning_support: SpatialPruningSupport,
+        crs_handling: CrsHandling,
+        fidelity_class: Fidelity,
+        runtime: Runtime,
+        write_capabilities: Option<FormatWriteCapabilities>,
+        format_options: plenora_io_model::format_options::SchemaOpzioniFormato,
+        semantic_version: u32,
+        driver_version: u32,
+        descriptor_version: u32,
+    ) -> Self {
+        Self {
+            id,
+            direction,
+            read_mode,
+            native_read_mode,
+            effective_delivery,
+            buffering,
+            read_determinism,
+            write_mode,
+            write_determinism,
+            multi_layer,
+            multi_file,
+            reader_concurrency,
+            projection_support,
+            predicate_pruning_support,
+            spatial_pruning_support,
+            crs_handling,
+            fidelity_class,
+            runtime,
+            write_capabilities,
+            format_options,
+            semantic_version,
+            driver_version,
+            descriptor_version,
+        }
+    }
+
+    /// Un descrittore uguale a questo, con altre capability di scrittura.
+    ///
+    /// **Solo per i test del crate.** I campi sono privati per INV-14, e i test
+    /// delle capability costruiscono varianti di uno stesso descrittore
+    /// cambiando un campo solo. L'alternativa sarebbe riesporre il campo —
+    /// cioe' togliere l'invariante per comodita' di un test, che e' il modo in
+    /// cui un'invariante smette di valere.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn con_write_capabilities(
+        mut self,
+        write_capabilities: Option<FormatWriteCapabilities>,
+    ) -> Self {
+        self.write_capabilities = write_capabilities;
+        self
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> &'static str {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn direction(&self) -> Direction {
+        self.direction
+    }
+
+    #[must_use]
+    pub const fn read_mode(&self) -> ReadMode {
+        self.read_mode
+    }
+
+    #[must_use]
+    pub const fn native_read_mode(&self) -> NativeReadMode {
+        self.native_read_mode
+    }
+
+    #[must_use]
+    pub const fn effective_delivery(&self) -> DeliverySemantics {
+        self.effective_delivery
+    }
+
+    #[must_use]
+    pub const fn buffering(&self) -> BufferingStrategy {
+        self.buffering
+    }
+
+    #[must_use]
+    pub const fn read_determinism(&self) -> DeterminismLevel {
+        self.read_determinism
+    }
+
+    #[must_use]
+    pub const fn write_mode(&self) -> Option<WriteMode> {
+        self.write_mode
+    }
+
+    #[must_use]
+    pub const fn write_determinism(&self) -> Option<DeterminismLevel> {
+        self.write_determinism
+    }
+
+    #[must_use]
+    pub const fn multi_layer(&self) -> bool {
+        self.multi_layer
+    }
+
+    #[must_use]
+    pub const fn multi_file(&self) -> bool {
+        self.multi_file
+    }
+
+    #[must_use]
+    pub const fn reader_concurrency(&self) -> ReaderConcurrency {
+        self.reader_concurrency
+    }
+
+    #[must_use]
+    pub const fn projection_support(&self) -> ProjectionSupport {
+        self.projection_support
+    }
+
+    #[must_use]
+    pub const fn predicate_pruning_support(&self) -> PredicatePruningSupport {
+        self.predicate_pruning_support
+    }
+
+    #[must_use]
+    pub const fn spatial_pruning_support(&self) -> SpatialPruningSupport {
+        self.spatial_pruning_support
+    }
+
+    #[must_use]
+    pub const fn crs_handling(&self) -> CrsHandling {
+        self.crs_handling
+    }
+
+    #[must_use]
+    pub const fn fidelity_class(&self) -> Fidelity {
+        self.fidelity_class
+    }
+
+    #[must_use]
+    pub const fn runtime(&self) -> Runtime {
+        self.runtime
+    }
+
+    #[must_use]
+    pub const fn write_capabilities(&self) -> Option<FormatWriteCapabilities> {
+        self.write_capabilities
+    }
+
+    #[must_use]
+    pub const fn format_options(&self) -> plenora_io_model::format_options::SchemaOpzioniFormato {
+        self.format_options
+    }
+
+    #[must_use]
+    pub const fn semantic_version(&self) -> u32 {
+        self.semantic_version
+    }
+
+    #[must_use]
+    pub const fn driver_version(&self) -> u32 {
+        self.driver_version
+    }
+
+    #[must_use]
+    pub const fn descriptor_version(&self) -> u32 {
+        self.descriptor_version
+    }
 }

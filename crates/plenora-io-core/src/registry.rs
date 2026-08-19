@@ -21,7 +21,7 @@ impl DriverRegistry {
     #[must_use]
     pub fn descriptors(&self) -> Vec<&FormatDescriptor> {
         let mut descriptors: Vec<_> = self.drivers.iter().map(|d| d.descriptor()).collect();
-        descriptors.sort_unstable_by_key(|descriptor| descriptor.id);
+        descriptors.sort_unstable_by_key(|descriptor| descriptor.id());
         descriptors
     }
 
@@ -44,7 +44,7 @@ impl DriverRegistry {
     )> {
         self.descriptors()
             .into_iter()
-            .map(|descriptor| (descriptor.id, descriptor.format_options))
+            .map(|descriptor| (descriptor.id(), descriptor.format_options()))
             .collect()
     }
 
@@ -52,7 +52,7 @@ impl DriverRegistry {
     pub fn by_id(&self, id: &str) -> Option<&dyn FormatDriver> {
         self.drivers
             .iter()
-            .find(|d| d.descriptor().id == id)
+            .find(|d| d.descriptor().id() == id)
             .map(std::convert::AsRef::as_ref)
     }
 }

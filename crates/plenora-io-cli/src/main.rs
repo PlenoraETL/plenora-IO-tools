@@ -466,7 +466,7 @@ fn catalog_document(filegdb_available: bool) -> Value {
         .into_iter()
         .map(|descriptor| {
             let mut document = serde_json::to_value(descriptor).unwrap_or(Value::Null);
-            let is_filegdb = descriptor.id == "filegdb";
+            let is_filegdb = descriptor.id() == "filegdb";
             if let Some(fields) = document.as_object_mut() {
                 fields.insert(
                     "available".to_owned(),
@@ -552,7 +552,7 @@ fn cmd_layers(cli: &Cli) -> CliResult {
         "status": "ok",
         "protocol_version": 1,
         "contract": "plenora-io-layers-v1",
-        "format": driver.descriptor().id,
+        "format": driver.descriptor().id(),
         "fidelity": fidelity,
         "layers": layers,
     }))
@@ -613,7 +613,7 @@ fn cmd_read(cli: &Cli) -> CliResult {
         "status": "ok",
         "protocol_version": 1,
         "contract": "plenora-io-read-v1",
-        "format": driver.descriptor().id,
+        "format": driver.descriptor().id(),
         "fidelity": fidelity,
         "layer": layer_json(&contract),
         "rows_read": rows,
@@ -672,7 +672,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         None => all,
     };
     // Multi-layer verso destinazione single-layer: vietato (fail-closed).
-    if selected.len() > 1 && !dst.descriptor().multi_layer {
+    if selected.len() > 1 && !dst.descriptor().multi_layer() {
         return Err((
             4,
             local_err_doc(
@@ -682,7 +682,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
                 format!(
                     "sorgente con {} layer ma '{}' è single-layer: usa --layer N per sceglierne uno",
                     selected.len(),
-                    dst.descriptor().id
+                    dst.descriptor().id()
                 ),
             ),
         ));
@@ -770,8 +770,8 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         "status": "ok",
         "protocol_version": 1,
         "contract": "plenora-io-convert-v1",
-        "from": src.descriptor().id,
-        "to": dst.descriptor().id,
+        "from": src.descriptor().id(),
+        "to": dst.descriptor().id(),
         "layers": layer_reports,
         "total_rows": total_rows,
         "bytes_written": published.bytes,
@@ -1909,28 +1909,28 @@ mod tests {
             driver_for_path(Path::new("x.geojson"))
                 .unwrap()
                 .descriptor()
-                .id,
+                .id(),
             "geojson"
         );
         assert_eq!(
             driver_for_path(Path::new("x.gpkg"))
                 .unwrap()
                 .descriptor()
-                .id,
+                .id(),
             "gpkg"
         );
         assert_eq!(
             driver_for_path(Path::new("x.parquet"))
                 .unwrap()
                 .descriptor()
-                .id,
+                .id(),
             "geoparquet"
         );
         assert_eq!(
             driver_for_path(Path::new("x.shp.d"))
                 .unwrap()
                 .descriptor()
-                .id,
+                .id(),
             "shp"
         );
         assert!(driver_for_path(Path::new("x.zzz")).is_err());

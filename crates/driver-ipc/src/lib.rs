@@ -49,29 +49,29 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
     PlenoraIoError::format("ipc", reason)
 }
 
-static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
-    id: "ipc",
-    direction: Direction::Bidirectional,
-    read_mode: ReadMode::StreamingSequential,
+static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
+    "ipc",
+    Direction::Bidirectional,
+    ReadMode::StreamingSequential,
     // INV-7: footer IPC con gli offset dei blocchi.
-    native_read_mode: plenora_io_core::NativeReadMode::StreamingRandom,
+    plenora_io_core::NativeReadMode::StreamingRandom,
     // Il drenaggio e lo spool sono dell'adapter comune, non di
     // questo driver: `BudgetedReader` li impone a tutti.
-    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
-    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
-    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
-    write_mode: Some(WriteMode::Streaming),
-    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
-    multi_layer: false,
-    multi_file: false,
-    reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-    projection_support: plenora_io_core::ProjectionSupport::Exact,
-    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
-    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
-    crs_handling: CrsHandling::Embedded, // il CRS viaggia nei metadati del campo
-    fidelity_class: Fidelity::Lossless,
-    runtime: Runtime::PureRust,
-    write_capabilities: Some(FormatWriteCapabilities {
+    plenora_io_core::DeliverySemantics::OperationAtomic,
+    plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
+    plenora_io_core::DeterminismLevel::Semantic,
+    Some(WriteMode::Streaming),
+    Some(plenora_io_core::DeterminismLevel::Semantic),
+    false,
+    false,
+    ReaderConcurrency::MultipleIndependentReaders,
+    plenora_io_core::ProjectionSupport::Exact,
+    plenora_io_core::PredicatePruningSupport::None,
+    plenora_io_core::SpatialPruningSupport::None,
+    CrsHandling::Embedded, // il CRS viaggia nei metadati del campo
+    Fidelity::Lossless,
+    Runtime::PureRust,
+    Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: ALL_ARROW_TYPES,
         type_coercion: TypeCoercionPolicy::Reject,
@@ -88,11 +88,11 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
-    format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-    semantic_version: 1,
-    driver_version: 3,
-    descriptor_version: 9,
-};
+    plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+    1,
+    3,
+    9,
+);
 
 pub struct IpcDriver;
 
@@ -264,7 +264,10 @@ impl OpenDatasetHandle for IpcDataset {
         &self.layers
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
+        plenora_io_core::FidelityAssessment::for_format(
+            DESCRIPTOR.id(),
+            DESCRIPTOR.fidelity_class(),
+        )
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;

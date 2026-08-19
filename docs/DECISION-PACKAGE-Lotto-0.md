@@ -2402,6 +2402,26 @@ registrate nell'errata di
 [`DESIGN-S6-format-options-schema.md`](DESIGN-S6-format-options-schema.md) e
 in [`CHANGE_IMPACT_2026-08-18_S6_FORMAT_OPTIONS_SCHEMA.md`](assurance/CHANGE_IMPACT_2026-08-18_S6_FORMAT_OPTIONS_SCHEMA.md).
 
+#### Errata S8.1 — un'eccezione dichiarata a «tutti i campi privati»
+
+INV-14 prevede «tutti i campi privati; accesso solo via getter». Resta vero
+verso l'esterno: la struct e' `#[non_exhaustive]`, i campi sono privati, e il
+literal non compila — c'e' un compile test che lo prova in quattro casi,
+incluso quello positivo col getter.
+
+Dentro il crate c'e' **una** eccezione: `con_write_capabilities`, `#[cfg(test)]`
+e `pub(crate)`, che restituisce un descrittore **nuovo** con altre capability di
+scrittura. Serve ai test delle capability, che costruiscono varianti di uno
+stesso descrittore cambiando un campo solo. L'alternativa era riesporre il
+campo, cioe' togliere l'invariante per comodita' di un test — il modo in cui
+un'invariante smette di valere. Un costruttore test-only che restituisce un
+valore nuovo non permette la mutazione che l'invariante vieta.
+
+`descriptor_version` **non** viene bumpato da S8.1: il catalogo prodotto dopo la
+migrazione e' identico byte per byte a quello di S8, verificato con un diff.
+La versione traccia lo schema del catalogo, e bumparla per una modifica
+invisibile direbbe ai consumatori di guardare qualcosa che non e' successo.
+
 #### Errata S8 — due correzioni a INV-7, trovate implementandolo
 
 **1. `Materialized` non significa «carica tutto in RAM».**

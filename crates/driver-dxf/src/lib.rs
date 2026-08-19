@@ -186,29 +186,29 @@ fn embed_dxf_crs(drawing: &mut Drawing, geometry: &GeometryColumnContract) -> Re
     Ok(())
 }
 
-static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
-    id: "dxf",
-    direction: Direction::Bidirectional,
-    read_mode: ReadMode::StreamingSequential,
+static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
+    "dxf",
+    Direction::Bidirectional,
+    ReadMode::StreamingSequential,
     // INV-7: il parser riversa l'intera sorgente in uno spool all'apertura.
-    native_read_mode: plenora_io_core::NativeReadMode::Materialized,
+    plenora_io_core::NativeReadMode::Materialized,
     // Il drenaggio e lo spool sono dell'adapter comune, non di
     // questo driver: `BudgetedReader` li impone a tutti.
-    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
-    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
-    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
-    write_mode: Some(WriteMode::Buffered),
-    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
-    multi_layer: false,
-    multi_file: false,
-    reader_concurrency: ReaderConcurrency::SingleActiveReader,
-    projection_support: plenora_io_core::ProjectionSupport::None,
-    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
-    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
-    crs_handling: CrsHandling::Embedded,
-    fidelity_class: Fidelity::Approximating,
-    runtime: Runtime::PureRust,
-    write_capabilities: Some(FormatWriteCapabilities {
+    plenora_io_core::DeliverySemantics::OperationAtomic,
+    plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
+    plenora_io_core::DeterminismLevel::Semantic,
+    Some(WriteMode::Buffered),
+    Some(plenora_io_core::DeterminismLevel::Semantic),
+    false,
+    false,
+    ReaderConcurrency::SingleActiveReader,
+    plenora_io_core::ProjectionSupport::None,
+    plenora_io_core::PredicatePruningSupport::None,
+    plenora_io_core::SpatialPruningSupport::None,
+    CrsHandling::Embedded,
+    Fidelity::Approximating,
+    Runtime::PureRust,
+    Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,
         type_coercion: TypeCoercionPolicy::LossReported,
@@ -225,11 +225,11 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
-    format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-    semantic_version: 1,
-    driver_version: 5,
-    descriptor_version: 9,
-};
+    plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+    1,
+    5,
+    9,
+);
 
 pub struct DxfDriver;
 
@@ -300,7 +300,7 @@ impl FormatDriver for DxfDriver {
                 rows: walker.emitted_rows,
                 wkb_limits: opts.wkb_limits(),
                 loss,
-                reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
+                reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
             }),
             &opts,
             false,
@@ -1225,8 +1225,11 @@ impl OpenDatasetHandle for DxfDataset {
         &self.layers
     }
     fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
-        plenora_io_core::FidelityAssessment::for_format(DESCRIPTOR.id, DESCRIPTOR.fidelity_class)
-            .with_loss_report(&self.loss)
+        plenora_io_core::FidelityAssessment::for_format(
+            DESCRIPTOR.id(),
+            DESCRIPTOR.fidelity_class(),
+        )
+        .with_loss_report(&self.loss)
     }
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;

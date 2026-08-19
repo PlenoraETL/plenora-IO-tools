@@ -46,29 +46,29 @@ const FILEGDB_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     mixed_types: false,
 };
 
-static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
-    id: "filegdb",
-    direction: Direction::Bidirectional,
-    read_mode: ReadMode::Materializing,
+static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
+    "filegdb",
+    Direction::Bidirectional,
+    ReadMode::Materializing,
     // INV-7: `for feature in layer.features()`, iteratore GDAL in avanti.
-    native_read_mode: plenora_io_core::NativeReadMode::StreamingSequential,
+    plenora_io_core::NativeReadMode::StreamingSequential,
     // Il drenaggio e lo spool sono dell'adapter comune, non di
     // questo driver: `BudgetedReader` li impone a tutti.
-    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
-    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
-    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
-    write_mode: Some(WriteMode::Streaming),
-    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
-    multi_layer: true,
-    multi_file: true, // una .gdb è una directory
-    reader_concurrency: ReaderConcurrency::SingleActiveReader,
-    projection_support: plenora_io_core::ProjectionSupport::Exact,
-    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
-    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::None,
-    crs_handling: CrsHandling::Embedded,
-    fidelity_class: Fidelity::Conditional,
-    runtime: Runtime::Gdal,
-    write_capabilities: Some(FormatWriteCapabilities {
+    plenora_io_core::DeliverySemantics::OperationAtomic,
+    plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
+    plenora_io_core::DeterminismLevel::Semantic,
+    Some(WriteMode::Streaming),
+    Some(plenora_io_core::DeterminismLevel::Semantic),
+    true,
+    true, // una .gdb è una directory
+    ReaderConcurrency::SingleActiveReader,
+    plenora_io_core::ProjectionSupport::Exact,
+    plenora_io_core::PredicatePruningSupport::None,
+    plenora_io_core::SpatialPruningSupport::None,
+    CrsHandling::Embedded,
+    Fidelity::Conditional,
+    Runtime::Gdal,
+    Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: FILEGDB_ATTRIBUTE_TYPES,
         type_coercion: TypeCoercionPolicy::Reject,
@@ -85,11 +85,11 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
-    format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-    semantic_version: 1,
-    driver_version: 10,
-    descriptor_version: 11,
-};
+    plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+    1,
+    10,
+    11,
+);
 
 pub struct FileGdbDriver;
 
@@ -1135,7 +1135,7 @@ mod backend {
             path: path.to_owned(),
             layers,
             metas,
-            reader_gate: SingleReaderGate::new(DESCRIPTOR.id),
+            reader_gate: SingleReaderGate::new(DESCRIPTOR.id()),
         }))
     }
 
@@ -1192,8 +1192,8 @@ mod backend {
         }
         fn fidelity_assessment(&self) -> plenora_io_core::FidelityAssessment {
             plenora_io_core::FidelityAssessment::for_format(
-                DESCRIPTOR.id,
-                DESCRIPTOR.fidelity_class,
+                DESCRIPTOR.id(),
+                DESCRIPTOR.fidelity_class(),
             )
         }
         fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
@@ -1259,102 +1259,107 @@ mod backend {
         mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
         contract: LayerContract,
     ) -> Result<Box<dyn LayerReader>> {
-        spawn_batch_reader(DESCRIPTOR.id, contract, 2, move |emitter: BatchEmitter| {
-            let ds =
-                Dataset::open(&path).map_err(|error| err(format!("apertura FileGDB: {error}")))?;
-            let mut layer = ds
-                .layer(gdal_idx)
-                .map_err(|error| err(format!("apertura layer FileGDB: {error}")))?;
-            // Il worker riapre il dataset: prima di usare gli indici OGR
-            // pre-risolti verifica che nessun processo abbia cambiato lo
-            // schema fra `open` e l'avvio della lettura. Un mismatch fallisce
-            // chiuso invece di convertire silenziosamente il campo sbagliato.
-            let actual_fields: Vec<_> = layer
-                .defn()
-                .fields()
-                .map(|field| (field.name(), field.field_type()))
-                .collect();
-            for field in &fields {
-                let index = usize::try_from(field.ogr_index)
-                    .map_err(|_| err(format!("indice OGR {} negativo", field.ogr_index)))?;
-                let actual = actual_fields.get(index);
-                if !matches!(
-                    actual,
-                    Some((name, ogr_type))
-                        if name == &field.name && *ogr_type == field.ogr_type
-                ) {
-                    return Err(err(format!(
-                        "schema FileGDB cambiato fra apertura e lettura al campo '{}'",
-                        field.name
-                    )));
-                }
-            }
-            let selected_fields = fields
-                .iter()
-                .map(|field| usize::try_from(field.ogr_index))
-                .collect::<std::result::Result<HashSet<_>, _>>()
-                .map_err(|_| err("indice OGR negativo nella projection FileGDB"))?;
-            let mut ignored_fields = actual_fields
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| !selected_fields.contains(index))
-                .map(|(_, (name, _))| name.as_str())
-                .collect::<Vec<_>>();
-            if !include_geometry {
-                ignored_fields.push("OGR_GEOMETRY");
-            }
-            layer.set_ignored_fields(&ignored_fields).map_err(|error| {
-                err(format!(
-                    "projection fisica FileGDB non applicabile: {error}"
-                ))
-            })?;
-            let mut geom = include_geometry.then(BinaryBuilder::new);
-            let mut builders: Vec<ReadCol> = fields
-                .iter()
-                .map(|field| ReadCol::new(&field.data_type))
-                .collect();
-            let mut n = 0usize;
-            for feature in layer.features() {
-                if let Some(builder) = &mut geom {
-                    match feature.geometry_by_index(0) {
-                        Ok(geometry) => {
-                            let bytes = geometry.wkb().map_err(|error| {
-                                err(format!("conversione geometria FileGDB in WKB: {error}"))
-                            })?;
-                            builder.append_value(&bytes);
-                        }
-                        Err(GdalError::NullPointer {
-                            method_name: "OGR_F_GetGeomFieldRef",
-                            ..
-                        }) => {
-                            builder.append_null();
-                        }
-                        Err(error) => {
-                            return Err(err(format!("lettura geometria FileGDB: {error}")))
-                        }
+        spawn_batch_reader(
+            DESCRIPTOR.id(),
+            contract,
+            2,
+            move |emitter: BatchEmitter| {
+                let ds = Dataset::open(&path)
+                    .map_err(|error| err(format!("apertura FileGDB: {error}")))?;
+                let mut layer = ds
+                    .layer(gdal_idx)
+                    .map_err(|error| err(format!("apertura layer FileGDB: {error}")))?;
+                // Il worker riapre il dataset: prima di usare gli indici OGR
+                // pre-risolti verifica che nessun processo abbia cambiato lo
+                // schema fra `open` e l'avvio della lettura. Un mismatch fallisce
+                // chiuso invece di convertire silenziosamente il campo sbagliato.
+                let actual_fields: Vec<_> = layer
+                    .defn()
+                    .fields()
+                    .map(|field| (field.name(), field.field_type()))
+                    .collect();
+                for field in &fields {
+                    let index = usize::try_from(field.ogr_index)
+                        .map_err(|_| err(format!("indice OGR {} negativo", field.ogr_index)))?;
+                    let actual = actual_fields.get(index);
+                    if !matches!(
+                        actual,
+                        Some((name, ogr_type))
+                            if name == &field.name && *ogr_type == field.ogr_type
+                    ) {
+                        return Err(err(format!(
+                            "schema FileGDB cambiato fra apertura e lettura al campo '{}'",
+                            field.name
+                        )));
                     }
                 }
-                for (builder, field) in builders.iter_mut().zip(&fields) {
-                    builder.append_feature(&feature, field)?;
+                let selected_fields = fields
+                    .iter()
+                    .map(|field| usize::try_from(field.ogr_index))
+                    .collect::<std::result::Result<HashSet<_>, _>>()
+                    .map_err(|_| err("indice OGR negativo nella projection FileGDB"))?;
+                let mut ignored_fields = actual_fields
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| !selected_fields.contains(index))
+                    .map(|(_, (name, _))| name.as_str())
+                    .collect::<Vec<_>>();
+                if !include_geometry {
+                    ignored_fields.push("OGR_GEOMETRY");
                 }
-                n += 1;
-                if n >= batch_sizer.rows() {
+                layer.set_ignored_fields(&ignored_fields).map_err(|error| {
+                    err(format!(
+                        "projection fisica FileGDB non applicabile: {error}"
+                    ))
+                })?;
+                let mut geom = include_geometry.then(BinaryBuilder::new);
+                let mut builders: Vec<ReadCol> = fields
+                    .iter()
+                    .map(|field| ReadCol::new(&field.data_type))
+                    .collect();
+                let mut n = 0usize;
+                for feature in layer.features() {
+                    if let Some(builder) = &mut geom {
+                        match feature.geometry_by_index(0) {
+                            Ok(geometry) => {
+                                let bytes = geometry.wkb().map_err(|error| {
+                                    err(format!("conversione geometria FileGDB in WKB: {error}"))
+                                })?;
+                                builder.append_value(&bytes);
+                            }
+                            Err(GdalError::NullPointer {
+                                method_name: "OGR_F_GetGeomFieldRef",
+                                ..
+                            }) => {
+                                builder.append_null();
+                            }
+                            Err(error) => {
+                                return Err(err(format!("lettura geometria FileGDB: {error}")))
+                            }
+                        }
+                    }
+                    for (builder, field) in builders.iter_mut().zip(&fields) {
+                        builder.append_feature(&feature, field)?;
+                    }
+                    n += 1;
+                    if n >= batch_sizer.rows() {
+                        let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
+                        batch_sizer.observe(&batch);
+                        if !emitter.send(batch) {
+                            return Ok(());
+                        }
+                        n = 0;
+                    }
+                }
+                if n > 0 {
                     let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
-                    batch_sizer.observe(&batch);
                     if !emitter.send(batch) {
                         return Ok(());
                     }
-                    n = 0;
                 }
-            }
-            if n > 0 {
-                let batch = finish_read_batch(&schema, &mut geom, &mut builders, n)?;
-                if !emitter.send(batch) {
-                    return Ok(());
-                }
-            }
-            Ok(())
-        })
+                Ok(())
+            },
+        )
     }
 
     fn finish_read_batch(

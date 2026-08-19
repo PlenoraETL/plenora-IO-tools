@@ -132,29 +132,29 @@ const GPKG_ATTRIBUTE_TYPES: &[ArrowTypeClass] = &[
     ArrowTypeClass::Binary,
 ];
 
-static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
-    id: "gpkg",
-    direction: Direction::Bidirectional,
-    read_mode: ReadMode::StreamingSequential, // pagine keyset, O(batch)
+static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
+    "gpkg",
+    Direction::Bidirectional,
+    ReadMode::StreamingSequential, // pagine keyset, O(batch)
     // INV-7: cursore keyset su rowid.
-    native_read_mode: plenora_io_core::NativeReadMode::StreamingRandom,
+    plenora_io_core::NativeReadMode::StreamingRandom,
     // Il drenaggio e lo spool sono dell'adapter comune, non di
     // questo driver: `BudgetedReader` li impone a tutti.
-    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
-    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
-    read_determinism: plenora_io_core::DeterminismLevel::Semantic,
-    write_mode: Some(WriteMode::Streaming), // per batch, in transazione
-    write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
-    multi_layer: true,
-    multi_file: false,
-    reader_concurrency: ReaderConcurrency::MultipleIndependentReaders,
-    projection_support: plenora_io_core::ProjectionSupport::Exact,
-    predicate_pruning_support: plenora_io_core::PredicatePruningSupport::None,
-    spatial_pruning_support: plenora_io_core::SpatialPruningSupport::OptionalRtreeIndex,
-    crs_handling: CrsHandling::Embedded,
-    fidelity_class: Fidelity::Conditional,
-    runtime: Runtime::PureRust,
-    write_capabilities: Some(FormatWriteCapabilities {
+    plenora_io_core::DeliverySemantics::OperationAtomic,
+    plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
+    plenora_io_core::DeterminismLevel::Semantic,
+    Some(WriteMode::Streaming), // per batch, in transazione
+    Some(plenora_io_core::DeterminismLevel::Semantic),
+    true,
+    false,
+    ReaderConcurrency::MultipleIndependentReaders,
+    plenora_io_core::ProjectionSupport::Exact,
+    plenora_io_core::PredicatePruningSupport::None,
+    plenora_io_core::SpatialPruningSupport::OptionalRtreeIndex,
+    CrsHandling::Embedded,
+    Fidelity::Conditional,
+    Runtime::PureRust,
+    Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: GPKG_ATTRIBUTE_TYPES,
         type_coercion: TypeCoercionPolicy::Reject,
@@ -171,11 +171,11 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     }),
     // Il driver non interpreta alcuna format_option (L0.7): l'elenco vuoto
     // e' l'affermazione che qualunque chiave e' sconosciuta, non un'omissione.
-    format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
-    semantic_version: 1,
-    driver_version: 6,
-    descriptor_version: 9,
-};
+    plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+    1,
+    6,
+    9,
+);
 
 pub struct GpkgDriver;
 
@@ -378,8 +378,8 @@ impl OpenDatasetHandle for GpkgDataset {
         // dalla colonna. La valutazione resta preventiva; le occorrenze reali
         // finiscono nel `LossReport` del reader.
         let mut assessment = plenora_io_core::FidelityAssessment::for_format(
-            DESCRIPTOR.id,
-            DESCRIPTOR.fidelity_class,
+            DESCRIPTOR.id(),
+            DESCRIPTOR.fidelity_class(),
         );
         assessment.add_reason(
             FidelityReasonCode::TypeCoercion,
