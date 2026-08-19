@@ -963,6 +963,7 @@ fn matrice_di_handoff() -> Value {
             {
                 "v1": null, "next": "provider",
                 "da": "PlenoraIoError::driver",
+                "stato": "da decidere",
                 "nota": "il driver esiste nel tipo Rust ma **non e' emesso** da v1: e' un campo nuovo per la destinazione, non una rinomina"
             },
             {
@@ -973,7 +974,17 @@ fn matrice_di_handoff() -> Value {
         ],
         "vocabolari": {
             "code": codici
-        }
+        },
+        "domande_aperte": [
+            {
+                "id": "driver-e-un-provider",
+                "campo": "provider",
+                "domanda": "un driver di formato IO e' davvero un `provider`, oppure appartiene a un `details` component-owned come `format_id`?",
+                "contesto": "«provider» suggerisce un servizio o un backend remoto; qui e' il formato del file — csv, geoparquet, shapefile — scelto dal chiamante e senza effetto remoto. Se la destinazione intende `provider` nel primo senso, `details.format_id` descrive meglio cio' che il valore e'.",
+                "bloccante_per_s9": false,
+                "nota": "S9 prosegue senza attendere: la mappatura e' preparata, la conformita' non e' dichiarata, e il DTO e' l unico punto che dovra' cambiare quando la risposta arrivera'."
+            }
+        ]
     })
 }
 

@@ -948,13 +948,19 @@ mod tests {
         );
     }
 
-    /// Il contesto è semantico: non conosce nessun nome del wire.
+    /// Tripwire sull'indipendenza dal wire — **non** la sua prova principale.
     ///
-    /// Il test guarda il `Debug`, che è l'unica finestra sulla struttura, e
-    /// verifica che non contenga i nomi del contratto di destinazione. Se un
-    /// giorno qualcuno chiamasse un campo `provider` per comodità del DTO, il
-    /// tipo semantico diventerebbe una copia del wire e cambierebbe ogni volta
-    /// che il wire cambia.
+    /// Le garanzie vere sono tre, e nessuna è questo test: i campi sono privati
+    /// con costruttori controllati, il tipo **non implementa `Serialize`**, e la
+    /// traduzione verso il wire vive in un DTO separato. Sono proprietà del
+    /// tipo e del grafo dei moduli, verificate dal compilatore.
+    ///
+    /// Questo test guarda il `Debug` e cerca i nomi del contratto di
+    /// destinazione. È un allarme a buon mercato per un caso specifico — un
+    /// campo rinominato `provider` per comodità del DTO — e vale quanto un
+    /// allarme: non dimostra l'indipendenza, segnala un modo particolare di
+    /// perderla. Attribuirgli più forza sarebbe descrivere male ciò che
+    /// protegge il tipo.
     #[test]
     fn il_contesto_non_conosce_i_nomi_del_wire() {
         let contesto = ErrorContext::nuovo()
