@@ -1,0 +1,94 @@
+{
+  "campi": [
+    {
+      "next": "category",
+      "nota": "asse stabile: e' con questi quattro che si correlano gli errori",
+      "v1": "error.category"
+    },
+    {
+      "next": "phase",
+      "nota": "asse stabile",
+      "v1": "error.phase"
+    },
+    {
+      "next": "code",
+      "nota": "asse stabile; vocabolario chiuso, sotto `vocabolari.code`",
+      "v1": "error.code"
+    },
+    {
+      "next": "retry",
+      "nota": "asse stabile",
+      "v1": "error.retry"
+    },
+    {
+      "next": "remote_effect",
+      "nota": "invariato",
+      "v1": "error.remote_effect"
+    },
+    {
+      "next": "message",
+      "nota": "testo curato, deterministico, <= 2048 byte. **Non** e' un identificatore: il testo cambia con S9 e cambiera' ancora",
+      "v1": "error.message"
+    },
+    {
+      "next": "details.row_diagnostics",
+      "nota": "scende di un livello; contratto interno invariato",
+      "v1": "error.row_diagnostics"
+    },
+    {
+      "da": "PlenoraIoError::driver",
+      "next": "provider",
+      "nota": "il driver esiste nel tipo Rust ma **non e' emesso** da v1: e' un campo nuovo per la destinazione, non una rinomina",
+      "v1": null
+    },
+    {
+      "da": "PlenoraIoError::field, capability_reason",
+      "next": "details",
+      "nota": "il contesto strutturato non e' emesso da v1; confluisce in `details` nella destinazione",
+      "v1": null
+    }
+  ],
+  "contract": "plenora-io-handoff-v1",
+  "destinazione": {
+    "contract": "plenora-error-v1",
+    "nota": "l'adozione e' uno step breaking separato dopo S9, insieme a CLI v2, exit code e capabilities",
+    "stato": "mappatura preparata, conformita' NON dichiarata"
+  },
+  "generato_da": "plenora-io-cli, test la_matrice_di_handoff_e_aggiornata",
+  "sorgente": {
+    "contract": "plenora-io-error-v1",
+    "protocol_version": 1,
+    "stato": "invariato da S9: struttura, ordine e tipi identici alla baseline"
+  },
+  "vincoli": {
+    "assi_stabili": [
+      "category",
+      "phase",
+      "code",
+      "retry"
+    ],
+    "message_max_bytes": 2048,
+    "message_non_e_chiave_di_compatibilita": true,
+    "message_testo_runtime": "vietato, salvo il token bounded di un'opzione rifiutata prodotto dal validatore centrale"
+  },
+  "vocabolari": {
+    "code": [
+      "generic",
+      "contract",
+      "unsupported",
+      "capability",
+      "schema",
+      "format",
+      "crs",
+      "crs_unresolved",
+      "wkb",
+      "limit_exceeded",
+      "reader_busy",
+      "projection_unsupported",
+      "output_exists",
+      "io",
+      "json",
+      "cancelled"
+    ]
+  }
+}

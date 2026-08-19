@@ -36,5 +36,5 @@ pub use diagnostics::{
 };
 pub use error::{
     CapabilityReason, ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, RemoteEffect, Result,
-    RetryDisposition,
+    RetryDisposition, MAX_MESSAGE_BYTES,
 };

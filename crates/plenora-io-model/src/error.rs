@@ -125,6 +125,33 @@ pub enum IoErrorCode {
     Cancelled,
 }
 
+impl IoErrorCode {
+    /// Tutti i codici, in ordine di dichiarazione.
+    ///
+    /// Serve alla matrice di handoff, che deve elencare il vocabolario invece
+    /// di ricopiarlo: un elenco copiato diverge alla prima variante aggiunta, e
+    /// diverge in silenzio. Qui una variante nuova che non compaia in questo
+    /// array e' un errore che il test della matrice prende.
+    pub const TUTTI: &'static [Self] = &[
+        Self::Generic,
+        Self::Contract,
+        Self::Unsupported,
+        Self::Capability,
+        Self::Schema,
+        Self::Format,
+        Self::Crs,
+        Self::CrsUnresolved,
+        Self::Wkb,
+        Self::LimitExceeded,
+        Self::ReaderBusy,
+        Self::ProjectionUnsupported,
+        Self::OutputExists,
+        Self::Io,
+        Self::Json,
+        Self::Cancelled,
+    ];
+}
+
 /// Errore pubblico redatto del bordo I/O.
 ///
 /// I quattro assi sono indipendenti e serializzabili. `message` contiene solo
@@ -146,6 +173,48 @@ pub struct PlenoraIoError {
     pub row_diagnostics: Option<Box<RowDiagnostics>>,
 }
 
+/// Tetto globale sulla lunghezza del messaggio pubblico, in **byte**.
+///
+/// Byte e non caratteri perche' il vincolo e' sul wire: `plenora-io-error-v1`
+/// e' JSON UTF-8, e cio' che un consumatore deve poter dimensionare e' il
+/// buffer, non il conteggio dei grafemi. Un messaggio di 2048 caratteri
+/// multibyte occuperebbe otto kilobyte, e il tetto avrebbe promesso una cosa
+/// misurandone un'altra.
+///
+/// Il tetto e' **globale e assoluto**: vale su ogni errore, comunque
+/// costruito, perche' e' applicato nell'unico punto da cui passano tutti i
+/// costruttori. Non e' una raccomandazione che ogni sito deve ricordare.
+pub const MAX_MESSAGE_BYTES: usize = 2048;
+
+/// Il marcatore che rende visibile un troncamento.
+const MARCATORE_TRONCAMENTO: &str = "…";
+
+/// Riporta un messaggio dentro [`MAX_MESSAGE_BYTES`], troncando su un confine
+/// di carattere.
+///
+/// Il troncamento e' deterministico: lo stesso messaggio produce sempre lo
+/// stesso taglio. Non tronca a meta' di un carattere UTF-8 — una stringa Rust
+/// non lo permetterebbe comunque, ma la ricerca del confine e' esplicita
+/// invece che affidata a un `panic` evitato per fortuna.
+///
+/// Il risultato include il marcatore **dentro** il tetto: la garanzia e' che
+/// il campo `message` del wire non superi mai 2048 byte, non che li superi di
+/// tre.
+fn limita_messaggio(message: String) -> String {
+    if message.len() <= MAX_MESSAGE_BYTES {
+        return message;
+    }
+    let disponibili = MAX_MESSAGE_BYTES - MARCATORE_TRONCAMENTO.len();
+    let mut taglio = disponibili;
+    while taglio > 0 && !message.is_char_boundary(taglio) {
+        taglio -= 1;
+    }
+    let mut ridotto = String::with_capacity(taglio + MARCATORE_TRONCAMENTO.len());
+    ridotto.push_str(&message[..taglio]);
+    ridotto.push_str(MARCATORE_TRONCAMENTO);
+    ridotto
+}
+
 impl PlenoraIoError {
     #[must_use]
     pub fn new(
@@ -164,7 +233,7 @@ impl PlenoraIoError {
             driver: None,
             field: None,
             capability_reason: None,
-            message: message.into(),
+            message: limita_messaggio(message.into()),
             row_diagnostics: None,
         }
     }
@@ -468,6 +537,72 @@ mod tests {
         RowDiagnosticScope, RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT,
         ROW_DIAGNOSTICS_INDEX_BASIS,
     };
+
+    /// Il tetto di 2048 byte vale su **ogni** errore, comunque costruito.
+    ///
+    /// Non è una raccomandazione che ogni sito deve ricordare: è applicato
+    /// nell'unico punto da cui passano tutti i costruttori, e il test lo
+    /// verifica su tutte le forme pubbliche invece che su una.
+    #[test]
+    fn nessun_errore_supera_il_tetto_del_messaggio() {
+        let enorme = "x".repeat(10_000);
+        let costruiti = [
+            PlenoraIoError::new(
+                ErrorCategory::Internal,
+                ErrorPhase::Validate,
+                RemoteEffect::None,
+                RetryDisposition::Never,
+                enorme.clone(),
+            ),
+            PlenoraIoError::Contract(enorme.clone()),
+            PlenoraIoError::Unsupported(enorme.clone()),
+            PlenoraIoError::Schema(enorme.clone()),
+            PlenoraIoError::Crs(enorme.clone()),
+            PlenoraIoError::Wkb(enorme.clone()),
+            PlenoraIoError::LimitExceeded(enorme.clone()),
+            PlenoraIoError::format("prova", enorme.clone()),
+            PlenoraIoError::capability(
+                "prova",
+                None,
+                CapabilityReason::TypeNotRepresentable,
+                enorme,
+            ),
+        ];
+        for errore in &costruiti {
+            assert!(
+                errore.message.len() <= MAX_MESSAGE_BYTES,
+                "messaggio da {} byte, tetto {MAX_MESSAGE_BYTES}",
+                errore.message.len()
+            );
+            assert!(
+                errore.message.ends_with('…'),
+                "un messaggio troncato deve dirlo: {}",
+                &errore.message[errore.message.len().saturating_sub(16)..]
+            );
+        }
+    }
+
+    /// Il troncamento è deterministico e non spezza un carattere.
+    ///
+    /// Multibyte perché è lì che un taglio a byte fisso romperebbe: 2045 non
+    /// cade su un confine di `à`, e la ricerca del confine deve tornare
+    /// indietro invece di panicare.
+    #[test]
+    fn il_troncamento_e_deterministico_e_rispetta_i_caratteri() {
+        let multibyte = "à".repeat(10_000);
+        let primo = PlenoraIoError::Contract(multibyte.clone()).message;
+        let secondo = PlenoraIoError::Contract(multibyte).message;
+        assert_eq!(primo, secondo, "il troncamento deve essere deterministico");
+        assert!(primo.len() <= MAX_MESSAGE_BYTES);
+        // Se il taglio avesse spezzato un carattere, la stringa non esisterebbe
+        // nemmeno: qui si verifica che il contenuto sia quello atteso.
+        assert!(primo.starts_with("àà"));
+        assert!(primo.ends_with('…'));
+
+        // Un messaggio sotto il tetto non viene toccato né marcato.
+        let corto = PlenoraIoError::Contract("piano non valido".to_owned()).message;
+        assert_eq!(corto, "piano non valido");
+    }
 
     #[test]
     fn error_serializes_complete_bounded_read_diagnostics() {

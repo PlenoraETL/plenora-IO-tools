@@ -875,6 +875,101 @@ fn envelope_panico(payload: &(dyn std::any::Any + Send)) -> Value {
     })
 }
 
+/// La matrice di handoff verso `plenora-error-v1`, costruita dai tipi.
+///
+/// Serve a chi mantiene `plenora-contracts` per riallineare **senza leggere il
+/// nostro codice**: elenca i campi che `plenora-io-error-v1` emette davvero, i
+/// vincoli che valgono su di essi, e dove ciascuno va a finire nel contratto
+/// successivo.
+///
+/// È generata dai tipi e non scritta a mano: un elenco copiato diverge alla
+/// prima variante aggiunta, e diverge in silenzio — che è esattamente ciò che
+/// una matrice di handoff non può fare.
+///
+/// **Non dichiara conformità a `plenora-contracts-next`.** Dice dove i campi
+/// andranno, non che ci siano già: l'adozione è uno step breaking separato,
+/// insieme alla CLI v2, agli exit code e alle capabilities.
+#[cfg(test)]
+fn matrice_di_handoff() -> Value {
+    use plenora_io_model::IoErrorCode;
+
+    // I codici sono enumerati dal tipo, non ricopiati: un `IoErrorCode` nuovo
+    // compare qui senza che nessuno se ne ricordi.
+    let codici: Vec<String> = IoErrorCode::TUTTI
+        .iter()
+        .map(|codice| {
+            serde_json::to_value(codice)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_else(|| format!("{codice:?}"))
+        })
+        .collect();
+
+    json!({
+        "contract": "plenora-io-handoff-v1",
+        "generato_da": "plenora-io-cli, test la_matrice_di_handoff_e_aggiornata",
+        "sorgente": {
+            "contract": "plenora-io-error-v1",
+            "protocol_version": 1,
+            "stato": "invariato da S9: struttura, ordine e tipi identici alla baseline"
+        },
+        "destinazione": {
+            "contract": "plenora-error-v1",
+            "stato": "mappatura preparata, conformita' NON dichiarata",
+            "nota": "l'adozione e' uno step breaking separato dopo S9, insieme a CLI v2, exit code e capabilities"
+        },
+        "vincoli": {
+            "message_max_bytes": plenora_io_model::MAX_MESSAGE_BYTES,
+            "message_non_e_chiave_di_compatibilita": true,
+            "message_testo_runtime": "vietato, salvo il token bounded di un'opzione rifiutata prodotto dal validatore centrale",
+            "assi_stabili": ["category", "phase", "code", "retry"]
+        },
+        "campi": [
+            {
+                "v1": "error.category", "next": "category",
+                "nota": "asse stabile: e' con questi quattro che si correlano gli errori"
+            },
+            {
+                "v1": "error.phase", "next": "phase",
+                "nota": "asse stabile"
+            },
+            {
+                "v1": "error.code", "next": "code",
+                "nota": "asse stabile; vocabolario chiuso, sotto `vocabolari.code`"
+            },
+            {
+                "v1": "error.retry", "next": "retry",
+                "nota": "asse stabile"
+            },
+            {
+                "v1": "error.remote_effect", "next": "remote_effect",
+                "nota": "invariato"
+            },
+            {
+                "v1": "error.message", "next": "message",
+                "nota": "testo curato, deterministico, <= 2048 byte. **Non** e' un identificatore: il testo cambia con S9 e cambiera' ancora"
+            },
+            {
+                "v1": "error.row_diagnostics", "next": "details.row_diagnostics",
+                "nota": "scende di un livello; contratto interno invariato"
+            },
+            {
+                "v1": null, "next": "provider",
+                "da": "PlenoraIoError::driver",
+                "nota": "il driver esiste nel tipo Rust ma **non e' emesso** da v1: e' un campo nuovo per la destinazione, non una rinomina"
+            },
+            {
+                "v1": null, "next": "details",
+                "da": "PlenoraIoError::field, capability_reason",
+                "nota": "il contesto strutturato non e' emesso da v1; confluisce in `details` nella destinazione"
+            }
+        ],
+        "vocabolari": {
+            "code": codici
+        }
+    })
+}
+
 fn main() {
     installa_hook_silenzioso();
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
@@ -2095,6 +2190,60 @@ mod tests {
              esiste. Se questo numero cambia, o e' cambiato un driver o qualcuno \
              sta derivando il legacy dalla tripla"
         );
+    }
+
+    /// La matrice di handoff versionata è quella che il codice produce oggi.
+    ///
+    /// Snapshot, non ispezione: il file in `docs/contracts/` è ciò che chi
+    /// mantiene `plenora-contracts` legge, e se divergesse dal codice senza che
+    /// nessuno se ne accorgesse sarebbe peggio che non averlo — una matrice
+    /// sbagliata si usa con la stessa fiducia di una giusta.
+    ///
+    /// Il test **non** rigenera il file da solo: fallisce e mostra la
+    /// differenza, così l'aggiornamento resta una decisione di chi cambia il
+    /// contratto invece di un effetto collaterale di `cargo test`.
+    #[test]
+    fn la_matrice_di_handoff_e_aggiornata() {
+        let percorso = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/contracts/handoff-plenora-error.json");
+        let atteso =
+            serde_json::to_string_pretty(&matrice_di_handoff()).expect("la matrice si serializza");
+        let versionato = std::fs::read_to_string(&percorso)
+            .unwrap_or_else(|error| panic!("{}: {error}", percorso.display()));
+        assert_eq!(
+            // Il confronto normalizza i soli CR: il file e' scritto con LF, ma
+            // un checkout su Windows puo' restituirlo con CRLF, e la matrice
+            // non e' diversa per questo.
+            versionato.replace('\r', "").trim(),
+            atteso.trim(),
+            "la matrice versionata non corrisponde al codice: rigenerala"
+        );
+    }
+
+    /// Ogni codice del vocabolario compare nella matrice.
+    ///
+    /// È la proprietà che rende l'elenco generato invece che copiato: una
+    /// variante nuova di `IoErrorCode` che nessuno aggiunge a `TUTTI` viene
+    /// presa qui, non da un lettore attento tre mesi dopo.
+    #[test]
+    fn il_vocabolario_dei_codici_e_completo() {
+        use plenora_io_model::IoErrorCode;
+
+        let matrice = matrice_di_handoff();
+        let elencati = matrice["vocabolari"]["code"].as_array().unwrap().len();
+        assert_eq!(
+            elencati,
+            IoErrorCode::TUTTI.len(),
+            "la matrice elenca {elencati} codici, il tipo ne ha {}",
+            IoErrorCode::TUTTI.len()
+        );
+        // E `TUTTI` copre davvero l'enum: un codice assente non serializzerebbe
+        // mai, quindi si verifica che ogni voce sia una stringa distinta.
+        let mut viste = std::collections::BTreeSet::new();
+        for codice in matrice["vocabolari"]["code"].as_array().unwrap() {
+            let nome = codice.as_str().expect("codice come stringa");
+            assert!(viste.insert(nome), "codice duplicato: {nome}");
+        }
     }
 
     #[test]
