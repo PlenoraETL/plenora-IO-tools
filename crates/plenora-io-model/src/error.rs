@@ -173,6 +173,195 @@ pub struct PlenoraIoError {
     pub row_diagnostics: Option<Box<RowDiagnostics>>,
 }
 
+/// L'identificatore di un elemento di un contratto **gia' validato**: il nome
+/// di un campo o di un layer.
+///
+/// # Perche' e' sicuro, e perche' non e' un'eccezione
+///
+/// Non e' testo runtime arbitrario. Nasce solo risolvendo un contratto che il
+/// prodotto ha gia' validato, e i nomi di quel contratto sono **gia' pubblici**:
+/// gli envelope `inspect` e `layers` li emettono. Un identificatore qui non
+/// apre un canale nuovo, nomina qualcosa che il chiamante ha gia' visto.
+///
+/// E' la ragione per cui INV-10 lo ammette pur vietando la `String` libera, ed
+/// e' anche perche' **non** passa da [`PublicMessage`]: vive nel contesto
+/// strutturato, e sara' il DTO a decidere se e dove emetterlo.
+///
+/// # Cosa lo distingue da `RowDiagnosticColumn`
+///
+/// `RowDiagnosticColumn::attest` accetta `impl Into<String>` — un costruttore
+/// libero — perche' serve a un contratto diverso, con la propria policy
+/// `emit`/`redact`. Qui non c'e' un costruttore libero: si parte da uno schema
+/// o da un layer, e da nient'altro.
+///
+/// ```compile_fail
+/// use plenora_io_model::ContractIdentifier;
+/// let _ = ContractIdentifier::from("nome_arbitrario");
+/// ```
+///
+/// ```compile_fail
+/// use plenora_io_model::ContractIdentifier;
+/// let _ = ContractIdentifier::new(String::from("nome_arbitrario"));
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContractIdentifier {
+    /// Il nome, gia' verificato non vuoto e di lunghezza ragionevole alla
+    /// costruzione. Privato: non esiste un accessor che lo riporti fuori come
+    /// `String` libera, solo `Display`.
+    nome: String,
+}
+
+/// Tetto sul nome di un identificatore, in caratteri.
+///
+/// Gli schemi validati hanno nomi corti; il tetto e' una rete, non una regola
+/// di dominio. Un nome oltre il tetto non produce un identificatore troncato
+/// ma **nessun identificatore**: meglio non nominare che nominare a meta',
+/// perche' un nome troncato somiglia a un nome vero.
+const MAX_IDENTIFICATORE: usize = 256;
+
+impl ContractIdentifier {
+    /// L'identificatore di un campo, preso dallo schema che lo dichiara.
+    ///
+    /// `None` se l'indice non esiste nello schema o se il nome non e'
+    /// nominabile — vuoto o oltre il tetto. Fallibile per costruzione: un
+    /// indice fuori intervallo e' un difetto del chiamante, e restituirgli un
+    /// identificatore inventato lo nasconderebbe.
+    #[must_use]
+    pub fn from_schema_field(
+        schema: &arrow_schema::Schema,
+        index: crate::contract::FieldId,
+    ) -> Option<Self> {
+        let posizione = usize::try_from(index.0).ok()?;
+        let campo = schema.fields().get(posizione)?;
+        Self::da_nome_validato(campo.name())
+    }
+
+    /// L'identificatore di un layer, preso dal contratto che lo dichiara.
+    #[must_use]
+    pub fn from_layer(layer: &crate::contract::LayerContract) -> Option<Self> {
+        Self::da_nome_validato(&layer.name)
+    }
+
+    /// L'unica via interna: un nome che viene da un contratto validato.
+    ///
+    /// Privata di proposito. Se fosse pubblica, «viene da un contratto
+    /// validato» tornerebbe a essere una promessa del chiamante invece di una
+    /// proprieta' del tipo.
+    fn da_nome_validato(nome: &str) -> Option<Self> {
+        if nome.is_empty() || nome.chars().count() > MAX_IDENTIFICATORE {
+            return None;
+        }
+        Some(Self {
+            nome: nome.to_owned(),
+        })
+    }
+}
+
+impl std::fmt::Display for ContractIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.nome)
+    }
+}
+
+/// Il contesto strutturato di un errore.
+///
+/// # Semantico, non del wire
+///
+/// Non ha campi che si chiamano come quelli di un contratto, non e'
+/// serializzabile e non conosce nessun envelope. Dice **cosa** si sa
+/// dell'errore — quale driver, quale layer, quale campo, quale ragione di
+/// capability — e si ferma li'.
+///
+/// La traduzione verso `plenora-io-error-v1` e, in futuro, verso
+/// `plenora-error-v1`, e' compito del DTO: e' **l'unico** adattatore, ed e' il
+/// posto dove `driver` diventa `provider` e il resto confluisce in `details`.
+/// Se quei nomi comparissero qui, il tipo semantico diventerebbe una copia del
+/// wire e cambierebbe ogni volta che il wire cambia — che e' esattamente cio'
+/// che tenerli separati evita.
+///
+/// # Niente testo libero
+///
+/// Nessun campo accetta testo da dipendenze o payload. L'unico testo e' il
+/// nome di un [`ContractIdentifier`], che viene da un contratto validato.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ErrorContext {
+    driver: Option<&'static str>,
+    layer: Option<crate::contract::LayerId>,
+    field: Option<crate::contract::FieldId>,
+    identificatore: Option<ContractIdentifier>,
+    capability_reason: Option<CapabilityReason>,
+}
+
+impl ErrorContext {
+    /// Un contesto vuoto, da riempire con i metodi `con_*`.
+    #[must_use]
+    pub const fn nuovo() -> Self {
+        Self {
+            driver: None,
+            layer: None,
+            field: None,
+            identificatore: None,
+            capability_reason: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn con_driver(mut self, driver: &'static str) -> Self {
+        self.driver = Some(driver);
+        self
+    }
+
+    #[must_use]
+    pub const fn con_layer(mut self, layer: crate::contract::LayerId) -> Self {
+        self.layer = Some(layer);
+        self
+    }
+
+    #[must_use]
+    pub const fn con_campo(mut self, field: crate::contract::FieldId) -> Self {
+        self.field = Some(field);
+        self
+    }
+
+    #[must_use]
+    pub fn con_identificatore(mut self, identificatore: ContractIdentifier) -> Self {
+        self.identificatore = Some(identificatore);
+        self
+    }
+
+    #[must_use]
+    pub const fn con_capability(mut self, reason: CapabilityReason) -> Self {
+        self.capability_reason = Some(reason);
+        self
+    }
+
+    #[must_use]
+    pub const fn driver(&self) -> Option<&'static str> {
+        self.driver
+    }
+
+    #[must_use]
+    pub const fn layer(&self) -> Option<crate::contract::LayerId> {
+        self.layer
+    }
+
+    #[must_use]
+    pub const fn campo(&self) -> Option<crate::contract::FieldId> {
+        self.field
+    }
+
+    #[must_use]
+    pub const fn identificatore(&self) -> Option<&ContractIdentifier> {
+        self.identificatore.as_ref()
+    }
+
+    #[must_use]
+    pub const fn capability_reason(&self) -> Option<CapabilityReason> {
+        self.capability_reason
+    }
+}
+
 /// Un numero che si puo' far uscire in un messaggio d'errore.
 ///
 /// La ratifica di S9 ammette «indici, conteggi, limiti o codici strutturali
@@ -701,6 +890,103 @@ mod tests {
         RowDiagnosticScope, RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT,
         ROW_DIAGNOSTICS_INDEX_BASIS,
     };
+
+    /// L'identificatore nasce dallo schema, e solo da lì.
+    ///
+    /// I casi negativi contano quanto quello positivo: un indice fuori
+    /// intervallo o un nome non nominabile producono **nessun identificatore**,
+    /// non uno inventato o troncato. Un nome troncato somiglia a un nome vero,
+    /// ed è il modo in cui un errore indica il campo sbagliato.
+    #[test]
+    fn l_identificatore_viene_dal_contratto_validato() {
+        use arrow_schema::{DataType, Field, Schema};
+
+        let schema = Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true),
+            Field::new("nome", DataType::Utf8, true),
+        ]);
+
+        let primo = ContractIdentifier::from_schema_field(&schema, crate::contract::FieldId(0))
+            .expect("il campo 0 esiste");
+        assert_eq!(primo.to_string(), "geometry");
+        let secondo = ContractIdentifier::from_schema_field(&schema, crate::contract::FieldId(1))
+            .expect("il campo 1 esiste");
+        assert_eq!(secondo.to_string(), "nome");
+
+        // Indice fuori intervallo: nessun identificatore.
+        assert!(
+            ContractIdentifier::from_schema_field(&schema, crate::contract::FieldId(2)).is_none()
+        );
+
+        // Nome vuoto: non nominabile.
+        let vuoto = Schema::new(vec![Field::new("", DataType::Utf8, true)]);
+        assert!(
+            ContractIdentifier::from_schema_field(&vuoto, crate::contract::FieldId(0)).is_none()
+        );
+
+        // Nome oltre il tetto: nessun identificatore, non uno troncato.
+        let lunghissimo = Schema::new(vec![Field::new(
+            "n".repeat(MAX_IDENTIFICATORE + 1),
+            DataType::Utf8,
+            true,
+        )]);
+        assert!(
+            ContractIdentifier::from_schema_field(&lunghissimo, crate::contract::FieldId(0))
+                .is_none(),
+            "meglio non nominare che nominare a meta'"
+        );
+
+        // Esattamente al tetto: nominabile.
+        let al_limite = Schema::new(vec![Field::new(
+            "n".repeat(MAX_IDENTIFICATORE),
+            DataType::Utf8,
+            true,
+        )]);
+        assert!(
+            ContractIdentifier::from_schema_field(&al_limite, crate::contract::FieldId(0))
+                .is_some()
+        );
+    }
+
+    /// Il contesto è semantico: non conosce nessun nome del wire.
+    ///
+    /// Il test guarda il `Debug`, che è l'unica finestra sulla struttura, e
+    /// verifica che non contenga i nomi del contratto di destinazione. Se un
+    /// giorno qualcuno chiamasse un campo `provider` per comodità del DTO, il
+    /// tipo semantico diventerebbe una copia del wire e cambierebbe ogni volta
+    /// che il wire cambia.
+    #[test]
+    fn il_contesto_non_conosce_i_nomi_del_wire() {
+        let contesto = ErrorContext::nuovo()
+            .con_driver("geoparquet")
+            .con_layer(crate::contract::LayerId(0))
+            .con_campo(crate::contract::FieldId(2))
+            .con_capability(CapabilityReason::TypeNotRepresentable);
+
+        let forma = format!("{contesto:?}");
+        for del_wire in ["provider", "details", "row_diagnostics", "message"] {
+            assert!(
+                !forma.contains(del_wire),
+                "il contesto semantico non deve nominare '{del_wire}': {forma}"
+            );
+        }
+
+        assert_eq!(contesto.driver(), Some("geoparquet"));
+        assert_eq!(contesto.layer(), Some(crate::contract::LayerId(0)));
+        assert_eq!(contesto.campo(), Some(crate::contract::FieldId(2)));
+        assert_eq!(
+            contesto.capability_reason(),
+            Some(CapabilityReason::TypeNotRepresentable)
+        );
+        assert!(contesto.identificatore().is_none());
+
+        // Vuoto è vuoto: nessun campo si popola da solo.
+        let vuoto = ErrorContext::nuovo();
+        assert!(vuoto.driver().is_none());
+        assert!(vuoto.layer().is_none());
+        assert!(vuoto.campo().is_none());
+        assert!(vuoto.capability_reason().is_none());
+    }
 
     /// Il tetto di 2048 byte vale su **ogni** errore, comunque costruito.
     ///
