@@ -1970,6 +1970,133 @@ mod tests {
         }
     }
 
+    /// Snapshot **del solo legacy**: `read_mode`, driver per driver.
+    ///
+    /// Sta da solo, separato da quello della tripla, perché prova una cosa
+    /// diversa: che S8 **non abbia toccato** un campo che `plenora-io-catalog-v1`
+    /// emette da sempre. Se i due snapshot fossero uno, una modifica al legacy
+    /// mascherata da aggiornamento della tripla passerebbe in una diff sola.
+    ///
+    /// I valori sono quelli precedenti a S8, byte per byte. Non vanno
+    /// riallineati a `native_read_mode`: la divergenza fra i due **è**
+    /// l'informazione che lo split esiste per esporre.
+    #[test]
+    fn il_read_mode_legacy_e_preservato_driver_per_driver() {
+        const ATTESI: &[(&str, &str)] = &[
+            ("csv", "streaming_sequential"),
+            ("dxf", "streaming_sequential"),
+            ("filegdb", "materializing"),
+            ("geojson", "streaming_sequential"),
+            ("geoparquet", "streaming_columnar"),
+            ("gpkg", "streaming_sequential"),
+            ("ipc", "streaming_sequential"),
+            ("kml", "streaming_sequential"),
+            ("shp", "streaming_sequential"),
+            ("xls", "streaming_sequential"),
+        ];
+        let document = catalog_document(false);
+        let drivers = document["drivers"].as_array().unwrap();
+        assert_eq!(drivers.len(), ATTESI.len(), "driver aggiunti o rimossi");
+        for (id, atteso) in ATTESI {
+            let driver = drivers
+                .iter()
+                .find(|driver| driver["id"] == *id)
+                .unwrap_or_else(|| panic!("{id} assente dal catalogo"));
+            assert_eq!(
+                driver["read_mode"].as_str(),
+                Some(*atteso),
+                "{id}: il read_mode legacy e' cambiato"
+            );
+        }
+    }
+
+    /// Snapshot della **tripla dichiarativa** di INV-7.
+    ///
+    /// Le due colonne che non variano — `operation_atomic` e
+    /// `adaptive_memory_then_disk` — non sono ridondanti: sono ciò che
+    /// `BudgetedReader` impone a *tutti*, e un driver che ne dichiarasse altre
+    /// starebbe descrivendo un comportamento che l'adapter non gli lascia
+    /// avere. È il caso che questo snapshot prende.
+    #[test]
+    fn la_tripla_di_inv7_e_quella_dichiarata_da_ogni_driver() {
+        const ATTESI: &[(&str, &str)] = &[
+            ("csv", "streaming_sequential"),
+            ("dxf", "materialized"),
+            ("filegdb", "streaming_sequential"),
+            ("geojson", "streaming_sequential"),
+            ("geoparquet", "streaming_random"),
+            ("gpkg", "streaming_random"),
+            ("ipc", "streaming_random"),
+            ("kml", "materialized"),
+            ("shp", "streaming_sequential"),
+            ("xls", "materialized"),
+        ];
+        let document = catalog_document(false);
+        let drivers = document["drivers"].as_array().unwrap();
+        assert_eq!(drivers.len(), ATTESI.len(), "driver aggiunti o rimossi");
+        for (id, nativo) in ATTESI {
+            let driver = drivers
+                .iter()
+                .find(|driver| driver["id"] == *id)
+                .unwrap_or_else(|| panic!("{id} assente dal catalogo"));
+            assert_eq!(
+                driver["native_read_mode"].as_str(),
+                Some(*nativo),
+                "{id}: native_read_mode"
+            );
+            assert_eq!(
+                driver["effective_delivery"].as_str(),
+                Some("operation_atomic"),
+                "{id}: l'adapter comune drena prima del primo batch, per tutti"
+            );
+            assert_eq!(
+                driver["buffering"].as_str(),
+                Some("adaptive_memory_then_disk"),
+                "{id}: lo spool dell'adapter comune vale per tutti"
+            );
+        }
+    }
+
+    /// La tripla è **completa** e il legacy non è derivato da essa.
+    ///
+    /// Due proprietà in un test perché sono la stessa affermazione vista da due
+    /// lati: i tre campi ci sono per ogni driver, e il quarto — il legacy —
+    /// **non** si ricava dai primi tre. Se qualcuno un giorno derivasse
+    /// `read_mode` da `native_read_mode`, i sette driver che oggi divergono
+    /// tornerebbero a coincidere e il campo tornerebbe a non dire niente:
+    /// esattamente il difetto L0.4 che INV-7 chiude.
+    #[test]
+    fn ogni_driver_dichiara_la_tripla_e_il_legacy_puo_divergere() {
+        let document = catalog_document(false);
+        let drivers = document["drivers"].as_array().unwrap();
+        let mut divergenti = 0;
+        for driver in drivers {
+            let id = &driver["id"];
+            for campo in ["native_read_mode", "effective_delivery", "buffering"] {
+                assert!(
+                    driver[campo].is_string(),
+                    "{id}: {campo} assente o non stringa"
+                );
+            }
+            // I due valori non sono lo stesso vocabolario — `materializing` non
+            // è `materialized`, `streaming_columnar` non esiste fra i nativi —
+            // quindi la divergenza si conta sui casi in cui *nemmeno*
+            // l'intenzione coincide.
+            let legacy = driver["read_mode"].as_str().unwrap();
+            let nativo = driver["native_read_mode"].as_str().unwrap();
+            if legacy != nativo {
+                divergenti += 1;
+            }
+        }
+        assert_eq!(
+            divergenti, 7,
+            "sette driver su dieci divergono fra legacy e nativo (dxf, filegdb, \
+             geoparquet, gpkg, ipc, kml, xls): e' la ragione per cui lo split \
+             esiste. Se questo numero cambia, o e' cambiato un driver o qualcuno \
+             sta derivando il legacy dalla tripla"
+        );
+    }
+
     #[test]
     fn feature_on_catalog_fails_closed_when_runtime_probe_is_unavailable() {
         let document = catalog_document(false);

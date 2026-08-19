@@ -470,6 +470,11 @@ mod tests {
     fn descriptor(crs: CrsWriteSupport) -> FormatDescriptor {
         FormatDescriptor {
             id: "test",
+            // I tre assi di INV-7: il descrittore di prova dichiara la
+            // combinazione che tutti i driver reali dichiarano.
+            native_read_mode: crate::descriptor::NativeReadMode::StreamingSequential,
+            effective_delivery: crate::descriptor::DeliverySemantics::OperationAtomic,
+            buffering: crate::descriptor::BufferingStrategy::AdaptiveMemoryThenDisk,
             format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
             direction: Direction::Bidirectional,
             read_mode: ReadMode::StreamingSequential,

@@ -30,6 +30,82 @@ pub enum WriteMode {
     Buffered,
 }
 
+/// Cosa fa il **parser grezzo** del driver, prima di qualunque adapter (INV-7).
+///
+/// E' il primo dei tre assi che `read_mode` conflava in un valore solo. Un
+/// consumatore che leggeva `StreamingSequential` non poteva sapere se il
+/// consumo effettivo fosse streaming, spooled o in memoria: la tripla
+/// `(native_read_mode, effective_delivery, buffering)` lo esplicita.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum NativeReadMode {
+    /// Una passata sola, batch emessi in ordine mentre la sorgente scorre.
+    StreamingSequential,
+    /// Il parser sa posizionarsi: row group Parquet, blocchi IPC, cursore su
+    /// chiave. Non implica che il driver lo usi per saltare, implica che
+    /// potrebbe.
+    StreamingRandom,
+    /// Il parser **consuma o materializza l'intero input** prima di emettere
+    /// il primo batch.
+    ///
+    /// La definizione e' quella, non «carica tutto in RAM»: il supporto fisico
+    /// lo descrive [`BufferingStrategy`] e nessun altro campo. Un parser che
+    /// riversa tutta la sorgente in uno spool RAM-poi-disco e' `Materialized`
+    /// con `AdaptiveMemoryThenDisk`, e la coppia dice esattamente cosa
+    /// succede: serve tutto l'input, non serve tutta la RAM. Confondere i due
+    /// assi era il difetto che INV-7 chiude, e ripeterlo dentro una singola
+    /// variante lo reintrodurrebbe.
+    Materialized,
+}
+
+/// Cosa il consumatore **osserva** a livello di contratto pubblico (INV-7).
+///
+/// Descrive *quando* il primo batch e' visibile e *cosa* succede se un errore
+/// emerge dopo la consegna.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DeliverySemantics {
+    /// Nessun prefisso «accettato» viene consegnato se una violazione emerge
+    /// in un punto qualsiasi della sorgente: l'operazione e' rigettata come un
+    /// blocco unico.
+    ///
+    /// E' il comportamento di `BudgetedReader`, che esegue `drain_operation`
+    /// durante la **prima** chiamata di `next_batch` — ratificato da ADR-IO 7
+    /// opzione A.
+    OperationAtomic,
+    /// Batch consegnati appena disponibili, con errore terminale possibile
+    /// dopo batch gia' consegnati.
+    ///
+    /// **Dichiarabile, non implementata nel Lotto 0**: richiede una categoria
+    /// d'errore nuova e un bump del protocollo, non ratificati. La variante
+    /// esiste perche' l'asse la prevede, non perche' qualcuno la selezioni.
+    Streaming,
+}
+
+/// Come l'implementazione **bounda la memoria interna** (INV-7).
+///
+/// Ortogonale alla semantica di consegna: due driver con la stessa
+/// `DeliverySemantics` possono avere impronte di risorse molto diverse, ed e'
+/// questo campo — non `native_read_mode` — a dirlo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum BufferingStrategy {
+    /// Nessun buffer interno oltre il batch corrente.
+    Passthrough,
+    /// Buffer in RAM, bounded da `memory_bytes` del `PipelineContext`.
+    InMemoryBounded,
+    /// Resta in RAM sotto una soglia adattiva derivata da `memory_bytes`, poi
+    /// migra su file temporaneo in Arrow IPC e **non torna indietro**.
+    ///
+    /// Il picco e' `soglia + batch corrente`, indipendente dalla dimensione
+    /// totale dell'input. E' la strategia dello `StagedSpool` che
+    /// `BudgetedReader` usa dopo ADR-IO 7 opzione A.
+    AdaptiveMemoryThenDisk,
+}
+
 /// Livello di determinismo garantito a parità di input, opzioni e versione
 /// dell'implementazione (ICD §12).
 ///
@@ -402,7 +478,22 @@ pub enum SpatialPruningSupport {
 pub struct FormatDescriptor {
     pub id: &'static str,
     pub direction: Direction,
+    /// **Legacy**, e preservato driver per driver, byte per byte.
+    ///
+    /// Conflava i tre assi di INV-7 in un valore solo, ed e' la ragione per
+    /// cui la tripla esiste. Non viene derivato dai nuovi campi ne'
+    /// riallineato a essi: `plenora-io-catalog-v1` lo emette da sempre, e
+    /// cambiarlo per farlo «tornare» con `native_read_mode` romperebbe i
+    /// consumatori senza aggiungere verita' — la divergenza fra i due **e'**
+    /// l'informazione. `FileGDB` e' l'esempio: qui `Materializing`, nativamente
+    /// una passata sola.
     pub read_mode: ReadMode,
+    /// Cosa fa il parser grezzo (INV-7).
+    pub native_read_mode: NativeReadMode,
+    /// Cosa osserva il consumatore (INV-7).
+    pub effective_delivery: DeliverySemantics,
+    /// Come e' bounded la memoria interna (INV-7).
+    pub buffering: BufferingStrategy,
     /// Garanzia dell'operazione di lettura sul medesimo snapshot locale.
     pub read_determinism: DeterminismLevel,
     pub write_mode: Option<WriteMode>,

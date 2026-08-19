@@ -464,6 +464,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "shp",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::StreamingSequential,
+    // INV-7: una sola `seek` per saltare l'header, poi sequenziale.
+    native_read_mode: plenora_io_core::NativeReadMode::StreamingSequential,
+    // Il drenaggio e lo spool sono dell'adapter comune, non di
+    // questo driver: `BudgetedReader` li impone a tutti.
+    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
+    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
     read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Streaming),
     write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
@@ -494,7 +500,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     format_options: SCHEMA_OPZIONI,
     semantic_version: 1,
     driver_version: 9,
-    descriptor_version: 8,
+    descriptor_version: 9,
 };
 
 pub struct ShpDriver;

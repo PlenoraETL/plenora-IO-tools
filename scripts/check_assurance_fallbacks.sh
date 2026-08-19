@@ -174,6 +174,10 @@ set -eu
 # `unwrap_or_else(|error| panic!(...))`: il modo in cui quel file riporta gia'
 # il fallimento di una rilettura, non una degradazione a un default. Nessuna
 # revisione H-01 dovuta.
+# Il 2026-08-18, S8 porta plenora-io-cli da 24 a 26 (totale 109 -> 111). Le due
+# occorrenze sono `unwrap_or_else(|| panic!(...))` nei tre snapshot del
+# descrittore: il modo in cui quel file dice «questo driver non c'e' nel
+# catalogo», non una degradazione a un default. Nessuna revisione H-01 dovuta.
 expected='
 driver-csv 2
 driver-dxf 15
@@ -187,7 +191,7 @@ driver-shp 3
 driver-xls 2
 plenora-io-model 1
 plenora-io-core 16
-plenora-io-cli 24
+plenora-io-cli 26
 plenora-bench 24
 plenora-fuzz 5
 '
@@ -219,7 +223,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 109 ]; then
+if [ "${actual_total}" -ne 111 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

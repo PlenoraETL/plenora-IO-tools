@@ -851,7 +851,8 @@ Regole (unica semantica, INV-5):
 pub enum NativeReadMode {
     StreamingSequential,   // one-pass, emette batch in ordine
     StreamingRandom,       // seek supportato (es. Parquet row group)
-    Materialized,          // carica tutto in RAM prima di emettere
+    Materialized,          // consuma/materializza l'intero input prima
+                           // dell'emissione nativa (vedi errata S8)
 }
 
 /// Cosa il consumer osserva a livello di contratto pubblico.
@@ -2400,6 +2401,36 @@ altre tre divergenze — valori di `publish_mode`, tre chiavi
 registrate nell'errata di
 [`DESIGN-S6-format-options-schema.md`](DESIGN-S6-format-options-schema.md) e
 in [`CHANGE_IMPACT_2026-08-18_S6_FORMAT_OPTIONS_SCHEMA.md`](assurance/CHANGE_IMPACT_2026-08-18_S6_FORMAT_OPTIONS_SCHEMA.md).
+
+#### Errata S8 — due correzioni a INV-7, trovate implementandolo
+
+**1. `Materialized` non significa «carica tutto in RAM».**
+
+La definizione originale legava la variante al **supporto fisico**, e quel
+legame contraddice l'ortogonalita' che INV-7 esiste per stabilire: il supporto
+fisico lo descrive `buffering`, e nessun altro campo.
+
+La definizione normativa e' ora: **consuma o materializza l'intero input prima
+dell'emissione nativa**. Un parser che riversa tutta la sorgente in uno spool
+RAM-poi-disco e' `Materialized` con `AdaptiveMemoryThenDisk`, e la coppia dice
+esattamente cosa succede — serve tutto l'input, non serve tutta la RAM. E' il
+caso di DXF, KML e XLS.
+
+Nessuna quarta variante: `WholeInputSpooled` reintrodurrebbe dentro un solo
+valore la conflazione dei due assi che il pacchetto ha appena separato.
+
+**2. FileGDB e' `StreamingSequential`, non `Materialized`.**
+
+Il pacchetto lo dava per materializzante, coerentemente con il suo
+`read_mode: Materializing`. E' **fattualmente errato**: il driver itera
+`for feature in layer.features()`, un iteratore GDAL in avanti, una passata
+sola. Il valore legacy resta `Materializing` byte per byte, come il pacchetto
+impone.
+
+La divergenza non e' un difetto da sanare: e' **l'informazione**. Sette driver
+su dieci divergono fra legacy e nativo — dxf, filegdb, geoparquet, gpkg, ipc,
+kml, xls — e un consumatore che leggeva il solo `read_mode` non aveva modo di
+saperlo. E' il corollario del finding L0.4, misurato invece che previsto.
 
 Il grafo di dipendenza consente overlap significativo:
 - S3 in parallelo a S2.

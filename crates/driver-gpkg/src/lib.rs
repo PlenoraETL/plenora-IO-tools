@@ -136,6 +136,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "gpkg",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::StreamingSequential, // pagine keyset, O(batch)
+    // INV-7: cursore keyset su rowid.
+    native_read_mode: plenora_io_core::NativeReadMode::StreamingRandom,
+    // Il drenaggio e lo spool sono dell'adapter comune, non di
+    // questo driver: `BudgetedReader` li impone a tutti.
+    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
+    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
     read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Streaming), // per batch, in transazione
     write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
@@ -168,7 +174,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
     semantic_version: 1,
     driver_version: 6,
-    descriptor_version: 8,
+    descriptor_version: 9,
 };
 
 pub struct GpkgDriver;

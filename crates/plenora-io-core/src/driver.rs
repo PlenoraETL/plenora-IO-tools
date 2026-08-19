@@ -1969,6 +1969,11 @@ mod tests {
     const DESCRITTORE_DI_PROVA: crate::descriptor::FormatDescriptor =
         crate::descriptor::FormatDescriptor {
             id: "prova",
+            // I tre assi di INV-7: il descrittore di prova dichiara la
+            // combinazione che tutti i driver reali dichiarano.
+            native_read_mode: crate::descriptor::NativeReadMode::StreamingSequential,
+            effective_delivery: crate::descriptor::DeliverySemantics::OperationAtomic,
+            buffering: crate::descriptor::BufferingStrategy::AdaptiveMemoryThenDisk,
             direction: crate::descriptor::Direction::Read,
             read_mode: crate::descriptor::ReadMode::StreamingSequential,
             read_determinism: crate::descriptor::DeterminismLevel::Semantic,

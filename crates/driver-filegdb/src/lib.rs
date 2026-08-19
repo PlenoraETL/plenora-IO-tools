@@ -50,6 +50,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     id: "filegdb",
     direction: Direction::Bidirectional,
     read_mode: ReadMode::Materializing,
+    // INV-7: `for feature in layer.features()`, iteratore GDAL in avanti.
+    native_read_mode: plenora_io_core::NativeReadMode::StreamingSequential,
+    // Il drenaggio e lo spool sono dell'adapter comune, non di
+    // questo driver: `BudgetedReader` li impone a tutti.
+    effective_delivery: plenora_io_core::DeliverySemantics::OperationAtomic,
+    buffering: plenora_io_core::BufferingStrategy::AdaptiveMemoryThenDisk,
     read_determinism: plenora_io_core::DeterminismLevel::Semantic,
     write_mode: Some(WriteMode::Streaming),
     write_determinism: Some(plenora_io_core::DeterminismLevel::Semantic),
@@ -82,7 +88,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor {
     format_options: plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
     semantic_version: 1,
     driver_version: 10,
-    descriptor_version: 10,
+    descriptor_version: 11,
 };
 
 pub struct FileGdbDriver;
