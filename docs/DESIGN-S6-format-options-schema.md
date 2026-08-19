@@ -344,3 +344,25 @@ risolte **verso il codice** e non verso il documento:
 
 Il testo sopra la linea è lasciato com'era stato ratificato, salvo le tabelle
 dei punti 1–3, che riportavano dati falsi sul codice.
+
+## Errata (2026-08-19) — come sopravvive «il valore compare nel messaggio»
+
+S9 ha ratificato che nessun costruttore pubblico d'errore accetti `&str` non
+`'static`. Una chiave di `format_options` scritta male è per definizione non
+statica — non esiste nello schema, è per questo che viene rifiutata — quindi la
+proprietà ratificata qui e il vincolo di S9 si contraddicevano.
+
+Sciolto con un'**eccezione normativa esplicita**: `RejectedOptionToken`, un tipo
+opaco con costruttore **privato del modulo `format_options`**, senza
+`From<String>`, senza `Deserialize` e **senza accessor alla stringa originale**.
+È l'unica variante di `PublicMessage` autorizzata a contenere testo runtime, ha
+rendering bounded — controlli, virgolette e backslash escaped, troncamento
+deterministico — e non può essere usata per payload, percorsi, nomi letti dai
+file o testi delle dipendenze.
+
+La proprietà di redazione del prodotto diventa quindi: «nessun testo runtime,
+salvo il token bounded di un'opzione rifiutata prodotto dal validatore
+centrale».
+
+I test di questa sezione restano validi: sono la ragione per cui l'eccezione
+esiste invece di essere stata assorbita in silenzio.

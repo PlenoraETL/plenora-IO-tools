@@ -345,3 +345,71 @@ della riga di comando.
 **Questo punto va sciolto prima di scrivere codice**: da esso dipendono la forma
 di `PublicMessage`, otto siti e tre test.
 
+## 14. Errata normativa (2026-08-19) — `RejectedOptionToken`
+
+La proprietà di redazione non è più «nessun testo runtime». È:
+
+> **Nessun testo runtime, salvo il token bounded di un'opzione rifiutata
+> prodotto dal validatore centrale.**
+
+È un'**eccezione normativa esplicita**, non un'interpretazione implicita di S9:
+sta scritta qui, nel design S6 e nel pacchetto decisionale, e vale solo per ciò
+che segue.
+
+### Forma richiesta
+
+* tipo opaco `RejectedOptionToken`;
+* campi privati e **costruttore privato del modulo `format_options`** — non
+  `pub(crate)`: la differenza è che nemmeno il resto del modello può coniarlo;
+* nessun `From<String>`, nessun `From<&str>`, nessun `Deserialize`, nessun
+  costruttore unchecked, **nessun accessor alla stringa originale**;
+* creabile **soltanto** da `valida_opzioni`;
+* **unica** variante di `PublicMessage` autorizzata a contenere testo runtime;
+* **rendering bounded**: caratteri di controllo, virgolette e backslash
+  escaped; troncamento deterministico;
+* **nessun uso** per payload, percorsi, nomi letti dai file o testi delle
+  dipendenze.
+
+L'ultima riga è quella che tiene: il token esiste per una chiave di
+configurazione che l'utente ha digitato, e per niente altro. Un secondo uso lo
+trasformerebbe nella scorciatoia generale che (b) esisteva per non aprire.
+
+### Test aggiuntivi richiesti
+
+| Test | Cosa dimostra |
+|---|---|
+| newline e caratteri di controllo | non entrano grezzi nel wire |
+| token molto lungo | troncato, in modo deterministico |
+| costruzione da codice esterno | non compila |
+| ogni altro costruttore di `PublicMessage` | non accetta testo runtime |
+
+I test S6 sui refusi sicuri — `contains("optzione_inesistente")`,
+`contains("zstsd")` — **restano validi**: è la proprietà che (b) conserva.
+
+## 15. Riconciliazione del censimento (121 → 111)
+
+Il primo numero era **corretto come conteggio di siti**; il secondo era un
+sottoinsieme, e la coincidenza fra «121 occorrenze di segnaposto» e «121 siti»
+ha reso la differenza invisibile. Misurato con un solo metodo, sui siti:
+
+| | Siti |
+|---|---|
+| `format!` che contengono `{e}` o `{error}` | **121** |
+| di cui nella forma stretta `"prefisso: {e}"` | 111 |
+| **differenza** | **10** |
+
+I dieci, identificati uno per uno e non stimati:
+
+| File | Righe | Forma | Perimetro |
+|---|---|---|---|
+| `driver-filegdb/src/lib.rs` | 745, 748, 757, 874, 877, 1402 | `"… '{}': {e}"` — un `{}` posizionale **oltre** a `{e}` | **dentro**: codice spedito sotto `gdal-backend` |
+| `plenora-bench/src/main.rs` | 742, 744 | `"{}: {error}"` | fuori: attrezzaggio |
+| `plenora-fuzz/src/main.rs` | 257, 279 | `"lettura {}: {error}"` | fuori: attrezzaggio |
+
+**Perimetro S9 per il testo di dipendenza: 117 siti** — 111 nella forma stretta
+più i 6 di FileGDB, che oltre al testo della dipendenza portano un nome di
+campo o di layer, quindi vanno trattati anche per quello.
+
+I 4 in `plenora-bench` e `plenora-fuzz` sono esclusi per la stessa ragione per
+cui sono esclusi dalla copertura: non sono codice spedito. L'esclusione è
+dichiarata qui, non silenziosa.

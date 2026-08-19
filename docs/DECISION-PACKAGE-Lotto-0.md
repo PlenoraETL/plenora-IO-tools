@@ -2402,6 +2402,33 @@ registrate nell'errata di
 [`DESIGN-S6-format-options-schema.md`](DESIGN-S6-format-options-schema.md) e
 in [`CHANGE_IMPACT_2026-08-18_S6_FORMAT_OPTIONS_SCHEMA.md`](assurance/CHANGE_IMPACT_2026-08-18_S6_FORMAT_OPTIONS_SCHEMA.md).
 
+#### Errata S9 — la redazione ammette un'eccezione, e una sola
+
+INV-10 vieta la `String` costruita da valori dell'utente. Applicato alla
+lettera, cancellava una proprieta' che **S6 aveva ratificato** con la sua
+motivazione: che il valore ricevuto compaia nel messaggio, perche' un'opzione
+arriva dal chiamante e non dal payload del file, e nasconderla rende l'errore
+inutile proprio a chi deve correggerlo.
+
+La proprieta' normativa diventa:
+
+> **Nessun testo runtime, salvo il token bounded di un'opzione rifiutata
+> prodotto dal validatore centrale.**
+
+`RejectedOptionToken`: tipo opaco, campi e costruttore **privati del modulo
+`format_options`** — non `pub(crate)`, cosi' nemmeno il resto del modello puo'
+coniarlo — senza `From<String>`, senza `From<&str>`, senza `Deserialize`, senza
+costruttori unchecked e **senza accessor alla stringa originale**. Creabile solo
+da `valida_opzioni`. Unica variante di `PublicMessage` che porta testo runtime.
+Rendering bounded: controlli, virgolette e backslash escaped, troncamento
+deterministico. Vietato per payload, percorsi, nomi letti dai file e testi delle
+dipendenze.
+
+E' un'eccezione **normativa ed esplicita**, non un'interpretazione: il modello di
+minaccia di INV-10 e' il payload — il testo di una libreria C che puo' contenere
+percorsi e valori di cella — e una chiave di configurazione digitata dall'utente
+non lo e'.
+
 #### Errata S8.1 — un'eccezione dichiarata a «tutti i campi privati»
 
 INV-14 prevede «tutti i campi privati; accesso solo via getter». Resta vero
