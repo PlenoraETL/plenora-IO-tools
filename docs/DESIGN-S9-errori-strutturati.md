@@ -413,3 +413,81 @@ campo o di layer, quindi vanno trattati anche per quello.
 I 4 in `plenora-bench` e `plenora-fuzz` sono esclusi per la stessa ragione per
 cui sono esclusi dalla copertura: non sono codice spedito. L'esclusione è
 dichiarata qui, non silenziosa.
+
+## 16. Piano della migrazione, per tranche (2026-08-19)
+
+L'infrastruttura dei tipi è chiusa e verde a `561c568`. Da qui la migrazione
+procede **una tranche per volta**, ognuna con il proprio commit.
+
+Il vincolo che governa il piano: cambiare la firma dei costruttori romperebbe
+tutti i siti simultaneamente, quindi non esisterebbe uno stato intermedio
+compilante. La nuova API vive **accanto** alla legacy, e la legacy sparisce solo
+nell'ultima tranche, quando il censimento arriva davvero a zero.
+
+### Ordine
+
+| Tranche | Crate | Stato |
+|---|---|---|
+| 1 | `plenora-io-model` | **prossima** |
+| 2 | `plenora-io-core` | dopo la 1 |
+| 3 | `driver-common` | dopo la 2 |
+| 4… | i dieci driver, poi la CLI | |
+| ultima | rimozione della via legacy | solo a censimento zero |
+| chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |
+
+**Una tranche per commit.** Non si comincia il crate successivo nello stesso
+commit: il valore dello staging è che ogni passo sia verde da solo, e due crate
+in un commit tolgono proprio quello.
+
+### Perimetro della tranche 1
+
+* migrare **solo** `plenora-io-model` alla nuova API;
+* i costruttori legacy **restano disponibili** agli altri crate;
+* `plenora-io-error-v1` **invariato**;
+* la questione `provider` non entra né nel tipo né nel DTO;
+* chiusura: model a zero, gate strutturale attivo, wire identico, all-features,
+  27/27 verdi, commit autonomo.
+
+### Il gate per-crate
+
+Il conteggio globale **non basta**, e non è un'ipotesi: in FZ-0.2 il registro
+dei fallback era rimasto fermo a 4 mentre due voci si annullavano — una in calo
+e una in aumento — e la stabilità sembrava una conferma. Un contatore fermo non
+dice che niente si è mosso.
+
+Il gate deve quindi:
+
+| Requisito | Perché |
+|---|---|
+| identità **`percorso::funzione`**, non `path:riga` | è la lezione di INFRA-1: una chiave per riga si accende sui movimenti, e insegna a riallinearla senza guardare |
+| nessuna chiamata legacy in un crate **dichiarato migrato** | è la proprietà che il conteggio globale non può dare |
+| `plenora-io-model` a **zero** | il criterio di chiusura della tranche |
+| fallire su chiamata non censita | il caso ordinario |
+| fallire su conteggio cambiato | una seconda chiamata dentro una funzione già censita non è coperta dalla ragione scritta per la prima |
+| fallire su voce fantasma | una voce che sopravvive al proprio codice tiene in vita una ragione che nessuno rilegge |
+
+E deve avere **sonde su un albero finto** per entrambi i versi: l'aggiunta
+illecita in un crate migrato, e la voce obsoleta. Un gate provato in una
+direzione sola è severo o rumoroso, e non si sa quale delle due finché non
+serve.
+
+### Lo script
+
+Può fare **una sola cosa**: lo strip meccanico di `: {e}` / `: {error}`, che è
+verificato su tutti e 111 i siti della forma stretta e produce un messaggio già
+curato e completo.
+
+Classificazione e scelta della variante di `PublicMessage` restano **esplicite e
+verificate dal compilatore e dai test**, non dedotte da una regex. I 24 siti con
+un valore nominato si decidono uno per uno.
+
+## 17. Raccomandazione su `provider` — non ratificata
+
+Per `contracts-next`: **`details.format_id`**, con `provider` riservato a un
+vero backend esterno. Un driver di formato IO è il formato del file — csv,
+geoparquet, shapefile — scelto dal chiamante e senza effetto remoto; «provider»
+suggerisce un servizio, ed è un'altra cosa.
+
+**Va ratificata separatamente**, ed è registrata qui perché non vada persa, non
+perché sia decisa. Durante la tranche 1 non entra né nel tipo né nel DTO, e la
+matrice di handoff continua a marcare il campo `provider` come `da decidere`.
