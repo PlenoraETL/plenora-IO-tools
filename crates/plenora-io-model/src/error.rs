@@ -173,17 +173,41 @@ pub struct PlenoraIoError {
     pub row_diagnostics: Option<Box<RowDiagnostics>>,
 }
 
-/// Tetto globale sulla lunghezza del messaggio pubblico, in **byte**.
+/// Tetto globale sul messaggio pubblico: **2048 byte UTF-8 del valore
+/// decodificato**.
 ///
-/// Byte e non caratteri perche' il vincolo e' sul wire: `plenora-io-error-v1`
-/// e' JSON UTF-8, e cio' che un consumatore deve poter dimensionare e' il
-/// buffer, non il conteggio dei grafemi. Un messaggio di 2048 caratteri
-/// multibyte occuperebbe otto kilobyte, e il tetto avrebbe promesso una cosa
-/// misurandone un'altra.
+/// # Cosa garantisce, e cosa no
 ///
-/// Il tetto e' **globale e assoluto**: vale su ogni errore, comunque
-/// costruito, perche' e' applicato nell'unico punto da cui passano tutti i
-/// costruttori. Non e' una raccomandazione che ogni sito deve ricordare.
+/// Garantisce che `PlenoraIoError::message` — la `String` Rust, cioe' il
+/// **valore decodificato** — non superi 2048 byte UTF-8.
+///
+/// **Non** garantisce che il campo occupi 2048 byte una volta serializzato in
+/// JSON. L'escaping espande: una virgoletta diventa due byte, un carattere di
+/// controllo diventa sei (``). Un messaggio al limite fatto di soli
+/// controlli si serializza in circa dodici kilobyte piu' le virgolette.
+///
+/// La prima stesura di questa doc prometteva il limite **sul wire**. Era falso:
+/// il codice misura `String::len()`, che e' il valore decodificato, e nessuna
+/// misura avveniva dopo la serializzazione. Un tetto che promette una cosa e ne
+/// misura un'altra e' peggio di nessun tetto, perche' qualcuno ci dimensiona un
+/// buffer.
+///
+/// Se un giorno servisse anche un limite sul wire, va **dichiarato a parte e
+/// misurato dopo la serializzazione**. Oggi non e' promesso, e il test
+/// `il_tetto_e_sul_valore_decodificato_non_sul_json` fissa la differenza invece
+/// di lasciarla implicita.
+///
+/// # Perche' byte e non caratteri
+///
+/// Perche' e' la grandezza che un consumatore puo' usare per dimensionare
+/// qualcosa. Contare i caratteri lascerebbe passare un messaggio quattro volte
+/// piu' grande a parita' di conteggio.
+///
+/// # Globale
+///
+/// Vale su ogni errore, comunque costruito: e' applicato nell'unico punto da
+/// cui passano tutti i costruttori, non e' una raccomandazione che ogni sito
+/// deve ricordare.
 pub const MAX_MESSAGE_BYTES: usize = 2048;
 
 /// Il marcatore che rende visibile un troncamento.
@@ -198,8 +222,7 @@ const MARCATORE_TRONCAMENTO: &str = "…";
 /// invece che affidata a un `panic` evitato per fortuna.
 ///
 /// Il risultato include il marcatore **dentro** il tetto: la garanzia e' che
-/// il campo `message` del wire non superi mai 2048 byte, non che li superi di
-/// tre.
+/// il valore decodificato non superi mai 2048 byte, non che li superi di tre.
 fn limita_messaggio(message: String) -> String {
     if message.len() <= MAX_MESSAGE_BYTES {
         return message;
@@ -579,6 +602,66 @@ mod tests {
                 "un messaggio troncato deve dirlo: {}",
                 &errore.message[errore.message.len().saturating_sub(16)..]
             );
+        }
+    }
+
+    /// Il tetto vale sul valore **decodificato**, non sul JSON serializzato.
+    ///
+    /// È una controprova, non una verifica: misura la differenza fra ciò che il
+    /// tetto garantisce e ciò che finisce sul wire, così nessuno la deduca dal
+    /// nome della costante.
+    ///
+    /// L'escaping JSON espande — `"` diventa due byte, un carattere di
+    /// controllo ne diventa sei — quindi un messaggio al limite si serializza
+    /// più lungo del limite. Il test lo **dimostra** e lo pinna: se un giorno
+    /// servisse anche un tetto sul wire, va dichiarato a parte e misurato qui,
+    /// dopo la serializzazione. Oggi non è promesso.
+    #[test]
+    fn il_tetto_e_sul_valore_decodificato_non_sul_json() {
+        // Tre input al limite, di espansione crescente.
+        let casi = [
+            ("ascii", "x".repeat(4096)),
+            ("virgolette", "\"".repeat(4096)),
+            ("controlli", "\u{1}".repeat(4096)),
+        ];
+        for (nome, grezzo) in casi {
+            let errore = PlenoraIoError::Contract(grezzo);
+
+            // Cio' che il tetto garantisce: il valore decodificato.
+            assert!(
+                errore.message.len() <= MAX_MESSAGE_BYTES,
+                "{nome}: valore decodificato da {} byte",
+                errore.message.len()
+            );
+
+            // Cio' che finisce sul wire, misurato dopo la serializzazione.
+            let serializzato =
+                serde_json::to_string(&errore.message).expect("il messaggio si serializza");
+            // `to_string` di una String include le virgolette: le tolgo per
+            // misurare il solo valore, che e' cio' di cui si sta parlando.
+            let sul_wire = serializzato.len() - 2;
+
+            match nome {
+                // L'ASCII non si espande: qui i due numeri coincidono, ed e'
+                // il caso che rende invisibile la differenza se lo si guarda
+                // da solo.
+                "ascii" => assert_eq!(sul_wire, errore.message.len()),
+                // Le virgolette raddoppiano.
+                "virgolette" => assert!(
+                    sul_wire > errore.message.len(),
+                    "le virgolette devono espandersi: {sul_wire} vs {}",
+                    errore.message.len()
+                ),
+                // I controlli sestuplicano: e' il caso peggiore, ed e' quello
+                // che smentisce la promessa sbagliata.
+                "controlli" => assert!(
+                    sul_wire > MAX_MESSAGE_BYTES * 5,
+                    "i controlli devono espandersi molto: {sul_wire} byte sul wire \
+                     contro {} decodificati",
+                    errore.message.len()
+                ),
+                _ => unreachable!(),
+            }
         }
     }
 

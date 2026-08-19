@@ -919,7 +919,14 @@ fn matrice_di_handoff() -> Value {
             "nota": "l'adozione e' uno step breaking separato dopo S9, insieme a CLI v2, exit code e capabilities"
         },
         "vincoli": {
-            "message_max_bytes": plenora_io_model::MAX_MESSAGE_BYTES,
+            // Il nome dice **cosa** e' misurato. `message_max_bytes` da solo si
+            // legge come «byte sul wire», che e' falso: l'escaping JSON espande
+            // virgolette e controlli, e nessuna misura avviene dopo la
+            // serializzazione.
+            "message_max_bytes_valore_decodificato": plenora_io_model::MAX_MESSAGE_BYTES,
+            "message_max_bytes_serializzato": null,
+            "message_max_bytes_serializzato_nota":
+                "non promesso: l'escaping JSON espande (una virgoletta -> 2 byte, un controllo -> 6); se servira', va dichiarato a parte e misurato dopo la serializzazione",
             "message_non_e_chiave_di_compatibilita": true,
             "message_testo_runtime": "vietato, salvo il token bounded di un'opzione rifiutata prodotto dal validatore centrale",
             "assi_stabili": ["category", "phase", "code", "retry"]
