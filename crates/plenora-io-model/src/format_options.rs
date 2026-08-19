@@ -28,6 +28,138 @@ use std::collections::BTreeMap;
 
 use crate::{PlenoraIoError, Result};
 
+/// Il numero massimo di caratteri che un token di opzione rifiutata porta
+/// fuori.
+///
+/// Una chiave di `format_options` reale sta in poche decine di caratteri.
+/// Sessantaquattro e' largo per qualunque refuso plausibile e **finito** per
+/// qualunque input ostile: senza un tetto, un'opzione da un megabyte
+/// diventerebbe un messaggio d'errore da un megabyte, e la redazione avrebbe
+/// chiuso il canale del contenuto lasciando aperto quello della dimensione.
+const MASSIMO_TOKEN: usize = 64;
+
+/// Cio' che l'utente ha scritto in un'opzione rifiutata, reso sicuro.
+///
+/// # Non costruibile da fuori
+///
+/// Il costruttore e' privato di questo modulo, quindi nemmeno il resto di
+/// `plenora-io-model` puo' coniarne uno:
+///
+/// ```compile_fail
+/// use plenora_io_model::format_options::RejectedOptionToken;
+/// let _ = RejectedOptionToken::conia("wkt_colunm");
+/// ```
+///
+/// Non c'e' `From<&str>`:
+///
+/// ```compile_fail
+/// use plenora_io_model::format_options::RejectedOptionToken;
+/// let _: RejectedOptionToken = "wkt_colunm".into();
+/// ```
+///
+/// Non c'e' `From<String>`:
+///
+/// ```compile_fail
+/// use plenora_io_model::format_options::RejectedOptionToken;
+/// let _ = RejectedOptionToken::from(String::from("wkt_colunm"));
+/// ```
+///
+/// E il literal non compila, perche' il campo e' privato:
+///
+/// ```compile_fail
+/// use plenora_io_model::format_options::RejectedOptionToken;
+/// let _ = RejectedOptionToken { reso: String::new() };
+/// ```
+///
+/// Non c'e' modo di riportare fuori la stringa originale: l'unica cosa che il
+/// tipo offre e' `Display`, e cio' che rende e' gia' scappato e troncato.
+///
+/// # Perche' esiste — eccezione normativa, non interpretazione
+///
+/// S9 ha ratificato che nessun costruttore pubblico d'errore accetti `&str`
+/// non `'static`. S6 aveva ratificato, con la propria motivazione, che il
+/// valore ricevuto compaia nel messaggio: «un'opzione arriva dal chiamante —
+/// riga di comando o API — non dal payload del file, e nasconderla renderebbe
+/// l'errore inutile proprio a chi deve correggerlo». Una chiave scritta male
+/// e' per definizione non statica, e le due ratifiche si contraddicevano.
+///
+/// La proprieta' del prodotto e' ora: **nessun testo runtime, salvo il token
+/// bounded di un'opzione rifiutata prodotto dal validatore centrale**. E'
+/// scritta nel pacchetto decisionale e in entrambi i design, perche'
+/// un'eccezione registrata in un posto solo diventa un'interpretazione.
+///
+/// # Cosa rende stretta l'eccezione
+///
+/// * il costruttore e' **privato di questo modulo**, non `pub(crate)`: nemmeno
+///   il resto di `plenora-io-model` puo' coniarne uno;
+/// * non c'e' `From<String>`, `From<&str>`, `Deserialize`, ne' alcun
+///   costruttore unchecked;
+/// * **non c'e' un accessor alla stringa originale**: fuori di qui il token si
+///   puo' solo rendere, gia' scappato e troncato;
+/// * l'unico chiamante e' [`valida_opzioni`], che lo conia da una chiave o da
+///   un valore di `format_options`.
+///
+/// # Cosa non e'
+///
+/// Non e' un canale generico per il testo. Payload, percorsi, nomi letti dai
+/// file e messaggi delle dipendenze **non** passano da qui: un secondo uso lo
+/// trasformerebbe nella scorciatoia che questa forma esiste per non aprire.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RejectedOptionToken {
+    /// Gia' scappato e troncato alla costruzione: cio' che e' qui dentro e'
+    /// cio' che esce. Non esiste un percorso che riporti fuori l'originale.
+    reso: String,
+}
+
+impl RejectedOptionToken {
+    /// Conia un token da testo dell'utente.
+    ///
+    /// **Privata del modulo per costruzione.** E' il punto in cui l'eccezione
+    /// e' confinata: chiunque voglia far uscire testo runtime da un errore
+    /// deve passare da qui, e qui non ci si arriva da fuori.
+    fn conia(grezzo: &str) -> Self {
+        let mut reso = String::with_capacity(grezzo.len().min(MASSIMO_TOKEN) + 2);
+        let mut troncato = false;
+        for (usati, carattere) in grezzo.chars().enumerate() {
+            if usati >= MASSIMO_TOKEN {
+                troncato = true;
+                break;
+            }
+            match carattere {
+                // Virgolette e backslash: il messaggio finisce dentro JSON, e
+                // un apice non scappato ci arriverebbe come struttura invece
+                // che come testo.
+                '"' => reso.push_str("\\\""),
+                '\\' => reso.push_str("\\\\"),
+                '\n' => reso.push_str("\\n"),
+                '\r' => reso.push_str("\\r"),
+                '\t' => reso.push_str("\\t"),
+                // Ogni altro controllo diventa la sua forma esadecimale: un
+                // byte che muove il cursore o riscrive la riga in un terminale
+                // e' un canale, piccolo ma reale.
+                c if c.is_control() => {
+                    use std::fmt::Write as _;
+                    // La scrittura su String non fallisce; l'errore e' ignorato
+                    // qui e in nessun altro posto, perche' l'alternativa
+                    // sarebbe propagare un `fmt::Error` che non puo' accadere.
+                    let _ = write!(reso, "\\u{{{:04x}}}", u32::from(c));
+                }
+                c => reso.push(c),
+            }
+        }
+        if troncato {
+            reso.push('…');
+        }
+        Self { reso }
+    }
+}
+
+impl std::fmt::Display for RejectedOptionToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reso)
+    }
+}
+
 /// In quale fase un'opzione ha significato.
 ///
 /// Passare un'opzione di scrittura in lettura non e' innocuo: chi lo fa crede
@@ -293,10 +425,15 @@ pub fn valida_opzioni(
     fase: FaseOpzione,
 ) -> Result<()> {
     for (chiave, valore) in opzioni {
+        // Le tre chiamate a `RejectedOptionToken::conia` sotto sono le **uniche**
+        // del workspace, ed e' per costruzione: il costruttore e' privato di
+        // questo modulo. Fuori di qui non esiste un modo di far uscire testo
+        // runtime da un errore.
         let Some(dichiarata) = schema.opzione(chiave) else {
             let ammesse = schema.chiavi(fase);
             return Err(scarto(format!(
-                "{driver}: opzione '{chiave}' sconosciuta in {}; accettate: {}",
+                "{driver}: opzione '{}' sconosciuta in {}; accettate: {}",
+                RejectedOptionToken::conia(chiave),
                 fase.nome(),
                 if ammesse.is_empty() {
                     "nessuna".to_owned()
@@ -307,14 +444,17 @@ pub fn valida_opzioni(
         };
         if !dichiarata.fase.copre(fase) {
             return Err(scarto(format!(
-                "{driver}: opzione '{chiave}' vale in {}, non in {}",
+                "{driver}: opzione '{}' vale in {}, non in {}",
+                RejectedOptionToken::conia(chiave),
                 dichiarata.fase.nome(),
                 fase.nome()
             )));
         }
         if let Err(ammessi) = dichiarata.valore.verifica(valore) {
             return Err(scarto(format!(
-                "{driver}: valore '{valore}' non valido per '{chiave}'; ammessi: {ammessi}"
+                "{driver}: valore '{}' non valido per '{}'; ammessi: {ammessi}",
+                RejectedOptionToken::conia(valore),
+                RejectedOptionToken::conia(chiave),
             )));
         }
     }
@@ -442,6 +582,129 @@ mod tests {
                 "{rifiutato:?} doveva essere rifiutato"
             );
         }
+    }
+
+    /// Newline e caratteri di controllo non escono grezzi.
+    ///
+    /// Il messaggio finisce dentro un envelope JSON e, prima ancora, dentro il
+    /// terminale di chi legge. Un `\n` grezzo spezza una riga di log in due
+    /// record; un `\r` riscrive quella che c'era; una virgoletta non scappata
+    /// arriva a chi fa il parsing come struttura invece che come testo. Nessuno
+    /// dei tre e' payload, e tutti e tre sono canali.
+    #[test]
+    fn il_token_non_lascia_uscire_controlli_grezzi() {
+        let ostili = [
+            ("a\nb", "a\\nb"),
+            ("a\rb", "a\\rb"),
+            ("a\tb", "a\\tb"),
+            ("a\"b", "a\\\"b"),
+            ("a\\b", "a\\\\b"),
+            ("a\u{0}b", "a\\u{0000}b"),
+            ("a\u{1b}[2Kb", "a\\u{001b}[2Kb"),
+        ];
+        for (grezzo, atteso) in ostili {
+            let reso = RejectedOptionToken::conia(grezzo).to_string();
+            assert_eq!(reso, atteso, "grezzo: {grezzo:?}");
+            // Nessun controllo, in nessuna forma: dopo l'escape non ne resta
+            // nemmeno uno.
+            assert!(
+                !reso.chars().any(char::is_control),
+                "un controllo e' uscito grezzo da {grezzo:?}"
+            );
+            // Nessuna virgoletta **non scappata**. La forma resa la contiene,
+            // ma sempre preceduta da un backslash: e' la differenza fra un
+            // carattere e una delimitazione, ed e' cio' che conta per chi fa
+            // il parsing di quel JSON.
+            let mut precedente = '\0';
+            for carattere in reso.chars() {
+                if carattere == '"' {
+                    assert_eq!(
+                        precedente, '\\',
+                        "virgoletta non scappata in {reso:?} da {grezzo:?}"
+                    );
+                }
+                precedente = carattere;
+            }
+        }
+    }
+
+    /// Un token lunghissimo viene troncato, e sempre allo stesso modo.
+    ///
+    /// Senza tetto, un'opzione da un megabyte diventerebbe un messaggio
+    /// d'errore da un megabyte: la redazione avrebbe chiuso il canale del
+    /// contenuto lasciando aperto quello della dimensione.
+    #[test]
+    fn il_token_lunghissimo_viene_troncato_in_modo_deterministico() {
+        let lungo = "k".repeat(10_000);
+        let primo = RejectedOptionToken::conia(&lungo).to_string();
+        let secondo = RejectedOptionToken::conia(&lungo).to_string();
+        assert_eq!(primo, secondo, "il troncamento deve essere deterministico");
+        assert_eq!(
+            primo.chars().count(),
+            MASSIMO_TOKEN + 1,
+            "64 caratteri piu' l'ellissi"
+        );
+        assert!(primo.ends_with('…'), "il troncamento e' visibile: {primo}");
+
+        // Il tetto conta i **caratteri**, non i byte: un'opzione di soli
+        // caratteri multibyte non deve poter uscire quattro volte piu' lunga.
+        let multibyte = "à".repeat(10_000);
+        let reso = RejectedOptionToken::conia(&multibyte).to_string();
+        assert_eq!(reso.chars().count(), MASSIMO_TOKEN + 1);
+
+        // Un token corto non viene toccato ne' marcato.
+        let corto = RejectedOptionToken::conia("wkt_colunm").to_string();
+        assert_eq!(corto, "wkt_colunm");
+        assert!(!corto.ends_with('…'));
+
+        // Il troncamento avviene **dopo** l'escape, quindi un input fatto di
+        // soli controlli non sfonda il tetto espandendosi.
+        let controlli = "\u{1}".repeat(10_000);
+        let reso = RejectedOptionToken::conia(&controlli).to_string();
+        assert!(
+            reso.chars().count() <= MASSIMO_TOKEN * 8 + 1,
+            "l'escape non deve rendere il tetto inutile: {} caratteri",
+            reso.chars().count()
+        );
+    }
+
+    /// L'eccezione arriva davvero all'errore, con il refuso dentro.
+    ///
+    /// E' la proprieta' che S6 aveva ratificato e che l'eccezione conserva: chi
+    /// ha sbagliato a scrivere vede **cosa** ha scritto.
+    #[test]
+    fn il_refuso_arriva_all_errore_gia_reso_sicuro() {
+        const SCHEMA: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[OpzioneFormato {
+            chiave: "wkt_column",
+            fase: FaseOpzione::Lettura,
+            valore: ValoreAmmesso::Testo,
+            predefinito: None,
+            descrizione: "colonna WKT",
+        }]);
+
+        let errore = valida_opzioni(
+            "prova",
+            SCHEMA,
+            &opzioni(&[("wkt_colunm", "geom")]),
+            FaseOpzione::Lettura,
+        )
+        .expect_err("il refuso e' rifiutato");
+        assert!(errore.message.contains("wkt_colunm"), "{errore}");
+        assert!(errore.message.contains("wkt_column"), "{errore}");
+
+        // E un refuso ostile arriva **reso**, non grezzo.
+        let errore = valida_opzioni(
+            "prova",
+            SCHEMA,
+            &opzioni(&[("a\nb\"c", "x")]),
+            FaseOpzione::Lettura,
+        )
+        .expect_err("rifiutato");
+        assert!(errore.message.contains("a\\nb\\\"c"), "{errore}");
+        assert!(
+            !errore.message.contains('\n'),
+            "newline grezzo nel messaggio"
+        );
     }
 
     #[test]
