@@ -1,7 +1,7 @@
 # Design S9 — errori strutturati e redazione per costruzione (L0.6 / INV-10)
 
-Stato: **proposta**, non ratificata. Nessuna riga di codice va scritta prima
-della ratifica.
+Stato: **ratificato** il 2026-08-19. Le sei decisioni della sezione 9 sono
+risolte in coda al documento, insieme a due vincoli aggiuntivi.
 
 Baseline: `1d24141` (S8.1).
 
@@ -224,3 +224,124 @@ di cui 210 da riscrivere davvero, più la migrazione dei test che fanno match su
 testo — la stima è **plausibile ma sul limite inferiore**. Il fattore di rischio
 non sono i tipi: è la decisione n. 1, perché B applicato largamente
 moltiplicherebbe il lavoro senza un tetto chiaro.
+
+## 11. Ratifica (2026-08-19)
+
+Le sei decisioni della sezione 9, risolte.
+
+**1. Testo delle dipendenze: A come regola.** B soltanto quando la classe è
+*già* rappresentata da un tipo del workspace. C mai — e con essa **nessun canale
+alternativo**: né log, né `source`, né `context`, né `row_diagnostics`. Il testo
+di una dipendenza non esce, e non esce da nessuna parte: aprire una seconda
+porta perché la prima è chiusa sarebbe la stessa perdita con un nome diverso.
+
+**2. Il testo di `message` cambia subito, senza doppia emissione.**
+`plenora-io-error-v1` resta invariato **strutturalmente**. Il testo non è un
+identificatore stabile e non lo è mai stato: chi correla errori usa
+`(category, phase, code, retry)`. La rottura va documentata nelle release note.
+
+**3. Tipi Rust confermati**: `driver: Option<&'static str>`,
+`field: Option<ContractIdentifier>`. `ContractIdentifier` nasce **solo** dalla
+risoluzione di un contratto validato — niente `From<String>`, niente costruttori
+unchecked pubblici, niente `Deserialize` che aggiri la validazione.
+
+**4. Cause multiple: non introdotte.** Resta la prima causa, deterministica.
+Nessun totale e nessun elenco inventato.
+
+**5. Test ostili su tutti e dieci i driver**, FileGDB compreso nel gate
+feature-on. Va descritto per ciò che è: una prova di **attraversamento di ogni
+driver**, non una dimostrazione dinamica dei 121 siti. L'esaustività è garantita
+dal tipo e dai compile-fail; il test ostile prova che il tipo è davvero sul
+percorso che l'utente attraversa.
+
+**6. S9 precede S12.** Quando S12 aggiungerà errori nuovi, il tipo li obbligherà
+già alla redazione. L'ordine inverso avrebbe richiesto due migrazioni sullo
+stesso codice.
+
+### Due vincoli aggiuntivi
+
+**Parametri numerici**: sono ammessi solo **indici, conteggi, limiti o codici
+strutturali tipizzati**. Mai un valore numerico letto dal payload. La
+distinzione non è pedanteria: «riga 47» è una posizione nel file che il
+chiamante conosce già, «valore 47.3» è il dato. Il primo aiuta a trovare il
+problema, il secondo lo espone.
+
+**Nessun costruttore pubblico** deve accettare `String`, `Cow<str>`, `impl
+Display`, `dyn Error` o `&str` non `'static`. È l'enforcement che rende la
+regola 1 una proprietà del tipo invece di una convenzione — e quindi ciò che i
+compile-fail devono provare.
+
+## 12. Vincoli esterni (2026-08-19)
+
+* **`plenora-contracts` non si tocca e non si assume sincronizzato.** È un
+  repository esterno, referenziato solo nella documentazione: non è una
+  dipendenza di codice di questo workspace, verificato sui `Cargo.toml`. S9 vive
+  interamente in IO-tools.
+* **Nessuna doppia emissione**, come da decisione 2.
+* **Il testo di `message` non è una chiave di compatibilità**, e non va trattato
+  come tale da nessuna parte — nostri test compresi.
+* **Matrice di handoff machine-readable** per il riallineamento esterno: un
+  artefatto versionato che elenca, per ogni messaggio curato, il testo e i
+  quattro assi. Serve a chi mantiene `plenora-contracts` per riallineare senza
+  leggere il nostro codice, ed è generato dal codice, non scritto a mano.
+
+## 13. Un conflitto fra due ratifiche, da sciogliere prima di implementare
+
+Misurando i siti è emerso che **S6 e S9 si contraddicono** su un punto preciso,
+ed entrambe le posizioni sono ratificate e argomentate.
+
+**S6 ha ratificato che il valore ricevuto compaia nel messaggio.** Sta scritto
+nel design S6 e nel codice:
+
+> Il valore ricevuto **compare** nel messaggio. Non è una violazione della
+> redazione: un'opzione arriva dal chiamante — riga di comando o API — non dal
+> payload del file, e nasconderla renderebbe l'errore inutile proprio a chi deve
+> correggerlo.
+
+**S9 ha ratificato che nessun costruttore pubblico accetti `&str` non
+`'static`.** Una chiave di `format_options` scritta male dall'utente è, per
+definizione, non statica: non esiste nello schema, è per questo che viene
+rifiutata.
+
+### Superficie interessata
+
+| Sito | Messaggio |
+|---|---|
+| `format_options::valida_opzioni` ×3 | nomina la chiave sconosciuta, la fase, il valore fuori grammatica |
+| `format_options::booleano` | nomina la chiave |
+| `driver-csv`, `driver-xls`, `driver-geoparquet` | `'{altro}' non riconosciuto` |
+| `driver-shp` `publish_mode` | `'{other}' non valido` |
+
+E tre asserzioni dei test S6 che verificano proprio questo:
+`contains("optzione_inesistente")`, `contains("zstsd")`, `contains(chiave)`.
+
+### Le tre uscite
+
+**(a) Vince S9.** I messaggi smettono di nominare la chiave o il valore
+sbagliato, ed elencano solo ciò che è accettato — che è `&'static str`, viene
+dallo schema. I test S6 vengono riscritti. Costo: chi sbaglia a scrivere deve
+confrontare da sé il proprio input con l'elenco. Su una mappa di opzioni è
+fattibile; è comunque una perdita rispetto a ciò che S6 ha ratificato.
+
+**(b) Vince S6, con un'eccezione stretta.** Un tipo opaco — `OpzioneRiferita` —
+costruibile **solo** dentro `plenora-io-model`, con costruttori `pub(crate)`.
+`PublicMessage` guadagna una variante che lo porta. L'API pubblica continua a
+non accettare nessun `&str` non statico, quindi la lettera del vincolo S9 regge;
+l'unico posto che può coniare quel tipo è il validatore delle opzioni, che è
+nostro. Il modello di minaccia di INV-10 riguarda il **payload**, e una chiave
+di configurazione non lo è.
+
+**(c) Il valore va nell'`ErrorContext` invece che nel messaggio.** Escluso: il
+DTO dovrebbe emetterlo in un campo wire nuovo, e la struttura di
+`plenora-io-error-v1` deve restare invariata.
+
+**Raccomandazione: (b).** Tiene la proprietà che S6 ha ratificato e argomentato,
+e la paga con un tipo che confina l'eccezione a un punto solo invece di lasciare
+una scorciatoia generale. (a) è difendibile ma cancella una decisione presa
+consapevolmente tre passi fa, e lo farebbe come effetto collaterale di un
+vincolo scritto pensando ad altro — il testo delle dipendenze C, non le opzioni
+della riga di comando.
+
+**Questo punto va sciolto prima di scrivere codice**: da esso dipendono la forma
+di `PublicMessage`, otto siti e tre test.
+
