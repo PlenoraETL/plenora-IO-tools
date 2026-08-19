@@ -35,6 +35,6 @@ pub use diagnostics::{
     ROW_DIAGNOSTIC_COLUMN_UNATTESTABLE,
 };
 pub use error::{
-    CapabilityReason, ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, RemoteEffect, Result,
-    RetryDisposition, MAX_MESSAGE_BYTES,
+    CapabilityReason, ErrorCategory, ErrorPhase, IoErrorCode, NumeroStrutturale, PlenoraIoError,
+    PublicMessage, RemoteEffect, Result, RetryDisposition, MAX_MESSAGE_BYTES,
 };

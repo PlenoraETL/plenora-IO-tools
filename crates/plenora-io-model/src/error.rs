@@ -173,6 +173,147 @@ pub struct PlenoraIoError {
     pub row_diagnostics: Option<Box<RowDiagnostics>>,
 }
 
+/// Un numero che si puo' far uscire in un messaggio d'errore.
+///
+/// La ratifica di S9 ammette «indici, conteggi, limiti o codici strutturali
+/// tipizzati; mai valori numerici letti dal payload». Il tipo non puo'
+/// verificare da dove viene un `u64` — nessun tipo puo' — ma **nomina il
+/// ruolo** al sito di costruzione, e quello e' cio' che un tipo puo' fare qui:
+/// scrivere `NumeroStrutturale::Valore(cella)` e' un gesto che si vede in
+/// review, mentre passare un `u64` in mezzo ad altri no.
+///
+/// La distinzione non e' pedanteria. «riga 47» e' una posizione che il
+/// chiamante conosce gia'; «valore 47.3» e' il dato. Il primo aiuta a trovare
+/// il problema, il secondo lo espone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NumeroStrutturale {
+    /// Posizione in una sequenza: indice di layer, di campo, di riga.
+    Indice(u64),
+    /// Quante cose sono state contate.
+    Conteggio(u64),
+    /// Il valore di una quota configurata.
+    Limite(u64),
+}
+
+impl std::fmt::Display for NumeroStrutturale {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Indice(n) | Self::Conteggio(n) | Self::Limite(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+/// Il testo pubblico di un errore, deciso a compile time.
+///
+/// # Nessun testo runtime, e il compilatore lo impone
+///
+/// Una `String` non entra:
+///
+/// ```compile_fail
+/// use plenora_io_model::PublicMessage;
+/// let a_runtime = String::from("valore letto dal file");
+/// let _ = PublicMessage::Curated(a_runtime);
+/// ```
+///
+/// Nemmeno un `&str` preso in prestito da una `String`, che vivrebbe meno di
+/// `'static`:
+///
+/// ```compile_fail
+/// use plenora_io_model::PublicMessage;
+/// fn da_runtime(valore: &str) -> PublicMessage {
+///     PublicMessage::Curated(valore)
+/// }
+/// ```
+///
+/// Nemmeno il testo di una dipendenza, che e' il caso da cui tutto e' partito:
+///
+/// ```compile_fail
+/// use plenora_io_model::PublicMessage;
+/// fn da_dipendenza(errore: std::io::Error) -> PublicMessage {
+///     PublicMessage::Curated(&errore.to_string())
+/// }
+/// ```
+///
+/// Un letterale invece si', anche in contesto `const`:
+///
+/// ```
+/// use plenora_io_model::PublicMessage;
+/// const MESSAGGIO: PublicMessage = PublicMessage::Curated("footer Parquet non valido");
+/// assert_eq!(MESSAGGIO.to_string(), "footer Parquet non valido");
+/// ```
+///
+/// E un numero strutturale, sempre in `const`:
+///
+/// ```
+/// use plenora_io_model::{NumeroStrutturale, PublicMessage};
+/// const OLTRE: PublicMessage = PublicMessage::CuratedWith(
+///     "layer fuori dal piano di scrittura:",
+///     NumeroStrutturale::Indice(3),
+/// );
+/// assert_eq!(OLTRE.to_string(), "layer fuori dal piano di scrittura: 3");
+/// ```
+///
+/// # Perche' non e' una `String`
+///
+/// Una `String` alimentata a runtime e' un canale, e il canale era gia' usato:
+/// 105 siti su 144 propagavano il testo d'errore di una dipendenza —
+/// `calamine`, `parquet`, `arrow`, `csv`, `serde_json`, `rusqlite`, GDAL —
+/// e nessuna di quelle librerie promette che il proprio messaggio non contenga
+/// un percorso o un valore di cella. Per XLSX era gia' successo.
+///
+/// # La regola, e la sua unica eccezione
+///
+/// **Nessun testo runtime, salvo il token bounded di un'opzione rifiutata
+/// prodotto dal validatore centrale.** L'eccezione e' normativa ed esplicita,
+/// registrata nel pacchetto decisionale e in entrambi i design; la porta
+/// [`PublicMessage::OpzioneRifiutata`] e nessun'altra variante.
+///
+/// # Costruibile in contesto `const`
+///
+/// Le prevalidazioni di FZ-0.1 e FZ-0.2 dichiarano i propri messaggi come
+/// costanti, e i gate lo verificano. Se questo tipo non fosse costruibile in
+/// `const`, quelle costanti diventerebbero funzioni e il gate perderebbe la
+/// presa.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PublicMessage {
+    /// Testo scritto da noi, scelto a compile time.
+    Curated(&'static str),
+    /// Testo nostro piu' un numero strutturale: «layer 3 fuori dal piano».
+    CuratedWith(&'static str, NumeroStrutturale),
+    /// Testo nostro, un numero e la sua unita' di misura, entrambi nostri:
+    /// «12 colonne oltre il limite 8».
+    CuratedBetween(
+        &'static str,
+        NumeroStrutturale,
+        &'static str,
+        NumeroStrutturale,
+    ),
+    /// La ragione tipizzata per cui una capability non c'e'.
+    Capability(CapabilityReason),
+    /// **L'unica variante che porta testo runtime.**
+    ///
+    /// Il token e' bounded, scappato e troncato alla costruzione, e si conia
+    /// solo dentro `format_options::valida_opzioni`. Vedi l'errata normativa
+    /// del 2026-08-19.
+    OpzioneRifiutata(&'static str, crate::format_options::RejectedOptionToken),
+}
+
+impl std::fmt::Display for PublicMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Curated(testo) => f.write_str(testo),
+            Self::CuratedWith(testo, numero) => write!(f, "{testo} {numero}"),
+            Self::CuratedBetween(testo, primo, mezzo, secondo) => {
+                write!(f, "{testo} {primo} {mezzo} {secondo}")
+            }
+            Self::Capability(reason) => write!(f, "capability non disponibile: {reason:?}"),
+            Self::OpzioneRifiutata(testo, token) => write!(f, "{testo}: '{token}'"),
+        }
+    }
+}
+
 /// Tetto globale sul messaggio pubblico: **2048 byte UTF-8 del valore
 /// decodificato**.
 ///
