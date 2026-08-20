@@ -99,6 +99,56 @@ class SondeQuartetto(unittest.TestCase):
         self.assertEqual(prima, dopo)
         self.assertEqual(gate.confronta({"x": prima}, {"x": dopo}), [])
 
+    # --- il cambio COMPENSATO: la sonda che il multiinsieme non superava ----
+
+    @staticmethod
+    def _sorgente(primo: str, secondo: str) -> str:
+        """Una funzione con due rami d'errore, in ordine."""
+        return "\n".join(
+            [
+                "fn f(a: bool) -> PlenoraIoError {",
+                "    if a {",
+                f"        return PlenoraIoError::{primo}(&m);",
+                "    }",
+                f"    PlenoraIoError::{secondo}(&m)",
+                "}",
+                "",
+            ]
+        )
+
+    def test_due_siti_che_si_scambiano_il_quartetto_sono_rossi(self) -> None:
+        """La sonda decisiva.
+
+        Stessa funzione, due costruttori con quartetti diversi, scambiati fra
+        loro. Il multiinsieme e' identico: con `sorted()` questo gate sarebbe
+        rimasto **verde**, e «preservato sito per sito» sarebbe stata una frase
+        invece di una proprieta'.
+
+        Non e' un caso di scuola: due rami d'errore adiacenti che si scambiano
+        il costruttore e' esattamente cio' che una sostituzione meccanica
+        sbagliata produce.
+        """
+        prima = self.quartetti(self._sorgente("schema_redatto", "crs_redatto"))
+        dopo = self.quartetti(self._sorgente("crs_redatto", "schema_redatto"))
+
+        self.assertEqual(
+            sorted(prima["f"]),
+            sorted(dopo["f"]),
+            "la premessa della sonda: come multiinsieme sono indistinguibili",
+        )
+        self.assertNotEqual(prima, dopo, "come sequenza ordinata devono differire")
+        errori = gate.confronta({"x": prima}, {"x": dopo})
+        self.assertTrue(any("cambiato" in e for e in errori), errori)
+
+    def test_uno_scambio_fra_limite_e_contratto_e_rosso(self) -> None:
+        """Seconda coppia, per non provare la proprieta' su un caso solo."""
+        prima = self.quartetti(self._sorgente("limite_redatto", "contratto_redatto"))
+        dopo = self.quartetti(self._sorgente("contratto_redatto", "limite_redatto"))
+
+        self.assertEqual(sorted(prima["f"]), sorted(dopo["f"]))
+        self.assertNotEqual(prima, dopo)
+        self.assertTrue(gate.confronta({"x": prima}, {"x": dopo}))
+
     # --- terzo dovere: non accendersi su cio' che non e' un cambio ----------
 
     def test_uno_spostamento_non_e_un_cambio(self) -> None:

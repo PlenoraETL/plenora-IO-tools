@@ -14,9 +14,17 @@ sequenza di checkpoint ha continuato a incontrare, in cinque forme diverse.
 
 # Che cosa verifica
 
-Per ogni funzione che costruisce errori, il **multiinsieme dei quartetti** che
-costruisce. L'identita' del sito e' `percorso::funzione`, non `path:riga`: e' la
-lezione di INFRA-1, e sopravvive a spostamenti e riformattazioni.
+Per ogni funzione che costruisce errori, la **sequenza ordinata** dei quartetti
+che costruisce, nell'ordine in cui compaiono. L'identita' della funzione e'
+`percorso::funzione`, non `path:riga`: e' la lezione di INFRA-1, e sopravvive a
+spostamenti e riformattazioni; l'identita' del singolo sito e' la sua posizione
+nella sequenza.
+
+La sequenza **non e' ordinata alfabeticamente**, ed e' una scelta: un
+multiinsieme e' invariante per permutazione, e due siti che si scambiano il
+quartetto lo lascerebbero identico. Sarebbe un cambio compensato che passa
+verde, e «preservato sito per sito» resterebbe una frase invece di una
+proprieta'.
 
 Il quartetto si legge dal costruttore, perche' e' il costruttore a fissarlo:
 
@@ -114,7 +122,19 @@ def quartetti_del_file(percorso: pathlib.Path) -> dict[str, list[str]]:
             quartetto = f"esplicito/esplicito/{codice.group(1) if codice else '?'}/esplicito"
         funzione = funzione_che_racchiude(intervalli, m.start())
         per_funzione.setdefault(funzione, []).append(quartetto)
-    return {k: sorted(v) for k, v in per_funzione.items()}
+    # **Ordine di apparizione, non insieme ordinato.**
+    #
+    # Un multiinsieme e' invariante per permutazione: se due siti della stessa
+    # funzione si scambiano il quartetto -- il primo emetteva `Schema` e ora
+    # emette `Crs`, il secondo il contrario -- l'insieme ordinato non cambia e
+    # il gate resta verde. Sarebbe un cambio compensato, e «preservato sito per
+    # sito» non sarebbe dimostrato.
+    #
+    # L'ordine di apparizione da' a ogni sito un'identita' stabile dentro la
+    # funzione, senza usare il numero di riga. Riordinare due rami d'errore lo
+    # fa muovere -- ed e' giusto: cambia quale errore viene emesso per primo
+    # quando le condizioni si sovrappongono.
+    return per_funzione
 
 
 def istantanea() -> dict[str, dict[str, list[str]]]:
