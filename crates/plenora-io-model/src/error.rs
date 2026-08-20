@@ -1193,9 +1193,6 @@ impl PlenoraIoError {
         !matches!(self.retry, RetryDisposition::Never)
     }
 
-
-
-
     #[must_use]
     pub fn reader_busy(driver: &'static str, layer: u32) -> Self {
         let mut error = Self::new(
@@ -1734,9 +1731,11 @@ mod tests {
             diagnostic_state_counts: None,
             write_outcome: None,
         };
-        let error =
-            PlenoraIoError::formato_redatto("shp", &PublicMessage::Curated("3 righe Shapefile non valide"))
-                .with_row_diagnostics(diagnostics);
+        let error = PlenoraIoError::formato_redatto(
+            "shp",
+            &PublicMessage::Curated("3 righe Shapefile non valide"),
+        )
+        .with_row_diagnostics(diagnostics);
 
         let value = serde_json::to_value(error).unwrap();
         assert_eq!(

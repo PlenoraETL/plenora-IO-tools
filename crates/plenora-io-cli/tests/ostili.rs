@@ -161,10 +161,8 @@ fn verifica(contesto: &str, errore: &PlenoraIoError, assi: Option<Assi>) {
             Some(MARCATORE),
             "{contesto}: il marcatore e' nella busta ma fuori da `field`: {serializzata}"
         );
-        let senza_field = serializzata.replace(
-            &format!("\"field\":\"{MARCATORE}\""),
-            "\"field\":null",
-        );
+        let senza_field =
+            serializzata.replace(&format!("\"field\":\"{MARCATORE}\""), "\"field\":null");
         assert!(
             !senza_field.contains(MARCATORE),
             "{contesto}: il marcatore compare piu' di una volta: {serializzata}"
@@ -320,7 +318,13 @@ fn il_marcatore_e_davvero_nelle_fixture() {
 /// contano per un consumatore lo sono.
 #[test]
 fn nessun_driver_fa_uscire_il_payload_in_apertura() {
-    for Caso { nome, driver, fixture: file, .. } in driver_e_fixture() {
+    for Caso {
+        nome,
+        driver,
+        fixture: file,
+        ..
+    } in driver_e_fixture()
+    {
         let percorso = fixture(file);
         assert!(percorso.exists(), "{nome}: fixture {file} assente");
 
@@ -335,7 +339,13 @@ fn nessun_driver_fa_uscire_il_payload_in_apertura() {
 #[test]
 fn nessun_driver_fa_uscire_il_percorso_di_una_sorgente_assente() {
     let directory = tempfile::tempdir().expect("directory temporanea");
-    for Caso { nome, driver, fixture: file, .. } in driver_e_fixture() {
+    for Caso {
+        nome,
+        driver,
+        fixture: file,
+        ..
+    } in driver_e_fixture()
+    {
         let assente = directory
             .path()
             .join(format!("{MARCATORE}-inesistente-{file}"));
@@ -514,7 +524,13 @@ fn una_scrittura_rifiutata_non_lascia_destinazione_ne_payload() {
     let piano = piano_non_rappresentabile();
 
     let mut rifiuti = 0_usize;
-    for Caso { nome, driver, estensione, .. } in driver_e_fixture() {
+    for Caso {
+        nome,
+        driver,
+        estensione,
+        ..
+    } in driver_e_fixture()
+    {
         let destinazione = directory.path().join(format!("uscita-{nome}.{estensione}"));
 
         match driver.create(
@@ -566,7 +582,13 @@ fn una_destinazione_esistente_non_viene_sovrascritta_ne_fa_uscire_il_percorso() 
         retry: RetryDisposition::Never,
     };
 
-    for Caso { nome, driver, estensione, .. } in driver_e_fixture() {
+    for Caso {
+        nome,
+        driver,
+        estensione,
+        ..
+    } in driver_e_fixture()
+    {
         let destinazione = directory
             .path()
             .join(format!("{MARCATORE}-esistente-{nome}.{estensione}"));
@@ -684,7 +706,10 @@ fn la_busta_del_binario_ha_le_sei_chiavi_e_non_porta_il_payload() {
         .output()
         .expect("il binario si esegue");
 
-    assert!(!uscita.status.success(), "la fixture ostile e' stata accettata");
+    assert!(
+        !uscita.status.success(),
+        "la fixture ostile e' stata accettata"
+    );
     assert!(
         uscita.stdout.is_empty(),
         "un errore non deve produrre uscita su stdout: {}",

@@ -353,45 +353,45 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             "--assume-crs" => {
                 cli.assume_crs = Some(
                     it.next()
-                        .ok_or_else(|| usage_err(&PublicMessage::Curated("--assume-crs richiede un valore")))?
+                        .ok_or_else(|| {
+                            usage_err(&PublicMessage::Curated("--assume-crs richiede un valore"))
+                        })?
                         .clone(),
                 );
             }
             "--layer" => {
-                let v = it
-                    .next()
-                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--layer richiede un valore")))?;
-                cli.layer = Some(
-                    v.parse()
-                        .map_err(|_| usage_err(&PublicMessage::Curated("--layer richiede un intero")))?,
-                );
+                let v = it.next().ok_or_else(|| {
+                    usage_err(&PublicMessage::Curated("--layer richiede un valore"))
+                })?;
+                cli.layer = Some(v.parse().map_err(|_| {
+                    usage_err(&PublicMessage::Curated("--layer richiede un intero"))
+                })?);
             }
             "--limit" => {
-                let v = it
-                    .next()
-                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--limit richiede un valore")))?;
-                cli.limit = Some(
-                    v.parse()
-                        .map_err(|_| usage_err(&PublicMessage::Curated("--limit richiede un intero")))?,
-                );
+                let v = it.next().ok_or_else(|| {
+                    usage_err(&PublicMessage::Curated("--limit richiede un valore"))
+                })?;
+                cli.limit = Some(v.parse().map_err(|_| {
+                    usage_err(&PublicMessage::Curated("--limit richiede un intero"))
+                })?);
             }
             "--durable" => cli.durable = true,
             "--opt" => {
-                let (k, v) = kv(it
-                    .next()
-                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--opt richiede chiave=valore")))?)?;
+                let (k, v) = kv(it.next().ok_or_else(|| {
+                    usage_err(&PublicMessage::Curated("--opt richiede chiave=valore"))
+                })?)?;
                 cli.opts.insert(k, v);
             }
             "--in-opt" => {
-                let (k, v) = kv(it
-                    .next()
-                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--in-opt richiede chiave=valore")))?)?;
+                let (k, v) = kv(it.next().ok_or_else(|| {
+                    usage_err(&PublicMessage::Curated("--in-opt richiede chiave=valore"))
+                })?)?;
                 cli.in_opts.insert(k, v);
             }
             "--out-opt" => {
-                let (k, v) = kv(it
-                    .next()
-                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--out-opt richiede chiave=valore")))?)?;
+                let (k, v) = kv(it.next().ok_or_else(|| {
+                    usage_err(&PublicMessage::Curated("--out-opt richiede chiave=valore"))
+                })?)?;
                 cli.out_opts.insert(k, v);
             }
             other if other.starts_with("--") => {
@@ -400,7 +400,7 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
                 return Err(usage_err(&PublicMessage::CuratedPair(
                     "opzione sconosciuta; ammesse:",
                     OPZIONI_AMMESSE,
-                )))
+                )));
             }
             _ => cli.positionals.push(a.clone()),
         }
@@ -688,7 +688,9 @@ fn cmd_read(cli: &Cli) -> CliResult {
 #[allow(clippy::too_many_lines)]
 fn cmd_convert(cli: &Cli) -> CliResult {
     if cli.positionals.len() < 2 {
-        return Err(usage_err(&PublicMessage::Curated("convert richiede <ingresso> <uscita>")));
+        return Err(usage_err(&PublicMessage::Curated(
+            "convert richiede <ingresso> <uscita>",
+        )));
     }
     let in_path = PathBuf::from(&cli.positionals[0]);
     let out_path = PathBuf::from(&cli.positionals[1]);
@@ -786,19 +788,27 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         let mut layer_batches = Vec::new();
         while let Some(batch) = reader.next_batch().map_err(map_err)? {
             rows = rows.checked_add(batch.num_rows()).ok_or_else(|| {
-                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nel conteggio righe CLI")))
+                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio righe CLI",
+                )))
             })?;
             batches = batches.checked_add(1).ok_or_else(|| {
-                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nel conteggio batch CLI")))
+                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio batch CLI",
+                )))
             })?;
             layer_batches.push(batch);
         }
         let input_total = u64::try_from(rows).map_err(|_| {
-            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("cardinalita sorgente non rappresentabile")))
+            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "cardinalita sorgente non rappresentabile",
+            )))
         })?;
         let sink_layer =
             plenora_io_model::contract::LayerId(u32::try_from(sink_idx).map_err(|_| {
-                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("numero di layer sorgente non rappresentabile")))
+                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "numero di layer sorgente non rappresentabile",
+                )))
             })?);
         writer
             .declare_input_total(sink_layer, input_total)
@@ -808,7 +818,9 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         }
         read_loss.merge(&reader.loss_report());
         total_rows = total_rows.checked_add(rows).ok_or_else(|| {
-            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nel conteggio totale righe CLI")))
+            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio totale righe CLI",
+            )))
         })?;
         layer_reports.push(json!({"name": l.name, "rows": rows, "batches": batches}));
     }
@@ -850,7 +862,9 @@ fn run() -> CliResult {
         Some("layers") => cmd_layers(&parse(&args[1..])?),
         Some("read") => cmd_read(&parse(&args[1..])?),
         Some("convert") => cmd_convert(&parse(&args[1..])?),
-        _ => Err(usage_err(&PublicMessage::Curated("uso: plenora-io <catalog|inspect|layers|read|convert> [args] | --version"))),
+        _ => Err(usage_err(&PublicMessage::Curated(
+            "uso: plenora-io <catalog|inspect|layers|read|convert> [args] | --version",
+        ))),
     }
 }
 
@@ -1811,7 +1825,7 @@ mod tests {
         );
     }
 
-        /// La busta degli errori d'uso della CLI, che e' una **via diversa** da
+    /// La busta degli errori d'uso della CLI, che e' una **via diversa** da
     /// `map_err`: passa per `usage_err` -> `local_err_doc` -> `err_doc`, e fino
     /// alla tranche 14 nessun test ne verificava la forma.
     #[test]
@@ -2216,9 +2230,9 @@ mod tests {
             "LOCAL_CS[\"survey-grid-secret\"]".to_owned(),
             Some("authority-secret".to_owned()),
         );
-        let (_, document) = map_err(
-            plenora_io_model::PlenoraIoError::crs_non_risolto_redatto("shp", &raw),
-        );
+        let (_, document) = map_err(plenora_io_model::PlenoraIoError::crs_non_risolto_redatto(
+            "shp", &raw,
+        ));
         assert_eq!(document["error"]["code"], "CRS_UNRESOLVED");
         assert!(!document.to_string().contains("survey-grid-secret"));
         assert!(!document.to_string().contains("authority-secret"));

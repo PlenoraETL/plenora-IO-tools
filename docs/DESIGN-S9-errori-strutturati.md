@@ -613,11 +613,36 @@ i gate che si accendono quando cambia un crate sono sempre gli stessi.
 
 | Verifica | |
 |---|---|
+| `cargo fmt --all -- --check` | **vedi sotto**: la sua assenza ha lasciato passare quattro commit |
 | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | l'intero workspace, non il solo crate |
-| `cargo test --workspace --all-features` | idem |
+| `cargo clippy --workspace --all-targets -- -D warnings` | anche senza feature: `gdal-backend` nasconde il ramo stub |
+| `cargo test --workspace --all-features` e senza feature | idem |
+| `cargo test --workspace --all-features --doc` | i doctest sono codice, e i `compile_fail` sono prove |
 | `scripts/check_errori_redatti.py` + `test_check_errori_redatti` | il gate S9 con le sue sonde |
 | gate specifici del crate | quelli che il crate puo' rompere |
 | smoke dei **soli** fuzz target coinvolti | non tutti e tredici |
+
+#### `fmt` mancava, e si e' visto solo al checkpoint (2026-08-21)
+
+Il livello 1 e' stato eseguito quattro volte — tranche 14, rimozione legacy,
+limite di `'static`, test ostili — con una batteria composta a mano che **non
+conteneva `cargo fmt --check`**. Il checkpoint invece ce l'ha, e alla prima
+corsa su `86c1bd0` e' andato rosso: 47 passi su 48.
+
+Il formato era rotto da `95d42c6`, cioe' dalla tranche 14, e i quattro commit
+successivi lo hanno portato avanti. `0474902` — l'ultimo SHA verificato da un
+checkpoint — era formattato: e' la prova che il difetto sta nella batteria
+intermedia, non nel repository.
+
+La lezione non e' «ricordarsi di formattare». E':
+
+> **una batteria di livello 1 composta a mano diverge dal checkpoint, e diverge
+> in silenzio.** Il livello 1 va derivato dai passi del checkpoint, non
+> riscritto accanto a essi.
+
+E' la stessa regola gia' applicata alle sonde, che si estraggono da
+`scripts/s9-checkpoint.sh` invece di essere rielencate. Qui non era applicata ai
+passi di build, ed e' esattamente li' che si e' aperto il buco.
 
 ### Livello 2 — checkpoint
 
