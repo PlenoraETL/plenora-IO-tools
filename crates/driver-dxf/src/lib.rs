@@ -59,7 +59,7 @@ use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, inspect_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
 use plenora_io_model::{CancellationToken, ErrorPhase};
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
 const GEOMETRY: &str = "geometry";
 /// Segmenti per un giro intero (archi, cerchi, ellissi, bulge).
@@ -70,8 +70,8 @@ const MAX_INSERT_DEPTH: usize = 16;
 const MAX_ENTITIES: usize = 5_000_000;
 const WGS84_ESRI_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"D_WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"Degree\",0.0174532925199433],AUTHORITY[\"EPSG\",\"4326\"]]";
 
-fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("dxf", reason)
+fn err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("dxf", reason)
 }
 
 fn crs_kind(id: Option<&str>, definition: Option<&str>) -> CrsKind {
@@ -137,7 +137,9 @@ fn embedded_crs_definition(drawing: &Drawing) -> Option<String> {
 fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedCrs> {
     let Some(definition) = embedded_crs_definition(drawing) else {
         let id = options.assume_crs.clone().ok_or_else(|| {
-            PlenoraIoError::Crs("DXF senza GEODATA risolvibile: fornire --assume-crs".to_owned())
+            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "DXF senza GEODATA risolvibile: fornire --assume-crs",
+            ))
         })?;
         let kind = crs_kind(Some(&id), None);
         return Ok(ResolvedCrs::new(Some(id), kind, None));
@@ -149,7 +151,7 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
     let id = embedded_id.or_else(|| options.assume_crs.clone());
     let Some(id) = id else {
         let raw = RawCrs::new(definition, None);
-        return Err(PlenoraIoError::crs_unresolved("dxf", &raw));
+        return Err(PlenoraIoError::crs_non_risolto_redatto("dxf", &raw));
     };
     let kind = crs_kind(Some(&id), Some(&definition));
     Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
@@ -157,7 +159,9 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
 
 fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
     let resolved = geometry.resolved_crs().ok_or_else(|| {
-        PlenoraIoError::Crs("DXF richiede un CRS risolto nel contratto".to_owned())
+        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "DXF richiede un CRS risolto nel contratto",
+        ))
     })?;
     if let Some(definition) = &resolved.definition {
         if !definition.trim().is_empty() {
@@ -166,12 +170,14 @@ fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
     }
     match resolved.id.as_deref() {
         Some("EPSG:4326" | "OGC:CRS84") => Ok(WGS84_ESRI_WKT.to_owned()),
-        Some(id) => Err(PlenoraIoError::Crs(format!(
-            "DXF richiede la definizione WKT/XML del CRS {id}, non il solo authority id"
+        // L'identificativo non esce: viene dal contratto, che chi legge
+        // l'errore ha gia'.
+        Some(_) => Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "DXF richiede la definizione WKT/XML del CRS, non il solo authority id",
         ))),
-        None => Err(PlenoraIoError::Crs(
-            "DXF richiede una definizione WKT/XML del CRS".to_owned(),
-        )),
+        None => Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "DXF richiede una definizione WKT/XML del CRS",
+        ))),
     }
 }
 
@@ -240,8 +246,11 @@ impl FormatDriver for DxfDriver {
 
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
-        let mut stream = DrawingEntityReader::load_file(&path)
-            .map_err(|e| err(format!("apertura DXF progressiva: {e}")))?;
+        let mut stream = DrawingEntityReader::load_file(&path).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "apertura progressiva del DXF fallita",
+            ))
+        })?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
         let mut walker = Walker::new(
             stream.drawing(),
@@ -251,9 +260,9 @@ impl FormatDriver for DxfDriver {
         let mut stats = DxfContractStats::default();
         let mut spool_writer = DxfSpoolWriter::new(opts.max_input_bytes(), opts.budget().clone());
         let mut source_index = 0_u64;
-        while let Some(entity) = stream.next_entity().map_err(|e| {
+        while let Some(entity) = stream.next_entity().map_err(|_| {
             read_row_error(
-                err(format!("lettura entità DXF: {e}")),
+                err(&PublicMessage::Curated("lettura di un'entità DXF fallita")),
                 None,
                 "dxf.entity_decode_failed",
                 Some(GEOMETRY),
@@ -273,14 +282,16 @@ impl FormatDriver for DxfDriver {
                 })?;
             stats.observe(&walker, opts.cancellation())?;
             spool_writer.write_and_clear(&mut walker, opts.cancellation())?;
-            source_index = source_index
-                .checked_add(1)
-                .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe entita DXF".to_owned()))?;
+            source_index = source_index.checked_add(1).ok_or_else(|| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe entita DXF"))
+            })?;
         }
         let spool = spool_writer.finish()?;
-        let drawing = stream
-            .finish()
-            .map_err(|e| err(format!("chiusura scansione DXF: {e}")))?;
+        let drawing = stream.finish().map_err(|_| {
+            err(&PublicMessage::Curated(
+                "chiusura della scansione DXF fallita",
+            ))
+        })?;
         let crs = resolve_dxf_crs(&drawing, &opts)?;
         let loss = walker.loss.clone();
         let contract = dxf_contract(crs, stats.dimensions(), stats.geometry_types)?;
@@ -321,27 +332,28 @@ impl FormatDriver for DxfDriver {
         )?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("dxf"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "l'output deve avere estensione .dxf".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("l'output deve avere estensione .dxf"),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraIoError::Unsupported(
-                "DXF: un solo layer per file".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("DXF: un solo layer per file"),
             ));
         }
         let mut drawing = Drawing::new();
-        let geometry =
-            plan.layers[0].contract.geometry.as_ref().ok_or_else(|| {
-                err("DXF richiede un contratto geometrico esplicito con CRS risolto")
-            })?;
+        let geometry = plan.layers[0].contract.geometry.as_ref().ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "DXF richiede un contratto geometrico esplicito con CRS risolto",
+            ))
+        })?;
         embed_dxf_crs(&mut drawing, geometry)?;
         with_write_validation(
             Box::new(DxfWriterState {
@@ -424,8 +436,8 @@ impl<W: Write> Write for BoundedOutput<W> {
 impl FormatWriter for DxfWriterState {
     fn declare_input_total(&mut self, layer: LayerId, total: u64) -> Result<()> {
         if layer.0 != 0 {
-            return Err(PlenoraIoError::Unsupported(
-                "DXF supporta un solo layer".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("DXF supporta un solo layer"),
             ));
         }
         self.input_total = Some(total);
@@ -434,13 +446,16 @@ impl FormatWriter for DxfWriterState {
 
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
-        let geom_idx =
-            geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
+        let geom_idx = geometry_index(&schema).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "nessuna colonna geometria geoarrow.wkb",
+            ))
+        })?;
         let geom_col = batch
             .column(geom_idx)
             .as_any()
             .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| err("colonna geometria non binaria"))?;
+            .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
         let layer_idx = schema.index_of("layer").ok();
         if self.first {
             for (i, f) in schema.fields().iter().enumerate() {
@@ -501,16 +516,17 @@ impl FormatWriter for DxfWriterState {
         for (geometry, layer) in decoded.iter().zip(&layers) {
             let g = geometry
                 .as_ref()
-                .ok_or_else(|| err("geometria DXF validata ma assente"))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("geometria DXF validata ma assente")))?;
             add_geometry(&mut self.drawing, g, layer.as_deref(), &mut self.loss)?;
         }
         self.rows = self
             .rows
-            .checked_add(
-                u64::try_from(batch.num_rows())
-                    .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe DXF".to_owned()))?,
-            )
-            .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe righe DXF".to_owned()))?;
+            .checked_add(u64::try_from(batch.num_rows()).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe DXF"))
+            })?)
+            .ok_or_else(|| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe DXF"))
+            })?;
         Ok(())
     }
 
@@ -527,12 +543,12 @@ impl FormatWriter for DxfWriterState {
         let mut output = BoundedOutput::new(buffered, self.max_output_bytes);
         let save_result = self.drawing.save(&mut output);
         if output.exceeded() {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "output DXF oltre il limite di {} byte",
-                self.max_output_bytes
+            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+                "output DXF oltre il limite di byte:",
+                NumeroStrutturale::Limite(self.max_output_bytes),
             )));
         }
-        save_result.map_err(|e| err(format!("serializzazione DXF: {e}")))?;
+        save_result.map_err(|_| err(&PublicMessage::Curated("serializzazione DXF fallita")))?;
         output.flush()?;
         let mut buffered = output.into_inner();
         buffered.flush()?;
@@ -591,13 +607,17 @@ fn ring_without_duplicate_end(coordinates: &[WkbCoordinate], closed: bool) -> &[
 
 fn validate_dxf_coordinate(coordinate: &WkbCoordinate) -> Result<()> {
     if coordinate.m.is_some() {
-        return Err(err("DXF non rappresenta ordinate M"));
+        return Err(err(&PublicMessage::Curated(
+            "DXF non rappresenta ordinate M",
+        )));
     }
     if !coordinate.x.is_finite()
         || !coordinate.y.is_finite()
         || coordinate.z.is_some_and(|value| !value.is_finite())
     {
-        return Err(err("DXF non rappresenta coordinate non finite"));
+        return Err(err(&PublicMessage::Curated(
+            "DXF non rappresenta coordinate non finite",
+        )));
     }
     Ok(())
 }
@@ -614,7 +634,9 @@ fn add_polyline(
         validate_dxf_coordinate(coordinate)?;
     }
     if coordinates.len() < 2 {
-        return Err(err("polilinea con meno di due coordinate"));
+        return Err(err(&PublicMessage::Curated(
+            "polilinea con meno di due coordinate",
+        )));
     }
     match dimensions {
         CoordinateDimensions::Xy => add_entity(drawing, lwpolyline(coordinates, closed), layer),
@@ -623,9 +645,9 @@ fn add_polyline(
             polyline.set_is_closed(closed);
             polyline.set_is_3d_polyline(true);
             for coordinate in coordinates {
-                let z = coordinate
-                    .z
-                    .ok_or_else(|| err("coordinata XYZ senza ordinata Z"))?;
+                let z = coordinate.z.ok_or_else(|| {
+                    err(&PublicMessage::Curated("coordinata XYZ senza ordinata Z"))
+                })?;
                 let mut vertex = Vertex::new(DxfPoint::new(coordinate.x, coordinate.y, z));
                 vertex.set_is_3d_polyline_vertex(true);
                 polyline.add_vertex(drawing, vertex);
@@ -633,8 +655,9 @@ fn add_polyline(
             add_entity(drawing, EntityType::Polyline(polyline), layer);
         }
         CoordinateDimensions::Xym | CoordinateDimensions::Xyzm | CoordinateDimensions::Unknown => {
-            return Err(err(format!(
-                "dimensionalità {dimensions:?} non rappresentabile in DXF"
+            return Err(err(&PublicMessage::CuratedPair(
+                "dimensionalità non rappresentabile in DXF:",
+                dimensions.nome(),
             )))
         }
     }
@@ -724,9 +747,9 @@ fn add_geometry(
     loss: &mut LossReport,
 ) -> Result<()> {
     if geometry.srid.is_some() {
-        return Err(err(
+        return Err(err(&PublicMessage::Curated(
             "SRID EWKB embedded non rappresentabile; usare il CRS GEODATA",
-        ));
+        )));
     }
     match &geometry.value {
         WkbValue::Point(point) => add_entity(drawing, point_entity(point)?, layer),
@@ -735,13 +758,17 @@ fn add_geometry(
         }
         WkbValue::Polygon(rings) => {
             if rings.len() > 1 {
-                return Err(err("anelli interni Polygon non rappresentabili in DXF"));
+                return Err(err(&PublicMessage::Curated(
+                    "anelli interni Polygon non rappresentabili in DXF",
+                )));
             }
             let exterior = rings
                 .first()
-                .ok_or_else(|| err("Polygon senza anello esterno"))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("Polygon senza anello esterno")))?;
             if exterior.first() != exterior.last() {
-                return Err(err("anello Polygon DXF non chiuso"));
+                return Err(err(&PublicMessage::Curated(
+                    "anello Polygon DXF non chiuso",
+                )));
             }
             add_polyline(drawing, exterior, true, geometry.dimensions, layer)?;
         }
@@ -780,9 +807,9 @@ fn add_geometry(
         | WkbValue::PolyhedralSurface(_)
         | WkbValue::Tin(_)
         | WkbValue::Triangle(_) => {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "tipo WKB esteso non rappresentabile nel profilo DXF corrente",
-            ))
+            )))
         }
     }
     Ok(())
@@ -851,7 +878,7 @@ impl DxfSpoolReader {
             Self::Memory { rows, index } => {
                 let row = rows
                     .get(*index)
-                    .ok_or_else(|| err("spool DXF in memoria troncato"))?;
+                    .ok_or_else(|| err(&PublicMessage::Curated("spool DXF in memoria troncato")))?;
                 *index += 1;
                 let geometry = row
                     .geometry
@@ -965,7 +992,9 @@ impl DxfSpoolWriter {
         let length = match value {
             None => DXF_SPOOL_NULL,
             Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
-                PlenoraIoError::LimitExceeded("valore DXF troppo grande per lo spool".to_owned())
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "valore DXF troppo grande per lo spool",
+                ))
             })?,
         };
         output.write_all(&length.to_le_bytes())?;
@@ -1014,15 +1043,20 @@ impl DxfSpoolWriter {
 
     fn push(&mut self, row: DxfSpoolRow) -> Result<()> {
         let logical_bytes = dxf_spool_row_length(&row);
-        let next = self
-            .bytes
-            .checked_add(logical_bytes)
-            .ok_or_else(|| err("dimensione spool DXF fuori intervallo"))?;
+        let next = self.bytes.checked_add(logical_bytes).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "dimensione spool DXF fuori intervallo",
+            ))
+        })?;
         if next > self.limit {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "spool DXF: {next} byte eccedono il limite {}",
-                self.limit
-            )));
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "spool DXF di",
+                    NumeroStrutturale::Conteggio(next),
+                    "byte oltre il limite di",
+                    NumeroStrutturale::Limite(self.limit),
+                ),
+            ));
         }
         let memory_bytes = dxf_spool_row_memory(&row);
         let spill = matches!(
@@ -1189,16 +1223,20 @@ fn read_dxf_spool_value(input: &mut impl Read) -> Result<Option<Vec<u8>>> {
     let mut length = [0_u8; 4];
     input
         .read_exact(&mut length)
-        .map_err(|error| err(format!("spool DXF troncato: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("spool DXF troncato")))?;
     let length = u32::from_le_bytes(length);
     if length == DXF_SPOOL_NULL {
         return Ok(None);
     }
-    let mut value =
-        vec![0; usize::try_from(length).map_err(|_| err("lunghezza spool DXF non valida"))?];
+    let mut value = vec![
+        0;
+        usize::try_from(length).map_err(|_| err(&PublicMessage::Curated(
+            "lunghezza spool DXF non valida"
+        )))?
+    ];
     input
         .read_exact(&mut value)
-        .map_err(|error| err(format!("spool DXF troncato: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("spool DXF troncato")))?;
     Ok(Some(value))
 }
 
@@ -1208,7 +1246,7 @@ fn read_dxf_spool_string(input: &mut impl Read) -> Result<Option<String>> {
     };
     String::from_utf8(bytes)
         .map(Some)
-        .map_err(|error| err(format!("testo spool DXF non UTF-8: {error}")))
+        .map_err(|_| err(&PublicMessage::Curated("testo dello spool DXF non UTF-8")))
 }
 
 struct DxfDataset {
@@ -1307,8 +1345,12 @@ impl LayerReader for DxfReader {
             Arc::new(StringArray::from(types)),
             Arc::new(StringArray::from(texts)),
         ];
-        let batch = RecordBatch::try_new(self.layer.contract.schema.clone(), arrays)
-            .map_err(|error| err(format!("batch DXF da spool: {error}")))?;
+        let batch =
+            RecordBatch::try_new(self.layer.contract.schema.clone(), arrays).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "batch DXF da spool non ricostruibile",
+                ))
+            })?;
         self.batch_sizer.observe(&batch);
         Ok(Some(batch))
     }
@@ -1400,17 +1442,17 @@ impl Walker {
         text: Option<String>,
     ) -> Result<()> {
         if self.emitted_rows >= self.max_rows {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "righe DXF oltre il limite di {}",
-                self.max_rows
+            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+                "righe DXF oltre il limite di",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(self.max_rows)),
             )));
         }
         self.emitted_rows = self.emitted_rows.saturating_add(1);
         let vertices = value_coordinate_count(&value);
         if vertices > self.remaining_vertices {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "vertici DXF oltre il limite di {}",
-                self.remaining_vertices
+            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+                "vertici DXF oltre il limite residuo di",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(self.remaining_vertices)),
             )));
         }
         self.remaining_vertices -= vertices;
@@ -1441,7 +1483,10 @@ impl Walker {
         self.visited_entities = self.visited_entities.saturating_add(1);
         self.budget = self.budget.saturating_sub(1);
         if self.budget == 0 {
-            return Err(err(format!("DXF oltre il limite di {MAX_ENTITIES} entità")));
+            return Err(err(&PublicMessage::CuratedWith(
+                "DXF oltre il limite di entità:",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_ENTITIES)),
+            )));
         }
         let layer = Self::effective_layer(&entity.common.layer, context);
         match &entity.specific {
@@ -1495,7 +1540,9 @@ impl Walker {
                 let local =
                     tessellate_circle([cir.center.x, cir.center.y], cir.radius, ARC_SEGMENTS);
                 if local.len() < 4 {
-                    return Err(err("CIRCLE degenere non convertibile"));
+                    return Err(err(&PublicMessage::Curated(
+                        "CIRCLE degenere non convertibile",
+                    )));
                 }
                 self.loss.record("CIRCLE tassellata", 1);
                 self.push(
@@ -1515,7 +1562,9 @@ impl Walker {
                     ARC_SEGMENTS,
                 );
                 if local.len() < 2 {
-                    return Err(err("ARC degenere non convertibile"));
+                    return Err(err(&PublicMessage::Curated(
+                        "ARC degenere non convertibile",
+                    )));
                 }
                 self.loss.record("ARC tassellato", 1);
                 self.push(
@@ -1581,7 +1630,9 @@ impl Walker {
                     ARC_SEGMENTS,
                 );
                 if local.len() < 2 {
-                    return Err(err("ELLIPSE degenere non convertibile"));
+                    return Err(err(&PublicMessage::Curated(
+                        "ELLIPSE degenere non convertibile",
+                    )));
                 }
                 let full = local.first() == local.last() && local.len() >= 4;
                 let coordinates: Vec<WkbCoordinate> = local
@@ -1620,7 +1671,9 @@ impl Walker {
                     samples,
                 );
                 if local.len() < 2 {
-                    return Err(err("SPLINE degenere non convertibile"));
+                    return Err(err(&PublicMessage::Curated(
+                        "SPLINE degenere non convertibile",
+                    )));
                 }
                 self.loss.record("SPLINE tassellata", 1);
                 let closed = sp.flags & 1 == 1;
@@ -1635,7 +1688,9 @@ impl Walker {
                     if coordinates.len() >= 4 {
                         self.push(WkbValue::Polygon(vec![coordinates]), &layer, "SPLINE", None)?;
                     } else {
-                        return Err(err("SPLINE chiusa degenere non convertibile"));
+                        return Err(err(&PublicMessage::Curated(
+                            "SPLINE chiusa degenere non convertibile",
+                        )));
                     }
                 } else {
                     self.push(WkbValue::LineString(coordinates), &layer, "SPLINE", None)?;
@@ -1645,7 +1700,9 @@ impl Walker {
                 self.walk_insert(insert, transform, &layer, depth, visiting)?;
             }
             EntityType::Region(_) | EntityType::Body(_) => {
-                return Err(err("REGION/BODY (ACIS) non convertibile"));
+                return Err(err(&PublicMessage::Curated(
+                    "REGION/BODY (ACIS) non convertibile",
+                )));
             }
             EntityType::AttributeDefinition(_)
             | EntityType::Attribute(_)
@@ -1653,7 +1710,7 @@ impl Walker {
             | EntityType::Vertex(_) => {
                 // Elementi di struttura/template: nessuna geometria autonoma.
             }
-            _ => return Err(err("entità DXF non gestita")),
+            _ => return Err(err(&PublicMessage::Curated("entità DXF non gestita"))),
         }
         Ok(())
     }
@@ -1671,7 +1728,9 @@ impl Walker {
         kind: &'static str,
     ) -> Result<()> {
         if vertices.len() < 2 {
-            return Err(err("polilinea degenere (<2 vertici) non convertibile"));
+            return Err(err(&PublicMessage::Curated(
+                "polilinea degenere (<2 vertici) non convertibile",
+            )));
         }
         if vertices.iter().enumerate().any(|(index, (point, bulge))| {
             let next = if index + 1 < vertices.len() {
@@ -1701,7 +1760,9 @@ impl Walker {
                 positions.push(positions[0]);
             }
             if positions.len() < 4 {
-                return Err(err("polilinea chiusa degenere non convertibile"));
+                return Err(err(&PublicMessage::Curated(
+                    "polilinea chiusa degenere non convertibile",
+                )));
             }
             self.push(WkbValue::Polygon(vec![positions]), layer, kind, None)?;
         } else {
@@ -1735,8 +1796,9 @@ impl Walker {
         visiting: &mut HashSet<String>,
     ) -> Result<()> {
         if depth >= MAX_INSERT_DEPTH {
-            return Err(err(format!(
-                "annidamento INSERT oltre il limite di {MAX_INSERT_DEPTH}"
+            return Err(err(&PublicMessage::CuratedWith(
+                "annidamento INSERT oltre il limite di",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_INSERT_DEPTH)),
             )));
         }
         // L'INSERT ha una propria OCS: inserimento, rotazione e scala vi sono espressi.
@@ -1762,9 +1824,10 @@ impl Walker {
         }
 
         if !visiting.insert(insert.name.clone()) {
-            return Err(err(format!(
-                "riferimento ciclico al blocco '{}'",
-                insert.name
+            // Il nome del blocco non esce: e' letto dal file DXF. Resta la
+            // condizione, che e' cio' che il chiamante non puo' dedurre.
+            return Err(err(&PublicMessage::Curated(
+                "riferimento ciclico fra blocchi DXF",
             )));
         }
         let composed = base.then(Transform3::insert(
@@ -1792,7 +1855,7 @@ impl Walker {
                 self.walk_entity(entity, composed, layer, depth + 1, visiting)?;
             }
         } else if insert.attributes().next().is_none() {
-            return Err(err("blocco INSERT assente"));
+            return Err(err(&PublicMessage::Curated("blocco INSERT assente")));
         }
         visiting.remove(&insert.name);
         Ok(())
@@ -1965,9 +2028,9 @@ fn dxf_contract(
     // L'etichetta CRS viene estratta prima di cedere `crs` al contratto: nessuna
     // copia dell'intero CRS risolto e nessun parametro non consumato.
     let crs_label = crs.id.clone().ok_or_else(|| {
-        PlenoraIoError::Crs(
-            "DXF: CRS risolto senza identificatore; vietato inventare DXF:GEODATA".to_owned(),
-        )
+        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "DXF: CRS risolto senza identificatore; vietato inventare DXF:GEODATA",
+        ))
     })?;
     let mut geometry_contract = GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, crs, true);
     geometry_contract.dimensions = dimensions;
@@ -2022,8 +2085,11 @@ fn batch_from_walker(
         Arc::new(StringArray::from(std::mem::take(&mut walker.types))),
         Arc::new(StringArray::from(std::mem::take(&mut walker.texts))),
     ];
-    RecordBatch::try_new(contract.schema.clone(), arrays)
-        .map_err(|error| err(format!("batch DXF progressivo: {error}")))
+    RecordBatch::try_new(contract.schema.clone(), arrays).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "batch DXF progressivo non costruibile",
+        ))
+    })
 }
 
 /// Quote consultate dal percorso non streaming del driver.
@@ -2083,10 +2149,14 @@ fn build_batch_cancellable(
 
     check_cancelled(cancellation, ErrorPhase::Read)?;
     if quote.colonne < DXF_OUTPUT_COLUMNS {
-        return Err(PlenoraIoError::LimitExceeded(format!(
-            "DXF produce {DXF_OUTPUT_COLUMNS} colonne, oltre il limite di {}",
-            quote.colonne
-        )));
+        return Err(PlenoraIoError::limite_redatto(
+            &PublicMessage::CuratedBetween(
+                "DXF produce",
+                NumeroStrutturale::Conteggio(driver_common::saturating_u64(DXF_OUTPUT_COLUMNS)),
+                "colonne, oltre il limite di",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(quote.colonne)),
+            ),
+        ));
     }
     let mut walker = Walker::new(drawing, quote, cancellation)?;
     let mut visiting: HashSet<String> = HashSet::new();
@@ -2109,12 +2179,13 @@ pub fn __fuzz_read_dxf(bytes: &[u8]) -> Result<usize> {
 
     const MAX_FUZZ_INPUT_BYTES: usize = 1_048_576;
     if bytes.len() > MAX_FUZZ_INPUT_BYTES {
-        return Err(err(format!(
-            "input fuzz DXF oltre {MAX_FUZZ_INPUT_BYTES} byte"
+        return Err(err(&PublicMessage::CuratedWith(
+            "input fuzz DXF oltre il limite di byte:",
+            NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_FUZZ_INPUT_BYTES)),
         )));
     }
     let drawing = Drawing::load(&mut Cursor::new(bytes))
-        .map_err(|error| err(format!("DXF invalido: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("DXF non valido")))?;
     let crs = ResolvedCrs::new(Some("EPSG:4326".to_owned()), CrsKind::Geographic, None);
     let (batch, _, _) = build_batch(&drawing, crs, DxfQuote::predefinite())?;
     Ok(batch.num_rows())

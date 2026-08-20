@@ -79,6 +79,7 @@ MIGRATI = (
     "driver-xls",
     "driver-filegdb",
     "driver-shp",
+    "driver-dxf",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -91,18 +92,6 @@ MIGRATI = (
 # L'elenco e' generato dal codice, non scritto a mano: un elenco copiato diverge
 # alla prima chiamata aggiunta, e diverge in silenzio.
 DA_MIGRARE: dict[str, int] = {
-    "crates/driver-dxf/src/lib.rs::build_batch_cancellable": 1,
-    "crates/driver-dxf/src/lib.rs::create": 3,
-    "crates/driver-dxf/src/lib.rs::declare_input_total": 1,
-    "crates/driver-dxf/src/lib.rs::definition_for_write": 3,
-    "crates/driver-dxf/src/lib.rs::dxf_contract": 1,
-    "crates/driver-dxf/src/lib.rs::err": 1,
-    "crates/driver-dxf/src/lib.rs::finish": 1,
-    "crates/driver-dxf/src/lib.rs::open": 1,
-    "crates/driver-dxf/src/lib.rs::push": 3,
-    "crates/driver-dxf/src/lib.rs::resolve_dxf_crs": 2,
-    "crates/driver-dxf/src/lib.rs::write": 2,
-    "crates/driver-dxf/src/lib.rs::write_file_value": 1,
     "crates/plenora-io-cli/src/main.rs::cmd_convert": 5,
     "crates/plenora-io-cli/src/main.rs::local_err_doc": 1,
 }
