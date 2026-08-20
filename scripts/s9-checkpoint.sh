@@ -218,9 +218,18 @@ passo_in_catena coverage_export cargo llvm-cov report --lcov --output-path "${LC
 passo_in_catena coverage_report_non_vuoto test -s "${LCOV}"
 passo_in_catena check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
     --lcov "${LCOV}"
-# La soglia si legge **dallo stesso file** delle esclusioni. La versione di
-# cargo resta come controprova: due derivazioni della stessa misura devono dire
-# la stessa cosa, e se divergessero sarebbe un fatto da guardare.
+# La soglia si legge **dallo stesso file** delle esclusioni.
+#
+# La versione di cargo resta accanto, ma NON come conferma dello stesso numero:
+# sulla corsa dell'8e64965 le due hanno dato 85,88% e 83,98% sugli stessi 38
+# file. Non e' un errore di nessuna delle due -- i record `DA:` di LCOV e la
+# colonna «Lines» di llvm-cov contano insiemi diversi di righe strumentate, e il
+# denominatore differisce di 1.181 su 32.243.
+#
+# Sono quindi due **proiezioni diverse** dello stesso profdata, ed entrambe
+# devono stare sopra la soglia. Chiamarle «la stessa misura» era un'imprecisione
+# mia, e avrebbe reso illeggibile il giorno in cui una delle due si rompesse
+# davvero.
 passo_in_catena coverage_soglia_dal_report python3 scripts/check_coverage_threshold.py \
     --lcov "${LCOV}" --min-lines 80
 passo_in_catena coverage_soglia_controprova cargo llvm-cov report --summary-only \
