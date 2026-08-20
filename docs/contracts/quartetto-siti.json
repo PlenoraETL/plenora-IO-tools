@@ -1,0 +1,551 @@
+{
+  "crates/driver-common/src/lib.rs": {
+    "append_converted": [
+      "Schema/Validate/Schema/Never"
+    ],
+    "append_csv_cell": [
+      "Schema/Validate/Schema/Never"
+    ],
+    "append_f64": [
+      "Schema/Validate/Schema/Never"
+    ],
+    "incompatible_value": [
+      "Schema/Validate/Schema/Never"
+    ],
+    "json_from_array": [
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ]
+  },
+  "crates/driver-common/src/prevalida_arrow.rs": {
+    "errore": [
+      "DataMapping/Read/Format/Never"
+    ]
+  },
+  "crates/driver-common/src/wkt_lossless.rs": {
+    "coordinate_from_wkt": [
+      "DataMapping/Validate/Wkb/Never"
+    ],
+    "coordinate_to_wkt": [
+      "DataMapping/Validate/Wkb/Never"
+    ],
+    "error": [
+      "DataMapping/Validate/Wkb/Never"
+    ],
+    "parse_wkt_bounded": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/driver-csv/src/lib.rs": {
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "delimiter_non_valido": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "oltre_le_righe": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "open": [
+      "Crs/Validate/Crs/Never"
+    ]
+  },
+  "crates/driver-dxf/src/lib.rs": {
+    "build_batch_cancellable": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "declare_input_total": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "definition_for_write": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/Crs/Never"
+    ],
+    "dxf_contract": [
+      "Crs/Validate/Crs/Never"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "finish": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "open": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "push": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "resolve_dxf_crs": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "write": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "write_file_value": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/driver-filegdb/src/lib.rs": {
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "finish": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "from": [
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "geometry_capability": [
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "layer_spatial_ref": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never",
+      "Crs/Validate/CrsUnresolved/Never",
+      "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "native_i32": [
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "ogr_to_arrow": [
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "open": [
+      "Crs/Validate/Crs/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "resolve_layer_crs": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never",
+      "Crs/Validate/CrsUnresolved/Never"
+    ]
+  },
+  "crates/driver-geojson/src/geometry.rs": {
+    "format_error": [
+      "DataMapping/Read/Format/Never"
+    ]
+  },
+  "crates/driver-geojson/src/lib.rs": {
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "visit_map": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/driver-geoparquet/src/lib.rs": {
+    "campo_fuori_range": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "compression_from": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "crs_from": [
+      "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "fmt_err": [
+      "DataMapping/Read/Format/Never"
+    ]
+  },
+  "crates/driver-geoparquet/src/pagine.rs": {
+    "errore": [
+      "esplicito/esplicito/Generic/esplicito"
+    ]
+  },
+  "crates/driver-gpkg/src/lib.rs": {
+    "arrow_cell_to_sql_ref": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "build_schema": [
+      "Crs/Validate/Crs/Never"
+    ],
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "crs_for": [
+      "Crs/Validate/CrsUnresolved/Never",
+      "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "project_gpkg_layer": [
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "register_srs": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never"
+    ]
+  },
+  "crates/driver-ipc/src/lib.rs": {
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "open": [
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "open_layer_reader": [
+      "InvalidPlan/Validate/Contract/Never"
+    ]
+  },
+  "crates/driver-kml/src/lib.rs": {
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "declare_input_total": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "open": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "value": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "write": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/driver-shp/src/lib.rs": {
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "declare_input_total": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "finish": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "from_options": [
+      "esplicito/esplicito/Generic/esplicito",
+      "esplicito/esplicito/Generic/esplicito",
+      "esplicito/esplicito/Generic/esplicito",
+      "esplicito/esplicito/Generic/esplicito",
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "publish_mode": [
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "resolve_crs": [
+      "Crs/Validate/Crs/Never",
+      "Crs/Validate/CrsUnresolved/Never"
+    ],
+    "resolved_crs_id": [
+      "Crs/Validate/Crs/Never"
+    ],
+    "shapefile_source_path": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "write": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/driver-xls/src/lib.rs": {
+    "create": [
+      "Conflict/Commit/OutputExists/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "data": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "err": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "geometry": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "infer_layout": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "open": [
+      "Crs/Validate/Crs/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "valida_riferimenti_cella": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "validate_archive_ratio": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "write": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-cli/src/main.rs": {
+    "cmd_convert": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "local_err_doc": [
+      "esplicito/esplicito/Generic/esplicito"
+    ]
+  },
+  "crates/plenora-io-core/src/capabilities.rs": {
+    "validate_write": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "violation": [
+      "Unsupported/Validate/Capability/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/driver.rs": {
+    "account": [
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "Unsupported/Validate/Capability/Never",
+      "Unsupported/Validate/Capability/Never",
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "commit": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "declare_input_total": [
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "errore_di_rifiuto_senza_report": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "finish": [
+      "DataMapping/Read/Format/Never",
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "geometry_contracts_for_validation": [
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "geometry_violation": [
+      "Unsupported/Validate/Capability/Never"
+    ],
+    "inspect_geometry_row": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "leggendo_arrow": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "nullability_violations": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "permit_gia_speso": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "scopri": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "with_write_validation": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "write": [
+      "DataMapping/Read/Format/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "write_rejection_error": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "write_row_rejection": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "write_to_layer": [
+      "DataMapping/Read/Format/Never",
+      "InvalidPlan/Validate/Contract/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/driver/batch_worker.rs": {
+    "abnormal_termination": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "join_worker": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "send_cancellable": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "spawn_batch_reader": [
+      "DataMapping/Read/Format/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/driver/reader_adapters.rs": {
+    "collect_read_violations": [
+      "Schema/Validate/Schema/Never",
+      "Schema/Validate/Schema/Never",
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "drain_operation": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "geometry_components": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "into_error": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "new": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "physical_index": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "read_schema_mismatch": [
+      "esplicito/esplicito/Generic/esplicito"
+    ],
+    "record_all": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/driver/spool.rs": {
+    "contract_error": [
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "spool_error": [
+      "esplicito/esplicito/Io/esplicito"
+    ]
+  },
+  "crates/plenora-io-core/src/publish.rs": {
+    "ensure_destination_absent": [
+      "Conflict/Commit/OutputExists/Never"
+    ],
+    "ensure_same_filesystem": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "publish_file_atomic_limited": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "publish_files_ordered_limited": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never",
+      "Unsupported/Validate/Unsupported/Never"
+    ],
+    "publish_rename_error": [
+      "Conflict/Commit/OutputExists/Never"
+    ],
+    "terminal_state_error": [
+      "InvalidPlan/Validate/Contract/Never"
+    ]
+  },
+  "crates/plenora-io-core/src/request.rs": {
+    "project_layer_contract": [
+      "InvalidPlan/Validate/Contract/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/budget.rs": {
+    "limit_error": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/format_options.rs": {
+    "scarto": [
+      "esplicito/esplicito/Unsupported/esplicito"
+    ]
+  },
+  "crates/plenora-io-model/src/geometry.rs": {
+    "invalid_metadata": [
+      "InvalidPlan/Validate/Contract/Never"
+    ],
+    "validate_contract_version": [
+      "InvalidPlan/Validate/Contract/Never"
+    ]
+  },
+  "crates/plenora-io-model/src/wkb_lossless.rs": {
+    "error": [
+      "DataMapping/Validate/Wkb/Never"
+    ]
+  }
+}

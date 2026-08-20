@@ -147,6 +147,8 @@ passo test_default cargo test --workspace --all-targets
 
 echo
 echo "--- 2. gate del censimento e delle sonde ---------------------"
+passo sonde_quartetto python3 -m unittest scripts.test_check_quartetto_sito
+passo check_quartetto python3 scripts/check_quartetto_sito.py
 passo sonde_errori_redatti python3 -m unittest scripts.test_check_errori_redatti
 passo check_errori_redatti python3 scripts/check_errori_redatti.py
 passo sonde_wkb_limits python3 -m unittest scripts.test_check_wkb_limits_defaults

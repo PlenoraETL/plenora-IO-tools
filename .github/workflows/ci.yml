@@ -123,6 +123,8 @@ jobs:
       # totale fermo non dimostra che niente si e' mosso.
       - name: Census legacy error constructors, per crate
         run: |
+          python3 -m unittest scripts.test_check_quartetto_sito
+          python3 scripts/check_quartetto_sito.py
           python3 -m unittest scripts.test_check_errori_redatti
           python3 scripts/check_errori_redatti.py
       - name: Census WkbLimits::default() on production paths
