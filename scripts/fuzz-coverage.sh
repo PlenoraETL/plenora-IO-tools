@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# Copertura raggiunta dal **replay deterministico** di un fuzz target.
+#
+# # Perche' esiste
+#
+# La misura di copertura del checkpoint gira sui test unitari. Un ramo d'errore
+# che solo un file ostile raggiunge risulta scoperto anche quando il corpus del
+# fuzzer lo attraversa a ogni corsa.
+#
+# Senza questa misura la scelta e' fra due errori: dichiarare coperto cio' che
+# non si e' misurato, o scrivere test per rami che il fuzzing gia' esercita. La
+# diagnostica differenziale del 2026-08-21 ha lasciato 45 gruppi di funzioni in
+# questa incertezza.
+#
+# # Che cosa NON dice
+#
+# Che un ramo sia **raggiunto** dal fuzzing non dice che il suo contratto sia
+# verificato. Un fuzz target controlla che non si panichi; non controlla che
+# `category`, `phase`, `code` e `retry` siano quelli giusti. Il risultato di
+# questo script separa «non raggiunto» da «raggiunto», e la seconda categoria
+# resta da verificare semanticamente -- ma raggruppata, non riga per riga.
+#
+# # Proprieta' della misura
+#
+# * **deterministica**: `cargo fuzz coverage` rigioca il corpus, non muta;
+# * **separata**: i dati stanno in `fuzz/coverage/`, non in
+#   `target/llvm-cov-target/` -- non si fondono con la copertura dei test;
+# * **pulita**: i dati precedenti sono rimossi prima, per la stessa ragione per
+#   cui il checkpoint fa `cargo llvm-cov clean` (vedi INFRA-5: una misura
+#   fallita che lascia in piedi la precedente produce verdi di un altro albero);
+# * **dichiarata**: per ogni target stampa il corpus usato e quanti input ha
+#   attraversato, perche' una percentuale senza il suo denominatore non si
+#   rilegge.
+#
+# # Uso
+#
+#     bash scripts/fuzz-coverage.sh [target ...]
+#
+# Senza argomenti misura i tre target dei driver in classificazione.
+
+set -u
+
+cd "$(dirname "$0")/.."
+
+USCITA="${FUZZ_COVERAGE_OUT:-/tmp/fuzz-coverage}"
+mkdir -p "${USCITA}"
+
+# La toolchain e' scelta qui, non ereditata: la strumentazione richiede nightly,
+# ed e' la stessa scelta esplicita che fanno fuzz-smoke.sh e fuzz-replay.sh.
+TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain-nightly.toml 2>/dev/null)"
+TOOLCHAIN="${TOOLCHAIN:-nightly}"
+export RUSTUP_TOOLCHAIN="${TOOLCHAIN}"
+
+ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$|\.cargo/registry|rustc'
+
+if [ "$#" -gt 0 ]; then
+    target=("$@")
+else
+    target=(shp_wkb xlsx_reader gpkg_reader)
+fi
+
+echo "=============================================================="
+echo "copertura dal replay deterministico"
+echo "revisione: $(git rev-parse HEAD)"
+echo "albero:    $(git status --porcelain | wc -l) file non committati"
+echo "toolchain: ${TOOLCHAIN}"
+echo "uscita:    ${USCITA}"
+echo "=============================================================="
+
+# I dati precedenti se ne vanno prima di misurare.
+rm -rf fuzz/coverage
+esito_globale=0
+
+for nome in "${target[@]}"; do
+    echo
+    echo "--- ${nome} ---------------------------------------------"
+
+    sorgenti=()
+    quanti=0
+    for cartella in "fuzz/seeds/${nome}" "fuzz/corpus/${nome}" "fuzz/artifacts/${nome}"; do
+        if [ -d "${cartella}" ]; then
+            n=$(find "${cartella}" -type f | wc -l | tr -d ' ')
+            if [ "${n}" -gt 0 ]; then
+                sorgenti+=("${cartella}")
+                quanti=$((quanti + n))
+                echo "  corpus: ${cartella} (${n} input)"
+            fi
+        fi
+    done
+    if [ "${#sorgenti[@]}" -eq 0 ]; then
+        echo "  nessun input: target saltato" >&2
+        esito_globale=1
+        continue
+    fi
+    echo "  input totali: ${quanti}"
+
+    log="${USCITA}/${nome}.log"
+    if ! cargo fuzz coverage "${nome}" "${sorgenti[@]}" > "${log}" 2>&1; then
+        echo "  ROSSO: cargo fuzz coverage e' fallito — ${log}" >&2
+        esito_globale=1
+        continue
+    fi
+
+    profdata="fuzz/coverage/${nome}/coverage.profdata"
+    binario="$(find fuzz/target -type f -name "${nome}" -path '*coverage*' | head -1)"
+    if [ ! -f "${profdata}" ] || [ -z "${binario}" ]; then
+        echo "  ROSSO: profdata o binario assenti dopo la misura" >&2
+        esito_globale=1
+        continue
+    fi
+
+    lcov="${USCITA}/${nome}.lcov"
+    if ! cargo cov -- export "${binario}" \
+        --instr-profile="${profdata}" \
+        --format=lcov \
+        --ignore-filename-regex="${ESCLUSIONI}" \
+        > "${lcov}" 2>"${USCITA}/${nome}.export.log"; then
+        echo "  ROSSO: export lcov fallito — ${USCITA}/${nome}.export.log" >&2
+        esito_globale=1
+        continue
+    fi
+    if [ ! -s "${lcov}" ]; then
+        echo "  ROSSO: report lcov vuoto" >&2
+        esito_globale=1
+        continue
+    fi
+    echo "  report: ${lcov} ($(grep -c '^SF:' "${lcov}") file)"
+done
+
+echo
+if [ "${esito_globale}" -ne 0 ]; then
+    echo "misura incompleta: vedi i ROSSO sopra." >&2
+    exit 1
+fi
+echo "copertura da replay prodotta in ${USCITA}"
