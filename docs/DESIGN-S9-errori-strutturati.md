@@ -759,3 +759,16 @@ attraversa mai un canale che sa portare solo stringhe**. Dove il canale e'
 imposto da una dipendenza — serde, per esempio — si mette da parte l'errore
 vero in un campo dello stato condiviso e si consegna alla dipendenza il minimo
 che le serve per fermarsi.
+
+## Fuori perimetro, ma non perduto: il contratto dei report di perdita
+
+`LossReport.counts` e `LossExample.context` portano testo costruito a runtime e
+vengono serializzati dalla CLI. **Non sono `PlenoraIoError`**: altra struttura,
+altro wire, e S9 correttamente non li tocca.
+
+Non essere un errore non e' pero' una ragione per non decidere. Struttura,
+limiti e redazione di quel contratto sono aperti e censiti in
+`docs/assurance/DEBITO_contratto_report_di_perdita.md`, con le tre decisioni
+tenute distinte — la terza non e' un corollario della regola di S9, perche' un
+report di perdita ha lo scopo opposto a un messaggio d'errore: dire con
+precisione *che cosa* si e' perso.

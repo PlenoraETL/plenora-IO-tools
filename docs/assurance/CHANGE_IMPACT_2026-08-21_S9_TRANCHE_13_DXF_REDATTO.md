@@ -146,3 +146,58 @@ validazione a due livelli: la batteria completa è dovuta al checkpoint.
 Tranche 14 e ultima del perimetro: **`plenora-io-cli`**, 6 usi legacy. Poi la
 rimozione dei costruttori legacy con prova di non costruibilità, i test ostili
 conclusivi e il checkpoint finale con baseline `0474902`.
+
+---
+
+## Addendum del 2026-08-21 — riconciliazione del registro fallback 115 → 119
+
+Il corpo di questa CIA dichiara «`check_assurance_fallbacks`: **119**,
+invariato». È vero per la tranche, e **non basta**: il totale precedente era
+115, e un totale che si muove senza che nessuno nomini le identità non dimostra
+che l'aumento sia legittimo. Qui vengono nominate.
+
+### Le quattro identità
+
+Tutte in `crates/driver-common/src/wkt_lossless.rs`, tutte nella **stessa
+funzione di test** `cio_che_accettiamo_da_testo_lo_sappiamo_riscrivere`, in un
+modulo `#[cfg(test)]`:
+
+| Riga | Sito | Motivazione |
+|---|---|---|
+| 873 | `format_wkt(geometria).unwrap_or_else(\|errore\| panic!("{testo}: accettato in lettura ma non riscrivibile: {errore}"))` | asserisce la simmetria lettura/scrittura |
+| 881 | `parse_wkt(testo).unwrap_or_else(\|errore\| panic!("{testo}: {errore}"))` | il caso *deve* essere accettato |
+| 883 | `format_wkt(&geometria).unwrap_or_else(\|errore\| panic!("{testo}: {errore}"))` | e *deve* essere riscrivibile |
+| 885 | `parse_wkt(&riscritto).unwrap_or_else(\|errore\| panic!("{testo}: {errore}"))` | e rileggibile identico |
+
+**Nessuna delle quattro è una degradazione a un valore di ripiego.** Sono la
+forma `unwrap_or_else(|e| panic!(…))`: il modo in cui quel test dice «questo
+caso doveva passare, e se non passa voglio sapere perché». La regex del gate
+(`\bunwrap_or(?:_else|_default)?\s*\(`) non distingue le due cose, ed è giusto
+che non lo faccia — distinguere è il lavoro del registro, non della regex.
+
+### L'aumento non è di fallback: è di visibilità
+
+| | |
+|---|---|
+| nascita dei quattro siti | `d52a8dd`, **2026-08-07** — `fix(wkt): serializza i MULTIPOLYGON con membri vuoti invece di panicare (#15)` |
+| rapporto con S9 | li **precede di tredici giorni**; antenato di `0474902` |
+| introdotti da questa tranche | **zero**: `driver-dxf/src/lib.rs` conta 6 prima e 6 dopo `672c416` |
+
+Il gate testuale (`check_assurance_fallbacks.sh`) **non elencava affatto
+`driver-common`**, e contava solo i crate elencati: quel crate non veniva
+guardato. INFRA-4 (`71adf70`) ha aggiunto il controllo «crate presente ma non
+registrato», che lo ha trovato.
+
+### La conclusione da trarne
+
+**115 non era il valore corretto di prima: era un valore sbagliato.** Il
+workspace conteneva 119 occorrenze dal 2026-08-07, e il gate ne stampava 115
+perché misurava un sottoinsieme presentandolo come totale.
+
+È la stessa famiglia di difetto incontrata sei volte in questa serie — un verde
+che riguarda meno di quanto dichiari — e qui si presentava nella forma più
+insidiosa: non un passo saltato, ma un **perimetro incompleto**, che nessun
+conteggio di passi avrebbe rivelato.
+
+Il controllo che lo chiude non è il numero: è il fatto che un crate nuovo, o
+dimenticato, ora renda il gate **rosso** invece che silenzioso.
