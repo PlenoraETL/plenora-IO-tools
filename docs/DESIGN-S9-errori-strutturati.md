@@ -614,9 +614,19 @@ i gate che si accendono quando cambia un crate sono sempre gli stessi.
 
 ### Livello 2 — checkpoint
 
-**Ogni tre driver, e alla chiusura di S9.** Batteria completa dei gate,
-copertura misurata con le esclusioni di CI e la soglia dell'80%, smoke
-**13/13**.
+**Ogni tre driver, e alla chiusura di S9.** Si esegue con
+`scripts/s9-checkpoint.sh`, che rifiuta di partire su un albero sporco.
+
+L'ordine dei passi non e' indifferente, e le prime tre regole vengono da
+altrettanti difetti trovati alla prima esecuzione (2026-08-20):
+
+| Regola | Difetto che chiude |
+|---|---|
+| lo smoke 13/13 e' un passo **dichiarato**, e la batteria non lo contiene | l'harness lo eseguiva due volte, per quaranta minuti che non aggiungevano nulla |
+| ogni passo scrive un log **completo** su file, e il percorso compare quando fallisce | il log di un gate rosso veniva troncato a sei righe, e i dettagli di un crash reale sono andati persi |
+| la copertura e' generata **prima** del gate che la legge | il gate girava prima che il report esistesse, quindi era rosso a ogni corsa per assenza dell'input — e un rosso che si ripete sempre smette di essere letto |
+| il **replay deterministico** viene prima dello smoke | il replay rigioca semi, corpus e artefatti noti e trova sempre cio' che c'e'; lo smoke cerca input nuovi e ritrova il noto solo per fortuna |
+| l'esito di ogni passo viene dal comando, mai da una pipe | regola gia' in vigore dal 2026-08-17 |
 
 ### La distinzione da non perdere
 
