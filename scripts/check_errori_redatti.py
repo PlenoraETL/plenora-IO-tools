@@ -74,6 +74,7 @@ MIGRATI = (
     "driver-csv",
     "driver-kml",
     "driver-gpkg",
+    "driver-geoparquet",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -108,12 +109,6 @@ DA_MIGRARE: dict[str, int] = {
     "crates/driver-filegdb/src/lib.rs::ogr_to_arrow": 1,
     "crates/driver-filegdb/src/lib.rs::open": 2,
     "crates/driver-filegdb/src/lib.rs::resolve_layer_crs": 3,
-    "crates/driver-geoparquet/src/lib.rs::compression_from": 1,
-    "crates/driver-geoparquet/src/lib.rs::create": 3,
-    "crates/driver-geoparquet/src/lib.rs::crs_from": 1,
-    "crates/driver-geoparquet/src/lib.rs::fmt_err": 1,
-    "crates/driver-geoparquet/src/lib.rs::open_layer_reader": 1,
-    "crates/driver-geoparquet/src/pagine.rs::errore": 1,
     "crates/driver-ipc/src/lib.rs::create": 3,
     "crates/driver-ipc/src/lib.rs::err": 1,
     "crates/driver-ipc/src/lib.rs::open": 2,

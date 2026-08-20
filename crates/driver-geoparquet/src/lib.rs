@@ -49,7 +49,9 @@ use plenora_io_model::crs::{
 use plenora_io_model::geometry::{ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::inspect_wkb;
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{
+    ContractIdentifier, ErrorContext, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
+};
 
 /// Verifica lo schema Arrow incorporato nel footer Parquet (FZ-0).
 ///
@@ -171,10 +173,11 @@ fn valida_bit_width_dizionario(
     };
 
     for &indice_gruppo in gruppi {
-        let blocco = metadati
-            .row_groups()
-            .get(indice_gruppo)
-            .ok_or_else(|| fmt_err("indice di row group Parquet fuori intervallo"))?;
+        let blocco = metadati.row_groups().get(indice_gruppo).ok_or_else(|| {
+            fmt_err(&PublicMessage::Curated(
+                "indice di row group Parquet fuori intervallo",
+            ))
+        })?;
         for (foglia, chunk) in blocco.columns().iter().enumerate() {
             if !maschera.leaf_included(foglia) {
                 continue;
@@ -188,12 +191,15 @@ fn valida_bit_width_dizionario(
             // `get_next_page`, quindi il rifiuto deve precedere la chiamata.
             let non_compressi = chunk.uncompressed_size();
             if !(0..=MAX_BYTE_CHUNK_ISPEZIONATO).contains(&non_compressi) {
-                return Err(fmt_err(MSG_CHUNK_OLTRE_TETTO));
+                return Err(fmt_err(&PublicMessage::Curated(MSG_CHUNK_OLTRE_TETTO)));
             }
             let descrittore = chunk.column_descr();
             let (max_rep, max_def) = (descrittore.max_rep_level(), descrittore.max_def_level());
-            let righe = usize::try_from(blocco.num_rows())
-                .map_err(|_| fmt_err("numero di righe del row group Parquet negativo"))?;
+            let righe = usize::try_from(blocco.num_rows()).map_err(|_| {
+                fmt_err(&PublicMessage::Curated(
+                    "numero di righe del row group Parquet negativo",
+                ))
+            })?;
             // FZ-0.2: le dimensioni di **questo** chunk si verificano qui, non
             // solo nel passaggio d'insieme che precede la costruzione del
             // reader. Questa funzione legge le pagine con `get_next_page`, che
@@ -202,10 +208,16 @@ fn valida_bit_width_dizionario(
             // ed e' quello che il gate anti-chiamata-nuda verifica.
             pagine::valida_chunk(
                 sorgente,
-                u64::try_from(inizio_del_chunk(chunk)?)
-                    .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?,
-                u64::try_from(chunk.compressed_size())
-                    .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?,
+                u64::try_from(inizio_del_chunk(chunk)?).map_err(|_| {
+                    fmt_err(&PublicMessage::Curated(
+                        "chunk di colonna Parquet non rappresentabile",
+                    ))
+                })?,
+                u64::try_from(chunk.compressed_size()).map_err(|_| {
+                    fmt_err(&PublicMessage::Curated(
+                        "chunk di colonna Parquet non rappresentabile",
+                    ))
+                })?,
                 non_compressi,
                 tetto_pagina,
             )?;
@@ -216,10 +228,10 @@ fn valida_bit_width_dizionario(
                 righe,
                 None,
             )
-            .map_err(|_| fmt_err(MSG_PAGINE_NON_LEGGIBILI))?;
+            .map_err(|_| fmt_err(&PublicMessage::Curated(MSG_PAGINE_NON_LEGGIBILI)))?;
             while let Some(pagina) = lettore_pagine
                 .get_next_page()
-                .map_err(|_| fmt_err(MSG_PAGINE_NON_LEGGIBILI))?
+                .map_err(|_| fmt_err(&PublicMessage::Curated(MSG_PAGINE_NON_LEGGIBILI)))?
             {
                 valida_pagina_a_dizionario(&pagina, max_rep, max_def)?;
             }
@@ -258,10 +270,11 @@ fn valida_dimensioni_pagine(
         None => &tutti,
     };
     for &indice_gruppo in gruppi {
-        let blocco = metadati
-            .row_groups()
-            .get(indice_gruppo)
-            .ok_or_else(|| fmt_err("indice di row group Parquet fuori intervallo"))?;
+        let blocco = metadati.row_groups().get(indice_gruppo).ok_or_else(|| {
+            fmt_err(&PublicMessage::Curated(
+                "indice di row group Parquet fuori intervallo",
+            ))
+        })?;
         for (foglia, chunk) in blocco.columns().iter().enumerate() {
             if !maschera.leaf_included(foglia) {
                 continue;
@@ -270,10 +283,16 @@ fn valida_dimensioni_pagine(
             // `valida_metadati_thrift`: non negativi, rappresentabili e dentro
             // il file. Qui restano da convertire, non da verificare.
             let inizio = inizio_del_chunk(chunk)?;
-            let primo_byte = u64::try_from(inizio)
-                .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
-            let byte_compressi = u64::try_from(chunk.compressed_size())
-                .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
+            let primo_byte = u64::try_from(inizio).map_err(|_| {
+                fmt_err(&PublicMessage::Curated(
+                    "chunk di colonna Parquet non rappresentabile",
+                ))
+            })?;
+            let byte_compressi = u64::try_from(chunk.compressed_size()).map_err(|_| {
+                fmt_err(&PublicMessage::Curated(
+                    "chunk di colonna Parquet non rappresentabile",
+                ))
+            })?;
             pagine::valida_chunk(
                 sorgente,
                 primo_byte,
@@ -373,7 +392,7 @@ fn inizio_del_chunk(chunk: &parquet::file::metadata::ColumnChunkMetaData) -> Res
         return Ok(chunk.data_page_offset());
     };
     if dizionario > chunk.data_page_offset() {
-        return Err(fmt_err(MSG_DIZIONARIO_DOPO_I_DATI));
+        return Err(fmt_err(&PublicMessage::Curated(MSG_DIZIONARIO_DOPO_I_DATI)));
     }
     Ok(dizionario)
 }
@@ -433,16 +452,18 @@ fn valida_pagina_a_dizionario(
             // niente da dedurre.
             let inizio = (*rep_levels_byte_len as usize)
                 .checked_add(*def_levels_byte_len as usize)
-                .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?;
+                .ok_or_else(|| fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE)))?;
             (buf, inizio)
         }
     };
 
     let bit_width = buffer
         .get(inizio_valori)
-        .ok_or_else(|| fmt_err(MSG_SEZIONE_VALORI_ASSENTE))?;
+        .ok_or_else(|| fmt_err(&PublicMessage::Curated(MSG_SEZIONE_VALORI_ASSENTE)))?;
     if *bit_width > MAX_BIT_WIDTH_INDICI {
-        return Err(fmt_err(MSG_BIT_WIDTH_OLTRE_MASSIMO));
+        return Err(fmt_err(&PublicMessage::Curated(
+            MSG_BIT_WIDTH_OLTRE_MASSIMO,
+        )));
     }
     Ok(())
 }
@@ -477,30 +498,37 @@ fn inizio_valori_v1(
         }
         inizio = match codifica {
             Encoding::RLE => {
-                let dopo_prefisso = inizio
-                    .checked_add(4)
-                    .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?;
+                let dopo_prefisso = inizio.checked_add(4).ok_or_else(|| {
+                    fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE))
+                })?;
                 let prefisso = buffer
                     .get(inizio..dopo_prefisso)
-                    .ok_or_else(|| fmt_err(MSG_LIVELLI_TRONCATI))?;
+                    .ok_or_else(|| fmt_err(&PublicMessage::Curated(MSG_LIVELLI_TRONCATI)))?;
                 let lunghezza =
                     u32::from_le_bytes([prefisso[0], prefisso[1], prefisso[2], prefisso[3]])
                         as usize;
-                dopo_prefisso
-                    .checked_add(lunghezza)
-                    .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?
+                dopo_prefisso.checked_add(lunghezza).ok_or_else(|| {
+                    fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE))
+                })?
             }
             Encoding::BIT_PACKED => {
-                let livello = u64::try_from(livello_massimo)
-                    .map_err(|_| fmt_err("livello massimo Parquet negativo"))?;
+                let livello = u64::try_from(livello_massimo).map_err(|_| {
+                    fmt_err(&PublicMessage::Curated("livello massimo Parquet negativo"))
+                })?;
                 let bit_totali = (num_values as usize)
                     .checked_mul(bit_necessari(livello) as usize)
-                    .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?;
-                inizio
-                    .checked_add(bit_totali.div_ceil(8))
-                    .ok_or_else(|| fmt_err(MSG_SEZIONE_NON_RAPPRESENTABILE))?
+                    .ok_or_else(|| {
+                        fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE))
+                    })?;
+                inizio.checked_add(bit_totali.div_ceil(8)).ok_or_else(|| {
+                    fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE))
+                })?
             }
-            _ => return Err(fmt_err(MSG_CODIFICA_LIVELLI_IGNOTA)),
+            _ => {
+                return Err(fmt_err(&PublicMessage::Curated(
+                    MSG_CODIFICA_LIVELLI_IGNOTA,
+                )))
+            }
         };
     }
     Ok(inizio)
@@ -527,32 +555,44 @@ fn valida_metadati_thrift(
     // abbatte il processo prima di leggere un solo byte di dati.
     for gruppo in metadati.row_groups() {
         if gruppo.num_rows() < 0 || gruppo.total_byte_size() < 0 {
-            return Err(fmt_err(
+            return Err(fmt_err(&PublicMessage::Curated(
                 "gruppo di righe Parquet con conteggio o dimensione negativi",
-            ));
+            )));
         }
         for colonna in gruppo.columns() {
             let inizio = inizio_del_chunk(colonna)?;
             let lunghezza = colonna.compressed_size();
             if inizio < 0 || lunghezza < 0 || colonna.data_page_offset() < 0 {
-                return Err(fmt_err(
+                return Err(fmt_err(&PublicMessage::Curated(
                     "chunk di colonna Parquet con offset o lunghezza negativi",
-                ));
+                )));
             }
             // Rappresentabili e dentro il file: un chunk che dichiara byte
             // oltre la fine non e' un chunk corto, e' un chunk che non c'e'.
-            let primo_byte = u64::try_from(inizio)
-                .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
-            let byte_dichiarati = u64::try_from(lunghezza)
-                .map_err(|_| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
-            let oltre_il_chunk = primo_byte
-                .checked_add(byte_dichiarati)
-                .ok_or_else(|| fmt_err("chunk di colonna Parquet non rappresentabile"))?;
+            let primo_byte = u64::try_from(inizio).map_err(|_| {
+                fmt_err(&PublicMessage::Curated(
+                    "chunk di colonna Parquet non rappresentabile",
+                ))
+            })?;
+            let byte_dichiarati = u64::try_from(lunghezza).map_err(|_| {
+                fmt_err(&PublicMessage::Curated(
+                    "chunk di colonna Parquet non rappresentabile",
+                ))
+            })?;
+            let oltre_il_chunk = primo_byte.checked_add(byte_dichiarati).ok_or_else(|| {
+                fmt_err(&PublicMessage::Curated(
+                    "chunk di colonna Parquet non rappresentabile",
+                ))
+            })?;
             if oltre_il_chunk > dimensione {
-                return Err(fmt_err("chunk di colonna Parquet oltre la fine del file"));
+                return Err(fmt_err(&PublicMessage::Curated(
+                    "chunk di colonna Parquet oltre la fine del file",
+                )));
             }
             if colonna.num_values() < 0 {
-                return Err(fmt_err("chunk di colonna Parquet con conteggio negativo"));
+                return Err(fmt_err(&PublicMessage::Curated(
+                    "chunk di colonna Parquet con conteggio negativo",
+                )));
             }
         }
     }
@@ -576,7 +616,7 @@ fn valida_schema_arrow_incorporato(file: File, dimensione: u64) -> Result<()> {
         // dell'errore della libreria e' derivato dal file, e `message`
         // dichiara di non contenere payload.
         parquet::file::reader::SerializedFileReader::new(file)
-            .map_err(|_| fmt_err(MSG_FOOTER_NON_VALIDO))
+            .map_err(|_| fmt_err(&PublicMessage::Curated(MSG_FOOTER_NON_VALIDO)))
     })?;
     let metadati = lettore.metadata();
 
@@ -590,18 +630,76 @@ fn valida_schema_arrow_incorporato(file: File, dimensione: u64) -> Result<()> {
             continue;
         }
         let Some(valore) = voce.value.as_ref() else {
-            return Err(fmt_err("chiave ARROW:schema priva di valore"));
+            return Err(fmt_err(&PublicMessage::Curated(
+                "chiave ARROW:schema priva di valore",
+            )));
         };
         let byte = base64::engine::general_purpose::STANDARD
             .decode(valore)
-            .map_err(|_| fmt_err("ARROW:schema non decodificabile da base64"))?;
+            .map_err(|_| {
+                fmt_err(&PublicMessage::Curated(
+                    "ARROW:schema non decodificabile da base64",
+                ))
+            })?;
         driver_common::prevalida_arrow::valida_messaggio_schema("parquet", &byte)?;
     }
     Ok(())
 }
 
-fn fmt_err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("geoparquet", reason)
+/// Mappa ogni campo esposto sulla sua posizione nello schema Parquet fisico.
+///
+/// Un campo esposto senza corrispondente fisico e' un errore di contratto —
+/// mai atteso, ma fail-closed.
+///
+/// Il nome del campo **non entra nel messaggio**: esce dal campo `field`
+/// dell'errore come [`ContractIdentifier`], cioe' nel posto dove i consumatori
+/// lo trovano senza doverlo estrarre da una frase. Quando il nome non e'
+/// nominabile — vuoto, o oltre il tetto — l'errore resta senza campo invece di
+/// portarne uno inventato, e l'indice nel messaggio identifica comunque il
+/// punto.
+fn mappa_campi_fisici(out_schema: &SchemaRef, parquet_schema: &SchemaRef) -> Result<Vec<usize>> {
+    let mut visible_to_physical: Vec<usize> = Vec::with_capacity(out_schema.fields().len());
+    for (posizione, field) in out_schema.fields().iter().enumerate() {
+        let index = parquet_schema.index_of(field.name()).map_err(|_| {
+            let errore = fmt_err(&PublicMessage::CuratedWith(
+                "campo esposto non presente nello schema Parquet fisico, indice",
+                NumeroStrutturale::Indice(driver_common::saturating_u64(posizione)),
+            ));
+            u32::try_from(posizione)
+                .ok()
+                .and_then(|indice| {
+                    ContractIdentifier::from_schema_field(
+                        out_schema.as_ref(),
+                        plenora_io_model::contract::FieldId(indice),
+                    )
+                })
+                .map_or_else(
+                    || errore.clone(),
+                    |identificatore| {
+                        errore
+                            .clone()
+                            .con_contesto(&ErrorContext::nuovo().con_identificatore(identificatore))
+                    },
+                )
+        })?;
+        visible_to_physical.push(index);
+    }
+    Ok(visible_to_physical)
+}
+
+/// Un `field id` richiesto in projection `Required` che lo schema non ha.
+///
+/// Esce l'indice, che viene dalla richiesta del chiamante ed e' un numero
+/// strutturale; nient'altro.
+fn campo_fuori_range(fid: plenora_io_model::contract::FieldId) -> PlenoraIoError {
+    PlenoraIoError::non_supportato_redatto(&PublicMessage::CuratedWith(
+        "projection Required: field id fuori range,",
+        NumeroStrutturale::Indice(u64::from(fid.0)),
+    ))
+}
+
+fn fmt_err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("geoparquet", reason)
 }
 
 use plenora_io_model::format_options::{
@@ -726,7 +824,7 @@ impl FormatDriver for GeoParquetDriver {
         valida_schema_arrow_incorporato(sorgente.try_clone()?, dimensione)?;
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", || {
             ParquetRecordBatchReaderBuilder::try_new(sorgente.try_clone()?)
-                .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
+                .map_err(|_| fmt_err(&PublicMessage::Curated("Parquet non valido")))
         })?;
         let parquet_schema = builder.schema().clone();
         let geo = read_geo_meta(&builder);
@@ -797,19 +895,10 @@ impl FormatDriver for GeoParquetDriver {
         // contratto. Ogni campo esposto viene localizzato per nome nello
         // schema Parquet originale. Un campo esposto senza corrispondente
         // fisico e' un errore di contratto (mai atteso, ma fail-closed).
-        let mut visible_to_physical: Vec<usize> = Vec::with_capacity(out_schema.fields().len());
-        for field in out_schema.fields() {
-            let index = parquet_schema.index_of(field.name()).map_err(|_| {
-                fmt_err(format!(
-                    "campo esposto '{}' non presente nello schema Parquet fisico",
-                    field.name()
-                ))
-            })?;
-            visible_to_physical.push(index);
-        }
+        let visible_to_physical = mappa_campi_fisici(&out_schema, &parquet_schema)?;
         let geom_idx = out_schema
             .index_of(&geom_name)
-            .map_err(|e| fmt_err(format!("colonna geometria: {e}")))?;
+            .map_err(|_| fmt_err(&PublicMessage::Curated("colonna geometria non leggibile")))?;
         // Indice di colonna di uno schema Parquet: limitato a poche migliaia di
         // campi, il cast a u32 non puo' troncare.
         #[allow(clippy::cast_possible_truncation)]
@@ -864,20 +953,20 @@ impl FormatDriver for GeoParquetDriver {
         )?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("parquet"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "l'output deve avere estensione .parquet".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("l'output deve avere estensione .parquet"),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraIoError::Unsupported(
-                "GeoParquet: un solo layer per dataset nella v1".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("GeoParquet: un solo layer per dataset nella v1"),
             ));
         }
         let layer = &plan.layers[0];
@@ -889,17 +978,19 @@ impl FormatDriver for GeoParquetDriver {
         // dichiarato dall'utente. Fail-closed qui rifiuta il piano prima
         // di aprire il sink: e' la stessa policy di collisione applicata
         // dagli altri driver ai propri metadati interni.
-        if let Some(collision) = schema
+        if schema
             .fields()
             .iter()
-            .map(|field| field.name().as_str())
-            .find(|name| is_bbox_col(name))
+            .any(|field| is_bbox_col(field.name()))
         {
-            return Err(fmt_err(format!(
-                "GeoParquet: colonna utente '{collision}' entrerebbe in collisione con \
-                 le colonne bbox interne del covering spaziale ({}); rinominare la colonna \
-                 utente prima della scrittura",
-                BBOX_COLS.join(", ")
+            // Il nome utente non entra nel testo: viene dal piano, e chi
+            // legge l'errore ha il piano. L'elenco delle colonne bbox e'
+            // nostro ed e' costante: sta nella documentazione del driver, non
+            // in ogni messaggio.
+            return Err(fmt_err(&PublicMessage::Curated(
+                "GeoParquet: una colonna utente entrerebbe in collisione con le colonne bbox \
+                 interne del covering spaziale; rinominare la colonna utente prima della \
+                 scrittura",
             )));
         }
         let (geom_idx, geom_name, legacy_crs_meta) = geometry_field(&schema)?;
@@ -920,7 +1011,11 @@ impl FormatDriver for GeoParquetDriver {
             .set_max_row_group_row_count(Some(65_536))
             .build();
         let writer = ArrowWriter::try_new(staging.reopen()?, write_schema.clone(), Some(props))
-            .map_err(|e| fmt_err(format!("writer: {e}")))?;
+            .map_err(|_| {
+                fmt_err(&PublicMessage::Curated(
+                    "apertura del writer Parquet fallita",
+                ))
+            })?;
         with_write_validation(
             Box::new(GeoParquetWriter {
                 staging,
@@ -997,7 +1092,7 @@ impl GeoParquetDataset {
         let per_builder = sorgente.try_clone()?;
         let builder = plenora_io_core::driver::leggendo_arrow("parquet", move || {
             ParquetRecordBatchReaderBuilder::try_new(per_builder)
-                .map_err(|e| fmt_err(format!("Parquet non valido: {e}")))
+                .map_err(|_| fmt_err(&PublicMessage::Curated("Parquet non valido")))
         })?;
         Ok((sorgente, builder))
     }
@@ -1101,10 +1196,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
                     let i = fid.0 as usize;
                     if i >= ncols {
                         if request.projection_mode == ProjectionMode::Required {
-                            return Err(PlenoraIoError::Unsupported(format!(
-                                "projection Required: field id {} fuori range",
-                                fid.0
-                            )));
+                            return Err(campo_fuori_range(*fid));
                         }
                         continue;
                     }
@@ -1181,7 +1273,7 @@ impl OpenDatasetHandle for GeoParquetDataset {
 
         let reader = builder
             .build()
-            .map_err(|e| fmt_err(format!("lettura: {e}")))?;
+            .map_err(|_| fmt_err(&PublicMessage::Curated("lettura Parquet fallita")))?;
         let reader: Box<dyn LayerReader> = Box::new(GeoParquetReader {
             reader,
             out_schema,
@@ -1217,7 +1309,9 @@ impl LayerReader for GeoParquetReader {
         let prossimo =
             plenora_io_core::driver::leggendo_arrow("parquet", move || match reader.next() {
                 None => Ok(None),
-                Some(Err(e)) => Err(fmt_err(format!("batch: {e}"))),
+                Some(Err(_)) => Err(fmt_err(&PublicMessage::Curated(
+                    "batch Parquet non leggibile",
+                ))),
                 Some(Ok(batch)) => Ok(Some(batch)),
             })?;
         match prossimo {
@@ -1231,7 +1325,7 @@ impl LayerReader for GeoParquetReader {
                     batch.columns().to_vec(),
                     &options,
                 )
-                .map_err(|e| fmt_err(format!("re-tag schema: {e}")))?;
+                .map_err(|_| fmt_err(&PublicMessage::Curated("re-tag dello schema fallito")))?;
                 Ok(Some(retagged))
             }
         }
@@ -1265,27 +1359,35 @@ impl FormatWriter for GeoParquetWriter {
         );
         let mut cols: Vec<ArrayRef> = batch.columns().to_vec();
         cols.extend(bbox_cols);
-        let aug = RecordBatch::try_new(self.write_schema.clone(), cols)
-            .map_err(|e| fmt_err(format!("augment bbox: {e}")))?;
+        let aug = RecordBatch::try_new(self.write_schema.clone(), cols).map_err(|_| {
+            fmt_err(&PublicMessage::Curated(
+                "calcolo delle colonne bbox fallito",
+            ))
+        })?;
         self.writer
             .as_mut()
-            .ok_or_else(|| fmt_err("writer Parquet non disponibile"))?
+            .ok_or_else(|| fmt_err(&PublicMessage::Curated("writer Parquet non disponibile")))?
             .write(&aug)
-            .map_err(|e| fmt_err(format!("write: {e}")))
+            .map_err(|_| fmt_err(&PublicMessage::Curated("scrittura Parquet fallita")))
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        let mut writer = self
-            .writer
-            .take()
-            .ok_or_else(|| fmt_err("writer Parquet non disponibile al finish"))?;
+        let mut writer = self.writer.take().ok_or_else(|| {
+            fmt_err(&PublicMessage::Curated(
+                "writer Parquet non disponibile al finish",
+            ))
+        })?;
         let geo = build_geo_metadata(
             &self.geom_name,
             &self.geometry_types,
             self.crs_meta.as_deref(),
         )?;
         writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo));
-        writer.close().map_err(|e| fmt_err(format!("close: {e}")))?;
+        writer.close().map_err(|_| {
+            fmt_err(&PublicMessage::Curated(
+                "chiusura del writer Parquet fallita",
+            ))
+        })?;
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
             bytes,
@@ -1530,12 +1632,16 @@ fn compression_from(opts: &WriteOptions) -> Result<Compression> {
         "brotli" => Ok(Compression::BROTLI(BrotliLevel::default())),
         "lz4" => Ok(Compression::LZ4),
         "none" | "uncompressed" => Ok(Compression::UNCOMPRESSED),
-        altro => Err(PlenoraIoError::new(
+        // Il valore non esce: lo schema dichiara `compression` come
+        // `Enumerato`, quindi un valore diverso e' gia' stato respinto da
+        // `valida_opzioni` con il suo token bounded. Questo ramo e' difensivo.
+        _ => Err(PlenoraIoError::redatto(
+            plenora_io_model::IoErrorCode::Generic,
             plenora_io_model::ErrorCategory::InvalidConfiguration,
             plenora_io_model::ErrorPhase::Validate,
             plenora_io_model::RemoteEffect::None,
             plenora_io_model::RetryDisposition::Never,
-            format!("geoparquet: compressione '{altro}' non riconosciuta"),
+            &PublicMessage::Curated("geoparquet: compressione non riconosciuta"),
         )),
     }
 }
@@ -1564,7 +1670,11 @@ fn resolve_geometry_and_crs(
                 .find(|n| schema.index_of(n).is_ok())
                 .map(std::string::ToString::to_string)
         })
-        .ok_or_else(|| fmt_err("nessuna colonna geometria: non è GeoParquet"))?;
+        .ok_or_else(|| {
+            fmt_err(&PublicMessage::Curated(
+                "nessuna colonna geometria: non è GeoParquet",
+            ))
+        })?;
     let crs = crs_from(geo, &primary)?;
     Ok((primary, crs))
 }
@@ -1595,7 +1705,7 @@ fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> Result<ResolvedCr
                         .and_then(|a| a.as_str())
                         .map(str::to_owned),
                 );
-                return Err(PlenoraIoError::crs_unresolved("geoparquet", &raw));
+                return Err(PlenoraIoError::crs_non_risolto_redatto("geoparquet", &raw));
             };
             let kind = if crs_kind_for_authority_id(&id) == CrsKind::Geographic
                 || v.get("type").and_then(|t| t.as_str()) == Some("GeographicCRS")
@@ -1945,9 +2055,9 @@ fn geometry_field(schema: &Schema) -> Result<(usize, String, Option<String>)> {
             return Ok((i, f.name().clone(), crs));
         }
     }
-    Err(fmt_err(
+    Err(fmt_err(&PublicMessage::Curated(
         "nessuna colonna geometria geoarrow.wkb nel contratto",
-    ))
+    )))
 }
 
 fn geometry_type_name(geometry_type: GeometryType) -> Result<&'static str> {
@@ -1959,9 +2069,9 @@ fn geometry_type_name(geometry_type: GeometryType) -> Result<&'static str> {
         GeometryType::MultiLineString => Ok("MultiLineString"),
         GeometryType::MultiPolygon => Ok("MultiPolygon"),
         GeometryType::GeometryCollection => Ok("GeometryCollection"),
-        other => Err(fmt_err(format!(
-            "tipo geometrico {} non supportato dal profilo GeoParquet corrente",
-            other.canonical_name()
+        other => Err(fmt_err(&PublicMessage::CuratedPair(
+            "tipo geometrico non supportato dal profilo GeoParquet corrente:",
+            other.canonical_name(),
         ))),
     }
 }
@@ -1975,7 +2085,11 @@ fn geometry_type_label(
         CoordinateDimensions::Xyz => " Z",
         CoordinateDimensions::Xym => " M",
         CoordinateDimensions::Xyzm => " ZM",
-        CoordinateDimensions::Unknown => return Err(fmt_err("dimensionalità WKB ignota")),
+        CoordinateDimensions::Unknown => {
+            return Err(fmt_err(&PublicMessage::Curated(
+                "dimensionalità WKB ignota",
+            )))
+        }
     };
     Ok(format!("{}{suffix}", geometry_type_name(geometry_type)?))
 }

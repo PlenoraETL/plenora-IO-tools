@@ -1689,6 +1689,74 @@ mod tests {
         );
     }
 
+    /// `plenora-io-error-v1` ha esattamente questi campi, e non ne acquista
+    /// altri per sbaglio.
+    ///
+    /// S9 ha riempito `PlenoraIoError::driver` e `PlenoraIoError::field` su
+    /// molti piu' errori di prima — `field` con un `ContractIdentifier`, che e'
+    /// il punto della migrazione. Nessuno dei due e' emesso da questo
+    /// envelope, e **non deve diventarlo per effetto collaterale**: aggiungere
+    /// un campo al wire e' un cambiamento di contratto, non una conseguenza di
+    /// un refactor interno.
+    ///
+    /// Il test guarda l'insieme delle chiavi, non le singole: un `assert` per
+    /// campo assente si dimentica del campo che nessuno ha ancora inventato.
+    #[test]
+    fn il_wire_v1_ha_esattamente_i_campi_dichiarati_e_non_acquista_field() {
+        use plenora_io_model::{ContractIdentifier, ErrorContext, PublicMessage};
+
+        // Un errore con contesto ricco: driver, campo e ragione di capability.
+        let schema = arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "geometry",
+            arrow_schema::DataType::Binary,
+            true,
+        )]);
+        let identificatore =
+            ContractIdentifier::from_schema_field(&schema, plenora_io_model::contract::FieldId(0))
+                .expect("il nome e' nominabile");
+        let contesto = ErrorContext::nuovo()
+            .con_driver("geoparquet")
+            .con_identificatore(identificatore);
+        let error = PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+            "campo esposto non presente nello schema fisico",
+        ))
+        .con_contesto(&contesto);
+
+        // Il contesto e' arrivato nel tipo Rust...
+        assert_eq!(error.driver.as_deref(), Some("geoparquet"));
+        assert_eq!(error.field.as_deref(), Some("geometry"));
+
+        // ...e non sul wire.
+        let (_, document) = map_err(error);
+        let campi: std::collections::BTreeSet<&str> = document["error"]
+            .as_object()
+            .expect("l'errore e' un oggetto")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let attesi: std::collections::BTreeSet<&str> = [
+            "category",
+            "phase",
+            "remote_effect",
+            "retry",
+            "code",
+            "message",
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            campi, attesi,
+            "plenora-io-error-v1 ha cambiato forma: {campi:?}"
+        );
+        let messaggio = document["error"]["message"]
+            .as_str()
+            .expect("il messaggio e' una stringa");
+        assert!(
+            !messaggio.contains("geometry"),
+            "il nome del campo non deve rientrare dal messaggio: {messaggio}"
+        );
+    }
+
     #[test]
     fn cancellation_has_dedicated_exit_and_preserves_axes() {
         let error = PlenoraIoError::cancelled(ErrorPhase::Read, false);

@@ -89,12 +89,13 @@ pub const MSG_CATENA_PAGINE_NON_CHIUDE: &str =
     "catena di pagine Parquet che non finisce sulla fine del chunk";
 
 fn errore(messaggio: &'static str) -> PlenoraIoError {
-    PlenoraIoError::new(
+    PlenoraIoError::redatto(
+        plenora_io_model::IoErrorCode::Generic,
         plenora_io_model::ErrorCategory::DataMapping,
         plenora_io_model::ErrorPhase::Read,
         plenora_io_model::RemoteEffect::None,
         plenora_io_model::RetryDisposition::Never,
-        messaggio,
+        &plenora_io_model::PublicMessage::Curated(messaggio),
     )
 }
 
