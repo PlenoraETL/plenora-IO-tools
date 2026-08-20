@@ -100,6 +100,36 @@ verifica "un passo saltato non e' verde" "0" "${verdi}"
 verifica "un passo saltato entra fra i falliti" "1" "${#falliti[@]}"
 verifica "un passo saltato conta fra i passi" "1" "${passi}"
 
+# --- la catena si spezza al primo fallimento --------------------------------
+passi=0
+verdi=0
+falliti=()
+catena_rotta=""
+esegui passo_in_catena primo true
+verifica "il primo passo della catena gira" "verde" "$(echo "${LETTA}" | awk '{print $NF}')"
+
+esegui passo_in_catena secondo sh -c 'exit 5'
+verifica "un fallimento rompe la catena" "secondo" "${catena_rotta}"
+verifica "il fallimento riporta il suo exit"     "ROSSO (exit 5)"     "$(echo "${LETTA}" | grep -o 'ROSSO (exit [0-9]*)')"
+
+esegui passo_in_catena terzo true
+verifica "il passo dopo la rottura non gira"     "SALTATO (secondo e' fallito)"     "$(echo "${LETTA}" | grep -o 'SALTATO (.*)')"
+verifica "il passo saltato nomina chi ha rotto la catena, non il primo" \
+    "secondo" \
+    "$(echo "${LETTA}" | grep -o 'SALTATO ([^ ]*' | cut -d'(' -f2)"
+verifica "dopo la rottura i verdi restano uno" "1" "${verdi}"
+verifica "i due passi non verdi sono fra i falliti" "2" "${#falliti[@]}"
+
+# Il caso che INFRA-6 chiude: un export che riesce lasciando un file vuoto.
+passi=0
+verdi=0
+falliti=()
+catena_rotta=""
+VUOTO="${S9_CHECKPOINT_LOG_DIR}/vuoto.info"
+: > "${VUOTO}"
+esegui passo_in_catena report_non_vuoto test -s "${VUOTO}"
+verifica "un report vuoto rompe la catena" "report_non_vuoto" "${catena_rotta}"
+
 # --- il log resta, per intero -----------------------------------------------
 passi=0
 verdi=0

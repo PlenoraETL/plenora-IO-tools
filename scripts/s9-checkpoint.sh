@@ -36,6 +36,7 @@ mkdir -p "${LOG_DIR}"
 passi=0
 verdi=0
 falliti=()
+catena_rotta=""
 
 # Esegue un passo, conserva il log per intero, e prende l'esito dal comando.
 passo() {
@@ -71,6 +72,29 @@ salta() {
     printf '  %-38s ' "${nome}"
     echo "SALTATO (${causa} e' fallito)"
     falliti+=("${nome}(saltato)")
+}
+
+# Esegue un passo **solo se la catena non e' gia' rotta**.
+#
+# La prima versione faceva dipendere i passi della copertura dalla sola misura:
+# se `coverage_export` falliva, il gate delle esclusioni e la soglia giravano lo
+# stesso, su un file che poteva essere assente o vecchio. Ogni passo dipende ora
+# dal **precedente**, non dal primo della catena.
+#
+# `catena_rotta` porta il nome del passo che l'ha spezzata, cosi' il motivo del
+# salto e' quello vero e non un generico «a monte e' andato male».
+passo_in_catena() {
+    local nome="$1"
+    shift
+    if [ -n "${catena_rotta}" ]; then
+        salta "${nome}" "${catena_rotta}"
+        return 1
+    fi
+    if passo "${nome}" "$@"; then
+        return 0
+    fi
+    catena_rotta="${nome}"
+    return 1
 }
 
 # Consente alle sonde di caricare solo le funzioni, senza eseguire il
@@ -179,20 +203,32 @@ export PLENORA_CROSS_FS_TEST_ROOT="${PLENORA_CROSS_FS_TEST_ROOT:-/dev/shm}"
 # che seguono li leggono senza sapere che descrivono un altro albero: e'
 # successo il 2026-08-21, e `coverage_soglia` ha detto «verde» su un albero che
 # non era quello dichiarato.
-passo coverage_pulizia cargo llvm-cov clean --workspace
-if passo coverage_misura cargo llvm-cov --workspace --all-targets --locked --no-report; then
-    passo coverage_export cargo llvm-cov report --lcov --output-path "${LOG_DIR}/lcov.info" \
-        --ignore-filename-regex "${ESCLUSIONI}"
-    # Ora il report esiste: il gate legge qualcosa invece di lamentarne l'assenza.
-    passo check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
-        --lcov "${LOG_DIR}/lcov.info"
-    passo coverage_soglia cargo llvm-cov report --summary-only \
-        --ignore-filename-regex "${ESCLUSIONI}" --fail-under-lines 80
+LCOV="${LOG_DIR}/lcov.info"
+# Il percorso del report parte **vuoto**: se l'export fallisce, non deve restare
+# in piedi il file di una corsa precedente per i passi che seguono.
+rm -f "${LCOV}"
+
+catena_rotta=""
+passo_in_catena coverage_pulizia cargo llvm-cov clean --workspace
+passo_in_catena coverage_misura cargo llvm-cov --workspace --all-targets --locked --no-report
+passo_in_catena coverage_export cargo llvm-cov report --lcov --output-path "${LCOV}" \
+    --ignore-filename-regex "${ESCLUSIONI}"
+# Un export che finisce con esito zero e un file vuoto e' un caso che nessuno
+# guarda finche' non succede: qui e' un passo, non un'assunzione.
+passo_in_catena coverage_report_non_vuoto test -s "${LCOV}"
+passo_in_catena check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
+    --lcov "${LCOV}"
+# La soglia si legge **dallo stesso file** delle esclusioni. La versione di
+# cargo resta come controprova: due derivazioni della stessa misura devono dire
+# la stessa cosa, e se divergessero sarebbe un fatto da guardare.
+passo_in_catena coverage_soglia_dal_report python3 scripts/check_coverage_threshold.py \
+    --lcov "${LCOV}" --min-lines 80
+passo_in_catena coverage_soglia_controprova cargo llvm-cov report --summary-only \
+    --ignore-filename-regex "${ESCLUSIONI}" --fail-under-lines 80
+
+if [ -z "${catena_rotta}" ]; then
     copertura_misurata=1
 else
-    salta coverage_export coverage_misura
-    salta check_coverage_exclusions coverage_misura
-    salta coverage_soglia coverage_misura
     copertura_misurata=0
 fi
 
@@ -221,11 +257,11 @@ fi
 echo
 echo "--- 6. diagnostica: copertura delle righe cambiate -----------"
 if [ "${copertura_misurata}" -ne 1 ]; then
-    echo "  saltata: la misura di copertura e' fallita."
-    echo "  Un numero calcolato su un report stantio somiglia a una misura, e"
-    echo "  descrive un albero che non e' quello dichiarato."
+    echo "  saltata: la catena della copertura si e' rotta a «${catena_rotta}»."
+    echo "  Un numero calcolato su un report assente o stantio somiglia a una"
+    echo "  misura, e descrive un albero che non e' quello dichiarato."
 elif [ -n "${S9_CHECKPOINT_BASE:-}" ]; then
-    python3 scripts/coverage_diff.py --lcov "${LOG_DIR}/lcov.info" \
+    python3 scripts/coverage_diff.py --lcov "${LCOV}" \
         --base "${S9_CHECKPOINT_BASE}" --head "${REVISIONE}" \
         > "${LOG_DIR}/coverage_diff.log" 2>&1
     esito_diff=$?
