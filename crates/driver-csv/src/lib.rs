@@ -59,12 +59,12 @@ use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb_into_bounded, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
 const GEOMETRY: &str = "geometry";
 
-fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("csv", reason)
+fn err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("csv", reason)
 }
 
 use plenora_io_model::format_options::{
@@ -179,14 +179,59 @@ fn delimiter(opts: &std::collections::BTreeMap<String, String>) -> Option<u8> {
     }
 }
 
+/// Risolve le colonne geometriche dichiarate nelle opzioni contro
+/// l'intestazione del file.
+///
+/// I nomi delle colonne **non entrano nei messaggi**. Sono valori d'opzione, e
+/// l'unico testo runtime che S9 ammette e' il token bounded coniato dal
+/// validatore centrale: qui non c'e', perche' `wkt_column`, `x_column` e
+/// `y_column` sono dichiarate `ValoreAmmesso::Testo` — lo schema le accetta, e
+/// il rifiuto nasce dopo, dal confronto con l'intestazione di **questo** file.
+///
+/// E' una perdita diagnostica reale, registrata nella CIA della tranche 5.
+fn colonne_geometriche(
+    headers: &[String],
+    format_options: &std::collections::BTreeMap<String, String>,
+) -> Result<(GeomSpec, HashSet<usize>)> {
+    let idx = |name: &str| headers.iter().position(|h| h == name);
+    if let Some(w) = format_options.get("wkt_column") {
+        let wi = idx(w).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "colonna WKT assente dall'intestazione",
+            ))
+        })?;
+        return Ok((GeomSpec::Wkt(wi), HashSet::from([wi])));
+    }
+    if let (Some(x), Some(y)) = (
+        format_options.get("x_column"),
+        format_options.get("y_column"),
+    ) {
+        let xi = idx(x).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "colonna X assente dall'intestazione",
+            ))
+        })?;
+        let yi = idx(y).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "colonna Y assente dall'intestazione",
+            ))
+        })?;
+        return Ok((GeomSpec::Xy(xi, yi), HashSet::from([xi, yi])));
+    }
+    Err(err(&PublicMessage::Curated(
+        "specificare wkt_column, oppure x_column con y_column, in format_options",
+    )))
+}
+
 /// Errore per un separatore che la validazione avrebbe dovuto respingere.
 fn delimiter_non_valido() -> PlenoraIoError {
-    PlenoraIoError::new(
+    PlenoraIoError::redatto(
+        plenora_io_model::IoErrorCode::Generic,
         plenora_io_model::ErrorCategory::InvalidConfiguration,
         plenora_io_model::ErrorPhase::Validate,
         plenora_io_model::RemoteEffect::None,
         plenora_io_model::RetryDisposition::Never,
-        "csv: delimiter deve essere esattamente un carattere ASCII",
+        &PublicMessage::Curated("csv: delimiter deve essere esattamente un carattere ASCII"),
     )
 }
 
@@ -196,7 +241,7 @@ fn csv_reader(path: &Path, delim: u8) -> Result<csv::Reader<File>> {
         .has_headers(true) // salta l'intestazione automaticamente
         .flexible(false)
         .from_path(path)
-        .map_err(|e| err(format!("apertura CSV: {e}")))
+        .map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))
 }
 
 #[derive(Clone, Copy)]
@@ -214,7 +259,9 @@ impl FormatDriver for CsvDriver {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         let delim = delimiter(&opts.format_options).ok_or_else(delimiter_non_valido)?;
         let crs = opts.assume_crs.clone().ok_or_else(|| {
-            PlenoraIoError::Crs("CSV con geometria richiede --assume-crs".to_owned())
+            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "CSV con geometria richiede --assume-crs",
+            ))
         })?;
 
         // Intestazione (nomi colonna).
@@ -224,34 +271,18 @@ impl FormatDriver for CsvDriver {
                 .has_headers(false)
                 .flexible(true)
                 .from_path(&path)
-                .map_err(|e| err(format!("apertura CSV: {e}")))?;
+                .map_err(|_| err(&PublicMessage::Curated("apertura del CSV fallita")))?;
             let mut first = csv::StringRecord::new();
             if !rdr
                 .read_record(&mut first)
-                .map_err(|e| err(format!("CSV non valido: {e}")))?
+                .map_err(|_| err(&PublicMessage::Curated("CSV non valido")))?
             {
-                return Err(err("CSV vuoto"));
+                return Err(err(&PublicMessage::Curated("CSV vuoto")));
             }
             first.iter().map(str::to_owned).collect()
         };
 
-        let idx = |name: &str| headers.iter().position(|h| h == name);
-        let (geom, geom_cols): (GeomSpec, HashSet<usize>) =
-            if let Some(w) = opts.format_options.get("wkt_column") {
-                let wi = idx(w).ok_or_else(|| err(format!("colonna WKT '{w}' assente")))?;
-                (GeomSpec::Wkt(wi), HashSet::from([wi]))
-            } else if let (Some(x), Some(y)) = (
-                opts.format_options.get("x_column"),
-                opts.format_options.get("y_column"),
-            ) {
-                let xi = idx(x).ok_or_else(|| err(format!("colonna X '{x}' assente")))?;
-                let yi = idx(y).ok_or_else(|| err(format!("colonna Y '{y}' assente")))?;
-                (GeomSpec::Xy(xi, yi), HashSet::from([xi, yi]))
-            } else {
-                return Err(err(
-                    "specificare wkt_column, oppure x_column con y_column, in format_options",
-                ));
-            };
+        let (geom, geom_cols) = colonne_geometriche(&headers, &opts.format_options)?;
 
         // Pass 1: inferenza tipi (RAM O(ncol), nessuna String per cella).
         let quote = QuoteInferenza::from_read_options(&opts);
@@ -328,20 +359,20 @@ impl FormatDriver for CsvDriver {
         )?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("csv"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "l'output deve avere estensione .csv".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("l'output deve avere estensione .csv"),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraIoError::Unsupported(
-                "CSV: un solo layer per file".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("CSV: un solo layer per file"),
             ));
         }
         // Prima: `matches!(..., Some("xy"))`, cioe' qualunque valore diverso
@@ -355,14 +386,20 @@ impl FormatDriver for CsvDriver {
         {
             Some("xy") => true,
             None | Some("wkt") => false,
-            Some(altro) => {
-                return Err(PlenoraIoError::new(
+            Some(_) => {
+                // Il valore non esce da qui. Lo schema dichiara
+                // `geometry_encoding` come `Enumerato(&["wkt", "xy"])`, quindi
+                // un valore diverso e' gia' stato respinto da `valida_opzioni`
+                // con il suo token bounded: questo ramo e' difensivo, e il
+                // token nasce solo nel validatore centrale.
+                return Err(PlenoraIoError::redatto(
+                    plenora_io_model::IoErrorCode::Generic,
                     plenora_io_model::ErrorCategory::InvalidConfiguration,
                     plenora_io_model::ErrorPhase::Validate,
                     plenora_io_model::RemoteEffect::None,
                     plenora_io_model::RetryDisposition::Never,
-                    format!("csv: geometry_encoding '{altro}' non riconosciuto"),
-                ))
+                    &PublicMessage::Curated("csv: geometry_encoding non riconosciuto"),
+                ));
             }
         };
         let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
@@ -498,8 +535,9 @@ impl QuoteInferenza {
 
 /// Errore di una passata di inferenza che supera il tetto di righe.
 fn oltre_le_righe(righe: usize) -> PlenoraIoError {
-    PlenoraIoError::LimitExceeded(format!(
-        "l'inferenza ha superato il limite di {righe} righe prima di completare"
+    PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+        "l'inferenza si e' fermata al tetto di righe:",
+        NumeroStrutturale::Limite(driver_common::saturating_u64(righe)),
     ))
 }
 
@@ -519,7 +557,7 @@ fn infer_types(
     let mut visitate = 0_usize;
     while rdr
         .read_record(&mut rec)
-        .map_err(|e| err(format!("riga CSV non valida: {e}")))?
+        .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?
     {
         // Prima di osservare le celle: un CSV ostile con miliardi di record
         // rende la passata di inferenza illimitata nel tempo anche se ogni
@@ -553,7 +591,7 @@ fn infer_wkt_geometry(
     let mut visitate = 0_usize;
     while reader
         .read_record(&mut record)
-        .map_err(|error| err(format!("riga CSV non valida: {error}")))?
+        .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?
     {
         // Il tetto sulle righe si applica **prima** di leggere la cella:
         // fermarsi dopo averla parsata vorrebbe dire aver gia' allocato cio'
@@ -625,7 +663,7 @@ fn spawn_parser(
         loop {
             let more = rdr
                 .read_record(&mut rec)
-                .map_err(|error| err(format!("riga CSV non valida: {error}")))?;
+                .map_err(|_| err(&PublicMessage::Curated("riga CSV non valida")))?;
             if !more {
                 break;
             }
@@ -685,16 +723,16 @@ fn append_geometry(
                 return Ok(());
             }
             if x_text.is_empty() || y_text.is_empty() {
-                return Err(err(
+                return Err(err(&PublicMessage::Curated(
                     "coordinate CSV incomplete: X e Y devono essere entrambe presenti",
-                ));
+                )));
             }
             let x = x_text
                 .parse::<f64>()
-                .map_err(|error| err(format!("coordinata X CSV non valida: {error}")))?;
+                .map_err(|_| err(&PublicMessage::Curated("coordinata X CSV non valida")))?;
             let y = y_text
                 .parse::<f64>()
-                .map_err(|error| err(format!("coordinata Y CSV non valida: {error}")))?;
+                .map_err(|_| err(&PublicMessage::Curated("coordinata Y CSV non valida")))?;
             let geometry = WkbGeometry {
                 value: WkbValue::Point(WkbCoordinate {
                     x,
@@ -715,8 +753,9 @@ fn append_geometry(
 
 fn required_cell(record: &csv::StringRecord, index: usize) -> Result<&str> {
     record.get(index).ok_or_else(|| {
-        err(format!(
-            "riga CSV senza la colonna {index} dichiarata nell'intestazione"
+        err(&PublicMessage::CuratedWith(
+            "riga CSV senza la colonna dichiarata nell'intestazione, indice",
+            NumeroStrutturale::Indice(driver_common::saturating_u64(index)),
         ))
     })
 }
@@ -736,8 +775,11 @@ fn finish_batch(
         arrays.push(b.finish());
     }
     let options = RecordBatchOptions::new().with_row_count(Some(row_count));
-    RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
-        .map_err(|error| err(format!("record batch: {error}")))
+    RecordBatch::try_new_with_options(schema.clone(), arrays, &options).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "costruzione del RecordBatch fallita",
+        ))
+    })
 }
 
 // --- scrittura streaming ---------------------------------------------------
@@ -753,15 +795,19 @@ struct CsvWriter {
 impl FormatWriter for CsvWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
-        let geom_idx = geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria"))?;
+        let geom_idx = geometry_index(&schema)
+            .ok_or_else(|| err(&PublicMessage::Curated("nessuna colonna geometria")))?;
         let geom_col = batch
             .column(geom_idx)
             .as_any()
             .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| err("colonna geometria non binaria"))?;
+            .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
         let limits = self.wkb_limits;
         let xy = self.xy;
-        let w = self.writer.as_mut().ok_or_else(|| err("writer chiuso"))?;
+        let w = self
+            .writer
+            .as_mut()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer chiuso")))?;
 
         if !self.header_written {
             let mut header: Vec<&str> = Vec::new();
@@ -776,7 +822,11 @@ impl FormatWriter for CsvWriter {
             } else {
                 header.push("geometry");
             }
-            w.write_record(&header).map_err(|e| err(e.to_string()))?;
+            w.write_record(&header).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "scrittura dell'intestazione CSV fallita",
+                ))
+            })?;
             self.header_written = true;
         }
 
@@ -790,9 +840,13 @@ impl FormatWriter for CsvWriter {
                 }
             }
             if geom_col.is_null(row) {
-                w.write_field("").map_err(|e| err(e.to_string()))?;
+                w.write_field("").map_err(|_| {
+                    err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
+                })?;
                 if xy {
-                    w.write_field("").map_err(|e| err(e.to_string()))?;
+                    w.write_field("").map_err(|_| {
+                        err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
+                    })?;
                 }
             } else {
                 let geom = decode_wkb(geom_col.value(row), &limits)?;
@@ -801,31 +855,43 @@ impl FormatWriter for CsvWriter {
                         WkbValue::Point(point) if geom.dimensions == CoordinateDimensions::Xy => {
                             fbuf.clear();
                             let _ = write!(fbuf, "{}", point.x);
-                            w.write_field(&fbuf).map_err(|e| err(e.to_string()))?;
+                            w.write_field(&fbuf).map_err(|_| {
+                                err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
+                            })?;
                             fbuf.clear();
                             let _ = write!(fbuf, "{}", point.y);
-                            w.write_field(&fbuf).map_err(|e| err(e.to_string()))?;
+                            w.write_field(&fbuf).map_err(|_| {
+                                err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
+                            })?;
                         }
                         _ => {
-                            return Err(err("encoding xy richiede geometrie Point strettamente XY"))
+                            return Err(err(&PublicMessage::Curated(
+                                "encoding xy richiede geometrie Point strettamente XY",
+                            )))
                         }
                     }
                 } else {
                     fbuf.clear();
                     format_wkt_into(&geom, &mut fbuf)?;
-                    w.write_field(&fbuf).map_err(|e| err(e.to_string()))?;
+                    w.write_field(&fbuf).map_err(|_| {
+                        err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
+                    })?;
                 }
             }
             // Termina il record (dopo i write_field).
             w.write_record(None::<&[u8]>)
-                .map_err(|e| err(e.to_string()))?;
+                .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))?;
         }
         Ok(())
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        let mut w = self.writer.take().ok_or_else(|| err("writer già chiuso"))?;
-        w.flush().map_err(|e| err(e.to_string()))?;
+        let mut w = self
+            .writer
+            .take()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer già chiuso")))?;
+        w.flush()
+            .map_err(|_| err(&PublicMessage::Curated("flush del CSV fallito")))?;
         drop(w);
         let (bytes, outcome) = self.staging.publish()?;
         Ok(Published {
@@ -847,29 +913,31 @@ fn write_cell<W: std::io::Write>(
     fbuf: &mut String,
 ) -> Result<()> {
     if col.is_null(row) {
-        return w.write_field("").map_err(|error| err(error.to_string()));
+        return w
+            .write_field("")
+            .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")));
     }
     if let Some(a) = col.as_any().downcast_ref::<StringArray>() {
         w.write_field(a.value(row))
-            .map_err(|error| err(error.to_string()))
+            .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))
     } else if let Some(a) = col.as_any().downcast_ref::<Int64Array>() {
         fbuf.clear();
         let _ = write!(fbuf, "{}", a.value(row));
         w.write_field(&*fbuf)
-            .map_err(|error| err(error.to_string()))
+            .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))
     } else if let Some(a) = col.as_any().downcast_ref::<Float64Array>() {
         fbuf.clear();
         let _ = write!(fbuf, "{}", a.value(row));
         w.write_field(&*fbuf)
-            .map_err(|error| err(error.to_string()))
+            .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))
     } else if let Some(a) = col.as_any().downcast_ref::<BooleanArray>() {
         w.write_field(if a.value(row) { "true" } else { "false" })
-            .map_err(|error| err(error.to_string()))
+            .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))
     } else {
         // Tipo non comune (Date, ecc.): fallback via il convertitore generico.
         let value = json_from_array(col, row)?;
         w.write_field(cell_string(&value))
-            .map_err(|error| err(error.to_string()))
+            .map_err(|_| err(&PublicMessage::Curated("scrittura di un campo CSV fallita")))
     }
 }
 

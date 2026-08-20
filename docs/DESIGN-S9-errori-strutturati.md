@@ -432,7 +432,9 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 2 | `plenora-io-core` | 78 → 0 | **chiusa** |
 | 3 | `driver-common` | 10 → 0 (più 28 chiamanti di un helper) | **chiusa** |
 | 4 | `driver-geojson` | 5 → 0 (più 34 chiamanti e un canale `Result<_, String>`) | **chiusa**, livello 1 |
-| 5… | i nove driver restanti, poi la CLI | 133 | **prossima** |
+| 5 | `driver-csv` | 8 → 0 (più 35 chiamanti e 23 siti di cancellazione) | **chiusa**, livello 1 |
+| 6 | `driver-kml` | 12 | **prossima**; poi checkpoint di livello 2 |
+| 7… | i sette driver restanti, poi la CLI | 113 dopo la 6 | |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |
 | chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |
@@ -647,3 +649,32 @@ dichiarava a dieci soli siti.
 Il censimento va fatto **prima** della migrazione, e il suo esito va scritto
 nella CIA della tranche: quante vie indirette, quante con testo di dipendenza,
 quante con valori interpolati.
+
+### Due classi di rischio, non una (estensione del 2026-08-20)
+
+La tranche 4 ha mostrato che cercare solo il **testo che esce** non basta.
+`driver-geojson` faceva passare i propri errori attraverso `DeError::custom`,
+cioe' li appiattiva in una stringa; il chiamante li rileggeva dal testo. Finche'
+il testo c'era, funzionava. Tolto il testo — che e' cio' che S9 impone — spariva
+anche il **codice d'errore**: un `LimitExceeded` arrivava come `Format`.
+
+E' una regressione **semantica sul wire**, sulla chiave `(category, phase,
+code, retry)` che la decisione 2 di S9 ha dichiarato essere il contratto. Era
+gia' li' prima della migrazione: il testo la mascherava.
+
+Il censimento cerca quindi **due** cose:
+
+| Classe | Che cosa cercare | Che cosa rompe |
+|---|---|---|
+| **fuga di testo** | firme `impl Into<String>`, `String`, `&str` non `'static`, `Cow<str>` che finiscono in un costruttore di `PlenoraIoError` | INV-10: payload o dipendenze escono dal bordo |
+| **cancellazione di struttura** | `Result<_, String>`; `DeError::custom` e analoghi; `map_err(\|e\| e.to_string())`; un errore strutturato messo dentro un `format!` e poi riclassificato a valle | il tipo d'errore: codice, categoria e fase si perdono, e nessuno se ne accorge finche' il testo li supplisce |
+
+La seconda classe e' piu' insidiosa perche' **non si vede nei messaggi**: i
+test che la coprono passano finche' il testo sopravvive, e falliscono solo
+quando lo si toglie — cioe' durante la migrazione, non prima.
+
+La regola operativa: un errore gia' costruito come `PlenoraIoError` **non
+attraversa mai un canale che sa portare solo stringhe**. Dove il canale e'
+imposto da una dipendenza — serde, per esempio — si mette da parte l'errore
+vero in un campo dello stato condiviso e si consegna alla dipendenza il minimo
+che le serve per fermarsi.
