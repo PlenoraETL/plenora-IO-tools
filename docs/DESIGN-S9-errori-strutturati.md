@@ -652,6 +652,23 @@ L'esito di un checkpoint va registrato in un'**evidenza S9 separata**, mai in
 passo intermedio che vi scrivesse dentro promuoverebbe se stesso a evidenza di
 produzione senza che nessuno lo abbia deciso.
 
+### Le evidenze concluse sono append-only (2026-08-20)
+
+Un'evidenza che dichiara un esito su una revisione **non si modifica piu'**.
+Correzioni, puntatori al seguito e ripensamenti vanno in un **addendum** in
+coda, oppure nell'evidenza successiva.
+
+La ragione non e' formale. Un'evidenza e' un'affermazione su un albero e su un
+momento: riscriverla dopo significa che il documento non dice piu' che cosa si
+sapeva **allora**, e chi la rilegge non ha modo di distinguere cio' che e' stato
+misurato da cio' che e' stato capito dopo. La cronologia Git conserva
+l'originale, ma un lettore che apre il file non guarda la cronologia.
+
+Il 2026-08-20 l'evidenza fallita su `8d6883f` e' stata modificata in luogo per
+aggiungerle un puntatore e correggere una formulazione. Le misure non sono state
+toccate e la cronologia conserva il record, ma la modifica non andava fatta
+cosi': e' il precedente che questa regola chiude.
+
 ## 21. Il censimento manuale e' parte della definizione di «a zero»
 
 Vale per ogni crate, senza eccezioni.
