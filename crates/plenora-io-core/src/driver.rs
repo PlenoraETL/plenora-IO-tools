@@ -1173,11 +1173,27 @@ impl LimitedWriter {
         self.budget.context().ensure_active()?;
         if let Some(contract) = self.contracts.get(layer) {
             if batch.schema().as_ref() != contract.as_ref() {
-                return Err(PlenoraIoError::schema_redatto(&PublicMessage::CuratedWith(
-                    "batch diverso dal contratto dichiarato (schema, ordine, tipi, \
+                // `redatto` con `Generic` e non `schema_redatto`: il sito usava
+                // `PlenoraIoError::new`, che imposta `code = Generic`, mentre
+                // `schema_redatto` imposta `code = Schema`. S9 non cambia il wire, e
+                // `code` e' parte della chiave di compatibilita' ratificata insieme a
+                // category, phase e retry.
+                //
+                // `Schema` sarebbe piu' preciso di `Generic` per una discordanza di
+                // schema, ma renderlo tale e' una decisione da ratificare, non una
+                // conseguenza di un refactor sui messaggi.
+                return Err(PlenoraIoError::redatto(
+                    IoErrorCode::Generic,
+                    ErrorCategory::Schema,
+                    ErrorPhase::Validate,
+                    RemoteEffect::None,
+                    RetryDisposition::Never,
+                    &PublicMessage::CuratedWith(
+                        "batch diverso dal contratto dichiarato (schema, ordine, tipi, \
                          nullability o metadata) al layer",
-                    NumeroStrutturale::Indice(saturating_u64(layer)),
-                )));
+                        NumeroStrutturale::Indice(saturating_u64(layer)),
+                    ),
+                ));
             }
         } else if !self.contracts.is_empty() {
             return Err(PlenoraIoError::capability_redatta(
