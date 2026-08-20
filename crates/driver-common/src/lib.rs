@@ -619,6 +619,22 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     ))
 }
 
+/// Conteggio saturante da `usize` a `u64`, per i numeri strutturali.
+///
+/// Non e' un fallback: su ogni piattaforma che ci interessa `usize` sta in
+/// `u64`, e il ramo saturante esiste solo perche' il compilatore non lo sa. La
+/// forma esplicita evita che ogni driver migrato aggiunga il proprio
+/// `unwrap_or(u64::MAX)` al registro dei fallback, dove somiglierebbe a una
+/// decisione presa in mancanza di meglio invece che a una conversione totale.
+#[must_use]
+pub const fn saturating_u64(value: usize) -> u64 {
+    if value as u128 > u64::MAX as u128 {
+        u64::MAX
+    } else {
+        value as u64
+    }
+}
+
 /// Classe statica di un tipo Arrow, per i messaggi pubblici.
 ///
 /// `driver-common` non dipende da `plenora-io-core` e non vede

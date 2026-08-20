@@ -182,11 +182,25 @@ set -eu
 # Le due occorrenze sono `unwrap_or_else(|error| panic!(...))` nei test della
 # matrice di handoff: il modo in cui quel file riporta un file mancante, non una
 # degradazione a un default. Nessuna revisione H-01 dovuta.
+# Il 2026-08-20, S9 tranche 4 porta driver-geojson da 2 a 4 (totale 113 -> 115).
+# Le due occorrenze sono `errore.take().unwrap_or_else(|| err(...))` ai due
+# punti di uscita del deserializzatore: il canale laterale porta l'errore vero
+# quando la causa e' nostra, e resta vuoto quando a fallire e' serde sul JSON
+# malformato — che e' un caso legittimo, non una degradazione a un default.
+# Il default e' proprio il messaggio giusto per quel caso.
+#
+# La stessa tranche NON ha aggiunto i tre `unwrap_or(u64::MAX)` che le
+# conversioni `usize`->`u64` avrebbero richiesto: sono passate da
+# `driver_common::saturating_u64`, che dichiara la conversione totale invece di
+# farla somigliare a una scelta presa in mancanza di meglio. Ogni driver che
+# migra ne avra' bisogno, e il registro non deve crescere di undici voci per
+# una conversione che non puo' fallire.
+# Nessuna revisione H-01 dovuta.
 expected='
 driver-csv 2
 driver-dxf 15
 driver-filegdb 5
-driver-geojson 2
+driver-geojson 4
 driver-geoparquet 3
 driver-gpkg 3
 driver-ipc 1
@@ -227,7 +241,7 @@ done <<EOF
 ${expected}
 EOF
 
-if [ "${actual_total}" -ne 113 ]; then
+if [ "${actual_total}" -ne 115 ]; then
     echo "totale fallback del workspace inatteso: ${actual_total}" >&2
     exit 1
 fi

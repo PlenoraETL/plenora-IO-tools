@@ -64,12 +64,12 @@ use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
 const GEOMETRY: &str = "geometry";
 
-fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("geojson", reason)
+fn err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("geojson", reason)
 }
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
@@ -181,20 +181,20 @@ impl FormatDriver for GeoJsonDriver {
         )?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("geojson") || e.eq_ignore_ascii_case("json"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "l'output deve avere estensione .geojson o .json".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("l'output deve avere estensione .geojson o .json"),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraIoError::Unsupported(
-                "GeoJSON: un solo layer per file nella v1".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("GeoJSON: un solo layer per file nella v1"),
             ));
         }
         let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
@@ -307,8 +307,13 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<(SchemaRef, Vec<(S
         ..SchemaAccumulators::default()
     };
     let mut de = serde_json::Deserializer::from_reader(BufReader::new(file));
-    if let Err(error) = de.deserialize_map(TopVisitor { accs: &mut accs }) {
-        let error = err(format!("GeoJSON non valido: {error}"));
+    if de.deserialize_map(TopVisitor { accs: &mut accs }).is_err() {
+        // L'errore vero viene dal canale laterale, non dal testo di serde: la
+        // via di serde e' quella che appiattiva codice, categoria e fase.
+        let error = accs
+            .errore
+            .take()
+            .unwrap_or_else(|| err(&PublicMessage::Curated("GeoJSON non valido")));
         return Err(if accs.in_feature {
             read_row_error(
                 error,
@@ -320,7 +325,9 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<(SchemaRef, Vec<(S
             error
         });
     }
-    let cols = accs.into_columns().map_err(err)?;
+    let cols = accs
+        .into_columns()
+        .map_err(|motivo| err(&PublicMessage::Curated(motivo)))?;
     let mut fields = vec![geometry_field(GEOMETRY, OGC_CRS84)];
     for (k, ct) in &cols {
         fields.push(Field::new(k, ct.arrow_data_type(), true));
@@ -340,6 +347,12 @@ struct SchemaAccumulators {
     /// imposta prima di deserializzare.
     max_feature: u64,
     in_feature: bool,
+    /// L'errore vero, messo da parte prima di chiedere a serde di fermarsi.
+    ///
+    /// `serde` sa portare solo stringhe: farci passare un `PlenoraIoError`
+    /// significa perderne il codice, la categoria e la fase, e lasciare al
+    /// chiamante un testo da rileggere per indovinarli.
+    errore: Option<PlenoraIoError>,
 }
 
 impl SchemaAccumulators {
@@ -383,6 +396,41 @@ impl SchemaAccumulators {
 }
 
 /// Classe di tipo di un valore JSON, letta senza allocare il valore.
+/// Testo minimo consegnato a `serde` per fermare la deserializzazione.
+///
+/// Non e' il messaggio dell'errore: quello sta nel canale laterale. Serve solo
+/// perche' `DeError::custom` vuole qualcosa, ed e' scelto in modo che, se per
+/// una via imprevista finisse davvero in un errore pubblico, non dica una cosa
+/// falsa.
+const INTERROTTO: &str = "GeoJSON non valido";
+
+/// Mette da parte l'errore vero e chiede a serde di fermarsi.
+///
+/// Il primo errore vince: quelli successivi sono conseguenze
+/// dell'interruzione, non cause.
+///
+/// Prende lo slot e non lo stato intero perche' `ValueSink` tiene in prestito
+/// un builder di `RowSink` e non potrebbe prestarsi anche il resto: due campi
+/// distinti si prestano insieme, la struct intera no.
+fn ferma_in<E: DeError>(slot: &mut Option<PlenoraIoError>, errore: PlenoraIoError) -> E {
+    if slot.is_none() {
+        *slot = Some(errore);
+    }
+    E::custom(INTERROTTO)
+}
+
+impl SchemaAccumulators {
+    fn ferma<E: DeError>(&mut self, errore: PlenoraIoError) -> E {
+        ferma_in(&mut self.errore, errore)
+    }
+}
+
+impl RowSink {
+    fn ferma<E: DeError>(&mut self, errore: PlenoraIoError) -> E {
+        ferma_in(&mut self.errore, errore)
+    }
+}
+
 struct TypeTag(ObservedValueClass);
 
 impl<'de> serde::Deserialize<'de> for TypeTag {
@@ -465,9 +513,9 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
                 "type" => {
                     let value: String = map.next_value()?;
                     if value != "FeatureCollection" {
-                        return Err(<A::Error as DeError>::custom(format!(
-                            "GeoJSON top-level type '{value}' non supportato: atteso 'FeatureCollection'"
-                        )));
+                        return Err(self.accs.ferma(err(&PublicMessage::Curated(
+                            "GeoJSON top-level type non supportato: atteso 'FeatureCollection'",
+                        ))));
                     }
                     type_observed = Some(value);
                 }
@@ -481,9 +529,9 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
             }
         }
         if type_observed.is_none() {
-            return Err(<A::Error as DeError>::custom(
+            return Err(self.accs.ferma(err(&PublicMessage::Curated(
                 "GeoJSON senza campo 'type' al livello top",
-            ));
+            ))));
         }
         // Follow-up review 2026-08-15: la specifica GeoJSON (RFC 7946 §3.3)
         // dichiara `features` obbligatorio per un `FeatureCollection`. Un
@@ -491,9 +539,9 @@ impl<'de> Visitor<'de> for TopVisitor<'_> {
         // per definizione: e' incompleto. Fail-closed invece di trattarlo
         // come un dataset di zero righe.
         if !features_observed {
-            return Err(<A::Error as DeError>::custom(
+            return Err(self.accs.ferma(err(&PublicMessage::Curated(
                 "FeatureCollection GeoJSON senza campo 'features'",
-            ));
+            ))));
         }
         Ok(())
     }
@@ -556,9 +604,9 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
                 FeatKey::Type => {
                     let value: String = map.next_value()?;
                     if value != "Feature" {
-                        return Err(<A::Error as DeError>::custom(format!(
-                            "membro di features con type '{value}': atteso 'Feature'"
-                        )));
+                        return Err(self.accs.ferma(err(&PublicMessage::Curated(
+                            "membro di features con type diverso da 'Feature'",
+                        ))));
                     }
                     type_observed = Some(value);
                 }
@@ -568,20 +616,23 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
             }
         }
         if type_observed.is_none() {
-            return Err(<A::Error as DeError>::custom(
+            return Err(self.accs.ferma(err(&PublicMessage::Curated(
                 "membro di features senza campo 'type'",
-            ));
+            ))));
         }
         self.accs.in_feature = false;
-        self.accs.source_rows_seen = self
-            .accs
-            .source_rows_seen
-            .checked_add(1)
-            .ok_or_else(|| A::Error::custom("troppe feature GeoJSON"))?;
+        self.accs.source_rows_seen =
+            self.accs.source_rows_seen.checked_add(1).ok_or_else(|| {
+                self.accs
+                    .ferma(err(&PublicMessage::Curated("troppe feature GeoJSON")))
+            })?;
         if self.accs.source_rows_seen > self.accs.max_feature {
-            return Err(A::Error::custom(format!(
-                "l'inferenza ha superato il limite di {} feature prima di completare",
-                self.accs.max_feature
+            let tetto = self.accs.max_feature;
+            return Err(self.accs.ferma(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedWith(
+                    "l'inferenza si e' fermata al tetto di feature:",
+                    NumeroStrutturale::Limite(tetto),
+                ),
             )));
         }
         Ok(())
@@ -618,7 +669,9 @@ impl<'de> Visitor<'de> for PropsVisitor<'_> {
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
         while let Some(index) = map.next_key_seed(SchemaKeySeed { accs: self.accs })? {
             let tag = map.next_value::<TypeTag>()?.0;
-            self.accs.observe(index, tag).map_err(A::Error::custom)?;
+            if let Err(motivo) = self.accs.observe(index, tag) {
+                return Err(self.accs.ferma(err(&PublicMessage::Curated(motivo))));
+            }
         }
         Ok(())
     }
@@ -703,6 +756,7 @@ fn spawn_parser(
             in_feature: false,
             batch_sizer,
             aborted: false,
+            errore: None,
         };
         // Deserializer serde streaming: scrive i feature DIRETTAMENTE nei
         // builder (chiavi via key-seed = 0 alloc, valori scalari appesi
@@ -712,8 +766,11 @@ fn spawn_parser(
         if sink.aborted {
             return Ok(()); // consumatore andato via: stop pulito
         }
-        if let Err(error) = result {
-            let error = err(format!("GeoJSON non valido: {error}"));
+        if result.is_err() {
+            let error = sink
+                .errore
+                .take()
+                .unwrap_or_else(|| err(&PublicMessage::Curated("GeoJSON non valido")));
             return Err(if sink.in_feature {
                 read_row_error(
                     error,
@@ -726,8 +783,7 @@ fn spawn_parser(
             });
         }
         if sink.n > 0 {
-            let batch = finish_batch(&sink.schema, &mut sink.geom, &mut sink.builders, sink.n)
-                .map_err(err)?;
+            let batch = finish_batch(&sink.schema, &mut sink.geom, &mut sink.builders, sink.n)?;
             if !sink.output.send(batch) {
                 return Ok(());
             }
@@ -769,6 +825,8 @@ struct RowSink {
     in_feature: bool,
     batch_sizer: plenora_io_core::AdaptiveBatchSizer,
     aborted: bool,
+    /// Come `SchemaAccumulators::errore`, per la passata di lettura.
+    errore: Option<PlenoraIoError>,
 }
 
 // --- pass-2: catena di seed/visitor che scrivono nei builder ----------------
@@ -795,9 +853,9 @@ impl<'de> Visitor<'de> for TopSink<'_> {
                 "type" => {
                     let value: String = map.next_value()?;
                     if value != "FeatureCollection" {
-                        return Err(<A::Error as DeError>::custom(format!(
-                            "GeoJSON top-level type '{value}' non supportato: atteso 'FeatureCollection'"
-                        )));
+                        return Err(self.sink.ferma(err(&PublicMessage::Curated(
+                            "GeoJSON top-level type non supportato: atteso 'FeatureCollection'",
+                        ))));
                     }
                     type_observed = true;
                 }
@@ -811,14 +869,14 @@ impl<'de> Visitor<'de> for TopSink<'_> {
             }
         }
         if !type_observed {
-            return Err(<A::Error as DeError>::custom(
+            return Err(self.sink.ferma(err(&PublicMessage::Curated(
                 "GeoJSON senza campo 'type' al livello top",
-            ));
+            ))));
         }
         if !features_observed {
-            return Err(<A::Error as DeError>::custom(
+            return Err(self.sink.ferma(err(&PublicMessage::Curated(
                 "FeatureCollection GeoJSON senza campo 'features'",
-            ));
+            ))));
         }
         Ok(())
     }
@@ -879,23 +937,23 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
         while let Some(fk) = map.next_key_seed(FeatKeySeed)? {
             match fk {
                 FeatKey::Type if type_seen => {
-                    return Err(<A::Error as DeError>::custom(
+                    return Err(self.sink.ferma(err(&PublicMessage::Curated(
                         "chiave type duplicata nella feature GeoJSON",
-                    ));
+                    ))));
                 }
                 FeatKey::Type => {
                     let value: String = map.next_value()?;
                     if value != "Feature" {
-                        return Err(<A::Error as DeError>::custom(format!(
-                            "membro di features con type '{value}': atteso 'Feature'"
-                        )));
+                        return Err(self.sink.ferma(err(&PublicMessage::Curated(
+                            "membro di features con type diverso da 'Feature'",
+                        ))));
                     }
                     type_seen = true;
                 }
                 FeatKey::Geom if geom_seen => {
-                    return Err(<A::Error as DeError>::custom(
+                    return Err(self.sink.ferma(err(&PublicMessage::Curated(
                         "chiave geometry duplicata nella feature GeoJSON",
-                    ));
+                    ))));
                 }
                 FeatKey::Geom => {
                     if let Some(geometry) = &mut self.sink.geom {
@@ -922,16 +980,39 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                                 // veniva deserializzata comunque.
                                 let max_bytes = self.sink.max_cell_bytes;
                                 if raw_text.len() > max_bytes {
-                                    return Err(<A::Error as DeError>::custom(format!(
-                                        "geometria GeoJSON di {} byte oltre il limite {max_bytes}",
-                                        raw_text.len()
+                                    let letti = raw_text.len();
+                                    return Err(self.sink.ferma(PlenoraIoError::limite_redatto(
+                                        &PublicMessage::CuratedBetween(
+                                            "geometria GeoJSON di",
+                                            NumeroStrutturale::Conteggio(
+                                                driver_common::saturating_u64(letti),
+                                            ),
+                                            "byte oltre il limite di",
+                                            NumeroStrutturale::Limite(
+                                                driver_common::saturating_u64(max_bytes),
+                                            ),
+                                        ),
                                     )));
                                 }
-                                let gj: GjGeometry = serde_json::from_str(raw_text)
-                                    .map_err(<A::Error as DeError>::custom)?;
+                                let gj: GjGeometry = match serde_json::from_str(raw_text) {
+                                    Ok(gj) => gj,
+                                    // Il testo di serde non esce; la causa
+                                    // strutturale resta.
+                                    Err(_) => {
+                                        return Err(self.sink.ferma(err(&PublicMessage::Curated(
+                                            "geometria GeoJSON non valida",
+                                        ))))
+                                    }
+                                };
                                 self.sink.wkb_buf.clear();
-                                wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf, max_bytes)
-                                    .map_err(<A::Error as DeError>::custom)?;
+                                // Qui l'errore e' gia' nostro, con il suo
+                                // codice: passa intero invece di essere
+                                // appiattito nel testo di serde.
+                                if let Err(errore) =
+                                    wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf, max_bytes)
+                                {
+                                    return Err(self.sink.ferma(errore));
+                                }
                                 geometry.append_value(&self.sink.wkb_buf);
                             }
                         }
@@ -941,9 +1022,9 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                     geom_seen = true;
                 }
                 FeatKey::Props if props_seen => {
-                    return Err(<A::Error as DeError>::custom(
+                    return Err(self.sink.ferma(err(&PublicMessage::Curated(
                         "chiave properties duplicata nella feature GeoJSON",
-                    ));
+                    ))));
                 }
                 FeatKey::Props => {
                     map.next_value_seed(PropsSink { sink: self.sink })?;
@@ -958,9 +1039,9 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
         // pass-1 sul `type` obbligatorio di ogni Feature. Se qui manca,
         // fail-closed prima di allineare le colonne.
         if !type_seen {
-            return Err(<A::Error as DeError>::custom(
+            return Err(self.sink.ferma(err(&PublicMessage::Curated(
                 "membro di features senza campo 'type'",
-            ));
+            ))));
         }
         // Allinea le colonne: una append per builder per feature.
         if !geom_seen {
@@ -985,19 +1066,21 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                     self.sink.batch_sizer.observe(&batch);
                     if !self.sink.output.send(batch) {
                         self.sink.aborted = true;
-                        return Err(<A::Error as DeError>::custom("consumatore chiuso"));
+                        return Err(self
+                            .sink
+                            .ferma(err(&PublicMessage::Curated("consumatore chiuso"))));
                     }
                 }
-                Err(e) => return Err(<A::Error as DeError>::custom(e)),
+                Err(errore) => return Err(self.sink.ferma(errore)),
             }
             self.sink.n = 0;
         }
         self.sink.in_feature = false;
-        self.sink.source_rows_seen = self
-            .sink
-            .source_rows_seen
-            .checked_add(1)
-            .ok_or_else(|| A::Error::custom("troppe feature GeoJSON"))?;
+        self.sink.source_rows_seen =
+            self.sink.source_rows_seen.checked_add(1).ok_or_else(|| {
+                self.sink
+                    .ferma(err(&PublicMessage::Curated("troppe feature GeoJSON")))
+            })?;
         Ok(())
     }
 }
@@ -1067,9 +1150,9 @@ impl<'de> Visitor<'de> for PropsSink<'_> {
             property_idx: &self.sink.property_idx,
         })? {
             if self.sink.property_seen[hit.property_idx] {
-                return Err(<A::Error as DeError>::custom(
+                return Err(self.sink.ferma(err(&PublicMessage::Curated(
                     "chiave duplicata nelle properties GeoJSON",
-                ));
+                ))));
             }
             self.sink.property_seen[hit.property_idx] = true;
             match hit.projected_idx {
@@ -1077,6 +1160,7 @@ impl<'de> Visitor<'de> for PropsSink<'_> {
                 Some(idx) => {
                     map.next_value_seed(ValueSink {
                         b: &mut self.sink.builders[idx],
+                        errore: &mut self.sink.errore,
                     })?;
                     self.sink.seen[idx] = true;
                 }
@@ -1129,6 +1213,7 @@ impl Visitor<'_> for PropKeySeed<'_> {
 /// senza materializzare un `serde_json::Value` per gli scalari (il caso caldo).
 struct ValueSink<'a> {
     b: &'a mut InferredColumnBuilder,
+    errore: &'a mut Option<PlenoraIoError>,
 }
 impl<'de> DeserializeSeed<'de> for ValueSink<'_> {
     type Value = ();
@@ -1171,11 +1256,21 @@ impl<'de> Visitor<'de> for ValueSink<'_> {
     // esattamente come il percorso `append_json` condiviso.
     fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> std::result::Result<(), A::Error> {
         let v = JsonValue::deserialize(SeqAccessDeserializer::new(seq))?;
-        self.b.append_json(Some(&v)).map_err(A::Error::custom)
+        // L'errore di `append_json` e' gia' nostro, con il suo codice:
+        // passa intero invece di essere appiattito nel testo di serde.
+        match self.b.append_json(Some(&v)) {
+            Ok(()) => Ok(()),
+            Err(errore) => Err(ferma_in(self.errore, errore)),
+        }
     }
     fn visit_map<A: MapAccess<'de>>(self, map: A) -> std::result::Result<(), A::Error> {
         let v = JsonValue::deserialize(MapAccessDeserializer::new(map))?;
-        self.b.append_json(Some(&v)).map_err(A::Error::custom)
+        // L'errore di `append_json` e' gia' nostro, con il suo codice:
+        // passa intero invece di essere appiattito nel testo di serde.
+        match self.b.append_json(Some(&v)) {
+            Ok(()) => Ok(()),
+            Err(errore) => Err(ferma_in(self.errore, errore)),
+        }
     }
 }
 
@@ -1184,7 +1279,7 @@ fn finish_batch(
     geom: &mut Option<BinaryBuilder>,
     builders: &mut [InferredColumnBuilder],
     row_count: usize,
-) -> std::result::Result<RecordBatch, String> {
+) -> Result<RecordBatch> {
     let mut arrays: Vec<ArrayRef> =
         Vec::with_capacity(usize::from(geom.is_some()) + builders.len());
     if let Some(builder) = geom {
@@ -1194,8 +1289,11 @@ fn finish_batch(
         arrays.push(b.finish());
     }
     let options = RecordBatchOptions::new().with_row_count(Some(row_count));
-    RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
-        .map_err(|e| format!("record batch: {e}"))
+    RecordBatch::try_new_with_options(schema.clone(), arrays, &options).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "costruzione del RecordBatch fallita",
+        ))
+    })
 }
 
 /// Entry point per il fuzzer (NON API stabile): esegue pass-1 + pass-2 in modo
@@ -1256,12 +1354,17 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
             },
         ),
         aborted: false,
+        errore: None,
     };
     serde_json::Deserializer::from_reader(Cursor::new(bytes))
         .deserialize_map(TopSink { sink: &mut sink })
         .map_err(|e| e.to_string())?;
     if sink.n > 0 {
-        let batch = finish_batch(&schema, &mut sink.geom, &mut sink.builders, sink.n)?;
+        // L'entry point del fuzzer parla `String` per comodita' del
+        // fuzzer, non del bordo: qui la conversione e' verso l'esterno,
+        // non verso un errore pubblico.
+        let batch = finish_batch(&schema, &mut sink.geom, &mut sink.builders, sink.n)
+            .map_err(|errore| errore.to_string())?;
         return Ok(batch.num_rows());
     }
     Ok(0)
@@ -1279,15 +1382,21 @@ struct GeoJsonWriter {
 impl FormatWriter for GeoJsonWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
-        let geom_idx =
-            geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
+        let geom_idx = geometry_index(&schema).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "nessuna colonna geometria geoarrow.wkb",
+            ))
+        })?;
         let geom_col = batch
             .column(geom_idx)
             .as_any()
             .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| err("colonna geometria non binaria"))?;
+            .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
         let limits = self.wkb_limits;
-        let w = self.writer.as_mut().ok_or_else(|| err("writer chiuso"))?;
+        let w = self
+            .writer
+            .as_mut()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer chiuso")))?;
         let mut first = self.first;
         for row in 0..batch.num_rows() {
             if !first {
@@ -1300,7 +1409,10 @@ impl FormatWriter for GeoJsonWriter {
         Ok(())
     }
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        let mut w = self.writer.take().ok_or_else(|| err("writer già chiuso"))?;
+        let mut w = self
+            .writer
+            .take()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer già chiuso")))?;
         w.write_all(b"]}")?;
         w.flush()?;
         drop(w);
@@ -1344,7 +1456,8 @@ fn write_feature<W: Write>(
         }
         first_prop = false;
         // `to_writer` di uno `&str` scrive la chiave JSON quotata/escapata direct.
-        serde_json::to_writer(&mut *w, field.name()).map_err(|e| err(e.to_string()))?;
+        serde_json::to_writer(&mut *w, field.name())
+            .map_err(|_| err(&PublicMessage::Curated("serializzazione JSON fallita")))?;
         w.write_all(b":")?;
         write_json_value(w, batch.column(i), row)?;
     }
@@ -1360,22 +1473,26 @@ fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<(
         return Ok(());
     }
     if let Some(a) = col.as_any().downcast_ref::<StringArray>() {
-        serde_json::to_writer(&mut *w, a.value(row)).map_err(|e| err(e.to_string()))?;
+        serde_json::to_writer(&mut *w, a.value(row))
+            .map_err(|_| err(&PublicMessage::Curated("serializzazione JSON fallita")))?;
     } else if let Some(a) = col.as_any().downcast_ref::<Int64Array>() {
         write!(w, "{}", a.value(row))?;
     } else if let Some(a) = col.as_any().downcast_ref::<Float64Array>() {
         let v = a.value(row);
         if v.is_finite() {
             // serde_json (ryu): round-trippabile anche per f64 estremi.
-            serde_json::to_writer(&mut *w, &v).map_err(|e| err(e.to_string()))?;
+            serde_json::to_writer(&mut *w, &v)
+                .map_err(|_| err(&PublicMessage::Curated("serializzazione JSON fallita")))?;
         } else {
-            return Err(err("Float64 non finito non rappresentabile in GeoJSON"));
+            return Err(err(&PublicMessage::Curated(
+                "Float64 non finito non rappresentabile in GeoJSON",
+            )));
         }
     } else if let Some(a) = col.as_any().downcast_ref::<BooleanArray>() {
         w.write_all(if a.value(row) { b"true" } else { b"false" })?;
     } else {
         serde_json::to_writer(&mut *w, &json_from_array(col, row)?)
-            .map_err(|e| err(e.to_string()))?;
+            .map_err(|_| err(&PublicMessage::Curated("serializzazione JSON fallita")))?;
     }
     Ok(())
 }
@@ -1383,11 +1500,15 @@ fn write_json_value<W: Write>(w: &mut W, col: &ArrayRef, row: usize) -> Result<(
 // Solo per i test: parse completo (documenti piccoli).
 #[cfg(test)]
 fn parse_features(text: &str) -> Result<Vec<geojson::Feature>> {
-    let gj: geojson::GeoJson = text.parse().map_err(|e| err(format!("GeoJSON: {e}")))?;
+    let gj: geojson::GeoJson = text
+        .parse()
+        .map_err(|_| err(&PublicMessage::Curated("GeoJSON non valido")))?;
     match gj {
         geojson::GeoJson::FeatureCollection(c) => Ok(c.features),
         geojson::GeoJson::Feature(f) => Ok(vec![f]),
-        geojson::GeoJson::Geometry(_) => Err(err("atteso Feature/FeatureCollection")),
+        geojson::GeoJson::Geometry(_) => Err(err(&PublicMessage::Curated(
+            "atteso Feature/FeatureCollection",
+        ))),
     }
 }
 

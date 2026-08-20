@@ -70,6 +70,7 @@ MIGRATI = (
     "plenora-io-model",
     "plenora-io-core",
     "driver-common",
+    "driver-geojson",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -109,9 +110,6 @@ DA_MIGRARE: dict[str, int] = {
     "crates/driver-filegdb/src/lib.rs::ogr_to_arrow": 1,
     "crates/driver-filegdb/src/lib.rs::open": 2,
     "crates/driver-filegdb/src/lib.rs::resolve_layer_crs": 3,
-    "crates/driver-geojson/src/geometry.rs::format_error": 1,
-    "crates/driver-geojson/src/lib.rs::create": 3,
-    "crates/driver-geojson/src/lib.rs::err": 1,
     "crates/driver-geoparquet/src/lib.rs::compression_from": 1,
     "crates/driver-geoparquet/src/lib.rs::create": 3,
     "crates/driver-geoparquet/src/lib.rs::crs_from": 1,

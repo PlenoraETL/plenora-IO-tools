@@ -4,26 +4,31 @@ use plenora_io_model::contract::CoordinateDimensions;
 use plenora_io_model::wkb::{
     encode_wkb_into_bounded, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
-fn format_error(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("geojson", reason)
+fn format_error(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("geojson", reason)
 }
 
 fn position(
     ordinates: &[f64],
-) -> std::result::Result<(WkbCoordinate, CoordinateDimensions), String> {
+) -> std::result::Result<(WkbCoordinate, CoordinateDimensions), PublicMessage> {
     let dimensions = match ordinates.len() {
         2 => CoordinateDimensions::Xy,
         3 => CoordinateDimensions::Xyz,
         n => {
-            return Err(format!(
-                "posizione GeoJSON con {n} ordinate: attese esattamente 2 o 3"
-            ))
+            // Il numero di ordinate e' un conteggio, non un valore letto:
+            // dice quante ce n'erano, non che cosa contenevano.
+            return Err(PublicMessage::CuratedWith(
+                "posizione GeoJSON con ordinate diverse dalle 2 o 3 attese:",
+                NumeroStrutturale::Conteggio(driver_common::saturating_u64(n)),
+            ));
         }
     };
     if ordinates.iter().any(|ordinate| !ordinate.is_finite()) {
-        return Err("posizione GeoJSON con ordinata non finita".to_owned());
+        return Err(PublicMessage::Curated(
+            "posizione GeoJSON con ordinata non finita",
+        ));
     }
     Ok((
         WkbCoordinate {
@@ -38,7 +43,7 @@ fn position(
 
 fn positions(
     values: &[Vec<f64>],
-) -> std::result::Result<(Vec<WkbCoordinate>, CoordinateDimensions), String> {
+) -> std::result::Result<(Vec<WkbCoordinate>, CoordinateDimensions), PublicMessage> {
     let mut coordinates = Vec::with_capacity(values.len());
     let mut dimensions = None;
     for value in values {
@@ -46,13 +51,14 @@ fn positions(
         require_uniform_dimensions(&mut dimensions, current)?;
         coordinates.push(coordinate);
     }
-    let dimensions = dimensions.ok_or_else(|| "geometria GeoJSON senza coordinate".to_owned())?;
+    let dimensions =
+        dimensions.ok_or(PublicMessage::Curated("geometria GeoJSON senza coordinate"))?;
     Ok((coordinates, dimensions))
 }
 
 fn polygon_coordinates(
     values: &[Vec<Vec<f64>>],
-) -> std::result::Result<(Vec<Vec<WkbCoordinate>>, CoordinateDimensions), String> {
+) -> std::result::Result<(Vec<Vec<WkbCoordinate>>, CoordinateDimensions), PublicMessage> {
     let mut rings = Vec::with_capacity(values.len());
     let mut dimensions = None;
     for value in values {
@@ -60,16 +66,18 @@ fn polygon_coordinates(
         require_uniform_dimensions(&mut dimensions, current)?;
         rings.push(ring);
     }
-    let dimensions = dimensions.ok_or_else(|| "Polygon GeoJSON senza anelli".to_owned())?;
+    let dimensions = dimensions.ok_or(PublicMessage::Curated("Polygon GeoJSON senza anelli"))?;
     Ok((rings, dimensions))
 }
 
 fn require_uniform_dimensions(
     known: &mut Option<CoordinateDimensions>,
     current: CoordinateDimensions,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<(), PublicMessage> {
     match known {
-        Some(value) if *value != current => Err("dimensionalità GeoJSON non uniforme".to_owned()),
+        Some(value) if *value != current => Err(PublicMessage::Curated(
+            "dimensionalità GeoJSON non uniforme",
+        )),
         Some(_) => Ok(()),
         None => {
             *known = Some(current);
@@ -80,22 +88,24 @@ fn require_uniform_dimensions(
 
 fn geometry_dimensions(
     geometries: &[WkbGeometry],
-    empty_error: &str,
-) -> std::result::Result<CoordinateDimensions, String> {
+    empty_error: &'static str,
+) -> std::result::Result<CoordinateDimensions, PublicMessage> {
     let dimensions = geometries
         .first()
         .map(|geometry| geometry.dimensions)
-        .ok_or_else(|| empty_error.to_owned())?;
+        .ok_or(PublicMessage::Curated(empty_error))?;
     if geometries
         .iter()
         .any(|geometry| geometry.dimensions != dimensions)
     {
-        return Err("dimensionalità GeoJSON non uniforme".to_owned());
+        return Err(PublicMessage::Curated(
+            "dimensionalità GeoJSON non uniforme",
+        ));
     }
     Ok(dimensions)
 }
 
-fn line_geometry(values: &[Vec<f64>]) -> std::result::Result<WkbGeometry, String> {
+fn line_geometry(values: &[Vec<f64>]) -> std::result::Result<WkbGeometry, PublicMessage> {
     let (coordinates, dimensions) = positions(values)?;
     Ok(WkbGeometry {
         value: WkbValue::LineString(coordinates),
@@ -104,7 +114,7 @@ fn line_geometry(values: &[Vec<f64>]) -> std::result::Result<WkbGeometry, String
     })
 }
 
-fn polygon_geometry(values: &[Vec<Vec<f64>>]) -> std::result::Result<WkbGeometry, String> {
+fn polygon_geometry(values: &[Vec<Vec<f64>>]) -> std::result::Result<WkbGeometry, PublicMessage> {
     let (rings, dimensions) = polygon_coordinates(values)?;
     Ok(WkbGeometry {
         value: WkbValue::Polygon(rings),
@@ -113,7 +123,7 @@ fn polygon_geometry(values: &[Vec<Vec<f64>>]) -> std::result::Result<WkbGeometry
     })
 }
 
-fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, String> {
+fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, PublicMessage> {
     use geojson::Value::{
         GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon,
     };
@@ -189,10 +199,15 @@ pub fn wkb_from_gj_value(
     value: &geojson::Value,
     out: &mut Vec<u8>,
     max_bytes: usize,
-) -> std::result::Result<(), String> {
-    let geometry = convert(value).inspect_err(|_| out.clear())?;
+) -> Result<()> {
+    // Il canale era `Result<(), String>`, e l'ultimo passo convertiva un
+    // `PlenoraIoError` in testo per rispettarlo: un errore gia' strutturato
+    // veniva appiattito in una stringa proprio dove usciva dal modulo. Ora
+    // esce com'e'.
+    let geometry = convert(value)
+        .map_err(|messaggio| format_error(&messaggio))
+        .inspect_err(|_| out.clear())?;
     encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, out, max_bytes)
-        .map_err(|error| error.to_string())
 }
 
 /// Scrive direttamente il modello WKB lossless come `GeoJSON`, preservando Z.
@@ -206,7 +221,9 @@ fn validate_wkb_geojson_geometry(geometry: &WkbGeometry) -> Result<()> {
         geometry.dimensions,
         CoordinateDimensions::Xy | CoordinateDimensions::Xyz
     ) {
-        return Err(format_error("GeoJSON supporta solo coordinate XY o XYZ"));
+        return Err(format_error(&PublicMessage::Curated(
+            "GeoJSON supporta solo coordinate XY o XYZ",
+        )));
     }
     match &geometry.value {
         WkbValue::Point(coordinate) => validate_wkb_coordinate(coordinate),
@@ -226,7 +243,9 @@ fn validate_wkb_geojson_geometry(geometry: &WkbGeometry) -> Result<()> {
             validate_nonempty(points, "geometria WKB multipart/collection vuota")?;
             for point in points {
                 if !matches!(point.value, WkbValue::Point(_)) {
-                    return Err(format_error("MultiPoint WKB con membro non-Point"));
+                    return Err(format_error(&PublicMessage::Curated(
+                        "MultiPoint WKB con membro non-Point",
+                    )));
                 }
                 validate_wkb_child(geometry, point)?;
             }
@@ -236,9 +255,9 @@ fn validate_wkb_geojson_geometry(geometry: &WkbGeometry) -> Result<()> {
             validate_nonempty(lines, "geometria WKB multipart/collection vuota")?;
             for line in lines {
                 if !matches!(line.value, WkbValue::LineString(_)) {
-                    return Err(format_error(
+                    return Err(format_error(&PublicMessage::Curated(
                         "MultiLineString WKB con membro non-LineString",
-                    ));
+                    )));
                 }
                 validate_wkb_child(geometry, line)?;
             }
@@ -248,7 +267,9 @@ fn validate_wkb_geojson_geometry(geometry: &WkbGeometry) -> Result<()> {
             validate_nonempty(polygons, "geometria WKB multipart/collection vuota")?;
             for polygon in polygons {
                 if !matches!(polygon.value, WkbValue::Polygon(_)) {
-                    return Err(format_error("MultiPolygon WKB con membro non-Polygon"));
+                    return Err(format_error(&PublicMessage::Curated(
+                        "MultiPolygon WKB con membro non-Polygon",
+                    )));
                 }
                 validate_wkb_child(geometry, polygon)?;
             }
@@ -268,17 +289,17 @@ fn validate_wkb_geojson_geometry(geometry: &WkbGeometry) -> Result<()> {
         | WkbValue::MultiSurface(_)
         | WkbValue::PolyhedralSurface(_)
         | WkbValue::Tin(_)
-        | WkbValue::Triangle(_) => Err(format_error(
+        | WkbValue::Triangle(_) => Err(format_error(&PublicMessage::Curated(
             "tipo WKB esteso non rappresentabile in GeoJSON senza linearizzazione",
-        )),
+        ))),
     }
 }
 
 fn validate_wkb_child(parent: &WkbGeometry, child: &WkbGeometry) -> Result<()> {
     if child.dimensions != parent.dimensions || child.srid.is_some() {
-        return Err(format_error(
+        return Err(format_error(&PublicMessage::Curated(
             "geometria WKB annidata con dimensioni o SRID incoerenti",
-        ));
+        )));
     }
     validate_wkb_geojson_geometry(child)
 }
@@ -288,16 +309,16 @@ fn validate_wkb_coordinate(coordinate: &WkbCoordinate) -> Result<()> {
         || !coordinate.y.is_finite()
         || coordinate.z.is_some_and(|z| !z.is_finite())
     {
-        return Err(format_error(
+        return Err(format_error(&PublicMessage::Curated(
             "coordinata non finita non rappresentabile in GeoJSON",
-        ));
+        )));
     }
     Ok(())
 }
 
-fn validate_nonempty<T>(values: &[T], message: &str) -> Result<()> {
+fn validate_nonempty<T>(values: &[T], message: &'static str) -> Result<()> {
     if values.is_empty() {
-        return Err(format_error(message));
+        return Err(format_error(&PublicMessage::Curated(message)));
     }
     Ok(())
 }
@@ -325,7 +346,9 @@ fn write_wkb_geojson_unchecked<W: Write>(writer: &mut W, geometry: &WkbGeometry)
             for (index, point) in points.iter().enumerate() {
                 write_separator(writer, index)?;
                 let WkbValue::Point(coordinate) = &point.value else {
-                    return Err(format_error("MultiPoint WKB con membro non-Point"));
+                    return Err(format_error(&PublicMessage::Curated(
+                        "MultiPoint WKB con membro non-Point",
+                    )));
                 };
                 write_wkb_position(writer, coordinate, dimensions)?;
             }
@@ -336,9 +359,9 @@ fn write_wkb_geojson_unchecked<W: Write>(writer: &mut W, geometry: &WkbGeometry)
             for (index, line) in lines.iter().enumerate() {
                 write_separator(writer, index)?;
                 let WkbValue::LineString(coordinates) = &line.value else {
-                    return Err(format_error(
+                    return Err(format_error(&PublicMessage::Curated(
                         "MultiLineString WKB con membro non-LineString",
-                    ));
+                    )));
                 };
                 write_wkb_positions(writer, coordinates, dimensions)?;
             }
@@ -349,7 +372,9 @@ fn write_wkb_geojson_unchecked<W: Write>(writer: &mut W, geometry: &WkbGeometry)
             for (index, polygon) in polygons.iter().enumerate() {
                 write_separator(writer, index)?;
                 let WkbValue::Polygon(rings) = &polygon.value else {
-                    return Err(format_error("MultiPolygon WKB con membro non-Polygon"));
+                    return Err(format_error(&PublicMessage::Curated(
+                        "MultiPolygon WKB con membro non-Polygon",
+                    )));
                 };
                 write_wkb_polygon(writer, rings, dimensions)?;
             }
@@ -371,9 +396,9 @@ fn write_wkb_geojson_unchecked<W: Write>(writer: &mut W, geometry: &WkbGeometry)
         | WkbValue::PolyhedralSurface(_)
         | WkbValue::Tin(_)
         | WkbValue::Triangle(_) => {
-            return Err(format_error(
+            return Err(format_error(&PublicMessage::Curated(
                 "tipo WKB esteso non rappresentabile in GeoJSON senza linearizzazione",
-            ))
+            )))
         }
     }
     Ok(())
@@ -385,20 +410,30 @@ fn write_wkb_position<W: Write>(
     dimensions: CoordinateDimensions,
 ) -> Result<()> {
     writer.write_all(b"[")?;
-    serde_json::to_writer(&mut *writer, &coordinate.x)
-        .map_err(|error| format_error(error.to_string()))?;
+    serde_json::to_writer(&mut *writer, &coordinate.x).map_err(|_| {
+        format_error(&PublicMessage::Curated(
+            "serializzazione JSON della coordinata fallita",
+        ))
+    })?;
     writer.write_all(b",")?;
-    serde_json::to_writer(&mut *writer, &coordinate.y)
-        .map_err(|error| format_error(error.to_string()))?;
+    serde_json::to_writer(&mut *writer, &coordinate.y).map_err(|_| {
+        format_error(&PublicMessage::Curated(
+            "serializzazione JSON della coordinata fallita",
+        ))
+    })?;
     if dimensions == CoordinateDimensions::Xyz {
         writer.write_all(b",")?;
         serde_json::to_writer(
             &mut *writer,
-            &coordinate
-                .z
-                .ok_or_else(|| format_error("coordinata XYZ senza ordinata z"))?,
+            &coordinate.z.ok_or_else(|| {
+                format_error(&PublicMessage::Curated("coordinata XYZ senza ordinata z"))
+            })?,
         )
-        .map_err(|error| format_error(error.to_string()))?;
+        .map_err(|_| {
+            format_error(&PublicMessage::Curated(
+                "serializzazione JSON della coordinata fallita",
+            ))
+        })?;
     }
     writer.write_all(b"]")?;
     Ok(())
@@ -468,17 +503,17 @@ fn validate_geo_geometry(geometry: &geo_types::Geometry<f64>) -> Result<()> {
             validate_nonempty(&collection.0, "GeometryCollection GeoJSON vuota")?;
             collection.0.iter().try_for_each(validate_geo_geometry)
         }
-        _ => Err(format_error(
+        _ => Err(format_error(&PublicMessage::Curated(
             "geometria con Z/M non rappresentabile in GeoJSON 2D",
-        )),
+        ))),
     }
 }
 
 fn validate_xy(x: f64, y: f64) -> Result<()> {
     if !x.is_finite() || !y.is_finite() {
-        return Err(format_error(
+        return Err(format_error(&PublicMessage::Curated(
             "coordinata non finita non rappresentabile in GeoJSON",
-        ));
+        )));
     }
     Ok(())
 }
@@ -550,9 +585,9 @@ fn write_geo_geojson_unchecked<W: Write>(
             writer.write_all(b"]}")?;
         }
         _ => {
-            return Err(format_error(
+            return Err(format_error(&PublicMessage::Curated(
                 "geometria con Z/M non rappresentabile in GeoJSON 2D",
-            ))
+            )))
         }
     }
     Ok(())
@@ -561,9 +596,17 @@ fn write_geo_geojson_unchecked<W: Write>(
 fn write_position<W: Write>(writer: &mut W, x: f64, y: f64) -> Result<()> {
     // Ryu produce numeri JSON round-trippabili anche per gli estremi di f64.
     writer.write_all(b"[")?;
-    serde_json::to_writer(&mut *writer, &x).map_err(|error| format_error(error.to_string()))?;
+    serde_json::to_writer(&mut *writer, &x).map_err(|_| {
+        format_error(&PublicMessage::Curated(
+            "serializzazione JSON della coordinata fallita",
+        ))
+    })?;
     writer.write_all(b",")?;
-    serde_json::to_writer(&mut *writer, &y).map_err(|error| format_error(error.to_string()))?;
+    serde_json::to_writer(&mut *writer, &y).map_err(|_| {
+        format_error(&PublicMessage::Curated(
+            "serializzazione JSON della coordinata fallita",
+        ))
+    })?;
     writer.write_all(b"]")?;
     Ok(())
 }

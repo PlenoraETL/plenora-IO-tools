@@ -431,7 +431,8 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 1 | `plenora-io-model` | 24 → 0 | **chiusa** |
 | 2 | `plenora-io-core` | 78 → 0 | **chiusa** |
 | 3 | `driver-common` | 10 → 0 (più 28 chiamanti di un helper) | **chiusa** |
-| 4… | i dieci driver, poi la CLI | 138 | **prossima** |
+| 4 | `driver-geojson` | 5 → 0 (più 34 chiamanti e un canale `Result<_, String>`) | **chiusa**, livello 1 |
+| 5… | i nove driver restanti, poi la CLI | 133 | **prossima** |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |
 | chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |
