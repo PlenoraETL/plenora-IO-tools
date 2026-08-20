@@ -304,6 +304,26 @@ def funzione_che_racchiude(
     return candidato
 
 
+def e_test_per_posizione(percorso: Path, radice: Path) -> bool:
+    """Un file sotto `crates/<crate>/{tests,benches,examples}/`.
+
+    E' codice di test **per posizione**: non ha un modulo `#[cfg(test)]`,
+    perche' l'intero file lo e'. `righe_di_test` cerca quel modulo e quindi non
+    lo vede — una lacuna che si nota solo quando qualcuno scrive il primo test
+    d'integrazione, ed e' successo con `tests/ostili.rs`.
+
+    Non e' un'esclusione dal censimento: li' i test contano come la produzione.
+    Serve ai gate che il codice di test lo escludono **gia'**, perche' lo
+    escludano per una regola sola invece che per due meta'.
+    """
+    parti = percorso.relative_to(radice).parts
+    return len(parti) > 2 and parti[0] == "crates" and parti[2] in (
+        "tests",
+        "benches",
+        "examples",
+    )
+
+
 def righe_di_test(testo: str) -> set[int]:
     """Numeri di riga (1-based) dentro un modulo `#[cfg(test)]`.
 

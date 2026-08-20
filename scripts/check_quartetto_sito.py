@@ -62,6 +62,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 # `sorgenti` allarga due gate, non uno.
 from check_errori_redatti import (  # noqa: E402
     ATTREZZAGGIO,
+    e_test_per_posizione,
     funzione_che_racchiude,
     intervalli_di_funzione,
     righe_di_test,
@@ -146,6 +147,12 @@ def istantanea() -> dict[str, dict[str, list[str]]]:
     fuori: dict[str, dict[str, list[str]]] = {}
     for percorso in sorgenti(ROOT):
         if percorso.relative_to(ROOT).parts[1] in ATTREZZAGGIO:
+            continue
+        # Questo gate esclude gia' il codice dentro `#[cfg(test)]`: un test
+        # d'integrazione e' la stessa cosa, scritta in un file invece che in un
+        # modulo. Senza questa riga lo snapshot registrerebbe i costruttori dei
+        # test, e ogni test nuovo diventerebbe un aggiornamento di contratto.
+        if e_test_per_posizione(percorso, ROOT):
             continue
         quartetti = quartetti_del_file(percorso)
         if quartetti:

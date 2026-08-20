@@ -13,8 +13,10 @@ diff delle varianti enum non lo vedrebbe.
 
 from __future__ import annotations
 
+import pathlib
 import unittest
 
+from scripts import check_errori_redatti as censimento
 from scripts import check_quartetto_sito as gate
 
 
@@ -185,6 +187,31 @@ class SondeQuartetto(unittest.TestCase):
             "}\n"
         )
         self.assertEqual(q, {"f": ["ResourceLimit/Validate/LimitExceeded/Never"]})
+
+    def test_un_test_di_integrazione_e_codice_di_test_per_posizione(self) -> None:
+        """La lacuna che ha aperto `tests/ostili.rs`.
+
+        `righe_di_test` riconosce i moduli `#[cfg(test)]`. Un test
+        d'integrazione non ne ha: **l'intero file** lo e', e senza una regola
+        sulla posizione i suoi costruttori finirebbero nello snapshot. Ogni
+        test nuovo diventerebbe un aggiornamento di contratto — e un contratto
+        che cambia a ogni test smette di essere letto.
+        """
+        radice = pathlib.Path("/finta")
+        casi = [
+            ("crates/driver-x/tests/ostili.rs", True),
+            ("crates/driver-x/benches/quanto.rs", True),
+            ("crates/driver-x/examples/uso.rs", True),
+            ("crates/driver-x/src/lib.rs", False),
+            ("crates/driver-x/src/tests/aiuto.rs", False),
+            ("fuzz/fuzz_targets/harness.rs", False),
+        ]
+        for relativo, atteso in casi:
+            self.assertEqual(
+                censimento.e_test_per_posizione(radice / relativo, radice),
+                atteso,
+                relativo,
+            )
 
     # --- secondo dovere: le forme di cambio -------------------------------
 
