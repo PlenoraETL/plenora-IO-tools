@@ -441,7 +441,7 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 11 | `driver-filegdb` | 22 → 0 (35 chiamanti, 13 siti con testo GDAL, 11 nomi) | **chiusa**, livello 1 |
 | 12 | `driver-shp` | 22 → 0 (86 chiamanti, 5 nomi DBF dal file, 3 conteggi dichiarati) | **chiusa**, livello 1 |
 | 13 | `driver-dxf` | 20 → 0 (42 chiamanti via `err`, 10 siti con testo della dipendenza, 1 fuga di payload: il nome del blocco) | **chiusa**, livello 1; quartetti invariati per snapshot |
-| ultima | `plenora-io-cli` | 6 | **dopo tutti i driver** |
+| 14 | `plenora-io-cli` | 6 → 0 (24 chiamanti su **due** helper, 3 valori da `argv` eliminati, 7 conservati per provenienza) | **chiusa**, livello 1; busta d'uso fissata da test |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |
 | chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |

@@ -21,11 +21,29 @@ use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
 use plenora_io_model::contract::{DataContract, LayerContract};
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::{
-    CancellationToken, ErrorCategory, ErrorPhase, PlenoraIoError, RemoteEffect, RetryDisposition,
+    CancellationToken, ErrorCategory, ErrorPhase, NumeroStrutturale, PlenoraIoError, PublicMessage,
+    RemoteEffect, RetryDisposition,
 };
 
 /// Errore CLI: (exit code, documento JSON d'errore).
 type CliResult = Result<Value, (i32, Value)>;
+
+/// Le estensioni che la CLI riconosce. Vocabolario chiuso di letterali
+/// nostri: puo' comparire in un messaggio pubblico.
+const ESTENSIONI_AMMESSE: &str =
+    "parquet, geojson, csv, gpkg, shp, kml, xlsx, xls, dxf, gdb, arrow";
+
+/// I flag che la CLI riconosce. Stessa ragione.
+const OPZIONI_AMMESSE: &str = "--assume-crs, --durable, --in-opt, --layer, --limit,      --max-columns, --max-input-bytes, --max-input-entries, --max-output-bytes,      --max-rows, --max-vertices, --max-wkb-cell-bytes, --max-wkb-components,      --max-wkb-depth, --memory-bytes, --opt, --out-opt, --version";
+
+#[allow(clippy::cast_possible_truncation)]
+const fn saturating_u64(value: usize) -> u64 {
+    if usize::BITS > u64::BITS && value > u64::MAX as usize {
+        u64::MAX
+    } else {
+        value as u64
+    }
+}
 
 fn err_doc(code: &str, error: &PlenoraIoError) -> Value {
     let mut error_document = json!({
@@ -63,11 +81,16 @@ fn local_err_doc(
     code: &str,
     category: ErrorCategory,
     phase: ErrorPhase,
-    message: impl Into<String>,
+    message: &PublicMessage,
 ) -> Value {
     err_doc(
         code,
-        &PlenoraIoError::new(
+        // `redatto` con `Generic`, non un costruttore di famiglia: il sito
+        // usava `PlenoraIoError::new`, che imposta `code = Generic`. Un
+        // costruttore di famiglia imporrebbe il proprio, cambiando il
+        // quartetto — e' la regressione della tranche 2.
+        &PlenoraIoError::redatto(
+            plenora_io_model::IoErrorCode::Generic,
             category,
             phase,
             RemoteEffect::None,
@@ -77,7 +100,7 @@ fn local_err_doc(
     )
 }
 
-fn usage_err(message: impl Into<String>) -> (i32, Value) {
+fn usage_err(message: &PublicMessage) -> (i32, Value) {
     (
         2,
         local_err_doc(
@@ -175,21 +198,28 @@ fn driver_for_path(path: &Path) -> Result<Box<dyn FormatDriver>, (i32, Value)> {
                     "XLS_BINARY_UNSUPPORTED",
                     ErrorCategory::Unsupported,
                     ErrorPhase::Validate,
-                    "capability drop esplicita: il contenitore binario BIFF .xls non e' supportato; usare .xlsx",
+                    &PublicMessage::Curated(
+                        "capability drop esplicita: il contenitore binario BIFF .xls                          non e' supportato; usare .xlsx",
+                    ),
                 ),
             ))
         }
         "dxf" => Box::new(driver_dxf::DxfDriver),
         "gdb" => Box::new(driver_filegdb::FileGdbDriver),
         "arrow" => Box::new(driver_ipc::IpcDriver),
-        other => {
+        // Legato a `_`: l'estensione non serve piu' a nessuno qui, ed e' la
+        // prova — in forma di binding — che non entra nel messaggio.
+        _ => {
             return Err((
                 4,
                 local_err_doc(
                     "UNSUPPORTED",
                     ErrorCategory::Unsupported,
                     ErrorPhase::Validate,
-                    format!("estensione non riconosciuta: '.{other}'"),
+                    &PublicMessage::CuratedPair(
+                        "estensione non riconosciuta; ammesse:",
+                        ESTENSIONI_AMMESSE,
+                    ),
                 ),
             ))
         }
@@ -220,21 +250,43 @@ struct Cli {
 fn kv(s: &str) -> Result<(String, String), (i32, Value)> {
     s.split_once('=')
         .map(|(k, v)| (k.to_owned(), v.to_owned()))
-        .ok_or_else(|| usage_err(format!("opzione '{s}' non è nel formato chiave=valore")))
+        // Il valore non esce: viene da argv. Il flag che lo ha introdotto e'
+        // gia' nel messaggio del chiamante.
+        .ok_or_else(|| {
+            usage_err(&PublicMessage::Curated(
+                "opzione di formato non nel formato chiave=valore",
+            ))
+        })
 }
 
-fn parse_usize(value: Option<&String>, flag: &str) -> Result<usize, (i32, Value)> {
+// `flag` e' `&'static str`: tutti i chiamanti passano il nome di un nostro
+// flag. Il vocabolario e' chiuso, quindi il nome resta nel messaggio senza
+// violare INV-10 — non e' testo runtime, e' uno dei nostri letterali.
+fn parse_usize(value: Option<&String>, flag: &'static str) -> Result<usize, (i32, Value)> {
     value
-        .ok_or_else(|| usage_err(format!("{flag} richiede un valore")))?
+        .ok_or_else(|| usage_err(&PublicMessage::CuratedPair(flag, "richiede un valore")))?
         .parse()
-        .map_err(|_| usage_err(format!("{flag} richiede un intero non negativo")))
+        .map_err(|_| {
+            usage_err(&PublicMessage::CuratedPair(
+                flag,
+                "richiede un intero non negativo",
+            ))
+        })
 }
 
-fn parse_u64(value: Option<&String>, flag: &str) -> Result<u64, (i32, Value)> {
+// `flag` e' `&'static str`: tutti i chiamanti passano il nome di un nostro
+// flag. Il vocabolario e' chiuso, quindi il nome resta nel messaggio senza
+// violare INV-10 — non e' testo runtime, e' uno dei nostri letterali.
+fn parse_u64(value: Option<&String>, flag: &'static str) -> Result<u64, (i32, Value)> {
     value
-        .ok_or_else(|| usage_err(format!("{flag} richiede un valore")))?
+        .ok_or_else(|| usage_err(&PublicMessage::CuratedPair(flag, "richiede un valore")))?
         .parse()
-        .map_err(|_| usage_err(format!("{flag} richiede un intero non negativo")))
+        .map_err(|_| {
+            usage_err(&PublicMessage::CuratedPair(
+                flag,
+                "richiede un intero non negativo",
+            ))
+        })
 }
 
 /// I flag che governano una quota, tutti insieme.
@@ -301,49 +353,54 @@ fn parse(args: &[String]) -> Result<Cli, (i32, Value)> {
             "--assume-crs" => {
                 cli.assume_crs = Some(
                     it.next()
-                        .ok_or_else(|| usage_err("--assume-crs richiede un valore"))?
+                        .ok_or_else(|| usage_err(&PublicMessage::Curated("--assume-crs richiede un valore")))?
                         .clone(),
                 );
             }
             "--layer" => {
                 let v = it
                     .next()
-                    .ok_or_else(|| usage_err("--layer richiede un valore"))?;
+                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--layer richiede un valore")))?;
                 cli.layer = Some(
                     v.parse()
-                        .map_err(|_| usage_err("--layer richiede un intero"))?,
+                        .map_err(|_| usage_err(&PublicMessage::Curated("--layer richiede un intero")))?,
                 );
             }
             "--limit" => {
                 let v = it
                     .next()
-                    .ok_or_else(|| usage_err("--limit richiede un valore"))?;
+                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--limit richiede un valore")))?;
                 cli.limit = Some(
                     v.parse()
-                        .map_err(|_| usage_err("--limit richiede un intero"))?,
+                        .map_err(|_| usage_err(&PublicMessage::Curated("--limit richiede un intero")))?,
                 );
             }
             "--durable" => cli.durable = true,
             "--opt" => {
                 let (k, v) = kv(it
                     .next()
-                    .ok_or_else(|| usage_err("--opt richiede chiave=valore"))?)?;
+                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--opt richiede chiave=valore")))?)?;
                 cli.opts.insert(k, v);
             }
             "--in-opt" => {
                 let (k, v) = kv(it
                     .next()
-                    .ok_or_else(|| usage_err("--in-opt richiede chiave=valore"))?)?;
+                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--in-opt richiede chiave=valore")))?)?;
                 cli.in_opts.insert(k, v);
             }
             "--out-opt" => {
                 let (k, v) = kv(it
                     .next()
-                    .ok_or_else(|| usage_err("--out-opt richiede chiave=valore"))?)?;
+                    .ok_or_else(|| usage_err(&PublicMessage::Curated("--out-opt richiede chiave=valore")))?)?;
                 cli.out_opts.insert(k, v);
             }
             other if other.starts_with("--") => {
-                return Err(usage_err(format!("opzione sconosciuta: {other}")))
+                // Il token non esce: viene da argv. Resta la condizione, e
+                // l'uso completo e' nel messaggio del comando senza argomenti.
+                return Err(usage_err(&PublicMessage::CuratedPair(
+                    "opzione sconosciuta; ammesse:",
+                    OPZIONI_AMMESSE,
+                )))
             }
             _ => cli.positionals.push(a.clone()),
         }
@@ -505,7 +562,7 @@ fn open_source(cli: &Cli) -> Result<(Box<dyn FormatDriver>, PathBuf), (i32, Valu
     let path = PathBuf::from(
         cli.positionals
             .first()
-            .ok_or_else(|| usage_err("manca il percorso del file"))?,
+            .ok_or_else(|| usage_err(&PublicMessage::Curated("manca il percorso del file")))?,
     );
     let driver = driver_for_path(&path)?;
     Ok((driver, path))
@@ -588,7 +645,10 @@ fn cmd_read(cli: &Cli) -> CliResult {
                     "NO_LAYER",
                     ErrorCategory::NotFound,
                     ErrorPhase::Prepare,
-                    format!("layer {layer_id} inesistente"),
+                    &PublicMessage::CuratedWith(
+                        "layer inesistente all'indice",
+                        NumeroStrutturale::Indice(u64::from(layer_id)),
+                    ),
                 ),
             )
         })?
@@ -628,7 +688,7 @@ fn cmd_read(cli: &Cli) -> CliResult {
 #[allow(clippy::too_many_lines)]
 fn cmd_convert(cli: &Cli) -> CliResult {
     if cli.positionals.len() < 2 {
-        return Err(usage_err("convert richiede <ingresso> <uscita>"));
+        return Err(usage_err(&PublicMessage::Curated("convert richiede <ingresso> <uscita>")));
     }
     let in_path = PathBuf::from(&cli.positionals[0]);
     let out_path = PathBuf::from(&cli.positionals[1]);
@@ -665,7 +725,10 @@ fn cmd_convert(cli: &Cli) -> CliResult {
                     "NO_LAYER",
                     ErrorCategory::NotFound,
                     ErrorPhase::Prepare,
-                    format!("layer {id} inesistente"),
+                    &PublicMessage::CuratedWith(
+                        "layer inesistente all'indice",
+                        NumeroStrutturale::Indice(u64::from(id)),
+                    ),
                 ),
             )
         })?],
@@ -679,10 +742,11 @@ fn cmd_convert(cli: &Cli) -> CliResult {
                 "SINGLE_LAYER_SINK",
                 ErrorCategory::InvalidPlan,
                 ErrorPhase::Validate,
-                format!(
-                    "sorgente con {} layer ma '{}' è single-layer: usa --layer N per sceglierne uno",
-                    selected.len(),
-                    dst.descriptor().id()
+                &PublicMessage::CuratedWith(
+                    "destinazione single-layer ma la sorgente dichiara piu' layer;                      usare --layer per sceglierne uno. Layer nella sorgente:",
+                    NumeroStrutturale::Conteggio(saturating_u64(
+                        selected.len(),
+                    )),
                 ),
             ),
         ));
@@ -722,27 +786,19 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         let mut layer_batches = Vec::new();
         while let Some(batch) = reader.next_batch().map_err(map_err)? {
             rows = rows.checked_add(batch.num_rows()).ok_or_else(|| {
-                map_err(PlenoraIoError::LimitExceeded(
-                    "overflow nel conteggio righe CLI".to_owned(),
-                ))
+                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nel conteggio righe CLI")))
             })?;
             batches = batches.checked_add(1).ok_or_else(|| {
-                map_err(PlenoraIoError::LimitExceeded(
-                    "overflow nel conteggio batch CLI".to_owned(),
-                ))
+                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nel conteggio batch CLI")))
             })?;
             layer_batches.push(batch);
         }
         let input_total = u64::try_from(rows).map_err(|_| {
-            map_err(PlenoraIoError::LimitExceeded(
-                "cardinalita sorgente non rappresentabile".to_owned(),
-            ))
+            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("cardinalita sorgente non rappresentabile")))
         })?;
         let sink_layer =
             plenora_io_model::contract::LayerId(u32::try_from(sink_idx).map_err(|_| {
-                map_err(PlenoraIoError::LimitExceeded(
-                    "numero di layer sorgente non rappresentabile".to_owned(),
-                ))
+                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("numero di layer sorgente non rappresentabile")))
             })?);
         writer
             .declare_input_total(sink_layer, input_total)
@@ -752,9 +808,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         }
         read_loss.merge(&reader.loss_report());
         total_rows = total_rows.checked_add(rows).ok_or_else(|| {
-            map_err(PlenoraIoError::LimitExceeded(
-                "overflow nel conteggio totale righe CLI".to_owned(),
-            ))
+            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nel conteggio totale righe CLI")))
         })?;
         layer_reports.push(json!({"name": l.name, "rows": rows, "batches": batches}));
     }
@@ -796,9 +850,7 @@ fn run() -> CliResult {
         Some("layers") => cmd_layers(&parse(&args[1..])?),
         Some("read") => cmd_read(&parse(&args[1..])?),
         Some("convert") => cmd_convert(&parse(&args[1..])?),
-        _ => Err(usage_err(
-            "uso: plenora-io <catalog|inspect|layers|read|convert> [args] | --version",
-        )),
+        _ => Err(usage_err(&PublicMessage::Curated("uso: plenora-io <catalog|inspect|layers|read|convert> [args] | --version"))),
     }
 }
 
@@ -1748,6 +1800,7 @@ mod tests {
             campi, attesi,
             "plenora-io-error-v1 ha cambiato forma: {campi:?}"
         );
+
         let messaggio = document["error"]["message"]
             .as_str()
             .expect("il messaggio e' una stringa");
@@ -1755,6 +1808,85 @@ mod tests {
             !messaggio.contains("geometry"),
             "il nome del campo non deve rientrare dal messaggio: {messaggio}"
         );
+    }
+
+        /// La busta degli errori d'uso della CLI, che e' una **via diversa** da
+    /// `map_err`: passa per `usage_err` -> `local_err_doc` -> `err_doc`, e fino
+    /// alla tranche 14 nessun test ne verificava la forma.
+    #[test]
+    fn la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi_v1() {
+        let (exit, documento) = usage_err(&PublicMessage::CuratedPair(
+            "opzione sconosciuta; ammesse:",
+            OPZIONI_AMMESSE,
+        ));
+
+        assert_eq!(exit, 2, "l'exit degli errori d'uso e' 2");
+        assert_eq!(documento["protocol_version"], 1);
+        assert_eq!(documento["contract"], "plenora-io-error-v1");
+
+        let campi: std::collections::BTreeSet<&str> = documento["error"]
+            .as_object()
+            .expect("l'errore e' un oggetto")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let attesi: std::collections::BTreeSet<&str> = [
+            "category",
+            "phase",
+            "remote_effect",
+            "retry",
+            "code",
+            "message",
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            campi, attesi,
+            "plenora-io-error-v1 ha cambiato forma sulla via d'uso: {campi:?}"
+        );
+
+        // Il quartetto della via d'uso, che nessuno snapshot puo' vedere: il
+        // `code` sul wire non viene da `IoErrorCode` ma dal letterale passato a
+        // `err_doc`, quindi va fissato qui o non e' fissato da nessuna parte.
+        let errore = &documento["error"];
+        assert_eq!(errore["category"], "invalid_configuration");
+        assert_eq!(errore["phase"], "validate");
+        assert_eq!(errore["remote_effect"], "none");
+        // `retry` sul wire e' un oggetto `{"kind": …}`, non una stringa nuda:
+        // fissato sull'osservato, non su come me lo immaginavo.
+        assert_eq!(errore["retry"]["kind"], "never");
+        assert_eq!(errore["code"], "CLI_USAGE");
+    }
+
+    /// Nessun argomento della riga di comando finisce nella busta.
+    ///
+    /// I due siti che lo facevano — il token di un'opzione sconosciuta e il
+    /// valore di `--opt` mal formato — passavano `argv` dentro `format!`. Il
+    /// test costruisce gli argomenti con un marcatore improbabile e verifica
+    /// che non compaia nel documento serializzato.
+    #[test]
+    fn nessun_argomento_della_riga_di_comando_entra_nella_busta() {
+        const MARCATORE: &str = "zzMARCATORE-ARGVzz";
+
+        let casi = vec![
+            vec![format!("--{MARCATORE}")],
+            vec!["--opt".to_owned(), MARCATORE.to_owned()],
+            vec!["--in-opt".to_owned(), MARCATORE.to_owned()],
+            vec!["--out-opt".to_owned(), MARCATORE.to_owned()],
+            vec!["--layer".to_owned(), MARCATORE.to_owned()],
+            vec!["--max-rows".to_owned(), MARCATORE.to_owned()],
+        ];
+
+        for argomenti in casi {
+            let Err((_, documento)) = parse(&argomenti) else {
+                panic!("{argomenti:?}: doveva essere rifiutato");
+            };
+            let testo = documento.to_string();
+            assert!(
+                !testo.contains(MARCATORE),
+                "{argomenti:?}: l'argomento e' uscito nella busta: {testo}"
+            );
+        }
     }
 
     #[test]
@@ -1836,7 +1968,7 @@ mod tests {
 
     #[test]
     fn usage_errors_also_expose_machine_readable_axes() {
-        let (exit, document) = usage_err("argomento mancante");
+        let (exit, document) = usage_err(&PublicMessage::Curated("argomento mancante"));
         assert_eq!(exit, 2);
         assert_eq!(document["error"]["category"], "invalid_configuration");
         assert_eq!(document["error"]["phase"], "validate");

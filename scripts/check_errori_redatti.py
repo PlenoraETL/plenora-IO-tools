@@ -80,6 +80,7 @@ MIGRATI = (
     "driver-filegdb",
     "driver-shp",
     "driver-dxf",
+    "plenora-io-cli",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -91,10 +92,7 @@ MIGRATI = (
 #
 # L'elenco e' generato dal codice, non scritto a mano: un elenco copiato diverge
 # alla prima chiamata aggiunta, e diverge in silenzio.
-DA_MIGRARE: dict[str, int] = {
-    "crates/plenora-io-cli/src/main.rs::cmd_convert": 5,
-    "crates/plenora-io-cli/src/main.rs::local_err_doc": 1,
-}
+DA_MIGRARE: dict[str, int] = {}
 
 # `plenora-bench` e `plenora-fuzz` non sono codice spedito: esclusi qui per la
 # stessa ragione per cui sono esclusi dalla copertura, e l'esclusione e'
