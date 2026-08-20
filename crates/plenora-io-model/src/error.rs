@@ -188,6 +188,40 @@ impl IoErrorCode {
 /// indipendente da rustdoc, e' il gate `scripts/check_errori_redatti.py`, che
 /// verifica nel sorgente che le definizioni non siano tornate a esistere.
 ///
+/// ## Che cosa questa garanzia **non** e'
+///
+/// `&'static str` garantisce la **durata**, non la **provenienza**. Un
+/// chiamante deliberato puo' promuovere testo runtime a `'static` con
+/// `Box::leak` e infilarlo in un `PublicMessage::Curated` senza che il
+/// compilatore obietti:
+///
+/// ```
+/// // DIMOSTRAZIONE-LIMITE-STATIC — l'unica occorrenza autorizzata di
+/// // `Box::leak` nel repository. `scripts/check_niente_leak.py` la attesta
+/// // per questo marcatore, non per numero di riga, e diventa rosso sia se ne
+/// // compare un'altra sia se questa sparisce.
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let runtime = format!("valore {} dal payload", 42);
+/// let promosso: &'static str = Box::leak(runtime.into_boxed_str());
+/// let errore = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(promosso));
+/// assert!(errore.message.contains("dal payload"));
+/// ```
+///
+/// **Quel doctest compila, e passa.** E' qui apposta: una garanzia descritta
+/// piu' forte di com'e' e' peggio di una garanzia dichiarata con il suo limite.
+///
+/// La promessa realistica di S9 e' percio':
+///
+/// > impedire la propagazione **accidentale** di testo runtime nel workspace,
+/// > non rendere crittograficamente inconiabile un messaggio dinamico da
+/// > codice ostile.
+///
+/// I crate sono interni e `publish = false`: l'avversario di questo invariante
+/// e' la distrazione, non un aggressore. La distrazione e' coperta dal tipo
+/// (una `String` non entra da sola) e dal gate `scripts/check_niente_leak.py`,
+/// che vieta la promozione in tutto il workspace, **test compresi** — perche'
+/// l'unica occorrenza mai esistita era in un test.
+///
 /// ### Una `String` non entra, nemmeno per il costruttore con il nome storico
 ///
 /// ```
@@ -1302,12 +1336,10 @@ mod tests {
     /// di chi le scrive.
     #[test]
     fn la_coppia_curata_passa_dal_tetto_globale() {
-        const LUNGO: &str = "abcdefghij";
-        let mut testo = String::new();
-        for _ in 0..300 {
-            testo.push_str(LUNGO);
-        }
-        let lungo: &'static str = Box::leak(testo.into_boxed_str());
+        // Statico vero, non `Box::leak`: vedi la nota su `otto_volte!`. La
+        // prima stesura di questo test, alla tranche 2, si costruiva lo
+        // statico a runtime — funzionava, e diceva la cosa sbagliata.
+        let lungo: &'static str = LUNGO_ASCII;
         assert!(lungo.len() > MAX_MESSAGE_BYTES);
 
         let errore = PlenoraIoError::contratto_redatto(&PublicMessage::CuratedPair(lungo, lungo));
@@ -1513,20 +1545,35 @@ mod tests {
     /// Non è una raccomandazione che ogni sito deve ricordare: è applicato
     /// nell'unico punto da cui passano tutti i costruttori, e il test lo
     /// verifica su tutte le forme pubbliche invece che su una.
-    /// Uno `&'static str` lungo, per i test del tetto.
+    /// Ripete un letterale otto volte, **a compile time**.
     ///
-    /// Dopo la rimozione della via legacy **nessun costruttore pubblico
-    /// accetta testo runtime**: per esercitare il troncamento end-to-end
-    /// serve uno statico costruito apposta. `Box::leak` in un test e' un
-    /// atto deliberato e visibile, non la scorciatoia che i doctest
-    /// `compile_fail` impediscono a un consumatore.
-    fn statico_lungo(pezzo: &str, ripetizioni: usize) -> &'static str {
-        Box::leak(pezzo.repeat(ripetizioni).into_boxed_str())
+    /// La prima stesura di questi test otteneva gli statici lunghi con
+    /// `Box::leak`. Funzionava, e diceva la cosa sbagliata: `&'static str`
+    /// garantisce la **durata**, non la **provenienza**, e un test che si
+    /// costruisce lo statico a runtime dimostra proprio cio' che S9 non
+    /// promette. `concat!` opera su letterali e produce un letterale, quindi
+    /// qui la provenienza e' letterale per costruzione.
+    macro_rules! otto_volte {
+        ($pezzo:expr) => {
+            concat!($pezzo, $pezzo, $pezzo, $pezzo, $pezzo, $pezzo, $pezzo, $pezzo)
+        };
     }
+
+    /// 8^4 = 4096 caratteri, cioe' oltre il doppio di `MAX_MESSAGE_BYTES`.
+    macro_rules! lungo {
+        ($pezzo:literal) => {
+            otto_volte!(otto_volte!(otto_volte!(otto_volte!($pezzo))))
+        };
+    }
+
+    const LUNGO_ASCII: &str = lungo!("x");
+    const LUNGO_VIRGOLETTE: &str = lungo!("\"");
+    const LUNGO_CONTROLLI: &str = lungo!("\u{1}");
+    const LUNGO_MULTIBYTE: &str = lungo!("à");
 
     #[test]
     fn nessun_errore_supera_il_tetto_del_messaggio() {
-        let enorme = PublicMessage::Curated(statico_lungo("x", 10_000));
+        let enorme = PublicMessage::Curated(LUNGO_ASCII);
         let costruiti = [
             PlenoraIoError::redatto(
                 IoErrorCode::Generic,
@@ -1579,9 +1626,9 @@ mod tests {
     fn il_tetto_e_sul_valore_decodificato_non_sul_json() {
         // Tre input al limite, di espansione crescente.
         let casi = [
-            ("ascii", statico_lungo("x", 4096)),
-            ("virgolette", statico_lungo("\"", 4096)),
-            ("controlli", statico_lungo("\u{1}", 4096)),
+            ("ascii", LUNGO_ASCII),
+            ("virgolette", LUNGO_VIRGOLETTE),
+            ("controlli", LUNGO_CONTROLLI),
         ];
         for (nome, grezzo) in casi {
             let errore = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(grezzo));
@@ -1631,7 +1678,7 @@ mod tests {
     /// indietro invece di panicare.
     #[test]
     fn il_troncamento_e_deterministico_e_rispetta_i_caratteri() {
-        let multibyte = PublicMessage::Curated(statico_lungo("à", 10_000));
+        let multibyte = PublicMessage::Curated(LUNGO_MULTIBYTE);
         let primo = PlenoraIoError::contratto_redatto(&multibyte).message;
         let secondo = PlenoraIoError::contratto_redatto(&multibyte).message;
         assert_eq!(primo, secondo, "il troncamento deve essere deterministico");

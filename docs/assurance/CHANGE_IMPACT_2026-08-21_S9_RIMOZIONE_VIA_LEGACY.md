@@ -246,3 +246,82 @@ I test ostili conclusivi e il checkpoint finale con baseline `0474902`.
 Separati e release-blocking: i 45 gruppi di ASSURANCE-N1 e le due lacune fuzz
 (reader `.shp`/`.dbf`, spike FileGDB). Aperto e non ancora valutato: il debito
 sul contratto dei report di perdita.
+
+---
+
+## Addendum del 2026-08-21 — `'static` non prova l'origine letterale
+
+**Il corpo resta com'era.** Questo addendum non corregge un errore di fatto:
+aggiunge un limite che il corpo lasciava intendere più forte di com'è.
+
+### L'affermazione da qualificare
+
+Il corpo dice che i doctest `compile_fail` provano che «una `String` non entra».
+È vero **per il tipo**, e non basta:
+
+> `&'static str` garantisce la **durata**, non la **provenienza**.
+
+Un chiamante deliberato promuove testo runtime a `'static` con `Box::leak` e lo
+infila in un `PublicMessage::Curated` senza che il compilatore obietti.
+
+La dimostrazione era già dentro questo lavoro, e non l'avevo letta come tale: i
+test sul tetto del messaggio ottenevano i propri statici lunghi **proprio con
+`Box::leak`**. Uno dei due risale alla tranche 2 — l'illusione di provenienza
+c'era da allora.
+
+### La garanzia realistica
+
+I crate sono interni e `publish = false`. L'avversario di questo invariante è la
+distrazione, non un aggressore:
+
+> S9 impedisce la propagazione **accidentale** di testo runtime nel workspace;
+> non rende crittograficamente inconiabile un messaggio dinamico da codice
+> ostile.
+
+### Le tre conseguenze, applicate
+
+| | |
+|---|---|
+| statici dei test | `Box::leak` sostituito da `concat!` su letterali (`otto_volte!`), che produce un letterale: la provenienza è letterale **per costruzione**. Due occorrenze, una della tranche 2 |
+| divieto | `scripts/check_niente_leak.py`: nessun `Box::leak` / `String::leak` / `Vec::leak` / `.leak()` in tutto il workspace — produzione, **test** e **doctest**. L'unica occorrenza mai esistita era in un test, e un divieto limitato alla produzione non l'avrebbe intercettato. 14 sonde. Registrato nel checkpoint |
+| dichiarazione | la doc di `PlenoraIoError` porta ora una sezione «Che cosa questa garanzia **non** è», con un doctest che **usa** `Box::leak` e che **compila e passa** |
+
+Quel doctest è deliberato: una garanzia descritta più forte di com'è è peggio di
+una garanzia dichiarata con il suo limite. Il limite è ora **provato**, non
+ammesso a parole.
+
+### La proprietà non è «zero occorrenze»
+
+Una prima stesura di questo gate escludeva **tutti** i doctest, per non rossare
+la dimostrazione. Era sbagliato, e in un modo che vale la pena nominare: è una
+deroga **più ampia di una allowlist**. Un `Box::leak` in un qualunque altro
+esempio della documentazione — cioè nella prima cosa che un consumatore copia —
+sarebbe rimasto invisibile.
+
+La proprietà verificata è ora:
+
+> zero occorrenze non autorizzate; **una sola** dimostrazione eseguibile e
+> identificata.
+
+L'identità è il marcatore `DIMOSTRAZIONE-LIMITE-STATIC` **dentro il blocco**,
+non un numero di riga: un'identità per riga si stacca al primo commit che sposta
+il file. È la stessa lezione di INFRA-1.
+
+Il gate diventa rosso in tutti e quattro i modi in cui l'attestazione può
+rompersi, e ognuno ha la sua sonda:
+
+| Rottura | Esito |
+|---|---|
+| un'occorrenza in un doctest non attestato | rosso |
+| il marcatore usato in un altro file | rosso — l'attestazione è legata al file, altrimenti ci si autorizza copiando un commento |
+| due occorrenze attestate | rosso — una deroga che cresce non è più una deroga |
+| l'attestazione sopravvive alla propria occorrenza | rosso — stessa regola delle voci fantasma del censimento |
+
+«Mantenere il doctest eseguibile» **si difende da sé**: l'estrattore condiviso
+esclude `ignore` e `compile_fail`, quindi marcare così la dimostrazione la
+renderebbe invisibile al gate, che conterebbe zero attestazioni e diventerebbe
+rosso.
+
+Che cosa sia un doctest lo decide `doctest_che_devono_compilare`, **riusata** dal
+censimento: due definizioni diverse divergerebbero, e divergerebbero in
+silenzio.

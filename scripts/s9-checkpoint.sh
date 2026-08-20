@@ -151,6 +151,12 @@ passo sonde_quartetto python3 -m unittest scripts.test_check_quartetto_sito
 passo check_quartetto python3 scripts/check_quartetto_sito.py
 passo sonde_errori_redatti python3 -m unittest scripts.test_check_errori_redatti
 passo check_errori_redatti python3 scripts/check_errori_redatti.py
+
+# `&'static str` garantisce la durata, non la provenienza: senza questo
+# passo un `Box::leak` riporterebbe testo runtime dentro un messaggio
+# curato, e il censimento resterebbe verde.
+passo sonde_niente_leak python3 -m unittest scripts.test_check_niente_leak
+passo check_niente_leak python3 scripts/check_niente_leak.py
 passo sonde_wkb_limits python3 -m unittest scripts.test_check_wkb_limits_defaults
 passo check_wkb_limits python3 scripts/check_wkb_limits_defaults.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
