@@ -109,3 +109,50 @@ chiusura il **checkpoint di livello 2**, con
 `S9_CHECKPOINT_BASE=effc4abe3f74ade083dbed72c94c286748809d9f`.
 
 Poi `driver-dxf` (20) e, **per ultima**, `plenora-io-cli` (6).
+
+---
+
+## Addendum del 2026-08-21 — correzione sull'evidenza fuzz
+
+**Il corpo di questo documento resta com'era**: la regola append-only vale anche
+qui, e riscrivere un'affermazione dopo averla fatta toglie al lettore il modo di
+distinguere cio' che si sapeva allora da cio' che si e' capito dopo.
+
+L'affermazione da correggere e' nella sezione *Verifica*:
+
+> replay deterministico di **1 844 input** su `ipc_to_gpkg` senza crash, poi
+> smoke senza finding.
+
+La misura e' esatta, ma **`ipc_to_gpkg` non esercita `driver-filegdb`**. Il suo
+percorso e' Arrow IPC in ingresso, GeoPackage in uscita; l'ho scelto perche' e'
+il target che esercita la validazione di capability e la scrittura, e ho
+scambiato una somiglianza di forma per una copertura del driver migrato.
+Presentarlo come «replay mirato della tranche» era sbagliato.
+
+**Non esiste un fuzz target per FileGDB.** I tredici target dichiarati sono
+`csv_reader`, `dxf_reader`, `from_wkb`, `geojson_reader`, `geoparquet_reader`,
+`gpkg_geometry`, `gpkg_reader`, `ipc_reader`, `ipc_to_gpkg`, `kml_reader`,
+`shp_wkb`, `wkt_parse`, `xlsx_reader`. Nessuno tocca `driver-filegdb`, e la
+ragione e' strutturale: il driver e' feature-gated su `gdal-backend`, e la
+campagna fuzz gira senza GDAL.
+
+### L'evidenza vera della tranche 11
+
+| | |
+|---|---|
+| `cargo test -p driver-filegdb --features gdal-backend` | verde, 22 test + 1 doc |
+| catalogo reale della CLI con `gdal-backend`, verificato da `check_filegdb_catalog.py` | verde |
+| `cargo test --workspace --all-features` | verde su 31 binari |
+| fuzzing mirato al driver | **assente, e non sostituito da nulla** |
+
+Il replay su `ipc_to_gpkg` resta una verifica di non-regressione utile — e' uno
+dei tredici target e la migrazione ha toccato `driver-common`, che quel target
+attraversa — ma **non e' evidenza su `driver-filegdb`**.
+
+### Che cosa resta aperto
+
+Un fuzz target per FileGDB richiederebbe GDAL nella campagna. Non e' una
+decisione di questa tranche e non la prendo qui: e' registrata come lacuna
+dichiarata, perche' una lacuna nominata e' diversa da una lacuna coperta da un
+numero che parla d'altro.
+
