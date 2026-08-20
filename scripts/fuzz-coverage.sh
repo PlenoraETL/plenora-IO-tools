@@ -47,8 +47,10 @@ mkdir -p "${USCITA}"
 
 # La toolchain e' scelta qui, non ereditata: la strumentazione richiede nightly,
 # ed e' la stessa scelta esplicita che fanno fuzz-smoke.sh e fuzz-replay.sh.
-TOOLCHAIN="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain-nightly.toml 2>/dev/null)"
-TOOLCHAIN="${TOOLCHAIN:-nightly}"
+# Lo stesso pin di fuzz-replay.sh e fuzz-smoke.sh: due misure sulla stessa
+# revisione con nightly diversi non sono confrontabili, e la strumentazione
+# di copertura e' proprio la parte che cambia fra release del compilatore.
+TOOLCHAIN="${PLENORA_FUZZ_TOOLCHAIN:-nightly-2026-07-21}"
 export RUSTUP_TOOLCHAIN="${TOOLCHAIN}"
 
 ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$|\.cargo/registry|rustc'
