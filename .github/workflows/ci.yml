@@ -105,6 +105,7 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_assurance_fallbacks
           bash scripts/check_assurance_fallbacks.sh
+          bash scripts/test_s9_checkpoint.sh
       # Il modello budget legacy e' stato rimosso in S4.e. Il compilatore
       # impedisce di usare i tipi che non esistono, ma non impedisce a un
       # commit futuro di reintrodurli insieme ai propri usi.

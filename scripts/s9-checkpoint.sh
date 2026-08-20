@@ -33,24 +33,6 @@ cd "$(dirname "$0")/.."
 LOG_DIR="${S9_CHECKPOINT_LOG_DIR:-/tmp/s9-checkpoint}"
 mkdir -p "${LOG_DIR}"
 
-REVISIONE="$(git rev-parse HEAD)"
-SPORCHI="$(git status --porcelain | wc -l)"
-
-echo "=============================================================="
-echo "S9 — checkpoint di livello 2"
-echo "revisione:      ${REVISIONE}"
-echo "albero:         ${SPORCHI} file non committati"
-echo "log:            ${LOG_DIR}"
-echo "=============================================================="
-
-if [ "${SPORCHI}" -ne 0 ]; then
-    echo
-    echo "ALBERO SPORCO: la misura non sarebbe same-SHA." >&2
-    echo "Un checkpoint su un albero che non coincide con la revisione" >&2
-    echo "dichiarata e' peggio di nessun checkpoint: sembra un'evidenza." >&2
-    exit 2
-fi
-
 passi=0
 verdi=0
 falliti=()
@@ -79,8 +61,49 @@ passo() {
     return "${esito}"
 }
 
+# Marca un passo come **non eseguito** perche' una sua precondizione e'
+# fallita. Non e' verde: un passo che non e' girato non ha verificato niente, e
+# contarlo fra i verdi e' il modo in cui un checkpoint si autoconvalida.
+salta() {
+    local nome="$1"
+    local causa="$2"
+    passi=$((passi + 1))
+    printf '  %-38s ' "${nome}"
+    echo "SALTATO (${causa} e' fallito)"
+    falliti+=("${nome}(saltato)")
+}
+
+# Consente alle sonde di caricare solo le funzioni, senza eseguire il
+# checkpoint. Un gate che non si puo' provare e' un gate di cui ci si fida
+# perche' non si e' mai visto sbagliare.
+if [ "${S9_CHECKPOINT_SOLO_FUNZIONI:-0}" = "1" ]; then
+    return 0
+fi
+
+REVISIONE="$(git rev-parse HEAD)"
+SPORCHI="$(git status --porcelain | wc -l)"
+
+echo "=============================================================="
+echo "S9 — checkpoint di livello 2"
+echo "revisione:      ${REVISIONE}"
+echo "albero:         ${SPORCHI} file non committati"
+echo "log:            ${LOG_DIR}"
+echo "=============================================================="
+
+if [ "${SPORCHI}" -ne 0 ]; then
+    echo
+    echo "ALBERO SPORCO: la misura non sarebbe same-SHA." >&2
+    echo "Un checkpoint su un albero che non coincide con la revisione" >&2
+    echo "dichiarata e' peggio di nessun checkpoint: sembra un'evidenza." >&2
+    exit 2
+fi
+
+
 echo
 echo "--- 1. compilazione e test -----------------------------------"
+# Le sonde del checkpoint stesso vengono per prime: se il gate che misura e'
+# rotto, tutto cio' che segue e' una misura di cui non si sa niente.
+passo sonde_checkpoint bash scripts/test_s9_checkpoint.sh
 passo fmt cargo fmt --all -- --check
 passo clippy cargo clippy --workspace --all-targets --all-features -- -D warnings
 # `--all-features` abilita `gdal-backend`, quindi il percorso stub di
@@ -151,14 +174,27 @@ echo
 echo "--- 5. copertura, poi il suo gate ----------------------------"
 ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
 export PLENORA_CROSS_FS_TEST_ROOT="${PLENORA_CROSS_FS_TEST_ROOT:-/dev/shm}"
-passo coverage_misura cargo llvm-cov --workspace --all-targets --locked --no-report
-passo coverage_export cargo llvm-cov report --lcov --output-path "${LOG_DIR}/lcov.info" \
-    --ignore-filename-regex "${ESCLUSIONI}"
-# Ora il report esiste: il gate legge qualcosa invece di lamentarne l'assenza.
-passo check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
-    --lcov "${LOG_DIR}/lcov.info"
-passo coverage_soglia cargo llvm-cov report --summary-only \
-    --ignore-filename-regex "${ESCLUSIONI}" --fail-under-lines 80
+# I dati di profiling precedenti vanno rimossi **prima** di misurare. Senza,
+# una misura fallita lascia in piedi quelli della corsa precedente, e i passi
+# che seguono li leggono senza sapere che descrivono un altro albero: e'
+# successo il 2026-08-21, e `coverage_soglia` ha detto «verde» su un albero che
+# non era quello dichiarato.
+passo coverage_pulizia cargo llvm-cov clean --workspace
+if passo coverage_misura cargo llvm-cov --workspace --all-targets --locked --no-report; then
+    passo coverage_export cargo llvm-cov report --lcov --output-path "${LOG_DIR}/lcov.info" \
+        --ignore-filename-regex "${ESCLUSIONI}"
+    # Ora il report esiste: il gate legge qualcosa invece di lamentarne l'assenza.
+    passo check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
+        --lcov "${LOG_DIR}/lcov.info"
+    passo coverage_soglia cargo llvm-cov report --summary-only \
+        --ignore-filename-regex "${ESCLUSIONI}" --fail-under-lines 80
+    copertura_misurata=1
+else
+    salta coverage_export coverage_misura
+    salta check_coverage_exclusions coverage_misura
+    salta coverage_soglia coverage_misura
+    copertura_misurata=0
+fi
 
 # --- diagnostica: la copertura delle sole righe cambiate ---------------------
 #
@@ -184,7 +220,11 @@ passo coverage_soglia cargo llvm-cov report --summary-only \
 # perche' ha comunque l'aria di un numero.
 echo
 echo "--- 6. diagnostica: copertura delle righe cambiate -----------"
-if [ -n "${S9_CHECKPOINT_BASE:-}" ]; then
+if [ "${copertura_misurata}" -ne 1 ]; then
+    echo "  saltata: la misura di copertura e' fallita."
+    echo "  Un numero calcolato su un report stantio somiglia a una misura, e"
+    echo "  descrive un albero che non e' quello dichiarato."
+elif [ -n "${S9_CHECKPOINT_BASE:-}" ]; then
     python3 scripts/coverage_diff.py --lcov "${LOG_DIR}/lcov.info" \
         --base "${S9_CHECKPOINT_BASE}" --head "${REVISIONE}" \
         > "${LOG_DIR}/coverage_diff.log" 2>&1
