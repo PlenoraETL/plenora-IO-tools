@@ -547,5 +547,10 @@
     "error": [
       "DataMapping/Validate/Wkb/Never"
     ]
+  },
+  "fuzz/fuzz_targets/harness.rs": {
+    "convert": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
   }
 }

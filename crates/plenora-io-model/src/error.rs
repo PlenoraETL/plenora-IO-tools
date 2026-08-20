@@ -157,6 +157,237 @@ impl IoErrorCode {
 /// I quattro assi sono indipendenti e serializzabili. `message` contiene solo
 /// contesto operativo: mai payload, definizioni CRS, percorsi assoluti o valori
 /// di cella.
+///
+/// # La via legacy non esiste piu', e il compilatore lo impone
+///
+/// Fino alla chiusura di S9 questo tipo aveva costruttori che accettavano
+/// `String` e `impl Into<String>`. Sono stati rimossi: **la garanzia non e' un
+/// gate ne' una convenzione, e' l'assenza della funzione**.
+///
+/// I blocchi che seguono compilano come **crate separati** che dipendono da
+/// `plenora-io-model`: vedono esattamente cio' che vede un consumatore
+/// esterno, e nient'altro.
+///
+/// ## Come sono costruite queste prove, e perche' cosi'
+///
+/// **Un `compile_fail` da solo prova poco**, e va detto invece che lasciato
+/// intendere: passa se il blocco non compila per una ragione *qualunque* — un
+/// import sbagliato, un nome di tipo storpiato, un argomento in piu'.
+/// Annotare il codice d'errore atteso non aiuta: e' stato verificato che
+/// `compile_fail,E0277` resta **verde** dove l'errore vero e' `E0624`, quindi
+/// rustdoc non lo impone.
+///
+/// Le prove sono percio' in **coppie**. Ogni blocco `compile_fail` e' il
+/// blocco che lo precede — che compila e passa le sue asserzioni — **piu' una
+/// riga**: quella che usa l'API vietata. Stessi import, stessi tipi, stesse
+/// chiamate permesse. Se il blocco negativo fallisse per una ragione diversa
+/// dalla riga aggiunta, il positivo fallirebbe con lui, e la coppia
+/// diventerebbe rossa.
+///
+/// La non vacuita' e' quindi **strutturale**, non affermata. La seconda prova,
+/// indipendente da rustdoc, e' il gate `scripts/check_errori_redatti.py`, che
+/// verifica nel sorgente che le definizioni non siano tornate a esistere.
+///
+/// ### Una `String` non entra, nemmeno per il costruttore con il nome storico
+///
+/// ```
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let permesso = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(permesso.message, "piano non valido");
+/// ```
+///
+/// ```compile_fail
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let permesso = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(permesso.message, "piano non valido");
+/// let _vietato = PlenoraIoError::Contract(String::from("piano non valido"));
+/// ```
+///
+/// ### Nemmeno passata alla via nuova, dove il tipo la rifiuta
+///
+/// ```
+/// use plenora_io_model::{
+///     ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, PublicMessage,
+///     RemoteEffect, RetryDisposition,
+/// };
+/// let permesso = PlenoraIoError::redatto(
+///     IoErrorCode::Generic,
+///     ErrorCategory::InvalidPlan,
+///     ErrorPhase::Validate,
+///     RemoteEffect::None,
+///     RetryDisposition::Never,
+///     &PublicMessage::Curated("piano non valido"),
+/// );
+/// assert_eq!(permesso.category, ErrorCategory::InvalidPlan);
+/// ```
+///
+/// ```compile_fail
+/// use plenora_io_model::{
+///     ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, PublicMessage,
+///     RemoteEffect, RetryDisposition,
+/// };
+/// let permesso = PlenoraIoError::redatto(
+///     IoErrorCode::Generic,
+///     ErrorCategory::InvalidPlan,
+///     ErrorPhase::Validate,
+///     RemoteEffect::None,
+///     RetryDisposition::Never,
+///     &PublicMessage::Curated("piano non valido"),
+/// );
+/// assert_eq!(permesso.category, ErrorCategory::InvalidPlan);
+/// let testo = String::from("piano non valido");
+/// let _vietato = PlenoraIoError::redatto(
+///     IoErrorCode::Generic,
+///     ErrorCategory::InvalidPlan,
+///     ErrorPhase::Validate,
+///     RemoteEffect::None,
+///     RetryDisposition::Never,
+///     &testo,
+/// );
+/// ```
+///
+/// ### Un `&format!(…)` non entra: e' la scorciatoia piu' probabile, perche' somiglia a un `&str` ed e' cio' che ogni sito migrato faceva prima
+///
+/// ```
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let permesso = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(permesso.message, "piano non valido");
+/// ```
+///
+/// ```compile_fail
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let permesso = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(permesso.message, "piano non valido");
+/// let indice = 3_u64;
+/// let _vietato = PlenoraIoError::schema_redatto(&format!("layer {indice} non valido"));
+/// ```
+///
+/// ### `format`, che accettava `impl Into<String>`, non esiste piu'
+///
+/// ```
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let permesso = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(permesso.message, "piano non valido");
+/// ```
+///
+/// ```compile_fail
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let permesso = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(permesso.message, "piano non valido");
+/// let _vietato = PlenoraIoError::format("shp", "riga non valida");
+/// ```
+///
+/// ### `new` non e' piu' raggiungibile: era la base di tutti e imponeva `code = Generic`
+///
+/// ```
+/// use plenora_io_model::{
+///     ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, PublicMessage,
+///     RemoteEffect, RetryDisposition,
+/// };
+/// let permesso = PlenoraIoError::redatto(
+///     IoErrorCode::Generic,
+///     ErrorCategory::InvalidPlan,
+///     ErrorPhase::Validate,
+///     RemoteEffect::None,
+///     RetryDisposition::Never,
+///     &PublicMessage::Curated("piano non valido"),
+/// );
+/// assert_eq!(permesso.category, ErrorCategory::InvalidPlan);
+/// ```
+///
+/// ```compile_fail
+/// use plenora_io_model::{
+///     ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, PublicMessage,
+///     RemoteEffect, RetryDisposition,
+/// };
+/// let permesso = PlenoraIoError::redatto(
+///     IoErrorCode::Generic,
+///     ErrorCategory::InvalidPlan,
+///     ErrorPhase::Validate,
+///     RemoteEffect::None,
+///     RetryDisposition::Never,
+///     &PublicMessage::Curated("piano non valido"),
+/// );
+/// assert_eq!(permesso.category, ErrorCategory::InvalidPlan);
+/// let _vietato = PlenoraIoError::new(
+///     ErrorCategory::Internal,
+///     ErrorPhase::Validate,
+///     RemoteEffect::None,
+///     RetryDisposition::Never,
+///     "qualcosa",
+/// );
+/// ```
+///
+/// ### E `LimitExceeded`, `Unsupported`, `Schema`, `Crs`, `Wkb`, `OutputExists`, `capability`, `crs_unresolved` — uno per tutti, perche' un doctest per ciascuno proverebbe la stessa cosa nove volte
+///
+/// ```
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let permesso = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(permesso.message, "piano non valido");
+/// ```
+///
+/// ```compile_fail
+/// use plenora_io_model::{PlenoraIoError, PublicMessage};
+/// let permesso = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(permesso.message, "piano non valido");
+/// let _vietato = PlenoraIoError::LimitExceeded(String::from("oltre il tetto"));
+/// ```
+///
+/// ## La controprova positiva, sulla superficie intera
+///
+/// I preamboli sopra provano che la via nuova compila; questo blocco prova che
+/// **serve a qualcosa**: i valori tipizzati arrivano nel messaggio e i quattro
+/// assi restano scegliibili uno per uno.
+///
+/// ```
+/// use plenora_io_model::{
+///     ErrorCategory, ErrorPhase, IoErrorCode, NumeroStrutturale, PlenoraIoError,
+///     PublicMessage, RemoteEffect, RetryDisposition,
+/// };
+///
+/// // Testo curato, scelto a compile time.
+/// let semplice = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+///     "piano non valido",
+/// ));
+/// assert_eq!(semplice.code, IoErrorCode::Contract);
+/// assert_eq!(semplice.message, "piano non valido");
+///
+/// // Un numero strutturale entra: e' un numero, non testo.
+/// let con_indice = PlenoraIoError::schema_redatto(&PublicMessage::CuratedWith(
+///     "layer non valido all'indice",
+///     NumeroStrutturale::Indice(3),
+/// ));
+/// assert_eq!(con_indice.message, "layer non valido all'indice 3");
+///
+/// // E i quattro assi restano scegliibili uno per uno.
+/// let esplicito = PlenoraIoError::redatto(
+///     IoErrorCode::Generic,
+///     ErrorCategory::Timeout,
+///     ErrorPhase::Commit,
+///     RemoteEffect::Unknown,
+///     RetryDisposition::RequiresRecovery,
+///     &PublicMessage::Curated("esito commit non verificabile"),
+/// );
+/// assert_eq!(esplicito.category, ErrorCategory::Timeout);
+/// assert_eq!(esplicito.remote_effect, RemoteEffect::Unknown);
+/// assert!(esplicito.is_retryable());
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlenoraIoError {
@@ -665,8 +896,13 @@ fn limita_messaggio(message: String) -> String {
 }
 
 impl PlenoraIoError {
+    /// Base **interna**. Non e' pubblica: dopo S9 nessun consumatore puo'
+    /// costruire un errore da testo libero, e questa e' la funzione che lo
+    /// permetterebbe. La usano solo i costruttori che compongono il proprio
+    /// messaggio da valori tipizzati (`reader_busy`, `cancelled`, `Io`,
+    /// `Json`, …), mai da un argomento del chiamante.
     #[must_use]
-    pub fn new(
+    fn new(
         category: ErrorCategory,
         phase: ErrorPhase,
         remote_effect: RemoteEffect,
@@ -923,58 +1159,8 @@ impl PlenoraIoError {
         !matches!(self.retry, RetryDisposition::Never)
     }
 
-    #[must_use]
-    pub fn capability(
-        driver: &'static str,
-        field: Option<String>,
-        reason: CapabilityReason,
-        detail: impl Into<String>,
-    ) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::Unsupported,
-            ErrorPhase::Validate,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            detail,
-        );
-        error.driver = Some(driver.to_owned());
-        error.code = IoErrorCode::Capability;
-        error.field = field;
-        error.capability_reason = Some(reason);
-        error
-    }
 
-    #[must_use]
-    pub fn format(driver: &'static str, reason: impl Into<String>) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::DataMapping,
-            ErrorPhase::Read,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            reason,
-        );
-        error.driver = Some(driver.to_owned());
-        error.code = IoErrorCode::Format;
-        error
-    }
 
-    #[must_use]
-    pub fn crs_unresolved(driver: &'static str, raw: &RawCrs) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::Crs,
-            ErrorPhase::Validate,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            format!(
-                "CRS dichiarato ma non risolto (authority_hint_bytes={}, definition_bytes={})",
-                raw.authority_hint.as_ref().map_or(0, String::len),
-                raw.definition.as_ref().map_or(0, String::len)
-            ),
-        );
-        error.driver = Some(driver.to_owned());
-        error.code = IoErrorCode::CrsUnresolved;
-        error
-    }
 
     #[must_use]
     pub fn reader_busy(driver: &'static str, layer: u32) -> Self {
@@ -1022,106 +1208,6 @@ impl PlenoraIoError {
             },
         );
         error.code = IoErrorCode::Cancelled;
-        error
-    }
-
-    // Costruttori con il nome storico: mantengono sorgenti compatibili i siti
-    // semplici, ma producono sempre il nuovo envelope a quattro assi.
-    #[allow(non_snake_case)]
-    #[must_use]
-    pub fn Contract(message: String) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::InvalidPlan,
-            ErrorPhase::Validate,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            message,
-        );
-        error.code = IoErrorCode::Contract;
-        error
-    }
-
-    #[allow(non_snake_case)]
-    #[must_use]
-    pub fn Unsupported(message: String) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::Unsupported,
-            ErrorPhase::Validate,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            message,
-        );
-        error.code = IoErrorCode::Unsupported;
-        error
-    }
-
-    #[allow(non_snake_case)]
-    #[must_use]
-    pub fn Schema(message: String) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::Schema,
-            ErrorPhase::Validate,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            message,
-        );
-        error.code = IoErrorCode::Schema;
-        error
-    }
-
-    #[allow(non_snake_case)]
-    #[must_use]
-    pub fn Crs(message: String) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::Crs,
-            ErrorPhase::Validate,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            message,
-        );
-        error.code = IoErrorCode::Crs;
-        error
-    }
-
-    #[allow(non_snake_case)]
-    #[must_use]
-    pub fn Wkb(message: String) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::DataMapping,
-            ErrorPhase::Read,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            message,
-        );
-        error.code = IoErrorCode::Wkb;
-        error
-    }
-
-    #[allow(non_snake_case)]
-    #[must_use]
-    pub fn LimitExceeded(message: String) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::ResourceLimit,
-            ErrorPhase::Validate,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            message,
-        );
-        error.code = IoErrorCode::LimitExceeded;
-        error
-    }
-
-    #[allow(non_snake_case)]
-    #[must_use]
-    pub fn OutputExists(_message: String) -> Self {
-        let mut error = Self::new(
-            ErrorCategory::Conflict,
-            ErrorPhase::Commit,
-            RemoteEffect::None,
-            RetryDisposition::Never,
-            "destinazione già esistente",
-        );
-        error.code = IoErrorCode::OutputExists;
         error
     }
 
@@ -1427,29 +1513,41 @@ mod tests {
     /// Non è una raccomandazione che ogni sito deve ricordare: è applicato
     /// nell'unico punto da cui passano tutti i costruttori, e il test lo
     /// verifica su tutte le forme pubbliche invece che su una.
+    /// Uno `&'static str` lungo, per i test del tetto.
+    ///
+    /// Dopo la rimozione della via legacy **nessun costruttore pubblico
+    /// accetta testo runtime**: per esercitare il troncamento end-to-end
+    /// serve uno statico costruito apposta. `Box::leak` in un test e' un
+    /// atto deliberato e visibile, non la scorciatoia che i doctest
+    /// `compile_fail` impediscono a un consumatore.
+    fn statico_lungo(pezzo: &str, ripetizioni: usize) -> &'static str {
+        Box::leak(pezzo.repeat(ripetizioni).into_boxed_str())
+    }
+
     #[test]
     fn nessun_errore_supera_il_tetto_del_messaggio() {
-        let enorme = "x".repeat(10_000);
+        let enorme = PublicMessage::Curated(statico_lungo("x", 10_000));
         let costruiti = [
-            PlenoraIoError::new(
+            PlenoraIoError::redatto(
+                IoErrorCode::Generic,
                 ErrorCategory::Internal,
                 ErrorPhase::Validate,
                 RemoteEffect::None,
                 RetryDisposition::Never,
-                enorme.clone(),
+                &enorme,
             ),
-            PlenoraIoError::Contract(enorme.clone()),
-            PlenoraIoError::Unsupported(enorme.clone()),
-            PlenoraIoError::Schema(enorme.clone()),
-            PlenoraIoError::Crs(enorme.clone()),
-            PlenoraIoError::Wkb(enorme.clone()),
-            PlenoraIoError::LimitExceeded(enorme.clone()),
-            PlenoraIoError::format("prova", enorme.clone()),
-            PlenoraIoError::capability(
+            PlenoraIoError::contratto_redatto(&enorme),
+            PlenoraIoError::non_supportato_redatto(&enorme),
+            PlenoraIoError::schema_redatto(&enorme),
+            PlenoraIoError::crs_redatto(&enorme),
+            PlenoraIoError::wkb_redatto(&enorme),
+            PlenoraIoError::limite_redatto(&enorme),
+            PlenoraIoError::formato_redatto("prova", &enorme),
+            PlenoraIoError::capability_redatta(
                 "prova",
                 None,
                 CapabilityReason::TypeNotRepresentable,
-                enorme,
+                &enorme,
             ),
         ];
         for errore in &costruiti {
@@ -1481,12 +1579,12 @@ mod tests {
     fn il_tetto_e_sul_valore_decodificato_non_sul_json() {
         // Tre input al limite, di espansione crescente.
         let casi = [
-            ("ascii", "x".repeat(4096)),
-            ("virgolette", "\"".repeat(4096)),
-            ("controlli", "\u{1}".repeat(4096)),
+            ("ascii", statico_lungo("x", 4096)),
+            ("virgolette", statico_lungo("\"", 4096)),
+            ("controlli", statico_lungo("\u{1}", 4096)),
         ];
         for (nome, grezzo) in casi {
-            let errore = PlenoraIoError::Contract(grezzo);
+            let errore = PlenoraIoError::contratto_redatto(&PublicMessage::Curated(grezzo));
 
             // Cio' che il tetto garantisce: il valore decodificato.
             assert!(
@@ -1533,9 +1631,9 @@ mod tests {
     /// indietro invece di panicare.
     #[test]
     fn il_troncamento_e_deterministico_e_rispetta_i_caratteri() {
-        let multibyte = "à".repeat(10_000);
-        let primo = PlenoraIoError::Contract(multibyte.clone()).message;
-        let secondo = PlenoraIoError::Contract(multibyte).message;
+        let multibyte = PublicMessage::Curated(statico_lungo("à", 10_000));
+        let primo = PlenoraIoError::contratto_redatto(&multibyte).message;
+        let secondo = PlenoraIoError::contratto_redatto(&multibyte).message;
         assert_eq!(primo, secondo, "il troncamento deve essere deterministico");
         assert!(primo.len() <= MAX_MESSAGE_BYTES);
         // Se il taglio avesse spezzato un carattere, la stringa non esisterebbe
@@ -1544,7 +1642,8 @@ mod tests {
         assert!(primo.ends_with('…'));
 
         // Un messaggio sotto il tetto non viene toccato né marcato.
-        let corto = PlenoraIoError::Contract("piano non valido".to_owned()).message;
+        let corto =
+            PlenoraIoError::contratto_redatto(&PublicMessage::Curated("piano non valido")).message;
         assert_eq!(corto, "piano non valido");
     }
 
@@ -1588,8 +1687,9 @@ mod tests {
             diagnostic_state_counts: None,
             write_outcome: None,
         };
-        let error = PlenoraIoError::format("shp", "3 righe Shapefile non valide")
-            .with_row_diagnostics(diagnostics);
+        let error =
+            PlenoraIoError::formato_redatto("shp", &PublicMessage::Curated("3 righe Shapefile non valide"))
+                .with_row_diagnostics(diagnostics);
 
         let value = serde_json::to_value(error).unwrap();
         assert_eq!(
@@ -1614,20 +1714,27 @@ mod tests {
     #[test]
     fn unresolved_authority_error_does_not_require_or_expose_a_definition() {
         let raw = RawCrs::from_authority_hint("EPSG:99999".to_owned());
-        let error = PlenoraIoError::crs_unresolved("ipc", &raw);
+        let error = PlenoraIoError::crs_non_risolto_redatto("ipc", &raw);
 
-        assert!(error.message.contains("definition_bytes=0"));
+        // Il costruttore redatto rende i due conteggi con le parole del
+        // messaggio curato: la proprieta' verificata resta «escono i byte,
+        // non il valore».
+        assert_eq!(
+            error.message,
+            "CRS dichiarato ma non risolto: authority_hint di 10 byte, definizione di 0",
+        );
         assert!(!error.message.contains("EPSG:99999"));
     }
 
     #[test]
     fn timeout_after_commit_keeps_cause_effect_and_recovery_separate() {
-        let error = PlenoraIoError::new(
+        let error = PlenoraIoError::redatto(
+            IoErrorCode::Generic,
             ErrorCategory::Timeout,
             ErrorPhase::Commit,
             RemoteEffect::Unknown,
             RetryDisposition::RequiresRecovery,
-            "esito commit non verificabile",
+            &PublicMessage::Curated("esito commit non verificabile"),
         );
         assert_eq!(error.category, ErrorCategory::Timeout);
         assert_eq!(error.remote_effect, RemoteEffect::Unknown);
@@ -1648,12 +1755,13 @@ mod tests {
 
     #[test]
     fn four_axis_error_roundtrips_and_rejects_unknown_fields() {
-        let error = PlenoraIoError::new(
+        let error = PlenoraIoError::redatto(
+            IoErrorCode::Generic,
             ErrorCategory::Timeout,
             ErrorPhase::Commit,
             RemoteEffect::Unknown,
             RetryDisposition::RequiresRecovery,
-            "esito commit non verificabile",
+            &PublicMessage::Curated("esito commit non verificabile"),
         );
         let value = serde_json::to_value(&error).unwrap();
         let decoded: PlenoraIoError = serde_json::from_value(value.clone()).unwrap();

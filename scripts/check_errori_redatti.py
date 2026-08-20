@@ -103,13 +103,92 @@ FUORI_DA_UNA_FUNZIONE = "<modulo>"
 
 
 def sorgenti(radice: Path) -> list[Path]:
-    crates = radice / "crates"
-    if not crates.is_dir():
-        return []
+    """Tutto il codice Rust del repository.
+
+    Non solo `crates/`: i target di fuzzing vivono in `fuzz/`, e fino alla
+    chiusura di S9 non venivano guardati da questo gate. Un costruttore legacy
+    in un harness di fuzzing e' codice che compila e che qualcuno rilegge.
+    """
+    trovate: list[Path] = []
+    for radice_parziale in (radice / "crates", radice / "fuzz"):
+        if not radice_parziale.is_dir():
+            continue
+        trovate.extend(
+            sorgente
+            for sorgente in sorted(radice_parziale.rglob("*.rs"))
+            if "target" not in sorgente.relative_to(radice_parziale).parts
+        )
+    return trovate
+
+
+INIZIO_BLOCCO = re.compile(r"^\s*(?:///|//!)\s*```(?P<attributi>.*)$")
+
+
+def doctest_che_devono_compilare(sorgente: str) -> list[tuple[int, str]]:
+    """`(riga d'inizio, codice)` dei blocchi doctest che **devono** compilare.
+
+    I blocchi `compile_fail` sono esclusi, e non e' un'allowlist: un blocco
+    marcato cosi' e' per definizione la prova che quel codice *non* compila.
+    Contarlo come violazione significherebbe rossare proprio la prova che la
+    via legacy non esiste piu'.
+
+    Serve perche' `spoglia` cancella i commenti, e un doctest e' codice che
+    vive dentro un commento: senza questa funzione il gate non lo vedrebbe.
+    """
+    blocchi: list[tuple[int, str]] = []
+    righe = sorgente.splitlines()
+    indice = 0
+    while indice < len(righe):
+        apertura = INIZIO_BLOCCO.match(righe[indice])
+        if apertura is None:
+            indice += 1
+            continue
+        attributi = apertura.group("attributi")
+        prima_riga = indice + 2
+        corpo: list[str] = []
+        indice += 1
+        while indice < len(righe) and INIZIO_BLOCCO.match(righe[indice]) is None:
+            corpo.append(re.sub(r"^\s*(?:///|//!) ?", "", righe[indice]))
+            indice += 1
+        indice += 1
+        if "compile_fail" not in attributi and "ignore" not in attributi:
+            blocchi.append((prima_riga, "\n".join(corpo)))
+    return blocchi
+
+
+# Le definizioni che S9 ha rimosso. Il gate non verifica solo che nessuno le
+# chiami: verifica che **non esistano**, che e' la proprieta' che rende vere le
+# prove `compile_fail` — quelle passerebbero anche per un refuso, questa no.
+DEFINIZIONI_RIMOSSE = (
+    "new",
+    "capability",
+    "format",
+    "crs_unresolved",
+    "Contract",
+    "Unsupported",
+    "Schema",
+    "Crs",
+    "Wkb",
+    "LimitExceeded",
+    "OutputExists",
+)
+DEFINIZIONE = re.compile(
+    r"pub\s+(?:const\s+)?fn\s+(" + "|".join(DEFINIZIONI_RIMOSSE) + r")\s*\("
+)
+SORGENTE_DEI_COSTRUTTORI = "crates/plenora-io-model/src/error.rs"
+
+
+def definizioni_legacy(radice: Path) -> list[str]:
+    """I costruttori legacy che fossero tornati a esistere."""
+    sorgente = radice / SORGENTE_DEI_COSTRUTTORI
+    if not sorgente.is_file():
+        return [f"{SORGENTE_DEI_COSTRUTTORI}: sparito; il gate non ha piu' presa"]
+    testo = spoglia(sorgente.read_text(encoding="utf-8"))
     return [
-        sorgente
-        for sorgente in sorted(crates.rglob("*.rs"))
-        if "target" not in sorgente.relative_to(crates).parts
+        f"{SORGENTE_DEI_COSTRUTTORI}: `pub fn {m.group(1)}` e' tornata a esistere. "
+        "S9 l'ha rimossa: la garanzia non e' un gate ne' una convenzione, e' "
+        "l'assenza della funzione."
+        for m in DEFINIZIONE.finditer(testo)
     ]
 
 
@@ -265,26 +344,40 @@ def verifica(radice: Path) -> tuple[list[str], dict[str, int]]:
     """`(violazioni, occorrenze per `percorso::funzione`)`."""
     trovate: dict[str, int] = {}
     per_crate: dict[str, int] = {}
+    violazioni_doctest: list[str] = []
 
     for sorgente in sorgenti(radice):
         parti = sorgente.relative_to(radice).parts
-        crate = parti[1]
-        if crate in ATTREZZAGGIO:
-            continue
-        testo = spoglia(sorgente.read_text(encoding="utf-8"))
+        crate = parti[1] if parti[0] == "crates" else "fuzz"
+        grezzo = sorgente.read_text(encoding="utf-8")
+
+        # I doctest: codice dentro un commento, che `spoglia` cancella.
+        percorso_doc = sorgente.relative_to(radice).as_posix()
+        for riga, codice in doctest_che_devono_compilare(grezzo):
+            for m in CHIAMATA.finditer(spoglia(codice)):
+                nome = m.group(0).rstrip("( \t")
+                violazioni_doctest.append(
+                    f"{percorso_doc}: doctest alla riga {riga} usa `{nome}`. "
+                    "Un doctest che deve compilare e' codice come un altro; se "
+                    "serve mostrare la via vecchia, il blocco va marcato "
+                    "`compile_fail`, che e' la prova opposta."
+                )
+
+        testo = spoglia(grezzo)
         if not CHIAMATA.search(testo):
             continue
         percorso = sorgente.relative_to(radice).as_posix()
         intervalli = intervalli_di_funzione(testo)
-        solo_test = righe_di_test(testo)
+        # I test contano quanto la produzione. Fino alla chiusura di S9 erano
+        # esclusi, perche' la migrazione procedeva un crate per volta e i test
+        # erano l'ultima cosa a muoversi; ora che la via legacy non esiste,
+        # un'occorrenza in un test e' codice che non compilerebbe.
         for m in CHIAMATA.finditer(testo):
-            if testo.count("\n", 0, m.start()) + 1 in solo_test:
-                continue
             chiave = f"{percorso}::{funzione_che_racchiude(intervalli, m.start())}"
             trovate[chiave] = trovate.get(chiave, 0) + 1
             per_crate[crate] = per_crate.get(crate, 0) + 1
 
-    errori: list[str] = []
+    errori: list[str] = definizioni_legacy(radice) + violazioni_doctest
 
     # 1. Un crate migrato non puo' avere nemmeno un'occorrenza.
     for crate in MIGRATI:

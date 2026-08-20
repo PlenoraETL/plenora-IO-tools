@@ -55,6 +55,11 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+# NB: `sorgenti` e' condivisa con il censimento, e questo gate ne eredita il
+# perimetro. Alla chiusura di S9 quella funzione e' stata estesa a `fuzz/`, e
+# questo gate ha cominciato a vedere `fuzz/fuzz_targets/harness.rs` senza che
+# nessuno lo chiedesse: il sito non era nuovo, era nuovo alla vista. Chi tocca
+# `sorgenti` allarga due gate, non uno.
 from check_errori_redatti import (  # noqa: E402
     ATTREZZAGGIO,
     funzione_che_racchiude,

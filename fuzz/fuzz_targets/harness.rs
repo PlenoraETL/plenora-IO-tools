@@ -20,7 +20,7 @@ use plenora_io_core::request::{
 };
 use plenora_io_model::contract::{DataContract, LayerContract, LayerId};
 use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
-use plenora_io_model::PlenoraIoError;
+use plenora_io_model::{PlenoraIoError, PublicMessage};
 
 /// Tetto sull'input accettato dal target, allineato a `__fuzz_read_dxf`: oltre
 /// questa soglia il costo per esecuzione degrada senza aggiungere copertura.
@@ -178,7 +178,9 @@ pub fn convert(
     let mut writer = writer_driver.create(Sink::Path(output), &plan, &write_options)?;
     for (index, layer) in layers.iter().enumerate() {
         let sink_layer = LayerId(u32::try_from(index).map_err(|_| {
-            PlenoraIoError::LimitExceeded("numero di layer non rappresentabile".to_owned())
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "numero di layer non rappresentabile",
+            ))
         })?);
         let mut reader = dataset.open_layer_reader(&read_request(layer.id))?;
         let mut batches = Vec::new();

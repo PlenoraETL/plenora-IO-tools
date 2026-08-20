@@ -443,7 +443,7 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 13 | `driver-dxf` | 20 → 0 (42 chiamanti via `err`, 10 siti con testo della dipendenza, 1 fuga di payload: il nome del blocco) | **chiusa**, livello 1; quartetti invariati per snapshot |
 | 14 | `plenora-io-cli` | 6 → 0 (24 chiamanti su **due** helper, 3 valori da `argv` eliminati, 7 conservati per provenienza) | **chiusa**, livello 1; busta d'uso fissata da test |
 | 4… | i dieci driver, poi la CLI | |
-| ultima | rimozione della via legacy | solo a censimento zero |
+| ultima | rimozione della via legacy | **fatta**: 11 costruttori rimossi, `new` resa privata; censimento esteso a test, doctest e `fuzz/`; prove `compile_fail` in coppie da consumatore esterno |
 | chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |
 
 **Una tranche per commit.** Non si comincia il crate successivo nello stesso

@@ -1681,9 +1681,7 @@ mod tests {
 
     #[test]
     fn output_exists_keeps_the_frozen_cli_exit_and_category() {
-        let (exit, document) = map_err(PlenoraIoError::OutputExists(
-            "existing.unsupported".to_owned(),
-        ));
+        let (exit, document) = map_err(PlenoraIoError::destinazione_esistente());
         assert_eq!(exit, 3);
         assert_eq!(document["error"]["code"], "OUTPUT_EXISTS");
         assert_eq!(document["error"]["category"], "conflict");
@@ -1714,8 +1712,11 @@ mod tests {
             diagnostic_state_counts: None,
             write_outcome: None,
         };
-        let error = PlenoraIoError::format("shp", "riga Shapefile non valida")
-            .with_row_diagnostics(diagnostics);
+        let error = PlenoraIoError::formato_redatto(
+            "shp",
+            &PublicMessage::Curated("riga Shapefile non valida"),
+        )
+        .with_row_diagnostics(diagnostics);
 
         let (exit, document) = map_err(error);
 
@@ -1913,8 +1914,14 @@ mod tests {
     #[test]
     fn data_mapping_changes_exit_only_and_preserves_frozen_error_codes() {
         for (error, expected_code) in [
-            (PlenoraIoError::format("shp", "formato"), "FORMAT_ERROR"),
-            (PlenoraIoError::Wkb("wkb".to_owned()), "FORMAT_ERROR"),
+            (
+                PlenoraIoError::formato_redatto("shp", &PublicMessage::Curated("formato")),
+                "FORMAT_ERROR",
+            ),
+            (
+                PlenoraIoError::wkb_redatto(&PublicMessage::Curated("wkb")),
+                "FORMAT_ERROR",
+            ),
             (
                 PlenoraIoError::Json(serde_json::from_str::<Value>("{").unwrap_err()),
                 "FORMAT_ERROR",
@@ -1937,12 +1944,13 @@ mod tests {
 
     #[test]
     fn retry_after_keeps_delay_in_the_cli_envelope() {
-        let error = PlenoraIoError::new(
+        let error = PlenoraIoError::redatto(
+            plenora_io_model::IoErrorCode::Generic,
             ErrorCategory::Transient,
             ErrorPhase::Connect,
             RemoteEffect::None,
             RetryDisposition::After(2_750),
-            "servizio temporaneamente non disponibile",
+            &PublicMessage::Curated("servizio temporaneamente non disponibile"),
         );
         let (exit, document) = map_err(error);
 
@@ -2208,9 +2216,9 @@ mod tests {
             "LOCAL_CS[\"survey-grid-secret\"]".to_owned(),
             Some("authority-secret".to_owned()),
         );
-        let (_, document) = map_err(plenora_io_model::PlenoraIoError::crs_unresolved(
-            "shp", &raw,
-        ));
+        let (_, document) = map_err(
+            plenora_io_model::PlenoraIoError::crs_non_risolto_redatto("shp", &raw),
+        );
         assert_eq!(document["error"]["code"], "CRS_UNRESOLVED");
         assert!(!document.to_string().contains("survey-grid-secret"));
         assert!(!document.to_string().contains("authority-secret"));
