@@ -78,6 +78,7 @@ MIGRATI = (
     "driver-ipc",
     "driver-xls",
     "driver-filegdb",
+    "driver-shp",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -102,16 +103,6 @@ DA_MIGRARE: dict[str, int] = {
     "crates/driver-dxf/src/lib.rs::resolve_dxf_crs": 2,
     "crates/driver-dxf/src/lib.rs::write": 2,
     "crates/driver-dxf/src/lib.rs::write_file_value": 1,
-    "crates/driver-shp/src/lib.rs::create": 4,
-    "crates/driver-shp/src/lib.rs::declare_input_total": 1,
-    "crates/driver-shp/src/lib.rs::err": 1,
-    "crates/driver-shp/src/lib.rs::finish": 2,
-    "crates/driver-shp/src/lib.rs::from_options": 5,
-    "crates/driver-shp/src/lib.rs::publish_mode": 3,
-    "crates/driver-shp/src/lib.rs::resolve_crs": 2,
-    "crates/driver-shp/src/lib.rs::resolved_crs_id": 1,
-    "crates/driver-shp/src/lib.rs::shapefile_source_path": 1,
-    "crates/driver-shp/src/lib.rs::write": 2,
     "crates/plenora-io-cli/src/main.rs::cmd_convert": 5,
     "crates/plenora-io-cli/src/main.rs::local_err_doc": 1,
 }

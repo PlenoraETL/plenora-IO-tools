@@ -64,9 +64,10 @@ use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
 use plenora_io_model::{
-    PlenoraIoError, Result, RowDiagnosticExample, RowDiagnosticKey, RowDiagnosticKeyState,
-    RowDiagnosticKeyValue, RowDiagnosticScope, RowDiagnostics, RowDiagnosticsCompleteness,
-    ROW_DIAGNOSTICS_CONTRACT, ROW_DIAGNOSTICS_INDEX_BASIS,
+    NumeroStrutturale, PlenoraIoError, PublicMessage, Result, RowDiagnosticExample,
+    RowDiagnosticKey, RowDiagnosticKeyState, RowDiagnosticKeyValue, RowDiagnosticScope,
+    RowDiagnostics, RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT,
+    ROW_DIAGNOSTICS_INDEX_BASIS,
 };
 
 const GEOMETRY: &str = "geometry";
@@ -95,8 +96,8 @@ const ATTRIBUTE_NUMERIC_INVALID_CAUSE: &str = "shapefile.attribute_numeric_inval
 /// sorgente dà solo il codice autorità e non una definizione WKT.
 const WGS84_WKT: &str = "GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]";
 
-fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("shp", reason)
+fn err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("shp", reason)
 }
 
 #[derive(Clone, Copy)]
@@ -133,24 +134,29 @@ impl ShpRowDiagnosticsConfig {
             Ok(DEFAULT_ROW_DIAGNOSTICS_EXAMPLES_LIMIT),
             |value| {
                 value.parse::<u64>().map_err(|_| {
-                    PlenoraIoError::new(
+                    PlenoraIoError::redatto(
+                        plenora_io_model::IoErrorCode::Generic,
                         plenora_io_model::ErrorCategory::InvalidConfiguration,
                         plenora_io_model::ErrorPhase::Validate,
                         plenora_io_model::RemoteEffect::None,
                         plenora_io_model::RetryDisposition::Never,
-                        "row_diagnostics.examples_limit deve essere un intero",
+                        &PublicMessage::Curated(
+                            "row_diagnostics.examples_limit deve essere un intero",
+                        ),
                     )
                 })
             },
         )?;
         if !(1..=MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT).contains(&examples_limit) {
-            return Err(PlenoraIoError::new(
+            return Err(PlenoraIoError::redatto(
+                plenora_io_model::IoErrorCode::Generic,
                 plenora_io_model::ErrorCategory::InvalidConfiguration,
                 plenora_io_model::ErrorPhase::Validate,
                 plenora_io_model::RemoteEffect::None,
                 plenora_io_model::RetryDisposition::Never,
-                format!(
-                    "row_diagnostics.examples_limit deve essere compreso tra 1 e {MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT}"
+                &PublicMessage::CuratedWith(
+                    "row_diagnostics.examples_limit deve essere compreso fra 1 e",
+                    NumeroStrutturale::Limite(MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT),
                 ),
             ));
         }
@@ -158,12 +164,15 @@ impl ShpRowDiagnosticsConfig {
         let key = match options.get("row_diagnostics.key_field") {
             None => {
                 if options.contains_key("row_diagnostics.key_policy") {
-                    return Err(PlenoraIoError::new(
+                    return Err(PlenoraIoError::redatto(
+                        plenora_io_model::IoErrorCode::Generic,
                         plenora_io_model::ErrorCategory::InvalidConfiguration,
                         plenora_io_model::ErrorPhase::Validate,
                         plenora_io_model::RemoteEffect::None,
                         plenora_io_model::RetryDisposition::Never,
-                        "row_diagnostics.key_policy richiede row_diagnostics.key_field",
+                        &PublicMessage::Curated(
+                            "row_diagnostics.key_policy richiede row_diagnostics.key_field",
+                        ),
                     ));
                 }
                 None
@@ -173,12 +182,15 @@ impl ShpRowDiagnosticsConfig {
                     .iter()
                     .find(|column| column.name == *field)
                     .ok_or_else(|| {
-                        PlenoraIoError::new(
+                        PlenoraIoError::redatto(
+                            plenora_io_model::IoErrorCode::Generic,
                             plenora_io_model::ErrorCategory::InvalidConfiguration,
                             plenora_io_model::ErrorPhase::Validate,
                             plenora_io_model::RemoteEffect::None,
                             plenora_io_model::RetryDisposition::Never,
-                            "row_diagnostics.key_field non esiste nello schema DBF",
+                            &PublicMessage::Curated(
+                                "row_diagnostics.key_field non esiste nello schema DBF",
+                            ),
                         )
                     })?;
                 let policy = match options
@@ -188,12 +200,15 @@ impl ShpRowDiagnosticsConfig {
                     Some("emit") => DiagnosticKeyPolicy::Emit,
                     Some("redact") => DiagnosticKeyPolicy::Redact,
                     _ => {
-                        return Err(PlenoraIoError::new(
+                        return Err(PlenoraIoError::redatto(
+                            plenora_io_model::IoErrorCode::Generic,
                             plenora_io_model::ErrorCategory::InvalidConfiguration,
                             plenora_io_model::ErrorPhase::Validate,
                             plenora_io_model::RemoteEffect::None,
                             plenora_io_model::RetryDisposition::Never,
-                            "row_diagnostics.key_policy deve essere 'emit' o 'redact'",
+                            &PublicMessage::Curated(
+                                "row_diagnostics.key_policy deve essere 'emit' o 'redact'",
+                            ),
                         ))
                     }
                 };
@@ -358,10 +373,7 @@ fn publish_mode(path: &Path, opts: &WriteOptions) -> Result<ShapefilePublishMode
     {
         ShapefilePublishMode::LooseSet
     } else {
-        return Err(PlenoraIoError::Unsupported(
-            "l'output Shapefile deve terminare con .shp (loose set) o .shp.d (directory dataset)"
-                .to_owned(),
-        ));
+        return Err(PlenoraIoError::non_supportato_redatto(&PublicMessage::Curated("l'output Shapefile deve terminare con .shp (loose set) o .shp.d (directory dataset)")));
     };
     let Some(requested) = opts.format_options.get("publish_mode") else {
         return Ok(inferred);
@@ -369,30 +381,30 @@ fn publish_mode(path: &Path, opts: &WriteOptions) -> Result<ShapefilePublishMode
     let requested = match requested.as_str() {
         DIRECTORY_DATASET_MODE => ShapefilePublishMode::DirectoryDataset,
         LOOSE_SET_MODE => ShapefilePublishMode::LooseSet,
-        other => {
-            return Err(PlenoraIoError::Unsupported(format!(
-                "publish_mode Shapefile '{other}' non valido; usare '{DIRECTORY_DATASET_MODE}' o '{LOOSE_SET_MODE}'"
-            )))
+        _ => {
+            // Il valore non esce: lo schema dichiara `publish_mode` come
+            // `Enumerato`, quindi un valore diverso e' gia' stato respinto da
+            // `valida_opzioni` con il suo token. Questo ramo e' difensivo.
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "publish_mode Shapefile non valido; usare directory-dataset o loose-set",
+                ),
+            ));
         }
     };
     if requested != inferred {
-        return Err(PlenoraIoError::Unsupported(format!(
-            "publish_mode '{}' richiede una destinazione {}",
-            requested.name(),
-            requested.destination_suffix()
-        )));
+        // Entrambi sono `&'static str` del nostro enum, non testo runtime.
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::CuratedPair(
+                "publish_mode richiede una destinazione con suffisso",
+                requested.destination_suffix(),
+            ),
+        ));
     }
     Ok(requested)
 }
 
 impl ShapefilePublishMode {
-    const fn name(self) -> &'static str {
-        match self {
-            Self::DirectoryDataset => DIRECTORY_DATASET_MODE,
-            Self::LooseSet => LOOSE_SET_MODE,
-        }
-    }
-
     const fn destination_suffix(self) -> &'static str {
         match self {
             Self::DirectoryDataset => "*.shp.d",
@@ -406,13 +418,15 @@ fn shapefile_source_path(path: PathBuf) -> Result<PathBuf> {
         return Ok(path);
     }
     if !is_directory_dataset_path(&path) {
-        return Err(PlenoraIoError::Unsupported(
-            "directory Shapefile non riconosciuta (atteso *.shp.d)".to_owned(),
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated("directory Shapefile non riconosciuta (atteso *.shp.d)"),
         ));
     }
     let source = path.join("data.shp");
     if !source.is_file() {
-        return Err(err("directory dataset senza data.shp"));
+        return Err(err(&PublicMessage::Curated(
+            "directory dataset senza data.shp",
+        )));
     }
     Ok(source)
 }
@@ -598,14 +612,14 @@ impl FormatDriver for ShpDriver {
         let Sink::Path(dest) = sink;
         let publish_mode = publish_mode(&dest, opts)?;
         if plan.layers.len() != 1 {
-            return Err(PlenoraIoError::Unsupported(
-                "Shapefile: un solo layer per file".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("Shapefile: un solo layer per file"),
             ));
         }
         match publish_mode {
             ShapefilePublishMode::DirectoryDataset => {
                 if dest.exists() {
-                    return Err(PlenoraIoError::OutputExists(dest.display().to_string()));
+                    return Err(PlenoraIoError::destinazione_esistente());
                 }
             }
             ShapefilePublishMode::LooseSet => {
@@ -613,7 +627,7 @@ impl FormatDriver for ShpDriver {
                 for ext in ["shp", "shx", "dbf", "prj"] {
                     let sibling = dest.with_extension(ext);
                     if sibling.exists() {
-                        return Err(PlenoraIoError::OutputExists(sibling.display().to_string()));
+                        return Err(PlenoraIoError::destinazione_esistente());
                     }
                 }
             }
@@ -621,8 +635,11 @@ impl FormatDriver for ShpDriver {
 
         let layer = &plan.layers[0];
         let schema = &layer.contract.schema;
-        let geom_idx = geometry_index(schema)
-            .ok_or_else(|| err("il contratto non ha una colonna geometria geoarrow.wkb"))?;
+        let geom_idx = geometry_index(schema).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "il contratto non ha una colonna geometria geoarrow.wkb",
+            ))
+        })?;
 
         // Capability-check (ADR-IO 3): costruisce il dbf, fail-closed sui nomi.
         let mut table = TableWriterBuilder::new();
@@ -632,9 +649,10 @@ impl FormatDriver for ShpDriver {
                 continue;
             }
             let fname = shapefile::dbase::FieldName::try_from(f.name().as_str()).map_err(|_| {
-                PlenoraIoError::Unsupported(format!(
-                    "nome campo '{}' non valido per dbf (max 10 caratteri ASCII)",
-                    f.name()
+                // Il nome viene dal piano, e chi legge l'errore ha il piano.
+                PlenoraIoError::non_supportato_redatto(&PublicMessage::CuratedWith(
+                    "nome campo non valido per dbf (max 10 caratteri ASCII), indice",
+                    NumeroStrutturale::Indice(driver_common::saturating_u64(i)),
                 ))
             })?;
             let kind = DbfKind::from(f.data_type());
@@ -650,7 +668,7 @@ impl FormatDriver for ShpDriver {
         let staging = create_staged_dir(&dest)?;
         let shp_path = staging.path().join("data.shp");
         let writer = Writer::from_path(&shp_path, table)
-            .map_err(|e| err(format!("creazione shapefile: {e}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("creazione dello shapefile fallita")))?;
 
         with_write_validation(
             Box::new(ShpWriter {
@@ -788,8 +806,8 @@ struct ShpWriter {
 impl FormatWriter for ShpWriter {
     fn declare_input_total(&mut self, layer: LayerId, total: u64) -> Result<()> {
         if layer.0 != 0 {
-            return Err(PlenoraIoError::Unsupported(
-                "Shapefile supporta un solo layer".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("Shapefile supporta un solo layer"),
             ));
         }
         self.input_total = Some(total);
@@ -801,7 +819,7 @@ impl FormatWriter for ShpWriter {
             .column(self.geom_idx)
             .as_any()
             .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| err("colonna geometria non binaria"))?;
+            .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
         let limits = self.wkb_limits;
         let mut st = self.shape_type;
         let mut prepared = Vec::with_capacity(batch.num_rows());
@@ -855,27 +873,36 @@ impl FormatWriter for ShpWriter {
                 self.input_total,
             ));
         }
-        let w = self.writer.as_mut().ok_or_else(|| err("writer chiuso"))?;
+        let w = self
+            .writer
+            .as_mut()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer chiuso")))?;
         for (shape, rec) in prepared {
             write_shape(w, shape, &rec)?;
         }
         self.shape_type = st;
         self.rows = self
             .rows
-            .checked_add(
-                u64::try_from(batch.num_rows()).map_err(|_| {
-                    PlenoraIoError::LimitExceeded("troppe righe Shapefile".to_owned())
-                })?,
-            )
-            .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe righe Shapefile".to_owned()))?;
+            .checked_add(u64::try_from(batch.num_rows()).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe Shapefile"))
+            })?)
+            .ok_or_else(|| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe Shapefile"))
+            })?;
         Ok(())
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
         // Finalizza .shp/.shx/.dbf (header + bounding box) rilasciando il writer.
-        let w = self.writer.take().ok_or_else(|| err("writer già chiuso"))?;
+        let w = self
+            .writer
+            .take()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer già chiuso")))?;
         drop(w);
-        let staging = self.staging.take().ok_or_else(|| err("staging mancante"))?;
+        let staging = self
+            .staging
+            .take()
+            .ok_or_else(|| err(&PublicMessage::Curated("staging mancante")))?;
 
         if let Some(wkt) = &self.prj {
             std::fs::write(staging.path().join("data.prj"), wkt)?;
@@ -888,16 +915,20 @@ impl FormatWriter for ShpWriter {
             .try_fold(0_u64, |total, path| {
                 let bytes = std::fs::metadata(path)?.len();
                 total.checked_add(bytes).ok_or_else(|| {
-                    PlenoraIoError::LimitExceeded(
-                        "overflow nel conteggio dell'output Shapefile".to_owned(),
-                    )
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "overflow nel conteggio dell'output Shapefile",
+                    ))
                 })
             })?;
         if staged_bytes > self.max_output_bytes {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "output Shapefile da {staged_bytes} byte oltre il limite di {}",
-                self.max_output_bytes
-            )));
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "output Shapefile da",
+                    NumeroStrutturale::Conteggio(staged_bytes),
+                    "byte oltre il limite di",
+                    NumeroStrutturale::Limite(self.max_output_bytes),
+                ),
+            ));
         }
 
         let (bytes, outcome) = match self.publish_mode {
@@ -946,7 +977,9 @@ fn take_child(
         || child.dimensions != parent_dimensions
         || child.geometry_type() != expected
     {
-        return Err(err("geometria WKB annidata incoerente per Shapefile"));
+        return Err(err(&PublicMessage::Curated(
+            "geometria WKB annidata incoerente per Shapefile",
+        )));
     }
     Ok(child.value)
 }
@@ -956,13 +989,15 @@ fn polygon_rings(
     destination: &mut Vec<(bool, Vec<WkbCoordinate>)>,
 ) -> Result<()> {
     if rings.is_empty() {
-        return Err(err("poligono vuoto non rappresentabile in Shapefile"));
+        return Err(err(&PublicMessage::Curated(
+            "poligono vuoto non rappresentabile in Shapefile",
+        )));
     }
     for (index, ring) in rings.into_iter().enumerate() {
         if ring.len() < 4 || ring.first() != ring.last() {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "anello WKB non chiuso o con meno di quattro coordinate",
-            ));
+            )));
         }
         destination.push((index == 0, ring));
     }
@@ -971,39 +1006,45 @@ fn polygon_rings(
 
 fn topology_from_wkb(geometry: WkbGeometry) -> Result<ShpTopology> {
     if geometry.srid.is_some() {
-        return Err(err(
+        return Err(err(&PublicMessage::Curated(
             "SRID embedded non rappresentabile nel payload Shapefile; usare il CRS del layer",
-        ));
+        )));
     }
     let dimensions = geometry.dimensions;
     match geometry.value {
         WkbValue::Point(coordinate) => Ok(ShpTopology::Point(coordinate)),
         WkbValue::MultiPoint(children) => {
             if children.is_empty() {
-                return Err(err("MultiPoint vuoto non rappresentabile in Shapefile"));
+                return Err(err(&PublicMessage::Curated(
+                    "MultiPoint vuoto non rappresentabile in Shapefile",
+                )));
             }
             let mut coordinates = Vec::with_capacity(children.len());
             for child in children {
                 match take_child(child, dimensions, GeometryType::Point)? {
                     WkbValue::Point(coordinate) => coordinates.push(coordinate),
-                    _ => return Err(err("MultiPoint con membro non-Point")),
+                    _ => {
+                        return Err(err(&PublicMessage::Curated(
+                            "MultiPoint con membro non-Point",
+                        )))
+                    }
                 }
             }
             Ok(ShpTopology::Multipoint(coordinates))
         }
         WkbValue::LineString(coordinates) => {
             if coordinates.len() < 2 {
-                return Err(err(
+                return Err(err(&PublicMessage::Curated(
                     "LineString con meno di due coordinate non rappresentabile in Shapefile",
-                ));
+                )));
             }
             Ok(ShpTopology::Polyline(vec![coordinates]))
         }
         WkbValue::MultiLineString(children) => {
             if children.is_empty() {
-                return Err(err(
+                return Err(err(&PublicMessage::Curated(
                     "MultiLineString vuoto non rappresentabile in Shapefile",
-                ));
+                )));
             }
             let mut parts = Vec::with_capacity(children.len());
             for child in children {
@@ -1012,11 +1053,15 @@ fn topology_from_wkb(geometry: WkbGeometry) -> Result<ShpTopology> {
                         parts.push(coordinates);
                     }
                     WkbValue::LineString(_) => {
-                        return Err(err(
+                        return Err(err(&PublicMessage::Curated(
                             "parte LineString con meno di due coordinate in Shapefile",
-                        ))
+                        )))
                     }
-                    _ => return Err(err("MultiLineString con membro non-LineString")),
+                    _ => {
+                        return Err(err(&PublicMessage::Curated(
+                            "MultiLineString con membro non-LineString",
+                        )))
+                    }
                 }
             }
             Ok(ShpTopology::Polyline(parts))
@@ -1028,20 +1073,26 @@ fn topology_from_wkb(geometry: WkbGeometry) -> Result<ShpTopology> {
         }
         WkbValue::MultiPolygon(children) => {
             if children.is_empty() {
-                return Err(err("MultiPolygon vuoto non rappresentabile in Shapefile"));
+                return Err(err(&PublicMessage::Curated(
+                    "MultiPolygon vuoto non rappresentabile in Shapefile",
+                )));
             }
             let mut destination = Vec::new();
             for child in children {
                 match take_child(child, dimensions, GeometryType::Polygon)? {
                     WkbValue::Polygon(rings) => polygon_rings(rings, &mut destination)?,
-                    _ => return Err(err("MultiPolygon con membro non-Polygon")),
+                    _ => {
+                        return Err(err(&PublicMessage::Curated(
+                            "MultiPolygon con membro non-Polygon",
+                        )))
+                    }
                 }
             }
             Ok(ShpTopology::Polygon(destination))
         }
-        WkbValue::GeometryCollection(_) => {
-            Err(err("GeometryCollection non rappresentabile in Shapefile"))
-        }
+        WkbValue::GeometryCollection(_) => Err(err(&PublicMessage::Curated(
+            "GeometryCollection non rappresentabile in Shapefile",
+        ))),
         WkbValue::CircularString(_)
         | WkbValue::CompoundCurve(_)
         | WkbValue::CurvePolygon(_)
@@ -1049,27 +1100,27 @@ fn topology_from_wkb(geometry: WkbGeometry) -> Result<ShpTopology> {
         | WkbValue::MultiSurface(_)
         | WkbValue::PolyhedralSurface(_)
         | WkbValue::Tin(_)
-        | WkbValue::Triangle(_) => Err(err(
+        | WkbValue::Triangle(_) => Err(err(&PublicMessage::Curated(
             "tipo WKB esteso non rappresentabile in Shapefile senza normalizzazione",
-        )),
+        ))),
     }
 }
 
 fn point_m(coordinate: WkbCoordinate) -> Result<PointM> {
     let measure = coordinate
         .m
-        .ok_or_else(|| err("coordinata XYM senza ordinata M"))?;
+        .ok_or_else(|| err(&PublicMessage::Curated("coordinata XYM senza ordinata M")))?;
     Ok(PointM::new(coordinate.x, coordinate.y, measure))
 }
 
 fn point_z(coordinate: WkbCoordinate, require_measure: bool) -> Result<PointZ> {
     let z = coordinate
         .z
-        .ok_or_else(|| err("coordinata XYZ senza ordinata Z"))?;
+        .ok_or_else(|| err(&PublicMessage::Curated("coordinata XYZ senza ordinata Z")))?;
     let measure = if require_measure {
         coordinate
             .m
-            .ok_or_else(|| err("coordinata XYZM senza ordinata M"))?
+            .ok_or_else(|| err(&PublicMessage::Curated("coordinata XYZM senza ordinata M")))?
     } else {
         NO_DATA
     };
@@ -1192,9 +1243,9 @@ fn shape_from_wkb(geometry: WkbGeometry) -> Result<Shape> {
                 point_z(coordinate, true)
             })?),
         )),
-        (CoordinateDimensions::Unknown, _) => {
-            Err(err("dimensionalità WKB ignota non scrivibile in Shapefile"))
-        }
+        (CoordinateDimensions::Unknown, _) => Err(err(&PublicMessage::Curated(
+            "dimensionalità WKB ignota non scrivibile in Shapefile",
+        ))),
     }
 }
 
@@ -1219,7 +1270,11 @@ const fn shape_tag(s: &Shape) -> &'static str {
 
 /// Scrive la shape come tipo ESRI concreto (l'enum `Shape` non è `EsriShape`).
 fn write_shape(w: &mut Writer<BufWriter<File>>, shape: Shape, rec: &Record) -> Result<()> {
-    let me = |e| err(format!("scrittura record shapefile: {e}"));
+    let me = |_| {
+        err(&PublicMessage::Curated(
+            "scrittura di un record shapefile fallita",
+        ))
+    };
     match shape {
         Shape::Point(s) => w.write_shape_and_record(&s, rec).map_err(me),
         Shape::PointM(s) => w.write_shape_and_record(&s, rec).map_err(me),
@@ -1233,8 +1288,12 @@ fn write_shape(w: &mut Writer<BufWriter<File>>, shape: Shape, rec: &Record) -> R
         Shape::Multipoint(s) => w.write_shape_and_record(&s, rec).map_err(me),
         Shape::MultipointM(s) => w.write_shape_and_record(&s, rec).map_err(me),
         Shape::MultipointZ(s) => w.write_shape_and_record(&s, rec).map_err(me),
-        Shape::NullShape => Err(err("geometria nulla non supportata in scrittura Shapefile")),
-        Shape::Multipatch(_) => Err(err("Multipatch non supportato in scrittura Shapefile")),
+        Shape::NullShape => Err(err(&PublicMessage::Curated(
+            "geometria nulla non supportata in scrittura Shapefile",
+        ))),
+        Shape::Multipatch(_) => Err(err(&PublicMessage::Curated(
+            "Multipatch non supportato in scrittura Shapefile",
+        ))),
     }
 }
 
@@ -1290,16 +1349,16 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
             .or_else(|| authority_id_from_wkt(&wkt));
         let Some(id) = id else {
             let raw = RawCrs::new(wkt, None);
-            return Err(PlenoraIoError::crs_unresolved("shp", &raw));
+            return Err(PlenoraIoError::crs_non_risolto_redatto("shp", &raw));
         };
         let kind = crs_kind(&id, Some(&wkt));
         return Ok(ResolvedCrs::new(Some(id), kind, Some(wkt)));
     }
     opts.assume_crs.as_ref().map_or_else(
         || {
-            Err(PlenoraIoError::Crs(
-                "Shapefile senza .prj: fornire --assume-crs".to_owned(),
-            ))
+            Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "Shapefile senza .prj: fornire --assume-crs",
+            )))
         },
         |id| Ok(ResolvedCrs::new(Some(id.clone()), crs_kind(id, None), None)),
     )
@@ -1307,10 +1366,9 @@ fn resolve_crs(path: &Path, opts: &ReadOptions) -> Result<ResolvedCrs> {
 
 fn resolved_crs_id(crs: &ResolvedCrs) -> Result<&str> {
     crs.id.as_deref().ok_or_else(|| {
-        PlenoraIoError::Crs(
-            "Shapefile: CRS risolto senza identificatore; vietato inventare un'etichetta Arrow"
-                .to_owned(),
-        )
+        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "Shapefile: CRS risolto senza identificatore; vietato inventare un'etichetta Arrow",
+        ))
     })
 }
 
@@ -1399,66 +1457,51 @@ struct DbfLayout {
 /// essere respinti prima che `Record` li comprima in una `HashMap`, e un campo
 /// Numeric largo, senza decimali, deve essere letto dal testo ASCII originale
 /// anziche' dal `f64` gia' arrotondato dalla dipendenza.
-fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
-    let path = shp_path.with_extension("dbf");
-    let decoded_names = shapefile::dbase::Reader::from_path(&path)
-        .map_err(|error| err(format!("apertura schema DBF: {error}")))?
-        .fields()
-        .iter()
-        .map(|field| field.name().to_owned())
-        .collect::<Vec<_>>();
-    let mut reader =
-        BufReader::new(File::open(&path).map_err(|error| err(format!("apertura DBF: {error}")))?);
-    let mut header = [0_u8; DBF_HEADER_SIZE];
-    reader
-        .read_exact(&mut header)
-        .map_err(|error| err(format!("header DBF incompleto: {error}")))?;
-    let record_count = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
-    let header_length = usize::from(u16::from_le_bytes([header[8], header[9]]));
-    let declared_record_length = usize::from(u16::from_le_bytes([header[10], header[11]]));
-    let descriptor_end = if header[0] == DBF_VISUAL_FOXPRO_VERSION {
-        header_length
-            .checked_sub(DBF_VISUAL_FOXPRO_BACKLINK_SIZE)
-            .ok_or_else(|| err("header Visual FoxPro piu' corto del backlink"))?
-    } else {
-        header_length
-    };
-    let descriptor_bytes = descriptor_end
-        .checked_sub(DBF_HEADER_SIZE + DBF_HEADER_TERMINATOR_SIZE)
-        .ok_or_else(|| err("lunghezza header DBF non valida"))?;
-    if descriptor_bytes % DBF_FIELD_DESCRIPTOR_SIZE != 0 {
-        return Err(err("lunghezza descrittori DBF non valida"));
-    }
-
-    let field_count = descriptor_bytes / DBF_FIELD_DESCRIPTOR_SIZE;
-    if decoded_names.len() != field_count {
-        return Err(err(format!(
-            "numero descrittori DBF incoerente: header={field_count}, decoder={}",
-            decoded_names.len()
-        )));
-    }
+/// Legge i descrittori di campo del DBF e ne verifica nomi e larghezze.
+///
+/// I nomi dei campi **vengono dal file**, quindi non entrano nei messaggi:
+/// escono gli indici, che sono prodotti da questa enumerazione. Un nome vuoto,
+/// un duplicato dopo la normalizzazione ASCII o una larghezza zero fanno
+/// fallire la lettura invece di far perdere silenziosamente una colonna.
+fn leggi_descrittori_dbf(
+    reader: &mut impl Read,
+    decoded_names: Vec<String>,
+    field_count: usize,
+) -> Result<(Vec<DbfFieldLayout>, usize, usize)> {
     let mut fields = Vec::with_capacity(field_count);
     let mut seen = BTreeSet::new();
     let mut offset = 1_usize; // deletion flag
     let mut exact_integer_count = 0_usize;
     for (index, decoded_name) in decoded_names.into_iter().enumerate() {
         let mut descriptor = [0_u8; DBF_FIELD_DESCRIPTOR_SIZE];
-        reader
-            .read_exact(&mut descriptor)
-            .map_err(|error| err(format!("descrittore campo DBF incompleto: {error}")))?;
+        reader.read_exact(&mut descriptor).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "descrittore di campo DBF incompleto",
+            ))
+        })?;
         let name = decoded_name;
         if name.is_empty() {
-            return Err(err(format!("nome campo DBF vuoto all'indice {index}")));
+            return Err(err(&PublicMessage::CuratedWith(
+                "nome campo DBF vuoto, indice",
+                NumeroStrutturale::Indice(driver_common::saturating_u64(index)),
+            )));
         }
         let normalized = name.to_ascii_uppercase();
         if !seen.insert(normalized) {
-            return Err(err(format!(
-                "nomi campo DBF duplicati: '{name}'; il file e' rifiutato per non perdere una colonna"
+            // Il nome non esce: e' letto dal DBF. Esce l'indice, che e'
+            // prodotto dalla nostra enumerazione dei descrittori.
+            return Err(err(&PublicMessage::CuratedWith(
+                "nomi campo DBF duplicati; il file e' rifiutato per non perdere una colonna, \
+                 secondo indice",
+                NumeroStrutturale::Indice(driver_common::saturating_u64(index)),
             )));
         }
         let width = usize::from(descriptor[16]);
         if width == 0 {
-            return Err(err(format!("campo DBF '{name}' con larghezza zero")));
+            return Err(err(&PublicMessage::CuratedWith(
+                "campo DBF con larghezza zero, indice",
+                NumeroStrutturale::Indice(driver_common::saturating_u64(index)),
+            )));
         }
         let exact_integer_slot = (descriptor[11] == b'N' && descriptor[17] == 0 && width >= 10)
             .then(|| {
@@ -1473,20 +1516,81 @@ fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
             width,
             exact_integer_slot,
         });
-        offset = offset
-            .checked_add(width)
-            .ok_or_else(|| err("overflow nella lunghezza record DBF"))?;
+        offset = offset.checked_add(width).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "overflow nella lunghezza record DBF",
+            ))
+        })?;
     }
-    let mut terminator = [0_u8; 1];
+    Ok((fields, offset, exact_integer_count))
+}
+
+fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
+    let path = shp_path.with_extension("dbf");
+    let decoded_names = shapefile::dbase::Reader::from_path(&path)
+        .map_err(|_| err(&PublicMessage::Curated("apertura dello schema DBF fallita")))?
+        .fields()
+        .iter()
+        .map(|field| field.name().to_owned())
+        .collect::<Vec<_>>();
+    let mut reader = BufReader::new(
+        File::open(&path).map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?,
+    );
+    let mut header = [0_u8; DBF_HEADER_SIZE];
     reader
-        .read_exact(&mut terminator)
-        .map_err(|error| err(format!("terminatore header DBF mancante: {error}")))?;
+        .read_exact(&mut header)
+        .map_err(|_| err(&PublicMessage::Curated("header DBF incompleto")))?;
+    let record_count = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+    let header_length = usize::from(u16::from_le_bytes([header[8], header[9]]));
+    let declared_record_length = usize::from(u16::from_le_bytes([header[10], header[11]]));
+    let descriptor_end = if header[0] == DBF_VISUAL_FOXPRO_VERSION {
+        header_length
+            .checked_sub(DBF_VISUAL_FOXPRO_BACKLINK_SIZE)
+            .ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "header Visual FoxPro piu' corto del backlink",
+                ))
+            })?
+    } else {
+        header_length
+    };
+    let descriptor_bytes = descriptor_end
+        .checked_sub(DBF_HEADER_SIZE + DBF_HEADER_TERMINATOR_SIZE)
+        .ok_or_else(|| err(&PublicMessage::Curated("lunghezza header DBF non valida")))?;
+    if descriptor_bytes % DBF_FIELD_DESCRIPTOR_SIZE != 0 {
+        return Err(err(&PublicMessage::Curated(
+            "lunghezza descrittori DBF non valida",
+        )));
+    }
+
+    let field_count = descriptor_bytes / DBF_FIELD_DESCRIPTOR_SIZE;
+    if decoded_names.len() != field_count {
+        // Il conteggio dell'header viene dal file; quello del decoder e'
+        // nostro, ed e' l'unico che esce.
+        return Err(err(&PublicMessage::CuratedWith(
+            "numero di descrittori DBF incoerente con l'header, descrittori decodificati",
+            NumeroStrutturale::Conteggio(driver_common::saturating_u64(decoded_names.len())),
+        )));
+    }
+    let (fields, offset, exact_integer_count) =
+        leggi_descrittori_dbf(&mut reader, decoded_names, field_count)?;
+    let mut terminator = [0_u8; 1];
+    reader.read_exact(&mut terminator).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "terminatore dell'header DBF mancante",
+        ))
+    })?;
     if terminator[0] != 0x0d {
-        return Err(err("terminatore header DBF non valido"));
+        return Err(err(&PublicMessage::Curated(
+            "terminatore header DBF non valido",
+        )));
     }
     if declared_record_length != offset && declared_record_length.checked_add(1) != Some(offset) {
-        return Err(err(format!(
-            "record DBF dichiarato lungo {declared_record_length} byte ma i campi ne richiedono {offset}"
+        // La lunghezza dichiarata viene dal file; quella richiesta dai campi
+        // la calcoliamo noi.
+        return Err(err(&PublicMessage::CuratedWith(
+            "lunghezza di record DBF dichiarata incoerente con i campi, byte richiesti",
+            NumeroStrutturale::Conteggio(driver_common::saturating_u64(offset)),
         )));
     }
     Ok(DbfLayout {
@@ -1521,11 +1625,15 @@ impl DbfExactIntegerRows {
     fn open(shp_path: &Path, layout: &DbfLayout) -> Result<Self> {
         let mut reader = BufReader::new(
             File::open(shp_path.with_extension("dbf"))
-                .map_err(|error| err(format!("apertura DBF: {error}")))?,
+                .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?,
         );
         reader
             .seek(SeekFrom::Start(layout.header_length as u64))
-            .map_err(|error| err(format!("posizionamento sui record DBF: {error}")))?;
+            .map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "posizionamento sui record DBF fallito",
+                ))
+            })?;
         Ok(Self {
             reader,
             layout: layout.clone(),
@@ -1543,15 +1651,16 @@ impl DbfExactIntegerRows {
         }
         self.reader
             .read_exact(&mut self.buffer)
-            .map_err(|error| err(format!("record DBF incompleto: {error}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("record DBF incompleto")))?;
         self.records_read += 1;
         match self.buffer[0] {
             b'*' => return Ok(Some(DbfPhysicalRow::Deleted)),
             b' ' => {}
-            marker => {
-                return Err(err(format!(
-                    "marcatore record DBF non valido: 0x{marker:02x}"
-                )))
+            _ => {
+                // Il byte non esce: e' letto dal payload.
+                return Err(err(&PublicMessage::Curated(
+                    "marcatore di record DBF non valido",
+                )));
             }
         }
         let mut values = vec![None; self.layout.exact_integer_count];
@@ -1560,14 +1669,15 @@ impl DbfExactIntegerRows {
             let Some(slot) = field.exact_integer_slot else {
                 continue;
             };
-            let end = field
-                .offset
-                .checked_add(field.width)
-                .ok_or_else(|| err("overflow nell'offset del campo DBF"))?;
+            let end = field.offset.checked_add(field.width).ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "overflow nell'offset del campo DBF",
+                ))
+            })?;
             let raw = self
                 .buffer
                 .get(field.offset..end)
-                .ok_or_else(|| err(format!("campo DBF '{}' fuori record", field.name)))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("campo DBF fuori dal record")))?;
             let Ok(text) = std::str::from_utf8(raw) else {
                 rejection_cause = Some(ATTRIBUTE_NUMERIC_INVALID_CAUSE);
                 continue;
@@ -1581,19 +1691,20 @@ impl DbfExactIntegerRows {
             }
         }
         let raw_numeric_key = if let Some(index) = raw_numeric_field_index {
-            let field = self
-                .layout
-                .fields
-                .get(index)
-                .ok_or_else(|| err("indice campo chiave DBF fuori schema"))?;
-            let end = field
-                .offset
-                .checked_add(field.width)
-                .ok_or_else(|| err("overflow nell'offset della chiave DBF"))?;
+            let field = self.layout.fields.get(index).ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "indice campo chiave DBF fuori schema",
+                ))
+            })?;
+            let end = field.offset.checked_add(field.width).ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "overflow nell'offset della chiave DBF",
+                ))
+            })?;
             let raw = self
                 .buffer
                 .get(field.offset..end)
-                .ok_or_else(|| err("chiave DBF fuori record"))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("chiave DBF fuori record")))?;
             std::str::from_utf8(raw).map_or_else(
                 |_| {
                     rejection_cause = Some(ATTRIBUTE_NUMERIC_INVALID_CAUSE);
@@ -1692,53 +1803,52 @@ fn native_coordinate<P: NativePoint>(
     point: &P,
     dimensions: CoordinateDimensions,
 ) -> Result<WkbCoordinate> {
-    let (z, m) = match dimensions {
-        CoordinateDimensions::Xy if point.z().is_none() && point.m().is_none() => (None, None),
-        CoordinateDimensions::Xym if point.z().is_none() => (
-            None,
-            Some(
-                point
-                    .m()
-                    .ok_or_else(|| err("coordinata ShapeM senza misura"))?,
+    let (z, m) =
+        match dimensions {
+            CoordinateDimensions::Xy if point.z().is_none() && point.m().is_none() => (None, None),
+            CoordinateDimensions::Xym if point.z().is_none() => (
+                None,
+                Some(point.m().ok_or_else(|| {
+                    err(&PublicMessage::Curated("coordinata ShapeM senza misura"))
+                })?),
             ),
-        ),
-        CoordinateDimensions::Xyz => {
-            let z = point
-                .z()
-                .ok_or_else(|| err("coordinata ShapeZ senza quota"))?;
-            if point.m().is_some_and(|measure| {
-                !matches!(
-                    measure.partial_cmp(&NO_DATA),
-                    Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
-                )
-            }) {
-                return Err(err(
-                    "misura valida trovata in un dataset ShapeZ dichiarato XYZ",
-                ));
-            }
-            (Some(z), None)
-        }
-        CoordinateDimensions::Xyzm => (
-            Some(
-                point
+            CoordinateDimensions::Xyz => {
+                let z = point
                     .z()
-                    .ok_or_else(|| err("coordinata ShapeZ senza quota"))?,
+                    .ok_or_else(|| err(&PublicMessage::Curated("coordinata ShapeZ senza quota")))?;
+                if point.m().is_some_and(|measure| {
+                    !matches!(
+                        measure.partial_cmp(&NO_DATA),
+                        Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+                    )
+                }) {
+                    return Err(err(&PublicMessage::Curated(
+                        "misura valida trovata in un dataset ShapeZ dichiarato XYZ",
+                    )));
+                }
+                (Some(z), None)
+            }
+            CoordinateDimensions::Xyzm => (
+                Some(point.z().ok_or_else(|| {
+                    err(&PublicMessage::Curated("coordinata ShapeZ senza quota"))
+                })?),
+                Some(point.m().ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "coordinata ShapeZ senza misura nativa",
+                    ))
+                })?),
             ),
-            Some(
-                point
-                    .m()
-                    .ok_or_else(|| err("coordinata ShapeZ senza misura nativa"))?,
-            ),
-        ),
-        CoordinateDimensions::Unknown => {
-            return Err(err("dimensionalità Shapefile non determinata"))
-        }
-        _ => {
-            return Err(err(
-                "variante Shape incoerente con la dimensionalità del layer",
-            ))
-        }
-    };
+            CoordinateDimensions::Unknown => {
+                return Err(err(&PublicMessage::Curated(
+                    "dimensionalità Shapefile non determinata",
+                )))
+            }
+            _ => {
+                return Err(err(&PublicMessage::Curated(
+                    "variante Shape incoerente con la dimensionalità del layer",
+                )))
+            }
+        };
     Ok(WkbCoordinate {
         x: point.x(),
         y: point.y(),
@@ -1797,9 +1907,11 @@ fn polygon_wkb<P: NativePoint>(
                 current = Some(vec![native_coordinates(points, dimensions)?]);
             }
             PolygonRing::Inner(points) => {
-                let current = current
-                    .as_mut()
-                    .ok_or_else(|| err("anello interno Shapefile senza anello esterno"))?;
+                let current = current.as_mut().ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "anello interno Shapefile senza anello esterno",
+                    ))
+                })?;
                 current.push(native_coordinates(points, dimensions)?);
             }
         }
@@ -1812,7 +1924,9 @@ fn polygon_wkb<P: NativePoint>(
         });
     }
     if polygons.is_empty() {
-        return Err(err("Polygon Shapefile senza anelli esterni"));
+        return Err(err(&PublicMessage::Curated(
+            "Polygon Shapefile senza anelli esterni",
+        )));
     }
     Ok(WkbGeometry {
         value: WkbValue::MultiPolygon(polygons),
@@ -1925,9 +2039,9 @@ fn shape_to_wkb(shape: &Shape, dimensions: CoordinateDimensions) -> Result<Optio
         Shape::MultipointM(multipoint) => multipoint_wkb(multipoint.points(), dimensions)?,
         Shape::MultipointZ(multipoint) => multipoint_wkb(multipoint.points(), dimensions)?,
         Shape::Multipatch(_) => {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "Multipatch non ha una conversione WKB univoca ed è rifiutato",
-            ))
+            )))
         }
     };
     Ok(Some(geometry))
@@ -1982,7 +2096,11 @@ fn header_geometry(shape_type: ShapeType) -> Result<(Option<&'static str>, Vec<G
         ShapeType::Multipoint => (Some("multipoint-xy"), vec![GeometryType::MultiPoint]),
         ShapeType::MultipointM => (Some("multipoint-m"), vec![GeometryType::MultiPoint]),
         ShapeType::MultipointZ => (Some("multipoint-z"), vec![GeometryType::MultiPoint]),
-        ShapeType::Multipatch => return Err(err("Multipatch Shapefile non supportato")),
+        ShapeType::Multipatch => {
+            return Err(err(&PublicMessage::Curated(
+                "Multipatch Shapefile non supportato",
+            )))
+        }
     };
     Ok(value)
 }
@@ -1996,13 +2114,17 @@ fn shape_type_label(shape_type: Option<&str>) -> &str {
 /// comuni percorsi XY/M non devono decodificare tutte le geometrie durante
 /// l'apertura per poi decodificarle di nuovo durante la lettura.
 fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometryInfo> {
-    let mut reader = ShapeReader::from_path(path)
-        .map_err(|error| err(format!("apertura geometrie Shapefile: {error}")))?;
+    let mut reader = ShapeReader::from_path(path).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "apertura delle geometrie Shapefile fallita",
+        ))
+    })?;
     let native_type = reader.header().shape_type;
     if let Ok(shape_count) = reader.shape_count() {
         if shape_count != dbf_record_count as usize {
-            return Err(err(format!(
-                "numero di geometrie ({shape_count}) diverso dai record DBF ({dbf_record_count})"
+            // Entrambi i conteggi vengono dal file: resta la condizione.
+            return Err(err(&PublicMessage::Curated(
+                "numero di geometrie diverso dal numero di record DBF",
             )));
         }
     }
@@ -2010,13 +2132,18 @@ fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometry
     let mut z_has_measure = false;
     if native_type.has_z() {
         for shape in reader.iter_shapes() {
-            let shape =
-                shape.map_err(|error| err(format!("record geometrico Shapefile: {error}")))?;
+            let shape = shape.map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "record geometrico Shapefile non leggibile",
+                ))
+            })?;
             let tag = shape_tag(&shape);
             if !tag.is_empty() && Some(tag) != shape_type {
-                return Err(err(format!(
-                    "tipo Shape nel record '{tag}' incoerente con l'header '{}'",
-                    shape_type_label(shape_type)
+                // Il tag del record viene dal file. L'etichetta dell'header
+                // e' un nostro `&'static str`, e resta.
+                return Err(err(&PublicMessage::CuratedPair(
+                    "tipo Shape del record incoerente con quello dell'header:",
+                    shape_type_label(shape_type),
                 )));
             }
             z_has_measure |= shape_has_valid_measure(&shape);
@@ -2039,7 +2166,7 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     let mut exact_rows = DbfExactIntegerRows::open(path, &dbf_layout)?;
     let geometry_info = infer_geometry_info(path, dbf_layout.record_count)?;
     let mut reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
-        .map_err(|error| err(format!("apertura DBF: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
     let mut accs: HashMap<String, TypeAccumulator> = dbf_layout
         .fields
         .iter()
@@ -2068,19 +2195,24 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
             DbfPhysicalRow::Deleted => continue,
             DbfPhysicalRow::Active { exact_values, .. } => exact_values,
         };
-        active_row_count = active_row_count
-            .checked_add(1)
-            .ok_or_else(|| err("numero di record DBF fuori intervallo u64"))?;
+        active_row_count = active_row_count.checked_add(1).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "numero di record DBF fuori intervallo u64",
+            ))
+        })?;
         let record = match records.next() {
             Some(Ok(record)) => record,
             Some(Err(_)) => continue,
-            None => return Err(err("numero di record DBF incoerente con l'header")),
+            None => {
+                return Err(err(&PublicMessage::Curated(
+                    "numero di record DBF incoerente con l'header",
+                )))
+            }
         };
         for field in &dbf_layout.fields {
             let accumulator = accs.get_mut(&field.name).ok_or_else(|| {
-                err(format!(
-                    "schema DBF senza accumulatore per '{}'",
-                    field.name
+                err(&PublicMessage::Curated(
+                    "schema DBF senza accumulatore per un campo dichiarato",
                 ))
             })?;
             if let Some(slot) = field.exact_integer_slot {
@@ -2097,7 +2229,9 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
         }
     }
     if records.next().is_some() {
-        return Err(err("numero di record DBF incoerente con l'header"));
+        return Err(err(&PublicMessage::Curated(
+            "numero di record DBF incoerente con l'header",
+        )));
     }
     let columns = dbf_layout
         .fields
@@ -2106,7 +2240,11 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
         .map(|name| {
             let column_type = accs
                 .get(&name)
-                .ok_or_else(|| err(format!("schema DBF senza accumulatore per '{name}'")))?
+                .ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "schema DBF senza accumulatore per un campo dichiarato",
+                    ))
+                })?
                 .column_type();
             let exact_integer_slot = dbf_layout
                 .fields
@@ -2181,9 +2319,9 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
             return Ok(());
         }
         let mut shape_reader = shapefile::ShapeReader::from_path(&path)
-            .map_err(|error| err(format!("shapefile non valido: {error}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
         let mut dbf_reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
-            .map_err(|error| err(format!("apertura DBF: {error}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
         let mut shapes = shape_reader.iter_shapes();
         let mut records = dbf_reader.iter_records();
         let mut exact_rows = DbfExactIntegerRows::open(&path, &dbf_layout)?;
@@ -2205,7 +2343,9 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 && matches!(scope, ReadScope::AcceptedRows(limit) if active_rows_seen >= limit)
             {
                 return Err(diagnostics.into_partial_error(
-                    err("limite di righe richiesto raggiunto durante la diagnostica Shapefile"),
+                    err(&PublicMessage::Curated(
+                        "limite di righe richiesto raggiunto durante la diagnostica Shapefile",
+                    )),
                     "read_scope_row_limit_reached",
                 ));
             }
@@ -2229,20 +2369,24 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 }
             };
             let source_index = source_rows_seen;
-            source_rows_seen = source_rows_seen
-                .checked_add(1)
-                .ok_or_else(|| err("numero di record Shapefile fuori intervallo u64"))?;
+            source_rows_seen = source_rows_seen.checked_add(1).ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "numero di record Shapefile fuori intervallo u64",
+                ))
+            })?;
             let shape = match shapes.next() {
                 Some(Ok(shape)) => shape,
-                Some(Err(error)) => {
+                Some(Err(_)) => {
                     return Err(diagnostics.into_partial_error(
-                        err(format!("record shapefile non valido: {error}")),
+                        err(&PublicMessage::Curated("record shapefile non valido")),
                         "shapefile.scan_interrupted",
                     ));
                 }
                 None => {
                     return Err(diagnostics.into_partial_error(
-                        err("numero di geometrie incoerente con i record DBF"),
+                        err(&PublicMessage::Curated(
+                            "numero di geometrie incoerente con i record DBF",
+                        )),
                         "shapefile.scan_interrupted",
                     ));
                 }
@@ -2255,9 +2399,11 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                     rejection_cause,
                 } => (exact_values, raw_numeric_key, rejection_cause),
             };
-            active_rows_seen = active_rows_seen
-                .checked_add(1)
-                .ok_or_else(|| err("numero di record DBF attivi fuori intervallo u64"))?;
+            active_rows_seen = active_rows_seen.checked_add(1).ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "numero di record DBF attivi fuori intervallo u64",
+                ))
+            })?;
             let record = match records.next() {
                 Some(Ok(record)) => record,
                 Some(Err(_)) => {
@@ -2268,7 +2414,9 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
                 }
                 None => {
                     return Err(diagnostics.into_partial_error(
-                        err("numero di record DBF attivi incoerente con le geometrie"),
+                        err(&PublicMessage::Curated(
+                            "numero di record DBF attivi incoerente con le geometrie",
+                        )),
                         "shapefile.scan_interrupted",
                     ));
                 }
@@ -2396,14 +2544,17 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
             || records.next().is_some()
         {
             return Err(diagnostics.into_partial_error(
-                err("cardinalita' Shapefile cambiata durante la lettura"),
+                err(&PublicMessage::Curated(
+                    "cardinalita' Shapefile cambiata durante la lettura",
+                )),
                 "shapefile.scan_interrupted",
             ));
         }
         if !diagnostics.is_empty() {
             let rejected = diagnostics.observed_total;
-            return Err(err(format!(
-                "{rejected} righe Shapefile non valide; consultare row_diagnostics"
+            return Err(err(&PublicMessage::CuratedWith(
+                "righe Shapefile non valide; consultare row_diagnostics, conteggio",
+                NumeroStrutturale::Conteggio(rejected),
             ))
             .with_row_diagnostics(diagnostics.into_report()));
         }
@@ -2461,8 +2612,11 @@ fn finish_batch(
         arrays.push(b.finish());
     }
     let options = RecordBatchOptions::new().with_row_count(Some(row_count));
-    RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
-        .map_err(|error| err(format!("batch: {error}")))
+    RecordBatch::try_new_with_options(schema.clone(), arrays, &options).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "costruzione del RecordBatch fallita",
+        ))
+    })
 }
 
 fn fv_i64(v: &FieldValue) -> Option<i64> {
@@ -2522,8 +2676,11 @@ pub fn __fuzz_wkb_roundtrip(bytes: &[u8]) -> Result<usize> {
     let geometry = decode_wkb(bytes, &WkbLimits::default())?;
     let dimensions = geometry.dimensions;
     let shape = shape_from_wkb(geometry)?;
-    let round_trip = shape_to_wkb(&shape, dimensions)?
-        .ok_or_else(|| err("la conversione di una geometria ha prodotto NullShape"))?;
+    let round_trip = shape_to_wkb(&shape, dimensions)?.ok_or_else(|| {
+        err(&PublicMessage::Curated(
+            "la conversione di una geometria ha prodotto NullShape",
+        ))
+    })?;
     Ok(encode_wkb(&round_trip, WkbFlavor::Iso)?.len())
 }
 
