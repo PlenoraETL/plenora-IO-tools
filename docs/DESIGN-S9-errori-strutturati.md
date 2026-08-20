@@ -436,8 +436,8 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 6 | `driver-kml` | 12 → 0 (più 77 chiamanti e 2 fughe di payload) | **chiusa**; checkpoint di livello 2 dovuto |
 | 7 | `driver-gpkg` | 10 → 0 (più 34 chiamanti, 27 via `sql_err`, 7 fughe di payload) | **chiusa**, livello 1 |
 | 8 | `driver-geoparquet` | 8 → 0 (più 49 chiamanti e 11 siti di cancellazione) | **chiusa**, livello 1 |
-| 9 | `driver-ipc` | 7 | poi checkpoint di livello 2 |
-| 10… | `driver-filegdb`, `driver-shp`, `driver-dxf`, `driver-xls` | 82 | |
+| 9 | `driver-ipc` | 7 → 0 (8 `ArrowError`, 1 fuga di payload) | **chiusa**, livello 1; checkpoint di livello 2 dovuto |
+| 10… | `driver-filegdb`, `driver-shp`, `driver-dxf`, `driver-xls` | 82 | **prossime** |
 | ultima | `plenora-io-cli` | 6 | **dopo tutti i driver** |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |

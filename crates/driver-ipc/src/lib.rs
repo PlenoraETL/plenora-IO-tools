@@ -43,10 +43,10 @@ use plenora_io_model::geometry::{
     validate_geometry_field_identity, with_contract_version, with_geometry_contract_metadata,
     GEO_CRS_KEY, PLENORA_CONTRACT_VERSION_KEY,
 };
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
-fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("ipc", reason)
+fn err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("ipc", reason)
 }
 
 static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
@@ -111,7 +111,7 @@ impl FormatDriver for IpcDriver {
         driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", || {
             FileReader::try_new(File::open(&path)?, None)
-                .map_err(|e| err(format!("Arrow IPC non valido: {e}")))
+                .map_err(|_| err(&PublicMessage::Curated("Arrow IPC non valido")))
         })?;
         let schema = reader.schema();
         validate_contract_version(schema.as_ref())?;
@@ -127,9 +127,9 @@ impl FormatDriver for IpcDriver {
             Some((i, field)) => {
                 validate_geometry_field_identity(field, canonical_version_present)?;
                 if geometry_fields.next().is_some() {
-                    return Err(PlenoraIoError::Contract(
-                        "Arrow IPC contiene più colonne GeoArrow nel contratto v1".to_owned(),
-                    ));
+                    return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+                        "Arrow IPC contiene più colonne GeoArrow nel contratto v1",
+                    )));
                 }
                 let f = schema.field(i);
                 let crs =
@@ -161,10 +161,18 @@ impl FormatDriver for IpcDriver {
                 // corrotto o crafted, e vengono rifiutate come contratto
                 // invece di essere accettate silenziosamente.
                 if contract.field_id != physical_field_id {
-                    return Err(PlenoraIoError::Contract(format!(
-                        "Arrow IPC: plenora.field_id={} non coincide con l'indice fisico {} del campo geometria",
-                        contract.field_id.0, physical_field_id.0
-                    )));
+                    // Il `plenora.field_id` dichiarato **viene dai metadati del
+                    // file**: e' un numero letto dal payload, e il vincolo di S9
+                    // ammette solo indici, conteggi, tetti e codici strutturali.
+                    // L'indice fisico invece e' nostro — lo produce la nostra
+                    // enumerazione dello schema — e resta.
+                    return Err(PlenoraIoError::contratto_redatto(
+                        &PublicMessage::CuratedWith(
+                            "Arrow IPC: plenora.field_id non coincide con l'indice fisico del \
+                             campo geometria, indice fisico",
+                            NumeroStrutturale::Indice(u64::from(physical_field_id.0)),
+                        ),
+                    ));
                 }
                 Some(contract)
             }
@@ -202,20 +210,20 @@ impl FormatDriver for IpcDriver {
         )?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("arrow"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "l'output deve avere estensione .arrow".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("l'output deve avere estensione .arrow"),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraIoError::Unsupported(
-                "Arrow IPC: un solo layer per file".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("Arrow IPC: un solo layer per file"),
             ));
         }
         let layer = &plan.layers[0].contract;
@@ -240,7 +248,7 @@ impl FormatDriver for IpcDriver {
         )));
         let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
         let writer = FileWriter::try_new(BufWriter::new(staging.reopen()?), &schema)
-            .map_err(|e| err(format!("writer IPC: {e}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("apertura del writer IPC fallita")))?;
         with_write_validation(
             Box::new(IpcWriter {
                 staging,
@@ -272,7 +280,10 @@ impl OpenDatasetHandle for IpcDataset {
     fn open_layer_reader(&self, request: &ReadRequest) -> Result<Box<dyn LayerReader>> {
         plenora_io_core::validate_read_projection(&DESCRIPTOR, request)?;
         if request.layer != self.layers[0].id {
-            return Err(err(format!("layer {} inesistente", request.layer.0)));
+            return Err(err(&PublicMessage::CuratedWith(
+                "layer runtime inesistente, indice",
+                NumeroStrutturale::Indice(u64::from(request.layer.0)),
+            )));
         }
 
         let source_layer = &self.layers[0];
@@ -284,10 +295,12 @@ impl OpenDatasetHandle for IpcDataset {
                     let index = field_id.0 as usize;
                     if index >= source_layer.contract.schema.fields().len() {
                         if request.projection_mode == plenora_io_core::ProjectionMode::Required {
-                            return Err(PlenoraIoError::Contract(format!(
-                                "projection Required: field id {} fuori range",
-                                field_id.0
-                            )));
+                            return Err(PlenoraIoError::contratto_redatto(
+                                &PublicMessage::CuratedWith(
+                                    "projection Required: field id fuori range,",
+                                    NumeroStrutturale::Indice(u64::from(field_id.0)),
+                                ),
+                            ));
                         }
                         continue;
                     }
@@ -334,7 +347,7 @@ impl OpenDatasetHandle for IpcDataset {
         driver_common::prevalida_arrow::valida_file_ipc("arrow", &path)?;
         let reader = plenora_io_core::driver::leggendo_arrow("arrow", move || {
             FileReader::try_new(File::open(&path)?, projection)
-                .map_err(|e| err(format!("Arrow IPC non valido: {e}")))
+                .map_err(|_| err(&PublicMessage::Curated("Arrow IPC non valido")))
         })?;
         Ok(plenora_io_core::with_batch_target(
             Box::new(IpcReader { reader, layer }),
@@ -365,7 +378,7 @@ impl LayerReader for IpcReader {
         plenora_io_core::driver::leggendo_arrow("arrow", move || match reader.next() {
             None => Ok(None),
             Some(Ok(b)) => Ok(Some(b)),
-            Some(Err(e)) => Err(err(format!("batch IPC: {e}"))),
+            Some(Err(_)) => Err(err(&PublicMessage::Curated("batch IPC non leggibile"))),
         })
     }
 }
@@ -379,20 +392,24 @@ struct IpcWriter {
 impl FormatWriter for IpcWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let batch = RecordBatch::try_new(self.schema.clone(), batch.columns().to_vec())
-            .map_err(|e| err(format!("retag contratto IPC: {e}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("retag del contratto IPC fallito")))?;
         self.writer
             .as_mut()
-            .ok_or_else(|| err("writer chiuso"))?
+            .ok_or_else(|| err(&PublicMessage::Curated("writer chiuso")))?
             .write(&batch)
-            .map_err(|e| err(format!("write IPC: {e}")))
+            .map_err(|_| err(&PublicMessage::Curated("scrittura IPC fallita")))
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        let mut w = self.writer.take().ok_or_else(|| err("writer già chiuso"))?;
-        w.finish().map_err(|e| err(format!("finish IPC: {e}")))?;
+        let mut w = self
+            .writer
+            .take()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer già chiuso")))?;
+        w.finish()
+            .map_err(|_| err(&PublicMessage::Curated("chiusura dello stream IPC fallita")))?;
         let mut inner = w
             .into_inner()
-            .map_err(|e| err(format!("into_inner: {e}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("recupero del writer IPC fallito")))?;
         inner.flush()?;
         drop(inner);
         let (bytes, outcome) = self.staging.publish()?;
