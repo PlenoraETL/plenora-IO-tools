@@ -30,6 +30,14 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_release_contract
           python3 -m unittest scripts.test_check_patch_readiness
+      # ASSURANCE-N1 e' release-blocking: un ramo d'errore che nessuna verifica
+      # esegue non e' un debito rinviabile oltre la qualifica. La modalita'
+      # `--integrita` gira in CI e dice soltanto che il registro e' coerente;
+      # qui serve `--release`, che e' rossa finche' il debito non e' a zero.
+      - name: ASSURANCE-N1 coverage debt must be zero
+        run: |
+          python3 -m unittest scripts.test_check_assurance_n1
+          python3 scripts/check_assurance_n1.py --release
       - name: Qualify the exact clean checkout selected by GitHub
         env:
           EXPECTED_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}

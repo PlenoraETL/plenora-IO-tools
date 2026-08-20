@@ -125,6 +125,8 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_quartetto_sito
           python3 scripts/check_quartetto_sito.py
+          python3 -m unittest scripts.test_check_assurance_n1
+          python3 scripts/check_assurance_n1.py --integrita
           python3 -m unittest scripts.test_check_errori_redatti
           python3 scripts/check_errori_redatti.py
       - name: Census WkbLimits::default() on production paths

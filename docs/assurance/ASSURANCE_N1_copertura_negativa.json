@@ -1,0 +1,399 @@
+{
+  "contratto": "plenora-assurance-n1",
+  "origine": "diagnostica differenziale del checkpoint su 8e64965, incrociata con la copertura da replay su 5e7378d",
+  "baseline_differenziale": "effc4abe3f74ade083dbed72c94c286748809d9f",
+  "gruppi": [
+    {
+      "gruppo": "driver-shp::topology_from_wkb",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 25,
+      "raggiunto_da_replay": 16,
+      "disposizione": "test_tabellare",
+      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+    },
+    {
+      "gruppo": "driver-xls::infer_layout",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 25,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::read_dbf_layout",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 24,
+      "raggiunto_da_replay": 0,
+      "disposizione": "seme_fuzz",
+      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+    },
+    {
+      "gruppo": "driver-shp::from_options",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 20,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::native_coordinate",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 18,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::spawn_parser",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 18,
+      "raggiunto_da_replay": 0,
+      "disposizione": "seme_fuzz",
+      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+    },
+    {
+      "gruppo": "driver-shp::infer_shp_schema",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 16,
+      "raggiunto_da_replay": 0,
+      "disposizione": "seme_fuzz",
+      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+    },
+    {
+      "gruppo": "driver-shp::leggi_descrittori_dbf",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 16,
+      "raggiunto_da_replay": 0,
+      "disposizione": "seme_fuzz",
+      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+    },
+    {
+      "gruppo": "driver-xls::resolve_geometry",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 16,
+      "raggiunto_da_replay": 5,
+      "disposizione": "test_tabellare",
+      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+    },
+    {
+      "gruppo": "driver-shp::next_physical",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 15,
+      "raggiunto_da_replay": 0,
+      "disposizione": "seme_fuzz",
+      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+    },
+    {
+      "gruppo": "driver-shp::infer_geometry_info",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 13,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::finish",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 11,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::valida_riferimenti_cella",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 11,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::create",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 10,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::write_shape",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 10,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::for_each_dense_row",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 10,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::validate_archive_ratio",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 9,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::polygon_wkb",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 7,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::create",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 7,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::open",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 7,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::publish_mode",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 6,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::__fuzz_wkb_roundtrip",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 5,
+      "raggiunto_da_replay": 1,
+      "disposizione": "test_tabellare",
+      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+    },
+    {
+      "gruppo": "driver-shp::polygon_rings",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 5,
+      "raggiunto_da_replay": 5,
+      "disposizione": "test_tabellare",
+      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+    },
+    {
+      "gruppo": "driver-shp::shapefile_source_path",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 5,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-filegdb::create",
+      "file": "crates/driver-filegdb/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "chiuso",
+      "nota": "chiuso da `create_without_gdal_feature_is_typed` (5500b74): ramo semantico negativo, non strutturale ne' dipendente dall'ambiente."
+    },
+    {
+      "gruppo": "driver-shp::finish_batch",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::open",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::write",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::cell_at",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::read_spool_data",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::read_spool_geometry",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::write",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::write_cell",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 4,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::header_geometry",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 3,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::resolve_crs",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 3,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::shape_from_wkb",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 3,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::take_child",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 3,
+      "raggiunto_da_replay": 3,
+      "disposizione": "test_tabellare",
+      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+    },
+    {
+      "gruppo": "driver-xls::classe_xlsx",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 3,
+      "raggiunto_da_replay": 0,
+      "disposizione": "difensivo",
+      "nota": "il ramo `_ => \"altro\"` del vocabolario: raggiungibile solo se rust_xlsxwriter aggiunge varianti. Non e' morto, e' difensivo."
+    },
+    {
+      "gruppo": "driver-xls::data",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 3,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::geometry",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 3,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-gpkg::la_classe_sqlite_traduce_ogni_variante_costruibile",
+      "file": "crates/driver-gpkg/src/lib.rs",
+      "righe": 2,
+      "raggiunto_da_replay": 0,
+      "disposizione": "strutturale",
+      "nota": "markup dentro un test verde: righe `use` e parentesi che LCOV nomina ma che non sono rami."
+    },
+    {
+      "gruppo": "driver-shp::declare_input_total",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 2,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-shp::shape_to_wkb",
+      "file": "crates/driver-shp/src/lib.rs",
+      "righe": 2,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::encode_geometry_cell",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 2,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::finish",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 2,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::la_classe_xlsx_traduce_ogni_variante_costruibile",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 2,
+      "raggiunto_da_replay": 0,
+      "disposizione": "strutturale",
+      "nota": "come sopra: markup dentro un test verde."
+    },
+    {
+      "gruppo": "driver-xls::valida_valore_riferimento",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 2,
+      "raggiunto_da_replay": 2,
+      "disposizione": "test_tabellare",
+      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+    },
+    {
+      "gruppo": "driver-xls::dimensioni",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 1,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "driver-xls::prossima_cella",
+      "file": "crates/driver-xls/src/lib.rs",
+      "righe": 1,
+      "raggiunto_da_replay": 0,
+      "disposizione": "test_tabellare",
+      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    }
+  ]
+}

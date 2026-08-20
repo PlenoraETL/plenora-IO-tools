@@ -135,3 +135,65 @@ tranche.
 
 Tranche 3: **solo** `driver-common`, 10 usi legacy di produzione nel registro
 autorevole.
+
+---
+
+## Addendum del 2026-08-21 — un'affermazione di questo documento e' falsa
+
+**Il corpo resta com'era.** La regola append-only serve proprio a questo: chi
+rilegge deve poter distinguere cio' che si sapeva allora da cio' che si e'
+capito dopo. L'affermazione sbagliata resta scritta, e qui viene marcata.
+
+### L'affermazione
+
+Nella sezione *Impatto sui consumatori*:
+
+> **Categoria, fase, effetto remoto, retry e `IoErrorCode` sono preservati sito
+> per sito**: e' per questo che i sei costruttori redatti esistono, invece di
+> lasciare che ogni chiamante li ridichiari.
+
+**E' falsa per un sito**, in `crates/plenora-io-core/src/driver.rs`, nel
+controllo del batch contro il contratto dichiarato.
+
+### Che cosa e' successo
+
+| | prima | dopo |
+|---|---|---|
+| category | Schema | Schema |
+| phase | Validate | Validate |
+| remote_effect | None | None |
+| retry | Never | Never |
+| **code** | **`Generic`** | **`Schema`** |
+
+Il sito usava `PlenoraIoError::new(ErrorCategory::Schema, ErrorPhase::Validate,
+…)`. `new` non nomina il codice: lo mette a `Generic`. Convertendolo in
+`schema_redatto`, che impone `code = Schema`, **il codice sul wire e' cambiato**.
+
+`code` fa parte della chiave di compatibilita' ratificata dalla decisione 2 di
+S9, insieme a category, phase e retry. Non era quindi un dettaglio del refactor:
+era una rottura, introdotta senza accorgersene e dichiarata assente.
+
+### Perche' non si e' visto
+
+Nel diff **non compare una sola riga** di `ErrorCategory::`, `ErrorPhase::`,
+`RemoteEffect::` o `RetryDisposition::` cambiata: quelle righe sono sparite
+insieme alla chiamata a `new`, e il costruttore nuovo non le nomina. Un controllo
+sulle varianti enum -- che era la mia evidenza -- non poteva vederlo.
+
+Trovato il 2026-08-21 costruendo la matrice dei gruppi differenziali, cioe' da
+un lavoro fatto per un'altra ragione.
+
+### Correzione
+
+* codice: `6da790b` ripristina `redatto(IoErrorCode::Generic, ErrorCategory::Schema, …)`;
+* gate: `scripts/check_quartetto_sito.py` (`b99289b`, corretto in `7593faa`)
+  verifica lo snapshot dei quartetti per `percorso::funzione`, sul codice
+  presente e non su un diff -- cosi' resta valido quando i costruttori legacy
+  spariranno;
+* nessun altro sito e' interessato: la verifica sull'intero perimetro di S9 non
+  ne trova altri.
+
+`Schema` sarebbe piu' preciso di `Generic` per una discordanza di schema, ma
+renderlo tale e' una decisione da ratificare separatamente, non una conseguenza
+di un refactor sui messaggi.
+
