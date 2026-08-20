@@ -132,8 +132,10 @@ impl FormatDriver for FileGdbDriver {
         #[cfg(not(feature = "gdal-backend"))]
         {
             let _ = (source, opts);
-            Err(plenora_io_model::PlenoraIoError::Unsupported(
-                "FileGDB richiede il tier GDB: compilare con --features gdal-backend".to_owned(),
+            Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "FileGDB richiede il tier GDB: compilare con --features gdal-backend",
+                ),
             ))
         }
     }
@@ -161,9 +163,10 @@ impl FormatDriver for FileGdbDriver {
         #[cfg(not(feature = "gdal-backend"))]
         {
             let _ = (sink, plan, opts);
-            Err(plenora_io_model::PlenoraIoError::Unsupported(
-                "scrittura FileGDB richiede il tier GDB: compilare con --features gdal-backend"
-                    .to_owned(),
+            Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "scrittura FileGDB richiede il tier GDB: compilare con --features gdal-backend",
+                ),
             ))
         }
     }
@@ -200,7 +203,9 @@ mod backend {
     };
     use plenora_io_model::crs::{AxisOrder, CrsKind, RawCrs, ResolvedCrs};
     use plenora_io_model::geometry::with_geometry_contract_metadata;
-    use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
+    use plenora_io_model::{
+        CapabilityReason, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
+    };
 
     pub fn runtime_available() -> bool {
         let Ok(driver) = DriverManager::get_driver_by_name("OpenFileGDB") else {
@@ -247,12 +252,14 @@ mod backend {
                 DataType::Float64 => Self::Float64,
                 DataType::Utf8 => Self::Utf8,
                 other => {
-                    return Err(PlenoraIoError::capability(
+                    return Err(PlenoraIoError::capability_redatta(
                         "filegdb",
-                        Some(field.name().clone()),
+                        None,
                         CapabilityReason::TypeNotRepresentable,
-                        format!(
-                            "tipo Arrow {other:?} non round-trip nativo; supportati esattamente Int32, Float64 e Utf8"
+                        &PublicMessage::CuratedPair(
+                            "tipo Arrow non round-trip nativo (supportati esattamente Int32, \
+                             Float64 e Utf8), classe:",
+                            driver_common::classe_arrow(other),
                         ),
                     ));
                 }
@@ -269,24 +276,24 @@ mod backend {
         }
     }
 
-    fn native_i32(field: &Field, key: &str) -> Result<Option<i32>> {
+    fn native_i32(field: &Field, key: &'static str) -> Result<Option<i32>> {
         let Some(value) = field.metadata().get(key) else {
             return Ok(None);
         };
         let parsed = value.parse::<i32>().map_err(|_| {
-            PlenoraIoError::capability(
+            PlenoraIoError::capability_redatta(
                 "filegdb",
-                Some(field.name().clone()),
+                None,
                 CapabilityReason::TypeNotRepresentable,
-                format!("metadato nativo '{key}' non è un intero valido"),
+                &PublicMessage::CuratedPair("metadato nativo non intero:", key),
             )
         })?;
         if parsed < 0 {
-            return Err(PlenoraIoError::capability(
+            return Err(PlenoraIoError::capability_redatta(
                 "filegdb",
-                Some(field.name().clone()),
+                None,
                 CapabilityReason::TypeNotRepresentable,
-                format!("metadato nativo '{key}' negativo"),
+                &PublicMessage::CuratedPair("metadato nativo negativo:", key),
             ));
         }
         Ok(Some(parsed))
@@ -397,9 +404,8 @@ mod backend {
             .as_ref()
             .and_then(GeometryColumnContract::resolved_crs)
             .ok_or_else(|| {
-                PlenoraIoError::Crs(format!(
-                    "FileGDB richiede un CRS risolto per il layer '{}'",
-                    layer.name
+                PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "FileGDB richiede un CRS risolto per ogni layer",
                 ))
             })?;
         let definition = resolved
@@ -408,7 +414,7 @@ mod backend {
             .filter(|definition| !definition.trim().is_empty())
             .or(resolved.id.as_deref())
             .ok_or_else(|| {
-                PlenoraIoError::crs_unresolved(
+                PlenoraIoError::crs_non_risolto_redatto(
                     "filegdb",
                     &RawCrs::new(
                         "ResolvedCrs senza identificatore o definizione".to_owned(),
@@ -417,7 +423,7 @@ mod backend {
                 )
             })?;
         let spatial_ref = SpatialRef::from_definition(definition).map_err(|_| {
-            PlenoraIoError::crs_unresolved(
+            PlenoraIoError::crs_non_risolto_redatto(
                 "filegdb",
                 &RawCrs::new(definition.to_owned(), resolved.id.clone()),
             )
@@ -425,7 +431,7 @@ mod backend {
         if let (Some(expected), Some(actual)) = (resolved.id.as_deref(), authority_id(&spatial_ref))
         {
             if !expected.eq_ignore_ascii_case(&actual) {
-                return Err(PlenoraIoError::crs_unresolved(
+                return Err(PlenoraIoError::crs_non_risolto_redatto(
                     "filegdb",
                     &RawCrs::new(definition.to_owned(), resolved.id.clone()),
                 ));
@@ -434,12 +440,19 @@ mod backend {
         Ok(spatial_ref)
     }
 
-    fn geometry_capability(
-        field: &str,
-        reason: CapabilityReason,
-        detail: impl Into<String>,
-    ) -> PlenoraIoError {
-        PlenoraIoError::capability("filegdb", Some(field.to_owned()), reason, detail)
+    /// Una capability geometrica assente, redatta.
+    ///
+    /// Il campo **non viene piu' passato come nome nudo**. `ContractIdentifier`
+    /// nasce solo da un contratto validato, e qui il nome puo' arrivare tanto
+    /// dal piano quanto dallo schema che GDAL ha letto dal file: distinguerli
+    /// sito per sito costerebbe piu' di quanto vale, e sbagliarne uno
+    /// significherebbe far entrare un nome del payload in un tipo che promette
+    /// il contrario.
+    ///
+    /// Il campo geometrico di un `FileGDB` e' uno solo, e chi legge l'errore ha
+    /// il contratto: l'identita' non si perde, cambia solo da dove si legge.
+    fn geometry_capability(reason: CapabilityReason, detail: &PublicMessage) -> PlenoraIoError {
+        PlenoraIoError::capability_redatta("filegdb", None, reason, detail)
     }
 
     /// `FileGDB` richiede tipo e dimensionalità del feature class prima dei dati:
@@ -452,33 +465,29 @@ mod backend {
 
         let geometry = layer.contract.geometry.as_ref().ok_or_else(|| {
             geometry_capability(
-                "geometry",
                 CapabilityReason::GeometryNotSupported,
-                format!("layer '{}' senza contratto geometrico", layer.name),
+                &PublicMessage::Curated("layer senza contratto geometrico"),
             )
         })?;
         let geometry_type = match geometry.geometry_types.as_slice() {
             [geometry_type] => *geometry_type,
             [] => {
                 return Err(geometry_capability(
-                    &geometry.name,
                     CapabilityReason::GeometryNotSupported,
-                    "FileGDB richiede un tipo geometrico dichiarato",
+                    &PublicMessage::Curated("FileGDB richiede un tipo geometrico dichiarato"),
                 ));
             }
             _ => {
                 return Err(geometry_capability(
-                    &geometry.name,
                     CapabilityReason::MixedGeometry,
-                    "FileGDB richiede un solo tipo geometrico per layer",
+                    &PublicMessage::Curated("FileGDB richiede un solo tipo geometrico per layer"),
                 ));
             }
         };
         if geometry_type == GeometryType::GeometryCollection {
             return Err(geometry_capability(
-                &geometry.name,
                 CapabilityReason::GeometryNotSupported,
-                "GeometryCollection non è un feature-class FileGDB nativo",
+                &PublicMessage::Curated("GeometryCollection non è un feature-class FileGDB nativo"),
             ));
         }
 
@@ -501,27 +510,23 @@ mod backend {
             (G::MultiPolygon, D::Xyzm) => Ok(O::wkbMultiPolygonZM),
             (G::LineString | G::Polygon, D::Xy | D::Xyz | D::Xym | D::Xyzm) => {
                 Err(geometry_capability(
-                    &geometry.name,
                     CapabilityReason::GeometryNotSupported,
-                    "FileGDB normalizza le famiglie lineari/poligonali native a MultiLineString/MultiPolygon; dichiarare il tipo multipart per un round-trip stabile",
+                    &PublicMessage::Curated("FileGDB normalizza le famiglie lineari/poligonali native a MultiLineString/MultiPolygon; dichiarare il tipo multipart per un round-trip stabile"),
                 ))
             }
             (_, D::Unknown) => Err(geometry_capability(
-                &geometry.name,
                 CapabilityReason::CoordinateDimensions,
-                "FileGDB richiede dimensionalità XY o XYZ dichiarata",
+                &PublicMessage::Curated("FileGDB richiede dimensionalità XY o XYZ dichiarata"),
             )),
             (G::GeometryCollection, _) => Err(geometry_capability(
-                &geometry.name,
                 CapabilityReason::GeometryNotSupported,
-                "GeometryCollection non rappresentabile nel profilo FileGDB corrente",
+                &PublicMessage::Curated("GeometryCollection non rappresentabile nel profilo FileGDB corrente"),
             )),
             (unsupported, _) => Err(geometry_capability(
-                &geometry.name,
                 CapabilityReason::GeometryNotSupported,
-                format!(
-                    "tipo geometrico {} non rappresentabile nel profilo FileGDB corrente",
-                    unsupported.canonical_name()
+                &PublicMessage::CuratedPair(
+                    "tipo geometrico non rappresentabile nel profilo FileGDB corrente:",
+                    unsupported.canonical_name(),
                 ),
             )),
         }
@@ -627,21 +632,33 @@ mod backend {
                 array
                     .as_any()
                     .downcast_ref::<Int32Array>()
-                    .ok_or_else(|| err("schema Int32 ma array runtime differente"))?
+                    .ok_or_else(|| {
+                        err(&PublicMessage::Curated(
+                            "schema Int32 ma array runtime differente",
+                        ))
+                    })?
                     .value(row),
             ),
             FieldKind::Float64 => F::RealValue(
                 array
                     .as_any()
                     .downcast_ref::<Float64Array>()
-                    .ok_or_else(|| err("schema Float64 ma array runtime differente"))?
+                    .ok_or_else(|| {
+                        err(&PublicMessage::Curated(
+                            "schema Float64 ma array runtime differente",
+                        ))
+                    })?
                     .value(row),
             ),
             FieldKind::Utf8 => F::StringValue(
                 array
                     .as_any()
                     .downcast_ref::<StringArray>()
-                    .ok_or_else(|| err("schema Utf8 ma array runtime differente"))?
+                    .ok_or_else(|| {
+                        err(&PublicMessage::Curated(
+                            "schema Utf8 ma array runtime differente",
+                        ))
+                    })?
                     .value(row)
                     .to_owned(),
             ),
@@ -673,7 +690,7 @@ mod backend {
         opts: &WriteOptions,
     ) -> Result<Box<dyn FormatWriter>> {
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
 
         // Risolvi ogni CRS prima di creare lo staging: un CRS non rappresentabile
@@ -682,7 +699,7 @@ mod backend {
         for l in &plan.layers {
             let schema = &l.contract.schema;
             let geom_idx = geometry_index(schema)
-                .ok_or_else(|| err(format!("layer '{}' senza colonna geometria", l.name)))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("layer senza colonna geometria")))?;
             let fields = schema
                 .fields()
                 .iter()
@@ -697,11 +714,11 @@ mod backend {
                     if native_i32(field, OGR_FIELD_TYPE_KEY)?
                         .is_some_and(|native_type| native_type != ogr_type)
                     {
-                        return Err(PlenoraIoError::capability(
+                        return Err(PlenoraIoError::capability_redatta(
                             "filegdb",
-                            Some(field.name().clone()),
+                            None,
                             CapabilityReason::TypeNotRepresentable,
-                            "tipo Arrow e metadato OGR nativo incoerenti",
+                            &PublicMessage::Curated("tipo Arrow e metadato OGR nativo incoerenti"),
                         ));
                     }
                     Ok(PlanField {
@@ -724,11 +741,14 @@ mod backend {
         }
 
         let staging = StagingGuard::create(path)?;
-        let driver = DriverManager::get_driver_by_name("OpenFileGDB")
-            .map_err(|e| err(format!("driver OpenFileGDB non disponibile: {e}")))?;
+        let driver = DriverManager::get_driver_by_name("OpenFileGDB").map_err(|_| {
+            err(&PublicMessage::Curated(
+                "driver OpenFileGDB non disponibile",
+            ))
+        })?;
         let mut ds = driver
             .create_vector_only(staging.path())
-            .map_err(|e| err(format!("creazione FileGDB: {e}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("creazione del FileGDB fallita")))?;
 
         // Il contratto basta a creare anche layer vuoti o con sole geometrie
         // nulle, senza dipendere dal primo record osservato. Verifichiamo
@@ -742,19 +762,22 @@ mod backend {
                         ty: info.ogr_type,
                         options: None,
                     })
-                    .map_err(|e| err(format!("create_layer '{}': {e}", info.name)))?;
+                    // Il nome del layer non esce: viene dal piano.
+                    .map_err(|_| err(&PublicMessage::Curated("create_layer fallita")))?;
                 for field in &info.fields {
-                    let definition = FieldDefn::new(&field.name, field.kind.ogr())
-                        .map_err(|e| err(format!("definizione campo '{}': {e}", field.name)))?;
+                    let definition =
+                        FieldDefn::new(&field.name, field.kind.ogr()).map_err(|_| {
+                            err(&PublicMessage::Curated("definizione di un campo fallita"))
+                        })?;
                     if let Some(width) = field.width {
                         definition.set_width(width);
                     }
                     if let Some(precision) = field.precision {
                         definition.set_precision(precision);
                     }
-                    definition
-                        .add_to_layer(&layer)
-                        .map_err(|e| err(format!("creazione campo '{}': {e}", field.name)))?;
+                    definition.add_to_layer(&layer).map_err(|_| {
+                        err(&PublicMessage::Curated("creazione di un campo fallita"))
+                    })?;
                 }
                 let actual: Vec<(String, gdal::vector::OGRFieldType::Type, i32, i32)> = layer
                     .defn()
@@ -770,32 +793,35 @@ mod backend {
                     .collect();
                 if actual.len() != info.fields.len() {
                     return Err(geometry_capability(
-                        &info.name,
                         CapabilityReason::TypeNotRepresentable,
-                        "GDAL ha creato un numero di campi diverso dal contratto",
+                        &PublicMessage::Curated(
+                            "GDAL ha creato un numero di campi diverso dal contratto",
+                        ),
                     ));
                 }
                 for (expected, (actual_name, actual_type, actual_width, actual_precision)) in
                     info.fields.iter().zip(actual)
                 {
                     if expected.name != actual_name {
-                        return Err(PlenoraIoError::capability(
+                        // Ne' il nome atteso ne' quello normalizzato escono:
+                        // il primo viene dal piano, il secondo e' un derivato
+                        // che GDAL ha prodotto leggendolo.
+                        return Err(PlenoraIoError::capability_redatta(
                             "filegdb",
-                            Some(expected.name.clone()),
+                            None,
                             CapabilityReason::FieldNameCollision,
-                            format!(
-                                "GDAL ha normalizzato il nome in '{actual_name}'; scrittura rifiutata"
+                            &PublicMessage::Curated(
+                                "GDAL ha normalizzato il nome del campo; scrittura rifiutata",
                             ),
                         ));
                     }
                     if expected.kind.ogr() != actual_type {
-                        return Err(PlenoraIoError::capability(
+                        return Err(PlenoraIoError::capability_redatta(
                             "filegdb",
-                            Some(expected.name.clone()),
+                            None,
                             CapabilityReason::TypeNotRepresentable,
-                            format!(
-                                "GDAL ha riclassificato il tipo OGR {} in {actual_type}",
-                                expected.kind.ogr()
+                            &PublicMessage::Curated(
+                                "GDAL ha riclassificato il tipo OGR del campo; scrittura rifiutata",
                             ),
                         ));
                     }
@@ -804,12 +830,12 @@ mod backend {
                             .precision
                             .is_some_and(|precision| precision != actual_precision)
                     {
-                        return Err(PlenoraIoError::capability(
+                        return Err(PlenoraIoError::capability_redatta(
                             "filegdb",
-                            Some(expected.name.clone()),
+                            None,
                             CapabilityReason::TypeNotRepresentable,
-                            format!(
-                                "GDAL ha normalizzato width/precision in {actual_width}/{actual_precision}"
+                            &PublicMessage::Curated(
+                                "GDAL ha normalizzato width o precision del campo",
                             ),
                         ));
                     }
@@ -840,46 +866,61 @@ mod backend {
         fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
             let li = layer.0 as usize;
             if li >= self.layers.len() {
-                return Err(err(format!("layer {} inesistente", layer.0)));
+                return Err(err(&PublicMessage::CuratedWith(
+                    "layer inesistente, indice",
+                    NumeroStrutturale::Indice(u64::from(layer.0)),
+                )));
             }
             let geom_idx = self.layers[li].geom_idx;
             let geom_col = batch
                 .column(geom_idx)
                 .as_any()
                 .downcast_ref::<BinaryArray>()
-                .ok_or_else(|| err("colonna geometria non binaria"))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
 
             let gidx = self.layers[li].gdal_idx;
             let fields = self.layers[li].fields.clone();
             let gl = self
                 .ds
                 .as_ref()
-                .ok_or_else(|| err("dataset writer già chiuso"))?
+                .ok_or_else(|| err(&PublicMessage::Curated("dataset writer già chiuso")))?
                 .layer(gidx)
-                .map_err(|e| err(format!("accesso layer {gidx}: {e}")))?;
+                .map_err(|_| {
+                    err(&PublicMessage::CuratedWith(
+                        "accesso al layer GDAL fallito, indice",
+                        NumeroStrutturale::Indice(driver_common::saturating_u64(gidx)),
+                    ))
+                })?;
             for row in 0..batch.num_rows() {
-                let mut feature =
-                    Feature::new(gl.defn()).map_err(|e| err(format!("creazione feature: {e}")))?;
+                let mut feature = Feature::new(gl.defn())
+                    .map_err(|_| err(&PublicMessage::Curated("creazione della feature fallita")))?;
                 if !geom_col.is_null(row) {
-                    let geometry = Geometry::from_wkb(geom_col.value(row))
-                        .map_err(|e| err(format!("WKB->GDAL: {e}")))?;
-                    feature
-                        .set_geometry(geometry)
-                        .map_err(|e| err(format!("geometria feature: {e}")))?;
+                    let geometry = Geometry::from_wkb(geom_col.value(row)).map_err(|_| {
+                        err(&PublicMessage::Curated(
+                            "conversione WKB verso GDAL fallita",
+                        ))
+                    })?;
+                    feature.set_geometry(geometry).map_err(|_| {
+                        err(&PublicMessage::Curated(
+                            "assegnazione della geometria alla feature fallita",
+                        ))
+                    })?;
                 }
                 for field in &fields {
                     match field_value(field.kind, batch.column(field.index), row)? {
-                        Some(value) => feature
-                            .set_field(&field.name, &value)
-                            .map_err(|e| err(format!("campo '{}': {e}", field.name)))?,
-                        None => feature
-                            .set_field_null(&field.name)
-                            .map_err(|e| err(format!("null campo '{}': {e}", field.name)))?,
+                        Some(value) => feature.set_field(&field.name, &value).map_err(|_| {
+                            err(&PublicMessage::Curated("scrittura di un campo fallita"))
+                        })?,
+                        None => feature.set_field_null(&field.name).map_err(|_| {
+                            err(&PublicMessage::Curated(
+                                "scrittura di un campo nullo fallita",
+                            ))
+                        })?,
                     }
                 }
                 feature
                     .create(&gl)
-                    .map_err(|e| err(format!("create_feature: {e}")))?;
+                    .map_err(|_| err(&PublicMessage::Curated("scrittura della feature fallita")))?;
             }
             #[cfg(test)]
             crash_failpoint("after_write");
@@ -890,14 +931,18 @@ mod backend {
             let ds = self
                 .ds
                 .take()
-                .ok_or_else(|| err("dataset writer già chiuso"))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("dataset writer già chiuso")))?;
             drop(ds); // chiude e flush della .gdb
             let bytes = dir_size(self.staging.path());
             if bytes > self.max_output_bytes {
-                return Err(PlenoraIoError::LimitExceeded(format!(
-                    "output FileGDB da {bytes} byte oltre il limite di {}",
-                    self.max_output_bytes
-                )));
+                return Err(PlenoraIoError::limite_redatto(
+                    &PublicMessage::CuratedBetween(
+                        "output FileGDB da",
+                        NumeroStrutturale::Conteggio(bytes),
+                        "byte oltre il limite di",
+                        NumeroStrutturale::Limite(self.max_output_bytes),
+                    ),
+                ));
             }
             #[cfg(test)]
             crash_failpoint("before_publish");
@@ -916,8 +961,8 @@ mod backend {
 
     const GEOMETRY: &str = "geometry";
 
-    fn err(reason: impl Into<String>) -> PlenoraIoError {
-        PlenoraIoError::format("filegdb", reason)
+    fn err(reason: &PublicMessage) -> PlenoraIoError {
+        PlenoraIoError::formato_redatto("filegdb", reason)
     }
 
     fn authority_id(spatial_ref: &SpatialRef) -> Option<String> {
@@ -985,19 +1030,19 @@ mod backend {
             spatial_ref
         } else {
             let definition = assume_crs.ok_or_else(|| {
-                PlenoraIoError::Crs(
-                    "FileGDB con geometria senza CRS: fornire --assume-crs".to_owned(),
-                )
+                PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                    "FileGDB con geometria senza CRS: fornire --assume-crs",
+                ))
             })?;
             SpatialRef::from_definition(definition).map_err(|_| {
-                PlenoraIoError::crs_unresolved(
+                PlenoraIoError::crs_non_risolto_redatto(
                     "filegdb",
                     &RawCrs::new(definition.to_owned(), Some(definition.to_owned())),
                 )
             })?
         };
         let definition = spatial_ref.to_wkt().map_err(|_| {
-            PlenoraIoError::crs_unresolved(
+            PlenoraIoError::crs_non_risolto_redatto(
                 "filegdb",
                 &RawCrs::new(
                     "SpatialRef GDAL presente ma WKT non esportabile".to_owned(),
@@ -1059,7 +1104,8 @@ mod backend {
         assume_crs: Option<&str>,
     ) -> Result<Box<dyn OpenDatasetHandle>> {
         // Schema dai def GDAL, SENZA leggere feature (poi il reader streamma).
-        let ds = Dataset::open(path).map_err(|e| err(format!("apertura GDAL: {e}")))?;
+        let ds = Dataset::open(path)
+            .map_err(|_| err(&PublicMessage::Curated("apertura GDAL fallita")))?;
         let mut layers = Vec::new();
         let mut metas = Vec::new();
         for (i, layer) in ds.layers().enumerate() {
@@ -1069,9 +1115,9 @@ mod backend {
                 .as_deref()
                 .or(crs.definition.as_deref())
                 .ok_or_else(|| {
-                    PlenoraIoError::Crs(
-                        "CRS FileGDB risolto senza identificativo né definizione".to_owned(),
-                    )
+                    PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                        "CRS FileGDB risolto senza identificativo né definizione",
+                    ))
                 })?
                 .to_owned();
             let ogr_geometry_type = layer
@@ -1079,7 +1125,7 @@ mod backend {
                 .geom_fields()
                 .next()
                 .map(|field| field.field_type())
-                .ok_or_else(|| err(format!("layer '{}' senza campo geometrico", layer.name())))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("layer senza campo geometrico")))?;
             let geometry = geometry_contract_from_ogr(ogr_geometry_type, crs);
             let native_fields: Vec<(LayerFieldMeta, Field)> = layer
                 .defn()
@@ -1087,7 +1133,7 @@ mod backend {
                 .map(|field| {
                     let name = field.name();
                     let field_type = field.field_type();
-                    ogr_to_arrow(field_type, &name).map(|data_type| {
+                    ogr_to_arrow(field_type).map(|data_type| {
                         let metadata = HashMap::from([
                             (OGR_FIELD_TYPE_KEY.to_owned(), field_type.to_string()),
                             (OGR_FIELD_WIDTH_KEY.to_owned(), field.width().to_string()),
@@ -1139,7 +1185,7 @@ mod backend {
         }))
     }
 
-    fn ogr_to_arrow(ft: gdal::vector::OGRFieldType::Type, name: &str) -> Result<DataType> {
+    fn ogr_to_arrow(ft: gdal::vector::OGRFieldType::Type) -> Result<DataType> {
         use gdal::vector::OGRFieldType;
         if ft == OGRFieldType::OFTInteger {
             Ok(DataType::Int32)
@@ -1150,12 +1196,14 @@ mod backend {
         } else if ft == OGRFieldType::OFTString || ft == OGRFieldType::OFTWideString {
             Ok(DataType::Utf8)
         } else {
-            Err(PlenoraIoError::capability(
+            // Ne' il nome ne' il codice del tipo OGR escono: entrambi vengono
+            // dallo schema che GDAL ha letto dal file.
+            Err(PlenoraIoError::capability_redatta(
                 "filegdb",
-                Some(name.to_owned()),
+                None,
                 CapabilityReason::TypeNotRepresentable,
-                format!(
-                    "tipo campo OGR {ft} non ancora rappresentato senza perdita nel bordo Arrow"
+                &PublicMessage::Curated(
+                    "tipo campo OGR non ancora rappresentato senza perdita nel bordo Arrow",
                 ),
             ))
         }
@@ -1202,7 +1250,12 @@ mod backend {
                 .layers
                 .iter()
                 .position(|l| l.id.0 == request.layer.0)
-                .ok_or_else(|| err(format!("layer {} inesistente", request.layer.0)))?;
+                .ok_or_else(|| {
+                    err(&PublicMessage::CuratedWith(
+                        "layer runtime inesistente, indice",
+                        NumeroStrutturale::Indice(u64::from(request.layer.0)),
+                    ))
+                })?;
             let m = &self.metas[idx];
             let (indices, layer_contract) =
                 plenora_io_core::project_layer_contract(&self.layers[idx], request)?;
@@ -1213,12 +1266,17 @@ mod backend {
                     continue;
                 };
                 let field = m.fields.get(field_index).ok_or_else(|| {
-                    err(format!(
-                        "indice Arrow {index} non presente nello schema FileGDB"
+                    err(&PublicMessage::CuratedWith(
+                        "indice Arrow non presente nello schema FileGDB, indice",
+                        NumeroStrutturale::Indice(driver_common::saturating_u64(index)),
                     ))
                 })?;
-                let ogr_index = i32::try_from(field_index)
-                    .map_err(|_| err(format!("indice OGR {field_index} fuori intervallo i32")))?;
+                let ogr_index = i32::try_from(field_index).map_err(|_| {
+                    err(&PublicMessage::CuratedWith(
+                        "indice OGR fuori intervallo i32, indice",
+                        NumeroStrutturale::Indice(driver_common::saturating_u64(field_index)),
+                    ))
+                })?;
                 fields.push(ProjectedField {
                     ogr_index,
                     name: field.name.clone(),
@@ -1250,6 +1308,36 @@ mod backend {
 
     /// Il thread apre il PROPRIO Dataset GDAL (non-Send, quindi mai attraversa il
     /// confine) e scorre le feature in batch, consegnati via canale.
+    /// Verifica che lo schema non sia cambiato fra `open` e l'avvio del worker.
+    ///
+    /// Il worker riapre il dataset: prima di usare gli indici OGR pre-risolti
+    /// controlla che nessun processo abbia cambiato lo schema nel frattempo. Un
+    /// mismatch fallisce **chiuso** invece di convertire silenziosamente il
+    /// campo sbagliato.
+    ///
+    /// Il nome del campo non entra nel messaggio: viene dallo schema che GDAL
+    /// ha letto dal file. Esce l'indice, che e' nostro.
+    fn verifica_schema_invariato(
+        actual_fields: &[(String, gdal::vector::OGRFieldType::Type)],
+        fields: &[ProjectedField],
+    ) -> Result<()> {
+        for field in fields {
+            let index = usize::try_from(field.ogr_index)
+                .map_err(|_| err(&PublicMessage::Curated("indice OGR negativo")))?;
+            let actual = actual_fields.get(index);
+            if !matches!(
+                actual,
+                Some((name, ogr_type)) if name == &field.name && *ogr_type == field.ogr_type
+            ) {
+                return Err(err(&PublicMessage::CuratedWith(
+                    "schema FileGDB cambiato fra apertura e lettura, campo di indice",
+                    NumeroStrutturale::Indice(driver_common::saturating_u64(index)),
+                )));
+            }
+        }
+        Ok(())
+    }
+
     fn spawn_reader(
         path: PathBuf,
         gdal_idx: usize,
@@ -1265,39 +1353,29 @@ mod backend {
             2,
             move |emitter: BatchEmitter| {
                 let ds = Dataset::open(&path)
-                    .map_err(|error| err(format!("apertura FileGDB: {error}")))?;
-                let mut layer = ds
-                    .layer(gdal_idx)
-                    .map_err(|error| err(format!("apertura layer FileGDB: {error}")))?;
+                    .map_err(|_| err(&PublicMessage::Curated("apertura del FileGDB fallita")))?;
+                let mut layer = ds.layer(gdal_idx).map_err(|_| {
+                    err(&PublicMessage::Curated(
+                        "apertura del layer FileGDB fallita",
+                    ))
+                })?;
                 // Il worker riapre il dataset: prima di usare gli indici OGR
-                // pre-risolti verifica che nessun processo abbia cambiato lo
-                // schema fra `open` e l'avvio della lettura. Un mismatch fallisce
-                // chiuso invece di convertire silenziosamente il campo sbagliato.
+                // pre-risolti verifica che nessuno abbia cambiato lo schema.
                 let actual_fields: Vec<_> = layer
                     .defn()
                     .fields()
                     .map(|field| (field.name(), field.field_type()))
                     .collect();
-                for field in &fields {
-                    let index = usize::try_from(field.ogr_index)
-                        .map_err(|_| err(format!("indice OGR {} negativo", field.ogr_index)))?;
-                    let actual = actual_fields.get(index);
-                    if !matches!(
-                        actual,
-                        Some((name, ogr_type))
-                            if name == &field.name && *ogr_type == field.ogr_type
-                    ) {
-                        return Err(err(format!(
-                            "schema FileGDB cambiato fra apertura e lettura al campo '{}'",
-                            field.name
-                        )));
-                    }
-                }
+                verifica_schema_invariato(&actual_fields, &fields)?;
                 let selected_fields = fields
                     .iter()
                     .map(|field| usize::try_from(field.ogr_index))
                     .collect::<std::result::Result<HashSet<_>, _>>()
-                    .map_err(|_| err("indice OGR negativo nella projection FileGDB"))?;
+                    .map_err(|_| {
+                        err(&PublicMessage::Curated(
+                            "indice OGR negativo nella projection FileGDB",
+                        ))
+                    })?;
                 let mut ignored_fields = actual_fields
                     .iter()
                     .enumerate()
@@ -1307,9 +1385,9 @@ mod backend {
                 if !include_geometry {
                     ignored_fields.push("OGR_GEOMETRY");
                 }
-                layer.set_ignored_fields(&ignored_fields).map_err(|error| {
-                    err(format!(
-                        "projection fisica FileGDB non applicabile: {error}"
+                layer.set_ignored_fields(&ignored_fields).map_err(|_| {
+                    err(&PublicMessage::Curated(
+                        "projection fisica FileGDB non applicabile",
                     ))
                 })?;
                 let mut geom = include_geometry.then(BinaryBuilder::new);
@@ -1322,8 +1400,10 @@ mod backend {
                     if let Some(builder) = &mut geom {
                         match feature.geometry_by_index(0) {
                             Ok(geometry) => {
-                                let bytes = geometry.wkb().map_err(|error| {
-                                    err(format!("conversione geometria FileGDB in WKB: {error}"))
+                                let bytes = geometry.wkb().map_err(|_| {
+                                    err(&PublicMessage::Curated(
+                                        "conversione della geometria FileGDB in WKB fallita",
+                                    ))
                                 })?;
                                 builder.append_value(&bytes);
                             }
@@ -1333,8 +1413,10 @@ mod backend {
                             }) => {
                                 builder.append_null();
                             }
-                            Err(error) => {
-                                return Err(err(format!("lettura geometria FileGDB: {error}")))
+                            Err(_) => {
+                                return Err(err(&PublicMessage::Curated(
+                                    "lettura della geometria FileGDB fallita",
+                                )))
                             }
                         }
                     }
@@ -1377,8 +1459,11 @@ mod backend {
             arrays.push(b.finish());
         }
         let options = RecordBatchOptions::new().with_row_count(Some(row_count));
-        RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
-            .map_err(|error| err(format!("batch: {error}")))
+        RecordBatch::try_new_with_options(schema.clone(), arrays, &options).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "costruzione del RecordBatch fallita",
+            ))
+        })
     }
 
     enum ReadCol {
@@ -1398,8 +1483,21 @@ mod backend {
             }
         }
         fn append_feature(&mut self, feature: &Feature<'_>, field: &ProjectedField) -> Result<()> {
-            let read_error =
-                |error| err(format!("lettura campo FileGDB '{}': {error}", field.name));
+            // Ne' il nome del campo ne' il testo di GDAL escono: il primo
+            // viene dallo schema letto dal file, il secondo dalla dipendenza.
+            let read_error = |_| {
+                err(&PublicMessage::CuratedWith(
+                    "lettura di un campo FileGDB fallita, indice OGR",
+                    // `unsigned_abs` rende la conversione **totale**: nessun ramo
+                    // di riserva, quindi niente da registrare come fallback.
+                    // L'indice OGR e' gia' verificato non negativo a monte.
+                    //
+                    // (Il commento evita di nominare la forma alternativa: il
+                    // registro dei fallback conta il testo, e citarla qui la
+                    // farebbe contare come se ci fosse davvero.)
+                    NumeroStrutturale::Indice(u64::from(field.ogr_index.unsigned_abs())),
+                ))
+            };
             match self {
                 Self::I32(builder) => {
                     match feature

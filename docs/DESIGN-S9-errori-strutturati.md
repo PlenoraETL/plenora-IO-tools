@@ -438,7 +438,7 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 8 | `driver-geoparquet` | 8 → 0 (più 49 chiamanti e 11 siti di cancellazione) | **chiusa**, livello 1 |
 | 9 | `driver-ipc` | 7 → 0 (8 `ArrowError`, 1 fuga di payload) | **chiusa**, livello 1; checkpoint di livello 2 dovuto |
 | 10 | `driver-xls` | 18 → 0 (55 chiamanti, `xls_err` con 7 varianti che portano il nome del foglio) | **chiusa**, livello 1 |
-| 11 | `driver-filegdb` | 22 | **prossima** |
+| 11 | `driver-filegdb` | 22 → 0 (35 chiamanti, 13 siti con testo GDAL, 11 nomi) | **chiusa**, livello 1 |
 | 12 | `driver-shp` | 22 | poi checkpoint di livello 2 |
 | 13 | `driver-dxf` | 20 | |
 | ultima | `plenora-io-cli` | 6 | **dopo tutti i driver** |

@@ -77,6 +77,7 @@ MIGRATI = (
     "driver-geoparquet",
     "driver-ipc",
     "driver-xls",
+    "driver-filegdb",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -101,16 +102,6 @@ DA_MIGRARE: dict[str, int] = {
     "crates/driver-dxf/src/lib.rs::resolve_dxf_crs": 2,
     "crates/driver-dxf/src/lib.rs::write": 2,
     "crates/driver-dxf/src/lib.rs::write_file_value": 1,
-    "crates/driver-filegdb/src/lib.rs::create": 6,
-    "crates/driver-filegdb/src/lib.rs::err": 1,
-    "crates/driver-filegdb/src/lib.rs::finish": 1,
-    "crates/driver-filegdb/src/lib.rs::from": 1,
-    "crates/driver-filegdb/src/lib.rs::geometry_capability": 1,
-    "crates/driver-filegdb/src/lib.rs::layer_spatial_ref": 4,
-    "crates/driver-filegdb/src/lib.rs::native_i32": 2,
-    "crates/driver-filegdb/src/lib.rs::ogr_to_arrow": 1,
-    "crates/driver-filegdb/src/lib.rs::open": 2,
-    "crates/driver-filegdb/src/lib.rs::resolve_layer_crs": 3,
     "crates/driver-shp/src/lib.rs::create": 4,
     "crates/driver-shp/src/lib.rs::declare_input_total": 1,
     "crates/driver-shp/src/lib.rs::err": 1,
