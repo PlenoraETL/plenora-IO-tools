@@ -49,7 +49,9 @@ use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
     decode_wkb, encode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue,
 };
-use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
+use plenora_io_model::{
+    CancellationToken, ErrorPhase, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
+};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader as XmlReader;
 
@@ -57,8 +59,8 @@ const GEOMETRY: &str = "geometry";
 const MAX_XML_DEPTH: usize = 256;
 const KML_IO_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
-fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("kml", reason)
+fn err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("kml", reason)
 }
 
 fn valid_xml_name(name: &[u8]) -> bool {
@@ -78,13 +80,17 @@ fn valid_xml_name(name: &[u8]) -> bool {
 
 fn validate_element(event: &BytesStart<'_>) -> Result<()> {
     if !valid_xml_name(event.name().as_ref()) {
-        return Err(err("nome di elemento XML non valido"));
+        return Err(err(&PublicMessage::Curated(
+            "nome di elemento XML non valido",
+        )));
     }
     for attribute in event.attributes().with_checks(true) {
         let attribute =
-            attribute.map_err(|error| err(format!("attributo XML non valido: {error}")))?;
+            attribute.map_err(|_| err(&PublicMessage::Curated("attributo XML non valido")))?;
         if !valid_xml_name(attribute.key.as_ref()) {
-            return Err(err("nome di attributo XML non valido"));
+            return Err(err(&PublicMessage::Curated(
+                "nome di attributo XML non valido",
+            )));
         }
     }
     Ok(())
@@ -110,7 +116,9 @@ fn observe_point_coordinate_text(
     );
     if direct_point_coordinates && text.iter().any(|byte| !byte.is_ascii_whitespace()) {
         let Some(point_has_coordinates) = open_points_with_coordinates.last_mut() else {
-            return Err(err("coordinate Point KML fuori contesto"));
+            return Err(err(&PublicMessage::Curated(
+                "coordinate Point KML fuori contesto",
+            )));
         };
         *point_has_coordinates = true;
     }
@@ -131,18 +139,18 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
 
     loop {
         if events_left == 0 {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "numero di eventi XML incoerente con la dimensione dell'input",
-            ));
+            )));
         }
         events_left -= 1;
 
         let event = reader
             .read_event_into(&mut event_buffer)
-            .map_err(|error| err(format!("XML KML non valido: {error}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("XML KML non valido")))?;
         let position = reader.buffer_position();
         if !matches!(event, Event::Eof) && position <= previous_position {
-            return Err(err("parser XML senza avanzamento"));
+            return Err(err(&PublicMessage::Curated("parser XML senza avanzamento")));
         }
         previous_position = position;
 
@@ -150,8 +158,9 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
             Event::Start(element) => {
                 validate_element(&element)?;
                 if stack.len() >= MAX_XML_DEPTH {
-                    return Err(err(format!(
-                        "profondità XML oltre il limite di {MAX_XML_DEPTH}"
+                    return Err(err(&PublicMessage::CuratedWith(
+                        "profondità XML oltre il limite di",
+                        NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_XML_DEPTH)),
                     )));
                 }
                 if element.local_name().as_ref() == b"Point" {
@@ -162,7 +171,7 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
             Event::Empty(element) => {
                 validate_element(&element)?;
                 if element.local_name().as_ref() == b"Point" {
-                    return Err(err("Point KML senza coordinate"));
+                    return Err(err(&PublicMessage::Curated("Point KML senza coordinate")));
                 }
             }
             Event::Text(text) => {
@@ -181,27 +190,39 @@ fn validate_kml_xml<R: BufRead>(input: R, input_bytes: usize) -> Result<()> {
             }
             Event::End(element) => {
                 if !valid_xml_name(element.name().as_ref()) {
-                    return Err(err("nome di chiusura XML non valido"));
+                    return Err(err(&PublicMessage::Curated(
+                        "nome di chiusura XML non valido",
+                    )));
                 }
                 let Some(opened) = stack.pop() else {
-                    return Err(err("chiusura XML senza elemento aperto"));
+                    return Err(err(&PublicMessage::Curated(
+                        "chiusura XML senza elemento aperto",
+                    )));
                 };
                 if opened.as_slice() != element.name().as_ref() {
-                    return Err(err("elementi XML annidati in modo non valido"));
+                    return Err(err(&PublicMessage::Curated(
+                        "elementi XML annidati in modo non valido",
+                    )));
                 }
                 if element.local_name().as_ref() == b"Point" {
                     let Some(has_coordinates) = open_points_with_coordinates.pop() else {
-                        return Err(err("chiusura Point KML senza apertura"));
+                        return Err(err(&PublicMessage::Curated(
+                            "chiusura Point KML senza apertura",
+                        )));
                     };
                     if !has_coordinates {
-                        return Err(err("Point KML senza coordinate"));
+                        return Err(err(&PublicMessage::Curated("Point KML senza coordinate")));
                     }
                 }
             }
-            Event::DocType(_) => return Err(err("DOCTYPE non ammesso nei documenti KML")),
+            Event::DocType(_) => {
+                return Err(err(&PublicMessage::Curated(
+                    "DOCTYPE non ammesso nei documenti KML",
+                )))
+            }
             Event::Eof => {
                 if !stack.is_empty() {
-                    return Err(err("documento XML troncato"));
+                    return Err(err(&PublicMessage::Curated("documento XML troncato")));
                 }
                 return Ok(());
             }
@@ -275,18 +296,20 @@ impl FormatDriver for KmlDriver {
         );
         while let Some(placemark) = stream.next_placemark(
             opts.cancellation(),
-            u64::try_from(stats.rows)
-                .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?,
+            u64::try_from(stats.rows).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+            })?,
         )? {
             opts.ensure_active()?;
             if stats.rows >= opts.max_rows() {
-                return Err(PlenoraIoError::LimitExceeded(format!(
-                    "KML: più di {} Placemark",
-                    opts.max_rows()
+                return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+                    "KML: Placemark oltre il limite di",
+                    NumeroStrutturale::Limite(driver_common::saturating_u64(opts.max_rows())),
                 )));
             }
-            let source_index = u64::try_from(stats.rows)
-                .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?;
+            let source_index = u64::try_from(stats.rows).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+            })?;
             let geometry = stats
                 .observe(&placemark, opts.cancellation())
                 .map_err(|error| {
@@ -341,20 +364,20 @@ impl FormatDriver for KmlDriver {
         )?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("kml"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "l'output deve avere estensione .kml".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("l'output deve avere estensione .kml"),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraIoError::Unsupported(
-                "KML: un solo layer per file".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("KML: un solo layer per file"),
             ));
         }
         let staging = StagedFile::new(&path, opts.durable, opts.max_output_bytes())?;
@@ -455,8 +478,12 @@ impl LayerReader for KmlReader {
             Arc::new(StringArray::from(names)),
             Arc::new(StringArray::from(descriptions)),
         ];
-        let batch = RecordBatch::try_new(self.layer.contract.schema.clone(), arrays)
-            .map_err(|error| err(format!("batch KML da spool: {error}")))?;
+        let batch =
+            RecordBatch::try_new(self.layer.contract.schema.clone(), arrays).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "batch KML da spool non ricostruibile",
+                ))
+            })?;
         self.batch_sizer.observe(&batch);
         Ok(Some(batch))
     }
@@ -490,17 +517,22 @@ impl<'a> KmlSpoolWriter<'a> {
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        let length =
-            u64::try_from(bytes.len()).map_err(|_| err("spool KML non rappresentabile"))?;
-        let next = self
-            .bytes
-            .checked_add(length)
-            .ok_or_else(|| err("dimensione spool KML fuori intervallo"))?;
+        let length = u64::try_from(bytes.len())
+            .map_err(|_| err(&PublicMessage::Curated("spool KML non rappresentabile")))?;
+        let next = self.bytes.checked_add(length).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "dimensione spool KML fuori intervallo",
+            ))
+        })?;
         if next > self.limit {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "spool KML: {next} byte eccedono il limite {}",
-                self.limit
-            )));
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "spool KML di",
+                    NumeroStrutturale::Conteggio(next),
+                    "byte oltre il limite di",
+                    NumeroStrutturale::Limite(self.limit),
+                ),
+            ));
         }
         let lease = self.budget.context().lease_spill(length)?;
         self.output.write_all(bytes)?;
@@ -513,7 +545,9 @@ impl<'a> KmlSpoolWriter<'a> {
         let length = match value {
             None => SPOOL_NULL,
             Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
-                PlenoraIoError::LimitExceeded("valore KML troppo grande per lo spool".to_owned())
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "valore KML troppo grande per lo spool",
+                ))
             })?,
         };
         self.write(&length.to_le_bytes())?;
@@ -544,16 +578,20 @@ fn read_spool_value(input: &mut impl Read) -> Result<Option<Vec<u8>>> {
     let mut length = [0_u8; 4];
     input
         .read_exact(&mut length)
-        .map_err(|error| err(format!("spool KML troncato: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("spool KML troncato")))?;
     let length = u32::from_le_bytes(length);
     if length == SPOOL_NULL {
         return Ok(None);
     }
-    let mut value =
-        vec![0; usize::try_from(length).map_err(|_| err("lunghezza spool KML non valida"))?];
+    let mut value = vec![
+        0;
+        usize::try_from(length).map_err(|_| err(&PublicMessage::Curated(
+            "lunghezza spool KML non valida"
+        )))?
+    ];
     input
         .read_exact(&mut value)
-        .map_err(|error| err(format!("spool KML troncato: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("spool KML troncato")))?;
     Ok(Some(value))
 }
 
@@ -563,7 +601,7 @@ fn read_spool_string(input: &mut impl Read) -> Result<Option<String>> {
     };
     String::from_utf8(bytes)
         .map(Some)
-        .map_err(|error| err(format!("testo spool KML non UTF-8: {error}")))
+        .map_err(|_| err(&PublicMessage::Curated("testo spool KML non UTF-8")))
 }
 
 struct PlacemarkStream {
@@ -580,8 +618,11 @@ struct PlacemarkStream {
 
 impl PlacemarkStream {
     fn open(path: &Path) -> Result<Self> {
-        let input_bytes = usize::try_from(std::fs::metadata(path)?.len())
-            .map_err(|_| err("dimensione KML non rappresentabile"))?;
+        let input_bytes = usize::try_from(std::fs::metadata(path)?.len()).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "dimensione KML non rappresentabile",
+            ))
+        })?;
         let input = BufReader::with_capacity(KML_IO_BUFFER_BYTES, File::open(path)?);
         Ok(Self {
             reader: XmlReader::from_reader(input),
@@ -598,9 +639,9 @@ impl PlacemarkStream {
 
     fn next_event(&mut self, cancellation: &CancellationToken) -> Result<Event<'static>> {
         if self.events_left == 0 {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "numero di eventi XML incoerente con la dimensione dell'input",
-            ));
+            )));
         }
         self.events_left -= 1;
         check_cancelled_periodically(cancellation, ErrorPhase::Read, self.visited_events)?;
@@ -610,18 +651,19 @@ impl PlacemarkStream {
             .reader
             .read_event_into(&mut self.event_buffer)
             .map(Event::into_owned)
-            .map_err(|error| err(format!("XML KML non valido: {error}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("XML KML non valido")))?;
         let position = self.reader.buffer_position();
         if !matches!(event, Event::Eof) && position <= self.previous_position {
-            return Err(err("parser XML senza avanzamento"));
+            return Err(err(&PublicMessage::Curated("parser XML senza avanzamento")));
         }
         self.previous_position = position;
         match &event {
             Event::Start(element) => {
                 validate_element(element)?;
                 if self.xml_depth >= MAX_XML_DEPTH {
-                    return Err(err(format!(
-                        "profondità XML oltre il limite di {MAX_XML_DEPTH}"
+                    return Err(err(&PublicMessage::CuratedWith(
+                        "profondità XML oltre il limite di",
+                        NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_XML_DEPTH)),
                     )));
                 }
                 self.xml_depth += 1;
@@ -633,7 +675,7 @@ impl PlacemarkStream {
             Event::Empty(element) => {
                 validate_element(element)?;
                 if element.local_name().as_ref() == b"Point" {
-                    return Err(err("Point KML senza coordinate"));
+                    return Err(err(&PublicMessage::Curated("Point KML senza coordinate")));
                 }
             }
             Event::Text(text) => observe_point_coordinate_text(
@@ -653,31 +695,43 @@ impl PlacemarkStream {
             )?,
             Event::End(element) => {
                 if !valid_xml_name(element.name().as_ref()) {
-                    return Err(err("nome di chiusura XML non valido"));
+                    return Err(err(&PublicMessage::Curated(
+                        "nome di chiusura XML non valido",
+                    )));
                 }
-                let opened = self
-                    .element_stack
-                    .pop()
-                    .ok_or_else(|| err("chiusura XML senza elemento aperto"))?;
+                let opened = self.element_stack.pop().ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "chiusura XML senza elemento aperto",
+                    ))
+                })?;
                 if opened.as_slice() != element.name().as_ref() {
-                    return Err(err("elementi XML annidati in modo non valido"));
+                    return Err(err(&PublicMessage::Curated(
+                        "elementi XML annidati in modo non valido",
+                    )));
                 }
                 if element.local_name().as_ref() == b"Point" {
-                    let has_coordinates = self
-                        .open_points_with_coordinates
-                        .pop()
-                        .ok_or_else(|| err("chiusura Point KML senza apertura"))?;
+                    let has_coordinates =
+                        self.open_points_with_coordinates.pop().ok_or_else(|| {
+                            err(&PublicMessage::Curated("chiusura Point KML senza apertura"))
+                        })?;
                     if !has_coordinates {
-                        return Err(err("Point KML senza coordinate"));
+                        return Err(err(&PublicMessage::Curated("Point KML senza coordinate")));
                     }
                 }
-                self.xml_depth = self
-                    .xml_depth
-                    .checked_sub(1)
-                    .ok_or_else(|| err("chiusura XML senza elemento aperto"))?;
+                self.xml_depth = self.xml_depth.checked_sub(1).ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "chiusura XML senza elemento aperto",
+                    ))
+                })?;
             }
-            Event::DocType(_) => return Err(err("DOCTYPE non ammesso nei documenti KML")),
-            Event::Eof if self.xml_depth != 0 => return Err(err("documento XML troncato")),
+            Event::DocType(_) => {
+                return Err(err(&PublicMessage::Curated(
+                    "DOCTYPE non ammesso nei documenti KML",
+                )))
+            }
+            Event::Eof if self.xml_depth != 0 => {
+                return Err(err(&PublicMessage::Curated("documento XML troncato")))
+            }
             _ => {}
         }
         Ok(event)
@@ -692,16 +746,19 @@ impl PlacemarkStream {
     fn decode_general_ref(reference: &quick_xml::events::BytesRef<'_>) -> Result<String> {
         if let Some(character) = reference
             .resolve_char_ref()
-            .map_err(|error| err(format!("riferimento XML non valido: {error}")))?
+            .map_err(|_| err(&PublicMessage::Curated("riferimento XML non valido")))?
         {
             return Ok(character.to_string());
         }
         let name = reference
             .decode()
-            .map_err(|error| err(format!("riferimento XML non valido: {error}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("riferimento XML non valido")))?;
         quick_xml::escape::resolve_xml_entity(&name)
             .map(str::to_owned)
-            .ok_or_else(|| err(format!("entità XML sconosciuta: &{name};")))
+            // Il nome dell'entita' non esce: e' letto dal file. Fino a qui
+            // veniva scappato in ASCII e messo nel messaggio — un modo per
+            // renderlo leggibile, non per renderlo lecito.
+            .ok_or_else(|| err(&PublicMessage::Curated("entità XML sconosciuta")))
     }
 
     fn read_text(&mut self, cancellation: &CancellationToken) -> Result<String> {
@@ -720,7 +777,13 @@ impl PlacemarkStream {
                         .unwrap_or_else(|_| text.escape_ascii().to_string()),
                 ),
                 Event::End(_) => return Ok(output),
-                event => return Err(err(format!("contenuto testuale KML non valido: {event:?}"))),
+                // Il `Debug` di un `Event` di quick_xml contiene i byte
+                // grezzi dell'elemento: era il payload, per intero.
+                _ => {
+                    return Err(err(&PublicMessage::Curated(
+                        "contenuto testuale KML non valido",
+                    )))
+                }
             }
         }
     }
@@ -731,7 +794,7 @@ impl PlacemarkStream {
             match self.next_event(cancellation)? {
                 Event::Start(_) => depth = depth.saturating_add(1),
                 Event::End(_) => depth = depth.saturating_sub(1),
-                Event::Eof => return Err(err("documento KML troncato")),
+                Event::Eof => return Err(err(&PublicMessage::Curated("documento KML troncato"))),
                 _ => {}
             }
         }
@@ -749,13 +812,17 @@ impl PlacemarkStream {
                 Event::Start(element) if element.local_name().as_ref() == b"coordinates" => {
                     let text = self.read_text(cancellation)?;
                     coordinates = coords_from_str(&text)
-                        .map_err(|error| err(format!("coordinate KML non valide: {error}")))?;
+                        .map_err(|_| err(&PublicMessage::Curated("coordinate KML non valide")))?;
                 }
                 Event::Start(_) => self.skip_element(cancellation)?,
                 Event::End(element) if element.local_name().as_ref() == end_tag => {
                     return Ok(coordinates)
                 }
-                Event::Eof => return Err(err("documento KML troncato nella geometria")),
+                Event::Eof => {
+                    return Err(err(&PublicMessage::Curated(
+                        "documento KML troncato nella geometria",
+                    )))
+                }
                 _ => {}
             }
         }
@@ -778,7 +845,11 @@ impl PlacemarkStream {
                 Event::End(element) if element.local_name().as_ref() == end_tag => {
                     return Ok(rings)
                 }
-                Event::Eof => return Err(err("documento KML troncato nel boundary")),
+                Event::Eof => {
+                    return Err(err(&PublicMessage::Curated(
+                        "documento KML troncato nel boundary",
+                    )))
+                }
                 _ => {}
             }
         }
@@ -798,10 +869,16 @@ impl PlacemarkStream {
                 }
                 Event::Start(_) => self.skip_element(cancellation)?,
                 Event::End(element) if element.local_name().as_ref() == b"Polygon" => {
-                    let outer = outer.ok_or_else(|| err("Polygon KML senza anello esterno"))?;
+                    let outer = outer.ok_or_else(|| {
+                        err(&PublicMessage::Curated("Polygon KML senza anello esterno"))
+                    })?;
                     return Ok(KmlPolygon::new(outer, inner));
                 }
-                Event::Eof => return Err(err("documento KML troncato nel Polygon")),
+                Event::Eof => {
+                    return Err(err(&PublicMessage::Curated(
+                        "documento KML troncato nel Polygon",
+                    )))
+                }
                 _ => {}
             }
         }
@@ -821,7 +898,11 @@ impl PlacemarkStream {
                 Event::End(element) if element.local_name().as_ref() == b"MultiGeometry" => {
                     return Ok(MultiGeometry::new(geometries))
                 }
-                Event::Eof => return Err(err("documento KML troncato nella MultiGeometry")),
+                Event::Eof => {
+                    return Err(err(&PublicMessage::Curated(
+                        "documento KML troncato nella MultiGeometry",
+                    )))
+                }
                 _ => {}
             }
         }
@@ -838,7 +919,7 @@ impl PlacemarkStream {
                 let coordinate = coordinates
                     .into_iter()
                     .next()
-                    .ok_or_else(|| err("Point KML senza coordinate"))?;
+                    .ok_or_else(|| err(&PublicMessage::Curated("Point KML senza coordinate")))?;
                 Some(KmlGeometry::Point(KmlPoint::from(coordinate)))
             }
             b"LineString" => Some(KmlGeometry::LineString(KmlLineString::from(
@@ -852,7 +933,9 @@ impl PlacemarkStream {
                 self.read_multi_geometry(cancellation)?,
             )),
             b"Model" | b"Track" | b"MultiTrack" => {
-                return Err(err("geometria KML non supportata dal contratto corrente"))
+                return Err(err(&PublicMessage::Curated(
+                    "geometria KML non supportata dal contratto corrente",
+                )))
             }
             _ => {
                 self.skip_element(cancellation)?;
@@ -871,7 +954,9 @@ impl PlacemarkStream {
                     name => {
                         if let Some(geometry) = self.read_geometry(name, cancellation)? {
                             if placemark.geometry.is_some() {
-                                return Err(err("Placemark KML con piu geometrie top-level"));
+                                return Err(err(&PublicMessage::Curated(
+                                    "Placemark KML con piu geometrie top-level",
+                                )));
                             }
                             placemark.geometry = Some(geometry);
                         }
@@ -880,7 +965,11 @@ impl PlacemarkStream {
                 Event::End(element) if element.local_name().as_ref() == b"Placemark" => {
                     return Ok(placemark)
                 }
-                Event::Eof => return Err(err("documento KML troncato nel Placemark")),
+                Event::Eof => {
+                    return Err(err(&PublicMessage::Curated(
+                        "documento KML troncato nel Placemark",
+                    )))
+                }
                 _ => {}
             }
         }
@@ -976,8 +1065,8 @@ struct KmlWriterState {
 impl FormatWriter for KmlWriterState {
     fn declare_input_total(&mut self, layer: LayerId, total: u64) -> Result<()> {
         if layer.0 != 0 {
-            return Err(PlenoraIoError::Unsupported(
-                "KML supporta un solo layer".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("KML supporta un solo layer"),
             ));
         }
         self.input_total = Some(total);
@@ -990,13 +1079,16 @@ impl FormatWriter for KmlWriterState {
     #[allow(clippy::too_many_lines)]
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
-        let geom_idx =
-            geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria geoarrow.wkb"))?;
+        let geom_idx = geometry_index(&schema).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "nessuna colonna geometria geoarrow.wkb",
+            ))
+        })?;
         let geom_col = batch
             .column(geom_idx)
             .as_any()
             .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| err("colonna geometria non binaria"))?;
+            .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
         let limits = self.wkb_limits;
         let name_idx = schema.index_of("name").ok();
         let desc_idx = schema.index_of("description").ok();
@@ -1083,16 +1175,17 @@ impl FormatWriter for KmlWriterState {
         for placemark in placemarks {
             writer
                 .write(&Kml::Placemark(placemark))
-                .map_err(|error| err(format!("serializzazione KML: {error}")))?;
+                .map_err(|_| err(&PublicMessage::Curated("serializzazione KML fallita")))?;
         }
         drop(writer);
         self.rows = self
             .rows
-            .checked_add(
-                u64::try_from(batch.num_rows())
-                    .map_err(|_| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?,
-            )
-            .ok_or_else(|| PlenoraIoError::LimitExceeded("troppe righe KML".to_owned()))?;
+            .checked_add(u64::try_from(batch.num_rows()).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+            })?)
+            .ok_or_else(|| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe KML"))
+            })?;
         Ok(())
     }
 
@@ -1165,13 +1258,17 @@ fn collect<'a>(
 #[cfg(test)]
 fn dimensions_for_kml_coords(coords: &[KmlCoord]) -> Result<CoordinateDimensions> {
     if coords.is_empty() {
-        return Err(err("geometria KML senza coordinate"));
+        return Err(err(&PublicMessage::Curated(
+            "geometria KML senza coordinate",
+        )));
     }
     let mut has_z = None;
     for coordinate in coords {
         let current = coordinate.z.is_some();
         if has_z.is_some_and(|known| known != current) {
-            return Err(err("coordinate KML con dimensionalità Z non uniforme"));
+            return Err(err(&PublicMessage::Curated(
+                "coordinate KML con dimensionalità Z non uniforme",
+            )));
         }
         has_z = Some(current);
     }
@@ -1188,7 +1285,9 @@ fn wkb_coords_from_kml_cancellable(
     visited: &mut usize,
 ) -> Result<(Vec<WkbCoordinate>, CoordinateDimensions)> {
     if coords.is_empty() {
-        return Err(err("geometria KML senza coordinate"));
+        return Err(err(&PublicMessage::Curated(
+            "geometria KML senza coordinate",
+        )));
     }
     let mut has_z = None;
     let mut coordinates = Vec::with_capacity(coords.len());
@@ -1197,7 +1296,9 @@ fn wkb_coords_from_kml_cancellable(
         *visited = visited.saturating_add(1);
         let current = coordinate.z.is_some();
         if has_z.is_some_and(|known| known != current) {
-            return Err(err("coordinate KML con dimensionalità Z non uniforme"));
+            return Err(err(&PublicMessage::Curated(
+                "coordinate KML con dimensionalità Z non uniforme",
+            )));
         }
         has_z = Some(current);
         coordinates.push(WkbCoordinate {
@@ -1255,7 +1356,9 @@ fn wkb_geometry_from_kml_cancellable(
                 let (ring, inner_dimensions) =
                     wkb_coords_from_kml_cancellable(&inner.coords, cancellation, visited)?;
                 if inner_dimensions != dimensions {
-                    return Err(err("anelli KML con dimensionalità Z non uniforme"));
+                    return Err(err(&PublicMessage::Curated(
+                        "anelli KML con dimensionalità Z non uniforme",
+                    )));
                 }
                 rings.push(ring);
             }
@@ -1273,9 +1376,11 @@ fn wkb_geometry_from_kml_cancellable(
             let dimensions = values
                 .first()
                 .map(|value| value.dimensions)
-                .ok_or_else(|| err("MultiGeometry KML vuota"))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("MultiGeometry KML vuota")))?;
             if values.iter().any(|value| value.dimensions != dimensions) {
-                return Err(err("MultiGeometry KML con dimensionalità Z non uniforme"));
+                return Err(err(&PublicMessage::Curated(
+                    "MultiGeometry KML con dimensionalità Z non uniforme",
+                )));
             }
             let value = if values
                 .iter()
@@ -1298,11 +1403,15 @@ fn wkb_geometry_from_kml_cancellable(
             (value, dimensions)
         }
         KmlGeometry::Element(_) => {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "elemento geometrico KML generico non rappresentabile in WKB",
-            ))
+            )))
         }
-        _ => return Err(err("tipo geometrico KML non supportato")),
+        _ => {
+            return Err(err(&PublicMessage::Curated(
+                "tipo geometrico KML non supportato",
+            )))
+        }
     };
     Ok(WkbGeometry {
         value,
@@ -1321,21 +1430,31 @@ fn kml_coord_from_wkb(
     dimensions: CoordinateDimensions,
 ) -> Result<KmlCoord> {
     if coordinate.m.is_some() {
-        return Err(err("KML non rappresenta l’ordinata M"));
+        return Err(err(&PublicMessage::Curated(
+            "KML non rappresenta l’ordinata M",
+        )));
     }
     let z = match dimensions {
         CoordinateDimensions::Xy if coordinate.z.is_none() => None,
         CoordinateDimensions::Xyz => Some(
             coordinate
                 .z
-                .ok_or_else(|| err("coordinata WKB XYZ senza z"))?,
+                .ok_or_else(|| err(&PublicMessage::Curated("coordinata WKB XYZ senza z")))?,
         ),
-        CoordinateDimensions::Xy => return Err(err("coordinata WKB XY con z inattesa")),
+        CoordinateDimensions::Xy => {
+            return Err(err(&PublicMessage::Curated(
+                "coordinata WKB XY con z inattesa",
+            )))
+        }
         CoordinateDimensions::Xym | CoordinateDimensions::Xyzm => {
-            return Err(err("KML non rappresenta l’ordinata M"))
+            return Err(err(&PublicMessage::Curated(
+                "KML non rappresenta l’ordinata M",
+            )))
         }
         CoordinateDimensions::Unknown => {
-            return Err(err("dimensionalità WKB ignota non scrivibile in KML"))
+            return Err(err(&PublicMessage::Curated(
+                "dimensionalità WKB ignota non scrivibile in KML",
+            )))
         }
     };
     Ok(KmlCoord::new(coordinate.x, coordinate.y, z))
@@ -1353,7 +1472,9 @@ fn kml_coords_from_wkb(
 
 fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
     if geometry.srid.is_some() {
-        return Err(err("SRID EWKB non rappresentabile nel payload KML"));
+        return Err(err(&PublicMessage::Curated(
+            "SRID EWKB non rappresentabile nel payload KML",
+        )));
     }
     let dimensions = geometry.dimensions;
     match &geometry.value {
@@ -1365,7 +1486,9 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
         ))),
         WkbValue::Polygon(rings) => {
             let (outer, inner) = rings.split_first().ok_or_else(|| {
-                err("Polygon WKB senza anello esterno non rappresentabile in KML")
+                err(&PublicMessage::Curated(
+                    "Polygon WKB senza anello esterno non rappresentabile in KML",
+                ))
             })?;
             let outer = LinearRing::from(kml_coords_from_wkb(outer, dimensions)?);
             let inner = inner
@@ -1386,14 +1509,16 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
             let first_type = values
                 .first()
                 .map(WkbGeometry::geometry_type)
-                .ok_or_else(|| err("GeometryCollection vuota non rappresentabile in KML"))?;
+                .ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "GeometryCollection vuota non rappresentabile in KML",
+                    ))
+                })?;
             let homogeneous = values
                 .iter()
                 .all(|value| value.geometry_type() == first_type);
             if homogeneous {
-                return Err(err(
-                    "GeometryCollection omogenea ambigua in KML: usare il tipo Multi* corrispondente",
-                ));
+                return Err(err(&PublicMessage::Curated("GeometryCollection omogenea ambigua in KML: usare il tipo Multi* corrispondente")));
             }
             Ok(KmlGeometry::MultiGeometry(MultiGeometry::new(
                 values
@@ -1409,9 +1534,9 @@ fn kml_geometry_from_wkb(geometry: &WkbGeometry) -> Result<KmlGeometry> {
         | WkbValue::MultiSurface(_)
         | WkbValue::PolyhedralSurface(_)
         | WkbValue::Tin(_)
-        | WkbValue::Triangle(_) => Err(err(
+        | WkbValue::Triangle(_) => Err(err(&PublicMessage::Curated(
             "tipo WKB esteso non rappresentabile in KML senza linearizzazione",
-        )),
+        ))),
     }
 }
 
@@ -1477,8 +1602,11 @@ fn build_batch_cancellable(
         Arc::new(StringArray::from(names)),
         Arc::new(StringArray::from(descs)),
     ];
-    let batch = RecordBatch::try_new(contract.schema.clone(), arrays)
-        .map_err(|e| err(format!("batch: {e}")))?;
+    let batch = RecordBatch::try_new(contract.schema.clone(), arrays).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "costruzione del RecordBatch fallita",
+        ))
+    })?;
     Ok((batch, contract))
 }
 
@@ -1490,11 +1618,12 @@ fn build_batch(placemarks: &[&Placemark]) -> Result<(RecordBatch, DataContract)>
 /// KML→WKB devono rifiutare input ostili senza panic.
 #[doc(hidden)]
 pub fn __fuzz_read_kml(bytes: &[u8]) -> Result<usize> {
-    let text = std::str::from_utf8(bytes).map_err(|error| err(format!("UTF-8 KML: {error}")))?;
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| err(&PublicMessage::Curated("testo KML non UTF-8")))?;
     validate_kml_xml(bytes, bytes.len())?;
     let document: Kml = text
         .parse()
-        .map_err(|error| err(format!("KML non valido: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("KML non valido")))?;
     let mut placemarks = Vec::new();
     let cancellation = CancellationToken::new();
     let mut visited = 0;

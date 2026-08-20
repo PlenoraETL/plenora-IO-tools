@@ -433,8 +433,8 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 3 | `driver-common` | 10 → 0 (più 28 chiamanti di un helper) | **chiusa** |
 | 4 | `driver-geojson` | 5 → 0 (più 34 chiamanti e un canale `Result<_, String>`) | **chiusa**, livello 1 |
 | 5 | `driver-csv` | 8 → 0 (più 35 chiamanti e 23 siti di cancellazione) | **chiusa**, livello 1 |
-| 6 | `driver-kml` | 12 | **prossima**; poi checkpoint di livello 2 |
-| 7… | i sette driver restanti, poi la CLI | 113 dopo la 6 | |
+| 6 | `driver-kml` | 12 → 0 (più 77 chiamanti e 2 fughe di payload) | **chiusa**; checkpoint di livello 2 dovuto |
+| 7… | i sette driver restanti, poi la CLI | 113 | **prossima** |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |
 | chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |

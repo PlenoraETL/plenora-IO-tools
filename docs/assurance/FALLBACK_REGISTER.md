@@ -51,7 +51,7 @@ reader progressivo DXF lo porta a 45.
 | `driver-geoparquet` | 4 | nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza |
 | `driver-gpkg` | 4 | `undefined` richiesto dalla tabella SRS quando manca WKT; raw CRS conserva almeno l'ID; tipo `GEOMETRY` e dimensioni `Unknown` sono valori nativi espliciti |
 | `driver-ipc` | 2 | nome; projection best-effort conserva il campo originale se non esiste una sostituzione |
-| `driver-kml` | 4 | nome diagnostico; eterogeneità dimensionale → `Unknown`; due fallback rendono leggibili con escape ASCII soltanto i token XML invalidi nei messaggi d'errore; geometrie vuote sono rifiutate |
+| `driver-kml` | 4 | nome diagnostico; eterogeneità dimensionale → `Unknown`; due fallback rendono leggibile con escape ASCII il **testo estratto** quando non è UTF-8 valido — non i messaggi d'errore, che dal 2026-08-20 non portano più nulla di letto dal file; geometrie vuote sono rifiutate |
 | `driver-shp` | 2 | nome diagnostico; stringa vuota usata solo dalla classificazione di una definizione opzionale, non come CRS operativo |
 | `driver-xls` | 1 | dimensioni geometriche eterogenee → `Unknown`; celle sparse e coordinate assenti sono gestite da rami espliciti, senza fallback |
 | `plenora-io-model` | 1 | metadato GeoArrow assente significa “non è un campo geometrico” |

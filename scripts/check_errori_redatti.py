@@ -72,6 +72,7 @@ MIGRATI = (
     "driver-common",
     "driver-geojson",
     "driver-csv",
+    "driver-kml",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -123,12 +124,6 @@ DA_MIGRARE: dict[str, int] = {
     "crates/driver-ipc/src/lib.rs::err": 1,
     "crates/driver-ipc/src/lib.rs::open": 2,
     "crates/driver-ipc/src/lib.rs::open_layer_reader": 1,
-    "crates/driver-kml/src/lib.rs::create": 3,
-    "crates/driver-kml/src/lib.rs::declare_input_total": 1,
-    "crates/driver-kml/src/lib.rs::err": 1,
-    "crates/driver-kml/src/lib.rs::open": 3,
-    "crates/driver-kml/src/lib.rs::value": 1,
-    "crates/driver-kml/src/lib.rs::write": 3,
     "crates/driver-shp/src/lib.rs::create": 4,
     "crates/driver-shp/src/lib.rs::declare_input_total": 1,
     "crates/driver-shp/src/lib.rs::err": 1,
