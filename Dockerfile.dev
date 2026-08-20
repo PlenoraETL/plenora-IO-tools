@@ -86,7 +86,13 @@ RUN rustup component add clippy rustfmt llvm-tools-preview
 # tramite RUSTUP_TOOLCHAIN, quindi nessun comando lo usa per sbaglio: se il
 # fuzzing sfuggisse a stable senza che nessuno lo abbia chiesto, il gate
 # anti-panic e clippy girerebbero su un compilatore diverso da quello spedito.
-RUN rustup toolchain install "${PLENORA_RUST_NIGHTLY}" --profile minimal  && rustup component add --toolchain "${PLENORA_RUST_NIGHTLY}" rustfmt
+# `llvm-tools` serve al nightly, non solo a stable: `cargo fuzz coverage`
+# invoca `llvm-profdata` DALLA toolchain con cui ha costruito il target, e
+# senza il componente fallisce con "No such file or directory" dopo aver gia'
+# rigiocato il corpus. Trovato il 2026-08-21 misurando la copertura da
+# replay: tre target su tre, dopo la parte lenta.
+RUN rustup toolchain install "${PLENORA_RUST_NIGHTLY}" --profile minimal \
+ && rustup component add --toolchain "${PLENORA_RUST_NIGHTLY}" rustfmt llvm-tools
 
 # cargo-fuzz e' costruito con nightly perche' e' il compilatore che poi usera'
 # per i target strumentati; cargo-llvm-cov con stable, che e' quello su cui
