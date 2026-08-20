@@ -34,9 +34,14 @@ tre driver**. `8d6883f` chiude la terza tranche di driver — `driver-geojson`,
 
 Due dei rossi vanno letti in modo diverso, e la distinzione è il punto:
 
-**Il rosso della copertura è un artefatto dell'ordine di esecuzione.** La
-batteria gira prima della misura, quindi legge un `lcov.info` che non esiste
-ancora. Sul report vero il gate passa (`gate_esclusioni=0`).
+**Il rosso della copertura è un difetto dell'harness**, non del codice: la
+batteria girava prima della misura, quindi leggeva un `lcov.info` che non
+esisteva ancora. Sul report vero il gate passa (`gate_esclusioni=0`).
+
+L'avevo chiamato «artefatto dell'ordine di esecuzione», il che lo faceva
+sembrare accettabile. Non lo è: un rosso che si ripete a ogni corsa smette di
+essere letto, ed è così che il rosso accanto — quello vero — rischia di passare
+con lui. È corretto in INFRA-2 (`107b7b5`).
 
 **Il rosso di `fuzz-smoke` no.** È un finding reale.
 
@@ -101,6 +106,17 @@ verificato**, e non eredita alcuna misura: la copertura e i gate qui riportati
 valgono per `8d6883f` e per nessun altro albero. Dichiarare same-SHA un commit
 successivo senza rieseguire la batteria sarebbe esattamente l'errore che questa
 sezione esiste per impedire.
+
+## Seguito
+
+Il checkpoint e' stato rieseguito, e l'esito superato e' in
+`S9_CHECKPOINT_LEVEL2_2026-08-20_PASSED.md`. La revisione verificata **non** e'
+`fdd4bd2` — che chiude solo il panic — ma `107b7b5`, perche' prima di
+rimisurare sono stati corretti i tre difetti dell'harness descritti qui sotto,
+e correggere lo strumento sposta la revisione misurata.
+
+**Nulla di quanto misurato in questo documento e' stato modificato.** `8d6883f`
+non ha superato, e resta cosi'.
 
 ## Nota di processo
 
