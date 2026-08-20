@@ -836,6 +836,33 @@ impl PlenoraIoError {
         errore
     }
 
+    /// Un CRS dichiarato ma non risolto, redatto.
+    ///
+    /// Del `RawCrs` escono **due conteggi di byte**, non il suo contenuto: la
+    /// definizione e l'hint di authority vengono dal file, e dire quanto sono
+    /// lunghi e' l'informazione che il chiamante non ha senza dire quella che
+    /// ha gia'.
+    #[must_use]
+    pub fn crs_non_risolto_redatto(driver: &'static str, raw: &RawCrs) -> Self {
+        let mut errore = Self::redatto(
+            IoErrorCode::CrsUnresolved,
+            ErrorCategory::Crs,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            &PublicMessage::CuratedBetween(
+                "CRS dichiarato ma non risolto: authority_hint di",
+                NumeroStrutturale::Conteggio(
+                    raw.authority_hint.as_ref().map_or(0, String::len) as u64
+                ),
+                "byte, definizione di",
+                NumeroStrutturale::Conteggio(raw.definition.as_ref().map_or(0, String::len) as u64),
+            ),
+        );
+        errore.driver = Some(driver.to_owned());
+        errore
+    }
+
     /// La destinazione esiste già.
     ///
     /// Non prende messaggio: il costruttore storico ignorava il proprio

@@ -434,7 +434,11 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 4 | `driver-geojson` | 5 → 0 (più 34 chiamanti e un canale `Result<_, String>`) | **chiusa**, livello 1 |
 | 5 | `driver-csv` | 8 → 0 (più 35 chiamanti e 23 siti di cancellazione) | **chiusa**, livello 1 |
 | 6 | `driver-kml` | 12 → 0 (più 77 chiamanti e 2 fughe di payload) | **chiusa**; checkpoint di livello 2 dovuto |
-| 7… | i sette driver restanti, poi la CLI | 113 | **prossima** |
+| 7 | `driver-gpkg` | 10 → 0 (più 34 chiamanti, 27 via `sql_err`, 7 fughe di payload) | **chiusa**, livello 1 |
+| 8 | `driver-geoparquet` | 8 | **prossima** |
+| 9 | `driver-ipc` | 7 | poi checkpoint di livello 2 |
+| 10… | `driver-filegdb`, `driver-shp`, `driver-dxf`, `driver-xls` | 82 | |
+| ultima | `plenora-io-cli` | 6 | **dopo tutti i driver** |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |
 | chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |

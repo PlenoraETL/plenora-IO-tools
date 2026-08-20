@@ -53,17 +53,56 @@ use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
 
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
-fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("gpkg", reason)
+fn err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("gpkg", reason)
 }
 
 // Firma per valore imposta dall'uso come funzione in `.map_err(sql_err)`:
 // prenderla per riferimento costringerebbe a una closure in ogni chiamata.
 #[allow(clippy::needless_pass_by_value)]
 fn sql_err(e: rusqlite::Error) -> PlenoraIoError {
-    err(format!("sqlite: {e}"))
+    err(&PublicMessage::CuratedPair(
+        "errore sqlite:",
+        classe_sqlite(&e),
+    ))
+}
+
+/// Classe statica di un errore `rusqlite`, per i messaggi pubblici.
+///
+/// Ventisette percorsi passavano da `sql_err`, e tutti riportavano il `Display`
+/// di `rusqlite::Error` — testo di una dipendenza, che per `SqliteFailure`
+/// contiene il messaggio di `SQLite` e puo' portare frammenti di query e nomi di
+/// tabella letti dal file.
+///
+/// Sostituirlo con un messaggio unico avrebbe appiattito ventisette cause in
+/// una. La classe le tiene distinte senza far uscire nulla: e' un vocabolario
+/// nostro, chiuso, e non cambia se la dipendenza riscrive i propri testi.
+const fn classe_sqlite(errore: &rusqlite::Error) -> &'static str {
+    use rusqlite::Error as E;
+    match errore {
+        E::SqliteFailure(_, _) => "fallimento del motore",
+        E::SqliteSingleThreadedMode => "modalita' single-threaded",
+        E::FromSqlConversionFailure(_, _, _) => "conversione dal tipo SQL",
+        E::IntegralValueOutOfRange(_, _) => "intero fuori intervallo",
+        E::Utf8Error(_, _) => "testo non UTF-8",
+        E::NulError(_) => "byte nullo in una stringa",
+        E::InvalidParameterName(_) => "nome di parametro non valido",
+        E::InvalidPath(_) => "percorso non valido",
+        E::ExecuteReturnedResults => "execute ha restituito righe",
+        E::QueryReturnedNoRows => "nessuna riga",
+        E::QueryReturnedMoreThanOneRow => "piu' di una riga",
+        E::InvalidColumnIndex(_) => "indice di colonna non valido",
+        E::InvalidColumnName(_) => "nome di colonna non valido",
+        E::InvalidColumnType(_, _, _) => "tipo di colonna non atteso",
+        E::StatementChangedRows(_) => "numero di righe modificate inatteso",
+        E::ToSqlConversionFailure(_) => "conversione verso il tipo SQL",
+        E::InvalidQuery => "query non valida",
+        E::MultipleStatement => "piu' istruzioni in una sola",
+        E::InvalidParameterCount(_, _) => "numero di parametri non valido",
+        _ => "altro",
+    }
 }
 
 // Categorie di perdita stabili, leggibili dagli harness di conformità. Stesso
@@ -189,9 +228,9 @@ impl FormatDriver for GpkgDriver {
         let conn = Connection::open(&path).map_err(sql_err)?;
         let tables = feature_tables(&conn)?;
         if tables.is_empty() {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "nessuna feature table (gpkg_contents data_type='features')",
-            ));
+            )));
         }
         let mut layers = Vec::new();
         let mut metas = Vec::new();
@@ -243,10 +282,10 @@ impl FormatDriver for GpkgDriver {
             // non-conforme: fallire chiuso qui evita di normalizzarlo
             // silenziosamente prima ancora di leggere una feature.
             let layer_srs_id = i32::try_from(table_meta.srs_id).map_err(|_| {
-                err(format!(
-                    "gpkg_geometry_columns.srs_id={} fuori dal range i32; \
-                     GeoPackage non conforme",
-                    table_meta.srs_id
+                // Lo `srs_id` non esce: e' un valore letto dal file, e chi
+                // legge l'errore ha il file.
+                err(&PublicMessage::Curated(
+                    "gpkg_geometry_columns.srs_id fuori dal range i32; GeoPackage non conforme",
                 ))
             })?;
             metas.push(LayerRead {
@@ -283,24 +322,33 @@ impl FormatDriver for GpkgDriver {
         )?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("gpkg"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "l'output deve avere estensione .gpkg".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("l'output deve avere estensione .gpkg"),
             ));
         }
         let mut names = std::collections::BTreeSet::new();
-        for l in &plan.layers {
+        for (indice_layer, l) in plan.layers.iter().enumerate() {
+            // I nomi dei layer non entrano nei messaggi: vengono dal piano,
+            // e il piano ce l'ha chi legge l'errore. Il layer si identifica per
+            // indice, che e' un numero strutturale.
             if !names.insert(l.name.clone()) {
-                return Err(err(format!("nome layer duplicato: {}", l.name)));
+                return Err(err(&PublicMessage::CuratedWith(
+                    "nome layer duplicato al layer",
+                    NumeroStrutturale::Indice(driver_common::saturating_u64(indice_layer)),
+                )));
             }
             if geometry_index(&l.contract.schema).is_none() {
-                return Err(err(format!("layer '{}' senza colonna geometria", l.name)));
+                return Err(err(&PublicMessage::CuratedWith(
+                    "layer senza colonna geometria, indice",
+                    NumeroStrutturale::Indice(driver_common::saturating_u64(indice_layer)),
+                )));
             }
         }
         let staging =
@@ -312,9 +360,13 @@ impl FormatDriver for GpkgDriver {
             .map_err(sql_err)?;
         init_gpkg(&conn)?;
         let mut layers: Vec<ActiveLayer> = Vec::with_capacity(plan.layers.len());
-        for l in &plan.layers {
-            let geom_idx = geometry_index(&l.contract.schema)
-                .ok_or_else(|| err(format!("layer '{}' senza colonna geometria", l.name)))?;
+        for (indice_layer, l) in plan.layers.iter().enumerate() {
+            let geom_idx = geometry_index(&l.contract.schema).ok_or_else(|| {
+                err(&PublicMessage::CuratedWith(
+                    "layer senza colonna geometria, indice",
+                    NumeroStrutturale::Indice(driver_common::saturating_u64(indice_layer)),
+                ))
+            })?;
             let (crs_id, crs_def) = layer_crs(l, geom_idx);
             let srs_id = register_srs(&conn, crs_id.as_deref(), crs_def.as_deref())?;
             layers.push(create_feature_table(
@@ -326,7 +378,7 @@ impl FormatDriver for GpkgDriver {
             )?);
         }
         if layers.is_empty() {
-            return Err(err("WritePlan senza layer"));
+            return Err(err(&PublicMessage::Curated("WritePlan senza layer")));
         }
         conn.execute_batch("BEGIN").map_err(sql_err)?;
         with_write_validation(
@@ -399,7 +451,12 @@ impl OpenDatasetHandle for GpkgDataset {
             .layers
             .iter()
             .position(|l| l.id.0 == request.layer.0)
-            .ok_or_else(|| err(format!("layer {} inesistente", request.layer.0)))?;
+            .ok_or_else(|| {
+                err(&PublicMessage::CuratedWith(
+                    "layer runtime inesistente, indice",
+                    NumeroStrutturale::Indice(u64::from(request.layer.0)),
+                ))
+            })?;
         let m = &self.metas[idx];
         let conn = Connection::open(&self.path).map_err(sql_err)?;
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
@@ -495,10 +552,12 @@ fn project_gpkg_layer(
                 let index = field_id.0 as usize;
                 if index >= meta.schema.fields().len() {
                     if request.projection_mode == ProjectionMode::Required {
-                        return Err(PlenoraIoError::Contract(format!(
-                            "projection Required: field id {} fuori range",
-                            field_id.0
-                        )));
+                        return Err(PlenoraIoError::contratto_redatto(
+                            &PublicMessage::CuratedWith(
+                                "projection Required: field id fuori range,",
+                                NumeroStrutturale::Indice(u64::from(field_id.0)),
+                            ),
+                        ));
                     }
                     continue;
                 }
@@ -629,15 +688,18 @@ impl LayerReader for GpkgReader {
                         // e' non spetta al reader inventare quale delle due
                         // dichiarazioni sia autoritativa.
                         if header.srs_id != self.layer_srs_id {
-                            return Err(err(format!(
-                                "SRS per-feature {} discordante dal layer {}; \
-                                 GeoPackage non conforme",
-                                header.srs_id, self.layer_srs_id
+                            // I due `srs_id` vengono entrambi dal file.
+                            return Err(err(&PublicMessage::Curated(
+                                "SRS per-feature discordante da quello del layer; GeoPackage non conforme",
                             )));
                         }
                         geom.append_value(header.payload);
                     }
-                    _ => return Err(err("colonna geometria non è un BLOB")),
+                    _ => {
+                        return Err(err(&PublicMessage::Curated(
+                            "colonna geometria non è un BLOB",
+                        )))
+                    }
                 }
                 column += 1;
             }
@@ -683,16 +745,17 @@ impl LayerReader for GpkgReader {
         // sempre `Some(_)`. La guardia scatta se il cursore precedente esiste
         // ed e' >= del nuovo massimo.
         let Some(observed_max) = max_rowid else {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "paginazione bloccata: pagina non vuota senza rowid osservato; \
                  il GeoPackage e' incoerente",
-            ));
+            )));
         };
         if let Some(previous) = self.last_rowid {
             if observed_max <= previous {
-                return Err(err(format!(
-                    "paginazione bloccata: rowid massimo {observed_max} non supera il cursore {previous}; \
-                     il GeoPackage e' incoerente"
+                // I rowid vengono dal file: nel messaggio resta la
+                // condizione, che e' cio' che il chiamante non puo' dedurre.
+                return Err(err(&PublicMessage::Curated(
+                    "paginazione bloccata: il rowid massimo non supera il cursore; il GeoPackage e' incoerente",
                 )));
             }
         }
@@ -707,7 +770,11 @@ impl LayerReader for GpkgReader {
         }
         let options = RecordBatchOptions::new().with_row_count(Some(count));
         let batch = RecordBatch::try_new_with_options(self.schema.clone(), arrays, &options)
-            .map_err(|e| err(format!("batch: {e}")))?;
+            .map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "costruzione del RecordBatch fallita",
+                ))
+            })?;
         self.batch_sizer.observe(&batch);
         Ok(Some(batch))
     }
@@ -849,18 +916,24 @@ impl FormatWriter for GpkgWriter {
     }
 
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
-        let conn = self.conn.as_ref().ok_or_else(|| err("writer chiuso"))?;
+        let conn = self
+            .conn
+            .as_ref()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer chiuso")))?;
         let a = self.layers.get(layer.0 as usize).ok_or_else(|| {
-            err(format!(
-                "layer {} inesistente nel piano di scrittura",
-                layer.0
+            err(&PublicMessage::CuratedWith(
+                "layer inesistente nel piano di scrittura, indice",
+                NumeroStrutturale::Indice(u64::from(layer.0)),
             ))
         })?;
         insert_batch(conn, a, batch)
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
-        let conn = self.conn.take().ok_or_else(|| err("writer già chiuso"))?;
+        let conn = self
+            .conn
+            .take()
+            .ok_or_else(|| err(&PublicMessage::Curated("writer già chiuso")))?;
         conn.execute_batch("COMMIT").map_err(sql_err)?;
         drop(conn);
         let (bytes, outcome) = self.staging.publish()?;
@@ -878,7 +951,7 @@ fn insert_batch(conn: &Connection, a: &ActiveLayer, batch: &RecordBatch) -> Resu
         .column(a.geom_idx)
         .as_any()
         .downcast_ref::<BinaryArray>()
-        .ok_or_else(|| err("colonna geometria non binaria"))?;
+        .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
     let attr_idx: Vec<usize> = (0..batch.num_columns())
         .filter(|i| *i != a.geom_idx)
         .collect();
@@ -971,28 +1044,36 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
     unsigned_integer!(UInt32Array);
     if let Some(values) = a.downcast_ref::<UInt64Array>() {
         let value = i64::try_from(values.value(row)).map_err(|_| {
-            err("UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage")
+            err(&PublicMessage::Curated(
+                "UInt64 oltre i64::MAX non rappresentabile come INTEGER GeoPackage",
+            ))
         })?;
         return Ok(BorrowedSqlValue::Integer(value));
     }
     if let Some(x) = a.downcast_ref::<Float16Array>() {
         let value = f64::from(f32::from(x.value(row)));
         if !value.is_finite() {
-            return Err(err("Float16 non finito non rappresentabile in GeoPackage"));
+            return Err(err(&PublicMessage::Curated(
+                "Float16 non finito non rappresentabile in GeoPackage",
+            )));
         }
         return Ok(BorrowedSqlValue::Real(value));
     }
     if let Some(x) = a.downcast_ref::<Float32Array>() {
         let value = f64::from(x.value(row));
         if !value.is_finite() {
-            return Err(err("Float32 non finito non rappresentabile in GeoPackage"));
+            return Err(err(&PublicMessage::Curated(
+                "Float32 non finito non rappresentabile in GeoPackage",
+            )));
         }
         return Ok(BorrowedSqlValue::Real(value));
     }
     if let Some(x) = a.downcast_ref::<Float64Array>() {
         let value = x.value(row);
         if !value.is_finite() {
-            return Err(err("Float64 non finito non rappresentabile in GeoPackage"));
+            return Err(err(&PublicMessage::Curated(
+                "Float64 non finito non rappresentabile in GeoPackage",
+            )));
         }
         return Ok(BorrowedSqlValue::Real(value));
     }
@@ -1020,10 +1101,12 @@ fn arrow_cell_to_sql_ref(array: &ArrayRef, row: usize) -> Result<BorrowedSqlValu
     if let Some(x) = a.downcast_ref::<FixedSizeBinaryArray>() {
         return Ok(BorrowedSqlValue::Blob(x.value(row)));
     }
-    Err(PlenoraIoError::Unsupported(format!(
-        "GeoPackage: tipo Arrow {:?} non rappresentabile senza conversione esplicita",
-        array.data_type()
-    )))
+    Err(PlenoraIoError::non_supportato_redatto(
+        &PublicMessage::CuratedPair(
+            "GeoPackage: tipo Arrow non rappresentabile senza conversione esplicita, classe:",
+            driver_common::classe_arrow(array.data_type()),
+        ),
+    ))
 }
 
 // --- helpers comuni --------------------------------------------------------
@@ -1170,7 +1253,7 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
                     format!("GeoPackage srs_id={srs_id}; definition={def}"),
                     Some(id),
                 );
-                return Err(PlenoraIoError::crs_unresolved("gpkg", &raw));
+                return Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw));
             }
             let kind = if id.eq_ignore_ascii_case("EPSG:4326") {
                 CrsKind::Geographic
@@ -1195,9 +1278,11 @@ fn crs_for(conn: &Connection, srs_id: i64) -> Result<ResolvedCrs> {
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => {
             let raw = RawCrs::new(format!("GeoPackage srs_id={srs_id}"), None);
-            Err(PlenoraIoError::crs_unresolved("gpkg", &raw))
+            Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw))
         }
-        Err(error) => Err(err(format!("lettura gpkg_spatial_ref_sys: {error}"))),
+        Err(_) => Err(err(&PublicMessage::Curated(
+            "lettura di gpkg_spatial_ref_sys fallita",
+        ))),
     }
 }
 
@@ -1258,10 +1343,10 @@ fn build_schema(
             name.to_ascii_lowercase().as_str(),
             "rowid" | "_rowid_" | "oid"
         ) {
-            return Err(err(format!(
-                "la tabella \"{table}\" dichiara la colonna \"{name}\", che oscura l'alias della \
-                 chiave di riga usato per la paginazione; il GeoPackage non e' leggibile in modo \
-                 deterministico"
+            // I nomi di tabella e colonna vengono dal file: sono la forma
+            // piu' diretta di testo di payload, e non escono.
+            return Err(err(&PublicMessage::Curated(
+                "una colonna dichiarata dalla tabella oscura l'alias della chiave di riga usato per la paginazione; il GeoPackage non e' leggibile in modo deterministico",
             )));
         }
         if name == geom_col || pk > 0 {
@@ -1270,9 +1355,9 @@ fn build_schema(
         attrs.push((name, sqlite_declared_to_arrow(&decl)));
     }
     let crs_id = crs.id.as_deref().ok_or_else(|| {
-        PlenoraIoError::Crs(
-            "GeoPackage: CRS risolto senza identificatore; vietato assumere OGC:CRS84".to_owned(),
-        )
+        PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "GeoPackage: CRS risolto senza identificatore; vietato assumere OGC:CRS84",
+        ))
     })?;
     let mut fields = vec![geometry_field(geom_col, crs_id)];
     for (n, dt) in &attrs {
@@ -1294,18 +1379,26 @@ struct GpkgBlobHeader<'a> {
 
 fn parse_gpkg_header(blob: &[u8]) -> Result<GpkgBlobHeader<'_>> {
     if blob.len() < 8 || &blob[0..2] != b"GP" {
-        return Err(err("blob geometria GeoPackage non valido (magic)"));
+        return Err(err(&PublicMessage::Curated(
+            "blob geometria GeoPackage non valido (magic)",
+        )));
     }
     let envelope = match (blob[3] >> 1) & 0x07 {
         0 => 0,
         1 => 32,
         2 | 3 => 48,
         4 => 64,
-        _ => return Err(err("envelope GeoPackage non valido")),
+        _ => {
+            return Err(err(&PublicMessage::Curated(
+                "envelope GeoPackage non valido",
+            )))
+        }
     };
     let start = 8 + envelope;
     if blob.len() < start {
-        return Err(err("blob geometria GeoPackage troncato"));
+        return Err(err(&PublicMessage::Curated(
+            "blob geometria GeoPackage troncato",
+        )));
     }
     // Byte 3 bit 0 = byte order (0 big endian, 1 little endian) per l'header;
     // per il payload la endianess e' nel primo byte del WKB. Qui interpreta
@@ -1378,18 +1471,69 @@ impl WkbShape {
 // nella stessa endianess: rinominarle per soddisfare `similar_names`
 // renderebbe meno chiaro il pattern.
 #[allow(clippy::similar_names)]
+/// Decodifica tipo base e dimensionalita' dal `type` di un WKB.
+///
+/// Distingue EWKB da ISO WKB dai bit di flag alti, e avanza il cursore oltre il
+/// SRID quando EWKB lo dichiara. Nessun valore letto dal payload finisce nei
+/// messaggi: il codice del flavor e i bit di flag restano dentro.
+fn tipo_e_dimensioni(
+    raw_type: u32,
+    payload_len: usize,
+    cursor: &mut usize,
+) -> Result<(u32, usize)> {
+    // EWKB (PostGIS): riconosciuto dai bit di flag alti del type. Un
+    // qualsiasi bit alto attivo classifica il payload come EWKB; ISO WKB
+    // resta l'ipotesi di default.
+    let ewkb_flag_z = raw_type & 0x8000_0000 != 0;
+    let ewkb_flag_m = raw_type & 0x4000_0000 != 0;
+    let ewkb_flag_srid = raw_type & 0x2000_0000 != 0;
+
+    if ewkb_flag_z || ewkb_flag_m || ewkb_flag_srid {
+        let base = raw_type & 0x0000_00FF;
+        let dims: usize = 2 + usize::from(ewkb_flag_z) + usize::from(ewkb_flag_m);
+        if ewkb_flag_srid {
+            if payload_len < *cursor + 4 {
+                return Err(err(&PublicMessage::Curated(
+                    "WKB EWKB troncato: manca il SRID",
+                )));
+            }
+            *cursor += 4;
+        }
+        return Ok((base, dims));
+    }
+
+    let base = raw_type % 1000;
+    let dims = match raw_type / 1000 {
+        0 => 2,     // XY
+        1 | 2 => 3, // XYZ o XYM
+        3 => 4,     // XYZM
+        // Il codice del flavor non esce: viene dal payload.
+        _ => {
+            return Err(err(&PublicMessage::Curated(
+                "flavor WKB ISO non riconosciuto",
+            )))
+        }
+    };
+    Ok((base, dims))
+}
+
 fn wkb_shape(payload: &[u8]) -> Result<WkbShape> {
     if payload.len() < 5 {
-        return Err(err("WKB troppo corto per l'header base"));
+        return Err(err(&PublicMessage::Curated(
+            "WKB troppo corto per l'header base",
+        )));
     }
     let little_endian = match payload[0] {
         0x00 => false,
         0x01 => true,
-        other => {
-            return Err(err(format!("byte order WKB non valido: 0x{other:02x}")));
+        _ => {
+            // Il byte non esce: e' un valore letto dal payload, e il
+            // vincolo di S9 ammette solo indici, conteggi, tetti e codici
+            // strutturali.
+            return Err(err(&PublicMessage::Curated("byte order WKB non valido")));
         }
     };
-    let read_u32 = |slice: &[u8]| -> u32 {
+    let leggi_intero = |slice: &[u8]| -> u32 {
         let bytes = [slice[0], slice[1], slice[2], slice[3]];
         if little_endian {
             u32::from_le_bytes(bytes)
@@ -1397,7 +1541,7 @@ fn wkb_shape(payload: &[u8]) -> Result<WkbShape> {
             u32::from_be_bytes(bytes)
         }
     };
-    let read_f64 = |slice: &[u8]| -> f64 {
+    let leggi_reale = |slice: &[u8]| -> f64 {
         let mut bytes = [0_u8; 8];
         bytes.copy_from_slice(&slice[..8]);
         if little_endian {
@@ -1406,44 +1550,16 @@ fn wkb_shape(payload: &[u8]) -> Result<WkbShape> {
             f64::from_be_bytes(bytes)
         }
     };
-    let raw_type = read_u32(&payload[1..5]);
+    let raw_type = leggi_intero(&payload[1..5]);
     let mut cursor: usize = 5;
 
-    // EWKB (PostGIS): riconosciuto dai bit di flag alti del type. Un
-    // qualsiasi bit alto attivo classifica il payload come EWKB; ISO WKB
-    // resta l'ipotesi di default.
-    let ewkb_flag_z = raw_type & 0x8000_0000 != 0;
-    let ewkb_flag_m = raw_type & 0x4000_0000 != 0;
-    let ewkb_flag_srid = raw_type & 0x2000_0000 != 0;
-    let is_ewkb = ewkb_flag_z || ewkb_flag_m || ewkb_flag_srid;
+    let (base_type, dims) = tipo_e_dimensioni(raw_type, payload.len(), &mut cursor)?;
 
-    let (base_type, dims) = if is_ewkb {
-        let base = raw_type & 0x0000_00FF;
-        let dims: usize = 2 + usize::from(ewkb_flag_z) + usize::from(ewkb_flag_m);
-        if ewkb_flag_srid {
-            if payload.len() < cursor + 4 {
-                return Err(err("WKB EWKB troncato: manca il SRID"));
-            }
-            cursor += 4;
-        }
-        (base, dims)
-    } else {
-        let base = raw_type % 1000;
-        let flavor = raw_type / 1000;
-        let dims = match flavor {
-            0 => 2,     // XY
-            1 | 2 => 3, // XYZ o XYM
-            3 => 4,     // XYZM
-            other => {
-                return Err(err(format!("flavor WKB ISO non riconosciuto: {other}")));
-            }
-        };
-        (base, dims)
-    };
-
-    let coord_bytes = dims
-        .checked_mul(8)
-        .ok_or_else(|| err("overflow dimensioni coordinate WKB"))?;
+    let coord_bytes = dims.checked_mul(8).ok_or_else(|| {
+        err(&PublicMessage::Curated(
+            "overflow dimensioni coordinate WKB",
+        ))
+    })?;
 
     match base_type {
         1 => {
@@ -1451,12 +1567,14 @@ fn wkb_shape(payload: &[u8]) -> Result<WkbShape> {
             // (convenzione standard). Un payload troncato prima delle
             // coordinate e' un errore, non un default.
             if payload.len() < cursor + coord_bytes {
-                return Err(err("WKB Point troncato: mancano le coordinate"));
+                return Err(err(&PublicMessage::Curated(
+                    "WKB Point troncato: mancano le coordinate",
+                )));
             }
             let mut all_nan = true;
             for i in 0..dims {
                 let offset = cursor + i * 8;
-                if !read_f64(&payload[offset..offset + 8]).is_nan() {
+                if !leggi_reale(&payload[offset..offset + 8]).is_nan() {
                     all_nan = false;
                     break;
                 }
@@ -1472,9 +1590,11 @@ fn wkb_shape(payload: &[u8]) -> Result<WkbShape> {
             // Tin/Triangle: subito dopo l'header c'e' un uint32 con il
             // conteggio degli elementi. Zero → EMPTY.
             if payload.len() < cursor + 4 {
-                return Err(err("WKB troncato: manca il conteggio"));
+                return Err(err(&PublicMessage::Curated(
+                    "WKB troncato: manca il conteggio",
+                )));
             }
-            let count = read_u32(&payload[cursor..cursor + 4]);
+            let count = leggi_intero(&payload[cursor..cursor + 4]);
             Ok(if count == 0 {
                 WkbShape::Empty
             } else {
@@ -1560,9 +1680,9 @@ fn layer_crs(
 /// `definition='undefined'`: GDAL risolve comunque il CRS da organization+code.
 fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Result<i32> {
     let Some(id) = id else {
-        return Err(PlenoraIoError::Crs(
-            "GeoPackage richiede un CRS esplicito; nessun default implicito".to_owned(),
-        ));
+        return Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+            "GeoPackage richiede un CRS esplicito; nessun default implicito",
+        )));
     };
     if id.eq_ignore_ascii_case("EPSG:4326") {
         return Ok(4326);
@@ -1587,7 +1707,7 @@ fn register_srs(conn: &Connection, id: Option<&str>, def: Option<&str>) -> Resul
         }
     }
     let raw = RawCrs::new(def.unwrap_or(id).to_owned(), Some(id.to_owned()));
-    Err(PlenoraIoError::crs_unresolved("gpkg", &raw))
+    Err(PlenoraIoError::crs_non_risolto_redatto("gpkg", &raw))
 }
 
 fn create_feature_table(
@@ -1597,7 +1717,8 @@ fn create_feature_table(
     srs_id: i32,
     geometry_contract: Option<&GeometryColumnContract>,
 ) -> Result<ActiveLayer> {
-    let geom_idx = geometry_index(schema).ok_or_else(|| err("layer senza geometria"))?;
+    let geom_idx = geometry_index(schema)
+        .ok_or_else(|| err(&PublicMessage::Curated("layer senza geometria")))?;
     let geom_name = schema.field(geom_idx).name().clone();
 
     let mut cols_ddl = vec!["fid INTEGER PRIMARY KEY AUTOINCREMENT".to_owned()];

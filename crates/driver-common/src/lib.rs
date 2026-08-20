@@ -641,7 +641,8 @@ pub const fn saturating_u64(value: usize) -> u64 {
 /// `ArrowTypeClass`: questo e' lo stesso vocabolario, dichiarato dove serve.
 /// Non e' una tassonomia completa dei tipi Arrow — e' l'insieme delle classi
 /// che questo bordo distingue, e `altro` copre per costruzione tutto il resto.
-const fn classe_arrow(tipo: &DataType) -> &'static str {
+#[must_use]
+pub const fn classe_arrow(tipo: &DataType) -> &'static str {
     match tipo {
         DataType::Boolean => "boolean",
         DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => "signed_integer",

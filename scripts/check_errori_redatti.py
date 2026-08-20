@@ -73,6 +73,7 @@ MIGRATI = (
     "driver-geojson",
     "driver-csv",
     "driver-kml",
+    "driver-gpkg",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -113,13 +114,6 @@ DA_MIGRARE: dict[str, int] = {
     "crates/driver-geoparquet/src/lib.rs::fmt_err": 1,
     "crates/driver-geoparquet/src/lib.rs::open_layer_reader": 1,
     "crates/driver-geoparquet/src/pagine.rs::errore": 1,
-    "crates/driver-gpkg/src/lib.rs::arrow_cell_to_sql_ref": 1,
-    "crates/driver-gpkg/src/lib.rs::build_schema": 1,
-    "crates/driver-gpkg/src/lib.rs::create": 2,
-    "crates/driver-gpkg/src/lib.rs::crs_for": 2,
-    "crates/driver-gpkg/src/lib.rs::err": 1,
-    "crates/driver-gpkg/src/lib.rs::project_gpkg_layer": 1,
-    "crates/driver-gpkg/src/lib.rs::register_srs": 2,
     "crates/driver-ipc/src/lib.rs::create": 3,
     "crates/driver-ipc/src/lib.rs::err": 1,
     "crates/driver-ipc/src/lib.rs::open": 2,
