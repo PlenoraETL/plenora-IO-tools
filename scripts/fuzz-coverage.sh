@@ -53,7 +53,15 @@ mkdir -p "${USCITA}"
 TOOLCHAIN="${PLENORA_FUZZ_TOOLCHAIN:-nightly-2026-07-21}"
 export RUSTUP_TOOLCHAIN="${TOOLCHAIN}"
 
-ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$|\.cargo/registry|rustc'
+ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$|\.cargo/registry|/rustc/|^/usr/'
+
+# `llvm-cov` viene dalla **stessa** toolchain che ha costruito il target: quella
+# di stable leggerebbe un formato di profdata che potrebbe non essere il suo.
+LLVM_COV="$(rustc "+${TOOLCHAIN}" --print target-libdir)/../bin/llvm-cov"
+if [ ! -x "${LLVM_COV}" ]; then
+    echo "llvm-cov assente in ${TOOLCHAIN}: manca il componente llvm-tools." >&2
+    exit 2
+fi
 
 if [ "$#" -gt 0 ]; then
     target=("$@")
@@ -104,23 +112,41 @@ for nome in "${target[@]}"; do
     fi
 
     profdata="fuzz/coverage/${nome}/coverage.profdata"
-    binario="$(find fuzz/target -type f -name "${nome}" -path '*coverage*' | head -1)"
-    if [ ! -f "${profdata}" ] || [ -z "${binario}" ]; then
-        echo "  ROSSO: profdata o binario assenti dopo la misura" >&2
+    if [ ! -f "${profdata}" ]; then
+        echo "  ROSSO: profdata assente dopo la misura" >&2
         esito_globale=1
         continue
     fi
 
+    # Il binario strumentato **non** sta sotto `fuzz/target`: `cargo fuzz
+    # coverage` costruisce in `target/<triple>/coverage/<triple>/release/`. Il
+    # percorso e' un dettaglio di cargo-fuzz e puo' cambiare, quindi non lo si
+    # indovina: si prendono i candidati e si tiene quello i cui dati di
+    # copertura **combaciano davvero** con il profdata.
+    #
+    # E' la differenza fra «ho trovato un file con il nome giusto» e «ho trovato
+    # il binario che ha prodotto questa misura»: il primo, nella corsa del
+    # 2026-08-21, era la build con AddressSanitizer, che di copertura non ne ha.
     lcov="${USCITA}/${nome}.lcov"
-    if ! cargo cov -- export "${binario}" \
-        --instr-profile="${profdata}" \
-        --format=lcov \
-        --ignore-filename-regex="${ESCLUSIONI}" \
-        > "${lcov}" 2>"${USCITA}/${nome}.export.log"; then
-        echo "  ROSSO: export lcov fallito — ${USCITA}/${nome}.export.log" >&2
+    binario=""
+    while IFS= read -r candidato; do
+        if "${LLVM_COV}" export "${candidato}" \
+            --instr-profile="${profdata}" \
+            --format=lcov \
+            --ignore-filename-regex="${ESCLUSIONI}" \
+            > "${lcov}" 2>"${USCITA}/${nome}.export.log"; then
+            binario="${candidato}"
+            break
+        fi
+    done < <(find target fuzz/target -type f -name "${nome}" ! -name '*.d' 2>/dev/null)
+
+    if [ -z "${binario}" ]; then
+        echo "  ROSSO: nessun binario combacia con il profdata" >&2
+        echo "         (ultimo tentativo in ${USCITA}/${nome}.export.log)" >&2
         esito_globale=1
         continue
     fi
+    echo "  binario: ${binario}"
     if [ ! -s "${lcov}" ]; then
         echo "  ROSSO: report lcov vuoto" >&2
         esito_globale=1
