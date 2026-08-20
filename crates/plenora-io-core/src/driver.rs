@@ -26,6 +26,7 @@ use plenora_io_model::{
     WriteDiagnosticStateCounts, ROW_DIAGNOSTICS_CONTRACT, ROW_DIAGNOSTICS_INDEX_BASIS,
     ROW_DIAGNOSTIC_COLUMN_UNATTESTABLE,
 };
+use plenora_io_model::{ContractIdentifier, IoErrorCode, NumeroStrutturale, PublicMessage};
 
 use crate::descriptor::{
     ArrowTypeClass, AttributeWriteSupport, CrsRepresentationState, FormatDescriptor,
@@ -119,11 +120,10 @@ impl Source {
 /// proseguire senza osservare lascerebbe il footprint vuoto e
 /// `output_expansion_ratio` senza base su cui derivare il tetto di uscita.
 fn permit_gia_speso() -> PlenoraIoError {
-    PlenoraIoError::LimitExceeded(
+    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
         "il permit di osservazione dell'input e' gia' stato speso: la sorgente \
-         non puo' essere osservata due volte"
-            .to_owned(),
-    )
+         non puo' essere osservata due volte",
+    ))
 }
 
 /// Codifica senza perdita del percorso **lessicale**.
@@ -206,8 +206,8 @@ fn scopri(context: &PipelineContext, percorso: &std::path::Path) -> Result<bool>
     context.ensure_active()?;
     let metadata = std::fs::symlink_metadata(percorso)?;
     if metadata.file_type().is_symlink() {
-        return Err(PlenoraIoError::Unsupported(
-            "symlink non ammesso nella sorgente".to_owned(),
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated("symlink non ammesso nella sorgente"),
         ));
     }
     let normalizzato = byte_identita_percorso(percorso);
@@ -506,7 +506,7 @@ const fn saturating_usize(value: u64) -> usize {
 // Simmetrico a `saturating_usize`: il cast e' raggiunto solo con un valore gia'
 // provato entro `u64::MAX`.
 #[allow(clippy::cast_possible_truncation)]
-const fn saturating_u64(value: usize) -> u64 {
+pub(crate) const fn saturating_u64(value: usize) -> u64 {
     if usize::BITS > u64::BITS && value > u64::MAX as usize {
         u64::MAX
     } else {
@@ -575,8 +575,12 @@ pub fn leggendo_arrow<T>(
     driver: &'static str,
     operazione: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione))
-        .unwrap_or_else(|_| Err(PlenoraIoError::format(driver, MESSAGGIO_PANICO_ARROW)))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione)).unwrap_or_else(|_| {
+        Err(PlenoraIoError::formato_redatto(
+            driver,
+            &PublicMessage::Curated(MESSAGGIO_PANICO_ARROW),
+        ))
+    })
 }
 
 /// Messaggio pubblico del panico di arrow, statico e curato (FZ-0).
@@ -698,8 +702,8 @@ pub trait FormatWriter {
     /// errori di [`FormatWriter::write`].
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
         if layer.0 != 0 {
-            return Err(PlenoraIoError::Unsupported(
-                "questo formato non supporta la scrittura multi-layer".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("questo formato non supporta la scrittura multi-layer"),
             ));
         }
         self.write(batch)
@@ -808,43 +812,50 @@ fn geometry_contracts_for_validation(
 ) -> Result<Vec<Option<GeometryColumnContract>>> {
     plan.layers
         .iter()
-        .map(|layer| -> Result<Option<GeometryColumnContract>> {
-            if let Some(geometry) = &layer.contract.geometry {
-                return Ok(Some(geometry.clone()));
-            }
-            let mut fields = layer
-                .contract
-                .schema
-                .fields()
-                .iter()
-                .enumerate()
-                .filter(|(_, field)| is_geometry_field(field));
-            let Some((index, field)) = fields.next() else {
-                return Ok(None);
-            };
-            if fields.next().is_some() {
-                return Err(PlenoraIoError::Contract(format!(
-                    "layer '{}': più colonne GeoArrow senza contratto geometrico esplicito",
-                    layer.name
-                )));
-            }
-            // Il costruttore stabilisce il default storico XY prima di leggere
-            // i metadati legacy. Un valore esplicito, incluso `unknown`, lo
-            // sostituisce e non viene mai degradato dopo il parsing (R3.4).
-            // `index` e' la posizione di un campo nello schema Arrow: e'
-            // limitato dal numero di campi del layer, ordini di grandezza
-            // sotto 2^32. Un cast controllato introdurrebbe un ramo d'errore
-            // irraggiungibile in un punto del contratto.
-            #[allow(clippy::cast_possible_truncation)]
-            let mut geometry = GeometryColumnContract::wkb_xy(
-                FieldId(index as u32),
-                field.name(),
-                CrsResolution::Missing,
-                field.is_nullable(),
-            );
-            read_geometry_contract_metadata(field, &mut geometry)?;
-            Ok(Some(geometry))
-        })
+        .enumerate()
+        .map(
+            |(indice_layer, layer)| -> Result<Option<GeometryColumnContract>> {
+                if let Some(geometry) = &layer.contract.geometry {
+                    return Ok(Some(geometry.clone()));
+                }
+                let mut fields = layer
+                    .contract
+                    .schema
+                    .fields()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, field)| is_geometry_field(field));
+                let Some((index, field)) = fields.next() else {
+                    return Ok(None);
+                };
+                if fields.next().is_some() {
+                    // Il nome del layer non entra nel testo: il layer si nomina
+                    // per indice nel piano.
+                    return Err(PlenoraIoError::contratto_redatto(
+                        &PublicMessage::CuratedWith(
+                            "più colonne GeoArrow senza contratto geometrico esplicito al layer",
+                            NumeroStrutturale::Indice(saturating_u64(indice_layer)),
+                        ),
+                    ));
+                }
+                // Il costruttore stabilisce il default storico XY prima di leggere
+                // i metadati legacy. Un valore esplicito, incluso `unknown`, lo
+                // sostituisce e non viene mai degradato dopo il parsing (R3.4).
+                // `index` e' la posizione di un campo nello schema Arrow: e'
+                // limitato dal numero di campi del layer, ordini di grandezza
+                // sotto 2^32. Un cast controllato introdurrebbe un ramo d'errore
+                // irraggiungibile in un punto del contratto.
+                #[allow(clippy::cast_possible_truncation)]
+                let mut geometry = GeometryColumnContract::wkb_xy(
+                    FieldId(index as u32),
+                    field.name(),
+                    CrsResolution::Missing,
+                    field.is_nullable(),
+                );
+                read_geometry_contract_metadata(field, &mut geometry)?;
+                Ok(Some(geometry))
+            },
+        )
         .collect()
 }
 
@@ -877,11 +888,15 @@ pub fn with_write_validation(
         total
             .checked_add(
                 u64::try_from(layer.contract.schema.fields().len()).map_err(|_| {
-                    PlenoraIoError::LimitExceeded("troppe colonne nel piano".to_owned())
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "troppe colonne nel piano",
+                    ))
                 })?,
             )
             .ok_or_else(|| {
-                PlenoraIoError::LimitExceeded("overflow nel conteggio delle colonne".to_owned())
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio delle colonne",
+                ))
             })
     })?;
     if columns > 0 {
@@ -1140,7 +1155,9 @@ impl WriteBatchResources {
         if self.geometry_components > 0 {
             self.geometry_lease
                 .ok_or_else(|| {
-                    PlenoraIoError::LimitExceeded("budget geometrico esaurito".to_owned())
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "budget geometrico esaurito",
+                    ))
                 })?
                 .commit(self.geometry_components)?;
         }
@@ -1156,36 +1173,37 @@ impl LimitedWriter {
         self.budget.context().ensure_active()?;
         if let Some(contract) = self.contracts.get(layer) {
             if batch.schema().as_ref() != contract.as_ref() {
-                return Err(PlenoraIoError::new(
-                    ErrorCategory::Schema,
-                    ErrorPhase::Validate,
-                    RemoteEffect::None,
-                    RetryDisposition::Never,
-                    format!(
-                        "batch del layer {layer} diverso dal contratto dichiarato (schema, ordine, tipi, nullability o metadata)"
-                    ),
-                ));
+                return Err(PlenoraIoError::schema_redatto(&PublicMessage::CuratedWith(
+                    "batch diverso dal contratto dichiarato (schema, ordine, tipi, \
+                         nullability o metadata) al layer",
+                    NumeroStrutturale::Indice(saturating_u64(layer)),
+                )));
             }
         } else if !self.contracts.is_empty() {
-            return Err(PlenoraIoError::capability(
+            return Err(PlenoraIoError::capability_redatta(
                 self.driver,
                 None,
                 CapabilityReason::MultipleLayers,
-                format!("layer runtime {layer} fuori dal WritePlan"),
+                &layer_fuori_dal_piano(saturating_u64(layer)),
             ));
         }
         if batch.num_columns() > self.limits.max_columns {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "batch con {} colonne oltre il limite di {}",
-                batch.num_columns(),
-                self.limits.max_columns
-            )));
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "batch con",
+                    NumeroStrutturale::Conteggio(saturating_u64(batch.num_columns())),
+                    "colonne oltre il limite di",
+                    NumeroStrutturale::Limite(saturating_u64(self.limits.max_columns)),
+                ),
+            ));
         }
         let batch_rows = u64::try_from(batch.num_rows()).map_err(|_| {
-            PlenoraIoError::LimitExceeded("batch oltre il conteggio supportato".to_owned())
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "batch oltre il conteggio supportato",
+            ))
         })?;
         let layer_rows = *self.layer_rows.get(layer).ok_or_else(|| {
-            PlenoraIoError::Contract(format!("layer runtime {layer} fuori dal WritePlan"))
+            PlenoraIoError::contratto_redatto(&layer_fuori_dal_piano(saturating_u64(layer)))
         })?;
         if self
             .input_totals
@@ -1198,18 +1216,24 @@ impl LimitedWriter {
                     .is_none_or(|rows| rows > total)
             })
         {
-            return Err(PlenoraIoError::Contract(
-                "write oltre input_total dichiarato".to_owned(),
-            ));
+            return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+                "write oltre input_total dichiarato",
+            )));
         }
         self.rows = self.rows.checked_add(batch.num_rows()).ok_or_else(|| {
-            PlenoraIoError::LimitExceeded("overflow nel conteggio delle righe".to_owned())
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio delle righe",
+            ))
         })?;
         if self.rows > self.limits.max_rows {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "{} righe oltre il limite di {}",
-                self.rows, self.limits.max_rows
-            )));
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "scritte",
+                    NumeroStrutturale::Conteggio(saturating_u64(self.rows)),
+                    "righe oltre il limite di",
+                    NumeroStrutturale::Limite(saturating_u64(self.limits.max_rows)),
+                ),
+            ));
         }
         let geometry_components = if let Some(validation) = &self.geometry_validation {
             let mut effective_limits = self.limits;
@@ -1231,18 +1255,18 @@ impl LimitedWriter {
                     .layers
                     .get(layer)
                     .ok_or_else(|| {
-                        PlenoraIoError::capability(
+                        PlenoraIoError::capability_redatta(
                             validation.driver,
                             None,
                             CapabilityReason::MultipleLayers,
-                            format!("layer runtime {layer} fuori dal WritePlan"),
+                            &layer_fuori_dal_piano(saturating_u64(layer)),
                         )
                     })?
                     .as_ref(),
                 batch,
                 effective_limits.wkb,
                 *self.layer_rows.get(layer).ok_or_else(|| {
-                    PlenoraIoError::Contract(format!("layer runtime {layer} fuori dal WritePlan"))
+                    PlenoraIoError::contratto_redatto(&layer_fuori_dal_piano(saturating_u64(layer)))
                 })?,
                 self.input_totals.get(layer).copied().flatten(),
             )?
@@ -1262,7 +1286,9 @@ impl LimitedWriter {
             });
         }
         let bytes = u64::try_from(incremental_batch_memory_size(batch)).map_err(|_| {
-            PlenoraIoError::LimitExceeded("batch oltre il conteggio byte supportato".to_owned())
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "batch oltre il conteggio byte supportato",
+            ))
         })?;
         Ok(WriteBatchResources {
             rows,
@@ -1297,17 +1323,17 @@ impl FormatWriter for LimitedWriter {
             .get(layer_index)
             .is_some_and(|rows| *rows > 0)
         {
-            return Err(PlenoraIoError::Contract(
-                "input_total deve essere dichiarato prima del primo write del layer".to_owned(),
-            ));
+            return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+                "input_total deve essere dichiarato prima del primo write del layer",
+            )));
         }
         let slot = self.input_totals.get(layer_index).ok_or_else(|| {
-            PlenoraIoError::Contract(format!("layer runtime {} fuori dal WritePlan", layer.0))
+            PlenoraIoError::contratto_redatto(&layer_fuori_dal_piano(u64::from(layer.0)))
         })?;
         if slot.is_some_and(|declared| declared != total) {
-            return Err(PlenoraIoError::Contract(
-                "input_total dichiarato in modo incoerente".to_owned(),
-            ));
+            return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+                "input_total dichiarato in modo incoerente",
+            )));
         }
         self.inner.declare_input_total(layer, total)?;
         self.input_totals[layer_index] = Some(total);
@@ -1317,9 +1343,9 @@ impl FormatWriter for LimitedWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         check_cancelled(&self.cancellation, ErrorPhase::Write)?;
         if self.failed {
-            return Err(PlenoraIoError::format(
+            return Err(PlenoraIoError::formato_redatto(
                 self.driver,
-                "writer invalidato da un precedente errore di scrittura",
+                &PublicMessage::Curated("writer invalidato da un precedente errore di scrittura"),
             )
             .during(plenora_io_model::ErrorPhase::Write));
         }
@@ -1328,7 +1354,9 @@ impl FormatWriter for LimitedWriter {
             self.inner.write(batch)?;
             resources.commit()?;
             self.layer_rows[0] = self.layer_rows[0].checked_add(rows).ok_or_else(|| {
-                PlenoraIoError::LimitExceeded("overflow nel conteggio righe layer".to_owned())
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio righe layer",
+                ))
             })?;
             Ok(())
         });
@@ -1341,9 +1369,9 @@ impl FormatWriter for LimitedWriter {
     fn write_to_layer(&mut self, layer: LayerId, batch: &RecordBatch) -> Result<()> {
         check_cancelled(&self.cancellation, ErrorPhase::Write)?;
         if self.failed {
-            return Err(PlenoraIoError::format(
+            return Err(PlenoraIoError::formato_redatto(
                 self.driver,
-                "writer invalidato da un precedente errore di scrittura",
+                &PublicMessage::Curated("writer invalidato da un precedente errore di scrittura"),
             )
             .during(plenora_io_model::ErrorPhase::Write));
         }
@@ -1352,10 +1380,12 @@ impl FormatWriter for LimitedWriter {
             self.inner.write_to_layer(layer, batch)?;
             resources.commit()?;
             let layer_rows = self.layer_rows.get_mut(layer.0 as usize).ok_or_else(|| {
-                PlenoraIoError::Contract(format!("layer runtime {} fuori dal WritePlan", layer.0))
+                PlenoraIoError::contratto_redatto(&layer_fuori_dal_piano(u64::from(layer.0)))
             })?;
             *layer_rows = layer_rows.checked_add(rows).ok_or_else(|| {
-                PlenoraIoError::LimitExceeded("overflow nel conteggio righe layer".to_owned())
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio righe layer",
+                ))
             })?;
             Ok(())
         });
@@ -1369,9 +1399,9 @@ impl FormatWriter for LimitedWriter {
         check_cancelled(&self.cancellation, ErrorPhase::Finalize)?;
         self.budget.context().ensure_active()?;
         if self.failed {
-            return Err(PlenoraIoError::format(
+            return Err(PlenoraIoError::formato_redatto(
                 self.driver,
-                "finish vietato dopo un errore di scrittura",
+                &PublicMessage::Curated("finish vietato dopo un errore di scrittura"),
             )
             .during(plenora_io_model::ErrorPhase::Finalize));
         }
@@ -1381,9 +1411,9 @@ impl FormatWriter for LimitedWriter {
             .zip(&self.layer_rows)
             .any(|(declared, observed)| declared.is_some_and(|total| total != *observed))
         {
-            return Err(PlenoraIoError::Contract(
-                "EOF prima dell'input_total esatto dichiarato".to_owned(),
-            ));
+            return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+                "EOF prima dell'input_total esatto dichiarato",
+            )));
         }
         let mut published = self.inner.finish()?;
         published.loss.merge(&self.planned_loss);
@@ -1392,13 +1422,24 @@ impl FormatWriter for LimitedWriter {
     }
 }
 
+/// Il messaggio del layer runtime che il `WritePlan` non dichiara.
+///
+/// Cinque siti lo producevano con altrettanti `format!` identici. Uno solo, e
+/// il numero e' un indice strutturale: non viene dal payload, viene dal piano.
+const fn layer_fuori_dal_piano(layer: u64) -> PublicMessage {
+    PublicMessage::CuratedWith(
+        "fuori dal WritePlan il layer runtime",
+        NumeroStrutturale::Indice(layer),
+    )
+}
+
 fn geometry_violation(
     driver: &'static str,
-    field: &str,
+    field: Option<&ContractIdentifier>,
     reason: CapabilityReason,
-    detail: impl Into<String>,
+    detail: &PublicMessage,
 ) -> PlenoraIoError {
-    PlenoraIoError::capability(driver, Some(field.to_owned()), reason, detail)
+    PlenoraIoError::capability_redatta(driver, field, reason, detail)
 }
 
 fn validate_inspected_geometry(
@@ -1413,20 +1454,23 @@ fn validate_inspected_geometry(
     {
         return Err(geometry_violation(
             driver,
-            &contract.name,
+            ContractIdentifier::from_geometry_column(contract).as_ref(),
             CapabilityReason::CoordinateDimensions,
-            format!(
-                "payload {:?} diverso dalle dimensioni dichiarate {:?}",
-                actual_dimensions, contract.dimensions
+            &PublicMessage::CuratedPair(
+                "dimensioni del payload diverse da quelle dichiarate dal contratto:",
+                actual_dimensions.nome(),
             ),
         ));
     }
     if !support.dimensions.contains(&actual_dimensions) {
         return Err(geometry_violation(
             driver,
-            &contract.name,
+            ContractIdentifier::from_geometry_column(contract).as_ref(),
             CapabilityReason::CoordinateDimensions,
-            format!("payload {actual_dimensions:?} non supportato dal driver"),
+            &PublicMessage::CuratedPair(
+                "dimensioni del payload non supportate dal driver:",
+                actual_dimensions.nome(),
+            ),
         ));
     }
 
@@ -1434,24 +1478,26 @@ fn validate_inspected_geometry(
     if !geometry.nested_dimensions_coherent || (!allow_srid && geometry.contains_srid) {
         return Err(geometry_violation(
             driver,
-            &contract.name,
+            ContractIdentifier::from_geometry_column(contract).as_ref(),
             if allow_srid {
                 CapabilityReason::CoordinateDimensions
             } else {
                 CapabilityReason::GeometryEncoding
             },
-            "componenti WKB con dimensioni incoerenti o SRID EWKB non dichiarato",
+            &PublicMessage::Curated(
+                "componenti WKB con dimensioni incoerenti o SRID EWKB non dichiarato",
+            ),
         ));
     }
     if contract.encoding == GeometryEncoding::Ewkb && geometry.srid != contract.srid {
         return Err(geometry_violation(
             driver,
-            &contract.name,
+            ContractIdentifier::from_geometry_column(contract).as_ref(),
             CapabilityReason::GeometryEncoding,
-            format!(
-                "SRID del payload {:?} diverso da quello dichiarato {:?}",
-                geometry.srid, contract.srid
-            ),
+            // Gli SRID non entrano: sono numeri **letti dal payload**, e il
+            // vincolo di S9 ammette solo indici, conteggi, tetti e codici
+            // strutturali.
+            &PublicMessage::Curated("SRID del payload diverso da quello dichiarato"),
         ));
     }
     if !contract.geometry_types.is_empty()
@@ -1459,11 +1505,11 @@ fn validate_inspected_geometry(
     {
         return Err(geometry_violation(
             driver,
-            &contract.name,
+            ContractIdentifier::from_geometry_column(contract).as_ref(),
             CapabilityReason::MixedGeometry,
-            format!(
-                "tipo {:?} assente dai tipi geometrici dichiarati",
-                geometry.geometry_type
+            &PublicMessage::CuratedPair(
+                "tipo geometrico assente da quelli dichiarati:",
+                geometry.geometry_type.canonical_name(),
             ),
         ));
     }
@@ -1501,9 +1547,9 @@ fn validate_geometry_batch_at(
         .ok_or_else(|| {
             geometry_violation(
                 driver,
-                &contract.name,
+                ContractIdentifier::from_geometry_column(contract).as_ref(),
                 CapabilityReason::GeometryNotSupported,
-                "colonna geometrica dichiarata assente dal batch",
+                &PublicMessage::Curated("colonna geometrica dichiarata assente dal batch"),
             )
         })?;
     let array = batch.column(index);
@@ -1549,9 +1595,9 @@ fn validate_geometry_batch_at(
     } else {
         return Err(geometry_violation(
             driver,
-            &contract.name,
+            ContractIdentifier::from_geometry_column(contract).as_ref(),
             CapabilityReason::GeometryEncoding,
-            "colonna geometrica runtime non Binary/LargeBinary",
+            &PublicMessage::Curated("colonna geometrica runtime non Binary/LargeBinary"),
         ));
     }
     if violations.is_empty() {
@@ -1589,10 +1635,14 @@ fn nullability_violations(
             if array.is_null(row) {
                 let source_index = row_offset
                     .checked_add(u64::try_from(row).map_err(|_| {
-                        PlenoraIoError::LimitExceeded("indice riga oltre u64".to_owned())
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "indice riga oltre u64",
+                        ))
                     })?)
                     .ok_or_else(|| {
-                        PlenoraIoError::LimitExceeded("overflow nell'indice riga".to_owned())
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "overflow nell'indice riga",
+                        ))
                     })?;
                 violations
                     .entry(source_index)
@@ -1621,11 +1671,12 @@ fn inspect_geometry_row(
     components: &mut u64,
 ) -> Result<()> {
     let source_index = row_offset
-        .checked_add(
-            u64::try_from(row)
-                .map_err(|_| PlenoraIoError::LimitExceeded("indice riga oltre u64".to_owned()))?,
-        )
-        .ok_or_else(|| PlenoraIoError::LimitExceeded("overflow nell'indice riga".to_owned()))?;
+        .checked_add(u64::try_from(row).map_err(|_| {
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated("indice riga oltre u64"))
+        })?)
+        .ok_or_else(|| {
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nell'indice riga"))
+        })?;
     if violations.contains_key(&source_index) {
         return Ok(());
     }
@@ -1678,12 +1729,14 @@ fn inspect_geometry_row(
     }
     *components = components
         .checked_add(u64::try_from(inspection.components).map_err(|_| {
-            PlenoraIoError::LimitExceeded("geometria oltre il conteggio supportato".to_owned())
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "geometria oltre il conteggio supportato",
+            ))
         })?)
         .ok_or_else(|| {
-            PlenoraIoError::LimitExceeded(
-                "overflow nel conteggio dei componenti geometrici".to_owned(),
-            )
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio dei componenti geometrici",
+            ))
         })?;
     Ok(())
 }
@@ -1704,16 +1757,21 @@ fn errore_di_rifiuto_senza_report(
     causa: Option<&'static str>,
     capability_reason: Option<CapabilityReason>,
 ) -> PlenoraIoError {
-    let messaggio = causa.map_or_else(
-        || format!("righe rifiutate prima della scrittura {driver}"),
-        |causa| format!("righe rifiutate prima della scrittura {driver}: {causa}"),
+    // Il driver esce dal campo `driver`, non dal testo: ripeterlo nel
+    // messaggio non aggiungeva niente e faceva sembrare interpolato un valore
+    // che era gia' strutturato. La causa resta, ed e' un vocabolario chiuso di
+    // `&'static str`.
+    let messaggio = causa.map_or(
+        PublicMessage::Curated("righe rifiutate prima della scrittura"),
+        |causa| PublicMessage::CuratedPair("righe rifiutate prima della scrittura:", causa),
     );
-    let mut error = PlenoraIoError::new(
+    let mut error = PlenoraIoError::redatto(
+        IoErrorCode::Generic,
         ErrorCategory::DataMapping,
         ErrorPhase::Write,
         RemoteEffect::None,
         RetryDisposition::Never,
-        messaggio,
+        &messaggio,
     );
     error.driver = Some(driver.to_owned());
     error.capability_reason = capability_reason;
@@ -1808,12 +1866,13 @@ fn write_rejection_error(
             effect_unknown: KnownOrUnknownCount::Unknown,
         }),
     };
-    let mut error = PlenoraIoError::new(
+    let mut error = PlenoraIoError::redatto(
+        IoErrorCode::Generic,
         ErrorCategory::DataMapping,
         ErrorPhase::Write,
         RemoteEffect::None,
         RetryDisposition::Never,
-        format!("righe rifiutate prima della scrittura {driver}"),
+        &PublicMessage::Curated("righe rifiutate prima della scrittura"),
     );
     error = error.with_row_diagnostics(diagnostics);
     error.driver = Some(driver.to_owned());
@@ -1853,12 +1912,13 @@ pub fn write_row_rejection(
             });
     }
     if violations.is_empty() {
-        return PlenoraIoError::new(
+        return PlenoraIoError::redatto(
+            IoErrorCode::Generic,
             ErrorCategory::Internal,
             ErrorPhase::Write,
             RemoteEffect::None,
             RetryDisposition::Never,
-            "rifiuto row-scoped richiesto senza righe attribuibili",
+            &PublicMessage::Curated("rifiuto row-scoped richiesto senza righe attribuibili"),
         );
     }
     write_rejection_error(
@@ -2102,7 +2162,10 @@ mod tests {
         let riuscito = leggendo_arrow("arrow", || Ok(7_u8));
         // Errore ordinario: deve passare invariato, non essere riclassificato.
         let fallito = leggendo_arrow("arrow", || -> Result<u8> {
-            Err(PlenoraIoError::format("arrow", "payload troncato"))
+            Err(PlenoraIoError::formato_redatto(
+                "arrow",
+                &PublicMessage::Curated("payload troncato"),
+            ))
         });
 
         // Stesso panico del primo: il messaggio pubblico deve coincidere.
@@ -2409,7 +2472,9 @@ mod tests {
         fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
             if self.fail {
                 self.fail = false;
-                return Err(PlenoraIoError::Contract("errore terminale".to_owned()));
+                return Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+                    "errore terminale",
+                )));
             }
             if self.batches == 0 {
                 return Ok(None);
@@ -2525,7 +2590,9 @@ mod tests {
         drop(first);
         assert!(gate
             .open(LayerId(0), || {
-                Err(PlenoraIoError::Contract("costruzione fallita".to_owned()))
+                Err(PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+                    "costruzione fallita",
+                )))
             })
             .is_err());
         let mut exhausted = gate.open(LayerId(0), || Ok(test_reader(1, false))).unwrap();
@@ -2858,7 +2925,7 @@ mod tests {
     #[test]
     fn read_row_error_emits_examples_only_for_attestable_indices() {
         let attested = read_row_error(
-            PlenoraIoError::format("test", "bad row"),
+            PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("bad row")),
             Some(7),
             "test.invalid_row",
             Some("value"),
@@ -2872,7 +2939,7 @@ mod tests {
         assert!(diagnostics.validate().is_ok());
 
         let unknown = read_row_error(
-            PlenoraIoError::format("test", "bad row"),
+            PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("bad row")),
             None,
             "test.invalid_row",
             Some("value"),

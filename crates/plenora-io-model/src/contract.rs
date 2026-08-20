@@ -71,6 +71,42 @@ pub enum GeometryType {
     Unknown,
 }
 
+impl GeometryEncoding {
+    /// Nome statico dell'encoding, per i messaggi pubblici.
+    #[must_use]
+    pub const fn nome(self) -> &'static str {
+        match self {
+            Self::Wkb => "wkb",
+            Self::Ewkb => "ewkb",
+        }
+    }
+}
+
+impl CoordinateDimensions {
+    /// Nome statico della dimensionalita', per i messaggi pubblici.
+    #[must_use]
+    pub const fn nome(self) -> &'static str {
+        match self {
+            Self::Xy => "xy",
+            Self::Xyz => "xyz",
+            Self::Xym => "xym",
+            Self::Xyzm => "xyzm",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl SpatialSemantics {
+    /// Nome statico della semantica spaziale, per i messaggi pubblici.
+    #[must_use]
+    pub const fn nome(self) -> &'static str {
+        match self {
+            Self::Geometry => "geometry",
+            Self::Geography => "geography",
+        }
+    }
+}
+
 impl GeometryType {
     /// Nome wire canonico ratificato da R3.1.
     #[must_use]

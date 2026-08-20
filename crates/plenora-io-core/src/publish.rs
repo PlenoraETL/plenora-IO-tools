@@ -8,6 +8,7 @@
 use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
+use plenora_io_model::{NumeroStrutturale, PublicMessage};
 use plenora_io_model::{PlenoraIoError, RemoteEffect, Result, RetryDisposition};
 use tempfile::{NamedTempFile, TempDir};
 
@@ -123,9 +124,9 @@ impl StagedFile {
     }
 
     fn terminal_state_error() -> PlenoraIoError {
-        PlenoraIoError::Contract(
-            "staging file non disponibile dopo la transizione terminale".to_owned(),
-        )
+        PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+            "staging file non disponibile dopo la transizione terminale",
+        ))
     }
 }
 
@@ -208,9 +209,14 @@ pub fn publish_file_atomic_limited(
 ) -> Result<(u64, PublishOutcome)> {
     let bytes = temp.as_file().metadata()?.len();
     if bytes > max_output_bytes {
-        return Err(PlenoraIoError::LimitExceeded(format!(
-            "output da {bytes} byte oltre il limite di {max_output_bytes}"
-        )));
+        return Err(PlenoraIoError::limite_redatto(
+            &PublicMessage::CuratedBetween(
+                "output da",
+                NumeroStrutturale::Conteggio(bytes),
+                "byte oltre il limite di",
+                NumeroStrutturale::Limite(max_output_bytes),
+            ),
+        ));
     }
     publish_file_atomic(temp, dest, durable)
 }
@@ -262,8 +268,8 @@ pub fn publish_files_ordered_limited(
     max_output_bytes: u64,
 ) -> Result<(u64, PublishOutcome)> {
     let Some((first_source, first_destination)) = files.first() else {
-        return Err(PlenoraIoError::Unsupported(
-            "set di publish vuoto".to_owned(),
+        return Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated("set di publish vuoto"),
         ));
     };
     let source_parent_path = first_source.parent();
@@ -274,25 +280,34 @@ pub fn publish_files_ordered_limited(
     for (source, destination) in files {
         if source.parent() != source_parent_path || destination.parent() != destination_parent_path
         {
-            return Err(PlenoraIoError::Unsupported(
-                "il set di publish deve usare una sola staging e una sola destinazione".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "il set di publish deve usare una sola staging e una sola destinazione",
+                ),
             ));
         }
         let metadata = std::fs::symlink_metadata(source)?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {
-            return Err(PlenoraIoError::Unsupported(
-                "file di staging non regolare".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("file di staging non regolare"),
             ));
         }
         ensure_destination_absent(destination)?;
         bytes = bytes.checked_add(metadata.len()).ok_or_else(|| {
-            PlenoraIoError::LimitExceeded("overflow nel conteggio dell'output".to_owned())
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio dell'output",
+            ))
         })?;
     }
     if bytes > max_output_bytes {
-        return Err(PlenoraIoError::LimitExceeded(format!(
-            "output da {bytes} byte oltre il limite di {max_output_bytes}"
-        )));
+        return Err(PlenoraIoError::limite_redatto(
+            &PublicMessage::CuratedBetween(
+                "output da",
+                NumeroStrutturale::Conteggio(bytes),
+                "byte oltre il limite di",
+                NumeroStrutturale::Limite(max_output_bytes),
+            ),
+        ));
     }
     ensure_same_filesystem(first_source, destination_parent(first_destination))?;
 
@@ -359,7 +374,7 @@ fn destination_parent(dest: &Path) -> &Path {
 
 fn ensure_destination_absent(dest: &Path) -> Result<()> {
     match std::fs::symlink_metadata(dest) {
-        Ok(_) => Err(PlenoraIoError::OutputExists(dest.display().to_string())),
+        Ok(_) => Err(PlenoraIoError::destinazione_esistente()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(PlenoraIoError::Io(error)),
     }
@@ -368,7 +383,7 @@ fn ensure_destination_absent(dest: &Path) -> Result<()> {
 fn publish_rename_error(error: std::io::Error, dest: &Path) -> PlenoraIoError {
     if error.kind() == std::io::ErrorKind::AlreadyExists || std::fs::symlink_metadata(dest).is_ok()
     {
-        PlenoraIoError::OutputExists(dest.display().to_string())
+        PlenoraIoError::destinazione_esistente()
     } else {
         PlenoraIoError::Io(error)
     }
@@ -417,9 +432,10 @@ fn ensure_same_filesystem(staging: &Path, destination_parent: &Path) -> Result<(
     if same_filesystem(staging, destination_parent)? {
         return Ok(());
     }
-    Err(PlenoraIoError::Unsupported(
-        "publish cross-filesystem vietato: staging e destinazione sono su filesystem diversi"
-            .to_owned(),
+    Err(PlenoraIoError::non_supportato_redatto(
+        &PublicMessage::Curated(
+            "publish cross-filesystem vietato: staging e destinazione sono su filesystem diversi",
+        ),
     ))
 }
 

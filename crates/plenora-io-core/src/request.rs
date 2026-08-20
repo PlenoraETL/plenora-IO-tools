@@ -10,6 +10,7 @@ use plenora_io_model::contract::{
 };
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::CancellationToken;
+use plenora_io_model::{NumeroStrutturale, PublicMessage};
 use plenora_io_model::{PlenoraIoError, Result};
 
 use crate::descriptor::{FormatDescriptor, ProjectionSupport};
@@ -195,10 +196,12 @@ pub fn project_layer_contract(
                 let index = field_id.0 as usize;
                 if index >= source.contract.schema.fields().len() {
                     if request.projection_mode == ProjectionMode::Required {
-                        return Err(PlenoraIoError::Contract(format!(
-                            "projection Required: field id {} fuori range",
-                            field_id.0
-                        )));
+                        return Err(PlenoraIoError::contratto_redatto(
+                            &PublicMessage::CuratedWith(
+                                "projection Required: field id fuori range,",
+                                NumeroStrutturale::Indice(u64::from(field_id.0)),
+                            ),
+                        ));
                     }
                     continue;
                 }

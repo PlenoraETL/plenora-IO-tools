@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use arrow_array::RecordBatch;
 use plenora_io_model::contract::LayerContract;
+use plenora_io_model::PublicMessage;
 use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
 
 use super::LayerReader;
@@ -68,10 +69,7 @@ impl BatchEmitter {
                     BatchWorkerEvent::Heartbeat
                     | BatchWorkerEvent::Finished
                     | BatchWorkerEvent::Failed(_) => {
-                        return Err(PlenoraIoError::format(
-                            "batch-worker",
-                            "il canale bounded ha restituito un evento diverso dal batch inviato",
-                        ));
+                        return Err(PlenoraIoError::formato_redatto("batch-worker", &PublicMessage::Curated("il canale bounded ha restituito un evento diverso dal batch inviato")));
                     }
                 },
             }
@@ -99,9 +97,9 @@ struct BatchWorkerReader {
 
 impl BatchWorkerReader {
     fn abnormal_termination(&self) -> PlenoraIoError {
-        PlenoraIoError::format(
+        PlenoraIoError::formato_redatto(
             self.driver,
-            "worker di lettura terminato senza stato terminale",
+            &PublicMessage::Curated("worker di lettura terminato senza stato terminale"),
         )
     }
 
@@ -110,7 +108,10 @@ impl BatchWorkerReader {
             return Ok(());
         };
         worker.join().map_err(|_| {
-            PlenoraIoError::format(self.driver, "worker di lettura terminato in modo anomalo")
+            PlenoraIoError::formato_redatto(
+                self.driver,
+                &PublicMessage::Curated("worker di lettura terminato in modo anomalo"),
+            )
         })
     }
 }
@@ -187,9 +188,9 @@ where
             let event = match result {
                 Ok(Ok(())) => BatchWorkerEvent::Finished,
                 Ok(Err(error)) => BatchWorkerEvent::Failed(error),
-                Err(_) => BatchWorkerEvent::Failed(PlenoraIoError::format(
+                Err(_) => BatchWorkerEvent::Failed(PlenoraIoError::formato_redatto(
                     driver,
-                    "worker di lettura terminato in modo anomalo",
+                    &PublicMessage::Curated("worker di lettura terminato in modo anomalo"),
                 )),
             };
             drop(terminal_sender.send(event));
@@ -241,9 +242,9 @@ mod tests {
     #[test]
     fn preserves_typed_errors() {
         let mut reader = spawn_batch_reader("test", test_layer(), 1, |_| {
-            Err(PlenoraIoError::LimitExceeded(
-                "limite del parser".to_owned(),
-            ))
+            Err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "limite del parser",
+            )))
         })
         .unwrap();
 

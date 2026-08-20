@@ -2429,6 +2429,84 @@ minaccia di INV-10 e' il payload — il testo di una libreria C che puo' contene
 percorsi e valori di cella — e una chiave di configurazione digitata dall'utente
 non lo e'.
 
+#### Errata S9.1 — tre aggiunte trovate migrando `plenora-io-core` (2026-08-20)
+
+Ratificate il 2026-08-20, dopo la tranche 2. Nessuna delle tre allarga il
+modello di minaccia di INV-10; tutte e tre mancavano al documento di design, e
+senza ratifica sarebbero state scelte implementative travestite da dettagli.
+
+**1. Sei costruttori redatti che rispecchiano i costruttori storici.**
+
+`non_supportato_redatto`, `schema_redatto`, `crs_redatto`, `formato_redatto`,
+`capability_redatta`, `destinazione_esistente`. Ognuno fissa gli stessi cinque
+assi — categoria, fase, effetto remoto, disposizione al retry, `IoErrorCode` —
+del costruttore storico che sostituisce, e accetta soltanto `PublicMessage` e
+contesto tipizzato.
+
+Senza, ogni chiamante avrebbe dovuto ripetere a mano i cinque assi a ogni sito.
+Una svista in uno di 78 siti avrebbe cambiato la categoria sul wire in
+silenzio, e nessun test l'avrebbe presa perche' il messaggio sarebbe stato
+giusto.
+
+`destinazione_esistente` non prende messaggio: il costruttore storico
+`OutputExists(_message)` ignorava il proprio argomento e ne scriveva uno
+curato. L'argomento inutile sparisce invece di restare a suggerire
+un'influenza che non ha mai avuto.
+
+**2. `PublicMessage::CuratedPair(&'static str, &'static str)`.**
+
+Due valori `&'static str`, entrambi scelti da vocabolari chiusi a compile time.
+Nessuno dei due puo' venire dal payload o da una dipendenza: e' esattamente la
+garanzia di `Curated`, applicata due volte. Serve dove il messaggio deve unire
+una frase e un **codice strutturale** — il nome di un enum nostro, la causa
+chiusa di un rifiuto — che `Curated` da solo non sa mettere insieme.
+
+Non e' una seconda eccezione alla proprieta' normativa: l'unica variante che
+porta testo runtime resta `OpzioneRifiutata`, con il suo token bounded.
+
+Obblighi ratificati: **test `const`** che la variante sia costruibile in
+contesto costante, **rendering bounded** verificato sotto `MAX_MESSAGE_BYTES`,
+e **doctest `compile_fail`** che un argomento runtime — `String`,
+`&'a str` non statico, `format!` — non compili.
+
+**3. `nome()` sugli enum strutturali, al posto dei `{:?}`.**
+
+`GeometryEncoding::nome`, `CoordinateDimensions::nome`,
+`SpatialSemantics::nome`, `ArrowTypeClass::nome`. `GeometryType` aveva gia'
+`canonical_name` da R3.1, ed e' la stessa famiglia.
+
+`Debug` non e' un formato che qualcuno abbia promesso di tenere stabile:
+derivarlo e stamparlo in un messaggio pubblico significa esporre il nome di una
+variante Rust e impegnarsi a non rinominarla mai, senza averlo mai scritto da
+nessuna parte. Un `nome()` dichiarato a mano e' un vocabolario **statico e
+completo**: il `match` esaustivo lo impone al compilatore, e un test enumera le
+varianti perche' l'esaustivita' resti dimostrata e non solo vera.
+
+`ContractIdentifier::from_geometry_column` completa il terzetto
+`from_schema_field` / `from_layer`: nasce dal contratto che dichiara la colonna,
+e **rifiuta** — `None`, non troncamento e non fallback — i nomi vuoti o oltre
+`MAX_IDENTIFICATORE`. Un identificatore troncato sarebbe un nome che non
+identifica nessuno, e sarebbe peggio della sua assenza.
+
+**Cosa esce dai messaggi, e dove finisce.** La regola ha tolto informazione da
+sei posti in core. Tre spostamenti e tre perdite, ratificate come accettabili:
+
+| Informazione | Esito |
+|---|---|
+| nome del campo, nome della colonna geometrica | **spostati** nel campo `field`, come `ContractIdentifier` |
+| driver nei rifiuti di scrittura | **spostato**: era gia' nel campo `driver`, nel testo era un duplicato |
+| nome del layer del `WritePlan` | **trasformato** nell'indice del layer nel piano. `WriteLayer` non e' un `LayerContract`: aprire una via di costruzione per nome nudo avrebbe tolto a `ContractIdentifier` l'unica proprieta' che ha |
+| CRS atteso e CRS dichiarato | **perduti dal messaggio**, leggibili dalle capability del driver e dal piano |
+| SRID del payload e SRID dichiarato | **eliminati**: sono numeri letti dal payload, e il vincolo ratificato ammette solo indici, conteggi, tetti e codici strutturali |
+
+**Cosa il censimento non vedeva.** Ai 78 usi legacy diretti di core si
+aggiungono **30 chiamate a due helper interni** — `violation` (23) e
+`geometry_violation` (7) — con firma `detail: impl Into<String>` e
+`field: &str`. Non erano `PlenoraIoError::…` e il gate non le contava, ma erano
+la stessa via aperta al testo libero un livello piu' in basso. «Zero chiamate
+dirette» non sarebbe bastato a chiudere il crate: le firme sono diventate
+`&PublicMessage` e `Option<&ContractIdentifier>`.
+
 #### Errata S8.1 — un'eccezione dichiarata a «tutti i campi privati»
 
 INV-14 prevede «tutti i campi privati; accesso solo via getter». Resta vero

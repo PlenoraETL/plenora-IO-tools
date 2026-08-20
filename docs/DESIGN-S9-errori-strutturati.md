@@ -426,11 +426,11 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 
 ### Ordine
 
-| Tranche | Crate | Stato |
-|---|---|---|
-| 1 | `plenora-io-model` | **prossima** |
-| 2 | `plenora-io-core` | dopo la 1 |
-| 3 | `driver-common` | dopo la 2 |
+| Tranche | Crate | Usi legacy prima → dopo | Stato |
+|---|---|---|---|
+| 1 | `plenora-io-model` | 24 → 0 | **chiusa** |
+| 2 | `plenora-io-core` | 78 → 0 | **chiusa** |
+| 3 | `driver-common` | 10 | **prossima** |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |
 | chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |
@@ -491,3 +491,59 @@ suggerisce un servizio, ed è un'altra cosa.
 **Va ratificata separatamente**, ed è registrata qui perché non vada persa, non
 perché sia decisa. Durante la tranche 1 non entra né nel tipo né nel DTO, e la
 matrice di handoff continua a marcare il campo `provider` come `da decidere`.
+
+## 18. Tranche 2 — `plenora-io-core` (2026-08-20)
+
+Registro autorevole: **226 → 148**. `plenora-io-model` e `plenora-io-core` sono
+entrambi in `MIGRATI` e a zero; le 40 voci di core sono sparite da `DA_MIGRARE`.
+
+### Che cosa è servito oltre ai costruttori
+
+Tre aggiunte, tutte dentro la proprietà ratificata — nessuna fa entrare testo
+runtime — ma nessuna delle tre era prevista dal documento, e vanno viste:
+
+| Aggiunta | Dove | Perché |
+|---|---|---|
+| sei costruttori redatti (`non_supportato_redatto`, `schema_redatto`, `crs_redatto`, `formato_redatto`, `capability_redatta`, `destinazione_esistente`) | `plenora-io-model` | rispecchiano uno a uno categoria, fase e codice dei costruttori storici. Senza, ogni sito avrebbe dovuto ripetere a mano i cinque assi, e una svista avrebbe cambiato il wire in silenzio |
+| `PublicMessage::CuratedPair(&'static str, &'static str)` | `plenora-io-model` | unisce una frase e un **codice strutturale** — il nome di un enum nostro, la causa chiusa di un rifiuto. Due `&'static str` danno esattamente la garanzia di `Curated`: né payload né dipendenze |
+| `nome()` su `GeometryEncoding`, `CoordinateDimensions`, `SpatialSemantics`, `ArrowTypeClass`; `ContractIdentifier::from_geometry_column` | model e core | sostituiscono i `{:?}`. `Debug` non è un formato che qualcuno abbia promesso di tenere stabile; un nome dichiarato a mano sì — è la stessa famiglia di `GeometryType::canonical_name`, che esisteva già |
+
+Le tre aggiunte sono state **ratificate il 2026-08-20** e registrate come
+*Errata S9.1* nel Decision Package. `CuratedPair` non era nell'elenco di
+varianti discusso in ratifica: è un sibling di `Curated` con la stessa
+garanzia, e porta con sé tre obblighi — test `const`, rendering bounded sotto
+`MAX_MESSAGE_BYTES`, doctest `compile_fail` su argomenti runtime — tutti
+implementati in `crates/plenora-io-model/src/error.rs`.
+
+`from_geometry_column` **rifiuta** i nomi non attestabili invece di troncarli:
+un identificatore tagliato è un nome che non identifica nessuno, e chi legge
+l'errore lo userebbe per cercare un campo che non esiste.
+
+### Che cosa è uscito dai messaggi, e dove è finito
+
+La regola «nessun testo runtime» ha tolto informazione da sei posti. In tre
+casi l'informazione è stata **spostata**, in tre è stata **persa** — ed è la
+distinzione che conta:
+
+| Sito | Prima | Ora | Esito |
+|---|---|---|---|
+| nome del campo (schema) | interpolato nel testo | `ContractIdentifier` dallo schema, nel campo `field` | spostato |
+| nome della colonna geometrica | interpolato | `ContractIdentifier::from_geometry_column`, nel campo `field` | spostato |
+| driver nei rifiuti di scrittura | interpolato nel testo | era già nel campo `driver`: nel testo era un duplicato | spostato |
+| nome del layer del `WritePlan` | interpolato | **indice** del layer nel piano | trasformato: il nome non c'è più, l'indice lo identifica lo stesso |
+| CRS atteso e CRS dichiarato | interpolati | nessuno dei due | perso dal messaggio, leggibile dalle capability del driver e dal piano |
+| SRID del payload e SRID dichiarato | interpolati | nessuno dei due | perso: **è un numero letto dal payload**, e il vincolo ratificato ammette solo indici, conteggi, tetti e codici strutturali |
+| classi Arrow, encoding, dimensioni, semantica, tipo geometrico | `{:?}` | `nome()` / `canonical_name()` | invariato nella sostanza, stabile nella forma |
+
+`WriteLayer` non è un `LayerContract`: `ContractIdentifier::from_layer` non si
+applica, e **non è stata aperta** una via di costruzione per nome nudo. Aprirla
+avrebbe tolto al tipo l'unica proprietà che ha — che il nome venga da un
+contratto validato — per comodità di due siti.
+
+### Nota sui fallback
+
+La prima stesura aveva introdotto tre `unwrap_or(u64::MAX)` per convertire
+`usize` in `u64`, e `check_assurance_fallbacks.sh` è diventato rosso
+(`plenora-io-core: registrati=16, trovati=19`). Non è stato registrato un
+fallback in più: i tre siti riusano `driver::saturating_u64`, che esisteva già
+e fa la stessa cosa con un nome che dice perché. Il registro resta a 16.

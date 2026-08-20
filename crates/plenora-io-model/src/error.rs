@@ -242,6 +242,19 @@ impl ContractIdentifier {
         Self::da_nome_validato(&layer.name)
     }
 
+    /// L'identificatore di una colonna geometrica, preso dal contratto che la
+    /// dichiara.
+    ///
+    /// Passa dal contratto come [`Self::from_layer`], e non dal nome nudo: il
+    /// punto del tipo e' che «viene da un contratto validato» sia una
+    /// proprieta' della costruzione, non una promessa del chiamante.
+    #[must_use]
+    pub fn from_geometry_column(
+        geometry: &crate::contract::GeometryColumnContract,
+    ) -> Option<Self> {
+        Self::da_nome_validato(&geometry.name)
+    }
+
     /// L'unica via interna: un nome che viene da un contratto validato.
     ///
     /// Privata di proposito. Se fosse pubblica, «viene da un contratto
@@ -469,6 +482,56 @@ impl std::fmt::Display for NumeroStrutturale {
 pub enum PublicMessage {
     /// Testo scritto da noi, scelto a compile time.
     Curated(&'static str),
+    /// Due testi nostri, entrambi scelti a compile time: «CRS richiesto
+    /// epsg:4326».
+    ///
+    /// Vale la stessa prova di `Curated`, su entrambi gli argomenti. Una
+    /// `String` non entra da nessuno dei due lati:
+    ///
+    /// ```compile_fail
+    /// use plenora_io_model::PublicMessage;
+    /// let a_runtime = String::from("valore letto dal file");
+    /// let _ = PublicMessage::CuratedPair("prefisso", a_runtime);
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use plenora_io_model::PublicMessage;
+    /// let a_runtime = String::from("valore letto dal file");
+    /// let _ = PublicMessage::CuratedPair(a_runtime, "suffisso");
+    /// ```
+    ///
+    /// Nemmeno un prestito piu' corto di `'static`, che e' il modo in cui il
+    /// payload proverebbe a entrare:
+    ///
+    /// ```compile_fail
+    /// use plenora_io_model::PublicMessage;
+    /// fn da_runtime(valore: &str) -> PublicMessage {
+    ///     PublicMessage::CuratedPair("prefisso", valore)
+    /// }
+    /// ```
+    ///
+    /// Nemmeno un `format!`:
+    ///
+    /// ```compile_fail
+    /// use plenora_io_model::PublicMessage;
+    /// let _ = PublicMessage::CuratedPair("prefisso", &format!("{}", 1));
+    /// ```
+    ///
+    /// Due letterali si', e in contesto `const`:
+    ///
+    /// ```
+    /// use plenora_io_model::PublicMessage;
+    /// const MESSAGGIO: PublicMessage =
+    ///     PublicMessage::CuratedPair("encoding non supportato:", "ewkb");
+    /// assert_eq!(MESSAGGIO.to_string(), "encoding non supportato: ewkb");
+    /// ```
+    ///
+    /// Non e' un'eccezione alla proprieta': un `&'static str` non puo' venire
+    /// dal payload ne' da una dipendenza, e quale dei due statici usare lo
+    /// decide comunque il nostro codice. Serve dove il messaggio deve unire
+    /// una frase e un codice strutturale — il nome di un enum nostro, la causa
+    /// di un rifiuto — che `Curated` da solo non sa mettere insieme.
+    CuratedPair(&'static str, &'static str),
     /// Testo nostro piu' un numero strutturale: «layer 3 fuori dal piano».
     CuratedWith(&'static str, NumeroStrutturale),
     /// Testo nostro, un numero e la sua unita' di misura, entrambi nostri:
@@ -505,6 +568,7 @@ impl std::fmt::Display for PublicMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Curated(testo) => f.write_str(testo),
+            Self::CuratedPair(primo, secondo) => write!(f, "{primo} {secondo}"),
             Self::CuratedWith(testo, numero) => write!(f, "{testo} {numero}"),
             Self::CuratedBetween(testo, primo, mezzo, secondo) => {
                 write!(f, "{testo} {primo} {mezzo} {secondo}")
@@ -684,6 +748,108 @@ impl PlenoraIoError {
             RemoteEffect::None,
             RetryDisposition::Never,
             message,
+        )
+    }
+
+    /// Una capacità non disponibile, redatta.
+    ///
+    /// Rispecchia `Unsupported` legacy: stessa categoria, stessa fase, stesso
+    /// codice. Cambia solo chi ha scelto il testo.
+    #[must_use]
+    pub fn non_supportato_redatto(message: &PublicMessage) -> Self {
+        Self::redatto(
+            IoErrorCode::Unsupported,
+            ErrorCategory::Unsupported,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        )
+    }
+
+    /// Uno schema non conforme, redatto.
+    #[must_use]
+    pub fn schema_redatto(message: &PublicMessage) -> Self {
+        Self::redatto(
+            IoErrorCode::Schema,
+            ErrorCategory::Schema,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        )
+    }
+
+    /// Un CRS non conforme, redatto.
+    #[must_use]
+    pub fn crs_redatto(message: &PublicMessage) -> Self {
+        Self::redatto(
+            IoErrorCode::Crs,
+            ErrorCategory::Crs,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        )
+    }
+
+    /// Un difetto di formato attribuito a un driver, redatto.
+    ///
+    /// Il driver è `&'static str` per costruzione: viene dal descrittore, non
+    /// dal payload.
+    #[must_use]
+    pub fn formato_redatto(driver: &'static str, message: &PublicMessage) -> Self {
+        let mut errore = Self::redatto(
+            IoErrorCode::Format,
+            ErrorCategory::DataMapping,
+            ErrorPhase::Read,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        );
+        errore.driver = Some(driver.to_owned());
+        errore
+    }
+
+    /// Una capacità dichiarata assente dal driver, redatta.
+    ///
+    /// Il campo, quando c'è, è un [`ContractIdentifier`]: nasce da un contratto
+    /// validato, non da una `String` qualunque.
+    #[must_use]
+    pub fn capability_redatta(
+        driver: &'static str,
+        field: Option<&ContractIdentifier>,
+        reason: CapabilityReason,
+        message: &PublicMessage,
+    ) -> Self {
+        let mut errore = Self::redatto(
+            IoErrorCode::Capability,
+            ErrorCategory::Unsupported,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            message,
+        );
+        errore.driver = Some(driver.to_owned());
+        errore.field = field.map(ToString::to_string);
+        errore.capability_reason = Some(reason);
+        errore
+    }
+
+    /// La destinazione esiste già.
+    ///
+    /// Non prende messaggio: il costruttore storico ignorava il proprio
+    /// argomento e ne scriveva uno curato. Qui l'argomento inutile sparisce
+    /// invece di restare a suggerire un'influenza che non ha mai avuto.
+    #[must_use]
+    pub fn destinazione_esistente() -> Self {
+        Self::redatto(
+            IoErrorCode::OutputExists,
+            ErrorCategory::Conflict,
+            ErrorPhase::Commit,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            &PublicMessage::Curated("destinazione già esistente"),
         )
     }
 
@@ -998,6 +1164,126 @@ impl From<serde_json::Error> for PlenoraIoError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `CuratedPair` e' costruibile in contesto costante.
+    ///
+    /// Non e' una curiosita': se lo fosse solo a runtime, un chiamante potrebbe
+    /// costruirla da un valore calcolato, e la garanzia varrebbe per
+    /// convenzione invece che per tipo.
+    const COPPIA_COSTANTE: PublicMessage =
+        PublicMessage::CuratedPair("dimensioni non supportate:", "xyzm");
+
+    #[test]
+    fn la_coppia_curata_e_costante_e_si_rende_con_uno_spazio() {
+        assert_eq!(
+            COPPIA_COSTANTE.to_string(),
+            "dimensioni non supportate: xyzm"
+        );
+    }
+
+    /// Il rendering della coppia resta sotto il tetto globale.
+    ///
+    /// I due argomenti sono `&'static str` e nessuno li limita a monte: due
+    /// costanti lunghe potrebbero superare `MAX_MESSAGE_BYTES` insieme, ed e'
+    /// il costruttore dell'errore a doverle tagliare — non la buona volonta'
+    /// di chi le scrive.
+    #[test]
+    fn la_coppia_curata_passa_dal_tetto_globale() {
+        const LUNGO: &str = "abcdefghij";
+        let mut testo = String::new();
+        for _ in 0..300 {
+            testo.push_str(LUNGO);
+        }
+        let lungo: &'static str = Box::leak(testo.into_boxed_str());
+        assert!(lungo.len() > MAX_MESSAGE_BYTES);
+
+        let errore = PlenoraIoError::contratto_redatto(&PublicMessage::CuratedPair(lungo, lungo));
+        assert!(
+            errore.message.len() <= MAX_MESSAGE_BYTES,
+            "messaggio da {} byte oltre il tetto",
+            errore.message.len()
+        );
+    }
+
+    /// I vocabolari statici sono completi, e la prova non e' il `match`.
+    ///
+    /// Il `match` esaustivo garantisce che ogni variante abbia un nome; non
+    /// garantisce che i nomi siano distinti, ne' che qualcuno non abbia
+    /// scritto due volte lo stesso. Enumerarli qui rende l'una e l'altra cosa
+    /// dimostrate invece che vere per fortuna.
+    #[test]
+    fn i_nomi_strutturali_sono_statici_distinti_e_non_vuoti() {
+        use crate::contract::{CoordinateDimensions, GeometryEncoding, SpatialSemantics};
+
+        let encoding = [GeometryEncoding::Wkb, GeometryEncoding::Ewkb];
+        let dimensioni = [
+            CoordinateDimensions::Xy,
+            CoordinateDimensions::Xyz,
+            CoordinateDimensions::Xym,
+            CoordinateDimensions::Xyzm,
+            CoordinateDimensions::Unknown,
+        ];
+        let semantica = [SpatialSemantics::Geometry, SpatialSemantics::Geography];
+
+        let mut visti = std::collections::BTreeSet::new();
+        for nome in encoding
+            .iter()
+            .map(|v| v.nome())
+            .chain(dimensioni.iter().map(|v| v.nome()))
+            .chain(semantica.iter().map(|v| v.nome()))
+        {
+            assert!(
+                !nome.is_empty(),
+                "un nome strutturale vuoto non identifica niente"
+            );
+            assert!(visti.insert(nome), "nome strutturale duplicato: {nome}");
+        }
+        assert_eq!(
+            visti.len(),
+            encoding.len() + dimensioni.len() + semantica.len()
+        );
+    }
+
+    /// L'identificatore di una colonna geometrica rifiuta invece di troncare.
+    ///
+    /// Un nome tagliato a 256 caratteri e' un nome che non identifica piu'
+    /// nessuno, e passarlo comunque sarebbe peggio di non passarlo: chi legge
+    /// l'errore lo userebbe per cercare un campo che non esiste.
+    #[test]
+    fn l_identificatore_geometrico_rifiuta_i_nomi_non_attestabili() {
+        use crate::contract::{
+            CoordinateDimensions, CoordinatePrecision, FieldId, GeometryColumnContract,
+            GeometryEncoding, SpatialSemantics, TypesDeclaration,
+        };
+        use crate::crs::CrsResolution;
+
+        let colonna = |nome: &str| GeometryColumnContract {
+            field_id: FieldId(0),
+            name: nome.to_owned(),
+            crs: CrsResolution::Missing,
+            nullable: false,
+            encoding: GeometryEncoding::Wkb,
+            dimensions: CoordinateDimensions::Xy,
+            spatial_semantics: SpatialSemantics::Geometry,
+            srid: None,
+            precision: CoordinatePrecision::Float64,
+            geometry_types: Vec::new(),
+            types_declaration: TypesDeclaration::Unresolved,
+            native_metadata: BTreeMap::new(),
+        };
+
+        assert!(ContractIdentifier::from_geometry_column(&colonna("")).is_none());
+        assert!(
+            ContractIdentifier::from_geometry_column(&colonna(&"n".repeat(MAX_IDENTIFICATORE + 1)))
+                .is_none(),
+            "un nome oltre il tetto va rifiutato, non troncato"
+        );
+
+        let ammesso = ContractIdentifier::from_geometry_column(&colonna("geometry"))
+            .expect("un nome nominabile deve produrre un identificatore");
+        assert_eq!(ammesso.to_string(), "geometry");
+    }
+
     use std::collections::BTreeMap;
 
     use crate::{

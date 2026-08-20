@@ -66,7 +66,10 @@ CHIAMATA = re.compile("|".join(re.escape(nome) + r"\s*\(" for nome in LEGACY))
 DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 
 # I crate **migrati**: censimento zero, e non possono guadagnare occorrenze.
-MIGRATI = ("plenora-io-model",)
+MIGRATI = (
+    "plenora-io-model",
+    "plenora-io-core",
+)
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
 #
@@ -160,46 +163,6 @@ DA_MIGRARE: dict[str, int] = {
     "crates/driver-xls/src/lib.rs::write": 1,
     "crates/plenora-io-cli/src/main.rs::cmd_convert": 5,
     "crates/plenora-io-cli/src/main.rs::local_err_doc": 1,
-    "crates/plenora-io-core/src/capabilities.rs::validate_write": 1,
-    "crates/plenora-io-core/src/capabilities.rs::violation": 1,
-    "crates/plenora-io-core/src/driver.rs::account": 11,
-    "crates/plenora-io-core/src/driver.rs::commit": 1,
-    "crates/plenora-io-core/src/driver.rs::declare_input_total": 3,
-    "crates/plenora-io-core/src/driver.rs::errore_di_rifiuto_senza_report": 1,
-    "crates/plenora-io-core/src/driver.rs::finish": 2,
-    "crates/plenora-io-core/src/driver.rs::geometry_contracts_for_validation": 1,
-    "crates/plenora-io-core/src/driver.rs::geometry_violation": 1,
-    "crates/plenora-io-core/src/driver.rs::inspect_geometry_row": 4,
-    "crates/plenora-io-core/src/driver.rs::leggendo_arrow": 1,
-    "crates/plenora-io-core/src/driver.rs::nullability_violations": 2,
-    "crates/plenora-io-core/src/driver.rs::permit_gia_speso": 1,
-    "crates/plenora-io-core/src/driver.rs::scopri": 1,
-    "crates/plenora-io-core/src/driver.rs::with_write_validation": 2,
-    "crates/plenora-io-core/src/driver.rs::write": 2,
-    "crates/plenora-io-core/src/driver.rs::write_rejection_error": 1,
-    "crates/plenora-io-core/src/driver.rs::write_row_rejection": 1,
-    "crates/plenora-io-core/src/driver.rs::write_to_layer": 4,
-    "crates/plenora-io-core/src/driver/batch_worker.rs::abnormal_termination": 1,
-    "crates/plenora-io-core/src/driver/batch_worker.rs::join_worker": 1,
-    "crates/plenora-io-core/src/driver/batch_worker.rs::send_cancellable": 1,
-    "crates/plenora-io-core/src/driver/batch_worker.rs::spawn_batch_reader": 1,
-    "crates/plenora-io-core/src/driver/reader_adapters.rs::collect_read_violations": 3,
-    "crates/plenora-io-core/src/driver/reader_adapters.rs::drain_operation": 7,
-    "crates/plenora-io-core/src/driver/reader_adapters.rs::geometry_components": 3,
-    "crates/plenora-io-core/src/driver/reader_adapters.rs::into_error": 1,
-    "crates/plenora-io-core/src/driver/reader_adapters.rs::new": 1,
-    "crates/plenora-io-core/src/driver/reader_adapters.rs::physical_index": 2,
-    "crates/plenora-io-core/src/driver/reader_adapters.rs::read_schema_mismatch": 1,
-    "crates/plenora-io-core/src/driver/reader_adapters.rs::record_all": 2,
-    "crates/plenora-io-core/src/driver/spool.rs::contract_error": 1,
-    "crates/plenora-io-core/src/driver/spool.rs::spool_error": 1,
-    "crates/plenora-io-core/src/publish.rs::ensure_destination_absent": 1,
-    "crates/plenora-io-core/src/publish.rs::ensure_same_filesystem": 1,
-    "crates/plenora-io-core/src/publish.rs::publish_file_atomic_limited": 1,
-    "crates/plenora-io-core/src/publish.rs::publish_files_ordered_limited": 5,
-    "crates/plenora-io-core/src/publish.rs::publish_rename_error": 1,
-    "crates/plenora-io-core/src/publish.rs::terminal_state_error": 1,
-    "crates/plenora-io-core/src/request.rs::project_layer_contract": 1,
 }
 
 # `plenora-bench` e `plenora-fuzz` non sono codice spedito: esclusi qui per la

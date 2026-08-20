@@ -6,7 +6,9 @@ use std::collections::BTreeSet;
 
 use arrow_schema::DataType;
 use plenora_io_model::crs::{definition_authority_srid, CrsResolution};
-use plenora_io_model::{CapabilityReason, PlenoraIoError, Result};
+use plenora_io_model::{
+    CapabilityReason, ContractIdentifier, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
+};
 
 use crate::descriptor::{
     ArrowTypeClass, AttributeWriteSupport, CrsRepresentationState, CrsWriteSupport,
@@ -16,11 +18,11 @@ use crate::request::WritePlan;
 
 fn violation(
     driver: &'static str,
-    field: Option<&str>,
+    field: Option<&ContractIdentifier>,
     reason: CapabilityReason,
-    detail: impl Into<String>,
+    detail: &PublicMessage,
 ) -> PlenoraIoError {
-    PlenoraIoError::capability(driver, field.map(str::to_owned), reason, detail)
+    PlenoraIoError::capability_redatta(driver, field, reason, detail)
 }
 
 fn declared_crs_id(crs: &CrsResolution) -> Option<&str> {
@@ -146,7 +148,7 @@ pub fn validate_write(
             driver,
             None,
             CapabilityReason::TypeNotRepresentable,
-            "driver scrivibile senza capability dichiarate",
+            &PublicMessage::Curated("driver scrivibile senza capability dichiarate"),
         )
     })?;
 
@@ -155,7 +157,7 @@ pub fn validate_write(
             driver,
             None,
             CapabilityReason::EmptyWritePlan,
-            "WritePlan senza layer",
+            &PublicMessage::Curated("WritePlan senza layer"),
         ));
     }
     if !caps.multi_layer && plan.layers.len() != 1 {
@@ -163,27 +165,39 @@ pub fn validate_write(
             driver,
             None,
             CapabilityReason::MultipleLayers,
-            format!("atteso un layer, ricevuti {}", plan.layers.len()),
+            &PublicMessage::CuratedWith(
+                "atteso un solo layer, ricevuti",
+                NumeroStrutturale::Conteggio(crate::driver::saturating_u64(plan.layers.len())),
+            ),
         ));
     }
 
     let mut layer_names = BTreeSet::new();
-    for layer in &plan.layers {
+    for (indice_layer, layer) in plan.layers.iter().enumerate() {
         if layer.name.is_empty() || !layer_names.insert(layer.name.clone()) {
+            // Il nome non entra nel messaggio: il layer si nomina per
+            // indice nel piano, che il chiamante ha scritto e sa rileggere.
             return Err(violation(
                 driver,
                 None,
                 CapabilityReason::DuplicateLayerName,
-                format!("nome layer vuoto o duplicato: '{}'", layer.name),
+                &PublicMessage::CuratedWith(
+                    "nome layer vuoto o duplicato al layer",
+                    NumeroStrutturale::Indice(crate::driver::saturating_u64(indice_layer)),
+                ),
             ));
         }
         if layer.contract.schema.fields().len() > max_columns {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "layer '{}' con {} colonne oltre il limite di {}",
-                layer.name,
-                layer.contract.schema.fields().len(),
-                max_columns
-            )));
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "layer con",
+                    NumeroStrutturale::Conteggio(crate::driver::saturating_u64(
+                        layer.contract.schema.fields().len(),
+                    )),
+                    "colonne oltre il limite di",
+                    NumeroStrutturale::Limite(crate::driver::saturating_u64(max_columns)),
+                ),
+            ));
         }
 
         let geometry_name = layer
@@ -192,8 +206,17 @@ pub fn validate_write(
             .as_ref()
             .map(|geometry| geometry.name.as_str());
         let mut normalized_names = BTreeSet::new();
-        for field in layer.contract.schema.fields() {
+        for (indice, field) in layer.contract.schema.fields().iter().enumerate() {
             let name = field.name();
+            // L'identificatore nasce dallo schema che dichiara il campo:
+            // `None` quando il nome non e' nominabile, e in quel caso
+            // l'errore resta senza campo invece di portarne uno inventato.
+            let campo = u32::try_from(indice).ok().and_then(|posizione| {
+                ContractIdentifier::from_schema_field(
+                    &layer.contract.schema,
+                    plenora_io_model::contract::FieldId(posizione),
+                )
+            });
             if caps
                 .field_names
                 .max_bytes
@@ -205,17 +228,17 @@ pub fn validate_write(
             {
                 return Err(violation(
                     driver,
-                    Some(name),
+                    campo.as_ref(),
                     CapabilityReason::FieldNameTooLong,
-                    "nome oltre il limite del formato",
+                    &PublicMessage::Curated("nome oltre il limite del formato"),
                 ));
             }
             if caps.field_names.encoding == TextEncoding::Ascii && !name.is_ascii() {
                 return Err(violation(
                     driver,
-                    Some(name),
+                    campo.as_ref(),
                     CapabilityReason::FieldNameEncoding,
-                    "il formato richiede nomi ASCII",
+                    &PublicMessage::Curated("il formato richiede nomi ASCII"),
                 ));
             }
             if caps
@@ -226,9 +249,9 @@ pub fn validate_write(
             {
                 return Err(violation(
                     driver,
-                    Some(name),
+                    campo.as_ref(),
                     CapabilityReason::FieldNameCollision,
-                    "nome riservato dal formato",
+                    &PublicMessage::Curated("nome riservato dal formato"),
                 ));
             }
             let normalized = if caps.field_names.case_sensitive {
@@ -239,9 +262,9 @@ pub fn validate_write(
             if !normalized_names.insert(normalized) {
                 return Err(violation(
                     driver,
-                    Some(name),
+                    campo.as_ref(),
                     CapabilityReason::FieldNameCollision,
-                    "collisione dopo la normalizzazione del formato",
+                    &PublicMessage::Curated("collisione dopo la normalizzazione del formato"),
                 ));
             }
 
@@ -252,9 +275,9 @@ pub fn validate_write(
                 AttributeWriteSupport::None => {
                     return Err(violation(
                         driver,
-                        Some(name),
+                        campo.as_ref(),
                         CapabilityReason::TypeNotRepresentable,
-                        "il formato non rappresenta attributi",
+                        &PublicMessage::Curated("il formato non rappresenta attributi"),
                     ))
                 }
                 AttributeWriteSupport::NamedSubset(names)
@@ -262,9 +285,9 @@ pub fn validate_write(
                 {
                     return Err(violation(
                         driver,
-                        Some(name),
+                        campo.as_ref(),
                         CapabilityReason::TypeNotRepresentable,
-                        "attributo fuori dal sottoinsieme rappresentabile",
+                        &PublicMessage::Curated("attributo fuori dal sottoinsieme rappresentabile"),
                     ))
                 }
                 AttributeWriteSupport::All
@@ -278,17 +301,17 @@ pub fn validate_write(
             {
                 return Err(violation(
                     driver,
-                    Some(name),
+                    campo.as_ref(),
                     CapabilityReason::TypeNotRepresentable,
-                    format!("tipo Arrow {class:?} non rappresentabile"),
+                    &PublicMessage::Curated(class.nome()),
                 ));
             }
             if caps.nullability == NullabilitySupport::NoNulls && field.is_nullable() {
                 return Err(violation(
                     driver,
-                    Some(name),
+                    campo.as_ref(),
                     CapabilityReason::Nullability,
-                    "campo nullable non supportato",
+                    &PublicMessage::Curated("campo nullable non supportato"),
                 ));
             }
         }
@@ -297,25 +320,25 @@ pub fn validate_write(
             if !caps.geometry.supported {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::GeometryNotSupported,
-                    "geometria non supportata",
+                    &PublicMessage::Curated("geometria non supportata"),
                 ));
             }
             if !caps.geometry.encodings.contains(&geometry.encoding) {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::GeometryEncoding,
-                    format!("encoding {:?} non supportato", geometry.encoding),
+                    &PublicMessage::Curated(geometry.encoding.nome()),
                 ));
             }
             if !caps.geometry.dimensions.contains(&geometry.dimensions) {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::CoordinateDimensions,
-                    format!("dimensioni {:?} non supportate", geometry.dimensions),
+                    &PublicMessage::Curated(geometry.dimensions.nome()),
                 ));
             }
             if !caps
@@ -325,9 +348,9 @@ pub fn validate_write(
             {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::SpatialSemantics,
-                    format!("semantica {:?} non supportata", geometry.spatial_semantics),
+                    &PublicMessage::Curated(geometry.spatial_semantics.nome()),
                 ));
             }
             let declared_mixed =
@@ -335,9 +358,9 @@ pub fn validate_write(
             if !caps.geometry.mixed_types && (declared_mixed || geometry.geometry_types.len() > 1) {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::MixedGeometry,
-                    "il formato richiede un solo tipo geometrico",
+                    &PublicMessage::Curated("il formato richiede un solo tipo geometrico"),
                 ));
             }
             let unique_geometry_types = geometry
@@ -348,9 +371,9 @@ pub fn validate_write(
             if unique_geometry_types.len() != geometry.geometry_types.len() {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::MixedGeometry,
-                    "il contratto geometrico contiene tipi duplicati",
+                    &PublicMessage::Curated("il contratto geometrico contiene tipi duplicati"),
                 ));
             }
             let restricts_geometry_types = caps.geometry.geometry_types.len()
@@ -367,9 +390,11 @@ pub fn validate_write(
             {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::GeometryNotSupported,
-                    "il formato richiede una dichiarazione preventiva dei tipi geometrici",
+                    &PublicMessage::Curated(
+                        "il formato richiede una dichiarazione preventiva dei tipi geometrici",
+                    ),
                 ));
             }
             if let Some(unsupported) = geometry
@@ -379,27 +404,34 @@ pub fn validate_write(
             {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::GeometryNotSupported,
-                    format!("tipo geometrico {unsupported:?} non supportato"),
+                    &PublicMessage::Curated(unsupported.canonical_name()),
                 ));
             }
             match caps.crs {
                 CrsWriteSupport::Embedded if geometry.resolved_crs().is_none() => {
                     return Err(violation(
                         driver,
-                        Some(&geometry.name),
+                        ContractIdentifier::from_geometry_column(geometry).as_ref(),
                         CapabilityReason::CrsUnresolved,
-                        "il formato richiede un CRS risolto",
+                        &PublicMessage::Curated("il formato richiede un CRS risolto"),
                     ))
                 }
                 CrsWriteSupport::Fixed(expected) if geometry.crs.id() != Some(expected) => {
                     return Err(violation(
                         driver,
-                        Some(&geometry.name),
+                        ContractIdentifier::from_geometry_column(geometry).as_ref(),
                         CapabilityReason::ReprojectionRequired,
-                        format!("richiesto {expected}, ricevuto {:?}", geometry.crs.id()),
-                    ))
+                        // Il CRS atteso e quello dichiarato non entrano nel
+                        // testo: il primo e' leggibile dalle capability del
+                        // driver, il secondo dal contratto. Metterli qui
+                        // significherebbe far uscire dal bordo una stringa
+                        // che il chiamante ha gia'.
+                        &PublicMessage::Curated(
+                            "il formato impone un CRS fisso diverso da quello del contratto",
+                        ),
+                    ));
                 }
                 CrsWriteSupport::Embedded
                 | CrsWriteSupport::EmbeddedOptional
@@ -420,14 +452,10 @@ pub fn validate_write(
             if crs_representations_are_inconsistent(geometry) && !representations_are_preserved {
                 return Err(violation(
                     driver,
-                    Some(&geometry.name),
+                    ContractIdentifier::from_geometry_column(geometry).as_ref(),
                     CapabilityReason::CrsRepresentationsInconsistent,
-                    format!(
-                        "rappresentazioni CRS discordanti non preservabili indipendentemente: \
-                         crs_id={:?}, srid={:?}, crs_definition={:?}",
-                        caps.crs_representations.crs_id,
-                        caps.crs_representations.srid,
-                        caps.crs_representations.crs_definition
+                    &PublicMessage::Curated(
+                        "rappresentazioni CRS discordanti non preservabili indipendentemente",
                     ),
                 ));
             }

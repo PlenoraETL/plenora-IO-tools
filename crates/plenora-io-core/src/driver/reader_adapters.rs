@@ -17,6 +17,7 @@ use plenora_io_model::{
     RowDiagnostics, RowDiagnosticsCompleteness, ROW_DIAGNOSTICS_CONTRACT,
     ROW_DIAGNOSTICS_INDEX_BASIS, ROW_DIAGNOSTIC_COLUMN_UNATTESTABLE,
 };
+use plenora_io_model::{IoErrorCode, NumeroStrutturale, PublicMessage};
 
 use crate::loss::{declare_crs_inconsistency, LossReport};
 use crate::request::{effective_batch_rows, incremental_batch_memory_size, BatchTarget, ReadScope};
@@ -145,8 +146,10 @@ impl BudgetedReader {
         scope: ReadScope,
         operation_lease: ConcurrencyLease,
     ) -> Result<Self> {
-        let columns = u64::try_from(inner.contract().contract.schema.fields().len())
-            .map_err(|_| PlenoraIoError::LimitExceeded("troppe colonne nel reader".to_owned()))?;
+        let columns =
+            u64::try_from(inner.contract().contract.schema.fields().len()).map_err(|_| {
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe colonne nel reader"))
+            })?;
         if columns > 0 {
             budget
                 .try_lease(OperationCounter::Columns, columns)?
@@ -213,10 +216,9 @@ impl BudgetedReader {
                 // scoprire la fine della sorgente: una sonda qui leggerebbe
                 // fuori quota, che e' esattamente cio' che il budget vieta.
                 return Err(terminal_scan_error(
-                    PlenoraIoError::LimitExceeded(
-                        "budget di memoria esaurito prima della materializzazione del batch"
-                            .to_owned(),
-                    ),
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "budget di memoria esaurito prima della materializzazione del batch",
+                    )),
                     &violations,
                     self.physical_row_indices_attestable,
                 ));
@@ -244,9 +246,9 @@ impl BudgetedReader {
                 drop(probe);
                 if next.is_some() {
                     return Err(terminal_scan_error(
-                        PlenoraIoError::LimitExceeded(
-                            "budget esaurito prima della materializzazione del batch".to_owned(),
-                        ),
+                        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                            "budget esaurito prima della materializzazione del batch",
+                        )),
                         &violations,
                         self.physical_row_indices_attestable,
                     ));
@@ -290,16 +292,18 @@ impl BudgetedReader {
             };
             let rows = u64::try_from(batch.num_rows()).map_err(|_| {
                 terminal_scan_error(
-                    PlenoraIoError::LimitExceeded("batch oltre il conteggio supportato".to_owned()),
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "batch oltre il conteggio supportato",
+                    )),
                     &violations,
                     self.physical_row_indices_attestable,
                 )
             })?;
             let bytes = u64::try_from(incremental_batch_memory_size(&batch)).map_err(|_| {
                 terminal_scan_error(
-                    PlenoraIoError::LimitExceeded(
-                        "batch oltre il conteggio byte supportato".to_owned(),
-                    ),
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "batch oltre il conteggio byte supportato",
+                    )),
                     &violations,
                     self.physical_row_indices_attestable,
                 )
@@ -309,9 +313,9 @@ impl BudgetedReader {
                 || bytes > output_lease.amount()
             {
                 return Err(terminal_scan_error(
-                    PlenoraIoError::LimitExceeded(
-                        "batch materializzato oltre la quota prenotata".to_owned(),
-                    ),
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "batch materializzato oltre la quota prenotata",
+                    )),
                     &violations,
                     self.physical_row_indices_attestable,
                 ));
@@ -384,7 +388,9 @@ impl BudgetedReader {
             }
             self.rows_scanned = self.rows_scanned.checked_add(rows).ok_or_else(|| {
                 terminal_scan_error(
-                    PlenoraIoError::LimitExceeded("overflow nel conteggio righe lette".to_owned()),
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "overflow nel conteggio righe lette",
+                    )),
                     &violations,
                     self.physical_row_indices_attestable,
                 )
@@ -414,10 +420,11 @@ impl BudgetedReader {
             // davvero. Meglio fallire qui, dove la causa e' visibile.
             if accounted > memory_lease.bytes() {
                 return Err(terminal_scan_error(
-                    PlenoraIoError::LimitExceeded(format!(
-                        "ingombro contabilizzato del batch ({accounted} byte) oltre la \
-                         prenotazione di materializzazione ({} byte)",
-                        memory_lease.bytes()
+                    PlenoraIoError::limite_redatto(&PublicMessage::CuratedBetween(
+                        "ingombro contabilizzato del batch",
+                        NumeroStrutturale::Conteggio(accounted),
+                        "byte oltre la prenotazione di materializzazione di",
+                        NumeroStrutturale::Limite(memory_lease.bytes()),
                     )),
                     &violations,
                     self.physical_row_indices_attestable,
@@ -626,7 +633,9 @@ fn collect_read_violations(
     }
     if let Some(geometry) = &contract.contract.geometry {
         let index = usize::try_from(geometry.field_id.0).map_err(|_| {
-            PlenoraIoError::Schema("field_id geometrico fuori intervallo".to_owned())
+            PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                "field_id geometrico fuori intervallo",
+            ))
         })?;
         // Finding #1 review 2026-08-15: `RecordBatch::column` panica su OOB.
         // Il driver IPC verifica ora `field_id` contro la posizione fisica
@@ -635,9 +644,11 @@ fn collect_read_violations(
         // verifica, batch materializzati in test, o schemi che divergono da
         // quelli attesi dal contratto non devono terminare il processo.
         let array = batch.columns().get(index).ok_or_else(|| {
-            PlenoraIoError::Schema(format!(
-                "field_id geometrico {index} fuori dai {} campi del batch",
-                batch.num_columns()
+            PlenoraIoError::schema_redatto(&PublicMessage::CuratedBetween(
+                "field_id geometrico fuori dallo schema: indice",
+                NumeroStrutturale::Indice(super::saturating_u64(index)),
+                "su campi del batch",
+                NumeroStrutturale::Conteggio(super::saturating_u64(batch.num_columns())),
             ))
         })?;
         let limits = *wkb;
@@ -706,12 +717,13 @@ fn collect_read_violations(
                 )?;
             }
         } else {
-            return Err(PlenoraIoError::new(
+            return Err(PlenoraIoError::redatto(
+                IoErrorCode::Generic,
                 ErrorCategory::Schema,
                 ErrorPhase::Read,
                 RemoteEffect::None,
                 RetryDisposition::Never,
-                "colonna geometrica letta non Binary/LargeBinary",
+                &PublicMessage::Curated("colonna geometrica letta non Binary/LargeBinary"),
             ));
         }
     }
@@ -759,22 +771,26 @@ fn with_effective_read_schema(contract: &LayerContract, batch: RecordBatch) -> R
 }
 
 fn read_schema_mismatch() -> PlenoraIoError {
-    PlenoraIoError::new(
+    PlenoraIoError::redatto(
+        IoErrorCode::Generic,
         ErrorCategory::Schema,
         ErrorPhase::Read,
         RemoteEffect::None,
         RetryDisposition::Never,
-        "schema del batch letto diverso dal contratto effettivo dichiarato",
+        &PublicMessage::Curated(
+            "schema del batch letto diverso dal contratto effettivo dichiarato",
+        ),
     )
 }
 
 fn physical_index(row_offset: u64, row: usize) -> Result<u64> {
     row_offset
-        .checked_add(
-            u64::try_from(row)
-                .map_err(|_| PlenoraIoError::LimitExceeded("indice riga oltre u64".to_owned()))?,
-        )
-        .ok_or_else(|| PlenoraIoError::LimitExceeded("overflow nell'indice riga".to_owned()))
+        .checked_add(u64::try_from(row).map_err(|_| {
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated("indice riga oltre u64"))
+        })?)
+        .ok_or_else(|| {
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated("overflow nell'indice riga"))
+        })
 }
 
 #[cfg(test)]
@@ -824,15 +840,15 @@ impl ReadViolationAccumulator {
             let column = RowDiagnosticColumn::attest(column);
             self.column_names_attestable &= column.is_attested();
             self.observed_total = self.observed_total.checked_add(1).ok_or_else(|| {
-                PlenoraIoError::LimitExceeded(
-                    "overflow nel conteggio delle righe diagnosticate".to_owned(),
-                )
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio delle righe diagnosticate",
+                ))
             })?;
             let cause_count = self.counts.entry(cause.to_owned()).or_default();
             *cause_count = cause_count.checked_add(1).ok_or_else(|| {
-                PlenoraIoError::LimitExceeded(
-                    "overflow nel conteggio delle cause diagnostiche".to_owned(),
-                )
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio delle cause diagnostiche",
+                ))
             })?;
             if self.physical_row_indices_attestable
                 && self.examples.len() < saturating_usize(self.examples_limit)
@@ -933,12 +949,16 @@ impl ReadViolationAccumulator {
     ) -> PlenoraIoError {
         let observed_total = self.observed_total;
         let diagnostics = self.diagnostics(reached_eof, knowledge_limit);
-        let error = PlenoraIoError::new(
+        let error = PlenoraIoError::redatto(
+            IoErrorCode::Generic,
             ErrorCategory::DataMapping,
             ErrorPhase::Read,
             RemoteEffect::None,
             RetryDisposition::Never,
-            format!("{observed_total} righe lette non conformi al contratto dichiarato"),
+            &PublicMessage::CuratedWith(
+                "righe lette non conformi al contratto dichiarato:",
+                NumeroStrutturale::Conteggio(observed_total),
+            ),
         );
         error.with_row_diagnostics(diagnostics)
     }
@@ -1111,12 +1131,14 @@ fn geometry_components(
     let mut total = 0_u64;
     let mut inspect = |bytes: &[u8]| -> Result<()> {
         let components = u64::try_from(inspect_wkb(bytes, &limits)?.components).map_err(|_| {
-            PlenoraIoError::LimitExceeded("geometria oltre il conteggio supportato".to_owned())
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "geometria oltre il conteggio supportato",
+            ))
         })?;
         total = total.checked_add(components).ok_or_else(|| {
-            PlenoraIoError::LimitExceeded(
-                "overflow nel conteggio dei componenti geometrici".to_owned(),
-            )
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio dei componenti geometrici",
+            ))
         })?;
         Ok(())
     };
@@ -1136,9 +1158,9 @@ fn geometry_components(
         }
         return Ok(total);
     }
-    Err(PlenoraIoError::LimitExceeded(
-        "colonna geometrica non binaria nel reader budgeted".to_owned(),
-    ))
+    Err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+        "colonna geometrica non binaria nel reader budgeted",
+    )))
 }
 
 /// Adatta i batch prodotti da un reader al target comune di ADR-IO 6.
@@ -1764,9 +1786,9 @@ mod tests {
         let mut reader = budgeted_sequence_with_scope(
             VecDeque::from([
                 Ok(Some(geometry_batch(&contract, &[true; 12]))),
-                Err(PlenoraIoError::LimitExceeded(
-                    "la coda non doveva essere letta".to_owned(),
-                )),
+                Err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "la coda non doveva essere letta",
+                ))),
             ]),
             ReadScope::AcceptedRows(10),
         );
@@ -1787,7 +1809,10 @@ mod tests {
 
         fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
             self.calls.fetch_add(1, AtomicOrdering::SeqCst);
-            Err(PlenoraIoError::format("test", "invalid tail observed"))
+            Err(PlenoraIoError::formato_redatto(
+                "test",
+                &PublicMessage::Curated("invalid tail observed"),
+            ))
         }
     }
 
@@ -1847,7 +1872,10 @@ mod tests {
         fn failing_reader() -> Box<dyn LayerReader> {
             Box::new(SequenceReader {
                 contract: validating_contract(),
-                events: VecDeque::from([Err(PlenoraIoError::format("test", "boom"))]),
+                events: VecDeque::from([Err(PlenoraIoError::formato_redatto(
+                    "test",
+                    &PublicMessage::Curated("boom"),
+                ))]),
             })
         }
 
@@ -2186,7 +2214,8 @@ mod tests {
             .counts
             .insert("driver.invalid_attribute".to_owned(), 2);
         let terminal =
-            PlenoraIoError::format("test", "driver failed").with_row_diagnostics(*invalid);
+            PlenoraIoError::formato_redatto("test", &PublicMessage::Curated("driver failed"))
+                .with_row_diagnostics(*invalid);
         let mut reader = budgeted_sequence(VecDeque::from([
             Ok(Some(geometry_batch(&contract, &[false]))),
             Err(terminal),

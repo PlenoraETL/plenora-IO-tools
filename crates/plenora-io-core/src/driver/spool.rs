@@ -69,6 +69,7 @@ use arrow_ipc::reader::StreamReader;
 use arrow_ipc::writer::StreamWriter;
 use arrow_schema::SchemaRef;
 use plenora_io_model::budget::{InternalMemoryLease, OperationBudget, SpillLease};
+use plenora_io_model::PublicMessage;
 use plenora_io_model::{
     CancellationToken, ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, RemoteEffect,
     Result, RetryDisposition,
@@ -111,23 +112,22 @@ pub(crate) const PER_BATCH_OVERHEAD_BYTES: u64 = 1_024;
 /// al numero di batch, senza mai lasciare scritto piu' di quanto prenotato.
 const SPILL_RESERVATION_CHUNK: u64 = 1024 * 1024;
 
-fn spool_error(message: impl Into<String>) -> PlenoraIoError {
+fn spool_error(message: &PublicMessage) -> PlenoraIoError {
     // Non passa da `PlenoraIoError::Io(io::Error)`: quel costruttore riporta
     // il `kind` della dipendenza, mentre qui il messaggio deve restare una
     // costante scelta da noi (INV-10).
-    let mut error = PlenoraIoError::new(
+    PlenoraIoError::redatto(
+        IoErrorCode::Io,
         ErrorCategory::Io,
         ErrorPhase::Read,
         RemoteEffect::None,
         RetryDisposition::Never,
         message,
-    );
-    error.code = IoErrorCode::Io;
-    error
+    )
 }
 
 fn contract_error(message: &'static str) -> PlenoraIoError {
-    PlenoraIoError::Contract(message.to_owned())
+    PlenoraIoError::contratto_redatto(&PublicMessage::Curated(message))
 }
 
 /// Soglia oltre la quale i batch bufferizzati migrano su disco.
@@ -167,14 +167,18 @@ fn resolve_spill_directory(configured: Option<std::ffi::OsString>) -> Result<Pat
         Some(configured) => {
             let path = PathBuf::from(configured);
             let metadata = std::fs::metadata(&path).map_err(|_| {
-                spool_error(format!(
-                    "{SPILL_DIR_ENV} non e' accessibile come directory di spool"
+                spool_error(&PublicMessage::CuratedPair(
+                    SPILL_DIR_ENV,
+                    "non e' accessibile come directory di spool",
                 ))
             })?;
             if metadata.is_dir() {
                 Ok(path)
             } else {
-                Err(spool_error(format!("{SPILL_DIR_ENV} non e' una directory")))
+                Err(spool_error(&PublicMessage::CuratedPair(
+                    SPILL_DIR_ENV,
+                    "non e' una directory",
+                )))
             }
         }
     }
@@ -261,7 +265,7 @@ impl SpillGuard {
 fn write_failure(guard: &Mutex<SpillGuard>) -> PlenoraIoError {
     guard_lock(guard)
         .take_failure()
-        .unwrap_or_else(|| spool_error(SPOOL_WRITE_FAILED))
+        .unwrap_or_else(|| spool_error(&PublicMessage::Curated(SPOOL_WRITE_FAILED)))
 }
 
 fn guard_lock(guard: &Mutex<SpillGuard>) -> MutexGuard<'_, SpillGuard> {
@@ -603,12 +607,12 @@ impl StagedSpool {
                 buffered.flush().map_err(|_| write_failure(&guard))?;
                 let mut file = buffered
                     .into_inner()
-                    .map_err(|_| spool_error(SPOOL_SEAL_FAILED))?
+                    .map_err(|_| spool_error(&PublicMessage::Curated(SPOOL_SEAL_FAILED)))?
                     .into_inner();
                 file.seek(SeekFrom::Start(0))
-                    .map_err(|_| spool_error(SPOOL_SEAL_FAILED))?;
-                let reader =
-                    StreamReader::try_new(file, None).map_err(|_| spool_error(SPOOL_CORRUPTION))?;
+                    .map_err(|_| spool_error(&PublicMessage::Curated(SPOOL_SEAL_FAILED)))?;
+                let reader = StreamReader::try_new(file, None)
+                    .map_err(|_| spool_error(&PublicMessage::Curated(SPOOL_CORRUPTION)))?;
                 Stage::Replaying {
                     reader: Box::new(reader),
                     guard,
@@ -655,7 +659,7 @@ impl StagedSpool {
                         Err(contract_error(SPOOL_CORRUPTION))
                     }
                 }
-                Some(Err(_)) => Err(spool_error(SPOOL_REPLAY_FAILED)),
+                Some(Err(_)) => Err(spool_error(&PublicMessage::Curated(SPOOL_REPLAY_FAILED))),
             },
             Stage::Writing { .. } => Err(contract_error(SPOOL_NOT_SEALED)),
             Stage::Drained => Ok(None),
@@ -708,7 +712,7 @@ impl StagedSpool {
     #[cfg(test)]
     fn replaying_from(schema: SchemaRef, budget: OperationBudget, file: File) -> Result<Self> {
         let reader = StreamReader::try_new(SpoolFile { inner: file }, None)
-            .map_err(|_| spool_error(SPOOL_CORRUPTION))?;
+            .map_err(|_| spool_error(&PublicMessage::Curated(SPOOL_CORRUPTION)))?;
         let budget_per_guard = budget.clone();
         Ok(Self {
             schema,
@@ -734,15 +738,15 @@ impl StagedSpool {
         };
         self.spilled_once = true;
         let directory = spill_directory()?;
-        let file =
-            tempfile::tempfile_in(&directory).map_err(|_| spool_error(SPOOL_CREATE_FAILED))?;
+        let file = tempfile::tempfile_in(&directory)
+            .map_err(|_| spool_error(&PublicMessage::Curated(SPOOL_CREATE_FAILED)))?;
         let guard = Arc::new(Mutex::new(SpillGuard::new(self.budget.clone())));
         let guarded = GuardedWriter {
             inner: SpoolFile { inner: file },
             guard: Arc::clone(&guard),
         };
         let mut writer = StreamWriter::try_new(BufWriter::new(guarded), self.schema.as_ref())
-            .map_err(|_| spool_error(SPOOL_CREATE_FAILED))?;
+            .map_err(|_| spool_error(&PublicMessage::Curated(SPOOL_CREATE_FAILED)))?;
         for (batch, lease) in batches {
             // La migrazione di uno spool pieno e' una sequenza lunga di
             // scritture: va interrompibile come il resto della lettura.

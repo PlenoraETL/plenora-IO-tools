@@ -195,6 +195,25 @@ pub enum ArrowTypeClass {
     Other,
 }
 
+impl ArrowTypeClass {
+    /// Nome statico della classe Arrow, per i messaggi pubblici.
+    #[must_use]
+    pub const fn nome(self) -> &'static str {
+        match self {
+            Self::Boolean => "boolean",
+            Self::SignedInteger => "signed_integer",
+            Self::UnsignedInteger => "unsigned_integer",
+            Self::Floating => "floating",
+            Self::Utf8 => "utf8",
+            Self::Binary => "binary",
+            Self::Temporal => "temporal",
+            Self::Decimal => "decimal",
+            Self::Nested => "nested",
+            Self::Other => "other",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TypeCoercionPolicy {
