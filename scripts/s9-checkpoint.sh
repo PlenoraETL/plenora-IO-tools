@@ -153,9 +153,15 @@ passo coverage_soglia cargo llvm-cov report --summary-only \
 # nessun test attraversava. Non era crescita meccanica.
 #
 # Serve un riferimento: S9_CHECKPOINT_BASE e' la revisione dell'ultimo
-# checkpoint superato. Senza, il passo si salta invece di misurare un intervallo
-# arbitrario -- una diagnostica su un intervallo scelto a caso e' peggio di
-# nessuna diagnostica, perche' ha comunque l'aria di un numero.
+# checkpoint **superato**, non l'ultimo commit. La differenza conta: fra un
+# checkpoint e il successivo ci sono anche commit di infrastruttura e di
+# documentazione, e sono parte del delta da qualificare. Prendere come base
+# l'ultimo commit escluderebbe dalla misura proprio cio' che non e' ancora stato
+# verificato.
+#
+# Senza, il passo si salta invece di misurare un intervallo arbitrario -- una
+# diagnostica su un intervallo scelto a caso e' peggio di nessuna diagnostica,
+# perche' ha comunque l'aria di un numero.
 echo
 echo "--- 6. diagnostica: copertura delle righe cambiate -----------"
 if [ -n "${S9_CHECKPOINT_BASE:-}" ]; then

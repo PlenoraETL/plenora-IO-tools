@@ -437,7 +437,10 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 | 7 | `driver-gpkg` | 10 → 0 (più 34 chiamanti, 27 via `sql_err`, 7 fughe di payload) | **chiusa**, livello 1 |
 | 8 | `driver-geoparquet` | 8 → 0 (più 49 chiamanti e 11 siti di cancellazione) | **chiusa**, livello 1 |
 | 9 | `driver-ipc` | 7 → 0 (8 `ArrowError`, 1 fuga di payload) | **chiusa**, livello 1; checkpoint di livello 2 dovuto |
-| 10… | `driver-filegdb`, `driver-shp`, `driver-dxf`, `driver-xls` | 82 | **prossime** |
+| 10 | `driver-xls` | 18 → 0 (55 chiamanti, `xls_err` con 7 varianti che portano il nome del foglio) | **chiusa**, livello 1 |
+| 11 | `driver-filegdb` | 22 | **prossima** |
+| 12 | `driver-shp` | 22 | poi checkpoint di livello 2 |
+| 13 | `driver-dxf` | 20 | |
 | ultima | `plenora-io-cli` | 6 | **dopo tutti i driver** |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |
@@ -636,8 +639,15 @@ altrettanti difetti trovati alla prima esecuzione (2026-08-20):
 #### La diagnostica differenziale (2026-08-21)
 
 `scripts/coverage_diff.py` interseca il report LCOV con `git diff` fra la
-revisione dell'ultimo checkpoint superato e quella corrente, e riporta quante
-delle righe **cambiate** sono state eseguite.
+revisione dell'ultimo checkpoint **superato** e quella corrente, e riporta
+quante delle righe **cambiate** sono state eseguite.
+
+La base e' l'ultima revisione *verificata*, **non l'ultimo commit**: fra un
+checkpoint e il successivo ci sono anche commit di infrastruttura e di
+documentazione, e sono parte del delta da qualificare. E i test aggiunti dopo un
+checkpoint non vanno attribuiti retroattivamente alla revisione che quel
+checkpoint aveva verificato: quell'evidenza vale secondo i criteri applicati
+allora.
 
 **Non e' un gate e non ha soglia.** Dice dove guardare, non se passare.
 Trasformarla in un gate senza averla prima osservata su qualche checkpoint

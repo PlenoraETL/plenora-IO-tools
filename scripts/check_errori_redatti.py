@@ -76,6 +76,7 @@ MIGRATI = (
     "driver-gpkg",
     "driver-geoparquet",
     "driver-ipc",
+    "driver-xls",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -120,15 +121,6 @@ DA_MIGRARE: dict[str, int] = {
     "crates/driver-shp/src/lib.rs::resolved_crs_id": 1,
     "crates/driver-shp/src/lib.rs::shapefile_source_path": 1,
     "crates/driver-shp/src/lib.rs::write": 2,
-    "crates/driver-xls/src/lib.rs::create": 4,
-    "crates/driver-xls/src/lib.rs::data": 1,
-    "crates/driver-xls/src/lib.rs::err": 1,
-    "crates/driver-xls/src/lib.rs::geometry": 1,
-    "crates/driver-xls/src/lib.rs::infer_layout": 2,
-    "crates/driver-xls/src/lib.rs::open": 2,
-    "crates/driver-xls/src/lib.rs::valida_riferimenti_cella": 2,
-    "crates/driver-xls/src/lib.rs::validate_archive_ratio": 4,
-    "crates/driver-xls/src/lib.rs::write": 1,
     "crates/plenora-io-cli/src/main.rs::cmd_convert": 5,
     "crates/plenora-io-cli/src/main.rs::local_err_doc": 1,
 }

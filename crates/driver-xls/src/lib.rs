@@ -51,15 +51,17 @@ use plenora_io_model::crs::{CrsKind, ResolvedCrs};
 use plenora_io_model::geometry::with_geometry_contract_metadata;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{decode_wkb, WkbCoordinate, WkbFlavor, WkbGeometry, WkbValue};
-use plenora_io_model::{CancellationToken, ErrorPhase, PlenoraIoError, Result};
+use plenora_io_model::{
+    CancellationToken, ErrorPhase, NumeroStrutturale, PlenoraIoError, PublicMessage, Result,
+};
 
 #[cfg(test)]
 use plenora_io_model::wkb::encode_wkb;
 
 const GEOMETRY: &str = "geometry";
 
-fn err(reason: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::format("xls", reason)
+fn err(reason: &PublicMessage) -> PlenoraIoError {
+    PlenoraIoError::formato_redatto("xls", reason)
 }
 
 /// Esegue una chiamata a `calamine` convertendo un suo panico in errore
@@ -113,7 +115,7 @@ fn err(reason: impl Into<String>) -> PlenoraIoError {
 /// del file o un valore di cella.
 fn leggendo_calamine<T>(operazione: impl FnOnce() -> Result<T>) -> Result<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(operazione))
-        .unwrap_or_else(|_| Err(err(MESSAGGIO_PANICO_CALAMINE)))
+        .unwrap_or_else(|_| Err(err(&PublicMessage::Curated(MESSAGGIO_PANICO_CALAMINE))))
 }
 
 /// Messaggio pubblico del panico di `calamine`, statico e curato.
@@ -153,7 +155,7 @@ impl<'a, RS: Read + Seek> LettoreCelleSorvegliato<'a, RS> {
         let lettore = leggendo_calamine(|| {
             workbook
                 .worksheet_cells_reader(foglio)
-                .map_err(|errore| err(format!("foglio XLSX non leggibile: {errore}")))
+                .map_err(|_| err(&PublicMessage::Curated("foglio XLSX non leggibile")))
         })?;
         Ok(Self {
             lettore: Some(lettore),
@@ -163,7 +165,7 @@ impl<'a, RS: Read + Seek> LettoreCelleSorvegliato<'a, RS> {
     /// Dimensioni dichiarate dal foglio.
     fn dimensioni(&mut self) -> Result<SheetBounds> {
         let Some(lettore) = self.lettore.as_mut() else {
-            return Err(err(LETTORE_INVALIDATO));
+            return Err(err(&PublicMessage::Curated(LETTORE_INVALIDATO)));
         };
         let esito = leggendo_calamine(|| {
             let dimensioni = lettore.dimensions();
@@ -184,12 +186,12 @@ impl<'a, RS: Read + Seek> LettoreCelleSorvegliato<'a, RS> {
     /// fuori dal `catch_unwind`.
     fn prossima_cella(&mut self) -> Result<Option<(u32, u32, Data)>> {
         let Some(lettore) = self.lettore.as_mut() else {
-            return Err(err(LETTORE_INVALIDATO));
+            return Err(err(&PublicMessage::Curated(LETTORE_INVALIDATO)));
         };
         let esito = leggendo_calamine(|| {
             let cella = lettore
                 .next_cell()
-                .map_err(|errore| err(format!("lettura celle XLSX: {errore}")))?;
+                .map_err(|_| err(&PublicMessage::Curated("lettura delle celle XLSX fallita")))?;
             Ok(cella.map(|cella| {
                 let (riga, colonna) = cella.get_position();
                 let valore: Data = cella.get_value().clone().into();
@@ -303,8 +305,10 @@ impl FormatDriver for XlsDriver {
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "il driver supporta in lettura soltanto .xlsx; .xls non e instradato".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "il driver supporta in lettura soltanto .xlsx; .xls non e instradato",
+                ),
             ));
         }
         validate_archive_ratio(&path, opts.budget())?;
@@ -313,16 +317,18 @@ impl FormatDriver for XlsDriver {
         // ma un panico catturato e' pur sempre un panico avvenuto.
         valida_riferimenti_cella(&path, opts.budget())?;
         let mut wb: Xlsx<_> = leggendo_calamine(|| {
-            open_workbook(&path).map_err(|e| err(format!("apertura XLSX: {e}")))
+            open_workbook(&path).map_err(|_| err(&PublicMessage::Curated("apertura XLSX fallita")))
         })?;
         check_cancelled(opts.cancellation(), ErrorPhase::Read)?;
         let sheet = match opts.format_options.get("sheet").cloned() {
             Some(dichiarato) => dichiarato,
             None => leggendo_calamine(|| Ok(wb.sheet_names().first().cloned()))?
-                .ok_or_else(|| err("nessun foglio nel workbook"))?,
+                .ok_or_else(|| err(&PublicMessage::Curated("nessun foglio nel workbook")))?,
         };
         let crs = opts.assume_crs.clone().ok_or_else(|| {
-            PlenoraIoError::Crs("XLSX con geometria richiede --assume-crs".to_owned())
+            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                "XLSX con geometria richiede --assume-crs",
+            ))
         })?;
         // Il workbook viene lasciato cadere **prima** di propagare l'esito, non
         // dopo: se `infer_layout` e' rientrato per un panico di calamine, lo
@@ -371,20 +377,20 @@ impl FormatDriver for XlsDriver {
         )?;
         let Sink::Path(path) = sink;
         if path.exists() {
-            return Err(PlenoraIoError::OutputExists(path.display().to_string()));
+            return Err(PlenoraIoError::destinazione_esistente());
         }
         if !path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("xlsx"))
         {
-            return Err(PlenoraIoError::Unsupported(
-                "l'output deve avere estensione .xlsx".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("l'output deve avere estensione .xlsx"),
             ));
         }
         if plan.layers.len() != 1 {
-            return Err(PlenoraIoError::Unsupported(
-                "XLSX: un solo foglio per file nella v1".to_owned(),
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated("XLSX: un solo foglio per file nella v1"),
             ));
         }
         // Prima: `matches!(..., Some("xy"))`, cioe' qualunque valore diverso
@@ -398,13 +404,17 @@ impl FormatDriver for XlsDriver {
         {
             Some("xy") => true,
             None | Some("wkt") => false,
-            Some(altro) => {
-                return Err(PlenoraIoError::new(
+            // Il valore non esce: lo schema dichiara `geometry_encoding`
+            // come `Enumerato`, quindi un valore diverso e' gia' stato respinto
+            // da `valida_opzioni` con il suo token. Questo ramo e' difensivo.
+            Some(_) => {
+                return Err(PlenoraIoError::redatto(
+                    plenora_io_model::IoErrorCode::Generic,
                     plenora_io_model::ErrorCategory::InvalidConfiguration,
                     plenora_io_model::ErrorPhase::Validate,
                     plenora_io_model::RemoteEffect::None,
                     plenora_io_model::RetryDisposition::Never,
-                    format!("xls: geometry_encoding '{altro}' non riconosciuto"),
+                    &PublicMessage::Curated("xls: geometry_encoding non riconosciuto"),
                 ))
             }
         };
@@ -428,36 +438,41 @@ fn validate_archive_ratio(path: &PathBuf, budget: &OperationBudget) -> Result<()
     let maximum_ratio = budget.context().limits().decompression_ratio();
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
-        .map_err(|error| err(format!("contenitore XLSX non valido: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
     let mut compressed = 0_u64;
     let mut expanded = 0_u64;
     for index in 0..archive.len() {
         budget.context().ensure_active()?;
         let entry = archive
             .by_index(index)
-            .map_err(|error| err(format!("voce XLSX non valida: {error}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("voce XLSX non valida")))?;
         compressed = compressed
             .checked_add(entry.compressed_size())
             .ok_or_else(|| {
-                PlenoraIoError::LimitExceeded(
-                    "overflow nel conteggio dei byte compressi XLSX".to_owned(),
-                )
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "overflow nel conteggio dei byte compressi XLSX",
+                ))
             })?;
         expanded = expanded.checked_add(entry.size()).ok_or_else(|| {
-            PlenoraIoError::LimitExceeded(
-                "overflow nel conteggio dei byte decompressi XLSX".to_owned(),
-            )
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio dei byte decompressi XLSX",
+            ))
         })?;
     }
     let allowed = compressed.checked_mul(maximum_ratio).ok_or_else(|| {
-        PlenoraIoError::LimitExceeded(
-            "overflow nel calcolo del rapporto di decompressione XLSX".to_owned(),
-        )
+        PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+            "overflow nel calcolo del rapporto di decompressione XLSX",
+        ))
     })?;
     if expanded > 0 && (compressed == 0 || expanded > allowed) {
-        return Err(PlenoraIoError::LimitExceeded(format!(
-            "XLSX: {expanded} byte decompressi superano il rapporto massimo {maximum_ratio}:1"
-        )));
+        return Err(PlenoraIoError::limite_redatto(
+            &PublicMessage::CuratedBetween(
+                "XLSX:",
+                NumeroStrutturale::Conteggio(expanded),
+                "byte decompressi superano il rapporto massimo, moltiplicatore",
+                NumeroStrutturale::Limite(maximum_ratio),
+            ),
+        ));
     }
     Ok(())
 }
@@ -508,13 +523,17 @@ const MAX_PARTI_XML: usize = 4096;
 fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<()> {
     let file = std::fs::File::open(path)?;
     let mut archive = zip::ZipArchive::new(file)
-        .map_err(|error| err(format!("contenitore XLSX non valido: {error}")))?;
+        .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
 
     if archive.len() > MAX_PARTI_XML {
-        return Err(PlenoraIoError::LimitExceeded(format!(
-            "XLSX: {} parti nel contenitore superano il tetto {MAX_PARTI_XML}",
-            archive.len()
-        )));
+        return Err(PlenoraIoError::limite_redatto(
+            &PublicMessage::CuratedBetween(
+                "XLSX:",
+                NumeroStrutturale::Conteggio(driver_common::saturating_u64(archive.len())),
+                "parti nel contenitore superano il tetto di",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_PARTI_XML)),
+            ),
+        ));
     }
 
     // Le parti che portano riferimenti A1 e che il lettore di celle attraversa.
@@ -536,10 +555,11 @@ fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<
         budget.context().ensure_active()?;
         let membro = archive
             .by_name(&nome)
-            .map_err(|error| err(format!("parte XLSX non leggibile: {error}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("parte XLSX non leggibile")))?;
         if membro.size() > MAX_BYTE_PARTE_XML {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "XLSX: una parte XML supera il tetto di {MAX_BYTE_PARTE_XML} byte"
+            return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
+                "XLSX: una parte XML supera il tetto, byte",
+                NumeroStrutturale::Limite(MAX_BYTE_PARTE_XML),
             )));
         }
         ispeziona_parte_xml(BufReader::new(membro), budget)?;
@@ -558,7 +578,7 @@ fn ispeziona_parte_xml<R: std::io::BufRead>(sorgente: R, budget: &OperationBudge
         // lettura, e fermano la lettura invece di proseguire su dati parziali.
         let prossimo = lettore
             .read_event_into(&mut buffer)
-            .map_err(|errore| err(format!("XML XLSX non valido: {errore}")))?;
+            .map_err(|_| err(&PublicMessage::Curated("XML XLSX non valido")))?;
         let elemento = match prossimo {
             quick_xml::events::Event::Start(elemento)
             | quick_xml::events::Event::Empty(elemento) => elemento,
@@ -570,7 +590,7 @@ fn ispeziona_parte_xml<R: std::io::BufRead>(sorgente: R, budget: &OperationBudge
 
         for attributo in elemento.attributes().with_checks(true) {
             let attributo =
-                attributo.map_err(|errore| err(format!("attributo XLSX non valido: {errore}")))?;
+                attributo.map_err(|_| err(&PublicMessage::Curated("attributo XLSX non valido")))?;
             // Solo gli attributi che il lettore di celle interpreta come
             // riferimento: `r` su `<row>` e `<c>`, `ref` su `<dimension>`.
             // Un `r:id` di relazione ha il prefisso e non entra qui.
@@ -599,13 +619,15 @@ fn valida_valore_riferimento(valore: &[u8]) -> Result<()> {
             .take_while(|byte| byte.is_ascii_digit())
             .count();
         if lettere + cifre != token.len() {
-            return Err(err(
+            return Err(err(&PublicMessage::Curated(
                 "riferimento di cella XLSX non conforme: atteso stile A1",
-            ));
+            )));
         }
         if lettere > MAX_LETTERE_RIFERIMENTO || cifre > MAX_CIFRE_RIFERIMENTO {
-            return Err(err("riferimento di cella XLSX oltre i limiti del formato \
-                 (ultima colonna XFD, ultima riga 1048576)"));
+            return Err(err(&PublicMessage::Curated(
+                "riferimento di cella XLSX oltre i limiti del formato \
+                 (ultima colonna XFD, ultima riga 1048576)",
+            )));
         }
     }
     Ok(())
@@ -682,7 +704,36 @@ struct XlsWriterState {
 // chiamata, prenderla per riferimento costringerebbe a chiusure inutili.
 #[allow(clippy::needless_pass_by_value)]
 fn xls_err(e: rust_xlsxwriter::XlsxError) -> PlenoraIoError {
-    err(format!("XLSX: {e}"))
+    err(&PublicMessage::CuratedPair("XLSX:", classe_xlsx(&e)))
+}
+
+/// Classe statica di un errore `rust_xlsxwriter`, per i messaggi pubblici.
+///
+/// Dodici percorsi di scrittura passavano da `xls_err`, e tutti riportavano il
+/// `Display` della dipendenza. Non e' un rischio teorico: sette varianti di
+/// `XlsxError` **portano il nome del foglio come dato** — `SheetnameReused`,
+/// `SheetnameLengthExceeded`, `UnknownWorksheetNameOrIndex` e le altre — e il
+/// nome del foglio viene dal file letto o dal piano di scrittura.
+///
+/// Come `classe_sqlite` in `driver-gpkg`: un vocabolario nostro, chiuso, che
+/// tiene distinte le cause senza far uscire nulla e che non cambia se la
+/// dipendenza riscrive i propri testi.
+const fn classe_xlsx(errore: &rust_xlsxwriter::XlsxError) -> &'static str {
+    use rust_xlsxwriter::XlsxError as E;
+    match errore {
+        E::RowColumnLimitError => "riga o colonna oltre il limite del formato",
+        E::SheetnameCannotBeBlank(_) => "nome del foglio vuoto",
+        E::SheetnameLengthExceeded(_) => "nome del foglio troppo lungo",
+        E::SheetnameReused(_) => "nome del foglio gia' usato",
+        E::SheetnameContainsInvalidCharacter(_) => "nome del foglio con caratteri non ammessi",
+        E::SheetnameStartsOrEndsWithApostrophe(_) => "nome del foglio delimitato da apostrofi",
+        E::MaxStringLengthExceeded => "stringa oltre il limite del formato",
+        E::UnknownWorksheetNameOrIndex(_) => "foglio inesistente",
+        E::ParameterError(_) => "parametro non valido",
+        E::IoError(_) => "errore di I/O",
+        E::ZipError(_) => "errore del contenitore ZIP",
+        _ => "altro",
+    }
 }
 
 fn write_cell(
@@ -700,7 +751,12 @@ fn write_cell(
         JsonValue::Number(n) => {
             let value = n
                 .as_f64()
-                .ok_or_else(|| err(format!("numero XLSX non rappresentabile come f64: {n}")))?;
+                // Il valore non esce: e' una cella del dataset in ingresso.
+                .ok_or_else(|| {
+                    err(&PublicMessage::Curated(
+                        "numero non rappresentabile come f64 in XLSX",
+                    ))
+                })?;
             sheet.write_number(r, c, value).map_err(xls_err)?;
         }
         JsonValue::String(s) => {
@@ -730,13 +786,13 @@ impl FormatWriter for XlsWriterState {
 
         for batch in &self.batches {
             let schema = batch.schema();
-            let geom_idx =
-                geometry_index(&schema).ok_or_else(|| err("nessuna colonna geometria"))?;
+            let geom_idx = geometry_index(&schema)
+                .ok_or_else(|| err(&PublicMessage::Curated("nessuna colonna geometria")))?;
             let geom_col = batch
                 .column(geom_idx)
                 .as_any()
                 .downcast_ref::<BinaryArray>()
-                .ok_or_else(|| err("colonna geometria non binaria"))?;
+                .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
 
             if !wrote_header {
                 let mut col: u16 = 0;
@@ -773,9 +829,9 @@ impl FormatWriter for XlsWriterState {
                                 sheet.write_number(r, col + 1, point.y).map_err(xls_err)?;
                             }
                             _ => {
-                                return Err(err(
+                                return Err(err(&PublicMessage::Curated(
                                     "encoding xy richiede geometrie Point strettamente XY",
-                                ))
+                                )))
                             }
                         }
                     } else {
@@ -828,7 +884,7 @@ fn data_row_width(bounds: SheetBounds) -> Result<usize> {
         .checked_sub(bounds.start.1)
         .and_then(|width| width.checked_add(1))
         .and_then(|width| usize::try_from(width).ok())
-        .ok_or_else(|| err("dimensioni XLSX non valide"))
+        .ok_or_else(|| err(&PublicMessage::Curated("dimensioni XLSX non valide")))
 }
 
 fn data_row_count(bounds: SheetBounds) -> Result<usize> {
@@ -837,7 +893,7 @@ fn data_row_count(bounds: SheetBounds) -> Result<usize> {
         .0
         .checked_sub(bounds.start.0)
         .and_then(|rows| usize::try_from(rows).ok())
-        .ok_or_else(|| err("dimensioni XLSX non valide"))
+        .ok_or_else(|| err(&PublicMessage::Curated("dimensioni XLSX non valide")))
 }
 
 fn for_each_dense_row<RS, F>(
@@ -875,13 +931,20 @@ where
                 break;
             }
             if cell_row < row {
-                return Err(err("ordine delle celle XLSX non monotono"));
+                return Err(err(&PublicMessage::Curated(
+                    "ordine delle celle XLSX non monotono",
+                )));
             }
             if cell_column < bounds.start.1 || cell_column > bounds.end.1 {
-                return Err(err("cella XLSX fuori dalle dimensioni dichiarate"));
+                return Err(err(&PublicMessage::Curated(
+                    "cella XLSX fuori dalle dimensioni dichiarate",
+                )));
             }
-            let offset = usize::try_from(cell_column - bounds.start.1)
-                .map_err(|_| err("indice colonna XLSX non rappresentabile"))?;
+            let offset = usize::try_from(cell_column - bounds.start.1).map_err(|_| {
+                err(&PublicMessage::Curated(
+                    "indice colonna XLSX non rappresentabile",
+                ))
+            })?;
             values[offset] = value;
         }
         if !visit(row, &values)? {
@@ -904,30 +967,48 @@ fn resolve_geometry(
             .and_then(|offset| start_column.checked_add(offset))
     };
     if let Some(wkt_name) = opts.get("wkt_column") {
-        let column =
-            index(wkt_name).ok_or_else(|| err(format!("colonna WKT '{wkt_name}' assente")))?;
+        // I nomi delle colonne non escono: sono valori d'opzione, e l'unico
+        // testo runtime ammesso e' il token del validatore centrale, che qui
+        // non c'e' — `wkt_column` e' `Testo`, quindi lo schema lo accetta e il
+        // rifiuto nasce dal confronto con l'intestazione di questo foglio.
+        let column = index(wkt_name).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "colonna WKT assente dall'intestazione",
+            ))
+        })?;
         return Ok((XlsxGeomSpec::Wkt(column), BTreeSet::from([column])));
     }
     if let (Some(x_name), Some(y_name)) = (opts.get("x_column"), opts.get("y_column")) {
-        let x_column = index(x_name).ok_or_else(|| err(format!("colonna X '{x_name}' assente")))?;
-        let y_column = index(y_name).ok_or_else(|| err(format!("colonna Y '{y_name}' assente")))?;
+        let x_column = index(x_name).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "colonna X assente dall'intestazione",
+            ))
+        })?;
+        let y_column = index(y_name).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "colonna Y assente dall'intestazione",
+            ))
+        })?;
         return Ok((
             XlsxGeomSpec::Xy(x_column, y_column),
             BTreeSet::from([x_column, y_column]),
         ));
     }
-    Err(err(
+    Err(err(&PublicMessage::Curated(
         "specificare wkt_column, oppure x_column con y_column, in format_options",
-    ))
+    )))
 }
 
 fn cell_at(row: &[Data], bounds: SheetBounds, column: u32) -> Result<&Data> {
     let offset = column
         .checked_sub(bounds.start.1)
         .and_then(|offset| usize::try_from(offset).ok())
-        .ok_or_else(|| err("indice colonna XLSX non valido"))?;
-    row.get(offset)
-        .ok_or_else(|| err("riga XLSX fuori dalle dimensioni dichiarate"))
+        .ok_or_else(|| err(&PublicMessage::Curated("indice colonna XLSX non valido")))?;
+    row.get(offset).ok_or_else(|| {
+        err(&PublicMessage::Curated(
+            "riga XLSX fuori dalle dimensioni dichiarate",
+        ))
+    })
 }
 
 fn encode_geometry_cell(
@@ -985,9 +1066,9 @@ fn encode_geometry_cell(
                 }
                 (None, None) => return Ok(false),
                 _ => {
-                    return Err(err(
+                    return Err(err(&PublicMessage::Curated(
                         "geometria XY incompleta: X e Y devono essere entrambi presenti",
-                    ))
+                    )))
                 }
             }
         }
@@ -1028,17 +1109,22 @@ impl<'a> BoundedSpoolWriter<'a> {
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        let length =
-            u64::try_from(bytes.len()).map_err(|_| err("spool XLSX non rappresentabile"))?;
-        let next = self
-            .bytes
-            .checked_add(length)
-            .ok_or_else(|| err("dimensione spool XLSX fuori intervallo"))?;
+        let length = u64::try_from(bytes.len())
+            .map_err(|_| err(&PublicMessage::Curated("spool XLSX non rappresentabile")))?;
+        let next = self.bytes.checked_add(length).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "dimensione spool XLSX fuori intervallo",
+            ))
+        })?;
         if next > self.limit {
-            return Err(PlenoraIoError::LimitExceeded(format!(
-                "spool XLSX: {next} byte eccedono il limite {}",
-                self.limit
-            )));
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "spool XLSX di",
+                    NumeroStrutturale::Conteggio(next),
+                    "byte oltre il limite di",
+                    NumeroStrutturale::Limite(self.limit),
+                ),
+            ));
         }
         let lease = self.budget.context().lease_spill(length)?;
         self.writer.write_all(bytes)?;
@@ -1056,9 +1142,9 @@ impl<'a> BoundedSpoolWriter<'a> {
         let length = match value {
             None => SPOOL_NULL_GEOMETRY,
             Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
-                PlenoraIoError::LimitExceeded(
-                    "geometria XLSX troppo grande per lo spool".to_owned(),
-                )
+                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                    "geometria XLSX troppo grande per lo spool",
+                ))
             })?,
         };
         self.write(&length.to_le_bytes())?;
@@ -1082,9 +1168,9 @@ impl<'a> BoundedSpoolWriter<'a> {
             Data::String(value) | Data::DateTimeIso(value) | Data::DurationIso(value) => {
                 let bytes = value.as_bytes();
                 let length = u32::try_from(bytes.len()).map_err(|_| {
-                    PlenoraIoError::LimitExceeded(
-                        "testo XLSX troppo grande per lo spool".to_owned(),
-                    )
+                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                        "testo XLSX troppo grande per lo spool",
+                    ))
                 })?;
                 self.write(&[SPOOL_TEXT])?;
                 self.write(&length.to_le_bytes())?;
@@ -1144,16 +1230,24 @@ where
     let width = data_row_width(bounds)?;
     let row_count = data_row_count(bounds)?;
     if width > quote.colonne {
-        return Err(PlenoraIoError::LimitExceeded(format!(
-            "XLSX: {width} colonne eccedono il limite {}",
-            quote.colonne
-        )));
+        return Err(PlenoraIoError::limite_redatto(
+            &PublicMessage::CuratedBetween(
+                "XLSX:",
+                NumeroStrutturale::Conteggio(driver_common::saturating_u64(width)),
+                "colonne oltre il limite di",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(quote.colonne)),
+            ),
+        ));
     }
     if row_count > quote.righe {
-        return Err(PlenoraIoError::LimitExceeded(format!(
-            "XLSX: {row_count} righe eccedono il limite {}",
-            quote.righe
-        )));
+        return Err(PlenoraIoError::limite_redatto(
+            &PublicMessage::CuratedBetween(
+                "XLSX:",
+                NumeroStrutturale::Conteggio(driver_common::saturating_u64(row_count)),
+                "righe oltre il limite di",
+                NumeroStrutturale::Limite(driver_common::saturating_u64(quote.righe)),
+            ),
+        ));
     }
 
     let mut headers: Option<Vec<String>> = None;
@@ -1179,7 +1273,8 @@ where
                 headers = Some(row_headers);
                 return Ok(true);
             }
-            let resolved_geom = geom.ok_or_else(|| err("intestazione XLSX assente"))?;
+            let resolved_geom =
+                geom.ok_or_else(|| err(&PublicMessage::Curated("intestazione XLSX assente")))?;
             let has_geometry = encode_geometry_cell(
                 row,
                 bounds,
@@ -1195,8 +1290,15 @@ where
                 let column = bounds
                     .start
                     .1
-                    .checked_add(u32::try_from(offset).map_err(|_| err("troppe colonne XLSX"))?)
-                    .ok_or_else(|| err("indice colonna XLSX fuori intervallo"))?;
+                    .checked_add(
+                        u32::try_from(offset)
+                            .map_err(|_| err(&PublicMessage::Curated("troppe colonne XLSX")))?,
+                    )
+                    .ok_or_else(|| {
+                        err(&PublicMessage::Curated(
+                            "indice colonna XLSX fuori intervallo",
+                        ))
+                    })?;
                 if geom_columns.contains(&column) {
                     continue;
                 }
@@ -1208,10 +1310,12 @@ where
         })?;
     spool_writer.finish()?;
     if observed_cells == 0 {
-        return Err(err("foglio vuoto"));
+        return Err(err(&PublicMessage::Curated("foglio vuoto")));
     }
-    let headers = headers.ok_or_else(|| err("intestazione XLSX assente"))?;
-    let geom = geom.ok_or_else(|| err("geometria XLSX non configurata"))?;
+    let headers =
+        headers.ok_or_else(|| err(&PublicMessage::Curated("intestazione XLSX assente")))?;
+    let geom =
+        geom.ok_or_else(|| err(&PublicMessage::Curated("geometria XLSX non configurata")))?;
 
     if matches!(geom, XlsxGeomSpec::Xy(_, _)) {
         detected_dimensions.insert(CoordinateDimensions::Xy);
@@ -1258,8 +1362,15 @@ where
         let column = bounds
             .start
             .1
-            .checked_add(u32::try_from(offset).map_err(|_| err("troppe colonne XLSX"))?)
-            .ok_or_else(|| err("indice colonna XLSX fuori intervallo"))?;
+            .checked_add(
+                u32::try_from(offset)
+                    .map_err(|_| err(&PublicMessage::Curated("troppe colonne XLSX")))?,
+            )
+            .ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "indice colonna XLSX fuori intervallo",
+                ))
+            })?;
         if geom_columns.contains(&column) {
             continue;
         }
@@ -1296,13 +1407,13 @@ fn finish_read_batch(
     }
     let options = RecordBatchOptions::new().with_row_count(Some(row_count));
     RecordBatch::try_new_with_options(schema.clone(), arrays, &options)
-        .map_err(|error| err(format!("batch XLSX: {error}")))
+        .map_err(|_| err(&PublicMessage::Curated("batch XLSX non costruibile")))
 }
 
 fn read_spool_exact(reader: &mut impl Read, bytes: &mut [u8]) -> Result<()> {
     reader
         .read_exact(bytes)
-        .map_err(|error| err(format!("spool XLSX troncato o illeggibile: {error}")))
+        .map_err(|_| err(&PublicMessage::Curated("spool XLSX troncato o illeggibile")))
 }
 
 fn read_spool_geometry(
@@ -1317,8 +1428,11 @@ fn read_spool_geometry(
         builder.append_null();
         return Ok(());
     }
-    let length =
-        usize::try_from(length).map_err(|_| err("lunghezza geometria spool non valida"))?;
+    let length = usize::try_from(length).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "lunghezza geometria spool non valida",
+        ))
+    })?;
     buffer.resize(length, 0);
     read_spool_exact(reader, buffer)?;
     builder.append_value(buffer.as_slice());
@@ -1353,21 +1467,23 @@ fn read_spool_data(
             match value[0] {
                 0 => builder.append_bool(false),
                 1 => builder.append_bool(true),
-                _ => Err(err("booleano spool XLSX non valido")),
+                _ => Err(err(&PublicMessage::Curated(
+                    "booleano spool XLSX non valido",
+                ))),
             }
         }
         SPOOL_TEXT => {
             let mut length = [0u8; 4];
             read_spool_exact(reader, &mut length)?;
             let length = usize::try_from(u32::from_le_bytes(length))
-                .map_err(|_| err("lunghezza testo spool non valida"))?;
+                .map_err(|_| err(&PublicMessage::Curated("lunghezza testo spool non valida")))?;
             buffer.resize(length, 0);
             read_spool_exact(reader, buffer)?;
-            let text =
-                std::str::from_utf8(buffer).map_err(|_| err("testo spool XLSX non UTF-8"))?;
+            let text = std::str::from_utf8(buffer)
+                .map_err(|_| err(&PublicMessage::Curated("testo spool XLSX non UTF-8")))?;
             builder.append_str(text)
         }
-        _ => Err(err("tag spool XLSX non valido")),
+        _ => Err(err(&PublicMessage::Curated("tag spool XLSX non valido"))),
     }
 }
 
@@ -1448,10 +1564,17 @@ fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64
             .parse::<f64>()
             .ok()
             .filter(|value| value.is_finite())
-            .ok_or_else(|| err(format!("coordinata {axis} non numerica o non finita")))?,
+            .ok_or_else(|| {
+                err(&PublicMessage::CuratedPair(
+                    "coordinata non numerica o non finita sull'asse",
+                    axis,
+                ))
+            })?,
         Some(_) => {
-            return Err(err(format!(
-                "coordinata {axis} non numerica, non finita o non rappresentabile senza perdita"
+            return Err(err(&PublicMessage::CuratedPair(
+                "coordinata non numerica, non finita o non rappresentabile senza perdita \
+                 sull'asse",
+                axis,
             )))
         }
     };
@@ -1461,6 +1584,82 @@ fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `classe_xlsx` traduce ogni variante che sappiamo costruire.
+    ///
+    /// Sette varianti di `XlsxError` **portano il nome del foglio come dato**,
+    /// e il `Display` della dipendenza lo stampava: dodici percorsi di
+    /// scrittura lo facevano uscire nel messaggio pubblico. La classe li tiene
+    /// distinti senza far uscire nulla.
+    ///
+    /// Il test esiste per la lezione di `classe_sqlite`: la copertura
+    /// differenziale del checkpoint su `effc4ab` ha trovato quel `match` mai
+    /// attraversato. Un vocabolario senza test e' una tabella di traduzione di
+    /// cui nessuno ha mai letto una riga.
+    #[test]
+    fn la_classe_xlsx_traduce_ogni_variante_costruibile() {
+        use rust_xlsxwriter::XlsxError as E;
+
+        let campioni: Vec<(E, &str)> = vec![
+            (
+                E::RowColumnLimitError,
+                "riga o colonna oltre il limite del formato",
+            ),
+            (
+                E::SheetnameCannotBeBlank("Foglio segreto".to_owned()),
+                "nome del foglio vuoto",
+            ),
+            (
+                E::SheetnameLengthExceeded("Foglio segreto".to_owned()),
+                "nome del foglio troppo lungo",
+            ),
+            (
+                E::SheetnameReused("Foglio segreto".to_owned()),
+                "nome del foglio gia' usato",
+            ),
+            (
+                E::SheetnameContainsInvalidCharacter("Foglio segreto".to_owned()),
+                "nome del foglio con caratteri non ammessi",
+            ),
+            (
+                E::SheetnameStartsOrEndsWithApostrophe("Foglio segreto".to_owned()),
+                "nome del foglio delimitato da apostrofi",
+            ),
+            (
+                E::MaxStringLengthExceeded,
+                "stringa oltre il limite del formato",
+            ),
+            (
+                E::UnknownWorksheetNameOrIndex("Foglio segreto".to_owned()),
+                "foglio inesistente",
+            ),
+            (
+                E::ParameterError("dettaglio".to_owned()),
+                "parametro non valido",
+            ),
+        ];
+
+        let mut visti = std::collections::BTreeSet::new();
+        for (errore, atteso) in &campioni {
+            assert_eq!(classe_xlsx(errore), *atteso);
+            visti.insert(*atteso);
+        }
+        assert_eq!(
+            visti.len(),
+            campioni.len(),
+            "due varianti distinte non devono avere la stessa classe"
+        );
+
+        // Il nome del foglio non esce: e' il punto dell'intero cambiamento.
+        let errore = xls_err(E::SheetnameReused("Foglio segreto".to_owned()));
+        assert_eq!(errore.driver.as_deref(), Some("xls"));
+        assert!(errore.message.contains("nome del foglio gia' usato"));
+        assert!(
+            !errore.message.contains("Foglio segreto"),
+            "il nome del foglio non deve comparire nel messaggio: {}",
+            errore.message
+        );
+    }
 
     /// Opzioni di lettura sul modello unificato.
     ///
