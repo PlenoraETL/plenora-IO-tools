@@ -687,6 +687,69 @@ pub fn cell_string(array: &ArrayRef, row: usize) -> Result<Option<String>> {
 mod tests {
     use super::*;
 
+    /// I vocabolari statici sono distinti, non vuoti e coprono le famiglie.
+    ///
+    /// `classe_arrow` e `ColType::nome` sono `match` esaustivi: il compilatore
+    /// garantisce che ogni variante abbia un nome, non che i nomi siano
+    /// distinti ne' che la mappa sia quella intesa. La misura di copertura
+    /// differenziale del checkpoint su `effc4ab` li ha trovati **mai
+    /// esercitati**, ed e' la ragione per cui questo test esiste: un
+    /// vocabolario che nessuno attraversa e' una tabella di traduzione di cui
+    /// nessuno ha mai letto una riga.
+    #[test]
+    fn i_vocabolari_statici_sono_distinti_e_coprono_le_famiglie() {
+        use arrow_schema::{DataType, Field, TimeUnit};
+        use std::sync::Arc;
+
+        let campioni: Vec<(DataType, &str)> = vec![
+            (DataType::Boolean, "boolean"),
+            (DataType::Int8, "signed_integer"),
+            (DataType::Int64, "signed_integer"),
+            (DataType::UInt8, "unsigned_integer"),
+            (DataType::UInt64, "unsigned_integer"),
+            (DataType::Float16, "floating"),
+            (DataType::Float64, "floating"),
+            (DataType::Utf8, "utf8"),
+            (DataType::LargeUtf8, "utf8"),
+            (DataType::Binary, "binary"),
+            (DataType::FixedSizeBinary(4), "binary"),
+            (DataType::Date32, "temporal"),
+            (DataType::Time64(TimeUnit::Nanosecond), "temporal"),
+            (DataType::Timestamp(TimeUnit::Second, None), "temporal"),
+            (DataType::Duration(TimeUnit::Second), "temporal"),
+            (DataType::Decimal128(10, 2), "decimal"),
+            (DataType::Decimal256(40, 2), "decimal"),
+            (
+                DataType::List(Arc::new(Field::new("item", DataType::Int32, true))),
+                "nested",
+            ),
+            (
+                DataType::Struct(vec![Field::new("a", DataType::Int32, true)].into()),
+                "nested",
+            ),
+            // Il ramo di riserva esiste e va raggiunto: se sparisse, un tipo
+            // nuovo di arrow non avrebbe piu' nome e il match non
+            // compilerebbe — ma finche' c'e', va provato che risponde.
+            (DataType::Null, "altro"),
+        ];
+        for (tipo, atteso) in campioni {
+            assert_eq!(classe_arrow(&tipo), atteso, "classe di {tipo:?}");
+        }
+
+        let colonne = [
+            (ColType::Integer, "integer"),
+            (ColType::Number, "number"),
+            (ColType::Boolean, "boolean"),
+            (ColType::Text, "text"),
+        ];
+        let mut visti = std::collections::BTreeSet::new();
+        for (tipo, atteso) in colonne {
+            assert_eq!(tipo.nome(), atteso);
+            assert!(visti.insert(tipo.nome()), "nome duplicato: {}", tipo.nome());
+        }
+        assert_eq!(visti.len(), colonne.len());
+    }
+
     #[test]
     fn incremental_inference_is_monotonic_and_matches_batch_inference() {
         let values = [JsonValue::Null, JsonValue::from(1), JsonValue::from(2.5)];

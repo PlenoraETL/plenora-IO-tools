@@ -140,6 +140,39 @@ passo check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
 passo coverage_soglia cargo llvm-cov report --summary-only \
     --ignore-filename-regex "${ESCLUSIONI}" --fail-under-lines 80
 
+# --- diagnostica: la copertura delle sole righe cambiate ---------------------
+#
+# NON e' un gate e non ha soglia. La copertura totale non distingue due cose che
+# vanno distinte dopo un refactor: la crescita meccanica del denominatore --
+# messaggi curati su piu' righe, funzioni estratte -- da un ramo semantico nuovo
+# che nessun test esercita. Guardando solo le righe cambiate, la prima risulta
+# coperta e la seconda no.
+#
+# La prima esecuzione, sull'intervallo 107b7b5..effc4ab, ha dato 37,27% e ha
+# trovato 22 righe mai eseguite dentro `classe_sqlite`: un vocabolario nuovo che
+# nessun test attraversava. Non era crescita meccanica.
+#
+# Serve un riferimento: S9_CHECKPOINT_BASE e' la revisione dell'ultimo
+# checkpoint superato. Senza, il passo si salta invece di misurare un intervallo
+# arbitrario -- una diagnostica su un intervallo scelto a caso e' peggio di
+# nessuna diagnostica, perche' ha comunque l'aria di un numero.
+echo
+echo "--- 6. diagnostica: copertura delle righe cambiate -----------"
+if [ -n "${S9_CHECKPOINT_BASE:-}" ]; then
+    python3 scripts/coverage_diff.py --lcov "${LOG_DIR}/lcov.info" \
+        --base "${S9_CHECKPOINT_BASE}" --head "${REVISIONE}" \
+        > "${LOG_DIR}/coverage_diff.log" 2>&1
+    esito_diff=$?
+    cat "${LOG_DIR}/coverage_diff.log"
+    if [ "${esito_diff}" -ne 0 ]; then
+        echo "  la diagnostica non ha potuto misurare (exit ${esito_diff});"
+        echo "  non e' un gate, ma il suo silenzio non va letto come un verde."
+    fi
+else
+    echo "  saltata: S9_CHECKPOINT_BASE non impostata."
+    echo "  Impostala alla revisione dell'ultimo checkpoint superato."
+fi
+
 echo
 echo "=============================================================="
 echo "revisione verificata: ${REVISIONE}"

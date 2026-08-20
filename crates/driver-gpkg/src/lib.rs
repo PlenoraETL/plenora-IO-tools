@@ -1813,6 +1813,68 @@ pub fn __fuzz_gpkg_geometry(bytes: &[u8]) -> Result<usize> {
 mod tests {
     use super::*;
 
+    /// `classe_sqlite` traduce ogni errore che sappiamo costruire.
+    ///
+    /// Ventisette percorsi passano da `sql_err`, e la classe e' cio' che
+    /// distingue le loro cause dopo che il testo di `rusqlite` ha smesso di
+    /// uscire. La misura di copertura differenziale del checkpoint su
+    /// `effc4ab` ha trovato questo `match` **mai attraversato**: ventidue righe
+    /// cambiate e mai eseguite.
+    ///
+    /// Non tutte le varianti di `rusqlite::Error` sono costruibili da fuori —
+    /// alcune portano tipi opachi del motore. Quelle che lo sono vengono
+    /// provate tutte; il ramo di riserva copre il resto per costruzione.
+    #[test]
+    fn la_classe_sqlite_traduce_ogni_variante_costruibile() {
+        use rusqlite::Error as E;
+
+        let campioni: Vec<(E, &str)> = vec![
+            (E::SqliteSingleThreadedMode, "modalita' single-threaded"),
+            (E::ExecuteReturnedResults, "execute ha restituito righe"),
+            (E::QueryReturnedNoRows, "nessuna riga"),
+            (E::InvalidColumnIndex(3), "indice di colonna non valido"),
+            (
+                E::InvalidColumnName("mancante".to_owned()),
+                "nome di colonna non valido",
+            ),
+            (
+                E::StatementChangedRows(2),
+                "numero di righe modificate inatteso",
+            ),
+            (E::InvalidQuery, "query non valida"),
+            (E::MultipleStatement, "piu' istruzioni in una sola"),
+            (
+                E::InvalidParameterCount(1, 2),
+                "numero di parametri non valido",
+            ),
+            (
+                E::InvalidParameterName(":assente".to_owned()),
+                "nome di parametro non valido",
+            ),
+        ];
+
+        let mut visti = std::collections::BTreeSet::new();
+        for (errore, atteso) in &campioni {
+            assert_eq!(classe_sqlite(errore), *atteso);
+            visti.insert(*atteso);
+        }
+        assert_eq!(
+            visti.len(),
+            campioni.len(),
+            "due varianti distinte non devono avere la stessa classe"
+        );
+
+        // La classe finisce nel messaggio, e il testo della dipendenza no.
+        let errore = sql_err(E::QueryReturnedNoRows);
+        assert_eq!(errore.driver.as_deref(), Some("gpkg"));
+        assert!(errore.message.contains("nessuna riga"));
+        assert!(
+            !errore.message.contains("Query returned no rows"),
+            "il Display di rusqlite non deve uscire: {}",
+            errore.message
+        );
+    }
+
     /// Opzioni di lettura sul modello unificato.
     ///
     /// Da S4.d il percorso di lettura vive interamente li': la memoria dei

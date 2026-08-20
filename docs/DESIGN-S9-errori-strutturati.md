@@ -631,6 +631,35 @@ altrettanti difetti trovati alla prima esecuzione (2026-08-20):
 | la copertura e' generata **prima** del gate che la legge | il gate girava prima che il report esistesse, quindi era rosso a ogni corsa per assenza dell'input — e un rosso che si ripete sempre smette di essere letto |
 | il **replay deterministico** viene prima dello smoke | il replay rigioca semi, corpus e artefatti noti e trova sempre cio' che c'e'; lo smoke cerca input nuovi e ritrova il noto solo per fortuna |
 | l'esito di ogni passo viene dal comando, mai da una pipe | regola gia' in vigore dal 2026-08-17 |
+| la **copertura delle sole righe cambiate** e' misurata come diagnostica | la copertura totale non distingue la crescita meccanica del denominatore da un ramo semantico non esercitato |
+
+#### La diagnostica differenziale (2026-08-21)
+
+`scripts/coverage_diff.py` interseca il report LCOV con `git diff` fra la
+revisione dell'ultimo checkpoint superato e quella corrente, e riporta quante
+delle righe **cambiate** sono state eseguite.
+
+**Non e' un gate e non ha soglia.** Dice dove guardare, non se passare.
+Trasformarla in un gate senza averla prima osservata su qualche checkpoint
+significherebbe scegliere una soglia senza sapere che cosa misura.
+
+Serve a separare due cose che la percentuale totale confonde:
+
+| | come si riconosce |
+|---|---|
+| **crescita meccanica** | una riga in piu' dentro una funzione gia' coperta: risulta **coperta** |
+| **ramo semantico nuovo** | codice che nessun test attraversa: risulta **scoperto** |
+
+I test si aggiungono nel secondo caso, non per compensare la formattazione
+multiriga.
+
+La prima esecuzione, su `107b7b5..effc4ab`, ha dato **37,27%** e ha trovato
+**22 righe mai eseguite dentro `classe_sqlite`** — il vocabolario che traduce
+le varianti di `rusqlite::Error` e che sostituisce il testo della dipendenza su
+ventisette percorsi. Non era crescita meccanica: era una tabella di traduzione
+di cui nessuno aveva mai letto una riga. Chiusa da
+`la_classe_sqlite_traduce_ogni_variante_costruibile` e
+`i_vocabolari_statici_sono_distinti_e_coprono_le_famiglie`.
 
 ### La distinzione da non perdere
 
