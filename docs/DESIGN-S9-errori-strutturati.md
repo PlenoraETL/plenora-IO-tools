@@ -620,16 +620,27 @@ copertura misurata con le esclusioni di CI e la soglia dell'80%, smoke
 
 ### La distinzione da non perdere
 
-Un commit di livello 1 e' **verificato ma non release-qualified**. La qualifica
-di release appartiene **solo** ai checkpoint di livello 2, e la misura di
-copertura che la sostiene deve essere **same-SHA**: una copertura presa su un
-commit precedente dimostra che la soglia e' raggiungibile, non che quel
-candidato la raggiunge.
+Un commit di livello 1 e' **verificato**, e basta. Un checkpoint di livello 2
+superato vale **«S9 checkpoint level 2 passed»** — non «release-qualified»: la
+qualifica di release arriva solo sul candidato finale, quando S9 e' chiuso e
+S10-S12 con lui, e non e' una proprieta' che un passo intermedio possa
+conferire.
+
+La misura di copertura che sostiene un checkpoint deve essere **same-SHA**: una
+copertura presa su un commit precedente dimostra che la soglia e' raggiungibile,
+non che quel candidato la raggiunge. E il commit che **pubblica** l'evidenza ha
+un SHA diverso da quello verificato: non eredita la misura, e va detto nel
+documento.
 
 Scriverlo qui serve a un caso preciso: che nessuno prenda l'ultimo commit
 verde disponibile e lo chiami qualificato perche' «i gate erano verdi». I gate
 di livello 1 sono verdi su quello che coprono, ed e' un insieme dichiarato piu'
 piccolo.
+
+L'esito di un checkpoint va registrato in un'**evidenza S9 separata**, mai in
+`SYSTEM_RC_GATE.md`: quel documento governa la readiness del sistema, e un
+passo intermedio che vi scrivesse dentro promuoverebbe se stesso a evidenza di
+produzione senza che nessuno lo abbia deciso.
 
 ## 21. Il censimento manuale e' parte della definizione di «a zero»
 

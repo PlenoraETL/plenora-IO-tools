@@ -177,8 +177,23 @@ fn wkt_root_epsg(definition: &str) -> Option<u32> {
             b']' if !quoted => depth = depth.checked_sub(1)?,
             _ if !quoted && depth == 1 => {
                 for marker in ["AUTHORITY[", "ID["] {
-                    if upper[index..].starts_with(marker) {
-                        let tail = &definition[index + marker.len()..];
+                    // Il confronto e' **sui byte**, non sulla stringa.
+                    //
+                    // `index` scorre `bytes`, quindi puo' cadere dentro un
+                    // carattere multi-byte; `upper[index..]` in quel caso
+                    // panicava — trovato dal fuzzer su un WKT contenente un
+                    // ideogramma. Un `&[u8]` non ha confini di carattere da
+                    // rispettare, e il marcatore e' ASCII: nessun byte ASCII
+                    // compare mai dentro una sequenza UTF-8 multi-byte, quindi
+                    // se il confronto riesce `index` e' per forza un confine.
+                    if bytes[index..].starts_with(marker.as_bytes()) {
+                        // `get` invece dell'indicizzazione: la deduzione sopra
+                        // e' vera, ma affidarle un panic significa che se un
+                        // giorno smettesse di esserlo il difetto tornerebbe
+                        // ad abortire il processo invece di dare `None`.
+                        let Some(tail) = definition.get(index + marker.len()..) else {
+                            continue;
+                        };
                         if let Some(code) = parse_epsg_wkt_identifier(tail) {
                             // Più identificatori EPSG alla radice sono
                             // ambigui: in quel caso non scegliamo.
@@ -304,6 +319,40 @@ impl From<ResolvedCrs> for CrsResolution {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Un WKT con caratteri multi-byte non deve far abortire il processo.
+    ///
+    /// Trovato dal fuzzer (`gpkg_reader`) durante il checkpoint di livello 2
+    /// del 2026-08-20, su `8d6883f`. `wkt_root_epsg` scorreva **indici di
+    /// byte** e poi affettava la **stringa**: quando l'indice cadeva dentro un
+    /// carattere multi-byte, `upper[index..]` panicava con «is not a char
+    /// boundary». Nel bordo I/O un panic e' un abort — `libfuzzer-sys` lo
+    /// mostra come «deadly signal» — e la definizione di un CRS arriva dal
+    /// file, quindi era raggiungibile da un input ostile.
+    ///
+    /// Il caso non e' esotico: basta un ideogramma dentro le parentesi di
+    /// primo livello, prima di dove un `AUTHORITY[` potrebbe comparire.
+    #[test]
+    fn una_definizione_wkt_multibyte_non_fa_panicare_il_bordo() {
+        // L'ideogramma dell'input del fuzzer: tre byte, e l'indice ci finisce
+        // dentro mentre si scorre il contenuto di primo livello.
+        let ostile = "PROJCS[\u{9f5a}\u{9f5a}\u{9f5a},AUTHORITY[\"EPSG\",\"3857\"]]";
+        assert_eq!(
+            definition_authority_srid(ostile, CrsDefinitionFormat::Wkt),
+            Some(3857),
+            "l'identificatore radice resta leggibile anche con caratteri multi-byte"
+        );
+
+        // Un ideogramma spezzato a meta' dall'indice, senza identificatore:
+        // deve dare `None`, non abortire.
+        for definizione in [
+            "PROJCS[\u{9f5a}]",
+            "PROJCS[\u{9f5a}AUTHORITY]",
+            "GEOGCS[\u{1f600}\u{1f600},ID[\"EPSG\",4326]]",
+        ] {
+            let _ = definition_authority_srid(definizione, CrsDefinitionFormat::Wkt);
+        }
+    }
 
     #[test]
     fn authority_kind_classifies_wgs84_aliases_case_insensitively() {

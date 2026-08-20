@@ -81,9 +81,13 @@ Questa è la terza tranche di driver dopo la ratifica del 2026-08-20, quindi il
 checkpoint completo è **dovuto** (design § 20): batteria completa dei gate,
 copertura misurata **same-SHA**, smoke **13/13**.
 
-L'esito è registrato in `SYSTEM_RC_GATE.md` con il SHA che qualifica. Fino ad
-allora questo commit resta **verificato ma non release-qualified**, come i due
-che lo precedono.
+L'esito è registrato in un'evidenza S9 **separata**
+(`S9_CHECKPOINT_LEVEL2_2026-08-20.md`), non in `SYSTEM_RC_GATE.md`: quel
+documento governa la readiness del sistema, e S9 non è chiuso.
+
+L'esito su `8d6883f` è **non superato**: `fuzz-smoke` ha trovato un panic in
+`plenora-io-model::crs`. Il difetto è chiuso da un commit separato e il
+checkpoint va rieseguito.
 
 ## Prossimo passo
 
