@@ -62,12 +62,18 @@ passo() {
     local log="${LOG_DIR}/${nome}.log"
     passi=$((passi + 1))
     printf '  %-38s ' "${nome}"
-    if "$@" > "${log}" 2>&1; then
+    # L'esito si cattura **subito dopo il comando**, non dopo un `if`: un `if`
+    # con condizione falsa e senza `else` restituisce 0, quindi `$?` letto dopo
+    # il `fi` diceva sempre «exit 0» anche sui rossi. Trovato al checkpoint del
+    # 2026-08-21, che ha stampato «ROSSO (exit 0)» -- una contraddizione che
+    # rendeva inutile proprio il numero che serve a capire come si e' fallito.
+    "$@" > "${log}" 2>&1
+    local esito=$?
+    if [ "${esito}" -eq 0 ]; then
         verdi=$((verdi + 1))
         echo "verde"
         return 0
     fi
-    local esito=$?
     echo "ROSSO (exit ${esito}) — ${log}"
     falliti+=("${nome}")
     return "${esito}"
@@ -77,7 +83,20 @@ echo
 echo "--- 1. compilazione e test -----------------------------------"
 passo fmt cargo fmt --all -- --check
 passo clippy cargo clippy --workspace --all-targets --all-features -- -D warnings
+# `--all-features` abilita `gdal-backend`, quindi il percorso stub di
+# driver-filegdb non veniva compilato da nessun passo. Il 2026-08-21 e'
+# rimasto rotto per un'intera tranche, e a trovarlo e' stata la misura di
+# copertura, che gira senza feature: un gate non dovrebbe dipendere da un
+# altro per accorgersi di una compilazione fallita.
+passo clippy_default cargo clippy --workspace --all-targets -- -D warnings
 passo test cargo test --workspace --all-features
+# Il set di feature **predefinito** va compilato a parte: `--all-features`
+# abilita `gdal-backend`, e il percorso stub di driver-filegdb non veniva
+# compilato da nessun passo di livello 1. Il 2026-08-21 e' rimasto rotto per
+# un'intera tranche, e a trovarlo e' stata la misura di copertura -- che gira
+# senza feature. Un passo non deve dipendere da un altro per accorgersi che
+# qualcosa non compila.
+passo test_default cargo test --workspace --all-targets
 
 echo
 echo "--- 2. gate del censimento e delle sonde ---------------------"

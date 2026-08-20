@@ -122,6 +122,10 @@ impl FormatDriver for FileGdbDriver {
     // I `return` cfg-gated servono per il caso feature-on (il blocco feature-off,
     // pur rimosso, segue sintatticamente); clippy non lo coglie.
     #[allow(clippy::needless_return)]
+    // `mut` serve solo al ramo con `gdal-backend`, che passa `&mut opts` al
+    // preflight. Senza la feature nessuno la muta, e clippy ha ragione: il
+    // lint si spegne dove il ramo non c'e', non dappertutto.
+    #[cfg_attr(not(feature = "gdal-backend"), allow(unused_mut))]
     fn open(&self, source: Source, mut opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>> {
         #[cfg(feature = "gdal-backend")]
         {
@@ -133,7 +137,7 @@ impl FormatDriver for FileGdbDriver {
         {
             let _ = (source, opts);
             Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
-                &PublicMessage::Curated(
+                &plenora_io_model::PublicMessage::Curated(
                     "FileGDB richiede il tier GDB: compilare con --features gdal-backend",
                 ),
             ))
@@ -164,7 +168,7 @@ impl FormatDriver for FileGdbDriver {
         {
             let _ = (sink, plan, opts);
             Err(plenora_io_model::PlenoraIoError::non_supportato_redatto(
-                &PublicMessage::Curated(
+                &plenora_io_model::PublicMessage::Curated(
                     "scrittura FileGDB richiede il tier GDB: compilare con --features gdal-backend",
                 ),
             ))
@@ -2887,6 +2891,9 @@ mod tests {
     ///
     /// `opzioni_scrittura()` non esiste piu' (S4.e): le opzioni portano un
     /// `OperationBudget`, che nasce da una costruzione che puo' fallire.
+    // Il helper serve solo ai test che girano con `gdal-backend`:
+    // senza la feature non lo chiama nessuno, e clippy ha ragione.
+    #[cfg(feature = "gdal-backend")]
     fn opzioni_scrittura() -> WriteOptions {
         match plenora_io_model::budget::PipelineBudget::builder().build() {
             Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
