@@ -2,16 +2,27 @@
 
 use plenora_io_model::contract::{CoordinateDimensions, GeometryType};
 use plenora_io_model::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
-use plenora_io_model::{PlenoraIoError, Result};
+use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 use wkt::types::{
     Coord, Dimension, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon,
     Point, Polygon,
 };
 use wkt::Wkt;
 
-fn error(message: impl Into<String>) -> PlenoraIoError {
-    PlenoraIoError::Wkb(format!("WKT: {}", message.into()))
+/// L'errore WKB di questo modulo, con il prefisso del sottosistema.
+///
+/// Il prefisso resta, ma non passa piu' da `format!`: e' il primo membro di
+/// una `CuratedPair`, cioe' due `&'static str` scelti a compile time. La firma
+/// era `impl Into<String>`, e attraverso di lei passavano ventotto chiamanti —
+/// due dei quali con il testo di una dipendenza, che il censimento dei
+/// costruttori non poteva vedere perche' qui dentro non c'e' nessun
+/// `PlenoraIoError::`.
+fn error(message: &'static str) -> PlenoraIoError {
+    PlenoraIoError::wkb_redatto(&PublicMessage::CuratedPair(PREFISSO, message))
 }
+
+/// Il prefisso del sottosistema, in un posto solo.
+const PREFISSO: &str = "WKT:";
 
 const fn contract_dimensions(dimension: Dimension) -> CoordinateDimensions {
     match dimension {
@@ -49,8 +60,12 @@ fn coordinate_from_wkt(
 ) -> Result<WkbCoordinate> {
     let actual = contract_dimensions(coordinate.dimension());
     if actual != expected {
-        return Err(error(format!(
-            "coordinata {actual:?} in geometria {expected:?}"
+        // La dimensionalita' attesa e' quella della geometria, che il
+        // chiamante ha in mano: nel messaggio resta quella osservata, che e'
+        // l'informazione che lui non ha.
+        return Err(PlenoraIoError::wkb_redatto(&PublicMessage::CuratedPair(
+            "WKT: coordinata con dimensionalità incoerente con la geometria:",
+            actual.nome(),
         )));
     }
     validate_finite_coordinate(coordinate.x, coordinate.y, coordinate.z, coordinate.m)?;
@@ -236,14 +251,22 @@ pub fn parse_wkt(text: &str) -> Result<WkbGeometry> {
 /// Le stesse di [`parse_wkt`] piu' `LimitExceeded` se `text.len() > max_bytes`.
 pub fn parse_wkt_bounded(text: &str, max_bytes: usize) -> Result<WkbGeometry> {
     if text.len() > max_bytes {
-        return Err(PlenoraIoError::LimitExceeded(format!(
-            "cella WKT di {} byte oltre il limite {max_bytes}",
-            text.len()
-        )));
+        return Err(PlenoraIoError::limite_redatto(
+            &PublicMessage::CuratedBetween(
+                "cella WKT di",
+                NumeroStrutturale::Conteggio(u64::try_from(text.len()).unwrap_or(u64::MAX)),
+                "byte oltre il limite di",
+                NumeroStrutturale::Limite(u64::try_from(max_bytes).unwrap_or(u64::MAX)),
+            ),
+        ));
     }
     let parsed: Wkt<f64> = text
         .parse()
-        .map_err(|message| error(format!("sintassi non valida: {message}")))?;
+        // Il testo della crate `wkt` non esce: e' testo di dipendenza, ed
+        // e' il caso da cui INV-10 e' partito. La posizione dell'errore di
+        // sintassi non e' recuperabile senza farlo uscire, e non la si
+        // inventa.
+        .map_err(|_| error("sintassi WKT non valida"))?;
     let geometria = geometry_from_wkt(&parsed)?;
     // Simmetria con la scrittura: quello che accettiamo da testo deve poter
     // tornare a testo. Accettare in lettura una geometria che non sappiamo
@@ -265,8 +288,12 @@ fn coordinate_to_wkt(
         (true, true) => CoordinateDimensions::Xyzm,
     };
     if actual != expected {
-        return Err(error(format!(
-            "coordinata {actual:?} in geometria {expected:?}"
+        // La dimensionalita' attesa e' quella della geometria, che il
+        // chiamante ha in mano: nel messaggio resta quella osservata, che e'
+        // l'informazione che lui non ha.
+        return Err(PlenoraIoError::wkb_redatto(&PublicMessage::CuratedPair(
+            "WKT: coordinata con dimensionalità incoerente con la geometria:",
+            actual.nome(),
         )));
     }
     validate_finite_coordinate(coordinate.x, coordinate.y, coordinate.z, coordinate.m)?;
@@ -552,8 +579,7 @@ fn scrivi_geometria(geometry: &WkbGeometry, output: &mut String) -> Result<()> {
         }
         _ => {
             let wkt = geometry_to_wkt(geometry)?;
-            write!(output, "{wkt}")
-                .map_err(|format_error| error(format!("serializzazione fallita: {format_error}")))
+            write!(output, "{wkt}").map_err(|_| error("serializzazione WKT fallita"))
         }
     }
 }
@@ -615,15 +641,14 @@ fn scrivi_multipoligono_con_membri_vuoti(
         }
         let poligono = geometry_to_wkt(membro)?;
         let mut testo = String::new();
-        write!(testo, "{poligono}")
-            .map_err(|format_error| error(format!("serializzazione fallita: {format_error}")))?;
+        write!(testo, "{poligono}").map_err(|_| error("serializzazione WKT fallita"))?;
         let corpo = testo
             .strip_prefix("POLYGON")
             .and_then(|resto| resto.strip_prefix(suffisso))
             .ok_or_else(|| {
-                error(format!(
-                    "POLYGON atteso dalla crate wkt, ricevuto {testo:?}"
-                ))
+                // Il testo ricevuto non esce: e' il WKT generato dalla
+                // geometria, cioe' un derivato del payload.
+                error("POLYGON atteso dalla crate wkt, ricevuto un testo diverso")
             })?;
         // `POLYGON EMPTY` lascia uno spazio davanti a `EMPTY`.
         output.push_str(corpo.trim_start());

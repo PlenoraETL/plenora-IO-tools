@@ -69,6 +69,7 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 MIGRATI = (
     "plenora-io-model",
     "plenora-io-core",
+    "driver-common",
 )
 
 # I crate non ancora migrati, con il conteggio atteso per `percorso::funzione`.
@@ -81,14 +82,6 @@ MIGRATI = (
 # L'elenco e' generato dal codice, non scritto a mano: un elenco copiato diverge
 # alla prima chiamata aggiunta, e diverge in silenzio.
 DA_MIGRARE: dict[str, int] = {
-    "crates/driver-common/src/lib.rs::append_converted": 1,
-    "crates/driver-common/src/lib.rs::append_csv_cell": 1,
-    "crates/driver-common/src/lib.rs::append_f64": 1,
-    "crates/driver-common/src/lib.rs::incompatible_value": 1,
-    "crates/driver-common/src/lib.rs::json_from_array": 3,
-    "crates/driver-common/src/prevalida_arrow.rs::errore": 1,
-    "crates/driver-common/src/wkt_lossless.rs::error": 1,
-    "crates/driver-common/src/wkt_lossless.rs::parse_wkt_bounded": 1,
     "crates/driver-csv/src/lib.rs::create": 4,
     "crates/driver-csv/src/lib.rs::delimiter_non_valido": 1,
     "crates/driver-csv/src/lib.rs::err": 1,

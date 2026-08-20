@@ -53,6 +53,7 @@ use arrow_ipc::{
     root_as_footer, root_as_message, Endianness, Field as FbField, Precision, Schema as FbSchema,
     TimeUnit as FbTimeUnit, Type, UnionMode,
 };
+use plenora_io_model::PublicMessage;
 use plenora_io_model::{PlenoraIoError, Result};
 
 /// Campi totali visitati in uno schema, figli annidati compresi.
@@ -73,7 +74,7 @@ const MAX_BLOCCHI: usize = 1_048_576;
 const MAGIC: &[u8] = b"ARROW1";
 
 fn errore(driver: &'static str, motivo: &'static str) -> PlenoraIoError {
-    PlenoraIoError::format(driver, motivo)
+    PlenoraIoError::formato_redatto(driver, &PublicMessage::Curated(motivo))
 }
 
 /// Verifica uno schema Arrow IPC gia' deserializzato in `FlatBuffer`.

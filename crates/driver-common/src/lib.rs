@@ -21,6 +21,7 @@ use serde_json::{Number, Value as JsonValue};
 use plenora_io_model::geometry::{
     is_geometry_field, ARROW_EXTENSION_NAME_KEY, GEOARROW_WKB_EXTENSION, GEO_CRS_KEY,
 };
+use plenora_io_model::PublicMessage;
 use plenora_io_model::{PlenoraIoError, Result};
 
 /// CRS di default per i formati WGS84 per specifica (`GeoJSON`, KML).
@@ -35,6 +36,21 @@ pub enum ColType {
 }
 
 impl ColType {
+    /// Nome statico del tipo inferito, per i messaggi pubblici.
+    ///
+    /// Prende il posto di un `{:?}`: `Debug` non e' un formato che qualcuno
+    /// abbia promesso di tenere stabile, e stamparlo in un errore pubblico
+    /// impegna a non rinominare mai la variante senza averlo mai scritto.
+    #[must_use]
+    pub const fn nome(self) -> &'static str {
+        match self {
+            Self::Integer => "integer",
+            Self::Number => "number",
+            Self::Boolean => "boolean",
+            Self::Text => "text",
+        }
+    }
+
     #[must_use]
     pub const fn arrow_data_type(self) -> DataType {
         match self {
@@ -184,8 +200,9 @@ impl InferredColumnBuilder {
     }
 
     fn incompatible_value(column_type: ColType) -> PlenoraIoError {
-        PlenoraIoError::Schema(format!(
-            "valore non nullo incompatibile con il tipo inferito {column_type:?}"
+        PlenoraIoError::schema_redatto(&PublicMessage::CuratedPair(
+            "valore non nullo incompatibile con il tipo inferito:",
+            column_type.nome(),
         ))
     }
 
@@ -290,9 +307,9 @@ impl InferredColumnBuilder {
     /// se la colonna è intera o booleana.
     pub fn append_f64(&mut self, value: f64) -> Result<()> {
         if !value.is_finite() {
-            return Err(PlenoraIoError::Schema(
-                "numero non finito non rappresentabile".to_owned(),
-            ));
+            return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                "numero non finito non rappresentabile",
+            )));
         }
         let column_type = self.column_type();
         match &mut self.inner {
@@ -367,9 +384,9 @@ impl InferredColumnBuilder {
                     .parse::<f64>()
                     .map_err(|_| Self::incompatible_value(column_type))?;
                 if !value.is_finite() {
-                    return Err(PlenoraIoError::Schema(
-                        "numero CSV non finito non rappresentabile".to_owned(),
-                    ));
+                    return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                        "numero CSV non finito non rappresentabile",
+                    )));
                 }
                 builder.append_value(value);
             }
@@ -424,9 +441,9 @@ impl InferredColumnBuilder {
                 let converted =
                     number(value).ok_or_else(|| Self::incompatible_value(column_type))?;
                 if !converted.is_finite() {
-                    return Err(PlenoraIoError::Schema(
-                        "numero non finito non rappresentabile".to_owned(),
-                    ));
+                    return Err(PlenoraIoError::schema_redatto(&PublicMessage::Curated(
+                        "numero non finito non rappresentabile",
+                    )));
                 }
                 builder.append_value(converted);
             }
@@ -573,12 +590,16 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if let Some(x) = a.downcast_ref::<Float32Array>() {
         return Number::from_f64(f64::from(x.value(row)))
             .map(JsonValue::Number)
-            .ok_or_else(|| PlenoraIoError::Schema("Float32 non finito".to_owned()));
+            .ok_or_else(|| {
+                PlenoraIoError::schema_redatto(&PublicMessage::Curated("Float32 non finito"))
+            });
     }
     if let Some(x) = a.downcast_ref::<Float64Array>() {
         return Number::from_f64(x.value(row))
             .map(JsonValue::Number)
-            .ok_or_else(|| PlenoraIoError::Schema("Float64 non finito".to_owned()));
+            .ok_or_else(|| {
+                PlenoraIoError::schema_redatto(&PublicMessage::Curated("Float64 non finito"))
+            });
     }
     if let Some(x) = a.downcast_ref::<BooleanArray>() {
         return Ok(JsonValue::Bool(x.value(row)));
@@ -586,10 +607,50 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     if let Some(x) = a.downcast_ref::<StringArray>() {
         return Ok(JsonValue::String(x.value(row).to_owned()));
     }
-    Err(PlenoraIoError::Unsupported(format!(
-        "tipo Arrow {:?} non convertibile in JSON senza perdita",
-        array.data_type()
-    )))
+    // Il `Debug` di `DataType` e' testo di una dipendenza: puo' contenere
+    // nomi di campo e metadati letti dal file, e non e' un formato che arrow
+    // abbia promesso di tenere stabile. Al suo posto la classe, che e' un
+    // vocabolario nostro.
+    Err(PlenoraIoError::non_supportato_redatto(
+        &PublicMessage::CuratedPair(
+            "tipo Arrow non convertibile in JSON senza perdita, classe:",
+            classe_arrow(array.data_type()),
+        ),
+    ))
+}
+
+/// Classe statica di un tipo Arrow, per i messaggi pubblici.
+///
+/// `driver-common` non dipende da `plenora-io-core` e non vede
+/// `ArrowTypeClass`: questo e' lo stesso vocabolario, dichiarato dove serve.
+/// Non e' una tassonomia completa dei tipi Arrow — e' l'insieme delle classi
+/// che questo bordo distingue, e `altro` copre per costruzione tutto il resto.
+const fn classe_arrow(tipo: &DataType) -> &'static str {
+    match tipo {
+        DataType::Boolean => "boolean",
+        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => "signed_integer",
+        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
+            "unsigned_integer"
+        }
+        DataType::Float16 | DataType::Float32 | DataType::Float64 => "floating",
+        DataType::Utf8 | DataType::LargeUtf8 => "utf8",
+        DataType::Binary | DataType::LargeBinary | DataType::FixedSizeBinary(_) => "binary",
+        DataType::Date32
+        | DataType::Date64
+        | DataType::Time32(_)
+        | DataType::Time64(_)
+        | DataType::Timestamp(_, _)
+        | DataType::Duration(_)
+        | DataType::Interval(_) => "temporal",
+        DataType::Decimal128(_, _) | DataType::Decimal256(_, _) => "decimal",
+        DataType::List(_)
+        | DataType::LargeList(_)
+        | DataType::FixedSizeList(_, _)
+        | DataType::Struct(_)
+        | DataType::Union(_, _)
+        | DataType::Map(_, _) => "nested",
+        _ => "altro",
+    }
 }
 
 /// Rappresentazione testuale lossless di una cella Arrow, con `None` per null.

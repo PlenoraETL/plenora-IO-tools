@@ -430,7 +430,8 @@ nell'ultima tranche, quando il censimento arriva davvero a zero.
 |---|---|---|---|
 | 1 | `plenora-io-model` | 24 → 0 | **chiusa** |
 | 2 | `plenora-io-core` | 78 → 0 | **chiusa** |
-| 3 | `driver-common` | 10 | **prossima** |
+| 3 | `driver-common` | 10 → 0 (più 28 chiamanti di un helper) | **chiusa** |
+| 4… | i dieci driver, poi la CLI | 138 | **prossima** |
 | 4… | i dieci driver, poi la CLI | |
 | ultima | rimozione della via legacy | solo a censimento zero |
 | chiusura | test ostili sui dieci driver, FileGDB feature-on compreso | |
@@ -547,3 +548,101 @@ La prima stesura aveva introdotto tre `unwrap_or(u64::MAX)` per convertire
 (`plenora-io-core: registrati=16, trovati=19`). Non è stato registrato un
 fallback in più: i tre siti riusano `driver::saturating_u64`, che esisteva già
 e fa la stessa cosa con un nome che dice perché. Il registro resta a 16.
+
+## 19. Tranche 3 — `driver-common` (2026-08-20)
+
+Registro: **148 → 138**. Dieci usi legacy su 148: numericamente la tranche più
+piccola, ed è la prima che prova il **metodo** da ripetere dieci volte sui
+driver.
+
+### Il censimento manuale è il passo che il gate non sa fare
+
+`wkt_lossless::error(message: impl Into<String>)` aveva **28 chiamanti** e
+**nessun `PlenoraIoError::` al loro interno**: invisibile al censimento dei
+costruttori. Fra quei ventotto:
+
+* tre facevano uscire **testo di dipendenza** — l'errore di parsing della crate
+  `wkt`, e due `std::fmt::Error`;
+* uno faceva uscire il **WKT generato dalla geometria**, cioè un derivato del
+  payload.
+
+Il censimento dichiarava dieci siti. Le vie aperte al testo libero erano dieci
+più ventotto, e le quattro che contavano stavano tutte nelle ventotto.
+
+**Regola per le tranche successive:** prima di migrare un crate, cercarci le
+firme `impl Into<String>`, `String`, `&str` non `'static` e `Cow<str>` che
+finiscano in un costruttore di `PlenoraIoError`. È un'ispezione manuale, una
+volta per crate.
+
+### Due vocabolari statici in più
+
+`ColType::nome()` e `classe_arrow(&DataType)`, nella famiglia dell'errata S9.1.
+`driver-common` non dipende da `plenora-io-core` e non vede `ArrowTypeClass`:
+`classe_arrow` è lo stesso vocabolario dichiarato dove serve, con un ramo
+`altro` che copre per costruzione il resto.
+
+Sul `Debug` di `DataType` c'è una ragione in più delle solite: per i tipi
+annidati **contiene i nomi dei campi**, che vengono dal file. Non era solo un
+formato instabile, era un canale di uscita per il payload.
+
+### Il prefisso `WKT:` è rimasto
+
+Non passa più da `format!`: è il primo membro di
+`CuratedPair(PREFISSO, message)`, entrambi `&'static str`. La firma di `error`
+è tornata a `&'static str`, quindi i ventisei chiamanti letterali restano
+`error("…")` senza avvolgere niente.
+
+## 20. Validazione a due livelli (ratificata 2026-08-20)
+
+Dalla tranche 4 in poi. La batteria completa costa quaranta minuti di
+`fuzz-smoke` più una misura di copertura: pagarla a ogni crate significherebbe
+pagarla undici volte, e il valore marginale delle corse intermedie e' basso —
+i gate che si accendono quando cambia un crate sono sempre gli stessi.
+
+### Livello 1 — per ogni crate
+
+| Verifica | |
+|---|---|
+| `cargo clippy --workspace --all-targets --all-features -- -D warnings` | l'intero workspace, non il solo crate |
+| `cargo test --workspace --all-features` | idem |
+| `scripts/check_errori_redatti.py` + `test_check_errori_redatti` | il gate S9 con le sue sonde |
+| gate specifici del crate | quelli che il crate puo' rompere |
+| smoke dei **soli** fuzz target coinvolti | non tutti e tredici |
+
+### Livello 2 — checkpoint
+
+**Ogni tre driver, e alla chiusura di S9.** Batteria completa dei gate,
+copertura misurata con le esclusioni di CI e la soglia dell'80%, smoke
+**13/13**.
+
+### La distinzione da non perdere
+
+Un commit di livello 1 e' **verificato ma non release-qualified**. La qualifica
+di release appartiene **solo** ai checkpoint di livello 2, e la misura di
+copertura che la sostiene deve essere **same-SHA**: una copertura presa su un
+commit precedente dimostra che la soglia e' raggiungibile, non che quel
+candidato la raggiunge.
+
+Scriverlo qui serve a un caso preciso: che nessuno prenda l'ultimo commit
+verde disponibile e lo chiami qualificato perche' «i gate erano verdi». I gate
+di livello 1 sono verdi su quello che coprono, ed e' un insieme dichiarato piu'
+piccolo.
+
+## 21. Il censimento manuale e' parte della definizione di «a zero»
+
+Vale per ogni crate, senza eccezioni.
+
+**Una tranche e' a zero solo quando sono chiuse le chiamate dirette *e* quelle
+indirette.** Il gate conta i costruttori di `PlenoraIoError`; non vede un
+helper interno che li avvolga dietro una firma `impl Into<String>`, `String`,
+`&str` non `'static` o `Cow<str>`.
+
+Non e' un'ipotesi prudenziale: in `plenora-io-core` erano 30 chiamate
+(`violation`, `geometry_violation`), in `driver-common` 28 — e in
+`driver-common` **tre di quelle ventotto facevano uscire testo di dipendenza**,
+cioe' esattamente cio' che INV-10 esiste per impedire, in un crate che il gate
+dichiarava a dieci soli siti.
+
+Il censimento va fatto **prima** della migrazione, e il suo esito va scritto
+nella CIA della tranche: quante vie indirette, quante con testo di dipendenza,
+quante con valori interpolati.
