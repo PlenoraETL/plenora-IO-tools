@@ -107,6 +107,7 @@ passo check_gdal_fork python3 scripts/check_gdal_fork.py
 passo check_dxf_fork python3 scripts/check_dxf_fork.py
 passo check_no_legacy_budget python3 scripts/check_no_legacy_budget.py
 passo check_permit_boundary python3 scripts/check_permit_boundary.py
+passo sonde_fallback python3 -m unittest scripts.test_check_assurance_fallbacks
 passo assurance_fallbacks bash scripts/check_assurance_fallbacks.sh
 
 echo

@@ -46,6 +46,7 @@ reader progressivo DXF lo porta a 45.
 |---|---:|---|
 | `driver-csv` | 3 | delimitatore di default dichiarato; nome diagnostico; `Unknown` solo quando il set dimensionale non è singleton |
 | `driver-dxf` | 18 | classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF; accounting spool fail-closed su overflow/null e dimensioni difensive `Unknown`; decisioni coperte dai test geometrici, limite e spill |
+| `driver-common` | 4 | quattro `unwrap_or_else(\|e\| panic!(…))` nei test di round-trip WKT: il modo in cui quel file dice «questo caso doveva passare». **Non era nel registro fino al 2026-08-21**: il gate testuale non lo elencava, quindi non lo contava affatto |
 | `driver-filegdb` | 3 | path/stem di staging non semantici; un fallback `custom` è confinato al costruttore dei test |
 | `driver-geojson` | 3 | nome diagnostico; geometrie senza coordinate sono ora rifiutate; ai due punti di uscita del deserializzatore il canale laterale porta l'errore vero quando la causa è nostra e resta vuoto quando a fallire è serde sul JSON malformato — il default è il messaggio giusto per quel caso |
 | `driver-geoparquet` | 4 | nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza |

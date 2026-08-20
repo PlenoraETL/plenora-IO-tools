@@ -196,54 +196,19 @@ set -eu
 # migra ne avra' bisogno, e il registro non deve crescere di undici voci per
 # una conversione che non puo' fallire.
 # Nessuna revisione H-01 dovuta.
-expected='
-driver-csv 2
-driver-dxf 15
-driver-filegdb 5
-driver-geojson 4
-driver-geoparquet 3
-driver-gpkg 3
-driver-ipc 1
-driver-kml 3
-driver-shp 3
-driver-xls 2
-plenora-io-model 1
-plenora-io-core 16
-plenora-io-cli 28
-plenora-bench 24
-plenora-fuzz 5
-'
 
-actual_total=0
-while read -r crate expected_count; do
-    if [ -z "${crate}" ]; then
-        continue
-    fi
-    if command -v rg >/dev/null 2>&1; then
-        actual_count=$(
-            rg -o 'unwrap_or(_else|_default)?\(' "crates/${crate}" -g '*.rs' |
-                wc -l |
-                tr -d ' '
-        )
-    else
-        actual_count=$(
-            grep -R -E -o --include='*.rs' 'unwrap_or(_else|_default)?\(' "crates/${crate}" |
-                wc -l |
-                tr -d ' '
-        )
-    fi
-    if [ "${actual_count}" != "${expected_count}" ]; then
-        echo "${crate}: fallback registrati=${expected_count}, trovati=${actual_count}" >&2
-        exit 1
-    fi
-    actual_total=$((actual_total + actual_count))
-done <<EOF
-${expected}
-EOF
-
-if [ "${actual_total}" -ne 115 ]; then
-    echo "totale fallback del workspace inatteso: ${actual_total}" >&2
-    exit 1
-fi
-
-echo "fallback assurance verificati: ${actual_total}"
+# --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
+#
+# Questo script conservava la narrativa di ogni movimento del registro, e la
+# conserva ancora: e' la parte che non va persa. Il conteggio pero' guardava il
+# **testo**, e un commento che nominava `unwrap_or` veniva contato come una
+# chiamata -- e' successo migrando driver-filegdb.
+#
+# Il conteggio sta ora in `scripts/check_assurance_fallbacks.py`, che spoglia
+# commenti e stringhe prima di contare e ha nove sonde su albero finto, fra cui
+# quella che prova il caso insidioso: un calo reale mascherato da un commento
+# che nomina la forma.
+#
+# Questo file resta il punto d'ingresso perche' CI e s9-checkpoint.sh lo
+# invocano, e perche' la storia sopra vale piu' del meccanismo sotto.
+exec python3 "$(dirname "$0")/check_assurance_fallbacks.py" "$@"

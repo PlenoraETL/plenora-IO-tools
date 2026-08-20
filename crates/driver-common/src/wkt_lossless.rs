@@ -254,9 +254,9 @@ pub fn parse_wkt_bounded(text: &str, max_bytes: usize) -> Result<WkbGeometry> {
         return Err(PlenoraIoError::limite_redatto(
             &PublicMessage::CuratedBetween(
                 "cella WKT di",
-                NumeroStrutturale::Conteggio(u64::try_from(text.len()).unwrap_or(u64::MAX)),
+                NumeroStrutturale::Conteggio(crate::saturating_u64(text.len())),
                 "byte oltre il limite di",
-                NumeroStrutturale::Limite(u64::try_from(max_bytes).unwrap_or(u64::MAX)),
+                NumeroStrutturale::Limite(crate::saturating_u64(max_bytes)),
             ),
         ));
     }
