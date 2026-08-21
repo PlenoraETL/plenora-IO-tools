@@ -105,18 +105,15 @@ def _nomi_eliminati() -> list[str]:
 
 
 # Dove cercare i riferimenti residui: codice, script, CI e il docset stesso.
-# I JSON **non** sono ancora nel perimetro, ed e' una lacuna dichiarata.
+# I JSON sono nel perimetro: un manifesto che cita un documento eliminato lo
+# cita quanto un commento, e nessuno lo rileggera' per accorgersene.
 #
-# Estendendolo, il gate trova 37 riferimenti a documenti eliminati, tutti nei
-# manifesti storici sotto `release/`: quattordici file che nessuno legge piu'
-# da quando il gate del contratto storico e' stato ritirato, piu'
-# `release/1.0.1.json`, che invece descrive una candidate ancora pendente.
-#
-# Risolverli e' una decisione — cancellare provenienza di release non e'
-# cancellare cronaca documentale — e va presa prima di accendere il perimetro,
-# non dopo. Accenderlo ora renderebbe il gate rosso su una domanda aperta,
-# e un rosso che si ripete smette di essere letto.
-PERIMETRO = ("*.rs", "*.py", "*.sh", "*.toml", "*.yml", "*.yaml", "*.md")
+# Accenderlo ha richiesto prima di risolvere i manifesti storici orfani sotto
+# `release/`: quattordici file che nessuno leggeva piu', piu' la candidate
+# `1.0.1`. Il loro fatto vivo — una candidate pendente legata a uno SHA vecchio
+# e non autorizzata — e' nel registro del contratto corrente; la provenienza
+# resta in git.
+PERIMETRO = ("*.rs", "*.py", "*.sh", "*.toml", "*.yml", "*.yaml", "*.md", "*.json")
 
 
 def tracciati(estensione: str) -> list[str]:

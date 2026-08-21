@@ -7,22 +7,23 @@
   "component_repository_harness": "not_present",
   "icd": {
     "tag": "v2.0-rc14",
-    "revision": "65fd2c6418efa7937e3063245913d79a80c6499b"
+    "revision": "65fd2c6418efa7937e3063245913d79a80c6499b",
+    "nota": "ICD di riferimento dichiarato; la corsa lo rifissa"
   },
   "components": [
     {
       "name": "plenora-IO-tools",
-      "revision": "9804d775d0d46df9137d44cf0c6963d66a563753",
+      "revision": null,
       "role": "file_boundary"
     },
     {
       "name": "plenora-data-tools",
-      "revision": "7d530318760ccfa93b2baa2049e181fd57deed1e",
+      "revision": null,
       "role": "transformation_core"
     },
     {
       "name": "plenora-database-tools",
-      "revision": "b541c61dd1c286cdf2e808e17eefd133d7c9ba20",
+      "revision": null,
       "role": "database_boundary"
     }
   ],
@@ -68,30 +69,8 @@
     "native_metadata"
   ],
   "evidence": {
-    "status": "external_partial_not_system_gate",
-    "historical_observation": {
-      "release_tag": "v0.1.0-rc.2",
-      "fixture": "exact_point_xyz_resolved_crs",
-      "platform": "linux_x86_64",
-      "result": "pass"
-    },
-    "historical_v1_0_0_rc_1_qualification": {
-      "owner_revision": "c3f1a8ef2e6950570a33adf5a964f7f40e9cf1ab",
-      "matrix_icd": {
-        "tag": "v2.0-rc8",
-        "revision": "62b12e3496466d2c908dac3cc098640b99b52e21"
-      },
-      "roundtrip": "83/84",
-      "chain": "27/28",
-      "single_failure": "crs_unresolved__geoarrow: R4.1.1 proposal_not_implemented",
-      "read_loss_runner_status": "unverified_obligation",
-      "read_loss_targeted_component_observation": "conflicting_crs__geoarrow records inconsistent_crs_representations=1"
-    },
-    "current_system_qualification": {
-      "component_tag": "v1.0.0-rc.2",
-      "component_revision": "9804d775d0d46df9137d44cf0c6963d66a563753",
-      "status": "not_run"
-    }
+    "status": "not_run",
+    "nota": "Le osservazioni storiche sono state tolte: registravano esiti parziali di campagne su revisioni che non esistono piu' nel percorso corrente, e un'evidenza parziale conservata accanto a uno stato `not_satisfied` si legge come progresso. Restano recuperabili da git."
   },
   "pass_conditions": [
     "All three revisions and the ICD revision are immutable and recorded.",
@@ -109,5 +88,6 @@
     "The external runner does not yet consume read_loss and keeps the R4.6.1 declaration as an unverified obligation.",
     "The external matrix evidence declares ICD v2.0-rc8 while the current component provenance records v2.0-rc14.",
     "The recorded 83/84 and 27/28 qualification belongs to v1.0.0-rc.1; the matrix has not been rerun on the v1.0.0-rc.2 candidate."
-  ]
+  ],
+  "components_nota": "le revisioni sono `null` perche' la qualifica non e' stata eseguita: le fissa l'owner esterno al momento della corsa, e una revisione vecchia qui descriverebbe una campagna che non e' quella corrente"
 }
