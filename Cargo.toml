@@ -76,9 +76,10 @@ overflow-checks = true
 [patch.crates-io]
 # Fork governato della sorgente crates.io gdal 0.17.1. Il delta espone
 # OGR_L_SetIgnoredFields dietro un metodo safe; provenienza e manutenzione sono
-# registrate in vendor/gdal/PLENORA_FORK.md.
+# registrate in assurance/registries/vendor-gdal-fork.json.
 gdal = { path = "vendor/gdal" }
 # Fork governato della sorgente upstream dxf 0.6.1. Il delta evita il
 # read-to-end e rende pubblico un reader fallibile di entità logiche;
-# provenienza e manutenzione sono registrate in vendor/dxf/PLENORA_FORK.md.
+# provenienza e manutenzione sono registrate in
+# assurance/registries/vendor-dxf-fork.json.
 dxf = { path = "vendor/dxf" }

@@ -1,167 +1,103 @@
 # plenora-IO-tools
 
-Componente Rust di bordo fra i formati su disco e Arrow: legge file geospaziali
-e tabellari producendo `RecordBatch`, e li riscrive applicando un piano di
-scrittura validato prima di toccare il filesystem. Il publish e' atomico e
-avviene solo a successo.
+Libreria e CLI per leggere e scrivere dati geospaziali in dieci formati,
+attraverso un modello semantico unico basato su Arrow.
 
-> Versione workspace: `1.0.1`.
-> Versione, evidenze e stato di pubblicazione sono registrati nei manifesti
-> sotto `release/` e nelle release GitHub; questo README non sostituisce i gate.
+Ogni formato è un driver dietro la stessa interfaccia. Chi legge non deve sapere
+se dietro c'è un CSV o un GeoPackage: ottiene `RecordBatch` Arrow, un contratto
+di layer che dichiara schema, geometria e CRS, e un report di ciò che il formato
+non ha saputo rappresentare.
 
-## Ruolo nell'ecosistema Plenora
-
-```text
-plenora-IO-tools       file e formati  <-> Arrow
-plenora-data-tools     Arrow           <-> Arrow
-plenora-database-tools database        <-> Arrow
+```
+release_authorized: false
 ```
 
-I tre componenti comunicano tramite schema Arrow e metadata canonici definiti da
-`plenora-contracts`. `plenora-IO-tools` non trasforma i dati: apre la sorgente,
-dichiara il contratto del layer e consegna Arrow: le trasformazioni appartengono
-a `plenora-data-tools`. Il pin Arrow `=59.1.0` e' comune ai tre componenti,
-cosi' i `RecordBatch` passano senza conversione.
+Il componente **non è autorizzato al rilascio**. Le condizioni ancora aperte, e
+che cosa serve per chiuderle, sono in [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Formati
 
-Ogni driver implementa lettura e scrittura; la scrittura resta subordinata al
-capability check statico di ADR-IO 3, che rifiuta prima di aprire il sink un
-contratto non rappresentabile nel formato di destinazione.
+| | Lettura | Scrittura | Feature richiesta |
+|---|---|---|---|
+| CSV | sì | sì | — |
+| GeoJSON | sì | sì | — |
+| KML | sì | sì | — |
+| Shapefile | sì | sì | — |
+| GeoPackage | sì | sì | — |
+| GeoParquet | sì | sì | — |
+| Arrow IPC | sì | sì | — |
+| XLSX | sì | sì | — |
+| DXF | sì | sì | — |
+| FileGDB | sì | sì | `gdal-backend` |
 
-| Estensione | Driver | Note |
-| --- | --- | --- |
-| `parquet` | `driver-geoparquet` | GeoParquet |
-| `geojson`, `json` | `driver-geojson` | |
-| `csv` | `driver-csv` | |
-| `gpkg` | `driver-gpkg` | GeoPackage, multi-layer |
-| `shp` | `driver-shp` | Shapefile, DBF e WKT proiettato |
-| `kml` | `driver-kml` | |
-| `xlsx` | `driver-xls` | `.xls` (BIFF) e' una capability drop esplicita |
-| `dxf` | `driver-dxf` | fork governato in `vendor/dxf` |
-| `gdb` | `driver-filegdb` | OpenFileGDB via GDAL, feature `gdal-backend` |
-| `arrow` | `driver-ipc` | Arrow IPC |
+Senza la feature `gdal-backend` il driver FileGDB resta uno stub tipizzato: le
+sue chiamate falliscono con una capability mancante, non con un errore di
+ambiente.
 
-## Requisiti
+## Uso come libreria
 
-- Rust `1.92` (fissato in `rust-toolchain.toml`);
-- dipendenze bloccate da `Cargo.lock` con pin esatti, verificati in CI da
-  `scripts/check_dependency_pins.py`;
-- GDAL con driver OpenFileGDB solo per `driver-filegdb` (feature
-  `gdal-backend`).
+```rust
+use plenora_io_core::driver::{FormatDriver, ReadOptions, Source};
+use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
+use plenora_io_model::budget::{PipelineBudget, PipelineLimits};
+use plenora_io_model::contract::LayerId;
 
-Il workspace usa Arrow `59.1.0` con pin esatti. I fork governati di `gdal` e
-`dxf` vivono sotto `vendor/` con provenienza registrata nei rispettivi
-`PLENORA_FORK.md` e un gate CI dedicato per ciascuno.
+let bundle = PipelineBudget::builder().limits(PipelineLimits::default()).build()?;
+let opzioni = ReadOptions::from_read_parts(bundle.into_read_parts());
 
-## Build e test
+let dataset = driver_geojson::GeoJsonDriver.open(Source::Path(percorso), opzioni)?;
+let contratto = &dataset.layers()[0];
 
-```sh
-cargo build --workspace --locked
-cargo test --workspace --all-targets --locked
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+let mut reader = dataset.open_layer_reader(&ReadRequest {
+    layer: LayerId(0),
+    projected_fields: None,
+    projection_mode: ProjectionMode::BestEffort,
+    pruning_predicate: None,
+    spatial_pruning_hint: None,
+    scope: ReadScope::Complete,
+    batch_target: BatchTarget::default(),
+    cancellation: Default::default(),
+})?;
+
+while let Some(batch) = reader.next_batch()? {
+    // RecordBatch Arrow, con la geometria nella colonna dichiarata dal contratto
+}
 ```
 
-Il gate anti-panic gira separatamente sul solo codice di libreria, ed e' piu'
-stretto della tabella lint del workspace:
+L'API Rust è **interna e instabile**: non porta garanzia semver e i crate non
+sono pubblicati. La superficie con garanzia di compatibilità è il JSON della
+CLI.
 
-```sh
-cargo clippy --workspace --lib --all-features --locked -- \
-  -D warnings -D unsafe-code \
-  -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic \
-  -D clippy::unreachable -D clippy::todo -D clippy::unimplemented
+## Uso come CLI
+
+```
+plenora-io catalog                      # i dieci driver e le loro capacità
+plenora-io inspect  <file>              # schema, geometria, CRS, fedeltà
+plenora-io layers   <file>              # i layer del dataset
+plenora-io read     <file> [--limit N]  # righe come JSON
+plenora-io convert  <ingresso> <uscita> # conversione fra due formati
 ```
 
-`plenora-bench` e' l'unico crate con deroga al `forbid(unsafe_code)` di
-workspace: e' un harness di misura che richiede un `GlobalAlloc` contatore e
-`getrusage`, non appartiene al perimetro spedito e resta fuori dal gate, che
-gira su `--workspace --lib`.
+Ogni comando emette un documento JSON con un contratto versionato. Gli errori
+escono su `stderr` come `plenora-io-error-v1`, con un codice stabile e un exit
+code dedicato.
 
-## CLI
+## Documentazione
 
-```sh
-plenora-io <catalog|inspect|layers|read|convert> [args]
-plenora-io --version
-```
+| | |
+|---|---|
+| [docs/PRODUCT.md](docs/PRODUCT.md) | che cosa offre e che cosa promette: driver, opzioni, contratti pubblici, limiti |
+| [docs/ENGINEERING.md](docs/ENGINEERING.md) | come funziona e come viene verificato: architettura, pipeline, checkpoint, fuzzing |
+| [docs/RELEASE.md](docs/RELEASE.md) | dove siamo e dove andiamo: stato misurato, blocchi aperti, ordine di lavoro |
 
-```sh
-cargo run -p plenora-io-cli -- catalog
-cargo run -p plenora-io-cli -- inspect input.gpkg
-cargo run -p plenora-io-cli -- layers input.gpkg
-cargo run -p plenora-io-cli -- read input.shp --layer 0 --limit 100
-cargo run -p plenora-io-cli -- convert input.shp output.parquet
-```
+Lo stato in forma strutturata è
+[`assurance/current-state.json`](assurance/current-state.json); `docs/RELEASE.md`
+ne riporta i numeri e un gate verifica che coincidano.
 
-Il formato e' dedotto dall'estensione del percorso. Opzioni principali:
+## Licenza
 
-- `--assume-crs <crs>`: dichiara il CRS quando la sorgente non lo porta; non
-  esiste CRS predefinito e nessuna riproiezione e' implicita (ADR-IO 4);
-- `--layer <n>`, `--limit <n>`: selezione e troncamento in lettura;
-- `--opt`, `--in-opt`, `--out-opt` in forma `chiave=valore`: opzioni di formato,
-  rispettivamente comuni, di ingresso e di uscita;
-- `--durable`: forza la durabilita' del publish;
-- `--max-input-bytes`, `--max-input-entries`, `--max-output-bytes`,
-  `--max-rows`, `--max-columns`, `--max-vertices`, `--max-wkb-cell-bytes`,
-  `--max-wkb-components`, `--max-wkb-depth`: limiti di risorsa applicati
-  fail-closed. `--max-input-entries` (default `10_000`) limita il numero di
-  voci visitate dallo scan della sorgente, directory comprese: i byte si
-  sommano solo sui file, quindi da soli non bounderebbero una sorgente fatta
-  di sole directory annidate;
-- `--memory-bytes` (default `512 MiB`): la quota di **memoria**, distinta da
-  quella dell'ingresso. Governa le allocazioni temporanee, e ne deriva il tetto
-  su una singola pagina Parquet non compressa, che ne e' la meta'. Serve dentro
-  container con meno memoria del predefinito: senza, quel tetto resterebbe a
-  256 MiB proprio dove andrebbe stretto. Scendere sotto `--max-wkb-cell-bytes`
-  (default 64 MiB) e' rifiutato — una cella non puo' valere piu' di tutta la
-  memoria — quindi sotto quella soglia i due flag si abbassano insieme.
-
-Ogni comando emette un singolo documento JSON su stdout; gli errori vanno su
-stderr come envelope JSON con categoria, fase, effetto remoto e disposizione di
-retry, e con `row_diagnostics` quando sono osservate rifiuti riga-scoped. Gli
-output esistenti non vengono sovrascritti silenziosamente.
-
-## Contratti e compatibilita'
-
-La superficie congelata per la 1.x sono le sei buste JSON della CLI, dichiarate
-in [`release/cli-protocol-v1.json`](release/cli-protocol-v1.json): `catalog`,
-`inspect`, `layers`, `read`, `convert` ed `error`. L'API Rust resta interna e
-instabile: i crate non sono pubblicati e non offrono garanzia semver.
-
-- Nessun CRS predefinito e nessuna riproiezione implicita.
-- Il contratto del layer e' autoritativo: il consumatore non inferisce lo schema
-  e la projection dichiarata riflette quella realmente applicata (ADR-IO 6).
-- La perdita di informazione e' dichiarata, non silenziosa: ogni lettura e
-  scrittura produce una valutazione di fedelta' e un report di perdita
-  (ADR-IO 5), separati fra `read_loss` e `write_loss`.
-- Il publish e' atomico e avviene solo a successo (ADR-IO 2); la scrittura su
-  filesystem diverso dalla destinazione e' rifiutata prima di rendere visibile
-  qualsiasi output.
-
-Per il modello completo vedere:
-
-- [`Architetture.md`](Architetture.md);
-- [`Prestazioni.md`](Prestazioni.md);
-- [`docs/adr/`](docs/adr/);
-- [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md);
-- [`docs/contracts/README.md`](docs/contracts/README.md);
-- [`docs/assurance/`](docs/assurance/).
-
-## Release
-
-Lo stato candidato corrente e' dichiarato in
-[`release/1.0.1.json`](release/1.0.1.json). I manifesti precedenti restano
-record storici immutabili, e le evidenze di freeze vivono sotto
-[`release/evidence/`](release/evidence/).
-
-Una release stabile richiede sulla stessa revisione immutabile:
-
-1. CI funzionale verde su Linux, Windows, macOS e sulla matrice GDAL;
-2. Clippy, gate anti-panic, `cargo audit` e soglia di coverage;
-3. conformance e roundtrip con `plenora-data-tools` e `plenora-database-tools`;
-4. aggiornamento del manifesto `release/` e della baseline normativa;
-5. revisione indipendente prima del tag.
-
-Il claim corrente e' `verified_internally`: revisione indipendente, RC di
-sistema e certificazione avionica non sono dichiarate. Il bump di versione, il
-tag e la pubblicazione non sono impliciti nel semplice superamento della suite
-locale.
+I due crate vendorizzati sotto `vendor/` conservano la propria licenza upstream
+(MIT) e il proprio `LICENSE.txt`. La provenienza dei fork è registrata in
+`assurance/registries/vendor-dxf-fork.json` e
+`assurance/registries/vendor-gdal-fork.json`, e un gate la confronta con il
+lockfile.

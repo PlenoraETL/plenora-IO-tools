@@ -1,5 +1,5 @@
 //! `LossReport` — un driver `Approximating` deve popolarlo, mai perdere in
-//! silenzio (ADR-IO 5). Aggregato per categoria e **bounded**: conteggi +
+//! silenzio (PRODUCT.md § LossReport). Aggregato per categoria e **bounded**: conteggi +
 //! un numero limitato di esempi, mai una voce per feature.
 
 use std::collections::BTreeMap;
@@ -47,7 +47,7 @@ pub struct FidelityReason {
     pub detail: String,
 }
 
-/// Valutazione concreta restituita da `open`/`create` (ADR-IO 5). Il
+/// Valutazione concreta restituita da `open`/`create` (PRODUCT.md § LossReport). Il
 /// descrittore resta la capacità generale; questa struttura porta l'esito
 /// osservato per il dataset o il contratto corrente.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

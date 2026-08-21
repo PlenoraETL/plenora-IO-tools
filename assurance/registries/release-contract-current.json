@@ -196,7 +196,7 @@
           "scripts/check_assurance_n1.py --release",
           "scripts/check_assurance_n1_prove.py"
         ],
-        "artefatto": "docs/assurance/ASSURANCE_N1_copertura_negativa.json"
+        "artefatto": "assurance/registries/assurance-n1-copertura-negativa.json"
       },
       "stato": "release_blocking",
       "manca": "43 gruppi su 49 restano aperti"

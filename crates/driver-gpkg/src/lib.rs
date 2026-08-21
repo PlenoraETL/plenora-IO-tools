@@ -109,7 +109,7 @@ const fn classe_sqlite(errore: &rusqlite::Error) -> &'static str {
 // stile di `driver-shp` (dbf_numeric_integer_precision_unverifiable): SQLite
 // non impone il tipo dichiarato dalla colonna, quindi un file legittimo può
 // consegnare un REAL dove il contratto dichiara INTEGER. La conversione resta
-// quella storica, ma smette di essere silenziosa (ADR-IO 5).
+// quella storica, ma smette di essere silenziosa (PRODUCT.md § LossReport).
 const INTEGER_COLUMN_REAL_TRUNCATED: &str = "gpkg_integer_column_real_truncated";
 const INTEGER_COLUMN_REAL_SATURATED: &str = "gpkg_integer_column_real_saturated";
 const INTEGER_COLUMN_NON_FINITE_DISCARDED: &str = "gpkg_integer_column_non_finite_discarded";
@@ -425,7 +425,7 @@ impl OpenDatasetHandle for GpkgDataset {
         use plenora_io_core::loss::FidelityReasonCode;
 
         // `Conditional` senza motivi direbbe solo che la fedeltà "dipende".
-        // ADR-IO 5 chiede di elencare cosa la renderebbe approssimante: qui e'
+        // PRODUCT.md § LossReport chiede di elencare cosa la renderebbe approssimante: qui e'
         // la tipizzazione dinamica di SQLite, che non impone il tipo dichiarato
         // dalla colonna. La valutazione resta preventiva; le occorrenze reali
         // finiscono nel `LossReport` del reader.
@@ -799,7 +799,7 @@ impl ColBuilder {
     /// Restituisce la coercizione applicata, se il valore non era già
     /// rappresentabile nel tipo dichiarato dal contratto. Il chiamante la
     /// registra nel `LossReport`: la conversione resta quella storica, ma non
-    /// e' piu' silenziosa (ADR-IO 5).
+    /// e' piu' silenziosa (PRODUCT.md § LossReport).
     fn append(&mut self, v: ValueRef) -> Option<Coercion> {
         match self {
             Self::I64(b) => match v {

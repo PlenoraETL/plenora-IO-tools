@@ -1,4 +1,4 @@
-//! Publish atomico condiviso (ADR-IO 2).
+//! Publish atomico condiviso (ENGINEERING.md § Pipeline di scrittura).
 //!
 //! Profilo v1 di default: `AtomicPublish`; `durable` attiva
 //! `DurableAtomicPublish`, che sincronizza file e directory dove la
@@ -12,7 +12,7 @@ use plenora_io_model::{NumeroStrutturale, PublicMessage};
 use plenora_io_model::{PlenoraIoError, RemoteEffect, Result, RetryDisposition};
 use tempfile::{NamedTempFile, TempDir};
 
-/// Esito del publish (ADR-IO 2): un errore di `fsync` **dopo** il rename lascia
+/// Esito del publish (ENGINEERING.md § Pipeline di scrittura): un errore di `fsync` **dopo** il rename lascia
 /// l'output già visibile ma senza conferma di durabilità.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PublishOutcome {

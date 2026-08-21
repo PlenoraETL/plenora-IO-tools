@@ -1,7 +1,7 @@
 #![no_main]
 //! Coverage-guided sul reader CSV: intestazione, inferenza di tipo a due
 //! passate, adattatore WKT e costruzione dei batch. Il CRS è dichiarato
-//! (ADR-IO 4), quindi la geometria arriva sempre dal contenuto del file.
+//! (PRODUCT.md § CRS), quindi la geometria arriva sempre dal contenuto del file.
 use libfuzzer_sys::fuzz_target;
 
 mod harness;

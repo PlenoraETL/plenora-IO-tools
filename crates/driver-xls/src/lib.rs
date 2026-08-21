@@ -1,6 +1,6 @@
 //! driver-xls — XLSX ↔ `RecordBatch`. Foglio tabellare: la
 //! geometria è dichiarata via `format_options` (`x_column`+`y_column` XY o
-//! `wkt_column` XY/XYZ/XYM/XYZM), il CRS via `assume_crs` (ADR-IO 4). Foglio scelto con
+//! `wkt_column` XY/XYZ/XYM/XYZM), il CRS via `assume_crs` (PRODUCT.md § CRS). Foglio scelto con
 //! `format_options["sheet"]` o il primo. Multi-foglio: incremento futuro.
 #![forbid(unsafe_code)]
 

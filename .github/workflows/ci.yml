@@ -50,6 +50,8 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_release_contract
           python3 scripts/check_release_contract.py
+      - name: Verify the docset
+        run: python3 scripts/check_docset.py
       - name: Verify shared WKB/EWKB corpus
         run: |
           python3 -m unittest scripts.test_compare_shared_wkb_observations

@@ -2,13 +2,13 @@
 //! `geoarrow.wkb` XY/XYM/XYZ/XYZM senza passare da `geo-types`; il dbf fornisce
 //! gli attributi e il `.prj` (o `assume_crs`) il CRS.
 //!
-//! Scrittura (Fase 2B): capability-check fail-closed (ADR-IO 3) — nomi campo dbf
+//! Scrittura (Fase 2B): capability-check fail-closed (ENGINEERING.md § Pipeline di scrittura (capability-check)) — nomi campo dbf
 //! ≤10 char (imposto da `FieldName`), tipo geometria unico per file (imposto da
-//! shapefile). Il publish **multi-file** espone entrambe le modalità di ADR-IO 2:
+//! shapefile). Il publish **multi-file** espone entrambe le modalità di ENGINEERING.md § Pipeline di scrittura:
 //! `*.shp.d` è uno `ShapefileDirectoryDataset` pubblicato con un unico rename
 //! atomico; `*.shp` è un `LooseShapefileSet` compatibile, pubblicato con rename
 //! ordinati e `.shp` per ultimo. `.prj` è scritto se c'è una definizione WKT o
-//! per WGS84; nessuna riproiezione (ADR-IO 4).
+//! per WGS84; nessuna riproiezione (PRODUCT.md § CRS).
 #![forbid(unsafe_code)]
 
 use std::borrow::Cow;
@@ -641,7 +641,7 @@ impl FormatDriver for ShpDriver {
             ))
         })?;
 
-        // Capability-check (ADR-IO 3): costruisce il dbf, fail-closed sui nomi.
+        // Capability-check (ENGINEERING.md § Pipeline di scrittura (capability-check)): costruisce il dbf, fail-closed sui nomi.
         let mut table = TableWriterBuilder::new();
         let mut attrs: Vec<(usize, String, DbfKind)> = Vec::new();
         for (i, f) in schema.fields().iter().enumerate() {
@@ -837,7 +837,7 @@ impl FormatWriter for ShpWriter {
                 rejections.push((row, "shapefile.geometry_not_representable", GEOMETRY));
                 continue;
             };
-            // Capability-check (ADR-IO 3): un unico tipo di geometria per file.
+            // Capability-check (ENGINEERING.md § Pipeline di scrittura (capability-check)): un unico tipo di geometria per file.
             let tag = shape_tag(&shape);
             if tag == "unsupported" {
                 rejections.push((row, "shapefile.geometry_type_unsupported", GEOMETRY));

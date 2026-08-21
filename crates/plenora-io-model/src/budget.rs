@@ -1,4 +1,4 @@
-//! Modello budget unificato del Lotto 0 (`DECISION-PACKAGE-Lotto-0.md`,
+//! Modello budget unificato (PRODUCT.md § Budget e limiti,
 //! INV-1..INV-6, INV-9, INV-11..INV-13).
 //!
 //! Il modulo introduce il modello nuovo **accanto** a [`crate::limits`] e

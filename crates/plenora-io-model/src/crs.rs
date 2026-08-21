@@ -267,7 +267,7 @@ impl RawCrs {
     }
 }
 
-/// Stato esplicito della risoluzione CRS (ADR-IO 4). Evita di rappresentare
+/// Stato esplicito della risoluzione CRS (PRODUCT.md § CRS). Evita di rappresentare
 /// `unknown` come se fosse un [`ResolvedCrs`] valido.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]

@@ -71,7 +71,7 @@ from check_errori_redatti import (  # noqa: E402
 )
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SNAPSHOT = ROOT / "docs" / "contracts" / "quartetto-siti.json"
+SNAPSHOT = ROOT / "assurance" / "registries" / "quartetto-siti.json"
 
 # costruttore -> quartetto completo, quando il costruttore lo impone
 FAMIGLIA = {

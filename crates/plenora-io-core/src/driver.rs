@@ -1,4 +1,4 @@
-//! Il confine plug-in: `FormatDriver` + handle/reader/writer (ADR-IO 1).
+//! Il confine plug-in: `FormatDriver` + handle/reader/writer (ENGINEERING.md § Interfaccia dei driver).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -265,7 +265,7 @@ impl WriteLimitsView {
 /// fino a S4.d la seconda strada era quella presa: costruiva un ramo legacy
 /// con i valori storici, che nessun chiamante aveva chiesto.
 pub struct ReadOptions {
-    /// CRS dichiarato per i formati che non lo portano (CSV/XLSX) — ADR-IO 4.
+    /// CRS dichiarato per i formati che non lo portano (CSV/XLSX) — PRODUCT.md § CRS.
     pub assume_crs: Option<String>,
     /// Knob specifici del driver (es. csv: `x_column`/`y_column`/`wkt_column`/
     /// `delimiter`).
@@ -390,7 +390,7 @@ impl ReadOptions {
 
 /// Opzioni di scrittura. Come [`ReadOptions`], senza `Default`.
 pub struct WriteOptions {
-    /// Profilo `DurableAtomicPublish` (fsync) invece di `AtomicPublish` — ADR-IO 2.
+    /// Profilo `DurableAtomicPublish` (fsync) invece di `AtomicPublish` — ENGINEERING.md § Pipeline di scrittura.
     pub durable: bool,
     /// Knob specifici del driver.
     pub format_options: BTreeMap<String, String>,
@@ -617,7 +617,7 @@ pub trait FormatDriver: Send + Sync {
     /// Restituisce un errore se la sorgente non è accessibile, non è nel
     /// formato atteso o eccede i limiti dichiarati in `opts`.
     fn open(&self, source: Source, opts: ReadOptions) -> Result<Box<dyn OpenDatasetHandle>>;
-    /// Statico: verifica che il contratto sia rappresentabile (ADR-IO 3).
+    /// Statico: verifica che il contratto sia rappresentabile (ENGINEERING.md § Pipeline di scrittura (capability-check)).
     ///
     /// # Errors
     ///
@@ -633,10 +633,10 @@ pub trait FormatDriver: Send + Sync {
 
 pub trait OpenDatasetHandle: Send + Sync {
     fn layers(&self) -> &[LayerContract];
-    /// Valutazione di fedeltà concreta per il dataset aperto (ADR-IO 5).
+    /// Valutazione di fedeltà concreta per il dataset aperto (PRODUCT.md § LossReport).
     fn fidelity_assessment(&self) -> FidelityAssessment;
     /// Apre un reader indipendente per un layer; lo STATO mutabile vive nel
-    /// reader (ADR-IO 1).
+    /// reader (ENGINEERING.md § Interfaccia dei driver).
     ///
     /// # Errors
     ///
@@ -648,7 +648,7 @@ pub trait OpenDatasetHandle: Send + Sync {
 
 pub trait LayerReader {
     /// Schema effettivo del reader, autoritativo: il consumatore non lo inferisce
-    /// (ADR-IO 6). Riflette la projection realmente applicata.
+    /// (ENGINEERING.md § Projection e pruning). Riflette la projection realmente applicata.
     fn contract(&self) -> &LayerContract;
     /// Pull-based con stato; `None` = fine dello stream.
     ///
@@ -657,7 +657,7 @@ pub trait LayerReader {
     /// Restituisce un errore se il flusso sorgente è malformato, se un limite
     /// viene superato o se l'operazione viene annullata.
     fn next_batch(&mut self) -> Result<Option<RecordBatch>>;
-    /// Report di perdita (vuoto per i driver Lossless) — ADR-IO 5.
+    /// Report di perdita (vuoto per i driver Lossless) — PRODUCT.md § LossReport.
     fn loss_report(&self) -> LossReport {
         LossReport::default()
     }
@@ -692,7 +692,7 @@ pub trait FormatWriter {
     /// se un limite viene superato o se il backend rifiuta la scrittura.
     fn write(&mut self, batch: &RecordBatch) -> Result<()>;
     /// Scrive un batch in uno specifico layer (multi-layer). Default: accetta solo
-    /// `LayerId(0)` e delega a `write`; i driver multi-layer fanno override (ADR-IO 1:
+    /// `LayerId(0)` e delega a `write`; i driver multi-layer fanno override (ENGINEERING.md § Interfaccia dei driver:
     /// un dataset-writer coordina tutti i layer con un unico commit atomico).
     ///
     /// # Errors
@@ -713,7 +713,7 @@ pub trait FormatWriter {
     /// `Err` implica il tentativo di non lasciare nulla di visibile.
     ///
     /// La garanzia d'atomicita' del publish e' documentata per driver
-    /// (ADR-IO 2). I formati che pubblicano un file singolo o un
+    /// (ENGINEERING.md § Pipeline di scrittura). I formati che pubblicano un file singolo o un
     /// directory-rename (per esempio `parquet`, `ipc`, `gpkg`, e la
     /// modalita' `ShapefileDirectoryDataset` di `shp`) sono
     /// crash-atomic. I formati con set di file loose (per esempio
@@ -2028,9 +2028,9 @@ fn row_rejection_capability_reason(cause: &str) -> CapabilityReason {
 pub struct Published {
     pub bytes: u64,
     pub loss: LossReport,
-    /// Valutazione specifica della scrittura conclusa (ADR-IO 5).
+    /// Valutazione specifica della scrittura conclusa (PRODUCT.md § LossReport).
     pub fidelity: FidelityAssessment,
-    /// Esito di durabilità del publish (ADR-IO 2).
+    /// Esito di durabilità del publish (ENGINEERING.md § Pipeline di scrittura).
     pub outcome: crate::publish::PublishOutcome,
 }
 

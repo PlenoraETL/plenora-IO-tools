@@ -1,4 +1,4 @@
-//! Spool bounded per l'adapter di lettura operation-atomic (ADR-IO 7 A).
+//! Spool bounded per l'adapter di lettura operation-atomic (ENGINEERING.md § Spool e memoria A).
 //!
 //! L'adapter comune deve consegnare il primo batch solo dopo aver verificato
 //! l'intera sorgente: se una violazione emerge in un punto qualsiasi, il
@@ -14,7 +14,7 @@
 //!
 //! # Il file temporaneo non ha nome
 //!
-//! ADR-IO 7 prevedeva una directory di spill con permessi 0700, una variabile
+//! ENGINEERING.md § Spool e memoria prevedeva una directory di spill con permessi 0700, una variabile
 //! `PLENORA_SPILL_DIR` e uno sweep degli orfani basato su lock esclusivo.
 //! L'implementazione adotta una forma piu' forte e piu' semplice: il file e'
 //! creato con `tempfile::tempfile_in`, cioe' **scollegato dal filesystem

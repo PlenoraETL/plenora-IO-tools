@@ -48,7 +48,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-REGISTRO = ROOT / "docs" / "assurance" / "ASSURANCE_N1_copertura_negativa.json"
+REGISTRO = ROOT / "assurance" / "registries" / "assurance-n1-copertura-negativa.json"
 
 DISPOSIZIONI_APERTE = {"test_tabellare", "fixture", "seme_fuzz"}
 DISPOSIZIONI_CHIUSE = {"strutturale", "difensivo", "chiuso"}

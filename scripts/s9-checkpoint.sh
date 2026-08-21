@@ -396,6 +396,9 @@ passo assurance_fallbacks bash scripts/check_assurance_fallbacks.sh
 # coerente; `check_assurance_n1_prove.py` **esegue** i test dichiarati e legge
 # gli esiti. Il primo resta verde su un test marcato `#[ignore]`, il secondo no
 # -- verificato.
+# Il docset e' minimo per scelta: un documento in piu' e' un documento che
+# nessuno rileggera'. Il gate impedisce che la cronaca rientri.
+passo check_docset python3 scripts/check_docset.py
 passo sonde_assurance_n1 python3 -m unittest scripts.test_check_assurance_n1
 passo assurance_n1_integrita python3 scripts/check_assurance_n1.py --integrita
 passo sonde_assurance_n1_prove python3 -m unittest scripts.test_check_assurance_n1_prove
@@ -582,5 +585,6 @@ echo "esito: S9 checkpoint level 2 passed"
 echo
 echo "Questo esito NON autorizza una release e non promuove la readiness"
 echo "di alcun componente ne' del sistema. Va registrato in un'evidenza S9"
-echo "separata, mai in docs/assurance/SYSTEM_RC_GATE.md."
+echo "separata. La readiness di sistema e' un'altra cosa, di proprieta'"
+echo "esterna: vedi release/system-rc-gate.json."
 echo "=============================================================="

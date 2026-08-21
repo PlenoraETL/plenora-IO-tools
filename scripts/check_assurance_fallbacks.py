@@ -46,7 +46,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHIAMATA = re.compile(r"\bunwrap_or(?:_else|_default)?\s*\(")
 
 # Il registro. Ogni numero e' una decisione scritta in
-# `docs/assurance/FALLBACK_REGISTER.md`; muoverlo senza aggiornare quella
+# `assurance/registries/fallback-register.json`; muoverlo senza aggiornare quella
 # motivazione e' esattamente cio' che il gate esiste per impedire.
 # Il registro vive in `assurance/registries/fallback-register.json`: numero e
 # ragione nello stesso posto, in una forma che si puo' validare. Prima il
