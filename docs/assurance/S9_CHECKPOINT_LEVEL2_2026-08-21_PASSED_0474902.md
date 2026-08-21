@@ -144,3 +144,63 @@ albero.
 | `0474902` | superato — questo documento |
 
 Tutte immutate.
+
+---
+
+## Addendum del 2026-08-21 — due criteri di integrità erano più deboli di come sono scritti
+
+**Il corpo resta com'era.** Questo addendum non ritira le misure: ritira la
+**forza probatoria** di due righe della tabella «Integrità della misura».
+
+I due limiti sono **distinti** e vanno letti separatamente.
+
+### 1. Non esisteva un controllo automatico finale dell'albero
+
+La riga «albero alla misura e a fine corsa | pulito, entrambe» descrive una
+verifica che **lo script non faceva**. `scripts/s9-checkpoint.sh` calcolava
+`git status --porcelain | wc -l` **una volta sola**, in testa, e non rileggeva
+nulla alla fine.
+
+Peggio del non rileggere: un conteggio non avrebbe comunque colto un passo che
+modificasse un file **già** marcato `M`, perché il numero di righe resta
+identico.
+
+### 2. Lo SHA finale era la ristampa del valore iniziale
+
+La riga «SHA in testa e in coda | identici» era **vera per costruzione**. Lo
+script acquisiva `REVISIONE="$(git rev-parse HEAD)"` in testa e ristampava la
+stessa variabile in coda: il confronto non poteva fallire, e non era un
+confronto.
+
+Un commit durante la corsa avrebbe lasciato l'albero invariato e spostato
+`HEAD`: la misura avrebbe descritto un albero e l'esito ne avrebbe nominato un
+altro, senza che nulla lo rivelasse.
+
+### Che cosa resta valido, e su quale base
+
+| | |
+|---|---|
+| le misure del corpo | **valide**: coperture, replay, smoke, gate ed esiti dei passi non dipendono da questi due controlli |
+| l'albero pulito **in testa** | **verificato dallo script**, e per il livello 2 era condizione di partenza con `exit 2` |
+| l'albero pulito **a fine corsa** | per `1806276` **osservato a mano**: il commit dell'evidenza, eseguito subito dopo la corsa, ha elencato come non committato il solo documento nuovo. È una constatazione, non una misura dello strumento, e va letta così |
+| l'albero pulito a fine corsa, revisioni precedenti | **non documentabile**: non ne esiste una registrazione, e non viene affermato |
+| lo SHA invariato | **non verificato** in nessuna delle corse precedenti a `INFRA-7` |
+
+### Correzione
+
+`INFRA-7` sostituisce entrambi i controlli con misure vere:
+
+* `impronta_albero` — sha256 di `git diff --cached --binary --no-ext-diff
+  --no-textconv`, `git diff` con le stesse opzioni, e percorso più hash del
+  contenuto di ogni file non tracciato e non ignorato, con delimitazione
+  esplicita. Confrontata in testa e in coda, e registrata come passo
+  `albero_invariato`;
+* `revisione_invariata` — `git rev-parse HEAD` **riletto** a fine corsa e
+  confrontato con quello iniziale.
+
+Entrambi sono passi veri: contano fra i passi, rossano il checkpoint, e hanno
+sonde che li fanno fallire. Fra queste, le decisive: un file già sporco che
+cambia lascia il conteggio identico e muove l'impronta; un commit vuoto lascia
+l'impronta identica e muove `HEAD`.
+
+**Nessuna evidenza storica è stata riscritta.**

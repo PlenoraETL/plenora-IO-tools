@@ -666,6 +666,64 @@ Quattro gruppi di sonde in `scripts/test_s9_checkpoint.sh`, di cui **la
 decisiva**: al livello 2 lo stesso passo pesante gira *e rossa*. Senza, la
 modalita' potrebbe omettere sempre e nessuno se ne accorgerebbe.
 
+#### INFRA-7 — tre difese che mancavano (2026-08-21)
+
+La prima stesura della modalita' funzionava e non dimostrava abbastanza. Tre
+buchi, tutti della stessa famiglia: **un insieme aperto dove serviva chiuso, e
+un conteggio dove serviva un'impronta**.
+
+##### 1. L'elenco dei passi pesanti e' chiuso
+
+`passo_pesante` accettava qualunque nome. Marcare per sbaglio un gate come
+pesante lo avrebbe fatto sparire dal livello 1 in silenzio — il difetto che la
+modalita' esiste per chiudere, reintrodotto dalla porta di servizio.
+
+`PASSI_PESANTI` elenca i **nove** nomi ammessi; un decimo e' un errore di
+programmazione dello script e rossa in **entrambe** le modalita', perche'
+riguarda la dichiarazione e non l'esecuzione.
+
+Appena introdotto, l'elenco ha reso rosse le sonde della modalita' stessa, che
+usavano nomi inventati: una sonda deve esercitare il meccanismo con nomi veri.
+
+##### 2. L'albero e' misurato per impronta, non per conteggio
+
+`git status --porcelain | wc -l` conta le righe: un passo che modifichi un file
+**gia' sporco** lascia il conteggio identico. E non esisteva alcuna rilettura a
+fine corsa — la riga «albero a fine misura: pulito» delle evidenze descriveva
+una verifica che lo script non faceva.
+
+`impronta_albero` combina `git diff --cached` e `git diff`, entrambi con
+`--binary --no-ext-diff --no-textconv`, e per ogni file non tracciato e non
+ignorato il **percorso piu' l'hash del contenuto**, delimitati:
+
+| Opzione | Difetto che chiude |
+|---|---|
+| `--binary` | senza, git stampa «Binary files differ»: la stessa riga per due modifiche diverse |
+| `--no-ext-diff`, `--no-textconv` | un driver di diff configurato nell'ambiente cambierebbe l'impronta senza che l'albero sia cambiato |
+| `U percorso hash ` | percorso e contenuto incollati renderebbero ambiguo il confine, e due alberi diversi potrebbero collidere |
+
+Prova end-to-end: un passo modifica una sentinella **gia' sporca**; il conteggio
+resta a 6 e `albero_invariato` diventa rosso.
+
+##### 3. La revisione e' riletta, non ristampata
+
+La coda stampava la variabile `REVISIONE` acquisita in testa. «SHA iniziale e
+finale identici» era **vero per costruzione**: non poteva fallire, e non era un
+confronto. Le evidenze lo elencavano fra i criteri di integrita'.
+
+`REVISIONE_FINE="$(git rev-parse HEAD)"` e' ora riletta e confrontata, come
+passo `revisione_invariata`. La sonda decisiva usa un **commit vuoto**: l'albero
+resta identico, `HEAD` si muove. Due sonde separate provano che l'impronta non
+se ne accorge — giustamente, non e' il suo lavoro — e che rileggere `HEAD` lo
+rivela.
+
+I due passi restano **distinti**: nella prova end-to-end `revisione_invariata`
+e' verde mentre `albero_invariato` e' rosso. Un controllo unico confonderebbe
+«qualcuno ha scritto nell'albero» con «qualcuno ha spostato HEAD», che hanno
+cause e rimedi diversi.
+
+Sonde totali del checkpoint: **54**.
+
 ### Livello 2 — checkpoint
 
 **Ogni tre driver, e alla chiusura di S9.** Si esegue con

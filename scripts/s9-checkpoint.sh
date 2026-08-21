@@ -100,6 +100,48 @@ salta() {
     falliti+=("${nome}(saltato)")
 }
 
+# I **nove** passi che il livello 1 puo' omettere. Elenco chiuso.
+#
+# Senza questo elenco `passo_pesante` accetterebbe qualunque nome, e marcare
+# per sbaglio un gate come pesante lo farebbe sparire dal livello 1 in
+# silenzio: esattamente il difetto che la modalita' esiste per chiudere,
+# reintrodotto dalla porta di servizio. Un nome che non e' qui e' un errore di
+# programmazione dello script, non un passo nuovo.
+PASSI_PESANTI=(
+    fuzz_replay
+    fuzz_smoke
+    coverage_pulizia
+    coverage_misura
+    coverage_export
+    coverage_report_non_vuoto
+    check_coverage_exclusions
+    coverage_soglia_dal_report
+    coverage_soglia_controprova
+)
+
+e_pesante_autorizzato() {
+    local cercato="$1" noto
+    for noto in "${PASSI_PESANTI[@]}"; do
+        [ "${noto}" = "${cercato}" ] && return 0
+    done
+    return 1
+}
+
+# Il rifiuto vale in **entrambe** le modalita': riguarda la dichiarazione, non
+# l'esecuzione. Un passo dichiarato pesante e non autorizzato e' un difetto
+# dello script anche quando lo script lo eseguirebbe comunque.
+rifiuta_non_autorizzato() {
+    local nome="$1"
+    passi=$((passi + 1))
+    printf '  %-38s ' "${nome}"
+    echo "NON AUTORIZZATO come passo pesante"
+    echo "    `${nome}` non e' nell'elenco chiuso PASSI_PESANTI." >&2
+    echo "    Marcare pesante un passo che non lo e' lo fa sparire dal" >&2
+    echo "    livello 1 in silenzio. Se il passo e' davvero pesante," >&2
+    echo "    aggiungilo all'elenco e alla sonda, nello stesso commit." >&2
+    falliti+=("${nome}(non autorizzato)")
+}
+
 # Un passo che il livello 1 **omette**: fuzz e copertura.
 #
 # Omesso non e' saltato. `salta` marca un passo che *doveva* girare e non ha
@@ -110,6 +152,10 @@ salta() {
 passo_pesante() {
     local nome="$1"
     shift
+    if ! e_pesante_autorizzato "${nome}"; then
+        rifiuta_non_autorizzato "${nome}"
+        return 1
+    fi
     if [ "${LIVELLO}" = "1" ]; then
         omessi=$((omessi + 1))
         printf '  %-38s ' "${nome}"
@@ -123,6 +169,10 @@ passo_pesante() {
 passo_pesante_in_catena() {
     local nome="$1"
     shift
+    if ! e_pesante_autorizzato "${nome}"; then
+        rifiuta_non_autorizzato "${nome}"
+        return 1
+    fi
     if [ "${LIVELLO}" = "1" ]; then
         omessi=$((omessi + 1))
         printf '  %-38s ' "${nome}"
@@ -155,6 +205,49 @@ passo_in_catena() {
     return 1
 }
 
+# Impronta di **cio' che l'albero contiene**, non di quanti file sono sporchi.
+#
+# `git status --porcelain | wc -l` conta le righe: un passo che modificasse un
+# file gia' marcato `M` lascerebbe il conteggio identico. Il conteggio dice
+# «quante cose sono diverse», e serve invece sapere «quali, e come».
+#
+# Tre componenti, perche' una sola non basta:
+#
+#   * `git diff --cached` — cio' che e' in staging;
+#   * `git diff` — le modifiche non in staging ai file tracciati, dove finisce
+#     una scrittura su un file gia' sporco;
+#   * il **contenuto** dei file non tracciati e non ignorati — il loro elenco
+#     non basta, perche' riscrivere un untracked gia' presente non cambia
+#     l'elenco.
+#
+# Chiude la classe di difetto incontrata il 2026-08-21 con le sonde
+# distruttive, dove un ripristino cancello' modifiche non committate e i
+# conteggi non se ne accorsero.
+impronta_albero() {
+    {
+        # `--binary` perche' senza di esso git stampa «Binary files differ» e
+        # due modifiche diverse allo stesso binario darebbero la stessa riga.
+        # `--no-ext-diff` e `--no-textconv` perche' un driver di diff
+        # configurato nell'ambiente cambierebbe l'impronta senza che l'albero
+        # sia cambiato -- e la renderebbe non riproducibile fuori da qui.
+        git diff --cached --binary --no-ext-diff --no-textconv
+        git diff --binary --no-ext-diff --no-textconv
+        git ls-files --others --exclude-standard -z | sort -z |
+            while IFS= read -r -d '' percorso; do
+                # Percorso **e** hash del contenuto, ciascuno delimitato: dare
+                # in pasto il contenuto grezzo renderebbe ambiguo il confine
+                # fra un percorso e il file precedente, e due alberi diversi
+                # potrebbero collidere.
+                if [ -f "${percorso}" ] && [ ! -L "${percorso}" ]; then
+                    contenuto="$(sha256sum < "${percorso}" | cut -d' ' -f1)"
+                else
+                    contenuto="non-regolare"
+                fi
+                printf 'U\0%s\0%s\0' "${percorso}" "${contenuto}"
+            done
+    } 2>/dev/null | sha256sum | cut -d' ' -f1
+}
+
 # Consente alle sonde di caricare solo le funzioni, senza eseguire il
 # checkpoint. Un gate che non si puo' provare e' un gate di cui ci si fida
 # perche' non si e' mai visto sbagliare.
@@ -164,6 +257,7 @@ fi
 
 REVISIONE="$(git rev-parse HEAD)"
 SPORCHI="$(git status --porcelain | wc -l)"
+IMPRONTA_INIZIO="$(impronta_albero)"
 
 echo "=============================================================="
 if [ "${LIVELLO}" = "1" ]; then
@@ -173,6 +267,7 @@ else
 fi
 echo "revisione:      ${REVISIONE}"
 echo "albero:         ${SPORCHI} file non committati"
+echo "impronta:       ${IMPRONTA_INIZIO}"
 echo "log:            ${LOG_DIR}"
 echo "=============================================================="
 
@@ -360,9 +455,52 @@ else
     echo "  Impostala alla revisione dell'ultimo checkpoint superato."
 fi
 
+# L'albero non deve essere cambiato **sotto la misura**. Vale anche al
+# livello 1: li' l'albero puo' essere sporco, ma deve restare sporco **allo
+# stesso modo**. Un passo che scrive nell'albero che sta verificando invalida
+# la verifica, e lo fa in modo che nessun conteggio rivela.
+# La revisione va **riletta**, non ristampata. Fino al 2026-08-21 la coda
+# stampava la stessa variabile acquisita in testa: «SHA iniziale e finale
+# identici» era una tautografia, non una misura, e le evidenze la elencavano
+# fra i criteri verificati. Un commit durante la corsa lascerebbe l'albero
+# invariato e sposterebbe HEAD, cioe' descriverebbe una revisione diversa da
+# quella misurata.
+REVISIONE_FINE="$(git rev-parse HEAD)"
+if [ "${REVISIONE_FINE}" != "${REVISIONE}" ]; then
+    passi=$((passi + 1))
+    printf '  %-38s ' "revisione_invariata"
+    echo "ROSSO — HEAD si e' mosso durante la corsa"
+    echo "    revisione iniziale: ${REVISIONE}" >&2
+    echo "    revisione finale:   ${REVISIONE_FINE}" >&2
+    echo "    La misura descrive un albero, l'esito ne nominerebbe un altro." >&2
+    falliti+=("revisione_invariata")
+else
+    passi=$((passi + 1))
+    verdi=$((verdi + 1))
+    printf '  %-38s ' "revisione_invariata"
+    echo "verde"
+fi
+
+IMPRONTA_FINE="$(impronta_albero)"
+if [ "${IMPRONTA_FINE}" != "${IMPRONTA_INIZIO}" ]; then
+    passi=$((passi + 1))
+    printf '  %-38s ' "albero_invariato"
+    echo "ROSSO — l'albero e' cambiato durante la corsa"
+    echo "    impronta iniziale: ${IMPRONTA_INIZIO}" >&2
+    echo "    impronta finale:   ${IMPRONTA_FINE}" >&2
+    echo "    Un passo ha scritto nell'albero che stava verificando." >&2
+    falliti+=("albero_invariato")
+else
+    passi=$((passi + 1))
+    verdi=$((verdi + 1))
+    printf '  %-38s ' "albero_invariato"
+    echo "verde"
+fi
+
 echo
 echo "=============================================================="
-echo "revisione verificata: ${REVISIONE}"
+echo "revisione verificata: ${REVISIONE_FINE}"
+echo "impronta albero:      ${IMPRONTA_FINE}"
 echo "passi: ${verdi}/${passi}"
 if [ "${#falliti[@]}" -ne 0 ]; then
     echo "ROSSI: ${falliti[*]}"

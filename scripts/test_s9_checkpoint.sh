@@ -151,7 +151,7 @@ verdi=0
 omessi=0
 falliti=()
 LIVELLO=1
-esegui passo_pesante misura_costosa true
+esegui passo_pesante fuzz_replay true
 verifica "livello 1: un passo pesante non entra fra i passi" "0" "${passi}"
 verifica "livello 1: e' contato fra gli omessi" "1" "${omessi}"
 verifica "livello 1: non e' contato fra i falliti" "0" "${#falliti[@]}"
@@ -161,7 +161,7 @@ verifica "livello 1: non e' contato fra i falliti" "0" "${#falliti[@]}"
 passi=0
 omessi=0
 falliti=()
-esegui passo_pesante misura_che_fallirebbe false
+esegui passo_pesante fuzz_smoke false
 verifica "livello 1: un pesante rotto non viene eseguito" "0" "${#falliti[@]}"
 
 # 3. Al livello 2 lo stesso passo gira e rossa. Senza questa sonda la
@@ -171,7 +171,7 @@ verdi=0
 omessi=0
 falliti=()
 LIVELLO=2
-esegui passo_pesante misura_che_fallisce false
+esegui passo_pesante coverage_misura false
 verifica "livello 2: lo stesso passo viene eseguito" "1" "${passi}"
 verifica "livello 2: e ne raccoglie il rosso" "1" "${#falliti[@]}"
 verifica "livello 2: nessun passo omesso" "0" "${omessi}"
@@ -186,6 +186,196 @@ LIVELLO=1
 esegui passo gate_qualunque true
 verifica "livello 1: un passo normale gira lo stesso" "1" "${verdi}"
 LIVELLO=2
+
+# --- INFRA-7a: l'elenco dei passi pesanti e' chiuso -------------------------
+#
+# Senza elenco chiuso, marcare per sbaglio un gate come pesante lo farebbe
+# sparire dal livello 1 in silenzio: lo stesso difetto che la modalita' esiste
+# per chiudere, reintrodotto dalla porta di servizio.
+
+passi=0
+verdi=0
+omessi=0
+falliti=()
+LIVELLO=1
+esegui passo_pesante fuzz_smoke true
+verifica "un nome autorizzato e' omesso" "1" "${omessi}"
+verifica "e non e' fra i falliti" "0" "${#falliti[@]}"
+
+passi=0
+verdi=0
+omessi=0
+falliti=()
+esegui passo_pesante un_gate_qualunque true
+verifica "un decimo nome e' rifiutato" "1" "${#falliti[@]}"
+verifica "il rifiuto non lo conta fra gli omessi" "0" "${omessi}"
+verifica \
+    "il rifiuto e' motivato nel nome del fallito" \
+    "un_gate_qualunque(non autorizzato)" \
+    "${falliti[0]}"
+
+# Il rifiuto riguarda la **dichiarazione**, quindi vale anche al livello 2,
+# dove il passo verrebbe comunque eseguito.
+passi=0
+verdi=0
+omessi=0
+falliti=()
+LIVELLO=2
+esegui passo_pesante un_gate_qualunque true
+verifica "il rifiuto vale anche al livello 2" "1" "${#falliti[@]}"
+verifica "e il passo non viene eseguito" "0" "${verdi}"
+
+# I nove autorizzati sono esattamente nove, e sono quelli.
+verifica "l'elenco chiuso ha nove nomi" "9" "${#PASSI_PESANTI[@]}"
+for atteso in fuzz_replay fuzz_smoke coverage_pulizia coverage_misura \
+    coverage_export coverage_report_non_vuoto check_coverage_exclusions \
+    coverage_soglia_dal_report coverage_soglia_controprova; do
+    if e_pesante_autorizzato "${atteso}"; then
+        verifica "«${atteso}» e' autorizzato" "si" "si"
+    else
+        verifica "«${atteso}» e' autorizzato" "si" "no"
+    fi
+done
+LIVELLO=2
+
+# --- INFRA-7b: l'impronta dell'albero ---------------------------------------
+#
+# `git status --porcelain | wc -l` conta le righe: un passo che modifica un
+# file **gia' sporco** lascia il conteggio identico. La sonda decisiva e'
+# proprio quella, e senza di essa la difesa sarebbe apparente.
+
+ALBERO="${S9_CHECKPOINT_LOG_DIR}/albero-finto"
+rm -rf "${ALBERO}"
+mkdir -p "${ALBERO}"
+(
+    cd "${ALBERO}" || exit 1
+    git init -q .
+    git config user.email prova@example.com
+    git config user.name Prova
+    echo "originale" > tracciato.txt
+    echo "altro" > secondo.txt
+    git add -A
+    git commit -qm base
+    # Un file **gia' sporco** prima della misura, come nell'incidente.
+    echo "modificato a mano" > tracciato.txt
+    echo "non tracciato" > nuovo.txt
+)
+
+impronta_in() { ( cd "$1" && impronta_albero ); }
+
+sporchi_prima="$( ( cd "${ALBERO}" && git status --porcelain | wc -l ) | tr -d ' ' )"
+prima="$(impronta_in "${ALBERO}")"
+
+# La sentinella gia' sporca viene modificata: il conteggio non si muove.
+echo "modificato da un passo" > "${ALBERO}/tracciato.txt"
+sporchi_dopo="$( ( cd "${ALBERO}" && git status --porcelain | wc -l ) | tr -d ' ' )"
+dopo="$(impronta_in "${ALBERO}")"
+
+verifica "il conteggio dei file sporchi NON si accorge" "${sporchi_prima}" "${sporchi_dopo}"
+if [ "${prima}" != "${dopo}" ]; then
+    verifica "l'impronta invece si' (file gia' sporco)" "diversa" "diversa"
+else
+    verifica "l'impronta invece si' (file gia' sporco)" "diversa" "uguale"
+fi
+
+# Anche un untracked **gia' presente** che cambia contenuto: l'elenco dei nomi
+# resterebbe identico.
+echo "modificato da un passo" > "${ALBERO}/tracciato.txt"
+prima="$(impronta_in "${ALBERO}")"
+echo "contenuto diverso" > "${ALBERO}/nuovo.txt"
+dopo="$(impronta_in "${ALBERO}")"
+if [ "${prima}" != "${dopo}" ]; then
+    verifica "l'impronta vede un untracked riscritto" "diversa" "diversa"
+else
+    verifica "l'impronta vede un untracked riscritto" "diversa" "uguale"
+fi
+
+# E un albero fermo da' la stessa impronta: senza questa, «sempre diversa»
+# passerebbe per una difesa.
+prima="$(impronta_in "${ALBERO}")"
+dopo="$(impronta_in "${ALBERO}")"
+verifica "un albero fermo da' impronta stabile" "${prima}" "${dopo}"
+
+# --- INFRA-7b: l'impronta regge i binari ------------------------------------
+#
+# Senza `--binary`, git stampa «Binary files a/x and b/x differ»: **la stessa
+# riga** per due modifiche diverse. L'impronta non distinguerebbe un binario
+# corrotto da uno sostituito.
+(
+    cd "${ALBERO}" || exit 1
+    printf 'PK\003\004\000\001\002' > binario.bin
+    git add binario.bin
+    git commit -qm binario
+)
+printf 'PK\003\004\377\376\375' > "${ALBERO}/binario.bin"
+prima="$(impronta_in "${ALBERO}")"
+printf 'PK\003\004\001\002\003' > "${ALBERO}/binario.bin"
+dopo="$(impronta_in "${ALBERO}")"
+if [ "${prima}" != "${dopo}" ]; then
+    verifica "due modifiche binarie diverse danno impronte diverse" "diversa" "diversa"
+else
+    verifica "due modifiche binarie diverse danno impronte diverse" "diversa" "uguale"
+fi
+
+# Due untracked distinti non devono collidere per come sono concatenati: il
+# percorso e il contenuto sono delimitati, non incollati.
+(
+    cd "${ALBERO}" || exit 1
+    printf 'b' > 'a'
+    printf '' > 'ab'
+)
+uno="$(impronta_in "${ALBERO}")"
+(
+    cd "${ALBERO}" || exit 1
+    rm -f 'a' 'ab'
+    printf '' > 'a'
+    printf 'b' > 'ab'
+)
+due="$(impronta_in "${ALBERO}")"
+if [ "${uno}" != "${due}" ]; then
+    verifica "due untracked non collidono per concatenazione" "diversa" "diversa"
+else
+    verifica "due untracked non collidono per concatenazione" "diversa" "uguale"
+fi
+
+# --- INFRA-7b: la revisione va riletta, non ristampata ----------------------
+#
+# Un commit durante la corsa lascia l'albero **invariato** e sposta HEAD: la
+# misura descriverebbe un albero e l'esito ne nominerebbe un altro. Fino al
+# 2026-08-21 la coda ristampava la variabile acquisita in testa, quindi «SHA
+# iniziale e finale identici» era vero per costruzione.
+(
+    cd "${ALBERO}" || exit 1
+    git add -A
+    git commit -qm "stato di partenza"
+)
+revisione_prima="$( ( cd "${ALBERO}" && git rev-parse HEAD ) )"
+impronta_prima="$(impronta_in "${ALBERO}")"
+
+# Un commit **vuoto**: HEAD si muove, l'albero no.
+( cd "${ALBERO}" && git commit -q --allow-empty -m "commit durante la corsa" )
+
+revisione_dopo="$( ( cd "${ALBERO}" && git rev-parse HEAD ) )"
+impronta_dopo="$(impronta_in "${ALBERO}")"
+
+verifica "un commit vuoto NON muove l'impronta" "${impronta_prima}" "${impronta_dopo}"
+if [ "${revisione_prima}" != "${revisione_dopo}" ]; then
+    verifica "ma muove HEAD, e va colto a parte" "diversa" "diversa"
+else
+    verifica "ma muove HEAD, e va colto a parte" "diversa" "uguale"
+fi
+
+# La lettura deve venire da `git`, non da una variabile: se la coda dello
+# script ristampasse `REVISIONE`, questo confronto sarebbe sempre verde.
+REVISIONE="${revisione_prima}"
+REVISIONE_FINE="$( ( cd "${ALBERO}" && git rev-parse HEAD ) )"
+if [ "${REVISIONE_FINE}" != "${REVISIONE}" ]; then
+    verifica "rileggere HEAD rivela lo spostamento" "rivelato" "rivelato"
+else
+    verifica "rileggere HEAD rivela lo spostamento" "rivelato" "nascosto"
+fi
+
+rm -rf "${ALBERO}"
 
 echo
 if [ "${rosse}" -ne 0 ]; then
