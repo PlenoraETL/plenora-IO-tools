@@ -122,3 +122,49 @@ leggendo i commenti.
   coprono un ramo, 2 provano un'irraggiungibilità;
 * sonde: 16 per il registro, 15 per le prove eseguite;
 * livello 1: **45 passi, 9 omessi, verde**.
+
+---
+
+## Addendum del 2026-08-21 — la precedenza delle guardie è un invariante N1, non un contratto di wire
+
+**Il corpo resta com'era.** L'addendum non ritira una misura: qualifica una
+frase che, come è scritta, si può leggere più larga di quanto sia.
+
+### La frase da qualificare
+
+Nel corpo, sezione *Come è stato corretto*:
+
+> I test dicono ora ciò che misurano, e provano un contratto **più forte**: la
+> **precedenza**.
+
+«Contratto» lì significa **contratto interno di ASSURANCE-N1**, e non
+compatibilità pubblica.
+
+### La distinzione, e perché conta
+
+| | |
+|---|---|
+| che cosa i due test provano | che `validate_write` e `valida_opzioni` rifiutano **prima** dei rami di `create` |
+| a che cosa serve | a mantenere vera l'affermazione «quei rami sono irraggiungibili dall'API pubblica», che è ciò su cui il gruppo è stato chiuso |
+| che cosa **non** è | una promessa ai consumatori che quell'ordine non cambierà, né che quei codici d'errore siano una chiave di compatibilità |
+
+Se un giorno la precedenza cambiasse — per esempio perché `validate_write`
+smette di rifiutare un piano con due layer — i due test diventerebbero rossi.
+**È il comportamento voluto**: segnalano che l'irraggiungibilità non vale più e
+che il gruppo va riaperto. Non segnalano una rottura di compatibilità pubblica,
+perché nessuno l'ha promessa.
+
+L'unica chiave di compatibilità ratificata resta il quartetto
+`(category, phase, code, retry)`, dalla decisione 2 di S9. L'**ordine** in cui
+due guardie interne si dispongono non ne fa parte, e non ci entra per il fatto
+di essere verificato.
+
+### Conseguenza pratica
+
+Il registro N1 può contare su questi test per tenere in piedi
+un'irraggiungibilità. Un consumatore esterno **no**: per lui quei rifiuti sono
+errori tipizzati come gli altri, e l'unica cosa su cui può contare è il
+quartetto.
+
+Se un giorno servisse promettere anche la precedenza, sarebbe una **ratifica
+separata**, con la sua decisione scritta — non un corollario di questa tranche.
