@@ -1,5 +1,5 @@
-//! `ReadRequest` (projection + pruning, mai filtering — ENGINEERING.md § Projection e pruning) e `WritePlan`
-//! (ENGINEERING.md § Interfaccia dei driver).
+//! `ReadRequest` (projection + pruning, mai filtering — `ENGINEERING.md § Projection e pruning`) e `WritePlan`
+//! (`ENGINEERING.md § Interfaccia dei driver`).
 
 use std::sync::Arc;
 
@@ -39,8 +39,10 @@ pub enum PruningScalar {
 }
 
 /// Suggerimento di pruning interpretato dal driver **solo** se ha una capacità
-/// nativa equivalente (es. min/max di row group). Non è un filtro:
-/// over-return ammesso, under-return vietato (ENGINEERING.md § Projection e pruning).
+/// nativa equivalente, per esempio min/max di row group.
+///
+/// Non è un filtro: over-return ammesso, under-return vietato. Vedi
+/// `ENGINEERING.md § Projection e pruning`.
 #[derive(Clone, Debug)]
 pub enum PruningPredicate {
     NumericComparison {
@@ -52,7 +54,7 @@ pub enum PruningPredicate {
     Opaque(String),
 }
 
-/// Modalità di projection (ENGINEERING.md § Projection e pruning).
+/// Modalità di projection (`ENGINEERING.md § Projection e pruning`).
 ///
 /// `Required` = il reader produce esattamente la projection o fallisce
 /// all'apertura; `BestEffort` = può restituire colonne extra, lo schema
@@ -145,7 +147,7 @@ pub struct ReadRequest {
     pub layer: LayerId,
     /// La geometria è inclusa solo se richiesta dalla projection, necessaria per
     /// `spatial_pruning_hint`, o richiesta dal contratto del consumatore — mai
-    /// forzata per letture puramente tabellari (ENGINEERING.md § Projection e pruning).
+    /// forzata per letture puramente tabellari (`ENGINEERING.md § Projection e pruning`).
     pub projected_fields: Option<Vec<FieldId>>,
     pub projection_mode: ProjectionMode,
     pub pruning_predicate: Option<PruningPredicate>,
@@ -243,7 +245,7 @@ pub fn project_layer_contract(
 /// Traduce il target in byte in un numero di righe conservativo per i reader
 /// che costruiscono batch incrementali.
 ///
-/// È una stima (ENGINEERING.md § Projection e pruning), non un limite di memoria: le colonne variabili e la
+/// È una stima (`ENGINEERING.md § Projection e pruning`), non un limite di memoria: le colonne variabili e la
 /// geometria possono avere righe atipiche.
 #[must_use]
 pub fn effective_batch_rows(schema: &Schema, target: BatchTarget) -> usize {

@@ -103,7 +103,7 @@ impl OpenDatasetHandle for BudgetedDataset {
 /// sorgente fino a EOF e verifica il contratto su tutti i batch. Solo dopo
 /// aver drenato l'intera sorgente restituisce il primo batch al chiamante.
 ///
-/// La ragione e' l'atomicita' operativa, ratificata da ENGINEERING.md § Spool e memoria opzione A: se
+/// La ragione e' l'atomicita' operativa, ratificata da `ENGINEERING.md § Spool e memoria opzione A: se`
 /// una violazione emerge in un qualsiasi punto della sorgente, il chiamante
 /// non deve aver mai visto un prefisso accepted; l'intera operazione viene
 /// rigettata come un blocco unico. Il pattern semplifica il rollback lato
@@ -118,7 +118,7 @@ impl OpenDatasetHandle for BudgetedDataset {
 /// che torna quando il batch lascia la RAM — non un consumo definitivo.
 ///
 /// Lo streaming reale, con errore terminale *dopo* batch gia' consegnati,
-/// resta l'opzione B di ENGINEERING.md § Spool e memoria: valutata e scartata, perche' cambia il
+/// resta l'opzione B di `ENGINEERING.md § Spool e memoria: valutata e scartata`, perche' cambia il
 /// contratto pubblico e richiede coordinamento cross-component.
 struct BudgetedReader {
     inner: Box<dyn LayerReader>,
@@ -1163,7 +1163,7 @@ fn geometry_components(
     )))
 }
 
-/// Adatta i batch prodotti da un reader al target comune di ENGINEERING.md § Projection e pruning.
+/// Adatta i batch prodotti da un reader al target comune di `ENGINEERING.md § Projection e pruning`.
 ///
 /// Lo slicing Arrow non copia i buffer e quindi limita la cardinalità esposta,
 /// non la memoria già allocata dal reader sottostante.
@@ -1300,7 +1300,7 @@ fn reader_loss(reader: &dyn LayerReader) -> LossReport {
     loss
 }
 
-/// Enforcement runtime di `ReaderConcurrency::SingleActiveReader` (ENGINEERING.md § Interfaccia dei driver).
+/// Enforcement runtime di `ReaderConcurrency::SingleActiveReader` (`ENGINEERING.md § Interfaccia dei driver`).
 /// Il lease è per-handle: viene rilasciato a EOF/errore o al drop anticipato.
 #[derive(Clone)]
 pub struct SingleReaderGate {
@@ -1571,7 +1571,7 @@ mod tests {
         .unwrap()
     }
 
-    /// Il caso che ENGINEERING.md § Spool e memoria esiste per risolvere: prima dello spool i batch
+    /// Il caso che `ENGINEERING.md § Spool e memoria esiste per risolvere: prima dello spool i batch`
     /// verificati restavano tutti in RAM, quindi un dataset piu' grande della
     /// quota di memoria falliva `LimitExceeded` anche se ogni singolo batch ci
     /// stava comodamente.

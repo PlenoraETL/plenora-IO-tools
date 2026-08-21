@@ -3,7 +3,7 @@
 //! conteggio righe), `convert` (pipeline operation-atomic: valida la sorgente
 //! fino a EOF prima di esporre batch al writer, poi trasferisce i `RecordBatch`
 //! e pubblica atomicamente). Nessuna riproiezione: il CRS è
-//! letto/scritto, mai trasformato (PRODUCT.md § CRS).
+//! letto/scritto, mai trasformato (`PRODUCT.md § CRS`).
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;

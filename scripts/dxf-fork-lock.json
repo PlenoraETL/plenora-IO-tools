@@ -8,14 +8,12 @@
   "upstream_tag_object": "c965cc8ef139b191131780ccdcf134c220642b16",
   "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
   "vendor_path": "vendor/dxf",
-  "file_count": 60,
-  "tree_sha256": "7de901d9fba185c4bd53d5149d654281298035d405ac05aeb4a434d978110c13",
+  "file_count": 59,
+  "tree_sha256": "569ba3dc363bbcecbe12d7435a01b04ccd54edb23018d7bd07d20e8c9d99dd6b",
   "functional_delta_files": [
     "src/code_pair_iter.rs",
     "src/drawing.rs",
     "src/lib.rs"
   ],
-  "packaging_delta_files": [
-    "PLENORA_FORK.md"
-  ]
+  "packaging_delta_files": []
 }

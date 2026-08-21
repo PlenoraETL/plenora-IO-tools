@@ -96,7 +96,7 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     // riflette il comportamento reale del driver, che non conserva `id`,
     // `bbox` ne' foreign members al re-encode (writer a riga 1088+ emette
     // solo `type`, `geometry` e `properties`). Il principio scritto in
-    // PRODUCT.md § LossReport — "un report vuoto significa 'nessuna
+    // `PRODUCT.md § LossReport — "un report vuoto significa 'nessuna`
     // perdita osservata', non `Lossless`" — vale anche qui: il descrittore
     // dichiara la classe potenziale, il `LossReport` dichiara le perdite
     // osservate.

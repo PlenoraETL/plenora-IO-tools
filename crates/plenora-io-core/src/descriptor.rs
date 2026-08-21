@@ -72,7 +72,7 @@ pub enum DeliverySemantics {
     /// blocco unico.
     ///
     /// E' il comportamento di `BudgetedReader`, che esegue `drain_operation`
-    /// durante la **prima** chiamata di `next_batch` — ratificato da ENGINEERING.md § Spool e memoria
+    /// durante la **prima** chiamata di `next_batch` — ratificato da `ENGINEERING.md § Spool e memoria`
     /// opzione A.
     OperationAtomic,
     /// Batch consegnati appena disponibili, con errore terminale possibile
@@ -102,7 +102,7 @@ pub enum BufferingStrategy {
     ///
     /// Il picco e' `soglia + batch corrente`, indipendente dalla dimensione
     /// totale dell'input. E' la strategia dello `StagedSpool` che
-    /// `BudgetedReader` usa dopo ENGINEERING.md § Spool e memoria opzione A.
+    /// `BudgetedReader` usa dopo `ENGINEERING.md § Spool e memoria opzione A`.
     AdaptiveMemoryThenDisk,
 }
 
@@ -120,7 +120,7 @@ pub enum DeterminismLevel {
     Unordered,
 }
 
-/// Fedeltà a tre livelli: dipende dal contratto, non solo dal formato (PRODUCT.md § LossReport).
+/// Fedeltà a tre livelli: dipende dal contratto, non solo dal formato (`PRODUCT.md § LossReport`).
 /// Il descrittore porta la capacità generale; `open`/`create` la valutazione
 /// specifica.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -131,7 +131,7 @@ pub enum Fidelity {
     Approximating,
 }
 
-/// Concorrenza dei reader (ENGINEERING.md § Interfaccia dei driver): più espressiva di un bool.
+/// Concorrenza dei reader (`ENGINEERING.md § Interfaccia dei driver`): più espressiva di un bool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReaderConcurrency {
@@ -468,7 +468,7 @@ pub const NO_GEOMETRY: GeometryWriteSupport = GeometryWriteSupport {
     mixed_types: false,
 };
 
-/// Garanzia offerta dal reader per `ReadRequest::projected_fields` (ENGINEERING.md § Projection e pruning).
+/// Garanzia offerta dal reader per `ReadRequest::projected_fields` (`ENGINEERING.md § Projection e pruning`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectionSupport {
@@ -568,9 +568,9 @@ pub struct FormatDescriptor {
     write_determinism: Option<DeterminismLevel>,
     multi_layer: bool,
     multi_file: bool,
-    /// Concorrenza dei reader ammessa dal formato (ENGINEERING.md § Interfaccia dei driver).
+    /// Concorrenza dei reader ammessa dal formato (`ENGINEERING.md § Interfaccia dei driver`).
     reader_concurrency: ReaderConcurrency,
-    /// Garanzia di projection applicabile al `ReadRequest` (ENGINEERING.md § Projection e pruning).
+    /// Garanzia di projection applicabile al `ReadRequest` (`ENGINEERING.md § Projection e pruning`).
     projection_support: ProjectionSupport,
     /// Pruning attributivo disponibile senza filtering riga-per-riga.
     predicate_pruning_support: PredicatePruningSupport,

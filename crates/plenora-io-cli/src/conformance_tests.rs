@@ -1,5 +1,5 @@
 //! Gate trasversale sui descrittori reali. Questi test impediscono che un
-//! singolo driver aggiri le invarianti comuni di ENGINEERING.md § Interfaccia dei driver e ENGINEERING.md § Pipeline di scrittura (capability-check) e PRODUCT.md § CRS.
+//! singolo driver aggiri le invarianti comuni di `ENGINEERING.md § Interfaccia dei driver e ENGINEERING`.md § Pipeline di scrittura (capability-check) e `PRODUCT.md § CRS`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -987,7 +987,7 @@ fn conditional_writers_report_planned_loss_instead_of_empty_reports() {
     }
     // 6 dopo il fix #8 della review 2026-08-15: GeoJSON e' passato da
     // `Fidelity::Lossless` a `Fidelity::Conditional`, in linea con il
-    // principio scritto in PRODUCT.md § LossReport ("un report vuoto
+    // principio scritto in `PRODUCT.md § LossReport ("un report vuoto`
     // significa 'nessuna perdita osservata', non `Lossless`") e con il fatto
     // che il writer non conserva `id`, `bbox` ne' foreign members.
     assert_eq!(checked, 6, "catalogo Conditional pure Rust inatteso");

@@ -22,7 +22,20 @@ Le dipendenze vanno in una direzione sola: i driver dipendono da `core` e da
 `model`, mai fra loro. `model` non conosce i driver.
 
 `vendor/dxf` e `vendor/gdal` sono fork governati, risolti via
-`[patch.crates-io]` e fissati da un lock più un registro di provenienza.
+`[patch.crates-io]` e fissati da un lock più un registro di provenienza. Il
+lock ne fissa il **tree hash**: qualunque file dentro l'albero vendorizzato ne
+fa parte.
+
+Due conseguenze operative:
+
+* impacchettare un fork richiede `--target-dir` **fuori** dall'albero
+  vendorizzato. `cargo package` scrive altrimenti in `vendor/<crate>/target/`,
+  e quell'artefatto entra nel tree hash: il gate diventa rosso, e il lock
+  aggiornato in quello stato registrerebbe l'artefatto come contenuto del fork;
+* `vendor/gdal` **non è impacchettabile** con `cargo package`: conserva
+  `.cargo_vcs_info.json`, un nome che Cargo riserva. Il metadato è tenuto di
+  proposito per l'attribuzione, e il crate non viene mai pubblicato — è
+  risolto per path. Il limite è di `cargo package`, non del fork.
 
 ## Interfaccia dei driver
 

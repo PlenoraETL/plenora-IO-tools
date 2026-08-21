@@ -1,7 +1,7 @@
 //! driver-csv — CSV ⇄ `RecordBatch`. La geometria è dichiarata via
 //! `format_options`: `x_column`+`y_column` (Point XY) oppure `wkt_column`
 //! (WKT XY/XYZ/XYM/XYZM). CSV non porta CRS: `assume_crs` è obbligatorio
-//! (PRODUCT.md § CRS).
+//! (`PRODUCT.md § CRS`).
 //!
 //! Lettura **streaming** (Fase 2A): righe scorse via `csv::StringRecord` riusato
 //! (i campi sono `&str`, niente String per cella). Due passate: pass-1 (`open`)

@@ -1,6 +1,7 @@
-//! Validazione comune del `WritePlan` contro capability machine-readable
-//! (ENGINEERING.md § Pipeline di scrittura (capability-check)). I driver possono aggiungere vincoli specifici, ma non saltare
-//! questi controlli di base.
+//! Validazione comune del `WritePlan` contro capability machine-readable.
+//!
+//! Vedi `ENGINEERING.md § Pipeline di scrittura`. I driver possono aggiungere
+//! vincoli specifici, ma non saltare questi controlli di base.
 
 use std::collections::BTreeSet;
 
