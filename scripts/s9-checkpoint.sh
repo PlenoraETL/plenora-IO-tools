@@ -1,5 +1,27 @@
 #!/usr/bin/env bash
-# Checkpoint di livello 2 per S9 (design § 20).
+# Checkpoint per S9 (design § 20). Due modalita', **una sola definizione dei
+# passi**.
+#
+#   bash scripts/s9-checkpoint.sh              livello 2, la corsa completa
+#   S9_LIVELLO=1 bash scripts/s9-checkpoint.sh livello 1, per una tranche
+#
+# La modalita' di livello 1 esiste per un difetto trovato il 2026-08-21: la
+# batteria intermedia veniva composta a mano a ogni tranche, e non conteneva
+# `cargo fmt --check`. Quattro commit sono stati dichiarati «verificati a
+# livello 1» essendo piu' deboli del checkpoint di esattamente quel passo, e
+# leggendo l'esito nessuno poteva accorgersene: la batteria stampava «nessun
+# fallito» su un insieme di passi piu' piccolo di quello che il livello 1
+# comprende.
+#
+# La lezione non e' «ricordarsi di formattare», ed e' la ragione per cui questa
+# modalita' vive qui dentro invece che in un secondo script:
+#
+#   una batteria composta a mano diverge dal checkpoint, e diverge in silenzio.
+#
+# Il livello 1 **non e'** un sottoinsieme scelto a mano: esegue tutti i passi
+# tranne quelli marcati `passo_pesante`, cioe' fuzz e copertura. Aggiungere un
+# passo al livello 2 lo aggiunge al livello 1 per omissione, che e' il verso
+# giusto dell'errore.
 #
 # Esiste come script versionato, e non come comando improvvisato, per una
 # ragione trovata sul campo: la prima esecuzione del 2026-08-20 girava da un
@@ -35,8 +57,12 @@ mkdir -p "${LOG_DIR}"
 
 passi=0
 verdi=0
+omessi=0
 falliti=()
 catena_rotta=""
+
+# `1` = livello 1: si omettono fuzz e copertura, non i gate.
+LIVELLO="${S9_LIVELLO:-2}"
 
 # Esegue un passo, conserva il log per intero, e prende l'esito dal comando.
 passo() {
@@ -74,6 +100,38 @@ salta() {
     falliti+=("${nome}(saltato)")
 }
 
+# Un passo che il livello 1 **omette**: fuzz e copertura.
+#
+# Omesso non e' saltato. `salta` marca un passo che *doveva* girare e non ha
+# potuto, e lo conta fra i falliti; qui il passo non doveva girare affatto, e
+# contarlo fra i falliti renderebbe il livello 1 rosso per costruzione. Resta
+# pero' **stampato**, perche' un esito che non elenca cio' che non ha misurato
+# e' esattamente il difetto che questa modalita' esiste per chiudere.
+passo_pesante() {
+    local nome="$1"
+    shift
+    if [ "${LIVELLO}" = "1" ]; then
+        omessi=$((omessi + 1))
+        printf '  %-38s ' "${nome}"
+        echo "omesso (livello 1)"
+        return 0
+    fi
+    passo "${nome}" "$@"
+}
+
+# Come `passo_in_catena`, ma omesso al livello 1.
+passo_pesante_in_catena() {
+    local nome="$1"
+    shift
+    if [ "${LIVELLO}" = "1" ]; then
+        omessi=$((omessi + 1))
+        printf '  %-38s ' "${nome}"
+        echo "omesso (livello 1)"
+        return 1
+    fi
+    passo_in_catena "${nome}" "$@"
+}
+
 # Esegue un passo **solo se la catena non e' gia' rotta**.
 #
 # La prima versione faceva dipendere i passi della copertura dalla sola misura:
@@ -108,13 +166,23 @@ REVISIONE="$(git rev-parse HEAD)"
 SPORCHI="$(git status --porcelain | wc -l)"
 
 echo "=============================================================="
-echo "S9 — checkpoint di livello 2"
+if [ "${LIVELLO}" = "1" ]; then
+    echo "S9 — verifica di livello 1"
+else
+    echo "S9 — checkpoint di livello 2"
+fi
 echo "revisione:      ${REVISIONE}"
 echo "albero:         ${SPORCHI} file non committati"
 echo "log:            ${LOG_DIR}"
 echo "=============================================================="
 
-if [ "${SPORCHI}" -ne 0 ]; then
+# L'albero sporco e' un errore solo al livello 2. Il livello 1 gira **durante**
+# una tranche, cioe' proprio quando l'albero e' sporco: pretenderlo pulito
+# renderebbe la modalita' inutilizzabile nel momento in cui serve, e la
+# spingerebbe di nuovo fuori dallo script — che e' l'errore che si sta
+# chiudendo. Il livello 1 non produce un'evidenza, quindi non deve essere
+# same-SHA.
+if [ "${SPORCHI}" -ne 0 ] && [ "${LIVELLO}" != "1" ]; then
     echo
     echo "ALBERO SPORCO: la misura non sarebbe same-SHA." >&2
     echo "Un checkpoint su un albero che non coincide con la revisione" >&2
@@ -199,8 +267,8 @@ echo "--- 4. fuzz: replay deterministico, poi smoke ----------------"
 # deterministico. Lo smoke cerca input nuovi, e sessanta secondi di mutazioni
 # non ritrovano quello che il replay ritrova sempre. Invertirli significa
 # scoprire una regressione nota solo per fortuna.
-passo fuzz_replay bash scripts/fuzz-replay.sh
-passo fuzz_smoke bash scripts/fuzz-smoke.sh
+passo_pesante fuzz_replay bash scripts/fuzz-replay.sh
+passo_pesante fuzz_smoke bash scripts/fuzz-smoke.sh
 
 echo
 echo "--- 5. copertura, poi il suo gate ----------------------------"
@@ -217,14 +285,14 @@ LCOV="${LOG_DIR}/lcov.info"
 rm -f "${LCOV}"
 
 catena_rotta=""
-passo_in_catena coverage_pulizia cargo llvm-cov clean --workspace
-passo_in_catena coverage_misura cargo llvm-cov --workspace --all-targets --locked --no-report
-passo_in_catena coverage_export cargo llvm-cov report --lcov --output-path "${LCOV}" \
+passo_pesante_in_catena coverage_pulizia cargo llvm-cov clean --workspace
+passo_pesante_in_catena coverage_misura cargo llvm-cov --workspace --all-targets --locked --no-report
+passo_pesante_in_catena coverage_export cargo llvm-cov report --lcov --output-path "${LCOV}" \
     --ignore-filename-regex "${ESCLUSIONI}"
 # Un export che finisce con esito zero e un file vuoto e' un caso che nessuno
 # guarda finche' non succede: qui e' un passo, non un'assunzione.
-passo_in_catena coverage_report_non_vuoto test -s "${LCOV}"
-passo_in_catena check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
+passo_pesante_in_catena coverage_report_non_vuoto test -s "${LCOV}"
+passo_pesante_in_catena check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
     --lcov "${LCOV}"
 # La soglia si legge **dallo stesso file** delle esclusioni.
 #
@@ -238,9 +306,9 @@ passo_in_catena check_coverage_exclusions python3 scripts/check_coverage_exclusi
 # devono stare sopra la soglia. Chiamarle «la stessa misura» era un'imprecisione
 # mia, e avrebbe reso illeggibile il giorno in cui una delle due si rompesse
 # davvero.
-passo_in_catena coverage_soglia_dal_report python3 scripts/check_coverage_threshold.py \
+passo_pesante_in_catena coverage_soglia_dal_report python3 scripts/check_coverage_threshold.py \
     --lcov "${LCOV}" --min-lines 80
-passo_in_catena coverage_soglia_controprova cargo llvm-cov report --summary-only \
+passo_pesante_in_catena coverage_soglia_controprova cargo llvm-cov report --summary-only \
     --ignore-filename-regex "${ESCLUSIONI}" --fail-under-lines 80
 
 if [ -z "${catena_rotta}" ]; then
@@ -301,6 +369,16 @@ if [ "${#falliti[@]}" -ne 0 ]; then
     echo "esito: NON SUPERATO"
     echo "=============================================================="
     exit 1
+fi
+if [ "${LIVELLO}" = "1" ]; then
+    echo "omessi: ${omessi} passi (fuzz e copertura)"
+    echo "esito: S9 livello 1 verificato"
+    echo
+    echo "**Non e' un checkpoint.** Fuzz e copertura non sono stati misurati,"
+    echo "e un commit verificato cosi' e' verificato, non release-qualified."
+    echo "Il livello 2 si esegue senza S9_LIVELLO, su un albero pulito."
+    echo "=============================================================="
+    exit 0
 fi
 echo "esito: S9 checkpoint level 2 passed"
 echo

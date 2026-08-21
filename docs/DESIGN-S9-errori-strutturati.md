@@ -644,6 +644,28 @@ E' la stessa regola gia' applicata alle sonde, che si estraggono da
 `scripts/s9-checkpoint.sh` invece di essere rielencate. Qui non era applicata ai
 passi di build, ed e' esattamente li' che si e' aperto il buco.
 
+#### Il livello 1 e' ora una **modalita'** dello script canonico
+
+```
+S9_LIVELLO=1 bash scripts/s9-checkpoint.sh
+```
+
+Non un sottoinsieme scelto a mano: esegue **tutti** i passi tranne quelli
+marcati `passo_pesante` — fuzz e copertura. Aggiungere un passo al livello 2 lo
+aggiunge al livello 1 **per omissione**, che e' il verso giusto dell'errore: si
+puo' dimenticare di alleggerire un passo, non di includerlo.
+
+| Proprieta' | |
+|---|---|
+| *omesso* non e' *saltato* | `salta()` marca cio' che doveva girare e conta fra i falliti; l'omesso non doveva girare. Ma resta **stampato**: un esito che non elenca cio' che non ha misurato e' il difetto che la modalita' chiude |
+| albero sporco ammesso **solo** al livello 1 | il livello 1 gira *durante* una tranche, cioe' proprio quando l'albero e' sporco. Pretenderlo pulito spingerebbe la modalita' di nuovo fuori dallo script |
+| l'esito non dice «checkpoint» | dice «S9 livello 1 verificato», e aggiunge che fuzz e copertura non sono stati misurati |
+| i conti riconciliano | 39 passi eseguiti + 9 omessi = 48, il totale del livello 2 |
+
+Quattro gruppi di sonde in `scripts/test_s9_checkpoint.sh`, di cui **la
+decisiva**: al livello 2 lo stesso passo pesante gira *e rossa*. Senza, la
+modalita' potrebbe omettere sempre e nessuno se ne accorgerebbe.
+
 ### Livello 2 — checkpoint
 
 **Ogni tre driver, e alla chiusura di S9.** Si esegue con

@@ -139,6 +139,54 @@ passo comando_verboso sh -c 'echo prima; echo dettaglio-che-serve; echo dopo; ex
 righe_log="$(wc -l < "${S9_CHECKPOINT_LOG_DIR}/comando_verboso.log" | tr -d ' ')"
 verifica "il log di un rosso e' conservato per intero" "3" "${righe_log}"
 
+# --- la modalita' di livello 1 ----------------------------------------------
+#
+# La modalita' esiste perche' una batteria composta a mano diverge dal
+# checkpoint in silenzio. Se la modalita' stessa non fosse provata, avremmo
+# spostato il problema invece di chiuderlo.
+
+# 1. Al livello 1 un passo pesante e' **omesso**, e omesso non e' fallito.
+passi=0
+verdi=0
+omessi=0
+falliti=()
+LIVELLO=1
+esegui passo_pesante misura_costosa true
+verifica "livello 1: un passo pesante non entra fra i passi" "0" "${passi}"
+verifica "livello 1: e' contato fra gli omessi" "1" "${omessi}"
+verifica "livello 1: non e' contato fra i falliti" "0" "${#falliti[@]}"
+
+# 2. Un passo pesante **fallito** al livello 1 non puo' rossare, perche' non
+#    gira affatto: e' la proprieta' che rende la modalita' usabile.
+passi=0
+omessi=0
+falliti=()
+esegui passo_pesante misura_che_fallirebbe false
+verifica "livello 1: un pesante rotto non viene eseguito" "0" "${#falliti[@]}"
+
+# 3. Al livello 2 lo stesso passo gira e rossa. Senza questa sonda la
+#    modalita' potrebbe omettere **sempre**, e nessuno se ne accorgerebbe.
+passi=0
+verdi=0
+omessi=0
+falliti=()
+LIVELLO=2
+esegui passo_pesante misura_che_fallisce false
+verifica "livello 2: lo stesso passo viene eseguito" "1" "${passi}"
+verifica "livello 2: e ne raccoglie il rosso" "1" "${#falliti[@]}"
+verifica "livello 2: nessun passo omesso" "0" "${omessi}"
+
+# 4. Un passo **normale** gira in entrambe le modalita': il livello 1 omette
+#    fuzz e copertura, non i gate. E' la proprieta' che l'incidente su `fmt`
+#    ha reso necessaria.
+passi=0
+verdi=0
+falliti=()
+LIVELLO=1
+esegui passo gate_qualunque true
+verifica "livello 1: un passo normale gira lo stesso" "1" "${verdi}"
+LIVELLO=2
+
 echo
 if [ "${rosse}" -ne 0 ]; then
     echo "sonde: $((sonde - rosse))/${sonde} — ROSSE: ${rosse}"
