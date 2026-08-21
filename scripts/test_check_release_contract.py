@@ -156,8 +156,19 @@ class SondeStruttura(unittest.TestCase):
     # --- secondo dovere: il blocco deve dire che cosa manca ----------------
 
     def test_release_blocking_senza_manca_e_rosso(self) -> None:
-        errori = gate.struttura(documento(voce(stato="release_blocking", prova=None)))
+        errori = gate.struttura(
+            documento(voce(stato="release_blocking", prova=None, sintesi="x"))
+        )
         self.assertTrue(any("senza campo `manca`" in e for e in errori), errori)
+
+    def test_release_blocking_senza_sintesi_e_rosso(self) -> None:
+        """La riga con cui il blocco compare in `docs/RELEASE.md` vive nel
+        registro: scriverla nella prosa creerebbe la seconda verita' che quella
+        tabella esiste per impedire."""
+        errori = gate.struttura(
+            documento(voce(stato="release_blocking", prova=None, manca="niente"))
+        )
+        self.assertTrue(any("senza campo `sintesi`" in e for e in errori), errori)
 
     def test_release_blocking_puo_avere_una_prova(self) -> None:
         """La distinzione decisiva.
@@ -168,13 +179,18 @@ class SondeStruttura(unittest.TestCase):
         alcuno strumento — e i due si chiudono in modi diversi.
         """
         errori = gate.struttura(
-            documento(voce(stato="release_blocking", manca="43 gruppi aperti"))
+            documento(voce(stato="release_blocking", manca="43 gruppi aperti", sintesi="rami negativi aperti"))
         )
         self.assertEqual(errori, [], errori)
 
     def test_release_blocking_senza_prova_va_bene(self) -> None:
         errori = gate.struttura(
-            documento(voce(stato="release_blocking", prova=None, manca="nessuno strumento"))
+            documento(voce(
+                stato="release_blocking",
+                prova=None,
+                manca="nessuno strumento",
+                sintesi="nessuno strumento",
+            ))
         )
         self.assertEqual(errori, [], errori)
 
@@ -197,7 +213,13 @@ class SondeStruttura(unittest.TestCase):
     def test_il_debito_conta_solo_i_bloccanti(self) -> None:
         d = documento(
             voce(),
-            voce(id="fuzz.lacuna", stato="release_blocking", prova=None, manca="niente strumento"),
+            voce(
+                id="fuzz.lacuna",
+                stato="release_blocking",
+                prova=None,
+                manca="niente strumento",
+                sintesi="niente strumento",
+            ),
         )
         self.assertEqual([v["id"] for v in gate.debito(d)], ["fuzz.lacuna"])
 
@@ -235,8 +257,12 @@ class SondeEsecuzioneGate(unittest.TestCase):
         """Un bloccante puo' avere un gate rosso: e' cio' che lo rende tale."""
         errori = gate.esegui(
             documento(
-                voce(stato="release_blocking", manca="lo strumento c'e' ed e' rosso",
-                     prova={"tipo": "gate", "comando": ROSSO})
+                voce(
+                    stato="release_blocking",
+                    manca="lo strumento c'e' ed e' rosso",
+                    sintesi="gate rosso",
+                    prova={"tipo": "gate", "comando": ROSSO},
+                )
             )
         )
         self.assertEqual(errori, [], errori)

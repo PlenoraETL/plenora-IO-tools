@@ -248,7 +248,8 @@
         "artefatto": "assurance/registries/assurance-n1-copertura-negativa.json"
       },
       "stato": "release_blocking",
-      "manca": "43 gruppi su 49 restano aperti"
+      "manca": "43 gruppi su 49 restano aperti",
+      "sintesi": "rami d'errore negativi non tutti verificati da un test eseguito"
     },
     {
       "id": "fuzz.reader-shapefile",
@@ -256,7 +257,8 @@
       "invariante": "il reader reale di Shapefile e' esercitato da un fuzz target",
       "prova": null,
       "stato": "release_blocking",
-      "manca": "nessun fuzz target esercita il parsing .shp/.dbf. `shp_wkb` converte WKB e forme ESRI e non e' un reader di Shapefile: presentarlo come copertura del formato sarebbe falso."
+      "manca": "nessun fuzz target esercita il parsing .shp/.dbf. `shp_wkb` converte WKB e forme ESRI e non e' un reader di Shapefile: presentarlo come copertura del formato sarebbe falso.",
+      "sintesi": "nessun target esercita il parsing `.shp`/`.dbf`"
     },
     {
       "id": "fuzz.filegdb",
@@ -264,7 +266,8 @@
       "invariante": "il percorso FileGDB e' esercitato da un fuzz target",
       "prova": null,
       "stato": "release_blocking",
-      "manca": "spike di fattibilita' non eseguito. Due esiti ammessi: target reale, oppure impossibilita' tecnica dimostrata con eccezione esplicita e suite compensativa di fixture ostili nella matrice feature-on."
+      "manca": "spike di fattibilita' non eseguito. Due esiti ammessi: target reale, oppure impossibilita' tecnica dimostrata con eccezione esplicita e suite compensativa di fixture ostili nella matrice feature-on.",
+      "sintesi": "spike di fattibilità non eseguito"
     },
     {
       "id": "wire.loss-report",
@@ -272,7 +275,8 @@
       "invariante": null,
       "prova": null,
       "stato": "release_blocking",
-      "manca": "contratto NON RATIFICATO. Cardinalita' di `counts` senza tetto nel contratto, nessun limite in byte su alcuna stringa, e `FidelityReason.detail` porta nomi di layer e attributo e la forma `Debug` di tipi di dipendenza. Cinque decisioni aperte: struttura, limiti, redazione, comportamento al limite, versionamento."
+      "manca": "contratto NON RATIFICATO. Cardinalita' di `counts` senza tetto nel contratto, nessun limite in byte su alcuna stringa, e `FidelityReason.detail` porta nomi di layer e attributo e la forma `Debug` di tipi di dipendenza. Cinque decisioni aperte: struttura, limiti, redazione, comportamento al limite, versionamento.",
+      "sintesi": "contratto non ratificato"
     },
     {
       "id": "release.candidate-non-valida-per-head",
@@ -280,7 +284,8 @@
       "invariante": "il manifesto della candidate deve descrivere **la revisione corrente**: versione del workspace, SHA di HEAD e tag previsto devono coincidere con cio' che si sta rilasciando.",
       "prova": null,
       "stato": "release_blocking",
-      "manca": "esiste una candidate `1.0.1` pendente, legata alla revisione `966005d6` — non a HEAD — con `release_action.allowed: false` e la ragione «CI same-SHA del commit metadata e catene cross-library ancora obbligatorie». Il workspace e' ancora alla versione 1.0.1 e il tag `v1.0.1` non e' stato creato. Quel manifesto **non qualifica il codice corrente**, e aggiornarne lo SHA fingendo che lo faccia sarebbe una qualifica fabbricata. La chiusura richiede una candidate nuova, ratificata su versione e tag correnti, oppure la dichiarazione esplicita che la 1.0.1 e' superata."
+      "manca": "esiste una candidate `1.0.1` pendente, legata alla revisione `966005d6` — non a HEAD — con `release_action.allowed: false` e la ragione «CI same-SHA del commit metadata e catene cross-library ancora obbligatorie». Il workspace e' ancora alla versione 1.0.1 e il tag `v1.0.1` non e' stato creato. Quel manifesto **non qualifica il codice corrente**, e aggiornarne lo SHA fingendo che lo faccia sarebbe una qualifica fabbricata. La chiusura richiede una candidate nuova, ratificata su versione e tag correnti, oppure la dichiarazione esplicita che la 1.0.1 e' superata.",
+      "sintesi": "la candidate pendente non descrive HEAD"
     },
     {
       "id": "lotto.s10",
@@ -288,7 +293,8 @@
       "invariante": "GeoParquet 1.1 e' validato per intero",
       "prova": null,
       "stato": "release_blocking",
-      "manca": "lotto S10 non aperto: la validazione completa di GeoParquet 1.1 non esiste"
+      "manca": "lotto S10 non aperto: la validazione completa di GeoParquet 1.1 non esiste",
+      "sintesi": "validazione completa di GeoParquet 1.1 non aperta"
     },
     {
       "id": "lotto.s11",
@@ -296,7 +302,8 @@
       "invariante": "`wkb_shape` ispeziona i figli delle collection",
       "prova": null,
       "stato": "release_blocking",
-      "manca": "lotto S11 non aperto: le geometry collection sono attraversate al primo livello e i figli non sono ispezionati"
+      "manca": "lotto S11 non aperto: le geometry collection sono attraversate al primo livello e i figli non sono ispezionati",
+      "sintesi": "`wkb_shape` non ispeziona i figli delle collection"
     },
     {
       "id": "lotto.s12",
@@ -304,7 +311,8 @@
       "invariante": "il parsing di WKT e GeoJSON e' bounded **durante** il parse, esercitato da un fuzz target dedicato, e la garanzia e' dichiarata dalla capability `hostile_input_hardened`",
       "prova": null,
       "stato": "release_blocking",
-      "manca": "lotto S12 non aperto. Oggi i tetti WKT/GeoJSON si applicano a valle — su `verifica_esprimibile` e `inspect_wkb` — non durante il parse: serve un parser progressivo. Manca inoltre la capability che renda la garanzia verificabile dall'esterno."
+      "manca": "lotto S12 non aperto. Oggi i tetti WKT/GeoJSON si applicano a valle — su `verifica_esprimibile` e `inspect_wkb` — non durante il parse: serve un parser progressivo. Manca inoltre la capability che renda la garanzia verificabile dall'esterno.",
+      "sintesi": "parsing WKT/GeoJSON non bounded durante il parse"
     },
     {
       "id": "sistema.qualifica-cross-component",
@@ -317,7 +325,8 @@
         "stato": "not_run"
       },
       "stato": "release_blocking",
-      "manca": "gate di sistema non superato. Perimetro e harness sono di **proprieta' esterna**: questo repository non contiene ne' esegue test che compilino gli altri due componenti, quindi la chiusura non e' raggiungibile da qui. La definizione e' in release/system-rc-gate.json."
+      "manca": "gate di sistema non superato. Perimetro e harness sono di **proprieta' esterna**: questo repository non contiene ne' esegue test che compilino gli altri due componenti, quindi la chiusura non e' raggiungibile da qui. La definizione e' in release/system-rc-gate.json.",
+      "sintesi": "gate di sistema non superato, di proprietà esterna"
     }
   ],
   "autorizzazione_di_release": {
@@ -335,5 +344,9 @@
     "gate": "comando strutturato, deduplicato fra invarianti, realmente eseguito con exit 0",
     "interna": "funzione di questo gate, eseguita in linea su un artefatto strutturato",
     "esterna": "owner, artefatto e stato; senza evidenza non puo' risultare verified"
+  },
+  "campi_del_bloccante": {
+    "manca": "la condizione di chiusura, per esteso: senza, nessuno sa che cosa servirebbe per togliere il blocco",
+    "sintesi": "la riga con cui il blocco compare nella tabella di docs/RELEASE.md; scriverla nel documento creerebbe una seconda verita'"
   }
 }

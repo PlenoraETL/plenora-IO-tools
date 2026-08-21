@@ -1,47 +1,84 @@
 # Rilascio — dove siamo e dove andiamo
 
-I numeri di questo documento vengono da
-[`assurance/current-state.json`](../assurance/current-state.json), e `check_docset`
-verifica che coincidano. Due verità manuali divergono, e divergono in silenzio.
+Lo stato di questo documento non è scritto a mano: il blocco qui sotto è
+**generato** da [`assurance/current-state.json`](../assurance/current-state.json)
+e dal [registro del contratto corrente](../assurance/registries/release-contract-current.json),
+e `check_docset` lo confronta carattere per carattere. Due verità manuali
+divergono, e divergono in silenzio.
 
-```
-release_authorized: false
-```
+Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 
 ---
 
 ## Stato
 
-### Revisioni
+<!-- generato da assurance/current-state.json: inizio -->
 
-| | SHA | Significato |
-|---|---|---|
-| baseline documentale | `2fe9b54` | revisione da cui parte il docset corrente |
-| ultima qualificata | `75e5301` | ultimo SHA passato da un checkpoint di livello 2 |
+> Questo blocco è **generato**. La sua autorità è
+> [`assurance/current-state.json`](../assurance/current-state.json); modificarlo
+> a mano crea la seconda verità che esiste per impedire.
+
+| Campo | Valore |
+|---|---|
+| baseline documentale | `2fe9b54` |
+| ultima qualificata | `75e5301` |
+| revisione misurata | `75e5301` |
+| passi del checkpoint | 57 |
+| passi verdi | 57 |
+| passi omessi | 0 |
+| passi falliti | 0 |
+| input di replay | 36 055 |
+| target di replay | 13 |
+| crash di replay | 0 |
+| target di smoke eseguiti | 13 |
+| target di smoke totali | 13 |
+| finding di smoke | 0 |
+| target in quarantena | 0 |
+| copertura LCOV | 85,84% |
+| righe coperte LCOV | 26 774 |
+| righe strumentate LCOV | 31 192 |
+| copertura cargo | 83,94% |
+| soglia di copertura | 80,00% |
+| gruppi ASSURANCE-N1 | 49 |
+| gruppi ASSURANCE-N1 aperti | 43 |
+| blocchi | 9 |
+| candidate, versione del manifesto | `1.0.1` |
+| candidate, revisione del manifesto | `966005d6` |
+| candidate, qualifica di HEAD | no |
+| candidate, tag creato | no |
+| candidate, release_action consentita | no |
+| release_authorized | `false` |
+
+I blocchi sono l'elenco esatto dei `release_blocking` del
+[registro del contratto corrente](../assurance/registries/release-contract-current.json)
+— non un riassunto:
+
+| Blocco | Sintesi |
+|---|---|
+| `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
+| `fuzz.reader-shapefile` | nessun target esercita il parsing `.shp`/`.dbf` |
+| `fuzz.filegdb` | spike di fattibilità non eseguito |
+| `wire.loss-report` | contratto non ratificato |
+| `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
+| `lotto.s10` | validazione completa di GeoParquet 1.1 non aperta |
+| `lotto.s11` | `wkb_shape` non ispeziona i figli delle collection |
+| `lotto.s12` | parsing WKT/GeoJSON non bounded durante il parse |
+| `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
+
+<!-- generato da assurance/current-state.json: fine -->
+
+### Che cosa quei numeri non dicono
 
 **Lo SHA misurato non è il commit che ne pubblica l'evidenza.** Un'evidenza sta
 in un commit successivo e non eredita la misura: i numeri valgono per l'albero
 misurato e per nessun altro.
 
-### Ultima misura — `75e5301`
+Le due percentuali di copertura sono **due proiezioni dello stesso profdata**,
+non due misure della stessa cosa: contano insiemi diversi di righe strumentate.
+Entrambe sono richieste, e nessuna sostituisce l'altra.
 
-| | |
-|---|---|
-| checkpoint | **57 passi su 57**, 0 omessi, 0 falliti |
-| replay deterministico | **36 055 input** su **13 target**, nessun crash |
-| smoke | **13 target su 13**, nessun finding |
-| quarantena | **vuota** |
-| copertura, report LCOV | **85,84%** (26 774 / 31 192 righe strumentate) |
-| copertura, colonna cargo | **83,94%** |
-| soglia | 80% |
-
-Le due percentuali sono **due proiezioni dello stesso profdata**, non due
-misure della stessa cosa: contano insiemi diversi di righe strumentate.
-Entrambe sono richieste.
-
-Il conteggio dei passi è **riconciliato dagli identificatori** — 57 distinti,
-nessun duplicato — e non accettato dal rapporto che lo strumento stampa su se
-stesso.
+Il conteggio dei passi è **riconciliato dagli identificatori** — distinti, senza
+duplicati — e non accettato dal rapporto che lo strumento stampa su se stesso.
 
 La diagnostica differenziale rispetto a `0fb799d` è **n/d**: nessuna **riga
 Rust strumentata dalla misura LCOV** è cambiata. Sono cambiati documenti, script
@@ -60,28 +97,11 @@ l'assenza della funzione e non una convenzione sorvegliata.
 
 Qualificato su `1806276`.
 
-### Aperto
-
-I blocchi sono **nove**, ed è l'elenco esatto del registro del contratto
-corrente — non un riassunto:
-
-| Blocco | Stato |
-|---|---|
-| `copertura.rami-negativi` | 43 gruppi aperti su 49 |
-| `fuzz.reader-shapefile` | nessun target esercita il parsing `.shp`/`.dbf` |
-| `fuzz.filegdb` | spike di fattibilità non eseguito |
-| `wire.loss-report` | contratto non ratificato |
-| `release.candidate-non-valida-per-head` | la candidate `1.0.1` è legata a `966005d6`, non a HEAD |
-| `lotto.s10` | validazione GeoParquet 1.1 non aperta |
-| `lotto.s11` | `wkb_shape` non ispeziona i figli delle collection |
-| `lotto.s12` | parsing WKT/GeoJSON non bounded durante il parse |
-| `sistema.qualifica-cross-component` | gate di sistema non superato |
-
 ### La candidate `1.0.1` non qualifica HEAD
 
-Esiste un manifesto di candidate `1.0.1` legato alla revisione `966005d6`, con
-`release_action.allowed: false`. Il workspace è alla versione 1.0.1 e il tag
-`v1.0.1` non è stato creato.
+Il manifesto di candidate è legato a una revisione che non è HEAD, con
+`release_action.allowed` non consentita e il tag non creato — i valori esatti
+sono nel blocco generato.
 
 **Quel manifesto non qualifica il codice corrente**, e aggiornarne lo SHA
 fingendo che lo faccia sarebbe una qualifica fabbricata. Serve una candidate
@@ -109,7 +129,7 @@ serve per uscirne e quale blocco rimuove.
 Nessuna stima temporale è presentata come impegno. Ciò che si sa del costo è
 scritto dove è stato misurato.
 
-### 1. Chiusura dei 43 gruppi ASSURANCE-N1
+### 1. Chiusura dei gruppi ASSURANCE-N1 ancora aperti
 
 **Criterio di uscita.** Ogni gruppo del registro è `chiuso`, con una prova che è
 un **test eseguito**, oppure `irraggiungibile` con le righe scoperte e la

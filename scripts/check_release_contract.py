@@ -136,6 +136,17 @@ def struttura(documento: dict[str, Any]) -> list[str]:
                     "blocco senza la sua condizione di chiusura non si puo' "
                     "chiudere."
                 )
+            # `sintesi` e' la riga con cui il blocco compare nella tabella di
+            # `docs/RELEASE.md`. Vive qui, e non nel documento, perche' un
+            # blocco nasce e muore nel registro: scriverla nella prosa
+            # creerebbe una seconda verita' libera di divergere.
+            if not voce.get("sintesi"):
+                errori.append(
+                    f"{identita}: `release_blocking` senza campo `sintesi`. La "
+                    "tabella dello stato di release ha bisogno di una riga, e "
+                    "scriverla a mano nel documento sarebbe la seconda verita' "
+                    "che quella tabella esiste per impedire."
+                )
             continue
 
         if not prova:

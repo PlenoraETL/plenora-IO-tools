@@ -33,6 +33,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# Il renderer del blocco di stato. Vive separato perche' non legge il
+# docset: legge JSON e restituisce testo.
+import stato_release  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 STATO = ROOT / "assurance" / "current-state.json"
 
@@ -116,9 +122,9 @@ def _nomi_eliminati() -> list[str]:
 PERIMETRO = ("*.rs", "*.py", "*.sh", "*.toml", "*.yml", "*.yaml", "*.md", "*.json")
 
 
-def tracciati(estensione: str) -> list[str]:
+def _elenco(argomenti: list[str]) -> list[str]:
     uscita = subprocess.run(
-        ["git", "ls-files", estensione],
+        ["git", "ls-files", *argomenti],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -127,9 +133,37 @@ def tracciati(estensione: str) -> list[str]:
     return [r for r in uscita.stdout.splitlines() if r]
 
 
+def nel_perimetro(estensione: str) -> list[str]:
+    """I file tracciati **e** gli untracked non ignorati.
+
+    Il gate misurava i soli tracciati, e quella scelta apriva una finestra
+    esattamente dove serviva chiuderla: un nuovo lettore di Markdown, o un
+    nuovo documento, e' untracked fino al primo `git add`. Chi lo scrive lancia
+    il livello 1 prima di committare, e sarebbe stato verde proprio nel momento
+    in cui l'errore era presente sul disco.
+
+    Gli ignorati restano fuori: `target/`, gli artefatti di build e le copie di
+    lavoro non sono materiale del repository, e includerli renderebbe il gate
+    dipendente da cio' che c'e' sulla macchina di chi lo lancia.
+    """
+    visti = _elenco([estensione]) + _elenco(
+        ["--others", "--exclude-standard", estensione]
+    )
+    fuori: list[str] = []
+    for percorso in visti:
+        if percorso not in fuori:
+            fuori.append(percorso)
+    return sorted(fuori)
+
+
+def tracciati(estensione: str) -> list[str]:
+    """I soli tracciati. Serve dove la domanda e' «che cosa e' committato»."""
+    return _elenco([estensione])
+
+
 def allowlist() -> list[str]:
     errori: list[str] = []
-    presenti = set(tracciati("*.md"))
+    presenti = set(nel_perimetro("*.md"))
 
     for extra in sorted(presenti - AMMESSI):
         errori.append(
@@ -169,7 +203,7 @@ def nessun_markdown_come_database() -> list[str]:
     """Nessun gate legge un Markdown come input macchina."""
     errori: list[str] = []
     lettura = re.compile(r"""read_text|read_bytes|open\(|load\(""")
-    for percorso in tracciati("scripts/*.py") + tracciati("scripts/*.sh"):
+    for percorso in nel_perimetro("scripts/*.py") + nel_perimetro("scripts/*.sh"):
         if percorso in VALIDATORI:
             continue
         testo = (ROOT / percorso).read_text(encoding="utf-8", errors="replace")
@@ -212,44 +246,88 @@ def raggiungibili() -> list[str]:
     ]
 
 
-def _numeri(stato: dict) -> dict[str, str]:
-    misura = stato["ultima_misura"]
-    copertura = misura["copertura"]
-    return {
-        "baseline documentale": stato["revisioni"]["baseline_documentale"]["sha"],
-        "ultima qualificata": stato["revisioni"]["ultima_qualificata"]["sha"],
-        "passi del checkpoint": str(misura["checkpoint"]["passi_eseguiti"]),
-        "input di replay": f"{misura['fuzz']['replay_input']:n}".replace(",", " "),
-        "target di replay": str(misura["fuzz"]["replay_target"]),
-        "target di smoke": str(misura["fuzz"]["smoke_target_eseguiti"]),
-        "copertura LCOV": f"{copertura['lcov_percentuale']:.2f}".replace(".", ","),
-        "copertura cargo": f"{copertura['cargo_lines_percentuale']:.2f}".replace(".", ","),
-        "gruppi N1 aperti": str(stato["aperto"]["assurance_n1"]["gruppi_aperti"]),
-    }
-
-
 def stato_coerente() -> list[str]:
-    """`docs/RELEASE.md` riporta i numeri di `assurance/current-state.json`."""
+    """Il blocco di stato di `docs/RELEASE.md` e' quello reso dalla fonte.
+
+    Prima il gate cercava ogni numero della fonte **come sottostringa** nel
+    documento. Coglieva un numero cambiato in un solo posto, e nient'altro: un
+    campo dichiarato dalla fonte e mai nominato passava, perche' il gate non
+    sapeva quali campi pretendere, e un numero giusto sotto l'etichetta
+    sbagliata passava, perche' cercava la cifra e non la coppia.
+
+    Ora il documento riceve il blocco invece di riportarlo, e il confronto e'
+    carattere per carattere fra i due marcatori.
+
+    Il valore di `release_authorized` non viene fissato qui. E' una decisione
+    scritta, e la condizione che la usa vive dove le condizioni di
+    autorizzazione sono congiunte: `check_release_contract.py --release`. Un
+    perno in questo gate diventerebbe rosso il giorno in cui l'autorizzazione
+    fosse legittima, e verrebbe tolto in fretta.
+    """
     if not STATO.exists():
         return [f"{STATO}: fonte strutturata dello stato assente"]
-    stato = json.loads(STATO.read_text(encoding="utf-8"))
-    testo = (ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
-    # I separatori di migliaia non cambiano il numero: «35 562» e 35562
-    # sono lo stesso valore, e un gate che li distinguesse costringerebbe a
-    # scrivere male il documento per farlo passare.
-    compatto = testo.replace(" ", "").replace(" ", "").replace(" ", "")
+    atteso, errori = stato_release.blocco(
+        json.loads(STATO.read_text(encoding="utf-8")),
+        json.loads(stato_release.REGISTRO.read_text(encoding="utf-8")),
+    )
+    if errori:
+        return errori
 
-    errori = [
-        f"docs/RELEASE.md: «{nome}» vale {valore} nella fonte strutturata, e non "
-        "compare nel documento. Due verita' divergono, e divergono in silenzio."
-        for nome, valore in _numeri(stato).items()
-        if valore not in testo and valore.replace(" ", "") not in compatto
-    ]
-    if stato["release_authorized"] is not False:
-        errori.append("assurance/current-state.json: release_authorized non e' false")
-    if "release_authorized: false" not in testo:
-        errori.append("docs/RELEASE.md: non dichiara release_authorized: false")
-    return errori
+    testo = (ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
+    for marcatore in (stato_release.APERTURA, stato_release.CHIUSURA):
+        if testo.count(marcatore) != 1:
+            return [
+                f"docs/RELEASE.md: il marcatore «{marcatore}» compare "
+                f"{testo.count(marcatore)} volte, e ne serve esattamente una."
+            ]
+    if testo.index(stato_release.APERTURA) > testo.index(stato_release.CHIUSURA):
+        return ["docs/RELEASE.md: i marcatori del blocco generato sono invertiti"]
+
+    principio = testo.index(stato_release.APERTURA)
+    conclusione = testo.index(stato_release.CHIUSURA) + len(stato_release.CHIUSURA)
+    corrente = testo[principio:conclusione]
+    if corrente != atteso:
+        return [
+            "docs/RELEASE.md: il blocco generato non coincide con la fonte "
+            "strutturata. Si rigenera con `python3 scripts/check_docset.py "
+            "--riscrivi-stato`; scriverlo a mano crea la seconda verita' che "
+            "quel blocco esiste per impedire."
+        ]
+    return []
+
+
+def riscrivi_stato() -> int:
+    """Propaga la fonte strutturata nel documento.
+
+    La scrittura sta qui e non in `stato_release` per non allargare la
+    allowlist chiusa dei validatori: questo file e la sua sonda sono gia' i due
+    ammessi a leggere il docset, e un terzo modulo che apre `RELEASE.md`
+    andrebbe aggiunto a quella lista con l'unica ragione di avere una funzione
+    in piu'.
+
+    L'autorita' resta la fonte. Che il gate sappia anche riscrivere non e' un
+    modo di rendersi verde: rende verde il documento **facendolo coincidere con
+    il JSON**, che e' esattamente cio' che il controllo pretende.
+    """
+    atteso, errori = stato_release.blocco(
+        json.loads(STATO.read_text(encoding="utf-8")),
+        json.loads(stato_release.REGISTRO.read_text(encoding="utf-8")),
+    )
+    if errori:
+        for messaggio in errori:
+            print(messaggio, file=sys.stderr)
+        return 1
+
+    percorso = ROOT / "docs" / "RELEASE.md"
+    testo = percorso.read_text(encoding="utf-8")
+    if testo.count(stato_release.APERTURA) != 1 or testo.count(stato_release.CHIUSURA) != 1:
+        print("docs/RELEASE.md: marcatori del blocco generato assenti o ripetuti", file=sys.stderr)
+        return 1
+    principio = testo.index(stato_release.APERTURA)
+    conclusione = testo.index(stato_release.CHIUSURA) + len(stato_release.CHIUSURA)
+    percorso.write_text(testo[:principio] + atteso + testo[conclusione:], encoding="utf-8", newline="\n")
+    print("docs/RELEASE.md: blocco di stato rigenerato dalla fonte strutturata")
+    return 0
 
 
 def cronaca_residua() -> list[str]:
@@ -257,7 +335,7 @@ def cronaca_residua() -> list[str]:
     errori: list[str] = []
     schemi = [re.compile(s) for s in _nomi_eliminati()]
     for modello in PERIMETRO:
-        for percorso in tracciati(modello) + tracciati(f"*/{modello}"):
+        for percorso in nel_perimetro(modello) + nel_perimetro(f"*/{modello}"):
             if percorso.startswith("vendor/") or percorso in VALIDATORI:
                 continue
             testo = (ROOT / percorso).read_text(encoding="utf-8", errors="replace")
@@ -283,8 +361,17 @@ CONTROLLI = (
 )
 
 
-def main() -> int:
-    argparse.ArgumentParser(description=__doc__).parse_args()
+def main(argv: list[str] | None = None) -> int:
+    argomenti = argparse.ArgumentParser(description=__doc__)
+    argomenti.add_argument(
+        "--riscrivi-stato",
+        action="store_true",
+        help="propaga assurance/current-state.json nel blocco generato di docs/RELEASE.md",
+    )
+    opzioni = argomenti.parse_args(argv)
+    if opzioni.riscrivi_stato:
+        return riscrivi_stato()
+
     errori: list[str] = []
     for nome, controllo in CONTROLLI:
         trovati = controllo()
@@ -298,7 +385,9 @@ def main() -> int:
         return 1
     print(
         f"docset verificato: {len(CANONICI)} documenti canonici, "
-        f"{len(OPERATIVI)} file operativi, nessun altro Markdown tracciato."
+        f"{len(OPERATIVI)} file operativi, nessun altro Markdown nel perimetro "
+        "(tracciati piu' untracked non ignorati); blocco di stato coerente con "
+        "la fonte strutturata."
     )
     return 0
 
