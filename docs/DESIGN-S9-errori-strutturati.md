@@ -722,7 +722,27 @@ e' verde mentre `albero_invariato` e' rosso. Un controllo unico confonderebbe
 «qualcuno ha scritto nell'albero» con «qualcuno ha spostato HEAD», che hanno
 cause e rimedi diversi.
 
-Sonde totali del checkpoint: **54**.
+##### INFRA-7.1 — l'impronta fallisce invece di restituire il vuoto
+
+L'impronta di un albero pulito e' lo sha256 della stringa vuota. Corretto, ma
+**lo stesso valore usciva se `git` falliva del tutto**: la pipe riceveva zero
+byte e stderr era soppresso. Un valore che significa due cose, trovato alla
+qualifica di `1c2707e` — e gia' incontrato senza riconoscerlo quando una prova
+giro' per sbaglio da `/`.
+
+La correzione non e' un controllo in piu': e' **acquisire prima, hashare dopo**.
+Ogni comando scrive in un file temporaneo con il proprio controllo d'esito, e
+l'hash si produce solo se tutti e tre hanno acquisito. Controllare il solo
+`rev-parse` non basterebbe: un fallimento interno di `git diff` arriverebbe
+comunque, ed e' la sonda che lo dimostra.
+
+Un prefisso `impronta-albero-v1 ` chiude il residuo: nessuna impronta puo' piu'
+valere lo sha della stringa vuota, e il formato e' dichiarato — un cambio futuro
+si riconosce invece di somigliare a un albero cambiato. **Conseguenza da
+leggere**: l'impronta di un albero pulito cambia valore rispetto alle evidenze
+precedenti, ed e' un formato cambiato, non un albero.
+
+Sonde totali del checkpoint: **60**.
 
 ### Livello 2 — checkpoint
 

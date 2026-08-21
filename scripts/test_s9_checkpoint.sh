@@ -338,6 +338,90 @@ else
     verifica "due untracked non collidono per concatenazione" "diversa" "uguale"
 fi
 
+# --- INFRA-7.1: l'impronta fallisce invece di restituire il vuoto -----------
+#
+# La versione precedente convogliava i tre comandi git in una pipe con
+# `2>/dev/null`: se git falliva, la pipe riceveva zero byte e l'impronta era
+# lo sha256 della stringa vuota -- **lo stesso valore di un albero pulito**.
+#
+# Trovato alla qualifica di `1c2707e`. Le quattro sonde coprono i quattro modi
+# in cui la funzione puo' essere interrogata, e il punto e' che tre di essi
+# davano prima lo stesso risultato.
+
+# 1. Repository assente: deve **fallire**, non restituire un'impronta.
+( cd /tmp && impronta_albero > /dev/null 2>&1 )
+verifica "fuori da un worktree l'impronta fallisce" "1" "$?"
+
+# 2. Errore interno di git: `rev-parse` risponde, `diff` no. Controllare il
+#    solo `rev-parse` non basterebbe, ed e' la ragione per cui ogni comando ha
+#    il proprio controllo.
+FINTO="${S9_CHECKPOINT_LOG_DIR}/git-finto"
+mkdir -p "${FINTO}"
+{
+    printf '#!/bin/sh\n'
+    printf 'case "$*" in\n'
+    printf '  *"diff --cached"*) exit 128 ;;\n'
+    printf 'esac\n'
+    printf 'exec /usr/bin/git "$@"\n'
+} > "${FINTO}/git"
+chmod +x "${FINTO}/git"
+(
+    cd "${ALBERO}" || exit 1
+    PATH="${FINTO}:${PATH}" impronta_albero > /dev/null 2>&1
+)
+verifica "un git che fallisce internamente non produce impronta" "1" "$?"
+rm -rf "${FINTO}"
+
+# 3. Repository pulito: deve **riuscire**, e l'impronta non puo' valere lo
+#    sha256 della stringa vuota -- altrimenti «pulito» e «git rotto»
+#    resterebbero indistinguibili nel valore.
+(
+    cd "${ALBERO}" || exit 1
+    git add -A > /dev/null 2>&1
+    git commit -qm "pulito" > /dev/null 2>&1
+)
+pulita="$( ( cd "${ALBERO}" && impronta_albero ) )"
+esito_pulita=$?
+verifica "su un repository pulito l'impronta riesce" "0" "${esito_pulita}"
+VUOTA=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+if [ "${pulita}" = "${VUOTA}" ]; then
+    verifica "e non vale lo sha della stringa vuota" "distinta" "vuota"
+else
+    verifica "e non vale lo sha della stringa vuota" "distinta" "distinta"
+fi
+
+# 4. Modifiche **ignorate**: possono cambiare senza muovere l'impronta. E' il
+#    confine che il livello 2 richiede -- fuzz e copertura scrivono in
+#    `target/` e `fuzz/corpus/` a ogni corsa.
+(
+    cd "${ALBERO}" || exit 1
+    printf 'scarti/\n' > .gitignore
+    git add .gitignore > /dev/null 2>&1
+    git commit -qm gitignore > /dev/null 2>&1
+    mkdir -p scarti
+    printf 'primo artefatto\n' > scarti/a.tmp
+)
+prima_ignorata="$( ( cd "${ALBERO}" && impronta_albero ) )"
+(
+    cd "${ALBERO}" || exit 1
+    printf 'artefatto diverso e piu lungo\n' > scarti/a.tmp
+    printf 'e un secondo\n' > scarti/b.tmp
+)
+dopo_ignorata="$( ( cd "${ALBERO}" && impronta_albero ) )"
+verifica "gli artefatti ignorati non muovono l'impronta" \
+    "${prima_ignorata}" "${dopo_ignorata}"
+
+# Controprova: un file **non** ignorato la muove. Senza, «non si muove mai»
+# passerebbe per un confine.
+( cd "${ALBERO}" && printf 'versionabile\n' > visibile.txt )
+dopo_visibile="$( ( cd "${ALBERO}" && impronta_albero ) )"
+if [ "${dopo_ignorata}" != "${dopo_visibile}" ]; then
+    verifica "un file versionabile invece si'" "diversa" "diversa"
+else
+    verifica "un file versionabile invece si'" "diversa" "uguale"
+fi
+( cd "${ALBERO}" && rm -f visibile.txt )
+
 # --- INFRA-7b: la revisione va riletta, non ristampata ----------------------
 #
 # Un commit durante la corsa lascia l'albero **invariato** e sposta HEAD: la
@@ -346,8 +430,10 @@ fi
 # iniziale e finale identici» era vero per costruzione.
 (
     cd "${ALBERO}" || exit 1
-    git add -A
-    git commit -qm "stato di partenza"
+    git add -A > /dev/null 2>&1
+    # `-q` non zittisce «nothing to commit»: la sonda precedente puo' aver
+    # gia' committato tutto, e il rumore si confonderebbe con l'esito.
+    git commit -qm "stato di partenza" > /dev/null 2>&1 || true
 )
 revisione_prima="$( ( cd "${ALBERO}" && git rev-parse HEAD ) )"
 impronta_prima="$(impronta_in "${ALBERO}")"

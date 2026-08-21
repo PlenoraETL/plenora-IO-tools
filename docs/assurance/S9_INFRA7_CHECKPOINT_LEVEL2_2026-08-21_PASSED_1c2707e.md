@@ -154,3 +154,52 @@ qualificato, e una correzione dell'harness va qualificata a sua volta.
 
 Registrato come seguito, non come debito accettato: la differenza è che un
 seguito ha un rimedio scritto.
+
+---
+
+## Addendum del 2026-08-21 — INFRA-7.1 chiude l'ambiguità, e cambia il valore
+
+**Il corpo resta com'era.** L'addendum non ritira nulla: registra il seguito
+proposto in fondo al corpo, ora applicato, e una conseguenza che va letta prima
+di confrontare numeri.
+
+### Il seguito è stato applicato
+
+`impronta_albero` **acquisisce prima e hasha dopo**. La versione qualificata su
+`1c2707e` convogliava i tre comandi in una pipe con `2>/dev/null`: se `git`
+falliva, la pipe riceveva zero byte. Ora ogni comando scrive in un file
+temporaneo con il proprio controllo d'esito, e l'hash si produce solo se **tutti
+e tre** hanno acquisito. La funzione **fallisce** invece di restituire il vuoto,
+e i chiamanti gestiscono il fallimento: `exit 2` in testa, passo rosso in coda.
+
+Controllare il solo `rev-parse` non sarebbe bastato, ed è la sonda che lo
+dimostra: un `git` fittizio che risponde a `rev-parse` e fallisce su
+`diff --cached` deve far fallire l'impronta.
+
+### Il valore di un albero pulito **cambia**, ed è atteso
+
+L'impronta porta ora un prefisso versionato `impronta-albero-v1\0`. Serve a due
+cose: nessuna impronta può più valere lo sha256 della stringa vuota — nemmeno su
+un albero pulito — e il formato è dichiarato, così un cambio futuro si riconosce
+invece di somigliare a un albero cambiato.
+
+| | |
+|---|---|
+| impronta di questo documento (`1c2707e`, albero pulito) | `e3b0c442…` |
+| stesso albero dopo INFRA-7.1 | **diversa**, per costruzione |
+
+**Non è un albero cambiato: è un formato cambiato.** Chi confronta le due
+evidenze deve leggerle così.
+
+### Stato di INFRA-7.1
+
+**Verificato, non qualificato.** Livello 1 verde — 41 passi, 9 omessi — e 60
+sonde del checkpoint verdi, fra cui le quattro richieste (repository assente,
+errore git interno, repository pulito, modifiche ignorate) più una controprova
+che l'elenco non chiedeva: **un file versionabile deve muovere l'impronta**.
+Senza, «gli artefatti ignorati non la muovono» passerebbe per un confine mentre
+potrebbe essere una funzione che non si muove mai.
+
+La qualifica completa coinciderà con il prossimo checkpoint sostanziale.
+**La qualifica di `1c2707e` resta valida**: riguarda il codice qualificato
+allora, e le sue misure non dipendono dall'ambiguità chiusa qui.

@@ -224,28 +224,62 @@ passo_in_catena() {
 # distruttive, dove un ripristino cancello' modifiche non committate e i
 # conteggi non se ne accorsero.
 impronta_albero() {
+    # Prima si **acquisisce**, poi si hasha. La versione precedente convogliava
+    # i tre comandi in una pipe con `2>/dev/null`: se git falliva, la pipe
+    # riceveva zero byte e l'impronta risultava lo sha256 della stringa vuota
+    # -- lo stesso valore di un albero pulito.
+    #
+    # Era la famiglia di difetto che questa serie insegue: **un valore che
+    # significa due cose**. Trovata alla qualifica di `1c2707e`, e gia'
+    # incontrata senza riconoscerla quando una prova giro' per sbaglio da `/`
+    # e stampo' quella costante.
+    #
+    # Non basta controllare `rev-parse`: un fallimento interno di `git diff`
+    # arriverebbe comunque. Ogni comando ha il proprio controllo, e l'hash si
+    # produce solo se **tutti** e tre hanno acquisito.
+    local temporanea esito
+    temporanea="$(mktemp -d 2>/dev/null)" || return 1
+
+    _impronta_fallisci() {
+        rm -rf "${temporanea}"
+        return 1
+    }
+
+    git rev-parse --is-inside-work-tree > /dev/null 2>&1 || { _impronta_fallisci; return 1; }
+
+    git diff --cached --binary --no-ext-diff --no-textconv > "${temporanea}/staged" 2>/dev/null ||
+        { _impronta_fallisci; return 1; }
+    git diff --binary --no-ext-diff --no-textconv > "${temporanea}/unstaged" 2>/dev/null ||
+        { _impronta_fallisci; return 1; }
+    git ls-files --others --exclude-standard -z > "${temporanea}/elenco" 2>/dev/null ||
+        { _impronta_fallisci; return 1; }
+
+    # Percorso **e** hash del contenuto, ciascuno delimitato: dare in pasto il
+    # contenuto grezzo renderebbe ambiguo il confine fra un percorso e il file
+    # precedente, e due alberi diversi potrebbero collidere.
+    : > "${temporanea}/untracked"
+    sort -z < "${temporanea}/elenco" |
+        while IFS= read -r -d "" percorso; do
+            if [ -f "${percorso}" ] && [ ! -L "${percorso}" ]; then
+                contenuto="$(sha256sum < "${percorso}" 2>/dev/null | cut -d" " -f1)"
+                [ -n "${contenuto}" ] || contenuto="illeggibile"
+            else
+                contenuto="non-regolare"
+            fi
+            printf "U\0%s\0%s\0" "${percorso}" "${contenuto}"
+        done >> "${temporanea}/untracked"
+
+    # Il prefisso versionato serve a due cose: nessuna impronta puo' piu'
+    # valere lo sha256 della stringa vuota -- nemmeno su un albero pulito --
+    # e il formato dell'impronta e' dichiarato, cosi' un cambio futuro si
+    # riconosce invece di somigliare a un albero cambiato.
+    esito=0
     {
-        # `--binary` perche' senza di esso git stampa «Binary files differ» e
-        # due modifiche diverse allo stesso binario darebbero la stessa riga.
-        # `--no-ext-diff` e `--no-textconv` perche' un driver di diff
-        # configurato nell'ambiente cambierebbe l'impronta senza che l'albero
-        # sia cambiato -- e la renderebbe non riproducibile fuori da qui.
-        git diff --cached --binary --no-ext-diff --no-textconv
-        git diff --binary --no-ext-diff --no-textconv
-        git ls-files --others --exclude-standard -z | sort -z |
-            while IFS= read -r -d '' percorso; do
-                # Percorso **e** hash del contenuto, ciascuno delimitato: dare
-                # in pasto il contenuto grezzo renderebbe ambiguo il confine
-                # fra un percorso e il file precedente, e due alberi diversi
-                # potrebbero collidere.
-                if [ -f "${percorso}" ] && [ ! -L "${percorso}" ]; then
-                    contenuto="$(sha256sum < "${percorso}" | cut -d' ' -f1)"
-                else
-                    contenuto="non-regolare"
-                fi
-                printf 'U\0%s\0%s\0' "${percorso}" "${contenuto}"
-            done
-    } 2>/dev/null | sha256sum | cut -d' ' -f1
+        printf "impronta-albero-v1\0"
+        cat "${temporanea}/staged" "${temporanea}/unstaged" "${temporanea}/untracked"
+    } | sha256sum | cut -d" " -f1 || esito=1
+    rm -rf "${temporanea}"
+    return "${esito}"
 }
 
 # Consente alle sonde di caricare solo le funzioni, senza eseguire il
@@ -257,7 +291,13 @@ fi
 
 REVISIONE="$(git rev-parse HEAD)"
 SPORCHI="$(git status --porcelain | wc -l)"
-IMPRONTA_INIZIO="$(impronta_albero)"
+if ! IMPRONTA_INIZIO="$(impronta_albero)"; then
+    echo "IMPRONTA NON CALCOLABILE in testa alla corsa." >&2
+    echo "Un comando git non ha acquisito. Senza impronta iniziale non c'e'" >&2
+    echo "niente con cui confrontare quella finale, e il passo" >&2
+    echo "`albero_invariato` sarebbe verde per assenza di dati." >&2
+    exit 2
+fi
 
 echo "=============================================================="
 if [ "${LIVELLO}" = "1" ]; then
@@ -481,8 +521,14 @@ else
     echo "verde"
 fi
 
-IMPRONTA_FINE="$(impronta_albero)"
-if [ "${IMPRONTA_FINE}" != "${IMPRONTA_INIZIO}" ]; then
+if ! IMPRONTA_FINE="$(impronta_albero)"; then
+    passi=$((passi + 1))
+    printf '  %-38s ' "albero_invariato"
+    echo "ROSSO — impronta finale non calcolabile"
+    echo "    Un comando git non ha acquisito a fine corsa." >&2
+    echo "    Non sapere se l'albero e' cambiato non e' sapere che non lo e'." >&2
+    falliti+=("albero_invariato")
+elif [ "${IMPRONTA_FINE}" != "${IMPRONTA_INIZIO}" ]; then
     passi=$((passi + 1))
     printf '  %-38s ' "albero_invariato"
     echo "ROSSO — l'albero e' cambiato durante la corsa"
