@@ -17,27 +17,35 @@ release_authorized: false
 | | SHA | Significato |
 |---|---|---|
 | baseline documentale | `2fe9b54` | revisione da cui parte il docset corrente |
-| ultima qualificata | `0fb799d` | ultimo SHA passato da un checkpoint di livello 2 |
+| ultima qualificata | `75e5301` | ultimo SHA passato da un checkpoint di livello 2 |
 
 **Lo SHA misurato non è il commit che ne pubblica l'evidenza.** Un'evidenza sta
 in un commit successivo e non eredita la misura: i numeri valgono per l'albero
 misurato e per nessun altro.
 
-### Ultima misura — `0fb799d`
+### Ultima misura — `75e5301`
 
 | | |
 |---|---|
-| checkpoint | **54 passi su 54**, 0 omessi, 0 falliti |
-| replay deterministico | **35 562 input** su **13 target**, nessun crash |
+| checkpoint | **57 passi su 57**, 0 omessi, 0 falliti |
+| replay deterministico | **36 055 input** su **13 target**, nessun crash |
 | smoke | **13 target su 13**, nessun finding |
 | quarantena | **vuota** |
-| copertura, report LCOV | **85,83%** (26 773 / 31 192 righe strumentate) |
+| copertura, report LCOV | **85,84%** (26 774 / 31 192 righe strumentate) |
 | copertura, colonna cargo | **83,94%** |
 | soglia | 80% |
 
 Le due percentuali sono **due proiezioni dello stesso profdata**, non due
 misure della stessa cosa: contano insiemi diversi di righe strumentate.
 Entrambe sono richieste.
+
+Il conteggio dei passi è **riconciliato dagli identificatori** — 57 distinti,
+nessun duplicato — e non accettato dal rapporto che lo strumento stampa su se
+stesso.
+
+La diagnostica differenziale rispetto a `0fb799d` è **n/d**: nessuna riga
+eseguibile è cambiata. Non è una misura mancata, è la misura di un perimetro
+vuoto — un commento non è una riga eseguibile.
 
 ### Chiuso
 
