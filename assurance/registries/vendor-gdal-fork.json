@@ -32,5 +32,32 @@
     "eseguire la suite upstream, i test driver-dxf e il gate di provenienza",
     "rieseguire il benchmark interlacciato contro la baseline precedente",
     "aggiornare insieme questo registro e scripts/dxf-fork-lock.json"
-  ]
+  ],
+  "package_verification": {
+    "stato": "not_applicable",
+    "ragione": "il crate conserva `.cargo_vcs_info.json`, un nome che Cargo riserva: `cargo package` lo rifiuta come «invalid inclusion of reserved file name». Il metadato e' tenuto di proposito per l'attribuzione upstream. Verificato che il comportamento sia preesistente e non introdotto dalla migrazione dei registri, confrontando la baseline 2fe9b54 alle stesse condizioni.",
+    "non_e_un_verde": "un controllo non applicabile non e' un controllo superato. Il packaging non fa parte del ciclo di vita di questo crate, e al suo posto valgono le prove sotto — che sono pertinenti, non sostitutive di comodo.",
+    "prove_correnti": [
+      {
+        "afferma": "il crate e' risolto per path via [patch.crates-io], non da crates.io",
+        "verificata_da": "scripts/check_gdal_fork.py",
+        "come": "Cargo.lock deve risolvere un'unica dipendenza path senza `source` ne' `checksum`, e il Cargo.toml di workspace deve puntare esclusivamente al fork governato"
+      },
+      {
+        "afferma": "il crate non viene pubblicato",
+        "verificata_da": "scripts/check_gdal_fork.py",
+        "come": "una dipendenza risolta per path non ha una release su un registry: non esiste artefatto pubblicato di cui verificare il packaging"
+      },
+      {
+        "afferma": "il crate compila e passa i test nella matrice gdal-backend",
+        "verificata_da": "scripts/s9-checkpoint.sh",
+        "come": "i passi `clippy` e `test` girano con --all-features, che abilita gdal-backend; il passo `check_filegdb_catalog` esercita il driver reale"
+      },
+      {
+        "afferma": "identita', digest e revisione upstream coincidono fra registro, lock e pacchetto",
+        "verificata_da": "scripts/check_gdal_fork.py",
+        "come": "il gate confronta le tre fonti, incluso `.cargo_vcs_info.json` — lo stesso file che rende il packaging non applicabile"
+      }
+    ]
+  }
 }

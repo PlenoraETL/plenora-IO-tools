@@ -136,6 +136,13 @@ def nessun_markdown_come_database() -> list[str]:
     errori: list[str] = []
     lettura = re.compile(r"""read_text|read_bytes|open\(|load\(""")
     for percorso in tracciati("scripts/*.py") + tracciati("scripts/*.sh"):
+        # **L'unica eccezione, e va ristretta a questo file.** Il gate del
+        # docset legge i documenti per *verificarli*: collegamenti, numeri,
+        # raggiungibilita'. E' il validatore, non un consumatore — l'opposto di
+        # dipendere dalla prosa. Se domani un altro script leggesse un
+        # documento, quella sarebbe la dipendenza che questa regola vieta.
+        if percorso == "scripts/check_docset.py":
+            continue
         testo = (ROOT / percorso).read_text(encoding="utf-8", errors="replace")
         for numero, riga in enumerate(testo.splitlines(), 1):
             nuda = riga.split("#", 1)[0]

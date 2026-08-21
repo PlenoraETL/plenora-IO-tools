@@ -35,5 +35,10 @@
     "eseguire la suite upstream, i test driver-dxf e il gate di provenienza",
     "rieseguire il benchmark interlacciato contro la baseline precedente",
     "aggiornare insieme questo registro e scripts/dxf-fork-lock.json"
-  ]
+  ],
+  "package_verification": {
+    "stato": "applicable",
+    "comando": "cargo package --manifest-path vendor/dxf/Cargo.toml --target-dir <fuori dal fork>",
+    "nota": "il target deve stare fuori dall'albero vendorizzato: cargo scriverebbe altrimenti in vendor/dxf/target/, e l'operazione di verifica sporcherebbe cio' che verifica. `scripts/fork_comune.comando_package` lo impone."
+  }
 }

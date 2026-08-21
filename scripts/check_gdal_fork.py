@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
+import sys
 from pathlib import Path
 import tomllib
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from fork_comune import artefatti_estranei, impronta  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,21 +19,6 @@ LOCK_PATH = ROOT / "scripts" / "gdal-fork-lock.json"
 
 def fail(message: str) -> None:
     raise SystemExit(f"GDAL fork gate failed: {message}")
-
-
-def tree_digest(root: Path) -> tuple[int, str]:
-    files = sorted(
-        (path for path in root.rglob("*") if path.is_file()),
-        key=lambda path: path.relative_to(root).as_posix(),
-    )
-    digest = hashlib.sha256()
-    for path in files:
-        relative = path.relative_to(root).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(hashlib.sha256(path.read_bytes()).hexdigest().encode("ascii"))
-        digest.update(b"\n")
-    return len(files), digest.hexdigest()
 
 
 def main() -> None:
@@ -60,7 +49,23 @@ def main() -> None:
     vendor = ROOT / lock["vendor_path"]
     if not vendor.is_dir():
         fail(f"directory vendorizzata assente: {vendor}")
-    count, digest = tree_digest(vendor)
+    # L'impronta e' calcolata sul solo insieme versionato, quindi un artefatto
+    # di build non puo' cambiarla. Resta pero' un file che non dovrebbe stare
+    # in un albero governato, e va nominato: ignorarlo in silenzio sarebbe la
+    # meta' sbagliata della difesa.
+    estranei = artefatti_estranei(vendor)
+    if estranei:
+        fail(
+            "artefatti estranei nell'albero vendorizzato: "
+            + ", ".join(estranei[:5])
+            + (" e altri" if len(estranei) > 5 else "")
+            + ". Non alterano l'impronta, calcolata sul solo insieme "
+            "versionato, ma un albero governato contiene cio' che dichiara e "
+            "nient'altro: `cargo package` va eseguito con --target-dir fuori "
+            "dal fork."
+        )
+
+    count, digest = impronta(vendor)
     if count != lock["file_count"] or digest != lock["tree_sha256"]:
         fail(
             "albero vendorizzato diverso dal lock "

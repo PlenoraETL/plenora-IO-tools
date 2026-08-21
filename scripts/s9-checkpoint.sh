@@ -381,6 +381,7 @@ passo corpus_condiviso python3 scripts/generate_shared_wkb_corpus.py --check
 passo sonde_audit_ignores python3 -m unittest scripts.test_audit_ignores
 passo check_dependency_pins python3 scripts/check_dependency_pins.py
 passo check_gdal_fork python3 scripts/check_gdal_fork.py
+passo sonde_fork python3 -m unittest scripts.test_fork_comune
 passo check_dxf_fork python3 scripts/check_dxf_fork.py
 passo check_no_legacy_budget python3 scripts/check_no_legacy_budget.py
 passo check_permit_boundary python3 scripts/check_permit_boundary.py
@@ -398,6 +399,7 @@ passo assurance_fallbacks bash scripts/check_assurance_fallbacks.sh
 # -- verificato.
 # Il docset e' minimo per scelta: un documento in piu' e' un documento che
 # nessuno rileggera'. Il gate impedisce che la cronaca rientri.
+passo sonde_docset python3 -m unittest scripts.test_check_docset
 passo check_docset python3 scripts/check_docset.py
 passo sonde_assurance_n1 python3 -m unittest scripts.test_check_assurance_n1
 passo assurance_n1_integrita python3 scripts/check_assurance_n1.py --integrita
