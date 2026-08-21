@@ -53,6 +53,21 @@ OPERATIVI = {
 
 AMMESSI = set(CANONICI) | set(OPERATIVI)
 
+# I soli file che possono **leggere** un documento.
+#
+# Il criterio non e' «questi due file», e' che cosa fanno con cio' che leggono:
+# lo **validano** — collegamenti, numeri, raggiungibilita' — invece di
+# estrarne stato operativo. Un gate che leggesse un numero da un documento per
+# usarlo altrove sarebbe la dipendenza che questa regola vieta, e starebbe
+# fuori dall'eccezione anche se comparisse qui.
+#
+# Sono due perche' una sonda che verifica il validatore deve leggere cio' che
+# il validatore legge: escluderla costringerebbe a non sondarlo.
+VALIDATORI = {
+    "scripts/check_docset.py",
+    "scripts/test_check_docset.py",
+}
+
 # La baseline dei README vendorizzati: sono ridistribuiti, non nostri.
 BASELINE_VENDOR = "2fe9b54"
 
@@ -136,12 +151,7 @@ def nessun_markdown_come_database() -> list[str]:
     errori: list[str] = []
     lettura = re.compile(r"""read_text|read_bytes|open\(|load\(""")
     for percorso in tracciati("scripts/*.py") + tracciati("scripts/*.sh"):
-        # **L'unica eccezione, e va ristretta a questo file.** Il gate del
-        # docset legge i documenti per *verificarli*: collegamenti, numeri,
-        # raggiungibilita'. E' il validatore, non un consumatore — l'opposto di
-        # dipendere dalla prosa. Se domani un altro script leggesse un
-        # documento, quella sarebbe la dipendenza che questa regola vieta.
-        if percorso == "scripts/check_docset.py":
+        if percorso in VALIDATORI:
             continue
         testo = (ROOT / percorso).read_text(encoding="utf-8", errors="replace")
         for numero, riga in enumerate(testo.splitlines(), 1):
@@ -229,7 +239,7 @@ def cronaca_residua() -> list[str]:
     schemi = [re.compile(s) for s in CRONACA]
     for modello in PERIMETRO:
         for percorso in tracciati(modello) + tracciati(f"*/{modello}"):
-            if percorso.startswith("vendor/") or percorso == "scripts/check_docset.py":
+            if percorso.startswith("vendor/") or percorso in VALIDATORI:
                 continue
             testo = (ROOT / percorso).read_text(encoding="utf-8", errors="replace")
             for schema in schemi:

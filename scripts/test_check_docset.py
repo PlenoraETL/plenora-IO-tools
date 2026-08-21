@@ -82,19 +82,25 @@ class SondeEccezione(unittest.TestCase):
         un altro script leggesse un documento, quella sarebbe la dipendenza che
         la regola vieta.
         """
-        import re
-
-        sorgente = (gate.ROOT / "scripts" / "check_docset.py").read_text(encoding="utf-8")
-        esclusi = set(re.findall(r'percorso == "([^"]+)"', sorgente))
-        # Due controlli escludono lo stesso file, ed e' corretto: quello sui
-        # database perche' il gate legge i documenti per verificarli, e quello
-        # sulla cronaca perche' il gate **elenca** i nomi vietati. Cio' che
-        # conta e' che il file escluso sia uno solo.
         self.assertEqual(
-            esclusi,
-            {"scripts/check_docset.py"},
-            "l'eccezione si e' allargata oltre il gate del docset",
+            gate.VALIDATORI,
+            {"scripts/check_docset.py", "scripts/test_check_docset.py"},
+            "l'eccezione si e' allargata oltre il validatore e la sua sonda",
         )
+
+    def test_i_validatori_esistono(self) -> None:
+        for relativo in gate.VALIDATORI:
+            self.assertTrue((gate.ROOT / relativo).is_file(), relativo)
+
+    def test_un_lettore_qualunque_non_e_ammesso(self) -> None:
+        """La sonda decisiva: l'eccezione e' un insieme chiuso.
+
+        Se `VALIDATORI` fosse ignorato e il controllo passasse tutto, questa
+        resterebbe verde soltanto perche' non verifica nulla — quindi verifica
+        il verso opposto: un nome che non e' nell'insieme non e' ammesso.
+        """
+        self.assertNotIn("scripts/check_release_contract.py", gate.VALIDATORI)
+        self.assertNotIn("scripts/check_assurance_n1.py", gate.VALIDATORI)
 
 
 if __name__ == "__main__":
