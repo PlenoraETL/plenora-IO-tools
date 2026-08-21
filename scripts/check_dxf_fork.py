@@ -89,7 +89,15 @@ def main() -> None:
     if len(matches) != 1 or "source" in matches[0] or "checksum" in matches[0]:
         fail("Cargo.lock non risolve un'unica dipendenza path dxf 0.6.1")
 
-    provenance = (vendor / "PLENORA_FORK.md").read_text(encoding="utf-8")
+    # Registro di provenienza **strutturato**. Era un Markdown letto come
+    # database: un gate non deve dipendere dalla prosa, che nessuno puo'
+    # validare e che si riscrive senza accorgersene.
+    registro = json.loads(
+        (ROOT / "assurance" / "registries" / "vendor-dxf-fork.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    provenance = json.dumps(registro, ensure_ascii=False)
     for value in (
         lock["crate_sha256"],
         lock["upstream_tag"],
@@ -97,7 +105,7 @@ def main() -> None:
         lock["upstream_revision"],
     ):
         if value not in provenance:
-            fail("registro umano di provenienza incoerente col lock")
+            fail("registro di provenienza incoerente col lock")
 
     declared_delta = set(lock["functional_delta_files"]) | set(
         lock["packaging_delta_files"]

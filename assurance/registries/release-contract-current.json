@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "descrizione": "Invarianti che governano il comportamento **corrente**. Non e' una trascrizione della cronaca: una voce esiste solo se un test o un gate la verifica oggi. Un'affermazione senza verifica corrente e' `release_blocking`, non una verita' importata.",
+  "stati": {
+    "verified": "un test o un gate corrente lo verifica",
+    "release_blocking": "manca la verifica, o l'invariante non e' ancora ratificato"
+  },
+  "invarianti": [
+    {
+      "id": "wire.error-v1.chiavi",
+      "superficie": "busta d'errore della CLI, contratto plenora-io-error-v1",
+      "invariante": "l'oggetto `error` porta esattamente sei chiavi — category, phase, remote_effect, retry, code, message — piu' row_diagnostics quando presente. `driver`, `field` e `capability_reason` esistono nel tipo Rust e non sul wire.",
+      "prova": {
+        "tipo": "test",
+        "crate": "plenora-io-cli",
+        "test": [
+          "tests::la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi_v1",
+          "la_busta_del_binario_ha_le_sei_chiavi_e_non_porta_il_payload"
+        ]
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "wire.error-v1.quartetto",
+      "superficie": "chiave di compatibilita' degli errori",
+      "invariante": "la chiave di compatibilita' e' (category, phase, code, retry). Il testo di `message` non ne fa parte e puo' cambiare.",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_quartetto_sito.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "wire.cli-protocol-v1",
+      "superficie": "sei buste JSON della CLI",
+      "invariante": "protocollo 1, superficie limitata al JSON della CLI, sei buste dichiarate con il proprio contratto; l'API Rust resta interna e non porta garanzia semver.",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_release_contract.py",
+        "artefatto": "release/cli-protocol-v1.json"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "wire.catalog-producer",
+      "superficie": "catalogo dei driver emesso dalla CLI",
+      "invariante": "il produttore del catalogo rispetta il contratto dichiarato",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_filegdb_catalog.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "errori.nessun-testo-runtime",
+      "superficie": "messaggi pubblici di PlenoraIoError",
+      "invariante": "nessun costruttore pubblico accetta testo libero; il messaggio e' scelto a compile time. La garanzia e' l'assenza della funzione, non una convenzione.",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_errori_redatti.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "errori.static-non-promuovibile",
+      "superficie": "PublicMessage::Curated",
+      "invariante": "nessuna promozione non autorizzata di testo runtime a 'static; una sola dimostrazione eseguibile e identificata.",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_niente_leak.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "errori.tetto-messaggio",
+      "superficie": "PlenoraIoError::message",
+      "invariante": "il valore **decodificato** non supera 2048 byte UTF-8. Il tetto non e' promesso sul JSON serializzato, dove l'escaping espande.",
+      "prova": {
+        "tipo": "test",
+        "crate": "plenora-io-model",
+        "test": [
+          "tests::nessun_errore_supera_il_tetto_del_messaggio",
+          "tests::il_tetto_e_sul_valore_decodificato_non_sul_json"
+        ]
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "budget.limiti-wkb",
+      "superficie": "limiti WKB predefiniti",
+      "invariante": "i tetti WKB predefiniti sono quelli dichiarati e arrivano ai driver",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_wkb_limits_defaults.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "budget.nessun-modello-legacy",
+      "superficie": "modello di budget",
+      "invariante": "il modello di budget legacy non puo' rientrare",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_no_legacy_budget.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "budget.permit-boundary",
+      "superficie": "InputPermit",
+      "invariante": "il permit di input si consuma per move e non e' osservabile due volte",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_permit_boundary.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "difese.prevalidazione-decoder",
+      "superficie": "decoder dei formati compressi",
+      "invariante": "la prevalidazione precede la materializzazione delle celle",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_prevalidazione_decoder.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "fallback.registro",
+      "superficie": "tutte le degradazioni a un valore di ripiego",
+      "invariante": "ogni `unwrap_or*` del workspace e' registrato con la propria ragione; il totale non si muove senza che qualcuno la scriva.",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_assurance_fallbacks.sh"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "provenienza.fork-vendorizzati",
+      "superficie": "vendor/dxf e vendor/gdal",
+      "invariante": "identita', digest e revisione upstream dei fork coincidono fra registro di provenienza, lock e Cargo.lock.",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "scripts/check_dxf_fork.py",
+          "scripts/check_gdal_fork.py"
+        ],
+        "artefatto": [
+          "assurance/registries/vendor-dxf-fork.json",
+          "assurance/registries/vendor-gdal-fork.json"
+        ]
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "provenienza.pin",
+      "superficie": "toolchain, dipendenze e action di CI",
+      "invariante": "toolchain, dipendenze e action sono fissate a versioni esatte",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "scripts/check_toolchain_pins.py",
+          "scripts/check_dependency_pins.py",
+          "scripts/check_action_pins.py"
+        ]
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "identita.superficie-pubblica",
+      "superficie": "API pubblica dei crate",
+      "invariante": "la superficie pubblica dichiarata non cambia senza dichiararlo",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_public_identity.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "fuzz.quarantena",
+      "superficie": "target di fuzzing",
+      "invariante": "nessun target in quarantena; tutti compilano ed eseguono",
+      "prova": {
+        "tipo": "gate",
+        "comando": "scripts/check_quarantena_fuzz.py"
+      },
+      "stato": "verified"
+    },
+    {
+      "id": "copertura.rami-negativi",
+      "superficie": "rami negativi di driver-shp e driver-xls",
+      "invariante": "ogni ramo negativo censito e' coperto da un test eseguito, oppure dichiarato irraggiungibile con la guardia che rifiuta per prima.",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "scripts/check_assurance_n1.py --release",
+          "scripts/check_assurance_n1_prove.py"
+        ],
+        "artefatto": "docs/assurance/ASSURANCE_N1_copertura_negativa.json"
+      },
+      "stato": "release_blocking",
+      "manca": "43 gruppi su 49 restano aperti"
+    },
+    {
+      "id": "fuzz.reader-shapefile",
+      "superficie": "parsing di .shp e .dbf",
+      "invariante": "il reader reale di Shapefile e' esercitato da un fuzz target",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "nessun fuzz target esercita il parsing .shp/.dbf. `shp_wkb` converte WKB e forme ESRI e non e' un reader di Shapefile: presentarlo come copertura del formato sarebbe falso."
+    },
+    {
+      "id": "fuzz.filegdb",
+      "superficie": "lettura FileGDB con gdal-backend",
+      "invariante": "il percorso FileGDB e' esercitato da un fuzz target",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "spike di fattibilita' non eseguito. Due esiti ammessi: target reale, oppure impossibilita' tecnica dimostrata con eccezione esplicita e suite compensativa di fixture ostili nella matrice feature-on."
+    },
+    {
+      "id": "wire.loss-report",
+      "superficie": "read_loss, write_loss e fidelity nelle buste della CLI",
+      "invariante": null,
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "contratto NON RATIFICATO. Cardinalita' di `counts` senza tetto nel contratto, nessun limite in byte su alcuna stringa, e `FidelityReason.detail` porta nomi di layer e attributo e la forma `Debug` di tipi di dipendenza. Cinque decisioni aperte: struttura, limiti, redazione, comportamento al limite, versionamento."
+    }
+  ]
+}

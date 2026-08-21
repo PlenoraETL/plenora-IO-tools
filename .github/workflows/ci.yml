@@ -46,14 +46,10 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_public_identity
           python3 scripts/check_public_identity.py
-      - name: Verify component RC contract provenance
+      - name: Verify the current contract registry
         run: |
           python3 -m unittest scripts.test_check_release_contract
-          python3 scripts/check_release_contract.py --historical
-          python3 -m unittest scripts.test_check_patch_readiness
-          python3 scripts/check_patch_readiness.py \
-            --qualify-current \
-            --expected-revision "$CANDIDATE_SHA"
+          python3 scripts/check_release_contract.py
       - name: Verify shared WKB/EWKB corpus
         run: |
           python3 -m unittest scripts.test_compare_shared_wkb_observations
@@ -182,11 +178,14 @@ jobs:
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-audit
         with:
           tool: cargo-audit
+      # Gli ID ignorati vengono dal registro, non da un elenco scritto qui: due
+      # elenchi divergono, e il secondo non porta la ragione dell'eccezione.
       - name: Audit locked dependencies
-        run: >-
-          cargo audit --deny warnings
-          --ignore RUSTSEC-2023-0089
-          --ignore RUSTSEC-2024-0436
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts.test_audit_ignores
+          # shellcheck disable=SC2046
+          cargo audit --deny warnings $(python3 scripts/audit_ignores.py)
 
   # Unico job del repo che compila con un sanitizer. I driver leggono file
   # esterni non fidati: senza AddressSanitizer un difetto di memoria in una

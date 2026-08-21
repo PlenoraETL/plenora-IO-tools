@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "descrizione": "Provenienza del fork governato, registrata separatamente dal lock. Il gate confronta i due: una divergenza significa che qualcuno ha aggiornato il vendor senza aggiornare la provenienza, o viceversa.",
+  "package": "dxf",
+  "version": "0.6.1",
+  "crate_sha256": "6bb070bbb077a936e2bdf95d4b39aa83e865b38c3a7054f71d704e0796da1821",
+  "upstream_tag": "v0.6.1",
+  "upstream_tag_object": "c965cc8ef139b191131780ccdcf134c220642b16",
+  "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
+  "licenza_upstream": "MIT",
+  "file_licenza": "LICENSE.txt",
+  "risoluzione": "il workspace risolve dxf 0.6.1 esclusivamente da vendor/dxf via [patch.crates-io]",
+  "delta_funzionale": [
+    {
+      "file": "src/code_pair_iter.rs",
+      "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input"
+    },
+    {
+      "file": "src/drawing.rs",
+      "cambiamento": "DrawingEntityReader, reader fallibile pull-based che conserva metadata e blocchi ma emette una entita' logica alla volta; raggruppa POLYLINE/VERTEX, attributi di INSERT e MTEXT come il loader upstream"
+    },
+    {
+      "file": "src/lib.rs",
+      "cambiamento": "esportazione pubblica di DrawingEntityReader"
+    }
+  ],
+  "invarianti_del_fork": [
+    "non cambia la scrittura DXF",
+    "non cambia i tipi pubblici esistenti",
+    "il percorso progressivo rifiuta DXB; DXF ASCII e binary DXF restano supportati"
+  ],
+  "procedura_di_aggiornamento": [
+    "ripartire da una release upstream identificata da tag, commit e checksum",
+    "riapplicare e revisionare separatamente i delta dichiarati",
+    "eseguire la suite upstream, i test driver-dxf e il gate di provenienza",
+    "rieseguire il benchmark interlacciato contro la baseline precedente",
+    "aggiornare insieme questo registro e scripts/dxf-fork-lock.json"
+  ]
+}

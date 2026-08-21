@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
+  "totale": 119,
+  "per_crate": {
+    "driver-common": {
+      "conteggio": 4,
+      "ragione": "quattro `unwrap_or_else(|e| panic!(…))` nei test di round-trip WKT: il modo in cui quel file dice «questo caso doveva passare». **Non era nel registro fino al 2026-08-21**: il gate testuale non lo elencava, quindi non lo contava affatto"
+    },
+    "driver-csv": {
+      "conteggio": 2,
+      "ragione": "delimitatore di default dichiarato; nome diagnostico; `Unknown` solo quando il set dimensionale non è singleton"
+    },
+    "driver-dxf": {
+      "conteggio": 15,
+      "ragione": "classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF; accounting spool fail-closed su overflow/null e dimensioni difensive `Unknown`; decisioni coperte dai test geometrici, limite e spill"
+    },
+    "driver-filegdb": {
+      "conteggio": 5,
+      "ragione": "path/stem di staging non semantici; un fallback `custom` è confinato al costruttore dei test"
+    },
+    "driver-geojson": {
+      "conteggio": 4,
+      "ragione": "nome diagnostico; geometrie senza coordinate sono ora rifiutate; ai due punti di uscita del deserializzatore il canale laterale porta l'errore vero quando la causa è nostra e resta vuoto quando a fallire è serde sul JSON malformato — il default è il messaggio giusto per quel caso"
+    },
+    "driver-geoparquet": {
+      "conteggio": 3,
+      "ragione": "nome; pruning fail-open; dimensioni eterogenee → `Unknown`; codice CRS conservato se PROJJSON non serializza"
+    },
+    "driver-gpkg": {
+      "conteggio": 3,
+      "ragione": "`undefined` richiesto dalla tabella SRS quando manca WKT; raw CRS conserva almeno l'ID; tipo `GEOMETRY` e dimensioni `Unknown` sono valori nativi espliciti"
+    },
+    "driver-ipc": {
+      "conteggio": 1,
+      "ragione": "nome; projection best-effort conserva il campo originale se non esiste una sostituzione"
+    },
+    "driver-kml": {
+      "conteggio": 3,
+      "ragione": "nome diagnostico; eterogeneità dimensionale → `Unknown`; due fallback rendono leggibile con escape ASCII il **testo estratto** quando non è UTF-8 valido — non i messaggi d'errore, che dal 2026-08-20 non portano più nulla di letto dal file; geometrie vuote sono rifiutate"
+    },
+    "driver-shp": {
+      "conteggio": 3,
+      "ragione": "nome diagnostico; stringa vuota usata solo dalla classificazione di una definizione opzionale, non come CRS operativo"
+    },
+    "driver-xls": {
+      "conteggio": 2,
+      "ragione": "dimensioni geometriche eterogenee → `Unknown`; celle sparse e coordinate assenti sono gestite da rami espliciti, senza fallback"
+    },
+    "plenora-bench": {
+      "conteggio": 24,
+      "ragione": "configurazione, ripetizioni e soglie benchmark documentate; metriche mancanti rappresentate come zero o `?` soltanto nell'output del runner, senza entrare nei driver"
+    },
+    "plenora-fuzz": {
+      "conteggio": 5,
+      "ragione": "directory, durata e seed di campagna riproducibili; serializzazione best-effort confinata alla generazione del corpus, senza entrare nel componente distribuibile"
+    },
+    "plenora-io-cli": {
+      "conteggio": 28,
+      "ragione": "default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance"
+    },
+    "plenora-io-core": {
+      "conteggio": 16,
+      "ragione": "un path senza parent esplicito usa la directory corrente, senza modificare dati o contratti"
+    },
+    "plenora-io-model": {
+      "conteggio": 1,
+      "ragione": "metadato GeoArrow assente significa “non è un campo geometrico”"
+    }
+  }
+}

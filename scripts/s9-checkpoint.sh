@@ -369,8 +369,7 @@ passo check_prevalidazione python3 scripts/check_prevalidazione_decoder.py
 passo sonde_identita python3 -m unittest scripts.test_check_public_identity
 passo check_identita python3 scripts/check_public_identity.py
 passo sonde_release python3 -m unittest scripts.test_check_release_contract
-passo check_release python3 scripts/check_release_contract.py --historical
-passo sonde_patch python3 -m unittest scripts.test_check_patch_readiness
+passo check_release python3 scripts/check_release_contract.py
 passo sonde_action_pins python3 -m unittest scripts.test_check_action_pins
 passo check_action_pins python3 scripts/check_action_pins.py
 passo sonde_toolchain python3 -m unittest scripts.test_check_toolchain_pins
@@ -379,6 +378,7 @@ passo sonde_coverage_excl python3 -m unittest scripts.test_check_coverage_exclus
 passo sonde_filegdb python3 -m unittest scripts.test_check_filegdb_catalog
 passo sonde_wkb_condiviso python3 -m unittest scripts.test_compare_shared_wkb_observations
 passo corpus_condiviso python3 scripts/generate_shared_wkb_corpus.py --check
+passo sonde_audit_ignores python3 -m unittest scripts.test_audit_ignores
 passo check_dependency_pins python3 scripts/check_dependency_pins.py
 passo check_gdal_fork python3 scripts/check_gdal_fork.py
 passo check_dxf_fork python3 scripts/check_dxf_fork.py

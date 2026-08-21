@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "descrizione": "Stato corrente in forma strutturata. docs/RELEASE.md riporta questi numeri e il gate check_docset verifica che coincidano: due verita' manuali divergono, e divergono in silenzio.",
+  "release_authorized": false,
+
+  "revisioni": {
+    "baseline_documentale": {
+      "sha": "2fe9b54",
+      "significato": "revisione da cui parte il reset documentale"
+    },
+    "ultima_qualificata": {
+      "sha": "0fb799d",
+      "significato": "ultimo SHA passato da un checkpoint di livello 2",
+      "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
+    }
+  },
+
+  "ultima_misura": {
+    "sha": "0fb799d",
+    "checkpoint": {
+      "passi_eseguiti": 54,
+      "passi_verdi": 54,
+      "passi_omessi": 0,
+      "passi_falliti": 0
+    },
+    "fuzz": {
+      "replay_input": 35562,
+      "replay_target": 13,
+      "replay_crash": 0,
+      "smoke_target_eseguiti": 13,
+      "smoke_target_totali": 13,
+      "smoke_finding": 0,
+      "quarantena": 0
+    },
+    "copertura": {
+      "lcov_percentuale": 85.83,
+      "lcov_righe_coperte": 26773,
+      "lcov_righe_strumentate": 31192,
+      "cargo_lines_percentuale": 83.94,
+      "soglia": 80.0,
+      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
+    }
+  },
+
+  "chiuso": {
+    "s9_errori_strutturati": {
+      "stato": "chiuso",
+      "censimento_costruttori_legacy": 0,
+      "componenti_a_zero": 14,
+      "qualificato_su": "1806276"
+    }
+  },
+
+  "aperto": {
+    "assurance_n1": {
+      "gruppi_totali": 49,
+      "gruppi_aperti": 43,
+      "release_blocking": true
+    },
+    "fuzz_reader_shapefile": {
+      "stato": "aperto",
+      "release_blocking": true,
+      "nota": "nessun fuzz target esercita il parsing .shp/.dbf; shp_wkb converte WKB e forme ESRI e non e' un reader di Shapefile"
+    },
+    "fuzz_spike_filegdb": {
+      "stato": "aperto",
+      "release_blocking": true,
+      "nota": "due esiti ammessi: target reale, oppure impossibilita' tecnica dimostrata con suite compensativa di fixture ostili feature-on"
+    },
+    "loss_report": {
+      "stato": "non_ratificato",
+      "release_blocking": true,
+      "decisioni_aperte": [
+        "struttura delle categorie e degli identificatori",
+        "limiti di cardinalita', dimensione per stringa e byte totali",
+        "politica di redazione",
+        "comportamento deterministico al limite",
+        "compatibilita' e versionamento della busta CLI"
+      ]
+    },
+    "lotti": {
+      "s10": "aperto",
+      "s11": "aperto",
+      "s12": "aperto",
+      "qualifica_cross_component": "aperta"
+    }
+  }
+}

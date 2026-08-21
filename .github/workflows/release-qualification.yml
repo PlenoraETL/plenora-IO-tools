@@ -29,7 +29,7 @@ jobs:
       - name: Test release qualification semantics
         run: |
           python3 -m unittest scripts.test_check_release_contract
-          python3 -m unittest scripts.test_check_patch_readiness
+          python3 -m unittest scripts.test_check_assurance_n1_prove
       # ASSURANCE-N1 e' release-blocking: un ramo d'errore che nessuna verifica
       # esegue non e' un debito rinviabile oltre la qualifica. La modalita'
       # `--integrita` gira in CI e dice soltanto che il registro e' coerente;
@@ -38,16 +38,22 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_assurance_n1
           python3 scripts/check_assurance_n1.py --release
+      # Il legame fra la qualifica e l'esatto checkout resta, ed e' scritto qui
+      # invece che dentro un gate: sono tre condizioni indipendenti, e
+      # nasconderle in uno script il cui scopo e' un'altra cosa le rende
+      # difficili da leggere e facili da perdere.
       - name: Qualify the exact clean checkout selected by GitHub
         env:
           EXPECTED_REVISION: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_revision || github.sha }}
-          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
-          args=(
-            --qualify-current
-            --expected-revision "$EXPECTED_REVISION"
-          )
-          if [[ -n "$RELEASE_TAG" ]]; then
-            args+=(--release-tag "$RELEASE_TAG")
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          if [[ "$head" != "$EXPECTED_REVISION" ]]; then
+            echo "HEAD $head non e' la revisione attesa $EXPECTED_REVISION" >&2
+            exit 1
           fi
-          python3 scripts/check_patch_readiness.py "${args[@]}"
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "albero sporco: la qualifica non sarebbe same-SHA" >&2
+            exit 1
+          fi
+          python3 scripts/check_release_contract.py --release

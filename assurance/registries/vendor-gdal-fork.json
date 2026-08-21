@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "descrizione": "Provenienza del fork governato, registrata separatamente dal lock. Il gate confronta i due: una divergenza significa che qualcuno ha aggiornato il vendor senza aggiornare la provenienza, o viceversa.",
+  "package": "gdal",
+  "version": "0.17.1",
+  "crate_sha256": "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f",
+  "upstream_revision": "a324724c60dbf1e9bf0fb05203c4e0a1eefbf312",
+  "licenza_upstream": "MIT",
+  "file_licenza": "LICENSE.txt",
+  "risoluzione": "il workspace risolve gdal 0.17.1 esclusivamente da vendor/gdal via [patch.crates-io]",
+  "perimetro_vendorizzato": {
+    "conservati": [
+      "manifest",
+      "build.rs",
+      "src/",
+      "licenza",
+      "readme",
+      "metadato VCS"
+    ],
+    "esclusi": [
+      "fixture",
+      "workflow",
+      "script",
+      "esempi",
+      "test upstream non collegati dalla dipendenza"
+    ],
+    "ragione": "ridurre il perimetro governato; il sottoinsieme e' fissato dal tree hash nel lock"
+  },
+  "procedura_di_aggiornamento": [
+    "ripartire da una release upstream identificata da tag, commit e checksum",
+    "riapplicare e revisionare separatamente i delta dichiarati",
+    "eseguire la suite upstream, i test driver-dxf e il gate di provenienza",
+    "rieseguire il benchmark interlacciato contro la baseline precedente",
+    "aggiornare insieme questo registro e scripts/dxf-fork-lock.json"
+  ]
+}

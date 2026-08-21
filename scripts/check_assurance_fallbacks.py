@@ -33,6 +33,7 @@ solo commenti o stringhe. Ogni differenza e' annotata.
 from __future__ import annotations
 
 import pathlib
+import json
 import re
 import sys
 
@@ -47,31 +48,16 @@ CHIAMATA = re.compile(r"\bunwrap_or(?:_else|_default)?\s*\(")
 # Il registro. Ogni numero e' una decisione scritta in
 # `docs/assurance/FALLBACK_REGISTER.md`; muoverlo senza aggiornare quella
 # motivazione e' esattamente cio' che il gate esiste per impedire.
+# Il registro vive in `assurance/registries/fallback-register.json`: numero e
+# ragione nello stesso posto, in una forma che si puo' validare. Prima il
+# numero stava qui e la ragione in un Markdown, ed erano due fonti che
+# potevano divergere senza che nulla lo dicesse.
+REGISTRO = ROOT / "assurance" / "registries" / "fallback-register.json"
+_registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
 ATTESI: dict[str, int] = {
-    # `driver-common` non era nel registro dello script testuale, quindi non
-    # veniva contato affatto: il nuovo controllo sui crate non registrati
-    # l'ha trovato. Le quattro occorrenze sono `unwrap_or_else(|e| panic!(…))`
-    # nei test di round-trip WKT: il modo in cui quel file dice «questo caso
-    # doveva passare», non una degradazione a un default.
-    "driver-common": 4,
-    "driver-csv": 2,
-    "driver-dxf": 15,
-    "driver-filegdb": 5,
-    "driver-geojson": 4,
-    "driver-geoparquet": 3,
-    "driver-gpkg": 3,
-    "driver-ipc": 1,
-    "driver-kml": 3,
-    "driver-shp": 3,
-    "driver-xls": 2,
-    "plenora-io-model": 1,
-    "plenora-io-core": 16,
-    "plenora-io-cli": 28,
-    "plenora-bench": 24,
-    "plenora-fuzz": 5,
+    crate: voce["conteggio"] for crate, voce in _registro["per_crate"].items()
 }
-
-TOTALE_ATTESO = 119
+TOTALE_ATTESO = _registro["totale"]
 
 
 def conta(crate: str) -> int:
@@ -85,6 +71,13 @@ def conta(crate: str) -> int:
 
 def verifica(attesi: dict[str, int], totale_atteso: int) -> list[str]:
     errori: list[str] = []
+
+    # Un conteggio senza ragione e' una casella riempita: e' la stessa regola
+    # che ASSURANCE-N1 applica alle disposizioni.
+    for crate, voce in _registro["per_crate"].items():
+        if not voce.get("ragione"):
+            errori.append(f"{crate}: conteggio senza ragione nel registro")
+
     totale = 0
     for crate, atteso in attesi.items():
         if not (ROOT / "crates" / crate).is_dir():
