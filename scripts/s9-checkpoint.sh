@@ -387,6 +387,20 @@ passo check_permit_boundary python3 scripts/check_permit_boundary.py
 passo sonde_fallback python3 -m unittest scripts.test_check_assurance_fallbacks
 passo assurance_fallbacks bash scripts/check_assurance_fallbacks.sh
 
+# ASSURANCE-N1 non era cablato qui: lo eseguivo nelle batterie composte a mano,
+# e da quando il livello 1 deriva da questo script ha smesso di girare del
+# tutto. E' la stessa lezione di `fmt`, e stavolta e' costata meno solo perche'
+# il registro non e' cambiato nel frattempo.
+#
+# Due gate, e la distinzione conta: `--integrita` dice che il **registro** e'
+# coerente; `check_assurance_n1_prove.py` **esegue** i test dichiarati e legge
+# gli esiti. Il primo resta verde su un test marcato `#[ignore]`, il secondo no
+# -- verificato.
+passo sonde_assurance_n1 python3 -m unittest scripts.test_check_assurance_n1
+passo assurance_n1_integrita python3 scripts/check_assurance_n1.py --integrita
+passo sonde_assurance_n1_prove python3 -m unittest scripts.test_check_assurance_n1_prove
+passo assurance_n1_prove python3 scripts/check_assurance_n1_prove.py
+
 echo
 echo "--- 3. catalogo FileGDB reale --------------------------------"
 catalogo_filegdb() {

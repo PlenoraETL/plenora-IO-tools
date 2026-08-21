@@ -1927,6 +1927,276 @@ mod tests {
         );
     }
 
+    // --- ASSURANCE-N1, tranche 1 -------------------------------------------
+    //
+    // I rami negativi di `open`, `create` e `validate_archive_ratio`: mai
+    // eseguiti da nulla — ne' dai test, ne' dal replay — e preesistenti a S9.
+    //
+    // La forma e' quella indicata dal registro: **la classe di equivalenza
+    // della precondizione**. Non serve un file enorme per superare un tetto,
+    // serve un tetto stretto e un file normale; non serve un `.xls` vero per
+    // provare che non e' instradato, serve un nome con quell'estensione.
+
+    /// `.xls` non e' instradato in lettura, e il rifiuto e' una capability.
+    ///
+    /// La distinzione conta: un `Format` direbbe «il file e' rotto», e chi
+    /// legge cercherebbe un errore nel proprio dato invece di convertirlo.
+    #[test]
+    fn n1_open_rifiuta_xls_come_capability_non_come_formato() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("storico.xls");
+        std::fs::write(&percorso, b"non importa: l'estensione basta").unwrap();
+
+        let esito = XlsDriver.open(Source::Path(percorso), opzioni_lettura());
+        let Err(errore) = esito else {
+            panic!(".xls non deve essere aperto da questo driver");
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::Unsupported,
+            "e' una capability mancante, non un file malformato"
+        );
+        assert!(
+            errore.message.contains(".xls"),
+            "il messaggio deve dire quale estensione: {}",
+            errore.message
+        );
+    }
+
+    /// Un XLSX con geometria senza `assume_crs` e' rifiutato in fase CRS.
+    #[test]
+    fn n1_open_esige_assume_crs_quando_c_e_geometria() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("senza-crs.xlsx");
+        let mut cartella = Workbook::new();
+        let foglio = cartella.add_worksheet();
+        foglio.write_string(0, 0, "geometry").unwrap();
+        foglio.write_string(1, 0, "POINT (1 2)").unwrap();
+        cartella.save(&percorso).unwrap();
+
+        // Le stesse opzioni **senza** `with_assume_crs`: e' l'unica differenza
+        // rispetto al caso che passa, ed e' cio' che rende il test una prova
+        // del ramo e non di un guasto qualunque.
+        let esito = XlsDriver.open(
+            Source::Path(percorso.clone()),
+            opzioni_lettura().with_format_option("wkt_column", "geometry"),
+        );
+        let Err(errore) = esito else {
+            panic!("senza CRS dichiarato la geometria non e' interpretabile");
+        };
+        assert_eq!(errore.category, plenora_io_model::ErrorCategory::Crs);
+
+        // Controprova: con il CRS lo stesso file si apre. Senza, il test
+        // proverebbe soltanto che *qualcosa* fallisce.
+        let esito = XlsDriver.open(
+            Source::Path(percorso.clone()),
+            opzioni_lettura()
+                .with_format_option("wkt_column", "geometry")
+                .with_assume_crs("EPSG:4326"),
+        );
+        assert!(
+            esito.is_ok(),
+            "con `assume_crs` lo stesso file deve aprirsi"
+        );
+
+        // E il foglio **dichiarato** invece che dedotto: e' l'altro ramo del
+        // `match` su `format_options["sheet"]`, che nessun test toccava.
+        // `rust_xlsxwriter` nomina il primo foglio «Sheet1».
+        let esito = XlsDriver.open(
+            Source::Path(percorso),
+            opzioni_lettura()
+                .with_format_option("wkt_column", "geometry")
+                .with_format_option("sheet", "Sheet1")
+                .with_assume_crs("EPSG:4326"),
+        );
+        assert!(
+            esito.is_ok(),
+            "il foglio dichiarato per nome deve essere accettato"
+        );
+    }
+
+    /// La destinazione senza estensione `.xlsx` e' rifiutata.
+    ///
+    /// Va provato **dopo** aver escluso il conflitto di destinazione: nel
+    /// codice quel controllo viene prima, e un file preesistente
+    /// maschererebbe il ramo sotto esame.
+    #[test]
+    fn n1_create_rifiuta_una_destinazione_senza_estensione_xlsx() {
+        let dir = tempfile::tempdir().unwrap();
+        let uscita = dir.path().join("uscita.ods");
+        assert!(
+            !uscita.exists(),
+            "la premessa: nessun conflitto di destinazione"
+        );
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "valore",
+            arrow_schema::DataType::Utf8,
+            true,
+        )]));
+        let piano = WritePlan {
+            layers: vec![WriteLayer {
+                name: "foglio".to_owned(),
+                contract: DataContract::new(schema, None),
+            }],
+        };
+
+        let errore = XlsDriver
+            .create(Sink::Path(uscita.clone()), &piano, &opzioni_scrittura())
+            .err()
+            .expect("un'estensione diversa da .xlsx va rifiutata");
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::Unsupported
+        );
+        assert!(!uscita.exists(), "un rifiuto non lascia destinazione");
+    }
+
+    /// Un piano senza esattamente un layer e' fermato **prima** di `create`.
+    ///
+    /// La prima stesura di questo test si chiamava «`create` rifiuta un piano
+    /// che non ha esattamente un layer» e passava — ma la misura di copertura
+    /// ha mostrato che il ramo di `create` **restava scoperto**: `validate_write`
+    /// nel core ferma entrambe le classi prima, e l'asserzione sulla sola
+    /// categoria `Unsupported` era soddisfatta da un errore diverso.
+    ///
+    /// Era un test verde che provava un'altra cosa. Ora prova quella giusta, ed
+    /// e' un contratto piu' forte: fissa la **precedenza**. Il ramo di `create`
+    /// resta difensivo, e questo test e' la ragione per cui possiamo dirlo
+    /// invece di supporlo.
+    #[test]
+    fn n1_un_piano_senza_un_solo_layer_e_fermato_prima_di_create() {
+        let dir = tempfile::tempdir().unwrap();
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "valore",
+            arrow_schema::DataType::Utf8,
+            true,
+        )]));
+        let strato = |nome: &str| WriteLayer {
+            name: nome.to_owned(),
+            contract: DataContract::new(Arc::clone(&schema), None),
+        };
+
+        // Le due classi di equivalenza della precondizione `len() != 1`:
+        // sotto e sopra. Provarne una sola lascerebbe l'altra a nessuno.
+        for (nome, strati) in [
+            ("nessun-layer", vec![]),
+            ("due-layer", vec![strato("primo"), strato("secondo")]),
+        ] {
+            let uscita = dir.path().join(format!("{nome}.xlsx"));
+            let piano = WritePlan { layers: strati };
+            let Err(errore) =
+                XlsDriver.create(Sink::Path(uscita.clone()), &piano, &opzioni_scrittura())
+            else {
+                panic!("{nome}: il piano va rifiutato");
+            };
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::Unsupported,
+                "{nome}"
+            );
+            // `Capability` e non `Unsupported` come codice: e' la firma di
+            // `validate_write`, ed e' cio' che dimostra **chi** ha rifiutato.
+            // Senza questa riga il test tornerebbe a essere soddisfatto da
+            // qualunque rifiuto.
+            assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::Capability,
+                "{nome}: il rifiuto deve venire da validate_write, non da create"
+            );
+            assert!(
+                !uscita.exists(),
+                "{nome}: un rifiuto non lascia destinazione"
+            );
+        }
+    }
+
+    /// Un `geometry_encoding` non ammesso e' fermato dalla validazione delle
+    /// opzioni, non da `create`.
+    ///
+    /// Il commento nel codice lo dichiarava «difensivo». Questo test lo
+    /// **misura**: l'errore che esce e' quello del validatore delle opzioni,
+    /// con il token dell'opzione rifiutata e l'elenco degli ammessi. Il ramo
+    /// dentro `create` resta percio' irraggiungibile dall'API pubblica.
+    #[test]
+    fn n1_un_geometry_encoding_non_ammesso_e_fermato_prima_di_create() {
+        let dir = tempfile::tempdir().unwrap();
+        let uscita = dir.path().join("encoding.xlsx");
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "valore",
+            arrow_schema::DataType::Utf8,
+            true,
+        )]));
+        let piano = WritePlan {
+            layers: vec![WriteLayer {
+                name: "foglio".to_owned(),
+                contract: DataContract::new(schema, None),
+            }],
+        };
+        let mut opzioni = opzioni_scrittura();
+        opzioni
+            .format_options
+            .insert("geometry_encoding".to_owned(), "WKB".to_owned());
+
+        let errore = XlsDriver
+            .create(Sink::Path(uscita.clone()), &piano, &opzioni)
+            .err()
+            .expect("un encoding non ammesso va rifiutato");
+
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::InvalidConfiguration,
+            "e' una configurazione non valida, non una capability mancante"
+        );
+        // Il messaggio del validatore enumera gli ammessi: e' la firma che
+        // distingue **chi** ha rifiutato, e senza di essa il test sarebbe
+        // soddisfatto anche dal ramo difensivo di `create`.
+        assert!(
+            errore.message.contains("wkt") && errore.message.contains("xy"),
+            "il rifiuto deve venire dal validatore delle opzioni: {}",
+            errore.message
+        );
+        assert!(!uscita.exists(), "un rifiuto non lascia destinazione");
+    }
+
+    /// Il calcolo del rapporto di decompressione non puo' andare in overflow.
+    ///
+    /// Non serve un archivio enorme: serve un **moltiplicatore** enorme.
+    /// `compressed.checked_mul(maximum_ratio)` con `ratio` vicino a `u64::MAX`
+    /// trabocca su qualunque file non vuoto, ed e' la classe di equivalenza
+    /// della precondizione — non un caso patologico costruito ad arte.
+    #[test]
+    fn n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("overflow.xlsx");
+        let mut cartella = Workbook::new();
+        let foglio = cartella.add_worksheet();
+        foglio.write_string(0, 0, "valore").unwrap();
+        foglio.write_string(1, 0, "uno").unwrap();
+        cartella.save(&percorso).unwrap();
+
+        let esito = XlsDriver.open(
+            Source::Path(percorso),
+            opzioni_lettura_con(
+                plenora_io_model::budget::PipelineLimits::default()
+                    .with_decompression_ratio(u64::MAX),
+            ),
+        );
+        let Err(errore) = esito else {
+            panic!("il prodotto deve traboccare e fallire chiuso");
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::ResourceLimit,
+            "un overflow di calcolo e' un limite, non un formato non valido"
+        );
+        assert!(
+            errore.message.contains("overflow"),
+            "il messaggio deve dire che si tratta di un overflow: {}",
+            errore.message
+        );
+    }
+
     #[test]
     fn existing_destination_precedes_unsupported_xlsx_extension() {
         let dir = tempfile::tempdir().unwrap();

@@ -137,7 +137,7 @@
       "righe": 9,
       "raggiunto_da_replay": 0,
       "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "nota": "PARZIALE dopo la tranche 1, e resta aperto: nessuna compensazione. L'overflow del prodotto `compressed * decompression_ratio` (463-466) e' ora coperto da `n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio`, con un moltiplicatore u64::MAX su un file normale -- la classe di equivalenza della precondizione, non un archivio patologico. Restano scoperti i due `checked_add` (452-455, 457-460), che sommano le dimensioni DICHIARATE nel central directory dello zip: valori controllati da chi costruisce l'archivio, quindi potenzialmente raggiungibili con un ZIP64 artefatto. Non sono dichiarati difensivi perche' non e' stato misurato se il crate `zip` li rifiuti prima: dichiararlo senza prova sarebbe la stessa supposizione che la tranche ha appena smontato altrove."
     },
     {
       "gruppo": "driver-shp::polygon_wkb",
@@ -152,16 +152,54 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 7,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso in ASSURANCE-N1 tranche 1, ma il gruppo e' misto e va letto cosi': UN ramo e' coperto (estensione .xlsx, 387-389); DUE restano scoperti perche' **irraggiungibili dall'API pubblica**, e non per supposizione. Il piano con un numero di layer diverso da uno (392-394) e' fermato da `validate_write` nel core con code=Capability; un `geometry_encoding` non ammesso (411-418) e' fermato da `valida_opzioni` con il token dell'opzione rifiutata. I due test di precedenza asseriscono la firma di CHI rifiuta, non la sola categoria: la prima stesura asseriva solo `Unsupported`, passava, e la misura di copertura mostro' che il ramo restava scoperto. Era un test verde che provava un'altra cosa.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_create_rifiuta_una_destinazione_senza_estensione_xlsx",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_un_piano_senza_un_solo_layer_e_fermato_prima_di_create",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "392-394",
+          "guardia": "plenora-io-core::capabilities::validate_write"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_un_geometry_encoding_non_ammesso_e_fermato_prima_di_create",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "411-418",
+          "guardia": "driver-common::valida_opzioni"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::open",
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 7,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso in ASSURANCE-N1 tranche 1. Tutti e tre i rami negativi sono coperti, verificato per misura LCOV: `.xls` non instradato (308-312), foglio dichiarato per nome (324), `assume_crs` mancante con geometria (329-332). Il test sull'assume_crs porta la controprova positiva -- lo stesso file con il CRS deve aprirsi -- senza la quale proverebbe solo che qualcosa fallisce.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_open_rifiuta_xls_come_capability_non_come_formato",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_open_esige_assume_crs_quando_c_e_geometria",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::publish_mode",
@@ -201,7 +239,15 @@
       "righe": 4,
       "raggiunto_da_replay": 0,
       "disposizione": "chiuso",
-      "nota": "chiuso da `create_without_gdal_feature_is_typed` (5500b74): ramo semantico negativo, non strutturale ne' dipendente dall'ambiente."
+      "nota": "chiuso da `create_without_gdal_feature_is_typed` (5500b74): ramo semantico negativo, non strutturale ne' dipendente dall'ambiente.",
+      "prova": [
+        {
+          "crate": "driver-filegdb",
+          "test": "tests::create_without_gdal_feature_is_typed",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::finish_batch",
