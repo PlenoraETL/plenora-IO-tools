@@ -179,16 +179,17 @@
     {
       "id": "fuzz.quarantena",
       "superficie": "target di fuzzing",
-      "invariante": "nessun target in quarantena; tutti compilano ed eseguono",
+      "invariante": "nessun target di fuzzing e' in quarantena, cioe' nessuno e' escluso dallo smoke",
       "prova": {
         "tipo": "gate",
         "comando": "scripts/check_quarantena_fuzz.py"
       },
-      "stato": "verified"
+      "stato": "verified",
+      "nota": "l'invariante e' l'insieme vuoto della quarantena, e nient'altro. Che tutti i target compilino ed eseguano e' verificato **altrove** — da `cargo fuzz build` e dai passi `fuzz_replay` e `fuzz_smoke` del checkpoint — e attribuirlo a questa prova le farebbe promettere cio' che non guarda."
     },
     {
       "id": "copertura.rami-negativi",
-      "superficie": "rami negativi di driver-shp e driver-xls",
+      "superficie": "rami negativi dei driver censiti: shp, xls, filegdb, gpkg",
       "invariante": "ogni ramo negativo censito e' coperto da un test eseguito, oppure dichiarato irraggiungibile con la guardia che rifiuta per prima.",
       "prova": {
         "tipo": "gate",
@@ -224,6 +225,56 @@
       "prova": null,
       "stato": "release_blocking",
       "manca": "contratto NON RATIFICATO. Cardinalita' di `counts` senza tetto nel contratto, nessun limite in byte su alcuna stringa, e `FidelityReason.detail` porta nomi di layer e attributo e la forma `Debug` di tipi di dipendenza. Cinque decisioni aperte: struttura, limiti, redazione, comportamento al limite, versionamento."
+    },
+    {
+      "id": "release.candidate-non-valida-per-head",
+      "superficie": "manifesto della candidate di release",
+      "invariante": "il manifesto della candidate deve descrivere **la revisione corrente**: versione del workspace, SHA di HEAD e tag previsto devono coincidere con cio' che si sta rilasciando.",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "esiste una candidate `1.0.1` pendente, legata alla revisione `966005d6` — non a HEAD — con `release_action.allowed: false` e la ragione «CI same-SHA del commit metadata e catene cross-library ancora obbligatorie». Il workspace e' ancora alla versione 1.0.1 e il tag `v1.0.1` non e' stato creato. Quel manifesto **non qualifica il codice corrente**, e aggiornarne lo SHA fingendo che lo faccia sarebbe una qualifica fabbricata. La chiusura richiede una candidate nuova, ratificata su versione e tag correnti, oppure la dichiarazione esplicita che la 1.0.1 e' superata."
+    },
+    {
+      "id": "lotto.s10",
+      "superficie": "driver-geoparquet",
+      "invariante": "GeoParquet 1.1 e' validato per intero",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "lotto S10 non aperto: la validazione completa di GeoParquet 1.1 non esiste"
+    },
+    {
+      "id": "lotto.s11",
+      "superficie": "conversione WKB <-> forme ESRI",
+      "invariante": "`wkb_shape` ispeziona i figli delle collection",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "lotto S11 non aperto: le geometry collection sono attraversate al primo livello e i figli non sono ispezionati"
+    },
+    {
+      "id": "lotto.s12",
+      "superficie": "parsing di WKT e GeoJSON",
+      "invariante": "il parsing di WKT e GeoJSON e' bounded **durante** il parse, esercitato da un fuzz target dedicato, e la garanzia e' dichiarata dalla capability `hostile_input_hardened`",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "lotto S12 non aperto. Oggi i tetti WKT/GeoJSON si applicano a valle — su `verifica_esprimibile` e `inspect_wkb` — non durante il parse: serve un parser progressivo. Manca inoltre la capability che renda la garanzia verificabile dall'esterno."
+    },
+    {
+      "id": "sistema.qualifica-cross-component",
+      "superficie": "catena IO-tools -> data-tools -> database-tools",
+      "invariante": "la catena e' qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma, comandi ed esiti registrati",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "gate di sistema non superato. Perimetro e harness sono di **proprieta' esterna**: questo repository non contiene ne' esegue test che compilino gli altri due componenti, quindi la chiusura non e' raggiungibile da qui. La definizione e' in release/system-rc-gate.json."
     }
-  ]
+  ],
+  "autorizzazione_di_release": {
+    "descrizione": "Le condizioni sono **congiunte**: nessuna implica le altre, e un verde parziale non e' un verde. Sono scritte qui perche' il solo conteggio dei bloccanti non basterebbe — due di esse non sono invarianti di questo registro.",
+    "condizioni": [
+      "nessun invariante `release_blocking` in questo registro",
+      "`scripts/check_assurance_n1.py --release` verde, cioe' debito di copertura negativa a zero",
+      "`release_authorized: true` in assurance/current-state.json, che e' una decisione scritta e non un esito automatico",
+      "manifesto della candidate coerente **esattamente** con versione del workspace, SHA di HEAD e tag",
+      "qualifica cross-component superata, con evidenza dell'owner esterno"
+    ]
+  }
 }

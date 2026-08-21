@@ -258,12 +258,36 @@ def main(argv: list[str] | None = None) -> int:
     bloccanti = debito(documento)
     totali = len(documento["invarianti"])
     if opzioni.release:
+        mancate: list[str] = []
+        for voce in bloccanti:
+            print(f"{voce['id']}: {voce['manca']}", file=sys.stderr)
         if bloccanti:
-            for voce in bloccanti:
-                print(f"{voce['id']}: {voce['manca']}", file=sys.stderr)
+            mancate.append(
+                f"{len(bloccanti)} invarianti su {totali} restano bloccanti"
+            )
+
+        # Le condizioni sono **congiunte**, e due non sono invarianti di questo
+        # registro: contare i bloccanti non basterebbe. In particolare
+        # `release_authorized` e' una decisione scritta, non l'esito automatico
+        # di caselle verdi — ed e' l'unica che nessun gate puo' derivare.
+        stato = ROOT / "assurance" / "current-state.json"
+        if not stato.exists():
+            mancate.append(f"{stato}: fonte strutturata dello stato assente")
+        elif json.loads(stato.read_text(encoding="utf-8")).get("release_authorized") is not True:
+            mancate.append(
+                "`release_authorized` non e' true in assurance/current-state.json: "
+                "e' una decisione scritta, e non e' stata presa"
+            )
+
+        if mancate:
+            print("", file=sys.stderr)
+            print("release non autorizzabile:", file=sys.stderr)
+            for motivo in mancate:
+                print(f"  - {motivo}", file=sys.stderr)
+            print("", file=sys.stderr)
             print(
-                f"release non autorizzabile: {len(bloccanti)} invarianti su "
-                f"{totali} restano bloccanti.",
+                "Le condizioni sono congiunte: nessuna implica le altre, e un "
+                "verde parziale non e' un verde.",
                 file=sys.stderr,
             )
             return 1

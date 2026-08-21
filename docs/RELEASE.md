@@ -62,16 +62,42 @@ Qualificato su `1806276`.
 
 ### Aperto
 
-| | Stato |
-|---|---|
-| ASSURANCE-N1 | **43 gruppi aperti** su 49 |
-| fuzz del reader Shapefile | aperto |
-| spike FileGDB | aperto |
-| contratto `LossReport` | **non ratificato** |
-| S10, S11, S12 | aperti |
-| qualifica cross-component | aperta |
+I blocchi sono **nove**, ed è l'elenco esatto del registro del contratto
+corrente — non un riassunto:
 
-Ognuna di queste voci **blocca il rilascio**.
+| Blocco | Stato |
+|---|---|
+| `copertura.rami-negativi` | 43 gruppi aperti su 49 |
+| `fuzz.reader-shapefile` | nessun target esercita il parsing `.shp`/`.dbf` |
+| `fuzz.filegdb` | spike di fattibilità non eseguito |
+| `wire.loss-report` | contratto non ratificato |
+| `release.candidate-non-valida-per-head` | la candidate `1.0.1` è legata a `966005d6`, non a HEAD |
+| `lotto.s10` | validazione GeoParquet 1.1 non aperta |
+| `lotto.s11` | `wkb_shape` non ispeziona i figli delle collection |
+| `lotto.s12` | parsing WKT/GeoJSON non bounded durante il parse |
+| `sistema.qualifica-cross-component` | gate di sistema non superato |
+
+### La candidate `1.0.1` non qualifica HEAD
+
+Esiste un manifesto di candidate `1.0.1` legato alla revisione `966005d6`, con
+`release_action.allowed: false`. Il workspace è alla versione 1.0.1 e il tag
+`v1.0.1` non è stato creato.
+
+**Quel manifesto non qualifica il codice corrente**, e aggiornarne lo SHA
+fingendo che lo faccia sarebbe una qualifica fabbricata. Serve una candidate
+nuova, ratificata su versione e tag correnti, oppure la dichiarazione esplicita
+che la 1.0.1 è superata.
+
+### Le condizioni sono congiunte
+
+Il rilascio richiede **tutte** queste, e nessuna implica le altre:
+
+1. nessun invariante `release_blocking` nel registro;
+2. `check_assurance_n1.py --release` verde;
+3. `release_authorized: true`, che è una **decisione scritta** e non l'esito
+   automatico di caselle verdi;
+4. manifesto della candidate coerente esattamente con versione, SHA e tag;
+5. qualifica cross-component superata, con evidenza dell'owner esterno.
 
 ---
 

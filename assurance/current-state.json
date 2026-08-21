@@ -84,12 +84,41 @@
       "s10": "aperto",
       "s11": "aperto",
       "s12": "aperto",
-      "qualifica_cross_component": "aperta"
+      "qualifica_cross_component": "aperta",
+      "perimetri": {
+        "s10": "validazione completa di GeoParquet 1.1",
+        "s11": "wkb_shape ispeziona i figli delle collection",
+        "s12": "parsing bounded di WKT e GeoJSON, fuzz dedicato, capability hostile_input_hardened"
+      }
+    },
+    "candidate_release": {
+      "versione_manifesto": "1.0.1",
+      "revisione_manifesto": "966005d6",
+      "qualifica_head": false,
+      "tag_creato": false,
+      "release_action_allowed": false,
+      "release_blocking": true,
+      "nota": "il manifesto non descrive HEAD; aggiornarne lo SHA sarebbe una qualifica fabbricata"
     }
   },
   "docset": {
     "markdown_canonici": 4,
     "markdown_operativi": 3,
     "verificato_da": "scripts/check_docset.py"
+  },
+  "blocchi": {
+    "totale": 9,
+    "elenco": [
+      "copertura.rami-negativi",
+      "fuzz.reader-shapefile",
+      "fuzz.filegdb",
+      "wire.loss-report",
+      "release.candidate-non-valida-per-head",
+      "lotto.s10",
+      "lotto.s11",
+      "lotto.s12",
+      "sistema.qualifica-cross-component"
+    ],
+    "fonte": "assurance/registries/release-contract-current.json"
   }
 }
