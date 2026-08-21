@@ -27,8 +27,21 @@ adattivo — memoria finché il budget lo consente, poi spool su disco. Un error
 metà lettura non consegna righe parziali, e una scrittura rifiutata non lascia
 una destinazione.
 
-Il determinismo è **byte per byte**: la stessa sorgente con le stesse opzioni
-produce lo stesso output.
+### Determinismo
+
+I driver garantiscono **determinismo semantico**, non byte per byte: a parità di
+input, opzioni e versione dell'implementazione, stessi valori e stesso insieme
+di righe, **senza** assumere un ordine o una rappresentazione fisica identici.
+
+È la garanzia minima della scala dichiarata dal modello — `semantic`, `ordered`,
+`byte_for_byte`, `unordered` — e i dieci driver dichiarano `semantic` sia in
+lettura sia in scrittura.
+
+L'unica superficie con determinismo **byte per byte** è la busta di
+`plenora-io catalog`, che serializzata due volte produce gli stessi byte. È una
+proprietà di quel comando, non dei driver, e vale la pena non confonderle:
+riconvertire due volte lo stesso file può produrre due output diversi byte per
+byte e ugualmente corretti.
 
 `gpkg` e `filegdb` sono multi-layer. `shp` e `filegdb` pubblicano più file, e il
 publish li rende visibili insieme o per nulla.
@@ -52,10 +65,14 @@ operativa.
 
 * **sequenziale** — il file si legge in avanti una volta sola;
 * **ad accesso casuale** — il formato indicizza e consente di saltare;
-* **materializzata** — la libreria sottostante costruisce l'intero documento in
-  memoria prima di consegnare la prima riga. Per questi driver i limiti di
-  input sono l'unica difesa contro un file ostile, e sono applicati **prima**
-  che il parser veda il contenuto.
+* **materializzata** — il parser ha bisogno di **tutto l'input** prima di
+  consegnare la prima riga. Non vuol dire «tutto in RAM»: dove stia quell'input
+  lo descrive il buffering, che è un asse separato e adattivo — RAM sotto una
+  soglia, poi spool su file. La coppia dice esattamente che cosa succede: serve
+  tutto l'input, non serve tutta la memoria, e confondere i due assi è il
+  difetto che il modello tiene distinto per costruzione. Per questi driver i
+  limiti di input sono l'unica difesa contro un file ostile, e sono applicati
+  **prima** che il parser veda il contenuto.
 
 ## Opzioni di formato
 

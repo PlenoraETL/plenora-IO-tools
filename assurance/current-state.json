@@ -42,7 +42,7 @@
     "diagnostica_differenziale": {
       "baseline": "0fb799d",
       "esito": "n/d",
-      "ragione": "nessuna riga eseguibile cambiata: il reset documentale tocca documenti, script e commenti Rust, e un commento non e' una riga eseguibile"
+      "ragione": "nessuna riga Rust strumentata dalla misura LCOV e' cambiata. Sono cambiati documenti, script Python e shell, e commenti Rust: nessuno entra in quella misura. Dire «nessuna riga eseguibile» sarebbe falso, perche' gli script cambiati sono eseguibili — la copertura non li osserva."
     }
   },
   "chiuso": {

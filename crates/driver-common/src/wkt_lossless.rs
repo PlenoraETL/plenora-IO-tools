@@ -243,8 +243,8 @@ pub fn parse_wkt(text: &str) -> Result<WkbGeometry> {
 ///
 /// La bound completa (`max_components`/`max_depth` applicati durante il
 /// parse e non solo su `verifica_esprimibile` / `inspect_wkb` a valle)
-/// richiede un parser progressivo diverso da `wkt 0.14.0`. Vedi lotto L6
-/// di `docs/ROADMAP-1.1.0.md`.
+/// richiede un parser progressivo diverso da `wkt 0.14.0`. E' il perimetro
+/// di S12, in `RELEASE.md § S10, S11, S12`.
 ///
 /// # Errors
 ///

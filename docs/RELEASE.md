@@ -43,9 +43,13 @@ Il conteggio dei passi è **riconciliato dagli identificatori** — 57 distinti,
 nessun duplicato — e non accettato dal rapporto che lo strumento stampa su se
 stesso.
 
-La diagnostica differenziale rispetto a `0fb799d` è **n/d**: nessuna riga
-eseguibile è cambiata. Non è una misura mancata, è la misura di un perimetro
-vuoto — un commento non è una riga eseguibile.
+La diagnostica differenziale rispetto a `0fb799d` è **n/d**: nessuna **riga
+Rust strumentata dalla misura LCOV** è cambiata. Sono cambiati documenti, script
+Python e shell, e commenti Rust — nessuno dei quali entra in quella misura.
+
+Non è una misura mancata, ed è la ragione per cui la formulazione conta: dire
+«nessuna riga eseguibile è cambiata» sarebbe falso, perché gli script cambiati
+sono eseguibili. Semplicemente, la copertura non li osserva.
 
 ### Chiuso
 
@@ -132,10 +136,18 @@ acquista uno. Vedi [PRODUCT.md § LossReport](PRODUCT.md#lossreport--non-ratific
 
 ### 5. S10, S11, S12
 
+| Lotto | Perimetro |
+|---|---|
+| **S10** | validazione completa di GeoParquet 1.1 |
+| **S11** | `wkb_shape` ispeziona i figli delle collection |
+| **S12** | parsing bounded di WKT e GeoJSON, fuzz dedicato, capability `hostile_input_hardened` |
+
 **Criterio di uscita.** Ciascun lotto chiuso con il proprio checkpoint di
 livello 2 e la propria evidenza.
 
-**Blocco rimosso.** Il perimetro del componente è completo.
+**Blocco rimosso.** Il perimetro del componente è completo. S12 in particolare
+rimuove l'ultima asimmetria fra i formati: oggi WKT e GeoJSON hanno tetti, ma
+non una capability dichiarata che li renda verificabili dall'esterno.
 
 ### 6. Qualifica cross-component
 

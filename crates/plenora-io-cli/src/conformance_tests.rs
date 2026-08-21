@@ -1,5 +1,7 @@
 //! Gate trasversale sui descrittori reali. Questi test impediscono che un
-//! singolo driver aggiri le invarianti comuni di `ENGINEERING.md § Interfaccia dei driver e ENGINEERING`.md § Pipeline di scrittura (capability-check) e `PRODUCT.md § CRS`.
+//! singolo driver aggiri le invarianti comuni descritte in
+//! `ENGINEERING.md § Interfaccia dei driver`,
+//! `ENGINEERING.md § Pipeline di scrittura` e `PRODUCT.md § CRS`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

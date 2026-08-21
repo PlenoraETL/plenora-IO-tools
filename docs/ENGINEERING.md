@@ -22,9 +22,13 @@ Le dipendenze vanno in una direzione sola: i driver dipendono da `core` e da
 `model`, mai fra loro. `model` non conosce i driver.
 
 `vendor/dxf` e `vendor/gdal` sono fork governati, risolti via
-`[patch.crates-io]` e fissati da un lock più un registro di provenienza. Il
-lock ne fissa il **tree hash**: qualunque file dentro l'albero vendorizzato ne
-fa parte.
+`[patch.crates-io]` e fissati da un lock più un registro di provenienza.
+
+Il lock ne fissa il **tree hash**, calcolato **esclusivamente sull'insieme che
+git traccia**. Un artefatto di build non può alterarlo — è il punto: un lock
+ricalcolato con `vendor/<crate>/target/` presente registrerebbe un residuo come
+contenuto del fork governato. Un file estraneo viene comunque **rifiutato a
+parte**, perché non alterare l'impronta non vuol dire ignorare.
 
 Due conseguenze operative:
 
@@ -73,8 +77,14 @@ Source ──preflight──> open ──> OpenDatasetHandle ──> open_layer_
 
 Il **preflight** enumera la sorgente e ne addebita il costo al budget prima che
 il driver la apra. Per i formati a lettura materializzata è l'unica difesa: il
-parser costruisce l'intero documento in memoria, e un limite verificato dopo non
-è un limite.
+parser ha bisogno di tutto l'input prima di consegnare la prima riga, e un
+limite verificato dopo non è un limite.
+
+«Materializzata» descrive **quanto input serve**, non dove sta. Il supporto
+fisico è un asse separato — il buffering — e confondere i due è il difetto che
+il modello tiene distinto per costruzione: un parser che riversa tutta la
+sorgente in uno spool RAM-poi-disco è materializzato con buffering adattivo, e
+la coppia dice che serve tutto l'input ma non tutta la memoria.
 
 L'adapter comune impone l'**atomicità operativa**: qualunque sia la modalità
 nativa del formato, il consumatore vede uno stream sequenziale, e un errore a
@@ -282,6 +292,19 @@ che il registro è coerente, `--release` è rossa finché il debito non è a zer
 invarianti ancora applicabili sono nel registro del contratto corrente.
 
 ---
+
+## Misure di prestazione
+
+`plenora-bench` misura throughput, picco RSS, allocazioni e codifica/decodifica
+WKB per driver, e archivia una baseline sotto `baseline/`.
+
+**Non è un gate di rilascio**, ed è escluso dai gate di CI insieme a
+`plenora-fuzz`: è attrezzaggio, non componente distribuibile. Una regressione
+prestazionale non blocca oggi nulla automaticamente — va confrontata a mano
+contro la baseline archiviata.
+
+L'unico benchmark cablato in CI è quello **Windows / FileGDB narrow**, che
+produce un artefatto misurato a ogni corsa.
 
 ## Registri macchina
 

@@ -967,7 +967,8 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                         // MiB) senza mai materializzare l'AST. Un fix
                         // completo (contatori vertici/depth applicati
                         // durante il parse) richiede un Visitor dedicato:
-                        // vedi lotto L6 di ROADMAP-1.1.0.md.
+                        // e' il perimetro di S12, in
+                        // `RELEASE.md § S10, S11, S12`.
                         let raw = map.next_value::<Option<Box<serde_json::value::RawValue>>>()?;
                         match raw {
                             None => geometry.append_null(),

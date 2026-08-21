@@ -1,6 +1,7 @@
 //! plenora-bench — harness di baseline prestazionale. NON ottimizza: misura
 //! throughput, picco RSS, allocazioni e decode/encode WKB per driver, e archivia
-//! una baseline. Metriche di `Prestazioni.md` §7 (`bytes_copied` e metriche di
+//! una baseline sotto `baseline/`. Vedi
+//! `ENGINEERING.md § Misure di prestazione` (`bytes_copied` e metriche di
 //! coda: n/a in v1).
 //!
 //! Scala grande (10M righe) resa ONESTA:

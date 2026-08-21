@@ -71,29 +71,51 @@ VALIDATORI = {
 # La baseline dei README vendorizzati: sono ridistribuiti, non nostri.
 BASELINE_VENDOR = "2fe9b54"
 
-# Nomi della cronaca eliminata. Un riferimento residuo e' un collegamento al
-# nulla, e nella documentazione e' peggio di un'assenza: promette un
-# approfondimento che non esiste.
-CRONACA = [
-    r"CHANGE_IMPACT_",
-    r"ADR-IO[\s-]\d",
-    r"PATCH-1\.0\.1-READINESS",
-    r"DECISION-PACKAGE",
-    r"IMPLEMENTATION_STATUS",
-    r"TRACEABILITY\.md",
-    r"INDEPENDENT_REVIEW_PACKET",
-    r"RELEASE_CANDIDATE_SCOPE",
-    r"SYSTEM_RC_GATE\.md",
-    r"FALLBACK_REGISTER\.md",
-    r"DEPENDENCY_EXCEPTIONS\.md",
-    r"PLENORA_FORK\.md",
-    r"docs/assurance/",
-    r"docs/adr/",
-    r"S9_CHECKPOINT_LEVEL2",
-    r"ASSURANCE_N1_TRANCHE",
-]
+# I nomi della cronaca eliminata, **derivati** dalla baseline invece che
+# scritti a mano.
+#
+# Un elenco compilato a mano e' incompleto per costruzione: la prima stesura
+# dimenticava `ROADMAP-1.1.0.md`, `Prestazioni.md` e `Architetture.md`, e quei
+# riferimenti restavano vivi nel codice senza che nulla li vedesse. Qui i nomi
+# vengono da cio' che la baseline conteneva e il docset non contiene piu': se
+# un documento sparisce, il suo nome entra nell'elenco da solo.
+BASELINE_DOCSET = "2fe9b54"
+
+
+def _nomi_eliminati() -> list[str]:
+    uscita = subprocess.run(
+        ["git", "ls-files", "--with-tree", BASELINE_DOCSET, "*.md"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    spariti = [r for r in uscita.stdout.splitlines() if r and r not in AMMESSI]
+    nomi = {Path(r).name for r in spariti}
+    # Le directory contano solo se **non esistono piu'**: `docs/` e
+    # `vendor/dxf/` contenevano documenti eliminati ma sono vive, e vietarne il
+    # nome renderebbe rosso ogni riferimento legittimo. La prima stesura lo
+    # faceva.
+    cartelle = {
+        str(Path(r).parent) + "/"
+        for r in spariti
+        if Path(r).parent != Path(".") and not (ROOT / Path(r).parent).exists()
+    }
+    return sorted(re.escape(n) for n in nomi | cartelle)
+
 
 # Dove cercare i riferimenti residui: codice, script, CI e il docset stesso.
+# I JSON **non** sono ancora nel perimetro, ed e' una lacuna dichiarata.
+#
+# Estendendolo, il gate trova 37 riferimenti a documenti eliminati, tutti nei
+# manifesti storici sotto `release/`: quattordici file che nessuno legge piu'
+# da quando il gate del contratto storico e' stato ritirato, piu'
+# `release/1.0.1.json`, che invece descrive una candidate ancora pendente.
+#
+# Risolverli e' una decisione — cancellare provenienza di release non e'
+# cancellare cronaca documentale — e va presa prima di accendere il perimetro,
+# non dopo. Accenderlo ora renderebbe il gate rosso su una domanda aperta,
+# e un rosso che si ripete smette di essere letto.
 PERIMETRO = ("*.rs", "*.py", "*.sh", "*.toml", "*.yml", "*.yaml", "*.md")
 
 
@@ -236,7 +258,7 @@ def stato_coerente() -> list[str]:
 def cronaca_residua() -> list[str]:
     """Nessun riferimento a cio' che e' stato eliminato."""
     errori: list[str] = []
-    schemi = [re.compile(s) for s in CRONACA]
+    schemi = [re.compile(s) for s in _nomi_eliminati()]
     for modello in PERIMETRO:
         for percorso in tracciati(modello) + tracciati(f"*/{modello}"):
             if percorso.startswith("vendor/") or percorso in VALIDATORI:
