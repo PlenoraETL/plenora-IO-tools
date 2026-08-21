@@ -63,7 +63,7 @@ class SondeAnalisi(unittest.TestCase):
 class SondeVerifica(unittest.TestCase):
     def elenchi(self, uscita: str = USCITA):
         esiti, _ = gate.analizza_uscita(uscita)
-        return {("driver-x", "default"): esiti}
+        return {("driver-x", "default", "lib"): esiti}
 
     def test_una_prova_eseguita_e_passata_va_bene(self) -> None:
         """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
@@ -145,13 +145,40 @@ class SondeVerifica(unittest.TestCase):
         Ripetere la misura non la rende piu' vera, e allunga il checkpoint.
         """
         due = [gruppo(), gruppo(test="tests::n1_una_precedenza")]
-        self.assertEqual(gate.coppie_da_misurare(due), [("driver-x", "default")])
+        self.assertEqual(gate.coppie_da_misurare(due), [("driver-x", "default", "lib")])
 
     def test_configurazioni_diverse_sono_misure_diverse(self) -> None:
         due = [gruppo(), gruppo(configurazione="all-features")]
         self.assertEqual(
             gate.coppie_da_misurare(due),
-            [("driver-x", "default"), ("driver-x", "all-features")],
+            [("driver-x", "default", "lib"), ("driver-x", "all-features", "lib")],
+        )
+
+    # --- il bersaglio del harness -------------------------------------------
+
+    def test_bersagli_diversi_sono_misure_diverse(self) -> None:
+        """`--lib` e `--bins` elencano test diversi dello stesso crate.
+
+        Su un crate binario `--lib` non ne elenca nemmeno uno, e un elenco
+        vuoto non e' un verde: il bersaglio fa parte dell'identita' della
+        misura quanto la configurazione.
+        """
+        due = [gruppo(), gruppo(bersaglio="bins")]
+        self.assertEqual(
+            gate.coppie_da_misurare(due),
+            [("driver-x", "default", "lib"), ("driver-x", "default", "bins")],
+        )
+
+    def test_un_bersaglio_inventato_e_rosso(self) -> None:
+        errori = gate.verifica_prove([gruppo(bersaglio="esempi")], self.elenchi())
+        self.assertTrue(any("bersaglio" in e for e in errori), errori)
+
+    def test_il_comando_del_harness_e_uno_solo(self) -> None:
+        """Lo condivide `check_release_contract.py`: due costruttori
+        divergerebbero, e divergerebbero in silenzio."""
+        self.assertEqual(
+            gate.comando_test("plenora-io-cli", "all-features", "bins"),
+            ["cargo", "test", "-p", "plenora-io-cli", "--all-features", "--bins"],
         )
 
     def test_i_gruppi_aperti_non_dichiarano_prove(self) -> None:

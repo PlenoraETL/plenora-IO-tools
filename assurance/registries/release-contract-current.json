@@ -13,10 +13,11 @@
       "prova": {
         "tipo": "test",
         "crate": "plenora-io-cli",
+        "configurazione": "default",
         "test": [
-          "tests::la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi_v1",
-          "la_busta_del_binario_ha_le_sei_chiavi_e_non_porta_il_payload"
-        ]
+          "tests::la_busta_degli_errori_d_uso_ha_esattamente_le_sei_chiavi_v1"
+        ],
+        "bersaglio": "bins"
       },
       "stato": "verified"
     },
@@ -26,7 +27,10 @@
       "invariante": "la chiave di compatibilita' e' (category, phase, code, retry). Il testo di `message` non ne fa parte e puo' cambiare.",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_quartetto_sito.py"
+        "comando": [
+          "python3",
+          "scripts/check_quartetto_sito.py"
+        ]
       },
       "stato": "verified"
     },
@@ -35,8 +39,8 @@
       "superficie": "sei buste JSON della CLI",
       "invariante": "protocollo 1, superficie limitata al JSON della CLI, sei buste dichiarate con il proprio contratto; l'API Rust resta interna e non porta garanzia semver.",
       "prova": {
-        "tipo": "gate",
-        "comando": "scripts/check_release_contract.py",
+        "tipo": "interna",
+        "funzione": "validate_cli_protocol_v1",
         "artefatto": "release/cli-protocol-v1.json"
       },
       "stato": "verified"
@@ -47,7 +51,12 @@
       "invariante": "il produttore del catalogo rispetta il contratto dichiarato",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_filegdb_catalog.py"
+        "comando": [
+          "python3",
+          "-m",
+          "unittest",
+          "scripts.test_check_filegdb_catalog"
+        ]
       },
       "stato": "verified"
     },
@@ -57,7 +66,10 @@
       "invariante": "nessun costruttore pubblico accetta testo libero; il messaggio e' scelto a compile time. La garanzia e' l'assenza della funzione, non una convenzione.",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_errori_redatti.py"
+        "comando": [
+          "python3",
+          "scripts/check_errori_redatti.py"
+        ]
       },
       "stato": "verified"
     },
@@ -67,7 +79,10 @@
       "invariante": "nessuna promozione non autorizzata di testo runtime a 'static; una sola dimostrazione eseguibile e identificata.",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_niente_leak.py"
+        "comando": [
+          "python3",
+          "scripts/check_niente_leak.py"
+        ]
       },
       "stato": "verified"
     },
@@ -78,9 +93,10 @@
       "prova": {
         "tipo": "test",
         "crate": "plenora-io-model",
+        "configurazione": "default",
         "test": [
-          "tests::nessun_errore_supera_il_tetto_del_messaggio",
-          "tests::il_tetto_e_sul_valore_decodificato_non_sul_json"
+          "error::tests::nessun_errore_supera_il_tetto_del_messaggio",
+          "error::tests::il_tetto_e_sul_valore_decodificato_non_sul_json"
         ]
       },
       "stato": "verified"
@@ -91,7 +107,10 @@
       "invariante": "i tetti WKB predefiniti sono quelli dichiarati e arrivano ai driver",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_wkb_limits_defaults.py"
+        "comando": [
+          "python3",
+          "scripts/check_wkb_limits_defaults.py"
+        ]
       },
       "stato": "verified"
     },
@@ -101,7 +120,10 @@
       "invariante": "il modello di budget legacy non puo' rientrare",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_no_legacy_budget.py"
+        "comando": [
+          "python3",
+          "scripts/check_no_legacy_budget.py"
+        ]
       },
       "stato": "verified"
     },
@@ -111,7 +133,10 @@
       "invariante": "il permit di input si consuma per move e non e' osservabile due volte",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_permit_boundary.py"
+        "comando": [
+          "python3",
+          "scripts/check_permit_boundary.py"
+        ]
       },
       "stato": "verified"
     },
@@ -121,7 +146,10 @@
       "invariante": "la prevalidazione precede la materializzazione delle celle",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_prevalidazione_decoder.py"
+        "comando": [
+          "python3",
+          "scripts/check_prevalidazione_decoder.py"
+        ]
       },
       "stato": "verified"
     },
@@ -131,7 +159,10 @@
       "invariante": "ogni `unwrap_or*` del workspace e' registrato con la propria ragione; il totale non si muove senza che qualcuno la scriva.",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_assurance_fallbacks.sh"
+        "comando": [
+          "bash",
+          "scripts/check_assurance_fallbacks.sh"
+        ]
       },
       "stato": "verified"
     },
@@ -142,12 +173,14 @@
       "prova": {
         "tipo": "gate",
         "comando": [
-          "scripts/check_dxf_fork.py",
-          "scripts/check_gdal_fork.py"
+          "python3",
+          "scripts/check_dxf_fork.py"
         ],
-        "artefatto": [
-          "assurance/registries/vendor-dxf-fork.json",
-          "assurance/registries/vendor-gdal-fork.json"
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "scripts/check_gdal_fork.py"
+          ]
         ]
       },
       "stato": "verified"
@@ -159,9 +192,18 @@
       "prova": {
         "tipo": "gate",
         "comando": [
-          "scripts/check_toolchain_pins.py",
-          "scripts/check_dependency_pins.py",
-          "scripts/check_action_pins.py"
+          "python3",
+          "scripts/check_toolchain_pins.py"
+        ],
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "scripts/check_dependency_pins.py"
+          ],
+          [
+            "python3",
+            "scripts/check_action_pins.py"
+          ]
         ]
       },
       "stato": "verified"
@@ -172,7 +214,10 @@
       "invariante": "la superficie pubblica dichiarata non cambia senza dichiararlo",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_public_identity.py"
+        "comando": [
+          "python3",
+          "scripts/check_public_identity.py"
+        ]
       },
       "stato": "verified"
     },
@@ -182,7 +227,10 @@
       "invariante": "nessun target di fuzzing e' in quarantena, cioe' nessuno e' escluso dallo smoke",
       "prova": {
         "tipo": "gate",
-        "comando": "scripts/check_quarantena_fuzz.py"
+        "comando": [
+          "python3",
+          "scripts/check_quarantena_fuzz.py"
+        ]
       },
       "stato": "verified",
       "nota": "l'invariante e' l'insieme vuoto della quarantena, e nient'altro. Che tutti i target compilino ed eseguano e' verificato **altrove** — da `cargo fuzz build` e dai passi `fuzz_replay` e `fuzz_smoke` del checkpoint — e attribuirlo a questa prova le farebbe promettere cio' che non guarda."
@@ -262,7 +310,12 @@
       "id": "sistema.qualifica-cross-component",
       "superficie": "catena IO-tools -> data-tools -> database-tools",
       "invariante": "la catena e' qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma, comandi ed esiti registrati",
-      "prova": null,
+      "prova": {
+        "tipo": "esterna",
+        "owner": "plenora-contracts/conformance",
+        "artefatto": "release/system-rc-gate.json",
+        "stato": "not_run"
+      },
       "stato": "release_blocking",
       "manca": "gate di sistema non superato. Perimetro e harness sono di **proprieta' esterna**: questo repository non contiene ne' esegue test che compilino gli altri due componenti, quindi la chiusura non e' raggiungibile da qui. La definizione e' in release/system-rc-gate.json."
     }
@@ -276,5 +329,11 @@
       "manifesto della candidate coerente **esattamente** con versione del workspace, SHA di HEAD e tag",
       "qualifica cross-component superata, con evidenza dell'owner esterno"
     ]
+  },
+  "tipi_di_prova": {
+    "test": "crate, configurazione, bersaglio del harness e identificatori esatti; ogni test deve essere eseguito, comparire una volta sola e passare",
+    "gate": "comando strutturato, deduplicato fra invarianti, realmente eseguito con exit 0",
+    "interna": "funzione di questo gate, eseguita in linea su un artefatto strutturato",
+    "esterna": "owner, artefatto e stato; senza evidenza non puo' risultare verified"
   }
 }

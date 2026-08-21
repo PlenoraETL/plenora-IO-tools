@@ -55,12 +55,34 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "assurance-n1-copertura-negativa.json"
 
 CONFIGURAZIONI = {"default": [], "all-features": ["--all-features"]}
+
+# Il bersaglio fa parte dell'identita' della misura quanto la
+# configurazione: `--lib` su un crate binario non elenca nulla, e un elenco
+# vuoto non e' un verde.
+BERSAGLI = {"lib": ["--lib"], "bins": ["--bins"], "tests": ["--tests"]}
+BERSAGLIO_PREDEFINITO = "lib"
 ESITI_PROVA = {"coperto", "irraggiungibile"}
 CAMPI_PROVA = {"crate", "test", "configurazione", "esito"}
 CAMPI_IRRAGGIUNGIBILE = {"righe", "guardia"}
 
 # `test tests::nome ... ok` / `... ignored` / `... FAILED`
 RIGA_ESITO = re.compile(r"^test\s+(?P<id>\S+)\s+\.\.\.\s+(?P<esito>ok|ignored|FAILED)\s*$")
+
+
+def comando_test(
+    crate: str, configurazione: str, bersaglio: str = BERSAGLIO_PREDEFINITO
+) -> list[str]:
+    """Il comando del harness, in un solo posto.
+
+    Lo condivide `check_release_contract.py`: due costruttori del comando
+    divergerebbero, e divergerebbero in silenzio — uno misurerebbe un
+    bersaglio e l'altro ne dichiarerebbe un altro.
+    """
+    return [
+        "cargo", "test", "-p", crate,
+        *CONFIGURAZIONI[configurazione],
+        *BERSAGLI[bersaglio],
+    ]
 
 
 def analizza_uscita(testo: str) -> tuple[dict[str, str], list[str]]:
@@ -100,10 +122,13 @@ def prove_dichiarate(gruppi: list[dict]) -> list[tuple[str, dict]]:
     return fuori
 
 
-def verifica_prove(gruppi: list[dict], elenchi: dict[tuple[str, str], dict[str, str]]) -> list[str]:
+def verifica_prove(
+    gruppi: list[dict], elenchi: dict[tuple[str, str, str], dict[str, str]]
+) -> list[str]:
     """Ogni prova dichiarata e' un test eseguito e passato.
 
-    `elenchi` mappa `(crate, configurazione)` all'esito dei test eseguiti.
+    `elenchi` mappa `(crate, configurazione, bersaglio)` all'esito dei test
+    eseguiti.
     """
     errori: list[str] = []
     for gruppo, prova in prove_dichiarate(gruppi):
@@ -138,12 +163,21 @@ def verifica_prove(gruppi: list[dict], elenchi: dict[tuple[str, str], dict[str, 
                 )
                 continue
 
-        chiave = (prova["crate"], configurazione)
+        bersaglio = prova.get("bersaglio", BERSAGLIO_PREDEFINITO)
+        if bersaglio not in BERSAGLI:
+            errori.append(
+                f"{gruppo}: bersaglio «{bersaglio}» non ammesso; "
+                f"scegliere fra {sorted(BERSAGLI)}"
+            )
+            continue
+
+        chiave = (prova["crate"], configurazione, bersaglio)
         elenco = elenchi.get(chiave)
         if elenco is None:
             errori.append(
                 f"{gruppo}: nessuna misura per {prova['crate']} in configurazione "
-                f"«{configurazione}». Una prova non misurata non e' una prova."
+                f"«{configurazione}» sul bersaglio «{bersaglio}». Una prova non "
+                "misurata non e' una prova."
             )
             continue
 
@@ -166,28 +200,34 @@ def verifica_prove(gruppi: list[dict], elenchi: dict[tuple[str, str], dict[str, 
     return errori
 
 
-def coppie_da_misurare(gruppi: list[dict]) -> list[tuple[str, str]]:
-    """Le coppie `(crate, configurazione)` distinte, senza ripetizioni.
+def coppie_da_misurare(gruppi: list[dict]) -> list[tuple[str, str, str]]:
+    """Le terne `(crate, configurazione, bersaglio)` distinte, senza ripetizioni.
 
     Un test condiviso fra piu' gruppi si esegue **una volta sola**: ripetere la
     misura non la rende piu' vera, e allunga il checkpoint di minuti che non
     aggiungono nulla.
     """
-    viste: list[tuple[str, str]] = []
+    viste: list[tuple[str, str, str]] = []
     for _, prova in prove_dichiarate(gruppi):
-        chiave = (prova.get("crate"), prova.get("configurazione"))
-        if None in chiave or chiave[1] not in CONFIGURAZIONI:
+        chiave = (
+            prova.get("crate"),
+            prova.get("configurazione"),
+            prova.get("bersaglio", BERSAGLIO_PREDEFINITO),
+        )
+        if None in chiave or chiave[1] not in CONFIGURAZIONI or chiave[2] not in BERSAGLI:
             continue
         if chiave not in viste:
             viste.append(chiave)
     return viste
 
 
-def misura(coppie: list[tuple[str, str]]) -> tuple[dict[tuple[str, str], dict[str, str]], list[str]]:
-    elenchi: dict[tuple[str, str], dict[str, str]] = {}
+def misura(
+    coppie: list[tuple[str, str, str]]
+) -> tuple[dict[tuple[str, str, str], dict[str, str]], list[str]]:
+    elenchi: dict[tuple[str, str, str], dict[str, str]] = {}
     errori: list[str] = []
-    for crate, configurazione in coppie:
-        comando = ["cargo", "test", "-p", crate, *CONFIGURAZIONI[configurazione], "--lib"]
+    for crate, configurazione, bersaglio in coppie:
+        comando = comando_test(crate, configurazione, bersaglio)
         esecuzione = subprocess.run(
             comando, cwd=ROOT, capture_output=True, text=True, check=False
         )
@@ -199,7 +239,7 @@ def misura(coppie: list[tuple[str, str]]) -> tuple[dict[tuple[str, str], dict[st
                 "Senza elenco non si sa se le prove siano state eseguite, e un "
                 "silenzio non va letto come un verde."
             )
-        elenchi[(crate, configurazione)] = esiti
+        elenchi[(crate, configurazione, bersaglio)] = esiti
     return elenchi, errori
 
 
