@@ -1,19 +1,19 @@
 {
   "schema_version": 1,
-  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione f2b4837. Ogni numero viene dalla corsa qui descritta. Il commit che pubblica questo file ha uno SHA diverso e NON eredita la misura.",
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione 388afcb. Ogni numero viene dalla corsa qui descritta, e da nessun'altra. Il commit che pubblica questo file ha uno SHA diverso e NON eredita la misura.",
   "esito": "S9 checkpoint level 2 passed",
   "non_significa": "non autorizza una release e non promuove la readiness di alcun componente ne' del sistema; la readiness di sistema e' di proprieta' esterna, vedi release/system-rc-gate.json",
   "corsa": {
-    "revisione_iniziale": "f2b48371dc155f9288216d3f048c6fac16a47486",
-    "revisione_finale": "f2b48371dc155f9288216d3f048c6fac16a47486",
+    "revisione_iniziale": "388afcb6854af50e865fdda04b8b8efed3d5a395",
+    "revisione_finale": "388afcb6854af50e865fdda04b8b8efed3d5a395",
     "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
     "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
     "nota": "revisione e impronta finali sono **rilette**, non ristampate: `git rev-parse HEAD` e `impronta_albero` girano di nuovo a fine corsa.",
-    "nota_impronta": "questa impronta e' identica a quella delle evidenze precedenti, e non perche' il contenuto degli alberi coincida: sotto lo schema `impronta-albero-v1` un albero pulito da' sempre lo stesso valore, perche' i tre componenti — staged, unstaged, untracked non ignorati — sono vuoti. L'impronta misura le modifiche **non committate**; a identificare il contenuto committato e' lo SHA riletto. Il confronto inizio/fine dice «nessun passo ha scritto nell'albero durante la corsa», e non dice nient'altro.",
+    "nota_impronta": "sotto lo schema `impronta-albero-v1` un albero pulito da' sempre lo stesso valore, perche' i tre componenti — staged, unstaged, untracked non ignorati — sono vuoti. L'impronta misura le modifiche **non committate**; a identificare il contenuto committato e' lo SHA riletto. Il confronto inizio/fine dice «nessun passo ha scritto nell'albero durante la corsa», e non dice nient'altro.",
     "albero_all_avvio": "pulito, 0 file non committati",
-    "base_diagnostica": "8cab32e",
+    "base_diagnostica": "f2b4837",
     "percorso_di_corsa": "/out/livello2 (bind mount fuori dal repository)",
-    "corsa_unica": "una sola corsa su questa revisione, con lo stdout scritto dentro il volume montato invece che sul terminale di chi la lancia: le righe dei passi sono l'input della riconciliazione, e su 4b09575 un attach interrotto ne aveva portata via una intera."
+    "stdout_conservato": "la corsa scrive il proprio stdout dentro il volume montato, non sul terminale di chi la lancia: le righe dei passi sono l'input della riconciliazione, e un attach interrotto le porterebbe via."
   },
   "riconciliazione": {
     "identificatori_distinti": 57,
@@ -27,7 +27,7 @@
   },
   "misure": {
     "fuzz_replay": {
-      "input": 39205,
+      "input": 39551,
       "target": 13,
       "target_totali": 13,
       "crash": 0
@@ -46,29 +46,25 @@
       "soglia": 80.0,
       "campagna": "una sola: `coverage_pulizia` rimuove i profili precedenti e il report parte cancellato, quindi entrambe le percentuali leggono il profdata prodotto da `coverage_misura` in questa corsa. La directory degli artefatti e' stata creata vuota per questa corsa.",
       "controprova_indipendente": "i record `DA:` di lcov.info ricontati fuori dallo strumento danno 26773/31192, cioe' lo stesso valore del passo",
-      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
+      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate",
+      "perche_anche_il_conteggio": "la percentuale e' arrotondata a due decimali, e a questa scala una singola riga puo' spostare la cifra che si legge: 26773/31192 fa 85,8329% e 26774/31192 fa 85,8361%, con il confine di arrotondamento a 85,835% fra le due. Il conteggio dice di quanto; la percentuale dice quanto, arrotondato."
     },
     "diagnostica_differenziale": {
-      "base": "8cab32e",
+      "base": "f2b4837",
       "righe_cambiate_eseguibili": 0,
       "coperte": 0,
       "scoperte": 0,
       "cambiate_non_eseguibili": 0,
       "esito": "n/d",
-      "ragione": "fra 8cab32e e f2b4837 non e' cambiata **alcuna riga Rust**, ne' eseguibile ne' commento: il delta e' fatto di script Python, JSON di registro e Markdown. Dire «nessuna riga eseguibile e' cambiata» sarebbe falso, perche' gli script cambiati sono eseguibili — la copertura non li osserva."
+      "ragione": "fra f2b4837 e 388afcb non e' cambiata **alcuna riga Rust**, ne' eseguibile ne' commento: il delta e' fatto di script Python, Markdown e della rimozione di quattro evidenze. Dire «nessuna riga eseguibile e' cambiata» sarebbe falso, perche' gli script cambiati sono eseguibili — la copertura non li osserva."
     }
-  },
-  "copertura_fra_corse": {
-    "osservazione": "il denominatore e' 31 192 in tutte e sette le corse osservate e non si e' mai mosso. Le righe coperte oscillano fra 26 772 e 26 774: qui 26 773, come su 0c1cb77 e nelle due corse su 4b09575; 26 772 su c996fdd; 26 774 su 8cab32e. Uno scarto massimo di **due righe su 31 192**, in entrambi i versi.",
-    "perche_la_percentuale_saltava": "26 773/31 192 vale 85,8329% e 26 774/31 192 vale 85,8361%: il confine di arrotondamento a due decimali cade a 85,835%, **fra le due**. Il salto osservato fra 85,84% e 85,83% e' percio' una sola riga che attraversa quel confine, non un movimento della copertura. E' la ragione per cui questa evidenza registra il conteggio e non solo la percentuale.",
-    "che_cosa_ne_segue": "resta una **variazione osservata fra esecuzioni** a sorgente Rust strumentato invariato — fra 8cab32e e f2b4837 non e' cambiata nemmeno una riga Rust — e nient'altro. «Rumore di misura» resta una spiegazione plausibile e non una causa dimostrata: nessuna corsa qui descritta la dimostra. Cio' che le sette corse aggiungono e' la forma: la variazione sta nelle righe coperte e non nel denominatore, e' bidirezionale, e la sua ampiezza e' di due righe. Non e' un calo, e 85,83% e' il valore piu' frequente."
   },
   "artefatti": {
     "percorso_di_corsa": "/out/livello2 (bind mount fuori dal repository)",
     "file": 59,
-    "digest_manifest": "9c2a4ee074e74513abfe8f9444800d1fea5f4b22b186f895c8fc15aee80ef53e",
+    "digest_manifest": "27663f8ca104c78d642f537d0fb94396fc504dff90ab93f479a089c637618ee4",
     "forma_del_manifest": "`percorso` NUL `sha256 del contenuto` LF, in ordine di percorso; nessun timestamp e nessun metadato di filesystem, cosi' il digest dipende solo da cio' che la corsa ha prodotto. La forma e' quella di `digest_del_manifest` in check_release_contract.py, che la ricalcola e la confronta: un digest che nessuno puo' ricalcolare e' una stringa, non un'impronta.",
-    "risultato_della_corsa": "`risultato.json` fa parte del manifest: e' l'ultimo file che la corsa scrive, ed e' scritto in modo atomico. Porta esito «superato», revisione e impronta iniziali e finali, e i conteggi.",
+    "risultato_della_corsa": "`risultato.json` fa parte del manifest, ed e' preteso: e' l'ultimo file che la corsa scrive, ed e' scritto in modo atomico. Porta esito «superato», revisione e impronta iniziali e finali, e i conteggi.",
     "attesta_la_chiusura_di_s9": "`check_errori_redatti.log` e' fra gli artefatti: e' il passo che misura il censimento dei costruttori legacy, ed e' cio' che rende questa corsa l'attestazione della chiusura di S9 invece di una corsa che parla d'altro.",
     "manifest": {
       "assurance_fallbacks.log": "1befeb5b95c843d303b52ada21f59bc3133f0aff9f25e5ebe5f6cf1b149abd64",
@@ -93,43 +89,44 @@
       "check_release.log": "1b444b56bed92077db0f5eab8da5945822e9bc9134e894653f3644aa0ecfbf0f",
       "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
       "check_wkb_limits.log": "578dc63d472708e58660e2cfd37246d7a70797fbafae6aaa1cac37db2f387d67",
-      "clippy.log": "ad730b8a34681bcfb56a09618021ff263c21b03e6d7af945afb1e83b8659d72a",
-      "clippy_default.log": "7737acb16e71873536ce556863c317cf852878bd1796102b5008936117f51180",
+      "clippy.log": "48cd14903f28d7bd4a6b40e2365caed008eff979030c5aead6537801411c19a4",
+      "clippy_default.log": "4f4f73cc5f43eedca2b3a3a8f469f94c3ce8bdf1fd862591d54984baec179918",
       "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
-      "coverage_diff.log": "a4dae660b0276fd640106dd6a3a24178d8e5facca533c5c10334bb9087efe5bb",
+      "coverage_diff.log": "0d6f1b3fffabd046575855ebe1893ce368a8ce1887d2babcee8e9623eadaae7f",
       "coverage_export.log": "a9f2eaad3b9e4823a60a49fa56e31b30742b266a6b336236a6ee6ab73ea89c2f",
-      "coverage_misura.log": "9ba3e52d7631fc2517f5815d2629725ed0ac8b93a37ebff2bb9e5bcae544e050",
+      "coverage_misura.log": "abceb3c3224f8c5e41c85c7e891d6741e7b444f75e56b0c6873811cfc8e49ba0",
       "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "coverage_soglia_controprova.log": "f3afe257d37b3b382ff7e08524ae962384a89c858f408568f86bc8bdc6c410e1",
       "coverage_soglia_dal_report.log": "0a9120a72d4ba628899168ef997564a17ad93e04ef58aae2e60b9457960138e2",
       "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "fuzz_replay.log": "59dcb1b94957d41cbc9a7e4648aa56eb817dff5f4b124e5749da4bc94e01af19",
-      "fuzz_smoke.log": "0c210cc151f14ed8fd8d38752d5fd95dbaba52cc5b5c1f2d29d1495569c22257",
-      "lcov.info": "039dd8eff90c8d967f47309fe7ecc7624dd4e64c1972d5ed0412ac5cd1c6df66",
-      "risultato.json": "d9f90d589463859a3c9ad6f484aca4841793655dc980bfb3cc4442435424a44b",
+      "fuzz_replay.log": "d51f5a1f0c973bf516ca2d6ade7a140edac3a760ce03abe83c81cc468e3a464e",
+      "fuzz_smoke.log": "97b4494fdda3e93884b37161009ead761ed47f2d6bc66fc2c514fc42fe5a1e24",
+      "lcov.info": "65c07904cd4c17fca9399f2c19a73bbfeca6bad72a14e9607b12752b9afab6bc",
+      "risultato.json": "fa3658b33d1b57744d3c511bfc64f1a95bbb77dee8e44c7bf961d93e412310ea",
       "sonde_action_pins.log": "ce895947b8ffcb2e77addf8382970fd1c07ecab9486fbbfca209319a47c37f4f",
-      "sonde_assurance_n1.log": "3694226b25bdf82ae011604d87c9fc34088534f0cdc8f5a29c8951688ea73cf8",
-      "sonde_assurance_n1_prove.log": "7bc83929f79c8678737a5724da0d7fb69194a01ca52394499c61abcb93823e0b",
+      "sonde_assurance_n1.log": "3cf9716ca94b34855a58d540ba1e450774122986125f99439d0366c014c5a643",
+      "sonde_assurance_n1_prove.log": "b0a8dbec0a2e82a419cb3e67cef0daf42dc9f1ebf357bb99df1b36a8a620a67d",
       "sonde_audit_ignores.log": "b95b5805bef96b568b1b2424b637003cd6f306e6312d682e4f2e4e23f635b26a",
       "sonde_checkpoint.log": "7162afee4945c9a5a1fe12aefb820982dffb1d2e471dea9fa53d0d61ef7c9160",
-      "sonde_coverage_excl.log": "4cc1356b73ff82d4739c3499b9c2ce5a502f015adafb343dba1e293608bc5224",
-      "sonde_docset.log": "424b9c7491302c1100ad85a8412206fbe0dd10e8598fe520af067311d7a91799",
-      "sonde_errori_redatti.log": "8ffa5975dbde749685ff98587bd42d81c65a4fbb8cdb7823318908026d6cecb9",
+      "sonde_coverage_excl.log": "c87c1656b0d06b32d3bebf0a071b8aab6867a28f6e151c6e3469641527c3bee5",
+      "sonde_docset.log": "4913b43ce83cb24952a79172da2ab33bbb76489f4c00d978f2f5b57cf2cba090",
+      "sonde_errori_redatti.log": "72cb8cb2b81ce524bef3a02ade3b05e2f7205dede9ffb10a1f67bd9898107be0",
       "sonde_fallback.log": "c9f2c1b54e73f254402bb1a5b42d7d0ba1341d1dcb01aa3cc77c43238566aaf5",
-      "sonde_filegdb.log": "d0f4cb4453a92a69d5dd26c24dffc24abb841b09c300bd1df43f899fc1976ff5",
-      "sonde_fork.log": "030df6e3b34884e4f65b368423ebaaaabaaf0c444a3f3cf3438635e9e5cc4ac2",
-      "sonde_identita.log": "03e2ce7efb78ca7222db4c9a68781f9953dd3bd674b491cc52a8a4986d74e6f4",
-      "sonde_niente_leak.log": "004071ba4bb7431a4e9b3b1b0193c9b768b0cc1b60801af7fa374bb3aa3de4e6",
-      "sonde_prevalidazione.log": "d4be35de3d82250986690334669c4d88ae35b2993f723c16c8c675d6299bc32e",
-      "sonde_quarantena.log": "9ec9e3c52e7908b746c625587944c7e1eb71f90fc834fbb4527d510523684dd2",
-      "sonde_quartetto.log": "c28ee83e668f6863505ad1672ef932f814913651ec9c605214ce3d175aaa1a0c",
-      "sonde_release.log": "2c72cdcbd7b4128b2c5cf3e2c01b43af2faca01b74493b500787cfe9894d4100",
-      "sonde_toolchain.log": "b27c38acb2171e17d5c7bb4b5add1feb22e2f1893e9d3dbb949cbfb2655b7b7d",
-      "sonde_wkb_condiviso.log": "6f283ee6225d2cef4c0127d95456a6f954c45141c92b97dd89016cb1c630e8f4",
-      "sonde_wkb_limits.log": "f9fd52ad1ff09651c49285b6e7e5150e81914830dccc08a31e4bc415681bbcbb",
-      "test.log": "742cbfdc42d256c965cf999e3d0d387e57febb519ded7a4f5e9a9f5ad4994017",
-      "test_default.log": "fa19ed82a08de4dbeb847a7ad087546746aea3d932f6bc2647e35becf01d5057"
+      "sonde_filegdb.log": "1173b97f3b4a9b80377ede8e18f44a77ef68eeaa7f7ab530e66e86335111ef8a",
+      "sonde_fork.log": "c7cda1485c79d16ca59108311c62c4b99e43b30a770c1592b07300f8f86757dd",
+      "sonde_identita.log": "4a160235c0add54f7a5997815d0e01a072210439de4899c702c94dd3cd814662",
+      "sonde_niente_leak.log": "30bd24e47fb15834c2b565426d70d31a4b1eafc0142028525396296921ffe37e",
+      "sonde_prevalidazione.log": "f21cf8f81dbfe5d72a7e0bee6069a3c3fc0e651e4938e2d690e9e9ff41748af0",
+      "sonde_quarantena.log": "241cc9082c83d984731b53f41545cad3c6b096bfe0c9fb86a478828ea495fcbc",
+      "sonde_quartetto.log": "d034ab39354c2f034fa02526bcbb2b25197c79369aa9fb04ff68ee72fc6a232f",
+      "sonde_release.log": "6acfc56105596e7ea89aa4227147cec8d07f31d00e462eadaf0fc4a30ea2fda8",
+      "sonde_toolchain.log": "d5a73ae4ad212c8ee90b59e90c91a3311bac13b7661b48e5eeba5304fd3b73ed",
+      "sonde_wkb_condiviso.log": "fe008aab760eb03ccac7578e2b84665b1b50b0d7f855b17a0c7a8d039435b658",
+      "sonde_wkb_limits.log": "f1d3cbb20f163ae5e2fff4defbe5e5555b64befbe115d13f5522afb4216ccf1a",
+      "test.log": "fce6c0097d2b41431db618222f161322f7e94662b7a52d9a7e55f1355dea1bfd",
+      "test_default.log": "7e8cbbb92aad97cc1cbe209ae3eb3e89dca3c3ab908a14f6e442cf68a2e1e525"
     }
-  }
+  },
+  "nessun_confronto_fra_corse": "questa evidenza descrive **una corsa sola**. Un confronto con corse precedenti non e' ricostruibile da un albero che conserva la sola evidenza corrente, e scriverlo qui creerebbe un'affermazione che nessuno puo' verificare leggendo il repository. Le corse precedenti sono in git."
 }
