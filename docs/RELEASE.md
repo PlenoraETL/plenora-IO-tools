@@ -21,13 +21,13 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `0c1cb77` |
-| revisione misurata | `0c1cb77` |
+| ultima qualificata | `4b09575` |
+| revisione misurata | `4b09575` |
 | passi del checkpoint | 57 |
 | passi verdi | 57 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 36 843 |
+| input di replay | 37 493 |
 | target di replay | 13 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 13 |
@@ -39,7 +39,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | righe strumentate LCOV | 31 192 |
 | copertura cargo | 83,94% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `75e5301` |
+| baseline differenziale | `0c1cb77` |
 | esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
@@ -88,9 +88,9 @@ duplicati — e non accettato dal rapporto che lo strumento stampa su se stesso.
 
 La diagnostica differenziale è **n/d**, e la baseline contro cui è stata
 misurata è nel blocco generato: la prosa ne nominava un'altra, perché era
-scritta a mano. Nessuna **riga Rust strumentata dalla misura LCOV** è cambiata
-fra le due revisioni. Sono cambiati documenti, script Python e shell, e commenti
-Rust — nessuno dei quali entra in quella misura.
+scritta a mano. Fra le due revisioni non è cambiata **alcuna riga Rust**, né
+eseguibile né commento: il delta è fatto di script Python e shell, JSON di
+registro, Markdown e workflow di CI — nessuno dei quali entra in quella misura.
 
 Non è una misura mancata, ed è la ragione per cui la formulazione conta: dire
 «nessuna riga eseguibile è cambiata» sarebbe falso, perché gli script cambiati
