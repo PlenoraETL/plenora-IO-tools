@@ -246,7 +246,7 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | | |
 |---|---|
 | DXF | approssima per costruzione: archi ed ellissi tassellati, multipart esplose, testo come punto. La perdita è dichiarata, non silenziosa |
-| KML, XLSX, DXF | lettura materializzata: la libreria sottostante costruisce il documento in memoria. I limiti di input sono l'unica difesa e vengono applicati prima del parser |
+| KML, XLSX, DXF | lettura materializzata: la libreria sottostante ha bisogno di **tutto l'input** prima della prima riga. Dove stia quell'input lo decide il buffering, che è un asse separato: non è una promessa che stia tutto in RAM. I limiti di input sono l'unica difesa, e vengono applicati prima del parser |
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |
 | CSV, XLSX | non portano CRS: con una geometria, `--assume-crs` è obbligatorio |
 | tutti | nessuna riproiezione |

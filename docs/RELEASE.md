@@ -86,9 +86,11 @@ Entrambe sono richieste, e nessuna sostituisce l'altra.
 Il conteggio dei passi è **riconciliato dagli identificatori** — distinti, senza
 duplicati — e non accettato dal rapporto che lo strumento stampa su se stesso.
 
-La diagnostica differenziale rispetto a `0fb799d` è **n/d**: nessuna **riga
-Rust strumentata dalla misura LCOV** è cambiata. Sono cambiati documenti, script
-Python e shell, e commenti Rust — nessuno dei quali entra in quella misura.
+La diagnostica differenziale è **n/d**, e la baseline contro cui è stata
+misurata è nel blocco generato: la prosa ne nominava un'altra, perché era
+scritta a mano. Nessuna **riga Rust strumentata dalla misura LCOV** è cambiata
+fra le due revisioni. Sono cambiati documenti, script Python e shell, e commenti
+Rust — nessuno dei quali entra in quella misura.
 
 Non è una misura mancata, ed è la ragione per cui la formulazione conta: dire
 «nessuna riga eseguibile è cambiata» sarebbe falso, perché gli script cambiati

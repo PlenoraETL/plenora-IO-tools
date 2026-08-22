@@ -85,9 +85,8 @@
   "open_blockers": [
     "The database_to_data_to_io direction has not been executed.",
     "Native Windows execution of the three-component chain is not covered.",
-    "The external runner does not yet consume read_loss and keeps the R4.6.1 declaration as an unverified obligation.",
-    "The external matrix evidence declares ICD v2.0-rc8 while the current component provenance records v2.0-rc14.",
-    "The recorded 83/84 and 27/28 qualification belongs to v1.0.0-rc.1; the matrix has not been rerun on the v1.0.0-rc.2 candidate."
+    "The external runner does not yet consume read_loss and keeps the R4.6.1 declaration as an unverified obligation."
   ],
+  "open_blockers_nota": "due voci sono state tolte: nominavano l'ICD di una campagna esterna che non e' piu' descritta qui e i conteggi 83/84 e 27/28 di una matrice girata su v1.0.0-rc.1. Erano la cronaca di release gia' emesse, e un blocco che cita un'evidenza rimossa non si puo' chiudere. Restano i tre blocchi che descrivono cio' che oggi non e' stato eseguito. La provenienza resta in git.",
   "components_nota": "le revisioni sono `null` perche' la qualifica non e' stata eseguita: le fissa l'owner esterno al momento della corsa, e una revisione vecchia qui descriverebbe una campagna che non e' quella corrente"
 }

@@ -33,9 +33,12 @@ parte**, perché non alterare l'impronta non vuol dire ignorare.
 Due conseguenze operative:
 
 * impacchettare un fork richiede `--target-dir` **fuori** dall'albero
-  vendorizzato. `cargo package` scrive altrimenti in `vendor/<crate>/target/`,
-  e quell'artefatto entra nel tree hash: il gate diventa rosso, e il lock
-  aggiornato in quello stato registrerebbe l'artefatto come contenuto del fork;
+  vendorizzato. `cargo package` scrive altrimenti in `vendor/<crate>/target/`.
+  Quell'artefatto **non entra nel tree hash** — l'impronta guarda solo ciò che
+  git traccia, ed è la proprietà che impedisce a un lock ricalcolato di
+  registrarlo come contenuto del fork — ma viene **rifiutato a parte**, come
+  file estraneo dentro un albero governato. Le due difese sono indipendenti:
+  l'impronta non si può avvelenare, e l'estraneo non resta invisibile;
 * `vendor/gdal` **non è impacchettabile** con `cargo package`: conserva
   `.cargo_vcs_info.json`, un nome che Cargo riserva. Il metadato è tenuto di
   proposito per l'attribuzione, e il crate non viene mai pubblicato — è
@@ -97,8 +100,18 @@ Il buffering è adattivo: memoria finché il budget lo consente, poi un file
 temporaneo. La soglia è `memory_bytes`, e lo spool è **bounded** — superarlo è
 `ResourceLimit`, non una scrittura senza fine.
 
-Lo spool non usa una directory di spill condivisa: il file temporaneo vive
-accanto alla destinazione e viene rimosso alla chiusura, riuscita o no.
+Il file temporaneo **non ha nome**. È creato con `tempfile::tempfile_in`, cioè
+scollegato dal filesystem appena aperto su Unix e con `FILE_FLAG_DELETE_ON_CLOSE`
+su Windows: nessun altro processo può aprirlo, perché non esiste un path da
+aprire, e non restano orfani da spazzare nemmeno dopo un `SIGKILL` — il kernel
+libera l'inode alla chiusura del descrittore.
+
+`PLENORA_SPILL_DIR` sceglie la directory che ospita quell'inode, e serve a
+metterlo su un volume capiente o veloce; senza la variabile si usa la directory
+temporanea di sistema. Non vive accanto alla destinazione. Se la variabile è
+impostata ma la directory non è utilizzabile, la creazione **fallisce chiuso**:
+un ripiego silenzioso metterebbe dati su un volume che l'operatore non ha
+scelto.
 
 ### Projection e pruning
 
