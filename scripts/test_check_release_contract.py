@@ -27,6 +27,8 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import pathlib
+import tempfile
 import unittest
 from unittest import mock
 
@@ -1278,6 +1280,44 @@ class SondeEvidenzaCoerente(unittest.TestCase):
             gate.digest_del_manifest(evidenza["artefatti"]["manifest"]),
             evidenza["artefatti"]["digest_manifest"],
         )
+
+
+class SondeSolaEvidenza(unittest.TestCase):
+    """L'albero di lavoro conserva la sola evidenza corrente."""
+
+    def stato(self) -> dict:
+        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+
+    def test_l_albero_reale_ne_ha_una_sola(self) -> None:
+        self.assertEqual(gate._sola_evidenza_corrente(self.stato()), [])
+        presenti = sorted(p.name for p in gate.DIRECTORY_EVIDENZE.glob("*.json"))
+        self.assertEqual(len(presenti), 1, presenti)
+
+    def test_un_evidenza_precedente_rimasta_e_rossa(self) -> None:
+        """Una corsa vecchia nell'albero invita a un confronto fra corse.
+
+        La directory viene sostituita con una temporanea **fuori dal
+        repository**: crearne una qui dentro lascerebbe un file non tracciato, e
+        l'impronta dell'albero lo vedrebbe mentre il checkpoint la misura.
+        """
+        stato = self.stato()
+        attesa = pathlib.Path(stato["ultima_misura"]["evidenza"]).name
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            (radice / attesa).write_text("{}", encoding="utf-8")
+            (radice / "checkpoint-0000000.json").write_text("{}", encoding="utf-8")
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                errori = gate._sola_evidenza_corrente(stato)
+        self.assertTrue(any("checkpoint-0000000.json" in m for m in errori), errori)
+
+    def test_la_sola_corrente_passa(self) -> None:
+        stato = self.stato()
+        attesa = pathlib.Path(stato["ultima_misura"]["evidenza"]).name
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            (radice / attesa).write_text("{}", encoding="utf-8")
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                self.assertEqual(gate._sola_evidenza_corrente(stato), [])
 
 
 class SondeRegistroReale(unittest.TestCase):

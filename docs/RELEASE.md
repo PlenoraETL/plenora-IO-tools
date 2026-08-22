@@ -84,13 +84,15 @@ Le due percentuali di copertura sono **due proiezioni dello stesso profdata**,
 non due misure della stessa cosa: contano insiemi diversi di righe strumentate.
 Entrambe sono richieste, e nessuna sostituisce l'altra.
 
-La percentuale LCOV **oscilla fra le esecuzioni**, e il blocco riporta anche il
-conteggio perché è il conteggio a dire di quanto: su sette corse osservate le
-righe coperte sono state 26 772, 26 773 e 26 774 su un denominatore mai mosso.
-Il confine di arrotondamento cade fra le ultime due, quindi il salto fra
-85,83% e 85,84% è **una riga**. Che cosa muova quella riga a sorgente Rust
-strumentato invariato non è dimostrato: «rumore di misura» resta un'ipotesi
-plausibile, e non è scritto come causa.
+Il blocco riporta anche il **conteggio** delle righe, non solo la percentuale:
+due decimali arrotondano, e a questa scala una singola riga può spostare la
+cifra che si legge. Il conteggio dice di quanto; la percentuale dice quanto,
+arrotondato.
+
+Un confronto fra corse diverse non sta qui, e non sta in nessun documento:
+l'albero conserva **la sola evidenza corrente**, quindi un'affermazione su più
+corse non sarebbe ricostruibile da ciò che il repository contiene. Le corse
+precedenti sono in git.
 
 Il conteggio dei passi è **riconciliato dagli identificatori** — distinti, senza
 duplicati — e non accettato dal rapporto che lo strumento stampa su se stesso.

@@ -1052,6 +1052,40 @@ def _dentro(documento: Any, percorso: tuple[str, ...]) -> Any:
     return corrente
 
 
+DIRECTORY_EVIDENZE = ROOT / "assurance" / "evidence"
+
+
+def _sola_evidenza_corrente(stato: dict[str, Any]) -> list[str]:
+    """`assurance/evidence/` contiene **la sola** evidenza citata dallo stato.
+
+    Le evidenze precedenti restavano nell'albero senza che alcun gate le
+    leggesse. Costavano piu' di quanto rendessero: la loro sola presenza
+    invitava a confronti fra corse — e un confronto fra corse **non e'
+    ricostruibile** da un albero in cui quelle corse non ci sono piu' o non
+    sono verificabili. Una di esse portava un digest anteriore alla forma
+    canonica, quindi non ricalcolabile; un'altra dichiarava di non fornire
+    numeri e veniva citata lo stesso.
+
+    Git conserva la storia. L'albero di lavoro dice che cosa vale **oggi**.
+    """
+    relativo = _dentro(stato, ("ultima_misura", "evidenza"))
+    if not isinstance(relativo, str) or not relativo:
+        return ["`ultima_misura.evidenza` assente: non c'e' un'evidenza corrente"]
+
+    attesa = Path(relativo).name
+    presenti = sorted(percorso.name for percorso in DIRECTORY_EVIDENZE.glob("*.json"))
+    superflue = [nome for nome in presenti if nome != attesa]
+    if superflue:
+        return [
+            f"assurance/evidence: {superflue} non "
+            "sono l'evidenza corrente. Un'evidenza che nessun gate legge e' un "
+            "documento che nessuno rilegge, e la sua presenza invita a "
+            "confronti fra corse che l'albero non permette di ricostruire. La "
+            "storia sta in git."
+        ]
+    return []
+
+
 def _evidenza(relativo: str) -> dict[str, Any]:
     """L'evidenza di una corsa, letta dal disco.
 
@@ -1802,6 +1836,7 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
     """
     return (
         _classificazione(stato)
+        + _sola_evidenza_corrente(stato)
         + _forma_legata(stato)
         + _misura_legata_all_evidenza(stato)
         + _conteggi_n1_legati_al_registro(stato)

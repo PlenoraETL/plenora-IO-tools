@@ -364,7 +364,14 @@ Nessun documento è un database. I gate leggono file strutturati:
 | `assurance/registries/quartetto-siti.json` | quartetto per sito di costruzione | `check_quartetto_sito.py` |
 | `release/cli-protocol-v1.json` | le sei buste della CLI | `check_release_contract.py` |
 | `release/system-rc-gate.json` | qualifica cross-component | esterno |
-| `assurance/evidence/checkpoint-<sha>.json` | la corsa che ha prodotto i numeri dello stato | `check_release_contract.py` |
+| `assurance/evidence/checkpoint-<sha>.json` | la corsa che ha prodotto i numeri dello stato — **una sola**, la corrente | `check_release_contract.py` |
+
+La directory delle evidenze contiene soltanto quella citata da
+`current-state.json`. Un'evidenza che nessun gate legge è un documento che
+nessuno rilegge, e la sua presenza invita a confronti fra corse che l'albero non
+permette di ricostruire — una delle precedenti portava un digest anteriore alla
+forma canonica, quindi non ricalcolabile. Git conserva la storia; l'albero di
+lavoro dice che cosa vale oggi.
 
 L'evidenza citata da `current-state.json` è verificata **nella propria coerenza
 interna** prima di essere usata come fonte: una sola revisione fra inizio e
