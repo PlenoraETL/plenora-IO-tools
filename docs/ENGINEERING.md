@@ -252,9 +252,13 @@ esiste per evitare.
 Ogni uscita terminale lo sostituisce, non solo quelle che misurano:
 `albero_sporco`, `impronta_iniziale_non_calcolabile`, `non_superato`,
 `livello_1_verificato`, `superato`. Un rifiuto in partenza ha una causa nota, e
-lasciare `in_corso` lo farebbe leggere come una corsa morta a metà. Le uniche
-uscite che non registrano sono quelle in cui è la scrittura stessa ad aver
-fallito, e l'elenco è chiuso da una sonda.
+lasciare `in_corso` lo farebbe leggere come una corsa morta a metà.
+
+`exit` **non compare fuori da `concludi`**, e la regola è verificata invece che
+ricordata: una sonda rimuove il corpo di quella funzione dal testo dello script
+e pretende che in ciò che resta non ce ne sia nessuna. Una seconda sonda le
+inietta un'uscita vietata su un file costruito apposta, perché una regola che
+non può fallire non verifica niente.
 
 ### Fuzzing
 

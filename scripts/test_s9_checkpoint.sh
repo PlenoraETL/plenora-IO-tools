@@ -546,14 +546,46 @@ verifica "e il codice 0 quando la corsa e' passata" "0" "$?"
 verifica "con l'esito della corsa" "superato" \
     "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
 
-# L'elenco delle `exit` nude e' **chiuso**. Le tre ammesse sono quelle che non
-# possono registrare niente, perche' e' la scrittura del risultato a essere
-# fallita: `exit "${codice}"` dentro `concludi`, il suo ripiego quando la
-# scrittura non riesce, e il rifiuto in testa alla corsa. Ogni altra uscita
-# deve passare da `concludi`, e aggiungerne una fa rossa questa sonda invece di
-# lasciare un `in_corso` su disco.
-nude="$(grep -cE '^[[:space:]]*exit ' "${RADICE}/scripts/s9-checkpoint.sh")"
-verifica "nessuna uscita terminale fuori da concludi" "3" "${nude}"
+# Nessuna `exit` fuori da `concludi`, e la regola e' **strutturale**.
+#
+# La prima stesura contava le occorrenze e pretendeva tre. Un conteggio non
+# identifica: togliere un'uscita ammessa e introdurne una vietata lascia il
+# totale a tre, e la sonda resta verde su un checkpoint che esce senza
+# registrare niente.
+#
+# Qui il corpo di `concludi` viene **rimosso dal testo**, e in cio' che resta
+# non deve comparire alcuna `exit`. Il corpo si riconosce dai delimitatori in
+# prima colonna, che e' la forma di ogni funzione di questo file.
+uscite_fuori() {
+    awk '
+        /^concludi\(\) \{/ { dentro = 1; next }
+        dentro && /^\}/      { dentro = 0; next }
+        dentro                { next }
+        /^[[:space:]]*exit([[:space:]]|$)/ { print FNR ": " $0 }
+    ' "$1"
+}
+
+fuori="$(uscite_fuori "${RADICE}/scripts/s9-checkpoint.sh")"
+verifica "nessuna uscita terminale fuori da concludi" "" "${fuori}"
+
+# La compensazione: una regola che non puo' fallire non verifica niente. Su un
+# file costruito apposta — un `concludi` che esce, piu' un'uscita vietata fuori
+# — la regola deve nominare **quella** riga, e non quelle ammesse.
+finto="${RISULTATI}/finto.sh"
+{
+    printf 'concludi() {\n'
+    printf '    exit "${codice}"\n'
+    printf '    exit 2\n'
+    printf '}\n'
+    printf 'if [ "${sporchi}" -ne 0 ]; then\n'
+    printf '    exit 7\n'
+    printf 'fi\n'
+} > "${finto}"
+trovate="$(uscite_fuori "${finto}")"
+verifica "e la regola sa vedere un'uscita vietata" "1" \
+    "$(printf '%s\n' "${trovate}" | grep -c 'exit 7')"
+verifica "senza accusare quelle dentro concludi" "0" \
+    "$(printf '%s\n' "${trovate}" | grep -c 'exit 2')"
 
 rm -rf "${RISULTATI}"
 

@@ -137,9 +137,15 @@ scrivi_risultato() {
     return 0
 }
 
-# La coda di ogni percorso terminale. Se il risultato non si puo' scrivere,
-# l'esito tornerebbe a vivere solo sullo stdout — cioe' il difetto che questo
-# file esiste per chiudere — e la corsa lo dice invece di tacerlo.
+# La coda di **ogni** percorso terminale, senza eccezioni: `exit` non compare
+# altrove in questo file, ed e' una regola verificata dalle sonde invece che
+# ricordata. La prima stesura ne contava le occorrenze, e un conteggio non
+# distingue l'uscita ammessa da quella vietata: toglierne una e aggiungerne
+# un'altra lasciava il totale a tre.
+#
+# Se il risultato non si puo' scrivere, l'esito tornerebbe a vivere solo sullo
+# stdout — cioe' il difetto che questo file esiste per chiudere — e la corsa lo
+# dice invece di tacerlo.
 concludi() {
     local esito="$1" codice="$2"
     if scrivi_risultato "${esito}"; then
@@ -151,6 +157,9 @@ concludi() {
     echo "una corsa il cui esito non e' su disco non e' citabile da" >&2
     echo "un'evidenza, ed e' la ragione per cui una corsa e' gia' stata" >&2
     echo "scartata per intero." >&2
+    echo "Se l'esito e' «risultato_non_scrivibile», la corsa e' stata rifiutata" >&2
+    echo "in partenza: la destinazione non era scrivibile e nulla e' stato" >&2
+    echo "misurato." >&2
     exit 2
 }
 
@@ -383,12 +392,12 @@ fi
 # Se muore a meta', questo file resta a dichiarare `in_corso`: e' la differenza
 # fra «non e' mai partita» e «e' morta a meta'», che nessun altro artefatto
 # distingue.
-scrivi_risultato in_corso || {
-    echo "RISULTATO NON SCRIVIBILE in «${RISULTATO}»." >&2
-    echo "La corsa non registrerebbe il proprio esito, e un esito che vive" >&2
-    echo "solo sullo stdout e' gia' costato una corsa intera." >&2
-    exit 2
-}
+# Anche il rifiuto in partenza passa da `concludi`: la scrittura ritentera' e
+# fallira' di nuovo — costa una `printf` — e la corsa uscira' dal ramo che
+# dichiara «risultato non registrato». Cosi' **nessuna** uscita terminale vive
+# fuori da quella funzione, e la regola si puo' verificare invece di contare
+# righe.
+scrivi_risultato in_corso || concludi risultato_non_scrivibile 2
 
 REVISIONE="$(git rev-parse HEAD)"
 SPORCHI="$(git status --porcelain | wc -l)"
