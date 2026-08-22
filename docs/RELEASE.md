@@ -39,13 +39,19 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | righe strumentate LCOV | 31 192 |
 | copertura cargo | 83,94% |
 | soglia di copertura | 80,00% |
+| baseline differenziale | `75e5301` |
+| esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 9 |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
+| candidate, versione del workspace | `1.0.1` |
 | candidate, qualifica di HEAD | no |
-| candidate, tag creato | no |
+| candidate, tag previsto | `v1.0.1` |
+| candidate, tag creato | sì |
+| candidate, revisione del tag | `c490f82` |
+| candidate, tag su HEAD | no |
 | candidate, release_action consentita | no |
 | release_authorized | `false` |
 
@@ -100,8 +106,9 @@ Qualificato su `1806276`.
 ### La candidate `1.0.1` non qualifica HEAD
 
 Il manifesto di candidate è legato a una revisione che non è HEAD, con
-`release_action.allowed` non consentita e il tag non creato — i valori esatti
-sono nel blocco generato.
+`release_action.allowed` non consentita. Il tag `v1.0.1` **esiste** e punta a
+un commit che non è HEAD — i valori esatti sono nel blocco generato, dove
+vengono riletti da `Cargo.toml` e da git a ogni corsa del contratto.
 
 **Quel manifesto non qualifica il codice corrente**, e aggiornarne lo SHA
 fingendo che lo faccia sarebbe una qualifica fabbricata. Serve una candidate

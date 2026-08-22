@@ -29,6 +29,12 @@ quella allowlist chiusa per un modulo che non ha bisogno di aprire il file.
 * `assurance/current-state.json` — le misure e lo stato;
 * `assurance/registries/release-contract-current.json` — l'elenco dei blocchi.
 
+Che i numeri dello stato coincidano con le **loro** fonti — l'evidenza della
+corsa, il registro di ASSURANCE-N1, `Cargo.toml`, i tag di git — non si
+verifica qui: e' l'invariante `stato.fonti-legate` del contratto corrente. Qui
+si rende cio' che lo stato dice; li' si verifica che lo stato non se lo sia
+scritto da solo.
+
 L'elenco dei blocchi e' del registro perche' e' li' che un blocco nasce e
 muore. `current-state.json` ne conserva una copia, e questo modulo pretende che
 le due coincidano: una copia che puo' divergere in silenzio dalla propria fonte
@@ -73,13 +79,19 @@ CAMPI_RICHIESTI = (
     "righe strumentate LCOV",
     "copertura cargo",
     "soglia di copertura",
+    "baseline differenziale",
+    "esito differenziale",
     "gruppi ASSURANCE-N1",
     "gruppi ASSURANCE-N1 aperti",
     "blocchi",
     "candidate, versione del manifesto",
     "candidate, revisione del manifesto",
+    "candidate, versione del workspace",
     "candidate, qualifica di HEAD",
+    "candidate, tag previsto",
     "candidate, tag creato",
+    "candidate, revisione del tag",
+    "candidate, tag su HEAD",
     "candidate, release_action consentita",
     "release_authorized",
 )
@@ -114,6 +126,7 @@ def campi(stato: dict) -> dict[str, str]:
     checkpoint = misura["checkpoint"]
     fuzz = misura["fuzz"]
     copertura = misura["copertura"]
+    differenziale = misura["diagnostica_differenziale"]
     n1 = stato["aperto"]["assurance_n1"]
     candidate = stato["aperto"]["candidate_release"]
 
@@ -137,13 +150,19 @@ def campi(stato: dict) -> dict[str, str]:
         "righe strumentate LCOV": _intero(copertura["lcov_righe_strumentate"]),
         "copertura cargo": _percentuale(copertura["cargo_lines_percentuale"]),
         "soglia di copertura": _percentuale(copertura["soglia"]),
+        "baseline differenziale": f"`{differenziale['baseline']}`",
+        "esito differenziale": differenziale["esito"],
         "gruppi ASSURANCE-N1": _intero(n1["gruppi_totali"]),
         "gruppi ASSURANCE-N1 aperti": _intero(n1["gruppi_aperti"]),
         "blocchi": _intero(stato["blocchi"]["totale"]),
         "candidate, versione del manifesto": f"`{candidate['versione_manifesto']}`",
         "candidate, revisione del manifesto": f"`{candidate['revisione_manifesto']}`",
+        "candidate, versione del workspace": f"`{candidate['versione_workspace']}`",
         "candidate, qualifica di HEAD": _booleano(candidate["qualifica_head"]),
+        "candidate, tag previsto": f"`{candidate['tag_previsto']}`",
         "candidate, tag creato": _booleano(candidate["tag_creato"]),
+        "candidate, revisione del tag": f"`{candidate['tag_revisione']}`",
+        "candidate, tag su HEAD": _booleano(candidate["tag_su_head"]),
         "candidate, release_action consentita": _booleano(
             candidate["release_action_allowed"]
         ),

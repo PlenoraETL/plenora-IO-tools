@@ -685,6 +685,96 @@ class SondeStatoEsterno(unittest.TestCase):
         self.assertTrue(motivi)
 
 
+class SondeFontiLegate(unittest.TestCase):
+    """`current-state.json` non e' una fonte: e' una **giunzione**.
+
+    Riporta numeri che vivono altrove e li rende a `docs/RELEASE.md` con la
+    stessa autorita' con cui li renderebbe la fonte. Erano ricopiati a mano, e
+    una cifra sbagliata nella copia era indistinguibile da una misura diversa.
+    """
+
+    def stato(self) -> dict:
+        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+
+    def test_lo_stato_reale_coincide_con_le_proprie_fonti(self) -> None:
+        self.assertEqual(gate.validate_stato_corrente(self.stato()), [])
+
+    # --- evidenza ----------------------------------------------------------
+
+    def test_un_numero_che_non_viene_dall_evidenza_e_rosso(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["copertura"]["lcov_percentuale"] = 99.9
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("lcov_percentuale" in e for e in errori), errori)
+
+    def test_un_conteggio_di_passi_ritoccato_e_rosso(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["checkpoint"]["passi_falliti"] = 0
+        stato["ultima_misura"]["checkpoint"]["passi_verdi"] = 58
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("passi_verdi" in e for e in errori), errori)
+
+    def test_un_evidenza_che_descrive_un_altra_revisione_e_rossa(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["sha"] = "0000000"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("non nomina la revisione" in e for e in errori), errori)
+
+    def test_senza_evidenza_i_numeri_non_hanno_una_corsa(self) -> None:
+        stato = self.stato()
+        del stato["ultima_misura"]["evidenza"]
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("non hanno una corsa" in e for e in errori), errori)
+
+    def test_la_baseline_differenziale_viene_dall_evidenza(self) -> None:
+        """La prosa nominava una baseline diversa da quella della corsa."""
+        stato = self.stato()
+        stato["ultima_misura"]["diagnostica_differenziale"]["baseline"] = "0fb799d"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("diagnostica_differenziale.baseline" in e for e in errori), errori)
+
+    # --- ASSURANCE-N1 ------------------------------------------------------
+
+    def test_un_conteggio_n1_ritoccato_e_rosso(self) -> None:
+        stato = self.stato()
+        stato["aperto"]["assurance_n1"]["gruppi_aperti"] = 3
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("gruppi_aperti" in e for e in errori), errori)
+
+    def test_un_totale_n1_ritoccato_e_rosso(self) -> None:
+        stato = self.stato()
+        stato["aperto"]["assurance_n1"]["gruppi_totali"] = 50
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("gruppi_totali" in e for e in errori), errori)
+
+    # --- candidate ---------------------------------------------------------
+
+    def test_un_tag_dichiarato_inesistente_e_rosso(self) -> None:
+        """Il difetto che questo legame ha trovato: `v1.0.1` esisteva."""
+        stato = self.stato()
+        stato["aperto"]["candidate_release"]["tag_creato"] = False
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("tag_creato" in e for e in errori), errori)
+
+    def test_una_qualifica_di_head_fabbricata_e_rossa(self) -> None:
+        stato = self.stato()
+        stato["aperto"]["candidate_release"]["qualifica_head"] = True
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("qualifica_head" in e for e in errori), errori)
+
+    def test_una_versione_di_workspace_inventata_e_rossa(self) -> None:
+        stato = self.stato()
+        stato["aperto"]["candidate_release"]["versione_workspace"] = "2.0.0"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("versione_workspace" in e for e in errori), errori)
+
+    def test_un_tag_che_si_dichiara_su_head_e_rosso(self) -> None:
+        stato = self.stato()
+        stato["aperto"]["candidate_release"]["tag_su_head"] = True
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("tag_su_head" in e for e in errori), errori)
+
+
 class SondeRegistroReale(unittest.TestCase):
     def registro(self) -> dict:
         return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))

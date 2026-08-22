@@ -291,7 +291,7 @@
       "invariante": "il manifesto della candidate deve descrivere **la revisione corrente**: versione del workspace, SHA di HEAD e tag previsto devono coincidere con cio' che si sta rilasciando.",
       "prova": null,
       "stato": "release_blocking",
-      "manca": "esiste una candidate `1.0.1` pendente, legata alla revisione `966005d6` — non a HEAD — con `release_action.allowed: false` e la ragione «CI same-SHA del commit metadata e catene cross-library ancora obbligatorie». Il workspace e' ancora alla versione 1.0.1 e il tag `v1.0.1` non e' stato creato. Quel manifesto **non qualifica il codice corrente**, e aggiornarne lo SHA fingendo che lo faccia sarebbe una qualifica fabbricata. La chiusura richiede una candidate nuova, ratificata su versione e tag correnti, oppure la dichiarazione esplicita che la 1.0.1 e' superata.",
+      "manca": "esiste una candidate `1.0.1` pendente, legata alla revisione `966005d6` — non a HEAD — con `release_action.allowed: false` e la ragione «CI same-SHA del commit metadata e catene cross-library ancora obbligatorie». Il workspace e' ancora alla versione 1.0.1, e il tag `v1.0.1` **esiste**: punta a `c490f82`, non a HEAD. Quel manifesto **non qualifica il codice corrente**, e aggiornarne lo SHA fingendo che lo faccia sarebbe una qualifica fabbricata. La chiusura richiede una candidate nuova, ratificata su versione e tag correnti, oppure la dichiarazione esplicita che la 1.0.1 e' superata.",
       "sintesi": "la candidate pendente non descrive HEAD"
     },
     {
@@ -320,6 +320,17 @@
       "stato": "release_blocking",
       "manca": "lotto S12 non aperto. Oggi i tetti WKT/GeoJSON si applicano a valle — su `verifica_esprimibile` e `inspect_wkb` — non durante il parse: serve un parser progressivo. Manca inoltre la capability che renda la garanzia verificabile dall'esterno.",
       "sintesi": "parsing WKT/GeoJSON non bounded durante il parse"
+    },
+    {
+      "id": "stato.fonti-legate",
+      "superficie": "assurance/current-state.json",
+      "invariante": "ogni numero che lo stato riporta coincide con la fonte da cui viene: l'evidenza della corsa misurata, il registro di ASSURANCE-N1, la versione del workspace in Cargo.toml e i tag di git. Lo stato e' una giunzione, non una fonte.",
+      "prova": {
+        "tipo": "interna",
+        "funzione": "validate_stato_corrente",
+        "artefatto": "assurance/current-state.json"
+      },
+      "stato": "verified"
     },
     {
       "id": "sistema.qualifica-cross-component",

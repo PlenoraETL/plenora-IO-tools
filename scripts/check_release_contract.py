@@ -103,6 +103,14 @@ from check_assurance_n1_prove import (  # noqa: E402
     comando_test,
 )
 
+# E lo stesso lettore del debito: «gruppo aperto» e' definito una volta sola,
+# in `check_assurance_n1`. Ricontare qui le disposizioni aperte creerebbe la
+# seconda definizione che il conteggio esiste per legare.
+from check_assurance_n1 import (  # noqa: E402
+    carica as carica_gruppi_n1,
+    debito as debito_n1,
+)
+
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "release-contract-current.json"
 CLI_PROTOCOL_V1 = ROOT / "release" / "cli-protocol-v1.json"
@@ -161,6 +169,7 @@ INVARIANTI_OBBLIGATORI = frozenset(
         "lotto.s11",
         "lotto.s12",
         "sistema.qualifica-cross-component",
+        "stato.fonti-legate",
     }
 )
 
@@ -183,6 +192,49 @@ CONDIZIONI_OBBLIGATORIE = frozenset(
 )
 
 STATO_CORRENTE = ROOT / "assurance" / "current-state.json"
+
+# --- che cosa lo stato copia dall'evidenza ---------------------------------
+#
+# `assurance/current-state.json` riporta i numeri di una corsa che vive in
+# `assurance/evidence/`. Erano ricopiati a mano: una cifra sbagliata nella
+# copia non era distinguibile da una misura diversa, e il documento generato
+# avrebbe reso la copia con la stessa autorita' della fonte.
+#
+# Le coppie sono dichiarate qui invece che dedotte dai nomi: `quarantena` sta
+# sotto `fuzz_smoke` nell'evidenza e sotto `fuzz` nello stato, e una
+# corrispondenza indovinata sui nomi non lo saprebbe.
+CAMPI_DALL_EVIDENZA = (
+    (("checkpoint", "passi_eseguiti"), ("riconciliazione", "eseguiti")),
+    (("checkpoint", "passi_verdi"), ("riconciliazione", "verdi")),
+    (("checkpoint", "passi_omessi"), ("riconciliazione", "omessi")),
+    (("checkpoint", "passi_falliti"), ("riconciliazione", "falliti")),
+    (("fuzz", "replay_input"), ("misure", "fuzz_replay", "input")),
+    (("fuzz", "replay_target"), ("misure", "fuzz_replay", "target")),
+    (("fuzz", "replay_crash"), ("misure", "fuzz_replay", "crash")),
+    (("fuzz", "smoke_target_eseguiti"), ("misure", "fuzz_smoke", "target_eseguiti")),
+    (("fuzz", "smoke_target_totali"), ("misure", "fuzz_smoke", "target_totali")),
+    (("fuzz", "smoke_finding"), ("misure", "fuzz_smoke", "finding")),
+    (("fuzz", "quarantena"), ("misure", "fuzz_smoke", "quarantena")),
+    (("copertura", "lcov_percentuale"), ("misure", "copertura", "lcov_percentuale")),
+    (("copertura", "lcov_righe_coperte"), ("misure", "copertura", "lcov_righe_coperte")),
+    (
+        ("copertura", "lcov_righe_strumentate"),
+        ("misure", "copertura", "lcov_righe_strumentate"),
+    ),
+    (
+        ("copertura", "cargo_lines_percentuale"),
+        ("misure", "copertura", "cargo_lines_percentuale"),
+    ),
+    (("copertura", "soglia"), ("misure", "copertura", "soglia")),
+    (
+        ("diagnostica_differenziale", "baseline"),
+        ("misure", "diagnostica_differenziale", "base"),
+    ),
+    (
+        ("diagnostica_differenziale", "esito"),
+        ("misure", "diagnostica_differenziale", "esito"),
+    ),
+)
 
 
 def _percorsi(valore: Any) -> list[str]:
@@ -771,6 +823,155 @@ def verifica_condizione(
             return [f"«{' '.join(comando)}» esce con {esito.returncode}"]
         return []
     return globals()[verifica["funzione"]](documento)
+
+
+def _dentro(documento: Any, percorso: tuple[str, ...]) -> Any:
+    """Il valore in fondo a un percorso di chiavi, o `None` se si interrompe."""
+    corrente = documento
+    for chiave in percorso:
+        if not isinstance(corrente, dict) or chiave not in corrente:
+            return None
+        corrente = corrente[chiave]
+    return corrente
+
+
+def _misura_legata_all_evidenza(stato: dict[str, Any]) -> list[str]:
+    """I numeri dello stato vengono dall'evidenza della corsa che li ha prodotti."""
+    errori: list[str] = []
+    misura = stato.get("ultima_misura")
+    if not isinstance(misura, dict):
+        return ["`ultima_misura` assente"]
+
+    relativo = misura.get("evidenza")
+    if not isinstance(relativo, str):
+        return ["`ultima_misura.evidenza` assente: i numeri non hanno una corsa da cui venire"]
+    percorso = ROOT / relativo
+    if not percorso.exists():
+        return [f"«{relativo}»: evidenza assente"]
+
+    sha = misura.get("sha")
+    if not isinstance(sha, str) or sha not in Path(relativo).name:
+        errori.append(
+            f"«{relativo}» non nomina la revisione misurata «{sha}». Il nome "
+            "dell'evidenza e' cio' che lega la corsa alla revisione."
+        )
+
+    evidenza = json.loads(percorso.read_text(encoding="utf-8"))
+    finale = _dentro(evidenza, ("corsa", "revisione_finale"))
+    if not isinstance(finale, str) or not (isinstance(sha, str) and finale.startswith(sha)):
+        errori.append(
+            f"«{relativo}» descrive la revisione «{finale}», lo stato dichiara "
+            f"«{sha}». Un'evidenza vale per l'albero misurato e per nessun altro."
+        )
+
+    qualificata = _dentro(stato, ("revisioni", "ultima_qualificata", "sha"))
+    if "level 2 passed" in str(evidenza.get("esito", "")) and qualificata != sha:
+        errori.append(
+            f"`revisioni.ultima_qualificata` dice «{qualificata}» ma l'ultima "
+            f"misura di livello 2 e' su «{sha}»"
+        )
+
+    for nello_stato, nell_evidenza in CAMPI_DALL_EVIDENZA:
+        dichiarato = _dentro(misura, nello_stato)
+        osservato = _dentro(evidenza, nell_evidenza)
+        if dichiarato != osservato:
+            errori.append(
+                f"`ultima_misura.{'.'.join(nello_stato)}` vale «{dichiarato}», "
+                f"«{relativo}» ne registra «{osservato}»"
+            )
+    return errori
+
+
+def _conteggi_n1_legati_al_registro(stato: dict[str, Any]) -> list[str]:
+    """I gruppi di ASSURANCE-N1 si contano nel registro di ASSURANCE-N1."""
+    dichiarato = _dentro(stato, ("aperto", "assurance_n1"))
+    if not isinstance(dichiarato, dict):
+        return ["`aperto.assurance_n1` assente"]
+    gruppi = carica_gruppi_n1()
+    atteso = {"gruppi_totali": len(gruppi), "gruppi_aperti": len(debito_n1(gruppi))}
+    return [
+        f"`aperto.assurance_n1.{chiave}` vale «{dichiarato.get(chiave)}», il "
+        f"registro di ASSURANCE-N1 ne conta «{valore}»"
+        for chiave, valore in atteso.items()
+        if dichiarato.get(chiave) != valore
+    ]
+
+
+def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
+    """La candidate si confronta con Cargo.toml e con git, non con se stessa.
+
+    Lo stato dichiarava `tag_creato: false` mentre `v1.0.1` esisteva e puntava
+    a `c490f82`: una copia scritta a mano che nessuno confrontava con git.
+    """
+    candidate = _dentro(stato, ("aperto", "candidate_release"))
+    if not isinstance(candidate, dict):
+        return ["`aperto.candidate_release` assente"]
+
+    errori: list[str] = []
+    versione = versione_workspace()
+    if candidate.get("versione_workspace") != versione:
+        errori.append(
+            f"`candidate_release.versione_workspace` vale "
+            f"«{candidate.get('versione_workspace')}», Cargo.toml dichiara «{versione}»"
+        )
+
+    head = _git("rev-parse", "HEAD")
+    revisione = candidate.get("revisione_manifesto")
+    su_head = bool(head and isinstance(revisione, str) and head.startswith(revisione))
+    if candidate.get("qualifica_head") is not su_head:
+        errori.append(
+            f"`candidate_release.qualifica_head` vale "
+            f"«{candidate.get('qualifica_head')}»: HEAD e' «{(head or '')[:7]}» e "
+            f"il manifesto e' legato a «{revisione}»"
+        )
+
+    atteso = f"v{candidate.get('versione_manifesto')}"
+    if candidate.get("tag_previsto") != atteso:
+        errori.append(
+            f"`candidate_release.tag_previsto` vale "
+            f"«{candidate.get('tag_previsto')}», dalla versione del manifesto "
+            f"segue «{atteso}»"
+        )
+
+    puntato = _git("rev-parse", "--verify", atteso + "^{commit}")
+    if candidate.get("tag_creato") is not (puntato is not None):
+        errori.append(
+            f"`candidate_release.tag_creato` vale «{candidate.get('tag_creato')}» "
+            f"ma git {'trova' if puntato else 'non trova'} il tag «{atteso}»"
+        )
+    corta = puntato[:7] if puntato else None
+    if candidate.get("tag_revisione") != corta:
+        errori.append(
+            f"`candidate_release.tag_revisione` vale "
+            f"«{candidate.get('tag_revisione')}», il tag «{atteso}» punta a «{corta}»"
+        )
+    if candidate.get("tag_su_head") is not (puntato is not None and puntato == head):
+        errori.append(
+            f"`candidate_release.tag_su_head` vale "
+            f"«{candidate.get('tag_su_head')}» ma il tag punta a «{corta}» e HEAD "
+            f"e' «{(head or '')[:7]}»"
+        )
+    return errori
+
+
+def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
+    """`assurance/current-state.json` non e' una fonte: e' una **giunzione**.
+
+    Riporta numeri che vivono altrove — l'evidenza di una corsa, il registro di
+    ASSURANCE-N1, `Cargo.toml`, git — e li rende a `docs/RELEASE.md` con la
+    stessa autorita' con cui li renderebbe la fonte. Erano ricopiati a mano: una
+    cifra sbagliata nella copia era indistinguibile da una misura diversa, e la
+    copia sopravviveva alla fonte.
+
+    Qui ogni valore copiato viene **riconfrontato con la propria fonte**. Lo
+    stato resta il posto dove i numeri stanno insieme; smette di essere il posto
+    dove possono divergere.
+    """
+    return (
+        _misura_legata_all_evidenza(stato)
+        + _conteggi_n1_legati_al_registro(stato)
+        + _candidate_legata_alle_fonti(stato)
+    )
 
 
 def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:

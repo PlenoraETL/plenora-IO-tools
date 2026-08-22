@@ -95,11 +95,15 @@
     "candidate_release": {
       "versione_manifesto": "1.0.1",
       "revisione_manifesto": "966005d6",
+      "versione_workspace": "1.0.1",
+      "tag_previsto": "v1.0.1",
+      "tag_creato": true,
+      "tag_revisione": "c490f82",
+      "tag_su_head": false,
       "qualifica_head": false,
-      "tag_creato": false,
       "release_action_allowed": false,
       "release_blocking": true,
-      "nota": "il manifesto non descrive HEAD; aggiornarne lo SHA sarebbe una qualifica fabbricata"
+      "nota": "il manifesto non descrive HEAD; aggiornarne lo SHA sarebbe una qualifica fabbricata. Il tag `v1.0.1` esiste — puntava e punta a `c490f82` — e lo stato dichiarava che non fosse stato creato: una copia scritta a mano che nessuno confrontava con git. Versione del workspace, esistenza e bersaglio del tag sono ora riletti da Cargo.toml e da git a ogni corsa del contratto."
     }
   },
   "docset": {
