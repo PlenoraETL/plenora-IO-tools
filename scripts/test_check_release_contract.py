@@ -1145,6 +1145,72 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         )
         self.assertTrue(any("righe coperte" in m for m in errori), errori)
 
+    def test_una_copertura_sotto_soglia_arrotondata_e_rossa(self) -> None:
+        """Il caso che l'arrotondamento nascondeva.
+
+        79 999/100 000 fa 79,999%, che arrotondato a due decimali e' «80,00%»:
+        la percentuale dichiarata raggiungeva la soglia dell'80% e il rapporto
+        no. La soglia si confronta con il rapporto.
+        """
+        errori = self.errori_con(
+            lambda e: e["misure"]["copertura"].update(
+                lcov_righe_coperte=79999,
+                lcov_righe_strumentate=100000,
+                lcov_percentuale=80.0,
+                soglia=80.0,
+            )
+        )
+        self.assertTrue(any("sotto la soglia" in m for m in errori), errori)
+
+    def test_una_copertura_cargo_a_zero_e_rossa(self) -> None:
+        """`coverage_soglia_controprova` gira con `--fail-under-lines`."""
+        errori = self.errori_con(
+            lambda e: e["misure"]["copertura"].update(cargo_lines_percentuale=0)
+        )
+        self.assertTrue(
+            any("cargo_lines_percentuale" in m for m in errori), errori
+        )
+
+    def test_una_percentuale_non_finita_e_rossa(self) -> None:
+        """`inf` e `nan` superano ogni confronto, o nessuno."""
+        for valore in (float("inf"), float("nan"), float("-inf"), "molta"):
+            with self.subTest(valore=valore):
+                errori = self.errori_con(
+                    lambda e, v=valore: e["misure"]["copertura"].update(
+                        lcov_percentuale=v
+                    )
+                )
+                self.assertTrue(any("copertura" in m for m in errori), errori)
+
+    def test_zero_righe_strumentate_non_e_una_copertura(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["misure"]["copertura"].update(
+                lcov_righe_coperte=0, lcov_righe_strumentate=0
+            )
+        )
+        self.assertTrue(any("strumentate" in m for m in errori), errori)
+
+    def test_una_campagna_di_fuzzing_a_zero_non_e_un_verde(self) -> None:
+        casi = {
+            "replay senza input": lambda e: e["misure"]["fuzz_replay"].update(input=0),
+            "nessun target di replay": lambda e: e["misure"]["fuzz_replay"].update(
+                target=0, target_totali=0
+            ),
+            "nessun target di smoke": lambda e: e["misure"]["fuzz_smoke"].update(
+                target_eseguiti=0, target_totali=0
+            ),
+        }
+        for nome, muta in casi.items():
+            with self.subTest(caso=nome):
+                errori = self.errori_con(muta)
+                self.assertTrue(any("zero" in m for m in errori), errori)
+
+    def test_un_conteggio_di_fuzzing_che_non_e_intero_e_rosso(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["misure"]["fuzz_replay"].update(input="tanti")
+        )
+        self.assertTrue(any("intero non negativo" in m for m in errori), errori)
+
     def test_un_crash_o_un_finding_contraddicono_l_esito(self) -> None:
         casi = {
             "crash": lambda e: e["misure"]["fuzz_replay"].update(crash=1),
@@ -1171,6 +1237,36 @@ class SondeEvidenzaCoerente(unittest.TestCase):
             lambda e: e["artefatti"]["manifest"].update({"finto.log": "0" * 64})
         )
         self.assertTrue(any("digest_manifest" in m for m in errori), errori)
+
+    def test_un_manifest_di_valori_che_non_sono_digest_e_rosso(self) -> None:
+        """Il digest aggregato si ricalcola anche su un manifest di «x».
+
+        Legava l'insieme senza dire che le voci fossero impronte: il manifest
+        improntava la propria forma invece del contenuto della corsa.
+        """
+        def muta(evidenza):
+            evidenza["artefatti"]["manifest"] = {
+                percorso: "x" for percorso in evidenza["artefatti"]["manifest"]
+            }
+            evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(
+                evidenza["artefatti"]["manifest"]
+            )
+
+        errori = self.errori_con(muta)
+        self.assertTrue(any("percorso -> sha256" in m for m in errori), errori)
+
+    def test_un_manifest_senza_il_risultato_della_corsa_e_rosso(self) -> None:
+        """E' l'ultimo file che il checkpoint scrive."""
+        def muta(evidenza):
+            manifest = evidenza["artefatti"]["manifest"]
+            manifest.pop(gate.RISULTATO_DELLA_CORSA)
+            evidenza["artefatti"]["file"] = len(manifest)
+            evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(manifest)
+
+        errori = self.errori_con(muta)
+        self.assertTrue(
+            any(gate.RISULTATO_DELLA_CORSA in m for m in errori), errori
+        )
 
     def test_il_conteggio_dei_file_segue_il_manifest(self) -> None:
         errori = self.errori_con(lambda e: e["artefatti"].update(file=1))

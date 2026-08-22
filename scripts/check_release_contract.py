@@ -87,6 +87,7 @@ import argparse
 import functools
 import hashlib
 import json
+import math
 import re
 import subprocess
 import sys
@@ -1199,69 +1200,176 @@ def _riconciliazione_coerente(evidenza: dict[str, Any]) -> list[str]:
     return errori
 
 
-def _misure_coerenti(evidenza: dict[str, Any]) -> list[str]:
-    """Le misure non si contraddicono, e non contraddicono l'esito."""
-    errori: list[str] = []
+# Un digest di file e' uno sha256 in minuscolo, come l'impronta dell'albero.
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
-    copertura = _dentro(evidenza, ("misure", "copertura")) or {}
+# Il risultato della corsa e' l'ultimo file che il checkpoint scrive. Un
+# manifest che non lo elenca descrive una corsa che non e' arrivata in fondo,
+# o una directory raccolta altrove.
+RISULTATO_DELLA_CORSA = "risultato.json"
+
+
+def _intero(valore: Any) -> bool:
+    """Un intero vero: `True` e' un `int` per Python, e non e' un conteggio."""
+    return isinstance(valore, int) and not isinstance(valore, bool) and valore >= 0
+
+
+def _numero(valore: Any) -> bool:
+    """Un numero **finito**: `inf` e `nan` superano ogni confronto o nessuno."""
+    return (
+        isinstance(valore, (int, float))
+        and not isinstance(valore, bool)
+        and math.isfinite(valore)
+    )
+
+
+def _misure_coerenti(evidenza: dict[str, Any]) -> list[str]:
+    """Le misure non si contraddicono, e non contraddicono l'esito.
+
+    Il sottoschema accettava evidenze **semanticamente impossibili**: una
+    copertura cargo a zero accanto a un checkpoint superato, un replay di zero
+    input, e una copertura reale sotto soglia arrotondata a una percentuale che
+    la soglia la raggiunge — 79,999% dichiarato «80,00%» contro una soglia
+    dell'80% passava, perche' la soglia veniva confrontata con la percentuale
+    arrotondata invece che con il rapporto.
+    """
+    return _copertura_coerente(evidenza) + _fuzz_coerente(evidenza)
+
+
+def _copertura_coerente(evidenza: dict[str, Any]) -> list[str]:
+    copertura = _dentro(evidenza, ("misure", "copertura"))
+    if not isinstance(copertura, dict):
+        return ["`misure.copertura` assente"]
+
+    errori: list[str] = []
     coperte = copertura.get("lcov_righe_coperte")
     strumentate = copertura.get("lcov_righe_strumentate")
     percentuale = copertura.get("lcov_percentuale")
+    cargo = copertura.get("cargo_lines_percentuale")
     soglia = copertura.get("soglia")
-    if not all(isinstance(v, int) and not isinstance(v, bool) for v in (coperte, strumentate)):
-        errori.append("`copertura`: righe coperte e strumentate devono essere interi")
-    elif strumentate <= 0 or not 0 <= coperte <= strumentate:
-        errori.append(
-            f"`copertura`: {coperte} righe coperte su {strumentate} strumentate"
-        )
-    elif isinstance(percentuale, (int, float)):
-        vera = coperte / strumentate * 100
-        # La percentuale dichiarata dev'essere il rapporto **arrotondato a due
-        # decimali**. Il confronto e' sulla distanza invece che su `round`, per
-        # non dipendere dal modo di arrotondare a meta' esatta.
-        if abs(vera - percentuale) > 0.005 + 1e-9:
-            errori.append(
-                f"`copertura.lcov_percentuale` vale {percentuale}, ma "
-                f"{coperte}/{strumentate} fa {vera:.4f}%"
-            )
-        elif isinstance(soglia, (int, float)) and percentuale < soglia:
-            errori.append(
-                f"`copertura`: {percentuale}% sotto la soglia {soglia}% accanto "
-                "a un esito superato"
-            )
-    else:
-        errori.append("`copertura.lcov_percentuale` assente")
 
-    replay = _dentro(evidenza, ("misure", "fuzz_replay")) or {}
-    smoke = _dentro(evidenza, ("misure", "fuzz_smoke")) or {}
-    if replay.get("crash") != 0:
+    if not _numero(soglia) or not 0 < soglia <= 100:
+        return [f"`copertura.soglia` non e' una percentuale: «{soglia}»"]
+    if not (_intero(coperte) and _intero(strumentate)):
+        return ["`copertura`: righe coperte e strumentate devono essere interi non negativi"]
+    if strumentate == 0:
+        return [
+            "`copertura.lcov_righe_strumentate` e' zero: una copertura senza "
+            "righe strumentate non e' una misura, e ogni percentuale su di essa "
+            "sarebbe indefinita"
+        ]
+    if coperte > strumentate:
+        return [
+            f"`copertura`: {coperte} righe coperte su {strumentate} strumentate"
+        ]
+
+    vera = coperte / strumentate * 100
+    if not _numero(percentuale):
+        errori.append(f"`copertura.lcov_percentuale` non e' un numero finito: «{percentuale}»")
+    # La percentuale dichiarata dev'essere il rapporto **arrotondato a due
+    # decimali**. Il confronto e' sulla distanza invece che su `round`, per non
+    # dipendere dal modo di arrotondare a meta' esatta.
+    elif abs(vera - percentuale) > 0.005 + 1e-9:
         errori.append(
-            f"`fuzz_replay.crash` vale {replay.get('crash')} accanto a un esito superato"
+            f"`copertura.lcov_percentuale` vale {percentuale}, ma "
+            f"{coperte}/{strumentate} fa {vera:.4f}%"
         )
-    if replay.get("target") != replay.get("target_totali"):
+
+    # La soglia si confronta con il **rapporto**, non con la percentuale
+    # dichiarata: arrotondare 79,999% a 80,00% non porta la copertura sopra
+    # soglia, sposta solo la cifra che si legge.
+    if vera < soglia:
         errori.append(
-            f"`fuzz_replay`: {replay.get('target')} target su "
-            f"{replay.get('target_totali')} — il replay li rigioca tutti"
+            f"`copertura`: {coperte}/{strumentate} fa {vera:.4f}%, sotto la "
+            f"soglia {soglia}%, accanto a un esito superato. La soglia si "
+            "confronta con il rapporto, non con la percentuale arrotondata."
         )
-    if smoke.get("finding") != 0:
+
+    if not _numero(cargo) or not 0 <= cargo <= 100:
         errori.append(
-            f"`fuzz_smoke.finding` vale {smoke.get('finding')} accanto a un esito superato"
+            f"`copertura.cargo_lines_percentuale` non e' una percentuale: «{cargo}»"
         )
-    if smoke.get("quarantena") != 0:
+    elif cargo < soglia:
         errori.append(
-            f"`fuzz_smoke.quarantena` vale {smoke.get('quarantena')}: la "
-            "quarantena dev'essere vuota"
+            f"`copertura.cargo_lines_percentuale` vale {cargo}%, sotto la soglia "
+            f"{soglia}%. Il passo `coverage_soglia_controprova` gira con "
+            "`--fail-under-lines`, quindi un esito superato non puo' portarla."
         )
-    if smoke.get("target_eseguiti") != smoke.get("target_totali"):
+    return errori
+
+
+def _fuzz_coerente(evidenza: dict[str, Any]) -> list[str]:
+    errori: list[str] = []
+    replay = _dentro(evidenza, ("misure", "fuzz_replay"))
+    smoke = _dentro(evidenza, ("misure", "fuzz_smoke"))
+    if not isinstance(replay, dict) or not isinstance(smoke, dict):
+        return ["`misure.fuzz_replay` o `misure.fuzz_smoke` assenti"]
+
+    campi = {
+        "fuzz_replay": (replay, ("input", "target", "target_totali", "crash")),
+        "fuzz_smoke": (
+            smoke,
+            ("target_eseguiti", "target_totali", "finding", "quarantena"),
+        ),
+    }
+    for nome, (blocco, chiavi) in campi.items():
+        for chiave in chiavi:
+            if not _intero(blocco.get(chiave)):
+                errori.append(
+                    f"`{nome}.{chiave}` non e' un intero non negativo: "
+                    f"«{blocco.get(chiave)}»"
+                )
+    if errori:
+        return errori
+
+    # Un conteggio a zero non e' un verde: e' una campagna che non e' girata.
+    if replay["input"] == 0:
         errori.append(
-            f"`fuzz_smoke`: {smoke.get('target_eseguiti')} target eseguiti su "
-            f"{smoke.get('target_totali')}"
+            "`fuzz_replay.input` e' zero: un replay che non rigioca niente non "
+            "trova niente, e il suo silenzio non e' un verde"
+        )
+    for nome, blocco, chiave in (
+        ("fuzz_replay", replay, "target_totali"),
+        ("fuzz_smoke", smoke, "target_totali"),
+    ):
+        if blocco[chiave] == 0:
+            errori.append(f"`{nome}.{chiave}` e' zero: non esistono target da esercitare")
+
+    if replay["crash"] != 0:
+        errori.append(
+            f"`fuzz_replay.crash` vale {replay['crash']} accanto a un esito superato"
+        )
+    if replay["target"] != replay["target_totali"]:
+        errori.append(
+            f"`fuzz_replay`: {replay['target']} target su "
+            f"{replay['target_totali']} — il replay li rigioca tutti"
+        )
+    if smoke["finding"] != 0:
+        errori.append(
+            f"`fuzz_smoke.finding` vale {smoke['finding']} accanto a un esito superato"
+        )
+    if smoke["quarantena"] != 0:
+        errori.append(
+            f"`fuzz_smoke.quarantena` vale {smoke['quarantena']}: la quarantena "
+            "dev'essere vuota"
+        )
+    if smoke["target_eseguiti"] != smoke["target_totali"]:
+        errori.append(
+            f"`fuzz_smoke`: {smoke['target_eseguiti']} target eseguiti su "
+            f"{smoke['target_totali']}"
         )
     return errori
 
 
 def _artefatti_coerenti(evidenza: dict[str, Any]) -> list[str]:
-    """Il manifest e il suo digest si verificano a vicenda."""
+    """Il manifest e il suo digest si verificano a vicenda.
+
+    Il digest aggregato si ricalcolava, e questo bastava a legare l'insieme —
+    ma non a dire che le voci fossero digest: un manifest di `"x"` produce un
+    aggregato coerente con se stesso. Un'impronta di file e' uno sha256, e
+    senza quel vincolo il manifest impronta la propria forma invece del proprio
+    contenuto.
+    """
     artefatti = evidenza.get("artefatti")
     if not isinstance(artefatti, dict):
         return ["`artefatti` assente"]
@@ -1270,6 +1378,25 @@ def _artefatti_coerenti(evidenza: dict[str, Any]) -> list[str]:
         return ["`artefatti.manifest` assente o vuoto"]
 
     errori: list[str] = []
+    storti = sorted(
+        percorso
+        for percorso, digest in manifest.items()
+        if not isinstance(percorso, str)
+        or not percorso
+        or not isinstance(digest, str)
+        or not SHA256.match(digest)
+    )
+    if storti:
+        errori.append(
+            f"`artefatti.manifest`: {len(storti)} voci non sono «percorso -> "
+            f"sha256», fra cui {storti[:3]}"
+        )
+    if RISULTATO_DELLA_CORSA not in manifest:
+        errori.append(
+            f"`artefatti.manifest` non elenca «{RISULTATO_DELLA_CORSA}»: e' "
+            "l'ultimo file che la corsa scrive, e senza di esso il manifest "
+            "descrive una corsa che non e' arrivata in fondo."
+        )
     if artefatti.get("file") != len(manifest):
         errori.append(
             f"`artefatti.file` vale {artefatti.get('file')}, il manifest ne "
