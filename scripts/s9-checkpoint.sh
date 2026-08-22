@@ -424,7 +424,11 @@ if [ "${SPORCHI}" -ne 0 ] && [ "${LIVELLO}" != "1" ]; then
     echo "ALBERO SPORCO: la misura non sarebbe same-SHA." >&2
     echo "Un checkpoint su un albero che non coincide con la revisione" >&2
     echo "dichiarata e' peggio di nessun checkpoint: sembra un'evidenza." >&2
-    exit 2
+    # Un'uscita terminale passa da `concludi`, sempre. Questa usciva con 2
+    # lasciando `in_corso` sul disco: la causa era **nota** — l'albero e'
+    # sporco — e il file diceva «e' morta a meta'», cioe' esattamente la
+    # confusione che il risultato esiste per togliere.
+    concludi albero_sporco 2
 fi
 
 

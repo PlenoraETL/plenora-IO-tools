@@ -528,6 +528,33 @@ RISULTATO="${RISULTATI}/non/esiste/risultato.json"
 scrivi_risultato superato
 verifica "una destinazione impossibile e' rossa" "1" "$?"
 
+# --- ogni uscita terminale registra il proprio esito ------------------------
+#
+# Il file veniva scritto `in_corso` all'avvio, e un livello 2 su albero sporco
+# usciva con 2 **senza passare da `concludi`**: il risultato restava `in_corso`
+# mentre la causa era nota. «E' morta a meta'» e «e' stata rifiutata in
+# partenza» si chiudono in modi diversi, ed e' la distinzione per cui questo
+# file esiste.
+RISULTATO="${RISULTATI}/terminale.json"
+( concludi albero_sporco 2 ) > /dev/null 2>&1
+verifica "un'uscita terminale esce con il proprio codice" "2" "$?"
+verifica "e registra un esito terminale, non «in_corso»" "albero_sporco" \
+    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
+
+( concludi superato 0 ) > /dev/null 2>&1
+verifica "e il codice 0 quando la corsa e' passata" "0" "$?"
+verifica "con l'esito della corsa" "superato" \
+    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
+
+# L'elenco delle `exit` nude e' **chiuso**. Le tre ammesse sono quelle che non
+# possono registrare niente, perche' e' la scrittura del risultato a essere
+# fallita: `exit "${codice}"` dentro `concludi`, il suo ripiego quando la
+# scrittura non riesce, e il rifiuto in testa alla corsa. Ogni altra uscita
+# deve passare da `concludi`, e aggiungerne una fa rossa questa sonda invece di
+# lasciare un `in_corso` su disco.
+nude="$(grep -cE '^[[:space:]]*exit ' "${RADICE}/scripts/s9-checkpoint.sh")"
+verifica "nessuna uscita terminale fuori da concludi" "3" "${nude}"
+
 rm -rf "${RISULTATI}"
 
 echo

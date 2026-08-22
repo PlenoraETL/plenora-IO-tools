@@ -249,6 +249,13 @@ artefatto distingue. Se il risultato non è scrivibile la corsa **fallisce**
 invece di proseguire: un esito che vive solo sullo stdout è ciò che il file
 esiste per evitare.
 
+Ogni uscita terminale lo sostituisce, non solo quelle che misurano:
+`albero_sporco`, `impronta_iniziale_non_calcolabile`, `non_superato`,
+`livello_1_verificato`, `superato`. Un rifiuto in partenza ha una causa nota, e
+lasciare `in_corso` lo farebbe leggere come una corsa morta a metà. Le uniche
+uscite che non registrano sono quelle in cui è la scrittura stessa ad aver
+fallito, e l'elenco è chiuso da una sonda.
+
 ### Fuzzing
 
 | | |
