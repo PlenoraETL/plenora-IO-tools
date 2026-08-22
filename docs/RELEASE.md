@@ -21,30 +21,30 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `c996fdd` |
-| revisione misurata | `c996fdd` |
+| ultima qualificata | `8cab32e` |
+| revisione misurata | `8cab32e` |
 | passi del checkpoint | 57 |
 | passi verdi | 57 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 38 276 |
+| input di replay | 39 125 |
 | target di replay | 13 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 13 |
 | target di smoke totali | 13 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 85,83% |
-| righe coperte LCOV | 26 772 |
+| copertura LCOV | 85,84% |
+| righe coperte LCOV | 26 774 |
 | righe strumentate LCOV | 31 192 |
 | copertura cargo | 83,94% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `4b09575` |
+| baseline differenziale | `c996fdd` |
 | esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 9 |
-| S9, qualificato su | `c996fdd` |
+| S9, qualificato su | `8cab32e` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
 | candidate, versione del workspace | `1.0.1` |
@@ -84,15 +84,22 @@ Le due percentuali di copertura sono **due proiezioni dello stesso profdata**,
 non due misure della stessa cosa: contano insiemi diversi di righe strumentate.
 Entrambe sono richieste, e nessuna sostituisce l'altra.
 
+La percentuale LCOV **oscilla fra le esecuzioni**, e il blocco riporta anche il
+conteggio perché è il conteggio a dire di quanto: su sei corse osservate le
+righe coperte sono state 26 772, 26 773 e 26 774 su un denominatore mai mosso.
+Il confine di arrotondamento cade fra le ultime due, quindi il salto fra
+85,83% e 85,84% è **una riga**. Che cosa muova quella riga a sorgente Rust
+strumentato invariato non è dimostrato: «rumore di misura» resta un'ipotesi
+plausibile, e non è scritto come causa.
+
 Il conteggio dei passi è **riconciliato dagli identificatori** — distinti, senza
 duplicati — e non accettato dal rapporto che lo strumento stampa su se stesso.
 
 La diagnostica differenziale è **n/d**, e la baseline contro cui è stata
 misurata è nel blocco generato: la prosa ne nominava un'altra, perché era
-scritta a mano. Le righe Rust cambiate sono tutte **commenti**, e nessuna riga
-eseguibile e strumentata dalla misura LCOV si è mossa. Il resto del delta è
-fatto di script Python e shell, JSON di registro, Markdown e workflow di CI —
-nessuno dei quali entra in quella misura.
+scritta a mano. Nessuna **riga Rust** si è mossa fra le due revisioni, né
+eseguibile né commento. Il resto del delta è fatto di script Python e shell,
+JSON di registro e Markdown — nessuno dei quali entra in quella misura.
 
 Non è una misura mancata, ed è la ragione per cui la formulazione conta: dire
 «nessuna riga eseguibile è cambiata» sarebbe falso, perché gli script cambiati

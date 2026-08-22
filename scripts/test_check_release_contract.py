@@ -945,11 +945,14 @@ class SondeFontiLegate(unittest.TestCase):
     # --- l'esito dell'evidenza si confronta per intero --------------------
 
     def evidenza_con(self, **extra):
-        documento = json.loads(
-            (gate.ROOT / "assurance" / "evidence" / "checkpoint-c996fdd.json").read_text(
-                encoding="utf-8"
-            )
-        )
+        """L'evidenza **che lo stato indica**, con i campi sostituiti.
+
+        Il percorso non si scrive qui: una sonda che nomina un'evidenza
+        diventerebbe rossa al checkpoint successivo, e verrebbe aggiornata a
+        mano ogni volta invece di seguire la fonte.
+        """
+        relativo = self.stato()["ultima_misura"]["evidenza"]
+        documento = json.loads((gate.ROOT / relativo).read_text(encoding="utf-8"))
         documento.update(extra)
         return documento
 
