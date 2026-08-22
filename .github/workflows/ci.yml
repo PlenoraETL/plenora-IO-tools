@@ -50,8 +50,16 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_release_contract
           python3 scripts/check_release_contract.py
+      # La sonda gira nel checkpoint (`sonde_docset`) e non girava qui: il
+      # gate veniva eseguito in CI senza che nulla verificasse **il gate**. Un
+      # gate senza sonda e' un gate di cui ci si fida perche' non lo si e' mai
+      # visto sbagliare, e questo verifica proprieta' che si rompono in
+      # silenzio — l'allowlist esatta, il blocco di stato reso dalla fonte, i
+      # riferimenti alla cronaca eliminata.
       - name: Verify the docset
-        run: python3 scripts/check_docset.py
+        run: |
+          python3 -m unittest scripts.test_check_docset
+          python3 scripts/check_docset.py
       - name: Verify shared WKB/EWKB corpus
         run: |
           python3 -m unittest scripts.test_compare_shared_wkb_observations
