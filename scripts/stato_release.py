@@ -88,6 +88,7 @@ CAMPI_RICHIESTI = (
     "gruppi ASSURANCE-N1",
     "gruppi ASSURANCE-N1 aperti",
     "blocchi",
+    "S9, qualificato su",
     "candidate, versione del manifesto",
     "candidate, revisione del manifesto",
     "candidate, versione del workspace",
@@ -136,6 +137,7 @@ def campi(stato: dict, registro: dict) -> dict[str, str]:
     copertura = misura["copertura"]
     differenziale = misura["diagnostica_differenziale"]
     n1 = stato["aperto"]["assurance_n1"]
+    s9 = stato["chiuso"]["s9_errori_strutturati"]
     candidate = stato["aperto"]["candidate_release"]
 
     return {
@@ -163,6 +165,7 @@ def campi(stato: dict, registro: dict) -> dict[str, str]:
         "gruppi ASSURANCE-N1": _intero(n1["gruppi_totali"]),
         "gruppi ASSURANCE-N1 aperti": _intero(n1["gruppi_aperti"]),
         "blocchi": _intero(len(_bloccanti(registro))),
+        "S9, qualificato su": f"`{s9['qualificato_su']}`",
         "candidate, versione del manifesto": f"`{candidate['versione_manifesto']}`",
         "candidate, revisione del manifesto": f"`{candidate['revisione_manifesto']}`",
         "candidate, versione del workspace": f"`{candidate['versione_workspace']}`",

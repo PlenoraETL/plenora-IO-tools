@@ -44,6 +44,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 9 |
+| S9, qualificato su | `c996fdd` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
 | candidate, versione del workspace | `1.0.1` |
@@ -104,7 +105,10 @@ libero è a **zero** su quattordici componenti: produzione, test, doctest e
 target di fuzzing. I costruttori non esistono più, quindi la garanzia è
 l'assenza della funzione e non una convenzione sorvegliata.
 
-Qualificato su `1806276`.
+La revisione su cui la chiusura è qualificata è nel blocco generato: è quella
+della corsa di livello 2 registrata come ultima misura, e l'evidenza di quella
+corsa contiene il passo che misura il censimento. Una qualifica è una corsa che
+esiste, non una revisione che qualcuno ricorda.
 
 ### La candidate `1.0.1` non qualifica HEAD
 

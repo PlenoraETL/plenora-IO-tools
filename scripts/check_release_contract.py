@@ -1307,17 +1307,62 @@ def _censimento_s9_legato(stato: dict[str, Any]) -> list[str]:
         if dichiarato.get(chiave) != valore
     )
 
-    qualificato = dichiarato.get("qualificato_su")
-    if not isinstance(qualificato, str) or not qualificato:
-        errori.append("`chiuso.s9_errori_strutturati.qualificato_su` assente")
-    elif not _git_riesce("merge-base", "--is-ancestor", qualificato, "HEAD"):
-        errori.append(
-            f"`chiuso.s9_errori_strutturati.qualificato_su` dichiara "
-            f"«{qualificato}», che git non riconosce come antenato di HEAD. Una "
-            "qualifica su una revisione che non e' nella storia corrente non "
-            "qualifica niente."
-        )
+    errori.extend(_qualifica_s9_attestata(stato, dichiarato))
     return errori
+
+
+# Il passo del checkpoint che misura il censimento. La sua presenza nel
+# manifest di un'evidenza e' cio' che rende quella corsa un'attestazione della
+# chiusura, invece di una corsa che parla d'altro.
+LOG_DEL_CENSIMENTO = "check_errori_redatti.log"
+
+
+def _qualifica_s9_attestata(
+    stato: dict[str, Any], dichiarato: dict[str, Any]
+) -> list[str]:
+    """La chiusura di S9 e' attestata da un'evidenza, non da un'ascendenza.
+
+    Il campo era verificato come **antenato di HEAD**, e l'ascendenza non
+    dimostra una qualifica: il commit radice del repository e' antenato di
+    tutto, e passava. Qualunque revisione della storia passava.
+
+    Una qualifica e' una **corsa**, e la corsa deve esistere: qui `qualificato_su`
+    e' la revisione dell'ultima misura di livello 2 registrata dallo stato, e
+    l'evidenza di quella corsa deve contenere il passo che misura il censimento.
+    Cosi' la chiusura e' attestata da un artefatto, non da una relazione di
+    parentela.
+    """
+    qualificato = dichiarato.get("qualificato_su")
+    risolta = revisione_risolta(qualificato)
+    if risolta is None:
+        return [
+            f"`chiuso.s9_errori_strutturati.qualificato_su` vale "
+            f"«{qualificato}», che git non risolve a un commit"
+        ]
+
+    misurata = revisione_risolta(_dentro(stato, ("ultima_misura", "sha")))
+    if misurata is not None and risolta != misurata:
+        return [
+            f"`chiuso.s9_errori_strutturati.qualificato_su` dichiara "
+            f"«{qualificato}», ma la corsa di livello 2 registrata dallo stato "
+            f"e' su «{misurata[:7]}». Una qualifica senza la propria evidenza e' "
+            "un'affermazione, e l'ascendenza da HEAD non ne e' una prova."
+        ]
+
+    relativo = _dentro(stato, ("ultima_misura", "evidenza"))
+    if not isinstance(relativo, str) or not (ROOT / relativo).exists():
+        return [
+            "`chiuso.s9_errori_strutturati.qualificato_su`: l'evidenza della "
+            "corsa che dovrebbe attestarla non e' leggibile"
+        ]
+    manifest = _dentro(_evidenza(relativo), ("artefatti", "manifest")) or {}
+    if LOG_DEL_CENSIMENTO not in manifest:
+        return [
+            f"«{relativo}» non elenca «{LOG_DEL_CENSIMENTO}» fra gli artefatti: "
+            "quella corsa non ha misurato il censimento, quindi non attesta la "
+            "chiusura di S9."
+        ]
+    return []
 
 
 def _docset_legato(stato: dict[str, Any]) -> list[str]:

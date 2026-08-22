@@ -792,11 +792,47 @@ class SondeFontiLegate(unittest.TestCase):
                 errori = gate.validate_stato_corrente(stato)
                 self.assertTrue(any(chiave in e for e in errori), errori)
 
-    def test_una_qualifica_su_una_revisione_estranea_e_rossa(self) -> None:
+    def test_una_qualifica_su_una_revisione_inesistente_e_rossa(self) -> None:
         stato = self.stato()
         stato["chiuso"]["s9_errori_strutturati"]["qualificato_su"] = "0" * 40
         errori = gate.validate_stato_corrente(stato)
-        self.assertTrue(any("antenato di HEAD" in e for e in errori), errori)
+        self.assertTrue(any("non risolve a un commit" in e for e in errori), errori)
+
+    def test_l_ascendenza_da_head_non_e_una_qualifica(self) -> None:
+        """Il difetto che questo legame chiude.
+
+        Il campo era verificato come **antenato di HEAD**, e il commit radice
+        del repository e' antenato di tutto: passava. Passava qualunque
+        revisione della storia, cioe' la verifica non distingueva una qualifica
+        da una parentela.
+        """
+        radice = gate._git("rev-list", "--max-parents=0", "HEAD").split()[-1]
+        self.assertTrue(
+            gate._git_riesce("merge-base", "--is-ancestor", radice, "HEAD"),
+            "la radice deve essere antenato di HEAD, altrimenti la sonda non prova niente",
+        )
+        stato = self.stato()
+        stato["chiuso"]["s9_errori_strutturati"]["qualificato_su"] = radice
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(
+            any("la corsa di livello 2 registrata dallo stato" in e for e in errori),
+            errori,
+        )
+
+    def test_una_qualifica_senza_il_passo_del_censimento_e_rossa(self) -> None:
+        """Una corsa che non ha misurato il censimento non attesta la chiusura."""
+        finta = self.evidenza_con()
+        finta["artefatti"] = dict(finta["artefatti"])
+        finta["artefatti"]["manifest"] = {
+            nome: digest
+            for nome, digest in finta["artefatti"]["manifest"].items()
+            if nome != gate.LOG_DEL_CENSIMENTO
+        }
+        with mock.patch.object(gate, "_evidenza", return_value=finta):
+            errori = gate.validate_stato_corrente(self.stato())
+        self.assertTrue(
+            any(gate.LOG_DEL_CENSIMENTO in e for e in errori), errori
+        )
 
     def test_i_conteggi_del_docset_vengono_dall_allowlist(self) -> None:
         for chiave in ("markdown_canonici", "markdown_operativi"):
