@@ -175,14 +175,16 @@ class SondeStatoGenerato(unittest.TestCase):
         """L'elenco chiuso e' l'unica cosa che impedisca a un campo di
         scomparire in silenzio: un renderer che ne perde uno non lo dice."""
         self.assertEqual(
-            list(stato_release.campi(self.stato())),
+            list(stato_release.campi(self.stato(), self.registro())),
             list(stato_release.CAMPI_RICHIESTI),
         )
 
     def test_ogni_campo_richiesto_compare_nel_blocco(self) -> None:
         testo, errori = stato_release.blocco(self.stato(), self.registro())
         self.assertEqual(errori, [], errori)
-        for etichetta, valore in stato_release.campi(self.stato()).items():
+        for etichetta, valore in stato_release.campi(
+            self.stato(), self.registro()
+        ).items():
             with self.subTest(campo=etichetta):
                 self.assertIn(f"| {etichetta} | {valore} |", testo)
 
@@ -226,23 +228,39 @@ class SondeStatoGenerato(unittest.TestCase):
         self.assertNotIn(testo, self.documento())
 
     def test_l_elenco_dei_blocchi_e_quello_del_registro(self) -> None:
-        _, errori = stato_release.blocchi(self.stato(), self.registro())
+        righe, errori = stato_release.blocchi(self.registro())
         self.assertEqual(errori, [], errori)
+        self.assertEqual(
+            [identita for identita, _ in righe],
+            [
+                v["id"]
+                for v in self.registro()["invarianti"]
+                if v["stato"] == "release_blocking"
+            ],
+        )
 
-    def test_una_copia_divergente_dei_blocchi_e_rossa(self) -> None:
-        """`current-state.json` ne conserva una copia; una copia libera di
-        divergere e' peggio dell'assenza di copia."""
-        stato = self.stato()
-        stato["blocchi"]["elenco"] = stato["blocchi"]["elenco"][:-1]
-        stato["blocchi"]["totale"] = len(stato["blocchi"]["elenco"])
-        _, errori = stato_release.blocchi(stato, self.registro())
-        self.assertTrue(any("non coincide" in e for e in errori), errori)
+    def test_lo_stato_non_ripete_l_elenco_dei_blocchi(self) -> None:
+        """La copia e' stata tolta, non solo confrontata.
 
-    def test_un_totale_divergente_e_rosso(self) -> None:
-        stato = self.stato()
-        stato["blocchi"]["totale"] = 99
-        _, errori = stato_release.blocchi(stato, self.registro())
-        self.assertTrue(any("`blocchi.totale` vale 99" in e for e in errori), errori)
+        Finche' esisteva, il renderer verificava che coincidesse con il
+        registro — e reggeva. Restava pero' una seconda rappresentazione degli
+        stessi dati, da riscrivere a ogni blocco che nasce o muore. Questa
+        sonda impedisce che rientri.
+        """
+        blocchi = self.stato()["blocchi"]
+        self.assertNotIn("elenco", blocchi)
+        self.assertNotIn("totale", blocchi)
+        self.assertIn("fonte", blocchi)
+
+    def test_il_conteggio_reso_segue_il_registro(self) -> None:
+        """Il numero nel blocco non viene dallo stato: si conta nel registro."""
+        registro = self.registro()
+        registro["invarianti"] = [
+            v for v in registro["invarianti"] if v["stato"] == "release_blocking"
+        ][:2]
+        self.assertEqual(
+            stato_release.campi(self.stato(), registro)["blocchi"], "2"
+        )
 
     def test_un_bloccante_senza_sintesi_e_rosso(self) -> None:
         registro = self.registro()
@@ -250,7 +268,7 @@ class SondeStatoGenerato(unittest.TestCase):
             if voce["stato"] == "release_blocking":
                 voce.pop("sintesi", None)
                 break
-        _, errori = stato_release.blocchi(self.stato(), registro)
+        _, errori = stato_release.blocchi(registro)
         self.assertTrue(any("senza `sintesi`" in e for e in errori), errori)
 
     def _con_documento(self, testo: str) -> list[str]:

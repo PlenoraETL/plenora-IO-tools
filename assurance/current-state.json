@@ -112,18 +112,7 @@
     "verificato_da": "scripts/check_docset.py"
   },
   "blocchi": {
-    "totale": 9,
-    "elenco": [
-      "copertura.rami-negativi",
-      "fuzz.reader-shapefile",
-      "fuzz.filegdb",
-      "wire.loss-report",
-      "release.candidate-non-valida-per-head",
-      "lotto.s10",
-      "lotto.s11",
-      "lotto.s12",
-      "sistema.qualifica-cross-component"
-    ],
-    "fonte": "assurance/registries/release-contract-current.json"
+    "fonte": "assurance/registries/release-contract-current.json",
+    "nota": "l'elenco e il conteggio dei blocchi non sono ripetuti qui. Sono i `release_blocking` del registro, che e' dove un blocco nasce e muore; il blocco generato di docs/RELEASE.md li prende da li'. Una copia va tenuta allineata da qualcuno, e il modo in cui smette di esserlo non si vede: qui non c'e' copia da allineare."
   }
 }

@@ -35,10 +35,14 @@ verifica qui: e' l'invariante `stato.fonti-legate` del contratto corrente. Qui
 si rende cio' che lo stato dice; li' si verifica che lo stato non se lo sia
 scritto da solo.
 
-L'elenco dei blocchi e' del registro perche' e' li' che un blocco nasce e
-muore. `current-state.json` ne conserva una copia, e questo modulo pretende che
-le due coincidano: una copia che puo' divergere in silenzio dalla propria fonte
-e' peggio dell'assenza di copia.
+L'elenco dei blocchi e' del registro perche' e' li' che un blocco nasce e muore.
+`current-state.json` ne conservava una copia, e questo modulo pretendeva che le
+due coincidassero. Il confronto funzionava; restava una **seconda
+rappresentazione degli stessi dati**, da tenere allineata a mano e da
+riscrivere a ogni blocco che nasce o muore.
+
+Lo stato dichiara ora la fonte e nient'altro: elenco e conteggio vengono dal
+registro. Un allineamento che non serve fare non si puo' sbagliare.
 """
 
 from __future__ import annotations
@@ -119,8 +123,12 @@ def _letterale(valore: bool) -> str:
     return "`true`" if valore else "`false`"
 
 
-def campi(stato: dict) -> dict[str, str]:
-    """Etichetta -> valore reso. Le chiavi sono `CAMPI_RICHIESTI`, in ordine."""
+def campi(stato: dict, registro: dict) -> dict[str, str]:
+    """Etichetta -> valore reso. Le chiavi sono `CAMPI_RICHIESTI`, in ordine.
+
+    Il registro serve per il solo conteggio dei blocchi: lo stato non ne
+    conserva piu' una copia.
+    """
     revisioni = stato["revisioni"]
     misura = stato["ultima_misura"]
     checkpoint = misura["checkpoint"]
@@ -154,7 +162,7 @@ def campi(stato: dict) -> dict[str, str]:
         "esito differenziale": differenziale["esito"],
         "gruppi ASSURANCE-N1": _intero(n1["gruppi_totali"]),
         "gruppi ASSURANCE-N1 aperti": _intero(n1["gruppi_aperti"]),
-        "blocchi": _intero(stato["blocchi"]["totale"]),
+        "blocchi": _intero(len(_bloccanti(registro))),
         "candidate, versione del manifesto": f"`{candidate['versione_manifesto']}`",
         "candidate, revisione del manifesto": f"`{candidate['revisione_manifesto']}`",
         "candidate, versione del workspace": f"`{candidate['versione_workspace']}`",
@@ -170,32 +178,23 @@ def campi(stato: dict) -> dict[str, str]:
     }
 
 
-def blocchi(stato: dict, registro: dict) -> tuple[list[tuple[str, str]], list[str]]:
-    """`[(id, sintesi)]` dei bloccanti, piu' gli errori di coerenza.
-
-    L'elenco e' del **registro**: e' li' che un blocco nasce e muore. Che
-    `current-state.json` ne conservi una copia va bene finche' le due
-    coincidono; una copia libera di divergere e' peggio dell'assenza di copia.
-    """
-    errori: list[str] = []
-    bloccanti = [
+def _bloccanti(registro: dict) -> list[dict]:
+    return [
         v for v in registro.get("invarianti", []) if v.get("stato") == "release_blocking"
     ]
-    dal_registro = [v["id"] for v in bloccanti]
-    dichiarati = stato["blocchi"]["elenco"]
 
-    if dal_registro != dichiarati:
-        errori.append(
-            "assurance/current-state.json: `blocchi.elenco` non coincide con i "
-            f"`release_blocking` del registro. Registro: {dal_registro}; "
-            f"stato: {dichiarati}."
-        )
-    if stato["blocchi"]["totale"] != len(dal_registro):
-        errori.append(
-            f"assurance/current-state.json: `blocchi.totale` vale "
-            f"{stato['blocchi']['totale']}, i bloccanti del registro sono "
-            f"{len(dal_registro)}."
-        )
+
+def blocchi(registro: dict) -> tuple[list[tuple[str, str]], list[str]]:
+    """`[(id, sintesi)]` dei bloccanti, piu' gli errori di coerenza.
+
+    L'elenco e' del **registro**, e di nessun altro. `current-state.json` ne
+    conservava una copia che questo modulo confrontava; il confronto reggeva,
+    ma la copia restava una seconda rappresentazione da riscrivere a ogni
+    blocco che nasce o muore. Un allineamento che non serve fare non si puo'
+    sbagliare.
+    """
+    errori: list[str] = []
+    bloccanti = _bloccanti(registro)
 
     righe: list[tuple[str, str]] = []
     for voce in bloccanti:
@@ -213,7 +212,7 @@ def blocchi(stato: dict, registro: dict) -> tuple[list[tuple[str, str]], list[st
 
 def blocco(stato: dict, registro: dict) -> tuple[str, list[str]]:
     """Il testo fra i marcatori, marcatori inclusi."""
-    valori = campi(stato)
+    valori = campi(stato, registro)
     mancanti = [c for c in CAMPI_RICHIESTI if c not in valori]
     inattesi = [c for c in valori if c not in CAMPI_RICHIESTI]
     errori = [f"campo richiesto «{c}» non reso" for c in mancanti]
@@ -225,7 +224,7 @@ def blocco(stato: dict, registro: dict) -> tuple[str, list[str]]:
         # invece che della causa.
         return "", errori
 
-    righe_blocchi, errori_blocchi = blocchi(stato, registro)
+    righe_blocchi, errori_blocchi = blocchi(registro)
     errori.extend(errori_blocchi)
 
     parti = [
