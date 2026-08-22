@@ -385,6 +385,112 @@ class SondeEsecuzioneInterna(unittest.TestCase):
         self.assertEqual(errori, [], errori)
 
 
+class SondeProveVuote(unittest.TestCase):
+    """Una prova che non chiede niente e' verde per assenza di domanda.
+
+    `"test": []` passava: il harness girava, nessuna identita' veniva cercata,
+    e l'invariante risultava verificato. E' la stessa famiglia dell'elenco
+    vuoto del harness — quello e' gia' rosso — vista dal lato del registro.
+    """
+
+    def prova_test(self, elenco, **extra):
+        prova = {
+            "tipo": "test",
+            "crate": "plenora-io-model",
+            "configurazione": "default",
+            "test": elenco,
+        }
+        prova.update(extra)
+        return gate.struttura(documento(voce(prova=prova)))
+
+    def test_un_elenco_di_test_vuoto_e_rosso(self) -> None:
+        errori = self.prova_test([])
+        self.assertTrue(any("elenco vuoto" in e for e in errori), errori)
+
+    def test_un_elenco_di_test_non_tipizzato_e_rosso(self) -> None:
+        for storto in ([None], [42], [""], "m::t"):
+            with self.subTest(storto=storto):
+                errori = self.prova_test(storto)
+                self.assertTrue(errori, storto)
+
+    def test_un_identificatore_ripetuto_nel_registro_e_rosso(self) -> None:
+        """Nominare due volte lo stesso test non lo esegue due volte."""
+        errori = self.prova_test(["m::t", "m::t"])
+        self.assertTrue(any("ripetuti" in e for e in errori), errori)
+
+    def test_un_elenco_di_test_pieno_passa(self) -> None:
+        self.assertEqual(self.prova_test(["m::a", "m::b"]), [])
+
+    def test_un_comando_vuoto_e_rosso(self) -> None:
+        errori = gate.struttura(documento(voce(prova={"tipo": "gate", "comando": []})))
+        self.assertTrue(any("assente o vuoto" in e for e in errori), errori)
+
+    def test_un_comando_che_e_una_riga_di_shell_e_rosso(self) -> None:
+        errori = gate.struttura(
+            documento(voce(prova={"tipo": "gate", "comando": ["python3 -c pass"]}))
+        )
+        self.assertTrue(any("riga di shell" in e for e in errori), errori)
+
+    def test_un_comando_aggiuntivo_vuoto_e_rosso(self) -> None:
+        errori = gate.struttura(
+            documento(
+                voce(prova={"tipo": "gate", "comando": VERDE, "comandi_aggiuntivi": [[]]})
+            )
+        )
+        self.assertTrue(any("assente o vuoto" in e for e in errori), errori)
+
+
+class SondeProvaEsterna(unittest.TestCase):
+    """Lo stato di una qualifica esterna si legge dall'artefatto."""
+
+    def esterna(self, dichiarato: str, **extra):
+        prova = {
+            "tipo": "esterna",
+            "owner": "plenora-contracts/conformance",
+            "artefatto": "release/system-rc-gate.json",
+            "stato": dichiarato,
+        }
+        return gate.struttura(documento(voce(prova=prova, **extra)))
+
+    def test_un_passed_autocertificato_e_rosso(self) -> None:
+        """Il caso che rendeva il tipo `esterna` una dichiarazione.
+
+        Bastava scrivere `passed` accanto a un artefatto che dice `not_run` per
+        rendere `verified` un invariante di proprieta' altrui.
+        """
+        errori = self.esterna("passed")
+        self.assertTrue(any("autocertificarlo" in e for e in errori), errori)
+
+    def test_lo_stato_che_coincide_con_l_artefatto_passa(self) -> None:
+        errori = self.esterna(
+            "not_run",
+            stato="release_blocking",
+            manca="gate di sistema non superato",
+            sintesi="gate di sistema non superato",
+        )
+        self.assertEqual(errori, [], errori)
+
+    def test_anche_un_bloccante_che_si_autocertifica_e_rosso(self) -> None:
+        """Un bloccante non produce un verde, ma la divergenza resta."""
+        errori = self.esterna(
+            "passed",
+            stato="release_blocking",
+            manca="gate di sistema non superato",
+            sintesi="gate di sistema non superato",
+        )
+        self.assertTrue(any("autocertificarlo" in e for e in errori), errori)
+
+    def test_un_artefatto_senza_evidence_non_deriva_uno_stato(self) -> None:
+        prova = {
+            "tipo": "esterna",
+            "owner": "plenora-contracts/conformance",
+            "artefatto": "release/cli-protocol-v1.json",
+            "stato": "passed",
+        }
+        errori = gate.struttura(documento(voce(prova=prova)))
+        self.assertTrue(any("non_derivabile" in e for e in errori), errori)
+
+
 class SondeCompletezza(unittest.TestCase):
     """Il registro nel suo insieme.
 

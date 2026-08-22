@@ -57,8 +57,16 @@ Le prove sono percio' tipizzate, e ogni tipo dice come si esegue:
   eseguito: exit diverso da 0 significa invariante non verificato;
 * `interna` — funzione di questo gate, eseguita in linea su un artefatto
   strutturato. Serve dove il comando sarebbe questo stesso gate;
-* `esterna` — owner, artefatto e stato. Senza evidenza — stato diverso da
-  `passed` — un invariante non puo' risultare `verified`: e' bloccante.
+* `esterna` — owner e artefatto. Lo stato non e' quello che la voce si
+  attribuisce: e' **derivato dal contenuto dell'artefatto** dell'owner, e il
+  campo `stato` del registro deve coincidere con esso. Senza evidenza — stato
+  diverso da `passed` — un invariante non puo' risultare `verified`: e'
+  bloccante.
+
+Un elenco di test vuoto non e' una prova: il harness girerebbe e nessuna
+identita' verrebbe cercata, cioe' un verde per assenza di domanda. Gli
+identificatori sono percio' almeno uno, stringhe non vuote e distinti; e un
+comando e' un argv, non una riga di shell dentro un solo argomento.
 
 I bloccanti **non** si eseguono. Un bloccante puo' avere per definizione un
 gate rosso, ed e' cio' che lo rende bloccante; cio' che deve avere e' `manca`,
@@ -379,6 +387,10 @@ def struttura(documento: dict[str, Any]) -> list[str]:
                     f"{identita}: bersaglio «{bersaglio}» non ammesso; "
                     f"scegliere fra {sorted(BERSAGLI)}"
                 )
+            errori.extend(f"{identita}: {m}" for m in _elenco_di_test_valido(prova["test"]))
+        if tipo == "gate":
+            for comando in _comandi(prova):
+                errori.extend(f"{identita}: {m}" for m in _argv_valido(comando))
         if tipo == "esterna" and prova["stato"] != STATO_ESTERNO_VALIDO:
             errori.append(
                 f"{identita}: prova esterna in stato «{prova['stato']}» ma "
@@ -388,6 +400,67 @@ def struttura(documento: dict[str, Any]) -> list[str]:
         for relativo in _percorsi(prova.get("artefatto")):
             if not (ROOT / relativo).exists():
                 errori.append(f"{identita}: artefatto «{relativo}» assente")
+
+    errori.extend(_prove_esterne(documento))
+    return errori
+
+
+def _elenco_di_test_valido(elenco: Any) -> list[str]:
+    """Una prova `test` nomina almeno un test, e ciascuno una volta sola.
+
+    `"test": []` passava: il harness girava, nessuna identita' veniva cercata,
+    e l'invariante risultava verificato per **assenza di domanda**. E' la stessa
+    famiglia dell'elenco vuoto del harness, dal lato del registro invece che da
+    quello dell'uscita.
+    """
+    if not isinstance(elenco, list) or not elenco:
+        return [
+            "prova `test` con elenco vuoto. Il harness girerebbe e nessuna "
+            "identita' verrebbe cercata: un verde per assenza di domanda."
+        ]
+    if not all(isinstance(nome, str) and nome for nome in elenco):
+        return ["prova `test` con un identificatore che non e' una stringa non vuota"]
+    ripetuti = sorted({nome for nome in elenco if elenco.count(nome) > 1})
+    if ripetuti:
+        return [
+            f"prova `test` con identificatori ripetuti {ripetuti}. Nominare due "
+            "volte lo stesso test non lo esegue due volte: gonfia l'elenco e "
+            "nient'altro."
+        ]
+    return []
+
+
+def _prove_esterne(documento: dict[str, Any]) -> list[str]:
+    """Lo stato di una prova esterna e' quello dell'**artefatto**.
+
+    Il campo `stato` restava una dichiarazione: nessuno lo confrontava con cio'
+    che l'artefatto dice, e uno stato che nessuno confronta e' lo stato che
+    prima o poi si scrive da solo. Scrivere `passed` accanto a un artefatto che
+    dice `not_run` sarebbe bastato a rendere `verified` un invariante di
+    proprieta' altrui.
+
+    Il confronto vale anche per i **bloccanti**. Li' un `passed` autocertificato
+    non produce un verde, ma resta una divergenza fra due fonti, e la seconda
+    lettura la troverebbe come ha trovato questa.
+    """
+    errori: list[str] = []
+    for voce in documento.get("invarianti", []):
+        prova = voce.get("prova")
+        if not isinstance(prova, dict) or prova.get("tipo") != "esterna":
+            continue
+        percorsi = _percorsi(prova.get("artefatto"))
+        if not percorsi:
+            errori.append(f"{voce.get('id')}: prova esterna senza artefatto da leggere")
+            continue
+        for relativo in percorsi:
+            derivato, _ = stato_esterno_osservato(relativo)
+            if prova.get("stato") != derivato:
+                errori.append(
+                    f"{voce.get('id')}: la prova dichiara lo stato "
+                    f"«{prova.get('stato')}», «{relativo}» ne descrive uno "
+                    f"«{derivato}». Lo stato di una qualifica esterna si legge "
+                    "dall'artefatto: dichiararlo qui sarebbe autocertificarlo."
+                )
     return errori
 
 

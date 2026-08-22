@@ -242,8 +242,15 @@
       "prova": {
         "tipo": "gate",
         "comando": [
-          "scripts/check_assurance_n1.py --release",
-          "scripts/check_assurance_n1_prove.py"
+          "python3",
+          "scripts/check_assurance_n1.py",
+          "--release"
+        ],
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "scripts/check_assurance_n1_prove.py"
+          ]
         ],
         "artefatto": "assurance/registries/assurance-n1-copertura-negativa.json"
       },
