@@ -330,13 +330,52 @@
     }
   ],
   "autorizzazione_di_release": {
-    "descrizione": "Le condizioni sono **congiunte**: nessuna implica le altre, e un verde parziale non e' un verde. Sono scritte qui perche' il solo conteggio dei bloccanti non basterebbe — due di esse non sono invarianti di questo registro.",
+    "descrizione": "Le condizioni sono **congiunte**: nessuna implica le altre, e un verde parziale non e' un verde. Erano prosa, cioe' cinque frasi che nessuno eseguiva; ora ciascuna dichiara la propria verifica e `check_release_contract.py --release` le esegue tutte. L'insieme e' obbligatorio: toglierne una sarebbe il modo piu' rapido di ottenere un verde.",
     "condizioni": [
-      "nessun invariante `release_blocking` in questo registro",
-      "`scripts/check_assurance_n1.py --release` verde, cioe' debito di copertura negativa a zero",
-      "`release_authorized: true` in assurance/current-state.json, che e' una decisione scritta e non un esito automatico",
-      "manifesto della candidate coerente **esattamente** con versione del workspace, SHA di HEAD e tag",
-      "qualifica cross-component superata, con evidenza dell'owner esterno"
+      {
+        "id": "nessun-bloccante",
+        "descrizione": "nessun invariante `release_blocking` in questo registro",
+        "verifica": {
+          "tipo": "interna",
+          "funzione": "condizione_nessun_bloccante"
+        }
+      },
+      {
+        "id": "debito-n1-a-zero",
+        "descrizione": "debito di copertura negativa a zero: ogni gruppo di ASSURANCE-N1 e' chiuso o dichiarato irraggiungibile",
+        "verifica": {
+          "tipo": "gate",
+          "comando": [
+            "python3",
+            "scripts/check_assurance_n1.py",
+            "--release"
+          ]
+        }
+      },
+      {
+        "id": "decisione-scritta",
+        "descrizione": "`release_authorized: true` in assurance/current-state.json, che e' una decisione scritta e non un esito automatico",
+        "verifica": {
+          "tipo": "interna",
+          "funzione": "condizione_decisione_scritta"
+        }
+      },
+      {
+        "id": "candidate-coerente",
+        "descrizione": "manifesto della candidate coerente **esattamente** con versione del workspace, SHA di HEAD e tag, letti da Cargo.toml e da git",
+        "verifica": {
+          "tipo": "interna",
+          "funzione": "condizione_candidate_coerente"
+        }
+      },
+      {
+        "id": "qualifica-cross-component",
+        "descrizione": "qualifica cross-component superata, con evidenza dell'owner esterno derivata dall'artefatto e non dichiarata qui",
+        "verifica": {
+          "tipo": "interna",
+          "funzione": "condizione_qualifica_cross_component"
+        }
+      }
     ]
   },
   "tipi_di_prova": {

@@ -24,6 +24,8 @@ coperta.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import unittest
 from unittest import mock
@@ -381,6 +383,200 @@ class SondeEsecuzioneInterna(unittest.TestCase):
             )
         )
         self.assertEqual(errori, [], errori)
+
+
+class SondeCompletezza(unittest.TestCase):
+    """Il registro nel suo insieme.
+
+    `struttura` guarda una voce alla volta, e su una lista vuota non ha voci da
+    guardare: **svuotare il registro era un verde**. Queste sonde provano la
+    proprieta' opposta — che togliere qualcosa sia rosso — perche' e' la via
+    piu' breve per un falso verde e non lascia traccia in nessun conteggio.
+    """
+
+    def registro(self) -> dict:
+        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+
+    def test_il_registro_reale_e_completo(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        self.assertEqual(gate.completezza(self.registro()), [])
+
+    def test_un_registro_vuoto_e_rosso(self) -> None:
+        errori = gate.completezza({"schema_version": 1, "invarianti": []})
+        self.assertTrue(any("non e' un contratto soddisfatto" in e for e in errori), errori)
+
+    def test_un_registro_senza_invarianti_e_rosso(self) -> None:
+        errori = gate.completezza({"schema_version": 1})
+        self.assertTrue(any("assente o vuoto" in e for e in errori), errori)
+
+    def test_uno_schema_non_dichiarato_e_rosso(self) -> None:
+        documento = self.registro()
+        del documento["schema_version"]
+        errori = gate.completezza(documento)
+        self.assertTrue(any("schema_version" in e for e in errori), errori)
+
+    # --- la rimozione di un invariante obbligatorio ------------------------
+    #
+    # Uno per famiglia, e non un ciclo su tutto l'insieme: un ciclo proverebbe
+    # la stessa riga di codice venticinque volte e chiamerebbe copertura la
+    # ripetizione. Questi sono i quattro casi che la seconda lettura ha
+    # chiesto di sondare per nome.
+
+    def senza(self, identita: str) -> list[str]:
+        documento = self.registro()
+        documento["invarianti"] = [
+            v for v in documento["invarianti"] if v["id"] != identita
+        ]
+        return gate.completezza(documento)
+
+    def test_togliere_la_candidate_e_rosso(self) -> None:
+        errori = self.senza("release.candidate-non-valida-per-head")
+        self.assertTrue(
+            any("release.candidate-non-valida-per-head" in e for e in errori), errori
+        )
+
+    def test_togliere_un_lotto_e_rosso(self) -> None:
+        for lotto in ("lotto.s10", "lotto.s11", "lotto.s12"):
+            with self.subTest(lotto=lotto):
+                errori = self.senza(lotto)
+                self.assertTrue(any(lotto in e for e in errori), errori)
+
+    def test_togliere_la_copertura_negativa_e_rosso(self) -> None:
+        errori = self.senza("copertura.rami-negativi")
+        self.assertTrue(any("copertura.rami-negativi" in e for e in errori), errori)
+
+    def test_togliere_la_qualifica_cross_component_e_rosso(self) -> None:
+        errori = self.senza("sistema.qualifica-cross-component")
+        self.assertTrue(
+            any("sistema.qualifica-cross-component" in e for e in errori), errori
+        )
+
+    def test_togliere_un_verificato_e_rosso(self) -> None:
+        """Anche una garanzia che oggi passa, sparendo, smette di essere pretesa."""
+        errori = self.senza("wire.cli-protocol-v1")
+        self.assertTrue(any("wire.cli-protocol-v1" in e for e in errori), errori)
+
+    # --- le condizioni dell'autorizzazione ---------------------------------
+
+    def test_togliere_una_condizione_e_rosso(self) -> None:
+        documento = self.registro()
+        documento["autorizzazione_di_release"]["condizioni"] = [
+            c
+            for c in documento["autorizzazione_di_release"]["condizioni"]
+            if c["id"] != "decisione-scritta"
+        ]
+        errori = gate.completezza(documento)
+        self.assertTrue(any("decisione-scritta" in e for e in errori), errori)
+
+    def test_le_condizioni_in_prosa_sono_rosse(self) -> None:
+        """Erano cinque frasi che nessuno eseguiva."""
+        documento = self.registro()
+        documento["autorizzazione_di_release"]["condizioni"] = [
+            "nessun invariante `release_blocking` in questo registro"
+        ]
+        errori = gate.completezza(documento)
+        self.assertTrue(any("non strutturata" in e for e in errori), errori)
+
+    def test_una_condizione_senza_autorizzazione_e_rossa(self) -> None:
+        documento = self.registro()
+        del documento["autorizzazione_di_release"]
+        errori = gate.completezza(documento)
+        self.assertTrue(any("autorizzazione_di_release" in e for e in errori), errori)
+
+    def test_una_funzione_di_condizione_inesistente_e_rossa(self) -> None:
+        documento = self.registro()
+        documento["autorizzazione_di_release"]["condizioni"][0]["verifica"] = {
+            "tipo": "interna",
+            "funzione": "condizione_mai_scritta",
+        }
+        errori = gate.completezza(documento)
+        self.assertTrue(any("non esiste in questo gate" in e for e in errori), errori)
+
+    def test_un_comando_di_condizione_in_una_riga_sola_e_rosso(self) -> None:
+        """`["gate.py --release"]` non e' un argv: e' shell dentro un argomento."""
+        documento = self.registro()
+        documento["autorizzazione_di_release"]["condizioni"][1]["verifica"]["comando"] = [
+            "python3 scripts/check_assurance_n1.py --release"
+        ]
+        errori = gate.completezza(documento)
+        self.assertTrue(any("una riga di shell" in e for e in errori), errori)
+
+
+class SondeCondizioni(unittest.TestCase):
+    """Ogni condizione e' **eseguita**, e nessuna si legge da se stessa."""
+
+    def registro(self) -> dict:
+        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+
+    def test_i_bloccanti_correnti_negano_la_prima_condizione(self) -> None:
+        motivi = gate.condizione_nessun_bloccante(self.registro())
+        self.assertTrue(motivi)
+        self.assertTrue(any("restano bloccanti" in m for m in motivi), motivi)
+
+    def test_senza_bloccanti_la_prima_condizione_e_soddisfatta(self) -> None:
+        senza_blocchi = documento(voce())
+        self.assertEqual(gate.condizione_nessun_bloccante(senza_blocchi), [])
+
+    def test_la_decisione_scritta_non_e_presa(self) -> None:
+        """`release_authorized` e' false: la condizione deve dirlo, non dedurlo."""
+        motivi = gate.condizione_decisione_scritta(self.registro())
+        self.assertTrue(any("decisione scritta" in m for m in motivi), motivi)
+
+    def test_la_candidate_corrente_non_e_coerente(self) -> None:
+        motivi = gate.condizione_candidate_coerente(self.registro())
+        self.assertTrue(
+            any("non qualifica il codice corrente" in m for m in motivi), motivi
+        )
+
+    def test_la_qualifica_cross_component_non_e_superata(self) -> None:
+        """L'esito viene dall'artefatto, non dal campo che la voce dichiara."""
+        motivi = gate.condizione_qualifica_cross_component(self.registro())
+        self.assertTrue(any("evidence.status" in m for m in motivi), motivi)
+
+    def test_una_condizione_gate_esegue_davvero(self) -> None:
+        rosso = {
+            "id": "finta",
+            "descrizione": "una condizione che fallisce",
+            "verifica": {"tipo": "gate", "comando": ROSSO},
+        }
+        motivi = gate.verifica_condizione(rosso, self.registro())
+        self.assertTrue(any("esce con 3" in m for m in motivi), motivi)
+
+    def test_una_condizione_gate_verde_e_soddisfatta(self) -> None:
+        verde = {
+            "id": "finta",
+            "descrizione": "una condizione che passa",
+            "verifica": {"tipo": "gate", "comando": VERDE},
+        }
+        self.assertEqual(gate.verifica_condizione(verde, self.registro()), [])
+
+    def test_release_e_rossa_sul_registro_corrente(self) -> None:
+        """La controprova d'insieme: oggi la release non e' autorizzabile.
+
+        `esegui` e' sostituito perche' lancerebbe `cargo` e i gate del
+        workspace: qui si prova la **composizione** delle condizioni, e la
+        loro esecuzione vera e' provata una per una qui sopra.
+        """
+        with mock.patch.object(gate, "esegui", return_value=[]):
+            with contextlib.redirect_stderr(io.StringIO()) as riportato:
+                esito = gate.main(["--release"])
+        self.assertEqual(esito, 1)
+        for identita in gate.CONDIZIONI_OBBLIGATORIE:
+            self.assertIn(identita, riportato.getvalue())
+
+
+class SondeStatoEsterno(unittest.TestCase):
+    """Lo stato di una qualifica esterna si **deriva**, non si dichiara."""
+
+    def test_l_artefatto_reale_non_dice_passed(self) -> None:
+        stato, motivi = gate.stato_esterno_osservato("release/system-rc-gate.json")
+        self.assertNotEqual(stato, "passed")
+        self.assertTrue(motivi)
+
+    def test_un_artefatto_assente_non_e_uno_stato(self) -> None:
+        stato, motivi = gate.stato_esterno_osservato("release/mai-esistito.json")
+        self.assertEqual(stato, "assente")
+        self.assertTrue(motivi)
 
 
 class SondeRegistroReale(unittest.TestCase):

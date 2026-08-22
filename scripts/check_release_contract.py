@@ -21,6 +21,25 @@ verifica corrente non viene importata come verita': diventa `release_blocking`.
 * `--release` — le condizioni congiunte dell'autorizzazione, fra cui l'assenza
   di voci `release_blocking`.
 
+# Un registro vuoto non e' un contratto soddisfatto
+
+La stesura precedente iterava `invarianti` e non aveva niente da dire su una
+lista vuota: **cancellare una voce era il modo piu' rapido di ottenere un
+verde**, e nessuna sonda lo vedeva. Il registro dichiara percio' uno schema, e
+questo gate un **insieme obbligatorio** di identificatori. Chiudere un blocco
+significa portarne lo `stato` a `verified`, mai eliminarne la voce; togliere un
+nome da `INVARIANTI_OBBLIGATORI` resta possibile, ed e' il punto: e' un gesto
+esplicito che compare in diff, non un'omissione che passa.
+
+# Le condizioni di autorizzazione si eseguono, non si elencano
+
+`autorizzazione_di_release.condizioni` era prosa — cinque frasi che nessuno
+lanciava — mentre `--release` guardava soltanto due cose. Le condizioni sono
+ora voci strutturate, ciascuna con la propria verifica (un gate da eseguire o
+una funzione di questo modulo), e `--release` le esegue **tutte**. Anche il
+loro insieme e' obbligatorio: togliere una condizione per ottenere un verde e'
+rosso quanto lasciarla fallire.
+
 # Una prova non e' un percorso che esiste
 
 La stesura precedente controllava che il file citato da una prova fosse
@@ -58,6 +77,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -95,6 +115,67 @@ CAMPI_PER_TIPO = {
 # bloccante, non vero.
 STATO_ESTERNO_VALIDO = "passed"
 
+SCHEMA_VERSIONE = 1
+
+# --- l'insieme obbligatorio degli invarianti --------------------------------
+#
+# Un invariante che sparisce dal registro sparisce anche dalla tabella di
+# `docs/RELEASE.md`: il documento risulta piu' verde senza che nulla sia
+# cambiato nel codice. `struttura` non poteva accorgersene, perche' guarda una
+# voce alla volta e su una lista vuota non ha voci da guardare.
+#
+# L'elenco e' chiuso e comprende anche i verificati: anche una garanzia che
+# oggi passa, sparendo, smette di essere pretesa senza che nessuno lo decida.
+INVARIANTI_OBBLIGATORI = frozenset(
+    {
+        "wire.error-v1.chiavi",
+        "wire.error-v1.quartetto",
+        "wire.cli-protocol-v1",
+        "wire.catalog-producer",
+        "errori.nessun-testo-runtime",
+        "errori.static-non-promuovibile",
+        "errori.tetto-messaggio",
+        "budget.limiti-wkb",
+        "budget.nessun-modello-legacy",
+        "budget.permit-boundary",
+        "difese.prevalidazione-decoder",
+        "fallback.registro",
+        "provenienza.fork-vendorizzati",
+        "provenienza.pin",
+        "identita.superficie-pubblica",
+        "fuzz.quarantena",
+        "copertura.rami-negativi",
+        "fuzz.reader-shapefile",
+        "fuzz.filegdb",
+        "wire.loss-report",
+        "release.candidate-non-valida-per-head",
+        "lotto.s10",
+        "lotto.s11",
+        "lotto.s12",
+        "sistema.qualifica-cross-component",
+    }
+)
+
+# --- le condizioni dell'autorizzazione --------------------------------------
+CAMPI_CONDIZIONE = {"id", "descrizione", "verifica"}
+TIPI_VERIFICA = {"gate", "interna"}
+
+# Congiunte: nessuna implica le altre. L'insieme e' obbligatorio perche'
+# altrimenti la via piu' breve al verde sarebbe cancellare la condizione che
+# non passa, e il registro continuerebbe a dichiarare cinque condizioni nella
+# propria prosa.
+CONDIZIONI_OBBLIGATORIE = frozenset(
+    {
+        "nessun-bloccante",
+        "debito-n1-a-zero",
+        "decisione-scritta",
+        "candidate-coerente",
+        "qualifica-cross-component",
+    }
+)
+
+STATO_CORRENTE = ROOT / "assurance" / "current-state.json"
+
 
 def _percorsi(valore: Any) -> list[str]:
     """Un artefatto puo' essere uno o piu' percorsi; qui diventa sempre lista."""
@@ -103,6 +184,126 @@ def _percorsi(valore: Any) -> list[str]:
     if isinstance(valore, str):
         return [valore]
     return list(valore)
+
+
+def completezza(documento: dict[str, Any]) -> list[str]:
+    """Il registro nel suo insieme: schema, voci obbligatorie, condizioni.
+
+    Separata da `struttura` perche' guarda il **registro intero**. Quella
+    verifica una voce alla volta, e su una lista vuota non ha voci da
+    verificare: era la ragione per cui un registro svuotato passava.
+    """
+    errori: list[str] = []
+
+    if documento.get("schema_version") != SCHEMA_VERSIONE:
+        errori.append(
+            f"schema_version «{documento.get('schema_version')}»: attesa "
+            f"{SCHEMA_VERSIONE}. Uno schema non dichiarato rende ogni altra "
+            "verifica un'ipotesi sul formato."
+        )
+
+    invarianti = documento.get("invarianti")
+    if not isinstance(invarianti, list) or not invarianti:
+        errori.append(
+            "`invarianti` assente o vuoto. Un registro vuoto non e' un "
+            "contratto soddisfatto: e' un contratto che non dice niente, e "
+            "non ha nulla che possa fallire."
+        )
+        return errori
+
+    presenti = {voce.get("id") for voce in invarianti if isinstance(voce, dict)}
+    for mancante in sorted(INVARIANTI_OBBLIGATORI - presenti):
+        errori.append(
+            f"{mancante}: invariante obbligatorio assente dal registro. Un "
+            "blocco si chiude portandone lo `stato` a `verified`, non "
+            "eliminandone la voce."
+        )
+
+    errori.extend(_condizioni_ben_formate(documento))
+    return errori
+
+
+def _condizioni_ben_formate(documento: dict[str, Any]) -> list[str]:
+    """Le condizioni dell'autorizzazione sono strutturate ed eseguibili."""
+    errori: list[str] = []
+    autorizzazione = documento.get("autorizzazione_di_release")
+    if not isinstance(autorizzazione, dict):
+        errori.append(
+            "`autorizzazione_di_release` assente. Senza, `--release` non "
+            "avrebbe condizioni da verificare, e il conteggio dei bloccanti "
+            "sarebbe l'unica."
+        )
+        return errori
+
+    condizioni = autorizzazione.get("condizioni")
+    if not isinstance(condizioni, list) or not condizioni:
+        errori.append("`autorizzazione_di_release.condizioni` assente o vuoto")
+        return errori
+
+    viste: set[str] = set()
+    for condizione in condizioni:
+        if not isinstance(condizione, dict):
+            errori.append(
+                f"condizione «{condizione}» non strutturata. Le condizioni "
+                "erano prosa, e la prosa non si esegue."
+            )
+            continue
+        identita = condizione.get("id", "<senza id>")
+        mancanti = CAMPI_CONDIZIONE - set(condizione)
+        if mancanti:
+            errori.append(f"condizione {identita}: campi mancanti {sorted(mancanti)}")
+            continue
+        if identita in viste:
+            errori.append(f"condizione {identita}: voce duplicata")
+        viste.add(identita)
+
+        verifica = condizione["verifica"]
+        tipo = verifica.get("tipo") if isinstance(verifica, dict) else None
+        if tipo not in TIPI_VERIFICA:
+            errori.append(
+                f"condizione {identita}: tipo di verifica «{tipo}» non "
+                f"ammesso; {sorted(TIPI_VERIFICA)}"
+            )
+            continue
+        if tipo == "gate":
+            errori.extend(
+                f"condizione {identita}: {m}" for m in _argv_valido(verifica.get("comando"))
+            )
+        else:
+            funzione = verifica.get("funzione")
+            if not callable(globals().get(funzione)):
+                errori.append(
+                    f"condizione {identita}: la funzione «{funzione}» non "
+                    "esiste in questo gate. Una condizione che nomina una "
+                    "verifica inesistente e' una frase, non un controllo."
+                )
+
+    for mancante in sorted(CONDIZIONI_OBBLIGATORIE - viste):
+        errori.append(
+            f"condizione obbligatoria «{mancante}» assente. Le condizioni sono "
+            "congiunte: toglierne una e' il modo piu' rapido di ottenere un "
+            "verde parziale e chiamarlo verde."
+        )
+    return errori
+
+
+def _argv_valido(comando: Any) -> list[str]:
+    """Un comando e' un argv non vuoto di stringhe non vuote.
+
+    `["scripts/gate.py --release"]` **non** lo e': e' una riga di shell scritta
+    dentro un solo argomento, e `subprocess` la cercherebbe come nome di file.
+    """
+    if not isinstance(comando, list) or not comando:
+        return ["`comando` assente o vuoto"]
+    if not all(isinstance(argomento, str) and argomento for argomento in comando):
+        return ["`comando` contiene un argomento che non e' una stringa non vuota"]
+    if any(carattere.isspace() for carattere in comando[0]):
+        return [
+            f"`comando` comincia con «{comando[0]}»: e' una riga di shell "
+            "scritta dentro un solo argomento, e `subprocess` la cerchera' "
+            "come nome di file."
+        ]
+    return []
 
 
 def struttura(documento: dict[str, Any]) -> list[str]:
@@ -280,6 +481,225 @@ def debito(documento: dict[str, Any]) -> list[dict[str, Any]]:
     return [v for v in documento.get("invarianti", []) if v.get("stato") == "release_blocking"]
 
 
+# --- le condizioni dell'autorizzazione, eseguite ----------------------------
+#
+# Ogni funzione restituisce i **motivi per cui la condizione non e'
+# soddisfatta**: lista vuota significa soddisfatta. Nessuna di esse legge il
+# campo con cui la condizione si dichiara: le leve stanno nelle fonti.
+
+
+def _stato_corrente() -> tuple[dict[str, Any] | None, list[str]]:
+    if not STATO_CORRENTE.exists():
+        return None, [
+            f"{STATO_CORRENTE.relative_to(ROOT).as_posix()}: fonte strutturata "
+            "dello stato assente"
+        ]
+    return json.loads(STATO_CORRENTE.read_text(encoding="utf-8")), []
+
+
+def _git(*argomenti: str) -> str | None:
+    """L'uscita di un comando git, o `None` se non ha acquisito."""
+    esito = subprocess.run(
+        ["git", *argomenti], cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    if esito.returncode != 0:
+        return None
+    return esito.stdout.strip()
+
+
+def versione_workspace() -> str | None:
+    """La versione di `[workspace.package]`, letta da `Cargo.toml`."""
+    dentro = False
+    for riga in (ROOT / "Cargo.toml").read_text(encoding="utf-8").splitlines():
+        nuda = riga.strip()
+        if nuda.startswith("["):
+            dentro = nuda == "[workspace.package]"
+            continue
+        if dentro:
+            trovato = re.match(r'version\s*=\s*"([^"]+)"', nuda)
+            if trovato:
+                return trovato.group(1)
+    return None
+
+
+def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
+    """`(stato, motivi)` di una qualifica esterna, **derivati dal contenuto**.
+
+    Non si legge il campo con cui la voce si dichiara: un `passed` scritto
+    accanto a un artefatto che dice `not_run` e' autocertificazione, ed e'
+    esattamente la forma di falso verde che il tipo `esterna` esiste per
+    escludere.
+    """
+    percorso = ROOT / relativo
+    if not percorso.exists():
+        return "assente", [f"{relativo}: artefatto della prova esterna assente"]
+    try:
+        documento = json.loads(percorso.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as errore:
+        return "illeggibile", [f"{relativo}: non e' JSON leggibile ({errore})"]
+
+    evidenza = documento.get("evidence")
+    dichiarato = evidenza.get("status") if isinstance(evidenza, dict) else None
+    if not isinstance(dichiarato, str):
+        return "non_derivabile", [
+            f"{relativo}: nessun `evidence.status` da cui derivare lo stato. "
+            "Senza, l'unica fonte sarebbe il campo che la voce scrive su se "
+            "stessa."
+        ]
+
+    motivi: list[str] = []
+    if documento.get("status") != "satisfied":
+        motivi.append(
+            f"{relativo}: `status` e' «{documento.get('status')}», non «satisfied»"
+        )
+    if dichiarato != STATO_ESTERNO_VALIDO:
+        motivi.append(f"{relativo}: `evidence.status` e' «{dichiarato}»")
+    aperti = documento.get("open_blockers") or []
+    if aperti:
+        motivi.append(
+            f"{relativo}: l'owner dichiara {len(aperti)} blocchi ancora aperti"
+        )
+    senza_revisione = [
+        componente.get("name")
+        for componente in documento.get("components", [])
+        if not componente.get("revision")
+    ]
+    if senza_revisione:
+        motivi.append(
+            f"{relativo}: revisione non fissata per {senza_revisione}. Una "
+            "catena qualificata senza le revisioni non dice su che cosa e' "
+            "girata."
+        )
+
+    if motivi:
+        return (
+            dichiarato if dichiarato != STATO_ESTERNO_VALIDO else "non_superata"
+        ), motivi
+    return STATO_ESTERNO_VALIDO, []
+
+
+def condizione_nessun_bloccante(documento: dict[str, Any]) -> list[str]:
+    bloccanti = debito(documento)
+    if not bloccanti:
+        return []
+    motivi = [f"{voce['id']}: {voce['manca']}" for voce in bloccanti]
+    motivi.append(
+        f"{len(bloccanti)} invarianti su {len(documento['invarianti'])} restano bloccanti"
+    )
+    return motivi
+
+
+def condizione_decisione_scritta(documento: dict[str, Any]) -> list[str]:
+    """L'unica condizione che nessun gate puo' derivare.
+
+    `release_authorized` e' una decisione scritta, non l'esito automatico di
+    caselle verdi: qui si verifica che sia stata presa, non la si calcola.
+    """
+    stato, errori = _stato_corrente()
+    if errori:
+        return errori
+    if stato.get("release_authorized") is not True:
+        return [
+            "`release_authorized` non e' true in assurance/current-state.json: "
+            "e' una decisione scritta, e non e' stata presa"
+        ]
+    return []
+
+
+def condizione_candidate_coerente(documento: dict[str, Any]) -> list[str]:
+    """Il manifesto della candidate descrive **la revisione corrente**.
+
+    Versione del workspace, SHA di HEAD e tag non si leggono dallo stato: si
+    leggono da `Cargo.toml` e da git. Uno stato che dichiarasse la coerenza
+    senza averla renderebbe la condizione una copia di se stessa.
+    """
+    stato, errori = _stato_corrente()
+    if errori:
+        return errori
+    candidate = stato.get("aperto", {}).get("candidate_release")
+    if not isinstance(candidate, dict):
+        return ["assurance/current-state.json: `aperto.candidate_release` assente"]
+
+    motivi: list[str] = []
+    versione = versione_workspace()
+    if versione is None:
+        motivi.append("Cargo.toml: versione di `[workspace.package]` non leggibile")
+    elif candidate.get("versione_manifesto") != versione:
+        motivi.append(
+            f"la candidate dichiara la versione «{candidate.get('versione_manifesto')}», "
+            f"il workspace e' a «{versione}»"
+        )
+
+    head = _git("rev-parse", "HEAD")
+    revisione = candidate.get("revisione_manifesto")
+    if head is None:
+        motivi.append("git: HEAD non leggibile")
+    elif not isinstance(revisione, str) or not head.startswith(revisione):
+        motivi.append(
+            f"la candidate e' legata a «{revisione}», HEAD e' «{(head or '')[:7]}»: "
+            "quel manifesto non qualifica il codice corrente"
+        )
+
+    atteso = f"v{versione}" if versione else None
+    puntato = _git("rev-parse", "--verify", atteso + "^{commit}") if atteso else None
+    if atteso is None:
+        pass
+    elif puntato is None:
+        motivi.append(f"il tag «{atteso}» non esiste")
+    elif head is not None and puntato != head:
+        motivi.append(f"il tag «{atteso}» punta a «{puntato[:7]}», non a HEAD")
+
+    if candidate.get("release_action_allowed") is not True:
+        motivi.append("`release_action.allowed` non e' consentita")
+    return motivi
+
+
+def condizione_qualifica_cross_component(documento: dict[str, Any]) -> list[str]:
+    """L'esito della catena, letto **dall'artefatto dell'owner esterno**.
+
+    L'artefatto non e' nominato qui: si prende dalla prova dell'invariante che
+    lo governa, cosi' un cambio di percorso non lascia questa condizione a
+    guardare un file che nessuno aggiorna piu'.
+    """
+    voce = next(
+        (
+            v
+            for v in documento.get("invarianti", [])
+            if v.get("id") == "sistema.qualifica-cross-component"
+        ),
+        None,
+    )
+    if voce is None:
+        return ["`sistema.qualifica-cross-component` assente dal registro"]
+    percorsi = _percorsi((voce.get("prova") or {}).get("artefatto"))
+    if not percorsi:
+        return [
+            "`sistema.qualifica-cross-component`: nessun artefatto da cui "
+            "leggere l'esito della qualifica"
+        ]
+    motivi: list[str] = []
+    for relativo in percorsi:
+        _, trovati = stato_esterno_osservato(relativo)
+        motivi.extend(trovati)
+    return motivi
+
+
+def verifica_condizione(
+    condizione: dict[str, Any], documento: dict[str, Any]
+) -> list[str]:
+    """I motivi per cui una condizione non e' soddisfatta; vuoto se lo e'."""
+    verifica = condizione["verifica"]
+    if verifica["tipo"] == "gate":
+        comando = verifica["comando"]
+        esito = subprocess.run(
+            comando, cwd=ROOT, capture_output=True, text=True, check=False
+        )
+        if esito.returncode != 0:
+            return [f"«{' '.join(comando)}» esce con {esito.returncode}"]
+        return []
+    return globals()[verifica["funzione"]](documento)
+
+
 def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if document.get("manifest_version") != 1:
@@ -390,7 +810,7 @@ def main(argv: list[str] | None = None) -> int:
     argomenti.add_argument(
         "--release",
         action="store_true",
-        help="rossa se resta anche un solo invariante release_blocking",
+        help="rossa se una sola condizione dell'autorizzazione non e' soddisfatta",
     )
     opzioni = argomenti.parse_args(argv)
 
@@ -399,7 +819,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     documento = json.loads(REGISTRO.read_text(encoding="utf-8"))
 
-    errori = struttura(documento)
+    # `completezza` viene per prima: se il registro e' vuoto o mutilato, gli
+    # errori delle singole voci descriverebbero cio' che resta invece della
+    # causa.
+    errori = completezza(documento)
+    if not errori:
+        errori = struttura(documento)
     if not errori:
         errori = esegui(documento)
 
@@ -411,26 +836,16 @@ def main(argv: list[str] | None = None) -> int:
     bloccanti = debito(documento)
     totali = len(documento["invarianti"])
     if opzioni.release:
+        # Le condizioni sono **congiunte** e vengono eseguite tutte, anche dopo
+        # la prima che fallisce: fermarsi darebbe un elenco parziale di cio'
+        # che manca, e chi legge crederebbe che il resto sia a posto.
         mancate: list[str] = []
-        for voce in bloccanti:
-            print(f"{voce['id']}: {voce['manca']}", file=sys.stderr)
-        if bloccanti:
-            mancate.append(
-                f"{len(bloccanti)} invarianti su {totali} restano bloccanti"
-            )
-
-        # Le condizioni sono **congiunte**, e due non sono invarianti di questo
-        # registro: contare i bloccanti non basterebbe. In particolare
-        # `release_authorized` e' una decisione scritta, non l'esito automatico
-        # di caselle verdi — ed e' l'unica che nessun gate puo' derivare.
-        stato = ROOT / "assurance" / "current-state.json"
-        if not stato.exists():
-            mancate.append(f"{stato}: fonte strutturata dello stato assente")
-        elif json.loads(stato.read_text(encoding="utf-8")).get("release_authorized") is not True:
-            mancate.append(
-                "`release_authorized` non e' true in assurance/current-state.json: "
-                "e' una decisione scritta, e non e' stata presa"
-            )
+        for condizione in documento["autorizzazione_di_release"]["condizioni"]:
+            motivi = verifica_condizione(condizione, documento)
+            for motivo in motivi:
+                print(f"{condizione['id']}: {motivo}", file=sys.stderr)
+            if motivi:
+                mancate.append(f"{condizione['id']}: {condizione['descrizione']}")
 
         if mancate:
             print("", file=sys.stderr)
@@ -444,7 +859,11 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        print(f"contratto corrente: {totali} invarianti, nessun blocco.")
+        print(
+            f"release autorizzabile: {totali} invarianti, nessun blocco, "
+            f"{len(documento['autorizzazione_di_release']['condizioni'])} "
+            "condizioni verificate."
+        )
         return 0
 
     print(
