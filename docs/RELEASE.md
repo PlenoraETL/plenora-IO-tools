@@ -21,21 +21,21 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `75e5301` |
-| revisione misurata | `75e5301` |
+| ultima qualificata | `0c1cb77` |
+| revisione misurata | `0c1cb77` |
 | passi del checkpoint | 57 |
 | passi verdi | 57 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 36 055 |
+| input di replay | 36 843 |
 | target di replay | 13 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 13 |
 | target di smoke totali | 13 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 85,84% |
-| righe coperte LCOV | 26 774 |
+| copertura LCOV | 85,83% |
+| righe coperte LCOV | 26 773 |
 | righe strumentate LCOV | 31 192 |
 | copertura cargo | 83,94% |
 | soglia di copertura | 80,00% |

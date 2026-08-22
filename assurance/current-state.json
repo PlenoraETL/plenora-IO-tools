@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "75e5301",
+      "sha": "0c1cb77",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "75e5301",
+    "sha": "0c1cb77",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 36055,
+      "replay_input": 36843,
       "replay_target": 13,
       "replay_crash": 0,
       "smoke_target_eseguiti": 13,
@@ -32,18 +32,19 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 85.84,
-      "lcov_righe_coperte": 26774,
+      "lcov_percentuale": 85.83,
+      "lcov_righe_coperte": 26773,
       "lcov_righe_strumentate": 31192,
       "cargo_lines_percentuale": 83.94,
       "soglia": 80.0,
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "0fb799d",
+      "baseline": "75e5301",
       "esito": "n/d",
-      "ragione": "nessuna riga Rust strumentata dalla misura LCOV e' cambiata. Sono cambiati documenti, script Python e shell, e commenti Rust: nessuno entra in quella misura. Dire «nessuna riga eseguibile» sarebbe falso, perche' gli script cambiati sono eseguibili — la copertura non li osserva."
-    }
+      "ragione": "nessuna riga Rust strumentata dalla misura LCOV e' cambiata. Sono cambiati documenti, script Python e shell: nessuno entra in quella misura. Dire «nessuna riga eseguibile» sarebbe falso, perche' gli script cambiati sono eseguibili — la copertura non li osserva."
+    },
+    "evidenza": "assurance/evidence/checkpoint-0c1cb77.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
