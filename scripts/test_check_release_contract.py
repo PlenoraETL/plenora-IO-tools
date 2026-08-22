@@ -1023,6 +1023,167 @@ class SondeFontiLegate(unittest.TestCase):
         self.assertTrue(any("tag_su_head" in e for e in errori), errori)
 
 
+class SondeEvidenzaCoerente(unittest.TestCase):
+    """L'evidenza e' coerente **con se stessa**, prima che con lo stato.
+
+    Il legame copiava i campi dichiarati e ne confrontava uno solo: la
+    revisione finale. Un'evidenza che dichiarava una `revisione_iniziale`
+    diversa da quella finale, o due impronte diverse, restava accettata — e lo
+    stato le restava fedele. Una copia fedele di un documento che si
+    contraddice non e' una verifica.
+    """
+
+    def stato(self) -> dict:
+        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+
+    def evidenza(self) -> dict:
+        return gate._evidenza(self.stato()["ultima_misura"]["evidenza"])
+
+    def errori_con(self, muta) -> list[str]:
+        finta = self.evidenza()
+        muta(finta)
+        with mock.patch.object(gate, "_evidenza", return_value=finta):
+            return gate.validate_stato_corrente(self.stato())
+
+    def test_l_evidenza_reale_e_coerente(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        self.assertEqual(gate.evidenza_coerente(self.evidenza(), None), [])
+
+    # --- revisione ---------------------------------------------------------
+
+    def test_due_revisioni_diverse_nella_stessa_corsa_sono_rosse(self) -> None:
+        """HEAD si e' mosso durante la corsa: la misura descrive un albero e
+        l'esito ne nomina un altro."""
+        radice = gate._git("rev-list", "--max-parents=0", "HEAD").split()[-1]
+        errori = self.errori_con(
+            lambda e: e["corsa"].update(revisione_iniziale=radice)
+        )
+        self.assertTrue(
+            any("corsa.revisione_iniziale" in m for m in errori), errori
+        )
+
+    def test_una_revisione_di_corsa_che_non_si_risolve_e_rossa(self) -> None:
+        for campo in ("revisione_iniziale", "revisione_finale"):
+            with self.subTest(campo=campo):
+                errori = self.errori_con(lambda e, c=campo: e["corsa"].update({c: ""}))
+                self.assertTrue(
+                    any(f"corsa.{campo}` non si risolve" in m for m in errori), errori
+                )
+
+    def test_una_corsa_su_un_altra_revisione_e_rossa(self) -> None:
+        """Entrambe coerenti fra loro, ma non con la revisione misurata."""
+        altra = gate.revisione_risolta(gate.BASELINE_DOCSET)
+        errori = self.errori_con(
+            lambda e: e["corsa"].update(revisione_iniziale=altra, revisione_finale=altra)
+        )
+        self.assertTrue(
+            any("la revisione misurata" in m for m in errori), errori
+        )
+
+    # --- impronta ----------------------------------------------------------
+
+    def test_due_impronte_diverse_sono_rosse(self) -> None:
+        """Un passo ha scritto nell'albero che stava verificando."""
+        errori = self.errori_con(lambda e: e["corsa"].update(impronta_finale="a" * 64))
+        self.assertTrue(any("ha scritto nell'albero" in m for m in errori), errori)
+
+    def test_un_impronta_che_non_e_uno_sha256_e_rossa(self) -> None:
+        for valore in ("", "pulito", "A" * 64, "abc123"):
+            with self.subTest(valore=valore):
+                errori = self.errori_con(
+                    lambda e, v=valore: e["corsa"].update(
+                        impronta_iniziale=v, impronta_finale=v
+                    )
+                )
+                self.assertTrue(any("non e' uno sha256" in m for m in errori), errori)
+
+    # --- riconciliazione ---------------------------------------------------
+
+    def test_i_conteggi_devono_tornare(self) -> None:
+        errori = self.errori_con(lambda e: e["riconciliazione"].update(verdi=56))
+        self.assertTrue(any("non fanno" in m for m in errori), errori)
+
+    def test_un_passo_fallito_contraddice_un_esito_superato(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["riconciliazione"].update(falliti=1, verdi=56)
+        )
+        self.assertTrue(
+            any("riconciliazione.falliti" in m for m in errori), errori
+        )
+
+    def test_un_passo_omesso_contraddice_un_esito_superato(self) -> None:
+        errori = self.errori_con(lambda e: e["riconciliazione"].update(omessi=1))
+        self.assertTrue(any("riconciliazione.omessi" in m for m in errori), errori)
+
+    def test_un_identificatore_duplicato_contraddice_i_distinti(self) -> None:
+        errori = self.errori_con(lambda e: e["riconciliazione"].update(duplicati=1))
+        self.assertTrue(any("duplicati" in m for m in errori), errori)
+
+    def test_zero_passi_eseguiti_non_e_un_verde(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["riconciliazione"].update(
+                identificatori_distinti=0, eseguiti=0, verdi=0
+            )
+        )
+        self.assertTrue(any("un silenzio non e' un verde" in m for m in errori), errori)
+
+    def test_un_conteggio_che_non_e_un_intero_e_rosso(self) -> None:
+        errori = self.errori_con(lambda e: e["riconciliazione"].update(verdi="molti"))
+        self.assertTrue(any("intero non negativo" in m for m in errori), errori)
+
+    # --- misure ------------------------------------------------------------
+
+    def test_una_percentuale_che_non_e_il_proprio_rapporto_e_rossa(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["misure"]["copertura"].update(lcov_percentuale=99.0)
+        )
+        self.assertTrue(any("lcov_percentuale" in m for m in errori), errori)
+
+    def test_piu_righe_coperte_che_strumentate_e_rosso(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["misure"]["copertura"].update(lcov_righe_coperte=99999)
+        )
+        self.assertTrue(any("righe coperte" in m for m in errori), errori)
+
+    def test_un_crash_o_un_finding_contraddicono_l_esito(self) -> None:
+        casi = {
+            "crash": lambda e: e["misure"]["fuzz_replay"].update(crash=1),
+            "finding": lambda e: e["misure"]["fuzz_smoke"].update(finding=1),
+            "quarantena": lambda e: e["misure"]["fuzz_smoke"].update(quarantena=1),
+            "smoke parziale": lambda e: e["misure"]["fuzz_smoke"].update(
+                target_eseguiti=12
+            ),
+        }
+        for nome, muta in casi.items():
+            with self.subTest(caso=nome):
+                self.assertNotEqual(self.errori_con(muta), [])
+
+    # --- artefatti ---------------------------------------------------------
+
+    def test_un_manifest_ritoccato_non_produce_il_proprio_digest(self) -> None:
+        """Il digest si **ricalcola** dal manifest, e la forma vive nel gate.
+
+        La prosa dell'evidenza dice «percorsi ordinati piu' sha256 del
+        contenuto» e non fissa i delimitatori: non determina un valore. Un
+        digest che nessuno puo' ricalcolare e' una stringa.
+        """
+        errori = self.errori_con(
+            lambda e: e["artefatti"]["manifest"].update({"finto.log": "0" * 64})
+        )
+        self.assertTrue(any("digest_manifest" in m for m in errori), errori)
+
+    def test_il_conteggio_dei_file_segue_il_manifest(self) -> None:
+        errori = self.errori_con(lambda e: e["artefatti"].update(file=1))
+        self.assertTrue(any("artefatti.file" in m for m in errori), errori)
+
+    def test_il_digest_reale_si_ricalcola(self) -> None:
+        evidenza = self.evidenza()
+        self.assertEqual(
+            gate.digest_del_manifest(evidenza["artefatti"]["manifest"]),
+            evidenza["artefatti"]["digest_manifest"],
+        )
+
+
 class SondeRegistroReale(unittest.TestCase):
     def registro(self) -> dict:
         return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))

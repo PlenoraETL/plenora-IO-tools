@@ -85,6 +85,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import json
 import re
 import subprocess
@@ -1061,6 +1062,230 @@ def _evidenza(relativo: str) -> dict[str, Any]:
     return json.loads((ROOT / relativo).read_text(encoding="utf-8"))
 
 
+# L'impronta dell'albero e' uno sha256 in minuscolo.
+IMPRONTA = re.compile(r"^[0-9a-f]{64}$")
+
+
+def digest_del_manifest(manifest: dict[str, str]) -> str:
+    """Il digest del manifest degli artefatti, **ricalcolato**.
+
+    La forma e' dichiarata qui e non dedotta dalla prosa dell'evidenza: quella
+    dice «percorsi relativi ordinati piu' sha256 del contenuto» e non fissa i
+    delimitatori, quindi non determina un valore. Un digest che nessuno puo'
+    ricalcolare e' una stringa, non un'impronta.
+
+    `percorso` NUL `sha256` LF, in ordine di percorso.
+    """
+    accumulatore = hashlib.sha256()
+    for percorso in sorted(manifest):
+        accumulatore.update(percorso.encode("utf-8"))
+        accumulatore.update(b"\0")
+        accumulatore.update(str(manifest[percorso]).encode("ascii"))
+        accumulatore.update(b"\n")
+    return accumulatore.hexdigest()
+
+
+def evidenza_coerente(evidenza: dict[str, Any], atteso: str | None) -> list[str]:
+    """L'evidenza e' coerente **con se stessa**, prima che con lo stato.
+
+    Il legame copiava i campi dichiarati e ne confrontava uno solo: la
+    revisione finale. Sostituire `revisione_iniziale` con il commit radice, o
+    `impronta_finale` con un altro valore, non produceva alcun errore —
+    l'evidenza si contraddiceva e lo stato le restava fedele.
+
+    `atteso` e' lo SHA completo della revisione misurata, o `None` se non si e'
+    potuto risolvere: in quel caso le revisioni si confrontano fra loro, che e'
+    comunque una contraddizione osservabile.
+    """
+    errori: list[str] = []
+
+    # --- la corsa descrive una sola revisione, e un solo albero ------------
+    iniziale = revisione_risolta(_dentro(evidenza, ("corsa", "revisione_iniziale")))
+    finale = revisione_risolta(_dentro(evidenza, ("corsa", "revisione_finale")))
+    for nome, risolta in (("revisione_iniziale", iniziale), ("revisione_finale", finale)):
+        if risolta is None:
+            errori.append(
+                f"`corsa.{nome}` non si risolve a un commit: una corsa che non "
+                "nomina una revisione non descrive un albero"
+            )
+    if iniziale is not None and finale is not None and iniziale != finale:
+        errori.append(
+            f"`corsa.revisione_iniziale` e' «{iniziale[:7]}» e "
+            f"`corsa.revisione_finale` e' «{finale[:7]}»: HEAD si e' mosso "
+            "durante la corsa, e la misura descrive un albero mentre l'esito ne "
+            "nomina un altro."
+        )
+    if atteso is not None:
+        for nome, risolta in (
+            ("revisione_iniziale", iniziale),
+            ("revisione_finale", finale),
+        ):
+            if risolta is not None and risolta != atteso:
+                errori.append(
+                    f"`corsa.{nome}` e' «{risolta[:7]}», la revisione misurata "
+                    f"e' «{atteso[:7]}»"
+                )
+
+    partenza = _dentro(evidenza, ("corsa", "impronta_iniziale"))
+    arrivo = _dentro(evidenza, ("corsa", "impronta_finale"))
+    for nome, valore in (("impronta_iniziale", partenza), ("impronta_finale", arrivo)):
+        if not isinstance(valore, str) or not IMPRONTA.match(valore):
+            errori.append(f"`corsa.{nome}` non e' uno sha256: «{valore}»")
+    if isinstance(partenza, str) and isinstance(arrivo, str) and partenza != arrivo:
+        errori.append(
+            f"`corsa.impronta_iniziale` e' «{partenza[:8]}» e "
+            f"`corsa.impronta_finale` e' «{arrivo[:8]}»: un passo ha scritto "
+            "nell'albero che stava verificando, e la misura non vale per "
+            "l'albero dichiarato."
+        )
+
+    errori.extend(_riconciliazione_coerente(evidenza))
+    errori.extend(_misure_coerenti(evidenza))
+    errori.extend(_artefatti_coerenti(evidenza))
+    return errori
+
+
+def _riconciliazione_coerente(evidenza: dict[str, Any]) -> list[str]:
+    """I conteggi dei passi tornano fra loro, e con un esito superato.
+
+    Un'evidenza che dichiara `S9 checkpoint level 2 passed` con un passo
+    fallito, uno omesso o un identificatore duplicato dice due cose opposte, e
+    quella che si legge e' la prima riga.
+    """
+    conti = evidenza.get("riconciliazione")
+    if not isinstance(conti, dict):
+        return ["`riconciliazione` assente"]
+
+    campi = ("identificatori_distinti", "eseguiti", "verdi", "omessi", "falliti", "duplicati")
+    valori: dict[str, int] = {}
+    errori: list[str] = []
+    for campo in campi:
+        valore = conti.get(campo)
+        if not isinstance(valore, int) or isinstance(valore, bool) or valore < 0:
+            errori.append(f"`riconciliazione.{campo}` non e' un intero non negativo")
+        else:
+            valori[campo] = valore
+    if len(valori) != len(campi):
+        return errori
+
+    if valori["eseguiti"] == 0:
+        errori.append(
+            "`riconciliazione.eseguiti` e' zero: un silenzio non e' un verde"
+        )
+    if valori["verdi"] + valori["falliti"] != valori["eseguiti"]:
+        errori.append(
+            f"`riconciliazione`: {valori['verdi']} verdi piu' "
+            f"{valori['falliti']} falliti non fanno {valori['eseguiti']} eseguiti"
+        )
+    if valori["identificatori_distinti"] + valori["duplicati"] != valori["eseguiti"]:
+        errori.append(
+            f"`riconciliazione`: {valori['identificatori_distinti']} identificatori "
+            f"distinti piu' {valori['duplicati']} duplicati non fanno "
+            f"{valori['eseguiti']} eseguiti"
+        )
+
+    for campo in ("omessi", "falliti", "duplicati"):
+        if valori[campo] != 0:
+            errori.append(
+                f"`riconciliazione.{campo}` vale {valori[campo]} accanto a un "
+                f"esito «{ESITO_LIVELLO_2}». Un checkpoint superato non ha passi "
+                "omessi, falliti o nominati due volte."
+            )
+    if valori["eseguiti"] != valori["verdi"]:
+        errori.append(
+            f"`riconciliazione`: {valori['eseguiti']} eseguiti e "
+            f"{valori['verdi']} verdi accanto a un esito superato"
+        )
+    return errori
+
+
+def _misure_coerenti(evidenza: dict[str, Any]) -> list[str]:
+    """Le misure non si contraddicono, e non contraddicono l'esito."""
+    errori: list[str] = []
+
+    copertura = _dentro(evidenza, ("misure", "copertura")) or {}
+    coperte = copertura.get("lcov_righe_coperte")
+    strumentate = copertura.get("lcov_righe_strumentate")
+    percentuale = copertura.get("lcov_percentuale")
+    soglia = copertura.get("soglia")
+    if not all(isinstance(v, int) and not isinstance(v, bool) for v in (coperte, strumentate)):
+        errori.append("`copertura`: righe coperte e strumentate devono essere interi")
+    elif strumentate <= 0 or not 0 <= coperte <= strumentate:
+        errori.append(
+            f"`copertura`: {coperte} righe coperte su {strumentate} strumentate"
+        )
+    elif isinstance(percentuale, (int, float)):
+        vera = coperte / strumentate * 100
+        # La percentuale dichiarata dev'essere il rapporto **arrotondato a due
+        # decimali**. Il confronto e' sulla distanza invece che su `round`, per
+        # non dipendere dal modo di arrotondare a meta' esatta.
+        if abs(vera - percentuale) > 0.005 + 1e-9:
+            errori.append(
+                f"`copertura.lcov_percentuale` vale {percentuale}, ma "
+                f"{coperte}/{strumentate} fa {vera:.4f}%"
+            )
+        elif isinstance(soglia, (int, float)) and percentuale < soglia:
+            errori.append(
+                f"`copertura`: {percentuale}% sotto la soglia {soglia}% accanto "
+                "a un esito superato"
+            )
+    else:
+        errori.append("`copertura.lcov_percentuale` assente")
+
+    replay = _dentro(evidenza, ("misure", "fuzz_replay")) or {}
+    smoke = _dentro(evidenza, ("misure", "fuzz_smoke")) or {}
+    if replay.get("crash") != 0:
+        errori.append(
+            f"`fuzz_replay.crash` vale {replay.get('crash')} accanto a un esito superato"
+        )
+    if replay.get("target") != replay.get("target_totali"):
+        errori.append(
+            f"`fuzz_replay`: {replay.get('target')} target su "
+            f"{replay.get('target_totali')} — il replay li rigioca tutti"
+        )
+    if smoke.get("finding") != 0:
+        errori.append(
+            f"`fuzz_smoke.finding` vale {smoke.get('finding')} accanto a un esito superato"
+        )
+    if smoke.get("quarantena") != 0:
+        errori.append(
+            f"`fuzz_smoke.quarantena` vale {smoke.get('quarantena')}: la "
+            "quarantena dev'essere vuota"
+        )
+    if smoke.get("target_eseguiti") != smoke.get("target_totali"):
+        errori.append(
+            f"`fuzz_smoke`: {smoke.get('target_eseguiti')} target eseguiti su "
+            f"{smoke.get('target_totali')}"
+        )
+    return errori
+
+
+def _artefatti_coerenti(evidenza: dict[str, Any]) -> list[str]:
+    """Il manifest e il suo digest si verificano a vicenda."""
+    artefatti = evidenza.get("artefatti")
+    if not isinstance(artefatti, dict):
+        return ["`artefatti` assente"]
+    manifest = artefatti.get("manifest")
+    if not isinstance(manifest, dict) or not manifest:
+        return ["`artefatti.manifest` assente o vuoto"]
+
+    errori: list[str] = []
+    if artefatti.get("file") != len(manifest):
+        errori.append(
+            f"`artefatti.file` vale {artefatti.get('file')}, il manifest ne "
+            f"elenca {len(manifest)}"
+        )
+    atteso = digest_del_manifest(manifest)
+    if artefatti.get("digest_manifest") != atteso:
+        errori.append(
+            f"`artefatti.digest_manifest` vale "
+            f"«{str(artefatti.get('digest_manifest'))[:12]}…», il manifest ne "
+            f"produce «{atteso[:12]}…». Un digest che non si ricalcola dal "
+            "proprio manifest non impronta niente."
+        )
+    return errori
+
+
 def _misura_legata_all_evidenza(stato: dict[str, Any]) -> list[str]:
     """I numeri dello stato vengono dall'evidenza della corsa che li ha prodotti."""
     errori: list[str] = []
@@ -1100,17 +1325,10 @@ def _misura_legata_all_evidenza(stato: dict[str, Any]) -> list[str]:
             "dell'evidenza e' cio' che lega la corsa alla revisione."
         )
 
-    finale = revisione_risolta(_dentro(evidenza, ("corsa", "revisione_finale")))
-    if finale is None:
-        errori.append(
-            f"«{relativo}»: `corsa.revisione_finale` non si risolve a un commit"
-        )
-    elif risolta is not None and finale != risolta:
-        errori.append(
-            f"«{relativo}» descrive la revisione «{finale[:7]}», lo stato "
-            f"dichiara «{sha}» (cioe' «{risolta[:7]}»). Un'evidenza vale per "
-            "l'albero misurato e per nessun altro."
-        )
+    # L'evidenza dev'essere coerente **con se stessa** prima che con lo stato:
+    # un'evidenza che si contraddice non diventa vera perche' lo stato la copia
+    # fedelmente.
+    errori.extend(f"«{relativo}»: {m}" for m in evidenza_coerente(evidenza, risolta))
 
     dichiarata = _dentro(stato, ("revisioni", "ultima_qualificata", "sha"))
     qualificata = revisione_risolta(dichiarata)

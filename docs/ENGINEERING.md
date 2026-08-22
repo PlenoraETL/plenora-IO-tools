@@ -364,6 +364,14 @@ Nessun documento è un database. I gate leggono file strutturati:
 | `assurance/registries/quartetto-siti.json` | quartetto per sito di costruzione | `check_quartetto_sito.py` |
 | `release/cli-protocol-v1.json` | le sei buste della CLI | `check_release_contract.py` |
 | `release/system-rc-gate.json` | qualifica cross-component | esterno |
+| `assurance/evidence/checkpoint-<sha>.json` | la corsa che ha prodotto i numeri dello stato | `check_release_contract.py` |
+
+L'evidenza citata da `current-state.json` è verificata **nella propria coerenza
+interna** prima di essere usata come fonte: una sola revisione fra inizio e
+fine, una sola impronta, conteggi dei passi che tornano fra loro e con un esito
+superato, misure che non lo contraddicono, e digest degli artefatti ricalcolato
+dal manifest che lo accompagna. Una copia fedele di un documento che si
+contraddice non è una verifica.
 
 ---
 
