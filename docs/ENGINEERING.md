@@ -230,6 +230,25 @@ acquisisce. Acquisire prima e hashare dopo è la differenza fra «albero pulito�
 Al livello 2 l'albero deve essere pulito in partenza; al livello 1 può essere
 sporco, ma deve restare sporco **allo stesso modo**.
 
+#### Il risultato sta su disco
+
+L'esito viveva solo sullo stdout. Una corsa è già stata scartata per intero
+perché il container girava con `--rm`: il verdetto era stato osservato, le
+misure no, e non si combinano il verdetto di una corsa e i numeri di un'altra.
+
+Ogni corsa scrive ora `risultato.json` — livello, esito, revisione e impronta
+iniziali e finali, passi, verdi, omessi e i nomi dei passi rossi — accanto agli
+artefatti, oppure dove punta `S9_CHECKPOINT_RISULTATO`. La scrittura è
+**atomica**: il file viene prodotto a parte nella stessa directory e poi
+rinominato, quindi chi legge vede la versione precedente o quella nuova, mai
+metà della nuova.
+
+Il file compare all'avvio con esito `in_corso`, e viene sostituito alla fine. È
+la differenza fra «non è mai partita» e «è morta a metà», che nessun altro
+artefatto distingue. Se il risultato non è scrivibile la corsa **fallisce**
+invece di proseguire: un esito che vive solo sullo stdout è ciò che il file
+esiste per evitare.
+
 ### Fuzzing
 
 | | |

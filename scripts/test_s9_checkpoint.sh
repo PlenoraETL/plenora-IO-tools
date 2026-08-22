@@ -463,6 +463,73 @@ fi
 
 rm -rf "${ALBERO}"
 
+# --- il risultato: atomico e persistente -------------------------------------
+#
+# L'esito viveva solo sullo stdout. Una corsa e' gia' stata scartata per intero
+# perche' il container girava con `--rm`: il verdetto e' stato osservato, le
+# misure sono sparite, e non si combinano il verdetto di una corsa e i numeri
+# di un'altra.
+#
+# Due proprieta', e vanno provate separatamente: che il risultato **esista su
+# disco**, e che chi lo legge non possa mai vederne meta'.
+RISULTATI="$(mktemp -d)"
+
+passi=7
+verdi=5
+omessi=2
+falliti=(alfa beta)
+REVISIONE="0000000000000000000000000000000000000000"
+REVISIONE_FINE="${REVISIONE}"
+IMPRONTA_INIZIO="abcdef"
+IMPRONTA_FINE="abcdef"
+SPORCHI=0
+RISULTATO="${RISULTATI}/risultato.json"
+
+scrivi_risultato non_superato
+verifica "scrivere il risultato riesce" "0" "$?"
+verifica "il risultato esiste su disco" "si" "$([ -f "${RISULTATO}" ] && echo si || echo no)"
+verifica "e' JSON leggibile" "ok" \
+    "$(python3 -c 'import json,sys;json.load(open(sys.argv[1]));print("ok")' "${RISULTATO}" 2>&1 | tail -1)"
+verifica "porta l'esito della corsa" "non_superato" \
+    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
+verifica "porta i passi ricostruiti" "7 5 2" \
+    "$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d["passi"],d["verdi"],d["omessi"])' "${RISULTATO}")"
+verifica "porta i nomi dei passi rossi" "alfa beta" \
+    "$(python3 -c 'import json,sys;print(" ".join(json.load(open(sys.argv[1]))["falliti"]))' "${RISULTATO}")"
+verifica "non lascia file parziali" "0" \
+    "$(find "${RISULTATI}" -name '*.parziale.*' | wc -l | tr -d ' ')"
+
+# Una seconda scrittura sostituisce la prima: il file dice l'ultimo stato noto
+# della corsa, non il primo.
+scrivi_risultato superato
+verifica "una scrittura successiva sostituisce" "superato" \
+    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["esito"])' "${RISULTATO}")"
+
+# La sonda dell'atomicita': se la produzione del JSON si interrompe a meta', la
+# destinazione deve conservare il **contenuto precedente completo**. Scrivere
+# direttamente sulla destinazione la lascerebbe troncata, e un JSON troncato
+# non e' distinguibile da un JSON scritto male.
+_risultato_intero="$(cat "${RISULTATO}")"
+_risultato_json_originale="$(declare -f _risultato_json)"
+_risultato_json() {
+    printf '{\n  "schema_version": 1,\n  "esi'
+    return 1
+}
+scrivi_risultato interrotto
+verifica "una produzione interrotta non scrive" "1" "$?"
+verifica "la destinazione resta quella di prima" "${_risultato_intero}" "$(cat "${RISULTATO}")"
+verifica "e nessun parziale sopravvive" "0" \
+    "$(find "${RISULTATI}" -name '*.parziale.*' | wc -l | tr -d ' ')"
+eval "${_risultato_json_originale}"
+
+# Una destinazione non scrivibile **fallisce**, invece di far credere che il
+# risultato sia stato registrato.
+RISULTATO="${RISULTATI}/non/esiste/risultato.json"
+scrivi_risultato superato
+verifica "una destinazione impossibile e' rossa" "1" "$?"
+
+rm -rf "${RISULTATI}"
+
 echo
 if [ "${rosse}" -ne 0 ]; then
     echo "sonde: $((sonde - rosse))/${sonde} — ROSSE: ${rosse}"

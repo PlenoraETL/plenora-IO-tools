@@ -55,6 +55,20 @@ cd "$(dirname "$0")/.."
 LOG_DIR="${S9_CHECKPOINT_LOG_DIR:-/tmp/s9-checkpoint}"
 mkdir -p "${LOG_DIR}"
 
+# Il risultato della corsa, su disco.
+#
+# L'esito viveva **solo sullo stdout**. La corsa del 2026-08-21 lo ha mostrato
+# nel modo piu' chiaro possibile: il container girava con `--rm`, ha portato via
+# la directory degli artefatti, e il verdetto e' stato osservato mentre le
+# misure sono sparite. Non si combinano il verdetto di una corsa e i numeri di
+# un'altra, quindi quella corsa e' stata **scartata per intero**.
+#
+# Una corsa interrotta lasciava anche meno: nessuna traccia. Chi la ritrovava
+# non poteva distinguere «non e' mai partita» da «e' morta a meta'», e le due
+# si chiudono in modi diversi.
+RISULTATO="${S9_CHECKPOINT_RISULTATO:-${LOG_DIR}/risultato.json}"
+mkdir -p "$(dirname "${RISULTATO}")"
+
 passi=0
 verdi=0
 omessi=0
@@ -63,6 +77,82 @@ catena_rotta=""
 
 # `1` = livello 1: si omettono fuzz e copertura, non i gate.
 LIVELLO="${S9_LIVELLO:-2}"
+
+# Il risultato in forma strutturata, dallo stato corrente dei contatori.
+#
+# Le variabili di coda possono non esistere ancora — una corsa interrotta non
+# ha una revisione finale — e valgono la stringa vuota: un campo vuoto dice
+# «non acquisito», che e' cio' che si vuole sapere.
+_risultato_json() {
+    local esito="$1" primo nome
+    printf '{\n'
+    printf '  "schema_version": 1,\n'
+    printf '  "descrizione": "Risultato della corsa del checkpoint S9. Scritto in modo atomico: il file appare gia\u0027 completo, perche\u0027 viene prodotto a parte e poi rinominato. Un lettore non puo\u0027 osservarne meta\u0027.",\n'
+    printf '  "livello": %s,\n' "${LIVELLO}"
+    printf '  "esito": "%s",\n' "${esito}"
+    printf '  "revisione_iniziale": "%s",\n' "${REVISIONE:-}"
+    printf '  "revisione_finale": "%s",\n' "${REVISIONE_FINE:-}"
+    printf '  "impronta_iniziale": "%s",\n' "${IMPRONTA_INIZIO:-}"
+    printf '  "impronta_finale": "%s",\n' "${IMPRONTA_FINE:-}"
+    printf '  "file_sporchi_all_avvio": %s,\n' "${SPORCHI:-0}"
+    printf '  "passi": %s,\n' "${passi}"
+    printf '  "verdi": %s,\n' "${verdi}"
+    printf '  "omessi": %s,\n' "${omessi}"
+    printf '  "falliti": ['
+    primo=1
+    for nome in ${falliti[@]+"${falliti[@]}"}; do
+        [ "${primo}" -eq 1 ] || printf ', '
+        primo=0
+        printf '"%s"' "${nome}"
+    done
+    printf '],\n'
+    printf '  "artefatti": "%s"\n' "${LOG_DIR}"
+    printf '}\n'
+}
+
+# Scrive il risultato in modo **atomico**: prima un file a parte nella stessa
+# directory, poi `mv`, che su uno stesso filesystem e' una rename atomica. Un
+# lettore vede il file precedente o quello nuovo, mai meta' del nuovo.
+#
+# Scrivere direttamente sulla destinazione lascerebbe una finestra in cui il
+# risultato e' troncato, e un JSON troncato non e' distinguibile da un JSON
+# scritto male: entrambi non si aprono, e i due si chiudono in modi diversi.
+#
+# Il temporaneo porta il PID, cosi' due corse concorrenti non si sovrascrivono
+# il file a meta'.
+scrivi_risultato() {
+    local esito="$1" parziale
+    parziale="${RISULTATO}.parziale.$$"
+    # Le graffe portano la redirezione **dentro** il gruppo: un `2>/dev/null`
+    # sul solo comando non zittisce l'errore che la shell stampa quando non
+    # riesce ad aprire il file di destinazione.
+    if ! { _risultato_json "${esito}" > "${parziale}"; } 2>/dev/null; then
+        rm -f "${parziale}" 2>/dev/null
+        return 1
+    fi
+    if ! mv -f "${parziale}" "${RISULTATO}" 2>/dev/null; then
+        rm -f "${parziale}" 2>/dev/null
+        return 1
+    fi
+    return 0
+}
+
+# La coda di ogni percorso terminale. Se il risultato non si puo' scrivere,
+# l'esito tornerebbe a vivere solo sullo stdout — cioe' il difetto che questo
+# file esiste per chiudere — e la corsa lo dice invece di tacerlo.
+concludi() {
+    local esito="$1" codice="$2"
+    if scrivi_risultato "${esito}"; then
+        echo "risultato:            ${RISULTATO}"
+        exit "${codice}"
+    fi
+    echo "RISULTATO NON REGISTRATO in «${RISULTATO}»." >&2
+    echo "L'esito della corsa e' «${esito}» e vive solo su questo stdout:" >&2
+    echo "una corsa il cui esito non e' su disco non e' citabile da" >&2
+    echo "un'evidenza, ed e' la ragione per cui una corsa e' gia' stata" >&2
+    echo "scartata per intero." >&2
+    exit 2
+}
 
 # Esegue un passo, conserva il log per intero, e prende l'esito dal comando.
 passo() {
@@ -289,6 +379,17 @@ if [ "${S9_CHECKPOINT_SOLO_FUNZIONI:-0}" = "1" ]; then
     return 0
 fi
 
+# Una corsa che parte lo dice **su disco**, prima di misurare qualunque cosa.
+# Se muore a meta', questo file resta a dichiarare `in_corso`: e' la differenza
+# fra «non e' mai partita» e «e' morta a meta'», che nessun altro artefatto
+# distingue.
+scrivi_risultato in_corso || {
+    echo "RISULTATO NON SCRIVIBILE in «${RISULTATO}»." >&2
+    echo "La corsa non registrerebbe il proprio esito, e un esito che vive" >&2
+    echo "solo sullo stdout e' gia' costato una corsa intera." >&2
+    exit 2
+}
+
 REVISIONE="$(git rev-parse HEAD)"
 SPORCHI="$(git status --porcelain | wc -l)"
 if ! IMPRONTA_INIZIO="$(impronta_albero)"; then
@@ -296,8 +397,9 @@ if ! IMPRONTA_INIZIO="$(impronta_albero)"; then
     echo "Un comando git non ha acquisito. Senza impronta iniziale non c'e'" >&2
     echo "niente con cui confrontare quella finale, e il passo" >&2
     echo "`albero_invariato` sarebbe verde per assenza di dati." >&2
-    exit 2
+    concludi impronta_iniziale_non_calcolabile 2
 fi
+scrivi_risultato in_corso || true
 
 echo "=============================================================="
 if [ "${LIVELLO}" = "1" ]; then
@@ -571,7 +673,7 @@ if [ "${#falliti[@]}" -ne 0 ]; then
     echo "ROSSI: ${falliti[*]}"
     echo "esito: NON SUPERATO"
     echo "=============================================================="
-    exit 1
+    concludi non_superato 1
 fi
 if [ "${LIVELLO}" = "1" ]; then
     echo "omessi: ${omessi} passi (fuzz e copertura)"
@@ -581,7 +683,7 @@ if [ "${LIVELLO}" = "1" ]; then
     echo "e un commit verificato cosi' e' verificato, non release-qualified."
     echo "Il livello 2 si esegue senza S9_LIVELLO, su un albero pulito."
     echo "=============================================================="
-    exit 0
+    concludi livello_1_verificato 0
 fi
 echo "esito: S9 checkpoint level 2 passed"
 echo
@@ -590,3 +692,4 @@ echo "di alcun componente ne' del sistema. Va registrato in un'evidenza S9"
 echo "separata. La readiness di sistema e' un'altra cosa, di proprieta'"
 echo "esterna: vedi release/system-rc-gate.json."
 echo "=============================================================="
+concludi superato 0
