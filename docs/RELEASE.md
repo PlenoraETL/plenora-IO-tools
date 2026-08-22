@@ -21,30 +21,30 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `8cab32e` |
-| revisione misurata | `8cab32e` |
+| ultima qualificata | `f2b4837` |
+| revisione misurata | `f2b4837` |
 | passi del checkpoint | 57 |
 | passi verdi | 57 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 39 125 |
+| input di replay | 39 205 |
 | target di replay | 13 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 13 |
 | target di smoke totali | 13 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 85,84% |
-| righe coperte LCOV | 26 774 |
+| copertura LCOV | 85,83% |
+| righe coperte LCOV | 26 773 |
 | righe strumentate LCOV | 31 192 |
 | copertura cargo | 83,94% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `c996fdd` |
+| baseline differenziale | `8cab32e` |
 | esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 9 |
-| S9, qualificato su | `8cab32e` |
+| S9, qualificato su | `f2b4837` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
 | candidate, versione del workspace | `1.0.1` |
@@ -85,7 +85,7 @@ non due misure della stessa cosa: contano insiemi diversi di righe strumentate.
 Entrambe sono richieste, e nessuna sostituisce l'altra.
 
 La percentuale LCOV **oscilla fra le esecuzioni**, e il blocco riporta anche il
-conteggio perché è il conteggio a dire di quanto: su sei corse osservate le
+conteggio perché è il conteggio a dire di quanto: su sette corse osservate le
 righe coperte sono state 26 772, 26 773 e 26 774 su un denominatore mai mosso.
 Il confine di arrotondamento cade fra le ultime due, quindi il salto fra
 85,83% e 85,84% è **una riga**. Che cosa muova quella riga a sorgente Rust
