@@ -103,8 +103,9 @@ impl OpenDatasetHandle for BudgetedDataset {
 /// sorgente fino a EOF e verifica il contratto su tutti i batch. Solo dopo
 /// aver drenato l'intera sorgente restituisce il primo batch al chiamante.
 ///
-/// La ragione e' l'atomicita' operativa, ratificata da `ENGINEERING.md § Spool e memoria opzione A: se`
-/// una violazione emerge in un qualsiasi punto della sorgente, il chiamante
+/// La ragione e' l'**atomicita' operativa**, dichiarata da `ENGINEERING.md
+/// § Pipeline di lettura`: se una violazione emerge in un qualsiasi punto
+/// della sorgente, il chiamante
 /// non deve aver mai visto un prefisso accepted; l'intera operazione viene
 /// rigettata come un blocco unico. Il pattern semplifica il rollback lato
 /// consumatore (writer, aggregazioni) al costo della latenza al primo batch,
@@ -118,8 +119,10 @@ impl OpenDatasetHandle for BudgetedDataset {
 /// che torna quando il batch lascia la RAM — non un consumo definitivo.
 ///
 /// Lo streaming reale, con errore terminale *dopo* batch gia' consegnati,
-/// resta l'opzione B di `ENGINEERING.md § Spool e memoria: valutata e scartata`, perche' cambia il
-/// contratto pubblico e richiede coordinamento cross-component.
+/// resta `DeliverySemantics::Streaming`: dichiarabile e non implementata,
+/// perche' cambia il contratto pubblico — servono una categoria d'errore
+/// nuova e un bump di protocollo, non ratificati — e richiede coordinamento
+/// cross-component.
 struct BudgetedReader {
     inner: Box<dyn LayerReader>,
     budget: OperationBudget,
@@ -1571,8 +1574,9 @@ mod tests {
         .unwrap()
     }
 
-    /// Il caso che `ENGINEERING.md § Spool e memoria esiste per risolvere: prima dello spool i batch`
-    /// verificati restavano tutti in RAM, quindi un dataset piu' grande della
+    /// Il caso che `ENGINEERING.md § Spool e memoria` esiste per risolvere:
+    /// prima dello spool i batch verificati restavano tutti in RAM, quindi
+    /// un dataset piu' grande della
     /// quota di memoria falliva `LimitExceeded` anche se ogni singolo batch ci
     /// stava comodamente.
     #[test]

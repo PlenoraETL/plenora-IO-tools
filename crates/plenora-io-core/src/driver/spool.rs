@@ -1,4 +1,5 @@
-//! Spool bounded per l'adapter di lettura operation-atomic (`ENGINEERING.md § Spool e memoria A`).
+//! Spool bounded per l'adapter di lettura operation-atomic
+//! (`ENGINEERING.md § Pipeline di lettura` e `§ Spool e memoria`).
 //!
 //! L'adapter comune deve consegnare il primo batch solo dopo aver verificato
 //! l'intera sorgente: se una violazione emerge in un punto qualsiasi, il
@@ -14,11 +15,13 @@
 //!
 //! # Il file temporaneo non ha nome
 //!
-//! `ENGINEERING.md § Spool e memoria prevedeva una directory di spill con permessi 0700`, una variabile
-//! `PLENORA_SPILL_DIR` e uno sweep degli orfani basato su lock esclusivo.
-//! L'implementazione adotta una forma piu' forte e piu' semplice: il file e'
-//! creato con `tempfile::tempfile_in`, cioe' **scollegato dal filesystem
-//! appena aperto** su Unix e con `FILE_FLAG_DELETE_ON_CLOSE` su Windows.
+//! Il disegno iniziale prevedeva una directory di spill con permessi 0700,
+//! una variabile `PLENORA_SPILL_DIR` e uno sweep degli orfani basato su
+//! lock esclusivo. L'implementazione adotta una forma piu' forte e piu'
+//! semplice, ed e' quella che `ENGINEERING.md § Spool e memoria` descrive:
+//! il file e' creato con `tempfile::tempfile_in`, cioe' **scollegato dal
+//! filesystem appena aperto** su Unix e con `FILE_FLAG_DELETE_ON_CLOSE` su
+//! Windows.
 //!
 //! Le conseguenze contano piu' del meccanismo:
 //!

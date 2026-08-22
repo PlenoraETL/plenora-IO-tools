@@ -72,8 +72,8 @@ pub enum DeliverySemantics {
     /// blocco unico.
     ///
     /// E' il comportamento di `BudgetedReader`, che esegue `drain_operation`
-    /// durante la **prima** chiamata di `next_batch` — ratificato da `ENGINEERING.md § Spool e memoria`
-    /// opzione A.
+    /// durante la **prima** chiamata di `next_batch` — dichiarato da
+    /// `ENGINEERING.md § Pipeline di lettura`.
     OperationAtomic,
     /// Batch consegnati appena disponibili, con errore terminale possibile
     /// dopo batch gia' consegnati.
@@ -102,7 +102,7 @@ pub enum BufferingStrategy {
     ///
     /// Il picco e' `soglia + batch corrente`, indipendente dalla dimensione
     /// totale dell'input. E' la strategia dello `StagedSpool` che
-    /// `BudgetedReader` usa dopo `ENGINEERING.md § Spool e memoria opzione A`.
+    /// `BudgetedReader` usa, descritta da `ENGINEERING.md § Spool e memoria`.
     AdaptiveMemoryThenDisk,
 }
 
