@@ -84,6 +84,7 @@ validazione e' conservata qui.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import re
 import subprocess
@@ -109,6 +110,19 @@ from check_assurance_n1_prove import (  # noqa: E402
 from check_assurance_n1 import (  # noqa: E402
     carica as carica_gruppi_n1,
     debito as debito_n1,
+)
+
+# Le altre fonti dello stato, per la stessa ragione: l'allowlist del docset e
+# il censimento dei costruttori legacy sono definiti dove vivono, e qui si
+# leggono invece di essere ricopiati.
+from check_docset import (  # noqa: E402
+    BASELINE_DOCSET,
+    CANONICI,
+    OPERATIVI,
+)
+from check_errori_redatti import (  # noqa: E402
+    MIGRATI,
+    verifica as censimento_errori,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -203,6 +217,162 @@ STATO_CORRENTE = ROOT / "assurance" / "current-state.json"
 # Le coppie sono dichiarate qui invece che dedotte dai nomi: `quarantena` sta
 # sotto `fuzz_smoke` nell'evidenza e sotto `fuzz` nello stato, e una
 # corrispondenza indovinata sui nomi non lo saprebbe.
+# --- ogni foglia dello stato e' classificata --------------------------------
+#
+# Il registro promette che «ogni numero» dello stato venga dalla propria fonte.
+# Il validatore ne verificava tre famiglie — evidenza, ASSURANCE-N1, candidate —
+# e le altre foglie stavano nel documento **senza che nulla le guardasse**:
+# portare `componenti_a_zero` a 999 non produceva un solo errore, e la promessa
+# restava scritta.
+#
+# Le foglie sono percio' classificate tutte, e in due modi soltanto: legata a
+# una fonte che la riscrive, oppure dichiarata non derivabile con la ragione.
+# Una foglia che non e' in nessuno dei due insiemi e' rossa — anche una
+# aggiunta domani.
+FOGLIE_LEGATE = frozenset(
+    {
+        # forma del documento
+        "schema_version",
+        "revisioni.baseline_documentale.sha",
+        # l'evidenza della corsa misurata
+        "revisioni.ultima_qualificata.sha",
+        "ultima_misura.sha",
+        "ultima_misura.evidenza",
+        "ultima_misura.checkpoint.passi_eseguiti",
+        "ultima_misura.checkpoint.passi_verdi",
+        "ultima_misura.checkpoint.passi_omessi",
+        "ultima_misura.checkpoint.passi_falliti",
+        "ultima_misura.fuzz.replay_input",
+        "ultima_misura.fuzz.replay_target",
+        "ultima_misura.fuzz.replay_crash",
+        "ultima_misura.fuzz.smoke_target_eseguiti",
+        "ultima_misura.fuzz.smoke_target_totali",
+        "ultima_misura.fuzz.smoke_finding",
+        "ultima_misura.fuzz.quarantena",
+        "ultima_misura.copertura.lcov_percentuale",
+        "ultima_misura.copertura.lcov_righe_coperte",
+        "ultima_misura.copertura.lcov_righe_strumentate",
+        "ultima_misura.copertura.cargo_lines_percentuale",
+        "ultima_misura.copertura.soglia",
+        "ultima_misura.diagnostica_differenziale.baseline",
+        "ultima_misura.diagnostica_differenziale.esito",
+        # il registro di ASSURANCE-N1
+        "aperto.assurance_n1.gruppi_totali",
+        "aperto.assurance_n1.gruppi_aperti",
+        # Cargo.toml e git
+        "aperto.candidate_release.versione_workspace",
+        "aperto.candidate_release.tag_previsto",
+        "aperto.candidate_release.tag_creato",
+        "aperto.candidate_release.tag_revisione",
+        "aperto.candidate_release.tag_su_head",
+        "aperto.candidate_release.qualifica_head",
+        # il registro del contratto corrente
+        "aperto.assurance_n1.release_blocking",
+        "aperto.fuzz_reader_shapefile.release_blocking",
+        "aperto.fuzz_reader_shapefile.stato",
+        "aperto.fuzz_spike_filegdb.release_blocking",
+        "aperto.fuzz_spike_filegdb.stato",
+        "aperto.loss_report.release_blocking",
+        "aperto.loss_report.stato",
+        "aperto.candidate_release.release_blocking",
+        "aperto.lotti.s10",
+        "aperto.lotti.s11",
+        "aperto.lotti.s12",
+        "aperto.lotti.qualifica_cross_component",
+        "blocchi.fonte",
+        # il censimento dei costruttori legacy, e git
+        "chiuso.s9_errori_strutturati.stato",
+        "chiuso.s9_errori_strutturati.censimento_costruttori_legacy",
+        "chiuso.s9_errori_strutturati.componenti_a_zero",
+        "chiuso.s9_errori_strutturati.qualificato_su",
+        # l'allowlist del docset
+        "docset.markdown_canonici",
+        "docset.markdown_operativi",
+        "docset.verificato_da",
+    }
+)
+
+# Le foglie senza fonte, e perche' non ne hanno una. Non e' un'esenzione
+# generica: ogni voce dice che cosa e', e una prosa che diventasse un numero
+# andrebbe spostata fra le legate.
+FOGLIE_DICHIARATE = {
+    "descrizione": "prosa che spiega a che cosa serve il file",
+    "release_authorized": (
+        "la decisione di rilascio. E' l'unica che nessun gate puo' derivare, ed "
+        "e' il motivo per cui esiste come campo scritto"
+    ),
+    "revisioni.baseline_documentale.significato": "prosa",
+    "revisioni.ultima_qualificata.significato": "prosa",
+    "revisioni.ultima_qualificata.nota": "prosa",
+    "ultima_misura.checkpoint.riconciliazione": "prosa: descrive il metodo, non un numero",
+    "ultima_misura.copertura.nota": "prosa",
+    "ultima_misura.diagnostica_differenziale.ragione": "prosa",
+    "aperto.fuzz_reader_shapefile.nota": "prosa",
+    "aperto.fuzz_spike_filegdb.nota": "prosa",
+    "aperto.loss_report.decisioni_aperte": (
+        "l'elenco delle decisioni aperte del contratto LossReport: non e' "
+        "misurato da niente, ed e' cio' che una ratifica dovra' chiudere"
+    ),
+    "aperto.lotti.perimetri.s10": "prosa: il perimetro del lotto",
+    "aperto.lotti.perimetri.s11": "prosa: il perimetro del lotto",
+    "aperto.lotti.perimetri.s12": "prosa: il perimetro del lotto",
+    "aperto.candidate_release.versione_manifesto": (
+        "fatto del manifesto della candidate, che non e' piu' nel repository: "
+        "resta in git, e non c'e' una fonte viva che lo riscriva"
+    ),
+    "aperto.candidate_release.revisione_manifesto": (
+        "fatto del manifesto della candidate; vedi `versione_manifesto`"
+    ),
+    "aperto.candidate_release.release_action_allowed": (
+        "fatto del manifesto della candidate; vedi `versione_manifesto`"
+    ),
+    "aperto.candidate_release.nota": "prosa",
+    "blocchi.nota": "prosa",
+}
+
+# --- che cosa lo stato ripete del registro ---------------------------------
+#
+# `aperto.<voce>.release_blocking` e' vero se e solo se l'invariante
+# corrispondente e' `release_blocking` nel registro. Erano due scritture
+# indipendenti della stessa cosa.
+BLOCCANTI_DELLO_STATO = {
+    ("aperto", "assurance_n1", "release_blocking"): "copertura.rami-negativi",
+    ("aperto", "fuzz_reader_shapefile", "release_blocking"): "fuzz.reader-shapefile",
+    ("aperto", "fuzz_spike_filegdb", "release_blocking"): "fuzz.filegdb",
+    ("aperto", "loss_report", "release_blocking"): "wire.loss-report",
+    (
+        "aperto",
+        "candidate_release",
+        "release_blocking",
+    ): "release.candidate-non-valida-per-head",
+}
+
+# Le stesse voci dette a parole: `percorso -> (invariante, parola se blocca,
+# parola se non blocca)`. Il vocabolario non e' uniforme — un lotto e' «aperto»
+# e una qualifica e' «aperta» — e indovinarlo dal nome sarebbe la scorciatoia
+# che rende il legame falso su un caso solo.
+ETICHETTE_DELLO_STATO = {
+    ("aperto", "lotti", "s10"): ("lotto.s10", "aperto", "chiuso"),
+    ("aperto", "lotti", "s11"): ("lotto.s11", "aperto", "chiuso"),
+    ("aperto", "lotti", "s12"): ("lotto.s12", "aperto", "chiuso"),
+    ("aperto", "lotti", "qualifica_cross_component"): (
+        "sistema.qualifica-cross-component",
+        "aperta",
+        "chiusa",
+    ),
+    ("aperto", "fuzz_reader_shapefile", "stato"): (
+        "fuzz.reader-shapefile",
+        "aperto",
+        "chiuso",
+    ),
+    ("aperto", "fuzz_spike_filegdb", "stato"): ("fuzz.filegdb", "aperto", "chiuso"),
+    ("aperto", "loss_report", "stato"): (
+        "wire.loss-report",
+        "non_ratificato",
+        "ratificato",
+    ),
+}
+
 CAMPI_DALL_EVIDENZA = (
     (("checkpoint", "passi_eseguiti"), ("riconciliazione", "eseguiti")),
     (("checkpoint", "passi_verdi"), ("riconciliazione", "verdi")),
@@ -632,6 +802,21 @@ def _git(*argomenti: str) -> str | None:
     return esito.stdout.strip()
 
 
+def _git_riesce(*argomenti: str) -> bool:
+    """`True` se il comando esce con 0.
+
+    Serve dove l'esito **e'** l'uscita e non il testo: `merge-base
+    --is-ancestor` non stampa niente, e `_git` restituirebbe la stringa vuota
+    sia sul successo sia sul fallimento.
+    """
+    return (
+        subprocess.run(
+            ["git", *argomenti], cwd=ROOT, capture_output=True, check=False
+        ).returncode
+        == 0
+    )
+
+
 def versione_workspace() -> str | None:
     """La versione di `[workspace.package]`, letta da `Cargo.toml`."""
     dentro = False
@@ -954,6 +1139,181 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
     return errori
 
 
+def _registro_legato(stato: dict[str, Any]) -> list[str]:
+    """I blocchi che lo stato ripete sono quelli del registro.
+
+    `release_blocking: true` accanto a una voce, e la parola «aperto» che la
+    descrive, erano scritture indipendenti da quelle del registro: potevano
+    dire il contrario e nessuno le confrontava.
+    """
+    errori: list[str] = []
+    registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    blocca = {
+        v.get("id"): v.get("stato") == "release_blocking"
+        for v in registro.get("invarianti", [])
+    }
+
+    for percorso, identita in BLOCCANTI_DELLO_STATO.items():
+        if identita not in blocca:
+            errori.append(f"`{'.'.join(percorso)}`: «{identita}» non e' nel registro")
+            continue
+        if _dentro(stato, percorso) is not blocca[identita]:
+            errori.append(
+                f"`{'.'.join(percorso)}` vale «{_dentro(stato, percorso)}», il "
+                f"registro dichiara «{identita}» "
+                f"{'bloccante' if blocca[identita] else 'non bloccante'}"
+            )
+
+    for percorso, (identita, se_blocca, se_no) in ETICHETTE_DELLO_STATO.items():
+        if identita not in blocca:
+            errori.append(f"`{'.'.join(percorso)}`: «{identita}» non e' nel registro")
+            continue
+        atteso = se_blocca if blocca[identita] else se_no
+        if _dentro(stato, percorso) != atteso:
+            errori.append(
+                f"`{'.'.join(percorso)}` vale «{_dentro(stato, percorso)}», dal "
+                f"registro segue «{atteso}»"
+            )
+
+    fonte = _dentro(stato, ("blocchi", "fonte"))
+    atteso = REGISTRO.relative_to(ROOT).as_posix()
+    if fonte != atteso:
+        errori.append(f"`blocchi.fonte` vale «{fonte}», il registro e' «{atteso}»")
+    return errori
+
+
+@functools.lru_cache(maxsize=1)
+def _censimento() -> tuple[list[str], dict[str, int]]:
+    """Il censimento dei costruttori legacy, misurato una volta per processo.
+
+    Dipende dall'albero e non dal documento: ripeterlo per ogni campo che ne
+    deriva rifarebbe la stessa scansione di tutti i sorgenti Rust senza
+    cambiarne l'esito.
+    """
+    return censimento_errori(ROOT)
+
+
+def _censimento_s9_legato(stato: dict[str, Any]) -> list[str]:
+    """Il censimento dei costruttori legacy si conta dove viene misurato.
+
+    `componenti_a_zero` e `censimento_costruttori_legacy` erano due numeri
+    scritti a mano accanto a un gate che li produce a ogni corsa.
+    """
+    dichiarato = _dentro(stato, ("chiuso", "s9_errori_strutturati"))
+    if not isinstance(dichiarato, dict):
+        return ["`chiuso.s9_errori_strutturati` assente"]
+
+    errori: list[str] = []
+    problemi, per_crate = _censimento()
+    if problemi:
+        return [
+            "il censimento dei costruttori legacy non e' interpretabile: "
+            f"{len(problemi)} anomalie riportate da check_errori_redatti"
+        ]
+    residui = sum(per_crate.values())
+
+    atteso = {
+        "censimento_costruttori_legacy": residui,
+        "componenti_a_zero": len(MIGRATI),
+        "stato": "chiuso" if residui == 0 else "aperto",
+    }
+    errori.extend(
+        f"`chiuso.s9_errori_strutturati.{chiave}` vale "
+        f"«{dichiarato.get(chiave)}», il censimento ne misura «{valore}»"
+        for chiave, valore in atteso.items()
+        if dichiarato.get(chiave) != valore
+    )
+
+    qualificato = dichiarato.get("qualificato_su")
+    if not isinstance(qualificato, str) or not qualificato:
+        errori.append("`chiuso.s9_errori_strutturati.qualificato_su` assente")
+    elif not _git_riesce("merge-base", "--is-ancestor", qualificato, "HEAD"):
+        errori.append(
+            f"`chiuso.s9_errori_strutturati.qualificato_su` dichiara "
+            f"«{qualificato}», che git non riconosce come antenato di HEAD. Una "
+            "qualifica su una revisione che non e' nella storia corrente non "
+            "qualifica niente."
+        )
+    return errori
+
+
+def _docset_legato(stato: dict[str, Any]) -> list[str]:
+    """I conteggi del docset si contano nell'allowlist del docset."""
+    dichiarato = _dentro(stato, ("docset",))
+    if not isinstance(dichiarato, dict):
+        return ["`docset` assente"]
+    atteso = {
+        "markdown_canonici": len(CANONICI),
+        "markdown_operativi": len(OPERATIVI),
+        "verificato_da": "scripts/check_docset.py",
+    }
+    errori = [
+        f"`docset.{chiave}` vale «{dichiarato.get(chiave)}», l'allowlist di "
+        f"check_docset ne dichiara «{valore}»"
+        for chiave, valore in atteso.items()
+        if dichiarato.get(chiave) != valore
+    ]
+    if not (ROOT / "scripts" / "check_docset.py").exists():
+        errori.append("`docset.verificato_da`: il gate citato non esiste")
+    return errori
+
+
+def _forma_legata(stato: dict[str, Any]) -> list[str]:
+    """Schema e baseline documentale."""
+    errori: list[str] = []
+    if stato.get("schema_version") != SCHEMA_VERSIONE:
+        errori.append(
+            f"`schema_version` vale «{stato.get('schema_version')}», attesa "
+            f"{SCHEMA_VERSIONE}"
+        )
+    baseline = _dentro(stato, ("revisioni", "baseline_documentale", "sha"))
+    if baseline != BASELINE_DOCSET:
+        errori.append(
+            f"`revisioni.baseline_documentale.sha` vale «{baseline}», la "
+            f"baseline del docset e' «{BASELINE_DOCSET}»"
+        )
+    return errori
+
+
+def _foglie(nodo: Any, prefisso: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+    """Ogni percorso terminale del documento. Una lista e' una foglia."""
+    if isinstance(nodo, dict):
+        trovate: list[tuple[str, ...]] = []
+        for chiave, valore in nodo.items():
+            trovate.extend(_foglie(valore, prefisso + (chiave,)))
+        return trovate
+    return [prefisso]
+
+
+def _classificazione(stato: dict[str, Any]) -> list[str]:
+    """Ogni foglia dello stato e' legata a una fonte, o dichiarata non derivabile.
+
+    E' la parte che mancava, e la sua assenza rendeva falsa la promessa scritta
+    nel registro. Il validatore verificava tre famiglie di campi; le altre
+    stavano nel documento senza che nulla le guardasse — portare
+    `componenti_a_zero` a 999 non produceva un solo errore.
+
+    Classificare **tutte** le foglie chiude anche il caso futuro: un campo
+    aggiunto domani e non collegato e' rosso, invece di entrare in silenzio
+    sotto una promessa che non lo copre.
+    """
+    presenti = {".".join(percorso) for percorso in _foglie(stato)}
+    dichiarate = set(FOGLIE_DICHIARATE)
+    errori = [
+        f"`{foglia}`: foglia non classificata. O la si lega a una fonte che la "
+        "riscrive, o la si dichiara in `FOGLIE_DICHIARATE` con la ragione per "
+        "cui non ne ha una. La promessa «ogni numero viene dalla sua fonte» non "
+        "si allarga da sola a cio' che qualcuno aggiunge."
+        for foglia in sorted(presenti - FOGLIE_LEGATE - dichiarate)
+    ]
+    errori.extend(
+        f"`{foglia}`: dichiarata ma assente dallo stato. Una classificazione "
+        "che descrive un campo che non c'e' piu' non classifica niente."
+        for foglia in sorted((FOGLIE_LEGATE | dichiarate) - presenti)
+    )
+    return errori
+
+
 def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
     """`assurance/current-state.json` non e' una fonte: e' una **giunzione**.
 
@@ -968,9 +1328,14 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
     dove possono divergere.
     """
     return (
-        _misura_legata_all_evidenza(stato)
+        _classificazione(stato)
+        + _forma_legata(stato)
+        + _misura_legata_all_evidenza(stato)
         + _conteggi_n1_legati_al_registro(stato)
         + _candidate_legata_alle_fonti(stato)
+        + _registro_legato(stato)
+        + _censimento_s9_legato(stato)
+        + _docset_legato(stato)
     )
 
 

@@ -324,7 +324,7 @@
     {
       "id": "stato.fonti-legate",
       "superficie": "assurance/current-state.json",
-      "invariante": "ogni numero che lo stato riporta coincide con la fonte da cui viene: l'evidenza della corsa misurata, il registro di ASSURANCE-N1, la versione del workspace in Cargo.toml e i tag di git. Lo stato e' una giunzione, non una fonte.",
+      "invariante": "**ogni foglia** dello stato e' classificata, e in due modi soltanto: legata a una fonte che la riscrive — l'evidenza della corsa misurata, il registro di ASSURANCE-N1, questo registro, il censimento dei costruttori legacy, l'allowlist del docset, Cargo.toml, i tag e la storia di git — oppure dichiarata non derivabile con la ragione per cui non ha una fonte. Una foglia in nessuno dei due insiemi e' rossa, anche se aggiunta domani. Lo stato e' una giunzione, non una fonte.",
       "prova": {
         "tipo": "interna",
         "funzione": "validate_stato_corrente",

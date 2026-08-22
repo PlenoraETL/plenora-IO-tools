@@ -699,6 +699,117 @@ class SondeFontiLegate(unittest.TestCase):
     def test_lo_stato_reale_coincide_con_le_proprie_fonti(self) -> None:
         self.assertEqual(gate.validate_stato_corrente(self.stato()), [])
 
+    # --- la promessa vale per **ogni** foglia -----------------------------
+    #
+    # Il registro prometteva che ogni numero venisse dalla propria fonte, e il
+    # validatore ne verificava tre famiglie. Le altre foglie stavano nel
+    # documento senza che nulla le guardasse: portare `componenti_a_zero` a 999
+    # non produceva un errore, e la promessa restava scritta.
+    #
+    # Questa sonda non prova un campo scelto a mano: prova **tutti** quelli
+    # dichiarati legati. Una foglia messa in `FOGLIE_LEGATE` senza una verifica
+    # che la copra fa rossa questa sonda, quindi l'elenco non puo' mentire.
+
+    @staticmethod
+    def muta(valore):
+        if isinstance(valore, bool):
+            return not valore
+        if isinstance(valore, int):
+            return valore + 999
+        if isinstance(valore, float):
+            return valore + 999.0
+        if isinstance(valore, str):
+            return valore + "-non-derivato"
+        if isinstance(valore, list):
+            return []
+        return "non-derivato"
+
+    @staticmethod
+    def imposta(documento: dict, percorso: list[str], valore) -> None:
+        nodo = documento
+        for chiave in percorso[:-1]:
+            nodo = nodo[chiave]
+        nodo[percorso[-1]] = valore
+
+    def test_ogni_foglia_legata_e_davvero_verificata(self) -> None:
+        for foglia in sorted(gate.FOGLIE_LEGATE):
+            with self.subTest(foglia=foglia):
+                percorso = foglia.split(".")
+                stato = self.stato()
+                nodo = stato
+                for chiave in percorso[:-1]:
+                    nodo = nodo[chiave]
+                self.imposta(stato, percorso, self.muta(nodo[percorso[-1]]))
+                self.assertNotEqual(
+                    gate.validate_stato_corrente(stato),
+                    [],
+                    f"«{foglia}» e' dichiarata legata ma nessuna verifica la copre",
+                )
+
+    def test_una_foglia_nuova_non_classificata_e_rossa(self) -> None:
+        """Il caso futuro: un campo aggiunto e mai collegato."""
+        stato = self.stato()
+        stato["ultima_misura"]["copertura"]["percentuale_inventata"] = 99.9
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("non classificata" in e for e in errori), errori)
+
+    def test_una_foglia_dichiarata_ma_sparita_e_rossa(self) -> None:
+        """Una classificazione che descrive un campo che non c'e' piu'."""
+        stato = self.stato()
+        del stato["blocchi"]["nota"]
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("dichiarata ma assente" in e for e in errori), errori)
+
+    def test_le_due_classificazioni_non_si_sovrappongono(self) -> None:
+        self.assertEqual(gate.FOGLIE_LEGATE & set(gate.FOGLIE_DICHIARATE), set())
+
+    def test_ogni_foglia_dichiarata_porta_la_propria_ragione(self) -> None:
+        senza = [f for f, r in gate.FOGLIE_DICHIARATE.items() if not r]
+        self.assertEqual(senza, [])
+
+    # --- le famiglie che la seconda lettura ha trovato scoperte -----------
+
+    def test_il_censimento_s9_viene_dal_censimento(self) -> None:
+        for chiave in ("componenti_a_zero", "censimento_costruttori_legacy"):
+            with self.subTest(chiave=chiave):
+                stato = self.stato()
+                stato["chiuso"]["s9_errori_strutturati"][chiave] = 999
+                errori = gate.validate_stato_corrente(stato)
+                self.assertTrue(any(chiave in e for e in errori), errori)
+
+    def test_una_qualifica_su_una_revisione_estranea_e_rossa(self) -> None:
+        stato = self.stato()
+        stato["chiuso"]["s9_errori_strutturati"]["qualificato_su"] = "0" * 40
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("antenato di HEAD" in e for e in errori), errori)
+
+    def test_i_conteggi_del_docset_vengono_dall_allowlist(self) -> None:
+        for chiave in ("markdown_canonici", "markdown_operativi"):
+            with self.subTest(chiave=chiave):
+                stato = self.stato()
+                stato["docset"][chiave] = 999
+                errori = gate.validate_stato_corrente(stato)
+                self.assertTrue(any(chiave in e for e in errori), errori)
+
+    def test_un_blocco_negato_dallo_stato_e_rosso(self) -> None:
+        """`release_blocking: false` accanto a un invariante che blocca."""
+        stato = self.stato()
+        stato["aperto"]["loss_report"]["release_blocking"] = False
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("wire.loss-report" in e for e in errori), errori)
+
+    def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
+        stato = self.stato()
+        stato["aperto"]["lotti"]["s11"] = "chiuso"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("lotti.s11" in e for e in errori), errori)
+
+    def test_la_fonte_dei_blocchi_e_il_registro(self) -> None:
+        stato = self.stato()
+        stato["blocchi"]["fonte"] = "assurance/registries/un-altro.json"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("blocchi.fonte" in e for e in errori), errori)
+
     # --- evidenza ----------------------------------------------------------
 
     def test_un_numero_che_non_viene_dall_evidenza_e_rosso(self) -> None:
