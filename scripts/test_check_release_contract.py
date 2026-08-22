@@ -634,6 +634,21 @@ class SondeCondizioni(unittest.TestCase):
             any("non qualifica il codice corrente" in m for m in motivi), motivi
         )
 
+    def test_una_candidate_legata_al_nulla_non_soddisfa_la_condizione(self) -> None:
+        """La condizione di `--release` usava lo stesso confronto per prefisso.
+
+        Chiuderlo solo nel legame lascerebbe aperta la via che porta al verde:
+        `revisione_manifesto = ""` e' prefisso di HEAD, quindi la candidate
+        risultava coerente con la revisione corrente.
+        """
+        stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        stato["aperto"]["candidate_release"]["revisione_manifesto"] = ""
+        with mock.patch.object(gate, "_stato_corrente", return_value=(stato, [])):
+            motivi = gate.condizione_candidate_coerente(self.registro())
+        self.assertTrue(
+            any("non risolve a un commit" in m for m in motivi), motivi
+        )
+
     def test_la_qualifica_cross_component_non_e_superata(self) -> None:
         """L'esito viene dall'artefatto, non dal campo che la voce dichiara."""
         motivi = gate.condizione_qualifica_cross_component(self.registro())
@@ -826,8 +841,20 @@ class SondeFontiLegate(unittest.TestCase):
         self.assertTrue(any("passi_verdi" in e for e in errori), errori)
 
     def test_un_evidenza_che_descrive_un_altra_revisione_e_rossa(self) -> None:
+        """Una revisione che git non risolve non identifica un albero."""
         stato = self.stato()
         stato["ultima_misura"]["sha"] = "0000000"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("non risolve a un commit" in e for e in errori), errori)
+
+    def test_un_evidenza_che_non_nomina_la_revisione_e_rossa(self) -> None:
+        """Il nome dell'evidenza lega la corsa alla revisione.
+
+        La revisione qui **esiste** — e' la baseline documentale — quindi si
+        risolve, e cio' che resta scoperto e' il nome del file.
+        """
+        stato = self.stato()
+        stato["ultima_misura"]["sha"] = gate.BASELINE_DOCSET
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("non nomina la revisione" in e for e in errori), errori)
 
@@ -836,6 +863,77 @@ class SondeFontiLegate(unittest.TestCase):
         del stato["ultima_misura"]["evidenza"]
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("non hanno una corsa" in e for e in errori), errori)
+
+    # --- una revisione si risolve, non si confronta per prefisso ----------
+    #
+    # `startswith` e l'appartenenza a un nome di file accettano la **stringa
+    # vuota**: e' prefisso di tutto e sottostringa di tutto. `ultima_misura.sha
+    # = ""` passava ogni controllo, e con esso `ultima_qualificata.sha = ""`;
+    # `revisione_manifesto = ""` passava accanto a `qualifica_head: true`, che
+    # e' una qualifica fabbricata dichiarata su niente.
+
+    def test_uno_sha_vuoto_non_e_una_revisione(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["sha"] = ""
+        stato["revisioni"]["ultima_qualificata"]["sha"] = ""
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("ultima_misura.sha" in e for e in errori), errori)
+        self.assertTrue(any("ultima_qualificata.sha" in e for e in errori), errori)
+
+    def test_uno_sha_troppo_corto_non_e_una_revisione(self) -> None:
+        """git rifiuta un prefisso piu' corto di quattro caratteri."""
+        stato = self.stato()
+        stato["ultima_misura"]["sha"] = "c9"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("non risolve a un commit" in e for e in errori), errori)
+
+    def test_una_candidate_legata_al_nulla_non_qualifica_head(self) -> None:
+        stato = self.stato()
+        stato["aperto"]["candidate_release"]["revisione_manifesto"] = ""
+        stato["aperto"]["candidate_release"]["qualifica_head"] = True
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("revisione_manifesto" in e for e in errori), errori)
+        self.assertTrue(any("qualifica_head" in e for e in errori), errori)
+
+    def test_revisione_risolta_rifiuta_cio_che_non_e_un_commit(self) -> None:
+        for storto in ("", "c9", "0" * 40, "non-una-revisione", None, 7):
+            with self.subTest(storto=storto):
+                self.assertIsNone(gate.revisione_risolta(storto))
+
+    def test_revisione_risolta_restituisce_lo_sha_intero(self) -> None:
+        risolta = gate.revisione_risolta("HEAD")
+        self.assertIsNotNone(risolta)
+        self.assertEqual(len(risolta), 40)
+        self.assertEqual(gate.revisione_risolta(risolta[:8]), risolta)
+
+    # --- l'esito dell'evidenza si confronta per intero --------------------
+
+    def evidenza_con(self, **extra):
+        documento = json.loads(
+            (gate.ROOT / "assurance" / "evidence" / "checkpoint-c996fdd.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        documento.update(extra)
+        return documento
+
+    def test_un_esito_che_contiene_la_frase_non_e_la_frase(self) -> None:
+        """«S9 checkpoint level 2 passed, con riserva» conteneva la frase."""
+        finta = self.evidenza_con(esito=f"{gate.ESITO_LIVELLO_2}, con riserva")
+        with mock.patch.object(gate, "_evidenza", return_value=finta):
+            errori = gate.validate_stato_corrente(self.stato())
+        self.assertTrue(any("pretende esattamente" in e for e in errori), errori)
+
+    def test_un_evidenza_di_livello_1_non_puo_essere_l_ultima_misura(self) -> None:
+        finta = self.evidenza_con(esito="S9 livello 1 verificato")
+        with mock.patch.object(gate, "_evidenza", return_value=finta):
+            errori = gate.validate_stato_corrente(self.stato())
+        self.assertTrue(any("pretende esattamente" in e for e in errori), errori)
+
+    def test_l_evidenza_reale_porta_l_esito_esatto(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        with mock.patch.object(gate, "_evidenza", return_value=self.evidenza_con()):
+            self.assertEqual(gate.validate_stato_corrente(self.stato()), [])
 
     def test_la_baseline_differenziale_viene_dall_evidenza(self) -> None:
         """La prosa nominava una baseline diversa da quella della corsa."""

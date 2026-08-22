@@ -802,6 +802,30 @@ def _git(*argomenti: str) -> str | None:
     return esito.stdout.strip()
 
 
+# L'esito atteso da un'evidenza di livello 2. Il confronto e' **esatto**: una
+# sottostringa accetterebbe «S9 checkpoint level 2 passed, ma con riserva», e un
+# testo che contiene la frase non e' la frase.
+ESITO_LIVELLO_2 = "S9 checkpoint level 2 passed"
+
+
+def revisione_risolta(revisione: Any) -> str | None:
+    """Lo SHA completo del commit designato, o `None` se non ne designa uno.
+
+    Il confronto fra revisioni non si fa con `startswith` ne' con
+    l'appartenenza a un nome di file. La stringa vuota e' prefisso di
+    qualunque cosa e sottostringa di qualunque cosa: `ultima_misura.sha = ""`
+    passava ogni controllo, e cosi' `revisione_manifesto = ""` accanto a
+    `qualifica_head: true`.
+
+    Qui ogni revisione viene **risolta da git**, e il confronto e' fra SHA
+    completi. Una revisione vuota, troppo corta, ambigua o assente dalla storia
+    non risolve, e non c'e' un prefisso che possa cavarsela.
+    """
+    if not isinstance(revisione, str) or not revisione:
+        return None
+    return _git("rev-parse", "--verify", revisione + "^{commit}") or None
+
+
 def _git_riesce(*argomenti: str) -> bool:
     """`True` se il comando esce con 0.
 
@@ -940,18 +964,24 @@ def condizione_candidate_coerente(documento: dict[str, Any]) -> list[str]:
             f"il workspace e' a «{versione}»"
         )
 
-    head = _git("rev-parse", "HEAD")
+    head = revisione_risolta("HEAD")
     revisione = candidate.get("revisione_manifesto")
+    risolta = revisione_risolta(revisione)
     if head is None:
-        motivi.append("git: HEAD non leggibile")
-    elif not isinstance(revisione, str) or not head.startswith(revisione):
+        motivi.append("git: HEAD non si risolve a un commit")
+    elif risolta is None:
         motivi.append(
-            f"la candidate e' legata a «{revisione}», HEAD e' «{(head or '')[:7]}»: "
+            f"la candidate e' legata a «{revisione}», che git non risolve a un "
+            "commit: quel manifesto non qualifica alcuna revisione"
+        )
+    elif risolta != head:
+        motivi.append(
+            f"la candidate e' legata a «{revisione}», HEAD e' «{head[:7]}»: "
             "quel manifesto non qualifica il codice corrente"
         )
 
     atteso = f"v{versione}" if versione else None
-    puntato = _git("rev-parse", "--verify", atteso + "^{commit}") if atteso else None
+    puntato = revisione_risolta(atteso) if atteso else None
     if atteso is None:
         pass
     elif puntato is None:
@@ -1020,6 +1050,17 @@ def _dentro(documento: Any, percorso: tuple[str, ...]) -> Any:
     return corrente
 
 
+def _evidenza(relativo: str) -> dict[str, Any]:
+    """L'evidenza di una corsa, letta dal disco.
+
+    Sta in una funzione perche' le sonde devono poterla sostituire: scrivere
+    un'evidenza finta dentro il repository per provarne una malformata
+    lascerebbe un file non tracciato, e l'impronta dell'albero lo vedrebbe
+    proprio mentre il checkpoint la misura.
+    """
+    return json.loads((ROOT / relativo).read_text(encoding="utf-8"))
+
+
 def _misura_legata_all_evidenza(stato: dict[str, Any]) -> list[str]:
     """I numeri dello stato vengono dall'evidenza della corsa che li ha prodotti."""
     errori: list[str] = []
@@ -1034,25 +1075,53 @@ def _misura_legata_all_evidenza(stato: dict[str, Any]) -> list[str]:
     if not percorso.exists():
         return [f"«{relativo}»: evidenza assente"]
 
+    evidenza = _evidenza(relativo)
+
+    # `ultima_misura` e' per definizione l'ultima misura di **livello 2
+    # superata**. Un'evidenza con un esito diverso non puo' occupare quel
+    # posto, e la frase si confronta per intero: cercarla dentro il testo
+    # accetterebbe un esito che la contiene e la contraddice.
+    if evidenza.get("esito") != ESITO_LIVELLO_2:
+        errori.append(
+            f"«{relativo}» dichiara l'esito «{evidenza.get('esito')}», e "
+            f"`ultima_misura` pretende esattamente «{ESITO_LIVELLO_2}»."
+        )
+
     sha = misura.get("sha")
-    if not isinstance(sha, str) or sha not in Path(relativo).name:
+    risolta = revisione_risolta(sha)
+    if risolta is None:
+        errori.append(
+            f"`ultima_misura.sha` vale «{sha}», che git non risolve a un "
+            "commit. Una revisione che non si risolve non identifica un albero."
+        )
+    elif not isinstance(sha, str) or sha not in Path(relativo).name:
         errori.append(
             f"«{relativo}» non nomina la revisione misurata «{sha}». Il nome "
             "dell'evidenza e' cio' che lega la corsa alla revisione."
         )
 
-    evidenza = json.loads(percorso.read_text(encoding="utf-8"))
-    finale = _dentro(evidenza, ("corsa", "revisione_finale"))
-    if not isinstance(finale, str) or not (isinstance(sha, str) and finale.startswith(sha)):
+    finale = revisione_risolta(_dentro(evidenza, ("corsa", "revisione_finale")))
+    if finale is None:
         errori.append(
-            f"«{relativo}» descrive la revisione «{finale}», lo stato dichiara "
-            f"«{sha}». Un'evidenza vale per l'albero misurato e per nessun altro."
+            f"«{relativo}»: `corsa.revisione_finale` non si risolve a un commit"
+        )
+    elif risolta is not None and finale != risolta:
+        errori.append(
+            f"«{relativo}» descrive la revisione «{finale[:7]}», lo stato "
+            f"dichiara «{sha}» (cioe' «{risolta[:7]}»). Un'evidenza vale per "
+            "l'albero misurato e per nessun altro."
         )
 
-    qualificata = _dentro(stato, ("revisioni", "ultima_qualificata", "sha"))
-    if "level 2 passed" in str(evidenza.get("esito", "")) and qualificata != sha:
+    dichiarata = _dentro(stato, ("revisioni", "ultima_qualificata", "sha"))
+    qualificata = revisione_risolta(dichiarata)
+    if qualificata is None:
         errori.append(
-            f"`revisioni.ultima_qualificata` dice «{qualificata}» ma l'ultima "
+            f"`revisioni.ultima_qualificata.sha` vale «{dichiarata}», che git "
+            "non risolve a un commit"
+        )
+    elif risolta is not None and qualificata != risolta:
+        errori.append(
+            f"`revisioni.ultima_qualificata` dice «{dichiarata}» ma l'ultima "
             f"misura di livello 2 e' su «{sha}»"
         )
 
@@ -1100,9 +1169,17 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
             f"«{candidate.get('versione_workspace')}», Cargo.toml dichiara «{versione}»"
         )
 
-    head = _git("rev-parse", "HEAD")
+    head = revisione_risolta("HEAD")
     revisione = candidate.get("revisione_manifesto")
-    su_head = bool(head and isinstance(revisione, str) and head.startswith(revisione))
+    risolta = revisione_risolta(revisione)
+    if risolta is None:
+        errori.append(
+            f"`candidate_release.revisione_manifesto` vale «{revisione}», che "
+            "git non risolve a un commit. Una candidate legata a una revisione "
+            "che non esiste non qualifica niente, e con `qualifica_head: true` "
+            "sarebbe una qualifica fabbricata."
+        )
+    su_head = risolta is not None and head is not None and risolta == head
     if candidate.get("qualifica_head") is not su_head:
         errori.append(
             f"`candidate_release.qualifica_head` vale "
@@ -1124,17 +1201,23 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
             f"`candidate_release.tag_creato` vale «{candidate.get('tag_creato')}» "
             f"ma git {'trova' if puntato else 'non trova'} il tag «{atteso}»"
         )
-    corta = puntato[:7] if puntato else None
-    if candidate.get("tag_revisione") != corta:
+    dichiarato = candidate.get("tag_revisione")
+    if puntato is None:
+        if dichiarato is not None:
+            errori.append(
+                f"`candidate_release.tag_revisione` vale «{dichiarato}» ma il "
+                f"tag «{atteso}» non esiste"
+            )
+    elif revisione_risolta(dichiarato) != puntato:
         errori.append(
-            f"`candidate_release.tag_revisione` vale "
-            f"«{candidate.get('tag_revisione')}», il tag «{atteso}» punta a «{corta}»"
+            f"`candidate_release.tag_revisione` vale «{dichiarato}», il tag "
+            f"«{atteso}» punta a «{puntato[:7]}»"
         )
     if candidate.get("tag_su_head") is not (puntato is not None and puntato == head):
         errori.append(
             f"`candidate_release.tag_su_head` vale "
-            f"«{candidate.get('tag_su_head')}» ma il tag punta a «{corta}» e HEAD "
-            f"e' «{(head or '')[:7]}»"
+            f"«{candidate.get('tag_su_head')}» ma il tag punta a "
+            f"«{(puntato or 'nessun commit')[:7]}» e HEAD e' «{(head or '')[:7]}»"
         )
     return errori
 
