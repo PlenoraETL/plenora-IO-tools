@@ -119,14 +119,16 @@ che la 1.0.1 è superata.
 
 ### Le condizioni sono congiunte
 
-Il rilascio richiede **tutte** queste, e nessuna implica le altre:
+Le condizioni dell'autorizzazione sono **quelle dichiarate** in
+[`autorizzazione_di_release`](../assurance/registries/release-contract-current.json),
+e `check_release_contract.py --release` le esegue tutte: sono congiunte, nessuna
+implica le altre, e un verde parziale non è un verde. Riscriverle qui creerebbe
+la seconda rappresentazione che il registro esiste per evitare — e una che
+resterebbe a cinque voci il giorno in cui ne nascesse una sesta.
 
-1. nessun invariante `release_blocking` nel registro;
-2. `check_assurance_n1.py --release` verde;
-3. `release_authorized: true`, che è una **decisione scritta** e non l'esito
-   automatico di caselle verdi;
-4. manifesto della candidate coerente esattamente con versione, SHA e tag;
-5. qualifica cross-component superata, con evidenza dell'owner esterno.
+Una sola merita di essere richiamata, perché non è un esito che un gate possa
+derivare: `release_authorized` è una **decisione scritta**, non la conseguenza
+automatica di caselle verdi.
 
 ---
 
