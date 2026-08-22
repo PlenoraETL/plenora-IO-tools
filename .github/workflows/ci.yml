@@ -99,10 +99,24 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_quarantena_fuzz
           python3 scripts/check_quarantena_fuzz.py
+      # I due gate dei fork condividono `fork_comune`, che calcola l'impronta
+      # sul solo insieme versionato e rifiuta a parte gli artefatti estranei.
+      # Le due difese sono indipendenti, e la sonda e' cio' che impedisce a una
+      # di sparire mentre l'altra resta verde. La CI eseguiva i gate senza di
+      # essa.
       - name: Verify governed GDAL fork
-        run: python3 scripts/check_gdal_fork.py
+        run: |
+          python3 -m unittest scripts.test_fork_comune
+          python3 scripts/check_gdal_fork.py
       - name: Verify governed DXF fork
         run: python3 scripts/check_dxf_fork.py
+      # Il gate gira gia' in CI, ma **dentro** `check_release_contract.py`,
+      # come prova dell'invariante `errori.static-non-promuovibile`: qui serve
+      # la sua sonda, che e' l'unica cosa che verifica il gate invece del
+      # codice. Lanciarlo una seconda volta ripeterebbe una misura senza
+      # renderla piu' vera.
+      - name: Verify the no-leak gate itself
+        run: python3 -m unittest scripts.test_check_niente_leak
       - name: Verify locked workspace and fuzz dependency graphs
         run: |
           cargo metadata --locked --format-version 1 > /dev/null
