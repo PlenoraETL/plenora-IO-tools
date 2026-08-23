@@ -384,8 +384,11 @@ il checkpoint confronta a fine corsa ciò che ha eseguito, e il verificatore
 confronta ciò che l'evidenza descrive. Chiuderlo da un lato solo lascerebbe
 passare una rimozione coordinata dall'altro — togliere un gate, la sua voce, il
 suo log e aggiornare contatori e digest è un'evidenza coerente con sé stessa che
-descrive un checkpoint più debole. Il confronto è sull'**insieme**, non sul
-totale: un passo tolto e uno aggiunto lasciano il conto fermo.
+descrive un checkpoint più debole. Il confronto è sull'**insieme e sull'ordine**, non sul
+totale: un passo tolto e uno aggiunto lasciano il conto fermo, e due passi
+scambiati lasciano l'insieme identico. L'ordine è canonico perché è un vincolo
+reale — `sonde_checkpoint` per primo, la copertura dopo il fuzzing che ne
+produce il profdata — e la diagnostica nomina la prima posizione divergente.
 
 Gli artefatti della corsa sono **riconciliati con i passi**: l'evidenza porta
 l'elenco delle 57 identità con esito e log, i conteggi ne sono il riassunto

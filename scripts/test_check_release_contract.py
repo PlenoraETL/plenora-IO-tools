@@ -1369,6 +1369,39 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         )
         self.assertTrue(any("attesi esattamente" in m for m in errori), errori)
 
+    def test_due_passi_scambiati_sono_rossi(self) -> None:
+        """L'ordine e' dichiarato, e presenza ed estranei non lo vedono.
+
+        Scambiare due passi lascia l'insieme identico: e' l'ordine a rendere
+        leggibile una corsa — `sonde_checkpoint` per primo perche' se il gate
+        che misura e' rotto tutto cio' che segue e' una misura di cui non si sa
+        niente, la copertura dopo il fuzzing perche' legge il profdata che
+        quello ha prodotto.
+        """
+        def muta(evidenza):
+            passi = evidenza["riconciliazione"]["passi"]
+            passi[0], passi[1] = passi[1], passi[0]
+
+        errori = self.errori_con(muta)
+        self.assertTrue(any("ordine divergente" in m for m in errori), errori)
+        self.assertTrue(any("posizione 1" in m for m in errori), errori)
+
+    def test_l_ordine_divergente_nomina_la_prima_posizione(self) -> None:
+        """Ci si ferma alla prima: uno spostamento le stamperebbe quasi tutte."""
+        def muta(evidenza):
+            passi = evidenza["riconciliazione"]["passi"]
+            passi[3], passi[4] = passi[4], passi[3]
+
+        errori = self.errori_con(muta)
+        divergenze = [m for m in errori if "ordine divergente" in m]
+        self.assertEqual(len(divergenze), 1, errori)
+        self.assertIn("posizione 4", divergenze[0])
+
+    def test_l_ordine_reale_coincide_col_registro(self) -> None:
+        dichiarati, _ = gate.passi_del_checkpoint()
+        passi = self.evidenza()["riconciliazione"]["passi"]
+        self.assertEqual([v["id"] for v in passi], list(dichiarati))
+
     def test_l_insieme_reale_coincide_col_registro(self) -> None:
         """La controprova positiva, e la sola cosa che lega i due elenchi."""
         dichiarati, senza_log = gate.passi_del_checkpoint()

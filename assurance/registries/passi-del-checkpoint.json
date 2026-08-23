@@ -2,6 +2,7 @@
   "schema_version": 1,
   "descrizione": "I passi del checkpoint S9, per identita' e in ordine di esecuzione. E' la fonte unica letta dal checkpoint — che a fine corsa confronta cio' che ha davvero eseguito — e dal verificatore dell'evidenza, che pretende lo stesso insieme. Senza, il gate verificava perfettamente cio' che l'evidenza dichiarava e non sapeva che `fmt` dovesse esistere: togliere un gate e aggiornare coerentemente contatori, artefatti e digest passava.",
   "log": "`true` se il passo lancia un comando e ne conserva l'uscita in `<id>.log`; `false` per i passi in linea, che confrontano revisione e impronta fra testa e coda della corsa e non lanciano niente.",
+  "ordine": "l'ordine e' **canonico e verificato**, non indicativo: `sonde_checkpoint` viene per primo perche' se il gate che misura e' rotto tutto cio' che segue e' una misura di cui non si sa niente; la copertura viene dopo il fuzzing perche' legge il profdata che quello ha prodotto. Entrambi i verificatori confrontano la sequenza e si fermano alla prima posizione divergente: presenza, estranei e duplicati non vedono due passi scambiati.",
   "non_e_qui": "quali passi siano **pesanti** — omessi al livello 1 — resta in `PASSI_PESANTI` dentro lo script: e' un'altra domanda, e duplicarla qui creerebbe due elenchi da tenere allineati.",
   "passi": [
     {

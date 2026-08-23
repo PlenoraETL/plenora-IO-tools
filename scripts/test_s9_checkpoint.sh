@@ -598,6 +598,18 @@ fuori="$(
 verifica "un passo ripetuto viene nominato" "1" \
     "$(printf '%s' "${fuori}" | grep -c "eseguiti piu' di una volta")"
 
+fuori="$(
+    cd "${RADICE}" || exit 1
+    passi_registrati=()
+    while IFS= read -r riga; do passi_registrati+=("${riga}"); done < <(tutti_i_passi)
+    primo="${passi_registrati[0]}"
+    passi_registrati[0]="${passi_registrati[1]}"
+    passi_registrati[1]="${primo}"
+    insieme_dei_passi_dichiarato
+)"
+verifica "due passi scambiati sono rossi" "1" \
+    "$(printf '%s' "${fuori}" | grep -c 'ordine divergente alla posizione 1')"
+
 # --- ogni uscita terminale registra il proprio esito ------------------------
 #
 # Il file veniva scritto `in_corso` all'avvio, e un livello 2 su albero sporco

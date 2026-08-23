@@ -127,7 +127,22 @@ for nome, elenco in (
 ):
     if elenco:
         print(f"    {nome}: {elenco}")
-sys.exit(1 if mancanti or estranei or ripetuti else 0)
+
+# L'ordine e' dichiarato, quindi si confronta: presenza, estranei e duplicati
+# non lo vedono, e due passi scambiati lasciano l'insieme identico. Ci si ferma
+# alla prima posizione divergente.
+fuori_ordine = ""
+if not (mancanti or estranei or ripetuti) and eseguiti != dichiarati:
+    for posizione, (osservato, atteso) in enumerate(zip(eseguiti, dichiarati), 1):
+        if osservato != atteso:
+            fuori_ordine = (
+                f"    ordine divergente alla posizione {posizione}: "
+                f"'{osservato}' dove il registro dichiara '{atteso}'"
+            )
+            print(fuori_ordine)
+            break
+
+sys.exit(1 if mancanti or estranei or ripetuti or fuori_ordine else 0)
 PYTHON
 )"
     printf '%s

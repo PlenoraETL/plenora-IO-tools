@@ -1360,6 +1360,26 @@ def _passi_dichiarati(evidenza: dict[str, Any]) -> tuple[list[dict[str, Any]], l
             "passi. Un passo che nessuno ha dichiarato non e' verificato da "
             "nessuno."
         )
+
+    # L'**ordine** e' dichiarato dal registro, e va confrontato: presenza,
+    # estranei e duplicati non lo vedono. Scambiare due passi lasciava
+    # l'insieme identico, e l'ordine e' cio' che rende leggibile una corsa —
+    # `sonde_checkpoint` per primo perche' se il gate che misura e' rotto tutto
+    # cio' che segue e' una misura di cui non si sa niente, la copertura dopo
+    # il fuzzing perche' legge il profdata che quello ha prodotto.
+    #
+    # Il confronto e' sequenziale e si ferma alla **prima** posizione
+    # divergente: elencarle tutte, dopo uno scambio, ne stamperebbe due che
+    # dicono la stessa cosa, e dopo uno spostamento le stamperebbe quasi tutte.
+    if not errori and identita != list(dichiarati):
+        for posizione, (osservata, attesa) in enumerate(zip(identita, dichiarati), 1):
+            if osservata != attesa:
+                errori.append(
+                    f"`riconciliazione.passi`: ordine divergente alla posizione "
+                    f"{posizione}: «{osservata}» dove il registro dichiara "
+                    f"«{attesa}»"
+                )
+                break
     return passi, errori
 
 
