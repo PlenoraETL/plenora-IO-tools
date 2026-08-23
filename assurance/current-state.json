@@ -106,22 +106,6 @@
       "nota": "il manifesto non descrive HEAD; aggiornarne lo SHA sarebbe una qualifica fabbricata. Il tag `v1.0.1` esiste — puntava e punta a `c490f82` — e lo stato dichiarava che non fosse stato creato: una copia scritta a mano che nessuno confrontava con git. Versione del workspace, esistenza e bersaglio del tag sono ora riletti da Cargo.toml e da git a ogni corsa del contratto."
     }
   },
-  "da_chiarire": {
-    "descrizione": "Fatti correnti che non bloccano il rilascio e non sono spiegati. Non sono blocchi — quelli stanno nel registro del contratto — e non sono cronaca: hanno un criterio di chiusura, e finche' non e' soddisfatto la cosa resta aperta e visibile.",
-    "variazione_della_copertura_fra_corse": {
-      "stato": "aperto",
-      "release_blocking": false,
-      "osservazione": "due corse di livello 2 consecutive, su revisioni fra cui non e' cambiata alcuna riga Rust, hanno dato 26 773 e 26 780 righe coperte su un denominatore fermo a 31 192 — sette righe — e la proiezione cargo si e' mossa insieme, da 83,94% a 83,96%. Le corse precedenti stavano entro due righe. I numeri delle corse anteriori sono in git, non nell'albero: questa voce registra che la variazione e' stata osservata, non ne conserva la serie.",
-      "che_cosa_non_e_dimostrato": "la causa. Un movimento congiunto delle due proiezioni a sorgente strumentato invariato indica plausibilmente percorsi eseguiti in modo variabile fra le corse, ma nessuna corsa finora lo dimostra, e «rumore di misura» resta un'ipotesi.",
-      "perche_non_blocca_questo_ramo": "entrambe le proiezioni restano largamente sopra la soglia dell'80%, il Rust misurato e' invariato e la diagnostica differenziale e' n/d. Va chiarito prima della qualifica produttiva finale, non prima del reset documentale.",
-      "criterio_di_chiusura": [
-        "campagne di sola copertura isolate, sullo stesso SHA e nello stesso container",
-        "profili e report azzerati prima di ogni campagna",
-        "confronto dei lcov.info per (file, riga, coperta/non coperta), non per percentuale",
-        "se la variazione persiste, una campagna con `--test-threads=1` per separare la concorrenza dal resto"
-      ]
-    }
-  },
   "docset": {
     "markdown_canonici": 4,
     "markdown_operativi": 3,

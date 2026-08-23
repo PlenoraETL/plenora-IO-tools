@@ -309,9 +309,18 @@ class SondeStatoGenerato(unittest.TestCase):
 
     def test_una_riga_ritoccata_a_mano_e_rossa(self) -> None:
         """Il blocco si confronta carattere per carattere: un ritocco che
-        «suona giusto» non sopravvive."""
+        «suona giusto» non sopravvive.
+
+        La riga da ritoccare si **prende dal blocco reso**, non si scrive qui:
+        una sonda che nomina «| blocchi | 9 |» diventa rossa il giorno in cui
+        nasce il decimo blocco, e la si aggiorna a mano invece di seguire la
+        fonte.
+        """
+        reso = stato_release.campi(self.stato(), self.registro())["blocchi"]
         errori = self._con_documento(
-            self.documento().replace("| blocchi | 9 |", "| blocchi | 8 |")
+            self.documento().replace(
+                f"| blocchi | {reso} |", f"| blocchi | {int(reso) - 1} |"
+            )
         )
         self.assertTrue(any("non coincide con la fonte" in e for e in errori), errori)
 

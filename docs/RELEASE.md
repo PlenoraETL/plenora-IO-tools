@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
-| blocchi | 9 |
+| blocchi | 10 |
 | S9, qualificato su | `50426e9` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -70,6 +70,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 | `lotto.s10` | validazione completa di GeoParquet 1.1 non aperta |
 | `lotto.s11` | `wkb_shape` non ispeziona i figli delle collection |
 | `lotto.s12` | parsing WKT/GeoJSON non bounded durante il parse |
+| `copertura.variazione-fra-corse` | copertura non riproducibile fra corse, causa non dimostrata |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
 
 <!-- generato da assurance/current-state.json: fine -->
@@ -94,12 +95,11 @@ l'albero conserva **la sola evidenza corrente**, quindi un'affermazione su più
 corse non sarebbe ricostruibile da ciò che il repository contiene. Le corse
 precedenti sono in git.
 
-Che quella percentuale si sia mossa fra corse su codice Rust invariato è però un
-fatto aperto, e sta in
-[`da_chiarire`](../assurance/current-state.json) con il proprio criterio di
-chiusura. **Non blocca questo ramo** — entrambe le proiezioni sono largamente
-sopra soglia e il Rust misurato è invariato — e va chiarito prima della
-qualifica produttiva finale.
+Che quella percentuale si sia mossa fra corse su codice Rust invariato è un
+**blocco di rilascio**, con la propria condizione di chiusura nel registro. Non
+impedisce di lavorare su questo ramo — entrambe le proiezioni restano largamente
+sopra soglia e il Rust misurato è invariato — impedisce la release, che è la
+distinzione che il registro esiste per tenere.
 
 Il conteggio dei passi è **riconciliato dagli identificatori** — distinti, senza
 duplicati — e non accettato dal rapporto che lo strumento stampa su se stesso.
@@ -241,7 +241,23 @@ contiene né esegue test che compilino gli altri due componenti. La definizione
 Resta distinta dalla readiness del componente: nessuna delle due implica
 l'altra.
 
-### 7. Decisione finale di rilascio
+### 7. Riproducibilità della misura di copertura
+
+**Criterio di uscita.** La copertura misurata su un sorgente Rust strumentato
+invariato è riproducibile, oppure la sua variazione ha una **causa dimostrata**.
+Servono campagne di sola copertura isolate, sullo stesso SHA e nello stesso
+container, con profili e report azzerati ogni volta; il confronto dei
+`lcov.info` per *(file, riga, coperta/non coperta)* e non per percentuale; e, se
+la variazione persiste, una campagna con `--test-threads=1`.
+
+Confrontare le percentuali non basta: l'arrotondamento a due decimali nasconde
+le righe, ed è dalle righe che si capisce **quali** percorsi variano.
+
+**Blocco rimosso.** La misura di copertura smette di essere un numero che
+cambia senza una ragione nota. Finché resta, ogni soglia superata lo è per un
+margine che nessuno sa quantificare.
+
+### 8. Decisione finale di rilascio
 
 **Criterio di uscita.** Tutti i punti precedenti chiusi;
 `check_release_contract.py --release` verde, cioè nessun invariante

@@ -333,6 +333,15 @@
       "stato": "verified"
     },
     {
+      "id": "copertura.variazione-fra-corse",
+      "superficie": "misura di copertura del checkpoint di livello 2",
+      "invariante": "la copertura misurata su un sorgente Rust strumentato invariato e' riproducibile, oppure la sua variazione ha una causa dimostrata",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "la causa non e' dimostrata. Su revisioni fra cui non e' cambiata alcuna riga Rust le righe coperte si sono mosse fra 26 772 e 26 780 su un denominatore fermo a 31 192, e la proiezione `cargo` si e' mossa insieme: la variazione e' bidirezionale e reversibile, quindi non e' un cambiamento persistente, ma nessuna corsa ne dimostra la causa. «Rumore di misura» resta un'ipotesi. La chiusura richiede campagne di sola copertura isolate, sullo stesso SHA e nello stesso container, con profili e report azzerati ogni volta; il confronto dei `lcov.info` per (file, riga, coperta/non coperta) e non per percentuale; e, se la variazione persiste, una campagna con `--test-threads=1` per separare la concorrenza dal resto. Non blocca il merge del reset documentale — entrambe le proiezioni restano largamente sopra la soglia dell'80% e il Rust misurato e' invariato — blocca la release.",
+      "sintesi": "copertura non riproducibile fra corse, causa non dimostrata"
+    },
+    {
       "id": "sistema.qualifica-cross-component",
       "superficie": "catena IO-tools -> data-tools -> database-tools",
       "invariante": "la catena e' qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma, comandi ed esiti registrati",
