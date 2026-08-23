@@ -1,0 +1,419 @@
+{
+  "schema_version": 1,
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione 495ad73. Ogni numero viene dalla corsa qui descritta, e da nessun'altra. Il commit che pubblica questo file ha uno SHA diverso e NON eredita la misura.",
+  "esito": "S9 checkpoint level 2 passed",
+  "non_significa": "non autorizza una release e non promuove la readiness di alcun componente ne' del sistema; la readiness di sistema e' di proprieta' esterna, vedi release/system-rc-gate.json",
+  "corsa": {
+    "revisione_iniziale": "495ad73a6404a1f568eed42d5a59554ba19fb44a",
+    "revisione_finale": "495ad73a6404a1f568eed42d5a59554ba19fb44a",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "nota": "revisione e impronta finali sono **rilette**, non ristampate: `git rev-parse HEAD` e `impronta_albero` girano di nuovo a fine corsa.",
+    "nota_impronta": "sotto lo schema `impronta-albero-v1` un albero pulito da' sempre lo stesso valore, perche' i tre componenti — staged, unstaged, untracked non ignorati — sono vuoti. L'impronta misura le modifiche **non committate**; a identificare il contenuto committato e' lo SHA riletto. Il confronto inizio/fine dice «nessun passo ha scritto nell'albero durante la corsa», e non dice nient'altro.",
+    "albero_all_avvio": "pulito, 0 file non committati",
+    "base_diagnostica": "388afcb",
+    "percorso_di_corsa": "/out/livello2 (bind mount fuori dal repository)",
+    "stdout_conservato": "la corsa scrive il proprio stdout dentro il volume montato, non sul terminale di chi la lancia: le righe dei passi sono l'input della riconciliazione, e un attach interrotto le porterebbe via."
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 57,
+    "eseguiti": 57,
+    "verdi": 57,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i passi sono ricostruiti dalle **righe stampate** dalla corsa, non accettati dal riepilogo `passi: n/m`. Le righe danno 57 identificatori, 57 distinti, nessun duplicato, tutti verdi, e coincidono voce per voce con `elenco_dei_passi` del `risultato.json` — che e' la registrazione che il checkpoint fa di se stesso, e non la sostituisce.",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ],
+    "che_cosa_aggiunge_l_elenco": "i contatori dicono **quanti** passi; l'elenco dice **quali**, con l'esito e il log di ciascuno. Senza, il manifest degli artefatti poteva essere ridotto a due file mentre la riconciliazione continuava a dichiarare 57/57: non c'era niente da confrontare. `log` e' nullo per i passi che non ne scrivono uno — qui i due in linea; in una corsa di livello 1 anche gli omessi, e in una corsa fallita i saltati."
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 39679,
+      "target": 13,
+      "target_totali": 13,
+      "crash": 0
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 13,
+      "target_totali": 13,
+      "finding": 0,
+      "quarantena": 0
+    },
+    "copertura": {
+      "lcov_percentuale": 85.86,
+      "lcov_righe_coperte": 26780,
+      "lcov_righe_strumentate": 31192,
+      "cargo_lines_percentuale": 83.96,
+      "soglia": 80.0,
+      "campagna": "una sola: `coverage_pulizia` rimuove i profili precedenti e il report parte cancellato, quindi entrambe le percentuali leggono il profdata prodotto da `coverage_misura` in questa corsa. La directory degli artefatti e' stata creata vuota per questa corsa.",
+      "controprova_indipendente": "i record `DA:` di lcov.info ricontati fuori dallo strumento danno 26780/31192, cioe' lo stesso valore del passo",
+      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate",
+      "perche_anche_il_conteggio": "la percentuale e' arrotondata a due decimali, e a questa scala poche righe spostano la cifra che si legge. Il conteggio dice di quanto; la percentuale dice quanto, arrotondato."
+    },
+    "diagnostica_differenziale": {
+      "base": "388afcb",
+      "righe_cambiate_eseguibili": 0,
+      "coperte": 0,
+      "scoperte": 0,
+      "cambiate_non_eseguibili": 0,
+      "esito": "n/d",
+      "ragione": "fra 388afcb e 495ad73 non e' cambiata **alcuna riga Rust**, ne' eseguibile ne' commento: il delta e' fatto di script Python, shell e Markdown. Dire «nessuna riga eseguibile e' cambiata» sarebbe falso, perche' gli script cambiati sono eseguibili — la copertura non li osserva."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": "/out/livello2 (bind mount fuori dal repository)",
+    "file": 59,
+    "digest_manifest": "9d01763b7f64c3e508c23975eb17d34c58bc887cea6eb193b859782bb3044cca",
+    "forma_del_manifest": "`percorso` NUL `sha256 del contenuto` LF, in ordine di percorso; nessun timestamp e nessun metadato di filesystem, cosi' il digest dipende solo da cio' che la corsa ha prodotto. La forma e' quella di `digest_del_manifest` in check_release_contract.py, che la ricalcola e la confronta: un digest che nessuno puo' ricalcolare e' una stringa, non un'impronta.",
+    "risultato_della_corsa": "`risultato.json` fa parte del manifest, ed e' preteso: e' l'ultimo file che la corsa scrive, ed e' scritto in modo atomico. Porta esito «superato», revisione e impronta iniziali e finali, i conteggi e l'elenco dei passi.",
+    "attesta_la_chiusura_di_s9": "`check_errori_redatti.log` e' fra gli artefatti: e' il passo che misura il censimento dei costruttori legacy, ed e' cio' che rende questa corsa l'attestazione della chiusura di S9 invece di una corsa che parla d'altro.",
+    "manifest": {
+      "assurance_fallbacks.log": "1befeb5b95c843d303b52ada21f59bc3133f0aff9f25e5ebe5f6cf1b149abd64",
+      "assurance_n1_integrita.log": "c55c7647af6c9a2db7e1ca46f59883ca73ea52d989d9fa0897218bc86c565b4e",
+      "assurance_n1_prove.log": "8f3b72fc888d3f84fe4073cb76fa4dffb6ef348cfdfba8fe8da2c9aee7aef6fc",
+      "catalog.json": "e1bc7e6201180f25dd9d068a177fd9eb33dacad382fe8a8970f53f5ff45b05e8",
+      "check_action_pins.log": "c125dc241c876a62a8598f74f6109651fda752f4ac6adeb82f5a6e0380d55545",
+      "check_coverage_exclusions.log": "d2c6dd7c7d7b98853a36cde24ef6ad5057e840c2a7f73aa144e0863d05f96ffe",
+      "check_dependency_pins.log": "3f472480b7f82381eed29cd34314d7c6dd5fed5ba268437a3df868b7415edb71",
+      "check_docset.log": "21fddca1298b159a7e3a280e32393e21faa2efd32f15a0b63379cbd8b349836f",
+      "check_dxf_fork.log": "aec602c5ee9d01f42f5ae0939436af4f921116b5f5620bbabbfbbff62e465dbe",
+      "check_errori_redatti.log": "b4600a323e1d6820b3df96a9b4bf4e3b56865ea3d5faf435dbb404f1f21e41b9",
+      "check_filegdb_catalog.log": "b45eb8a08d237c28497cf4829f6d0100af3142a18bcd69b79700fac565ce167e",
+      "check_gdal_fork.log": "e308ae8a812b3f76b8219308e03171db550ef436183a755baacb7b3ec0a984fe",
+      "check_identita.log": "f730c1011d8a11d62554f9ccce2a3c53e20256761ae7682798c9e58ac64fc4f9",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "6ac1a697a56b13e160ac37eeea8097d4fb1aadbb51c4cd827e31eb5bb3e20ac3",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "a46632ba58c6f7cb2be1d30ff9c89b2901f3d39c62eb96ad77e76372cb59aa1c",
+      "check_release.log": "1b444b56bed92077db0f5eab8da5945822e9bc9134e894653f3644aa0ecfbf0f",
+      "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
+      "check_wkb_limits.log": "578dc63d472708e58660e2cfd37246d7a70797fbafae6aaa1cac37db2f387d67",
+      "clippy.log": "945453d4e3a47ddb74f177df2f9c0cb55b6aca8832cdcacdaad582073b4eed5a",
+      "clippy_default.log": "67534ce7a15771c882d0eb6591d11cfad8dfdb6e65114ec49c44a5b11464938d",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "coverage_diff.log": "9db6e865b68fdc4ea24cee7a153f90a093151474c89242022192d579b197f180",
+      "coverage_export.log": "a9f2eaad3b9e4823a60a49fa56e31b30742b266a6b336236a6ee6ab73ea89c2f",
+      "coverage_misura.log": "8bfc9d2be942282009537daeff00264ec7e39722f1005dc08495cdf9159b79e1",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "635b5763982b97cf69c042a0634d45d13c82ae6628621a873dd6aafc20cd4eb4",
+      "coverage_soglia_dal_report.log": "465422169a5dc4860ef7a53090205118df6de67a1fea4e23bf6381802417b552",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz_replay.log": "4c84a4f44bb7b8cc8da08984fb8f452820882eb14819ed395c3ce8eb41847b88",
+      "fuzz_smoke.log": "1898fa5f158ff6a66d8a9c1c2406c7fadf5f6575a02a3c8c1b5179cae29e43a9",
+      "lcov.info": "f8f26bb3006638b390d40c084f5db9850b2deb8d68844e4520dacc817c9b14b1",
+      "risultato.json": "c76e950c6e4f92dc06a3e270f7db5094f73d8f02937fa05b89efccc5d3f5762b",
+      "sonde_action_pins.log": "4c3b3b2f85f7f81206f2731efca1a5c61f58b2f6c54d820b4003b988757b84ec",
+      "sonde_assurance_n1.log": "d76c87d843ef6f4ae3c269be2211c484ab62bfa603d8a794e659dda647c4aad4",
+      "sonde_assurance_n1_prove.log": "7bc83929f79c8678737a5724da0d7fb69194a01ca52394499c61abcb93823e0b",
+      "sonde_audit_ignores.log": "065c7d15facfd20f14fb9182747be315f3349fa1d5e1a0e966047509f4bfa9b1",
+      "sonde_checkpoint.log": "603d2217c60e03de1162af7bb3bd1d572bf2897a94845c2c82151f4b26da2b66",
+      "sonde_coverage_excl.log": "5b90c58ad2e942f849b320131a99bbd570cb6609cdf797fa1fcfcd2e1fadcf2e",
+      "sonde_docset.log": "b99e39e4aab39958a7c8ba037fba89b06c7811c585345d818e7fe313068ec05f",
+      "sonde_errori_redatti.log": "0f0149f92c2183ef7246fcaec2decd1c651e8502ce280acaef0e7400e32feec8",
+      "sonde_fallback.log": "eab4281419f49474c6773f172eab4705e82da9e9196e5418e92a366609bcb99e",
+      "sonde_filegdb.log": "f21cf8f81dbfe5d72a7e0bee6069a3c3fc0e651e4938e2d690e9e9ff41748af0",
+      "sonde_fork.log": "95c6f50bfc2d00baa4fe74c5c09138bd2cb2262025efa35855749ec7dbd9bd95",
+      "sonde_identita.log": "5d8a174d448d59185fd227bcbab9c964e39b10a9c2e28965972cfb0c833dd854",
+      "sonde_niente_leak.log": "f633ad8e738512bb7562a43fab273ab65cdc5a224925052dd0e38b5bd4931a80",
+      "sonde_prevalidazione.log": "58a520a024f15707222afe6575db8a3a9dbe7469c2c156ae0f9979903d48645a",
+      "sonde_quarantena.log": "e586fc0f3bb2a05f4c80f07d1b4c6171e830592f6c7aaf70d4af3b0aa3ebd072",
+      "sonde_quartetto.log": "acfb09536560388410092c5cee079b9ee896afa337322fef4582c0abab99ae18",
+      "sonde_release.log": "35cc935b94913b206b1acb12a6e58bd1fc78d1c31ea350cae3844bf654ad3553",
+      "sonde_toolchain.log": "afae4b31062ee74e07f3c0b1281ae5546eec16e0ba38cbbda9b5433ba14598aa",
+      "sonde_wkb_condiviso.log": "fe008aab760eb03ccac7578e2b84665b1b50b0d7f855b17a0c7a8d039435b658",
+      "sonde_wkb_limits.log": "88050142d098c1bb48c7c4bb4a4bee25438c30ee6aa52dc08919f658ca7e522a",
+      "test.log": "7738aaf9b59ab30de1281ed22e0b028f619c70f2216930a5388482e15096d752",
+      "test_default.log": "ef35d7a10a8784132714cdeecb0be628682d10dd4ae3f0e2f529c6b3599c96b1"
+    }
+  },
+  "nessun_confronto_fra_corse": "questa evidenza descrive **una corsa sola**. Un confronto con corse precedenti non e' ricostruibile da un albero che conserva la sola evidenza corrente, e scriverlo qui creerebbe un'affermazione che nessuno puo' verificare leggendo il repository. Le corse precedenti sono in git."
+}

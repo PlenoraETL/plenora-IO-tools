@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "388afcb",
+      "sha": "495ad73",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "388afcb",
+    "sha": "495ad73",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 39551,
+      "replay_input": 39679,
       "replay_target": 13,
       "replay_crash": 0,
       "smoke_target_eseguiti": 13,
@@ -32,26 +32,26 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 85.83,
-      "lcov_righe_coperte": 26773,
+      "lcov_percentuale": 85.86,
+      "lcov_righe_coperte": 26780,
       "lcov_righe_strumentate": 31192,
-      "cargo_lines_percentuale": 83.94,
+      "cargo_lines_percentuale": 83.96,
       "soglia": 80.0,
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "f2b4837",
+      "baseline": "388afcb",
       "esito": "n/d",
       "ragione": "fra le due revisioni non e' cambiata alcuna riga Rust, ne' eseguibile ne' commento: il delta e' fatto di script Python e shell, JSON di registro e Markdown. Dire «nessuna riga eseguibile» sarebbe falso, perche' gli script cambiati sono eseguibili — la copertura non li osserva."
     },
-    "evidenza": "assurance/evidence/checkpoint-388afcb.json"
+    "evidenza": "assurance/evidence/checkpoint-495ad73.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "388afcb"
+      "qualificato_su": "495ad73"
     }
   },
   "aperto": {
