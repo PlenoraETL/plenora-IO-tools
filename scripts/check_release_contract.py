@@ -330,6 +330,24 @@ FOGLIE_DICHIARATE = {
     ),
     "aperto.candidate_release.nota": "prosa",
     "blocchi.nota": "prosa",
+    "da_chiarire.descrizione": "prosa",
+    "da_chiarire.variazione_della_copertura_fra_corse.stato": (
+        "un fatto aperto e non spiegato: nessuna fonte lo misura, ed e' il "
+        "criterio di chiusura a dire quando smettera' di esserlo"
+    ),
+    "da_chiarire.variazione_della_copertura_fra_corse.release_blocking": (
+        "la decisione che non blocca questo ramo. Non e' derivabile dal "
+        "registro del contratto, dove non esiste un invariante corrispondente: "
+        "non e' un blocco, e' una cosa da chiarire"
+    ),
+    "da_chiarire.variazione_della_copertura_fra_corse.osservazione": "prosa",
+    "da_chiarire.variazione_della_copertura_fra_corse.che_cosa_non_e_dimostrato": "prosa",
+    "da_chiarire.variazione_della_copertura_fra_corse.perche_non_blocca_questo_ramo": "prosa",
+    "da_chiarire.variazione_della_copertura_fra_corse.criterio_di_chiusura": (
+        "il criterio che chiuderebbe la voce. Non e' misurato da niente: e' "
+        "cio' che qualcuno dovra' eseguire, ed e' scritto perche' una cosa "
+        "aperta senza condizione di chiusura non si chiude"
+    ),
 }
 
 # --- che cosa lo stato ripete del registro ---------------------------------

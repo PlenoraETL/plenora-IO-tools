@@ -94,6 +94,13 @@ l'albero conserva **la sola evidenza corrente**, quindi un'affermazione su più
 corse non sarebbe ricostruibile da ciò che il repository contiene. Le corse
 precedenti sono in git.
 
+Che quella percentuale si sia mossa fra corse su codice Rust invariato è però un
+fatto aperto, e sta in
+[`da_chiarire`](../assurance/current-state.json) con il proprio criterio di
+chiusura. **Non blocca questo ramo** — entrambe le proiezioni sono largamente
+sopra soglia e il Rust misurato è invariato — e va chiarito prima della
+qualifica produttiva finale.
+
 Il conteggio dei passi è **riconciliato dagli identificatori** — distinti, senza
 duplicati — e non accettato dal rapporto che lo strumento stampa su se stesso.
 
