@@ -21,13 +21,13 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `7f2dc0c` |
-| revisione misurata | `7f2dc0c` |
+| ultima qualificata | `78c8655` |
+| revisione misurata | `78c8655` |
 | passi del checkpoint | 57 |
 | passi verdi | 57 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 40 525 |
+| input di replay | 40 911 |
 | target di replay | 13 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 13 |
@@ -39,12 +39,12 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | righe strumentate LCOV | 31 192 |
 | copertura cargo | 83,94% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `50426e9` |
+| baseline differenziale | `7f2dc0c` |
 | esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 10 |
-| S9, qualificato su | `7f2dc0c` |
+| S9, qualificato su | `78c8655` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
 | candidate, versione del workspace | `1.0.1` |

@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "7f2dc0c",
+      "sha": "78c8655",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "7f2dc0c",
+    "sha": "78c8655",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 40525,
+      "replay_input": 40911,
       "replay_target": 13,
       "replay_crash": 0,
       "smoke_target_eseguiti": 13,
@@ -40,18 +40,18 @@
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "50426e9",
+      "baseline": "7f2dc0c",
       "esito": "n/d",
       "ragione": "fra le due revisioni non e' cambiata alcuna riga Rust, ne' eseguibile ne' commento: il delta e' fatto di script Python e shell, JSON di registro e Markdown. Dire «nessuna riga eseguibile» sarebbe falso, perche' gli script cambiati sono eseguibili — la copertura non li osserva."
     },
-    "evidenza": "assurance/evidence/checkpoint-7f2dc0c.json"
+    "evidenza": "assurance/evidence/checkpoint-78c8655.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "7f2dc0c"
+      "qualificato_su": "78c8655"
     }
   },
   "aperto": {
