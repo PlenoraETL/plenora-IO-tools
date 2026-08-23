@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "descrizione": "Dimostrazione di riproducibilita' della misura di copertura sulla revisione a916ad9, che chiude il blocco `copertura.variazione-fra-corse`.",
+  "che_cosa_e_questo_file": "il **verbale di una dimostrazione**, non una fonte che un gate riderivi. Cio' che tiene vero l'invariante e' la prova eseguita del suo gate — `check_sonde_deterministiche.py` — non questo documento. Qui restano le condizioni della dimostrazione e i digest dei suoi artefatti, perche' una dimostrazione che nessuno puo' rifare e' un'affermazione.",
+  "revisione": "a916ad939a0f4e1ab34d837e551d55af6ddb28bd",
+  "albero_all_avvio": "pulito, 0 file non committati",
+  "container": "plenora-io-dev, la stessa immagine del checkpoint",
+  "perimetro": "lo stesso del checkpoint: soglia 80% sulle 13 crate libreria, escluse plenora-bench, plenora-fuzz e plenora-io-cli. `PLENORA_CROSS_FS_TEST_ROOT` esportata come nel checkpoint, altrimenti un test esce subito e la campagna coprirebbe meno righe per una differenza d'ambiente.",
+  "profili_azzerati": "`cargo llvm-cov clean --workspace` prima di ogni campagna, e il `.info` cancellato prima dell'export: due campagne che condividessero un profilo darebbero per costruzione lo stesso risultato, e la riproducibilita' apparirebbe dimostrata senza essere stata misurata.",
+  "modi": {
+    "parallelo": {
+      "campagne": 4,
+      "argomenti_del_harness": "predefiniti",
+      "righe_coperte": 26861,
+      "righe_strumentate": 31274,
+      "percentuale": 85.8892,
+      "esito_del_confronto": "coincidono riga per riga",
+      "file": 12,
+      "digest_manifest": "91071de8938fee84b16735fe2a6b8b7f1bbfe913a6c6a4e973b0dc6a8be84e6d",
+      "manifest": {
+        "campagna-1.info": "cafc3226ae1ea2cee65fc9b3c4dce2af638c76c2c12771c876b317368c2e776f",
+        "campagna-1.log": "4a8cbe2610047fcd1f788d3a24188c8a3b975da5e63c94a26072c5355deeb016",
+        "campagna-1.riepilogo": "cb7e89bb98cbbe6c17be55d2f5a7aa387d8d3aa837269e8e91fc9c49c01a4a5f",
+        "campagna-2.info": "af7cfc19186d57ea76b44a578ab06f9e52b499032024225d3a22a08b61aad119",
+        "campagna-2.log": "569c9e495eaa3d47858a28c3813b55e051a8986cefbf0bed58e888c11e033a97",
+        "campagna-2.riepilogo": "cb7e89bb98cbbe6c17be55d2f5a7aa387d8d3aa837269e8e91fc9c49c01a4a5f",
+        "campagna-3.info": "835a7cd70e60ea344a08877e771bc7ace6bc54fd04ae62309605c7808f1ff161",
+        "campagna-3.log": "b23737fc2a9c8f5c7e188ee11c42d3876d4695f42ca2c791e78b41ee6e80300d",
+        "campagna-3.riepilogo": "cb7e89bb98cbbe6c17be55d2f5a7aa387d8d3aa837269e8e91fc9c49c01a4a5f",
+        "campagna-4.info": "800f9f2edba4a87c82df7c7ae48db02c7c1b61a7d41bb6092757bc2351afda8e",
+        "campagna-4.log": "27bf8d64ed3c1da61bbc57c78bb022e877ffe9df35dcfc2c549d65a0fe6a1b22",
+        "campagna-4.riepilogo": "cb7e89bb98cbbe6c17be55d2f5a7aa387d8d3aa837269e8e91fc9c49c01a4a5f"
+      }
+    },
+    "seriale": {
+      "campagne": 3,
+      "argomenti_del_harness": "--test-threads=1",
+      "righe_coperte": 26861,
+      "righe_strumentate": 31274,
+      "percentuale": 85.8892,
+      "esito_del_confronto": "coincidono riga per riga",
+      "file": 9,
+      "digest_manifest": "413f9c1c5f462ee2659ad9ebe5c584d191fe394e1c1a53a61a196e737fc1841a",
+      "manifest": {
+        "campagna-1.info": "ec38105b84ee1152cb223ec61698fa022b7ba159c52d9d28db1367962ce0cd7e",
+        "campagna-1.log": "5626b565135aff7d8bd7ecb33e841d74782f8f36789c71c3803213d968a06019",
+        "campagna-1.riepilogo": "cb7e89bb98cbbe6c17be55d2f5a7aa387d8d3aa837269e8e91fc9c49c01a4a5f",
+        "campagna-2.info": "193e32a81e5bb59303d22d08659430e8ff6567048097d12eaf1115c6a16f56a9",
+        "campagna-2.log": "800bac0cdeb619b924dcb4fba2c093d363ef6ea65d33e5f497ef9649691f1dfa",
+        "campagna-2.riepilogo": "cb7e89bb98cbbe6c17be55d2f5a7aa387d8d3aa837269e8e91fc9c49c01a4a5f",
+        "campagna-3.info": "e1eb90d3dbc705375240d44ed3f05ab751d96cd2aed237e6a2528f879f63821c",
+        "campagna-3.log": "9a2852d740205b24e9592b8d5412d2ce46e66836fb63f0027c601a3f4fd0b6d0",
+        "campagna-3.riepilogo": "cb7e89bb98cbbe6c17be55d2f5a7aa387d8d3aa837269e8e91fc9c49c01a4a5f"
+      }
+    }
+  },
+  "esito": {
+    "campagne_totali": 7,
+    "righe_coperte": 26861,
+    "righe_strumentate": 31274,
+    "coincidenza": "tutte e sette coincidono per (file, riga, coperta o no), e coincidono anche **fra le due modalita'**: la serializzazione dei test non cambia piu' l'insieme delle righe eseguite.",
+    "che_cosa_non_coincide": "i file `lcov.info` **non sono identici byte a byte**, e i loro digest sono tutti diversi. A cambiare e' il numero di esecuzioni di 182-185 righe, non il loro stato: una riga eseguita tre volte invece di due e' coperta in entrambi i casi. Il fenomeno di fondo — l'ordine con cui i thread si alternano — c'e' ancora; cio' che e' stato tolto e' la sua capacita' di spostare la **copertura**."
+  },
+  "prima_della_correzione": {
+    "osservazione": "sette corse osservate davano righe coperte fra 26 772 e 26 780 su un denominatore fermo, in entrambi i versi, e la variazione attraversava il confine di arrotondamento fra 85,83% e 85,84%.",
+    "causa_dimostrata": "tre famiglie di rami che si eseguono solo quando una corsa fra thread va in un certo modo: i bracci `Err` dei quattro cicli compare-exchange di `budget.rs`, il ramo di backpressure di `batch_worker.rs` su canale pieno, e il ramo «nessuna consegna» dell'osservatore in `reader_adapters.rs`. Ciascuna e' stata isolata confrontando i `lcov.info` riga per riga: le percentuali non la mostravano.",
+    "non_e_stata_chiamata_rumore": "«rumore di misura» era l'ipotesi di partenza ed e' rimasta scritta come ipotesi finche' non e' stata sostituita da una causa. Non lo era: e' esecuzione condizionata dallo scheduling, e ha un rimedio."
+  },
+  "la_soglia_non_e_stata_toccata": "80% sulle crate libreria, come prima. `check_coverage_exclusions.py` continua a rifiutare chi la muove o chi cambia il perimetro, e `campagne_copertura.sh` e' fra i file che sorveglia.",
+  "cosa_resta_variabile": "il numero di esecuzioni per riga, e il tempo. Nessuno dei due entra in una soglia, e nessuno dei due e' stato reso deterministico: renderlo tale significherebbe serializzare cio' che il codice fa in parallelo per compiacere una misura."
+}
