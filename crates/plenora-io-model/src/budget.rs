@@ -122,6 +122,8 @@ fn allocate_pipeline_id(counter: &AtomicU64) -> Result<u64> {
         let Some(next) = current.checked_add(1) else {
             return Err(limit_error(PIPELINE_IDS_EXHAUSTED));
         };
+        #[cfg(test)]
+        perdi_la_corsa(counter);
         match counter.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
             Ok(_) => return Ok(current),
             Err(observed) => current = observed,
@@ -390,6 +392,57 @@ impl SourceDigest {
     }
 }
 
+// Interferenza concorrente simulata, per le sole sonde di questo modulo.
+//
+// Il ramo `Err` di `compare_exchange_weak` si esegue solo quando lo scambio
+// perde la corsa. Se venga eseguito o no dipende dallo scheduling, e la
+// copertura di quelle righe cambiava fra due misure sullo **stesso albero**:
+// e' la causa dimostrata del blocco `copertura.variazione-fra-corse`.
+//
+// Qui la corsa si perde **su richiesta**. Il valore viene mutato appena prima
+// dello scambio, che fallisce per la ragione vera — il valore osservato non e'
+// piu' quello atteso — e non per un fallimento simulato: il ramo eseguito e'
+// quello di produzione, non una sua imitazione.
+//
+// L'alternativa sarebbe sostituire `compare_exchange_weak` con la variante
+// forte. Sarebbe una modifica dell'algoritmo motivata dalla misura, e la
+// variante debole e' li' per una ragione che la misura non conosce.
+//
+// Le due direzioni servono entrambe: i gauge scendono quando qualcuno preleva,
+// il contatore degli identificatori sale quando qualcuno ne alloca uno.
+#[cfg(test)]
+#[derive(Clone, Copy)]
+enum InterferenzaConcorrente {
+    Sottrae(u64),
+    Aggiunge(u64),
+}
+
+#[cfg(test)]
+thread_local! {
+    static INTERFERENZA: std::cell::Cell<Option<InterferenzaConcorrente>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Arma **una sola** interferenza sul prossimo scambio di questo thread.
+#[cfg(test)]
+fn arma_interferenza(quale: InterferenzaConcorrente) {
+    INTERFERENZA.with(|cella| cella.set(Some(quale)));
+}
+
+/// Consuma l'armamento, se c'e', mutando il valore prima dello scambio.
+#[cfg(test)]
+fn perdi_la_corsa(valore: &AtomicU64) {
+    match INTERFERENZA.with(std::cell::Cell::take) {
+        Some(InterferenzaConcorrente::Sottrae(quanto)) => {
+            valore.fetch_sub(quanto, Ordering::AcqRel);
+        }
+        Some(InterferenzaConcorrente::Aggiunge(quanto)) => {
+            valore.fetch_add(quanto, Ordering::AcqRel);
+        }
+        None => {}
+    }
+}
+
 /// Gauge lease-based: quota residua su una capacita' fissa, restituita al
 /// drop della lease. Non e' cumulativo — a differenza dei contatori di
 /// [`OperationBudget`] la quota torna disponibile.
@@ -413,6 +466,8 @@ impl Gauge {
             let Some(next) = current.checked_sub(amount) else {
                 return false;
             };
+            #[cfg(test)]
+            perdi_la_corsa(&self.remaining);
             match self.remaining.compare_exchange_weak(
                 current,
                 next,
@@ -449,6 +504,8 @@ impl Gauge {
             let Some(next) = current.checked_sub(amount) else {
                 return TakeOutcome::Exhausted;
             };
+            #[cfg(test)]
+            perdi_la_corsa(&self.remaining);
             match self.remaining.compare_exchange_weak(
                 current,
                 next,
@@ -465,6 +522,8 @@ impl Gauge {
         let mut current = self.remaining.load(Ordering::Acquire);
         loop {
             let next = current.saturating_add(amount).min(self.capacity);
+            #[cfg(test)]
+            perdi_la_corsa(&self.remaining);
             match self.remaining.compare_exchange_weak(
                 current,
                 next,
@@ -1967,6 +2026,117 @@ impl ConvertBudgetParts {
 
 #[cfg(test)]
 mod tests {
+    /// Il ramo di ritentativo di `try_take_bounded`, **deterministicamente**.
+    ///
+    /// Non prova a coprire una riga: prova la proprieta' per cui il ciclo
+    /// esiste. Calcolare il consumo proiettato con una `load` e prelevare con
+    /// uno scambio separato lascerebbe una finestra fra i due, e due richieste
+    /// concorrenti potrebbero superare entrambe il controllo del tetto. Qui la
+    /// prima proiezione passa, un prelievo concorrente cambia il residuo, e il
+    /// ritentativo deve **riproiettare il tetto sul valore nuovo** e rifiutare.
+    ///
+    /// Senza la riproiezione questo prelievo riuscirebbe, e il tetto verrebbe
+    /// sforato senza che nessuno lo veda.
+    #[test]
+    fn il_ritentativo_riproietta_il_tetto_sul_valore_osservato() {
+        let gauge = Gauge::new(100);
+        // Prima proiezione: consumato 0, richiesti 30, tetto 50 — passa.
+        // Il prelievo concorrente porta il consumato a 40, quindi la proiezione
+        // del ritentativo vale 70 e supera il tetto.
+        arma_interferenza(InterferenzaConcorrente::Sottrae(40));
+
+        assert_eq!(gauge.try_take_bounded(30, 50), TakeOutcome::AboveCeiling);
+        assert_eq!(
+            gauge.remaining(),
+            60,
+            "il prelievo rifiutato non deve aver tolto niente: restano i 40 \
+             del prelievo concorrente"
+        );
+    }
+
+    /// Il ritentativo di `allocate_pipeline_id`, **deterministicamente**.
+    ///
+    /// Prova che due allocazioni concorrenti non ricevono lo stesso
+    /// identificatore: se il ciclo restituisse il valore **osservato prima**
+    /// dello scambio invece di quello nuovo, il chiamante che perde la corsa
+    /// tornerebbe con l'id gia' assegnato all'altro.
+    #[test]
+    fn il_ritentativo_non_riassegna_un_identificatore_gia_preso() {
+        let contatore = AtomicU64::new(7);
+        // Un'allocazione concorrente si prende il 7 mentre stiamo per prenderlo.
+        arma_interferenza(InterferenzaConcorrente::Aggiunge(1));
+
+        let assegnato = allocate_pipeline_id(&contatore).expect("identificatore");
+
+        assert_eq!(assegnato, 8, "il 7 se l'e' preso l'allocazione concorrente");
+        assert_eq!(contatore.load(Ordering::Acquire), 9);
+    }
+
+    /// Il ritentativo di `Gauge::try_take`, **deterministicamente**.
+    ///
+    /// Prova che il ciclo non preleva piu' di quanto resti: la sottrazione va
+    /// ricontrollata sul valore nuovo, altrimenti il prelievo passerebbe sul
+    /// residuo vecchio e il gauge andrebbe sotto zero.
+    #[test]
+    fn il_ritentativo_non_preleva_piu_di_quanto_resti() {
+        let gauge = Gauge::new(100);
+        // Un prelievo concorrente da 80 lascia 20: i 30 richiesti non ci stanno
+        // piu', anche se ci stavano al momento della prima osservazione.
+        arma_interferenza(InterferenzaConcorrente::Sottrae(80));
+
+        assert!(!gauge.try_take(30));
+        assert_eq!(gauge.remaining(), 20, "il rifiuto non deve togliere niente");
+    }
+
+    /// Il ritentativo di `Gauge::give_back`, **deterministicamente**.
+    ///
+    /// Prova che la restituzione si somma al valore **osservato**: sommandola
+    /// a quello vecchio cancellerebbe il prelievo concorrente, e la quota
+    /// tornerebbe disponibile due volte.
+    #[test]
+    fn il_ritentativo_non_cancella_un_prelievo_concorrente() {
+        let gauge = Gauge::new(100);
+        assert!(gauge.try_take(50));
+        // Mentre restituiamo i 50, un altro ne preleva 30.
+        arma_interferenza(InterferenzaConcorrente::Sottrae(30));
+
+        gauge.give_back(50);
+
+        assert_eq!(
+            gauge.remaining(),
+            70,
+            "100 meno i 30 del prelievo concorrente: i nostri 50 tornano, i suoi no"
+        );
+    }
+
+    /// La controprova: senza interferenza lo stesso prelievo riesce.
+    ///
+    /// Senza, «rifiuta sempre» supererebbe la sonda precedente, e il tetto
+    /// riproiettato non sarebbe distinguibile da un tetto sempre superato.
+    #[test]
+    fn senza_prelievo_concorrente_lo_stesso_prelievo_riesce() {
+        let gauge = Gauge::new(100);
+        assert_eq!(gauge.try_take_bounded(30, 50), TakeOutcome::Taken);
+        assert_eq!(gauge.remaining(), 70);
+    }
+
+    /// Il ritentativo consegna quando il tetto regge anche sul valore nuovo.
+    ///
+    /// Distingue «ha ritentato» da «ha rifiutato»: senza questa, un ciclo che
+    /// dopo un fallimento restituisse sempre `AboveCeiling` passerebbe.
+    #[test]
+    fn il_ritentativo_consegna_se_il_tetto_regge_ancora() {
+        let gauge = Gauge::new(100);
+        arma_interferenza(InterferenzaConcorrente::Sottrae(10));
+
+        assert_eq!(gauge.try_take_bounded(30, 50), TakeOutcome::Taken);
+        assert_eq!(
+            gauge.remaining(),
+            60,
+            "10 del prelievo concorrente piu' 30 di questo"
+        );
+    }
+
     use super::*;
 
     fn bundle() -> PipelineBundle {

@@ -2684,10 +2684,18 @@ mod tests {
         };
 
         let intrusioni = Arc::new(AtomicUsize::new(0));
+        // L'osservatore attraversa il ramo «nessuna consegna» **per
+        // costruzione**: `consegnati` non puo' crescere finche' questo thread
+        // non chiama `next_batch`, quindi il primo giro lo trova a zero. Senza
+        // l'attesa qui sotto quel ramo si eseguirebbe solo vincendo una corsa,
+        // e la copertura di quelle righe cambierebbe fra due misure sullo
+        // stesso albero.
+        let visto_senza_consegne = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let osservatore = {
             let contesto = contesto.clone();
             let intrusioni = intrusioni.clone();
             let tentativi = tentativi.clone();
+            let visto_senza_consegne = visto_senza_consegne.clone();
             std::thread::spawn(move || {
                 while !eof.load(AtomicOrdering::SeqCst) {
                     // **La soglia cresce con i batch custoditi.** Quando il
@@ -2704,6 +2712,7 @@ mod tests {
                     // rilascia-e-riacquista.
                     let k = consegnati.load(AtomicOrdering::SeqCst);
                     if k == 0 {
+                        visto_senza_consegne.store(true, AtomicOrdering::SeqCst);
                         std::hint::spin_loop();
                         continue;
                     }
@@ -2733,6 +2742,9 @@ mod tests {
         // materializzati e ceduti allo spool. Dopo, la riconsegna restituisce
         // legittimamente la memoria batch per batch, e un osservatore ancora
         // attivo la scambierebbe per un'intrusione.
+        while !visto_senza_consegne.load(AtomicOrdering::SeqCst) {
+            std::hint::spin_loop();
+        }
         let primo = match reader.next_batch() {
             Ok(batch) => batch,
             Err(error) => unreachable!("la lettura deve riuscire: {error:?}"),

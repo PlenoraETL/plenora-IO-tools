@@ -60,6 +60,13 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_docset
           python3 scripts/check_docset.py
+      # Il gate tiene in piedi la correzione di `copertura.variazione-fra-corse`:
+      # senza le sonde che esercitano i rami scheduling-dipendenti, la copertura
+      # torna a cambiare fra due corse sullo stesso albero. Il gate stesso gira
+      # dentro `check_release_contract.py`, come prova di quell'invariante; qui
+      # entra la sua sonda.
+      - name: Verify the deterministic race probes gate itself
+        run: python3 -m unittest scripts.test_check_sonde_deterministiche
       # Il confronto fra campagne di copertura e' lo strumento con cui si cerca
       # la causa di `copertura.variazione-fra-corse`. Se sbagliasse direbbe «le
       # campagne coincidono» su campagne diverse, e quella frase chiuderebbe un

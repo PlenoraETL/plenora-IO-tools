@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "descrizione": "I rami che si eseguono solo quando una corsa fra thread va in un certo modo, e la sonda che li esercita **deterministicamente**. Ogni voce dice quale riga dipendeva dallo scheduling e perche', quale sonda la esercita e che cosa quella sonda prova oltre a coprirla.",
+  "perche_esiste": "La copertura misurata su un sorgente Rust strumentato invariato cambiava fra due corse. La causa e' dimostrata: alcuni rami si eseguono solo se uno scambio atomico perde la corsa, se un canale bounded e' pieno al momento del tentativo, o se un thread osservatore parte prima del produttore. Senza una sonda che li esercita per costruzione, quelle righe sono coperte o no a seconda dello scheduling. Togliere una di queste sonde riporterebbe la variazione, e nessun conteggio se ne accorgerebbe: e' questo registro a impedirlo.",
+  "non_e_qui": "il numero di righe coperte. Una soglia sulla copertura non distingue una riga che cambia stato da mille che restano ferme, ed e' precisamente il motivo per cui la variazione era rimasta invisibile fino a quando non e' stata guardata riga per riga.",
+  "gruppi": [
+    {
+      "ramo": "plenora-io-model::budget — ritentativi dei cicli compare-exchange",
+      "perche_dipendeva_dallo_scheduling": "il braccio `Err` di `compare_exchange_weak` si esegue solo quando lo scambio perde la corsa: per contesa reale, o per il fallimento spurio che la variante debole puo' produrre. Su x86-64 la `lock cmpxchg` non fallisce spuriamente, quindi li' e' sempre contesa; su ARM puo' essere anche l'altra. In entrambi i casi non dipende dal codice.",
+      "seam": "`perdi_la_corsa`, `#[cfg(test)]`: muta il valore appena prima dello scambio, che fallisce per la ragione vera. Il ramo eseguito e' quello di produzione, non una sua imitazione. Non e' stata usata la variante forte: sarebbe una modifica dell'algoritmo motivata dalla misura.",
+      "crate": "plenora-io-model",
+      "configurazione": "default",
+      "bersaglio": "lib",
+      "test": [
+        "budget::tests::il_ritentativo_riproietta_il_tetto_sul_valore_osservato",
+        "budget::tests::il_ritentativo_consegna_se_il_tetto_regge_ancora",
+        "budget::tests::senza_prelievo_concorrente_lo_stesso_prelievo_riesce",
+        "budget::tests::il_ritentativo_non_riassegna_un_identificatore_gia_preso",
+        "budget::tests::il_ritentativo_non_preleva_piu_di_quanto_resti",
+        "budget::tests::il_ritentativo_non_cancella_un_prelievo_concorrente"
+      ],
+      "che_cosa_provano": "non la copertura di quattro righe, ma la proprieta' per cui i cicli esistono: proiezione del tetto, sottrazione e restituzione vanno ricalcolate sul valore **osservato**. Senza il ricalcolo il tetto verrebbe sforato, il gauge andrebbe sotto zero, un identificatore verrebbe assegnato due volte e una quota tornerebbe disponibile due volte."
+    },
+    {
+      "ramo": "plenora-io-core::driver::batch_worker — backpressure su canale pieno",
+      "perche_dipendeva_dallo_scheduling": "`send_cancellable` attraversa il ramo `TrySendError::Full` solo se arriva a `try_send` prima che l'altro thread cancelli o rilasci il ricevente. Le sonde che c'erano vincevano quella corsa quasi sempre, e quasi sempre non e' sempre.",
+      "seam": "nessuna: la corsa e' stata **tolta** invece che vinta. Con un canale a capacita' zero `try_send` riesce solo se un ricevente e' gia' parcheggiato in `recv`, e la sonda non chiama mai `recv`: il primo tentativo trova il canale pieno per costruzione.",
+      "crate": "plenora-io-core",
+      "configurazione": "default",
+      "bersaglio": "lib",
+      "test": [
+        "driver::batch_worker::tests::cancellable_send_ritenta_su_un_canale_a_rendezvous_finche_il_ricevente_esiste"
+      ],
+      "che_cosa_provano": "che un canale pieno non perde il batch e non diventa un errore del dataset: il produttore ritenta finche' il ricevente esiste, e riferisce `false` quando sparisce."
+    },
+    {
+      "ramo": "plenora-io-core::driver::reader_adapters — ramo «nessuna consegna» dell'osservatore",
+      "perche_dipendeva_dallo_scheduling": "l'osservatore dell'intrusione in memoria attraversa il ramo `k == 0` solo se gira prima che il reader consegni il primo batch. E' codice di sonda, e la sua copertura oscillava come quella del codice di produzione.",
+      "seam": "nessuna: il thread principale aspetta che l'osservatore abbia attraversato quel ramo prima di chiamare `next_batch`. `consegnati` non puo' crescere finche' quella chiamata non parte, quindi il primo giro lo trova a zero per costruzione.",
+      "crate": "plenora-io-core",
+      "configurazione": "default",
+      "bersaglio": "lib",
+      "test": [
+        "driver::reader_adapters::tests::handoff_reale_della_memoria_senza_bridge_legacy"
+      ],
+      "che_cosa_provano": "che durante il drenaggio la memoria dei batch custoditi non torna mai al gauge. L'attesa aggiunta non cambia cio' che la sonda prova: cambia soltanto che il suo ramo di partenza non dipende piu' dalla fortuna."
+    }
+  ]
+}

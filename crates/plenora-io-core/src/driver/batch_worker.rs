@@ -319,6 +319,46 @@ mod tests {
         assert_eq!(error.category, plenora_io_model::ErrorCategory::Cancelled);
     }
 
+    /// Il ramo di backpressure, **deterministicamente**.
+    ///
+    /// Le due sonde qui accanto lo attraversano solo se il produttore arriva a
+    /// `try_send` prima che l'altro thread cancelli o rilasci il ricevente: se
+    /// perde quella corsa, il ramo non si esegue e la copertura di quelle righe
+    /// cambia fra due misure sullo stesso albero. E' la causa dimostrata del
+    /// blocco `copertura.variazione-fra-corse`.
+    ///
+    /// Con un canale a **capacita' zero** la corsa sparisce: `try_send` riesce
+    /// solo se un ricevente e' gia' parcheggiato in `recv`, e qui non lo e'
+    /// mai. Il primo tentativo fallisce quindi con `Full` per costruzione, e
+    /// non per tempismo.
+    ///
+    /// Cio' che si prova non e' la copertura di sei righe: e' che un canale
+    /// pieno **non perde il batch e non diventa un errore del dataset** —
+    /// il produttore ritenta finche' il ricevente esiste, e riferisce `false`
+    /// quando sparisce.
+    #[test]
+    fn cancellable_send_ritenta_su_un_canale_a_rendezvous_finche_il_ricevente_esiste() {
+        let (sender, receiver) = sync_channel(0);
+        let rilascio = std::thread::spawn(move || {
+            // Nessuna `recv`: il ricevente esiste e non e' mai pronto, quindi
+            // ogni `try_send` trova il canale pieno.
+            std::thread::sleep(Duration::from_millis(50));
+            drop(receiver);
+        });
+
+        let esito = BatchEmitter { sender }.send_cancellable(
+            RecordBatch::new_empty(Arc::new(Schema::empty())),
+            &CancellationToken::default(),
+            ErrorPhase::Read,
+        );
+
+        rilascio.join().unwrap();
+        assert!(
+            !esito.unwrap(),
+            "il ricevente sparito non e' un errore del dataset: e' un `false`"
+        );
+    }
+
     #[test]
     fn cancellable_send_exits_when_the_receiver_of_a_full_channel_drops() {
         let (sender, receiver) = sync_channel(1);
