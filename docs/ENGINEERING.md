@@ -378,6 +378,14 @@ permette di ricostruire — una delle precedenti portava un digest anteriore all
 forma canonica, quindi non ricalcolabile. Git conserva la storia; l'albero di
 lavoro dice che cosa vale oggi.
 
+Gli artefatti della corsa sono **riconciliati con i passi**: l'evidenza porta
+l'elenco delle 57 identità con esito e log, i conteggi ne sono il riassunto
+derivato, e il manifest dev'essere esattamente i 55 log dei passi più
+`catalog.json`, `coverage_diff.log`, `lcov.info` e `risultato.json`. Un manifest
+ridotto lascerebbe la riconciliazione a dichiarare passi di cui non resta
+traccia. `coverage_diff.log` ne fa parte, quindi la diagnostica differenziale è
+obbligatoria per qualificare: un'evidenza descrive una corsa completa.
+
 L'evidenza citata da `current-state.json` è verificata **nella propria coerenza
 interna** prima di essere usata come fonte: una sola revisione fra inizio e
 fine, una sola impronta, conteggi dei passi che tornano fra loro e con un esito

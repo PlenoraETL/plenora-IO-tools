@@ -1110,16 +1110,30 @@ def _sola_evidenza_corrente(stato: dict[str, Any]) -> list[str]:
         ]
 
     attesa = Path(relativo).name
-    presenti = sorted(percorso.name for percorso in DIRECTORY_EVIDENZE.glob("*.json"))
-    superflue = [nome for nome in presenti if nome != attesa]
-    if superflue:
+    # `iterdir` e non `glob("*.json")`: filtrare per estensione e' una
+    # whitelist travestita da controllo di contenuto. Un `checkpoint-old.json.bak`,
+    # una sottodirectory o un `.orig` lasciato da un merge restavano invisibili,
+    # e «contiene la corrente e nient'altro» era vero solo dei `.json`.
+    presenti = sorted(voce.name for voce in DIRECTORY_EVIDENZE.iterdir())
+    if presenti != [attesa]:
         return [
-            f"assurance/evidence: {superflue} non "
-            "sono l'evidenza corrente. Un'evidenza che nessun gate legge e' un "
+            f"assurance/evidence contiene {presenti}, e deve contenere "
+            f"esattamente [{attesa!r}]. Un'evidenza che nessun gate legge e' un "
             "documento che nessuno rilegge, e la sua presenza invita a "
             "confronti fra corse che l'albero non permette di ricostruire. La "
             "storia sta in git."
         ]
+
+    percorso = DIRECTORY_EVIDENZE / attesa
+    if percorso.is_symlink():
+        return [
+            f"assurance/evidence/{attesa} e' un link. Un'evidenza deve essere "
+            "il file che dichiara di essere: un link punta a un contenuto che "
+            "l'albero non registra, e che puo' cambiare senza che il repository "
+            "lo mostri."
+        ]
+    if not percorso.is_file():
+        return [f"assurance/evidence/{attesa} non e' un file regolare"]
     return []
 
 
@@ -1217,60 +1231,6 @@ def evidenza_coerente(evidenza: dict[str, Any], atteso: str | None) -> list[str]
     return errori
 
 
-def _riconciliazione_coerente(evidenza: dict[str, Any]) -> list[str]:
-    """I conteggi dei passi tornano fra loro, e con un esito superato.
-
-    Un'evidenza che dichiara `S9 checkpoint level 2 passed` con un passo
-    fallito, uno omesso o un identificatore duplicato dice due cose opposte, e
-    quella che si legge e' la prima riga.
-    """
-    conti = evidenza.get("riconciliazione")
-    if not isinstance(conti, dict):
-        return ["`riconciliazione` assente"]
-
-    campi = ("identificatori_distinti", "eseguiti", "verdi", "omessi", "falliti", "duplicati")
-    valori: dict[str, int] = {}
-    errori: list[str] = []
-    for campo in campi:
-        valore = conti.get(campo)
-        if not isinstance(valore, int) or isinstance(valore, bool) or valore < 0:
-            errori.append(f"`riconciliazione.{campo}` non e' un intero non negativo")
-        else:
-            valori[campo] = valore
-    if len(valori) != len(campi):
-        return errori
-
-    if valori["eseguiti"] == 0:
-        errori.append(
-            "`riconciliazione.eseguiti` e' zero: un silenzio non e' un verde"
-        )
-    if valori["verdi"] + valori["falliti"] != valori["eseguiti"]:
-        errori.append(
-            f"`riconciliazione`: {valori['verdi']} verdi piu' "
-            f"{valori['falliti']} falliti non fanno {valori['eseguiti']} eseguiti"
-        )
-    if valori["identificatori_distinti"] + valori["duplicati"] != valori["eseguiti"]:
-        errori.append(
-            f"`riconciliazione`: {valori['identificatori_distinti']} identificatori "
-            f"distinti piu' {valori['duplicati']} duplicati non fanno "
-            f"{valori['eseguiti']} eseguiti"
-        )
-
-    for campo in ("omessi", "falliti", "duplicati"):
-        if valori[campo] != 0:
-            errori.append(
-                f"`riconciliazione.{campo}` vale {valori[campo]} accanto a un "
-                f"esito «{ESITO_LIVELLO_2}». Un checkpoint superato non ha passi "
-                "omessi, falliti o nominati due volte."
-            )
-    if valori["eseguiti"] != valori["verdi"]:
-        errori.append(
-            f"`riconciliazione`: {valori['eseguiti']} eseguiti e "
-            f"{valori['verdi']} verdi accanto a un esito superato"
-        )
-    return errori
-
-
 # Un digest di file e' uno sha256 in minuscolo, come l'impronta dell'albero.
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -1292,6 +1252,155 @@ def _numero(valore: Any) -> bool:
         and not isinstance(valore, bool)
         and math.isfinite(valore)
     )
+
+
+# I due passi in linea del checkpoint: confrontano revisione e impronta fra
+# testa e coda della corsa, e non lanciano un comando, quindi non scrivono un
+# log. Sono gli unici a cui e' ammesso `log: null` **in una corsa di livello 2
+# superata**. In un livello 1 lo sarebbe anche per gli omessi, e in una corsa
+# fallita per i saltati: e' un vincolo del caso, non una proprieta' generale.
+PASSI_SENZA_LOG = frozenset({"revisione_invariata", "albero_invariato"})
+
+# Gli artefatti che una corsa produce e che non sono il log di un passo.
+# L'elenco e' chiuso: il manifest e' esattamente i log dei passi piu' questi, e
+# un file in piu' o in meno e' rosso.
+#
+# `coverage_diff.log` ne fa parte, quindi la diagnostica differenziale e'
+# **obbligatoria** per un'evidenza di livello 2: un livello 2 lanciato senza
+# `S9_CHECKPOINT_BASE` salta quel passo e non puo' qualificare. Un'evidenza
+# descrive una corsa completa.
+ARTEFATTI_NON_DI_PASSO = frozenset(
+    {"catalog.json", "coverage_diff.log", "lcov.info", RISULTATO_DELLA_CORSA}
+)
+
+CAMPI_DI_PASSO = {"id", "esito", "log"}
+ESITO_DI_PASSO_SUPERATO = "verde"
+
+
+def _passi_dichiarati(evidenza: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    """L'elenco dei passi, verificato voce per voce.
+
+    I contatori dicono **quanti**; l'elenco dice **quali**. Senza, il manifest
+    poteva essere ridotto a due file mentre la riconciliazione continuava a
+    dichiarare 57/57: non c'era niente da confrontare.
+    """
+    passi = _dentro(evidenza, ("riconciliazione", "passi"))
+    if not isinstance(passi, list) or not passi:
+        return [], [
+            "`riconciliazione.passi` assente o vuoto: senza l'elenco dei passi "
+            "i conteggi non hanno nulla da cui derivare, e il manifest nulla a "
+            "cui essere legato"
+        ]
+
+    errori: list[str] = []
+    for voce in passi:
+        if not isinstance(voce, dict) or CAMPI_DI_PASSO - set(voce):
+            errori.append(f"`riconciliazione.passi`: voce senza {sorted(CAMPI_DI_PASSO)}: {voce}")
+            continue
+        identita = voce["id"]
+        if not isinstance(identita, str) or not identita:
+            errori.append(f"`riconciliazione.passi`: identita' non valida: «{identita}»")
+            continue
+        if voce["esito"] != ESITO_DI_PASSO_SUPERATO:
+            errori.append(
+                f"`riconciliazione.passi`: «{identita}» ha esito "
+                f"«{voce['esito']}» accanto a un esito «{ESITO_LIVELLO_2}»"
+            )
+        atteso = None if identita in PASSI_SENZA_LOG else f"{identita}.log"
+        if voce["log"] != atteso:
+            errori.append(
+                f"`riconciliazione.passi`: «{identita}» dichiara log "
+                f"«{voce['log']}», atteso «{atteso}»"
+            )
+    if errori:
+        return passi, errori
+
+    identita = [voce["id"] for voce in passi]
+    ripetute = sorted({nome for nome in identita if identita.count(nome) > 1})
+    if ripetute:
+        errori.append(
+            f"`riconciliazione.passi`: identita' ripetute {ripetute}. Due passi "
+            "omonimi scriverebbero lo stesso log, e il manifest ne conterebbe uno."
+        )
+    mancanti = sorted(PASSI_SENZA_LOG - set(identita))
+    if mancanti:
+        errori.append(
+            f"`riconciliazione.passi`: {mancanti} non compaiono. Sono i passi "
+            "che confrontano revisione e impronta fra testa e coda: una corsa "
+            "che non li elenca non ha verificato di aver misurato un albero solo."
+        )
+    return passi, errori
+
+
+def _manifest_legato_ai_passi(
+    evidenza: dict[str, Any], passi: list[dict[str, Any]]
+) -> list[str]:
+    """Il manifest e' **esattamente** i log dei passi piu' gli artefatti noti."""
+    manifest = _dentro(evidenza, ("artefatti", "manifest"))
+    if not isinstance(manifest, dict):
+        return []
+
+    attesi = {voce["log"] for voce in passi if voce.get("log")} | set(
+        ARTEFATTI_NON_DI_PASSO
+    )
+    presenti = set(manifest)
+    mancanti = sorted(attesi - presenti)
+    estranei = sorted(presenti - attesi)
+
+    errori: list[str] = []
+    if mancanti:
+        errori.append(
+            f"`artefatti.manifest`: mancano {len(mancanti)} artefatti che i "
+            f"passi dichiarano, fra cui {mancanti[:3]}. Un manifest ridotto "
+            "lascia la riconciliazione a dichiarare passi di cui non resta "
+            "traccia."
+        )
+    if estranei:
+        errori.append(
+            f"`artefatti.manifest`: {len(estranei)} artefatti non appartengono "
+            f"ad alcun passo ne' all'elenco chiuso, fra cui {estranei[:3]}"
+        )
+    return errori
+
+
+def _riconciliazione_coerente(evidenza: dict[str, Any]) -> list[str]:
+    """I conteggi **si derivano dall'elenco**, non si accettano a parte.
+
+    Erano sei numeri verificati fra loro: bastava che tornassero, e nessuno
+    chiedeva da dove venissero. Ora l'elenco dei passi e' la fonte, i conteggi
+    ne sono il riassunto, e il riassunto deve coincidere con cio' che riassume.
+
+    Un'evidenza che dichiara `S9 checkpoint level 2 passed` con un passo
+    fallito, uno omesso o un identificatore duplicato dice due cose opposte, e
+    quella che si legge e' la prima riga.
+    """
+    conti = evidenza.get("riconciliazione")
+    if not isinstance(conti, dict):
+        return ["`riconciliazione` assente"]
+
+    passi, errori = _passi_dichiarati(evidenza)
+    if errori:
+        return errori
+
+    identita = [voce["id"] for voce in passi]
+    derivati = {
+        "identificatori_distinti": len(set(identita)),
+        "eseguiti": len(passi),
+        "verdi": sum(1 for v in passi if v["esito"] == ESITO_DI_PASSO_SUPERATO),
+        "omessi": sum(1 for v in passi if v["esito"] == "omesso"),
+        "falliti": sum(
+            1 for v in passi if v["esito"] not in (ESITO_DI_PASSO_SUPERATO, "omesso")
+        ),
+        "duplicati": len(identita) - len(set(identita)),
+    }
+    errori.extend(
+        f"`riconciliazione.{campo}` dichiara «{conti.get(campo)}», l'elenco dei "
+        f"passi ne conta «{valore}»"
+        for campo, valore in derivati.items()
+        if conti.get(campo) != valore
+    )
+    errori.extend(_manifest_legato_ai_passi(evidenza, passi))
+    return errori
 
 
 def _misure_coerenti(evidenza: dict[str, Any]) -> list[str]:

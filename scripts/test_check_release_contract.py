@@ -1101,37 +1101,29 @@ class SondeEvidenzaCoerente(unittest.TestCase):
 
     # --- riconciliazione ---------------------------------------------------
 
-    def test_i_conteggi_devono_tornare(self) -> None:
-        errori = self.errori_con(lambda e: e["riconciliazione"].update(verdi=56))
-        self.assertTrue(any("non fanno" in m for m in errori), errori)
+    def test_un_conteggio_dichiarato_a_parte_e_rosso(self) -> None:
+        """I sei conteggi tornavano fra loro, e nessuno chiedeva da dove
+        venissero. Ora l'elenco e' la fonte e il conteggio ne e' il riassunto."""
+        for campo, valore in (
+            ("verdi", 56),
+            ("falliti", 1),
+            ("omessi", 1),
+            ("duplicati", 1),
+            ("eseguiti", 58),
+            ("identificatori_distinti", 56),
+            ("verdi", "molti"),
+        ):
+            with self.subTest(campo=campo, valore=valore):
+                errori = self.errori_con(
+                    lambda e, c=campo, v=valore: e["riconciliazione"].update({c: v})
+                )
+                self.assertTrue(
+                    any("l'elenco dei passi ne conta" in m for m in errori), errori
+                )
 
-    def test_un_passo_fallito_contraddice_un_esito_superato(self) -> None:
-        errori = self.errori_con(
-            lambda e: e["riconciliazione"].update(falliti=1, verdi=56)
-        )
-        self.assertTrue(
-            any("riconciliazione.falliti" in m for m in errori), errori
-        )
-
-    def test_un_passo_omesso_contraddice_un_esito_superato(self) -> None:
-        errori = self.errori_con(lambda e: e["riconciliazione"].update(omessi=1))
-        self.assertTrue(any("riconciliazione.omessi" in m for m in errori), errori)
-
-    def test_un_identificatore_duplicato_contraddice_i_distinti(self) -> None:
-        errori = self.errori_con(lambda e: e["riconciliazione"].update(duplicati=1))
-        self.assertTrue(any("duplicati" in m for m in errori), errori)
-
-    def test_zero_passi_eseguiti_non_e_un_verde(self) -> None:
-        errori = self.errori_con(
-            lambda e: e["riconciliazione"].update(
-                identificatori_distinti=0, eseguiti=0, verdi=0
-            )
-        )
-        self.assertTrue(any("un silenzio non e' un verde" in m for m in errori), errori)
-
-    def test_un_conteggio_che_non_e_un_intero_e_rosso(self) -> None:
-        errori = self.errori_con(lambda e: e["riconciliazione"].update(verdi="molti"))
-        self.assertTrue(any("intero non negativo" in m for m in errori), errori)
+    def test_un_elenco_vuoto_non_e_un_verde(self) -> None:
+        errori = self.errori_con(lambda e: e["riconciliazione"].update(passi=[]))
+        self.assertTrue(any("assente o vuoto" in m for m in errori), errori)
 
     # --- misure ------------------------------------------------------------
 
@@ -1225,6 +1217,104 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         for nome, muta in casi.items():
             with self.subTest(caso=nome):
                 self.assertNotEqual(self.errori_con(muta), [])
+
+    # --- l'elenco dei passi, e il manifest che ne discende ----------------
+
+    def test_un_manifest_ridotto_e_rosso(self) -> None:
+        """Il difetto che l'elenco esiste per chiudere.
+
+        Il manifest poteva essere ridotto a due file mentre la riconciliazione
+        continuava a dichiarare 57/57: i contatori dicevano quanti, e nessun
+        artefatto diceva quali.
+        """
+        def muta(evidenza):
+            manifest = {
+                nome: digest
+                for nome, digest in evidenza["artefatti"]["manifest"].items()
+                if nome in (gate.RISULTATO_DELLA_CORSA, "check_errori_redatti.log")
+            }
+            evidenza["artefatti"]["manifest"] = manifest
+            evidenza["artefatti"]["file"] = len(manifest)
+            evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(manifest)
+
+        errori = self.errori_con(muta)
+        self.assertTrue(any("mancano" in m for m in errori), errori)
+
+    def test_un_artefatto_estraneo_al_manifest_e_rosso(self) -> None:
+        """L'insieme e' chiuso: i log dei passi piu' quattro artefatti noti."""
+        def muta(evidenza):
+            manifest = evidenza["artefatti"]["manifest"]
+            manifest["passo_mai_esistito.log"] = "0" * 64
+            evidenza["artefatti"]["file"] = len(manifest)
+            evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(manifest)
+
+        errori = self.errori_con(muta)
+        self.assertTrue(any("non appartengono" in m for m in errori), errori)
+
+    def test_senza_elenco_dei_passi_e_rosso(self) -> None:
+        errori = self.errori_con(lambda e: e["riconciliazione"].pop("passi"))
+        self.assertTrue(any("assente o vuoto" in m for m in errori), errori)
+
+    def test_i_conteggi_si_derivano_dall_elenco(self) -> None:
+        """Un conteggio dichiarato diverso da quello che l'elenco produce."""
+        errori = self.errori_con(lambda e: e["riconciliazione"].update(verdi=56))
+        self.assertTrue(
+            any("l'elenco dei passi ne conta" in m for m in errori), errori
+        )
+
+    def test_log_nullo_solo_per_i_due_passi_in_linea(self) -> None:
+        casi = {
+            "un passo con log dichiara null": lambda e: e["riconciliazione"]["passi"][
+                0
+            ].update(log=None),
+            "un passo in linea dichiara un log": lambda e: [
+                v for v in e["riconciliazione"]["passi"] if v["id"] == "albero_invariato"
+            ][0].update(log="albero_invariato.log"),
+        }
+        for nome, muta in casi.items():
+            with self.subTest(caso=nome):
+                errori = self.errori_con(muta)
+                self.assertTrue(any("atteso" in m for m in errori), errori)
+
+    def test_un_log_che_non_segue_l_identita_e_rosso(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["riconciliazione"]["passi"][0].update(log="un_altro.log")
+        )
+        self.assertTrue(any("atteso" in m for m in errori), errori)
+
+    def test_un_passo_non_verde_contraddice_l_esito(self) -> None:
+        for esito in ("omesso", "rosso", "saltato"):
+            with self.subTest(esito=esito):
+                errori = self.errori_con(
+                    lambda e, x=esito: e["riconciliazione"]["passi"][3].update(esito=x)
+                )
+                self.assertTrue(any("ha esito" in m for m in errori), errori)
+
+    def test_i_due_passi_in_linea_devono_esserci(self) -> None:
+        """Senza, la corsa non ha verificato di aver misurato un albero solo."""
+        for identita in sorted(gate.PASSI_SENZA_LOG):
+            with self.subTest(passo=identita):
+                errori = self.errori_con(
+                    lambda e, i=identita: e["riconciliazione"].__setitem__(
+                        "passi",
+                        [v for v in e["riconciliazione"]["passi"] if v["id"] != i],
+                    )
+                )
+                self.assertTrue(any(identita in m for m in errori), errori)
+
+    def test_l_elenco_reale_copre_il_manifest(self) -> None:
+        """La controprova positiva, sui numeri di questa corsa."""
+        evidenza = self.evidenza()
+        passi, errori = gate._passi_dichiarati(evidenza)
+        self.assertEqual(errori, [], errori)
+        self.assertEqual(len(passi), 57)
+        self.assertEqual(gate._manifest_legato_ai_passi(evidenza, passi), [])
+        con_log = {v["log"] for v in passi if v["log"]}
+        self.assertEqual(len(con_log), 55)
+        self.assertEqual(
+            set(evidenza["artefatti"]["manifest"]),
+            con_log | set(gate.ARTEFATTI_NON_DI_PASSO),
+        )
 
     # --- artefatti ---------------------------------------------------------
 
@@ -1336,6 +1426,54 @@ class SondeSolaEvidenza(unittest.TestCase):
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 errori = gate._sola_evidenza_corrente(stato)
         self.assertTrue(any("checkpoint-0000000.json" in m for m in errori), errori)
+
+    def test_un_file_che_non_e_json_resta_visibile(self) -> None:
+        """`glob("*.json")` era una whitelist di estensione travestita.
+
+        `checkpoint-old.json.bak`, una sottodirectory o un `.orig` lasciato da
+        un merge non comparivano: «contiene la corrente e nient'altro» era vero
+        soltanto dei `.json`.
+        """
+        casi = ("checkpoint-old.json.bak", "checkpoint-388afcb.json.orig")
+        for nome in casi:
+            with self.subTest(voce=nome):
+                stato = self.stato()
+                attesa = pathlib.Path(stato["ultima_misura"]["evidenza"]).name
+                with tempfile.TemporaryDirectory() as temporanea:
+                    radice = pathlib.Path(temporanea)
+                    (radice / attesa).write_text("{}", encoding="utf-8")
+                    (radice / nome).write_text("{}", encoding="utf-8")
+                    with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                        errori = gate._sola_evidenza_corrente(stato)
+                self.assertTrue(any(nome in m for m in errori), errori)
+
+    def test_una_sottodirectory_resta_visibile(self) -> None:
+        stato = self.stato()
+        attesa = pathlib.Path(stato["ultima_misura"]["evidenza"]).name
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            (radice / attesa).write_text("{}", encoding="utf-8")
+            (radice / "archivio").mkdir()
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                errori = gate._sola_evidenza_corrente(stato)
+        self.assertTrue(any("archivio" in m for m in errori), errori)
+
+    def test_un_evidenza_che_e_un_link_e_rossa(self) -> None:
+        """Un link punta a un contenuto che l'albero non registra."""
+        stato = self.stato()
+        attesa = pathlib.Path(stato["ultima_misura"]["evidenza"]).name
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            bersaglio = radice.parent / "bersaglio.json"
+            bersaglio.write_text("{}", encoding="utf-8")
+            try:
+                (radice / attesa).symlink_to(bersaglio)
+            except (OSError, NotImplementedError) as impedimento:
+                self.skipTest(f"symlink non creabili qui: {impedimento}")
+            with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
+                errori = gate._sola_evidenza_corrente(stato)
+            bersaglio.unlink()
+        self.assertTrue(any("e' un link" in m for m in errori), errori)
 
     def test_la_sola_corrente_passa(self) -> None:
         stato = self.stato()
