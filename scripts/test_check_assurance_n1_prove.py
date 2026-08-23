@@ -12,6 +12,7 @@ hanno qui una sonda ciascuno.
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from scripts import check_assurance_n1_prove as gate
 
@@ -57,6 +58,52 @@ class SondeAnalisi(unittest.TestCase):
         _, duplicati = gate.analizza_uscita(doppia)
         self.assertTrue(
             any("duplicata" in d for d in duplicati), f"duplicato non colto: {duplicati}"
+        )
+
+
+class SondeRunnerCondiviso(unittest.TestCase):
+    """Il runner del harness, che tre gate condividono.
+
+    Leggeva **solo lo stdout**. Un harness che esce con un codice diverso da
+    zero e stampa comunque le righe `... ok` passava: succede quando un test
+    estraneo alla prova fallisce, quando un doctest si rompe, o quando il
+    binario aborta dopo aver elencato i test. Il gate diceva allora che le prove
+    erano state eseguite e passate — vero della riga letta, falso della corsa.
+    """
+
+    def corsa(self, testo: str, uscita_del_processo: int):
+        finto = mock.Mock(returncode=uscita_del_processo, stdout=testo, stderr="")
+        with mock.patch.object(gate.subprocess, "run", return_value=finto):
+            return gate.esegui_harness("plenora-io-model", "default", "lib")
+
+    def test_una_corsa_pulita_non_produce_errori(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        esiti, errori = self.corsa("test m::t ... ok\n", 0)
+        self.assertEqual(errori, [], errori)
+        self.assertEqual(esiti, {"m::t": "ok"})
+
+    def test_un_exit_code_diverso_da_zero_e_un_errore(self) -> None:
+        esiti, errori = self.corsa("test m::t ... ok\n", 17)
+        self.assertTrue(any("esce con 17" in e for e in errori), errori)
+        self.assertEqual(
+            esiti,
+            {"m::t": "ok"},
+            "lo stdout si legge lo stesso: la diagnostica serve proprio quando "
+            "qualcosa e' andato storto",
+        )
+
+    def test_un_harness_muto_che_esce_male_produce_entrambi_gli_errori(self) -> None:
+        _, errori = self.corsa("", 101)
+        self.assertTrue(any("esce con 101" in e for e in errori), errori)
+        self.assertTrue(any("silenzio" in e for e in errori), errori)
+
+    def test_il_comando_porta_configurazione_e_bersaglio(self) -> None:
+        finto = mock.Mock(returncode=0, stdout="test m::t ... ok\n", stderr="")
+        with mock.patch.object(gate.subprocess, "run", return_value=finto) as corsa:
+            gate.esegui_harness("plenora-io-cli", "all-features", "bins")
+        self.assertEqual(
+            corsa.call_args.args[0],
+            ["cargo", "test", "-p", "plenora-io-cli", "--all-features", "--bins"],
         )
 
 

@@ -221,24 +221,60 @@ def coppie_da_misurare(gruppi: list[dict]) -> list[tuple[str, str, str]]:
     return viste
 
 
+def esegui_harness(
+    crate: str, configurazione: str, bersaglio: str = BERSAGLIO_PREDEFINITO
+) -> tuple[dict[str, str], list[str]]:
+    """`(test-id -> esito, errori)` da una corsa vera del harness.
+
+    Il runner vive qui perche' lo usano tre gate — questo, il contratto
+    corrente e le sonde deterministiche — e tre copie divergerebbero in
+    silenzio.
+
+    # L'exit code non si ignora
+
+    La stesura precedente leggeva **solo lo stdout**. Un harness che esce con un
+    codice diverso da zero e stampa comunque le righe `... ok` passava: succede
+    quando un test **estraneo** alla prova fallisce, quando un doctest si rompe,
+    o quando il binario aborta dopo aver elencato i test. Il gate diceva allora
+    che le prove erano state eseguite e passate, ed era vero della singola riga
+    letta e falso della corsa.
+
+    Lo stdout si legge lo stesso, anche quando il codice e' diverso da zero: la
+    diagnostica di quali test siano passati serve proprio quando qualcosa e'
+    andato storto.
+    """
+    comando = comando_test(crate, configurazione, bersaglio)
+    esecuzione = subprocess.run(
+        comando, cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    esiti, duplicati = analizza_uscita(esecuzione.stdout)
+    intestazione = f"{crate} ({configurazione}, {bersaglio})"
+    errori = [f"{intestazione}: {d}" for d in duplicati]
+
+    if esecuzione.returncode != 0:
+        errori.append(
+            f"{intestazione}: «{' '.join(comando)}» esce con "
+            f"{esecuzione.returncode}. Un harness che fallisce non certifica i "
+            "test che ha elencato prima di fallire: l'elenco puo' essere "
+            "completo e la corsa comunque rotta."
+        )
+    if not esiti:
+        errori.append(
+            f"{intestazione}: il harness non ha elencato alcun test. Senza "
+            "elenco non si sa se le prove siano state eseguite, e un silenzio "
+            "non va letto come un verde."
+        )
+    return esiti, errori
+
+
 def misura(
     coppie: list[tuple[str, str, str]]
 ) -> tuple[dict[tuple[str, str, str], dict[str, str]], list[str]]:
     elenchi: dict[tuple[str, str, str], dict[str, str]] = {}
     errori: list[str] = []
     for crate, configurazione, bersaglio in coppie:
-        comando = comando_test(crate, configurazione, bersaglio)
-        esecuzione = subprocess.run(
-            comando, cwd=ROOT, capture_output=True, text=True, check=False
-        )
-        esiti, duplicati = analizza_uscita(esecuzione.stdout)
-        errori.extend(f"{crate} ({configurazione}): {d}" for d in duplicati)
-        if not esiti:
-            errori.append(
-                f"{crate} ({configurazione}): il harness non ha elencato alcun test. "
-                "Senza elenco non si sa se le prove siano state eseguite, e un "
-                "silenzio non va letto come un verde."
-            )
+        esiti, trovati = esegui_harness(crate, configurazione, bersaglio)
+        errori.extend(trovati)
         elenchi[(crate, configurazione, bersaglio)] = esiti
     return elenchi, errori
 

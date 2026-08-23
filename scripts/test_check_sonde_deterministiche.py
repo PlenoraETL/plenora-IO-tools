@@ -17,6 +17,7 @@ import json
 import unittest
 from unittest import mock
 
+from scripts import check_assurance_n1_prove as n1
 from scripts import check_sonde_deterministiche as gate
 
 
@@ -79,9 +80,15 @@ class SondeStruttura(unittest.TestCase):
 
 
 class SondeEsecuzione(unittest.TestCase):
-    def esegui_con(self, testo: str, *gruppi):
-        finto = mock.Mock(returncode=0, stdout=testo, stderr="")
-        with mock.patch.object(gate.subprocess, "run", return_value=finto) as corsa:
+    def esegui_con(self, testo: str, *gruppi, uscita_del_processo: int = 0):
+        """Alimenta il **runner condiviso** con un'uscita di harness costruita.
+
+        Il runner vive in `check_assurance_n1_prove` e lo usano tre gate: e' li'
+        che le sue sonde stanno, comprese quelle sull'exit code. Qui si prova
+        cio' che questo gate ne fa.
+        """
+        finto = mock.Mock(returncode=uscita_del_processo, stdout=testo, stderr="")
+        with mock.patch.object(n1.subprocess, "run", return_value=finto) as corsa:
             return gate.esegui(list(gruppi) or [gruppo()]), corsa
 
     def test_una_sonda_eseguita_e_passata_va_bene(self) -> None:
@@ -104,7 +111,14 @@ class SondeEsecuzione(unittest.TestCase):
 
     def test_un_elenco_vuoto_non_e_un_verde(self) -> None:
         errori, _ = self.esegui_con("")
-        self.assertTrue(any("Un silenzio non e' un verde" in e for e in errori), errori)
+        self.assertTrue(any("silenzio non va letto come un verde" in e for e in errori), errori)
+
+    def test_un_harness_che_fallisce_e_rosso(self) -> None:
+        """Le sonde stampate `ok` non certificano una corsa che esce con 17."""
+        errori, _ = self.esegui_con(
+            uscita("modulo::tests::una_sonda ... ok"), uscita_del_processo=17
+        )
+        self.assertTrue(any("esce con 17" in e for e in errori), errori)
 
     def test_una_terna_si_misura_una_volta_sola(self) -> None:
         """Ripetere la misura non la rende piu' vera, e allunga il gate."""

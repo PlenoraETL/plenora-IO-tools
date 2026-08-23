@@ -30,6 +30,20 @@ enum BatchWorkerEvent {
 /// errore del dataset.
 pub struct BatchEmitter {
     sender: SyncSender<BatchWorkerEvent>,
+    /// Segnale alzato entrando nel ramo di backpressure. Esiste solo nei test.
+    ///
+    /// Quel ramo si attraversa soltanto se il canale e' pieno **al momento del
+    /// tentativo**, e senza un segnale legato al ramo reale una sonda puo' solo
+    /// sperare di vincere una corsa: se il ricevente sparisce prima, il primo
+    /// `try_send` vede `Disconnected`, la sonda passa lo stesso e il ramo non
+    /// viene mai eseguito. Un timeout non deve poter trasformare una copertura
+    /// mancata in un verde.
+    ///
+    /// E' per emettitore e non globale: due sonde che girassero in parallelo
+    /// si scambierebbero i segnali, e l'attesa di una sarebbe soddisfatta dal
+    /// ramo dell'altra.
+    #[cfg(test)]
+    entrato_in_backpressure: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl BatchEmitter {
@@ -62,6 +76,10 @@ impl BatchEmitter {
                 Err(TrySendError::Disconnected(_)) => return Ok(false),
                 Err(TrySendError::Full(event)) => match event {
                     BatchWorkerEvent::Batch(returned) => {
+                        #[cfg(test)]
+                        if let Some(segnale) = &self.entrato_in_backpressure {
+                            segnale.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
                         batch = returned;
                         std::thread::park_timeout(backoff);
                         backoff = backoff.saturating_mul(2).min(MAX_BACKOFF);
@@ -184,7 +202,13 @@ where
     let worker = std::thread::Builder::new()
         .name(format!("plenora-{driver}-reader"))
         .spawn(move || {
-            let result = catch_unwind(AssertUnwindSafe(|| run(BatchEmitter { sender })));
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                run(BatchEmitter {
+                    sender,
+                    #[cfg(test)]
+                    entrato_in_backpressure: None,
+                })
+            }));
             let event = match result {
                 Ok(Ok(())) => BatchWorkerEvent::Finished,
                 Ok(Err(error)) => BatchWorkerEvent::Failed(error),
@@ -276,7 +300,10 @@ mod tests {
     #[test]
     fn heartbeat_detects_a_dropped_reader() {
         let (sender, receiver) = sync_channel(1);
-        let emitter = BatchEmitter { sender };
+        let emitter = BatchEmitter {
+            sender,
+            entrato_in_backpressure: None,
+        };
         drop(receiver);
 
         assert!(!emitter.is_receiver_alive());
@@ -286,7 +313,10 @@ mod tests {
     fn cancellable_send_observes_pre_cancelled_token_on_a_full_channel() {
         let (sender, _receiver) = sync_channel(1);
         sender.send(BatchWorkerEvent::Heartbeat).unwrap();
-        let emitter = BatchEmitter { sender };
+        let emitter = BatchEmitter {
+            sender,
+            entrato_in_backpressure: None,
+        };
         let cancellation = CancellationToken::default();
         cancellation.cancel();
 
@@ -307,7 +337,11 @@ mod tests {
         let cancellation = CancellationToken::default();
         let worker_cancellation = cancellation.clone();
         let worker = std::thread::spawn(move || {
-            BatchEmitter { sender }.send_cancellable(
+            BatchEmitter {
+                sender,
+                entrato_in_backpressure: None,
+            }
+            .send_cancellable(
                 RecordBatch::new_empty(Arc::new(Schema::empty())),
                 &worker_cancellation,
                 ErrorPhase::Read,
@@ -322,39 +356,53 @@ mod tests {
     /// Il ramo di backpressure, **deterministicamente**.
     ///
     /// Le due sonde qui accanto lo attraversano solo se il produttore arriva a
-    /// `try_send` prima che l'altro thread cancelli o rilasci il ricevente: se
-    /// perde quella corsa, il ramo non si esegue e la copertura di quelle righe
-    /// cambia fra due misure sullo stesso albero. E' la causa dimostrata del
-    /// blocco `copertura.variazione-fra-corse`.
+    /// `try_send` prima che l'altro thread cancelli o rilasci il ricevente. Se
+    /// perde quella corsa il ramo non si esegue, la sonda passa lo stesso, e la
+    /// copertura di quelle righe cambia fra due misure sullo stesso albero.
     ///
-    /// Con un canale a **capacita' zero** la corsa sparisce: `try_send` riesce
-    /// solo se un ricevente e' gia' parcheggiato in `recv`, e qui non lo e'
-    /// mai. Il primo tentativo fallisce quindi con `Full` per costruzione, e
-    /// non per tempismo.
+    /// Qui non c'e' alcun timeout, e non c'e' corsa da vincere. Il canale ha
+    /// **capacita' zero**: `try_send` riesce solo se un ricevente e' gia'
+    /// parcheggiato in `recv`, e questa sonda non chiama mai `recv`, quindi il
+    /// tentativo trova il canale pieno finche' il ricevente esiste. Il
+    /// ricevente viene rilasciato **soltanto dopo** che il produttore ha
+    /// segnalato di essere entrato nel ramo: l'ordine non dipende dallo
+    /// scheduling, dipende dal ramo stesso.
     ///
     /// Cio' che si prova non e' la copertura di sei righe: e' che un canale
-    /// pieno **non perde il batch e non diventa un errore del dataset** —
-    /// il produttore ritenta finche' il ricevente esiste, e riferisce `false`
+    /// pieno **non perde il batch e non diventa un errore del dataset** — il
+    /// produttore ritenta finche' il ricevente esiste, e riferisce `false`
     /// quando sparisce.
     #[test]
     fn cancellable_send_ritenta_su_un_canale_a_rendezvous_finche_il_ricevente_esiste() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
         let (sender, receiver) = sync_channel(0);
-        let rilascio = std::thread::spawn(move || {
-            // Nessuna `recv`: il ricevente esiste e non e' mai pronto, quindi
-            // ogni `try_send` trova il canale pieno.
-            std::thread::sleep(Duration::from_millis(50));
-            drop(receiver);
+        let entrato = Arc::new(AtomicBool::new(false));
+        let emitter = BatchEmitter {
+            sender,
+            entrato_in_backpressure: Some(entrato.clone()),
+        };
+
+        let produttore = std::thread::spawn(move || {
+            emitter.send_cancellable(
+                RecordBatch::new_empty(Arc::new(Schema::empty())),
+                &CancellationToken::default(),
+                ErrorPhase::Read,
+            )
         });
 
-        let esito = BatchEmitter { sender }.send_cancellable(
-            RecordBatch::new_empty(Arc::new(Schema::empty())),
-            &CancellationToken::default(),
-            ErrorPhase::Read,
-        );
+        // Attesa senza scadenza: il produttore **deve** entrare nel ramo,
+        // perche' finche' il ricevente vive il canale a rendezvous e' pieno.
+        // Una scadenza qui potrebbe rilasciare il ricevente troppo presto e
+        // rendere verde una sonda che non ha attraversato niente.
+        while !entrato.load(Ordering::SeqCst) {
+            std::hint::spin_loop();
+        }
+        drop(receiver);
 
-        rilascio.join().unwrap();
         assert!(
-            !esito.unwrap(),
+            !produttore.join().unwrap().unwrap(),
             "il ricevente sparito non e' un errore del dataset: e' un `false`"
         );
     }
@@ -364,7 +412,11 @@ mod tests {
         let (sender, receiver) = sync_channel(1);
         sender.send(BatchWorkerEvent::Heartbeat).unwrap();
         let worker = std::thread::spawn(move || {
-            BatchEmitter { sender }.send_cancellable(
+            BatchEmitter {
+                sender,
+                entrato_in_backpressure: None,
+            }
+            .send_cancellable(
                 RecordBatch::new_empty(Arc::new(Schema::empty())),
                 &CancellationToken::default(),
                 ErrorPhase::Read,

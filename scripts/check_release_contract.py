@@ -102,8 +102,7 @@ from check_assurance_n1_prove import (  # noqa: E402
     BERSAGLI,
     BERSAGLIO_PREDEFINITO,
     CONFIGURAZIONI,
-    analizza_uscita,
-    comando_test,
+    esegui_harness,
 )
 
 # E lo stesso lettore del debito: «gruppo aperto» e' definito una volta sola,
@@ -737,15 +736,8 @@ def esegui(documento: dict[str, Any]) -> list[str]:
         per_coppia.setdefault(chiave, []).append(voce)
 
     for (crate, configurazione, bersaglio), voci in per_coppia.items():
-        comando = comando_test(crate, configurazione, bersaglio)
-        esito = subprocess.run(comando, cwd=ROOT, capture_output=True, text=True, check=False)
-        eseguiti, duplicati = analizza_uscita(esito.stdout)
-        errori.extend(f"{crate} ({configurazione}, {bersaglio}): {d}" for d in duplicati)
-        if not eseguiti:
-            errori.append(
-                f"{crate} ({configurazione}, {bersaglio}): il harness non ha elencato alcun "
-                "test. Un silenzio non e' un verde."
-            )
+        eseguiti, trovati = esegui_harness(crate, configurazione, bersaglio)
+        errori.extend(trovati)
         for voce in voci:
             for identita in voce["prova"]["test"]:
                 risultato = eseguiti.get(identita)

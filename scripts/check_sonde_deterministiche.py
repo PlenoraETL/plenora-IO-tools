@@ -36,7 +36,6 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
-import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -46,8 +45,7 @@ from check_assurance_n1_prove import (  # noqa: E402
     BERSAGLI,
     BERSAGLIO_PREDEFINITO,
     CONFIGURAZIONI,
-    analizza_uscita,
-    comando_test,
+    esegui_harness,
 )
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -117,20 +115,9 @@ def esegui(gruppi: list[dict]) -> list[str]:
 
     errori: list[str] = []
     for (crate, configurazione, bersaglio), voci in per_terna.items():
-        esito = subprocess.run(
-            comando_test(crate, configurazione, bersaglio),
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        eseguiti, duplicati = analizza_uscita(esito.stdout)
-        errori.extend(f"{crate} ({configurazione}, {bersaglio}): {d}" for d in duplicati)
+        eseguiti, trovati = esegui_harness(crate, configurazione, bersaglio)
+        errori.extend(trovati)
         if not eseguiti:
-            errori.append(
-                f"{crate} ({configurazione}, {bersaglio}): il harness non ha "
-                "elencato alcun test. Un silenzio non e' un verde."
-            )
             continue
         for voce in voci:
             for identita in voce["test"]:

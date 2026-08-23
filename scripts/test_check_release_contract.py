@@ -32,6 +32,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from scripts import check_assurance_n1_prove as n1
 from scripts import check_release_contract as gate
 
 # Un comando che esiste, esce 0 e non tocca il repository.
@@ -289,9 +290,10 @@ class SondeEsecuzioneTest(unittest.TestCase):
         prova.update(extra)
         return voce(prova=prova)
 
-    def esegui_con(self, testo: str, *voci):
-        finto = mock.Mock(returncode=0, stdout=testo, stderr="")
-        with mock.patch.object(gate.subprocess, "run", return_value=finto) as corsa:
+    def esegui_con(self, testo: str, *voci, uscita_del_processo: int = 0):
+        """Il runner e' condiviso: si sostituisce dove vive, non dove si usa."""
+        finto = mock.Mock(returncode=uscita_del_processo, stdout=testo, stderr="")
+        with mock.patch.object(n1.subprocess, "run", return_value=finto) as corsa:
             errori = gate.esegui(documento(*voci))
         return errori, corsa
 
@@ -322,7 +324,14 @@ class SondeEsecuzioneTest(unittest.TestCase):
 
     def test_un_elenco_vuoto_non_e_un_verde(self) -> None:
         errori, _ = self.esegui_con("", self.voce_test("m::t"))
-        self.assertTrue(any("Un silenzio non e' un verde" in e for e in errori), errori)
+        self.assertTrue(any("silenzio non va letto come un verde" in e for e in errori), errori)
+
+    def test_un_harness_che_fallisce_e_rosso(self) -> None:
+        """Il contratto usa lo stesso runner, e con esso lo stesso rifiuto."""
+        errori, _ = self.esegui_con(
+            uscita("m::t ... ok"), self.voce_test("m::t"), uscita_del_processo=9
+        )
+        self.assertTrue(any("esce con 9" in e for e in errori), errori)
 
     def test_il_bersaglio_dichiarato_finisce_nel_comando(self) -> None:
         """Il crate della CLI e' binario: `--lib` non elencherebbe nulla."""
