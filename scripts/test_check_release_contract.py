@@ -1255,7 +1255,34 @@ class SondeEvidenzaCoerente(unittest.TestCase):
             )
 
         errori = self.errori_con(muta)
-        self.assertTrue(any("percorso -> sha256" in m for m in errori), errori)
+        self.assertTrue(any("-> sha256" in m for m in errori), errori)
+
+    def test_una_voce_di_manifest_che_esce_dalla_corsa_e_rossa(self) -> None:
+        """`../fuori.log` nomina un file che la corsa non ha prodotto.
+
+        Il digest si ricalcola su qualunque insieme di stringhe, quindi restava
+        coerente con se stesso: e' il manifest a dover nominare solo cio' che
+        sta dentro la directory di corsa.
+        """
+        def muta(evidenza):
+            manifest = evidenza["artefatti"]["manifest"]
+            manifest["../fuori.log"] = "0" * 64
+            evidenza["artefatti"]["file"] = len(manifest)
+            evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(manifest)
+
+        errori = self.errori_con(muta)
+        self.assertTrue(any("canonico" in m for m in errori), errori)
+
+    def test_due_voci_che_normalizzano_allo_stesso_percorso_sono_rosse(self) -> None:
+        """Su un volume che non distingue le maiuscole sono un file solo."""
+        def muta(evidenza):
+            manifest = evidenza["artefatti"]["manifest"]
+            manifest["FMT.log"] = manifest["fmt.log"]
+            evidenza["artefatti"]["file"] = len(manifest)
+            evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(manifest)
+
+        errori = self.errori_con(muta)
+        self.assertTrue(any("normalizzano" in m for m in errori), errori)
 
     def test_un_manifest_senza_il_risultato_della_corsa_e_rosso(self) -> None:
         """E' l'ultimo file che il checkpoint scrive."""
@@ -1318,6 +1345,63 @@ class SondeSolaEvidenza(unittest.TestCase):
             (radice / attesa).write_text("{}", encoding="utf-8")
             with mock.patch.object(gate, "DIRECTORY_EVIDENZE", radice):
                 self.assertEqual(gate._sola_evidenza_corrente(stato), [])
+
+
+class SondePercorsiCanonici(unittest.TestCase):
+    """Un percorso si scrive in un modo solo, e non esce dal proprio albero.
+
+    Un percorso era accettato come «stringa non vuota», e due percorsi si
+    confrontavano sul nome del file: `assurance/evidence/../evidence/x.json`
+    passava, e una voce di manifest poteva uscire dalla directory di corsa con
+    `../fuori.log` mentre il digest restava coerente con se stesso — si
+    ricalcola su qualunque insieme di stringhe.
+    """
+
+    def stato(self) -> dict:
+        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+
+    def test_riconosce_i_relativi_canonici(self) -> None:
+        for buono in ("fmt.log", "a/b.log", "assurance/evidence/x.json"):
+            with self.subTest(percorso=buono):
+                self.assertEqual(gate.percorso_canonico(buono), buono)
+
+    def test_rifiuta_cio_che_non_e_canonico(self) -> None:
+        storti = [
+            "",
+            ".",
+            "..",
+            "/assoluto",
+            "a//b",
+            "a/./b",
+            "a/../b",
+            "assurance/evidence/../evidence/x.json",
+            "C:/x",
+            "a" + chr(92) + "b",
+            "a" + chr(0) + "b",
+            None,
+            7,
+            [],
+        ]
+        for storto in storti:
+            with self.subTest(percorso=storto):
+                self.assertIsNone(gate.percorso_canonico(storto))
+
+    def test_un_evidenza_nominata_in_due_modi_e_rossa(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["evidenza"] = (
+            "assurance/evidence/../evidence/"
+            + pathlib.Path(stato["ultima_misura"]["evidenza"]).name
+        )
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("non canonico" in m for m in errori), errori)
+
+    def test_un_evidenza_fuori_dalla_propria_cartella_e_rossa(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["evidenza"] = "assurance/checkpoint-388afcb.json"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(
+            any(gate.CARTELLA_DELLE_EVIDENZE in m for m in errori), errori
+        )
 
 
 class SondeRegistroReale(unittest.TestCase):

@@ -478,6 +478,10 @@ passi=7
 verdi=5
 omessi=2
 falliti=(alfa beta)
+passi_registrati=()
+registra_passo alfa verde "alfa.log"
+registra_passo beta rosso "beta.log"
+registra_passo albero_invariato verde ""
 REVISIONE="0000000000000000000000000000000000000000"
 REVISIONE_FINE="${REVISIONE}"
 IMPRONTA_INIZIO="abcdef"
@@ -498,6 +502,21 @@ verifica "porta i nomi dei passi rossi" "alfa beta" \
     "$(python3 -c 'import json,sys;print(" ".join(json.load(open(sys.argv[1]))["falliti"]))' "${RISULTATO}")"
 verifica "non lascia file parziali" "0" \
     "$(find "${RISULTATI}" -name '*.parziale.*' | wc -l | tr -d ' ')"
+
+# --- l'elenco dei passi: quali, non solo quanti -----------------------------
+#
+# I contatori dicevano **quanti** passi. Il manifest degli artefatti poteva
+# essere ridotto a due file mentre la riconciliazione continuava a dichiarare
+# 57/57, perche' nulla legava i due. L'elenco porta l'identita' di ogni passo
+# con il proprio esito e il proprio log, e da li' il legame diventa possibile.
+verifica "l'elenco porta un passo per ogni identita'" "3" \
+    "$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["elenco_dei_passi"]))' "${RISULTATO}")"
+verifica "con id, esito e log di ciascuno" "alfa verde alfa.log" \
+    "$(python3 -c 'import json,sys;v=json.load(open(sys.argv[1]))["elenco_dei_passi"][0];print(v["id"],v["esito"],v["log"])' "${RISULTATO}")"
+verifica "e log nullo per i passi in linea" "None" \
+    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["elenco_dei_passi"][2]["log"])' "${RISULTATO}")"
+verifica "un passo rosso resta nell'elenco" "rosso" \
+    "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["elenco_dei_passi"][1]["esito"])' "${RISULTATO}")"
 
 # Una seconda scrittura sostituisce la prima: il file dice l'ultimo stato noto
 # della corsa, non il primo.

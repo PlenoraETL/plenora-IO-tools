@@ -1053,6 +1053,35 @@ def _dentro(documento: Any, percorso: tuple[str, ...]) -> Any:
 
 
 DIRECTORY_EVIDENZE = ROOT / "assurance" / "evidence"
+CARTELLA_DELLE_EVIDENZE = "assurance/evidence"
+
+# Un segmento che non nomina un figlio.
+SEGMENTI_VIETATI = {"", ".", ".."}
+
+
+def percorso_canonico(valore: Any) -> str | None:
+    """Il percorso, se e' un relativo canonico in forma POSIX; `None` altrimenti.
+
+    Un percorso veniva accettato come «stringa non vuota», e il confronto fra
+    percorsi si faceva sul solo nome del file. Due scritture diverse dello
+    stesso file passavano — `assurance/evidence/../evidence/x.json` — e una
+    voce del manifest poteva uscire dalla directory di corsa con `../fuori.log`
+    senza che nulla lo dicesse: il digest si ricalcola su qualunque insieme di
+    stringhe, quindi restava coerente con se stesso.
+
+    Canonico significa: relativo, separato da `/`, senza segmenti vuoti, `.` o
+    `..`, senza NUL, senza backslash e senza due punti — cosi' una sola
+    scrittura nomina un file, e nessuna esce dall'albero che la contiene.
+    """
+    if not isinstance(valore, str) or not valore:
+        return None
+    if "\0" in valore or "\\" in valore or ":" in valore:
+        return None
+    if valore.startswith("/"):
+        return None
+    if any(segmento in SEGMENTI_VIETATI for segmento in valore.split("/")):
+        return None
+    return valore
 
 
 def _sola_evidenza_corrente(stato: dict[str, Any]) -> list[str]:
@@ -1068,9 +1097,17 @@ def _sola_evidenza_corrente(stato: dict[str, Any]) -> list[str]:
 
     Git conserva la storia. L'albero di lavoro dice che cosa vale **oggi**.
     """
-    relativo = _dentro(stato, ("ultima_misura", "evidenza"))
-    if not isinstance(relativo, str) or not relativo:
-        return ["`ultima_misura.evidenza` assente: non c'e' un'evidenza corrente"]
+    relativo = percorso_canonico(_dentro(stato, ("ultima_misura", "evidenza")))
+    if relativo is None:
+        return [
+            "`ultima_misura.evidenza` assente o non canonico: non c'e' "
+            "un'evidenza corrente che si possa nominare in un modo solo"
+        ]
+    if Path(relativo).parent.as_posix() != CARTELLA_DELLE_EVIDENZE:
+        return [
+            f"`ultima_misura.evidenza` vale «{relativo}», che non sta in "
+            f"`{CARTELLA_DELLE_EVIDENZE}/`"
+        ]
 
     attesa = Path(relativo).name
     presenti = sorted(percorso.name for percorso in DIRECTORY_EVIDENZE.glob("*.json"))
@@ -1413,17 +1450,31 @@ def _artefatti_coerenti(evidenza: dict[str, Any]) -> list[str]:
 
     errori: list[str] = []
     storti = sorted(
-        percorso
+        str(percorso)
         for percorso, digest in manifest.items()
-        if not isinstance(percorso, str)
-        or not percorso
+        if percorso_canonico(percorso) is None
         or not isinstance(digest, str)
         or not SHA256.match(digest)
     )
     if storti:
         errori.append(
-            f"`artefatti.manifest`: {len(storti)} voci non sono «percorso -> "
-            f"sha256», fra cui {storti[:3]}"
+            f"`artefatti.manifest`: {len(storti)} voci non sono «percorso "
+            f"relativo canonico -> sha256», fra cui {storti[:3]}. Un `..` "
+            "farebbe uscire un artefatto dalla directory di corsa, e il digest "
+            "resterebbe coerente con se stesso."
+        )
+    # Due scritture che il filesystem risolve nello stesso file: su un volume
+    # che non distingue le maiuscole `Fmt.log` e `fmt.log` sono un artefatto
+    # solo, e il manifest ne conterebbe due.
+    normalizzati: dict[str, list[str]] = {}
+    for percorso in manifest:
+        if isinstance(percorso, str):
+            normalizzati.setdefault(percorso.casefold(), []).append(percorso)
+    collisioni = sorted(v for v in normalizzati.values() if len(v) > 1)
+    if collisioni:
+        errori.append(
+            f"`artefatti.manifest`: voci che normalizzano allo stesso percorso: "
+            f"{collisioni[:3]}"
         )
     if RISULTATO_DELLA_CORSA not in manifest:
         errori.append(
@@ -1454,9 +1505,13 @@ def _misura_legata_all_evidenza(stato: dict[str, Any]) -> list[str]:
     if not isinstance(misura, dict):
         return ["`ultima_misura` assente"]
 
-    relativo = misura.get("evidenza")
-    if not isinstance(relativo, str):
-        return ["`ultima_misura.evidenza` assente: i numeri non hanno una corsa da cui venire"]
+    relativo = percorso_canonico(misura.get("evidenza"))
+    if relativo is None:
+        return [
+            "`ultima_misura.evidenza` assente o non canonico: i numeri non "
+            "hanno una corsa da cui venire, o ne hanno una che si puo' nominare "
+            "in piu' modi"
+        ]
     percorso = ROOT / relativo
     if not percorso.exists():
         return [f"«{relativo}»: evidenza assente"]

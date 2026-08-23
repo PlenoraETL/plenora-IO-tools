@@ -75,6 +75,19 @@ omessi=0
 falliti=()
 catena_rotta=""
 
+# L'identita' di ogni passo, con il proprio esito e il proprio log.
+#
+# I contatori dicono **quanti**; questo elenco dice **quali**. La differenza
+# conta: il manifest degli artefatti poteva essere ridotto a due file mentre la
+# riconciliazione continuava a dichiarare 57/57, perche' nulla legava i due.
+# Ogni voce e' `id`, `esito` e il nome del log — vuoto per i passi in linea, che
+# non ne scrivono uno.
+passi_registrati=()
+
+registra_passo() {
+    passi_registrati+=("$1|$2|$3")
+}
+
 # `1` = livello 1: si omettono fuzz e copertura, non i gate.
 LIVELLO="${S9_LIVELLO:-2}"
 
@@ -106,7 +119,22 @@ _risultato_json() {
         printf '"%s"' "${nome}"
     done
     printf '],\n'
-    printf '  "artefatti": "%s"\n' "${LOG_DIR}"
+    printf '  "artefatti": "%s",\n' "${LOG_DIR}"
+    printf '  "elenco_dei_passi": ['
+    primo=1
+    for nome in ${passi_registrati[@]+"${passi_registrati[@]}"}; do
+        [ "${primo}" -eq 1 ] || printf ','
+        primo=0
+        printf '\n    {"id": "%s", "esito": "%s", "log": ' \
+            "${nome%%|*}" "$(printf '%s' "${nome#*|}" | cut -d"|" -f1)"
+        if [ -z "${nome##*|}" ]; then
+            printf 'null}'
+        else
+            printf '"%s"}' "${nome##*|}"
+        fi
+    done
+    [ "${primo}" -eq 1 ] || printf '\n  '
+    printf ']\n'
     printf '}\n'
 }
 
@@ -179,11 +207,13 @@ passo() {
     local esito=$?
     if [ "${esito}" -eq 0 ]; then
         verdi=$((verdi + 1))
+        registra_passo "${nome}" verde "${nome}.log"
         echo "verde"
         return 0
     fi
     echo "ROSSO (exit ${esito}) — ${log}"
     falliti+=("${nome}")
+    registra_passo "${nome}" "rosso" "${nome}.log"
     return "${esito}"
 }
 
@@ -197,6 +227,7 @@ salta() {
     printf '  %-38s ' "${nome}"
     echo "SALTATO (${causa} e' fallito)"
     falliti+=("${nome}(saltato)")
+    registra_passo "${nome}" "saltato" ""
 }
 
 # I **nove** passi che il livello 1 puo' omettere. Elenco chiuso.
@@ -234,6 +265,7 @@ rifiuta_non_autorizzato() {
     passi=$((passi + 1))
     printf '  %-38s ' "${nome}"
     echo "NON AUTORIZZATO come passo pesante"
+    registra_passo "${nome}" "non_autorizzato" ""
     echo "    `${nome}` non e' nell'elenco chiuso PASSI_PESANTI." >&2
     echo "    Marcare pesante un passo che non lo e' lo fa sparire dal" >&2
     echo "    livello 1 in silenzio. Se il passo e' davvero pesante," >&2
@@ -259,6 +291,7 @@ passo_pesante() {
         omessi=$((omessi + 1))
         printf '  %-38s ' "${nome}"
         echo "omesso (livello 1)"
+        registra_passo "${nome}" "omesso" ""
         return 0
     fi
     passo "${nome}" "$@"
@@ -276,6 +309,7 @@ passo_pesante_in_catena() {
         omessi=$((omessi + 1))
         printf '  %-38s ' "${nome}"
         echo "omesso (livello 1)"
+        registra_passo "${nome}" "omesso" ""
         return 1
     fi
     passo_in_catena "${nome}" "$@"
@@ -648,11 +682,13 @@ if [ "${REVISIONE_FINE}" != "${REVISIONE}" ]; then
     echo "    revisione finale:   ${REVISIONE_FINE}" >&2
     echo "    La misura descrive un albero, l'esito ne nominerebbe un altro." >&2
     falliti+=("revisione_invariata")
+    registra_passo revisione_invariata rosso ""
 else
     passi=$((passi + 1))
     verdi=$((verdi + 1))
     printf '  %-38s ' "revisione_invariata"
     echo "verde"
+    registra_passo revisione_invariata verde ""
 fi
 
 if ! IMPRONTA_FINE="$(impronta_albero)"; then
@@ -662,6 +698,7 @@ if ! IMPRONTA_FINE="$(impronta_albero)"; then
     echo "    Un comando git non ha acquisito a fine corsa." >&2
     echo "    Non sapere se l'albero e' cambiato non e' sapere che non lo e'." >&2
     falliti+=("albero_invariato")
+    registra_passo albero_invariato rosso ""
 elif [ "${IMPRONTA_FINE}" != "${IMPRONTA_INIZIO}" ]; then
     passi=$((passi + 1))
     printf '  %-38s ' "albero_invariato"
@@ -670,11 +707,13 @@ elif [ "${IMPRONTA_FINE}" != "${IMPRONTA_INIZIO}" ]; then
     echo "    impronta finale:   ${IMPRONTA_FINE}" >&2
     echo "    Un passo ha scritto nell'albero che stava verificando." >&2
     falliti+=("albero_invariato")
+    registra_passo albero_invariato rosso ""
 else
     passi=$((passi + 1))
     verdi=$((verdi + 1))
     printf '  %-38s ' "albero_invariato"
     echo "verde"
+    registra_passo albero_invariato verde ""
 fi
 
 echo

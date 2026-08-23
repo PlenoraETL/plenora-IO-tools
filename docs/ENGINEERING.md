@@ -254,6 +254,11 @@ Ogni uscita terminale lo sostituisce, non solo quelle che misurano:
 `livello_1_verificato`, `superato`. Un rifiuto in partenza ha una causa nota, e
 lasciare `in_corso` lo farebbe leggere come una corsa morta a metà.
 
+Il file porta anche l'**elenco dei passi** — identità, esito e log di ciascuno —
+e non solo i contatori. I contatori dicono quanti; l'elenco dice quali, ed è ciò
+che permette di riconciliare gli artefatti con i passi invece di crederli sulla
+parola.
+
 `exit` **non compare fuori da `concludi`**, e la regola è verificata invece che
 ricordata: una sonda rimuove il corpo di quella funzione dal testo dello script
 e pretende che in ciò che resta non ce ne sia nessuna. Una seconda sonda le
