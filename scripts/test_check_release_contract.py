@@ -1292,7 +1292,7 @@ class SondeEvidenzaCoerente(unittest.TestCase):
 
     def test_i_due_passi_in_linea_devono_esserci(self) -> None:
         """Senza, la corsa non ha verificato di aver misurato un albero solo."""
-        for identita in sorted(gate.PASSI_SENZA_LOG):
+        for identita in sorted(gate.passi_del_checkpoint()[1]):
             with self.subTest(passo=identita):
                 errori = self.errori_con(
                     lambda e, i=identita: e["riconciliazione"].__setitem__(
@@ -1301,6 +1301,80 @@ class SondeEvidenzaCoerente(unittest.TestCase):
                     )
                 )
                 self.assertTrue(any(identita in m for m in errori), errori)
+
+    # --- l'insieme dei passi e' quello del registro canonico -------------
+    #
+    # Il verificatore controllava perfettamente cio' che l'evidenza dichiarava,
+    # e non sapeva che `fmt` dovesse esistere: togliere il gate, la sua voce, il
+    # suo log, e aggiornare contatori, numero di artefatti e digest, passava.
+    # Una rimozione **coordinata** e' esattamente cio' che un gate coerente con
+    # se stesso non puo' vedere.
+
+    @staticmethod
+    def senza_passo(evidenza, identita):
+        conti = evidenza["riconciliazione"]
+        conti["passi"] = [v for v in conti["passi"] if v["id"] != identita]
+        for campo in ("identificatori_distinti", "eseguiti", "verdi"):
+            conti[campo] = len(conti["passi"])
+        manifest = {
+            nome: digest
+            for nome, digest in evidenza["artefatti"]["manifest"].items()
+            if nome != f"{identita}.log"
+        }
+        evidenza["artefatti"]["manifest"] = manifest
+        evidenza["artefatti"]["file"] = len(manifest)
+        evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(manifest)
+
+    def test_una_rimozione_coordinata_di_un_passo_e_rossa(self) -> None:
+        errori = self.errori_con(lambda e: self.senza_passo(e, "fmt"))
+        self.assertTrue(
+            any("dichiarati dal registro dei passi" in m for m in errori), errori
+        )
+
+    def test_una_rinomina_coordinata_e_rossa(self) -> None:
+        """Il totale resta 57: un passo esce e uno entra."""
+        def muta(evidenza):
+            for voce in evidenza["riconciliazione"]["passi"]:
+                if voce["id"] == "fmt":
+                    voce["id"] = "formattazione"
+                    voce["log"] = "formattazione.log"
+            manifest = evidenza["artefatti"]["manifest"]
+            manifest["formattazione.log"] = manifest.pop("fmt.log")
+            evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(manifest)
+
+        errori = self.errori_con(muta)
+        self.assertTrue(any("['fmt']" in m for m in errori), errori)
+        self.assertTrue(any("formattazione" in m for m in errori), errori)
+
+    def test_un_identificatore_aggiunto_e_rosso(self) -> None:
+        def muta(evidenza):
+            conti = evidenza["riconciliazione"]
+            conti["passi"].append(
+                {"id": "passo_nuovo", "esito": "verde", "log": "passo_nuovo.log"}
+            )
+            for campo in ("identificatori_distinti", "eseguiti", "verdi"):
+                conti[campo] = len(conti["passi"])
+            manifest = evidenza["artefatti"]["manifest"]
+            manifest["passo_nuovo.log"] = "0" * 64
+            evidenza["artefatti"]["file"] = len(manifest)
+            evidenza["artefatti"]["digest_manifest"] = gate.digest_del_manifest(manifest)
+
+        errori = self.errori_con(muta)
+        self.assertTrue(any("non sono nel registro" in m for m in errori), errori)
+
+    def test_un_campo_in_piu_nella_voce_e_rosso(self) -> None:
+        """`{id, esito, log, extra}` passava: il sottoschema e' chiuso."""
+        errori = self.errori_con(
+            lambda e: e["riconciliazione"]["passi"][0].update(extra=1)
+        )
+        self.assertTrue(any("attesi esattamente" in m for m in errori), errori)
+
+    def test_l_insieme_reale_coincide_col_registro(self) -> None:
+        """La controprova positiva, e la sola cosa che lega i due elenchi."""
+        dichiarati, senza_log = gate.passi_del_checkpoint()
+        passi = self.evidenza()["riconciliazione"]["passi"]
+        self.assertEqual([v["id"] for v in passi], list(dichiarati))
+        self.assertEqual({v["id"] for v in passi if v["log"] is None}, set(senza_log))
 
     def test_l_elenco_reale_copre_il_manifest(self) -> None:
         """La controprova positiva, sui numeri di questa corsa."""

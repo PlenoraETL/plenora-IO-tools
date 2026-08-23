@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "descrizione": "I passi del checkpoint S9, per identita' e in ordine di esecuzione. E' la fonte unica letta dal checkpoint — che a fine corsa confronta cio' che ha davvero eseguito — e dal verificatore dell'evidenza, che pretende lo stesso insieme. Senza, il gate verificava perfettamente cio' che l'evidenza dichiarava e non sapeva che `fmt` dovesse esistere: togliere un gate e aggiornare coerentemente contatori, artefatti e digest passava.",
+  "log": "`true` se il passo lancia un comando e ne conserva l'uscita in `<id>.log`; `false` per i passi in linea, che confrontano revisione e impronta fra testa e coda della corsa e non lanciano niente.",
+  "non_e_qui": "quali passi siano **pesanti** — omessi al livello 1 — resta in `PASSI_PESANTI` dentro lo script: e' un'altra domanda, e duplicarla qui creerebbe due elenchi da tenere allineati.",
+  "passi": [
+    {
+      "id": "sonde_checkpoint",
+      "log": true
+    },
+    {
+      "id": "fmt",
+      "log": true
+    },
+    {
+      "id": "clippy",
+      "log": true
+    },
+    {
+      "id": "clippy_default",
+      "log": true
+    },
+    {
+      "id": "test",
+      "log": true
+    },
+    {
+      "id": "test_default",
+      "log": true
+    },
+    {
+      "id": "sonde_quartetto",
+      "log": true
+    },
+    {
+      "id": "check_quartetto",
+      "log": true
+    },
+    {
+      "id": "sonde_errori_redatti",
+      "log": true
+    },
+    {
+      "id": "check_errori_redatti",
+      "log": true
+    },
+    {
+      "id": "sonde_niente_leak",
+      "log": true
+    },
+    {
+      "id": "check_niente_leak",
+      "log": true
+    },
+    {
+      "id": "sonde_wkb_limits",
+      "log": true
+    },
+    {
+      "id": "check_wkb_limits",
+      "log": true
+    },
+    {
+      "id": "sonde_quarantena",
+      "log": true
+    },
+    {
+      "id": "check_quarantena",
+      "log": true
+    },
+    {
+      "id": "sonde_prevalidazione",
+      "log": true
+    },
+    {
+      "id": "check_prevalidazione",
+      "log": true
+    },
+    {
+      "id": "sonde_identita",
+      "log": true
+    },
+    {
+      "id": "check_identita",
+      "log": true
+    },
+    {
+      "id": "sonde_release",
+      "log": true
+    },
+    {
+      "id": "check_release",
+      "log": true
+    },
+    {
+      "id": "sonde_action_pins",
+      "log": true
+    },
+    {
+      "id": "check_action_pins",
+      "log": true
+    },
+    {
+      "id": "sonde_toolchain",
+      "log": true
+    },
+    {
+      "id": "check_toolchain",
+      "log": true
+    },
+    {
+      "id": "sonde_coverage_excl",
+      "log": true
+    },
+    {
+      "id": "sonde_filegdb",
+      "log": true
+    },
+    {
+      "id": "sonde_wkb_condiviso",
+      "log": true
+    },
+    {
+      "id": "corpus_condiviso",
+      "log": true
+    },
+    {
+      "id": "sonde_audit_ignores",
+      "log": true
+    },
+    {
+      "id": "check_dependency_pins",
+      "log": true
+    },
+    {
+      "id": "check_gdal_fork",
+      "log": true
+    },
+    {
+      "id": "sonde_fork",
+      "log": true
+    },
+    {
+      "id": "check_dxf_fork",
+      "log": true
+    },
+    {
+      "id": "check_no_legacy_budget",
+      "log": true
+    },
+    {
+      "id": "check_permit_boundary",
+      "log": true
+    },
+    {
+      "id": "sonde_fallback",
+      "log": true
+    },
+    {
+      "id": "assurance_fallbacks",
+      "log": true
+    },
+    {
+      "id": "sonde_docset",
+      "log": true
+    },
+    {
+      "id": "check_docset",
+      "log": true
+    },
+    {
+      "id": "sonde_assurance_n1",
+      "log": true
+    },
+    {
+      "id": "assurance_n1_integrita",
+      "log": true
+    },
+    {
+      "id": "sonde_assurance_n1_prove",
+      "log": true
+    },
+    {
+      "id": "assurance_n1_prove",
+      "log": true
+    },
+    {
+      "id": "check_filegdb_catalog",
+      "log": true
+    },
+    {
+      "id": "fuzz_replay",
+      "log": true
+    },
+    {
+      "id": "fuzz_smoke",
+      "log": true
+    },
+    {
+      "id": "coverage_pulizia",
+      "log": true
+    },
+    {
+      "id": "coverage_misura",
+      "log": true
+    },
+    {
+      "id": "coverage_export",
+      "log": true
+    },
+    {
+      "id": "coverage_report_non_vuoto",
+      "log": true
+    },
+    {
+      "id": "check_coverage_exclusions",
+      "log": true
+    },
+    {
+      "id": "coverage_soglia_dal_report",
+      "log": true
+    },
+    {
+      "id": "coverage_soglia_controprova",
+      "log": true
+    },
+    {
+      "id": "revisione_invariata",
+      "log": false
+    },
+    {
+      "id": "albero_invariato",
+      "log": false
+    }
+  ]
+}

@@ -88,6 +88,53 @@ registra_passo() {
     passi_registrati+=("$1|$2|$3")
 }
 
+# Il registro canonico dei passi, condiviso con il verificatore dell'evidenza.
+#
+# Il verificatore controllava perfettamente cio' che l'evidenza dichiarava, e
+# non sapeva che `fmt` dovesse esistere: togliere un gate e aggiornare
+# coerentemente contatori, artefatti e digest passava. Un elenco che vive in un
+# posto solo chiude la classe, e lo chiude da **entrambi i lati** — qui la
+# corsa dice se ha eseguito cio' che doveva, li' l'evidenza dice se descrive
+# cio' che esiste.
+REGISTRO_DEI_PASSI="assurance/registries/passi-del-checkpoint.json"
+
+# Confronta gli identificatori eseguiti con quelli dichiarati. Stampa le
+# differenze e restituisce 1 se ce ne sono.
+insieme_dei_passi_dichiarato() {
+    # Il programma si legge in una variabile e si passa con `-c`: con
+    # `python3 -` il heredoc **occuperebbe lo stdin**, e la pipe con gli
+    # identificatori eseguiti verrebbe scartata in silenzio. Il confronto
+    # direbbe allora che nessun passo e' stato eseguito, cioe' sarebbe rosso
+    # sempre e per la ragione sbagliata.
+    local programma
+    programma="$(cat <<'PYTHON'
+import json, sys
+
+dichiarati = [
+    voce["id"]
+    for voce in json.load(open(sys.argv[1], encoding="utf-8"))["passi"]
+]
+eseguiti = [riga.split("|", 1)[0] for riga in sys.stdin.read().splitlines() if riga]
+
+mancanti = [identita for identita in dichiarati if identita not in eseguiti]
+estranei = [identita for identita in eseguiti if identita not in dichiarati]
+ripetuti = sorted({i for i in eseguiti if eseguiti.count(i) > 1})
+
+for nome, elenco in (
+    ("mai eseguiti", mancanti),
+    ("eseguiti ma non dichiarati", estranei),
+    ("eseguiti piu' di una volta", ripetuti),
+):
+    if elenco:
+        print(f"    {nome}: {elenco}")
+sys.exit(1 if mancanti or estranei or ripetuti else 0)
+PYTHON
+)"
+    printf '%s
+' ${passi_registrati[@]+"${passi_registrati[@]}"} |
+        python3 -c "${programma}" "${REGISTRO_DEI_PASSI}"
+}
+
 # `1` = livello 1: si omettono fuzz e copertura, non i gate.
 LIVELLO="${S9_LIVELLO:-2}"
 
@@ -714,6 +761,24 @@ else
     printf '  %-38s ' "albero_invariato"
     echo "verde"
     registra_passo albero_invariato verde ""
+fi
+
+# L'insieme dei passi eseguiti e' quello dichiarato dal registro.
+#
+# Non e' un passo: e' una **precondizione del verdetto**, come l'albero pulito
+# in partenza. Un passo lo conterebbe fra i propri, e la domanda «li ho
+# eseguiti tutti?» non puo' essere uno degli elementi contati.
+if ! divergenze="$(insieme_dei_passi_dichiarato)"; then
+    echo
+    echo "INSIEME DEI PASSI DIVERGENTE dal registro." >&2
+    printf '%s\n' "${divergenze}" >&2
+    echo "    Il registro e' ${REGISTRO_DEI_PASSI}." >&2
+    echo "    Una corsa che non esegue cio' che il registro dichiara misura" >&2
+    echo "    un altro insieme, e i suoi conteggi sono coerenti con se stessi." >&2
+    falliti+=("insieme_dei_passi")
+    echo "=============================================================="
+    echo "esito: NON SUPERATO"
+    concludi insieme_dei_passi_divergente 1
 fi
 
 echo

@@ -1255,12 +1255,24 @@ def _numero(valore: Any) -> bool:
     )
 
 
-# I due passi in linea del checkpoint: confrontano revisione e impronta fra
-# testa e coda della corsa, e non lanciano un comando, quindi non scrivono un
-# log. Sono gli unici a cui e' ammesso `log: null` **in una corsa di livello 2
-# superata**. In un livello 1 lo sarebbe anche per gli omessi, e in una corsa
-# fallita per i saltati: e' un vincolo del caso, non una proprieta' generale.
-PASSI_SENZA_LOG = frozenset({"revisione_invariata", "albero_invariato"})
+# Il registro canonico dei passi, condiviso con il checkpoint: quello confronta
+# cio' che ha eseguito, questo confronta cio' che l'evidenza descrive.
+#
+# Senza, il verificatore controllava perfettamente cio' che l'evidenza
+# dichiarava e non sapeva che `fmt` dovesse esistere: togliere un gate e
+# aggiornare coerentemente contatori, artefatti e digest passava. `len == 57`
+# non basterebbe — un passo tolto e uno aggiunto lasciano il totale fermo.
+REGISTRO_DEI_PASSI = ROOT / "assurance" / "registries" / "passi-del-checkpoint.json"
+
+
+@functools.lru_cache(maxsize=1)
+def passi_del_checkpoint() -> tuple[tuple[str, ...], frozenset[str]]:
+    """`(identita' in ordine, quelle senza log)`, dal registro canonico."""
+    documento = json.loads(REGISTRO_DEI_PASSI.read_text(encoding="utf-8"))
+    voci = documento["passi"]
+    return tuple(v["id"] for v in voci), frozenset(
+        v["id"] for v in voci if not v["log"]
+    )
 
 # Gli artefatti che una corsa produce e che non sono il log di un passo.
 # L'elenco e' chiuso: il manifest e' esattamente i log dei passi piu' questi, e
@@ -1293,10 +1305,18 @@ def _passi_dichiarati(evidenza: dict[str, Any]) -> tuple[list[dict[str, Any]], l
             "cui essere legato"
         ]
 
+    dichiarati, senza_log = passi_del_checkpoint()
+
     errori: list[str] = []
     for voce in passi:
-        if not isinstance(voce, dict) or CAMPI_DI_PASSO - set(voce):
-            errori.append(f"`riconciliazione.passi`: voce senza {sorted(CAMPI_DI_PASSO)}: {voce}")
+        # Il sottoschema e' **chiuso**: `{id, esito, log, extra}` passava, e un
+        # campo che nessuno guarda e' un campo che qualcuno prima o poi legge.
+        if not isinstance(voce, dict) or set(voce) != CAMPI_DI_PASSO:
+            errori.append(
+                f"`riconciliazione.passi`: voce con campi "
+                f"{sorted(voce) if isinstance(voce, dict) else voce}, attesi "
+                f"esattamente {sorted(CAMPI_DI_PASSO)}"
+            )
             continue
         identita = voce["id"]
         if not isinstance(identita, str) or not identita:
@@ -1307,7 +1327,7 @@ def _passi_dichiarati(evidenza: dict[str, Any]) -> tuple[list[dict[str, Any]], l
                 f"`riconciliazione.passi`: «{identita}» ha esito "
                 f"«{voce['esito']}» accanto a un esito «{ESITO_LIVELLO_2}»"
             )
-        atteso = None if identita in PASSI_SENZA_LOG else f"{identita}.log"
+        atteso = None if identita in senza_log else f"{identita}.log"
         if voce["log"] != atteso:
             errori.append(
                 f"`riconciliazione.passi`: «{identita}» dichiara log "
@@ -1323,12 +1343,22 @@ def _passi_dichiarati(evidenza: dict[str, Any]) -> tuple[list[dict[str, Any]], l
             f"`riconciliazione.passi`: identita' ripetute {ripetute}. Due passi "
             "omonimi scriverebbero lo stesso log, e il manifest ne conterebbe uno."
         )
-    mancanti = sorted(PASSI_SENZA_LOG - set(identita))
+
+    # L'insieme e' **esatto**, non un conteggio: un passo tolto e uno aggiunto
+    # lascerebbero il totale fermo.
+    mancanti = [nome for nome in dichiarati if nome not in identita]
+    estranei = [nome for nome in identita if nome not in dichiarati]
     if mancanti:
         errori.append(
-            f"`riconciliazione.passi`: {mancanti} non compaiono. Sono i passi "
-            "che confrontano revisione e impronta fra testa e coda: una corsa "
-            "che non li elenca non ha verificato di aver misurato un albero solo."
+            f"`riconciliazione.passi`: {mancanti} sono dichiarati dal registro "
+            "dei passi e non compaiono. Una corsa che non li esegue misura un "
+            "altro insieme, e i suoi conteggi sono coerenti con se stessi."
+        )
+    if estranei:
+        errori.append(
+            f"`riconciliazione.passi`: {estranei} non sono nel registro dei "
+            "passi. Un passo che nessuno ha dichiarato non e' verificato da "
+            "nessuno."
         )
     return passi, errori
 

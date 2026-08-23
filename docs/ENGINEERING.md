@@ -366,6 +366,7 @@ Nessun documento è un database. I gate leggono file strutturati:
 | `assurance/registries/dependency-exceptions.json` | advisory accettati, con condizione di chiusura | `audit_ignores.py`, CI |
 | `assurance/registries/vendor-{dxf,gdal}-fork.json` | provenienza dei fork | `check_{dxf,gdal}_fork.py` |
 | `assurance/registries/assurance-n1-copertura-negativa.json` | rami negativi | `check_assurance_n1*.py` |
+| `assurance/registries/passi-del-checkpoint.json` | i passi del checkpoint, per identità | `s9-checkpoint.sh`, `check_release_contract.py` |
 | `assurance/registries/quartetto-siti.json` | quartetto per sito di costruzione | `check_quartetto_sito.py` |
 | `release/cli-protocol-v1.json` | le sei buste della CLI | `check_release_contract.py` |
 | `release/system-rc-gate.json` | qualifica cross-component | esterno |
@@ -377,6 +378,14 @@ nessuno rilegge, e la sua presenza invita a confronti fra corse che l'albero non
 permette di ricostruire — una delle precedenti portava un digest anteriore alla
 forma canonica, quindi non ricalcolabile. Git conserva la storia; l'albero di
 lavoro dice che cosa vale oggi.
+
+L'insieme dei passi è **dichiarato in un registro**, letto da entrambi i lati:
+il checkpoint confronta a fine corsa ciò che ha eseguito, e il verificatore
+confronta ciò che l'evidenza descrive. Chiuderlo da un lato solo lascerebbe
+passare una rimozione coordinata dall'altro — togliere un gate, la sua voce, il
+suo log e aggiornare contatori e digest è un'evidenza coerente con sé stessa che
+descrive un checkpoint più debole. Il confronto è sull'**insieme**, non sul
+totale: un passo tolto e uno aggiunto lasciano il conto fermo.
 
 Gli artefatti della corsa sono **riconciliati con i passi**: l'evidenza porta
 l'elenco delle 57 identità con esito e log, i conteggi ne sono il riassunto

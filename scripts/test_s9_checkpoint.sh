@@ -547,6 +547,57 @@ RISULTATO="${RISULTATI}/non/esiste/risultato.json"
 scrivi_risultato superato
 verifica "una destinazione impossibile e' rossa" "1" "$?"
 
+# --- l'insieme dei passi eseguiti e' quello dichiarato ----------------------
+#
+# Il registro canonico e' condiviso con il verificatore dell'evidenza: qui la
+# corsa dice se ha eseguito cio' che doveva, li' l'evidenza dice se descrive
+# cio' che esiste. Chiuderlo da un lato solo lascerebbe passare una rimozione
+# coordinata dall'altro.
+tutti_i_passi() {
+    python3 -c "
+import json
+percorso = 'assurance/registries/passi-del-checkpoint.json'
+for voce in json.load(open(percorso, encoding='utf-8'))['passi']:
+    print(voce['id'] + '|verde|')
+"
+}
+
+(
+    cd "${RADICE}" || exit 1
+    passi_registrati=()
+    while IFS= read -r riga; do passi_registrati+=("${riga}"); done < <(tutti_i_passi)
+    insieme_dei_passi_dichiarato > /dev/null
+)
+verifica "l'insieme completo e' quello dichiarato" "0" "$?"
+
+fuori="$(
+    cd "${RADICE}" || exit 1
+    passi_registrati=()
+    while IFS= read -r riga; do passi_registrati+=("${riga}"); done < <(tutti_i_passi | grep -v '^fmt|')
+    insieme_dei_passi_dichiarato
+)"
+verifica "un passo mancante viene nominato" "1" "$(printf '%s' "${fuori}" | grep -c "'fmt'")"
+
+fuori="$(
+    cd "${RADICE}" || exit 1
+    passi_registrati=()
+    while IFS= read -r riga; do passi_registrati+=("${riga}"); done < <(tutti_i_passi)
+    passi_registrati+=("passo_mai_dichiarato|verde|passo_mai_dichiarato.log")
+    insieme_dei_passi_dichiarato
+)"
+verifica "un passo estraneo viene nominato" "1" \
+    "$(printf '%s' "${fuori}" | grep -c "passo_mai_dichiarato")"
+
+fuori="$(
+    cd "${RADICE}" || exit 1
+    passi_registrati=()
+    while IFS= read -r riga; do passi_registrati+=("${riga}"); done < <(tutti_i_passi)
+    passi_registrati+=("fmt|verde|fmt.log")
+    insieme_dei_passi_dichiarato
+)"
+verifica "un passo ripetuto viene nominato" "1" \
+    "$(printf '%s' "${fuori}" | grep -c "eseguiti piu' di una volta")"
+
 # --- ogni uscita terminale registra il proprio esito ------------------------
 #
 # Il file veniva scritto `in_corso` all'avvio, e un livello 2 su albero sporco
