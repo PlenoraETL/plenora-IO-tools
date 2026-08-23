@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "e92c0b5",
+      "sha": "2a532df",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "e92c0b5",
+    "sha": "2a532df",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 41469,
+      "replay_input": 41765,
       "replay_target": 13,
       "replay_crash": 0,
       "smoke_target_eseguiti": 13,
@@ -32,26 +32,26 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 85.89,
-      "lcov_righe_coperte": 26861,
-      "lcov_righe_strumentate": 31274,
-      "cargo_lines_percentuale": 84.0,
+      "lcov_percentuale": 85.9,
+      "lcov_righe_coperte": 26889,
+      "lcov_righe_strumentate": 31304,
+      "cargo_lines_percentuale": 84.01,
       "soglia": 80.0,
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "d8e9e35",
-      "esito": "n/d",
-      "ragione": "fra le due revisioni sono cambiate 2 righe Rust, entrambe non eseguibili: il commit sposta `use super::*;` in testa a `mod tests` e non tocca una sola riga di sonda. Nessuna riga eseguibile e strumentata dalla misura LCOV si e' mossa, quindi l'esito e' n/d e non un numero."
+      "baseline": "e92c0b5",
+      "esito": "97,73%",
+      "ragione": "44 righe eseguibili cambiate, 43 coperte. L'unica scoperta e' `batch_worker.rs:79`, l'attributo `#[cfg(test)]` del segnale di backpressure: il corpo che segue e' coperto, la riga dell'attributo no. E' un artefatto dell'attribuzione delle regioni, stabile fra le corse, e non riapre la variazione."
     },
-    "evidenza": "assurance/evidence/checkpoint-e92c0b5.json"
+    "evidenza": "assurance/evidence/checkpoint-2a532df.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "e92c0b5"
+      "qualificato_su": "2a532df"
     }
   },
   "aperto": {
