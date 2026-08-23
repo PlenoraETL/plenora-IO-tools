@@ -2026,6 +2026,8 @@ impl ConvertBudgetParts {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// Il ramo di ritentativo di `try_take_bounded`, **deterministicamente**.
     ///
     /// Non prova a coprire una riga: prova la proprieta' per cui il ciclo
@@ -2136,8 +2138,6 @@ mod tests {
             "10 del prelievo concorrente piu' 30 di questo"
         );
     }
-
-    use super::*;
 
     fn bundle() -> PipelineBundle {
         PipelineBudget::builder()
