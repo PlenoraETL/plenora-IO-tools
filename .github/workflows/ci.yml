@@ -60,6 +60,13 @@ jobs:
         run: |
           python3 -m unittest scripts.test_check_docset
           python3 scripts/check_docset.py
+      # Il confronto fra campagne di copertura e' lo strumento con cui si cerca
+      # la causa di `copertura.variazione-fra-corse`. Se sbagliasse direbbe «le
+      # campagne coincidono» su campagne diverse, e quella frase chiuderebbe un
+      # blocco. Qui gira la sua sonda: le campagne vere costano un'ora e non
+      # appartengono alla CI.
+      - name: Verify the coverage campaign comparator
+        run: python3 -m unittest scripts.test_confronta_copertura
       - name: Verify shared WKB/EWKB corpus
         run: |
           python3 -m unittest scripts.test_compare_shared_wkb_observations

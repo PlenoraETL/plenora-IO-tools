@@ -68,8 +68,13 @@ CRATES = "crates"
 
 # Il workflow e' l'unico posto che *deve* dichiarare l'esclusione; gli altri
 # file sono sorvegliati perche' non ne dichiarino una diversa.
+#
+# `campagne_copertura.sh` misura la copertura piu' volte sulla stessa
+# revisione, e deve misurare **lo stesso perimetro**: un'esclusione diversa
+# darebbe numeri che non si confrontano con le evidenze del checkpoint, e la
+# differenza sembrerebbe della corsa invece che del perimetro.
 WORKFLOW = ".github/workflows/ci.yml"
-SORVEGLIATI = (WORKFLOW, "Dockerfile.dev")
+SORVEGLIATI = (WORKFLOW, "Dockerfile.dev", "scripts/campagne_copertura.sh")
 
 # Soglia di riga dichiarata per lo scope "library coverage". E' un valore, non
 # un minimo: il gate rifiuta anche chi la alza, perche' una soglia che si
