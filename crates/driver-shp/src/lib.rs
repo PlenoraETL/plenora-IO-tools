@@ -82,6 +82,8 @@ const DBF_FIELD_DESCRIPTOR_SIZE: usize = 32;
 const DBF_HEADER_TERMINATOR_SIZE: usize = 1;
 /// Il byte di flag di cancellazione che apre ogni record.
 const DBF_DELETION_FLAG_SIZE: usize = 1;
+/// Il valore di quel byte quando la riga e' cancellata.
+const DBF_RECORD_CANCELLATO: u8 = b'*';
 /// Il byte che chiude l'elenco dei descrittori. `dbase` lo pretende con un
 /// `debug_assert_eq!`, che sparisce in release: da noi e' un rifiuto, cosi'
 /// l'esito non dipende dalla configurazione di build.
@@ -2181,6 +2183,15 @@ fn valida_i_valori_temporali(
             // verifica trasformarlo in un rifiuto diverso.
             return Ok(());
         }
+        if record[0] == DBF_RECORD_CANCELLATO {
+            // Un record cancellato non viene **letto**: `dbase` salta i suoi
+            // byte senza decodificarne un solo campo, e il lettore fisico del
+            // driver fa lo stesso. Validarlo qui renderebbe questa verifica piu'
+            // severa del codice che protegge, e un dataset con una vecchia data
+            // malformata in una riga cancellata -- che oggi si legge -- comincerebbe
+            // a fallire per intero.
+            continue;
+        }
         for temporale in campi
             .iter()
             .filter(|campo| matches!(campo.tipo, b'D' | b'T'))
@@ -2334,7 +2345,7 @@ impl DbfExactIntegerRows {
             .map_err(|_| err(&PublicMessage::Curated("record DBF incompleto")))?;
         self.records_read += 1;
         match self.buffer[0] {
-            b'*' => return Ok(Some(DbfPhysicalRow::Deleted)),
+            DBF_RECORD_CANCELLATO => return Ok(Some(DbfPhysicalRow::Deleted)),
             b' ' => {}
             _ => {
                 // Il byte non esce: e' letto dal payload.
@@ -2848,7 +2859,12 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     let geometry_info = infer_geometry_info(path, dbf_layout.record_count)?;
     // `read_dbf_layout` ha gia' validato lo stesso file poche righe sopra, e la
     // ripetizione e' voluta: la garanzia deve valere per **questa** apertura,
-    // non per una che le sta accanto oggi. Costa la lettura di trentadue byte.
+    // non per una che le sta accanto oggi.
+    //
+    // Il costo non e' sempre lo stesso: trentadue byte piu' i descrittori quando
+    // non ci sono campi temporali, una scansione dei record quando ce ne sono --
+    // perche' li' il valore, non il descrittore, e' cio' che puo' fermare il
+    // lettore.
     valida_intestazione_dbf(&path.with_extension("dbf"))?;
     let mut reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
         .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
@@ -3567,6 +3583,75 @@ mod tests {
             righe, 2,
             "due punti e due record DBF: un conteggio diverso vuol dire che il \
              seme non attraversa piu' il drenaggio"
+        );
+    }
+
+    /// La terza famiglia di geometria del formato.
+    ///
+    /// Un multipunto dichiara il numero di punti e **non** l'indice delle
+    /// parti: nel driver percorre un ramo di prevalidazione che ne' il punto --
+    /// che non dichiara conteggi -- ne' la polilinea raggiungono. Senza un seme
+    /// che lo porti, quel ramo resterebbe scoperto e una delle tre famiglie del
+    /// formato non sarebbe esercitata dal target.
+    #[test]
+    fn il_seme_di_multipunto_arriva_al_drenaggio() {
+        let righe = __fuzz_leggi_bundle(
+            &seme("multipunto.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect("il seme deve essere letto");
+        assert_eq!(
+            righe, 1,
+            "una geometria multipunto e un record DBF: il conteggio dice che il \
+             seme attraversa il drenaggio, non solo l'apertura"
+        );
+
+        // Il ramo della prevalidazione, chiamato direttamente: `SoloPunti` e'
+        // una risposta diversa da `PartiEPunti`, e confondere i due tipi
+        // renderebbe il limite sugli elementi sbagliato per entrambi.
+        assert!(matches!(conteggi_attesi(8), ConteggiDelRecord::SoloPunti));
+        for tag in [18, 28] {
+            assert!(
+                matches!(conteggi_attesi(tag), ConteggiDelRecord::SoloPunti),
+                "il multipunto Z e M dichiarano gli stessi conteggi: {tag}"
+            );
+        }
+        assert!(matches!(conteggi_attesi(3), ConteggiDelRecord::PartiEPunti));
+        assert!(matches!(conteggi_attesi(1), ConteggiDelRecord::Nessuno));
+    }
+
+    /// Un valore ostile in una riga **cancellata** non ferma la lettura.
+    ///
+    /// `dbase` salta i byte di una riga cancellata senza decodificarne un
+    /// campo, e il lettore fisico del driver fa lo stesso. Una prevalidazione
+    /// che li guardasse sarebbe piu' severa del codice che protegge: un dataset
+    /// con una vecchia data malformata in una riga cancellata -- che si legge
+    /// oggi -- comincerebbe a fallire per intero.
+    ///
+    /// La coppia e' la prova: stesso valore, stessi byte, un solo byte di
+    /// differenza -- il marcatore.
+    #[test]
+    fn una_data_ostile_ferma_la_lettura_solo_se_la_riga_e_attiva() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("dbf-data-multibyte.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("la riga e' attiva: il valore va letto, e non e' leggibile");
+        assert_eq!(
+            errore.message,
+            "campo data DBF che il lettore non puo' interpretare"
+        );
+
+        let righe = __fuzz_leggi_bundle(
+            &seme("dbf-data-multibyte-cancellata.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect("la riga e' cancellata: nessuno ne legge i campi");
+        assert_eq!(
+            righe, 0,
+            "la sola riga del dataset e' cancellata, quindi il drenaggio ne \
+             produce zero: se ne producesse una, il marcatore non sarebbe stato \
+             onorato"
         );
     }
 

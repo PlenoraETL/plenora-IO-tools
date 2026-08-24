@@ -57,8 +57,8 @@
       "stato": "chiuso",
       "release_blocking": false,
       "misura": "assurance/profondita-fuzz-shapefile.json",
-      "requisiti_di_profondita": 33,
-      "nota": "il target e' `shp_reader`, e a chiuderlo non e' la sua esistenza: una build che compila e un replay senza crash non dicono che i semi arrivino al parser, perche' un bundle rifiutato all'apertura non fa crashare niente. Lo chiude la misura di copertura del replay dei semi versionati, che mostra raggiunti apertura del driver, inferenza dello schema, intestazione `.shp` e di record, indice `.shx`, intestazione e descrittori e valori del `.dbf`, un punto e una polilinea decodificati, il drenaggio in batch, i due rami di rifiuto dei conteggi disallineati e ogni difesa che la prima campagna ha reso necessaria."
+      "requisiti_di_profondita": 35,
+      "nota": "il target e' `shp_reader`, e a chiuderlo non e' la sua esistenza: una build che compila e un replay senza crash non dicono che i semi arrivino al parser, perche' un bundle rifiutato all'apertura non fa crashare niente. Lo chiude la misura di copertura del replay dei semi versionati, che mostra raggiunti apertura del driver, inferenza dello schema, intestazione `.shp` e di record, indice `.shx`, intestazione e descrittori e valori del `.dbf`, le tre famiglie di geometria -- punto, polilinea e multipunto -- il drenaggio in batch, i due rami di rifiuto dei conteggi disallineati e ogni difesa che le campagne hanno reso necessaria."
     }
   },
   "aperto": {

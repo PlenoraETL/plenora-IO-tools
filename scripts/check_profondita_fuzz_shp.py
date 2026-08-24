@@ -58,31 +58,45 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "profondita-fuzz-shapefile.json"
 
-# Il nucleo minimo dei requisiti, scritto **qui** e non solo nel registro.
+# Il nucleo minimo dei requisiti, scritto **qui** e non solo nel registro, con
+# la famiglia di ciascuno.
 #
-# Senza, il modo piu' semplice di rendere verde questo gate sarebbe svuotare il
-# registro: zero requisiti, zero requisiti mancati. E' la stessa famiglia del
-# `"test": []` del contratto, e si chiude allo stesso modo -- un insieme che il
-# registro deve contenere e che il gate conosce senza chiederglielo.
-NUCLEO_OBBLIGATORIO = frozenset(
-    {
-        "driver.apertura",
-        "driver.schema",
-        "driver.dbf-layout",
-        "dbf.intestazione",
-        "dbf.descrittori-di-campo",
-        "dbf.valori",
-        "shp.intestazione",
-        "shp.intestazione-di-record",
-        "shp.geometria-punto",
-        "shp.geometria-polilinea",
-        "shx.indice",
-        "shp.conteggio-delle-forme",
-        "drenaggio.batch",
-        "rifiuto.conteggi-all-apertura",
-        "rifiuto.cardinalita-nel-drenaggio",
-    }
-)
+# Senza l'insieme, il modo piu' semplice di rendere verde questo gate sarebbe
+# svuotare il registro: zero requisiti, zero requisiti mancati. E' la stessa
+# famiglia del `"test": []` del contratto, e si chiude allo stesso modo -- un
+# insieme che il registro deve contenere e che il gate conosce senza
+# chiederglielo.
+#
+# La **famiglia** serve per una ragione diversa, e altrettanto concreta. Un
+# requisito di riga individua un ramo preciso del nostro sorgente; uno di
+# funzione dice che un simbolo e' stato eseguito. `shp.geometria-multipunto`
+# prova che il decoder esterno decodifica un multipunto;
+# `prevalidazione.conteggi-del-multipunto` prova che la difesa che lo precede e'
+# stata percorsa. Sono due affermazioni diverse, e senza la famiglia la seconda
+# poteva essere riscritta come la prima -- a nome di un simbolo che esiste
+# comunque -- lasciando il gate verde su un ramo mai eseguito.
+FAMIGLIA_DEL_NUCLEO = {
+    "driver.apertura": "funzioni",
+    "driver.schema": "funzioni",
+    "driver.dbf-layout": "funzioni",
+    "dbf.intestazione": "funzioni",
+    "dbf.descrittori-di-campo": "funzioni",
+    "dbf.valori": "funzioni",
+    "shp.intestazione": "funzioni",
+    "shp.intestazione-di-record": "funzioni",
+    "shp.geometria-punto": "funzioni",
+    "shp.geometria-polilinea": "funzioni",
+    "shp.geometria-multipunto": "funzioni",
+    "shx.indice": "funzioni",
+    "shp.conteggio-delle-forme": "funzioni",
+    "drenaggio.batch": "funzioni",
+    "prevalidazione.conteggi-del-multipunto": "righe",
+    "rifiuto.conteggi-all-apertura": "righe",
+    "rifiuto.cardinalita-nel-drenaggio": "righe",
+}
+
+# Derivato, non riscritto: due elenchi da tenere allineati a mano divergono.
+NUCLEO_OBBLIGATORIO = frozenset(FAMIGLIA_DEL_NUCLEO)
 
 # I percorsi che il perimetro deve contenere comunque: sono il codice che la
 # misura attraversa e gli input che ce la portano. Un perimetro ridotto a
@@ -167,6 +181,19 @@ def requisiti(registro: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]
             "definizione di «il reader e' esercitato»: toglierne uno non riduce "
             "l'ambizione, cambia cio' che la frase significa."
         )
+
+    per_identita = {voce["id"]: voce["famiglia"] for voce in uniti}
+    spostati = sorted(
+        f"{identita} e' dichiarato fra le «{per_identita[identita]}», atteso fra "
+        f"le «{famiglia}»"
+        for identita, famiglia in FAMIGLIA_DEL_NUCLEO.items()
+        if identita in per_identita and per_identita[identita] != famiglia
+    )
+    errori.extend(
+        f"{messaggio}. Un ramo del sorgente e un simbolo eseguito non sono la "
+        "stessa prova, e scambiarli lascerebbe verde un ramo mai percorso."
+        for messaggio in spostati
+    )
 
     dichiarato = registro.get("nucleo")
     if not isinstance(dichiarato, list) or set(dichiarato) != NUCLEO_OBBLIGATORIO:

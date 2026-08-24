@@ -29,9 +29,11 @@
     "shp.intestazione-di-record",
     "shp.geometria-punto",
     "shp.geometria-polilinea",
+    "shp.geometria-multipunto",
     "shx.indice",
     "shp.conteggio-delle-forme",
     "drenaggio.batch",
+    "prevalidazione.conteggi-del-multipunto",
     "rifiuto.conteggi-all-apertura",
     "rifiuto.cardinalita-nel-drenaggio"
   ],
@@ -151,6 +153,17 @@
       "perche": "una geometria a parti, che percorre l'indice delle parti: e' una forma di record diversa dal punto, non un secondo esemplare della stessa."
     },
     {
+      "id": "shp.geometria-multipunto",
+      "segmenti": [
+        "shapefile",
+        "record",
+        "multipoint",
+        "GenericMultipoint",
+        "read_shape_content"
+      ],
+      "perche": "la terza famiglia di geometria del formato, e la sola che dichiara i punti senza le parti. Punto e polilinea non la raggiungono: senza un requisito che la nomini, «il reader e' esercitato» resterebbe vero di due geometrie su tre."
+    },
+    {
       "id": "shx.indice",
       "segmenti": [
         "shapefile",
@@ -256,6 +269,12 @@
       "file": "crates/driver-shp/src/lib.rs",
       "ancora": "\"campo DBF piu' corto di quanto il suo tipo pretenda\",",
       "perche": "`dbase` dichiara le dimensioni fisse dei propri tipi e non le verifica: affetta comunque, e la fetta panica."
+    },
+    {
+      "id": "prevalidazione.conteggi-del-multipunto",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "8 | 18 | 28 => ConteggiDelRecord::SoloPunti,",
+      "perche": "il ramo della prevalidazione che riconosce un multipunto. E' una risposta diversa da `PartiEPunti`, e sbagliarla renderebbe il limite sugli elementi sbagliato per entrambi i tipi. Il requisito sulla funzione dice che la geometria e' decodificata; questo dice che la difesa che la precede e' stata percorsa."
     },
     {
       "id": "rifiuto.record-troppo-corto",

@@ -54,6 +54,7 @@ VERSIONE = 1000
 # I tipi di forma usati dai semi.
 PUNTO = 1
 POLILINEA = 3
+MULTIPUNTO = 8
 
 # dBase III senza memo: e' cio' che il lettore DBF del driver accetta, ed e' la
 # forma piu' semplice che porti record veri.
@@ -147,6 +148,54 @@ def shp_di_polilinee(linee: list[list[tuple[float, float]]]):
         max(y for _, y in tutti),
     )
     return _assembla(POLILINEA, contenuti, riquadro)
+
+
+def shp_di_multipunto(gruppi: list[list[tuple[float, float]]]):
+    """La terza famiglia di geometria del formato.
+
+    Un multipunto dichiara **solo** il numero di punti: niente indice delle
+    parti. E' una forma di record diversa sia dal punto -- che non dichiara
+    conteggi -- sia dalla polilinea, e percorre nel driver un ramo di
+    prevalidazione che nessun'altra geometria raggiunge.
+    """
+    contenuti = []
+    for punti in gruppi:
+        riquadro = (
+            min(x for x, _ in punti),
+            min(y for _, y in punti),
+            max(x for x, _ in punti),
+            max(y for _, y in punti),
+        )
+        contenuto = struct.pack("<i", MULTIPUNTO)
+        contenuto += struct.pack("<4d", *riquadro)
+        contenuto += struct.pack("<i", len(punti))
+        for x, y in punti:
+            contenuto += struct.pack("<2d", x, y)
+        contenuti.append(contenuto)
+
+    tutti = [vertice for punti in gruppi for vertice in punti]
+    riquadro = (
+        min(x for x, _ in tutti),
+        min(y for _, y in tutti),
+        max(x for x, _ in tutti),
+        max(y for _, y in tutti),
+    )
+    return _assembla(MULTIPUNTO, contenuti, riquadro)
+
+
+def dbf_con_record_cancellato(tabella: bytes) -> bytes:
+    """Marca cancellato il primo record, lasciandone intatto il contenuto.
+
+    Serve a una prova accoppiata: lo **stesso** valore ostile deve fermare la
+    lettura quando la riga e' attiva ed essere ignorato quando e' cancellata.
+    `dbase` salta i byte di una riga cancellata senza decodificarne un campo, e
+    il lettore fisico del driver fa lo stesso: una verifica che li guardasse
+    sarebbe piu' severa del codice che protegge.
+    """
+    grezzo = bytearray(tabella)
+    (inizio,) = struct.unpack("<H", bytes(grezzo[8:10]))
+    grezzo[inizio] = 0x2A  # '*'
+    return bytes(grezzo)
 
 
 def dbf(campi: list[tuple[str, str, int]], righe: list[list[str]]) -> bytes:
@@ -341,6 +390,8 @@ def semi() -> dict[str, bytes]:
     linee, indice_linee = shp_di_polilinee([[(0.0, 0.0), (1.0, 1.0), (2.0, 0.5)]])
     una_riga = dbf([("NOME", "C", 8)], [["TRATTA"]])
     una_data = dbf([("QUANDO", "D", 8)], [["20260101"]])
+    data_ostile = dbf_con_data_ostile(una_data, b"2026\xc3\xa801")
+    multipunto, indice_multipunto = shp_di_multipunto([[(9.19, 45.46), (11.34, 44.49)]])
     # Un campo `T`: otto byte binari, giorno giuliano e millisecondi. Il valore
     # di partenza e' valido; i semi ostili ne cambiano gli otto byte.
     una_data_e_ora = dbf([("ISTANTE", "T", 8)], [["        "]])
@@ -374,6 +425,9 @@ def semi() -> dict[str, bytes]:
         "punti-con-attributi.bundle": bundle(punti, indice_punti, attributi),
         "punti-con-prj.bundle": bundle(punti, indice_punti, attributi, PRJ_WGS84),
         "polilinea.bundle": bundle(linee, indice_linee, una_riga),
+        # La terza famiglia di geometria: dichiara i punti e non le parti, e nel
+        # driver percorre un ramo che ne' il punto ne' la polilinea raggiungono.
+        "multipunto.bundle": bundle(multipunto, indice_multipunto, una_riga),
         "disallineati-con-indice.bundle": bundle(punti, indice_punti, disallineato),
         "disallineati-senza-indice.bundle": bundle(punti, b"", disallineato),
         # I tre punti di arresto di `dbase::File::open`, uno per ramo. Restano semi anche
@@ -410,8 +464,12 @@ def semi() -> dict[str, bytes]:
         ),
         # Il valore di un campo data, che e' l'unico tipo il cui **contenuto**
         # -- non il descrittore -- puo' far panicare il lettore.
-        "dbf-data-multibyte.bundle": bundle(
-            linee, indice_linee, dbf_con_data_ostile(una_data, b"2026\xc3\xa801")
+        "dbf-data-multibyte.bundle": bundle(linee, indice_linee, data_ostile),
+        # Lo **stesso** valore, in una riga cancellata: `dbase` non lo legge, e
+        # nemmeno il driver. La coppia e' la prova che la prevalidazione non e'
+        # piu' severa del codice che protegge.
+        "dbf-data-multibyte-cancellata.bundle": bundle(
+            linee, indice_linee, dbf_con_record_cancellato(data_ostile)
         ),
         "dbf-data-corta.bundle": bundle(
             linee, indice_linee, dbf_con_data_ostile(una_data, b"2026    ")

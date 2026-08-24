@@ -32,14 +32,17 @@ def registro_minimo() -> dict:
         "artefatto": "assurance/profondita-fuzz-shapefile.json",
         "perimetro": {"percorsi": sorted(gate.PERIMETRO_OBBLIGATORIO)},
         "nucleo": sorted(gate.NUCLEO_OBBLIGATORIO),
+        # La famiglia viene dal gate, non da una convenzione sul nome: un
+        # requisito di riga che non si chiamasse «rifiuto.*» finirebbe fra le
+        # funzioni, e la fixture proverebbe un registro che il gate rifiuta.
         "funzioni": [
             {
                 "id": identita,
                 "segmenti": ["driver_shp", identita.replace(".", "_")],
                 "perche": "perche' si'",
             }
-            for identita in sorted(gate.NUCLEO_OBBLIGATORIO)
-            if not identita.startswith("rifiuto.")
+            for identita, famiglia in sorted(gate.FAMIGLIA_DEL_NUCLEO.items())
+            if famiglia == "funzioni"
         ],
         "righe": [
             {
@@ -48,8 +51,8 @@ def registro_minimo() -> dict:
                 "ancora": identita,
                 "perche": "perche' si'",
             }
-            for identita in sorted(gate.NUCLEO_OBBLIGATORIO)
-            if identita.startswith("rifiuto.")
+            for identita, famiglia in sorted(gate.FAMIGLIA_DEL_NUCLEO.items())
+            if famiglia == "righe"
         ],
     }
 
@@ -135,6 +138,38 @@ class SondeDellaVerifica(unittest.TestCase):
                     any("nucleo" in m for m in errori),
                     f"togliere «{identita}» deve essere rosso: {errori}",
                 )
+
+    def test_spostare_un_requisito_del_nucleo_di_famiglia_e_rosso(self) -> None:
+        """Un ramo del sorgente e un simbolo eseguito non sono la stessa prova.
+
+        `prevalidazione.conteggi-del-multipunto` e' un requisito di **riga**:
+        riscritto come funzione passerebbe a nome di un simbolo che esiste
+        comunque, e il ramo resterebbe mai percorso con il gate verde.
+        """
+        for identita, famiglia in sorted(gate.FAMIGLIA_DEL_NUCLEO.items()):
+            with self.subTest(identita):
+                registro = registro_minimo()
+                altra = "righe" if famiglia == "funzioni" else "funzioni"
+                registro[famiglia] = [v for v in registro[famiglia] if v["id"] != identita]
+                registro[altra] = registro[altra] + [
+                    {
+                        "id": identita,
+                        "segmenti": ["driver_shp", "inventata"],
+                        "file": "crates/driver-shp/src/lib.rs",
+                        "ancora": identita,
+                        "perche": "perche' si'",
+                    }
+                ]
+                errori = gate.verifica(registro, misura_di(registro_minimo()))
+                self.assertTrue(
+                    any("atteso fra le" in m for m in errori),
+                    f"spostare «{identita}» deve essere rosso: {errori}",
+                )
+
+    def test_il_nucleo_e_derivato_dalle_famiglie(self) -> None:
+        """Due elenchi da tenere allineati a mano divergono."""
+        self.assertEqual(gate.NUCLEO_OBBLIGATORIO, frozenset(gate.FAMIGLIA_DEL_NUCLEO))
+        self.assertEqual(set(gate.FAMIGLIA_DEL_NUCLEO.values()), {"funzioni", "righe"})
 
     def test_il_nucleo_dichiarato_deve_coincidere_con_quello_preteso(self) -> None:
         registro = registro_minimo()
