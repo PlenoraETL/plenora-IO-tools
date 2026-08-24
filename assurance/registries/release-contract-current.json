@@ -419,6 +419,29 @@
       "nota": "la prova e' il gate che **esegue** le sonde, non il verbale della dimostrazione: quest'ultimo registra sette campagne coincidenti su a916ad9 in due modalita', ed e' un fatto passato. Cio' che tiene vero l'invariante e' che le sonde ci siano ancora e passino — toglierne una riporterebbe la variazione, e nessun conteggio di copertura se ne accorgerebbe. Resta variabile il numero di **esecuzioni** per riga: non entra in alcuna soglia, e renderlo deterministico significherebbe serializzare cio' che il codice fa in parallelo per compiacere una misura."
     },
     {
+      "id": "copertura.tier-gdb-nel-denominatore",
+      "superficie": "misura di copertura del workspace: il comando che misura, il job che lo esegue, il report che ne esce",
+      "invariante": "il codice dietro una feature entra nel **denominatore** della soglia. Ogni invocazione che misura -- workflow di CI, checkpoint di livello 2, campagne -- porta `--all-features`, e il report contiene davvero le righe dietro `#[cfg(feature = ...)]`, riconosciute da ancore derivate dal sorgente invece che elencate nel gate.",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/check_coverage_exclusions.py"
+        ],
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "-m",
+            "unittest",
+            "scripts.test_check_coverage_exclusions"
+          ]
+        ],
+        "artefatto": ".github/workflows/ci.yml"
+      },
+      "stato": "verified",
+      "nota": "la soglia resta 80% e non e' questa la cosa che cambia: cambia che cosa conta. `driver-filegdb` tiene l'intero percorso GDAL dietro `gdal-backend`, e senza quella feature quelle righe non erano «scoperte» ma invisibili -- fuori misura, quindi incapaci per costruzione di abbassare la percentuale. Una crate compare nel report anche quando se ne misura la meta', percio' il gate non si accontenta di vederla: pretende il comando con `--all-features` in **tutti** i posti che misurano, e nel report l'ancora di ogni blocco feature-gated. Il job di copertura installa GDAL, senza la quale quella misura non si puo' fare."
+    },
+    {
       "id": "sistema.qualifica-cross-component",
       "superficie": "catena IO-tools -> data-tools -> database-tools",
       "invariante": "la catena e' qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma, comandi ed esiti registrati",

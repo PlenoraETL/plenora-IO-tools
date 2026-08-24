@@ -22,6 +22,8 @@ from __future__ import annotations
 import io
 import json
 import pathlib
+import shutil
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
@@ -64,7 +66,7 @@ class SondeDelConfine(unittest.TestCase):
         finta = pathlib.Path("/finta/libgdal.so.32")
         locale = gate._libreria_locale
         simboli = gate.simboli_asan
-        gate._libreria_locale = lambda _percorso: finta
+        gate._libreria_locale = lambda: finta
         gate.simboli_asan = lambda _percorso: 0
         self.addCleanup(setattr, gate, "_libreria_locale", locale)
         self.addCleanup(setattr, gate, "simboli_asan", simboli)
@@ -101,7 +103,7 @@ class SondeDelConfine(unittest.TestCase):
         """Un gate che verifica la GDAL di questa macchina, se non c'e', non
         deve dire di si': deve dire che non puo' dirlo."""
 
-        def assente(_percorso: str):
+        def assente():
             raise gate.MisuraImpossibile("libgdal non trovata su questa macchina")
 
         gate._libreria_locale = assente
@@ -200,6 +202,70 @@ class SondeDelConfine(unittest.TestCase):
         self.assertTrue(any("asan-filegdb.sh" in m for m in errori))
 
 
+class SondeDellaRisoluzione(unittest.TestCase):
+    """*Quale* libgdal viene misurata.
+
+    La prima stesura preferiva il percorso scritto nell'artefatto quando esiste
+    ancora. Un file puo' restare al suo posto mentre il loader ne sceglie un
+    altro -- una `.so.35` installata accanto alla `.32`, un `LD_LIBRARY_PATH` --
+    e in quel caso il gate diceva «non strumentata» di una libreria che nessun
+    processo caricherebbe piu'.
+    """
+
+    def test_il_percorso_risolto_e_quello_che_dice_il_loader(self) -> None:
+        radice = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, radice, True)
+        vera = radice / "libgdal.so.35"
+        vera.write_bytes(b"ELF")
+        righe = [
+            "\tlinux-vdso.so.1 (0x00007ffd)",
+            f"\tlibgdal.so.35 => {vera} (0x00007f0000000000)",
+            "\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f0000001000)",
+        ]
+        self.assertEqual(gate._gdal_da_ldd(righe), vera)
+
+    def test_una_dipendenza_non_risolta_non_e_una_libreria(self) -> None:
+        """`ldd` stampa anche cio' che **non** trova: prendere l'ultimo campo di
+        quelle righe darebbe il nome di un file inesistente."""
+        self.assertIsNone(gate._gdal_da_ldd(["\tlibgdal.so.32 => not found"]))
+
+    def test_un_binario_che_non_collega_gdal_non_da_nessuna_libreria(self) -> None:
+        self.assertIsNone(
+            gate._gdal_da_ldd(["\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x7f)"])
+        )
+
+    def test_il_percorso_registrato_non_viene_preferito(self) -> None:
+        """Il fatto che il gate esiste per non dare per buono: si misura la
+        libreria che il loader sceglie oggi, non quella di allora."""
+        radice = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, radice, True)
+        storica = radice / "libgdal.so.32"
+        storica.write_bytes(b"ELF vecchio")
+        odierna = radice / "libgdal.so.35"
+        odierna.write_bytes(b"ELF nuovo")
+
+        guardate: list[pathlib.Path] = []
+        precedenti = (
+            gate._binario_feature_on,
+            gate._righe_di_ldd,
+            gate.simboli_asan,
+            gate.impronta_del_perimetro,
+        )
+        gate._binario_feature_on = lambda: radice / "plenora-io"
+        gate._righe_di_ldd = lambda _binario: [f"\tlibgdal.so.35 => {odierna} (0x7f)"]
+        gate.simboli_asan = lambda percorso: guardate.append(percorso) or 0
+        gate.impronta_del_perimetro = lambda percorsi: (IMPRONTA, [])
+        self.addCleanup(setattr, gate, "_binario_feature_on", precedenti[0])
+        self.addCleanup(setattr, gate, "_righe_di_ldd", precedenti[1])
+        self.addCleanup(setattr, gate, "simboli_asan", precedenti[2])
+        self.addCleanup(setattr, gate, "impronta_del_perimetro", precedenti[3])
+
+        misura = misura_minima()
+        misura["libreria_collegata"]["percorso_risolto"] = str(storica)
+        self.assertEqual(gate.verifica(misura), [])
+        self.assertEqual(guardate, [odierna])
+
+
 class SondeDellaMisuraDiretta(unittest.TestCase):
     """`simboli_asan` discrimina davvero fra strumentato e non.
 
@@ -228,7 +294,7 @@ def gdal_locale_disponibile() -> bool:
     container GDAL c'e', ed e' li' che quella sonda conta.
     """
     try:
-        gate._libreria_locale("")
+        gate._libreria_locale()
     except gate.MisuraImpossibile:
         return False
     return True

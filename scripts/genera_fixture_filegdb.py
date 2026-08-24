@@ -70,6 +70,11 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARCHIVIO = ROOT / "fuzz" / "fixtures" / "filegdb" / "citta.gdb.bundle"
+# La **sorgente** da cui GDAL produce la fixture. Sta nel verbale perche' e' un
+# ingresso della riproducibilita' quanto la versione di GDAL: cambiarla cambia
+# ogni byte della fixture, e un verbale che le sopravvivesse direbbe
+# «riproducibile» di un confronto fatto su un altro input.
+SORGENTE = ROOT / "fuzz" / "fixtures" / "filegdb" / "citta.geojson"
 # La prova della riproducibilita', registrata. Il confronto vuole GDAL e due
 # rigenerazioni; il gate che lo rilegge no, e gira ovunque.
 PROVA = ROOT / "assurance" / "fixture-filegdb.json"
@@ -245,6 +250,7 @@ def registra(uno: pathlib.Path, due: pathlib.Path, versione_gdal: str) -> int:
             "e' coniato, ed e' rosso."
         ),
         "versione_gdal": versione_gdal,
+        "impronta_della_sorgente": hashlib.sha256(SORGENTE.read_bytes()).hexdigest(),
         "impronta_della_fixture": hashlib.sha256(ARCHIVIO.read_bytes()).hexdigest(),
         "parti": len(committata),
         "byte_coniati_per_parte": {
@@ -369,6 +375,24 @@ def _prova_legata_alla_fixture(contenuti: dict[str, bytes]) -> list[str]:
             f"«{attesa}». Il verbale e' di un'altra fixture: va rifatto con "
             "`bash scripts/genera-fixture-filegdb.sh`."
         ]
+
+    # La sorgente e' un ingresso quanto la versione di GDAL: cambiarla cambia
+    # ogni byte della fixture. Senza questo legame, un verbale poteva descrivere
+    # un confronto fatto su un altro GeoJSON.
+    if not SORGENTE.is_file():
+        errori.append(
+            f"{_relativo(SORGENTE)}: la sorgente della fixture non c'e' piu'. "
+            "Senza, la fixture non e' riproducibile da nessuno."
+        )
+    else:
+        sorgente = hashlib.sha256(SORGENTE.read_bytes()).hexdigest()
+        if prova.get("impronta_della_sorgente") != sorgente:
+            errori.append(
+                f"la prova e' stata ottenuta da una sorgente con impronta "
+                f"«{prova.get('impronta_della_sorgente')}», quella committata ha "
+                f"«{sorgente}». Il GeoJSON di partenza e' cambiato: la fixture "
+                "che GDAL produrrebbe oggi e' un'altra."
+            )
     if prova.get("parti") != len(contenuti):
         errori.append(
             f"la prova dichiara {prova.get('parti')} parti, la fixture ne ha "
@@ -387,6 +411,77 @@ def _prova_legata_alla_fixture(contenuti: dict[str, bytes]) -> list[str]:
             "dire che due rigenerazioni sono identiche byte a byte: sarebbe una "
             "buona notizia, e renderebbe la tolleranza del confronto vuota -- va "
             "verificato invece che dato per scontato."
+        )
+    errori.extend(_offset_riconciliati(prova, contenuti))
+    return errori
+
+
+def _offset_riconciliati(prova: dict, contenuti: dict[str, bytes]) -> list[str]:
+    """I tre modi in cui il verbale conta i byte coniati devono coincidere.
+
+    `offset_coniati` e' l'elenco, `byte_coniati_per_parte` il conteggio,
+    `byte_coniati_totali` la somma. Erano tre campi che nessuno confrontava, e un
+    verbale che ne portasse due coerenti e uno inventato passava: bastava
+    lasciare l'elenco vuoto per non farlo guardare da nessuno.
+    """
+    offset = prova.get("offset_coniati")
+    per_parte = prova.get("byte_coniati_per_parte")
+    if not isinstance(offset, dict) or not isinstance(per_parte, dict):
+        return [
+            "`offset_coniati` o `byte_coniati_per_parte` assenti o non sono "
+            "mappe: senza l'elenco, i conteggi non hanno niente da cui derivare "
+            "e la tolleranza del confronto resta indimostrata."
+        ]
+
+    errori: list[str] = []
+    if not offset:
+        errori.append(
+            "`offset_coniati` e' vuoto: nessun byte coniato elencato, mentre il "
+            "totale ne dichiara. E' la forma in cui un verbale sembra completo e "
+            "non dice niente."
+        )
+    if set(offset) != set(per_parte):
+        errori.append(
+            f"`offset_coniati` elenca {sorted(offset)}, "
+            f"`byte_coniati_per_parte` conta {sorted(per_parte)}: due parti "
+            "diverse per lo stesso confronto."
+        )
+        return errori
+
+    estranee = sorted(set(offset) - set(contenuti))
+    if estranee:
+        errori.append(
+            f"il verbale conta byte coniati per parti che la fixture non ha: "
+            f"{estranee}"
+        )
+
+    somma = 0
+    for nome, elenco in sorted(offset.items()):
+        if not isinstance(elenco, list) or not all(isinstance(o, int) for o in elenco):
+            errori.append(f"`offset_coniati[{nome}]` non e' un elenco di offset")
+            continue
+        if len(elenco) != len(set(elenco)):
+            errori.append(f"`offset_coniati[{nome}]` ripete lo stesso offset")
+        if elenco != sorted(elenco):
+            errori.append(f"`offset_coniati[{nome}]` non e' ordinato")
+        lunghezza = len(contenuti.get(nome, b""))
+        fuori = [o for o in elenco if o < 0 or o >= lunghezza]
+        if fuori:
+            errori.append(
+                f"`offset_coniati[{nome}]` cita offset fuori dalla parte "
+                f"({lunghezza} byte): {fuori[:5]}"
+            )
+        if per_parte.get(nome) != len(elenco):
+            errori.append(
+                f"`byte_coniati_per_parte[{nome}]` vale «{per_parte.get(nome)}», "
+                f"l'elenco ne porta {len(elenco)}"
+            )
+        somma += len(elenco)
+
+    if prova.get("byte_coniati_totali") != somma:
+        errori.append(
+            f"`byte_coniati_totali` vale «{prova.get('byte_coniati_totali')}», "
+            f"gli offset elencati sono {somma}"
         )
     return errori
 

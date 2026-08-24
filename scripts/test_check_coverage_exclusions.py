@@ -16,10 +16,12 @@ import unittest
 from pathlib import Path
 
 from scripts.check_coverage_exclusions import (
+    ancore_feature_gated,
     crate_non_libreria,
     regex_canonica,
     verifica,
     verifica_report,
+    verifica_workflow,
 )
 
 ESCLUSIONE = r"(^|/)(attrezzo-bench|attrezzo-cli)/src/.*\.rs$"
@@ -28,7 +30,7 @@ WORKFLOW = f"""jobs:
   coverage:
     steps:
       - name: Measure coverage
-        run: cargo llvm-cov --workspace --all-targets --locked --no-report
+        run: cargo llvm-cov --workspace --all-targets --all-features --locked --no-report
       - name: Export LCOV report
         run: >-
           cargo llvm-cov report --lcov --output-path lcov.info
@@ -42,11 +44,20 @@ WORKFLOW = f"""jobs:
           --fail-under-lines 80
 """
 
+# `libro` porta un blocco dietro una feature: la firma sta alla riga 4, ed e'
+# quella che il gate cerca nel report. Senza, una misura compilata senza la
+# feature sarebbe indistinguibile da una completa.
+SORGENTE_CON_FEATURE = """pub fn sempre() {}
+
+#[cfg(feature = "extra")]
+pub fn solo_con_extra() {}
+"""
+
 ALBERO = {
     ".github/workflows/ci.yml": WORKFLOW,
     "Dockerfile.dev": "FROM rust:1.92-slim-bookworm\n",
     "crates/libro/Cargo.toml": '[package]\nname = "libro"\n',
-    "crates/libro/src/lib.rs": "pub fn niente() {}\n",
+    "crates/libro/src/lib.rs": SORGENTE_CON_FEATURE,
     "crates/quaderno/Cargo.toml": '[package]\nname = "quaderno"\n',
     "crates/quaderno/src/lib.rs": "pub fn niente() {}\n",
     "crates/attrezzo-bench/Cargo.toml": '[package]\nname = "attrezzo-bench"\n',
@@ -56,7 +67,19 @@ ALBERO = {
     "crates/attrezzo-cli/src/main.rs": "fn main() {}\n",
 }
 
+
 LCOV = """SF:/work/crates/libro/src/lib.rs
+DA:1,1
+DA:4,1
+end_of_record
+SF:/work/crates/quaderno/src/lib.rs
+DA:1,1
+end_of_record
+"""
+
+# Lo stesso report, senza la riga della funzione dietro la feature: e' cio' che
+# `cargo llvm-cov` produce quando la misura non porta `--all-features`.
+LCOV_SENZA_FEATURE = """SF:/work/crates/libro/src/lib.rs
 DA:1,1
 end_of_record
 SF:/work/crates/quaderno/src/lib.rs
@@ -237,13 +260,80 @@ class SondeScopeCoverage(unittest.TestCase):
         radice = self.albero()
         percorso = self.con_lcov(
             radice,
-            "SF:crates/libro/src/lib.rs\nDA:1,1\nend_of_record\n"
+            "SF:crates/libro/src/lib.rs\nDA:1,1\nDA:4,1\nend_of_record\n"
             "SF:crates\\quaderno\\src\\lib.rs\nDA:1,1\nend_of_record\n"
             "SF:crates\\attrezzo-cli\\src\\main.rs\nDA:1,0\nend_of_record\n",
         )
         errori = verifica_report(radice, percorso)
         self.assertEqual(len(errori), 1)
         self.assertIn("attrezzo-cli", errori[0])
+
+
+class SondeDelCodiceDietroUnaFeature(unittest.TestCase):
+    """Il denominatore comprende il codice feature-gated, o non e' la libreria.
+
+    Il gate guardava che ogni crate libreria comparisse nel report, e una crate
+    compare anche quando se ne misura la meta': `driver-filegdb` tiene l'intero
+    percorso GDAL dietro `gdal-backend`, e senza quella feature cinquecento
+    righe di produzione restavano fuori dalla soglia -- non «scoperte», ma
+    invisibili.
+    """
+
+    def setUp(self) -> None:
+        temporanea = tempfile.TemporaryDirectory()
+        self.addCleanup(temporanea.cleanup)
+        self.radice = Path(temporanea.name)
+        for relativo, testo in ALBERO.items():
+            percorso = self.radice / relativo
+            percorso.parent.mkdir(parents=True, exist_ok=True)
+            percorso.write_text(testo, encoding="utf-8")
+
+    def con_lcov(self, testo: str) -> Path:
+        percorso = self.radice / "lcov.info"
+        percorso.write_text(testo, encoding="utf-8")
+        return percorso
+
+    def test_un_report_con_il_codice_feature_gated_e_verde(self) -> None:
+        self.assertEqual(verifica_report(self.radice, self.con_lcov(LCOV)), [])
+
+    def test_un_report_senza_il_codice_feature_gated_e_rosso(self) -> None:
+        """E' cio' che `cargo llvm-cov` produce senza `--all-features`: la crate
+        c'e', il suo codice dietro la feature no."""
+        errori = verifica_report(self.radice, self.con_lcov(LCOV_SENZA_FEATURE))
+        self.assertTrue(any("senza `--all-features`" in m for m in errori), errori)
+        self.assertTrue(any("libro" in m for m in errori))
+
+    def test_le_ancore_si_derivano_dal_sorgente(self) -> None:
+        """Non sono scritte nel gate: vengono dagli attributi che il codice
+        porta, cosi' un blocco nuovo entra nella verifica da solo."""
+        ancore = ancore_feature_gated(self.radice)
+        self.assertIn("libro", ancore)
+        self.assertEqual(ancore["libro"], [("crates/libro/src/lib.rs", 4)])
+        self.assertNotIn("quaderno", ancore)
+
+    def test_la_misura_deve_portare_tutte_le_feature(self) -> None:
+        """Il comando che **misura**, non quello che riporta: e' il primo a
+        decidere che cosa entra nel denominatore."""
+        percorso = self.radice / ".github/workflows/ci.yml"
+        percorso.write_text(
+            WORKFLOW.replace(
+                "--all-targets --all-features --locked", "--all-targets --locked"
+            ),
+            encoding="utf-8",
+        )
+        errori = verifica_workflow(self.radice)
+        self.assertTrue(any("--all-features" in m for m in errori), errori)
+
+    def test_senza_nessuna_invocazione_di_misura_e_rosso(self) -> None:
+        percorso = self.radice / ".github/workflows/ci.yml"
+        percorso.write_text(
+            WORKFLOW.replace("cargo llvm-cov --workspace", "echo salto"),
+            encoding="utf-8",
+        )
+        errori = verifica_workflow(self.radice)
+        self.assertTrue(
+            any("nessuna invocazione" in m for m in errori), errori
+        )
 
 
 if __name__ == "__main__":

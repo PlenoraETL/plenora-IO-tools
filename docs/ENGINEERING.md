@@ -344,8 +344,16 @@ righe drenate e il messaggio esatto dei rifiuti.
 
 ### Copertura
 
-Misurata con `cargo llvm-cov`, soglia 80%. Il checkpoint riporta **due
-proiezioni** dello stesso profdata — i record `DA:` del report LCOV e la colonna
+Misurata con `cargo llvm-cov --all-features`, soglia 80%. Le feature contano:
+`driver-filegdb` tiene l'intero percorso GDAL dietro `gdal-backend`, e senza
+quella feature quel codice non era «scoperto» ma **invisibile** — fuori dal
+denominatore, quindi incapace di abbassare la soglia. Il job di copertura
+installa percio' GDAL, e `scripts/check_coverage_exclusions.py` verifica sia che
+il comando che **misura** porti `--all-features`, sia che il codice dietro una
+feature compaia davvero nel report, con ancore derivate dagli attributi `cfg`
+del sorgente invece che scritte a mano.
+
+Il checkpoint riporta **due proiezioni** dello stesso profdata — i record `DA:` del report LCOV e la colonna
 «Lines» di `llvm-cov` — che contano insiemi diversi di righe strumentate e non
 sono intercambiabili. Entrambe sono richieste.
 

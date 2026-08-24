@@ -440,10 +440,15 @@ jobs:
       - uses: taiki-e/install-action@41049aa56687c35e0afa74eed4f09cec4f9afabf # v2.85.2, cargo-llvm-cov
         with:
           tool: cargo-llvm-cov@0.9.0
+      # GDAL serve **alla misura**, non solo ai test: con `--all-features` la
+      # copertura compila anche il percorso `gdal-backend` di driver-filegdb, e
+      # senza la libreria non compilerebbe affatto.
+      - name: Install GDAL
+        run: sudo apt-get update && sudo apt-get install --yes libgdal-dev gdal-bin
       - name: Measure coverage
         env:
           PLENORA_CROSS_FS_TEST_ROOT: /dev/shm
-        run: cargo llvm-cov --workspace --all-targets --locked --no-report
+        run: cargo llvm-cov --workspace --all-targets --all-features --locked --no-report
       # Il report esportato porta le stesse esclusioni della soglia. Prima non
       # le portava, e l'artefatto pubblicato come "coverage" descriveva un
       # perimetro diverso da quello su cui la soglia veniva applicata: due

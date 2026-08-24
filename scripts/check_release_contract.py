@@ -177,6 +177,10 @@ INVARIANTI_OBBLIGATORI = frozenset(
         "fuzz.quarantena",
         "copertura.rami-negativi",
         "copertura.variazione-fra-corse",
+        # Il denominatore della soglia. Senza, bastava togliere
+        # `--all-features` per far sparire dalla misura cinquecento righe
+        # di produzione: non «scoperte», invisibili.
+        "copertura.tier-gdb-nel-denominatore",
         "fuzz.reader-shapefile",
         "fuzz.semi-riproducibili",
         "fuzz.filegdb",

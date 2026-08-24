@@ -60,11 +60,24 @@ Il livello 2 non riesegue la misura: rilegge l'artefatto. Un artefatto che
 descrivesse una `libgdal` diversa da quella installata lascerebbe verde
 l'invariante su un ambiente che nessuno ha guardato.
 
-Il gate rimisura percio' **la libreria di questa macchina** a ogni esecuzione --
-costa un `nm` -- e pretende che sia non strumentata. L'identita' della libreria
-misurata resta registrata, e quando non coincide con quella locale il gate lo
-dice: i numeri di copertura appartengono a quell'ambiente, la non-strumentazione
-e' verificata qui.
+Il gate rimisura percio' **la libreria di questa macchina** a ogni esecuzione, e
+pretende che sia non strumentata. L'identita' della libreria misurata resta
+registrata, e quando non coincide con quella locale il gate lo dice: i numeri di
+copertura appartengono a quell'ambiente, la non-strumentazione e' verificata qui.
+
+# Quale libreria e' «quella di questa macchina»
+
+Non quella scritta nell'artefatto. Un percorso registrato mesi fa puo' esistere
+ancora mentre il loader ne sceglierebbe un'altra -- una `libgdal.so.35` accanto
+alla `.32`, un `LD_LIBRARY_PATH`, un aggiornamento che ha lasciato il vecchio
+file al suo posto -- e misurare quel file direbbe «non strumentata» di una
+libreria che nessun processo caricherebbe piu'.
+
+La domanda si gira percio' a chi la decide davvero. Il gate costruisce un
+binario **corrente** con il tier GDB acceso e chiede a `ldd` quale `libgdal`
+risolve: e' la libreria che il target caricherebbe se lo si costruisse adesso,
+ed e' esattamente quella che viene misurata. Il percorso registrato serve solo a
+dire se e' la stessa di allora.
 
 # Uso
 
@@ -104,6 +117,13 @@ ARTEFATTO = ROOT / "assurance" / "asan-filegdb.json"
 # esercitando FileGDB.
 LIBRERIA = "libgdal"
 
+# Il binario da cui si chiede al loader quale GDAL userebbe **oggi**. Non e' il
+# target del fuzzing: quello richiede la toolchain nightly e il sanitizer, che
+# per questa domanda non servono. E' un nostro binario con lo stesso tier acceso,
+# quindi con la stessa dipendenza e lo stesso soname.
+CRATE_FEATURE_ON = "plenora-io-cli"
+FEATURE_GDB = "gdal-backend"
+
 # I fatti che la misura deve portare, e il valore che li rende il confine
 # descritto dalla prosa. Non sono soglie: sono identita'.
 ATTESI: dict[str, Any] = {
@@ -137,39 +157,120 @@ class MisuraImpossibile(Exception):
 # --- la misura locale, rifatta a ogni esecuzione ----------------------------
 
 
-def _libreria_locale(percorso_registrato: str) -> Path:
-    """La `libgdal` di **questa** macchina.
+def _binario_feature_on() -> Path:
+    """Un binario **costruito adesso** con il tier GDB acceso.
 
-    Si preferisce il percorso registrato quando esiste, perche' e' quello che il
-    processo misurato ha davvero caricato; altrimenti si chiede al linker
-    dinamico, che e' cio' che il processo caricherebbe qui.
+    Serve solo come domanda da porre al loader: un eseguibile che dipende da
+    GDAL e' l'unico modo di far dire a `ldd` quale libreria verrebbe scelta con
+    la configurazione di oggi. Costruirlo e' incrementale, e quando la build non
+    riesce la conclusione giusta non e' «non strumentata» ma «non misurabile».
     """
-    if percorso_registrato and Path(percorso_registrato).is_file():
-        return Path(percorso_registrato)
-
-    # `ldconfig` puo' non esistere affatto -- una macchina di sviluppo che non
-    # e' Linux -- e in quel caso `subprocess` solleva invece di restituire.
+    comando = [
+        "cargo",
+        "build",
+        "--locked",
+        "--quiet",
+        "--package",
+        CRATE_FEATURE_ON,
+        "--features",
+        FEATURE_GDB,
+        "--message-format",
+        "json-render-diagnostics",
+    ]
     try:
         esito = subprocess.run(
-            ["ldconfig", "-p"], capture_output=True, text=True, check=False
+            comando, cwd=str(ROOT), capture_output=True, text=True, check=False
         )
     except OSError as errore:
         raise MisuraImpossibile(
-            f"non si puo' interrogare il linker dinamico ({errore}): questo gate "
-            "verifica la GDAL con cui il target verrebbe costruito **qui**, e va "
-            "eseguito dove GDAL e' installata."
+            f"`cargo` non e' invocabile ({errore}): senza un binario con il tier "
+            "GDB acceso non si puo' chiedere al loader quale GDAL userebbe."
         ) from errore
-    if esito.returncode == 0:
-        for riga in esito.stdout.splitlines():
-            if LIBRERIA in riga and "=>" in riga:
-                candidato = Path(riga.split("=>")[-1].strip())
-                if candidato.is_file():
-                    return candidato
-    raise MisuraImpossibile(
-        f"{LIBRERIA} non trovata su questa macchina: questo gate verifica la "
-        "GDAL con cui il target verrebbe costruito **qui**, e senza di essa non "
-        "puo' concludere niente. Va eseguito dove GDAL e' installata."
-    )
+    if esito.returncode != 0:
+        coda = "\n".join(esito.stderr.strip().splitlines()[-5:])
+        raise MisuraImpossibile(
+            f"il binario con il tier GDB acceso non si costruisce qui (`cargo "
+            f"build --package {CRATE_FEATURE_ON} --features {FEATURE_GDB}` e' "
+            f"uscito con {esito.returncode}): questo gate verifica la GDAL con "
+            "cui il target verrebbe costruito **qui**, e va eseguito dove GDAL "
+            f"e' installata.\n{coda}"
+        )
+
+    binario: Path | None = None
+    for riga in esito.stdout.splitlines():
+        try:
+            messaggio = json.loads(riga)
+        except json.JSONDecodeError:
+            continue
+        eseguibile = messaggio.get("executable")
+        if messaggio.get("reason") == "compiler-artifact" and eseguibile:
+            candidato = Path(eseguibile)
+            if candidato.is_file():
+                binario = candidato
+    if binario is None:
+        raise MisuraImpossibile(
+            f"`cargo build --package {CRATE_FEATURE_ON}` non ha prodotto nessun "
+            "eseguibile: senza, non c'e' niente da interrogare."
+        )
+    return binario
+
+
+def _righe_di_ldd(binario: Path) -> list[str]:
+    """Che cosa il loader risolverebbe per quel binario, riga per riga."""
+    try:
+        esito = subprocess.run(
+            ["ldd", str(binario)], capture_output=True, text=True, check=False
+        )
+    except OSError as errore:
+        raise MisuraImpossibile(
+            f"`ldd` non e' invocabile ({errore}): questo gate verifica la GDAL "
+            "con cui il target verrebbe costruito **qui**, e va eseguito dove "
+            "GDAL e' installata."
+        ) from errore
+    if esito.returncode != 0:
+        raise MisuraImpossibile(
+            f"`ldd {binario}` e' uscito con {esito.returncode}: non si sa quali "
+            "librerie quel binario caricherebbe."
+        )
+    return esito.stdout.splitlines()
+
+
+def _gdal_da_ldd(righe: list[str]) -> Path | None:
+    """La `libgdal` risolta, se il loader ne ha risolta una.
+
+    «Risolta» conta: `ldd` stampa anche le dipendenze che **non** trova, con un
+    `not found` al posto del percorso, e prendere l'ultimo campo di quelle righe
+    darebbe un nome di file inesistente.
+    """
+    for riga in righe:
+        if LIBRERIA not in riga.lower() or "=>" not in riga:
+            continue
+        risolto = riga.split("=>", 1)[1].strip().split(" (")[0].strip()
+        if not risolto or risolto == "not found":
+            continue
+        candidato = Path(risolto)
+        if candidato.is_file():
+            return candidato
+    return None
+
+
+def _libreria_locale() -> Path:
+    """La `libgdal` che il loader sceglierebbe **oggi**.
+
+    Non prende il percorso registrato nemmeno come suggerimento: quel file puo'
+    esistere ancora mentre il loader ne sceglie un altro, e misurarlo direbbe
+    «non strumentata» di una libreria che nessun processo caricherebbe piu'.
+    """
+    binario = _binario_feature_on()
+    libreria = _gdal_da_ldd(_righe_di_ldd(binario))
+    if libreria is None:
+        raise MisuraImpossibile(
+            f"il binario {binario}, costruito con `{FEATURE_GDB}`, non risolve "
+            f"nessuna `{LIBRERIA}`: o GDAL non e' installata qui, o il tier GDB "
+            "non collega piu' la libreria. In nessuno dei due casi questo gate "
+            "puo' concludere qualcosa sulla strumentazione."
+        )
+    return libreria
 
 
 def simboli_asan(percorso: Path) -> int:
@@ -295,7 +396,7 @@ def verifica(misura: dict[str, Any]) -> list[str]:
     # Rileggere l'artefatto non basta: descriverebbe una GDAL che qui potrebbe
     # non esserci. La non-strumentazione si rimisura, e costa un `nm`.
     try:
-        locale = _libreria_locale(collegata.get("percorso_risolto", ""))
+        locale = _libreria_locale()
     except MisuraImpossibile as impossibile:
         return errori + [str(impossibile)]
 
@@ -430,7 +531,7 @@ def main(argv: list[str] | None = None) -> int:
     if errori:
         return 1
 
-    locale = _libreria_locale(misura.get("libreria_collegata", {}).get("percorso_risolto", ""))
+    locale = _libreria_locale()
     print(_riga_di_esito(misura, locale))
     return 0
 

@@ -3,6 +3,7 @@
   "descrizione": "La prova che la fixture FileGDB e' riproducibile. Prodotta da scripts/genera-fixture-filegdb.sh rigenerandola **due** volte; letta da `genera_fixture_filegdb.py --verifica`, che la lega ai byte della fixture.",
   "come_e_stata_ottenuta": "due rigenerazioni indipendenti con la stessa versione di GDAL. Gli offset elencati qui sotto sono quelli in cui le due differiscono **fra loro**: sono i byte che GDAL conia a ogni corsa, e sono la sola tolleranza ammessa nel confronto con la fixture committata. Un byte stabile fra le rigenerazioni e diverso da quello committato non e' coniato, ed e' rosso.",
   "versione_gdal": "GDAL 3.6.2, released 2023/01/02",
+  "impronta_della_sorgente": "30ab249698145673e38ca542c1a377ab08e74370e5fb212c4d96d8ed0062603f",
   "impronta_della_fixture": "1eaab6328917002db9fc55524595c22e3473ffdec61ade2d0b92ec8860a10af6",
   "parti": 20,
   "byte_coniati_per_parte": {

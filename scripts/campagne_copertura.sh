@@ -101,7 +101,7 @@ for numero in $(seq 1 "${CAMPAGNE}"); do
     fi
     echo "  profili azzerati"
 
-    if ! cargo llvm-cov --workspace --all-targets --locked --no-report \
+    if ! cargo llvm-cov --workspace --all-features --all-targets --locked --no-report \
         "${ARGOMENTI_DI_TEST[@]}" >> "${REGISTRO}" 2>&1; then
         echo "  suite strumentata FALLITA — ${REGISTRO}" >&2
         exit 1

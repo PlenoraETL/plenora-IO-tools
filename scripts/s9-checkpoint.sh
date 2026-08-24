@@ -651,7 +651,12 @@ rm -f "${LCOV}"
 
 catena_rotta=""
 passo_pesante_in_catena coverage_pulizia cargo llvm-cov clean --workspace
-passo_pesante_in_catena coverage_misura cargo llvm-cov --workspace --all-targets --locked --no-report
+# `--all-features` non e' un dettaglio di invocazione: `driver-filegdb` tiene
+# l'intero percorso GDAL dietro `gdal-backend`, e senza quella feature
+# cinquecento righe di produzione restavano **fuori dal denominatore** -- non
+# «scoperte», ma invisibili alla soglia. Lo scope si chiama «library coverage»,
+# e una libreria misurata a meta' non e' la libreria.
+passo_pesante_in_catena coverage_misura cargo llvm-cov --workspace --all-targets --all-features --locked --no-report
 passo_pesante_in_catena coverage_export cargo llvm-cov report --lcov --output-path "${LCOV}" \
     --ignore-filename-regex "${ESCLUSIONI}"
 # Un export che finisce con esito zero e un file vuoto e' un caso che nessuno

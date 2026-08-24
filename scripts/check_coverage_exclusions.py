@@ -85,6 +85,22 @@ FLAG_ESCLUSIONE = re.compile(r"--ignore-filename-regex[ =]+(['\"])(?P<valore>.+?
 FLAG_SOGLIA = re.compile(r"--fail-under-lines[ =]+(?P<valore>\d+)")
 INVOCAZIONE_REPORT = "cargo llvm-cov report"
 
+# Il comando che **misura**, distinto da quello che riporta. La misura decide
+# che cosa entra nel denominatore; il report decide che cosa se ne mostra.
+INVOCAZIONE_MISURA = "cargo llvm-cov --workspace"
+
+# Senza `--all-features` il denominatore perde il codice dietro una feature.
+#
+# Non e' un dettaglio di invocazione: `driver-filegdb` tiene l'intero percorso
+# GDAL dietro `gdal-backend`, e una misura senza quella feature certifica la
+# crate mentre omette il suo codice di produzione. Lo scope si chiama «library
+# coverage», e una libreria misurata a meta' non e' la libreria.
+FLAG_TUTTE_LE_FEATURE = "--all-features"
+
+# I file dove la **misura** viene invocata. Il report ha i suoi sorvegliati;
+# questi sono i posti in cui si decide che cosa viene compilato.
+MISURATORI = (WORKFLOW, "scripts/s9-checkpoint.sh", "scripts/campagne_copertura.sh")
+
 
 def crate_non_libreria(radice: Path) -> tuple[str, ...]:
     """Le crate del workspace che non dichiarano una libreria, in ordine."""
@@ -148,6 +164,8 @@ def verifica_workflow(radice: Path) -> list[str]:
                     "stretta lascia nel denominatore codice di attrezzaggio; "
                     "una piu' larga ne toglie proprio il codice sorvegliato."
                 )
+
+    errori.extend(_misura_con_tutte_le_feature(radice))
 
     percorso_workflow = radice / WORKFLOW
     if not percorso_workflow.is_file():
@@ -216,6 +234,89 @@ def file_del_report(testo: str) -> list[str]:
     ]
 
 
+def _misura_con_tutte_le_feature(radice: Path) -> list[str]:
+    """Ogni invocazione che **misura** compila con tutte le feature.
+
+    Il gate guardava soltanto che ogni crate libreria comparisse nel report, e
+    una crate compare anche quando se ne misura la meta': `driver-filegdb` ha il
+    percorso GDAL dietro `gdal-backend`, e senza quella feature cinquecento
+    righe di produzione restavano fuori dal denominatore -- non «scoperte», ma
+    invisibili alla soglia.
+    """
+    errori: list[str] = []
+    trovate = 0
+    for relativo in MISURATORI:
+        percorso = radice / relativo
+        if not percorso.is_file():
+            continue
+        for riga in percorso.read_text(encoding="utf-8").splitlines():
+            if INVOCAZIONE_MISURA not in riga:
+                continue
+            trovate += 1
+            if FLAG_TUTTE_LE_FEATURE not in riga:
+                errori.append(
+                    f"{relativo}: la misura della copertura non porta "
+                    f"`{FLAG_TUTTE_LE_FEATURE}`. Il codice dietro una feature "
+                    "non verrebbe compilato, e uscirebbe dal denominatore senza "
+                    "comparire fra le righe scoperte: la soglia sorveglierebbe "
+                    "meno di cio' che dichiara."
+                )
+    if not trovate:
+        errori.append(
+            f"nessuna invocazione di `{INVOCAZIONE_MISURA}` in {list(MISURATORI)}: "
+            "senza, non si sa dove la copertura venga misurata."
+        )
+    return errori
+
+
+def righe_del_report(testo: str) -> dict[str, set[int]]:
+    """`{file: righe strumentate}` dai record `DA:`.
+
+    Serve a una domanda che i soli nomi dei file non possono chiudere: se il
+    codice **dietro una feature** sia stato compilato. Un file compare nel
+    report anche quando se ne misura solo meta'.
+    """
+    per_file: dict[str, set[int]] = {}
+    corrente: set[int] | None = None
+    for riga in testo.splitlines():
+        if riga.startswith("SF:"):
+            corrente = per_file.setdefault(riga[3:].strip().replace("\\", "/"), set())
+        elif riga.startswith("DA:") and corrente is not None:
+            numero, _, _ = riga[3:].partition(",")
+            try:
+                corrente.add(int(numero))
+            except ValueError:
+                continue
+    return per_file
+
+
+def ancore_feature_gated(radice: Path) -> dict[str, list[tuple[str, int]]]:
+    """Una riga di codice **dentro** ogni blocco `#[cfg(feature = "...")]`.
+
+    L'ancora e' la firma della prima funzione che segue l'attributo: se la
+    feature non e' stata compilata, quella riga non ha dati di copertura, e la
+    sua assenza dal report dice esattamente cio' che serve sapere.
+    """
+    attributo = re.compile(r'^\s*#\[cfg\(feature\s*=\s*"([^"]+)"\)\]\s*$')
+    firma = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|async\s+|unsafe\s+)*fn\s+\w+")
+
+    per_crate: dict[str, list[tuple[str, int]]] = {}
+    for nome in crate_libreria(radice):
+        sorgenti = sorted((radice / CRATES / nome / "src").rglob("*.rs"))
+        for percorso in sorgenti:
+            righe = percorso.read_text(encoding="utf-8").splitlines()
+            for indice, riga in enumerate(righe):
+                if not attributo.match(riga):
+                    continue
+                # La firma sta subito dopo, al netto di attributi e commenti.
+                for avanti in range(indice + 1, min(indice + 8, len(righe))):
+                    if firma.match(righe[avanti]):
+                        relativo = percorso.relative_to(radice).as_posix()
+                        per_crate.setdefault(nome, []).append((relativo, avanti + 1))
+                        break
+    return per_crate
+
+
 def verifica_report(radice: Path, percorso: Path) -> list[str]:
     """Osserva il LCOV prodotto: l'intenzione scritta nel workflow e' un'altra cosa."""
     errori: list[str] = []
@@ -249,6 +350,37 @@ def verifica_report(radice: Path, percorso: Path) -> list[str]:
                 "dal denominatore proprio il codice che la soglia sorveglia."
             )
 
+    errori.extend(_feature_nel_denominatore(radice, percorso))
+    return errori
+
+
+def _feature_nel_denominatore(radice: Path, percorso: Path) -> list[str]:
+    """Il codice dietro una feature e' **compilato**, non solo dichiarato.
+
+    Che la crate compaia nel report non basta: `driver-filegdb` comparirebbe
+    anche misurando il solo stub. Qui si guarda una riga dentro ciascun blocco
+    feature-gated, e la si pretende strumentata.
+    """
+    per_file = righe_del_report(percorso.read_text(encoding="utf-8"))
+
+    def strumentate(relativo: str) -> set[int]:
+        for misurato, righe in per_file.items():
+            if misurato.endswith("/" + relativo) or misurato == relativo:
+                return righe
+        return set()
+
+    errori: list[str] = []
+    for nome, ancore in sorted(ancore_feature_gated(radice).items()):
+        raggiunte = [
+            (relativo, riga) for relativo, riga in ancore if riga in strumentate(relativo)
+        ]
+        if not raggiunte:
+            errori.append(
+                f"{percorso}: `{nome}` ha {len(ancore)} blocchi dietro una "
+                "feature e nessuna delle loro funzioni compare nel report. La "
+                "crate e' nel denominatore, il suo codice feature-gated no: la "
+                "misura e' stata compilata senza `--all-features`."
+            )
     return errori
 
 
