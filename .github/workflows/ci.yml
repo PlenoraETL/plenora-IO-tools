@@ -106,6 +106,7 @@ jobs:
           python3 -m unittest scripts.test_genera_semi_filegdb
           python3 scripts/genera_fixture_filegdb.py --verifica
           python3 scripts/genera_semi_filegdb.py --verifica
+          python3 -m unittest scripts.test_genera_fixture_filegdb
       # Il confine di AddressSanitizer nel target FileGDB. La **misura** vuole
       # il binario strumentato e sta in scripts/asan-filegdb.sh; qui gira solo
       # la sua rilettura, che pretende che i numeri raccontino il confine che la

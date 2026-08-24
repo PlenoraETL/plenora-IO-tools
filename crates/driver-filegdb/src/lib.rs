@@ -160,6 +160,12 @@ pub fn __fuzz_parti_della_fixture(archivio: &[u8]) -> Option<Vec<(String, &[u8])
     if !resto.is_empty() {
         return None;
     }
+    if parti.is_empty() {
+        // Un archivio con zero parti non e' una `.gdb` vuota: e' un archivio che
+        // non ne descrive nessuna. Accettarlo porterebbe il chiamante a
+        // scegliere una parte **modulo zero**, cioe' a dividere per zero.
+        return None;
+    }
     Some(parti)
 }
 
@@ -231,6 +237,24 @@ fn materializza_gdb(
     Ok(dataset)
 }
 
+// L'ultima directory che `__fuzz_leggi_gdb` ha usato, per la sola sonda che
+// prova l'isolamento.
+//
+// Serve perche' l'isolamento **non si vede dall'esito**: la materializzazione
+// riscrive tutte le parti a ogni invocazione, quindi una directory riusata
+// darebbe gli stessi risultati di una nuova. Una sonda che si limitasse a
+// rileggere la fixture dopo averne rotta una parte passerebbe in entrambi i
+// casi, e proverebbe soltanto che la riscrittura funziona.
+//
+// Cio' che va provato e' che la directory sia **diversa** ogni volta, e per
+// provarlo bisogna vederla. Il seam esiste solo sotto `cfg(test)`: in campagna
+// non c'e' niente da registrare.
+#[cfg(all(test, feature = "gdal-backend"))]
+thread_local! {
+    static ULTIMA_DIRECTORY: std::cell::RefCell<Vec<std::path::PathBuf>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// Entry point non stabile per libFuzzer: una `.gdb` completa, letta davvero.
 ///
 /// L'input del fuzzer si legge cosi':
@@ -276,6 +300,8 @@ pub fn __fuzz_leggi_gdb(archivio: &[u8], dati: &[u8], opts: ReadOptions) -> Resu
         .tempdir()
         .map_err(errore_di_ambiente)?;
     let dataset = materializza_gdb(directory.path(), &parti, sostituita, contenuto)?;
+    #[cfg(test)]
+    ULTIMA_DIRECTORY.with(|viste| viste.borrow_mut().push(dataset.clone()));
 
     __fuzz_drena(&dataset, opts)
 }
@@ -3301,12 +3327,17 @@ mod sonde_del_fuzzing {
         );
     }
 
-    /// **Isolamento fra invocazioni.**
+    /// **Isolamento fra invocazioni**, provato dalla directory e non dall'esito.
     ///
-    /// La prima invocazione rompe una parte, la seconda non la tocca. Se le due
-    /// condividessero la directory, la seconda troverebbe la tabella rotta
-    /// della prima e fallirebbe: il successo e' la prova che ogni input ha la
-    /// propria directory.
+    /// La prima stesura di questa sonda rompeva una parte e poi rileggeva la
+    /// fixture intatta, aspettandosi che riuscisse. Non discriminava niente: la
+    /// materializzazione riscrive **tutte** le parti a ogni invocazione, quindi
+    /// anche riusando la stessa directory la seconda lettura sarebbe riuscita.
+    /// Provava che la riscrittura funziona, non che la directory sia nuova.
+    ///
+    /// Cio' che conta e' la directory. Due invocazioni devono usarne due
+    /// diverse, e nessuna delle due deve sopravvivere alla propria chiamata --
+    /// altrimenti una campagna lunga riempirebbe il disco di `.gdb`.
     #[test]
     #[cfg(feature = "gdal-backend")]
     fn ogni_invocazione_ha_la_propria_directory() {
@@ -3317,17 +3348,30 @@ mod sonde_del_fuzzing {
             .position(|(nome, _)| nome.ends_with(".gdbtable"))
             .expect("la fixture ha almeno una tabella");
 
+        ULTIMA_DIRECTORY.with(|viste| viste.borrow_mut().clear());
+
         let mut rotta = vec![u8::try_from(tabella).expect("indice piccolo")];
         rotta.extend_from_slice(b"SPAZZATURA");
         let _ = __fuzz_leggi_gdb(&archivio, &rotta, opzioni_di_campagna());
-
         let dopo = __fuzz_leggi_gdb(&archivio, &[], opzioni_di_campagna());
-        assert!(
-            dopo.is_ok(),
-            "la fixture intatta deve leggersi anche dopo un'invocazione che ne \
-             ha rotta una parte; se fallisce, la tabella rotta e' sopravvissuta: \
-             {dopo:?}"
+        assert!(dopo.is_ok(), "la fixture intatta deve leggersi: {dopo:?}");
+
+        let viste = ULTIMA_DIRECTORY.with(|viste| viste.borrow().clone());
+        assert_eq!(viste.len(), 2, "due invocazioni, due materializzazioni");
+        assert_ne!(
+            viste[0], viste[1],
+            "le due invocazioni hanno usato la **stessa** directory: la tabella \
+             rotta della prima e' rimasta li' per la seconda, e l'esito non lo \
+             mostra perche' ogni parte viene riscritta"
         );
+        for percorso in &viste {
+            assert!(
+                !percorso.exists(),
+                "la directory {} e' sopravvissuta alla propria invocazione: una \
+                 campagna lunga riempirebbe il disco",
+                percorso.display()
+            );
+        }
     }
 
     /// **I nomi dei file non vengono dal payload.**
@@ -3403,6 +3447,27 @@ mod sonde_del_fuzzing {
         let mut lungo = archivio;
         lungo.push(0);
         assert!(__fuzz_parti_della_fixture(&lungo).is_none());
+    }
+
+    /// Un archivio che dichiara **zero** parti non e' una `.gdb` vuota.
+    ///
+    /// Accettarlo portava il chiamante a scegliere la parte da sostituire
+    /// **modulo zero**: una divisione per zero su qualunque input non vuoto.
+    /// L'archivio non viene dal fuzzer, ma un archivio corrotto non deve poter
+    /// far panicare il target.
+    #[test]
+    #[cfg(feature = "gdal-backend")]
+    fn un_archivio_senza_parti_e_rifiutato() {
+        let mut vuoto = b"PLENORA-GDB-FIXTURE-1\n".to_vec();
+        vuoto.extend_from_slice(&0_u32.to_le_bytes());
+        assert!(
+            __fuzz_parti_della_fixture(&vuoto).is_none(),
+            "zero parti: il chiamante dividerebbe per zero"
+        );
+
+        // E il target lo rifiuta come errore tipizzato, non con un panico.
+        let esito = __fuzz_leggi_gdb(&vuoto, b"\x01qualcosa", opzioni_di_campagna());
+        assert!(esito.is_err(), "un archivio senza parti non e' leggibile");
     }
 
     /// I nomi ammessi sono quelli che `OpenFileGDB` scrive, e nessun altro.

@@ -77,6 +77,12 @@ fi
 python3 scripts/genera_fixture_filegdb.py --confronta \
     "${LAVORO}/corsa1.gdb" "${LAVORO}/corsa2.gdb" || exit 1
 
+# Il confronto e' appena avvenuto: se ne registra il verbale, cosi' il gate
+# leggero' -- che non ha GDAL e non puo' rigenerare niente -- ha qualcosa da
+# rileggere invece di dover credere alla prosa.
+python3 scripts/genera_fixture_filegdb.py --registra \
+    "${LAVORO}/corsa1.gdb" "${LAVORO}/corsa2.gdb" --gdal "${VERSIONE}" || exit 1
+
 # La forma dell'archivio la rilegge il gate leggero, che e' quello che gira in
 # CI: farlo girare anche qui significa accorgersi subito se cio' che abbiamo
 # appena scritto non e' cio' che il target sapra' rileggere.

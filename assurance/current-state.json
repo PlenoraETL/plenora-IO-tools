@@ -66,9 +66,10 @@
       "misura": "assurance/profondita-fuzz-filegdb.json",
       "requisiti_di_profondita": 12,
       "confine_asan": "assurance/asan-filegdb.json",
-      "contatori_di_copertura": 167811,
+      "contatori_di_copertura": 167812,
       "file_sorgente_gdal_strumentati": 0,
-      "nota": "lo spike ammetteva due esiti e l'esito e' il primo: il target `filegdb_reader` esiste e attraversa il percorso vero. Parte da una fixture prodotta da GDAL -- un FileGDB e' una directory di tabelle che si citano per GUID, e il formato e' proprietario -- e ne sostituisce una parte per volta. Il limite resta dichiarato e misurato: `libgdal.so` e' di sistema e non strumentata, quindi AddressSanitizer copre il nostro codice e l'intercettazione dell'allocatore al confine, non gli accessi interni a GDAL, e il fuzzer non e' guidato da cio' che succede oltre."
+      "nota": "lo spike ammetteva due esiti e l'esito e' il primo: il target esiste e attraversa il percorso vero. Il limite e' misurato sulla **libreria**, non dedotto dai contatori:  non porta un solo simbolo del runtime del sanitizer, quindi non e' strumentata. Ne segue che AddressSanitizer non verifica gli accessi dentro GDAL -- il controllo lo inserisce il compilatore, e codice non strumentato non consulta la shadow memory -- e restano osservabili solo gli errori dell'allocatore, quelli dentro le funzioni intercettate e i crash ordinari. Il fuzzer, separatamente, non ha feedback oltre il confine: un solo modulo porta contatori.",
+      "simboli_asan_nella_libreria": 0
     }
   },
   "aperto": {

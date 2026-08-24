@@ -5,8 +5,8 @@
   "corpus": {
     "input": 21
   },
-  "impronta_perimetro": "785257820d25e60e70f58c4e0f5eae940d057acad897c774172b0ace5d690c67",
-  "revisione_di_misura": "bb42067002b325c08726d156f3dc19300f315967",
+  "impronta_perimetro": "a09fbde80e9fc6253ccc0b57884a781ca259306a42420cd58553c24d6e8e4f75",
+  "revisione_di_misura": "11800b02277c6533e9028daa22235147f9b605c0",
   "nota_sulla_revisione": "informativa: il commit che pubblica questa misura ne ha per forza un'altra. A legare la misura all'albero e' l'impronta del perimetro, non questo campo.",
   "requisiti": [
     {
@@ -24,7 +24,7 @@
     {
       "id": "drenaggio.righe",
       "famiglia": "riga",
-      "riga": 309,
+      "riga": 335,
       "conteggio": 22
     },
     {
@@ -60,19 +60,19 @@
     {
       "id": "materializzazione.fixture-intatta",
       "famiglia": "riga",
-      "riga": 270,
+      "riga": 294,
       "conteggio": 2
     },
     {
       "id": "materializzazione.parte-scelta-dal-payload",
       "famiglia": "riga",
-      "riga": 271,
+      "riga": 295,
       "conteggio": 20
     },
     {
       "id": "materializzazione.parti",
       "famiglia": "riga",
-      "riga": 229,
+      "riga": 235,
       "conteggio": 440
     },
     {

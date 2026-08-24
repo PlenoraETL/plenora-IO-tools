@@ -63,12 +63,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import pathlib
 import struct
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ARCHIVIO = ROOT / "fuzz" / "fixtures" / "filegdb" / "citta.gdb.bundle"
+# La prova della riproducibilita', registrata. Il confronto vuole GDAL e due
+# rigenerazioni; il gate che lo rilegge no, e gira ovunque.
+PROVA = ROOT / "assurance" / "fixture-filegdb.json"
 
 INTESTAZIONE = b"PLENORA-GDB-FIXTURE-1\n"
 
@@ -78,6 +82,27 @@ INTESTAZIONE = b"PLENORA-GDB-FIXTURE-1\n"
 CARATTERI_AMMESSI = set("abcdefghijklmnopqrstuvwxyz0123456789._")
 
 
+def nome_di_parte_ammesso(nome: str) -> bool:
+    """La stessa regola che applica il target, e per la stessa ragione.
+
+    Ogni parte che `OpenFileGDB` scrive comincia con una lettera minuscola --
+    `gdb`, `timestamps`, `a00000001.gdbtable`. La condizione sulla **prima**
+    lettera non e' estetica: senza, `".."` sarebbe fatto di soli caratteri
+    ammessi e passerebbe, e ogni nome finisce in un `join`.
+
+    La regola sta in due posti perche' i due posti servono a cose diverse: qui
+    protegge chi **costruisce** l'archivio, in `driver-filegdb` protegge chi lo
+    **legge**. Che siano la stessa regola lo prova una sonda per parte.
+    """
+    return (
+        bool(nome)
+        and nome[0].isascii()
+        and nome[0].islower()
+        and nome[0].isalpha()
+        and not set(nome) - CARATTERI_AMMESSI
+    )
+
+
 def parti(directory: pathlib.Path) -> dict[str, bytes]:
     """Le parti del FileGDB, per nome. Solo file, nessuna ricorsione."""
     trovate: dict[str, bytes] = {}
@@ -85,7 +110,7 @@ def parti(directory: pathlib.Path) -> dict[str, bytes]:
         if not percorso.is_file() or percorso.is_symlink():
             continue
         nome = percorso.name
-        if not nome or set(nome) - CARATTERI_AMMESSI:
+        if not nome_di_parte_ammesso(nome):
             raise ValueError(f"nome di parte non ammesso: {nome!r}")
         trovate[nome] = percorso.read_bytes()
     if not trovate:
@@ -115,6 +140,8 @@ def spacchetta(archivio: bytes) -> dict[str, bytes]:
         (lunghezza_nome,) = struct.unpack_from("<H", archivio, posizione)
         posizione += 2
         nome = archivio[posizione : posizione + lunghezza_nome].decode("ascii")
+        if not nome_di_parte_ammesso(nome):
+            raise ValueError(f"nome di parte non ammesso: {nome!r}")
         posizione += lunghezza_nome
         (lunghezza,) = struct.unpack_from("<I", archivio, posizione)
         posizione += 4
@@ -180,6 +207,66 @@ def confronta(
     return errori
 
 
+def registra(uno: pathlib.Path, due: pathlib.Path, versione_gdal: str) -> int:
+    """Scrive che cosa il confronto fra due rigenerazioni ha trovato.
+
+    Senza questo artefatto, l'invariante «la fixture e' riproducibile» avrebbe
+    per prova un gate che rilegge l'archivio -- cioe' proverebbe che l'archivio
+    e' ben formato, che e' un'altra affermazione. La riproducibilita' si
+    dimostra rigenerando, e rigenerare vuole GDAL: cio' che resta al gate e'
+    **rileggere il verbale**, legato ai byte della fixture che descrive.
+    """
+    committata = spacchetta(ARCHIVIO.read_bytes())
+    errori = confronta(committata, parti(uno), parti(due))
+    if errori:
+        for messaggio in errori:
+            print(messaggio, file=sys.stderr)
+        return 1
+
+    prima, seconda = parti(uno), parti(due)
+    coniati = {
+        nome: sorted(offset_coniati(prima[nome], seconda[nome]))
+        for nome in sorted(prima)
+    }
+    documento = {
+        "schema_version": 1,
+        "descrizione": (
+            "La prova che la fixture FileGDB e' riproducibile. Prodotta da "
+            "scripts/genera-fixture-filegdb.sh rigenerandola **due** volte; "
+            "letta da `genera_fixture_filegdb.py --verifica`, che la lega ai "
+            "byte della fixture."
+        ),
+        "come_e_stata_ottenuta": (
+            "due rigenerazioni indipendenti con la stessa versione di GDAL. Gli "
+            "offset elencati qui sotto sono quelli in cui le due differiscono "
+            "**fra loro**: sono i byte che GDAL conia a ogni corsa, e sono la "
+            "sola tolleranza ammessa nel confronto con la fixture committata. Un "
+            "byte stabile fra le rigenerazioni e diverso da quello committato non "
+            "e' coniato, ed e' rosso."
+        ),
+        "versione_gdal": versione_gdal,
+        "impronta_della_fixture": hashlib.sha256(ARCHIVIO.read_bytes()).hexdigest(),
+        "parti": len(committata),
+        "byte_coniati_per_parte": {
+            nome: len(offset) for nome, offset in coniati.items() if offset
+        },
+        "byte_coniati_totali": sum(len(o) for o in coniati.values()),
+        "offset_coniati": {nome: offset for nome, offset in coniati.items() if offset},
+    }
+    PROVA.parent.mkdir(parents=True, exist_ok=True)
+    PROVA.write_text(
+        json.dumps(documento, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    print(
+        f"riproducibilita' registrata in {PROVA.relative_to(ROOT).as_posix()}: "
+        f"{documento['byte_coniati_totali']} byte coniati su "
+        f"{len(documento['byte_coniati_per_parte'])} parti, con {versione_gdal}"
+    )
+    return 0
+
+
 def scrivi(directory: pathlib.Path) -> int:
     contenuti = parti(directory)
     archivio = impacchetta(contenuti)
@@ -211,7 +298,7 @@ def verifica_forma() -> int:
 
     errori: list[str] = []
     for nome in sorted(contenuti):
-        if not nome or set(nome) - CARATTERI_AMMESSI:
+        if not nome_di_parte_ammesso(nome):
             errori.append(f"nome di parte non ammesso: {nome!r}")
     # Un FileGDB senza il file `gdb` non e' un FileGDB, e senza almeno una
     # tabella non ha niente da leggere: sono le due condizioni che rendono la
@@ -221,17 +308,87 @@ def verifica_forma() -> int:
     if not any(nome.endswith(".gdbtable") for nome in contenuti):
         errori.append("la fixture non contiene nessuna tabella `.gdbtable`")
     if not contenuti:
-        errori.append("archivio senza parti: non c'e' niente da materializzare")
+        errori.append(
+            "archivio senza parti: il target sceglierebbe una parte **modulo "
+            "zero**, cioe' dividerebbe per zero"
+        )
+
+    errori.extend(_prova_legata_alla_fixture(contenuti))
 
     for messaggio in errori:
         print(messaggio, file=sys.stderr)
     if errori:
         return 1
+    prova = json.loads(PROVA.read_text(encoding="utf-8"))
     print(
         f"fixture FileGDB verificata: {len(contenuti)} parti, "
-        f"{sum(len(v) for v in contenuti.values())} byte di contenuto."
+        f"{sum(len(v) for v in contenuti.values())} byte di contenuto; "
+        f"riproducibilita' provata con {prova['versione_gdal']}, "
+        f"{prova['byte_coniati_totali']} byte coniati da GDAL."
     )
     return 0
+
+
+def _relativo(percorso: pathlib.Path) -> str:
+    """Il percorso relativo alla radice quando ci sta dentro.
+
+    Le sonde spostano `PROVA` in una directory temporanea per provare i casi
+    rossi: un `relative_to` incondizionato le farebbe fallire nel **messaggio**,
+    cioe' fuori da cio' che stanno verificando.
+    """
+    try:
+        return percorso.relative_to(ROOT).as_posix()
+    except ValueError:
+        return percorso.as_posix()
+
+
+def _prova_legata_alla_fixture(contenuti: dict[str, bytes]) -> list[str]:
+    """Il verbale della riproducibilita' descrive **questa** fixture.
+
+    Un verbale che sopravvivesse a una fixture rigenerata direbbe «riproducibile»
+    di byte che nessuno ha confrontato. L'impronta lo lega; le parti e i byte
+    coniati devono essere quelli che il verbale dichiara.
+    """
+    if not PROVA.exists():
+        return [
+            f"{_relativo(PROVA)}: prova di riproducibilita' "
+            "assente. La fixture puo' essere ben formata e non essere quella che "
+            "GDAL produce: si genera con `bash scripts/genera-fixture-filegdb.sh`."
+        ]
+    try:
+        prova = json.loads(PROVA.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as errore:
+        return [f"{PROVA.name}: non e' JSON leggibile ({errore})"]
+
+    errori: list[str] = []
+    attesa = hashlib.sha256(ARCHIVIO.read_bytes()).hexdigest()
+    if prova.get("impronta_della_fixture") != attesa:
+        return [
+            f"la prova di riproducibilita' descrive una fixture con impronta "
+            f"«{prova.get('impronta_della_fixture')}», quella committata ha "
+            f"«{attesa}». Il verbale e' di un'altra fixture: va rifatto con "
+            "`bash scripts/genera-fixture-filegdb.sh`."
+        ]
+    if prova.get("parti") != len(contenuti):
+        errori.append(
+            f"la prova dichiara {prova.get('parti')} parti, la fixture ne ha "
+            f"{len(contenuti)}"
+        )
+    if not prova.get("versione_gdal"):
+        errori.append(
+            "la prova non dice con **quale** GDAL e' stata ottenuta: due versioni "
+            "scrivono tabelle di metadati diverse, e la differenza non sarebbe un "
+            "byte coniato"
+        )
+    coniati = prova.get("byte_coniati_totali")
+    if not isinstance(coniati, int) or isinstance(coniati, bool) or coniati <= 0:
+        errori.append(
+            f"`byte_coniati_totali` vale «{coniati}». Zero byte coniati vorrebbe "
+            "dire che due rigenerazioni sono identiche byte a byte: sarebbe una "
+            "buona notizia, e renderebbe la tolleranza del confronto vuota -- va "
+            "verificato invece che dato per scontato."
+        )
+    return errori
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -240,10 +397,17 @@ def main(argv: list[str] | None = None) -> int:
     modo.add_argument("--scrivi", type=pathlib.Path, metavar="GDB")
     modo.add_argument("--verifica", action="store_true")
     modo.add_argument("--confronta", nargs=2, type=pathlib.Path, metavar=("GDB1", "GDB2"))
+    modo.add_argument("--registra", nargs=2, type=pathlib.Path, metavar=("GDB1", "GDB2"))
+    argomenti.add_argument("--gdal", default="", help="la versione di GDAL usata")
     opzioni = argomenti.parse_args(argv)
 
     if opzioni.scrivi:
         return scrivi(opzioni.scrivi)
+    if opzioni.registra:
+        if not opzioni.gdal:
+            print("--registra richiede --gdal <versione>", file=sys.stderr)
+            return 2
+        return registra(opzioni.registra[0], opzioni.registra[1], opzioni.gdal)
     if opzioni.confronta:
         if not ARCHIVIO.exists():
             print(f"{ARCHIVIO}: fixture assente", file=sys.stderr)

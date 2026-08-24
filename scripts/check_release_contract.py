@@ -178,7 +178,16 @@ INVARIANTI_OBBLIGATORI = frozenset(
         "copertura.rami-negativi",
         "copertura.variazione-fra-corse",
         "fuzz.reader-shapefile",
+        "fuzz.semi-riproducibili",
         "fuzz.filegdb",
+        # I due limiti dichiarati del target FileGDB. Stanno qui perche' un
+        # invariante che si puo' **togliere** non e' un invariante: senza,
+        # cancellare `fuzz.filegdb-confine-asan` dal registro avrebbe fatto
+        # sparire in silenzio la sola affermazione che impedisce di leggere una
+        # campagna verde come «GDAL non ha difetti di memoria».
+        "fuzz.filegdb-confine-asan",
+        "fuzz.fixture-filegdb",
+        "fuzz.semi-filegdb",
         "wire.loss-report",
         "release.candidate-non-valida-per-head",
         "lotto.s10",
@@ -297,6 +306,7 @@ FOGLIE_LEGATE = frozenset(
         "chiuso.fuzz_filegdb.confine_asan",
         "chiuso.fuzz_filegdb.contatori_di_copertura",
         "chiuso.fuzz_filegdb.file_sorgente_gdal_strumentati",
+        "chiuso.fuzz_filegdb.simboli_asan_nella_libreria",
         # l'allowlist del docset
         "docset.markdown_canonici",
         "docset.markdown_operativi",
@@ -2093,7 +2103,13 @@ def _profondita_filegdb_legata(stato: dict[str, Any]) -> list[str]:
     except (OSError, json.JSONDecodeError) as errore:
         return errori + [f"{atteso_asan}: non leggibile ({errore})"]
 
-    for chiave in ("contatori_di_copertura", "file_sorgente_gdal_strumentati"):
+    for chiave in (
+        "contatori_di_copertura",
+        "file_sorgente_gdal_strumentati",
+        # Il numero che dice se GDAL e' strumentata. E' il piu' facile da
+        # scrivere sbagliato, perche' zero e' cio' che ci si aspetta.
+        "simboli_asan_nella_libreria",
+    ):
         if dichiarato.get(chiave) != asan.get(chiave):
             errori.append(
                 f"`chiuso.fuzz_filegdb.{chiave}` vale «{dichiarato.get(chiave)}», "

@@ -10,13 +10,16 @@
     "percorsi": [
       "Cargo.lock",
       "crates/driver-common/src",
+      "crates/driver-shp/Cargo.toml",
       "crates/driver-shp/src",
       "crates/plenora-io-core/src",
       "crates/plenora-io-model/src",
+      "fuzz/Cargo.lock",
       "fuzz/Cargo.toml",
       "fuzz/fuzz_targets",
       "fuzz/seeds/shp_reader"
-    ]
+    ],
+    "perche_i_manifesti": "il perimetro comprende i manifesti e i lockfile, non solo i sorgenti: feature, versioni e logica di build decidono **quale** binario viene misurato, e una misura che sopravvivesse a un loro cambiamento descriverebbe un binario diverso da quello che il codice corrente produrrebbe. Il workspace di fuzzing e' detached, quindi il lockfile che conta e' `fuzz/Cargo.lock`."
   },
   "nucleo": [
     "driver.apertura",

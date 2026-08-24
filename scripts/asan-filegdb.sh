@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 # Misura il confine di AddressSanitizer nel target `filegdb_reader`.
 #
+# # Due proprieta' distinte, due misure
+#
+# **Strumentazione**: `libgdal.so` e' compilata con `-fsanitize=address`? Si
+# misura sulla libreria, contando i simboli del runtime che porta. Zero vuol
+# dire non strumentata; centinaia vorrebbero dire il contrario.
+#
+# **Feedback di copertura**: il fuzzer vede che cosa succede dentro GDAL? Si
+# misura sui contatori che libFuzzer carica all'avvio.
+#
+# Sono cose diverse, e la prima stesura di questo script le confondeva: inferiva
+# la strumentazione dai contatori, che non la riguardano. Un binario puo' avere
+# copertura senza sanitizer e sanitizer senza copertura.
+#
 # # Perche' si misura invece di dichiararlo
 #
-# «GDAL non e' strumentata» e' una frase che invecchia: basta che qualcuno
-# costruisca GDAL da sorgente dentro l'immagine, o che il link diventi statico,
-# e la frase resta scritta mentre il fatto cambia. Qui i numeri vengono dal
-# binario: quale `libgdal` e' collegata e da dove, quanti moduli portano
-# contatori di copertura, quanti contatori ci sono, quanti file sorgente di GDAL
-# compaiono nei dati di copertura.
-#
-# Il gate `scripts/check_asan_filegdb.py` li rilegge e pretende che raccontino
-# il confine che la sua prosa descrive.
+# «GDAL non e' strumentata» e' una frase che invecchia: basta che qualcuno la
+# costruisca da sorgente, o che il link cambi, e la frase resta scritta mentre
+# il fatto cambia. Qui i numeri vengono dal binario e dalla libreria, e il gate
+# rimisura la libreria locale a ogni esecuzione invece di credere a questo file.
 #
 # # Uso
 #
@@ -50,37 +58,55 @@ echo "=============================================================="
 RIGA_GDAL="$(ldd "${BINARIO}" 2>/dev/null | grep -i 'libgdal' | head -1)"
 SONAME="$(echo "${RIGA_GDAL}" | awk '{print $1}')"
 PERCORSO="$(echo "${RIGA_GDAL}" | awk '{print $3}')"
-if [ -z "${SONAME}" ]; then
-    echo "il binario non collega libgdal: non sta esercitando FileGDB" >&2
+if [ -z "${SONAME}" ] || [ ! -f "${PERCORSO}" ]; then
+    echo "il binario non collega una libgdal risolvibile: non sta esercitando FileGDB" >&2
     exit 1
 fi
 
+# 2. **La** misura della strumentazione: i simboli del runtime dentro la
+#    libreria. Non i contatori, che sono un'altra proprieta'; non un'estensione
+#    di file, che non dice come e' stata compilata.
+SIMBOLI_IN_GDAL="$(nm -D "${PERCORSO}" 2>/dev/null | grep -c '__asan')"
+SIMBOLI_IN_GDAL_STATICI="$(nm "${PERCORSO}" 2>/dev/null | grep -c '__asan')"
+if [ "${SIMBOLI_IN_GDAL_STATICI}" -gt "${SIMBOLI_IN_GDAL}" ]; then
+    SIMBOLI_IN_GDAL="${SIMBOLI_IN_GDAL_STATICI}"
+fi
+
+# Quale libreria, in due modi indipendenti: il build-id la identifica, il digest
+# la fissa. Servono al gate per dire se sta guardando la stessa.
+BUILD_ID="$(readelf -n "${PERCORSO}" 2>/dev/null | sed -n 's/.*Build ID: \([0-9a-f]*\).*/\1/p' | head -1)"
+DIGEST="$(sha256sum "${PERCORSO}" | awk '{print $1}')"
+
+# Dentro l'albero di build? **Derivato** dal percorso, non scritto a mano: se un
+# giorno GDAL venisse costruita qui dentro, la risposta cambierebbe da sola.
+RADICE="$(pwd -P)"
+case "$(readlink -f "${PERCORSO}")" in
+    "${RADICE}"/*) DENTRO_ALBERO=true ;;
+    *) DENTRO_ALBERO=false ;;
+esac
+
 printf "" > "${USCITA}/vuoto"
 
-# 2. Il runtime del sanitizer e' collegato? Lo si chiede **al runtime**, non
-#    alla tabella dei simboli: con `-Zsanitizer=address` rustc lo lega
-#    staticamente e i suoi simboli restano locali, quindi `nm -D` non ne trova
-#    nemmeno uno -- ed e' esattamente l'errore che la prima stesura di questo
-#    script ha commesso, misurando `false` su un binario strumentato.
-#
-#    `ASAN_OPTIONS=help=1` fa stampare al runtime l'elenco delle proprie
-#    opzioni: se risponde, c'e'. E' una prova di comportamento, non di forma.
-#    L'uscita si cattura **prima** di cercarci dentro. Con `help=1` il runtime
-#    stampa e poi esce con stato non zero, e sotto `pipefail` sarebbe quello
-#    stato a decidere l'`if` -- non il `grep` che ha trovato la riga. E' il
-#    secondo modo in cui questa misura ha detto `false` su un binario
+# 3. Il runtime del sanitizer e' nel **nostro** binario? Lo si chiede al
+#    runtime, non alla tabella dei simboli: rustc lo lega staticamente e i suoi
+#    simboli restano locali, quindi `nm -D` non ne trova nemmeno uno. E'
+#    l'errore che la prima stesura ha commesso, misurando `false` su un binario
 #    strumentato.
+#
+#    L'uscita si cattura prima di cercarci dentro: con `help=1` il runtime
+#    stampa e poi esce con stato non zero, e sotto `pipefail` sarebbe quello
+#    stato a decidere l'`if`.
 AIUTO="$(ASAN_OPTIONS=help=1 "${BINARIO}" "${USCITA}/vuoto" 2>&1 || true)"
 if printf '%s' "${AIUTO}" | grep -q "Available flags for AddressSanitizer"; then
-    ASAN=true
+    ASAN_NEL_BINARIO=true
 else
-    ASAN=false
+    ASAN_NEL_BINARIO=false
 fi
-# Corroborazione, non prova: quanti simboli del runtime stanno nel binario.
-SIMBOLI_ASAN="$(nm "${BINARIO}" 2>/dev/null | grep -ci asan)"
+SIMBOLI_NEL_BINARIO="$(nm "${BINARIO}" 2>/dev/null | grep -c '__asan')"
 
-# 3. Quanti moduli portano contatori, e quanti contatori. Il numero lo stampa
-#    libFuzzer all'avvio: e' la sua contabilita', non la nostra stima.
+# 4. Quanti moduli portano contatori, e quanti contatori. E' la contabilita' di
+#    libFuzzer, non la nostra stima. Un modulo solo vuol dire che nessuna
+#    libreria condivisa ne porta: il fuzzer e' cieco oltre il confine.
 BANNER="$("${BINARIO}" "${USCITA}/vuoto" 2>&1 | grep 'inline 8-bit counters' | head -1)"
 MODULI="$(echo "${BANNER}" | sed -n 's/.*Loaded \([0-9]*\) modules.*/\1/p')"
 CONTATORI="$(echo "${BANNER}" | sed -n 's/.*(\([0-9]*\) inline 8-bit counters).*/\1/p')"
@@ -90,9 +116,10 @@ if [ -z "${MODULI}" ] || [ -z "${CONTATORI}" ]; then
     exit 1
 fi
 
-# 4. Quanti file sorgente di GDAL compaiono nei dati di copertura. Zero e' il
-#    fatto centrale: se GDAL fosse strumentata, i suoi `.cpp` sarebbero li'.
-#    Si misura sulla build di copertura, che e' l'unica che produce un profdata.
+# 5. Quanti sorgenti **di GDAL** compaiono nei dati di copertura. Non «quanti
+#    file C/C++»: un conteggio generico direbbe zero anche il giorno in cui
+#    GDAL fosse strumentata e un'altra libreria no. I sorgenti di GDAL si
+#    riconoscono dal percorso.
 rm -rf "fuzz/coverage/${TARGET}"
 if ! cargo fuzz coverage "${TARGET}" "fuzz/seeds/${TARGET}" > "${USCITA}/coverage.log" 2>&1; then
     echo "cargo fuzz coverage fallito -- ${USCITA}/coverage.log" >&2
@@ -113,11 +140,12 @@ if [ -z "${binario_copertura}" ]; then
     echo "nessun binario combacia con il profdata" >&2
     exit 1
 fi
-# I sorgenti di GDAL hanno estensioni C/C++ e stanno sotto i suoi alberi. Un
-# file `.rs` sotto `vendor/gdal` e' il **wrapper**, che e' nostro ed e'
-# strumentato: contarlo come GDAL confonderebbe le due cose.
-GDAL_STRUMENTATI="$(grep '^SF:' "${LCOV}" | sed 's/^SF://' \
-    | grep -E '\.(c|cc|cpp|cxx|h|hpp)$' | wc -l | tr -d ' ')"
+SORGENTI="$(grep '^SF:' "${LCOV}" | sed 's/^SF://')"
+# Un file `.rs` sotto `vendor/gdal` e' il **wrapper**, che e' nostro ed e'
+# strumentato: escluderlo e' cio' che distingue le due cose.
+GDAL_STRUMENTATI="$(printf '%s\n' "${SORGENTI}" | grep -i 'gdal' | grep -vE '\.rs$' | wc -l | tr -d ' ')"
+CPP_STRUMENTATI="$(printf '%s\n' "${SORGENTI}" | grep -cE '\.(c|cc|cpp|cxx|h|hpp)$' || true)"
+WRAPPER_RUST="$(printf '%s\n' "${SORGENTI}" | grep -c 'vendor/gdal.*\.rs$' || true)"
 rm -rf "fuzz/coverage/${TARGET}"
 
 cat > "${USCITA}/misura.json" <<JSON
@@ -125,24 +153,34 @@ cat > "${USCITA}/misura.json" <<JSON
   "libreria_collegata": {
     "soname": "${SONAME}",
     "percorso_risolto": "${PERCORSO}",
-    "come_e_stata_misurata": "ldd sul binario strumentato: risolve il soname come lo risolvera' il processo"
+    "build_id": "${BUILD_ID}",
+    "sha256": "${DIGEST}",
+    "come_e_stata_misurata": "ldd sul binario strumentato risolve il soname come lo risolvera' il processo; build-id da readelf -n e digest da sha256sum sulla libreria risolta"
   },
-  "libreria_gdal_dentro_l_albero_di_build": false,
-  "runtime_asan_collegato": ${ASAN},
-  "simboli_del_runtime_asan": ${SIMBOLI_ASAN},
+  "simboli_asan_nella_libreria": ${SIMBOLI_IN_GDAL},
+  "simboli_asan_nel_binario": ${SIMBOLI_NEL_BINARIO},
+  "runtime_asan_nel_binario": ${ASAN_NEL_BINARIO},
+  "libreria_gdal_dentro_l_albero_di_build": ${DENTRO_ALBERO},
   "moduli_con_contatori": ${MODULI},
   "contatori_di_copertura": ${CONTATORI},
   "file_sorgente_gdal_strumentati": ${GDAL_STRUMENTATI},
-  "come_sono_stati_contati": "i moduli e i contatori dalla riga che libFuzzer stampa all'avvio; i file di GDAL contando i sorgenti C/C++ presenti nell'export lcov della build di copertura. Un file .rs sotto vendor/gdal e' il wrapper, che e' nostro ed e' strumentato; la presenza del runtime chiedendola al runtime con ASAN_OPTIONS=help=1, perche' i suoi simboli sono locali e nella tabella dinamica non ce n'e' nessuno."
+  "file_sorgente_c_cpp_strumentati": ${CPP_STRUMENTATI},
+  "file_del_wrapper_rust_strumentati": ${WRAPPER_RUST},
+  "come_sono_stati_contati": "la strumentazione della libreria contando i simboli __asan che porta, con nm sulla tabella dinamica e su quella statica -- e' la proprieta' che dice se e' stata compilata con -fsanitize=address, e non si inferisce dai contatori; i moduli e i contatori dalla riga che libFuzzer stampa all'avvio, che e' una proprieta' distinta e riguarda il feedback del fuzzer; i sorgenti di GDAL riconoscendoli dal percorso ed escludendo i .rs, che sono il wrapper e sono nostri; la presenza del runtime nel nostro binario chiedendola al runtime con ASAN_OPTIONS=help=1, perche' i suoi simboli sono locali e nella tabella dinamica non ce n'e' nessuno; se la libreria stia dentro l'albero di build confrontando il percorso reale con la radice del repository, invece di scriverlo a mano"
 }
 JSON
 
-echo "soname:     ${SONAME}"
-echo "risolto in: ${PERCORSO}"
-echo "asan:       ${ASAN} (${SIMBOLI_ASAN} simboli del runtime)"
-echo "moduli:     ${MODULI}"
-echo "contatori:  ${CONTATORI}"
-echo "file C/C++ strumentati: ${GDAL_STRUMENTATI}"
+echo "soname:        ${SONAME}"
+echo "risolto in:    ${PERCORSO}"
+echo "build-id:      ${BUILD_ID}"
+echo "simboli __asan nella libreria: ${SIMBOLI_IN_GDAL}"
+echo "simboli __asan nel binario:    ${SIMBOLI_NEL_BINARIO}"
+echo "runtime nel binario:           ${ASAN_NEL_BINARIO}"
+echo "dentro l'albero di build:      ${DENTRO_ALBERO}"
+echo "moduli con contatori:          ${MODULI}"
+echo "contatori:                     ${CONTATORI}"
+echo "sorgenti di GDAL strumentati:  ${GDAL_STRUMENTATI}"
+echo "wrapper Rust strumentato:      ${WRAPPER_RUST} file"
 
 python3 scripts/check_asan_filegdb.py --registra "${USCITA}/misura.json" || exit 1
 exec python3 scripts/check_asan_filegdb.py

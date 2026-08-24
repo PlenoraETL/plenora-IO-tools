@@ -134,7 +134,13 @@ BERSAGLI: dict[str, Bersaglio] = {
         perimetro_obbligatorio=frozenset(
             {
                 "Cargo.lock",
+                "crates/driver-shp/Cargo.toml",
                 "crates/driver-shp/src",
+                # Il workspace di fuzzing e' **detached**: le versioni con cui il
+                # target viene costruito stanno nel suo lockfile, non in quello
+                # del workspace principale. Senza, cambiare una dipendenza del
+                # target non farebbe scadere la misura.
+                "fuzz/Cargo.lock",
                 "fuzz/Cargo.toml",
                 "fuzz/fuzz_targets",
                 "fuzz/seeds/shp_reader",
@@ -157,11 +163,23 @@ BERSAGLI: dict[str, Bersaglio] = {
         perimetro_obbligatorio=frozenset(
             {
                 "Cargo.lock",
+                # Non solo i sorgenti: il manifesto decide **quali** feature e
+                # quali dipendenze entrano nel target, e `gdal-backend` e' la
+                # feature senza la quale questo percorso non esiste.
+                "crates/driver-filegdb/Cargo.toml",
                 "crates/driver-filegdb/src",
                 # Il wrapper Rust di GDAL fa parte di cio' che la misura
                 # attraversa: e' il fork governato, ed e' l'unica parte del
-                # percorso GDAL che la copertura vede.
+                # percorso GDAL che la copertura vede. `build.rs` ci sta dentro
+                # perche' e' li' che si decide **contro quale** libreria si
+                # collega, e una misura che gli sopravvivesse descriverebbe un
+                # binario diverso.
+                "vendor/gdal/Cargo.toml",
+                "vendor/gdal/build.rs",
                 "vendor/gdal/src",
+                # Il workspace di fuzzing e' detached: le versioni con cui il
+                # target viene costruito stanno nel suo lockfile.
+                "fuzz/Cargo.lock",
                 "fuzz/Cargo.toml",
                 "fuzz/fuzz_targets",
                 "fuzz/fixtures/filegdb",
@@ -525,7 +543,14 @@ def verifica(
         )
 
     corpus = misura.get("corpus")
-    if not isinstance(corpus, dict) or not isinstance(corpus.get("input"), int):
+    # `bool` e' sottotipo di `int` in Python, e `True` passerebbe per il numero
+    # uno: un `corpus.input: true` diceva «un input» a chi legge il codice e
+    # «vero» a chi legge il JSON.
+    if (
+        not isinstance(corpus, dict)
+        or not isinstance(corpus.get("input"), int)
+        or isinstance(corpus.get("input"), bool)
+    ):
         errori.append("la misura non dice su quanti input e' girata")
     elif corpus["input"] <= 0:
         errori.append(
@@ -570,8 +595,28 @@ def verifica(
             f"{estranei}. Le due fonti descrivono cose diverse."
         )
 
+    # La famiglia dichiarata dal registro, per confrontarla con quella che la
+    # misura riporta. Sono due parole diverse per la stessa cosa -- il registro
+    # dice «funzioni» e «righe», l'osservazione «funzione» e «riga» -- e la
+    # traduzione sta qui invece che in nessuno dei due.
+    famiglia_dichiarata = {
+        voce["id"]: {"funzioni": "funzione", "righe": "riga"}[voce["famiglia"]]
+        for voce in voci
+    }
+
     for identita in sorted(dichiarati & set(per_id)):
         voce = per_id[identita]
+        attesa = famiglia_dichiarata[identita]
+        if voce.get("famiglia") != attesa:
+            # Una funzione osservata come riga, o viceversa, e' una misura che
+            # risponde a una domanda diversa da quella posta. Senza questo
+            # confronto la sola cosa che restava era il conteggio, e un conteggio
+            # positivo si ottiene da qualunque riga eseguita.
+            errori.append(
+                f"{identita}: la misura lo osserva come «{voce.get('famiglia')}», "
+                f"il registro lo dichiara «{attesa}». Un ramo del sorgente e un "
+                "simbolo eseguito non rispondono alla stessa domanda."
+            )
         conteggio = voce.get("conteggio")
         if not isinstance(conteggio, int) or isinstance(conteggio, bool):
             errori.append(f"{identita}: conteggio «{conteggio}» non e' un intero")
@@ -580,7 +625,10 @@ def verifica(
                 f"{identita}: non raggiunto dal replay del corpus (conteggio "
                 f"{conteggio}). Il target compila e non crasha, e non arriva qui."
             )
-        if voce.get("famiglia") == "funzione" and not voce.get("simboli"):
+        simboli = voce.get("simboli")
+        if voce.get("famiglia") == "funzione" and isinstance(simboli, bool):
+            errori.append(f"{identita}: `simboli` vale «{simboli}», non e' un conteggio")
+        elif voce.get("famiglia") == "funzione" and not simboli:
             errori.append(
                 f"{identita}: nessun simbolo corrisponde ai segmenti dichiarati. "
                 "O la funzione e' stata rinominata, o non e' stata compilata nel "

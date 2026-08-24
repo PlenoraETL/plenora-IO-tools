@@ -499,6 +499,96 @@ class SondeSuOgniBersaglio(unittest.TestCase):
         self.assertEqual(len(set(registri)), len(registri))
 
 
+class SondeDellaFormaDellaMisura(unittest.TestCase):
+    """Una misura malformata deve fallire chiusa, e per «malformata» si intende
+    anche cio' che somiglia a un numero senza esserlo.
+
+    Le tre sonde qui sotto nascono da altrettanti stati che il gate accettava
+    mentre l'invariante dichiarava di rifiutarli. Nessuno dei tre era visibile
+    dai casi positivi: un conteggio positivo si ottiene da qualunque riga
+    eseguita, e `True` e' un intero per Python.
+    """
+
+    def setUp(self) -> None:
+        precedente = gate.impronta_del_perimetro
+        gate.impronta_del_perimetro = lambda percorsi: (IMPRONTA, [])
+        self.addCleanup(setattr, gate, "impronta_del_perimetro", precedente)
+
+    def test_una_famiglia_scambiata_e_rossa(self) -> None:
+        """Una funzione osservata come riga risponde a una domanda diversa.
+
+        Il registro dice se un requisito e' un **ramo del sorgente** o un
+        **simbolo eseguito**; la misura deve dire la stessa cosa. Senza il
+        confronto restava il solo conteggio, e un conteggio positivo non
+        distingue le due prove.
+        """
+        for corrente in bersagli():
+            for indice, atteso in enumerate(
+                {"funzioni": "funzione", "righe": "riga"}[f]
+                for _, f in sorted(corrente.famiglia_del_nucleo.items())
+            ):
+                with self.subTest(bersaglio=corrente.nome, requisito=indice):
+                    registro = registro_minimo(corrente)
+                    misura = misura_di(registro, bersaglio=corrente)
+                    voce = misura["requisiti"][indice]
+                    voce["famiglia"] = "riga" if voce["famiglia"] == "funzione" else "funzione"
+                    errori = gate.verifica(corrente, registro, misura)
+                    self.assertTrue(
+                        any("non rispondono alla stessa domanda" in m for m in errori),
+                        f"scambiare la famiglia deve essere rosso: {errori}",
+                    )
+
+    def test_un_corpus_booleano_non_e_un_numero_di_input(self) -> None:
+        """`bool` e' sottotipo di `int`: `true` passava per «un input»."""
+        for valore in (True, False):
+            with self.subTest(valore=valore):
+                registro = registro_minimo()
+                misura = misura_di(registro)
+                misura["corpus"]["input"] = valore
+                errori = gate.verifica(bersaglio, registro, misura)
+                self.assertTrue(
+                    any("su quanti input" in m for m in errori), errori
+                )
+
+    def test_un_conteggio_di_simboli_booleano_e_rosso(self) -> None:
+        registro = registro_minimo()
+        misura = misura_di(registro)
+        funzione = next(v for v in misura["requisiti"] if v["famiglia"] == "funzione")
+        funzione["simboli"] = True
+        errori = gate.verifica(bersaglio, registro, misura)
+        self.assertTrue(any("non e' un conteggio" in m for m in errori), errori)
+
+
+class SondeDelPerimetroDichiarato(unittest.TestCase):
+    """Il perimetro deve contenere cio' che decide **quale** binario si misura.
+
+    I sorgenti non bastano: feature, versioni e logica di build cambiano il
+    binario senza toccare una riga di codice, e una misura che sopravvivesse a
+    quei cambiamenti descriverebbe qualcos'altro.
+    """
+
+    def test_ogni_bersaglio_comprende_manifesti_e_lockfile(self) -> None:
+        for corrente in bersagli():
+            with self.subTest(corrente.nome):
+                perimetro = corrente.perimetro_obbligatorio
+                self.assertIn(
+                    "fuzz/Cargo.lock",
+                    perimetro,
+                    "il workspace di fuzzing e' detached: le versioni con cui il "
+                    "target viene costruito stanno nel suo lockfile",
+                )
+                self.assertTrue(
+                    any(p.endswith("/Cargo.toml") and p.startswith("crates/") for p in perimetro),
+                    "il manifesto del driver decide quali feature entrano nel target",
+                )
+
+    def test_il_perimetro_del_filegdb_comprende_la_build_del_wrapper(self) -> None:
+        """`vendor/gdal/build.rs` decide **contro quale** libreria si collega."""
+        perimetro = GDB.perimetro_obbligatorio
+        for atteso in ("vendor/gdal/build.rs", "vendor/gdal/Cargo.toml", "vendor/gdal/src"):
+            self.assertIn(atteso, perimetro)
+
+
 class SondeDelBersaglioFileGDB(unittest.TestCase):
     """Il bersaglio aggiunto con la generalizzazione, e i suoi modi di fallire.
 

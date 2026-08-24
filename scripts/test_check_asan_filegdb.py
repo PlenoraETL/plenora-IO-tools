@@ -8,12 +8,20 @@ frase userebbe come prova.
 
 Le sonde provano le due direzioni: che la misura vera sia verde, e che ogni modo
 di raccontare un confine diverso da quello descritto sia rosso.
+
+# Le due proprieta' non vanno confuse
+
+**Strumentazione** e **feedback di copertura** sono cose diverse, e la prima
+stesura del gate inferiva la prima dai secondi. Un binario puo' avere contatori
+senza sanitizer e sanitizer senza contatori: le sonde qui sotto le muovono una
+per volta, cosi' un gate che tornasse a confonderle diventerebbe rosso.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import pathlib
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
@@ -30,11 +38,15 @@ def misura_minima() -> dict:
         "libreria_collegata": {
             "soname": "libgdal.so.32",
             "percorso_risolto": "/lib/x86_64-linux-gnu/libgdal.so.32",
+            "build_id": "0352ff263e6c85fc19040c196aeae35fdb431d7f",
+            "sha256": "a" * 64,
         },
+        "simboli_asan_nella_libreria": 0,
+        "simboli_asan_nel_binario": 590,
+        "runtime_asan_nel_binario": True,
         "libreria_gdal_dentro_l_albero_di_build": False,
-        "runtime_asan_collegato": True,
         "moduli_con_contatori": 1,
-        "contatori_di_copertura": 167811,
+        "contatori_di_copertura": 167812,
         "file_sorgente_gdal_strumentati": 0,
         "che_cosa_significa": {chiave: "prosa" for chiave in gate.AFFERMAZIONI},
     }
@@ -42,26 +54,61 @@ def misura_minima() -> dict:
 
 class SondeDelConfine(unittest.TestCase):
     def setUp(self) -> None:
-        # L'impronta vera legge il working tree e chiama git: qui interessa che
-        # il **confronto** avvenga, non come si calcola il valore.
+        # L'impronta vera legge il working tree e chiama git; la libreria vera
+        # sta sul disco di questa macchina. Qui interessa che il **confronto**
+        # avvenga, non come si ottengono i valori: quelli hanno le loro sonde.
         precedente = gate.impronta_del_perimetro
         gate.impronta_del_perimetro = lambda percorsi: (IMPRONTA, [])
         self.addCleanup(setattr, gate, "impronta_del_perimetro", precedente)
 
+        finta = pathlib.Path("/finta/libgdal.so.32")
+        locale = gate._libreria_locale
+        simboli = gate.simboli_asan
+        gate._libreria_locale = lambda _percorso: finta
+        gate.simboli_asan = lambda _percorso: 0
+        self.addCleanup(setattr, gate, "_libreria_locale", locale)
+        self.addCleanup(setattr, gate, "simboli_asan", simboli)
+
     def test_la_misura_vera_del_confine_e_verde(self) -> None:
         self.assertEqual(gate.verifica(misura_minima()), [])
 
-    def test_gdal_strumentata_non_passa_in_silenzio(self) -> None:
-        """Se un giorno GDAL fosse costruita con la strumentazione, sarebbe una
+    # --- la strumentazione, che e' il fatto centrale ----------------------
+
+    def test_una_gdal_strumentata_non_passa_in_silenzio(self) -> None:
+        """Se un giorno GDAL fosse costruita con la strumentazione sarebbe una
         **buona** notizia -- e questo gate dovrebbe comunque diventare rosso,
         perche' la prosa che descrive il confine andrebbe riscritta."""
         misura = misura_minima()
-        misura["file_sorgente_gdal_strumentati"] = 412
+        misura["simboli_asan_nella_libreria"] = 412
         errori = gate.verifica(misura)
-        self.assertTrue(
-            any("file_sorgente_gdal_strumentati" in m for m in errori), errori
-        )
+        self.assertTrue(any("simboli_asan_nella_libreria" in m for m in errori), errori)
         self.assertTrue(any("e' la prosa a dover cambiare" in m for m in errori))
+
+    def test_una_gdal_locale_strumentata_e_rossa_anche_con_artefatto_pulito(self) -> None:
+        """Il caso che il livello 2 non vedrebbe.
+
+        Il checkpoint rilegge l'artefatto, non rifa' la misura: un artefatto
+        che descrivesse una GDAL diversa da quella installata lascerebbe verde
+        l'invariante su un ambiente che nessuno ha guardato. Il gate rimisura la
+        libreria locale, e qui la sonda gliene mette davanti una strumentata.
+        """
+        gate.simboli_asan = lambda _percorso: 350
+        errori = gate.verifica(misura_minima())
+        self.assertTrue(any("e' strumentata" in m for m in errori), errori)
+        self.assertTrue(any("va riscritta" in m for m in errori))
+
+    def test_senza_gdal_locale_il_gate_non_conclude(self) -> None:
+        """Un gate che verifica la GDAL di questa macchina, se non c'e', non
+        deve dire di si': deve dire che non puo' dirlo."""
+
+        def assente(_percorso: str):
+            raise gate.MisuraImpossibile("libgdal non trovata su questa macchina")
+
+        gate._libreria_locale = assente
+        errori = gate.verifica(misura_minima())
+        self.assertTrue(any("non trovata" in m for m in errori), errori)
+
+    # --- il feedback di copertura, che e' un'altra cosa -------------------
 
     def test_un_secondo_modulo_con_contatori_e_rosso(self) -> None:
         """Due moduli vorrebbero dire che una libreria condivisa porta
@@ -71,12 +118,12 @@ class SondeDelConfine(unittest.TestCase):
         misura["moduli_con_contatori"] = 2
         self.assertTrue(any("moduli_con_contatori" in m for m in gate.verifica(misura)))
 
-    def test_il_runtime_asan_assente_e_rosso(self) -> None:
-        """Il caso opposto, e il piu' pericoloso: un binario senza sanitizer che
-        gira una campagna e non segnala niente."""
+    def test_sorgenti_di_gdal_nella_copertura_sono_rossi(self) -> None:
         misura = misura_minima()
-        misura["runtime_asan_collegato"] = False
-        self.assertTrue(any("runtime_asan_collegato" in m for m in gate.verifica(misura)))
+        misura["file_sorgente_gdal_strumentati"] = 7
+        self.assertTrue(
+            any("file_sorgente_gdal_strumentati" in m for m in gate.verifica(misura))
+        )
 
     def test_un_binario_senza_contatori_e_rosso(self) -> None:
         for valore in (0, -1, "molti", True, None):
@@ -87,18 +134,42 @@ class SondeDelConfine(unittest.TestCase):
                     any("contatori_di_copertura" in m for m in gate.verifica(misura))
                 )
 
+    def test_i_contatori_non_dicono_niente_sulla_strumentazione(self) -> None:
+        """La confusione che la prima stesura faceva, provata direttamente.
+
+        Contatori in abbondanza **e** una libreria strumentata devono restare
+        rossi: se il gate deducesse la seconda dai primi, questo caso passerebbe.
+        """
+        misura = misura_minima()
+        misura["contatori_di_copertura"] = 999_999
+        misura["simboli_asan_nella_libreria"] = 1
+        self.assertTrue(
+            any("simboli_asan_nella_libreria" in m for m in gate.verifica(misura))
+        )
+
+    # --- il resto -----------------------------------------------------------
+
+    def test_il_runtime_asan_assente_dal_binario_e_rosso(self) -> None:
+        """Il caso opposto, e il piu' pericoloso: un binario senza sanitizer che
+        gira una campagna e non segnala niente."""
+        misura = misura_minima()
+        misura["runtime_asan_nel_binario"] = False
+        self.assertTrue(any("runtime_asan_nel_binario" in m for m in gate.verifica(misura)))
+
     def test_un_binario_che_non_collega_gdal_e_rosso(self) -> None:
-        """Senza `libgdal` il target non sta esercitando FileGDB, e una campagna
-        verde direbbe qualcosa di un percorso mai percorso."""
         misura = misura_minima()
         misura["libreria_collegata"]["soname"] = "libqualcosa.so.1"
-        errori = gate.verifica(misura)
-        self.assertTrue(any("non collega" in m for m in errori), errori)
+        self.assertTrue(any("non collega" in m for m in gate.verifica(misura)))
 
-    def test_una_libreria_senza_percorso_risolto_e_rossa(self) -> None:
-        misura = misura_minima()
-        misura["libreria_collegata"]["percorso_risolto"] = ""
-        self.assertTrue(any("percorso_risolto" in m for m in gate.verifica(misura)))
+    def test_una_libreria_senza_identita_e_rossa(self) -> None:
+        """Senza build-id o digest la misura non dice **quale** libreria ha
+        guardato, e il gate non puo' dire se e' la stessa."""
+        for campo in ("percorso_risolto", "build_id", "sha256"):
+            with self.subTest(campo):
+                misura = misura_minima()
+                misura["libreria_collegata"][campo] = ""
+                errori = gate.verifica(misura)
+                self.assertTrue(any(campo in m for m in errori), errori)
 
     def test_una_gdal_costruita_nell_albero_e_rossa(self) -> None:
         misura = misura_minima()
@@ -115,36 +186,60 @@ class SondeDelConfine(unittest.TestCase):
                 misura = misura_minima()
                 del misura["che_cosa_significa"][affermazione]
                 errori = gate.verifica(misura)
-                self.assertTrue(
-                    any(affermazione in m for m in errori),
-                    f"togliere «{affermazione}» deve essere rosso: {errori}",
-                )
+                self.assertTrue(any(affermazione in m for m in errori), errori)
 
     def test_una_misura_di_un_altro_target_e_rossa(self) -> None:
         misura = misura_minima()
         misura["target"] = "shp_reader"
         self.assertTrue(any("shp_reader" in m for m in gate.verifica(misura)))
 
-
-class SondaDellaScadenza(unittest.TestCase):
-    """La misura invecchia con il binario che descrive."""
-
     def test_una_misura_di_un_altro_albero_e_rossa(self) -> None:
-        precedente = gate.impronta_del_perimetro
         gate.impronta_del_perimetro = lambda percorsi: ("0" * 64, [])
-        self.addCleanup(setattr, gate, "impronta_del_perimetro", precedente)
-
         errori = gate.verifica(misura_minima())
         self.assertTrue(any("impronta del perimetro diversa" in m for m in errori), errori)
-        self.assertTrue(
-            any("asan-filegdb.sh" in m for m in errori),
-            "il messaggio deve dire come rifarla",
+        self.assertTrue(any("asan-filegdb.sh" in m for m in errori))
+
+
+class SondeDellaMisuraDiretta(unittest.TestCase):
+    """`simboli_asan` discrimina davvero fra strumentato e non.
+
+    Senza questa sonda, `simboli_asan` potrebbe restituire zero per un errore di
+    invocazione -- un `nm` assente, un percorso sbagliato -- e il gate leggerebbe
+    quello zero come «non strumentata».
+    """
+
+    def test_il_nostro_binario_strumentato_porta_simboli_del_runtime(self) -> None:
+        misura = json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
+        self.assertGreater(
+            misura["simboli_asan_nel_binario"],
+            100,
+            "un binario costruito con -Zsanitizer=address porta centinaia di "
+            "simboli del runtime; se ne porta pochi, la misura non sta guardando "
+            "il binario giusto",
         )
+        self.assertEqual(misura["simboli_asan_nella_libreria"], 0)
+
+
+def gdal_locale_disponibile() -> bool:
+    """Questo gate misura la GDAL di **questa** macchina.
+
+    Dove non c'e' -- una macchina di sviluppo che non e' Linux -- la sonda che
+    esegue il gate per intero non ha niente da misurare e si salta. In CI e nel
+    container GDAL c'e', ed e' li' che quella sonda conta.
+    """
+    try:
+        gate._libreria_locale("")
+    except gate.MisuraImpossibile:
+        return False
+    return True
 
 
 class SondaDellaMisuraVera(unittest.TestCase):
     """L'artefatto committato, letto come in CI."""
 
+    @unittest.skipUnless(
+        gdal_locale_disponibile(), "GDAL non installata: il gate non puo' concludere"
+    )
     def test_il_gate_e_verde_sull_albero_corrente(self) -> None:
         uscita, errori = io.StringIO(), io.StringIO()
         with redirect_stdout(uscita), redirect_stderr(errori):
@@ -157,12 +252,26 @@ class SondaDellaMisuraVera(unittest.TestCase):
             self.assertIn(affermazione, misura["che_cosa_significa"])
             self.assertGreater(len(misura["che_cosa_significa"][affermazione]), 40)
 
+    def test_la_misura_non_promette_la_redzone(self) -> None:
+        """La prima stesura affermava che un accesso di GDAL nella redzone di
+        un'allocazione ASan venisse visto. E' falso: il controllo lo inserisce il
+        compilatore, e codice non strumentato non consulta la shadow memory."""
+        testo = gate.ARTEFATTO.read_text(encoding="utf-8").lower()
+        self.assertNotIn("redzone", testo)
+        misura = json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
+        self.assertIn(
+            "non consultano la shadow memory",
+            misura["che_cosa_significa"]["non_copre_gli_accessi_dentro_gdal"],
+        )
+
     def test_la_misura_dice_come_e_stata_presa(self) -> None:
         """Un numero di cui non si sa come e' stato ottenuto non si puo'
         ricontrollare, e ricontrollarlo e' l'unico modo di fidarsene."""
         misura = json.loads(gate.ARTEFATTO.read_text(encoding="utf-8"))
         self.assertIn("come_sono_stati_contati", misura)
         self.assertIn("come_e_stata_misurata", misura["libreria_collegata"])
+        # Il metodo deve nominare la misura diretta, non i contatori.
+        self.assertIn("__asan", misura["come_sono_stati_contati"])
 
 
 if __name__ == "__main__":

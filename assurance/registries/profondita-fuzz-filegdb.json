@@ -10,13 +10,18 @@
     "perche_la_fixture": "`fuzz/fixtures/filegdb` porta la `.gdb` da cui ogni input parte. Cambiarla cambia tutto cio' che il target attraversa, e una misura che le sopravvivesse descriverebbe un dataset che non esiste piu'.",
     "percorsi": [
       "Cargo.lock",
+      "crates/driver-filegdb/Cargo.toml",
       "crates/driver-filegdb/src",
+      "fuzz/Cargo.lock",
       "fuzz/Cargo.toml",
       "fuzz/fixtures/filegdb",
       "fuzz/fuzz_targets",
       "fuzz/seeds/filegdb_reader",
+      "vendor/gdal/Cargo.toml",
+      "vendor/gdal/build.rs",
       "vendor/gdal/src"
-    ]
+    ],
+    "perche_i_manifesti": "il perimetro comprende i manifesti e i lockfile, non solo i sorgenti: feature, versioni e logica di build decidono **quale** binario viene misurato, e una misura che sopravvivesse a un loro cambiamento descriverebbe un binario diverso da quello che il codice corrente produrrebbe. Il workspace di fuzzing e' detached, quindi il lockfile che conta e' `fuzz/Cargo.lock`."
   },
   "nucleo": [
     "driver.apertura",

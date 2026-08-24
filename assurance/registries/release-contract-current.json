@@ -320,7 +320,22 @@
     {
       "id": "fuzz.fixture-filegdb",
       "superficie": "fixture e semi del target FileGDB",
-      "invariante": "la fixture e' un FileGDB vero e riproducibile, e i semi ne sono **derivati**",
+      "invariante": "la fixture e' un FileGDB **vero**, la sua riproducibilita' e' dimostrata da un confronto registrato, e i semi ne sono derivati",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/genera_fixture_filegdb.py",
+          "--verifica"
+        ]
+      },
+      "stato": "verified",
+      "nota": "la fixture non e' un blob committato a mano: `scripts/genera-fixture-filegdb.sh` la produce con `ogr2ogr` da un GeoJSON versionato e ne **dimostra** la riproducibilita' rigenerandola due volte -- gli offset tollerati sono esattamente quelli in cui le due rigenerazioni differiscono fra loro, cioe' i GUID che GDAL conia per il dataset. Rigenerare vuole GDAL e minuti; il gate no. Cio' che il gate rilegge e' il **verbale** di quel confronto, `assurance/fixture-filegdb.json`, legato ai byte della fixture dalla sua impronta: un verbale che sopravvivesse a una fixture rigenerata direbbe «riproducibile» di byte che nessuno ha confrontato, e diventa rosso. Che i semi seguano la fixture lo verifica `fuzz.semi-filegdb`."
+    },
+    {
+      "id": "fuzz.semi-filegdb",
+      "superficie": "semi del target FileGDB",
+      "invariante": "i semi sono **derivati** dalla fixture, non blob committati",
       "prova": {
         "tipo": "gate",
         "comando": [
@@ -330,7 +345,7 @@
         ]
       },
       "stato": "verified",
-      "nota": "la fixture non e' un blob committato a mano: `scripts/genera-fixture-filegdb.sh` la produce con `ogr2ogr` da un GeoJSON versionato, e ne **dimostra** la riproducibilita' rigenerandola due volte -- gli offset tollerati sono esattamente quelli in cui le due rigenerazioni differiscono fra loro, cioe' i GUID che GDAL conia per il dataset. Un byte stabile e diverso non e' coniato, ed e' rosso. I semi sono funzione della fixture: cambiata la fixture, un seme che non la seguisse sostituirebbe la parte sbagliata, e la campagna misurerebbe altro senza dirlo. Questo gate costa millisecondi e non pretende GDAL; la produzione della fixture si' e sta nello script."
+      "nota": "ogni seme porta l'indice di una parte e il suo contenuto originale: cambiata la fixture, un seme che non la seguisse sostituirebbe la parte sbagliata, e la campagna misurerebbe altro senza dirlo. E' un'affermazione diversa da quella sulla fixture, e ha percio' un gate diverso: `--verifica` ricontrolla byte a byte che i semi sul disco siano quelli che il generatore produce **da questa** fixture."
     },
     {
       "id": "wire.loss-report",
