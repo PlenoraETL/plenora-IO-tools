@@ -250,7 +250,6 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 | FileGDB | richiede `gdal-backend`. Senza, ogni chiamata fallisce come capability mancante |
 | CSV, XLSX | non portano CRS: con una geometria, `--assume-crs` è obbligatorio |
 | tutti | nessuna riproiezione |
-| `shp` | il parsing di `.shp` e `.dbf` **non è esercitato da alcun fuzz target**; vedi [RELEASE.md](RELEASE.md) |
 
 ---
 

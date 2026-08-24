@@ -803,6 +803,24 @@ class SondeFontiLegate(unittest.TestCase):
                 errori = gate.validate_stato_corrente(stato)
                 self.assertTrue(any(chiave in e for e in errori), errori)
 
+    def test_la_profondita_del_fuzzing_viene_dalla_misura(self) -> None:
+        """Il numero dei requisiti raggiunti non e' leggibile a occhio, ed e' per
+        questo il posto piu' facile in cui scriverne uno piu' bello."""
+        stato = self.stato()
+        stato["chiuso"]["fuzz_reader_shapefile"]["requisiti_di_profondita"] = 999
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(
+            any("requisiti_di_profondita" in e for e in errori), errori
+        )
+
+    def test_la_misura_citata_e_quella_che_il_gate_legge(self) -> None:
+        """Puntare lo stato a un altro file lo renderebbe verde su una misura
+        che nessun gate guarda."""
+        stato = self.stato()
+        stato["chiuso"]["fuzz_reader_shapefile"]["misura"] = "assurance/altra.json"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("il registro dei requisiti dichiara" in e for e in errori), errori)
+
     def test_una_qualifica_su_una_revisione_inesistente_e_rossa(self) -> None:
         stato = self.stato()
         stato["chiuso"]["s9_errori_strutturati"]["qualificato_su"] = "0" * 40

@@ -273,8 +273,8 @@ non può fallire non verifica niente.
 | **smoke** | cerca input nuovi per un tempo limitato. Ritrova il noto solo per fortuna, ed è la ragione per cui il replay viene **prima** |
 | **quarantena** | target esclusi dallo smoke ma **compilati comunque**. Deve essere vuota |
 
-I target sono tredici. La corrispondenza con i driver **non è uno a uno**, e la
-differenza conta:
+I target sono quattordici. La corrispondenza con i driver **non è uno a uno**,
+e la differenza conta:
 
 | Driver | Target |
 |---|---|
@@ -282,8 +282,43 @@ differenza conta:
 | gpkg | anche `gpkg_geometry` |
 | ipc | anche `ipc_to_gpkg`, che esercita la conversione |
 | model | `from_wkb`, `wkt_parse` |
-| **shp** | soltanto `shp_wkb`, che converte fra WKB e forme ESRI. **Non è un reader di Shapefile**: il parsing di `.shp` e `.dbf` non è esercitato da nulla |
+| shp | `shp_wkb` (conversione WKB ↔ forme ESRI) e `shp_reader` (il formato) |
 | **filegdb** | **nessuno** |
+
+`shp_reader` è arrivato dopo, e la ragione dice qualcosa sul metodo. Uno
+Shapefile non è un file: il driver riceve il `.shp` e risale ai fratelli
+cambiando estensione. Un target che consegni al fuzzer un solo blob non apre
+niente, e per anni `shp_wkb` è stato contato come «copertura di shp» pur non
+leggendo un header, una tabella `.dbf` o un `.prj`.
+
+Il target divide perciò l'input in quattro parti — `.shp`, `.shx`, `.dbf`, il
+resto come `.prj` — e le materializza in una directory temporanea **nuova a ogni
+invocazione**: se fosse riusata, il `.prj` di una mutazione sopravvivrebbe alla
+successiva e il fuzzer misurerebbe la propria directory. Le lunghezze dichiarate
+si **saturano** invece di far scartare l'input, così le mutazioni
+sull'intestazione restano casi di prova; nessuna allocazione deriva da un valore
+dichiarato e nessun percorso dal payload.
+
+Alle prime campagne il target ha aperto una **famiglia** di difetti, non un
+difetto: ogni valore che i due decoder leggono dal file viene usato come se il
+file l'avessero scritto loro. Offset e larghezze diventano indici di fetta,
+conteggi diventano capacità di vettore, differenze fra voci d'indice diventano
+numeri di punti da leggere. L'elenco per esteso è in
+[RELEASE.md](RELEASE.md); qui conta la forma, che è la stessa già nota per
+`arrow-ipc` e `parquet`.
+
+Il driver faceva già alcuni controlli, ma **dopo** aver costruito il reader: il
+panico arrivava prima. Le due prevalidazioni sono ora funzioni a sé, sorvegliate
+dallo stesso gate degli altri decoder, che pretende la verifica **prima** della
+costruzione e in nessun'altra crate.
+
+I semi non sono blob committati: `scripts/genera_semi_shp.py` li **deriva** dalla
+specifica del formato — deliberatamente non dal writer del driver, che li
+renderebbe validi per costruzione anche il giorno in cui sbagliasse — e
+`--verifica` li ricontrolla byte a byte in CI. Che raggiungano il parsing non è
+dedotto dal fatto che il replay non crasha: le sonde di `driver-shp` chiamano lo
+**stesso** entry point del target sui semi versionati e verificano il numero di
+righe drenate e il messaggio esatto dei rifiuti.
 
 ### Copertura
 

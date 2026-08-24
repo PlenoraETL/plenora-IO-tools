@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 97,73% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
-| blocchi | 9 |
+| blocchi | 8 |
 | S9, qualificato su | `2a532df` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -63,7 +63,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 | Blocco | Sintesi |
 |---|---|
 | `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
-| `fuzz.reader-shapefile` | nessun target esercita il parsing `.shp`/`.dbf` |
 | `fuzz.filegdb` | spike di fattibilità non eseguito |
 | `wire.loss-report` | contratto non ratificato |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
@@ -138,6 +137,63 @@ soglia: renderlo deterministico significherebbe serializzare ciò che il codice 
 in parallelo per compiacere una misura. Il verbale è in
 [`assurance/campagne-copertura.json`](../assurance/campagne-copertura.json).
 
+**Fuzzing del reader `.shp`/`.dbf`.** `shp_wkb` converte fra WKB e forme ESRI
+in memoria; non apre un file, non legge un header, non interpreta una tabella
+`.dbf`. Contarlo come copertura del formato sarebbe stato falso, ed è la ragione
+per cui il blocco è rimasto aperto mentre `shp_wkb` esisteva.
+
+Il target `shp_reader` legge il formato. Che lo legga davvero **non** è dedotto
+dall'assenza di crash — un bundle rifiutato all'apertura non fa crashare niente,
+ed è indistinguibile da uno letto per intero: lo dice una misura di copertura del
+replay deterministico, verificata da `scripts/check_profondita_fuzz_shp.py`
+contro i requisiti di
+[`assurance/registries/profondita-fuzz-shapefile.json`](../assurance/registries/profondita-fuzz-shapefile.json).
+Sono raggiunti l'apertura del driver, l'inferenza dello schema, l'intestazione
+`.shp` e quella di record, l'indice `.shx`, intestazione, descrittori e valori
+del `.dbf`, un punto e una polilinea decodificati, il drenaggio in batch e i
+**due** rami di rifiuto dei conteggi disallineati — quello all'apertura, che
+l'indice rende possibile, e quello che emerge a lettura avviata quando l'indice
+non c'è.
+
+La misura porta l'impronta del perimetro che la determina, quindi invecchia
+quando quel codice cambia invece che mai.
+
+**Il target ha trovato difetti veri fin dalla prima campagna**, che è la
+ragione per cui esisteva il blocco. Entrambe le librerie del formato trattano i
+valori dichiarati nel file come se li avessero scritti loro:
+
+| Dove | Che cosa dichiara il file | Che cosa succede |
+|---|---|---|
+| `dbase` | offset del primo record | due sottrazioni non controllate — una in più per i file dichiarati Visual FoxPro, sui 263 byte di backlink |
+| `dbase` | terminatore dei descrittori | preteso con un `debug_assert_eq!` |
+| `dbase` | larghezza di un campo | i tipi a dimensione fissa vengono affettati senza verificarla |
+| `dbase` | valore di un campo data | affettato per indice di byte, senza guardare lunghezza né confini di carattere |
+| `dbase` | valore di un campo data-e-ora | il giorno giuliano entra in un'aritmetica `i32` che trabocca; un parola-tempo negativo trabocca passando da `u32` |
+| `shapefile` | scostamenti dell'indice `.shx` | raddoppiati dentro un `i32`; e una voce può puntare in mezzo a un record, dove otto byte qualunque diventano una testa |
+| `shapefile` | conteggio di parti e punti di un record | prenota i vettori **prima** di leggere, e non è legato alla dimensione del record |
+| `shapefile` | indice delle parti | la differenza fra due voci diventa un numero di punti da leggere, anche quando è negativa |
+
+Gli esiti sono tre, e nessuno è un errore: un panico, un'asserzione di debug, o
+una richiesta di memoria che il processo non sopravvive — una campagna ha
+chiesto **4,3 GB** per un file da trecento byte. Sotto `libfuzzer-sys` il panico
+è un `abort()` che nessun `catch_unwind` vede. I due casi con `debug_assert!`
+sono peggiori in **release**, dove l'asserzione sparisce e resta il numero
+sbagliato.
+
+`driver-shp` faceva già alcuni di questi controlli, ma **dopo** aver costruito
+il reader: il panico arrivava prima. La prevalidazione è ora una coppia di
+funzioni a sé, e `scripts/check_prevalidazione_decoder.py` pretende che preceda
+ogni costruzione di `ShapeReader` e di `dbase::Reader`, con la stessa regola di
+presenza, esclusività e ordine già in vigore per `arrow-ipc` e `parquet`. Ogni
+input che ha prodotto un finding è un seme versionato, quindi il replay lo
+rigioca a ogni corsa.
+
+La verifica strutturale non pretende di essere il decoder: un file che la passa
+può ancora essere rifiutato dal parsing, ed è giusto così. Garantisce che il
+rifiuto sia un `Err`. Il costo è una lettura in più dell'intestazione e della
+catena dei record; la scansione dei valori tocca solo i campi data, che sono
+l'unico tipo il cui **contenuto** può fermare il lettore.
+
 ### La candidate `1.0.1` non qualifica HEAD
 
 Il manifesto di candidate è legato a una revisione che non è HEAD, con
@@ -186,18 +242,7 @@ siano raggiungibili**: in un gruppo su tre affrontati finora, un solo ramo su
 tre lo era. Quella determinazione non si parallelizza e non si fa leggendo i
 commenti.
 
-### 2. Fuzz target del reader `.shp` / `.dbf`
-
-**Criterio di uscita.** Un target che esercita il **parsing reale** di `.shp` e
-`.dbf`, non la conversione geometrica.
-
-`shp_wkb` converte fra WKB e forme ESRI: presentarlo come copertura del formato
-sarebbe falso, ed è la ragione per cui questo punto esiste separatamente.
-
-**Blocco rimosso.** L'unico driver con un parser di formato non esercitato da
-alcun fuzzing entra nella stessa copertura degli altri.
-
-### 3. Spike FileGDB bounded
+### 2. Spike FileGDB bounded
 
 **Criterio di uscita.** Due esiti sono ammessi, e nessun terzo:
 
@@ -211,7 +256,7 @@ secondo con la dimostrazione, non un rinvio.
 **Blocco rimosso.** L'unico driver che dipende da una libreria C esterna smette
 di essere l'unico senza copertura di fuzzing né compensazione dichiarata.
 
-### 4. Ratifica e implementazione di `LossReport`
+### 3. Ratifica e implementazione di `LossReport`
 
 **Criterio di uscita.** Le cinque decisioni sono ratificate e implementate:
 struttura delle categorie, limiti — cardinalità, byte per stringa, byte totali —,
@@ -224,7 +269,7 @@ richiede una nuova versione.
 **Blocco rimosso.** L'ultima superficie pubblica senza contratto ratificato ne
 acquista uno. Vedi [PRODUCT.md § LossReport](PRODUCT.md#lossreport--non-ratificato).
 
-### 5. S10, S11, S12
+### 4. S10, S11, S12
 
 | Lotto | Perimetro |
 |---|---|
@@ -239,7 +284,7 @@ livello 2 e la propria evidenza.
 rimuove l'ultima asimmetria fra i formati: oggi WKT e GeoJSON hanno tetti, ma
 non una capability dichiarata che li renda verificabili dall'esterno.
 
-### 6. Qualifica cross-component
+### 5. Qualifica cross-component
 
 **Criterio di uscita.** La catena `IO-tools → data-tools → database-tools` è
 qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma,
@@ -253,7 +298,7 @@ contiene né esegue test che compilino gli altri due componenti. La definizione
 Resta distinta dalla readiness del componente: nessuna delle due implica
 l'altra.
 
-### 7. Decisione finale di rilascio
+### 6. Decisione finale di rilascio
 
 **Criterio di uscita.** Tutti i punti precedenti chiusi;
 `check_release_contract.py --release` verde, cioè nessun invariante

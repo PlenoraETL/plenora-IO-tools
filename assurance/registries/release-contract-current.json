@@ -261,11 +261,31 @@
     {
       "id": "fuzz.reader-shapefile",
       "superficie": "parsing di .shp e .dbf",
-      "invariante": "il reader reale di Shapefile e' esercitato da un fuzz target",
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "nessun fuzz target esercita il parsing .shp/.dbf. `shp_wkb` converte WKB e forme ESRI e non e' un reader di Shapefile: presentarlo come copertura del formato sarebbe falso.",
-      "sintesi": "nessun target esercita il parsing `.shp`/`.dbf`"
+      "invariante": "il reader reale di Shapefile e' esercitato da un fuzz target, e la misura lo dimostra invece di dedurlo dall'assenza di crash",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/check_profondita_fuzz_shp.py"
+        ]
+      },
+      "stato": "verified",
+      "nota": "il target e' `shp_reader`, e la sua esistenza non basta: una build che compila e un replay senza crash non dicono che i semi arrivino al parser, perche' un bundle rifiutato all'apertura non fa crashare niente. Il gate legge la misura di copertura del replay e pretende venti requisiti raggiunti -- apertura del driver, inferenza dello schema, intestazione `.shp`, intestazione di record, indice `.shx`, intestazione e descrittori e valori del `.dbf`, almeno un punto e almeno una polilinea decodificati, drenaggio in batch, e i due rami di rifiuto dei conteggi disallineati. La misura porta l'impronta del perimetro che la determina, cosi' invecchia quando quel codice cambia invece che mai."
+    },
+    {
+      "id": "fuzz.semi-riproducibili",
+      "superficie": "semi del target shp_reader",
+      "invariante": "i semi versionati sono **derivati** da una specifica leggibile, non blob committati, e coincidono con cio' che il generatore produce oggi",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/genera_semi_shp.py",
+          "--verifica"
+        ]
+      },
+      "stato": "verified",
+      "nota": "un seme e' un file binario, e un binario committato senza il modo di riprodurlo non si puo' rileggere: se il formato del bundle cambia, o se un seme smette di raggiungere il parsing, non c'e' modo di capire che cosa contenesse. `scripts/genera_semi_shp.py` li scrive dalla specifica del formato -- deliberatamente **non** dal writer del driver, che li renderebbe validi per costruzione anche il giorno in cui sbagliasse -- e `--verifica` li ricontrolla byte a byte. Questo invariante riguarda la riproducibilita' dei semi; che raggiungano il parser lo dice `fuzz.reader-shapefile`."
     },
     {
       "id": "fuzz.filegdb",

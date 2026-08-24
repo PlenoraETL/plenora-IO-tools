@@ -52,6 +52,13 @@
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
       "qualificato_su": "2a532df"
+    },
+    "fuzz_reader_shapefile": {
+      "stato": "chiuso",
+      "release_blocking": false,
+      "misura": "assurance/profondita-fuzz-shapefile.json",
+      "requisiti_di_profondita": 33,
+      "nota": "il target e' `shp_reader`, e a chiuderlo non e' la sua esistenza: una build che compila e un replay senza crash non dicono che i semi arrivino al parser, perche' un bundle rifiutato all'apertura non fa crashare niente. Lo chiude la misura di copertura del replay dei semi versionati, che mostra raggiunti apertura del driver, inferenza dello schema, intestazione `.shp` e di record, indice `.shx`, intestazione e descrittori e valori del `.dbf`, un punto e una polilinea decodificati, il drenaggio in batch, i due rami di rifiuto dei conteggi disallineati e ogni difesa che la prima campagna ha reso necessaria."
     }
   },
   "aperto": {
@@ -59,11 +66,6 @@
       "gruppi_totali": 49,
       "gruppi_aperti": 43,
       "release_blocking": true
-    },
-    "fuzz_reader_shapefile": {
-      "stato": "aperto",
-      "release_blocking": true,
-      "nota": "nessun fuzz target esercita il parsing .shp/.dbf; shp_wkb converte WKB e forme ESRI e non e' un reader di Shapefile"
     },
     "fuzz_spike_filegdb": {
       "stato": "aperto",

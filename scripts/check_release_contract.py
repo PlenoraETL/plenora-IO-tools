@@ -270,8 +270,6 @@ FOGLIE_LEGATE = frozenset(
         "aperto.candidate_release.qualifica_head",
         # il registro del contratto corrente
         "aperto.assurance_n1.release_blocking",
-        "aperto.fuzz_reader_shapefile.release_blocking",
-        "aperto.fuzz_reader_shapefile.stato",
         "aperto.fuzz_spike_filegdb.release_blocking",
         "aperto.fuzz_spike_filegdb.stato",
         "aperto.loss_report.release_blocking",
@@ -287,6 +285,11 @@ FOGLIE_LEGATE = frozenset(
         "chiuso.s9_errori_strutturati.censimento_costruttori_legacy",
         "chiuso.s9_errori_strutturati.componenti_a_zero",
         "chiuso.s9_errori_strutturati.qualificato_su",
+        # la misura di profondita' del target shp_reader
+        "chiuso.fuzz_reader_shapefile.stato",
+        "chiuso.fuzz_reader_shapefile.release_blocking",
+        "chiuso.fuzz_reader_shapefile.misura",
+        "chiuso.fuzz_reader_shapefile.requisiti_di_profondita",
         # l'allowlist del docset
         "docset.markdown_canonici",
         "docset.markdown_operativi",
@@ -309,7 +312,7 @@ FOGLIE_DICHIARATE = {
     "ultima_misura.checkpoint.riconciliazione": "prosa: descrive il metodo, non un numero",
     "ultima_misura.copertura.nota": "prosa",
     "ultima_misura.diagnostica_differenziale.ragione": "prosa",
-    "aperto.fuzz_reader_shapefile.nota": "prosa",
+    "chiuso.fuzz_reader_shapefile.nota": "prosa",
     "aperto.fuzz_spike_filegdb.nota": "prosa",
     "aperto.loss_report.decisioni_aperte": (
         "l'elenco delle decisioni aperte del contratto LossReport: non e' "
@@ -339,7 +342,7 @@ FOGLIE_DICHIARATE = {
 # indipendenti della stessa cosa.
 BLOCCANTI_DELLO_STATO = {
     ("aperto", "assurance_n1", "release_blocking"): "copertura.rami-negativi",
-    ("aperto", "fuzz_reader_shapefile", "release_blocking"): "fuzz.reader-shapefile",
+    ("chiuso", "fuzz_reader_shapefile", "release_blocking"): "fuzz.reader-shapefile",
     ("aperto", "fuzz_spike_filegdb", "release_blocking"): "fuzz.filegdb",
     ("aperto", "loss_report", "release_blocking"): "wire.loss-report",
     (
@@ -362,7 +365,7 @@ ETICHETTE_DELLO_STATO = {
         "aperta",
         "chiusa",
     ),
-    ("aperto", "fuzz_reader_shapefile", "stato"): (
+    ("chiuso", "fuzz_reader_shapefile", "stato"): (
         "fuzz.reader-shapefile",
         "aperto",
         "chiuso",
@@ -1256,6 +1259,13 @@ def _numero(valore: Any) -> bool:
 # non basterebbe — un passo tolto e uno aggiunto lasciano il totale fermo.
 REGISTRO_DEI_PASSI = ROOT / "assurance" / "registries" / "passi-del-checkpoint.json"
 
+# Il registro dei requisiti di profondita' del fuzzing: `_profondita_legata` ne
+# legge il percorso dell'artefatto invece di riscriverlo, cosi' lo stato non puo'
+# puntare a un file diverso da quello che il gate della profondita' legge.
+REGISTRO_DI_PROFONDITA = (
+    ROOT / "assurance" / "registries" / "profondita-fuzz-shapefile.json"
+)
+
 
 @functools.lru_cache(maxsize=1)
 def passi_del_checkpoint() -> tuple[tuple[str, ...], frozenset[str]]:
@@ -1972,6 +1982,49 @@ def _docset_legato(stato: dict[str, Any]) -> list[str]:
     return errori
 
 
+def _profondita_legata(stato: dict[str, Any]) -> list[str]:
+    """La profondita' del fuzzing si conta dove viene misurata.
+
+    `requisiti_di_profondita` era il posto piu' facile in cui scrivere un numero
+    piu' bello di quello vero: nessuno lo confrontava con la misura, e la misura
+    non e' leggibile a occhio. Qui il numero viene dall'artefatto, e il percorso
+    dell'artefatto dal registro dei requisiti -- cosi' non e' nemmeno possibile
+    puntare lo stato a un file diverso da quello che il gate legge.
+    """
+    dichiarato = _dentro(stato, ("chiuso", "fuzz_reader_shapefile"))
+    if not isinstance(dichiarato, dict):
+        return ["`chiuso.fuzz_reader_shapefile` assente"]
+
+    try:
+        registro = json.loads(REGISTRO_DI_PROFONDITA.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as errore:
+        return [f"{REGISTRO_DI_PROFONDITA.name}: non leggibile ({errore})"]
+
+    relativo = registro.get("artefatto")
+    errori: list[str] = []
+    if dichiarato.get("misura") != relativo:
+        errori.append(
+            f"`chiuso.fuzz_reader_shapefile.misura` vale "
+            f"«{dichiarato.get('misura')}», il registro dei requisiti dichiara "
+            f"«{relativo}»"
+        )
+        return errori
+
+    try:
+        misura = json.loads((ROOT / relativo).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as errore:
+        return [f"{relativo}: non leggibile ({errore})"]
+
+    quanti = len(misura.get("requisiti", []))
+    if dichiarato.get("requisiti_di_profondita") != quanti:
+        errori.append(
+            f"`chiuso.fuzz_reader_shapefile.requisiti_di_profondita` vale "
+            f"«{dichiarato.get('requisiti_di_profondita')}», la misura ne porta "
+            f"{quanti}"
+        )
+    return errori
+
+
 def _forma_legata(stato: dict[str, Any]) -> list[str]:
     """Schema e baseline documentale."""
     errori: list[str] = []
@@ -2050,6 +2103,7 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
         + _candidate_legata_alle_fonti(stato)
         + _registro_legato(stato)
         + _censimento_s9_legato(stato)
+        + _profondita_legata(stato)
         + _docset_legato(stato)
     )
 
