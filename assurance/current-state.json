@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "621f517",
+      "sha": "07c7874",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "621f517",
+    "sha": "07c7874",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 45736,
+      "replay_input": 46351,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,26 +32,31 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.14,
-      "lcov_righe_coperte": 27611,
-      "lcov_righe_strumentate": 32054,
-      "cargo_lines_percentuale": 84.24,
+      "lcov_percentuale": 86.21,
+      "lcov_righe_coperte": 29596,
+      "lcov_righe_strumentate": 34329,
+      "cargo_lines_percentuale": 84.31,
       "soglia": 80.0,
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. La feature conta: senza `--all-features` il percorso GDAL di `driver-filegdb` restava fuori dal denominatore -- non scoperto, invisibile alla soglia. Il denominatore cresce percio' di 2 275 righe rispetto alla misura precedente, e la percentuale non cala.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
       "baseline": "c04f229",
-      "esito": "n/d",
-      "ragione": "zero righe eseguibili cambiate. Le 530 righe cambiate stanno quasi tutte dietro `#[cfg(feature = \"gdal-backend\")]`, e la campagna di copertura compila senza quella feature: quel codice non e' compilato, non e' strumentato, e la diagnostica lo classifica come non eseguibile -- fuori misura, non scoperto. E' eseguito dal passo `test`, che gira con `--all-features`, e la sua profondita' e' misurata in `assurance/profondita-fuzz-filegdb.json`."
+      "esito": "92.56%",
+      "righe_cambiate_eseguibili": 242,
+      "coperte": 224,
+      "scoperte": 18,
+      "cambiate_non_eseguibili": 305,
+      "ragione": "92.56% sulle 242 righe cambiate ed eseguibili. E' il primo numero di questo ramo: prima la diagnostica diceva `n/d` perche' la campagna compilava senza `gdal-backend` e classificava come non eseguibile tutto il tier GDB. Le 18 righe scoperte sono messaggi di `assert!` e il `panic!` di un helper delle sonde: si eseguono solo quando una sonda fallisce."
     },
-    "evidenza": "assurance/evidence/checkpoint-621f517.json"
+    "evidenza": "assurance/evidence/checkpoint-07c7874.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "621f517"
+      "qualificato_su": "07c7874"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",

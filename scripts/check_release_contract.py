@@ -271,6 +271,14 @@ FOGLIE_LEGATE = frozenset(
         "ultima_misura.copertura.soglia",
         "ultima_misura.diagnostica_differenziale.baseline",
         "ultima_misura.diagnostica_differenziale.esito",
+        # I quattro conteggi da cui l'esito differenziale e' calcolato. Stanno
+        # qui perche' l'esito da solo non si puo' controllare: una percentuale
+        # senza numeratore e denominatore e' una cifra, e questa corsa e' la
+        # prima che ne produce di diversi da zero.
+        "ultima_misura.diagnostica_differenziale.righe_cambiate_eseguibili",
+        "ultima_misura.diagnostica_differenziale.coperte",
+        "ultima_misura.diagnostica_differenziale.scoperte",
+        "ultima_misura.diagnostica_differenziale.cambiate_non_eseguibili",
         # il registro di ASSURANCE-N1
         "aperto.assurance_n1.gruppi_totali",
         "aperto.assurance_n1.gruppi_aperti",
@@ -332,6 +340,11 @@ FOGLIE_DICHIARATE = {
     "revisioni.ultima_qualificata.nota": "prosa",
     "ultima_misura.checkpoint.riconciliazione": "prosa: descrive il metodo, non un numero",
     "ultima_misura.copertura.nota": "prosa",
+    "ultima_misura.copertura.misurata_con": (
+        "prosa: dice **con quale comando** la misura e' stata presa, che non e' "
+        "un numero e non si deriva dai numeri. Le percentuali da sole non "
+        "distinguono una libreria misurata per intero da una misurata a meta'"
+    ),
     "ultima_misura.diagnostica_differenziale.ragione": "prosa",
     "chiuso.fuzz_reader_shapefile.nota": "prosa",
     "chiuso.fuzz_filegdb.nota": "prosa",
@@ -429,6 +442,22 @@ CAMPI_DALL_EVIDENZA = (
     (
         ("diagnostica_differenziale", "esito"),
         ("misure", "diagnostica_differenziale", "esito"),
+    ),
+    (
+        ("diagnostica_differenziale", "righe_cambiate_eseguibili"),
+        ("misure", "diagnostica_differenziale", "righe_cambiate_eseguibili"),
+    ),
+    (
+        ("diagnostica_differenziale", "coperte"),
+        ("misure", "diagnostica_differenziale", "coperte"),
+    ),
+    (
+        ("diagnostica_differenziale", "scoperte"),
+        ("misure", "diagnostica_differenziale", "scoperte"),
+    ),
+    (
+        ("diagnostica_differenziale", "cambiate_non_eseguibili"),
+        ("misure", "diagnostica_differenziale", "cambiate_non_eseguibili"),
     ),
 )
 
