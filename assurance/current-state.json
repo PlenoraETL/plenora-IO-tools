@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "f7f52c9",
+      "sha": "621f517",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "f7f52c9",
+    "sha": "621f517",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 45390,
+      "replay_input": 45736,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,26 +32,26 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.13,
-      "lcov_righe_coperte": 27609,
+      "lcov_percentuale": 86.14,
+      "lcov_righe_coperte": 27611,
       "lcov_righe_strumentate": 32054,
-      "cargo_lines_percentuale": 84.23,
+      "cargo_lines_percentuale": 84.24,
       "soglia": 80.0,
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
       "baseline": "c04f229",
       "esito": "n/d",
-      "ragione": "zero righe eseguibili cambiate. Le 465 righe cambiate stanno quasi tutte dietro `#[cfg(feature = \"gdal-backend\")]`, e la campagna di copertura compila senza quella feature: quel codice non e' compilato, non e' strumentato, e la diagnostica lo classifica come non eseguibile -- fuori misura, non scoperto. E' eseguito dal passo `test`, che gira con `--all-features`, e la sua profondita' e' misurata in `assurance/profondita-fuzz-filegdb.json`."
+      "ragione": "zero righe eseguibili cambiate. Le 530 righe cambiate stanno quasi tutte dietro `#[cfg(feature = \"gdal-backend\")]`, e la campagna di copertura compila senza quella feature: quel codice non e' compilato, non e' strumentato, e la diagnostica lo classifica come non eseguibile -- fuori misura, non scoperto. E' eseguito dal passo `test`, che gira con `--all-features`, e la sua profondita' e' misurata in `assurance/profondita-fuzz-filegdb.json`."
     },
-    "evidenza": "assurance/evidence/checkpoint-f7f52c9.json"
+    "evidenza": "assurance/evidence/checkpoint-621f517.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "f7f52c9"
+      "qualificato_su": "621f517"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
