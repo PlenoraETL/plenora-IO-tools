@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "2a532df",
+      "sha": "2ba2f51",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "2a532df",
+    "sha": "2ba2f51",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,35 +23,35 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 41765,
-      "replay_target": 13,
+      "replay_input": 44097,
+      "replay_target": 14,
       "replay_crash": 0,
-      "smoke_target_eseguiti": 13,
-      "smoke_target_totali": 13,
+      "smoke_target_eseguiti": 14,
+      "smoke_target_totali": 14,
       "smoke_finding": 0,
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 85.9,
-      "lcov_righe_coperte": 26889,
-      "lcov_righe_strumentate": 31304,
-      "cargo_lines_percentuale": 84.01,
+      "lcov_percentuale": 86.04,
+      "lcov_righe_coperte": 27551,
+      "lcov_righe_strumentate": 32020,
+      "cargo_lines_percentuale": 84.14,
       "soglia": 80.0,
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "e92c0b5",
-      "esito": "97,73%",
-      "ragione": "44 righe eseguibili cambiate, 43 coperte. L'unica scoperta e' `batch_worker.rs:79`, l'attributo `#[cfg(test)]` del segnale di backpressure: il corpo che segue e' coperto, la riga dell'attributo no. E' un artefatto dell'attribuzione delle regioni, stabile fra le corse, e non riapre la variazione."
+      "baseline": "13c26c4",
+      "esito": "90,66%",
+      "ragione": "717 righe eseguibili cambiate, 650 coperte. Le 67 scoperte sono di tre famiglie: righe di messaggio dentro `assert!` che passano; i rami di rifiuto della nuova prevalidazione Shapefile, che nessun test unitario raggiunge e che il fuzzer attraversa a ogni campagna -- per i requisiti dichiarati la prova e' in `assurance/profondita-fuzz-shapefile.json`, 33 su 33; e il ramo dei multipunto, per cui **non esiste un seme**. L'ultima e' una lacuna vera, non un artefatto della misura."
     },
-    "evidenza": "assurance/evidence/checkpoint-2a532df.json"
+    "evidenza": "assurance/evidence/checkpoint-2ba2f51.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "2a532df"
+      "qualificato_su": "2ba2f51"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
