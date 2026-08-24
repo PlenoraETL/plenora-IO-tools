@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "67fb4ce",
+      "sha": "f7f52c9",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "67fb4ce",
+    "sha": "f7f52c9",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,11 +23,11 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 44778,
-      "replay_target": 14,
+      "replay_input": 45390,
+      "replay_target": 15,
       "replay_crash": 0,
-      "smoke_target_eseguiti": 14,
-      "smoke_target_totali": 14,
+      "smoke_target_eseguiti": 15,
+      "smoke_target_totali": 15,
       "smoke_finding": 0,
       "quarantena": 0
     },
@@ -40,18 +40,18 @@
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "13c26c4",
-      "esito": "91,36%",
-      "ragione": "752 righe eseguibili cambiate, 687 coperte. Le 65 scoperte sono di due famiglie: ventuno righe di messaggio dentro `assert!` che passano, e i rami di rifiuto della prevalidazione Shapefile, che nessun test unitario raggiunge e che il fuzzer attraversa a ogni campagna. Per i requisiti dichiarati la prova e' in `assurance/profondita-fuzz-shapefile.json`, 35 su 35."
+      "baseline": "c04f229",
+      "esito": "n/d",
+      "ragione": "zero righe eseguibili cambiate. Le 465 righe cambiate stanno quasi tutte dietro `#[cfg(feature = \"gdal-backend\")]`, e la campagna di copertura compila senza quella feature: quel codice non e' compilato, non e' strumentato, e la diagnostica lo classifica come non eseguibile -- fuori misura, non scoperto. E' eseguito dal passo `test`, che gira con `--all-features`, e la sua profondita' e' misurata in `assurance/profondita-fuzz-filegdb.json`."
     },
-    "evidenza": "assurance/evidence/checkpoint-67fb4ce.json"
+    "evidenza": "assurance/evidence/checkpoint-f7f52c9.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "67fb4ce"
+      "qualificato_su": "f7f52c9"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
