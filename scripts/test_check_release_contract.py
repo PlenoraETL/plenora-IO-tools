@@ -821,6 +821,27 @@ class SondeFontiLegate(unittest.TestCase):
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("il registro dei requisiti dichiara" in e for e in errori), errori)
 
+    def test_i_numeri_del_filegdb_vengono_dalle_due_misure(self) -> None:
+        """Quattro numeri, nessuno leggibile a occhio, e il piu' comodo da
+        scrivere sarebbe proprio quello che dice che GDAL e' coperto."""
+        casi = {
+            "requisiti_di_profondita": 999,
+            "contatori_di_copertura": 999,
+            "file_sorgente_gdal_strumentati": 999,
+        }
+        for chiave, valore in casi.items():
+            with self.subTest(chiave):
+                stato = self.stato()
+                stato["chiuso"]["fuzz_filegdb"][chiave] = valore
+                errori = gate.validate_stato_corrente(stato)
+                self.assertTrue(any(chiave in e for e in errori), errori)
+
+    def test_il_confine_asan_citato_e_quello_che_il_gate_legge(self) -> None:
+        stato = self.stato()
+        stato["chiuso"]["fuzz_filegdb"]["confine_asan"] = "assurance/altro.json"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("misura del confine sta in" in e for e in errori), errori)
+
     def test_una_qualifica_su_una_revisione_inesistente_e_rossa(self) -> None:
         stato = self.stato()
         stato["chiuso"]["s9_errori_strutturati"]["qualificato_su"] = "0" * 40

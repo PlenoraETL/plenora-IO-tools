@@ -215,6 +215,13 @@ set -eu
 # letto, ed era davvero un default. Ora entrambi i conteggi sono `Option`, e se
 # uno manca il record e' incompleto -- che e' un caso, non un valore.
 # Nessuna revisione H-01 dovuta.
+# Il 2026-08-24, il target `filegdb_reader` porta driver-filegdb da 5 a 6
+# (totale 122 -> 123). L'occorrenza e' `unwrap_or_else(|errore| panic!(...))` nel
+# lettore della fixture del modulo di test: il modo in cui quel file dice
+# «questa fixture doveva esserci», con il percorso dentro il messaggio perche'
+# una fixture assente e una illeggibile si diagnosticano diversamente. E' la
+# stessa forma gia' registrata per driver-common, driver-shp e plenora-io-cli, e
+# non governa nessun percorso di produzione. Nessuna revisione H-01 dovuta.
 
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# La misura di profondita' del target `shp_reader`, e nient'altro.
+# La misura di profondita' di un fuzz target, e nient'altro.
 #
 # # Perche' e' separata dal gate
 #
-# `scripts/check_profondita_fuzz_shp.py` gira in CI e nel checkpoint: deve
-# costare millisecondi e non deve pretendere ne' nightly ne' cargo-fuzz. Questa
-# misura costa minuti, richiede la toolchain di fuzzing e la strumentazione di
+# `scripts/check_profondita_fuzz.py` gira in CI e nel checkpoint: deve costare
+# millisecondi e non deve pretendere ne' nightly ne' cargo-fuzz. Questa misura
+# costa minuti, richiede la toolchain di fuzzing e la strumentazione di
 # copertura. Sono due cose diverse, e tenerle in un file solo significherebbe o
 # non misurare mai o misurare a ogni push.
 #
-# Si lancia **a mano**, quando cambia qualcosa dentro il perimetro dichiarato in
-# `assurance/registries/profondita-fuzz-shapefile.json`. Il gate dice quando:
-# ricalcola l'impronta del perimetro e diventa rosso appena la misura invecchia.
+# Si lancia **a mano**, quando cambia qualcosa dentro il perimetro dichiarato nel
+# registro del bersaglio. Il gate dice quando: ricalcola l'impronta del perimetro
+# e diventa rosso appena la misura invecchia.
 #
 # # Perche' non e' un passo del checkpoint
 #
@@ -21,13 +21,27 @@
 #
 # # Uso
 #
-#     bash scripts/fuzz-profondita-shp.sh
+#     bash scripts/fuzz-profondita.sh shp_reader
+#     bash scripts/fuzz-profondita.sh filegdb_reader
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-TARGET=shp_reader
-USCITA="${FUZZ_PROFONDITA_OUT:-/tmp/fuzz-profondita-shp}"
+TARGET="${1:-}"
+if [ -z "${TARGET}" ]; then
+    echo "uso: $0 <bersaglio>" >&2
+    echo "i bersagli sono quelli dichiarati in scripts/check_profondita_fuzz.py" >&2
+    exit 2
+fi
+# Il bersaglio dev'essere noto **al gate**, non a questo script: due elenchi di
+# bersagli divergerebbero, e la misura finirebbe in un artefatto che nessuno
+# rilegge.
+if ! python3 scripts/check_profondita_fuzz.py "${TARGET}" --help > /dev/null 2>&1; then
+    echo "bersaglio «${TARGET}» sconosciuto al gate della profondita'" >&2
+    exit 2
+fi
+
+USCITA="${FUZZ_PROFONDITA_OUT:-/tmp/fuzz-profondita-${TARGET}}"
 mkdir -p "${USCITA}"
 
 # Lo stesso pin di fuzz-replay.sh, fuzz-smoke.sh e fuzz-coverage.sh: la
@@ -48,41 +62,39 @@ fi
 # sono in git. Includerli darebbe una profondita' che nessun altro puo'
 # riprodurre, e il numero registrato nell'artefatto direbbe piu' di quanto un
 # controllo indipendente possa confermare. I semi invece sono versionati e
-# derivati da `scripts/genera_semi_shp.py`: chiunque rifaccia questa misura
-# parte dagli stessi byte.
+# derivati da un generatore: chiunque rifaccia questa misura parte dagli stessi
+# byte.
 #
 # E' anche il limite inferiore giusto: se i requisiti sono raggiunti dai soli
 # semi, lo sono su qualunque macchina.
-sorgenti=("fuzz/seeds/${TARGET}")
-if [ ! -d "${sorgenti[0]}" ]; then
+SEMI="fuzz/seeds/${TARGET}"
+if [ ! -d "${SEMI}" ]; then
     echo "nessun seme per ${TARGET}: non c'e' profondita' da misurare" >&2
     exit 1
 fi
-quanti=$(find "${sorgenti[0]}" -type f | wc -l | tr -d ' ')
+quanti=$(find "${SEMI}" -type f | wc -l | tr -d ' ')
 if [ "${quanti}" -eq 0 ]; then
     echo "nessun seme per ${TARGET}: non c'e' profondita' da misurare" >&2
     exit 1
 fi
-echo "  semi: ${sorgenti[0]} (${quanti} input)"
 
 echo "=============================================================="
 echo "profondita' del target ${TARGET}"
 echo "revisione: $(git rev-parse HEAD)"
 echo "albero:    $(git status --porcelain | wc -l) file non committati"
 echo "toolchain: ${TOOLCHAIN}"
-echo "input:     ${quanti}"
+echo "semi:      ${SEMI} (${quanti} input)"
 echo "=============================================================="
 
 # I dati precedenti di **questo** target se ne vanno prima di misurare: una
 # misura fallita che lasciasse in piedi la precedente produrrebbe una
-# profondita' di un altro albero, ed e' esattamente il difetto che l'impronta
-# del perimetro esiste per vedere -- ma dopo, e per caso.
+# profondita' di un altro albero.
 #
 # Solo quelli di questo target: sotto `fuzz/coverage/` ci sono file **tracciati**
 # di altre misure, finiti in git a suo tempo, e cancellarli qui renderebbe sporco
 # l'albero di chiunque lanci questo script.
 rm -rf "fuzz/coverage/${TARGET}"
-if ! cargo fuzz coverage "${TARGET}" "${sorgenti[@]}" > "${USCITA}/coverage.log" 2>&1; then
+if ! cargo fuzz coverage "${TARGET}" "${SEMI}" > "${USCITA}/coverage.log" 2>&1; then
     echo "cargo fuzz coverage fallito -- ${USCITA}/coverage.log" >&2
     exit 1
 fi
@@ -119,9 +131,9 @@ fi
 echo "binario: ${binario}"
 
 # Due proiezioni della **stessa** misura, non due misure: le funzioni servono ai
-# requisiti che nominano una funzione -- comprese quelle di `shapefile` e
-# `dbase`, che stanno nel registry di cargo -- e le righe a quelli che nominano
-# un ramo dentro il nostro sorgente.
+# requisiti che nominano una funzione -- comprese quelle delle crate esterne, che
+# stanno nel registry di cargo -- e le righe a quelli che nominano un ramo dentro
+# il nostro sorgente.
 if ! "${LLVM_COV}" export "${binario}" \
     --instr-profile="${PROFDATA}" \
     --format=lcov \
@@ -134,7 +146,7 @@ if [ ! -s "${JSON}" ] || [ ! -s "${LCOV}" ]; then
     exit 1
 fi
 
-python3 scripts/check_profondita_fuzz_shp.py \
+python3 scripts/check_profondita_fuzz.py "${TARGET}" \
     --registra "${JSON}" \
     --lcov "${LCOV}" \
     --input "${quanti}" || exit 1
@@ -148,4 +160,4 @@ rm -rf "fuzz/coverage/${TARGET}"
 # La registrazione scrive; il gate rilegge. Sono due programmi nello stesso
 # file, e farli girare in fila e' il solo modo di accorgersi subito se il primo
 # ha scritto qualcosa che il secondo rifiuta.
-exec python3 scripts/check_profondita_fuzz_shp.py
+exec python3 scripts/check_profondita_fuzz.py "${TARGET}"

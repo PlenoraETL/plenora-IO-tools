@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "descrizione": "Che cosa il replay deterministico dei semi di `filegdb_reader` ha raggiunto. Prodotto da `scripts/fuzz-profondita.sh filegdb_reader`; letto da scripts/check_profondita_fuzz.py, che ne ricalcola l'impronta del perimetro e rifiuta una misura invecchiata.",
+  "target": "filegdb_reader",
+  "corpus": {
+    "input": 21
+  },
+  "impronta_perimetro": "785257820d25e60e70f58c4e0f5eae940d057acad897c774172b0ace5d690c67",
+  "revisione_di_misura": "bb42067002b325c08726d156f3dc19300f315967",
+  "nota_sulla_revisione": "informativa: il commit che pubblica questa misura ne ha per forza un'altra. A legare la misura all'albero e' l'impronta del perimetro, non questo campo.",
+  "requisiti": [
+    {
+      "id": "drenaggio.batch",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 22
+    },
+    {
+      "id": "drenaggio.reader",
+      "famiglia": "funzione",
+      "simboli": 15,
+      "conteggio": 44
+    },
+    {
+      "id": "drenaggio.righe",
+      "famiglia": "riga",
+      "riga": 309,
+      "conteggio": 22
+    },
+    {
+      "id": "driver.apertura",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 22
+    },
+    {
+      "id": "driver.backend",
+      "famiglia": "funzione",
+      "simboli": 7,
+      "conteggio": 44
+    },
+    {
+      "id": "driver.contratto-geometrico",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 22
+    },
+    {
+      "id": "driver.crs",
+      "famiglia": "funzione",
+      "simboli": 4,
+      "conteggio": 22
+    },
+    {
+      "id": "driver.tipi-arrow",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 44
+    },
+    {
+      "id": "materializzazione.fixture-intatta",
+      "famiglia": "riga",
+      "riga": 270,
+      "conteggio": 2
+    },
+    {
+      "id": "materializzazione.parte-scelta-dal-payload",
+      "famiglia": "riga",
+      "riga": 271,
+      "conteggio": 20
+    },
+    {
+      "id": "materializzazione.parti",
+      "famiglia": "riga",
+      "riga": 229,
+      "conteggio": 440
+    },
+    {
+      "id": "wrapper.dataset-gdal",
+      "famiglia": "funzione",
+      "simboli": 3,
+      "conteggio": 22
+    }
+  ]
+}

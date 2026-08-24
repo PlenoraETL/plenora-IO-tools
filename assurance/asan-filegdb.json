@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "descrizione": "Il confine di AddressSanitizer nel target `filegdb_reader`, misurato sul binario strumentato. Prodotto da scripts/asan-filegdb.sh; letto da scripts/check_asan_filegdb.py.",
+  "target": "filegdb_reader",
+  "impronta_perimetro": "785257820d25e60e70f58c4e0f5eae940d057acad897c774172b0ace5d690c67",
+  "libreria_collegata": {
+    "soname": "libgdal.so.32",
+    "percorso_risolto": "/lib/x86_64-linux-gnu/libgdal.so.32",
+    "come_e_stata_misurata": "ldd sul binario strumentato: risolve il soname come lo risolvera' il processo"
+  },
+  "libreria_gdal_dentro_l_albero_di_build": false,
+  "runtime_asan_collegato": true,
+  "simboli_del_runtime_asan": 604,
+  "moduli_con_contatori": 1,
+  "contatori_di_copertura": 167811,
+  "file_sorgente_gdal_strumentati": 0,
+  "come_sono_stati_contati": "i moduli e i contatori dalla riga che libFuzzer stampa all'avvio; i file di GDAL contando i sorgenti C/C++ presenti nell'export lcov della build di copertura. Un file .rs sotto vendor/gdal e' il wrapper, che e' nostro ed e' strumentato; la presenza del runtime chiedendola al runtime con ASAN_OPTIONS=help=1, perche' i suoi simboli sono locali e nella tabella dinamica non ce n'e' nessuno.",
+  "che_cosa_significa": {
+    "copre_il_nostro_codice": "i driver, il core, il modello e il wrapper Rust del fork governato di `gdal` sono compilati con la strumentazione: accessi fuori dai limiti, use-after-free, overflow di stack e di globali diventano un abort con diagnostica.",
+    "copre_l_intercettazione_dell_allocatore": "`malloc` e `free` passano dal runtime del sanitizer anche quando a chiamarli e' codice non strumentato: un accesso di GDAL che cada nella redzone di un'allocazione ASan viene visto. E' una difesa reale, e non e' copertura.",
+    "non_copre_gli_accessi_interni_a_gdal": "un trabocco dentro un buffer di stack di GDAL, un accesso fuori limite dentro una sua struttura, un overflow che resti dentro l'allocazione: nessuno dei tre lascia traccia.",
+    "non_guida_le_mutazioni_dentro_gdal": "`libgdal.so` non porta contatori di copertura, quindi il fuzzer e' cieco dentro di essa: le mutazioni sono guidate dalla copertura del percorso Rust, non da cio' che succede oltre il confine."
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "nome": "FIRENZE", "pop": 3800 },
+      "geometry": { "type": "Point", "coordinates": [11.25, 43.77] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "nome": "ROMA", "pop": 2870 },
+      "geometry": { "type": "Point", "coordinates": [12.49, 41.90] }
+    }
+  ]
+}

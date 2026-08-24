@@ -93,6 +93,226 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
 
 pub struct FileGdbDriver;
 
+// --- la superficie del fuzz target -----------------------------------------
+//
+// Vive qui, e non dentro `fuzz/fuzz_targets/`, per la stessa ragione per cui ci
+// vive quella di `driver-shp`: qui e' **provabile**. Le sonde del driver
+// chiamano lo stesso entry point del target sulla stessa fixture, e verificano
+// cio' che un replay senza crash non verifica -- che l'isolamento fra
+// invocazioni ci sia, che i nomi dei file non vengano dal payload, che una
+// lettura riuscita porti davvero delle righe.
+
+/// Le parti di un FileGDB, per nome, lette dall'archivio della fixture.
+///
+/// Un FileGDB non e' un file: e' una **directory** di tabelle che si citano a
+/// vicenda per GUID. Il fuzzer consegna pero' un solo blob, e da un blob non si
+/// costruisce una directory coerente -- non perche' sia difficile, ma perche' il
+/// formato e' proprietario e ricostruito per reverse engineering: costruirlo da
+/// zero significherebbe riscrivere `OpenFileGDB` e produrre file validi rispetto
+/// alla nostra idea del formato invece che a quella di GDAL.
+///
+/// La strada e' l'opposta. Si parte da un FileGDB **vero**, prodotto da GDAL da
+/// un GeoJSON committato, e il fuzzer ne sostituisce **una parte per volta**.
+/// Cio' che muta e' il contenuto di una tabella; cio' che resta e' una directory
+/// che il driver ha una ragione di aprire.
+///
+/// ```text
+/// PLENORA-GDB-FIXTURE-1\n
+/// u32          numero di parti
+/// per parte:   u16 lunghezza del nome, nome ASCII, u32 lunghezza, byte
+/// ```
+///
+/// L'archivio e' nostro e non viene dal fuzzer: e' `include_bytes!` dal lato del
+/// target. Qui e' un parametro proprio per questo -- il driver di produzione non
+/// porta dentro di se' cinquantadue kilobyte di fixture, e la sonda puo' passare
+/// l'archivio letto dal disco.
+///
+/// `None` = archivio malformato. Non e' un caso che il fuzzer possa produrre:
+/// l'archivio non e' l'input.
+#[cfg(feature = "gdal-backend")]
+#[doc(hidden)]
+#[must_use]
+pub fn __fuzz_parti_della_fixture(archivio: &[u8]) -> Option<Vec<(String, &[u8])>> {
+    const INTESTAZIONE: &[u8] = b"PLENORA-GDB-FIXTURE-1\n";
+    let corpo = archivio.strip_prefix(INTESTAZIONE)?;
+    let (grezzo, mut resto) = corpo.split_at_checked(4)?;
+    let quante = u32::from_le_bytes([grezzo[0], grezzo[1], grezzo[2], grezzo[3]]);
+
+    let mut parti = Vec::new();
+    for _ in 0..quante {
+        let (grezzo, dopo) = resto.split_at_checked(2)?;
+        let lunghezza_nome = usize::from(u16::from_le_bytes([grezzo[0], grezzo[1]]));
+        let (nome, dopo) = dopo.split_at_checked(lunghezza_nome)?;
+        let (grezzo, dopo) = dopo.split_at_checked(4)?;
+        let lunghezza = u32::from_le_bytes([grezzo[0], grezzo[1], grezzo[2], grezzo[3]]);
+        let (contenuto, dopo) = dopo.split_at_checked(usize::try_from(lunghezza).ok()?)?;
+
+        let nome = std::str::from_utf8(nome).ok()?;
+        if !nome_di_parte_ammesso(nome) {
+            // Il nome finisce in un percorso. Non viene dal fuzzer -- viene
+            // dall'archivio, che e' nostro -- ma un archivio corrotto non deve
+            // poter far scrivere fuori dalla directory.
+            return None;
+        }
+        parti.push((nome.to_owned(), contenuto));
+        resto = dopo;
+    }
+    if !resto.is_empty() {
+        return None;
+    }
+    Some(parti)
+}
+
+/// I soli nomi che una parte di `FileGDB` puo' avere.
+///
+/// Ogni parte che `OpenFileGDB` scrive comincia con una lettera minuscola --
+/// `gdb`, `timestamps`, `a00000001.gdbtable` -- e prosegue con minuscole,
+/// cifre, punti e trattini bassi. Niente separatori e niente nomi vuoti: un
+/// nome che finisce in un `join` e non e' stato guardato e' un percorso
+/// costruito da dei byte.
+///
+/// La condizione sulla **prima** lettera non e' un dettaglio estetico: senza,
+/// `".."` sarebbe fatto di soli caratteri ammessi e passerebbe. E' il buco che
+/// la sonda di questo file ha trovato nella prima stesura.
+#[cfg(feature = "gdal-backend")]
+fn nome_di_parte_ammesso(nome: &str) -> bool {
+    let mut byte = nome.bytes();
+    byte.next().is_some_and(|primo| primo.is_ascii_lowercase())
+        && byte.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'_')
+}
+
+/// Un errore dell'ambiente non e' un difetto del file letto.
+///
+/// Un filesystem pieno o una directory non creabile diventano un errore
+/// tipizzato e non un panico: un panico dell'harness verrebbe archiviato dal
+/// fuzzer come finding del driver, e la campagna misurerebbe il proprio
+/// scaffolding.
+#[cfg(feature = "gdal-backend")]
+fn errore_di_ambiente(_: std::io::Error) -> plenora_io_model::PlenoraIoError {
+    // Lo stesso costruttore del resto del driver, e non `non_supportato_redatto`.
+    //
+    // In questa crate `Unsupported` ha un significato preciso e difeso da
+    // `tests/ostili.rs`: «il binario non e' stato costruito per parlare con
+    // GDAL». Riusarlo per «il filesystem non ha collaborato» farebbe cercare a
+    // chi legge una libreria da installare, e annacquerebbe la sola categoria
+    // che distingue lo stub dal guasto. `driver-shp` fa la stessa scelta per il
+    // proprio errore d'ambiente.
+    backend::err(&plenora_io_model::PublicMessage::Curated(
+        "materializzazione della .gdb fallita: e' l'ambiente, non il file letto",
+    ))
+}
+
+/// Scrive le parti dentro una directory **gia' esistente**, sostituendone una.
+///
+/// Separata da `__fuzz_leggi_gdb` per una ragione sola: cosi' una sonda puo'
+/// passarle una radice inesistente e osservare l'errore, invece di forzare il
+/// fallimento mutando `TMPDIR` -- che renderebbe il difetto visibile agli altri
+/// test in parallelo e il fallimento intermittente invece che riproducibile.
+///
+/// `sostituita` e' un **indice**, non un nome: il payload sceglie quale parte
+/// cambiare, mai come si chiama. Nessun percorso deriva dai byte del fuzzer.
+#[cfg(feature = "gdal-backend")]
+fn materializza_gdb(
+    radice: &std::path::Path,
+    parti: &[(String, &[u8])],
+    sostituita: usize,
+    contenuto: &[u8],
+) -> Result<std::path::PathBuf> {
+    let dataset = radice.join("citta.gdb");
+    std::fs::create_dir_all(&dataset).map_err(errore_di_ambiente)?;
+    for (indice, (nome, originale)) in parti.iter().enumerate() {
+        let byte = if indice == sostituita {
+            contenuto
+        } else {
+            originale
+        };
+        std::fs::write(dataset.join(nome), byte).map_err(errore_di_ambiente)?;
+    }
+    Ok(dataset)
+}
+
+/// Entry point non stabile per libFuzzer: una `.gdb` completa, letta davvero.
+///
+/// L'input del fuzzer si legge cosi':
+///
+/// ```text
+/// byte 0    quale parte sostituire (modulo il numero di parti)
+/// byte 1..  il contenuto che prende il suo posto
+/// ```
+///
+/// Il modulo non e' pigrizia: **ogni** byte deve scegliere una parte, altrimenti
+/// il fuzzer passerebbe il tempo a produrre input scartati invece che input che
+/// arrivano al driver. Un input vuoto materializza la fixture intatta, ed e' il
+/// caso che prova che la base si legge.
+///
+/// La directory e' **nuova a ogni invocazione**. Riusarla farebbe sopravvivere
+/// la tabella mutata dall'input precedente, e la campagna misurerebbe la propria
+/// directory invece del formato.
+///
+/// # Che cosa `Err` significa qui
+///
+/// Quasi tutto. Una tabella sostituita con byte casuali non e' un FileGDB, e il
+/// rifiuto tipizzato e' l'esito atteso. Il finding e' il **panico**, l'abort, o
+/// un output parziale consegnato prima di un errore terminale.
+#[cfg(feature = "gdal-backend")]
+#[doc(hidden)]
+pub fn __fuzz_leggi_gdb(archivio: &[u8], dati: &[u8], opts: ReadOptions) -> Result<usize> {
+    let Some(parti) = __fuzz_parti_della_fixture(archivio) else {
+        return Err(backend::err(&plenora_io_model::PublicMessage::Curated(
+            "archivio della fixture illeggibile",
+        )));
+    };
+
+    let (sostituita, contenuto) = match dati.split_first() {
+        // Nessun input: la fixture intatta. E' il caso che dice se la base si
+        // legge ancora, e senza di esso una campagna verde potrebbe voler dire
+        // che nessun input arriva al driver.
+        None => (parti.len(), &[][..]),
+        Some((scelta, resto)) => (usize::from(*scelta) % parti.len(), resto),
+    };
+
+    let directory = tempfile::Builder::new()
+        .prefix("plenora-fuzz-gdb-")
+        .tempdir()
+        .map_err(errore_di_ambiente)?;
+    let dataset = materializza_gdb(directory.path(), &parti, sostituita, contenuto)?;
+
+    __fuzz_drena(&dataset, opts)
+}
+
+/// Apre e **drena**: catalogo, schema e righe.
+///
+/// Fermarsi all'apertura coprirebbe il riconoscimento del formato e nient'altro.
+/// Il catalogo viene da `layers()`, lo schema dal contratto di ciascun layer, le
+/// righe da `next_batch` fino a `None`.
+#[cfg(feature = "gdal-backend")]
+fn __fuzz_drena(dataset: &std::path::Path, opts: ReadOptions) -> Result<usize> {
+    use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
+
+    let aperto = FileGdbDriver.open(Source::Path(dataset.to_path_buf()), opts)?;
+    let layer_id: Vec<plenora_io_model::contract::LayerId> =
+        aperto.layers().iter().map(|layer| layer.id).collect();
+
+    let mut righe = 0_usize;
+    for layer in layer_id {
+        let mut reader = aperto.open_layer_reader(&ReadRequest {
+            layer,
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: plenora_io_model::CancellationToken::default(),
+        })?;
+        while let Some(batch) = reader.next_batch()? {
+            righe = righe.saturating_add(batch.num_rows());
+        }
+        let _ = reader.loss_report();
+    }
+    Ok(righe)
+}
+
 /// Verifica a runtime che GDAL esponga `OpenFileGDB` come driver vettoriale
 /// bidirezionale.
 ///
@@ -965,7 +1185,11 @@ mod backend {
 
     const GEOMETRY: &str = "geometry";
 
-    fn err(reason: &PublicMessage) -> PlenoraIoError {
+    // Visibile alla crate perche' la superficie del fuzz target, che sta fuori
+    // da questo modulo, deve costruire i propri errori con **lo stesso**
+    // costruttore: due costruttori diversi darebbero due quartetti diversi per
+    // lo stesso genere di guasto.
+    pub fn err(reason: &PublicMessage) -> PlenoraIoError {
         PlenoraIoError::formato_redatto("filegdb", reason)
     }
 
@@ -2980,5 +3204,245 @@ mod tests {
             e,
             error if error.code == plenora_io_model::IoErrorCode::Unsupported
         ));
+    }
+}
+
+/// Le sonde della superficie che il fuzz target attraversa.
+///
+/// Modulo a se' perche' il modulo `tests` di questo file e' gated su
+/// `not(feature = "gdal-backend")`: senza la feature il driver e' uno stub, e
+/// quelle sonde provano lo stub. Queste provano il contrario -- il percorso che
+/// esiste **solo** con GDAL -- e metterle li' le avrebbe compilate via proprio
+/// nella configurazione in cui servono.
+#[cfg(all(test, feature = "gdal-backend"))]
+mod sonde_del_fuzzing {
+    use super::*;
+
+    // --- la superficie del fuzz target, e la fixture che la alimenta -------
+    //
+    // Una build che compila e un replay senza crash non dimostrano che gli
+    // input raggiungano il driver: una `.gdb` rifiutata al riconoscimento del
+    // formato non fa crashare niente ed e', da fuori, indistinguibile da una
+    // letta per intero. Queste sonde chiamano lo **stesso** entry point del
+    // target sulla **stessa** fixture, e guardano che cosa ne esce.
+
+    /// La fixture vive accanto al target che la usa.
+    #[cfg(feature = "gdal-backend")]
+    fn archivio_della_fixture() -> Vec<u8> {
+        let percorso = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/fixtures/filegdb/citta.gdb.bundle");
+        std::fs::read(&percorso).unwrap_or_else(|errore| {
+            panic!("fixture {} non leggibile: {errore}", percorso.display())
+        })
+    }
+
+    /// Limiti dello stesso ordine di quelli della campagna.
+    ///
+    /// Non sono gli **stessi**: `harness::limits()` vive nella crate di
+    /// fuzzing, e un driver non puo' dipenderne. Quel che conta e' che ci siano
+    /// tetti -- una sonda che leggesse senza limiti percorrerebbe una strada
+    /// che il fuzzer non percorre mai.
+    #[cfg(feature = "gdal-backend")]
+    fn opzioni_di_campagna() -> ReadOptions {
+        let limiti = plenora_io_model::budget::PipelineLimits::default()
+            .with_max_input_bytes(1_048_576)
+            .with_max_rows(100_000)
+            .with_memory_bytes(64 * 1024 * 1024);
+        let bundle = plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti)
+            .build()
+            .expect("limiti della campagna validi");
+        ReadOptions::from_read_parts(bundle.into_read_parts())
+    }
+
+    /// L'input vuoto materializza la fixture **intatta**, e la fixture si
+    /// legge.
+    ///
+    /// E' il caso che tiene onesta l'intera campagna: senza, un verde potrebbe
+    /// voler dire che nessun input arriva mai al driver.
+    #[test]
+    #[cfg(feature = "gdal-backend")]
+    fn la_fixture_intatta_arriva_al_drenaggio() {
+        let righe = __fuzz_leggi_gdb(&archivio_della_fixture(), &[], opzioni_di_campagna())
+            .expect("la fixture deve essere letta: se no il target non copre il parsing");
+        assert_eq!(
+            righe, 2,
+            "due feature nel GeoJSON di partenza: un conteggio diverso vuol dire \
+             che la fixture non attraversa piu' il drenaggio"
+        );
+    }
+
+    /// Sostituire una parte qualunque non fa panicare il driver.
+    ///
+    /// Non si pretende che **tutte** falliscano: alcune tabelle di metadati
+    /// sono facoltative, e una `.gdb` puo' restare leggibile. Cio' che si
+    /// pretende e' che l'esito sia un esito -- `Ok` o `Err`, mai un panico e
+    /// mai un abort.
+    #[test]
+    #[cfg(feature = "gdal-backend")]
+    fn ogni_parte_sostituita_da_un_esito_non_un_panico() {
+        let archivio = archivio_della_fixture();
+        let parti = __fuzz_parti_della_fixture(&archivio).expect("archivio leggibile");
+        assert!(parti.len() >= 2, "una .gdb ha piu' di una parte");
+
+        let mut rifiutate = 0;
+        for indice in 0..parti.len() {
+            let mut input = vec![u8::try_from(indice).expect("meno di 256 parti")];
+            input.extend_from_slice(b"NON-E-UNA-TABELLA-FILEGDB");
+            if __fuzz_leggi_gdb(&archivio, &input, opzioni_di_campagna()).is_err() {
+                rifiutate += 1;
+            }
+        }
+        assert!(
+            rifiutate > 0,
+            "sostituire una tabella con testo non puo' lasciare la .gdb sempre \
+             leggibile: se nessuna sostituzione viene rifiutata, l'input non sta \
+             arrivando al driver"
+        );
+    }
+
+    /// **Isolamento fra invocazioni.**
+    ///
+    /// La prima invocazione rompe una parte, la seconda non la tocca. Se le due
+    /// condividessero la directory, la seconda troverebbe la tabella rotta
+    /// della prima e fallirebbe: il successo e' la prova che ogni input ha la
+    /// propria directory.
+    #[test]
+    #[cfg(feature = "gdal-backend")]
+    fn ogni_invocazione_ha_la_propria_directory() {
+        let archivio = archivio_della_fixture();
+        let parti = __fuzz_parti_della_fixture(&archivio).expect("archivio leggibile");
+        let tabella = parti
+            .iter()
+            .position(|(nome, _)| nome.ends_with(".gdbtable"))
+            .expect("la fixture ha almeno una tabella");
+
+        let mut rotta = vec![u8::try_from(tabella).expect("indice piccolo")];
+        rotta.extend_from_slice(b"SPAZZATURA");
+        let _ = __fuzz_leggi_gdb(&archivio, &rotta, opzioni_di_campagna());
+
+        let dopo = __fuzz_leggi_gdb(&archivio, &[], opzioni_di_campagna());
+        assert!(
+            dopo.is_ok(),
+            "la fixture intatta deve leggersi anche dopo un'invocazione che ne \
+             ha rotta una parte; se fallisce, la tabella rotta e' sopravvissuta: \
+             {dopo:?}"
+        );
+    }
+
+    /// **I nomi dei file non vengono dal payload.**
+    ///
+    /// Il primo byte sceglie un **indice**, e l'indice e' preso modulo il numero
+    /// di parti: nessun byte del fuzzer finisce in un percorso. La sonda prova
+    /// che l'insieme dei file materializzati e' sempre quello della fixture,
+    /// qualunque cosa l'input dica.
+    #[test]
+    #[cfg(feature = "gdal-backend")]
+    fn nessun_percorso_deriva_dal_payload() {
+        let archivio = archivio_della_fixture();
+        let parti = __fuzz_parti_della_fixture(&archivio).expect("archivio leggibile");
+        let attesi: std::collections::BTreeSet<&str> =
+            parti.iter().map(|(nome, _)| nome.as_str()).collect();
+
+        let temporanea = tempfile::tempdir().expect("directory temporanea");
+        // Un indice ben oltre il numero di parti, e un contenuto che somiglia a
+        // un percorso: ne' l'uno ne' l'altro devono uscire dalla directory.
+        let dataset = materializza_gdb(
+            temporanea.path(),
+            &parti,
+            usize::from(u8::MAX) % parti.len(),
+            b"../../fuori.txt",
+        )
+        .expect("materializzazione");
+
+        let prodotti: std::collections::BTreeSet<String> = std::fs::read_dir(&dataset)
+            .expect("la directory del dataset esiste")
+            .map(|voce| {
+                voce.expect("voce leggibile")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        let prodotti: std::collections::BTreeSet<&str> =
+            prodotti.iter().map(String::as_str).collect();
+        assert_eq!(
+            prodotti, attesi,
+            "i nomi materializzati sono quelli della fixture"
+        );
+        assert!(
+            !temporanea.path().join("fuori.txt").exists(),
+            "nessun file e' stato scritto fuori dalla .gdb"
+        );
+    }
+
+    /// **Fail-closed dell'archivio**: un archivio corrotto non fa scrivere
+    /// niente e non panica.
+    ///
+    /// L'archivio non e' l'input del fuzzer -- e' nostro, e sta nel binario --
+    /// ma un archivio troncato o con un nome di parte inventato non deve poter
+    /// far scrivere fuori dalla directory.
+    #[test]
+    #[cfg(feature = "gdal-backend")]
+    fn un_archivio_malformato_non_produce_parti() {
+        let archivio = archivio_della_fixture();
+        assert!(__fuzz_parti_della_fixture(&archivio).is_some());
+
+        // Senza intestazione.
+        assert!(__fuzz_parti_della_fixture(b"qualcosa").is_none());
+        // Intestazione giusta e niente altro.
+        assert!(__fuzz_parti_della_fixture(b"PLENORA-GDB-FIXTURE-1\n").is_none());
+        // Troncato a meta' di una parte.
+        for taglio in [24, 40, archivio.len() / 2, archivio.len() - 1] {
+            assert!(
+                __fuzz_parti_della_fixture(&archivio[..taglio]).is_none(),
+                "troncato a {taglio} byte"
+            );
+        }
+        // Byte di coda che l'indice non dichiara.
+        let mut lungo = archivio;
+        lungo.push(0);
+        assert!(__fuzz_parti_della_fixture(&lungo).is_none());
+    }
+
+    /// I nomi ammessi sono quelli che `OpenFileGDB` scrive, e nessun altro.
+    #[test]
+    #[cfg(feature = "gdal-backend")]
+    fn un_nome_di_parte_non_puo_essere_un_percorso() {
+        for buono in ["gdb", "a00000001.gdbtable", "timestamps", "a00000009.spx"] {
+            assert!(nome_di_parte_ammesso(buono), "{buono}");
+        }
+        for cattivo in [
+            "",
+            "..",
+            "../fuori",
+            "a/b",
+            "a\\b",
+            "MAIUSCOLO",
+            "con spazio",
+        ] {
+            assert!(!nome_di_parte_ammesso(cattivo), "{cattivo}");
+        }
+    }
+
+    /// **Errore d'ambiente e non finding**: una radice che non esiste produce un
+    /// errore tipizzato, non un panico.
+    #[test]
+    #[cfg(feature = "gdal-backend")]
+    fn una_radice_non_creabile_e_un_errore_di_ambiente() {
+        let temporanea = tempfile::tempdir().expect("directory temporanea");
+        // Un **file** dove la materializzazione vuole una directory: `create_dir_all`
+        // fallisce, ed e' l'ambiente a non collaborare, non il file letto.
+        let ostacolo = temporanea.path().join("citta.gdb");
+        std::fs::write(&ostacolo, b"non sono una directory").expect("scrittura");
+
+        let archivio = archivio_della_fixture();
+        let parti = __fuzz_parti_della_fixture(&archivio).expect("archivio leggibile");
+        let errore = materializza_gdb(temporanea.path(), &parti, parti.len(), b"")
+            .expect_err("una .gdb non creabile deve fallire");
+        assert!(
+            errore.message.contains("ambiente"),
+            "un errore d'ambiente non va confuso con un difetto del file letto: {errore:?}"
+        );
     }
 }

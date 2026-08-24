@@ -15,10 +15,15 @@ driver-common = { path = "../driver-common" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
 gdal = { workspace = true, optional = true }
+# Serve all'entry point del fuzz target, che materializza una .gdb in una
+# directory nuova a ogni invocazione. Segue `gdal-backend` perche' quell'entry
+# point esiste solo li': senza la feature il driver e' uno stub, e non c'e'
+# niente da materializzare.
+tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
 
 [features]
 # "tier GDB": FileGDB via GDAL (dipendenza C). Assente di default → stub.
-gdal-backend = ["dep:gdal"]
+gdal-backend = ["dep:gdal", "dep:tempfile"]

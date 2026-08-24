@@ -20,6 +20,7 @@ plenora-io-core = { path = "../crates/plenora-io-core" }
 driver-common = { path = "../crates/driver-common" }
 driver-csv = { path = "../crates/driver-csv" }
 driver-dxf = { path = "../crates/driver-dxf" }
+driver-filegdb = { path = "../crates/driver-filegdb", features = ["gdal-backend"] }
 driver-geojson = { path = "../crates/driver-geojson" }
 driver-geoparquet = { path = "../crates/driver-geoparquet" }
 driver-gpkg = { path = "../crates/driver-gpkg" }
@@ -36,6 +37,7 @@ tempfile = "=3.27.0"
 # Il workspace fuzz è intenzionalmente detached e non eredita le patch del
 # workspace principale. Usa quindi lo stesso fork governato del driver DXF.
 dxf = { path = "../vendor/dxf" }
+gdal = { path = "../vendor/gdal" }
 
 [[bin]]
 name = "from_wkb"
@@ -151,3 +153,13 @@ bench = false
 [profile.release]
 debug = 1
 overflow-checks = true
+
+# Il percorso FileGDB, che passa da GDAL. `libgdal.so` e' di sistema e non e'
+# strumentata: il fuzzer e' cieco dentro di essa, e il perimetro di cio' che
+# AddressSanitizer vede e' misurato in assurance/registries/asan-filegdb.json.
+[[bin]]
+name = "filegdb_reader"
+path = "fuzz_targets/filegdb_reader.rs"
+test = false
+doc = false
+bench = false

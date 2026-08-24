@@ -273,7 +273,7 @@ non può fallire non verifica niente.
 | **smoke** | cerca input nuovi per un tempo limitato. Ritrova il noto solo per fortuna, ed è la ragione per cui il replay viene **prima** |
 | **quarantena** | target esclusi dallo smoke ma **compilati comunque**. Deve essere vuota |
 
-I target sono quattordici. La corrispondenza con i driver **non è uno a uno**,
+I target sono quindici. La corrispondenza con i driver **non è uno a uno**,
 e la differenza conta:
 
 | Driver | Target |
@@ -283,7 +283,29 @@ e la differenza conta:
 | ipc | anche `ipc_to_gpkg`, che esercita la conversione |
 | model | `from_wkb`, `wkt_parse` |
 | shp | `shp_wkb` (conversione WKB ↔ forme ESRI) e `shp_reader` (il formato) |
-| **filegdb** | **nessuno** |
+| filegdb | `filegdb_reader`, con il confine misurato descritto sotto |
+
+#### FileGDB, e un confine che va detto
+
+`filegdb_reader` attraversa il percorso vero: entry point con `gdal-backend`,
+catalogo, schema, righe. Un FileGDB però non è un file ma una **directory** di
+tabelle che si citano per GUID, e il formato è proprietario: costruirne uno da
+un blob significherebbe riscrivere `OpenFileGDB`. Il target parte quindi da una
+fixture **vera** — prodotta da `ogr2ogr` da un GeoJSON versionato — e ne
+sostituisce una parte per volta.
+
+Il limite è misurato, non dichiarato: `libgdal.so` è di sistema e **non
+strumentata**, un solo modulo porta contatori di copertura e zero file sorgente
+C/C++ compaiono nei dati di copertura.
+
+| | |
+|---|---|
+| AddressSanitizer **copre** | il nostro codice per intero, e l'intercettazione dell'allocatore al confine: un accesso di GDAL nella redzone di un'allocazione ASan viene visto |
+| **non copre** | gli accessi interni a GDAL — stack, globali, o dentro l'allocazione |
+| il fuzzer **non è guidato** | dentro GDAL: nessun contatore, nessun feedback |
+
+Una campagna verde dice che il percorso Rust regge input ostili e che GDAL non è
+stato portato a un crash **osservabile**. Non dice che GDAL sia stato esplorato.
 
 `shp_reader` è arrivato dopo, e la ragione dice qualcosa sul metodo. Uno
 Shapefile non è un file: il driver riceve il `.shp` e risale ai fratelli

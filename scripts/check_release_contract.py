@@ -270,8 +270,7 @@ FOGLIE_LEGATE = frozenset(
         "aperto.candidate_release.qualifica_head",
         # il registro del contratto corrente
         "aperto.assurance_n1.release_blocking",
-        "aperto.fuzz_spike_filegdb.release_blocking",
-        "aperto.fuzz_spike_filegdb.stato",
+
         "aperto.loss_report.release_blocking",
         "aperto.loss_report.stato",
         "aperto.candidate_release.release_blocking",
@@ -290,6 +289,14 @@ FOGLIE_LEGATE = frozenset(
         "chiuso.fuzz_reader_shapefile.release_blocking",
         "chiuso.fuzz_reader_shapefile.misura",
         "chiuso.fuzz_reader_shapefile.requisiti_di_profondita",
+        # la misura di profondita' e il confine ASan del target FileGDB
+        "chiuso.fuzz_filegdb.stato",
+        "chiuso.fuzz_filegdb.release_blocking",
+        "chiuso.fuzz_filegdb.misura",
+        "chiuso.fuzz_filegdb.requisiti_di_profondita",
+        "chiuso.fuzz_filegdb.confine_asan",
+        "chiuso.fuzz_filegdb.contatori_di_copertura",
+        "chiuso.fuzz_filegdb.file_sorgente_gdal_strumentati",
         # l'allowlist del docset
         "docset.markdown_canonici",
         "docset.markdown_operativi",
@@ -313,7 +320,7 @@ FOGLIE_DICHIARATE = {
     "ultima_misura.copertura.nota": "prosa",
     "ultima_misura.diagnostica_differenziale.ragione": "prosa",
     "chiuso.fuzz_reader_shapefile.nota": "prosa",
-    "aperto.fuzz_spike_filegdb.nota": "prosa",
+    "chiuso.fuzz_filegdb.nota": "prosa",
     "aperto.loss_report.decisioni_aperte": (
         "l'elenco delle decisioni aperte del contratto LossReport: non e' "
         "misurato da niente, ed e' cio' che una ratifica dovra' chiudere"
@@ -343,7 +350,7 @@ FOGLIE_DICHIARATE = {
 BLOCCANTI_DELLO_STATO = {
     ("aperto", "assurance_n1", "release_blocking"): "copertura.rami-negativi",
     ("chiuso", "fuzz_reader_shapefile", "release_blocking"): "fuzz.reader-shapefile",
-    ("aperto", "fuzz_spike_filegdb", "release_blocking"): "fuzz.filegdb",
+    ("chiuso", "fuzz_filegdb", "release_blocking"): "fuzz.filegdb",
     ("aperto", "loss_report", "release_blocking"): "wire.loss-report",
     (
         "aperto",
@@ -370,7 +377,7 @@ ETICHETTE_DELLO_STATO = {
         "aperto",
         "chiuso",
     ),
-    ("aperto", "fuzz_spike_filegdb", "stato"): ("fuzz.filegdb", "aperto", "chiuso"),
+    ("chiuso", "fuzz_filegdb", "stato"): ("fuzz.filegdb", "aperto", "chiuso"),
     ("aperto", "loss_report", "stato"): (
         "wire.loss-report",
         "non_ratificato",
@@ -1265,6 +1272,13 @@ REGISTRO_DEI_PASSI = ROOT / "assurance" / "registries" / "passi-del-checkpoint.j
 REGISTRO_DI_PROFONDITA = (
     ROOT / "assurance" / "registries" / "profondita-fuzz-shapefile.json"
 )
+REGISTRO_DI_PROFONDITA_FILEGDB = (
+    ROOT / "assurance" / "registries" / "profondita-fuzz-filegdb.json"
+)
+# Il confine di AddressSanitizer, misurato sul binario. Lo stato ne ripete due
+# numeri, e ripeterli senza confrontarli sarebbe il modo in cui il piu' comodo
+# dei due finirebbe per essere quello scritto.
+MISURA_ASAN_FILEGDB = ROOT / "assurance" / "asan-filegdb.json"
 
 
 @functools.lru_cache(maxsize=1)
@@ -2025,6 +2039,69 @@ def _profondita_legata(stato: dict[str, Any]) -> list[str]:
     return errori
 
 
+def _profondita_filegdb_legata(stato: dict[str, Any]) -> list[str]:
+    """I numeri del FileGDB si contano dove vengono misurati.
+
+    Sono quattro, e nessuno e' leggibile a occhio: quanti requisiti di
+    profondita' la misura porta, quanti contatori di copertura ha il binario,
+    quanti file sorgente di GDAL sono strumentati, e dove stanno le due misure.
+    Un numero che nessuno confronta e' il numero che prima o poi si scrive da
+    solo -- e qui il piu' comodo da scrivere sarebbe proprio quello che dice che
+    GDAL e' coperto.
+    """
+    dichiarato = _dentro(stato, ("chiuso", "fuzz_filegdb"))
+    if not isinstance(dichiarato, dict):
+        return ["`chiuso.fuzz_filegdb` assente"]
+
+    errori: list[str] = []
+    try:
+        registro = json.loads(
+            REGISTRO_DI_PROFONDITA_FILEGDB.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as errore:
+        return [f"{REGISTRO_DI_PROFONDITA_FILEGDB.name}: non leggibile ({errore})"]
+
+    relativo = registro.get("artefatto")
+    if dichiarato.get("misura") != relativo:
+        return [
+            f"`chiuso.fuzz_filegdb.misura` vale «{dichiarato.get('misura')}», il "
+            f"registro dei requisiti dichiara «{relativo}»"
+        ]
+    try:
+        misura = json.loads((ROOT / relativo).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as errore:
+        return [f"{relativo}: non leggibile ({errore})"]
+
+    quanti = len(misura.get("requisiti", []))
+    if dichiarato.get("requisiti_di_profondita") != quanti:
+        errori.append(
+            f"`chiuso.fuzz_filegdb.requisiti_di_profondita` vale "
+            f"«{dichiarato.get('requisiti_di_profondita')}», la misura ne porta "
+            f"{quanti}"
+        )
+
+    atteso_asan = MISURA_ASAN_FILEGDB.relative_to(ROOT).as_posix()
+    if dichiarato.get("confine_asan") != atteso_asan:
+        errori.append(
+            f"`chiuso.fuzz_filegdb.confine_asan` vale "
+            f"«{dichiarato.get('confine_asan')}», la misura del confine sta in "
+            f"«{atteso_asan}»"
+        )
+        return errori
+    try:
+        asan = json.loads(MISURA_ASAN_FILEGDB.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as errore:
+        return errori + [f"{atteso_asan}: non leggibile ({errore})"]
+
+    for chiave in ("contatori_di_copertura", "file_sorgente_gdal_strumentati"):
+        if dichiarato.get(chiave) != asan.get(chiave):
+            errori.append(
+                f"`chiuso.fuzz_filegdb.{chiave}` vale «{dichiarato.get(chiave)}», "
+                f"la misura del confine dice «{asan.get(chiave)}»"
+            )
+    return errori
+
+
 def _forma_legata(stato: dict[str, Any]) -> list[str]:
     """Schema e baseline documentale."""
     errori: list[str] = []
@@ -2104,6 +2181,7 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
         + _registro_legato(stato)
         + _censimento_s9_legato(stato)
         + _profondita_legata(stato)
+        + _profondita_filegdb_legata(stato)
         + _docset_legato(stato)
     )
 

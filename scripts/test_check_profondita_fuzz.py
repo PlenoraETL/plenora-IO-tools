@@ -1,13 +1,22 @@
-"""Sonde del gate di profondita' del target `shp_reader`.
+"""Sonde del gate di profondita', su **entrambi** i bersagli.
 
-Il gate e' cio' che tiene chiuso `fuzz.reader-shapefile`: se sbagliasse, direbbe
-«il reader e' esercitato» di un target che compila, non crasha e non arriva al
-parser -- che e' esattamente la situazione da cui il blocco veniva.
+Il gate e' cio' che tiene chiusi `fuzz.reader-shapefile` e `fuzz.filegdb`: se
+sbagliasse, direbbe «il reader e' esercitato» di un target che compila, non
+crasha e non arriva al parser -- che e' esattamente la situazione da cui i due
+blocchi venivano.
 
 Le sonde provano le due direzioni. Che una misura completa e attuale sia verde,
 e che **ogni** modo di renderla verde senza meritarselo sia rosso: requisito non
 raggiunto, registro svuotato, nucleo mutilato, misura di un altro albero, misura
 di un altro registro, corpus vuoto.
+
+# Perche' ogni sonda gira su tutti i bersagli
+
+Il motore e' uno solo, e una sonda che ne provasse il comportamento su un
+formato soltanto lascerebbe l'altro senza rete proprio dove la
+generalizzazione ha introdotto il rischio. `bersagli()` le fa girare su
+ciascuno: le proprieta' provate restano quelle di prima, il perimetro su cui
+valgono e' piu' largo.
 """
 
 from __future__ import annotations
@@ -19,19 +28,41 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
-from scripts import check_profondita_fuzz_shp as gate
+from scripts import check_profondita_fuzz as gate
 
 IMPRONTA = "f" * 64
 
+SHP = gate.BERSAGLI["shp_reader"]
+GDB = gate.BERSAGLI["filegdb_reader"]
 
-def registro_minimo() -> dict:
+
+# Le sonde del motore girano sul bersaglio Shapefile.
+#
+# Non e' una scorciatoia: sono le stesse trentaquattro sonde che verificavano il
+# gate prima che diventasse generico, e tenerle su quel bersaglio e' cio' che
+# permette di dire che il comportamento non e' cambiato. Il bersaglio FileGDB ha
+# la propria classe piu' sotto, e `SondeSuOgniBersaglio` prova su **tutti** le
+# proprieta' che la generalizzazione ha introdotto.
+bersaglio = SHP
+
+
+def bersagli() -> list[gate.Bersaglio]:
+    """Tutti i bersagli dichiarati, non un elenco scritto qui.
+
+    Un bersaglio nuovo entra nelle sonde senza toccarle: se non ci entrasse, la
+    prima cosa che nessuno proverebbe sarebbe proprio quella appena aggiunta.
+    """
+    return [gate.BERSAGLI[nome] for nome in sorted(gate.BERSAGLI)]
+
+
+def registro_minimo(bersaglio: gate.Bersaglio = SHP) -> dict:
     """Un registro valido, da cui le sonde tolgono un pezzo per volta."""
     return {
         "schema_version": 1,
-        "target": "shp_reader",
-        "artefatto": "assurance/profondita-fuzz-shapefile.json",
-        "perimetro": {"percorsi": sorted(gate.PERIMETRO_OBBLIGATORIO)},
-        "nucleo": sorted(gate.NUCLEO_OBBLIGATORIO),
+        "target": bersaglio.nome,
+        "artefatto": f"assurance/profondita-{bersaglio.nome}.json",
+        "perimetro": {"percorsi": sorted(bersaglio.perimetro_obbligatorio)},
+        "nucleo": sorted(bersaglio.nucleo),
         # La famiglia viene dal gate, non da una convenzione sul nome: un
         # requisito di riga che non si chiamasse «rifiuto.*» finirebbe fra le
         # funzioni, e la fixture proverebbe un registro che il gate rifiuta.
@@ -41,7 +72,7 @@ def registro_minimo() -> dict:
                 "segmenti": ["driver_shp", identita.replace(".", "_")],
                 "perche": "perche' si'",
             }
-            for identita, famiglia in sorted(gate.FAMIGLIA_DEL_NUCLEO.items())
+            for identita, famiglia in sorted(bersaglio.famiglia_del_nucleo.items())
             if famiglia == "funzioni"
         ],
         "righe": [
@@ -51,14 +82,16 @@ def registro_minimo() -> dict:
                 "ancora": identita,
                 "perche": "perche' si'",
             }
-            for identita, famiglia in sorted(gate.FAMIGLIA_DEL_NUCLEO.items())
+            for identita, famiglia in sorted(bersaglio.famiglia_del_nucleo.items())
             if famiglia == "righe"
         ],
     }
 
 
-def misura_di(registro: dict, conteggio: int = 3) -> dict:
-    voci, errori = gate.requisiti(registro)
+def misura_di(
+    registro: dict, conteggio: int = 3, bersaglio: gate.Bersaglio = SHP
+) -> dict:
+    voci, errori = gate.requisiti(bersaglio, registro)
     assert not errori, errori
     return {
         "target": registro["target"],
@@ -87,14 +120,14 @@ class SondeDellaVerifica(unittest.TestCase):
 
     def test_una_misura_completa_e_attuale_e_verde(self) -> None:
         registro = registro_minimo()
-        self.assertEqual(gate.verifica(registro, misura_di(registro)), [])
+        self.assertEqual(gate.verifica(bersaglio, registro, misura_di(registro)), [])
 
     def test_un_requisito_non_raggiunto_e_rosso(self) -> None:
         """E' il caso per cui il gate esiste: il target gira e non arriva."""
         registro = registro_minimo()
         misura = misura_di(registro)
         misura["requisiti"][0]["conteggio"] = 0
-        errori = gate.verifica(registro, misura)
+        errori = gate.verifica(bersaglio, registro, misura)
         self.assertTrue(any("non raggiunto dal replay" in m for m in errori), errori)
 
     def test_un_conteggio_che_non_e_un_intero_e_rosso(self) -> None:
@@ -102,7 +135,7 @@ class SondeDellaVerifica(unittest.TestCase):
         misura = misura_di(registro)
         misura["requisiti"][0]["conteggio"] = True
         self.assertTrue(
-            any("non e' un intero" in m for m in gate.verifica(registro, misura))
+            any("non e' un intero" in m for m in gate.verifica(bersaglio, registro, misura))
         )
 
     def test_una_funzione_senza_simboli_corrispondenti_e_rossa(self) -> None:
@@ -113,7 +146,7 @@ class SondeDellaVerifica(unittest.TestCase):
         funzione = next(v for v in misura["requisiti"] if v["famiglia"] == "funzione")
         funzione["simboli"] = 0
         self.assertTrue(
-            any("nessun simbolo corrisponde" in m for m in gate.verifica(registro, misura))
+            any("nessun simbolo corrisponde" in m for m in gate.verifica(bersaglio, registro, misura))
         )
 
     def test_un_registro_svuotato_e_rosso(self) -> None:
@@ -121,11 +154,11 @@ class SondeDellaVerifica(unittest.TestCase):
         domanda, ed e' il primo modo in cui un gate cosi' si addomestica."""
         registro = registro_minimo()
         registro["funzioni"] = []
-        errori = gate.verifica(registro, misura_di(registro_minimo()))
+        errori = gate.verifica(bersaglio, registro, misura_di(registro_minimo()))
         self.assertTrue(any("assente o vuota" in m for m in errori), errori)
 
     def test_togliere_un_requisito_dal_nucleo_e_rosso(self) -> None:
-        for identita in sorted(gate.NUCLEO_OBBLIGATORIO):
+        for identita in sorted(bersaglio.nucleo):
             with self.subTest(identita):
                 registro = registro_minimo()
                 for famiglia in ("funzioni", "righe"):
@@ -133,7 +166,7 @@ class SondeDellaVerifica(unittest.TestCase):
                         v for v in registro[famiglia] if v["id"] != identita
                     ]
                 registro["nucleo"] = [n for n in registro["nucleo"] if n != identita]
-                errori = gate.verifica(registro, misura_di(registro_minimo()))
+                errori = gate.verifica(bersaglio, registro, misura_di(registro_minimo()))
                 self.assertTrue(
                     any("nucleo" in m for m in errori),
                     f"togliere «{identita}» deve essere rosso: {errori}",
@@ -146,7 +179,7 @@ class SondeDellaVerifica(unittest.TestCase):
         riscritto come funzione passerebbe a nome di un simbolo che esiste
         comunque, e il ramo resterebbe mai percorso con il gate verde.
         """
-        for identita, famiglia in sorted(gate.FAMIGLIA_DEL_NUCLEO.items()):
+        for identita, famiglia in sorted(bersaglio.famiglia_del_nucleo.items()):
             with self.subTest(identita):
                 registro = registro_minimo()
                 altra = "righe" if famiglia == "funzioni" else "funzioni"
@@ -160,7 +193,7 @@ class SondeDellaVerifica(unittest.TestCase):
                         "perche": "perche' si'",
                     }
                 ]
-                errori = gate.verifica(registro, misura_di(registro_minimo()))
+                errori = gate.verifica(bersaglio, registro, misura_di(registro_minimo()))
                 self.assertTrue(
                     any("atteso fra le" in m for m in errori),
                     f"spostare «{identita}» deve essere rosso: {errori}",
@@ -168,21 +201,21 @@ class SondeDellaVerifica(unittest.TestCase):
 
     def test_il_nucleo_e_derivato_dalle_famiglie(self) -> None:
         """Due elenchi da tenere allineati a mano divergono."""
-        self.assertEqual(gate.NUCLEO_OBBLIGATORIO, frozenset(gate.FAMIGLIA_DEL_NUCLEO))
-        self.assertEqual(set(gate.FAMIGLIA_DEL_NUCLEO.values()), {"funzioni", "righe"})
+        self.assertEqual(bersaglio.nucleo, frozenset(bersaglio.famiglia_del_nucleo))
+        self.assertEqual(set(bersaglio.famiglia_del_nucleo.values()), {"funzioni", "righe"})
 
     def test_il_nucleo_dichiarato_deve_coincidere_con_quello_preteso(self) -> None:
         registro = registro_minimo()
         registro["nucleo"] = registro["nucleo"] + ["inventato"]
         self.assertTrue(
-            any("nucleo" in m for m in gate.verifica(registro, misura_di(registro_minimo())))
+            any("nucleo" in m for m in gate.verifica(bersaglio, registro, misura_di(registro_minimo())))
         )
 
     def test_identita_ripetute_nel_registro_sono_rosse(self) -> None:
         registro = registro_minimo()
         registro["funzioni"].append(dict(registro["funzioni"][0]))
         self.assertTrue(
-            any("ripetute" in m for m in gate.verifica(registro, misura_di(registro_minimo())))
+            any("ripetute" in m for m in gate.verifica(bersaglio, registro, misura_di(registro_minimo())))
         )
 
     def test_una_misura_di_un_altro_albero_e_rossa(self) -> None:
@@ -191,7 +224,7 @@ class SondeDellaVerifica(unittest.TestCase):
         registro = registro_minimo()
         misura = misura_di(registro)
         misura["impronta_perimetro"] = "0" * 64
-        errori = gate.verifica(registro, misura)
+        errori = gate.verifica(bersaglio, registro, misura)
         self.assertTrue(any("impronta del perimetro diversa" in m for m in errori), errori)
 
     def test_una_misura_senza_impronta_e_rossa(self) -> None:
@@ -199,14 +232,14 @@ class SondeDellaVerifica(unittest.TestCase):
         misura = misura_di(registro)
         del misura["impronta_perimetro"]
         self.assertTrue(
-            any("impronta del perimetro diversa" in m for m in gate.verifica(registro, misura))
+            any("impronta del perimetro diversa" in m for m in gate.verifica(bersaglio, registro, misura))
         )
 
     def test_una_misura_di_un_registro_piu_piccolo_e_rossa(self) -> None:
         registro = registro_minimo()
         misura = misura_di(registro)
         tolto = misura["requisiti"].pop()
-        errori = gate.verifica(registro, misura)
+        errori = gate.verifica(bersaglio, registro, misura)
         self.assertTrue(any(tolto["id"] in m for m in errori), errori)
 
     def test_una_misura_che_osserva_cose_non_dichiarate_e_rossa(self) -> None:
@@ -214,7 +247,7 @@ class SondeDellaVerifica(unittest.TestCase):
         misura = misura_di(registro)
         misura["requisiti"].append({"id": "estraneo", "famiglia": "riga", "conteggio": 9})
         self.assertTrue(
-            any("non dichiara" in m for m in gate.verifica(registro, misura))
+            any("non dichiara" in m for m in gate.verifica(bersaglio, registro, misura))
         )
 
     def test_una_osservazione_ripetuta_e_rossa(self) -> None:
@@ -222,29 +255,29 @@ class SondeDellaVerifica(unittest.TestCase):
         misura = misura_di(registro)
         misura["requisiti"].append(dict(misura["requisiti"][0]))
         self.assertTrue(
-            any("ripetuta" in m for m in gate.verifica(registro, misura))
+            any("ripetuta" in m for m in gate.verifica(bersaglio, registro, misura))
         )
 
     def test_un_corpus_vuoto_e_rosso(self) -> None:
         registro = registro_minimo()
         misura = misura_di(registro)
         misura["corpus"] = {"input": 0}
-        self.assertTrue(any("zero input" in m for m in gate.verifica(registro, misura)))
+        self.assertTrue(any("zero input" in m for m in gate.verifica(bersaglio, registro, misura)))
 
     def test_una_misura_di_un_altro_target_e_rossa(self) -> None:
         registro = registro_minimo()
         misura = misura_di(registro)
         misura["target"] = "shp_wkb"
-        self.assertTrue(any("shp_wkb" in m for m in gate.verifica(registro, misura)))
+        self.assertTrue(any("shp_wkb" in m for m in gate.verifica(bersaglio, registro, misura)))
 
     def test_un_perimetro_mutilato_e_rosso(self) -> None:
-        for percorso in sorted(gate.PERIMETRO_OBBLIGATORIO):
+        for percorso in sorted(bersaglio.perimetro_obbligatorio):
             with self.subTest(percorso):
                 registro = registro_minimo()
                 registro["perimetro"]["percorsi"] = [
                     p for p in registro["perimetro"]["percorsi"] if p != percorso
                 ]
-                errori = gate.verifica(registro, misura_di(registro_minimo()))
+                errori = gate.verifica(bersaglio, registro, misura_di(registro_minimo()))
                 self.assertTrue(
                     any("perimetro senza" in m for m in errori),
                     f"togliere «{percorso}» deve essere rosso: {errori}",
@@ -254,7 +287,7 @@ class SondeDellaVerifica(unittest.TestCase):
         registro = registro_minimo()
         del registro["perimetro"]
         self.assertTrue(
-            any("non scadrebbe mai" in m for m in gate.verifica(registro, misura_di(registro_minimo())))
+            any("non scadrebbe mai" in m for m in gate.verifica(bersaglio, registro, misura_di(registro_minimo())))
         )
 
 
@@ -383,12 +416,12 @@ class SondaDelRegistroVero(unittest.TestCase):
     """Il registro committato e la misura committata, letti come in CI."""
 
     def test_il_registro_e_ben_formato(self) -> None:
-        voci, errori = gate.requisiti(gate.leggi_registro())
+        voci, errori = gate.requisiti(bersaglio, gate.leggi_registro(bersaglio))
         self.assertEqual(errori, [])
-        self.assertGreaterEqual(len(voci), len(gate.NUCLEO_OBBLIGATORIO))
+        self.assertGreaterEqual(len(voci), len(bersaglio.nucleo))
 
     def test_il_perimetro_seleziona_dei_file(self) -> None:
-        percorsi, errori = gate.percorsi_del_perimetro(gate.leggi_registro())
+        percorsi, errori = gate.percorsi_del_perimetro(bersaglio, gate.leggi_registro(bersaglio))
         self.assertEqual(errori, [])
         impronta, problemi = gate.impronta_del_perimetro(percorsi)
         self.assertEqual(problemi, [])
@@ -397,7 +430,160 @@ class SondaDelRegistroVero(unittest.TestCase):
     def test_il_gate_e_verde_sull_albero_corrente(self) -> None:
         uscita, errori = io.StringIO(), io.StringIO()
         with redirect_stdout(uscita), redirect_stderr(errori):
-            codice = gate.main([])
+            codice = gate.main([bersaglio.nome])
+        self.assertEqual(codice, 0, errori.getvalue())
+
+
+class SondeSuOgniBersaglio(unittest.TestCase):
+    """Le proprieta' che la generalizzazione ha introdotto, su tutti i bersagli.
+
+    Un motore solo con due configurazioni sposta il rischio: non piu' «il codice
+    e' sbagliato», ma «la configurazione di **quel** bersaglio e' sbagliata».
+    Queste sonde girano su ciascuno, cosi' il bersaglio aggiunto per ultimo non
+    e' quello senza rete.
+    """
+
+    def setUp(self) -> None:
+        precedente = gate.impronta_del_perimetro
+        gate.impronta_del_perimetro = lambda percorsi: (IMPRONTA, [])
+        self.addCleanup(setattr, gate, "impronta_del_perimetro", precedente)
+
+    def test_una_misura_completa_e_verde_su_ogni_bersaglio(self) -> None:
+        for corrente in bersagli():
+            with self.subTest(corrente.nome):
+                registro = registro_minimo(corrente)
+                misura = misura_di(registro, bersaglio=corrente)
+                self.assertEqual(gate.verifica(corrente, registro, misura), [])
+
+    def test_la_misura_viene_davvero_consumata(self) -> None:
+        """Il requisito non raggiunto deve **fermare** il gate.
+
+        E' la proprieta' per cui la misura esiste: se un conteggio a zero
+        passasse, l'artefatto sarebbe un documento che nessuno legge, e il gate
+        direbbe «raggiunto» di un ramo mai percorso.
+        """
+        for corrente in bersagli():
+            for indice in range(len(corrente.famiglia_del_nucleo)):
+                with self.subTest(bersaglio=corrente.nome, requisito=indice):
+                    registro = registro_minimo(corrente)
+                    misura = misura_di(registro, bersaglio=corrente)
+                    misura["requisiti"][indice]["conteggio"] = 0
+                    errori = gate.verifica(corrente, registro, misura)
+                    self.assertTrue(
+                        any("non raggiunto dal replay" in m for m in errori), errori
+                    )
+
+    def test_ogni_bersaglio_ha_un_nucleo_e_un_perimetro_non_vuoti(self) -> None:
+        for corrente in bersagli():
+            with self.subTest(corrente.nome):
+                self.assertTrue(corrente.famiglia_del_nucleo)
+                self.assertTrue(corrente.perimetro_obbligatorio)
+                self.assertEqual(corrente.nucleo, frozenset(corrente.famiglia_del_nucleo))
+                self.assertEqual(
+                    set(corrente.famiglia_del_nucleo.values()), {"funzioni", "righe"}
+                )
+
+    def test_il_registro_di_un_bersaglio_non_vale_per_un_altro(self) -> None:
+        """Due registri e un motore solo: leggerne uno per il bersaglio
+        sbagliato verificherebbe un formato a nome di un altro."""
+        registro = registro_minimo(GDB)
+        errori = gate.verifica(SHP, registro, misura_di(registro, bersaglio=GDB))
+        self.assertTrue(
+            any("lo ha aperto come" in m for m in errori), errori
+        )
+
+    def test_i_bersagli_non_condividono_registro_ne_artefatto(self) -> None:
+        """Due bersagli che scrivessero nello stesso file si sovrascriverebbero,
+        e l'ultimo a misurare cancellerebbe la prova dell'altro."""
+        registri = [corrente.registro for corrente in bersagli()]
+        self.assertEqual(len(set(registri)), len(registri))
+
+
+class SondeDelBersaglioFileGDB(unittest.TestCase):
+    """Il bersaglio aggiunto con la generalizzazione, e i suoi modi di fallire.
+
+    Le tre proprieta' che contano: la misura viene consumata, una misura
+    invecchiata fallisce chiuso, una misura malformata pure. Senza la prima
+    l'artefatto sarebbe ornamentale; senza le altre due sopravvivrebbe al codice
+    che descrive.
+    """
+
+    def registro(self) -> dict:
+        return registro_minimo(GDB)
+
+    def test_il_registro_vero_e_ben_formato(self) -> None:
+        voci, errori = gate.requisiti(GDB, gate.leggi_registro(GDB))
+        self.assertEqual(errori, [])
+        self.assertGreaterEqual(len(voci), len(GDB.nucleo))
+
+    def test_il_perimetro_vero_comprende_il_wrapper_gdal(self) -> None:
+        """`vendor/gdal/src` e' l'unica parte del percorso GDAL che la copertura
+        vede: fuori dal perimetro, la misura sopravviverebbe a una sua
+        riscrittura."""
+        percorsi, errori = gate.percorsi_del_perimetro(GDB, gate.leggi_registro(GDB))
+        self.assertEqual(errori, [])
+        self.assertIn("vendor/gdal/src", percorsi)
+        self.assertIn("fuzz/fixtures/filegdb", percorsi)
+
+    def test_una_misura_invecchiata_fallisce_chiuso(self) -> None:
+        registro = self.registro()
+        misura = misura_di(registro, bersaglio=GDB)
+        misura["impronta_perimetro"] = "0" * 64
+        errori = gate.verifica(GDB, registro, misura)
+        self.assertTrue(any("impronta del perimetro diversa" in m for m in errori), errori)
+        self.assertTrue(
+            any("fuzz-profondita.sh filegdb_reader" in m for m in errori),
+            "il messaggio deve dire come rifarla, e per **quale** bersaglio",
+        )
+
+    def test_una_misura_malformata_fallisce_chiuso(self) -> None:
+        precedente = gate.impronta_del_perimetro
+        gate.impronta_del_perimetro = lambda percorsi: (IMPRONTA, [])
+        self.addCleanup(setattr, gate, "impronta_del_perimetro", precedente)
+
+        registro = self.registro()
+        casi = {
+            "senza requisiti": lambda m: m.update(requisiti=[]),
+            "requisiti non lista": lambda m: m.update(requisiti="tutti"),
+            "senza corpus": lambda m: m.pop("corpus"),
+            "osservazione senza id": lambda m: m["requisiti"].append({"conteggio": 1}),
+            "conteggio non intero": lambda m: m["requisiti"][0].update(conteggio="molti"),
+        }
+        for nome, rompi in casi.items():
+            with self.subTest(nome):
+                misura = misura_di(registro, bersaglio=GDB)
+                rompi(misura)
+                self.assertNotEqual(
+                    gate.verifica(GDB, registro, misura),
+                    [],
+                    f"«{nome}» deve fallire chiuso",
+                )
+
+    def test_spostare_un_requisito_del_nucleo_e_rosso(self) -> None:
+        for identita, famiglia in sorted(GDB.famiglia_del_nucleo.items()):
+            with self.subTest(identita):
+                registro = self.registro()
+                altra = "righe" if famiglia == "funzioni" else "funzioni"
+                registro[famiglia] = [v for v in registro[famiglia] if v["id"] != identita]
+                registro[altra] = registro[altra] + [
+                    {
+                        "id": identita,
+                        "segmenti": ["driver_filegdb", "inventata"],
+                        "file": "crates/driver-filegdb/src/lib.rs",
+                        "ancora": identita,
+                        "perche": "perche' si'",
+                    }
+                ]
+                errori = gate.verifica(GDB, registro, misura_di(self.registro(), bersaglio=GDB))
+                self.assertTrue(
+                    any("atteso fra le" in m for m in errori),
+                    f"spostare «{identita}» deve essere rosso: {errori}",
+                )
+
+    def test_il_gate_e_verde_sull_albero_corrente(self) -> None:
+        uscita, errori = io.StringIO(), io.StringIO()
+        with redirect_stdout(uscita), redirect_stderr(errori):
+            codice = gate.main(["filegdb_reader"])
         self.assertEqual(codice, 0, errori.getvalue())
 
 

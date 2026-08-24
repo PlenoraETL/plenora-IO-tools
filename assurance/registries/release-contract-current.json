@@ -266,7 +266,8 @@
         "tipo": "gate",
         "comando": [
           "python3",
-          "scripts/check_profondita_fuzz_shp.py"
+          "scripts/check_profondita_fuzz.py",
+          "shp_reader"
         ]
       },
       "stato": "verified",
@@ -290,11 +291,46 @@
     {
       "id": "fuzz.filegdb",
       "superficie": "lettura FileGDB con gdal-backend",
-      "invariante": "il percorso FileGDB e' esercitato da un fuzz target",
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "spike di fattibilita' non eseguito. Due esiti ammessi: target reale, oppure impossibilita' tecnica dimostrata con eccezione esplicita e suite compensativa di fixture ostili nella matrice feature-on.",
-      "sintesi": "spike di fattibilità non eseguito"
+      "invariante": "il percorso FileGDB e' esercitato da un fuzz target, e la misura lo dimostra invece di dedurlo dall'assenza di crash",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/check_profondita_fuzz.py",
+          "filegdb_reader"
+        ]
+      },
+      "stato": "verified",
+      "nota": "lo spike ammetteva due esiti; l'esito e' il primo. Il target `filegdb_reader` esiste, attraversa l'entry point con `gdal-backend` e drena catalogo, schema e righe. Un FileGDB non e' un file ma una **directory** di tabelle che si citano per GUID, e il formato e' proprietario: costruirlo da un blob significherebbe riscrivere `OpenFileGDB` e produrre file validi rispetto alla nostra idea del formato invece che a quella di GDAL. Il target parte percio' da una fixture **vera**, prodotta da `ogr2ogr` da un GeoJSON committato, e ne sostituisce una parte per volta. Il gate pretende raggiunti tutti i requisiti del registro -- apertura del driver, ramo `gdal-backend`, contratto geometrico e tipi Arrow tradotti da OGR, reader e batch, materializzazione della `.gdb` e scelta della parte dal payload. Il limite di questa prova e' dichiarato e a sua volta gated: vedi `fuzz.filegdb-confine-asan`."
+    },
+    {
+      "id": "fuzz.filegdb-confine-asan",
+      "superficie": "che cosa AddressSanitizer vede nel target FileGDB",
+      "invariante": "il confine fra cio' che e' strumentato e cio' che non lo e' e' **misurato** sul binario, non dichiarato in prosa",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/check_asan_filegdb.py"
+        ]
+      },
+      "stato": "verified",
+      "nota": "«il percorso FileGDB e' coperto da AddressSanitizer» e' vero a meta', e la meta' falsa e' quella che conta: `libgdal.so` e' una libreria di sistema, collegata dinamicamente e compilata senza strumentazione. La misura sul binario dice un modulo con contatori -- l'eseguibile, nessuna libreria condivisa -- e zero file sorgente C/C++ nei dati di copertura. Ne segue che ASan copre per intero il nostro codice e mantiene l'intercettazione dell'allocatore al confine, ma non rileva gli accessi **interni** a GDAL, e il fuzzer non e' guidato da cio' che succede oltre quel confine. L'invariante non e' «GDAL e' sicuro»: e' che il confine resti misurato, cosi' una campagna verde non possa essere riletta come una garanzia che non da'."
+    },
+    {
+      "id": "fuzz.fixture-filegdb",
+      "superficie": "fixture e semi del target FileGDB",
+      "invariante": "la fixture e' un FileGDB vero e riproducibile, e i semi ne sono **derivati**",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/genera_semi_filegdb.py",
+          "--verifica"
+        ]
+      },
+      "stato": "verified",
+      "nota": "la fixture non e' un blob committato a mano: `scripts/genera-fixture-filegdb.sh` la produce con `ogr2ogr` da un GeoJSON versionato, e ne **dimostra** la riproducibilita' rigenerandola due volte -- gli offset tollerati sono esattamente quelli in cui le due rigenerazioni differiscono fra loro, cioe' i GUID che GDAL conia per il dataset. Un byte stabile e diverso non e' coniato, ed e' rosso. I semi sono funzione della fixture: cambiata la fixture, un seme che non la seguisse sostituirebbe la parte sbagliata, e la campagna misurerebbe altro senza dirlo. Questo gate costa millisecondi e non pretende GDAL; la produzione della fixture si' e sta nello script."
     },
     {
       "id": "wire.loss-report",

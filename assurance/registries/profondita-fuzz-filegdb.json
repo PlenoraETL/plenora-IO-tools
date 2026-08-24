@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "descrizione": "Che cosa il target `filegdb_reader` deve **raggiungere** perche' si possa dire che il percorso FileGDB e' esercitato. Una build che compila e un replay senza crash non lo dicono: una `.gdb` rifiutata al riconoscimento del formato non fa crashare niente ed e', da fuori, indistinguibile da una letta per intero.",
+  "target": "filegdb_reader",
+  "artefatto": "assurance/profondita-fuzz-filegdb.json",
+  "che_cosa_questa_misura_non_conta": "la copertura dentro `libgdal.so`. La libreria e' di sistema, collegata dinamicamente e **non strumentata**: non porta contatori, e questa misura conta cio' che la copertura vede. Il confine esatto e' misurato in `assurance/registries/asan-filegdb.json`. Cio' che segue dice che il percorso Rust arriva fino a GDAL e ne riporta indietro delle righe, non che GDAL sia stato esplorato.",
+  "perimetro": {
+    "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",
+    "perche_vendor_gdal": "`vendor/gdal/src` e' il wrapper Rust del fork governato, ed e' l'unica parte del percorso GDAL che la copertura vede. Lasciarlo fuori renderebbe la misura valida anche dopo aver riscritto il solo pezzo di GDAL che questa misura sa contare.",
+    "perche_la_fixture": "`fuzz/fixtures/filegdb` porta la `.gdb` da cui ogni input parte. Cambiarla cambia tutto cio' che il target attraversa, e una misura che le sopravvivesse descriverebbe un dataset che non esiste piu'.",
+    "percorsi": [
+      "Cargo.lock",
+      "crates/driver-filegdb/src",
+      "fuzz/Cargo.toml",
+      "fuzz/fixtures/filegdb",
+      "fuzz/fuzz_targets",
+      "fuzz/seeds/filegdb_reader",
+      "vendor/gdal/src"
+    ]
+  },
+  "nucleo": [
+    "driver.apertura",
+    "driver.backend",
+    "driver.contratto-geometrico",
+    "driver.tipi-arrow",
+    "drenaggio.reader",
+    "drenaggio.batch",
+    "materializzazione.parti",
+    "materializzazione.fixture-intatta"
+  ],
+  "funzioni": [
+    {
+      "id": "driver.apertura",
+      "segmenti": [
+        "driver_filegdb",
+        "FileGdbDriver",
+        "open"
+      ],
+      "perche": "l'entry point del driver, quello che il registro dei formati chiama. Senza, il target starebbe esercitando GDAL per conto proprio invece del nostro percorso."
+    },
+    {
+      "id": "driver.backend",
+      "segmenti": [
+        "driver_filegdb",
+        "backend",
+        "open"
+      ],
+      "perche": "il ramo che esiste **solo** con `gdal-backend`: e' li' che il dataset viene aperto davvero. Senza la feature il driver e' uno stub, e uno stub non esercita nessun formato."
+    },
+    {
+      "id": "driver.contratto-geometrico",
+      "segmenti": [
+        "driver_filegdb",
+        "backend",
+        "geometry_contract_from_ogr"
+      ],
+      "perche": "il tipo geometrico dichiarato da OGR diventa il nostro contratto. E' la traduzione, cioe' il punto in cui i dati di GDAL smettono di essere di GDAL."
+    },
+    {
+      "id": "driver.tipi-arrow",
+      "segmenti": [
+        "driver_filegdb",
+        "backend",
+        "ogr_to_arrow"
+      ],
+      "perche": "i tipi dei campi attraversano lo stesso confine delle geometrie. Uno schema inferito e' meta' della lettura."
+    },
+    {
+      "id": "driver.crs",
+      "segmenti": [
+        "driver_filegdb",
+        "backend",
+        "resolve_layer_crs"
+      ],
+      "perche": "il CRS viene dal dataset. La fixture ne porta uno, e la sua risoluzione e' un percorso quanto lo e' la sua assenza."
+    },
+    {
+      "id": "drenaggio.reader",
+      "segmenti": [
+        "driver_filegdb",
+        "backend",
+        "spawn_reader"
+      ],
+      "perche": "il reader di un layer: e' dove la lettura comincia davvero, dopo che catalogo e schema sono stati costruiti."
+    },
+    {
+      "id": "drenaggio.batch",
+      "segmenti": [
+        "driver_filegdb",
+        "backend",
+        "finish_read_batch"
+      ],
+      "perche": "un batch chiuso e consegnato. Un target che aprisse senza leggere non arriverebbe qui, e la differenza non si vede da fuori."
+    },
+    {
+      "id": "wrapper.dataset-gdal",
+      "segmenti": [
+        "gdal",
+        "Dataset",
+        "open"
+      ],
+      "perche": "il fork governato di `gdal`, cioe' l'unica parte del percorso GDAL che la copertura sa contare. Che sia coperto dice che il confine e' stato attraversato; cio' che c'e' oltre non e' strumentato."
+    }
+  ],
+  "righe": [
+    {
+      "id": "materializzazione.parti",
+      "file": "crates/driver-filegdb/src/lib.rs",
+      "ancora": "std::fs::write(dataset.join(nome), byte).map_err(errore_di_ambiente)?;",
+      "perche": "la `.gdb` viene scritta parte per parte, con i nomi presi dall'archivio e mai dal payload. E' la riga che rende il dataset completo invece che una directory con un file solo."
+    },
+    {
+      "id": "materializzazione.fixture-intatta",
+      "file": "crates/driver-filegdb/src/lib.rs",
+      "ancora": "None => (parti.len(), &[][..]),",
+      "perche": "l'input vuoto materializza la fixture intatta. E' il caso che tiene onesta la campagna: senza, un verde potrebbe voler dire che nessun input arriva al driver."
+    },
+    {
+      "id": "materializzazione.parte-scelta-dal-payload",
+      "file": "crates/driver-filegdb/src/lib.rs",
+      "ancora": "Some((scelta, resto)) => (usize::from(*scelta) % parti.len(), resto),",
+      "perche": "il ramo opposto: l'input **sceglie** una parte e ne sostituisce il contenuto. Se questo restasse a zero, il target starebbe rileggendo la stessa fixture a ogni esecuzione."
+    },
+    {
+      "id": "drenaggio.righe",
+      "file": "crates/driver-filegdb/src/lib.rs",
+      "ancora": "righe = righe.saturating_add(batch.num_rows());",
+      "perche": "le righe escono dal reader e vengono contate. E' la differenza fra «il dataset si apre» e «il dataset si legge»."
+    }
+  ],
+  "non_e_qui": {
+    "entry_point_del_target": "`__fuzz_leggi_gdb` e `__fuzz_parti_della_fixture` non compaiono fra i requisiti perche' non compaiono fra i simboli: il compilatore le incorpora nella chiusura del target. Cio' che fanno e' provato dalle righe qui sopra e dalle sonde di `driver-filegdb`, che le chiamano per nome.",
+    "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa «non raggiunto» da «raggiunto»; la seconda meta' la verificano le sonde del driver."
+  }
+}

@@ -59,6 +59,16 @@
       "misura": "assurance/profondita-fuzz-shapefile.json",
       "requisiti_di_profondita": 35,
       "nota": "il target e' `shp_reader`, e a chiuderlo non e' la sua esistenza: una build che compila e un replay senza crash non dicono che i semi arrivino al parser, perche' un bundle rifiutato all'apertura non fa crashare niente. Lo chiude la misura di copertura del replay dei semi versionati, che mostra raggiunti apertura del driver, inferenza dello schema, intestazione `.shp` e di record, indice `.shx`, intestazione e descrittori e valori del `.dbf`, le tre famiglie di geometria -- punto, polilinea e multipunto -- il drenaggio in batch, i due rami di rifiuto dei conteggi disallineati e ogni difesa che le campagne hanno reso necessaria."
+    },
+    "fuzz_filegdb": {
+      "stato": "chiuso",
+      "release_blocking": false,
+      "misura": "assurance/profondita-fuzz-filegdb.json",
+      "requisiti_di_profondita": 12,
+      "confine_asan": "assurance/asan-filegdb.json",
+      "contatori_di_copertura": 167811,
+      "file_sorgente_gdal_strumentati": 0,
+      "nota": "lo spike ammetteva due esiti e l'esito e' il primo: il target `filegdb_reader` esiste e attraversa il percorso vero. Parte da una fixture prodotta da GDAL -- un FileGDB e' una directory di tabelle che si citano per GUID, e il formato e' proprietario -- e ne sostituisce una parte per volta. Il limite resta dichiarato e misurato: `libgdal.so` e' di sistema e non strumentata, quindi AddressSanitizer copre il nostro codice e l'intercettazione dell'allocatore al confine, non gli accessi interni a GDAL, e il fuzzer non e' guidato da cio' che succede oltre."
     }
   },
   "aperto": {
@@ -66,11 +76,6 @@
       "gruppi_totali": 49,
       "gruppi_aperti": 43,
       "release_blocking": true
-    },
-    "fuzz_spike_filegdb": {
-      "stato": "aperto",
-      "release_blocking": true,
-      "nota": "due esiti ammessi: target reale, oppure impossibilita' tecnica dimostrata con suite compensativa di fixture ostili feature-on"
     },
     "loss_report": {
       "stato": "non_ratificato",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Il target `shp_reader` raggiunge davvero il parsing `.shp`/`.dbf`.
+"""Un fuzz target raggiunge davvero il formato che dice di esercitare.
 
 # Il difetto che questo gate esiste per chiudere
 
@@ -7,13 +7,24 @@
 ESRI in memoria e veniva contato come copertura del formato. Rimpiazzarlo con un
 target che apre un file non basta a chiudere il blocco: una build che compila e
 un replay senza crash **non** dimostrano che i semi arrivino al parser. Un
-bundle rifiutato all'apertura non fa crashare niente, e da fuori e'
+input rifiutato all'apertura non fa crashare niente, e da fuori e'
 indistinguibile da uno letto per intero.
 
 Serve percio' una misura, e serve che qualcuno la legga. Questo gate legge
-l'artefatto prodotto da `scripts/fuzz-profondita-shp.sh` e pretende che ogni
-requisito dichiarato in
-`assurance/registries/profondita-fuzz-shapefile.json` sia stato **raggiunto**.
+l'artefatto prodotto da `scripts/fuzz-profondita.sh <bersaglio>` e pretende che
+ogni requisito dichiarato nel registro del bersaglio sia stato **raggiunto**.
+
+# Un motore, due bersagli
+
+Shapefile e FileGDB pongono la stessa domanda -- «il target arriva dove dice di
+arrivare?» -- e la risposta si costruisce allo stesso modo. Cio' che cambia sono
+i **dati**: quale registro leggere, quale nucleo di requisiti il gate pretende
+per conto proprio, quali percorsi formano il perimetro.
+
+Due gate gemelli sarebbero divergiti al primo cambiamento, e la divergenza si
+sarebbe vista solo nel formato che nessuno stava guardando. `BERSAGLI` tiene le
+differenze in un posto solo; il resto del file non sa quale formato sta
+verificando.
 
 # Perche' l'artefatto non e' creduto sulla parola
 
@@ -21,8 +32,8 @@ Una misura committata invecchia: il codice cambia, il target smette di
 raggiungere cio' che raggiungeva, e il JSON continua a dire di si'. Qui la
 misura porta l'**impronta del perimetro** -- i percorsi che possono cambiare
 cio' che il target attraversa -- e il gate la ricalcola dal working tree. Se una
-sola riga di `driver-shp`, del target, dei semi o di `Cargo.lock` cambia,
-l'impronta diverge e il gate diventa rosso finche' la misura non viene rifatta.
+sola riga del driver, del target, dei semi o di `Cargo.lock` cambia, l'impronta
+diverge e il gate diventa rosso finche' la misura non viene rifatta.
 
 Non e' legata allo SHA: il commit che *pubblica* una misura ha per forza uno SHA
 diverso da quello su cui e' girata, e legarla al commit la renderebbe scaduta
@@ -32,15 +43,20 @@ per costruzione.
 
 Che un ramo sia **raggiunto** non dice che il suo contratto sia verificato. La
 separazione fra «non raggiunto» e «raggiunto» e' qui; la verifica semantica sta
-nelle sonde di `driver-shp`, che chiamano lo stesso entry point del target sui
-semi versionati e guardano righe drenate e messaggi di rifiuto.
+nelle sonde dei driver, che chiamano lo stesso entry point del target sugli
+stessi input e guardano righe drenate e messaggi di rifiuto.
+
+Per FileGDB c'e' un secondo limite, ed e' scritto dove non si puo' non vederlo:
+`assurance/registries/asan-filegdb.json`. Il percorso attraversa GDAL, ma
+`libgdal.so` non e' strumentata: questa misura conta cio' che la copertura vede,
+e la copertura dentro GDAL non c'e'.
 
 # Uso
 
-    python3 scripts/check_profondita_fuzz_shp.py
-    python3 scripts/check_profondita_fuzz_shp.py --registra <export.json> --lcov <file.lcov>
+    python3 scripts/check_profondita_fuzz.py <bersaglio>
+    python3 scripts/check_profondita_fuzz.py <bersaglio> --registra <export.json> --lcov <file.lcov>
 
-Il secondo modo lo invoca `scripts/fuzz-profondita-shp.sh` dopo la misura: e' il
+Il secondo modo lo invoca `scripts/fuzz-profondita.sh` dopo la misura: e' il
 solo posto in cui l'artefatto viene scritto.
 """
 
@@ -52,64 +68,108 @@ import json
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-REGISTRO = ROOT / "assurance" / "registries" / "profondita-fuzz-shapefile.json"
+REGISTRI = ROOT / "assurance" / "registries"
 
-# Il nucleo minimo dei requisiti, scritto **qui** e non solo nel registro, con
-# la famiglia di ciascuno.
-#
-# Senza l'insieme, il modo piu' semplice di rendere verde questo gate sarebbe
-# svuotare il registro: zero requisiti, zero requisiti mancati. E' la stessa
-# famiglia del `"test": []` del contratto, e si chiude allo stesso modo -- un
-# insieme che il registro deve contenere e che il gate conosce senza
-# chiederglielo.
-#
-# La **famiglia** serve per una ragione diversa, e altrettanto concreta. Un
-# requisito di riga individua un ramo preciso del nostro sorgente; uno di
-# funzione dice che un simbolo e' stato eseguito. `shp.geometria-multipunto`
-# prova che il decoder esterno decodifica un multipunto;
-# `prevalidazione.conteggi-del-multipunto` prova che la difesa che lo precede e'
-# stata percorsa. Sono due affermazioni diverse, e senza la famiglia la seconda
-# poteva essere riscritta come la prima -- a nome di un simbolo che esiste
-# comunque -- lasciando il gate verde su un ramo mai eseguito.
-FAMIGLIA_DEL_NUCLEO = {
-    "driver.apertura": "funzioni",
-    "driver.schema": "funzioni",
-    "driver.dbf-layout": "funzioni",
-    "dbf.intestazione": "funzioni",
-    "dbf.descrittori-di-campo": "funzioni",
-    "dbf.valori": "funzioni",
-    "shp.intestazione": "funzioni",
-    "shp.intestazione-di-record": "funzioni",
-    "shp.geometria-punto": "funzioni",
-    "shp.geometria-polilinea": "funzioni",
-    "shp.geometria-multipunto": "funzioni",
-    "shx.indice": "funzioni",
-    "shp.conteggio-delle-forme": "funzioni",
-    "drenaggio.batch": "funzioni",
-    "prevalidazione.conteggi-del-multipunto": "righe",
-    "rifiuto.conteggi-all-apertura": "righe",
-    "rifiuto.cardinalita-nel-drenaggio": "righe",
+
+@dataclass(frozen=True)
+class Bersaglio:
+    """Cio' che cambia da un formato all'altro, e nient'altro.
+
+    `famiglia_del_nucleo` e `perimetro_obbligatorio` sono scritti **qui** e non
+    solo nel registro. Senza, il modo piu' semplice di rendere verde il gate
+    sarebbe svuotare il registro: zero requisiti, zero requisiti mancati. E' la
+    stessa famiglia del `"test": []` del contratto, e si chiude allo stesso modo
+    -- un insieme che il registro deve contenere e che il gate conosce senza
+    chiederglielo.
+    """
+
+    nome: str
+    registro: Path
+    #: `identita' -> famiglia`. La famiglia serve per una ragione sua: un
+    #: requisito di riga individua un ramo preciso del nostro sorgente, uno di
+    #: funzione dice che un simbolo e' stato eseguito. Sono due affermazioni
+    #: diverse, e senza il vincolo la seconda poteva essere riscritta come la
+    #: prima -- a nome di un simbolo che esiste comunque -- lasciando il gate
+    #: verde su un ramo mai percorso.
+    famiglia_del_nucleo: dict[str, str]
+    #: I percorsi che il perimetro deve contenere comunque: il codice che la
+    #: misura attraversa e gli input che ce la portano. Un perimetro ridotto a
+    #: `Cargo.lock` renderebbe la misura eterna.
+    perimetro_obbligatorio: frozenset[str]
+
+    @property
+    def nucleo(self) -> frozenset[str]:
+        """Derivato, non riscritto: due elenchi allineati a mano divergono."""
+        return frozenset(self.famiglia_del_nucleo)
+
+
+BERSAGLI: dict[str, Bersaglio] = {
+    "shp_reader": Bersaglio(
+        nome="shp_reader",
+        registro=REGISTRI / "profondita-fuzz-shapefile.json",
+        famiglia_del_nucleo={
+            "driver.apertura": "funzioni",
+            "driver.schema": "funzioni",
+            "driver.dbf-layout": "funzioni",
+            "dbf.intestazione": "funzioni",
+            "dbf.descrittori-di-campo": "funzioni",
+            "dbf.valori": "funzioni",
+            "shp.intestazione": "funzioni",
+            "shp.intestazione-di-record": "funzioni",
+            "shp.geometria-punto": "funzioni",
+            "shp.geometria-polilinea": "funzioni",
+            "shp.geometria-multipunto": "funzioni",
+            "shx.indice": "funzioni",
+            "shp.conteggio-delle-forme": "funzioni",
+            "drenaggio.batch": "funzioni",
+            "prevalidazione.conteggi-del-multipunto": "righe",
+            "rifiuto.conteggi-all-apertura": "righe",
+            "rifiuto.cardinalita-nel-drenaggio": "righe",
+        },
+        perimetro_obbligatorio=frozenset(
+            {
+                "Cargo.lock",
+                "crates/driver-shp/src",
+                "fuzz/Cargo.toml",
+                "fuzz/fuzz_targets",
+                "fuzz/seeds/shp_reader",
+            }
+        ),
+    ),
+    "filegdb_reader": Bersaglio(
+        nome="filegdb_reader",
+        registro=REGISTRI / "profondita-fuzz-filegdb.json",
+        famiglia_del_nucleo={
+            "driver.apertura": "funzioni",
+            "driver.backend": "funzioni",
+            "driver.contratto-geometrico": "funzioni",
+            "driver.tipi-arrow": "funzioni",
+            "drenaggio.reader": "funzioni",
+            "drenaggio.batch": "funzioni",
+            "materializzazione.parti": "righe",
+            "materializzazione.fixture-intatta": "righe",
+        },
+        perimetro_obbligatorio=frozenset(
+            {
+                "Cargo.lock",
+                "crates/driver-filegdb/src",
+                # Il wrapper Rust di GDAL fa parte di cio' che la misura
+                # attraversa: e' il fork governato, ed e' l'unica parte del
+                # percorso GDAL che la copertura vede.
+                "vendor/gdal/src",
+                "fuzz/Cargo.toml",
+                "fuzz/fuzz_targets",
+                "fuzz/fixtures/filegdb",
+                "fuzz/seeds/filegdb_reader",
+            }
+        ),
+    ),
 }
-
-# Derivato, non riscritto: due elenchi da tenere allineati a mano divergono.
-NUCLEO_OBBLIGATORIO = frozenset(FAMIGLIA_DEL_NUCLEO)
-
-# I percorsi che il perimetro deve contenere comunque: sono il codice che la
-# misura attraversa e gli input che ce la portano. Un perimetro ridotto a
-# `Cargo.lock` renderebbe la misura eterna.
-PERIMETRO_OBBLIGATORIO = frozenset(
-    {
-        "Cargo.lock",
-        "crates/driver-shp/src",
-        "fuzz/Cargo.toml",
-        "fuzz/fuzz_targets",
-        "fuzz/seeds/shp_reader",
-    }
-)
 
 
 class RegistroMalformato(Exception):
@@ -119,7 +179,8 @@ class RegistroMalformato(Exception):
 # --- il registro ------------------------------------------------------------
 
 
-def leggi_registro(percorso: Path = REGISTRO) -> dict[str, Any]:
+def leggi_registro(bersaglio: Bersaglio) -> dict[str, Any]:
+    percorso = bersaglio.registro
     try:
         documento = json.loads(percorso.read_text(encoding="utf-8"))
     except FileNotFoundError as errore:
@@ -131,7 +192,9 @@ def leggi_registro(percorso: Path = REGISTRO) -> dict[str, Any]:
     return documento
 
 
-def requisiti(registro: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+def requisiti(
+    bersaglio: Bersaglio, registro: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[str]]:
     """`(requisiti, errori)`: le due famiglie unite, con la loro forma verificata."""
     errori: list[str] = []
     uniti: list[dict[str, Any]] = []
@@ -174,7 +237,7 @@ def requisiti(registro: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]
             "e il conteggio non se ne accorge"
         )
 
-    senza = sorted(NUCLEO_OBBLIGATORIO - set(identita))
+    senza = sorted(bersaglio.nucleo - set(identita))
     if senza:
         errori.append(
             f"requisiti del nucleo assenti dal registro: {senza}. Sono la "
@@ -186,7 +249,7 @@ def requisiti(registro: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]
     spostati = sorted(
         f"{identita} e' dichiarato fra le «{per_identita[identita]}», atteso fra "
         f"le «{famiglia}»"
-        for identita, famiglia in FAMIGLIA_DEL_NUCLEO.items()
+        for identita, famiglia in bersaglio.famiglia_del_nucleo.items()
         if identita in per_identita and per_identita[identita] != famiglia
     )
     errori.extend(
@@ -196,11 +259,18 @@ def requisiti(registro: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]
     )
 
     dichiarato = registro.get("nucleo")
-    if not isinstance(dichiarato, list) or set(dichiarato) != NUCLEO_OBBLIGATORIO:
+    if not isinstance(dichiarato, list) or set(dichiarato) != bersaglio.nucleo:
         errori.append(
             "`nucleo` del registro diverso da quello che il gate pretende. Il "
             "registro lo scrive per chi legge, il gate lo conosce per non "
             "dipendere da chi lo scrive: quando divergono, uno dei due mente."
+        )
+
+    if registro.get("target") != bersaglio.nome:
+        errori.append(
+            f"il registro dichiara il target «{registro.get('target')}», il gate "
+            f"lo ha aperto come «{bersaglio.nome}». Un registro letto per il "
+            "bersaglio sbagliato verificherebbe un formato a nome di un altro."
         )
 
     return uniti, errori
@@ -209,7 +279,9 @@ def requisiti(registro: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]
 # --- il perimetro -----------------------------------------------------------
 
 
-def percorsi_del_perimetro(registro: dict[str, Any]) -> tuple[list[str], list[str]]:
+def percorsi_del_perimetro(
+    bersaglio: Bersaglio, registro: dict[str, Any]
+) -> tuple[list[str], list[str]]:
     perimetro = registro.get("perimetro")
     if not isinstance(perimetro, dict):
         return [], ["`perimetro` assente: senza, la misura non scadrebbe mai"]
@@ -220,7 +292,7 @@ def percorsi_del_perimetro(registro: dict[str, Any]) -> tuple[list[str], list[st
         return [], ["`perimetro.percorsi` non e' un elenco di percorsi"]
 
     errori: list[str] = []
-    senza = sorted(PERIMETRO_OBBLIGATORIO - set(percorsi))
+    senza = sorted(bersaglio.perimetro_obbligatorio - set(percorsi))
     if senza:
         errori.append(
             f"perimetro senza {senza}: sono il codice che la misura attraversa e "
@@ -351,7 +423,9 @@ def _righe_del_file(coperte: dict[str, dict[int, int]], relativo: str) -> dict[i
     return candidati[0]
 
 
-def riga_dell_ancora(relativo: str, ancora: str, strumentate: dict[int, int]) -> tuple[int | None, list[str]]:
+def riga_dell_ancora(
+    relativo: str, ancora: str, strumentate: dict[int, int]
+) -> tuple[int | None, list[str]]:
     """La riga **strumentata** che contiene l'ancora, se e' una sola.
 
     Le righe di un `mod tests` non compaiono qui: il binario di fuzzing non le
@@ -386,10 +460,10 @@ def riga_dell_ancora(relativo: str, ancora: str, strumentate: dict[int, int]) ->
 
 
 def osserva(
-    registro: dict[str, Any], export: dict[str, Any], lcov: str
+    bersaglio: Bersaglio, registro: dict[str, Any], export: dict[str, Any], lcov: str
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Che cosa la misura dice di ciascun requisito. Nessun giudizio, qui."""
-    voci, errori = requisiti(registro)
+    voci, errori = requisiti(bersaglio, registro)
     if errori:
         return [], errori
 
@@ -435,9 +509,11 @@ def osserva(
 # --- la verifica ------------------------------------------------------------
 
 
-def verifica(registro: dict[str, Any], misura: dict[str, Any]) -> list[str]:
-    voci, errori = requisiti(registro)
-    percorsi, problemi = percorsi_del_perimetro(registro)
+def verifica(
+    bersaglio: Bersaglio, registro: dict[str, Any], misura: dict[str, Any]
+) -> list[str]:
+    voci, errori = requisiti(bersaglio, registro)
+    percorsi, problemi = percorsi_del_perimetro(bersaglio, registro)
     errori.extend(problemi)
     if errori:
         return errori
@@ -464,7 +540,7 @@ def verifica(registro: dict[str, Any], misura: dict[str, Any]) -> list[str]:
             f"impronta del perimetro diversa: la misura dice "
             f"«{misura.get('impronta_perimetro')}», il working tree "
             f"«{attesa}». Il codice che il target attraversa e' cambiato dopo "
-            "la misura: va rifatta con scripts/fuzz-profondita-shp.sh."
+            f"la misura: va rifatta con `scripts/fuzz-profondita.sh {bersaglio.nome}`."
         )
 
     osservazioni = misura.get("requisiti")
@@ -516,9 +592,15 @@ def verifica(registro: dict[str, Any], misura: dict[str, Any]) -> list[str]:
 # --- i due modi -------------------------------------------------------------
 
 
-def registra(export_json: Path, lcov_file: Path, uscita: Path, input_totali: int) -> int:
-    registro = leggi_registro()
-    percorsi, problemi = percorsi_del_perimetro(registro)
+def registra(
+    bersaglio: Bersaglio,
+    export_json: Path,
+    lcov_file: Path,
+    uscita: Path,
+    input_totali: int,
+) -> int:
+    registro = leggi_registro(bersaglio)
+    percorsi, problemi = percorsi_del_perimetro(bersaglio, registro)
     if problemi:
         for messaggio in problemi:
             print(messaggio, file=sys.stderr)
@@ -526,7 +608,7 @@ def registra(export_json: Path, lcov_file: Path, uscita: Path, input_totali: int
 
     export = json.loads(export_json.read_text(encoding="utf-8"))
     lcov = lcov_file.read_text(encoding="utf-8")
-    osservazioni, errori = osserva(registro, export, lcov)
+    osservazioni, errori = osserva(bersaglio, registro, export, lcov)
     if errori:
         for messaggio in errori:
             print(messaggio, file=sys.stderr)
@@ -545,10 +627,11 @@ def registra(export_json: Path, lcov_file: Path, uscita: Path, input_totali: int
     documento = {
         "schema_version": 1,
         "descrizione": (
-            "Che cosa il replay deterministico del corpus di `shp_reader` ha "
-            "raggiunto. Prodotto da scripts/fuzz-profondita-shp.sh; letto da "
-            "scripts/check_profondita_fuzz_shp.py, che ne ricalcola l'impronta "
-            "del perimetro e rifiuta una misura invecchiata."
+            f"Che cosa il replay deterministico dei semi di `{bersaglio.nome}` ha "
+            f"raggiunto. Prodotto da `scripts/fuzz-profondita.sh "
+            f"{bersaglio.nome}`; letto da scripts/check_profondita_fuzz.py, che "
+            "ne ricalcola l'impronta del perimetro e rifiuta una misura "
+            "invecchiata."
         ),
         "target": registro["target"],
         "corpus": {"input": input_totali},
@@ -578,13 +661,15 @@ def registra(export_json: Path, lcov_file: Path, uscita: Path, input_totali: int
 
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
+    argomenti.add_argument("bersaglio", choices=sorted(BERSAGLI), help="quale fuzz target")
     argomenti.add_argument("--registra", type=Path, help="l'export JSON di llvm-cov")
     argomenti.add_argument("--lcov", type=Path, help="il report lcov della stessa misura")
     argomenti.add_argument("--input", type=int, default=0, help="quanti input ha rigiocato")
     opzioni = argomenti.parse_args(argv)
+    bersaglio = BERSAGLI[opzioni.bersaglio]
 
     try:
-        registro = leggi_registro()
+        registro = leggi_registro(bersaglio)
     except RegistroMalformato as errore:
         print(str(errore), file=sys.stderr)
         return 1
@@ -595,12 +680,12 @@ def main(argv: list[str] | None = None) -> int:
         if not opzioni.lcov:
             print("--registra richiede anche --lcov", file=sys.stderr)
             return 2
-        return registra(opzioni.registra, opzioni.lcov, artefatto, opzioni.input)
+        return registra(bersaglio, opzioni.registra, opzioni.lcov, artefatto, opzioni.input)
 
     if not artefatto.exists():
         print(
             f"{registro.get('artefatto')}: misura di profondita' assente. Si "
-            "produce con scripts/fuzz-profondita-shp.sh.",
+            f"produce con `scripts/fuzz-profondita.sh {bersaglio.nome}`.",
             file=sys.stderr,
         )
         return 1
@@ -610,7 +695,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{registro.get('artefatto')}: non e' JSON leggibile ({errore})", file=sys.stderr)
         return 1
 
-    errori = verifica(registro, misura)
+    errori = verifica(bersaglio, registro, misura)
     for messaggio in errori:
         print(messaggio, file=sys.stderr)
     if errori:

@@ -487,6 +487,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "driver-filegdb"
+version = "1.0.1"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "driver-common",
+ "gdal",
+ "plenora-io-core",
+ "plenora-io-model",
+ "tempfile",
+]
+
+[[package]]
 name = "driver-geojson"
 version = "1.0.1"
 dependencies = [
@@ -726,6 +739,31 @@ dependencies = [
  "futures-task",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "gdal"
+version = "0.17.1"
+dependencies = [
+ "bitflags",
+ "chrono",
+ "gdal-sys",
+ "geo-types",
+ "libc",
+ "once_cell",
+ "semver",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "gdal-sys"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18ad5d608ee6726efcf6e1d91261eb6dec7da3ee7db6bda984cdfb8a7d65ebf9"
+dependencies = [
+ "libc",
+ "pkg-config",
+ "semver",
 ]
 
 [[package]]
@@ -1272,6 +1310,7 @@ dependencies = [
  "driver-common",
  "driver-csv",
  "driver-dxf",
+ "driver-filegdb",
  "driver-geojson",
  "driver-geoparquet",
  "driver-gpkg",

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 122,
+  "totale": 123,
   "per_crate": {
     "driver-common": {
       "conteggio": 4,
@@ -16,8 +16,8 @@
       "ragione": "classificazione CRS senza default operativo; terminazione parser; nome diagnostico; Z=0 soltanto per geometrie XY; assi OCS e scale di default definiti dal modello DXF; accounting spool fail-closed su overflow/null e dimensioni difensive `Unknown`; decisioni coperte dai test geometrici, limite e spill"
     },
     "driver-filegdb": {
-      "conteggio": 5,
-      "ragione": "path/stem di staging non semantici; un fallback `custom` è confinato al costruttore dei test"
+      "conteggio": 6,
+      "ragione": "path/stem di staging non semantici; un fallback `custom` è confinato al costruttore dei test; dal 2026-08-24 anche `unwrap_or_else(|errore| panic!(...))` nel lettore della fixture del target `filegdb_reader`, che e' il modo in cui quel modulo di test dice «questa fixture doveva esserci» -- non una degradazione a un default, e la stessa forma gia' registrata per driver-common, driver-shp e plenora-io-cli"
     },
     "driver-geojson": {
       "conteggio": 4,

@@ -93,10 +93,27 @@ jobs:
       # gira solo la sua lettura, che ricalcola l'impronta del perimetro e
       # diventa rossa appena il codice attraversato cambia senza che la misura
       # sia stata rifatta.
-      - name: Verify the shapefile reader is reached by its fuzz target
+      - name: Verify each fuzz target reaches the format it claims
         run: |
-          python3 -m unittest scripts.test_check_profondita_fuzz_shp
-          python3 scripts/check_profondita_fuzz_shp.py
+          python3 -m unittest scripts.test_check_profondita_fuzz
+          python3 scripts/check_profondita_fuzz.py shp_reader
+          python3 scripts/check_profondita_fuzz.py filegdb_reader
+      # La fixture FileGDB e i semi che ne derivano. La **produzione** della
+      # fixture vuole GDAL e sta in scripts/genera-fixture-filegdb.sh; qui gira
+      # solo la rilettura, che costa millisecondi e non pretende la toolchain.
+      - name: Verify the FileGDB fixture and its seeds
+        run: |
+          python3 -m unittest scripts.test_genera_semi_filegdb
+          python3 scripts/genera_fixture_filegdb.py --verifica
+          python3 scripts/genera_semi_filegdb.py --verifica
+      # Il confine di AddressSanitizer nel target FileGDB. La **misura** vuole
+      # il binario strumentato e sta in scripts/asan-filegdb.sh; qui gira solo
+      # la sua rilettura, che pretende che i numeri raccontino il confine che la
+      # prosa descrive -- il nostro codice strumentato, GDAL no.
+      - name: Verify the measured AddressSanitizer boundary for FileGDB
+        run: |
+          python3 -m unittest scripts.test_check_asan_filegdb
+          python3 scripts/check_asan_filegdb.py
       - name: Verify exact dependency pins
         run: python3 scripts/check_dependency_pins.py
       # I pin di toolchain sono replicati come letterali in sei posti, perche'

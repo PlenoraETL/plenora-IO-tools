@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 91,36% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
-| blocchi | 8 |
+| blocchi | 7 |
 | S9, qualificato su | `67fb4ce` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -63,7 +63,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 | Blocco | Sintesi |
 |---|---|
 | `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
-| `fuzz.filegdb` | spike di fattibilità non eseguito |
 | `wire.loss-report` | contratto non ratificato |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
 | `lotto.s10` | validazione completa di GeoParquet 1.1 non aperta |
@@ -145,7 +144,7 @@ per cui il blocco è rimasto aperto mentre `shp_wkb` esisteva.
 Il target `shp_reader` legge il formato. Che lo legga davvero **non** è dedotto
 dall'assenza di crash — un bundle rifiutato all'apertura non fa crashare niente,
 ed è indistinguibile da uno letto per intero: lo dice una misura di copertura del
-replay deterministico, verificata da `scripts/check_profondita_fuzz_shp.py`
+replay deterministico, verificata da `scripts/check_profondita_fuzz.py`
 contro i requisiti di
 [`assurance/registries/profondita-fuzz-shapefile.json`](../assurance/registries/profondita-fuzz-shapefile.json).
 Sono raggiunti l'apertura del driver, l'inferenza dello schema, l'intestazione
@@ -193,6 +192,34 @@ può ancora essere rifiutato dal parsing, ed è giusto così. Garantisce che il
 rifiuto sia un `Err`. Il costo è una lettura in più dell'intestazione e della
 catena dei record; la scansione dei valori tocca solo i campi data, che sono
 l'unico tipo il cui **contenuto** può fermare il lettore.
+
+**Spike FileGDB.** Dei due esiti ammessi — target reale, oppure impossibilità
+tecnica dimostrata — l'esito è il **primo**. `filegdb_reader` attraversa
+l'entry point con `gdal-backend`, il catalogo, lo schema e le righe; dodici
+requisiti di profondità sono raggiunti dai soli semi versionati.
+
+Un FileGDB non è un file ma una **directory** di tabelle che si citano per
+GUID, e il formato è proprietario: costruirne uno da un blob significherebbe
+riscrivere `OpenFileGDB` e produrre file validi rispetto alla nostra idea del
+formato invece che a quella di GDAL. Il target parte perciò da una fixture
+**vera**, prodotta da `ogr2ogr` da un GeoJSON versionato, e ne sostituisce una
+parte per volta. La riproducibilità della fixture non è dichiarata ma
+**dimostrata**: rigenerandola due volte, gli unici byte che cambiano sono i tre
+GUID che GDAL conia per il dataset, e la tolleranza del gate è esattamente
+quell'insieme — un byte stabile e diverso è rosso.
+
+Il limite va detto con la stessa precisione del risultato, ed è misurato in
+[`assurance/asan-filegdb.json`](../assurance/asan-filegdb.json): `libgdal.so` è
+di sistema e **non strumentata**. Un solo modulo porta contatori, zero file
+C/C++ compaiono nella copertura. AddressSanitizer copre per intero il nostro
+codice e mantiene l'intercettazione dell'allocatore al confine; **non** rileva
+gli accessi interni a GDAL, e il fuzzer non è guidato da ciò che accade oltre.
+Una campagna verde dice che il percorso Rust regge input ostili e che GDAL non è
+stato portato a un crash osservabile — non che GDAL sia stato esplorato.
+
+`fuzz.filegdb-confine-asan` tiene quel confine **gated**: se un giorno GDAL
+fosse costruita con la strumentazione, il gate diventerebbe rosso e la prosa
+dovrebbe cambiare con il fatto, invece di sopravvivergli.
 
 ### La candidate `1.0.1` non qualifica HEAD
 
@@ -242,21 +269,7 @@ siano raggiungibili**: in un gruppo su tre affrontati finora, un solo ramo su
 tre lo era. Quella determinazione non si parallelizza e non si fa leggendo i
 commenti.
 
-### 2. Spike FileGDB bounded
-
-**Criterio di uscita.** Due esiti sono ammessi, e nessun terzo:
-
-1. un fuzz target reale per il percorso FileGDB;
-2. **impossibilità tecnica dimostrata**, con eccezione esplicita e una suite
-   compensativa di fixture ostili nella matrice `gdal-backend`.
-
-Lo spike è *bounded*: se non converge a uno dei due esiti, il risultato è il
-secondo con la dimostrazione, non un rinvio.
-
-**Blocco rimosso.** L'unico driver che dipende da una libreria C esterna smette
-di essere l'unico senza copertura di fuzzing né compensazione dichiarata.
-
-### 3. Ratifica e implementazione di `LossReport`
+### 2. Ratifica e implementazione di `LossReport`
 
 **Criterio di uscita.** Le cinque decisioni sono ratificate e implementate:
 struttura delle categorie, limiti — cardinalità, byte per stringa, byte totali —,
@@ -269,7 +282,7 @@ richiede una nuova versione.
 **Blocco rimosso.** L'ultima superficie pubblica senza contratto ratificato ne
 acquista uno. Vedi [PRODUCT.md § LossReport](PRODUCT.md#lossreport--non-ratificato).
 
-### 4. S10, S11, S12
+### 3. S10, S11, S12
 
 | Lotto | Perimetro |
 |---|---|
@@ -284,7 +297,7 @@ livello 2 e la propria evidenza.
 rimuove l'ultima asimmetria fra i formati: oggi WKT e GeoJSON hanno tetti, ma
 non una capability dichiarata che li renda verificabili dall'esterno.
 
-### 5. Qualifica cross-component
+### 4. Qualifica cross-component
 
 **Criterio di uscita.** La catena `IO-tools → data-tools → database-tools` è
 qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma,
@@ -298,7 +311,7 @@ contiene né esegue test che compilino gli altri due componenti. La definizione
 Resta distinta dalla readiness del componente: nessuna delle due implica
 l'altra.
 
-### 6. Decisione finale di rilascio
+### 5. Decisione finale di rilascio
 
 **Criterio di uscita.** Tutti i punti precedenti chiusi;
 `check_release_contract.py --release` verde, cioè nessun invariante
