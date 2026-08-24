@@ -3447,6 +3447,23 @@ mod sonde_del_fuzzing {
         let mut lungo = archivio;
         lungo.push(0);
         assert!(__fuzz_parti_della_fixture(&lungo).is_none());
+
+        // Un nome di parte che **risale** la directory. E' il caso che la
+        // prima stesura accettava, perche' `".."` e' fatto di soli caratteri
+        // ammessi, ed e' il solo per cui questa funzione guarda il nome: il
+        // nome finisce in un `join`, e da li' si scriverebbe fuori dalla
+        // `.gdb`. Il gemello Python ha la sua sonda; questa mancava, e la
+        // riga di rifiuto restava l'unica difesa di questo ramo mai eseguita.
+        let mut ostile = b"PLENORA-GDB-FIXTURE-1\n".to_vec();
+        ostile.extend_from_slice(&1_u32.to_le_bytes());
+        ostile.extend_from_slice(&2_u16.to_le_bytes());
+        ostile.extend_from_slice(b"..");
+        ostile.extend_from_slice(&1_u32.to_le_bytes());
+        ostile.push(b'x');
+        assert!(
+            __fuzz_parti_della_fixture(&ostile).is_none(),
+            "un nome di parte che risale la directory non e' un nome di parte"
+        );
     }
 
     /// Un archivio che dichiara **zero** parti non e' una `.gdb` vuota.

@@ -5,8 +5,8 @@
   "corpus": {
     "input": 21
   },
-  "impronta_perimetro": "a09fbde80e9fc6253ccc0b57884a781ca259306a42420cd58553c24d6e8e4f75",
-  "revisione_di_misura": "11800b02277c6533e9028daa22235147f9b605c0",
+  "impronta_perimetro": "39590fe826979907ac662e142955849033f03bff1df2c6e6fe2e4c6c8b44fe55",
+  "revisione_di_misura": "f418951dfe3502cc02f4ab7602efa6691cb877d7",
   "nota_sulla_revisione": "informativa: il commit che pubblica questa misura ne ha per forza un'altra. A legare la misura all'albero e' l'impronta del perimetro, non questo campo.",
   "requisiti": [
     {
