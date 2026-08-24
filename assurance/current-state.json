@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "2ba2f51",
+      "sha": "67fb4ce",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "2ba2f51",
+    "sha": "67fb4ce",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 44097,
+      "replay_input": 44778,
       "replay_target": 14,
       "replay_crash": 0,
       "smoke_target_eseguiti": 14,
@@ -32,26 +32,26 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.04,
-      "lcov_righe_coperte": 27551,
-      "lcov_righe_strumentate": 32020,
-      "cargo_lines_percentuale": 84.14,
+      "lcov_percentuale": 86.13,
+      "lcov_righe_coperte": 27609,
+      "lcov_righe_strumentate": 32054,
+      "cargo_lines_percentuale": 84.23,
       "soglia": 80.0,
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
       "baseline": "13c26c4",
-      "esito": "90,66%",
-      "ragione": "717 righe eseguibili cambiate, 650 coperte. Le 67 scoperte sono di tre famiglie: righe di messaggio dentro `assert!` che passano; i rami di rifiuto della nuova prevalidazione Shapefile, che nessun test unitario raggiunge e che il fuzzer attraversa a ogni campagna -- per i requisiti dichiarati la prova e' in `assurance/profondita-fuzz-shapefile.json`, 33 su 33; e il ramo dei multipunto, per cui **non esiste un seme**. L'ultima e' una lacuna vera, non un artefatto della misura."
+      "esito": "91,36%",
+      "ragione": "752 righe eseguibili cambiate, 687 coperte. Le 65 scoperte sono di due famiglie: ventuno righe di messaggio dentro `assert!` che passano, e i rami di rifiuto della prevalidazione Shapefile, che nessun test unitario raggiunge e che il fuzzer attraversa a ogni campagna. Per i requisiti dichiarati la prova e' in `assurance/profondita-fuzz-shapefile.json`, 35 su 35."
     },
-    "evidenza": "assurance/evidence/checkpoint-2ba2f51.json"
+    "evidenza": "assurance/evidence/checkpoint-67fb4ce.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "2ba2f51"
+      "qualificato_su": "67fb4ce"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
