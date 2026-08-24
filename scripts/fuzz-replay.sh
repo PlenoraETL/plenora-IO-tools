@@ -67,7 +67,7 @@ fi
 
 # `cargo fuzz build` senza nome costruisce **tutti** i target, anche quando ne
 # e' stato richiesto un sottoinsieme. La riga lo dice invece di annunciare il
-# numero del sottoinsieme mentre ne costruisce tredici.
+# numero del sottoinsieme mentre li costruisce tutti.
 echo "=== build strumentata (tutti i ${#dichiarati[@]} target dichiarati) ==="
 if ! cargo +"${toolchain}" fuzz build "${options[@]}"; then
     echo "build strumentata fallita" >&2

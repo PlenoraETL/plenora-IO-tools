@@ -11,7 +11,7 @@
 # **staccato**.
 #
 # La differenza conta quando il client ha un tetto di durata piu' corto della
-# corsa. Uno smoke da tredici target a sessanta secondi l'uno, piu' la build
+# corsa. Uno smoke da quattordici target a sessanta secondi l'uno, piu' la build
 # strumentata, supera i dieci minuti; un replay dell'intero corpus li ha
 # superati due volte. In quei casi il client viene interrotto, e con lui il
 # processo `docker run` in primo piano: il container muore, l'esecuzione e'

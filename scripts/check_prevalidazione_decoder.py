@@ -80,6 +80,27 @@ SORVEGLIATI = (
         "totale del chunk: senza prevalidazione l'esito e' un abort del "
         "processo, che nessun catch_unwind vede (FZ-0.2)",
     ),
+    Sorvegliato(
+        "ShapeReader::from_path",
+        "valida_struttura_shp",
+        ("crates/driver-shp/src/lib.rs",),
+        "`shapefile` raddoppia dentro un `i32` le lunghezze dichiarate "
+        "nell'header e gli scostamenti dell'indice, e prenota un vettore grande "
+        "quanto il conteggio di punti di un record senza legarlo alla "
+        "dimensione del record: su un file ostile l'esito e' un panico o "
+        "un'allocazione che il processo non sopravvive",
+    ),
+    Sorvegliato(
+        "dbase::Reader::from_path",
+        "valida_intestazione_dbf",
+        ("crates/driver-shp/src/lib.rs",),
+        "`dbase::File::open` ricava il numero di campi con una sottrazione non "
+        "controllata sull'offset del primo record, e per i file dichiarati "
+        "Visual FoxPro ne fa una seconda sui 263 byte di backlink; sotto la "
+        "soglia la prima e' un `attempt to subtract with overflow` e la seconda "
+        "un `panic!(\"Invalid file\")` scritto a mano. Trovato dal target "
+        "`shp_reader` alla sua prima campagna",
+    ),
 )
 
 # Le crate che possono legittimamente nominare i decoder sorvegliati. Un uso
@@ -88,6 +109,8 @@ CRATE_AMMESSE = {
     "FileReader::try_new": ("crates/driver-ipc",),
     "ParquetRecordBatchReaderBuilder::try_new": ("crates/driver-geoparquet",),
     "SerializedPageReader::new": ("crates/driver-geoparquet",),
+    "ShapeReader::from_path": ("crates/driver-shp",),
+    "dbase::Reader::from_path": ("crates/driver-shp",),
 }
 
 INIZIO_FUNZIONE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+(\w+)")

@@ -72,6 +72,17 @@ test = false
 doc = false
 bench = false
 
+# Il reader Shapefile **reale**: `shp_wkb` converte fra WKB e forme ESRI in
+# memoria e non apre un file, non legge un header e non interpreta una tabella
+# DBF. Sono due superfici diverse, e presentare la prima come copertura della
+# seconda e' l'affermazione che `fuzz.reader-shapefile` esisteva per rifiutare.
+[[bin]]
+name = "shp_reader"
+path = "fuzz_targets/shp_reader.rs"
+test = false
+doc = false
+bench = false
+
 [[bin]]
 name = "dxf_reader"
 path = "fuzz_targets/dxf_reader.rs"

@@ -196,6 +196,25 @@ set -eu
 # migra ne avra' bisogno, e il registro non deve crescere di undici voci per
 # una conversione che non puo' fallire.
 # Nessuna revisione H-01 dovuta.
+# Il 2026-08-24, il target `shp_reader` porta driver-shp da 3 a 6 (totale
+# 119 -> 122). Tre occorrenze, e nessuna e' una degradazione a un default:
+#
+#   1. `unwrap_or_else(|errore| panic!(...))` nel lettore dei semi del modulo di
+#      test: il modo in cui quel file dice «questo seme doveva esserci», con il
+#      percorso dentro il messaggio perche' un seme assente e un seme
+#      illeggibile si diagnosticano diversamente. E' la stessa forma gia'
+#      registrata per driver-common e plenora-io-cli;
+#   2. e 3. due `position(...).unwrap_or(len)` in `parte_utile_del_campo`, che
+#      ritaglia un campo DBF come lo ritaglia `dbase`. Qui l'assenza del
+#      carattere cercato **e'** la risposta: nessun NUL vuol dire che il campo
+#      arriva in fondo, nessun byte diverso da spazio vuol dire che e' vuoto.
+#      Un `match` direbbe la stessa cosa in quattro righe.
+#
+# La stessa correzione ne ha **tolta** una: `leggi(...).unwrap_or(0)` in
+# `valida_conteggi_del_record` metteva uno zero al posto di un conteggio non
+# letto, ed era davvero un default. Ora entrambi i conteggi sono `Option`, e se
+# uno manca il record e' incompleto -- che e' un caso, non un valore.
+# Nessuna revisione H-01 dovuta.
 
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #

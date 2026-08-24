@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 119,
+  "totale": 122,
   "per_crate": {
     "driver-common": {
       "conteggio": 4,
@@ -40,8 +40,8 @@
       "ragione": "nome diagnostico; eterogeneità dimensionale → `Unknown`; due fallback rendono leggibile con escape ASCII il **testo estratto** quando non è UTF-8 valido — non i messaggi d'errore, che dal 2026-08-20 non portano più nulla di letto dal file; geometrie vuote sono rifiutate"
     },
     "driver-shp": {
-      "conteggio": 3,
-      "ragione": "nome diagnostico; stringa vuota usata solo dalla classificazione di una definizione opzionale, non come CRS operativo"
+      "conteggio": 6,
+      "ragione": "nome diagnostico; stringa vuota usata solo dalla classificazione di una definizione opzionale, non come CRS operativo; dal 2026-08-24 anche `unwrap_or_else(|errore| panic!(...))` nel lettore dei semi di `shp_reader`, che e' il modo in cui quel modulo di test dice «questo seme doveva esserci», e due `position(...).unwrap_or(len)` in `parte_utile_del_campo`, dove l'assenza del carattere cercato **e'** la risposta: nessun NUL vuol dire che il campo arriva in fondo, nessun byte diverso da spazio vuol dire che e' vuoto. Nessuna delle tre e' una degradazione a un default"
     },
     "driver-xls": {
       "conteggio": 2,

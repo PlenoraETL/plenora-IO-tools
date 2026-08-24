@@ -74,9 +74,27 @@ fn valida_bit_width_dizionario(sorgente: &Arc<File>, chunk: &ColumnChunkMetaData
 }
 """
 
+SHP_CONFORME = """
+fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometryInfo> {
+    valida_struttura_shp(path)?;
+    let mut reader = ShapeReader::from_path(path)?;
+    Ok(reader.header())
+}
+
+fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
+    let path = shp_path.with_extension("dbf");
+    valida_intestazione_dbf(&path)?;
+    let decoded_names = shapefile::dbase::Reader::from_path(&path)
+        .map_err(|_| err(&PublicMessage::Curated("apertura dello schema DBF fallita")))?
+        .fields();
+    Ok(decoded_names)
+}
+"""
+
 ALBERO = {
     "crates/driver-ipc/src/lib.rs": IPC_CONFORME,
     "crates/driver-geoparquet/src/lib.rs": PARQUET_CONFORME,
+    "crates/driver-shp/src/lib.rs": SHP_CONFORME,
 }
 
 

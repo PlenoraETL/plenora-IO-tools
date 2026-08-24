@@ -46,7 +46,7 @@ use plenora_io_core::loss::{LossExample, LossReport};
 use plenora_io_core::publish::{
     create_staged_dir, publish_dir_atomic, publish_files_ordered_limited,
 };
-use plenora_io_core::request::{ReadRequest, ReadScope};
+use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
 use plenora_io_core::{
     validate_write, with_write_validation, write_row_rejection, AttributeWriteSupport,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
@@ -80,9 +80,43 @@ const FIRST_F64_INTEGER_WITHOUT_UNIT_PRECISION: f64 = 9_007_199_254_740_992.0;
 const DBF_HEADER_SIZE: usize = 32;
 const DBF_FIELD_DESCRIPTOR_SIZE: usize = 32;
 const DBF_HEADER_TERMINATOR_SIZE: usize = 1;
+/// Il byte di flag di cancellazione che apre ogni record.
+const DBF_DELETION_FLAG_SIZE: usize = 1;
+/// Il byte che chiude l'elenco dei descrittori. `dbase` lo pretende con un
+/// `debug_assert_eq!`, che sparisce in release: da noi e' un rifiuto, cosi'
+/// l'esito non dipende dalla configurazione di build.
+const DBF_HEADER_TERMINATOR: u8 = 0x0d;
+/// L'intestazione DBF come posizione di ricerca: i descrittori cominciano li'.
+const SHP_HEADER_SIZE_DBF: u64 = 32;
 #[cfg(test)]
 const DBF_FIELD_NAME_SIZE: usize = 11;
 const DBF_VISUAL_FOXPRO_VERSION: u8 = 0x30;
+/// I byte di versione che **`dbase`** tratta come Visual `FoxPro`.
+///
+/// Sono tre valori e non un intervallo: e' la tabella di `Version::from(u8)`
+/// della crate esterna, e derivarla da una regola significherebbe indovinare
+/// che cosa un'altra libreria fara' di un byte. `DBF_VISUAL_FOXPRO_VERSION`
+/// resta il solo `0x30` perche' descrive il file che **noi** scriviamo.
+const DBF_VERSIONI_VISUAL_FOXPRO: [u8; 3] = [0x30, 0x31, 0x32];
+const SHP_HEADER_SIZE: usize = 100;
+/// Le stesse misure in `i64`, perche' l'aritmetica di validazione ci lavora
+/// dentro: convertirle a ogni uso aggiungerebbe conversioni fallibili a valori
+/// che sono costanti di formato.
+const SHP_HEADER_BYTE: i64 = 100;
+const SHP_HEADER_PAROLE: i64 = 50;
+const SHP_RECORD_HEADER_BYTE: i64 = 8;
+const SHX_RECORD_BYTE: i64 = 8;
+/// Le lunghezze dello Shapefile sono in **parole da 16 bit**, e `shapefile` le
+/// riporta in byte moltiplicandole per due dentro un `i32`. Oltre questa soglia
+/// il prodotto trabocca: e' il panico che il target ha trovato sull'indice.
+const SHP_MAX_PAROLE: i64 = (i32::MAX as i64) / 2;
+/// Il contenuto minimo di un record: il solo tag di tipo, quattro byte.
+const SHP_MIN_PAROLE_DI_RECORD: i64 = 2;
+/// I byte piu' pochi che un elemento dichiarato puo' occupare nel record:
+/// quattro per un indice di parte, sedici per un punto XY. Servono a limitare
+/// **cio' che viene prenotato** a cio' che il record puo' contenere.
+const SHP_BYTE_PER_PARTE: i64 = 4;
+const SHP_BYTE_PER_PUNTO: i64 = 16;
 const DBF_VISUAL_FOXPRO_BACKLINK_SIZE: usize = 263;
 const DEFAULT_ROW_DIAGNOSTICS_EXAMPLES_LIMIT: u64 = 64;
 const MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT: u64 = 64;
@@ -1525,8 +1559,654 @@ fn leggi_descrittori_dbf(
     Ok((fields, offset, exact_integer_count))
 }
 
+/// I valori dichiarati dentro un record, e quanto spazio pretendono.
+///
+/// Il layout Shapefile ha tre sole forme: nessun conteggio (i punti singoli),
+/// il solo numero di punti (i multipunto), il numero di parti **e** quello di
+/// punti (polilinee, poligoni, multipatch). I conteggi stanno sempre agli
+/// stessi scostamenti, dopo il tag e il riquadro, e questo permette di
+/// verificarli senza riscrivere il decoder di quattordici tipi.
+enum ConteggiDelRecord {
+    Nessuno,
+    SoloPunti,
+    PartiEPunti,
+}
+
+/// Lo scostamento del primo conteggio: un `i32` di tipo piu' quattro `f64` di
+/// riquadro.
+const SHP_SCOSTAMENTO_CONTEGGI: usize = 4 + 8 * 4;
+
+/// Quanto basta leggere di un record per verificarne i conteggi: il tag, il
+/// riquadro e i due conteggi. Il resto lo legge il decoder.
+const SHP_TESTA_DEL_CONTENUTO: usize = SHP_SCOSTAMENTO_CONTEGGI + 8;
+const SHP_TESTA_DEL_CONTENUTO_BYTE: i64 = 44;
+/// Lo stesso scostamento in `i64`: la testa fissa che precede i conteggi.
+const SHP_SCOSTAMENTO_CONTEGGI_BYTE: i64 = 36;
+
+const fn conteggi_attesi(tag: i32) -> ConteggiDelRecord {
+    match tag {
+        // Multipoint, MultipointZ, MultipointM.
+        8 | 18 | 28 => ConteggiDelRecord::SoloPunti,
+        // Polyline, Polygon e le loro varianti Z e M, piu' Multipatch.
+        3 | 5 | 13 | 15 | 23 | 25 | 31 => ConteggiDelRecord::PartiEPunti,
+        // Due casi con la stessa risposta, e vale la pena dire quali sono.
+        // NullShape, Point, PointM e PointZ hanno dimensione fissa e non
+        // dichiarano conteggi. Un tag che non conosciamo lo rifiuta il decoder
+        // con un errore tipizzato: pretendere qui di sapere che cosa contenga
+        // sarebbe indovinare, e rifiutarlo di qui toglierebbe al fuzzer un ramo
+        // di errore legittimo.
+        _ => ConteggiDelRecord::Nessuno,
+    }
+}
+
+/// Il record dichiara piu' elementi di quanti ne stiano nel record stesso?
+///
+/// `shapefile` prenota `Vec::with_capacity(num_points as usize)` **prima** di
+/// leggere i punti, e non lega quel numero alla dimensione del record: un
+/// record da cento byte che ne dichiara due miliardi fa tentare una
+/// prenotazione da decine di gigabyte, e il processo muore per allocazione
+/// fallita invece di rifiutare il file. Un conteggio negativo diventa poi, via
+/// `as usize`, un numero enorme.
+///
+/// Il limite qui e' una condizione **necessaria**, non la dimensione esatta:
+/// ogni parte occupa almeno quattro byte e ogni punto almeno sedici. Basta a
+/// legare cio' che viene prenotato a cio' che il file contiene davvero, e non
+/// richiede di conoscere il layout dei quattordici tipi.
+fn conteggi_del_record(contenuto: &[u8], byte_del_record: i64) -> Result<Option<(i64, i64)>> {
+    let Some(tag) = contenuto.get(..4) else {
+        return Ok(None);
+    };
+    let tag = i32::from_le_bytes([tag[0], tag[1], tag[2], tag[3]]);
+
+    let leggi = |scostamento: usize| -> Option<i64> {
+        let campo = contenuto.get(scostamento..scostamento + 4)?;
+        Some(i64::from(i32::from_le_bytes([
+            campo[0], campo[1], campo[2], campo[3],
+        ])))
+    };
+    // La testa fissa fa parte del record, e la sua dimensione dipende da quanti
+    // conteggi il tipo dichiara: quaranta byte per un multipunto, quarantaquattro
+    // per una polilinea. Contarla e' la differenza fra «gli elementi ci stanno»
+    // e «gli elementi ci stanno **dopo** cio' che li precede»: senza, un record
+    // da quarantaquattro byte che dichiara una parte passava, e la lettura
+    // dell'indice delle parti usciva dal record.
+    let (testa, parti, punti) = match conteggi_attesi(tag) {
+        ConteggiDelRecord::Nessuno => return Ok(None),
+        ConteggiDelRecord::SoloPunti => (
+            SHP_SCOSTAMENTO_CONTEGGI_BYTE + 4,
+            Some(0),
+            leggi(SHP_SCOSTAMENTO_CONTEGGI),
+        ),
+        ConteggiDelRecord::PartiEPunti => (
+            SHP_SCOSTAMENTO_CONTEGGI_BYTE + 8,
+            leggi(SHP_SCOSTAMENTO_CONTEGGI),
+            leggi(SHP_SCOSTAMENTO_CONTEGGI + 4),
+        ),
+    };
+    // Un record troppo corto per portare i propri conteggi va **rifiutato**, non
+    // lasciato passare.
+    //
+    // `read_shape_content` riceve la dimensione del record ma legge dal flusso:
+    // se i conteggi non stanno dentro il record, li legge dai byte che seguono,
+    // cioe' dal record successivo o da quel che c'e'. Un `Vec::with_capacity`
+    // grande quanto quel numero e' l'unica cosa che poi succede -- e' cosi' che
+    // una campagna ha chiesto quattro gigabyte per un file da trecento byte.
+    let (Some(parti), Some(punti)) = (parti, punti) else {
+        return Err(err(&PublicMessage::Curated(
+            "record Shapefile troppo corto per il tipo che dichiara",
+        )));
+    };
+
+    if parti < 0 || punti < 0 {
+        return Err(err(&PublicMessage::Curated(
+            "conteggio negativo dichiarato in un record Shapefile",
+        )));
+    }
+    let richiesti = punti
+        .checked_mul(SHP_BYTE_PER_PUNTO)
+        .and_then(|byte| byte.checked_add(parti.checked_mul(SHP_BYTE_PER_PARTE)?))
+        .and_then(|byte| byte.checked_add(testa));
+    match richiesti {
+        Some(byte) if byte <= byte_del_record => Ok(Some((parti, punti))),
+        _ => Err(err(&PublicMessage::Curated(
+            "record Shapefile che dichiara piu' elementi di quanti ne contenga",
+        ))),
+    }
+}
+
+/// L'indice delle parti: dove comincia ciascuna, in numeri di punto.
+///
+/// `PartIndexIter` prende la differenza fra due voci consecutive e la passa a
+/// `read_xy_in_vec_of` come numero di punti da leggere. Un indice che scende
+/// rende quella differenza negativa -- e c'e' un `debug_assert!` che lo dice,
+/// cioe' un panico sotto il fuzzer e niente in release, dove il numero negativo
+/// diventa enorme passando da `as usize`. Un indice che sale oltre il numero di
+/// punti dichiarato produce lo stesso effetto senza nemmeno l'asserzione.
+///
+/// La spec vuole l'indice non decrescente e dentro il numero di punti; qui si
+/// pretende esattamente quello.
+fn valida_indice_delle_parti(parti: &[u8], punti: i64) -> Result<()> {
+    let mut precedente = 0_i64;
+    for voce in parti.chunks_exact(4) {
+        let inizio = i64::from(i32::from_le_bytes([voce[0], voce[1], voce[2], voce[3]]));
+        if inizio < precedente || inizio > punti {
+            return Err(err(&PublicMessage::Curated(
+                "indice delle parti Shapefile che esce dai punti dichiarati",
+            )));
+        }
+        precedente = inizio;
+    }
+    Ok(())
+}
+
+/// Legge dal record quel tanto che serve a verificarlo, e dice quanti byte ha
+/// consumato: il chiamante salta il resto, che e' cio' che legge il decoder.
+fn valida_contenuto_del_record(lettore: &mut BufReader<File>, byte_del_record: i64) -> Result<i64> {
+    let da_leggere = byte_del_record.min(SHP_TESTA_DEL_CONTENUTO_BYTE);
+    // La stessa limatura in `usize`. Non e' un ripiego: il valore e' gia'
+    // limitato a quarantaquattro byte, e su una piattaforma dove `i64` non ci
+    // stesse la risposta giusta resterebbe quel massimo.
+    let quanti = usize::try_from(da_leggere).map_or(SHP_TESTA_DEL_CONTENUTO, |byte| {
+        byte.min(SHP_TESTA_DEL_CONTENUTO)
+    });
+    let mut testa = [0_u8; SHP_TESTA_DEL_CONTENUTO];
+    lettore.read_exact(&mut testa[..quanti]).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "record Shapefile troncato dentro il proprio contenuto",
+        ))
+    })?;
+
+    let Some((parti, punti)) = conteggi_del_record(&testa[..quanti], byte_del_record)? else {
+        return Ok(da_leggere);
+    };
+    if parti == 0 {
+        return Ok(da_leggere);
+    }
+
+    // `parti * 4` non supera la dimensione del record: lo ha appena verificato
+    // `conteggi_del_record`, ed e' cio' che rende questa lettura limitata dal
+    // file invece che da un numero dichiarato.
+    let byte_delle_parti = parti * SHP_BYTE_PER_PARTE;
+    let Ok(dimensione_indice) = usize::try_from(byte_delle_parti) else {
+        return Err(err(&PublicMessage::Curated(
+            "record Shapefile che dichiara piu' elementi di quanti ne contenga",
+        )));
+    };
+    let mut indice = vec![0_u8; dimensione_indice];
+    lettore.read_exact(&mut indice).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "record Shapefile troncato dentro il proprio contenuto",
+        ))
+    })?;
+    valida_indice_delle_parti(&indice, punti)?;
+    Ok(da_leggere + byte_delle_parti)
+}
+
+/// I byte utili dichiarati dall'header di un `.shp` o di un `.shx`.
+fn byte_utili_dichiarati(intestazione: &[u8; SHP_HEADER_SIZE], dimensione: u64) -> Result<i64> {
+    let dichiarate = i64::from(i32::from_be_bytes([
+        intestazione[24],
+        intestazione[25],
+        intestazione[26],
+        intestazione[27],
+    ]));
+    if !(SHP_HEADER_PAROLE..=SHP_MAX_PAROLE).contains(&dichiarate) {
+        return Err(err(&PublicMessage::Curated(
+            "lunghezza dichiarata nell'header Shapefile fuori intervallo",
+        )));
+    }
+    let byte = dichiarate * 2;
+    // Un file piu' grande di `i64::MAX` byte non esiste su nessun filesystem
+    // che ci interessa; se esistesse, sarebbe comunque piu' grande di qualunque
+    // lunghezza dichiarabile in `i32`, quindi il confronto passerebbe.
+    if let Ok(reale) = i64::try_from(dimensione) {
+        if byte > reale {
+            return Err(err(&PublicMessage::Curated(
+                "header Shapefile che dichiara piu' byte di quanti il file ne abbia",
+            )));
+        }
+    }
+    Ok(byte)
+}
+
+/// La catena dei record del `.shp`, e i conteggi che ciascuno dichiara.
+fn valida_geometrie_shp(path: &Path) -> Result<i64> {
+    let file =
+        File::open(path).map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
+    let dimensione = file
+        .metadata()
+        .map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?
+        .len();
+    let mut lettore = BufReader::new(file);
+    let mut intestazione = [0_u8; SHP_HEADER_SIZE];
+    lettore
+        .read_exact(&mut intestazione)
+        .map_err(|_| err(&PublicMessage::Curated("header Shapefile incompleto")))?;
+    let byte_utili = byte_utili_dichiarati(&intestazione, dimensione)?;
+
+    let mut posizione = SHP_HEADER_BYTE;
+    while posizione < byte_utili {
+        let mut testa_del_record = [0_u8; 8];
+        lettore.read_exact(&mut testa_del_record).map_err(|_| {
+            err(&PublicMessage::Curated(
+                "record Shapefile troncato prima della propria testa",
+            ))
+        })?;
+        let parole = i64::from(i32::from_be_bytes([
+            testa_del_record[4],
+            testa_del_record[5],
+            testa_del_record[6],
+            testa_del_record[7],
+        ]));
+        if !(SHP_MIN_PAROLE_DI_RECORD..=SHP_MAX_PAROLE).contains(&parole) {
+            return Err(err(&PublicMessage::Curated(
+                "lunghezza di un record Shapefile fuori intervallo",
+            )));
+        }
+        let byte_del_record = parole * 2;
+        if posizione + SHP_RECORD_HEADER_BYTE + byte_del_record > byte_utili {
+            return Err(err(&PublicMessage::Curated(
+                "record Shapefile che esce dai byte dichiarati nell'header",
+            )));
+        }
+
+        // Solo la testa del contenuto: tag, riquadro e conteggi. Il resto lo
+        // legge il decoder, ed e' cio' che questa verifica non deve rifare.
+        let letti = valida_contenuto_del_record(&mut lettore, byte_del_record)?;
+        let saltati = byte_del_record - letti;
+        if saltati > 0 {
+            lettore
+                .seek_relative(saltati)
+                .map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
+        }
+        posizione += SHP_RECORD_HEADER_BYTE + byte_del_record;
+    }
+    Ok(byte_utili)
+}
+
+/// La testa di un record, letta **dove l'indice manda**.
+///
+/// Verificare la catena sequenziale non basta quando c'e' un `.shx`: il lettore
+/// non la percorre, cerca. Uno scostamento che regge il raddoppio e sta dentro
+/// il file puo' comunque puntare in mezzo al contenuto di un altro record, dove
+/// otto byte qualunque diventano una testa di record e la lunghezza che ne
+/// esce torna a traboccare al raddoppio. E' il difetto che il target ha trovato
+/// dopo la prima correzione, ed e' la ragione per cui la verifica dell'indice
+/// legge il `.shp`.
+fn valida_record_indicizzato(
+    lettore: &mut BufReader<File>,
+    scostamento: i64,
+    parole_dichiarate: i64,
+) -> Result<()> {
+    let Ok(posizione) = u64::try_from(scostamento * 2) else {
+        return Err(err(&PublicMessage::Curated(
+            "voce dell'indice Shapefile fuori intervallo",
+        )));
+    };
+    lettore
+        .seek(SeekFrom::Start(posizione))
+        .map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?;
+
+    let mut testa = [0_u8; 8];
+    lettore.read_exact(&mut testa).map_err(|_| {
+        err(&PublicMessage::Curated(
+            "record Shapefile troncato prima della propria testa",
+        ))
+    })?;
+    let parole = i64::from(i32::from_be_bytes([testa[4], testa[5], testa[6], testa[7]]));
+    if parole != parole_dichiarate {
+        // La lunghezza sta scritta due volte, nell'indice e nel record. Quando
+        // divergono, il lettore ne usa una per cercare e l'altra per leggere.
+        return Err(err(&PublicMessage::Curated(
+            "lunghezza del record diversa da quella dichiarata nell'indice",
+        )));
+    }
+
+    valida_contenuto_del_record(lettore, parole * 2).map(|_| ())
+}
+
+/// L'indice e' facoltativo: senza, `shapefile` legge i record in sequenza. Con,
+/// ne usa gli scostamenti per cercare -- e li raddoppia dentro un `i32`.
+fn valida_indice_shx(path: &Path, shp_path: &Path, byte_utili_shp: i64) -> Result<()> {
+    let Ok(file) = File::open(path) else {
+        return Ok(());
+    };
+    let dimensione = file
+        .metadata()
+        .map_err(|_| err(&PublicMessage::Curated("indice Shapefile non valido")))?
+        .len();
+    let mut lettore = BufReader::new(file);
+    let mut intestazione = [0_u8; SHP_HEADER_SIZE];
+    lettore
+        .read_exact(&mut intestazione)
+        .map_err(|_| err(&PublicMessage::Curated("header dell'indice incompleto")))?;
+    let byte_utili = byte_utili_dichiarati(&intestazione, dimensione)?;
+
+    if (byte_utili - SHP_HEADER_BYTE) % SHX_RECORD_BYTE != 0 {
+        return Err(err(&PublicMessage::Curated(
+            "indice Shapefile di lunghezza non multipla di una voce",
+        )));
+    }
+
+    // Il `.shp` si apre una volta sola: ogni voce dell'indice ci fa una ricerca,
+    // e riaprirlo a ogni voce trasformerebbe una verifica in un costo.
+    let mut geometrie = BufReader::new(
+        File::open(shp_path).map_err(|_| err(&PublicMessage::Curated("shapefile non valido")))?,
+    );
+
+    let mut posizione = SHP_HEADER_BYTE;
+    while posizione < byte_utili {
+        let mut grezza = [0_u8; 8];
+        lettore
+            .read_exact(&mut grezza)
+            .map_err(|_| err(&PublicMessage::Curated("voce dell'indice troncata")))?;
+        let scostamento = i64::from(i32::from_be_bytes([
+            grezza[0], grezza[1], grezza[2], grezza[3],
+        ]));
+        let parole = i64::from(i32::from_be_bytes([
+            grezza[4], grezza[5], grezza[6], grezza[7],
+        ]));
+        if !(SHP_HEADER_PAROLE..=SHP_MAX_PAROLE).contains(&scostamento)
+            || !(SHP_MIN_PAROLE_DI_RECORD..=SHP_MAX_PAROLE).contains(&parole)
+        {
+            return Err(err(&PublicMessage::Curated(
+                "voce dell'indice Shapefile fuori intervallo",
+            )));
+        }
+        // Lo scostamento e' in parole e punta alla **testa** del record: il
+        // record occupa quattro parole di testa piu' la propria lunghezza.
+        if (scostamento + 4 + parole) * 2 > byte_utili_shp {
+            return Err(err(&PublicMessage::Curated(
+                "voce dell'indice Shapefile che punta fuori dal .shp",
+            )));
+        }
+        valida_record_indicizzato(&mut geometrie, scostamento, parole)?;
+        posizione += SHX_RECORD_BYTE;
+    }
+    Ok(())
+}
+
+/// La struttura di `.shp` e `.shx`, verificata **prima** di consegnarli a
+/// `shapefile`.
+///
+/// La crate tratta i valori dichiarati nel file come se venissero da un file
+/// che ha scritto lei: moltiplica per due lunghezze `i32` senza controllo,
+/// prenota vettori grandi quanto un conteggio dichiarato, e usa gli
+/// scostamenti dell'indice per cercare dentro il `.shp`. Su un file ostile
+/// l'esito e' un panico o un'allocazione fallita -- e sotto `libfuzzer-sys` un
+/// panico e' un `abort()` che nessun `catch_unwind` vede.
+///
+/// Non e' una convalida semantica: un file che passa di qui puo' ancora essere
+/// rifiutato dal decoder, ed e' giusto cosi'. Serve a garantire che il rifiuto
+/// sia un `Err`.
+fn valida_struttura_shp(shp_path: &Path) -> Result<()> {
+    let byte_utili = valida_geometrie_shp(shp_path)?;
+    valida_indice_shx(&shp_path.with_extension("shx"), shp_path, byte_utili)
+}
+
+/// La lunghezza minima che `dbase` legge da un campo, per tipo.
+///
+/// La crate dichiara queste dimensioni in `FieldType::size()` e **non le
+/// verifica**: legge comunque `field_bytes[0]` da un logico, o
+/// `field_bytes[..4]` da un intero. Un descrittore che dichiara meno byte fa
+/// uscire l'indice dalla fetta, e la fetta panica.
+const fn lunghezza_minima_del_campo(tipo: u8) -> Option<usize> {
+    match tipo {
+        b'L' => Some(1),
+        b'I' => Some(4),
+        // Date: otto cifre. Currency, Double e DateTime: otto byte.
+        b'D' | b'Y' | b'B' | b'T' => Some(8),
+        _ => None,
+    }
+}
+
+/// La parte "utile" di un campo, come la ritaglia `dbase`: si ferma al primo
+/// NUL e scarta gli spazi ai due capi.
+fn parte_utile_del_campo(byte: &[u8]) -> &[u8] {
+    let fino_al_nul = byte.iter().position(|b| *b == 0).unwrap_or(byte.len());
+    let dati = &byte[..fino_al_nul];
+    let inizio = dati.iter().position(|b| *b != b' ').unwrap_or(dati.len());
+    let fine = dati
+        .iter()
+        .rposition(|b| *b != b' ')
+        .map_or(inizio, |i| i + 1);
+    &dati[inizio..fine]
+}
+
+/// Un campo `D` che `dbase` non riesce a interpretare **senza panicare**.
+///
+/// `Date::from_str` affetta la stringa a byte -- `s[0..4]`, `s[4..6]`,
+/// `s[6..8]` -- senza guardare ne' la lunghezza ne' i confini di carattere. Un
+/// campo che porta meno di otto byte utili esce dall'intervallo; uno che porta
+/// un carattere multibyte cade dentro di esso. Entrambi sono panici, e nessuno
+/// dei due e' un errore di parsing che la crate restituirebbe.
+fn data_non_interpretabile(byte: &[u8]) -> bool {
+    let utile = parte_utile_del_campo(byte);
+    if utile.is_empty() {
+        // Tutto spazi: `dbase` la legge come data assente.
+        return false;
+    }
+    !utile.is_ascii() || utile.len() < 8
+}
+
+/// Il giorno giuliano piu' grande che `dbase` sa convertire senza traboccare.
+///
+/// `julian_day_number_to_gregorian_date` lavora in `i32` e comincia con
+/// `4 * jdn + 274_277`: bastano numeri ben piu' piccoli di `i32::MAX` per far
+/// traboccare quel prodotto. Invece di ricostruire la soglia esatta di
+/// un'aritmetica altrui, si pretende un giorno che esista: `5_373_484` e' il
+/// 31 dicembre 9999, e oltre non c'e' data da leggere.
+const DBF_MASSIMO_GIORNO_GIULIANO: i32 = 5_373_484;
+/// I millisecondi di un giorno. `Time::from_word` divide e rimoltiplica il
+/// parola-tempo passando da `u32`: un valore negativo diventa enorme e il
+/// prodotto trabocca.
+const DBF_MILLISECONDI_DEL_GIORNO: i32 = 86_400_000;
+
+/// Un campo `T` che `dbase` non riesce a convertire **senza traboccare**.
+fn data_e_ora_non_convertibili(byte: &[u8]) -> bool {
+    let Some(grezzo) = byte.get(..8) else {
+        // Il descrittore ne pretende otto: se non ci sono, a rifiutare e' il
+        // controllo sulla larghezza del campo, non questo.
+        return false;
+    };
+    let giorno = i32::from_le_bytes([grezzo[0], grezzo[1], grezzo[2], grezzo[3]]);
+    let ora = i32::from_le_bytes([grezzo[4], grezzo[5], grezzo[6], grezzo[7]]);
+    !(0..=DBF_MASSIMO_GIORNO_GIULIANO).contains(&giorno)
+        || !(0..DBF_MILLISECONDI_DEL_GIORNO).contains(&ora)
+}
+
+/// I panici di `dbase`, chiusi **prima** di arrivarci.
+///
+/// `dbase` ricava il numero di campi dall'intestazione con
+/// `(offset_to_first_record - 32 - 1) / 32`, e per i file Visual `FoxPro` sottrae
+/// prima i 263 byte di backlink. Nessuna delle due sottrazioni e' controllata:
+///
+/// * un `offset_to_first_record` sotto la soglia fa `attempt to subtract with
+///   overflow` dove le `debug_assertions` sono attive -- cioe' sotto il fuzzer
+///   -- e senza di esse produce per wrap un numero di campi assurdo;
+/// * un file dichiarato Visual `FoxPro` con offset sotto i 263 byte incontra un
+///   `panic!("Invalid file")` scritto a mano nella crate.
+///
+/// `read_dbf_layout` faceva gia' entrambi i controlli, con `checked_sub`, ma
+/// **dopo** aver costruito il `Reader`: il panico arrivava prima. L'ordine e'
+/// tutto, ed e' la ragione per cui questa verifica e' una funzione a se' e non
+/// una riga in piu' -- `scripts/check_prevalidazione_decoder.py` pretende che
+/// compaia in ogni funzione che apre un `dbase::Reader`, e prima della
+/// chiamata.
+///
+/// E' la stessa famiglia di `valida_file_ipc` e
+/// `valida_schema_arrow_incorporato`: un decoder esterno che si fida di un
+/// campo del file, e un driver che deve controllarlo prima di consegnarglielo.
+/// Trovato dal target `shp_reader` alla sua prima campagna.
+fn valida_intestazione_dbf(path: &Path) -> Result<()> {
+    let mut file =
+        File::open(path).map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
+    let mut intestazione = [0_u8; DBF_HEADER_SIZE];
+    file.read_exact(&mut intestazione)
+        .map_err(|_| err(&PublicMessage::Curated("header DBF incompleto")))?;
+
+    let dichiarato = usize::from(u16::from_le_bytes([intestazione[8], intestazione[9]]));
+    let utile = if DBF_VERSIONI_VISUAL_FOXPRO.contains(&intestazione[0]) {
+        dichiarato
+            .checked_sub(DBF_VISUAL_FOXPRO_BACKLINK_SIZE)
+            .ok_or_else(|| {
+                err(&PublicMessage::Curated(
+                    "header Visual FoxPro piu' corto del backlink",
+                ))
+            })?
+    } else {
+        dichiarato
+    };
+    if utile < DBF_HEADER_SIZE + DBF_HEADER_TERMINATOR_SIZE {
+        // Trentatre' byte: l'intestazione piu' il suo terminatore. Sotto questa
+        // soglia non c'e' spazio nemmeno per zero descrittori, e la divisione
+        // che li conta lavora su una sottrazione negativa.
+        return Err(err(&PublicMessage::Curated(
+            "offset del primo record DBF piu' corto dell'intestazione",
+        )));
+    }
+
+    // Il terzo punto in cui `dbase` si ferma invece di tornare: dopo i
+    // descrittori pretende il terminatore con un `debug_assert_eq!`. Con le
+    // `debug_assertions` attive -- cioe' sotto il fuzzer -- un byte diverso e'
+    // un panico; senza, l'asserzione sparisce e il file viene letto come se il
+    // terminatore ci fosse. Rifiutarlo qui chiude il panico **e** rende
+    // l'esito lo stesso nelle due configurazioni.
+    //
+    // La posizione si calcola con l'aritmetica di `dbase`, non con la nostra:
+    // la sua divisione tronca, e `read_dbf_layout` invece rifiuta i resti. Qui
+    // interessa sapere che cosa leggera' **lui**.
+    let descrittori =
+        (utile - DBF_HEADER_SIZE - DBF_HEADER_TERMINATOR_SIZE) / DBF_FIELD_DESCRIPTOR_SIZE;
+    let posizione = DBF_HEADER_SIZE + descrittori * DBF_FIELD_DESCRIPTOR_SIZE;
+    file.seek(SeekFrom::Start(driver_common::saturating_u64(posizione)))
+        .map_err(|_| err(&PublicMessage::Curated("header DBF incompleto")))?;
+    let mut terminatore = [0_u8; DBF_HEADER_TERMINATOR_SIZE];
+    file.read_exact(&mut terminatore)
+        .map_err(|_| err(&PublicMessage::Curated("header DBF incompleto")))?;
+    if terminatore[0] != DBF_HEADER_TERMINATOR {
+        return Err(err(&PublicMessage::Curated(
+            "terminatore header DBF non valido",
+        )));
+    }
+
+    let descrittori =
+        (utile - DBF_HEADER_SIZE - DBF_HEADER_TERMINATOR_SIZE) / DBF_FIELD_DESCRIPTOR_SIZE;
+    let campi = leggi_campi_da_validare(&mut file, descrittori)?;
+
+    // Il passo fra due record e' **calcolato**, non letto: `dbase::File::open`
+    // sovrascrive `size_of_record` dell'header con la somma delle larghezze piu'
+    // il flag di cancellazione, perche' -- dice il suo commento -- certi
+    // produttori non contano quel byte. Leggere qui il valore dichiarato
+    // significherebbe scorrere i record con un passo diverso dal suo, e
+    // guardare i byte sbagliati.
+    //
+    // Che il valore dichiarato sia coerente con quello calcolato lo verifica
+    // `read_dbf_layout`; qui interessa solo dove si trovano i valori.
+    let record = DBF_DELETION_FLAG_SIZE + campi.iter().map(|campo| campo.lunghezza).sum::<usize>();
+
+    if campi.iter().any(|campo| matches!(campo.tipo, b'D' | b'T')) {
+        // Il costo di questa scansione lo paga solo chi ha campi temporali:
+        // sono gli unici tipi il cui **valore** puo' fermare la crate. Gli
+        // altri si fermano al descrittore -- una stringa che non e' un numero
+        // e' un errore di parsing, e la crate lo restituisce.
+        valida_i_valori_temporali(&mut file, &intestazione, record, &campi)?;
+    }
+    Ok(())
+}
+
+/// Il poco che serve sapere di un campo per dire se `dbase` ci panichera'.
+struct CampoDaValidare {
+    tipo: u8,
+    lunghezza: usize,
+    scostamento: usize,
+}
+
+fn leggi_campi_da_validare(file: &mut File, quanti: usize) -> Result<Vec<CampoDaValidare>> {
+    file.seek(SeekFrom::Start(SHP_HEADER_SIZE_DBF))
+        .map_err(|_| err(&PublicMessage::Curated("header DBF incompleto")))?;
+
+    let mut campi = Vec::with_capacity(quanti);
+    let mut scostamento = DBF_DELETION_FLAG_SIZE;
+    for _ in 0..quanti {
+        let mut grezzo = [0_u8; DBF_FIELD_DESCRIPTOR_SIZE];
+        file.read_exact(&mut grezzo)
+            .map_err(|_| err(&PublicMessage::Curated("descrittori DBF incompleti")))?;
+        let tipo = grezzo[11];
+        let lunghezza = usize::from(grezzo[16]);
+        if let Some(minima) = lunghezza_minima_del_campo(tipo) {
+            if lunghezza < minima {
+                return Err(err(&PublicMessage::Curated(
+                    "campo DBF piu' corto di quanto il suo tipo pretenda",
+                )));
+            }
+        }
+        campi.push(CampoDaValidare {
+            tipo,
+            lunghezza,
+            scostamento,
+        });
+        scostamento += lunghezza;
+    }
+    Ok(campi)
+}
+
+fn valida_i_valori_temporali(
+    file: &mut File,
+    intestazione: &[u8; DBF_HEADER_SIZE],
+    lunghezza_record: usize,
+    campi: &[CampoDaValidare],
+) -> Result<()> {
+    let primo = u64::from(u16::from_le_bytes([intestazione[8], intestazione[9]]));
+    let quanti = u32::from_le_bytes([
+        intestazione[4],
+        intestazione[5],
+        intestazione[6],
+        intestazione[7],
+    ]);
+    if lunghezza_record == 0 {
+        // Nessun byte per record: non c'e' nessun valore da leggere, e la
+        // divisione che seguirebbe non avrebbe senso.
+        return Ok(());
+    }
+    file.seek(SeekFrom::Start(primo))
+        .map_err(|_| err(&PublicMessage::Curated("header DBF incompleto")))?;
+
+    let mut lettore = BufReader::new(file);
+    let mut record = vec![0_u8; lunghezza_record];
+    for _ in 0..quanti {
+        if lettore.read_exact(&mut record).is_err() {
+            // Il file finisce prima dei record dichiarati: e' un errore che la
+            // crate restituisce leggendo, non un panico. Non tocca a questa
+            // verifica trasformarlo in un rifiuto diverso.
+            return Ok(());
+        }
+        for temporale in campi
+            .iter()
+            .filter(|campo| matches!(campo.tipo, b'D' | b'T'))
+        {
+            let ultimo = temporale.scostamento + temporale.lunghezza;
+            let Some(byte) = record.get(temporale.scostamento..ultimo) else {
+                continue;
+            };
+            if temporale.tipo == b'D' && data_non_interpretabile(byte) {
+                return Err(err(&PublicMessage::Curated(
+                    "campo data DBF che il lettore non puo' interpretare",
+                )));
+            }
+            if temporale.tipo == b'T' && data_e_ora_non_convertibili(byte) {
+                return Err(err(&PublicMessage::Curated(
+                    "campo data-e-ora DBF fuori dall'intervallo convertibile",
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
     let path = shp_path.with_extension("dbf");
+    valida_intestazione_dbf(&path)?;
     let decoded_names = shapefile::dbase::Reader::from_path(&path)
         .map_err(|_| err(&PublicMessage::Curated("apertura dello schema DBF fallita")))?
         .fields()
@@ -1580,7 +2260,7 @@ fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
             "terminatore dell'header DBF mancante",
         ))
     })?;
-    if terminator[0] != 0x0d {
+    if terminator[0] != DBF_HEADER_TERMINATOR {
         return Err(err(&PublicMessage::Curated(
             "terminatore header DBF non valido",
         )));
@@ -2114,6 +2794,7 @@ fn shape_type_label(shape_type: Option<&str>) -> &str {
 /// comuni percorsi XY/M non devono decodificare tutte le geometrie durante
 /// l'apertura per poi decodificarle di nuovo durante la lettura.
 fn infer_geometry_info(path: &Path, dbf_record_count: u32) -> Result<ShpGeometryInfo> {
+    valida_struttura_shp(path)?;
     let mut reader = ShapeReader::from_path(path).map_err(|_| {
         err(&PublicMessage::Curated(
             "apertura delle geometrie Shapefile fallita",
@@ -2165,6 +2846,10 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     let dbf_layout = read_dbf_layout(path)?;
     let mut exact_rows = DbfExactIntegerRows::open(path, &dbf_layout)?;
     let geometry_info = infer_geometry_info(path, dbf_layout.record_count)?;
+    // `read_dbf_layout` ha gia' validato lo stesso file poche righe sopra, e la
+    // ripetizione e' voluta: la garanzia deve valere per **questa** apertura,
+    // non per una che le sta accanto oggi. Costa la lettura di trentadue byte.
+    valida_intestazione_dbf(&path.with_extension("dbf"))?;
     let mut reader = shapefile::dbase::Reader::from_path(path.with_extension("dbf"))
         .map_err(|_| err(&PublicMessage::Curated("apertura del DBF fallita")))?;
     let mut accs: HashMap<String, TypeAccumulator> = dbf_layout
@@ -2314,6 +2999,12 @@ fn spawn_parser(input: ShpParserInput) -> Result<Box<dyn LayerReader>> {
         scope,
         cancellation,
     } = input;
+    // Le validazioni stanno **fuori** dalla chiusura, e prima che il thread
+    // parta: un file che farebbe panicare `shapefile` o `dbase` viene rifiutato
+    // dal chiamante come errore tipizzato, invece che dentro un thread appena
+    // creato -- dove il panico diventa un abort che nessun `catch_unwind` vede.
+    valida_struttura_shp(&path)?;
+    valida_intestazione_dbf(&path.with_extension("dbf"))?;
     let reader = spawn_batch_reader(DESCRIPTOR.id(), layer, 2, move |emitter: BatchEmitter| {
         if scope == ReadScope::AcceptedRows(0) {
             return Ok(());
@@ -2684,9 +3375,715 @@ pub fn __fuzz_wkb_roundtrip(bytes: &[u8]) -> Result<usize> {
     Ok(encode_wkb(&round_trip, WkbFlavor::Iso)?.len())
 }
 
+/// Le quattro parti di un bundle, con un nome ciascuna.
+///
+/// Quattro fette dello stesso tipo in una tupla si scambiano senza che il
+/// compilatore se ne accorga, e uno scambio fra `.shx` e `.dbf` produrrebbe un
+/// target che sembra funzionare e copre l'errore invece del formato.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PartiDelBundle<'a> {
+    pub shp: &'a [u8],
+    pub shx: &'a [u8],
+    pub dbf: &'a [u8],
+    pub prj: &'a [u8],
+}
+
+/// Entry point non stabile per libFuzzer: la divisione di un bundle Shapefile.
+///
+/// Uno Shapefile non e' un file. Il driver riceve il percorso del `.shp` e
+/// risale ai fratelli cambiando estensione, quindi un target che materializzi
+/// il solo `.shp` rimbalza sull'apertura del `.dbf` senza mai raggiungere il
+/// parsing. Il fuzzer consegna pero' **un** blob, e qualcuno deve dividerlo.
+///
+/// ```text
+/// byte 0..2   lunghezza del .shp, big-endian
+/// byte 2..4   lunghezza del .shx, big-endian
+/// byte 4..6   lunghezza del .dbf, big-endian
+/// byte 6..    .shp | .shx | .dbf | .prj   (il resto e' il .prj, anche vuoto)
+/// ```
+///
+/// Il `.shx` e' nel bundle perche' senza di esso `shape_count()` non risponde,
+/// e il confronto anticipato fra numero di forme e numero di record DBF non
+/// viene mai eseguito: un ramo del reader resterebbe irraggiungibile da questo
+/// target, e la copertura direbbe che il formato e' esercitato mentre una delle
+/// sue difese non lo e'.
+///
+/// Le lunghezze dichiarate si **saturano** su cio' che resta invece di far
+/// scartare l'input: un mutante che allunga un campo di lunghezza non smette di
+/// essere un caso di prova, e rifiutarlo toglierebbe al fuzzer proprio le
+/// mutazioni sull'intestazione.
+///
+/// La divisione e' fail-closed per costruzione: `usize::from(u16)` non puo'
+/// traboccare, `min` con la lunghezza residua non puo' superarla, e nessuna
+/// allocazione deriva dai valori dichiarati — si restituiscono sottofette di
+/// cio' che il chiamante gia' possiede. Una lunghezza di 65 535 su un corpo di
+/// dieci byte produce dieci byte, non un tentativo di riservarne 65 535.
+///
+/// `None` = input piu' corto dell'intestazione, cioe' non un bundle.
+#[doc(hidden)]
+#[must_use]
+pub fn __fuzz_dividi_bundle(dati: &[u8]) -> Option<PartiDelBundle<'_>> {
+    const INTESTAZIONE: usize = 6;
+    if dati.len() < INTESTAZIONE {
+        return None;
+    }
+    let dichiarate = [
+        usize::from(u16::from_be_bytes([dati[0], dati[1]])),
+        usize::from(u16::from_be_bytes([dati[2], dati[3]])),
+        usize::from(u16::from_be_bytes([dati[4], dati[5]])),
+    ];
+    let resto = &dati[INTESTAZIONE..];
+
+    let (shp, resto) = resto.split_at(dichiarate[0].min(resto.len()));
+    let (shx, resto) = resto.split_at(dichiarate[1].min(resto.len()));
+    let (dbf, prj) = resto.split_at(dichiarate[2].min(resto.len()));
+    Some(PartiDelBundle { shp, shx, dbf, prj })
+}
+
+/// Un errore dell'ambiente non e' un difetto del file letto.
+///
+/// Un filesystem pieno, una directory non creabile o una scrittura fallita
+/// diventano un errore tipizzato e non un panico: un panico dell'harness
+/// verrebbe archiviato dal fuzzer come finding del reader, e la campagna
+/// misurerebbe il proprio scaffolding.
+fn errore_di_ambiente(_: std::io::Error) -> PlenoraIoError {
+    err(&PublicMessage::Curated(
+        "materializzazione del bundle fallita: e' l'ambiente, non il file letto",
+    ))
+}
+
+/// Scrive le parti del bundle dentro una directory **gia' esistente**.
+///
+/// Separata da `__fuzz_leggi_bundle` per una ragione sola: cosi' una sonda puo'
+/// passarle una radice inesistente e osservare l'errore. Forzare il fallimento
+/// mutando `TMPDIR` renderebbe il difetto visibile agli altri test in
+/// parallelo, e il fallimento sarebbe intermittente invece che riproducibile.
+///
+/// I nomi sono **letterali**: nessun percorso deriva dal payload.
+fn materializza_bundle(radice: &Path, parti: &PartiDelBundle<'_>) -> Result<PathBuf> {
+    let PartiDelBundle { shp, shx, dbf, prj } = *parti;
+    let principale = radice.join("input.shp");
+    std::fs::write(&principale, shp).map_err(errore_di_ambiente)?;
+    std::fs::write(radice.join("input.dbf"), dbf).map_err(errore_di_ambiente)?;
+    if !shx.is_empty() {
+        // Senza `.shx` il driver non conta le forme in anticipo: e' un percorso
+        // legittimo, e va lasciato raggiungibile quanto quello con l'indice.
+        std::fs::write(radice.join("input.shx"), shx).map_err(errore_di_ambiente)?;
+    }
+    if !prj.is_empty() {
+        // Il `.prj` si scrive solo se c'e': la sua assenza e' un percorso del
+        // driver — `resolve_crs` ripiega su `assume_crs` — e va esercitata
+        // quanto la sua presenza.
+        std::fs::write(radice.join("input.prj"), prj).map_err(errore_di_ambiente)?;
+    }
+    Ok(principale)
+}
+
+#[doc(hidden)]
+pub fn __fuzz_leggi_bundle(dati: &[u8], opts: ReadOptions) -> Result<usize> {
+    let Some(parti) = __fuzz_dividi_bundle(dati) else {
+        return Err(err(&PublicMessage::Curated(
+            "bundle piu' corto della propria intestazione",
+        )));
+    };
+
+    let directory = tempfile::Builder::new()
+        .prefix("plenora-fuzz-shp-")
+        .tempdir()
+        .map_err(errore_di_ambiente)?;
+    let principale = materializza_bundle(directory.path(), &parti)?;
+
+    let dataset = ShpDriver.open(Source::Path(principale), opts)?;
+    let layers: Vec<LayerId> = dataset.layers().iter().map(|layer| layer.id).collect();
+    let mut righe = 0_usize;
+    for layer in layers {
+        let mut reader = dataset.open_layer_reader(&ReadRequest {
+            layer,
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::Complete,
+            batch_target: BatchTarget::default(),
+            cancellation: plenora_io_model::CancellationToken::default(),
+        })?;
+        while let Some(batch) = reader.next_batch()? {
+            righe = righe.saturating_add(batch.num_rows());
+        }
+        let _ = reader.loss_report();
+    }
+    Ok(righe)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- il bundle del fuzzer, e i semi che lo alimentano -----------------
+    //
+    // Una build che compila e un replay senza crash non dimostrano che i semi
+    // raggiungano il parsing: un bundle rifiutato all'apertura non fa crashare
+    // niente ed e' indistinguibile, da fuori, da uno letto per intero. Queste
+    // sonde chiamano lo **stesso** entry point del target sui **semi
+    // committati**, e guardano che cosa ne esce.
+
+    /// I semi vivono accanto al target che li usa.
+    fn seme(nome: &str) -> Vec<u8> {
+        let percorso = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/shp_reader")
+            .join(nome);
+        std::fs::read(&percorso)
+            .unwrap_or_else(|errore| panic!("seme {} non leggibile: {errore}", percorso.display()))
+    }
+
+    /// Limiti dello stesso ordine di quelli della campagna.
+    ///
+    /// Non sono gli **stessi**: `harness::limits()` vive nella crate di fuzzing,
+    /// e un driver non puo' dipenderne. Quel che conta e' che ci siano tetti --
+    /// una sonda che leggesse senza limiti percorrerebbe una strada che il
+    /// fuzzer non percorre mai -- e che siano stretti abbastanza da rendere
+    /// osservabile un input che li supera.
+    fn opzioni_di_campagna() -> ReadOptions {
+        let limiti = plenora_io_model::budget::PipelineLimits::default()
+            .with_max_input_bytes(1_048_576)
+            .with_max_rows(100_000)
+            .with_memory_bytes(64 * 1024 * 1024);
+        let bundle = plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti)
+            .build()
+            .expect("limiti della campagna validi");
+        ReadOptions::from_read_parts(bundle.into_read_parts())
+    }
+
+    #[test]
+    fn il_seme_di_punti_arriva_alle_geometrie_e_agli_attributi() {
+        let righe = __fuzz_leggi_bundle(
+            &seme("punti-con-attributi.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect("il seme deve essere letto: se no il target non copre il parsing");
+        assert_eq!(
+            righe, 2,
+            "due punti e due record DBF: un conteggio diverso vuol dire che il \
+             seme non attraversa piu' il drenaggio"
+        );
+    }
+
+    #[test]
+    fn il_seme_di_polilinea_arriva_al_drenaggio() {
+        let righe = __fuzz_leggi_bundle(
+            &seme("polilinea.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect("il seme deve essere letto");
+        assert_eq!(righe, 1);
+    }
+
+    /// Conteggi disallineati **con** indice: il `.shx` risponde a
+    /// `shape_count()`, e il driver rifiuta all'apertura senza decodificare una
+    /// sola geometria. E' la difesa piu' economica del reader, e senza un seme
+    /// che porti l'indice sarebbe irraggiungibile da questo target.
+    #[test]
+    fn i_conteggi_disallineati_sono_rifiutati_all_apertura_quando_c_e_l_indice() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("disallineati-con-indice.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("due forme e un solo record DBF non sono uno Shapefile coerente");
+        assert_eq!(
+            errore.message, "numero di geometrie diverso dal numero di record DBF",
+            "il rifiuto deve venire dal confronto anticipato dei conteggi: se              cambia messaggio, il seme sta coprendo un altro ramo"
+        );
+    }
+
+    /// Lo stesso disallineamento **senza** indice: `shape_count()` non risponde,
+    /// il confronto anticipato non avviene, e l'incoerenza emerge durante il
+    /// drenaggio. Due rami diversi dello stesso difetto del file — questo
+    /// attraversa il parsing delle geometrie, l'altro no.
+    #[test]
+    fn i_conteggi_disallineati_emergono_nel_drenaggio_senza_indice() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("disallineati-senza-indice.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("l'incoerenza va rilevata anche senza `.shx`");
+        assert_eq!(
+            errore.message, "cardinalita' Shapefile cambiata durante la lettura",
+            "senza indice il rifiuto deve arrivare dalla lettura, non              dall'apertura: {errore:?}"
+        );
+    }
+
+    /// I due punti di arresto di `shapefile`, e la loro regressione.
+    ///
+    /// La crate tratta i valori dichiarati nel file come se li avesse scritti
+    /// lei: raddoppia gli scostamenti dell'indice dentro un `i32`, e prenota un
+    /// vettore grande quanto il conteggio di punti dichiarato in un record,
+    /// senza legarlo alla dimensione del record. Il primo e' un panico, il
+    /// secondo un'allocazione che il processo non sopravvive -- e nessuno dei
+    /// due e' un `Err`.
+    #[test]
+    fn uno_scostamento_dell_indice_che_non_regge_il_raddoppio_e_un_errore() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("shx-scostamento-traboccante.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("uno scostamento oltre meta' di i32::MAX non e' un indice");
+        assert_eq!(
+            errore.message,
+            "voce dell'indice Shapefile fuori intervallo"
+        );
+
+        // Il secondo ramo: uno scostamento che regge il raddoppio e punta
+        // comunque oltre la fine del `.shp`. Sono due difese diverse, e un seme
+        // solo ne proverebbe una.
+        let errore = __fuzz_leggi_bundle(
+            &seme("shx-scostamento-fuori-dal-shp.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("un record che comincia oltre la fine del file non esiste");
+        assert_eq!(
+            errore.message,
+            "voce dell'indice Shapefile che punta fuori dal .shp"
+        );
+
+        // Il terzo ramo, e il piu' insidioso: lo scostamento sta dentro il file
+        // ma cade in mezzo al contenuto di un record, dove otto byte qualunque
+        // diventano una testa. La catena sequenziale non lo vede, perche' il
+        // lettore con indice non la percorre.
+        let errore = __fuzz_leggi_bundle(
+            &seme("shx-scostamento-dentro-un-record.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("un indice che punta dentro un record non e' un indice");
+        assert_eq!(
+            errore.message,
+            "lunghezza del record diversa da quella dichiarata nell'indice"
+        );
+    }
+
+    #[test]
+    fn un_record_che_dichiara_piu_punti_di_quanti_ne_contenga_e_un_errore() {
+        for nome in ["shp-punti-assurdi.bundle", "shp-punti-negativi.bundle"] {
+            let errore = __fuzz_leggi_bundle(
+                &seme(nome),
+                opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+            )
+            .expect_err("un conteggio slegato dal record non e' leggibile");
+            assert!(
+                errore.message.contains("conteggio negativo")
+                    || errore
+                        .message
+                        .contains("piu' elementi di quanti ne contenga"),
+                "{nome}: {errore:?}"
+            );
+        }
+    }
+
+    /// Un record che dichiara un tipo con conteggi e non ha spazio per
+    /// portarli.
+    ///
+    /// `read_shape_content` riceve la dimensione del record ma legge dal
+    /// flusso: i conteggi finiscono per venire dai byte che seguono, e il
+    /// vettore prenotato e' grande quanto quel numero. Non e' un panico ma una
+    /// richiesta di memoria che il processo non sopravvive -- e per il fuzzer
+    /// e' un finding come gli altri.
+    #[test]
+    fn un_record_troppo_corto_per_il_proprio_tipo_e_un_errore() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("shp-record-troppo-corto.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("una polilinea di quattro byte non porta i propri conteggi");
+        assert_eq!(
+            errore.message,
+            "record Shapefile troppo corto per il tipo che dichiara"
+        );
+    }
+
+    /// L'indice delle parti, nei due modi in cui esce dai punti dichiarati.
+    ///
+    /// Il lettore prende la differenza fra due voci consecutive come numero di
+    /// punti da leggere: una voce che scende la rende negativa, una che sale
+    /// oltre il numero di punti la gonfia. Nel primo caso c'e' un
+    /// `debug_assert!` -- panico sotto il fuzzer, niente in release -- nel
+    /// secondo nemmeno quello.
+    #[test]
+    fn un_indice_delle_parti_fuori_dai_punti_e_un_errore() {
+        for nome in [
+            "shp-parti-che-scendono.bundle",
+            "shp-parti-oltre-i-punti.bundle",
+        ] {
+            let errore = __fuzz_leggi_bundle(
+                &seme(nome),
+                opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+            )
+            .expect_err("una parte che comincia fuori dai punti non esiste");
+            assert_eq!(
+                errore.message, "indice delle parti Shapefile che esce dai punti dichiarati",
+                "{nome}"
+            );
+        }
+    }
+
+    /// Il campo `T`, che porta due interi binari invece di otto cifre.
+    ///
+    /// `julian_day_number_to_gregorian_date` lavora in `i32` e comincia con
+    /// `4 * jdn + 274_277`; `Time::from_word` divide e rimoltiplica passando da
+    /// `u32`, dove un parola-tempo negativo diventa enorme. Due traboccamenti
+    /// distinti, e due semi.
+    #[test]
+    fn un_campo_data_e_ora_fuori_intervallo_e_un_errore() {
+        for nome in [
+            "dbf-giorno-giuliano-enorme.bundle",
+            "dbf-parola-tempo-negativa.bundle",
+        ] {
+            let errore = __fuzz_leggi_bundle(
+                &seme(nome),
+                opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+            )
+            .expect_err("un istante che il lettore non sa convertire non e' leggibile");
+            assert_eq!(
+                errore.message, "campo data-e-ora DBF fuori dall'intervallo convertibile",
+                "{nome}"
+            );
+        }
+    }
+
+    /// Il rovescio: un istante reale passa, e cosi' i due estremi ammessi.
+    #[test]
+    fn un_istante_reale_passa() {
+        let istante = |giorno: i32, ora: i32| {
+            let mut byte = [0_u8; 8];
+            byte[..4].copy_from_slice(&giorno.to_le_bytes());
+            byte[4..].copy_from_slice(&ora.to_le_bytes());
+            data_e_ora_non_convertibili(&byte)
+        };
+        assert!(
+            !istante(2_458_685, 43_200_000),
+            "mezzogiorno del 2019-07-11"
+        );
+        assert!(!istante(0, 0));
+        assert!(!istante(
+            DBF_MASSIMO_GIORNO_GIULIANO,
+            DBF_MILLISECONDI_DEL_GIORNO - 1
+        ));
+
+        assert!(istante(DBF_MASSIMO_GIORNO_GIULIANO + 1, 0));
+        assert!(istante(-1, 0));
+        assert!(istante(0, DBF_MILLISECONDI_DEL_GIORNO));
+        assert!(istante(0, -1));
+    }
+
+    /// Un record lungo **esattamente** la propria testa, che dichiara una
+    /// parte.
+    ///
+    /// E' il caso che ha mostrato un difetto in questa stessa verifica: il
+    /// confronto guardava solo gli elementi, non la testa che li precede, e i
+    /// quattro byte dell'indice delle parti venivano letti **oltre** il record.
+    /// La posizione nel file restava indietro, e da li' in poi la catena dei
+    /// record veniva letta sfasata.
+    #[test]
+    fn un_record_lungo_quanto_la_propria_testa_non_puo_dichiarare_parti() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("shp-parti-oltre-la-testa.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("quarantaquattro byte non portano testa e indice delle parti");
+        assert_eq!(
+            errore.message,
+            "record Shapefile che dichiara piu' elementi di quanti ne contenga"
+        );
+    }
+
+    /// Un descrittore che dichiara meno byte di quanti il suo tipo ne legga.
+    ///
+    /// `dbase` dichiara la dimensione fissa dei propri tipi e non la verifica:
+    /// affetta comunque, e la fetta esce dal campo. Sono quattro tipi -- `L`,
+    /// `I`, `Y`, `B`, `T` -- e la sonda ne prova uno per il seme e tutti per la
+    /// funzione, perche' un elenco incompleto qui sarebbe indistinguibile da
+    /// uno completo.
+    #[test]
+    fn un_campo_piu_corto_del_proprio_tipo_e_un_errore() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("dbf-campo-corto.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("un intero largo due byte non e' un intero");
+        assert_eq!(
+            errore.message,
+            "campo DBF piu' corto di quanto il suo tipo pretenda"
+        );
+
+        for (tipo, minima) in [
+            (b'L', 1),
+            (b'I', 4),
+            (b'D', 8),
+            (b'Y', 8),
+            (b'B', 8),
+            (b'T', 8),
+        ] {
+            assert_eq!(
+                lunghezza_minima_del_campo(tipo),
+                Some(minima),
+                "tipo {}",
+                char::from(tipo)
+            );
+        }
+        // I tipi testuali non hanno una larghezza imposta: `C` e `N` la
+        // dichiarano, e il loro contenuto e' un errore di parsing, non un
+        // panico.
+        assert_eq!(lunghezza_minima_del_campo(b'C'), None);
+        assert_eq!(lunghezza_minima_del_campo(b'N'), None);
+    }
+
+    /// La verifica strutturale non deve rifiutare cio' che il decoder
+    /// accetterebbe: e' la meta' che una prevalidazione sbaglia piu' spesso, e
+    /// che nessun seme ostile mostrerebbe.
+    #[test]
+    fn i_semi_validi_passano_la_verifica_strutturale() {
+        let temporanea = tempfile::tempdir().expect("directory temporanea");
+        for nome in [
+            "punti-con-attributi.bundle",
+            "punti-con-prj.bundle",
+            "polilinea.bundle",
+        ] {
+            let dati = seme(nome);
+            let parti = __fuzz_dividi_bundle(&dati).expect("il seme e' un bundle");
+            let radice = temporanea.path().join(nome);
+            std::fs::create_dir(&radice).expect("directory del seme");
+            let principale = materializza_bundle(&radice, &parti).expect("materializzazione");
+            assert_eq!(valida_struttura_shp(&principale), Ok(()), "{nome}");
+        }
+    }
+
+    /// Il primo finding del target, e la sua regressione.
+    ///
+    /// `dbase::File::open` ricavava il numero di campi da
+    /// `offset_to_first_record` con una sottrazione non controllata: sotto la
+    /// soglia il processo **panicava** invece di restituire un errore. Un
+    /// panico attraversa il confine della libreria, e sotto `libfuzzer-sys`
+    /// diventa un abort che nessun `catch_unwind` vede.
+    ///
+    /// Le due sonde tengono i due rami distinti: l'offset corto e il file
+    /// dichiarato Visual `FoxPro` con meno byte del backlink. Chiuderne uno solo
+    /// avrebbe lasciato l'altro raggiungibile.
+    #[test]
+    fn un_offset_del_primo_record_troppo_corto_e_un_errore_non_un_panico() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("dbf-offset-corto.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("un offset sotto l'intestazione non e' un DBF leggibile");
+        assert_eq!(
+            errore.message,
+            "offset del primo record DBF piu' corto dell'intestazione"
+        );
+    }
+
+    #[test]
+    fn un_visual_foxpro_piu_corto_del_backlink_e_un_errore_non_un_panico() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("dbf-visual-foxpro-corto.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("263 byte di backlink non stanno in 100");
+        assert_eq!(
+            errore.message, "header Visual FoxPro piu' corto del backlink",
+            "il rifiuto deve venire dal ramo Visual FoxPro: {errore:?}"
+        );
+    }
+
+    /// Il terzo punto di arresto: il terminatore dei descrittori.
+    ///
+    /// `dbase` lo pretende con un `debug_assert_eq!`, quindi panica sotto il
+    /// fuzzer e **non** in release, dove il file verrebbe letto come se il
+    /// terminatore ci fosse. Rifiutarlo rende l'esito lo stesso nelle due
+    /// configurazioni, che e' meta' del valore della correzione.
+    #[test]
+    fn un_terminatore_dell_header_non_valido_e_un_errore_non_un_panico() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("dbf-terminatore-non-valido.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("un DBF senza terminatore non e' leggibile");
+        assert_eq!(errore.message, "terminatore header DBF non valido");
+    }
+
+    /// Il valore di un campo data: l'unico contenuto -- non descrittore -- che
+    /// puo' far panicare il lettore.
+    ///
+    /// `Date::from_str` affetta la stringa a byte senza guardare ne' la
+    /// lunghezza ne' i confini di carattere. Sono due modi di uscirne, e
+    /// servono due semi: un valore multibyte e uno piu' corto di otto byte
+    /// utili.
+    #[test]
+    fn un_campo_data_non_interpretabile_e_un_errore_non_un_panico() {
+        for nome in ["dbf-data-multibyte.bundle", "dbf-data-corta.bundle"] {
+            let errore = __fuzz_leggi_bundle(
+                &seme(nome),
+                opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+            )
+            .expect_err("una data che il lettore non sa affettare non e' leggibile");
+            assert_eq!(
+                errore.message, "campo data DBF che il lettore non puo' interpretare",
+                "{nome}"
+            );
+        }
+    }
+
+    /// Il rovescio: le date valide restano valide, e un campo tutto spazi e'
+    /// una data assente, non un rifiuto. E' la meta' che una prevalidazione
+    /// sbaglia piu' spesso, e che nessun seme ostile mostrerebbe.
+    #[test]
+    fn una_data_valida_e_un_campo_vuoto_passano() {
+        assert!(!data_non_interpretabile(b"20260101"));
+        assert!(!data_non_interpretabile(b"        "));
+        assert!(!data_non_interpretabile(&[0; 8]));
+        assert!(!data_non_interpretabile(b" 20260101 "));
+
+        assert!(data_non_interpretabile(b"2026    "));
+        // Una `e` accentata in UTF-8: due byte, e il taglio a `s[4..6]` cade
+        // dentro il secondo.
+        assert!(data_non_interpretabile("2026\u{e8}01".as_bytes()));
+    }
+
+    /// La prevalidazione vale per **tutte e tre** le versioni che `dbase`
+    /// tratta come Visual `FoxPro`, non solo per quella che scriviamo noi.
+    ///
+    /// `DBF_VISUAL_FOXPRO_VERSION` e' `0x30` perche' descrive i nostri file;
+    /// `Version::from(u8)` della crate esterna accetta anche `0x31` e `0x32`, e
+    /// un seme con quei byte raggiungerebbe lo stesso `panic!`.
+    #[test]
+    fn le_tre_versioni_visual_foxpro_sono_tutte_prevalidate() {
+        let temporanea = tempfile::tempdir().expect("directory temporanea");
+        for versione in DBF_VERSIONI_VISUAL_FOXPRO {
+            let percorso = temporanea.path().join(format!("v{versione:02x}.dbf"));
+            let mut intestazione = [0_u8; DBF_HEADER_SIZE];
+            intestazione[0] = versione;
+            // Sotto i 263 byte del backlink, e sopra i 33 dell'intestazione:
+            // cosi' a rifiutare puo' essere **solo** il ramo Visual FoxPro.
+            intestazione[8..10].copy_from_slice(&100_u16.to_le_bytes());
+            std::fs::write(&percorso, intestazione).expect("scrittura del DBF");
+
+            let errore = valida_intestazione_dbf(&percorso)
+                .expect_err("i 263 byte di backlink non stanno in 100");
+            assert_eq!(
+                errore.message, "header Visual FoxPro piu' corto del backlink",
+                "versione {versione:#04x}"
+            );
+        }
+    }
+
+    /// **Isolamento fra invocazioni**, provato dal `.prj`.
+    ///
+    /// Senza `assume_crs` il driver accetta solo se il `.prj` c'e'. La prima
+    /// lettura ne scrive uno; la seconda usa un bundle che non ne ha. Se le due
+    /// invocazioni condividessero la directory, la seconda troverebbe il `.prj`
+    /// della prima e **riuscirebbe**: il fallimento e' la prova che ogni input
+    /// ha la propria directory e che i fratelli della mutazione precedente non
+    /// sopravvivono.
+    #[test]
+    fn ogni_invocazione_ha_la_propria_directory() {
+        let con_prj = __fuzz_leggi_bundle(&seme("punti-con-prj.bundle"), opzioni_di_campagna());
+        assert!(
+            con_prj.is_ok(),
+            "il `.prj` del bundle deve bastare a risolvere il CRS: {con_prj:?}"
+        );
+
+        let senza_prj =
+            __fuzz_leggi_bundle(&seme("punti-con-attributi.bundle"), opzioni_di_campagna());
+        let errore = senza_prj.expect_err(
+            "senza `.prj` e senza `assume_crs` l'apertura deve fallire; se riesce, \
+             il `.prj` della lettura precedente e' sopravvissuto",
+        );
+        assert!(errore.message.contains("assume-crs"), "{errore:?}");
+    }
+
+    /// **Fail-closed della divisione**: nessun trabocco, nessuna allocazione
+    /// derivata dai valori dichiarati, nessun percorso costruito dal payload.
+    #[test]
+    fn la_divisione_del_bundle_satura_invece_di_fidarsi() {
+        let lunghezze = |dati: &[u8]| {
+            let p = __fuzz_dividi_bundle(dati).expect("l'intestazione c'e'");
+            (p.shp.len(), p.shx.len(), p.dbf.len(), p.prj.len())
+        };
+
+        // Lunghezze massime su un corpo di tre byte: le fette restano dentro il
+        // corpo, e non viene riservato niente per i 65 535 dichiarati.
+        assert_eq!(
+            lunghezze(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 1, 2, 3]),
+            (3, 0, 0, 0)
+        );
+
+        // Ogni campo dichiara piu' di quanto resti dopo il precedente.
+        assert_eq!(
+            lunghezze(&[0, 2, 0xFF, 0xFF, 0xFF, 0xFF, 1, 2, 3, 4]),
+            (2, 2, 0, 0)
+        );
+
+        // Divisione esatta, con un `.prj` che e' il resto. Il confronto e' sui
+        // byte e non sulle lunghezze: cosi' uno scambio fra due parti si vede.
+        assert_eq!(
+            __fuzz_dividi_bundle(&[0, 1, 0, 1, 0, 1, 9, 8, 7, 6, 6]),
+            Some(PartiDelBundle {
+                shp: &[9],
+                shx: &[8],
+                dbf: &[7],
+                prj: &[6, 6],
+            })
+        );
+
+        // Un input piu' corto dell'intestazione non e' un bundle.
+        for corto in [&b""[..], &b"a"[..], &b"abcde"[..]] {
+            assert!(__fuzz_dividi_bundle(corto).is_none(), "{corto:?}");
+        }
+        // Un bundle senza corpo e' un bundle vuoto, non un errore di divisione.
+        assert_eq!(
+            __fuzz_dividi_bundle(&[0, 0, 0, 0, 0, 0]),
+            Some(PartiDelBundle {
+                shp: b"",
+                shx: b"",
+                dbf: b"",
+                prj: b"",
+            })
+        );
+    }
+
+    /// Un bundle degenere non deve panicare: deve tornare `Err`.
+    #[test]
+    fn un_bundle_degenere_e_un_errore_non_un_panico() {
+        for degenere in [vec![], vec![0, 0, 0], vec![0, 0, 0, 0], vec![0xFF; 64]] {
+            let esito = __fuzz_leggi_bundle(
+                &degenere,
+                opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+            );
+            assert!(esito.is_err(), "{degenere:?} non e' uno Shapefile");
+        }
+    }
+
+    /// **Errore d'ambiente e non finding**: una radice che non esiste produce
+    /// un errore tipizzato, non un panico. Provata sulla funzione che scrive,
+    /// perche' forzare il fallimento mutando `TMPDIR` renderebbe il difetto
+    /// visibile agli altri test in parallelo.
+    #[test]
+    fn una_radice_inesistente_e_un_errore_di_ambiente() {
+        let temporanea = tempfile::tempdir().expect("directory temporanea");
+        let inesistente = temporanea.path().join("mai-creata");
+
+        let parti = PartiDelBundle {
+            shp: b"shp",
+            shx: b"",
+            dbf: b"dbf",
+            prj: b"",
+        };
+        let errore = materializza_bundle(&inesistente, &parti)
+            .expect_err("scrivere in una directory che non esiste deve fallire");
+        assert!(
+            errore.message.contains("ambiente"),
+            "un errore d'ambiente non va confuso con un difetto del file letto: {errore:?}"
+        );
+    }
 
     /// Opzioni di lettura sul modello unificato.
     ///

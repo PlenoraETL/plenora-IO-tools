@@ -141,7 +141,7 @@ is_quarantined() {
 # e' stato richiesto un sottoinsieme, e va bene cosi': "ogni target compila
 # strumentato" e' meta' del valore di questo smoke, e la build incrementale la
 # rende quasi gratis. La riga lo dice, invece di annunciare il numero del
-# sottoinsieme mentre ne costruisce tredici.
+# sottoinsieme mentre li costruisce tutti.
 echo "=== build strumentata (tutti i ${#dichiarati[@]} target dichiarati) ==="
 cargo +"${toolchain}" fuzz build "${options[@]}"
 

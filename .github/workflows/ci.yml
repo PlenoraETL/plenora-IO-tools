@@ -78,6 +78,16 @@ jobs:
         run: |
           python3 -m unittest scripts.test_compare_shared_wkb_observations
           python3 scripts/generate_shared_wkb_corpus.py --check
+      # I semi di `shp_reader` sono binari, e un binario committato senza il
+      # modo di riprodurlo non si puo' rileggere. `--verifica` ricontrolla che
+      # quelli sul disco siano quelli che il generatore produce oggi: un seme
+      # modificato a mano, o lasciato indietro da un cambio di formato del
+      # bundle, e' rosso qui invece che scoperto da una campagna che smette di
+      # raggiungere il parser.
+      - name: Verify the shp_reader seeds are reproducible
+        run: |
+          python3 -m unittest scripts.test_genera_semi_shp
+          python3 scripts/genera_semi_shp.py --verifica
       - name: Verify exact dependency pins
         run: python3 scripts/check_dependency_pins.py
       # I pin di toolchain sono replicati come letterali in sei posti, perche'
