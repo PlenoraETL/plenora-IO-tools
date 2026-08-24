@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "descrizione": "Che cosa il target `shp_reader` deve **raggiungere** perche' si possa dire che il reader Shapefile e' esercitato. Una build che compila e un replay senza crash non lo dicono: un bundle rifiutato all'apertura non fa crashare niente ed e', da fuori, indistinguibile da uno letto per intero.",
+  "target": "shp_reader",
+  "artefatto": "assurance/profondita-fuzz-shapefile.json",
+  "perimetro": {
+    "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",
+    "perche_non_lo_sha": "Legare la misura a uno SHA la farebbe scadere al primo commit di documentazione, e il commit che pubblica la misura ha per forza uno SHA diverso da quello su cui e' girata. Legarla al **contenuto** che la determina la fa scadere quando deve.",
+    "cosa_non_copre": "una dipendenza esterna che cambiasse comportamento a parita' di `Cargo.lock` non e' vista. `Cargo.lock` e' nel perimetro proprio per questo: le versioni di `shapefile` e `dbase` sono meta' del codice che questa misura attraversa.",
+    "percorsi": [
+      "Cargo.lock",
+      "crates/driver-common/src",
+      "crates/driver-shp/src",
+      "crates/plenora-io-core/src",
+      "crates/plenora-io-model/src",
+      "fuzz/Cargo.toml",
+      "fuzz/fuzz_targets",
+      "fuzz/seeds/shp_reader"
+    ]
+  },
+  "nucleo": [
+    "driver.apertura",
+    "driver.schema",
+    "driver.dbf-layout",
+    "dbf.intestazione",
+    "dbf.descrittori-di-campo",
+    "dbf.valori",
+    "shp.intestazione",
+    "shp.intestazione-di-record",
+    "shp.geometria-punto",
+    "shp.geometria-polilinea",
+    "shx.indice",
+    "shp.conteggio-delle-forme",
+    "drenaggio.batch",
+    "rifiuto.conteggi-all-apertura",
+    "rifiuto.cardinalita-nel-drenaggio"
+  ],
+  "funzioni": [
+    {
+      "id": "driver.apertura",
+      "segmenti": [
+        "driver_shp",
+        "ShpDriver",
+        "open"
+      ],
+      "perche": "l'entry point del driver. Senza, il target starebbe convertendo geometrie in memoria come `shp_wkb`, non leggendo un dataset."
+    },
+    {
+      "id": "driver.schema",
+      "segmenti": [
+        "driver_shp",
+        "infer_shp_schema"
+      ],
+      "perche": "lo schema si inferisce dal file: e' il punto in cui header e tabella smettono di essere byte e diventano colonne."
+    },
+    {
+      "id": "driver.geometria-inferita",
+      "segmenti": [
+        "driver_shp",
+        "infer_geometry_info"
+      ],
+      "perche": "il tipo geometrico viene dall'header, e qui passa anche il confronto anticipato dei conteggi."
+    },
+    {
+      "id": "driver.dbf-layout",
+      "segmenti": [
+        "driver_shp",
+        "read_dbf_layout"
+      ],
+      "perche": "il layout della tabella e' cio' che il driver usa per mappare i campi; leggerlo e' il primo atto sul `.dbf`."
+    },
+    {
+      "id": "driver.crs",
+      "segmenti": [
+        "driver_shp",
+        "resolve_crs"
+      ],
+      "perche": "il `.prj` e' un fratello come gli altri, e la sua assenza e' un percorso quanto la sua presenza."
+    },
+    {
+      "id": "dbf.intestazione",
+      "segmenti": [
+        "dbase",
+        "header",
+        "Header",
+        "read_from"
+      ],
+      "perche": "l'intestazione dBase III: e' il parsing del formato, non del nostro adattatore."
+    },
+    {
+      "id": "dbf.descrittori-di-campo",
+      "segmenti": [
+        "dbase",
+        "field",
+        "FieldInfo",
+        "read_from"
+      ],
+      "perche": "nome, tipo e larghezza di ogni campo vengono decodificati dai byte del file."
+    },
+    {
+      "id": "dbf.valori",
+      "segmenti": [
+        "dbase",
+        "field",
+        "types",
+        "FieldValue",
+        "read_from"
+      ],
+      "perche": "i valori dei record: e' il livello piu' profondo del `.dbf`, e senza di esso la tabella sarebbe letta solo nella sua testa."
+    },
+    {
+      "id": "shp.intestazione",
+      "segmenti": [
+        "shapefile",
+        "header",
+        "Header",
+        "read_from"
+      ],
+      "perche": "i 100 byte di testa, meta' big-endian e meta' little-endian."
+    },
+    {
+      "id": "shp.intestazione-di-record",
+      "segmenti": [
+        "shapefile",
+        "record",
+        "RecordHeader",
+        "read_from"
+      ],
+      "perche": "numero e lunghezza di ogni record: e' il punto in cui il file viene percorso davvero."
+    },
+    {
+      "id": "shp.geometria-punto",
+      "segmenti": [
+        "shapefile",
+        "record",
+        "point",
+        "Point",
+        "read_shape_content"
+      ],
+      "perche": "almeno una geometria decodificata. Un target che si fermasse all'intestazione avrebbe questa scoperta."
+    },
+    {
+      "id": "shp.geometria-polilinea",
+      "segmenti": [
+        "shapefile",
+        "record",
+        "polyline",
+        "GenericPolyline",
+        "read_shape_content"
+      ],
+      "perche": "una geometria a parti, che percorre l'indice delle parti: e' una forma di record diversa dal punto, non un secondo esemplare della stessa."
+    },
+    {
+      "id": "shx.indice",
+      "segmenti": [
+        "shapefile",
+        "reader",
+        "read_index_file"
+      ],
+      "perche": "il `.shx` viene letto davvero. Senza, la parte del bundle che lo porta sarebbe scritta e mai usata."
+    },
+    {
+      "id": "shp.conteggio-delle-forme",
+      "segmenti": [
+        "shapefile",
+        "reader",
+        "ShapeReader",
+        "shape_count"
+      ],
+      "perche": "il conteggio anticipato delle forme, che esiste solo quando l'indice c'e' ed e' cio' su cui poggia il rifiuto all'apertura."
+    },
+    {
+      "id": "drenaggio.batch",
+      "segmenti": [
+        "driver_shp",
+        "ShpLossReader",
+        "next_batch"
+      ],
+      "perche": "il drenaggio: le righe escono dal reader in batch, e senza questa il target avrebbe aperto senza leggere."
+    },
+    {
+      "id": "drenaggio.loss-report",
+      "segmenti": [
+        "driver_shp",
+        "ShpLossReader",
+        "loss_report"
+      ],
+      "perche": "il rapporto di perdita si chiede a fine lettura, ed e' il percorso che una lettura interrotta non attraversa."
+    },
+    {
+      "id": "prevalidazione.struttura",
+      "segmenti": [
+        "driver_shp",
+        "valida_struttura_shp"
+      ],
+      "perche": "la verifica strutturale di `.shp` e `.shx`. Non basta che esista: se i semi non la attraversassero, il target misurerebbe il reader senza la difesa che gli sta davanti."
+    },
+    {
+      "id": "prevalidazione.contenuto-del-record",
+      "segmenti": [
+        "driver_shp",
+        "valida_contenuto_del_record"
+      ],
+      "perche": "i conteggi e l'indice delle parti di ogni record. E' la parte che lega cio' che il decoder prenota a cio' che il file contiene."
+    },
+    {
+      "id": "prevalidazione.indice",
+      "segmenti": [
+        "driver_shp",
+        "valida_indice_shx"
+      ],
+      "perche": "l'indice viene riletto da noi prima che `shapefile` lo usi per cercare: e' il percorso che il seme senza `.shx` non esercita."
+    },
+    {
+      "id": "prevalidazione.dbf",
+      "segmenti": [
+        "driver_shp",
+        "valida_intestazione_dbf"
+      ],
+      "perche": "l'intestazione, i descrittori e -- quando ci sono campi temporali -- i valori del `.dbf`."
+    }
+  ],
+  "righe": [
+    {
+      "id": "rifiuto.conteggi-all-apertura",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"numero di geometrie diverso dal numero di record DBF\",",
+      "perche": "la difesa piu' economica del reader: con il `.shx` il disallineamento si vede prima di decodificare una geometria. Che `shape_count` sia coperta non basta -- dice che il conteggio e' stato letto, non che il rifiuto sia scattato."
+    },
+    {
+      "id": "rifiuto.cardinalita-nel-drenaggio",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"cardinalita' Shapefile cambiata durante la lettura\",",
+      "perche": "lo stesso disallineamento **senza** indice emerge a lettura avviata, dopo il parsing delle geometrie. E' un ramo diverso, e serve un seme diverso per raggiungerlo."
+    },
+    {
+      "id": "bundle.shx-materializzato",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "std::fs::write(radice.join(\"input.shx\"), shx).map_err(errore_di_ambiente)?;",
+      "perche": "l'indice viene scritto su disco: e' cio' che rende raggiungibile `shape_count`."
+    },
+    {
+      "id": "bundle.prj-materializzato",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "std::fs::write(radice.join(\"input.prj\"), prj).map_err(errore_di_ambiente)?;",
+      "perche": "il `.prj` viene scritto solo quando c'e'. Se questa riga fosse a zero, il CRS verrebbe sempre da `assume_crs` e la strada del file non sarebbe esercitata."
+    },
+    {
+      "id": "rifiuto.offset-dbf-corto",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"offset del primo record DBF piu' corto dell'intestazione\",",
+      "perche": "il primo difetto che il target ha trovato: una sottrazione non controllata dentro `dbase::File::open`."
+    },
+    {
+      "id": "rifiuto.campo-dbf-corto",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"campo DBF piu' corto di quanto il suo tipo pretenda\",",
+      "perche": "`dbase` dichiara le dimensioni fisse dei propri tipi e non le verifica: affetta comunque, e la fetta panica."
+    },
+    {
+      "id": "rifiuto.record-troppo-corto",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"record Shapefile troppo corto per il tipo che dichiara\",",
+      "perche": "il ramo che ha chiuso la richiesta da 4,3 GB: i conteggi letti dai byte oltre il record."
+    },
+    {
+      "id": "rifiuto.conteggio-negativo",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"conteggio negativo dichiarato in un record Shapefile\",",
+      "perche": "un conteggio negativo diventa enorme passando da `as usize`, ed e' un ramo diverso da quello del conteggio troppo grande."
+    },
+    {
+      "id": "rifiuto.indice-delle-parti",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"indice delle parti Shapefile che esce dai punti dichiarati\",",
+      "perche": "la differenza fra due voci diventa un numero di punti da leggere, anche quando e' negativa."
+    },
+    {
+      "id": "rifiuto.indice-fuori-dal-shp",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"voce dell'indice Shapefile che punta fuori dal .shp\",",
+      "perche": "lo scostamento dell'indice serve a cercare dentro il `.shp`, e non e' legato alla sua lunghezza."
+    },
+    {
+      "id": "rifiuto.indice-dentro-un-record",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"lunghezza del record diversa da quella dichiarata nell'indice\",",
+      "perche": "uno scostamento che sta dentro il file puo' cadere in mezzo a un record, dove otto byte qualunque diventano una testa. E' il ramo che la sola catena sequenziale non vede."
+    },
+    {
+      "id": "rifiuto.data-non-interpretabile",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "if temporale.tipo == b'D' && data_non_interpretabile(byte) {",
+      "perche": "il valore di un campo `D` viene affettato per indice di byte, senza guardare lunghezza ne' confini di carattere."
+    },
+    {
+      "id": "rifiuto.data-e-ora-fuori-intervallo",
+      "file": "crates/driver-shp/src/lib.rs",
+      "ancora": "\"campo data-e-ora DBF fuori dall'intervallo convertibile\",",
+      "perche": "il giorno giuliano entra in un'aritmetica `i32` che trabocca, e un parola-tempo negativo trabocca passando da `u32`."
+    }
+  ],
+  "non_e_qui": {
+    "read_all": "il drenaggio di questo repository non passa da una `read_all`: si apre un reader per layer e si chiama `next_batch` finche' non torna `None`. La proprieta' richiesta -- che le righe escano davvero -- e' `drenaggio.batch`.",
+    "errore_di_ambiente": "la riga che trasforma un errore di scrittura in errore tipizzato resta a **zero**, ed e' giusto: durante la misura l'ambiente non ha fallito. E' provata da una sonda del driver, non da qui, perche' pretenderla coperta significherebbe pretendere che il filesystem si rompa durante una misura.",
+    "semantica": "che un ramo sia raggiunto non dice che il suo contratto sia verificato. Questo registro separa «non raggiunto» da «raggiunto»; la seconda meta' la verificano le sonde di `driver-shp`.",
+    "difese": "i rami di rifiuto elencati qui non sono la copertura del reader: sono la prova che i semi ostili committati raggiungono ancora la difesa che li riguarda. Un seme che smettesse di arrivarci resterebbe verde nel replay -- non fa crashare niente -- e questa misura e' l'unica cosa che se ne accorgerebbe."
+  }
+}

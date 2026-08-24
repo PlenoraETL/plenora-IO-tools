@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "descrizione": "Che cosa il replay deterministico del corpus di `shp_reader` ha raggiunto. Prodotto da scripts/fuzz-profondita-shp.sh; letto da scripts/check_profondita_fuzz_shp.py, che ne ricalcola l'impronta del perimetro e rifiuta una misura invecchiata.",
+  "target": "shp_reader",
+  "corpus": {
+    "input": 22
+  },
+  "impronta_perimetro": "7510999508cc81894094597eb4d256ef1d9b0b222d7baa1450709839828bec10",
+  "revisione_di_misura": "13c26c40a08782ce4e00a112de5320949048981e",
+  "nota_sulla_revisione": "informativa: il commit che pubblica questa misura ne ha per forza un'altra. A legare la misura all'albero e' l'impronta del perimetro, non questo campo.",
+  "requisiti": [
+    {
+      "id": "bundle.prj-materializzato",
+      "famiglia": "riga",
+      "riga": 3478,
+      "conteggio": 1
+    },
+    {
+      "id": "bundle.shx-materializzato",
+      "famiglia": "riga",
+      "riga": 3472,
+      "conteggio": 22
+    },
+    {
+      "id": "dbf.descrittori-di-campo",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 34
+    },
+    {
+      "id": "dbf.intestazione",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 25
+    },
+    {
+      "id": "dbf.valori",
+      "famiglia": "funzione",
+      "simboli": 8,
+      "conteggio": 22
+    },
+    {
+      "id": "drenaggio.batch",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 8
+    },
+    {
+      "id": "drenaggio.loss-report",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 13
+    },
+    {
+      "id": "driver.apertura",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 24
+    },
+    {
+      "id": "driver.crs",
+      "famiglia": "funzione",
+      "simboli": 4,
+      "conteggio": 24
+    },
+    {
+      "id": "driver.dbf-layout",
+      "famiglia": "funzione",
+      "simboli": 8,
+      "conteggio": 24
+    },
+    {
+      "id": "driver.geometria-inferita",
+      "famiglia": "funzione",
+      "simboli": 3,
+      "conteggio": 15
+    },
+    {
+      "id": "driver.schema",
+      "famiglia": "funzione",
+      "simboli": 9,
+      "conteggio": 24
+    },
+    {
+      "id": "prevalidazione.contenuto-del-record",
+      "famiglia": "funzione",
+      "simboli": 4,
+      "conteggio": 44
+    },
+    {
+      "id": "prevalidazione.dbf",
+      "famiglia": "funzione",
+      "simboli": 7,
+      "conteggio": 38
+    },
+    {
+      "id": "prevalidazione.indice",
+      "famiglia": "funzione",
+      "simboli": 5,
+      "conteggio": 14
+    },
+    {
+      "id": "prevalidazione.struttura",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 20
+    },
+    {
+      "id": "rifiuto.campo-dbf-corto",
+      "famiglia": "riga",
+      "riga": 2140,
+      "conteggio": 2
+    },
+    {
+      "id": "rifiuto.cardinalita-nel-drenaggio",
+      "famiglia": "riga",
+      "riga": 3239,
+      "conteggio": 2
+    },
+    {
+      "id": "rifiuto.conteggi-all-apertura",
+      "famiglia": "riga",
+      "riga": 2808,
+      "conteggio": 1
+    },
+    {
+      "id": "rifiuto.conteggio-negativo",
+      "famiglia": "riga",
+      "riga": 1662,
+      "conteggio": 1
+    },
+    {
+      "id": "rifiuto.data-e-ora-fuori-intervallo",
+      "famiglia": "riga",
+      "riga": 2199,
+      "conteggio": 2
+    },
+    {
+      "id": "rifiuto.data-non-interpretabile",
+      "famiglia": "riga",
+      "riga": 2192,
+      "conteggio": 4
+    },
+    {
+      "id": "rifiuto.indice-delle-parti",
+      "famiglia": "riga",
+      "riga": 1694,
+      "conteggio": 2
+    },
+    {
+      "id": "rifiuto.indice-dentro-un-record",
+      "famiglia": "riga",
+      "riga": 1861,
+      "conteggio": 1
+    },
+    {
+      "id": "rifiuto.indice-fuori-dal-shp",
+      "famiglia": "riga",
+      "riga": 1920,
+      "conteggio": 1
+    },
+    {
+      "id": "rifiuto.offset-dbf-corto",
+      "famiglia": "riga",
+      "riga": 2065,
+      "conteggio": 1
+    },
+    {
+      "id": "rifiuto.record-troppo-corto",
+      "famiglia": "riga",
+      "riga": 1656,
+      "conteggio": 1
+    },
+    {
+      "id": "shp.conteggio-delle-forme",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 6
+    },
+    {
+      "id": "shp.geometria-polilinea",
+      "famiglia": "funzione",
+      "simboli": 18,
+      "conteggio": 1
+    },
+    {
+      "id": "shp.geometria-punto",
+      "famiglia": "funzione",
+      "simboli": 10,
+      "conteggio": 8
+    },
+    {
+      "id": "shp.intestazione",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 18
+    },
+    {
+      "id": "shp.intestazione-di-record",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 9
+    },
+    {
+      "id": "shx.indice",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 7
+    }
+  ]
+}

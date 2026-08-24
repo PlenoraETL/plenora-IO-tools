@@ -88,6 +88,15 @@ jobs:
         run: |
           python3 -m unittest scripts.test_genera_semi_shp
           python3 scripts/genera_semi_shp.py --verifica
+      # Il gate che tiene chiuso `fuzz.reader-shapefile`. La **misura** costa
+      # minuti e nightly e si fa a mano (scripts/fuzz-profondita-shp.sh); qui
+      # gira solo la sua lettura, che ricalcola l'impronta del perimetro e
+      # diventa rossa appena il codice attraversato cambia senza che la misura
+      # sia stata rifatta.
+      - name: Verify the shapefile reader is reached by its fuzz target
+        run: |
+          python3 -m unittest scripts.test_check_profondita_fuzz_shp
+          python3 scripts/check_profondita_fuzz_shp.py
       - name: Verify exact dependency pins
         run: python3 scripts/check_dependency_pins.py
       # I pin di toolchain sono replicati come letterali in sei posti, perche'
