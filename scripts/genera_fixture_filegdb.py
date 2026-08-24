@@ -416,6 +416,18 @@ def _prova_legata_alla_fixture(contenuti: dict[str, bytes]) -> list[str]:
     return errori
 
 
+def _intero(valore: object) -> bool:
+    """Un intero vero.
+
+    `True` e' un `int` per Python, e vale 1: senza questo controllo un offset
+    `true` era un offset, e un conteggio per parte `true` tornava con un elenco
+    di un elemento. Non e' un caso teorico -- e' la forma che prende un JSON
+    scritto da uno strumento diverso -- e gli altri gate di questo repository lo
+    escludono da tempo.
+    """
+    return isinstance(valore, int) and not isinstance(valore, bool) and valore >= 0
+
+
 def _offset_riconciliati(prova: dict, contenuti: dict[str, bytes]) -> list[str]:
     """I tre modi in cui il verbale conta i byte coniati devono coincidere.
 
@@ -457,7 +469,7 @@ def _offset_riconciliati(prova: dict, contenuti: dict[str, bytes]) -> list[str]:
 
     somma = 0
     for nome, elenco in sorted(offset.items()):
-        if not isinstance(elenco, list) or not all(isinstance(o, int) for o in elenco):
+        if not isinstance(elenco, list) or not all(_intero(o) for o in elenco):
             errori.append(f"`offset_coniati[{nome}]` non e' un elenco di offset")
             continue
         if len(elenco) != len(set(elenco)):
@@ -471,9 +483,10 @@ def _offset_riconciliati(prova: dict, contenuti: dict[str, bytes]) -> list[str]:
                 f"`offset_coniati[{nome}]` cita offset fuori dalla parte "
                 f"({lunghezza} byte): {fuori[:5]}"
             )
-        if per_parte.get(nome) != len(elenco):
+        conteggio = per_parte.get(nome)
+        if not _intero(conteggio) or conteggio != len(elenco):
             errori.append(
-                f"`byte_coniati_per_parte[{nome}]` vale «{per_parte.get(nome)}», "
+                f"`byte_coniati_per_parte[{nome}]` vale «{conteggio}», "
                 f"l'elenco ne porta {len(elenco)}"
             )
         somma += len(elenco)

@@ -45,6 +45,29 @@ sorveglia l'errore speculare, che e' il piu' comodo da commettere: una regex
 troppo larga alza la percentuale togliendo dal denominatore proprio il codice
 che la soglia doveva sorvegliare.
 
+## Il codice dietro una feature, e quanto di esso questo gate verifica
+
+Una crate compare nel report anche quando se ne misura **meta'**: senza
+`--all-features` il percorso GDAL di `driver-filegdb` non viene compilato, e le
+sue righe non sono scoperte ma assenti dal denominatore. La promessa qui e'
+percio' piu' stretta di "la crate c'e'", e va detta per quello che e':
+
+* **ogni** misuratore dichiarato in `MISURATORI` contiene almeno
+  un'invocazione che misura, e **ogni** invocazione porta `--all-features`. La
+  verifica era globale, e con tre misuratori bastavano gli altri due a tenerla
+  verde mentre uno smetteva di misurare;
+* **ogni** ancora compare nel report, non una qualsiasi. Un'ancora e' la prima
+  funzione dentro un blocco `#[cfg(...)]` che nomina positivamente una feature
+  — anche dentro `all(...)` o `any(...)`, e scendendo dentro i moduli, perche'
+  `mod backend` e' il percorso GDAL per intero;
+* i blocchi che **non** cominciano con una funzione — una macro, un blocco
+  dentro un corpo, una dichiarazione di modulo in un altro file — non hanno una
+  riga di cui llvm-cov garantisca il record: il gate li conta e li dichiara
+  nella propria uscita invece di far finta di guardarli;
+* i blocchi dentro un modulo `cfg(test)` restano fuori: la soglia sorveglia il
+  codice di produzione, e un helper di prova che nessuno chiama puo' non avere
+  alcun record anche a feature compilata.
+
 La soglia e' verificata come valore, non come presenza: se la copertura scende
 sotto l'80% si aggiungono test, non si sposta la soglia. Spostarla e' una
 decisione che va presa, e questo gate la rende visibile invece che comoda.
@@ -244,15 +267,30 @@ def _misura_con_tutte_le_feature(radice: Path) -> list[str]:
     invisibili alla soglia.
     """
     errori: list[str] = []
-    trovate = 0
     for relativo in MISURATORI:
         percorso = radice / relativo
         if not percorso.is_file():
+            errori.append(
+                f"{relativo}: misuratore dichiarato e assente. Finche' e' fra i "
+                "misuratori, la sua misura fa parte di cio' che questo gate "
+                "promette; se non misura piu', va tolto da `MISURATORI` con un "
+                "gesto che si vede in diff."
+            )
             continue
-        for riga in percorso.read_text(encoding="utf-8").splitlines():
-            if INVOCAZIONE_MISURA not in riga:
-                continue
-            trovate += 1
+        invocazioni = [
+            riga
+            for riga in percorso.read_text(encoding="utf-8").splitlines()
+            if INVOCAZIONE_MISURA in riga
+        ]
+        if not invocazioni:
+            errori.append(
+                f"{relativo}: nessuna invocazione di `{INVOCAZIONE_MISURA}`. La "
+                "verifica era globale, e con tre misuratori bastavano gli altri "
+                "due a tenerla verde: cancellare la misura da uno solo non "
+                "faceva rumore."
+            )
+            continue
+        for riga in invocazioni:
             if FLAG_TUTTE_LE_FEATURE not in riga:
                 errori.append(
                     f"{relativo}: la misura della copertura non porta "
@@ -261,11 +299,6 @@ def _misura_con_tutte_le_feature(radice: Path) -> list[str]:
                     "comparire fra le righe scoperte: la soglia sorveglierebbe "
                     "meno di cio' che dichiara."
                 )
-    if not trovate:
-        errori.append(
-            f"nessuna invocazione di `{INVOCAZIONE_MISURA}` in {list(MISURATORI)}: "
-            "senza, non si sa dove la copertura venga misurata."
-        )
     return errori
 
 
@@ -290,31 +323,164 @@ def righe_del_report(testo: str) -> dict[str, set[int]]:
     return per_file
 
 
-def ancore_feature_gated(radice: Path) -> dict[str, list[tuple[str, int]]]:
-    """Una riga di codice **dentro** ogni blocco `#[cfg(feature = "...")]`.
+ATTRIBUTO_CFG = re.compile(r"^\s*#\[cfg\((?P<contenuto>.+)\)\]\s*$")
+FEATURE = re.compile(r'feature\s*=\s*"([^"]+)"')
+FIRMA = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:default\s+|const\s+|async\s+|unsafe\s+|extern\s+\"[^\"]*\"\s+)*fn\s+\w+"
+)
+MODULO = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+IGNORABILE = re.compile(r'^\s*(?://|/\*|\*|#!?\[|$)')
+PREDICATO_TEST = re.compile(r"(^|[(,\s])test($|[),\s])")
 
-    L'ancora e' la firma della prima funzione che segue l'attributo: se la
+
+def _senza_negazioni(contenuto: str) -> str:
+    """Il predicato `cfg` senza i suoi rami `not(...)`.
+
+    `#[cfg(not(feature = "x"))]` nomina una feature e vale quando **non** c'e':
+    ancorarci sopra pretenderebbe strumentata proprio la riga che
+    `--all-features` fa sparire. I rami negativi si tolgono a mano perche' le
+    parentesi si annidano e una regex non le conta.
+    """
+    fuori: list[str] = []
+    indice = 0
+    while indice < len(contenuto):
+        if contenuto.startswith("not(", indice):
+            profondita = 0
+            for scorri in range(indice + 3, len(contenuto)):
+                if contenuto[scorri] == "(":
+                    profondita += 1
+                elif contenuto[scorri] == ")":
+                    profondita -= 1
+                    if profondita == 0:
+                        indice = scorri + 1
+                        break
+            else:
+                indice = len(contenuto)
+            continue
+        fuori.append(contenuto[indice])
+        indice += 1
+    return "".join(fuori)
+
+
+def _moduli_di_test(righe: list[str]) -> list[range]:
+    """Le righe dei moduli dietro `cfg(test)`, che non sono il denominatore.
+
+    L'affermazione di questo gate riguarda il **codice di produzione**: e' quello
+    che la soglia sorveglia. Il codice di prova sta dietro `cfg(test)`, e la sua
+    presenza nel report non e' garantita nemmeno quando la feature e' compilata
+    -- un helper che nessuno chiama puo' non avere alcun record. Preteserlo
+    renderebbe rosso un report corretto, ed e' successo alla prima stesura di
+    questa verifica, su `opzioni_scrittura` in `driver-filegdb`.
+    """
+    intervalli: list[range] = []
+    for indice, riga in enumerate(righe):
+        trovato = ATTRIBUTO_CFG.match(riga)
+        if not trovato:
+            continue
+        if not PREDICATO_TEST.search(_senza_negazioni(trovato.group("contenuto"))):
+            continue
+        for avanti in range(indice + 1, len(righe)):
+            if IGNORABILE.match(righe[avanti]):
+                continue
+            if not MODULO.match(righe[avanti]):
+                break
+            profondita = 0
+            for scorri in range(avanti, len(righe)):
+                profondita += righe[scorri].count("{") - righe[scorri].count("}")
+                if profondita == 0 and scorri > avanti:
+                    intervalli.append(range(indice, scorri + 1))
+                    break
+            break
+    return intervalli
+
+
+def _riga_ancorabile(righe: list[str], dopo: int) -> int | None:
+    """La prima riga **strumentabile** dopo un attributo, o `None`.
+
+    E' la firma di una funzione: llvm-cov emette un record `DA:` per la riga in
+    cui una funzione compilata comincia, e per nient'altro con altrettanta
+    certezza -- l'intestazione di un `impl`, una `struct`, un `use` non
+    producono codice, e pretenderle nel report renderebbe rosso un report
+    corretto. Dentro un `mod` si scende, perche' il modulo e' solo
+    l'involucro; davanti a qualunque altro elemento ci si ferma e il blocco
+    resta **non ancorato**, cioe' dichiarato invece che finto coperto.
+    """
+    indice = dopo
+    while indice < len(righe):
+        riga = righe[indice]
+        if IGNORABILE.match(riga):
+            indice += 1
+            continue
+        if FIRMA.match(riga):
+            return indice
+        if MODULO.match(riga):
+            # Dentro un modulo **tutto** e' governato dalla stessa feature, e la
+            # prima funzione va cercata fino alla graffa che lo chiude: fermarsi
+            # al primo `use` lasciava non ancorato `mod backend`, che e' il
+            # percorso GDAL per intero. Oltre la chiusura non si guarda: li' il
+            # codice non e' piu' dietro quella feature.
+            profondita = 0
+            for scorri in range(indice, len(righe)):
+                profondita += righe[scorri].count("{") - righe[scorri].count("}")
+                if profondita == 0 and scorri > indice:
+                    fine = scorri
+                    break
+            else:
+                fine = len(righe)
+            for dentro in range(indice + 1, fine):
+                if FIRMA.match(righe[dentro]):
+                    return dentro
+            return None
+        return None
+    return None
+
+
+def ancore_feature_gated(
+    radice: Path,
+) -> tuple[dict[str, list[tuple[str, int, str]]], list[tuple[str, int, str]]]:
+    """`(ancore per crate, blocchi non ancorati)`.
+
+    Un'ancora e' `(file, riga, feature)`: la firma della prima funzione dentro
+    un blocco `#[cfg(...)]` che nomina positivamente una feature -- anche
+    dentro `all(...)` o `any(...)`, che la prima stesura non vedeva. Se la
     feature non e' stata compilata, quella riga non ha dati di copertura, e la
     sua assenza dal report dice esattamente cio' che serve sapere.
-    """
-    attributo = re.compile(r'^\s*#\[cfg\(feature\s*=\s*"([^"]+)"\)\]\s*$')
-    firma = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|async\s+|unsafe\s+)*fn\s+\w+")
 
-    per_crate: dict[str, list[tuple[str, int]]] = {}
+    I blocchi che non cominciano con una funzione -- un `impl`, una `struct`,
+    uno statement dentro un corpo -- non hanno una riga di cui si possa
+    pretendere il record: tornano nel secondo elenco, che il gate **conta e
+    dichiara**. Contarli e' la differenza fra una verifica parziale e una
+    verifica parziale che si sa dov'e' parziale.
+
+    Restano fuori i blocchi dentro un modulo `cfg(test)`: l'affermazione
+    riguarda il codice di produzione, e un helper di prova che nessuno chiama
+    puo' non avere alcun record anche quando la feature e' compilata.
+    """
+    per_crate: dict[str, list[tuple[str, int, str]]] = {}
+    non_ancorati: list[tuple[str, int, str]] = []
     for nome in crate_libreria(radice):
         sorgenti = sorted((radice / CRATES / nome / "src").rglob("*.rs"))
         for percorso in sorgenti:
             righe = percorso.read_text(encoding="utf-8").splitlines()
+            relativo = percorso.relative_to(radice).as_posix()
+            di_prova = _moduli_di_test(righe)
             for indice, riga in enumerate(righe):
-                if not attributo.match(riga):
+                trovato = ATTRIBUTO_CFG.match(riga)
+                if not trovato:
                     continue
-                # La firma sta subito dopo, al netto di attributi e commenti.
-                for avanti in range(indice + 1, min(indice + 8, len(righe))):
-                    if firma.match(righe[avanti]):
-                        relativo = percorso.relative_to(radice).as_posix()
-                        per_crate.setdefault(nome, []).append((relativo, avanti + 1))
-                        break
-    return per_crate
+                if any(indice in intervallo for intervallo in di_prova):
+                    continue
+                feature = FEATURE.search(_senza_negazioni(trovato.group("contenuto")))
+                if not feature:
+                    continue
+                ancora = _riga_ancorabile(righe, indice + 1)
+                if ancora is None:
+                    non_ancorati.append((relativo, indice + 1, feature.group(1)))
+                    continue
+                per_crate.setdefault(nome, []).append(
+                    (relativo, ancora + 1, feature.group(1))
+                )
+    return per_crate, non_ancorati
 
 
 def verifica_report(radice: Path, percorso: Path) -> list[str]:
@@ -358,8 +524,10 @@ def _feature_nel_denominatore(radice: Path, percorso: Path) -> list[str]:
     """Il codice dietro una feature e' **compilato**, non solo dichiarato.
 
     Che la crate compaia nel report non basta: `driver-filegdb` comparirebbe
-    anche misurando il solo stub. Qui si guarda una riga dentro ciascun blocco
-    feature-gated, e la si pretende strumentata.
+    anche misurando il solo stub. Si pretende strumentata **ogni** ancora, non
+    una qualsiasi: la prima stesura si accontentava che l'elenco delle
+    raggiunte non fosse vuoto, e una crate con venti blocchi dietro due feature
+    restava verde con una feature sola compilata.
     """
     per_file = righe_del_report(percorso.read_text(encoding="utf-8"))
 
@@ -370,17 +538,26 @@ def _feature_nel_denominatore(radice: Path, percorso: Path) -> list[str]:
         return set()
 
     errori: list[str] = []
-    for nome, ancore in sorted(ancore_feature_gated(radice).items()):
-        raggiunte = [
-            (relativo, riga) for relativo, riga in ancore if riga in strumentate(relativo)
+    ancore, _ = ancore_feature_gated(radice)
+    for nome, elenco in sorted(ancore.items()):
+        mancanti = [
+            (relativo, riga, feature)
+            for relativo, riga, feature in elenco
+            if riga not in strumentate(relativo)
         ]
-        if not raggiunte:
-            errori.append(
-                f"{percorso}: `{nome}` ha {len(ancore)} blocchi dietro una "
-                "feature e nessuna delle loro funzioni compare nel report. La "
-                "crate e' nel denominatore, il suo codice feature-gated no: la "
-                "misura e' stata compilata senza `--all-features`."
-            )
+        if not mancanti:
+            continue
+        feature_toccate = sorted({f for _, _, f in mancanti})
+        dettaglio = ", ".join(f"{r}:{n}" for r, n, _ in mancanti[:5])
+        if len(mancanti) > 5:
+            dettaglio += f", e altre {len(mancanti) - 5}"
+        errori.append(
+            f"{percorso}: `{nome}` ha {len(mancanti)} blocchi su {len(elenco)} "
+            f"dietro una feature la cui prima funzione non compare nel report "
+            f"({dettaglio}). Le feature coinvolte sono {feature_toccate}: la "
+            "crate e' nel denominatore, quel suo codice no, e la misura e' "
+            "stata compilata senza `--all-features`."
+        )
     return errori
 
 
@@ -414,6 +591,18 @@ def main() -> int:
         f"escluse {', '.join(non_librerie)}"
         + (f"; report osservato: {opzioni.lcov}" if opzioni.lcov else "")
     )
+    if opzioni.lcov:
+        # Quanto copre questa verifica, detto dalla verifica stessa. Un gate che
+        # tace su cio' che non guarda si fa leggere come se guardasse tutto.
+        ancore, non_ancorati = ancore_feature_gated(ROOT)
+        quante = sum(len(v) for v in ancore.values())
+        print(
+            f"  codice dietro una feature: {quante} blocchi ancorati e trovati "
+            f"nel report, tutti; {len(non_ancorati)} non ancorabili -- non "
+            "cominciano con una funzione (una macro, un blocco dentro un corpo, "
+            "una dichiarazione di modulo), e per quelle righe llvm-cov non "
+            "garantisce un record di cui si possa pretendere la presenza."
+        )
     return 0
 
 

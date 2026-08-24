@@ -1232,6 +1232,99 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         )
         self.assertTrue(any("strumentate" in m for m in errori), errori)
 
+    # --- la diagnostica differenziale --------------------------------------
+    #
+    # I suoi numeri erano **copiati**: lo stato li prendeva dall'evidenza e il
+    # gate confrontava le due copie. Due documenti modificati insieme con numeri
+    # incompatibili restavano verdi, perche' nessuno chiedeva che i conteggi
+    # tornassero fra loro.
+
+    def test_coperte_piu_scoperte_devono_fare_le_cambiate(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["misure"]["diagnostica_differenziale"].update(coperte=1)
+        )
+        self.assertTrue(any("non c'e' un terzo stato" in m for m in errori), errori)
+
+    def test_la_percentuale_differenziale_e_il_proprio_rapporto(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["misure"]["diagnostica_differenziale"].update(esito="99.99%")
+        )
+        self.assertTrue(
+            any("diagnostica_differenziale.esito` vale 99.99" in m for m in errori),
+            errori,
+        )
+
+    def test_un_esito_che_non_e_una_percentuale_ne_n_d_e_rosso(self) -> None:
+        for valore in ("buono", "", "92,56%", "92.56"):
+            with self.subTest(valore=valore):
+                errori = self.errori_con(
+                    lambda e, v=valore: e["misure"][
+                        "diagnostica_differenziale"
+                    ].update(esito=v)
+                )
+                self.assertTrue(
+                    any("diagnostica_differenziale.esito" in m for m in errori), errori
+                )
+
+    def test_n_d_con_righe_da_misurare_e_rosso(self) -> None:
+        """`n/d` e' la risposta quando non c'e' niente da misurare. Con righe
+        eseguibili cambiate vorrebbe dire che la diagnostica ha misurato e non
+        ha concluso."""
+        errori = self.errori_con(
+            lambda e: e["misure"]["diagnostica_differenziale"].update(esito="n/d")
+        )
+        self.assertTrue(any("e' una percentuale" in m for m in errori), errori)
+
+    def test_una_percentuale_senza_denominatore_e_rossa(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["misure"]["diagnostica_differenziale"].update(
+                righe_cambiate_eseguibili=0, coperte=0, scoperte=0
+            )
+        )
+        self.assertTrue(any("senza denominatore" in m for m in errori), errori)
+
+    def test_conteggi_differenziali_non_interi_sono_rossi(self) -> None:
+        for campo in (
+            "righe_cambiate_eseguibili",
+            "coperte",
+            "scoperte",
+            "cambiate_non_eseguibili",
+        ):
+            with self.subTest(campo=campo):
+                errori = self.errori_con(
+                    lambda e, c=campo: e["misure"]["diagnostica_differenziale"].update(
+                        {c: True}
+                    )
+                )
+                self.assertTrue(
+                    any(f"diagnostica_differenziale.{campo}" in m for m in errori),
+                    errori,
+                )
+
+    def test_l_elenco_delle_scoperte_deve_contarle_tutte(self) -> None:
+        errori = self.errori_con(
+            lambda e: e["misure"]["diagnostica_differenziale"].update(
+                righe_scoperte=e["misure"]["diagnostica_differenziale"][
+                    "righe_scoperte"
+                ][:-1]
+            )
+        )
+        self.assertTrue(any("posizioni, `scoperte`" in m for m in errori), errori)
+
+    def test_un_elenco_di_scoperte_con_ripetizioni_e_rosso(self) -> None:
+        """Una riga contata due volte gonfia l'elenco senza gonfiare il
+        conteggio: e' il modo in cui i due smetterebbero di dire la stessa
+        cosa."""
+
+        def ripeti(e):
+            elenco = e["misure"]["diagnostica_differenziale"]["righe_scoperte"]
+            e["misure"]["diagnostica_differenziale"]["righe_scoperte"] = [
+                elenco[0]
+            ] + elenco[:-1]
+
+        errori = self.errori_con(ripeti)
+        self.assertTrue(any("ripete" in m for m in errori), errori)
+
     def test_una_campagna_di_fuzzing_a_zero_non_e_un_verde(self) -> None:
         casi = {
             "replay senza input": lambda e: e["misure"]["fuzz_replay"].update(input=0),

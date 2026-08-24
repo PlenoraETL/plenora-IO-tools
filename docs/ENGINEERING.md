@@ -348,10 +348,14 @@ Misurata con `cargo llvm-cov --all-features`, soglia 80%. Le feature contano:
 `driver-filegdb` tiene l'intero percorso GDAL dietro `gdal-backend`, e senza
 quella feature quel codice non era «scoperto» ma **invisibile** — fuori dal
 denominatore, quindi incapace di abbassare la soglia. Il job di copertura
-installa percio' GDAL, e `scripts/check_coverage_exclusions.py` verifica sia che
-il comando che **misura** porti `--all-features`, sia che il codice dietro una
-feature compaia davvero nel report, con ancore derivate dagli attributi `cfg`
-del sorgente invece che scritte a mano.
+installa percio' GDAL, e `scripts/check_coverage_exclusions.py` verifica che
+**ogni** misuratore porti `--all-features` — la verifica era globale, e con tre
+misuratori bastavano gli altri due a tenerla verde — e che **ogni** ancora
+compaia nel report. Un'ancora e' la prima funzione dentro un blocco `cfg` che
+nomina positivamente una feature, derivata dal sorgente invece che scritta a
+mano; i blocchi che non cominciano con una funzione, e quelli dentro un modulo
+`cfg(test)`, restano fuori e il gate li **dichiara** invece di far finta di
+guardarli.
 
 Il checkpoint riporta **due proiezioni** dello stesso profdata — i record `DA:` del report LCOV e la colonna
 «Lines» di `llvm-cov` — che contano insiemi diversi di righe strumentate e non

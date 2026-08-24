@@ -1523,7 +1523,123 @@ def _misure_coerenti(evidenza: dict[str, Any]) -> list[str]:
     dell'80% passava, perche' la soglia veniva confrontata con la percentuale
     arrotondata invece che con il rapporto.
     """
-    return _copertura_coerente(evidenza) + _fuzz_coerente(evidenza)
+    return (
+        _copertura_coerente(evidenza)
+        + _fuzz_coerente(evidenza)
+        + _differenziale_coerente(evidenza)
+    )
+
+
+def _differenziale_coerente(evidenza: dict[str, Any]) -> list[str]:
+    """I conteggi della diagnostica differenziale si riconciliano fra loro.
+
+    Erano **copiati**: lo stato li prendeva dall'evidenza e il gate confrontava
+    le due copie, quindi due documenti modificati insieme con numeri
+    incompatibili -- 224 coperte e 18 scoperte su 300 righe cambiate, o una
+    percentuale che non e' il loro rapporto -- restavano verdi. Un numero
+    confrontato solo con la propria copia non e' verificato: e' ripetuto.
+
+    Finche' la diagnostica dichiara `n/d` non c'e' niente da riconciliare, e
+    quel caso resta ammesso: e' cio' che una corsa scrive quando la base non e'
+    impostata o quando nessuna riga cambiata e' eseguibile.
+    """
+    diagnostica = _dentro(evidenza, ("misure", "diagnostica_differenziale"))
+    if not isinstance(diagnostica, dict):
+        return ["`misure.diagnostica_differenziale` assente"]
+
+    esito = diagnostica.get("esito")
+    if not isinstance(esito, str) or not esito:
+        return [
+            f"`diagnostica_differenziale.esito` non e' una stringa: «{esito}». "
+            "O e' una percentuale, o e' «n/d» con la sua ragione."
+        ]
+
+    cambiate = diagnostica.get("righe_cambiate_eseguibili")
+    coperte = diagnostica.get("coperte")
+    scoperte = diagnostica.get("scoperte")
+    non_eseguibili = diagnostica.get("cambiate_non_eseguibili")
+    conteggi = {
+        "righe_cambiate_eseguibili": cambiate,
+        "coperte": coperte,
+        "scoperte": scoperte,
+        "cambiate_non_eseguibili": non_eseguibili,
+    }
+    errori = [
+        f"`diagnostica_differenziale.{campo}` non e' un intero non negativo: «{valore}»"
+        for campo, valore in conteggi.items()
+        if not _intero(valore)
+    ]
+    if errori:
+        return errori
+
+    if coperte + scoperte != cambiate:
+        errori.append(
+            f"`diagnostica_differenziale`: {coperte} coperte piu' {scoperte} "
+            f"scoperte fanno {coperte + scoperte}, non le {cambiate} righe "
+            "cambiate ed eseguibili. Una riga cambiata ed eseguibile e' coperta "
+            "o non lo e'; non c'e' un terzo stato."
+        )
+
+    elencate = diagnostica.get("righe_scoperte")
+    if elencate is not None:
+        if not isinstance(elencate, list) or not all(
+            isinstance(v, str) and v for v in elencate
+        ):
+            errori.append(
+                "`diagnostica_differenziale.righe_scoperte` non e' un elenco di "
+                "posizioni: senza, l'affermazione su che cosa resta scoperto non "
+                "si puo' controllare."
+            )
+        else:
+            if len(set(elencate)) != len(elencate):
+                ripetute = sorted({v for v in elencate if elencate.count(v) > 1})
+                errori.append(
+                    f"`diagnostica_differenziale.righe_scoperte` ripete {ripetute}: "
+                    "una riga contata due volte gonfia l'elenco senza gonfiare il "
+                    "conteggio, ed e' il modo in cui i due smetterebbero di dire "
+                    "la stessa cosa."
+                )
+            if len(elencate) != scoperte:
+                errori.append(
+                    f"`diagnostica_differenziale.righe_scoperte` elenca "
+                    f"{len(elencate)} posizioni, `scoperte` ne dichiara {scoperte}"
+                )
+
+    if esito == "n/d":
+        # Ammesso, ma non a caso: `n/d` con righe eseguibili cambiate vorrebbe
+        # dire che la diagnostica ha misurato e non ha concluso.
+        if cambiate:
+            errori.append(
+                f"`diagnostica_differenziale.esito` e' «n/d» con {cambiate} righe "
+                "cambiate ed eseguibili: se ci sono righe da misurare, il "
+                "risultato e' una percentuale."
+            )
+        return errori
+
+    trovato = re.fullmatch(r"(\d+(?:\.\d+)?)%", esito)
+    if not trovato:
+        errori.append(
+            f"`diagnostica_differenziale.esito` vale «{esito}»: ne' una "
+            "percentuale ne' «n/d»"
+        )
+        return errori
+    if cambiate == 0:
+        errori.append(
+            f"`diagnostica_differenziale.esito` vale «{esito}» su zero righe "
+            "cambiate ed eseguibili: una percentuale senza denominatore"
+        )
+        return errori
+
+    dichiarata = float(trovato.group(1))
+    vera = coperte / cambiate * 100
+    # Come per la copertura: il confronto e' sulla distanza, per non dipendere
+    # dal modo di arrotondare a meta' esatta.
+    if abs(vera - dichiarata) > 0.005 + 1e-9:
+        errori.append(
+            f"`diagnostica_differenziale.esito` vale {dichiarata}%, ma "
+            f"{coperte}/{cambiate} fa {vera:.4f}%"
+        )
+    return errori
 
 
 def _copertura_coerente(evidenza: dict[str, Any]) -> list[str]:

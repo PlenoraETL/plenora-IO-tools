@@ -220,6 +220,33 @@ class SondeDelVerbale(unittest.TestCase):
                 self.assertEqual(codice, 1)
                 self.assertIn(atteso, testo)
 
+    def test_un_booleano_non_e_un_offset(self) -> None:
+        """`True` e' un `int` per Python, e vale 1: un offset `true` passava, e
+        un conteggio per parte `true` tornava con un elenco di un elemento."""
+        verbale = self.verbale()
+        nome = sorted(verbale["offset_coniati"])[0]
+        verbale["byte_coniati_totali"] -= len(verbale["offset_coniati"][nome]) - 1
+        verbale["offset_coniati"][nome] = [True]
+        verbale["byte_coniati_per_parte"][nome] = True
+        self.scrivi(verbale)
+        codice, testo = self.esegui()
+        self.assertEqual(codice, 1)
+        self.assertIn("non e' un elenco di offset", testo)
+
+    def test_un_conteggio_booleano_non_torna(self) -> None:
+        """Il caso peggiore, perche' e' l'unico che tornava: `True == 1`, quindi
+        un conteggio `true` su un elenco di un solo offset superava il confronto
+        senza essere un conteggio."""
+        verbale = self.verbale()
+        nome = sorted(verbale["offset_coniati"])[0]
+        verbale["byte_coniati_totali"] -= len(verbale["offset_coniati"][nome]) - 1
+        verbale["offset_coniati"][nome] = verbale["offset_coniati"][nome][:1]
+        verbale["byte_coniati_per_parte"][nome] = True
+        self.scrivi(verbale)
+        codice, testo = self.esegui()
+        self.assertEqual(codice, 1)
+        self.assertIn("byte_coniati_per_parte", testo)
+
     def test_zero_byte_coniati_non_passa_in_silenzio(self) -> None:
         """Zero byte coniati vorrebbe dire che due rigenerazioni sono identiche:
         sarebbe una buona notizia, e renderebbe vuota la tolleranza del
