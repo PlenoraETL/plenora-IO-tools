@@ -3,9 +3,9 @@
   "descrizione": "Che cosa il replay deterministico dei semi di `wkt_parse` ha raggiunto. Prodotto da `scripts/fuzz-profondita.sh wkt_parse`; letto da scripts/check_profondita_fuzz.py, che ne ricalcola l'impronta del perimetro e rifiuta una misura invecchiata.",
   "target": "wkt_parse",
   "corpus": {
-    "input": 24
+    "input": 26
   },
-  "impronta_perimetro": "e14e50406750f7b89a1e74bec6de28f2e83348a20c4ff80e8b990680507b4fe5",
+  "impronta_perimetro": "0b621bf9f1927414d35cb88340029e4f47cd101fb1324cf0b23c13f57ee011a7",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "requisiti": [
     {
@@ -18,19 +18,19 @@
       "id": "analisi.coordinata",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 79
+      "conteggio": 85
     },
     {
       "id": "analisi.geometria",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 112
+      "conteggio": 116
     },
     {
       "id": "analisi.ingresso",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 39
+      "conteggio": 43
     },
     {
       "id": "analisi.multipunto",
@@ -48,7 +48,7 @@
       "id": "analisi.suffisso-attaccato",
       "famiglia": "funzione",
       "simboli": 3,
-      "conteggio": 603
+      "conteggio": 609
     },
     {
       "id": "rifiuto.testo-residuo",

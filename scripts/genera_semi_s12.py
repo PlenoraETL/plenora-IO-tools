@@ -71,6 +71,8 @@ def semi_wkt() -> dict[str, str]:
         "punto-xy": "POINT (1 2)",
         "punto-xyz": "POINT Z (1 2 3)",
         "punto-xym": "POINT M (1 2 3)",
+        "punto-negativo": "POINT (-1 -2)",
+        "linea-negativa": "LINESTRING (-1.5 2.5,-3 -4)",
         "punto-xyzm": "POINT ZM (1 2 3 4)",
         # La forma senza spazio fra il tipo e il suffisso: e' quella che la
         # sonda comparativa ha trovato mancante, e vive in file veri.
@@ -122,6 +124,13 @@ def semi_geojson() -> dict[str, str]:
     return {
         "punto-xy": _feature({"type": "Point", "coordinates": [1, 2]}),
         "punto-xyz": _feature({"type": "Point", "coordinates": [1, 2, 3]}),
+        # `serde_json` consegna un intero non negativo come `u64` e uno
+        # negativo come `i64`: senza un seme negativo meta' del visitor non
+        # viene mai eseguita, e le longitudini negative sono la meta' del mondo.
+        "punto-negativo": _feature({"type": "Point", "coordinates": [-1, -2]}),
+        "linea-negativa": _feature(
+            {"type": "LineString", "coordinates": [[-1.5, 2.5], [-3, -4]]}
+        ),
         "linea": _feature({"type": "LineString", "coordinates": [[0, 0], [1, 1]]}),
         "multipunto": _feature({"type": "MultiPoint", "coordinates": [[0, 0], [1, 1]]}),
         "poligono": _feature({"type": "Polygon", "coordinates": [anello]}),

@@ -996,7 +996,12 @@ mod sonde {
     /// Il corpus, generato per combinazione.
     fn corpus_di_confronto() -> Vec<String> {
         let mut corpus = Vec::new();
-        let posizioni = ["[1,2]", "[1,2,3]"];
+        // Le negative ci sono per una ragione precisa: `serde_json` consegna
+        // un intero non negativo come `u64` e uno negativo come `i64`, quindi
+        // senza di loro meta' del visitor non veniva mai eseguita -- e le
+        // longitudini negative sono la meta' del mondo. L'ha trovato la
+        // copertura delle righe cambiate, non questa sonda.
+        let posizioni = ["[1,2]", "[1,2,3]", "[-1,-2]", "[-1.5,2.5,-3]"];
         for posizione in posizioni {
             let due = format!("{posizione},{posizione}");
             let quattro = format!("{posizione},{posizione},{posizione},{posizione}");
