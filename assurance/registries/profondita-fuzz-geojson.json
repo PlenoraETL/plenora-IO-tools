@@ -3,7 +3,7 @@
   "descrizione": "I requisiti di profondita' del target `geojson_reader`: che cosa il replay dei semi versionati deve attraversare perche' la deserializzazione limitata durante il parse sia esercitata.",
   "target": "geojson_reader",
   "artefatto": "assurance/profondita-fuzz-geojson.json",
-  "che_cosa_questa_misura_non_conta": "il tetto sui **componenti**, per la stessa ragione del target WKT: centomila posizioni non stanno nel cap del harness. A provarlo sono le sonde unitarie di `geometria_progressiva`, che dal default derivano quote strette. Il tetto sull'annidamento e' qui.",
+  "che_cosa_questa_misura_non_conta": "il tetto sui **componenti**, per la stessa ragione del target WKT: centomila posizioni non stanno nel cap del harness. A provarlo sono le sonde unitarie di `geometria_progressiva`, che dal default derivano quote strette. Il tetto sull'annidamento e' qui. E il tetto sull'annidamento che il target esercita e' **il nostro** solo perche' la campagna ne dichiara uno piu' stretto di quello di produzione: il limite effettivo e' il minimo fra `max_depth` e il tetto di ricorsione di `serde_json` -- 128 livelli JSON, due per ogni livello GeoJSON, quindi circa sessantadue. Con 64 sarebbe serde a rifiutare per primo, e il rifiuto non sarebbe nostro: `ResourceLimit/LimitExceeded` contro un errore di formato. La campagna ne dichiara 32 perche' il ramo da esercitare sia quello che questo registro nomina.",
   "perimetro": {
     "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",
     "percorsi": [

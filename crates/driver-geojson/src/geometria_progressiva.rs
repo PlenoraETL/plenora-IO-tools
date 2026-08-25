@@ -43,6 +43,22 @@
 //!   `ResourceLimit/LimitExceeded`;
 //! * **cap in byte** -- invariato, applicato prima di leggere un byte.
 //!
+//! # Il limite effettivo sull'annidamento non e' solo il nostro
+//!
+//! `serde_json` ha un tetto di ricorsione suo -- 128 livelli JSON -- e ogni
+//! livello `GeoJSON` ne costa due: l'oggetto e la sua lista. Il limite che un
+//! input incontra davvero e' quindi il **minimo** fra `max_depth` e circa
+//! sessantadue, e i due rifiuti non sono lo stesso rifiuto: il nostro porta
+//! `ResourceLimit/LimitExceeded`, quello di serde arriva dal canale laterale
+//! vuoto e diventa «geometria `GeoJSON` non valida», cioe' un errore di
+//! formato.
+//!
+//! Attribuire al nostro tetto un rifiuto prodotto da serde sarebbe falso, e la
+//! differenza si vede: con `max_depth` a 64 -- il valore di produzione -- e'
+//! serde a rifiutare per primo, e il nostro non morde mai. Il punto d'ingresso
+//! del fuzzing ne dichiara percio' 32, cosi' la campagna esercita **il
+//! nostro**; una sonda misura la soglia e non la deduce.
+//!
 //! Sono tre cose diverse e portano tre codici diversi: dire «limite superato» a
 //! chi ha scritto `"type": "Punto"` lo manderebbe ad allargare una quota che
 //! non c'entra.
@@ -171,6 +187,14 @@ impl Budget {
     }
 }
 
+/// Quante ordinate una posizione puo' avere prima di non essere una posizione.
+///
+/// `position` ne ammette due o tre. La quarta e' gia' un rifiuto, e la quinta
+/// serve solo a distinguere «quattro» da «di piu'»: oltre, la lista non e' una
+/// posizione e non c'e' ragione di continuare a leggerla. Il numero e' piccolo
+/// apposta -- e' il tetto sull'unica allocazione che il budget non copre.
+const ORDINATE_MASSIME: usize = 4;
+
 /// L'albero delle coordinate: una posizione, o una lista di alberi.
 enum Albero {
     Posizione(Vec<f64>),
@@ -219,7 +243,8 @@ impl<'de> Visitor<'de> for SemeAlbero<'_> {
         self.budget.dentro_la_profondita(self.profondita)?;
         let profondita = self.profondita.saturating_add(1);
         let mut figli: Vec<Albero> = Vec::new();
-        let mut solo_numeri = true;
+        let mut numeri = 0_usize;
+        let mut elenchi = 0_usize;
         while let Some(figlio) = seq.next_element_seed(SemeAlbero {
             budget: self.budget,
             profondita,
@@ -228,15 +253,43 @@ impl<'de> Visitor<'de> for SemeAlbero<'_> {
             // forma in cui il visitor rappresenta uno scalare, e distingue
             // una lista di numeri -- che e' una posizione -- da una lista di
             // liste.
-            if !matches!(&figlio, Albero::Posizione(ordinate) if ordinate.len() == 1) {
-                solo_numeri = false;
+            if matches!(&figlio, Albero::Posizione(ordinate) if ordinate.len() == 1) {
+                numeri += 1;
+            } else {
+                elenchi += 1;
+            }
+
+            // Le due condizioni che tengono **limitata** questa lista.
+            //
+            // Senza, una posizione era l'unica cosa che si accumulava prima di
+            // essere addebitata: `[1,1,1,...]` costava un milione di `Vec`
+            // minuscoli e un componente solo, e a fermarlo restava il solo cap
+            // in byte -- cioe' proprio la difesa che questo lotto esiste per
+            // non lasciare da sola.
+            //
+            // Una lista di coordinate GeoJSON e' o tutta numeri -- una
+            // posizione, al piu' quattro ordinate -- o tutta liste, e allora
+            // ogni figlia si e' gia' addebitata da se'. Mescolarle non e' una
+            // forma valida in nessuno dei due confini, e riconoscerlo subito
+            // costa un confronto.
+            if numeri > ORDINATE_MASSIME {
+                return Err(self.budget.di_formato(&PublicMessage::CuratedWith(
+                    "posizione GeoJSON con piu' ordinate del massimo di",
+                    NumeroStrutturale::Limite(driver_common::saturating_u64(ORDINATE_MASSIME)),
+                )));
+            }
+            if numeri > 0 && elenchi > 0 {
+                return Err(self.budget.di_formato(&PublicMessage::Curated(
+                    "coordinates GeoJSON con numeri e liste nella stessa lista",
+                )));
             }
             figli.push(figlio);
         }
 
-        if solo_numeri && !figli.is_empty() {
+        if elenchi == 0 && !figli.is_empty() {
             // Una posizione: e' qui che si addebita, ed e' la stessa unita'
-            // che il bordo conta.
+            // che il bordo conta. L'addebito arriva dopo aver letto al piu'
+            // quattro ordinate, non dopo averne lette quante ne arrivano.
             self.budget.addebita()?;
             let ordinate = figli
                 .into_iter()
@@ -449,20 +502,24 @@ impl<'de> Visitor<'de> for SemeGeometrie<'_> {
         let profondita = self.profondita.saturating_add(1);
         let mut figlie = Vec::new();
         loop {
-            // Il figlio si addebita **prima** di essere letto: un conteggio
-            // ostile non deve poter allocare prima di pagare.
-            self.budget.addebita()?;
+            // L'addebito arriva **dopo** aver ottenuto la figlia, e non prima
+            // di provare a leggerla. La prima stesura addebitava per prima
+            // cosa, poi restituiva l'addebito di troppo quando la lista
+            // finiva: a quota esatta pero' era il tentativo speculativo a
+            // sforare, e la restituzione non arrivava mai. L'ha trovato la
+            // sonda che prova il confine con `n` e con `n-1`.
+            //
+            // Non si perde niente: una figlia costa almeno il proprio
+            // addebito -- una collezione di un milione di figlie ne paga un
+            // milione -- e il budget morde comunque mentre si legge.
             let Some(letta) = seq.next_element_seed(SemeGeometria {
                 budget: self.budget,
                 profondita,
             })?
             else {
-                // La lista e' finita: l'ultimo addebito non serviva, e si
-                // restituisce. Senza, una collection di n figli ne costerebbe
-                // n+1, e il conteggio non sarebbe piu' quello del bordo.
-                self.budget.componenti.set(self.budget.componenti.get() + 1);
                 break;
             };
+            self.budget.addebita()?;
             figlie.push(letta);
         }
         Ok(figlie)
@@ -730,6 +787,129 @@ mod sonde {
         let errore = analizza(annidato, &stretti(1_000, 1)).expect_err("tetto sull'annidamento");
         assert_eq!(errore.code, IoErrorCode::LimitExceeded);
         assert!(analizza(annidato, &stretti(1_000, 4)).is_ok());
+    }
+
+    /// Il tetto sui componenti, provato **esattamente al confine**.
+    ///
+    /// Il target di fuzzing non arriva a centomila posizioni -- non stanno nel
+    /// cap del harness -- quindi sotto fuzzing quel ramo non e' esercitato, e
+    /// il registro della misura lo dice. Qui si prova al confine: `n` passa,
+    /// `n+1` no.
+    #[test]
+    fn il_tetto_sui_componenti_e_esatto() {
+        let casi: [(&str, usize); 5] = [
+            (r#"{"type":"Point","coordinates":[1,2]}"#, 1),
+            (
+                r#"{"type":"LineString","coordinates":[[0,0],[1,1],[2,2]]}"#,
+                3,
+            ),
+            (
+                r#"{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}"#,
+                4,
+            ),
+            (r#"{"type":"MultiPoint","coordinates":[[0,0],[1,1]]}"#, 4),
+            (
+                r#"{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]},{"type":"LineString","coordinates":[[0,0],[1,1]]}]}"#,
+                5,
+            ),
+        ];
+        for (testo, costo) in casi {
+            let esatto = WkbLimits {
+                max_components: costo,
+                ..WkbLimits::default()
+            };
+            let stretto = WkbLimits {
+                max_components: costo - 1,
+                ..WkbLimits::default()
+            };
+            assert!(
+                analizza(testo, &esatto).is_ok(),
+                "{testo} costa {costo} componenti e con {costo} deve passare"
+            );
+            let errore = analizza(testo, &stretto)
+                .expect_err(&format!("{testo} con {} deve fallire", costo - 1));
+            assert_eq!(
+                errore.code,
+                IoErrorCode::LimitExceeded,
+                "{testo}: al confine il rifiuto e' del tetto"
+            );
+            assert_eq!(componenti_usati(testo, &esatto), costo, "{testo}");
+        }
+    }
+
+    /// La soglia oltre la quale rifiuta **serde**, misurata e non dedotta.
+    ///
+    /// Il limite effettivo sull'annidamento e' il minimo fra il nostro
+    /// `max_depth` e il tetto di ricorsione di `serde_json`. Sono due rifiuti
+    /// diversi e portano due codici diversi: attribuire al nostro tetto un
+    /// rifiuto prodotto da serde sarebbe falso, e questa sonda e' il posto in
+    /// cui la differenza resta scritta.
+    #[test]
+    fn oltre_una_certa_profondita_rifiuta_serde_e_non_noi() {
+        let annidata = |livelli: usize| {
+            let mut geometria = r#"{"type":"Point","coordinates":[1,2]}"#.to_owned();
+            for _ in 0..livelli {
+                geometria =
+                    format!(r#"{{"type":"GeometryCollection","geometries":[{geometria}]}}"#);
+            }
+            geometria
+        };
+        // Con un tetto largo il nostro non morde: a rifiutare e' serde, e
+        // l'errore e' di formato.
+        let largo = WkbLimits {
+            max_depth: 1_000,
+            ..WkbLimits::default()
+        };
+        assert!(
+            analizza(&annidata(40), &largo).is_ok(),
+            "quaranta livelli passano"
+        );
+        let errore = analizza(&annidata(200), &largo).expect_err("serde rifiuta");
+        assert_eq!(
+            errore.code,
+            IoErrorCode::Format,
+            "il rifiuto di serde e' un errore di formato, non un nostro tetto"
+        );
+
+        // Con un tetto stretto mordiamo noi, e il codice lo dice.
+        let stretto = WkbLimits {
+            max_depth: 8,
+            ..WkbLimits::default()
+        };
+        let errore = analizza(&annidata(20), &stretto).expect_err("il nostro tetto");
+        assert_eq!(errore.code, IoErrorCode::LimitExceeded);
+    }
+
+    /// L'albero delle coordinate non accumula prima di addebitare.
+    ///
+    /// Era il buco: una lista di soli numeri costava un componente qualunque
+    /// fosse la sua lunghezza, e a fermarla restava il solo cap in byte. Ora
+    /// una lista e' o una posizione -- al piu' quattro ordinate -- o una lista
+    /// di liste, dove ogni figlia si e' gia' addebitata.
+    #[test]
+    fn una_lista_di_numeri_non_cresce_oltre_una_posizione() {
+        let limiti = WkbLimits::default();
+
+        // Mille ordinate in una posizione: rifiutate dopo averne lette cinque.
+        let mut ordinate = String::from(r#"{"type":"Point","coordinates":["#);
+        for indice in 0..1_000 {
+            if indice > 0 {
+                ordinate.push(',');
+            }
+            ordinate.push('1');
+        }
+        ordinate.push_str("]}");
+        let errore = analizza(&ordinate, &limiti).expect_err("non e' una posizione");
+        assert_eq!(errore.code, IoErrorCode::Format);
+
+        // Numeri e liste nella stessa lista non sono una forma valida in
+        // nessuno dei due confini, e riconoscerlo subito costa un confronto.
+        let misto = r#"{"type":"LineString","coordinates":[1,2,[3,4]]}"#;
+        assert_eq!(
+            analizza(misto, &limiti).expect_err("mista").code,
+            IoErrorCode::Format
+        );
+        assert!(come_prima(misto).is_err(), "e il confine precedente pure");
     }
 
     /// L'unita' di conteggio e' quella del bordo, e non «una simile».

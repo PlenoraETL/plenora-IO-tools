@@ -117,6 +117,9 @@ jobs:
           python3 scripts/genera_semi_s12.py --verifica
           python3 scripts/check_profondita_fuzz.py wkt_parse
           python3 scripts/check_profondita_fuzz.py geojson_reader
+          python3 -m unittest scripts.test_check_capability_input_ostile
+          python3 scripts/check_capability_input_ostile.py
+          python3 scripts/check_prove_di_confine.py
       # I semi del lotto S11: le forme in cui una collezione dichiara figli
       # ed e' semanticamente vuota, piu' quelle ostili che la discesa nei figli
       # deve rifiutare chiudendo. Derivati dalla specifica, non committati a

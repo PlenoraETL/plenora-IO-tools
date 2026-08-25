@@ -1084,6 +1084,51 @@ mod sonde {
         assert!(analizza(&profondo(6), &limiti).is_err());
     }
 
+    /// Il tetto sui componenti, provato **esattamente al confine**.
+    ///
+    /// E' la sonda che deve reggere il peso: il target di fuzzing non arriva a
+    /// centomila coordinate -- non stanno in un input da quattro kilobyte --
+    /// quindi sotto fuzzing quel ramo non e' esercitato, e i registri delle
+    /// misure lo dicono. Qui si prova al confine e non «da qualche parte
+    /// sopra»: `n` passa, `n+1` no, per ogni forma che conta i componenti in
+    /// un modo diverso.
+    #[test]
+    fn il_tetto_sui_componenti_e_esatto() {
+        // (testo, componenti che costa). I costi sono quelli del bordo:
+        // una coordinata ciascuna, piu' una per ogni geometria figlia.
+        let casi: [(&str, usize); 6] = [
+            ("POINT (1 2)", 1),
+            ("LINESTRING (0 0,1 1,2 2)", 3),
+            ("POLYGON ((0 0,1 0,1 1,0 0))", 4),
+            ("MULTIPOINT (1 2,3 4)", 4),
+            ("MULTILINESTRING ((0 0,1 1),(2 2,3 3))", 6),
+            ("GEOMETRYCOLLECTION (POINT (1 2),LINESTRING (0 0,1 1))", 5),
+        ];
+        for (testo, costo) in casi {
+            let esatto = WkbLimits {
+                max_components: costo,
+                ..WkbLimits::default()
+            };
+            let stretto = WkbLimits {
+                max_components: costo - 1,
+                ..WkbLimits::default()
+            };
+            assert!(
+                analizza(testo, &esatto).is_ok(),
+                "{testo} costa {costo} componenti e con {costo} deve passare"
+            );
+            let errore = analizza(testo, &stretto)
+                .expect_err(&format!("{testo} con {} deve fallire", costo - 1));
+            assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::LimitExceeded,
+                "{testo}: al confine il rifiuto e' del tetto"
+            );
+            // E il costo dichiarato e' quello che l'analisi addebita davvero.
+            assert_eq!(componenti_usati(testo, &esatto), costo, "{testo}");
+        }
+    }
+
     /// L'unita' di conteggio e' quella del bordo, e non «una simile».
     ///
     /// E' la lezione del lotto S11: due tetti con lo stesso nome e due unita'
