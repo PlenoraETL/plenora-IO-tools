@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "411a5aa",
+      "sha": "8038420",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "411a5aa",
+    "sha": "8038420",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 47375,
+      "replay_input": 47446,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.34,
-      "lcov_righe_coperte": 29906,
-      "lcov_righe_strumentate": 34639,
-      "cargo_lines_percentuale": 84.44,
+      "lcov_percentuale": 86.37,
+      "lcov_righe_coperte": 30025,
+      "lcov_righe_strumentate": 34762,
+      "cargo_lines_percentuale": 84.49,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. La feature decide che cosa entra nel denominatore: senza `--all-features` il percorso GDAL di `driver-filegdb` ne resterebbe fuori -- non scoperto, invisibile alla soglia. Che ogni misuratore la porti, e che ogni blocco feature-gated compaia davvero nel report, lo verifica il passo `check_coverage_exclusions`.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
       "baseline": "f7b6d79",
-      "esito": "97.93%",
-      "righe_cambiate_eseguibili": 387,
-      "coperte": 379,
-      "scoperte": 8,
-      "cambiate_non_eseguibili": 288,
-      "ragione": "97.93% delle 387 righe cambiate ed eseguibili. La diagnostica ha fatto il proprio lavoro due volte in questo ramo: sulla corsa precedente, su 1bd499d, dava 96,55% e fra le dodici righe scoperte ne elencava tre di produzione -- `from_be_bytes` per gli interi, `from_be_bytes` per le coordinate, il ramo `0x00` del byte order. Il parser ricorsivo era nuovo e nessuna sonda gli passava un payload big-endian. Quelle tre sono coperte da 411a5aa, e la percentuale sale.",
-      "che_cosa_sono_le_scoperte": "tutte e 8 stanno in `crates/driver-gpkg/src/lib.rs` e sono difensive o irraggiungibili, e nessuna e' stata coperta fingendo. `oltre_il_tipo` e le sue chiusure costruiscono l'errore di overflow aritmetico: da un conteggio a 32 bit su `usize` a 64 bit non ci si arriva. Il `continue` dentro `chunks_exact(8)` vale per un blocco che non ha otto byte, e ogni blocco ne ha otto. «WKB troncato: manca un figlio dichiarato» sorveglia una posizione oltre la fine del payload, e ogni figlio misurato garantisce di non superarla: e' la guardia che vale il giorno in cui quell'invariante si rompesse, e toglierla per alzare una percentuale sarebbe il verso sbagliato."
+      "esito": "97.06%",
+      "righe_cambiate_eseguibili": 510,
+      "coperte": 495,
+      "scoperte": 15,
+      "cambiate_non_eseguibili": 417,
+      "ragione": "97.06% delle 510 righe cambiate ed eseguibili. La diagnostica ha lavorato tre volte in questo ramo: su 1bd499d dava 96,55% e indicava tre righe di produzione mai eseguite -- il percorso big-endian del parser ricorsivo, che nessuna sonda attraversava -- coperte da 411a5aa; su 411a5aa dava 97,93%. Qui le righe cambiate salgono a 510 perche' la seconda lettura ha riscritto la contabilita' dei componenti e aggiunto la regola sui membri, con le loro sonde.",
+      "che_cosa_sono_le_scoperte": "tutte e 15 stanno in `crates/driver-gpkg/src/lib.rs`, e nessuna e' stata coperta fingendo. Quattro sono messaggi di `assert!` delle sonde nuove, che si eseguono solo quando una sonda fallisce. Le altre sono difensive: `oltre_il_tipo` costruisce l'errore di overflow aritmetico, e da un conteggio a 32 bit su `usize` a 64 bit non ci si arriva; il `continue` dentro `chunks_exact(8)` vale per un blocco che non ha otto byte, e ogni blocco ne ha otto; «manca un figlio dichiarato» sorveglia una posizione oltre la fine del payload, che ogni figlio misurato garantisce di non superare. «mancano le coordinate dichiarate» e' diventata irraggiungibile **in questa corsa**, ed e' un effetto della correzione: `conteggio_plausibile` rifiuta ora un conteggio impossibile prima che si arrivi a contare i byte, come fa `ensure_count` nel parser condiviso. La guardia resta, e vale il giorno in cui quell'ordine cambiasse."
     },
-    "evidenza": "assurance/evidence/checkpoint-411a5aa.json"
+    "evidenza": "assurance/evidence/checkpoint-8038420.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "411a5aa"
+      "qualificato_su": "8038420"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
