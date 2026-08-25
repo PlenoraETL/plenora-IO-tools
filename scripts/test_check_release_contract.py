@@ -936,11 +936,16 @@ class SondeFontiLegate(unittest.TestCase):
         self.assertTrue(any("wire.loss-report" in e for e in errori), errori)
 
     def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
-        """Un lotto che il registro tiene bloccante non puo' dirsi chiuso."""
+        """Un lotto che il registro tiene bloccante non puo' dirsi chiuso.
+
+        Si appoggia a S10, che e' l'ultimo dei tre lotti ancora aperto: S11 ha
+        chiuso con il suo ramo e S12 con questo. Quando anche S10 chiudera',
+        questa sonda dovra' appoggiarsi a un altro invariante bloccante -- e
+        sara' il gate a dirlo, diventando rossa."""
         stato = self.stato()
-        stato["aperto"]["lotti"]["s12"] = "chiuso"
+        stato["aperto"]["lotti"]["s10"] = "chiuso"
         errori = gate.validate_stato_corrente(stato)
-        self.assertTrue(any("lotti.s12" in e for e in errori), errori)
+        self.assertTrue(any("lotti.s10" in e for e in errori), errori)
 
     def test_un_lotto_chiuso_dichiarato_aperto_e_rosso(self) -> None:
         """La direzione opposta, provabile solo da quando un lotto ha chiuso:

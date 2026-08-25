@@ -159,6 +159,24 @@ Una scrittura rifiutata non lascia una destinazione.
 | **GeoParquet** | larghezza del dizionario, allocazione di pagina e statistiche sono validate prima dell'uso; il pruning è fail-open, quindi una statistica sospetta fa leggere di più, mai di meno |
 | **WKB/WKT** | ogni geometria passa da tetti su byte, componenti e profondità, in lettura e in scrittura. Per il WKT i tetti si applicano **durante** il parse (S12): l'analisi costruisce la geometria mentre consuma il testo e addebita ogni coordinata quando la legge, quindi ciò che non è stato letto non è stato allocato |
 
+#### La capability `hostile_input_hardened`
+
+Il catalogo la dichiara per driver, e dice una cosa sola: ogni testo che quel
+driver interpreta come geometria passa da un'analisi che applica i tetti
+**durante** il parse. `false` non dice «insicuro» — dice **non dichiarato**: un
+driver binario ha altre difese, e riassumerle in un booleano solo lo renderebbe
+inutile.
+
+Oggi la dichiarano `csv`, `xlsx` e `geojson`.
+`scripts/check_capability_input_ostile.py` non le crede: confronta la
+dichiarazione con gli entry point che il driver attraversa davvero, nei due
+versi — un `true` senza il parser è rosso, e un parser senza il `true` pure,
+perché una garanzia che non è dichiarata è una garanzia che nessuno può usare.
+
+Il campo entra nel catalogo come additivo opzionale, che la regola del
+protocollo consente **con un record d'impatto**: il record è in
+`release/cli-protocol-v1.json`, e il gate del contratto lo pretende.
+
 #### L'unica incompatibilità osservabile di S12
 
 Il parser WKT progressivo accetta esattamente ciò che accettava il precedente —

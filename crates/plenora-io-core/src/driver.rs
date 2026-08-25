@@ -2064,6 +2064,9 @@ mod tests {
             crate::descriptor::CrsHandling::None,
             crate::descriptor::Fidelity::Lossless,
             crate::descriptor::Runtime::PureRust,
+            // `hostile_input_hardened`: un descrittore di prova non parla di
+            // input ostile: dichiara il valore che non afferma niente.
+            false,
             None,
             plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
             1,

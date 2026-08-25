@@ -214,6 +214,10 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     CrsHandling::Embedded,
     Fidelity::Approximating,
     Runtime::PureRust,
+    // `hostile_input_hardened`: non dichiarato: il parser DXF non e' passato da S12. Ha le sue difese
+    // -- barriera anti-panic e tetti a valle -- e questa capability non le
+    // riassume.
+    false,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,

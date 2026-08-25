@@ -580,6 +580,23 @@ pub struct FormatDescriptor {
     /// Capacità generale di fedeltà; la valutazione per-contratto è in open/create.
     fidelity_class: Fidelity,
     runtime: Runtime,
+    /// Il parsing degli input non fidati e' **bounded durante il parse**.
+    ///
+    /// `true` dice una cosa precisa e verificabile: ogni testo che questo
+    /// driver interpreta come geometria passa da un'analisi che applica i
+    /// tetti del bordo -- byte, componenti, profondita' -- **mentre** consuma,
+    /// non dopo aver costruito l'albero. Cio' che non e' stato letto non e'
+    /// stato allocato.
+    ///
+    /// `false` non dice «insicuro»: dice **non dichiarato**. Un driver che
+    /// legge un formato binario ha altre difese -- prevalidazione, decoder
+    /// bounded -- e questa capability non le riassume. Riassumerle in un
+    /// booleano solo sarebbe il modo di renderlo inutile.
+    ///
+    /// Chi la dichiara `true` deve avere una misura di profondita' che lo
+    /// dimostri: `scripts/check_capability_input_ostile.py` confronta questa
+    /// riga con i moduli che il driver attraversa davvero.
+    hostile_input_hardened: bool,
     write_capabilities: Option<FormatWriteCapabilities>,
     /// Le `format_options` che il driver interpreta (L0.7, S6).
     ///
@@ -635,6 +652,7 @@ impl FormatDescriptor {
         crs_handling: CrsHandling,
         fidelity_class: Fidelity,
         runtime: Runtime,
+        hostile_input_hardened: bool,
         write_capabilities: Option<FormatWriteCapabilities>,
         format_options: plenora_io_model::format_options::SchemaOpzioniFormato,
         semantic_version: u32,
@@ -660,6 +678,7 @@ impl FormatDescriptor {
             crs_handling,
             fidelity_class,
             runtime,
+            hostile_input_hardened,
             write_capabilities,
             format_options,
             semantic_version,
@@ -773,6 +792,12 @@ impl FormatDescriptor {
     #[must_use]
     pub const fn runtime(&self) -> Runtime {
         self.runtime
+    }
+
+    /// Il parsing degli input non fidati e' bounded durante il parse.
+    #[must_use]
+    pub const fn hostile_input_hardened(&self) -> bool {
+        self.hostile_input_hardened
     }
 
     #[must_use]

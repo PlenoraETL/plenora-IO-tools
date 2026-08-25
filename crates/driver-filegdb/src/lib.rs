@@ -68,6 +68,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     CrsHandling::Embedded,
     Fidelity::Conditional,
     Runtime::Gdal,
+    // `hostile_input_hardened`: non dichiarato: il percorso passa da GDAL,
+    // che non e' nostro e non e' strumentato.
+    false,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: FILEGDB_ATTRIBUTE_TYPES,

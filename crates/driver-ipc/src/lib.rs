@@ -71,6 +71,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     CrsHandling::Embedded, // il CRS viaggia nei metadati del campo
     Fidelity::Lossless,
     Runtime::PureRust,
+    // `hostile_input_hardened`: non dichiarato: l'input e' binario, con prevalidazione dello schema.
+    false,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: ALL_ARROW_TYPES,

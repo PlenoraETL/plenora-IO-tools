@@ -194,6 +194,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     CrsHandling::Embedded,
     Fidelity::Conditional,
     Runtime::PureRust,
+    // `hostile_input_hardened`: non dichiarato: l'input e' binario. La classificazione WKB e' bounded
+    // (S11), ma questa capability parla del parsing degli input di testo.
+    false,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: GPKG_ATTRIBUTE_TYPES,

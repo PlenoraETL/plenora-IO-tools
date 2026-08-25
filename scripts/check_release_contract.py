@@ -2384,6 +2384,48 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
     )
 
 
+def _record_di_impatto(documento: dict[str, Any], campo: str) -> list[str]:
+    """Un campo additivo senza il suo record d'impatto non e' additivo: e' nuovo.
+
+    La regola del contratto dice `add_optional_field: allowed_with_change_impact_record`.
+    Senza questo controllo la prima meta' della regola valeva e la seconda no --
+    il campo si aggiungeva e il record restava una buona intenzione. Il record
+    deve dire **quale** campo, quale regola invoca e che cosa succede a chi
+    legge il catalogo senza conoscerlo.
+    """
+    voci = documento.get("change_impact")
+    if not isinstance(voci, list):
+        return [
+            "cli-protocol-v1: `change_impact` assente. La regola "
+            "`add_optional_field` lo pretende, e un campo aggiunto senza record "
+            "e' un campo aggiunto senza avvertire nessuno."
+        ]
+    for voce in voci:
+        if not isinstance(voce, dict) or voce.get("field") != campo:
+            continue
+        mancanti = [
+            chiave
+            for chiave in ("kind", "protocol_version", "impatto_sui_consumatori")
+            if not voce.get(chiave)
+        ]
+        if mancanti:
+            return [
+                f"cli-protocol-v1: il record d'impatto di `{campo}` non dice "
+                f"{mancanti}. Un record che non dice l'impatto e' una riga."
+            ]
+        if voce.get("kind") != "add_optional_field":
+            return [
+                f"cli-protocol-v1: il record di `{campo}` invoca la regola "
+                f"«{voce.get('kind')}», che non e' quella che consente "
+                "l'aggiunta di un campo opzionale."
+            ]
+        return []
+    return [
+        f"cli-protocol-v1: nessun record d'impatto per `{campo}`, che il "
+        "contratto elenca fra i campi additivi."
+    ]
+
+
 def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if document.get("manifest_version") != 1:
@@ -2452,7 +2494,11 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
         errors.append("cli-protocol-v1: exit code additivi inattesi")
 
     catalog = envelopes.get("catalog", {})
-    catalog_fields = ["available", "required_feature"]
+    # I campi additivi del catalogo, in ordine. `hostile_input_hardened` e'
+    # entrato con il lotto S12: la regola `add_optional_field` del contratto lo
+    # consente **con un record d'impatto**, e il record e' preteso qui sotto --
+    # senza, la regola sarebbe una frase e l'aggiunta un fatto compiuto.
+    catalog_fields = ["available", "hostile_input_hardened", "required_feature"]
     if catalog.get("optional_driver_fields") != catalog_fields:
         errors.append("cli-protocol-v1: campi catalogo additivi opzionali inattesi")
     if catalog.get("current_producer") != {
@@ -2466,6 +2512,21 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
             "type": "boolean",
             "true_when": "runtime_probe_satisfies_descriptor",
         },
+        "hostile_input_hardened": {
+            "type": "boolean",
+            "true_when": (
+                "every_geometry_text_the_driver_parses_is_bounded_during_the_parse"
+            ),
+            "false_means": "not_declared_not_unsafe",
+            "nota": (
+                "true dice che i tetti del bordo -- byte, componenti, "
+                "profondita' -- si applicano mentre il testo viene consumato, "
+                "non dopo che l'albero e' stato costruito. false non dice "
+                "«insicuro»: dice che questa garanzia non e' dichiarata, e un "
+                "driver binario ne ha altre che questo booleano non riassume."
+            ),
+            "verificata_da": "scripts/check_capability_input_ostile.py",
+        },
         "required_feature": {
             "type": ["string", "null"],
             "filegdb": "gdal-backend",
@@ -2473,6 +2534,7 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
         },
     }:
         errors.append("cli-protocol-v1: semantica campi driver inattesa")
+    errors.extend(_record_di_impatto(document, "drivers[].hostile_input_hardened"))
 
     convert = envelopes.get("convert", {})
     required_convert = {

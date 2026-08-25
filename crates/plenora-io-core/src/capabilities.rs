@@ -518,6 +518,9 @@ mod tests {
             crate::descriptor::CrsHandling::Embedded,
             Fidelity::Conditional,
             Runtime::PureRust,
+            // `hostile_input_hardened`: un descrittore di prova non parla di
+            // input ostile: dichiara il valore che non afferma niente.
+            false,
             Some(FormatWriteCapabilities {
                 field_names: DBF_FIELD_NAMES,
                 allowed_types: SCALAR_TYPES,

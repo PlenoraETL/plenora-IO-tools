@@ -532,6 +532,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     CrsHandling::Embedded,
     Fidelity::Conditional,
     Runtime::PureRust,
+    // `hostile_input_hardened`: non dichiarato: l'input e' binario e ha la sua prevalidazione
+    // strutturale, che e' un'altra garanzia e non questa.
+    false,
     Some(FormatWriteCapabilities {
         field_names: DBF_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,

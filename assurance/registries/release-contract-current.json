@@ -402,12 +402,44 @@
     },
     {
       "id": "lotto.s12",
-      "superficie": "parsing di WKT e GeoJSON",
-      "invariante": "il parsing di WKT e GeoJSON e' bounded **durante** il parse, esercitato da un fuzz target dedicato, e la garanzia e' dichiarata dalla capability `hostile_input_hardened`",
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "lotto S12 non aperto. Oggi i tetti WKT/GeoJSON si applicano a valle — su `verifica_esprimibile` e `inspect_wkb` — non durante il parse: serve un parser progressivo. Manca inoltre la capability che renda la garanzia verificabile dall'esterno.",
-      "sintesi": "parsing WKT/GeoJSON non bounded durante il parse"
+      "superficie": "parsing di WKT e GeoJSON, e la capability che lo dichiara",
+      "invariante": "il parsing di WKT e GeoJSON e' **bounded durante il parse**: l'analisi costruisce la geometria mentre consuma l'input e addebita ogni coordinata e ogni figlia nel momento in cui le legge, con l'unita' di conteggio del bordo. Cio' che non e' stato letto non e' stato allocato. Entrambi i confini hanno una misura di profondita' sui semi versionati, un confronto con il confine precedente che ne fissa l'insieme accettato, e la garanzia e' dichiarata dalla capability `hostile_input_hardened`, che un gate confronta con il codice invece di crederle.",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/check_capability_input_ostile.py"
+        ],
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "scripts/check_profondita_fuzz.py",
+            "wkt_parse"
+          ],
+          [
+            "python3",
+            "scripts/check_profondita_fuzz.py",
+            "geojson_reader"
+          ],
+          [
+            "python3",
+            "scripts/genera_semi_s12.py",
+            "--verifica"
+          ],
+          [
+            "python3",
+            "-m",
+            "unittest",
+            "scripts.test_genera_semi_s12"
+          ]
+        ],
+        "artefatto": [
+          "assurance/profondita-fuzz-wkt.json",
+          "assurance/profondita-fuzz-geojson.json"
+        ]
+      },
+      "stato": "verified",
+      "nota": "l'unica variazione di compatibilita' e' dichiarata e deliberata: il testo non-whitespace dopo una geometria WKT era **ignorato** dalla crate `wkt` e ora e' rifiutato. Una cella WKT rappresenta una geometria completa, e ignorare una parentesi in piu' o una seconda geometria nasconde un input malformato -- e' un bug del confine precedente, non una sintassi da conservare. Lo spazio finale resta accettato, e il rifiuto e' di sintassi e non di budget. Per il GeoJSON non c'e' variazione: `serde_json` pretendeva gia' un valore solo. Il tetto sui **componenti** non e' esercitato dai target -- centomila coordinate non stanno nel cap del harness -- e i registri lo dicono: a provarlo sono le sonde unitarie dei due moduli, che dal default derivano quote strette e misurano anche dove l'analisi si ferma. La capability entra nel catalogo come campo additivo opzionale, che la regola del contratto consente con un record d'impatto: il record c'e', e il gate lo pretende."
     },
     {
       "id": "stato.fonti-legate",

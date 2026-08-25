@@ -56,11 +56,13 @@
       ],
       "optional_driver_fields": [
         "available",
+        "hostile_input_hardened",
         "required_feature"
       ],
       "current_producer": {
         "required_driver_fields": [
           "available",
+          "hostile_input_hardened",
           "required_feature"
         ]
       },
@@ -76,6 +78,13 @@
           ],
           "filegdb": "gdal-backend",
           "other_drivers": null
+        },
+        "hostile_input_hardened": {
+          "type": "boolean",
+          "true_when": "every_geometry_text_the_driver_parses_is_bounded_during_the_parse",
+          "false_means": "not_declared_not_unsafe",
+          "nota": "true dice che i tetti del bordo -- byte, componenti, profondita' -- si applicano mentre il testo viene consumato, non dopo che l'albero e' stato costruito. false non dice «insicuro»: dice che questa garanzia non e' dichiarata, e un driver binario ne ha altre che questo booleano non riassume.",
+          "verificata_da": "scripts/check_capability_input_ostile.py"
         }
       }
     },
@@ -143,5 +152,21 @@
     "change_field_type_or_meaning": "requires_new_protocol_version",
     "add_optional_field": "allowed_with_change_impact_record",
     "extend_closed_enum": "requires_explicit_compatibility_review"
-  }
+  },
+  "change_impact": [
+    {
+      "field": "drivers[].hostile_input_hardened",
+      "kind": "add_optional_field",
+      "protocol_version": 1,
+      "lotto": "S12",
+      "data": "2026-08-25",
+      "impatto_sui_consumatori": "nessuna rottura: il campo si aggiunge, non sostituisce e non cambia significato ad altri. Un consumatore che non lo conosce lo ignora; uno che lo legge ottiene un'affermazione in piu'. La regola `add_optional_field` del contratto lo consente proprio a questa condizione, e questo record e' cio' che la regola chiede.",
+      "perche_ora": "il lotto S12 ha reso il parsing di WKT e GeoJSON limitato durante il parse. Una garanzia che resta dentro il nostro codice non e' verificabile da chi ci sta intorno: dichiararla nel catalogo e' il modo in cui la catena a tre componenti puo' controllarla senza leggere i nostri sorgenti.",
+      "chi_la_dichiara_oggi": [
+        "csv",
+        "geojson",
+        "xlsx"
+      ]
+    }
+  ]
 }

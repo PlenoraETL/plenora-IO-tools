@@ -266,6 +266,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     CrsHandling::None,
     Fidelity::Conditional,
     Runtime::PureRust,
+    // `hostile_input_hardened`: come CSV: le celle WKT passano dall'analisi progressiva (S12).
+    true,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,

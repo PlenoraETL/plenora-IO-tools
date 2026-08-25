@@ -20,11 +20,13 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
                 {
                     "id": "geojson",
                     "available": True,
+                    "hostile_input_hardened": False,
                     "required_feature": None,
                 },
                 {
                     "id": "filegdb",
                     "available": True,
+                    "hostile_input_hardened": False,
                     "required_feature": "gdal-backend",
                 },
             ],

@@ -105,6 +105,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     // osservate.
     Fidelity::Conditional,
     Runtime::PureRust,
+    // `hostile_input_hardened`: la geometria si deserializza direttamente nell'AST, addebitando ogni
+    // posizione e ogni figlia mentre serde le consegna (S12).
+    true,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,

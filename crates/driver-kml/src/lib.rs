@@ -254,6 +254,8 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     CrsHandling::FixedWgs84,
     Fidelity::Conditional,
     Runtime::PureRust,
+    // `hostile_input_hardened`: non dichiarato: il parsing XML non e' passato da S12.
+    false,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,
