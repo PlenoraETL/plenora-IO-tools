@@ -386,6 +386,7 @@ impl FormatDriver for GpkgDriver {
                 staging,
                 conn: Some(conn),
                 layers,
+                limiti_wkb: opts.wkb_limits(),
             }),
             self.descriptor(),
             plan,
@@ -900,6 +901,12 @@ struct GpkgWriter {
     staging: StagedFile,
     conn: Option<Connection>,
     layers: Vec<ActiveLayer>,
+    // La quota WKB **configurata**, non il default. `wkb_shape` scende nei
+    // figli e ne pretende i tetti; prenderli da `WkbLimits::default()` avrebbe
+    // riportato indietro cio' che S5 e S5.1 hanno portato fino alla
+    // validazione del batch -- un `--max-wkb-cell-bytes` piu' stretto sarebbe
+    // stato applicato in lettura e ignorato qui.
+    limiti_wkb: WkbLimits,
 }
 
 impl Drop for GpkgWriter {
@@ -926,7 +933,7 @@ impl FormatWriter for GpkgWriter {
                 NumeroStrutturale::Indice(u64::from(layer.0)),
             ))
         })?;
-        insert_batch(conn, a, batch)
+        insert_batch(conn, a, batch, &self.limiti_wkb)
     }
 
     fn finish(mut self: Box<Self>) -> Result<Published> {
@@ -946,7 +953,12 @@ impl FormatWriter for GpkgWriter {
     }
 }
 
-fn insert_batch(conn: &Connection, a: &ActiveLayer, batch: &RecordBatch) -> Result<()> {
+fn insert_batch(
+    conn: &Connection,
+    a: &ActiveLayer,
+    batch: &RecordBatch,
+    limiti_wkb: &WkbLimits,
+) -> Result<()> {
     let geom_col = batch
         .column(a.geom_idx)
         .as_any()
@@ -967,7 +979,7 @@ fn insert_batch(conn: &Connection, a: &ActiveLayer, batch: &RecordBatch) -> Resu
             // chiuso su payload troncati o byte-order/flavor non validi.
             // Un WKB ambiguo non viene scritto con un flag "empty"
             // arbitrario: la feature viene rifiutata a monte del publish.
-            let shape = wkb_shape(payload)?;
+            let shape = wkb_shape(payload, limiti_wkb)?;
             geometry_blob.extend_from_slice(&gpkg_header(a.srs_id, shape.is_empty()));
             geometry_blob.extend_from_slice(payload);
             Some(geometry_blob.as_slice())
@@ -1444,17 +1456,57 @@ const fn gpkg_header(srs_id: i32, is_empty: bool) -> [u8; 8] {
 /// - EWKB (`PostGIS`) con flag Z/M/SRID e prefisso SRID opzionale;
 /// - `POINT EMPTY` codificato come coordinate tutte `NaN`;
 /// - collezioni (Multi*, `GeometryCollection`) e famiglie `LineString`/
-///   `Polygon` con conteggio zero.
+///   `Polygon`, **ispezionate nei figli** e non solo nel conteggio di
+///   primo livello.
 ///
-/// Fail-closed: un payload troncato, con byte order non valido o con
-/// flavor ISO sconosciuto restituisce `Err` invece di indovinare — il
-/// caller (finding #12 follow-up review 2026-08-15) rifiuta la feature
-/// invece di scrivere un header incoerente. I tipi geometrici che
-/// stanno fuori dall'insieme dei sette canonici (per esempio le
-/// varianti curve/superfici estese) sono considerati non-empty come
-/// safe-default: emettere il flag "non vuoto" su una geometria
-/// realmente vuota di quel tipo e' meno grave di segnalare vuoto un
-/// payload che ha contenuto reale.
+/// # Perche' i figli (lotto S11)
+///
+/// Fino a `f7b6d79` la classificazione si fermava al primo livello:
+/// `count == 0` voleva dire vuoto, e qualunque altro conteggio voleva dire
+/// non vuoto. Una `GeometryCollection` con un solo figlio `POINT EMPTY`, o
+/// un `MultiPolygon` il cui unico poligono non ha anelli, risultavano
+/// **non vuoti** — e il bit "empty" dell'header `GeoPackage` diceva il
+/// falso su una geometria che i validator conformi leggono come vuota.
+/// Un contenitore e' vuoto quando non contiene niente **di non vuoto**,
+/// ed e' una proprieta' che si vede solo scendendo.
+///
+/// # I budget, e perche' non sono numeri nuovi
+///
+/// Scendere significa ricorrere, e ricorrere su un payload ostile senza
+/// tetto significa esaurire lo stack: una collection annidata costa nove
+/// byte per livello. I tetti sono quelli del **contratto del bordo** gia'
+/// dichiarato in `WkbLimits` — 64 MiB per cella, 100k componenti,
+/// profondita' 64 — invece di costanti locali: due contratti per la stessa
+/// superficie divergono, e nessuno se ne accorge.
+///
+/// # Fail-closed, e l'unico caso che non lo e'
+///
+/// Un payload troncato, con byte order non valido, con flavor ISO
+/// sconosciuto, con aritmetica che esce dal tipo o che esaurisce un budget
+/// restituisce `Err` invece di indovinare — il caller (finding #12
+/// follow-up review 2026-08-15) rifiuta la feature invece di scrivere un
+/// header incoerente.
+///
+/// L'eccezione, dichiarata: i tipi che questa classificazione non sa
+/// **dimensionare** — le varianti curve e superficie estese fuori
+/// dall'insieme trattato — restano il safe-default storico «non vuoto».
+/// Non e' un rifiuto perche' non e' un difetto del payload: e' un limite
+/// di questa funzione, e trasformarlo in `Err` rifiuterebbe geometrie che
+/// oggi vengono scritte. Dentro una collezione quel limite si propaga: se
+/// un figlio non e' misurabile, i fratelli non sono nemmeno raggiungibili,
+/// e l'intero contenitore torna «non vuoto».
+///
+/// # Perche' non si riusa `decode_wkb`
+///
+/// `plenora_io_model::wkb_lossless::decode_wkb` sa gia' percorrere il WKB
+/// con gli stessi tetti, e non e' un caso che non venga chiamato qui. E'
+/// un decoder **lossless**: rifiuta tutto cio' che non sa rappresentare
+/// esattamente — byte residui, tipi fuori dal suo insieme, coordinate
+/// incoerenti con la dimensionalita' — e usarlo per un bit dell'header
+/// farebbe fallire la scrittura di geometrie che oggi passano. Costruisce
+/// inoltre l'albero tipizzato completo, con un `Vec` per anello e per
+/// figlio, su **ogni riga scritta**: per un flag e' un prezzo che non si
+/// paga.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WkbShape {
     Empty,
@@ -1464,6 +1516,280 @@ enum WkbShape {
 impl WkbShape {
     const fn is_empty(self) -> bool {
         matches!(self, Self::Empty)
+    }
+}
+
+/// I budget della visita ricorsiva, presi dal contratto del bordo.
+///
+/// La profondita' viaggia come parametro — come in `read_geometry` di
+/// `wkb_lossless` — perche' un contatore condiviso andrebbe ripristinato su
+/// ogni via d'uscita; i componenti sono invece un budget **consumato**, e non
+/// si ripristinano: contano quanto e' costata la visita in tutto.
+struct BudgetForma {
+    profondita_massima: usize,
+    componenti_residui: usize,
+}
+
+impl BudgetForma {
+    const fn nuovo(limiti: &WkbLimits) -> Self {
+        Self {
+            profondita_massima: limiti.max_depth,
+            componenti_residui: limiti.max_components,
+        }
+    }
+
+    /// Addebita un componente visitato.
+    ///
+    /// L'esaurimento e' un **rifiuto**, non una visita troncata: fermarsi a
+    /// meta' e rispondere «vuoto» significherebbe rispondere di una geometria
+    /// di cui non si e' guardato il resto. E' anche cio' che rende finito il
+    /// ciclo sui figli quando un conteggio ostile ne dichiara miliardi.
+    fn addebita(&mut self) -> Result<()> {
+        self.componenti_residui = self.componenti_residui.checked_sub(1).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "troppi componenti nella geometria WKB",
+            ))
+        })?;
+        Ok(())
+    }
+}
+
+/// La forma di una geometria, con la sua lunghezza quando e' misurabile.
+enum FormaMisurata {
+    /// Forma e lunghezza note: la scansione dei fratelli puo' proseguire.
+    Nota { forma: WkbShape, byte: usize },
+    /// Tipo che questa classificazione non sa dimensionare. Non e' un errore
+    /// del payload: e' il limite dichiarato di questa funzione, e da qui in
+    /// poi nemmeno i fratelli sono raggiungibili.
+    Indeterminata,
+}
+
+/// Un `u32` nell'endianess del payload, se il payload arriva fin li'.
+///
+/// Restituisce `Option` invece di `Result` perche' il messaggio dipende da
+/// **che cosa** mancava, e la scelta appartiene al chiamante: qui non si sa se
+/// il numero assente fosse un conteggio, un tipo o un SRID.
+fn leggi_u32(payload: &[u8], posizione: usize, little_endian: bool) -> Option<u32> {
+    let fine = posizione.checked_add(4)?;
+    let grezzo = payload.get(posizione..fine)?;
+    let byte: [u8; 4] = grezzo.try_into().ok()?;
+    Some(if little_endian {
+        u32::from_le_bytes(byte)
+    } else {
+        u32::from_be_bytes(byte)
+    })
+}
+
+fn troncato() -> PlenoraIoError {
+    err(&PublicMessage::Curated("WKB troncato: manca il conteggio"))
+}
+
+fn oltre_il_tipo() -> PlenoraIoError {
+    err(&PublicMessage::Curated("overflow delle dimensioni WKB"))
+}
+
+/// Forma e lunghezza di un punto: tutte le coordinate `NaN` significa vuoto.
+fn forma_del_punto(
+    payload: &[u8],
+    cursore: usize,
+    byte_coordinata: usize,
+    little_endian: bool,
+) -> Result<FormaMisurata> {
+    let fine = cursore
+        .checked_add(byte_coordinata)
+        .ok_or_else(oltre_il_tipo)?;
+    let coordinate = payload.get(cursore..fine).ok_or_else(|| {
+        err(&PublicMessage::Curated(
+            "WKB Point troncato: mancano le coordinate",
+        ))
+    })?;
+    let mut tutte_nan = true;
+    for blocco in coordinate.chunks_exact(8) {
+        let Ok(byte) = <[u8; 8]>::try_from(blocco) else {
+            continue;
+        };
+        let valore = if little_endian {
+            f64::from_le_bytes(byte)
+        } else {
+            f64::from_be_bytes(byte)
+        };
+        if !valore.is_nan() {
+            tutte_nan = false;
+            break;
+        }
+    }
+    Ok(FormaMisurata::Nota {
+        forma: if tutte_nan {
+            WkbShape::Empty
+        } else {
+            WkbShape::NonEmpty
+        },
+        byte: fine,
+    })
+}
+
+/// Una sequenza di punti — `LineString` e `CircularString`, stesso layout.
+fn forma_della_sequenza(
+    payload: &[u8],
+    cursore: usize,
+    byte_coordinata: usize,
+    little_endian: bool,
+) -> Result<FormaMisurata> {
+    let (punti, fine) = salta_i_punti(payload, cursore, byte_coordinata, little_endian)?;
+    Ok(FormaMisurata::Nota {
+        forma: if punti == 0 {
+            WkbShape::Empty
+        } else {
+            WkbShape::NonEmpty
+        },
+        byte: fine,
+    })
+}
+
+/// Legge un conteggio di punti e salta le loro coordinate: `(punti, fine)`.
+///
+/// Le coordinate non vengono guardate — per la forma basta sapere quante sono
+/// — ma la loro **presenza** si': un conteggio che dichiara punti che il
+/// payload non contiene e' troncamento, non una sequenza vuota.
+fn salta_i_punti(
+    payload: &[u8],
+    posizione: usize,
+    byte_coordinata: usize,
+    little_endian: bool,
+) -> Result<(usize, usize)> {
+    let dichiarati = leggi_u32(payload, posizione, little_endian).ok_or_else(troncato)?;
+    let punti = usize::try_from(dichiarati).map_err(|_| oltre_il_tipo())?;
+    let corpo = punti
+        .checked_mul(byte_coordinata)
+        .ok_or_else(oltre_il_tipo)?;
+    let fine = posizione
+        .checked_add(4)
+        .and_then(|dopo| dopo.checked_add(corpo))
+        .ok_or_else(oltre_il_tipo)?;
+    if payload.len() < fine {
+        return Err(err(&PublicMessage::Curated(
+            "WKB troncato: mancano le coordinate dichiarate",
+        )));
+    }
+    Ok((punti, fine))
+}
+
+/// Poligono e triangolo: vuoti quando **nessun** anello porta punti.
+///
+/// Zero anelli e' la forma canonica del vuoto; un anello dichiarato con zero
+/// punti non aggiunge contenuto, e trattarlo come contenuto direbbe «non
+/// vuoto» di una geometria che non ha un solo vertice.
+fn forma_del_poligono(
+    payload: &[u8],
+    cursore: usize,
+    byte_coordinata: usize,
+    little_endian: bool,
+    budget: &mut BudgetForma,
+) -> Result<FormaMisurata> {
+    let dichiarati = leggi_u32(payload, cursore, little_endian).ok_or_else(troncato)?;
+    let anelli = usize::try_from(dichiarati).map_err(|_| oltre_il_tipo())?;
+    let mut posizione = cursore.checked_add(4).ok_or_else(oltre_il_tipo)?;
+    let mut con_punti = false;
+    for _ in 0..anelli {
+        budget.addebita()?;
+        let (punti, fine) = salta_i_punti(payload, posizione, byte_coordinata, little_endian)?;
+        posizione = fine;
+        if punti > 0 {
+            con_punti = true;
+        }
+    }
+    Ok(FormaMisurata::Nota {
+        forma: if con_punti {
+            WkbShape::NonEmpty
+        } else {
+            WkbShape::Empty
+        },
+        byte: posizione,
+    })
+}
+
+/// Una collezione: vuota quando **ogni** figlio e' vuoto.
+///
+/// Ogni figlio e' un WKB completo, con il proprio byte order e il proprio
+/// tipo: per raggiungere il secondo bisogna aver misurato il primo, ed e'
+/// questa la ragione per cui la misura della lunghezza e la classificazione
+/// viaggiano insieme.
+fn forma_della_collezione(
+    payload: &[u8],
+    cursore: usize,
+    profondita: usize,
+    little_endian: bool,
+    budget: &mut BudgetForma,
+) -> Result<FormaMisurata> {
+    let dichiarati = leggi_u32(payload, cursore, little_endian).ok_or_else(troncato)?;
+    let figli = usize::try_from(dichiarati).map_err(|_| oltre_il_tipo())?;
+    let mut posizione = cursore.checked_add(4).ok_or_else(oltre_il_tipo)?;
+    let mut forma = WkbShape::Empty;
+    for _ in 0..figli {
+        let resto = payload.get(posizione..).ok_or_else(|| {
+            err(&PublicMessage::Curated(
+                "WKB troncato: manca un figlio dichiarato",
+            ))
+        })?;
+        let profondita_figlio = profondita.checked_add(1).ok_or_else(oltre_il_tipo)?;
+        match forma_e_lunghezza(resto, profondita_figlio, budget)? {
+            FormaMisurata::Nota {
+                forma: figlia,
+                byte,
+            } => {
+                if !figlia.is_empty() {
+                    forma = WkbShape::NonEmpty;
+                }
+                posizione = posizione.checked_add(byte).ok_or_else(oltre_il_tipo)?;
+            }
+            // Un figlio non misurabile rende irraggiungibili i fratelli: da
+            // qui in poi non si sa piu' dove comincia il prossimo.
+            FormaMisurata::Indeterminata => return Ok(FormaMisurata::Indeterminata),
+        }
+    }
+    Ok(FormaMisurata::Nota {
+        forma,
+        byte: posizione,
+    })
+}
+
+/// Classifica una geometria e ne misura la lunghezza, scendendo nei figli.
+fn forma_e_lunghezza(
+    payload: &[u8],
+    profondita: usize,
+    budget: &mut BudgetForma,
+) -> Result<FormaMisurata> {
+    if profondita > budget.profondita_massima {
+        return Err(err(&PublicMessage::Curated(
+            "WKB annidato troppo in profondita'",
+        )));
+    }
+    budget.addebita()?;
+    if payload.len() < 5 {
+        return Err(err(&PublicMessage::Curated(
+            "WKB troppo corto per l'header base",
+        )));
+    }
+    let little_endian = match payload[0] {
+        0x00 => false,
+        0x01 => true,
+        // Il byte non esce: e' un valore letto dal payload, e il vincolo di
+        // S9 ammette solo indici, conteggi, tetti e codici strutturali.
+        _ => return Err(err(&PublicMessage::Curated("byte order WKB non valido"))),
+    };
+    let raw_type = leggi_u32(payload, 1, little_endian).ok_or_else(troncato)?;
+    let mut cursore: usize = 5;
+    let (tipo_base, dimensioni) = tipo_e_dimensioni(raw_type, payload.len(), &mut cursore)?;
+    let byte_coordinata = dimensioni.checked_mul(8).ok_or_else(oltre_il_tipo)?;
+
+    match tipo_base {
+        1 => forma_del_punto(payload, cursore, byte_coordinata, little_endian),
+        2 | 8 => forma_della_sequenza(payload, cursore, byte_coordinata, little_endian),
+        3 | 17 => forma_del_poligono(payload, cursore, byte_coordinata, little_endian, budget),
+        4..=7 | 9..=12 | 15 | 16 => {
+            forma_della_collezione(payload, cursore, profondita, little_endian, budget)
+        }
+        _ => Ok(FormaMisurata::Indeterminata),
     }
 }
 
@@ -1517,98 +1843,29 @@ fn tipo_e_dimensioni(
     Ok((base, dims))
 }
 
-fn wkb_shape(payload: &[u8]) -> Result<WkbShape> {
-    if payload.len() < 5 {
+fn wkb_shape(payload: &[u8], limiti: &WkbLimits) -> Result<WkbShape> {
+    // Il tetto per cella e' il primo dei tre, e si applica prima di leggere un
+    // solo byte: una cella oltre il contratto non e' una geometria di cui
+    // valga la pena chiedersi la forma.
+    if payload.len() > limiti.max_cell_bytes {
         return Err(err(&PublicMessage::Curated(
-            "WKB troppo corto per l'header base",
+            "cella WKB oltre il limite di byte",
         )));
     }
-    let little_endian = match payload[0] {
-        0x00 => false,
-        0x01 => true,
-        _ => {
-            // Il byte non esce: e' un valore letto dal payload, e il
-            // vincolo di S9 ammette solo indici, conteggi, tetti e codici
-            // strutturali.
-            return Err(err(&PublicMessage::Curated("byte order WKB non valido")));
-        }
-    };
-    let leggi_intero = |slice: &[u8]| -> u32 {
-        let bytes = [slice[0], slice[1], slice[2], slice[3]];
-        if little_endian {
-            u32::from_le_bytes(bytes)
-        } else {
-            u32::from_be_bytes(bytes)
-        }
-    };
-    let leggi_reale = |slice: &[u8]| -> f64 {
-        let mut bytes = [0_u8; 8];
-        bytes.copy_from_slice(&slice[..8]);
-        if little_endian {
-            f64::from_le_bytes(bytes)
-        } else {
-            f64::from_be_bytes(bytes)
-        }
-    };
-    let raw_type = leggi_intero(&payload[1..5]);
-    let mut cursor: usize = 5;
-
-    let (base_type, dims) = tipo_e_dimensioni(raw_type, payload.len(), &mut cursor)?;
-
-    let coord_bytes = dims.checked_mul(8).ok_or_else(|| {
-        err(&PublicMessage::Curated(
-            "overflow dimensioni coordinate WKB",
-        ))
-    })?;
-
-    match base_type {
-        1 => {
-            // Point: se tutte le coordinate sono NaN, la geometria e' EMPTY
-            // (convenzione standard). Un payload troncato prima delle
-            // coordinate e' un errore, non un default.
-            if payload.len() < cursor + coord_bytes {
-                return Err(err(&PublicMessage::Curated(
-                    "WKB Point troncato: mancano le coordinate",
-                )));
-            }
-            let mut all_nan = true;
-            for i in 0..dims {
-                let offset = cursor + i * 8;
-                if !leggi_reale(&payload[offset..offset + 8]).is_nan() {
-                    all_nan = false;
-                    break;
-                }
-            }
-            Ok(if all_nan {
-                WkbShape::Empty
-            } else {
-                WkbShape::NonEmpty
-            })
-        }
-        2..=7 | 15..=17 => {
-            // LineString/Polygon/Multi*/GeometryCollection/PolyhedralSurface/
-            // Tin/Triangle: subito dopo l'header c'e' un uint32 con il
-            // conteggio degli elementi. Zero → EMPTY.
-            if payload.len() < cursor + 4 {
-                return Err(err(&PublicMessage::Curated(
-                    "WKB troncato: manca il conteggio",
-                )));
-            }
-            let count = leggi_intero(&payload[cursor..cursor + 4]);
-            Ok(if count == 0 {
-                WkbShape::Empty
-            } else {
-                WkbShape::NonEmpty
-            })
-        }
-        _ => {
-            // Tipo estese non gestite (curve, superfici circolari, ecc.):
-            // safe default non-empty, per non segnalare vuoto un contenuto
-            // che non sappiamo classificare.
-            Ok(WkbShape::NonEmpty)
-        }
-    }
+    let mut budget = BudgetForma::nuovo(limiti);
+    Ok(match forma_e_lunghezza(payload, 0, &mut budget)? {
+        FormaMisurata::Nota { forma, .. } => forma,
+        // Il safe-default dichiarato: un tipo che non sappiamo dimensionare
+        // conta come non vuoto. Segnalare vuoto un payload con contenuto reale
+        // sarebbe il verso sbagliato dell'errore.
+        FormaMisurata::Indeterminata => WkbShape::NonEmpty,
+    })
 }
+
+// I byte che seguono la geometria di primo livello non vengono guardati:
+// `wkb_shape` decide un flag, non convalida la cella. `decode_wkb` li rifiuta,
+// ed e' il posto giusto per farlo -- qui pretenderlo cambierebbe il contratto
+// di scrittura fuori dal perimetro di questo lotto.
 
 fn init_gpkg(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -2065,10 +2322,59 @@ mod tests {
         assert!(__fuzz_gpkg_geometry(&senza_envelope[..7]).is_err());
     }
 
+    /// La forma con la quota predefinita.
+    ///
+    /// Le sonde della forma non variano i tetti: ripetere `WkbLimits::default()`
+    /// su ogni riga direbbe che li stanno provando, e a provarli sono le due
+    /// sonde dei budget, che partono dai loro campi.
+    fn forma(payload: &[u8]) -> Result<WkbShape> {
+        wkb_shape(payload, &WkbLimits::default())
+    }
+
     // Helper solo per test: header WKB `little-endian` per un tipo dato.
     fn wkb_le_header(geometry_type: u32) -> Vec<u8> {
         let mut buffer = vec![0x01_u8];
         buffer.extend_from_slice(&geometry_type.to_le_bytes());
+        buffer
+    }
+
+    /// `POINT (x y)` little-endian.
+    fn punto(x: f64, y: f64) -> Vec<u8> {
+        let mut buffer = wkb_le_header(1);
+        buffer.extend_from_slice(&x.to_le_bytes());
+        buffer.extend_from_slice(&y.to_le_bytes());
+        buffer
+    }
+
+    /// `POINT EMPTY`, cioe' `POINT (NaN NaN)`.
+    fn punto_vuoto() -> Vec<u8> {
+        punto(f64::NAN, f64::NAN)
+    }
+
+    /// Una collezione del tipo dato, con i figli gia' serializzati.
+    fn collezione(tipo: u32, figli: &[Vec<u8>]) -> Vec<u8> {
+        let mut buffer = wkb_le_header(tipo);
+        let quanti = u32::try_from(figli.len()).expect("figli oltre u32 in una fixture");
+        buffer.extend_from_slice(&quanti.to_le_bytes());
+        for figlio in figli {
+            buffer.extend_from_slice(figlio);
+        }
+        buffer
+    }
+
+    /// Un poligono XY con gli anelli dichiarati, ciascuno con i punti indicati.
+    ///
+    /// Le coordinate sono zeri: la forma di un poligono dipende dal **numero**
+    /// di punti, non dal loro valore, e uno zero non e' `NaN`.
+    fn poligono(anelli: &[usize]) -> Vec<u8> {
+        let mut buffer = wkb_le_header(3);
+        let quanti = u32::try_from(anelli.len()).expect("anelli oltre u32 in una fixture");
+        buffer.extend_from_slice(&quanti.to_le_bytes());
+        for punti in anelli {
+            let quanti = u32::try_from(*punti).expect("punti oltre u32 in una fixture");
+            buffer.extend_from_slice(&quanti.to_le_bytes());
+            buffer.extend_from_slice(&vec![0_u8; punti * 16]);
+        }
         buffer
     }
 
@@ -2081,13 +2387,13 @@ mod tests {
         let mut payload = wkb_le_header(1); // ISO WKB Point XY
         payload.extend_from_slice(&f64::NAN.to_le_bytes());
         payload.extend_from_slice(&f64::NAN.to_le_bytes());
-        assert_eq!(wkb_shape(&payload).unwrap(), WkbShape::Empty);
+        assert_eq!(forma(&payload).unwrap(), WkbShape::Empty);
 
         // Un Point con coordinate finite deve restare non-empty.
         let mut concreto = wkb_le_header(1);
         concreto.extend_from_slice(&1.5_f64.to_le_bytes());
         concreto.extend_from_slice(&2.5_f64.to_le_bytes());
-        assert_eq!(wkb_shape(&concreto).unwrap(), WkbShape::NonEmpty);
+        assert_eq!(forma(&concreto).unwrap(), WkbShape::NonEmpty);
     }
 
     #[test]
@@ -2097,14 +2403,14 @@ mod tests {
         for _ in 0..3 {
             xyz.extend_from_slice(&f64::NAN.to_le_bytes());
         }
-        assert_eq!(wkb_shape(&xyz).unwrap(), WkbShape::Empty);
+        assert_eq!(forma(&xyz).unwrap(), WkbShape::Empty);
 
         // POINT ZM EMPTY: type = 3001, 4 doubles NaN.
         let mut xyzm = wkb_le_header(3001);
         for _ in 0..4 {
             xyzm.extend_from_slice(&f64::NAN.to_le_bytes());
         }
-        assert_eq!(wkb_shape(&xyzm).unwrap(), WkbShape::Empty);
+        assert_eq!(forma(&xyzm).unwrap(), WkbShape::Empty);
 
         // Point Z con Z finita e X/Y NaN NON e' empty (basta una
         // coordinata finita per contare come non-empty).
@@ -2112,7 +2418,7 @@ mod tests {
         mixed.extend_from_slice(&f64::NAN.to_le_bytes());
         mixed.extend_from_slice(&f64::NAN.to_le_bytes());
         mixed.extend_from_slice(&42.0_f64.to_le_bytes());
-        assert_eq!(wkb_shape(&mixed).unwrap(), WkbShape::NonEmpty);
+        assert_eq!(forma(&mixed).unwrap(), WkbShape::NonEmpty);
     }
 
     #[test]
@@ -2126,7 +2432,7 @@ mod tests {
         payload.extend_from_slice(&4326_u32.to_le_bytes()); // SRID
         payload.extend_from_slice(&1.0_f64.to_le_bytes());
         payload.extend_from_slice(&2.0_f64.to_le_bytes());
-        assert_eq!(wkb_shape(&payload).unwrap(), WkbShape::NonEmpty);
+        assert_eq!(forma(&payload).unwrap(), WkbShape::NonEmpty);
 
         // Stesso layout con NaN,NaN e' Point EMPTY.
         let mut empty = vec![0x01_u8];
@@ -2134,7 +2440,7 @@ mod tests {
         empty.extend_from_slice(&4326_u32.to_le_bytes());
         empty.extend_from_slice(&f64::NAN.to_le_bytes());
         empty.extend_from_slice(&f64::NAN.to_le_bytes());
-        assert_eq!(wkb_shape(&empty).unwrap(), WkbShape::Empty);
+        assert_eq!(forma(&empty).unwrap(), WkbShape::Empty);
 
         // MULTIPOINT EMPTY EWKB con SRID: type 4 + SRID flag, poi
         // 4 byte SRID e 4 byte count=0.
@@ -2143,27 +2449,63 @@ mod tests {
         multi_empty.extend_from_slice(&multi_type.to_le_bytes());
         multi_empty.extend_from_slice(&4326_u32.to_le_bytes());
         multi_empty.extend_from_slice(&0_u32.to_le_bytes());
-        assert_eq!(wkb_shape(&multi_empty).unwrap(), WkbShape::Empty);
+        assert_eq!(forma(&multi_empty).unwrap(), WkbShape::Empty);
     }
 
     #[test]
     fn wkb_shape_fallisce_chiuso_sui_payload_ambigui() {
         // Header troncato: 5 byte minimi non presenti.
-        assert!(wkb_shape(&[0x01, 0x01]).is_err());
+        assert!(forma(&[0x01, 0x01]).is_err());
         // Byte-order invalido.
-        assert!(wkb_shape(&[0x02, 0x00, 0x00, 0x00, 0x01]).is_err());
+        assert!(forma(&[0x02, 0x00, 0x00, 0x00, 0x01]).is_err());
         // Point ISO con coordinate mancanti (solo header, niente doubles).
-        assert!(wkb_shape(&wkb_le_header(1)).is_err());
+        assert!(forma(&wkb_le_header(1)).is_err());
         // LineString ISO senza il conteggio.
-        assert!(wkb_shape(&wkb_le_header(2)).is_err());
+        assert!(forma(&wkb_le_header(2)).is_err());
         // Flavor ISO invalido (type = 4123 → flavor 4 sconosciuto).
-        assert!(wkb_shape(&wkb_le_header(4123)).is_err());
+        assert!(forma(&wkb_le_header(4123)).is_err());
         // EWKB con SRID ma payload che finisce prima dell'SRID.
         let mut ewkb_troncato = vec![0x01_u8];
         let type_flags: u32 = 0x2000_0000 | 1;
         ewkb_troncato.extend_from_slice(&type_flags.to_le_bytes());
         // niente 4 byte SRID: il payload finisce qui
-        assert!(wkb_shape(&ewkb_troncato).is_err());
+        assert!(forma(&ewkb_troncato).is_err());
+    }
+
+    /// Gli stessi rifiuti, un livello piu' sotto.
+    ///
+    /// Prima di S11 nessuno di questi payload veniva guardato oltre il
+    /// conteggio: erano tutti «non vuoti» e passavano.
+    #[test]
+    fn wkb_shape_fallisce_chiuso_sui_figli_malformati() {
+        // Un figlio troncato a meta' delle coordinate.
+        let intero = collezione(7, &[punto(1.0, 2.0)]);
+        assert!(forma(&intero[..intero.len() - 1]).is_err());
+
+        // Un figlio con byte order invalido.
+        let mut cattivo = punto(1.0, 2.0);
+        cattivo[0] = 0x02;
+        assert!(forma(&collezione(7, &[cattivo])).is_err());
+
+        // Un anello che dichiara piu' punti di quanti il payload ne porti.
+        let mut bugiardo = wkb_le_header(3);
+        bugiardo.extend_from_slice(&1_u32.to_le_bytes());
+        bugiardo.extend_from_slice(&1000_u32.to_le_bytes());
+        assert!(forma(&bugiardo).is_err());
+
+        // Un conteggio di punti che, moltiplicato per la coordinata, esce dal
+        // payload di parecchi ordini di grandezza: nessun overflow, un
+        // rifiuto.
+        let mut enorme = wkb_le_header(2);
+        enorme.extend_from_slice(&u32::MAX.to_le_bytes());
+        assert!(forma(&enorme).is_err());
+
+        // Una collezione che dichiara piu' figli di quanti ne contenga: il
+        // secondo manca.
+        let mut incompleta = wkb_le_header(7);
+        incompleta.extend_from_slice(&2_u32.to_le_bytes());
+        incompleta.extend_from_slice(&punto(1.0, 2.0));
+        assert!(forma(&incompleta).is_err());
     }
 
     #[test]
@@ -2171,13 +2513,144 @@ mod tests {
         // MULTIPOINT EMPTY (ISO): type 4, count 0.
         let mut mp = wkb_le_header(4);
         mp.extend_from_slice(&0_u32.to_le_bytes());
-        assert_eq!(wkb_shape(&mp).unwrap(), WkbShape::Empty);
+        assert_eq!(forma(&mp).unwrap(), WkbShape::Empty);
 
-        // MULTIPOINT con un elemento: non-empty.
-        let mut mp_full = wkb_le_header(4);
-        mp_full.extend_from_slice(&1_u32.to_le_bytes());
-        // (il payload del figlio non e' letto da wkb_shape: basta il count>0)
-        assert_eq!(wkb_shape(&mp_full).unwrap(), WkbShape::NonEmpty);
+        // MULTIPOINT con un punto vero: non-empty.
+        assert_eq!(
+            forma(&collezione(4, &[punto(1.0, 2.0)])).unwrap(),
+            WkbShape::NonEmpty
+        );
+
+        // Un conteggio che dichiara un figlio assente **non** e' piu' un
+        // non-empty per costruzione: fino a S11 bastava `count > 0`, e questo
+        // payload -- cinque byte di header e un conteggio -- veniva
+        // classificato come pieno. Ora e' troncamento, e fallisce chiuso.
+        let mut senza_figlio = wkb_le_header(4);
+        senza_figlio.extend_from_slice(&1_u32.to_le_bytes());
+        assert!(forma(&senza_figlio).is_err());
+    }
+
+    /// **Il difetto che il lotto S11 chiude.**
+    ///
+    /// Un contenitore e' vuoto quando non contiene niente di non vuoto, e
+    /// fino a `f7b6d79` la classificazione si fermava al conteggio di primo
+    /// livello: ognuno di questi payload dichiara almeno un figlio, e ognuno
+    /// e' semanticamente vuoto.
+    #[test]
+    fn wkb_shape_scende_nei_figli_delle_collection() {
+        let casi: Vec<(&str, Vec<u8>, WkbShape)> = vec![
+            (
+                "GEOMETRYCOLLECTION (POINT EMPTY)",
+                collezione(7, &[punto_vuoto()]),
+                WkbShape::Empty,
+            ),
+            (
+                "MULTIPOINT (EMPTY)",
+                collezione(4, &[punto_vuoto()]),
+                WkbShape::Empty,
+            ),
+            (
+                "MULTIPOLYGON (POLYGON EMPTY)",
+                collezione(6, &[poligono(&[])]),
+                WkbShape::Empty,
+            ),
+            (
+                "MULTIPOLYGON (POLYGON con un anello senza punti)",
+                collezione(6, &[poligono(&[0])]),
+                WkbShape::Empty,
+            ),
+            (
+                "GEOMETRYCOLLECTION (CIRCULARSTRING EMPTY)",
+                collezione(7, &[collezione(8, &[])]),
+                WkbShape::Empty,
+            ),
+            // Le due asimmetriche provano che i fratelli vengono davvero
+            // raggiunti: per leggere il secondo figlio bisogna aver misurato
+            // il primo, e un offset sbagliato darebbe l'altra risposta.
+            (
+                "GEOMETRYCOLLECTION (POINT EMPTY, POINT (1 2))",
+                collezione(7, &[punto_vuoto(), punto(1.0, 2.0)]),
+                WkbShape::NonEmpty,
+            ),
+            (
+                "GEOMETRYCOLLECTION (POINT (1 2), POINT EMPTY)",
+                collezione(7, &[punto(1.0, 2.0), punto_vuoto()]),
+                WkbShape::NonEmpty,
+            ),
+            (
+                "GEOMETRYCOLLECTION (POINT EMPTY, POINT EMPTY)",
+                collezione(7, &[punto_vuoto(), punto_vuoto()]),
+                WkbShape::Empty,
+            ),
+            (
+                "MULTIPOLYGON (POLYGON EMPTY, POLYGON con un anello)",
+                collezione(6, &[poligono(&[]), poligono(&[4])]),
+                WkbShape::NonEmpty,
+            ),
+        ];
+        for (nome, payload, atteso) in casi {
+            assert_eq!(forma(&payload).unwrap(), atteso, "{nome}");
+        }
+    }
+
+    /// L'annidamento non e' un caso limite: e' la forma in cui il vuoto si
+    /// nasconde meglio.
+    #[test]
+    fn wkb_shape_scende_negli_annidamenti() {
+        let profondo = collezione(7, &[collezione(7, &[collezione(7, &[punto_vuoto()])])]);
+        assert_eq!(forma(&profondo).unwrap(), WkbShape::Empty);
+
+        let con_contenuto = collezione(7, &[collezione(7, &[punto(1.0, 2.0)])]);
+        assert_eq!(forma(&con_contenuto).unwrap(), WkbShape::NonEmpty);
+    }
+
+    /// Scendere significa ricorrere, e ricorrere su input ostile senza tetto
+    /// significa esaurire lo stack: nove byte per livello bastano.
+    #[test]
+    fn wkb_shape_fallisce_chiuso_quando_il_budget_di_profondita_finisce() {
+        let limiti = WkbLimits::default();
+        let mut annidato = punto_vuoto();
+        for _ in 0..=limiti.max_depth {
+            annidato = collezione(7, &[annidato]);
+        }
+        assert!(forma(&annidato).is_err());
+
+        // Un livello sotto il tetto resta classificabile: il budget non e' una
+        // scusa per rifiutare tutto.
+        let mut ammesso = punto_vuoto();
+        for _ in 0..(limiti.max_depth - 1) {
+            ammesso = collezione(7, &[ammesso]);
+        }
+        assert_eq!(forma(&ammesso).unwrap(), WkbShape::Empty);
+    }
+
+    /// Il secondo budget: quanto e' costata la visita in tutto.
+    ///
+    /// Un anello senza punti costa quattro byte e un componente, quindi il
+    /// tetto sui componenti si raggiunge molto prima di quello sui byte. Senza
+    /// questo budget la visita resterebbe lineare ma illimitata.
+    #[test]
+    fn wkb_shape_fallisce_chiuso_quando_il_budget_di_componenti_finisce() {
+        let limiti = WkbLimits::default();
+        let anelli = vec![0_usize; limiti.max_components + 1];
+        assert!(forma(&poligono(&anelli)).is_err());
+    }
+
+    /// Il limite dichiarato: cio' che non sappiamo dimensionare non e' un
+    /// difetto del payload, e non viene rifiutato.
+    #[test]
+    fn wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare() {
+        // Tipo 13 (Curve astratta): non trattato, safe-default non vuoto.
+        assert_eq!(forma(&wkb_le_header(13)).unwrap(), WkbShape::NonEmpty);
+
+        // Dentro una collezione il limite si propaga: senza la lunghezza del
+        // figlio, i fratelli non sono raggiungibili, e la risposta
+        // conservativa vale per l'intero contenitore.
+        let con_ignoto = collezione(7, &[wkb_le_header(13)]);
+        assert_eq!(forma(&con_ignoto).unwrap(), WkbShape::NonEmpty);
+
+        let vuoto_poi_ignoto = collezione(7, &[punto_vuoto(), wkb_le_header(13)]);
+        assert_eq!(forma(&vuoto_poi_ignoto).unwrap(), WkbShape::NonEmpty);
     }
 
     #[test]

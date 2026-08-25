@@ -57,7 +57,12 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 
 # Conteggio atteso per categoria. `produzione` puo' solo scendere: e' il
 # residuo del difetto che S5 ha corretto.
-ATTESI = {"test": 47, "attrezzaggio": 4, "produzione": 2}
+# `test` passa da 47 a 50 con il lotto S11: `driver-gpkg` ne aggiunge tre.
+# Uno e' l'helper `forma`, che tiene la quota predefinita in un posto solo
+# invece che su ogni riga; due sono le sonde dei budget, che dai campi di
+# `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
+# e' li' che il default e' l'oggetto della prova e non una scorciatoia.
+ATTESI = {"test": 50, "attrezzaggio": 4, "produzione": 2}
 
 # Occorrenze di produzione **legittime**: il default e' la scelta giusta, non
 # un residuo. Chiave: `percorso::funzione`; valore: `(quante, perche')`.
