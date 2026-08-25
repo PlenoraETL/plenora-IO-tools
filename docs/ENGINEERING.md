@@ -157,7 +157,25 @@ Una scrittura rifiutata non lascia una destinazione.
 | **prevalidazione** | i decoder compressi verificano rapporto e struttura **prima** di materializzare le celle |
 | **barriera anti-panic** | i parser di terze parti che possono panicare girano dietro una barriera che converte il panico in errore tipizzato. Un panico catturato resta un panico avvenuto: la barriera è l'ultima difesa, non la prima |
 | **GeoParquet** | larghezza del dizionario, allocazione di pagina e statistiche sono validate prima dell'uso; il pruning è fail-open, quindi una statistica sospetta fa leggere di più, mai di meno |
-| **WKB/WKT** | ogni geometria passa da tetti su byte, componenti e profondità, in lettura e in scrittura |
+| **WKB/WKT** | ogni geometria passa da tetti su byte, componenti e profondità, in lettura e in scrittura. Per il WKT i tetti si applicano **durante** il parse (S12): l'analisi costruisce la geometria mentre consuma il testo e addebita ogni coordinata quando la legge, quindi ciò che non è stato letto non è stato allocato |
+
+#### L'unica incompatibilità osservabile di S12
+
+Il parser WKT progressivo accetta esattamente ciò che accettava il precedente —
+una sonda lo confronta con esso su oltre trecento casi generati per
+combinazione — **salvo una cosa**: il testo non-whitespace che segue la
+geometria era ignorato e ora è rifiutato.
+
+`POINT (1 2))` e `POINT (1 2) POINT (3 4)` erano un punto, e il resto non
+c'era. Una cella WKT rappresenta una geometria completa: ignorare una parentesi
+in più o una seconda geometria nasconde un input malformato e contraddirebbe la
+garanzia `hostile_input_hardened`. È un bug del confine precedente, non una
+sintassi da conservare.
+
+Lo spazio finale resta accettato, perché non è testo. Il rifiuto è un errore di
+**sintassi** (`DataMapping/Validate/Wkb/Never`), non di budget: dire «limite
+superato» a chi ha una parentesi di troppo lo manderebbe ad allargare una quota
+che non c'entra.
 
 ## Gestione degli errori
 

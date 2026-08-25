@@ -237,6 +237,14 @@ set -eu
 # fuori dal ciclo, i tredici sono spariti da soli: era un ripiego che copriva
 # un caso che non esiste. Nessuna revisione H-01 dovuta.
 
+# Sempre il 2026-08-25, la decisione sul testo residuo aggiunge tre occorrenze
+# a driver-common (6 -> 9, totale 125 -> 128). Sono la stessa forma delle due
+# precedenti, nelle due sonde nuove: il round-trip dei writer e la coda non
+# vuota provano tredici e sei campioni per volta, e `unwrap_or_else(|errore|
+# panic!(...))` e' il modo in cui dicono **quale** ha fallito. Un `expect` con
+# testo fisso direbbe soltanto «uno di questi». Nessuna governa un percorso di
+# produzione. Nessuna revisione H-01 dovuta.
+
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #
 # Questo script conservava la narrativa di ogni movimento del registro, e la

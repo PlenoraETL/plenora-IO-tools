@@ -30,14 +30,27 @@
 //! S11: due tetti con lo stesso nome e due unita' di misura diverse sono
 //! peggio di due tetti con nomi diversi, perche' nessuno va a guardare.
 //!
-//! # Che cosa **non** cambia
+//! # Che cosa cambia dell'insieme accettato: una cosa sola
 //!
-//! L'insieme accettato. Restano i sette tipi classici con le loro regole di
-//! coerenza dimensionale, `POINT EMPTY` resta non rappresentabile nel core
-//! WKB, e la verifica di esprimibilita' resta a valle: questo modulo cambia
-//! *quando* si rifiuta, non *che cosa* si accetta. Un lotto che allargasse o
-//! stringesse l'insieme accettato mentre sposta il confine renderebbe
-//! impossibile dire quale delle due cose ha rotto un file.
+//! Restano i sette tipi classici con le loro regole di coerenza dimensionale,
+//! le due sintassi di `MULTIPOINT`, il suffisso dimensionale attaccato o
+//! staccato, `POINT EMPTY` non rappresentabile nel core WKB, e la verifica di
+//! esprimibilita' a valle. Una sonda lo prova contro il parser precedente su
+//! oltre trecento casi generati per combinazione.
+//!
+//! L'unica variazione e' deliberata: **il testo non-whitespace dopo la
+//! geometria e' rifiutato**. La crate `wkt` lo ignorava, e per lei
+//! `POINT (1 2))` e `POINT (1 2) POINT (3 4)` erano un punto e il resto non
+//! c'era. Una cella WKT rappresenta una geometria completa: ignorare una
+//! parentesi in piu' o una seconda geometria nasconde un input malformato, e
+//! contraddirebbe la garanzia che questo modulo esiste per dare. E' un bug del
+//! confine precedente, non una sintassi da conservare.
+//!
+//! Il rifiuto e' di **sintassi**, non di budget: il testo residuo non e' un
+//! superamento di tetto, e classificarlo come tale direbbe a chi legge
+//! l'errore di allargare una quota che non c'entra. Lo spazio finale --
+//! spazi, tabulazioni, ritorni a capo -- resta accettato, perche' non e'
+//! testo.
 
 use plenora_io_model::contract::CoordinateDimensions;
 use plenora_io_model::limits::WkbLimits;
@@ -1269,19 +1282,19 @@ mod sonde {
 
     /// I tre casi in cui l'analisi progressiva e' **piu' stretta**, elencati.
     ///
-    /// # La decisione, che non e' mia
+    /// # La decisione, presa
     ///
-    /// La crate `wkt` ignora cio' che segue la geometria: `POINT (1 2))` e
-    /// `POINT (1 2) POINT (3 4)` per lei sono un punto, e il resto non c'e'.
-    /// L'analisi progressiva lo rifiuta, e il rifiuto **non** viene da un
-    /// tetto: e' un irrigidimento, cioe' un cambio dell'insieme accettato.
+    /// La crate `wkt` ignorava cio' che segue la geometria: `POINT (1 2))` e
+    /// `POINT (1 2) POINT (3 4)` per lei erano un punto, e il resto non c'era.
+    /// L'analisi progressiva li rifiuta, e il rifiuto **non** viene da un
+    /// tetto: e' l'unico irrigidimento del lotto, ed e' deliberato -- una
+    /// cella WKT rappresenta una geometria completa, e ignorare il resto
+    /// nasconde un input malformato.
     ///
-    /// Rifiutare e' il verso giusto -- una cella troncata o due celle
-    /// concatenate non sono un punto -- ma e' una decisione di contratto: un
-    /// file che oggi si legge potrebbe smettere. Finche' non e' presa, i tre
-    /// casi stanno qui **per nome**, e il loro numero e' asserito: se ne
-    /// comparisse un quarto, questa sonda diventerebbe rossa invece di
-    /// allargare in silenzio l'eccezione.
+    /// I tre casi restano qui **per nome**, e il loro numero e' asserito: non
+    /// perche' la decisione sia sospesa, ma perche' l'eccezione resti chiusa.
+    /// Se ne comparisse un quarto, questa sonda diventerebbe rossa invece di
+    /// allargarla in silenzio.
     fn per_il_testo_residuo(testo: &str) -> bool {
         [
             "POINT (1 2))",
@@ -1413,6 +1426,77 @@ mod sonde {
             corpus.push(seme.to_owned());
         }
         corpus
+    }
+
+    /// L'unico irrigidimento del lotto, provato nei due versi.
+    ///
+    /// Lo spazio finale non e' testo e resta accettato; tutto il resto no. E'
+    /// un errore di **sintassi**, non di budget: dire «limite superato» a chi
+    /// ha una parentesi di troppo lo manderebbe ad allargare una quota che non
+    /// c'entra.
+    #[test]
+    fn la_coda_non_vuota_e_rifiutata_come_sintassi() {
+        let limiti = WkbLimits::default();
+
+        // Lo spazio finale, in tutte le sue forme, e' ammesso.
+        for coda in ["", " ", "   ", "\t", "\n", "\r\n", " \t\r\n "] {
+            let testo = format!("POINT (1 2){coda}");
+            assert!(
+                analizza(&testo, &limiti).is_ok(),
+                "lo spazio finale non e' testo residuo: {testo:?}"
+            );
+        }
+
+        for testo in [
+            "POINT (1 2))",
+            "POINT (1 2) POINT (3 4)",
+            "POINT (1 2),",
+            "POINT (1 2) 3",
+            "LINESTRING (0 0,1 1) )",
+            "GEOMETRYCOLLECTION (POINT (1 2)) EMPTY",
+        ] {
+            let errore =
+                analizza(testo, &limiti).expect_err(&format!("{testo} deve essere rifiutato"));
+            assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::Wkb,
+                "{testo}: il testo residuo e' un errore di sintassi, non di budget"
+            );
+        }
+    }
+
+    /// Cio' che i writer producono resta leggibile.
+    ///
+    /// E' la meta' che l'irrigidimento potrebbe rompere senza farsi vedere: se
+    /// `format_wkt` emettesse uno spazio, una parentesi o un a capo di troppo,
+    /// il round-trip fallirebbe -- e fallirebbe in produzione, non qui.
+    #[test]
+    fn cio_che_scriviamo_resta_rileggibile() {
+        let limiti = WkbLimits::default();
+        for testo in [
+            "POINT (1 2)",
+            "POINT Z (1 2 3)",
+            "POINT ZM (1 2 3 4)",
+            "LINESTRING (0 0,1 1,2 2)",
+            "LINESTRING M (0 0 5,1 1 6)",
+            "POLYGON ((0 0,1 0,1 1,0 0))",
+            "POLYGON ((0 0,1 0,1 1,0 0),(0 0,1 0,1 1,0 0))",
+            "MULTIPOINT (1 2,3 4)",
+            "MULTILINESTRING ((0 0,1 1),(2 2,3 3))",
+            "MULTIPOLYGON (((0 0,1 0,1 1,0 0)))",
+            "GEOMETRYCOLLECTION (POINT (1 2),LINESTRING (0 0,1 1))",
+            "MULTIPOINT EMPTY",
+            "GEOMETRYCOLLECTION EMPTY",
+        ] {
+            let geometria =
+                analizza(testo, &limiti).unwrap_or_else(|errore| panic!("{testo}: {errore}"));
+            let scritto = crate::wkt_lossless::format_wkt(&geometria)
+                .unwrap_or_else(|errore| panic!("{testo}: {errore}"));
+            let riletto = analizza(&scritto, &limiti).unwrap_or_else(|errore| {
+                panic!("{testo} scritto come {scritto} non e' rileggibile: {errore}")
+            });
+            assert_eq!(geometria, riletto, "round-trip di {testo}");
+        }
     }
 
     /// Una parola piu' lunga del vocabolario non alloca.

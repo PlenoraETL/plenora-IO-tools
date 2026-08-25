@@ -62,7 +62,11 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # invece che su ogni riga; due sono le sonde dei budget, che dai campi di
 # `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
 # e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-ATTESI = {"test": 63, "attrezzaggio": 6, "produzione": 2}
+ATTESI = {"test": 65, "attrezzaggio": 6, "produzione": 2}
+# Le due ultime sono le sonde dell'unico irrigidimento del lotto S12 -- il
+# testo residuo rifiutato -- e del round-trip dei writer: provano la
+# grammatica con i tetti predefiniti, perche' e' la grammatica a essere in
+# prova e non le quote.
 # La sessantatreesima e' la sonda che confronta l'insieme accettato con
 # quello del parser precedente: interroga entrambi i confini con i tetti
 # predefiniti, perche' e' l'insieme accettato a essere in prova, non le quote.
