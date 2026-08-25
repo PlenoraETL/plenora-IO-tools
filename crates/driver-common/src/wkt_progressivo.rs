@@ -553,9 +553,6 @@ fn coordinate(
         return Ok((Vec::new(), del_vuoto(dichiarate, attese)?));
     }
     analizzatore.attende(b'(', "parentesi aperta attesa")?;
-    if analizzatore.se_prossimo(b')') {
-        return Ok((Vec::new(), del_vuoto(dichiarate, attese)?));
-    }
     let (prima, osservate) = coordinata(analizzatore, dichiarate.or(attese))?;
     let dimensioni = concordata(dichiarate, attese, osservate)?;
     let mut lette = vec![prima];
@@ -585,9 +582,6 @@ fn anelli(
         return Ok((Vec::new(), del_vuoto(dichiarate, attese)?));
     }
     analizzatore.attende(b'(', "parentesi aperta attesa dopo POLYGON")?;
-    if analizzatore.se_prossimo(b')') {
-        return Ok((Vec::new(), del_vuoto(dichiarate, attese)?));
-    }
     let (primo, dimensioni) = coordinate(analizzatore, dichiarate, attese, false)?;
     let mut fuori = vec![primo];
     while analizzatore.se_prossimo(b',') {
@@ -615,12 +609,6 @@ fn multipunto(
         ));
     }
     analizzatore.attende(b'(', "parentesi aperta attesa dopo MULTIPOINT")?;
-    if analizzatore.se_prossimo(b')') {
-        return Ok(costruita(
-            WkbValue::MultiPoint(Vec::new()),
-            del_vuoto(dichiarate, attese)?,
-        ));
-    }
     let (prima, osservate) = punto_membro(analizzatore, dichiarate.or(attese))?;
     let dimensioni = concordata(dichiarate, attese, osservate)?;
     let mut figli = vec![costruita(WkbValue::Point(prima), dimensioni)];
@@ -661,12 +649,6 @@ fn multisequenza(
         ));
     }
     analizzatore.attende(b'(', "parentesi aperta attesa dopo MULTILINESTRING")?;
-    if analizzatore.se_prossimo(b')') {
-        return Ok(costruita(
-            WkbValue::MultiLineString(Vec::new()),
-            del_vuoto(dichiarate, attese)?,
-        ));
-    }
     analizzatore.addebita()?;
     let (prima, dimensioni) = coordinate(analizzatore, dichiarate, attese, true)?;
     let mut figli = vec![costruita(WkbValue::LineString(prima), dimensioni)];
@@ -691,12 +673,6 @@ fn multipoligono(
         ));
     }
     analizzatore.attende(b'(', "parentesi aperta attesa dopo MULTIPOLYGON")?;
-    if analizzatore.se_prossimo(b')') {
-        return Ok(costruita(
-            WkbValue::MultiPolygon(Vec::new()),
-            del_vuoto(dichiarate, attese)?,
-        ));
-    }
     analizzatore.addebita()?;
     let (primo, dimensioni) = anelli(analizzatore, dichiarate, attese)?;
     let mut figli = vec![costruita(WkbValue::Polygon(primo), dimensioni)];
@@ -724,12 +700,6 @@ fn collezione(
         ));
     }
     analizzatore.attende(b'(', "parentesi aperta attesa dopo GEOMETRYCOLLECTION")?;
-    if analizzatore.se_prossimo(b')') {
-        return Ok(costruita(
-            WkbValue::GeometryCollection(Vec::new()),
-            del_vuoto(dichiarate, attese)?,
-        ));
-    }
     let profondita_figlio = profondita
         .checked_add(1)
         .ok_or_else(|| errore("annidamento non rappresentabile"))?;
@@ -1404,6 +1374,25 @@ mod sonde {
                 corpus.push(forma.replace('(', "(  ").replace(')', "  )"));
                 corpus.push(forma.replace(" (", "("));
             }
+        }
+
+        // Le parentesi vuote, una per tipo. Mancavano, e la loro assenza ha
+        // lasciato passare una regressione nella direzione vietata: il parser
+        // nuovo accettava `MULTIPOINT ()` dove il precedente lo rifiutava. La
+        // forma vuota e' `EMPTY`; `()` non e' WKT, e l'ha trovato la
+        // diagnostica differenziale del livello 2, non questa sonda.
+        for tipo in [
+            "POINT",
+            "LINESTRING",
+            "POLYGON",
+            "MULTIPOINT",
+            "MULTILINESTRING",
+            "MULTIPOLYGON",
+            "GEOMETRYCOLLECTION",
+        ] {
+            corpus.push(format!("{tipo} ()"));
+            corpus.push(format!("{tipo} (  )"));
+            corpus.push(format!("{tipo}()"));
         }
 
         // Le storpiature: quelle che un file vero produce sbagliando, e quelle
