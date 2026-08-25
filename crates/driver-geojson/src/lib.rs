@@ -11,9 +11,12 @@
 //! `serde_json::Value` per colonna). La scrittura resta bufferizzante nella v1.
 #![forbid(unsafe_code)]
 
-mod geometry;
+pub(crate) mod geometry;
 
 pub use geometry::{wkb_from_gj_value, write_geo_geojson};
+// La deserializzazione limitata durante il parse (S12): usata da qui,
+// non esposta. Il confine pubblico resta la lettura del dataset.
+pub(crate) mod geometria_progressiva;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -27,7 +30,6 @@ use arrow_array::{
     RecordBatchOptions, StringArray,
 };
 use arrow_schema::{Field, Schema, SchemaRef};
-use geojson::Geometry as GjGeometry;
 use serde::de::value::{MapAccessDeserializer, SeqAccessDeserializer};
 use serde::de::{
     DeserializeSeed, Deserializer, Error as DeError, IgnoredAny, MapAccess, SeqAccess, Visitor,
@@ -64,6 +66,7 @@ use plenora_io_model::crs::ResolvedCrs;
 use plenora_io_model::geometry::is_geometry_field;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
+use plenora_io_model::wkb::{encode_wkb_into_bounded, WkbFlavor};
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
 const GEOMETRY: &str = "geometry";
@@ -281,7 +284,7 @@ impl OpenDatasetHandle for GeoJsonDataset {
 struct QuoteInferenza {
     /// Tetto sui byte del testo grezzo di una geometria, applicato **prima**
     /// di deserializzarla: e' li' che l'AST verrebbe allocato.
-    cella: usize,
+    cella: WkbLimits,
     /// Tetto sulle feature visitate.
     ///
     /// Non e' `max_input_entries`: quella governa l'enumerazione della
@@ -294,7 +297,7 @@ struct QuoteInferenza {
 impl QuoteInferenza {
     fn from_read_options(opts: &ReadOptions) -> Self {
         Self {
-            cella: opts.wkb_limits().max_cell_bytes,
+            cella: opts.wkb_limits(),
             feature: u64::try_from(opts.max_rows()).unwrap_or(u64::MAX),
         }
     }
@@ -744,7 +747,7 @@ fn spawn_parser(
             output: RowOutput::Worker(emitter),
             geom: include_geometry.then(BinaryBuilder::new),
             wkb_buf: Vec::new(),
-            max_cell_bytes: quote.cella,
+            limiti_wkb: quote.cella,
             builders: cols
                 .iter()
                 .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))
@@ -816,7 +819,12 @@ struct RowSink {
     output: RowOutput,
     geom: Option<BinaryBuilder>,
     wkb_buf: Vec<u8>,
-    max_cell_bytes: usize,
+    /// I tetti del bordo per una geometria.
+    ///
+    /// Era il solo cap in byte. Da S12 la deserializzazione applica anche
+    /// componenti e profondita' **durante** il parse: il tipo che viaggia e'
+    /// quindi il contratto intero, non una sua meta'.
+    limiti_wkb: WkbLimits,
     builders: Vec<InferredColumnBuilder>,
     seen: Vec<bool>,
     property_seen: Vec<bool>,
@@ -957,18 +965,20 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                 }
                 FeatKey::Geom => {
                     if let Some(geometry) = &mut self.sink.geom {
-                        // Finding #6 review 2026-08-15: la deserializzazione
-                        // di `GjGeometry` costruisce ricorsivamente `Vec` di
-                        // coordinate/anelli/geometrie prima che qualunque
-                        // budget veda il risultato. Intercettando prima come
-                        // `RawValue` conosciamo la lunghezza in byte della
-                        // geometria e possiamo rifiutare payload oltre il
-                        // cap del bordo (default WKB `max_cell_bytes`, 64
-                        // MiB) senza mai materializzare l'AST. Un fix
-                        // completo (contatori vertici/depth applicati
-                        // durante il parse) richiede un Visitor dedicato:
-                        // e' il perimetro di S12, in
-                        // `RELEASE.md § S10, S11, S12`.
+                        // Finding #6 review 2026-08-15, chiuso da S12.
+                        //
+                        // Intercettare la geometria come `RawValue` da' la sua
+                        // lunghezza in byte e permette di rifiutare oltre il cap
+                        // del bordo senza materializzare niente. Restava che la
+                        // deserializzazione, una volta passato il cap,
+                        // costruiva ricorsivamente `Vec` di coordinate, anelli
+                        // e geometrie prima che un solo contatore le vedesse: un
+                        // megabyte di posizioni sta sotto qualunque cap
+                        // ragionevole e costa cinquantamila `Vec`.
+                        //
+                        // `geometria_progressiva` deserializza direttamente nel
+                        // nostro AST e addebita ogni posizione e ogni figlia nel
+                        // momento in cui serde gliela consegna.
                         let raw = map.next_value::<Option<Box<serde_json::value::RawValue>>>()?;
                         match raw {
                             None => geometry.append_null(),
@@ -979,7 +989,7 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                                 // `--max-wkb-cell-bytes` non arrivava fin qui
                                 // e una geometria oltre la soglia richiesta
                                 // veniva deserializzata comunque.
-                                let max_bytes = self.sink.max_cell_bytes;
+                                let max_bytes = self.sink.limiti_wkb.max_cell_bytes;
                                 if raw_text.len() > max_bytes {
                                     let letti = raw_text.len();
                                     return Err(self.sink.ferma(PlenoraIoError::limite_redatto(
@@ -995,23 +1005,23 @@ impl<'de> Visitor<'de> for FeatureSink<'_> {
                                         ),
                                     )));
                                 }
-                                let gj: GjGeometry = match serde_json::from_str(raw_text) {
-                                    Ok(gj) => gj,
-                                    // Il testo di serde non esce; la causa
-                                    // strutturale resta.
-                                    Err(_) => {
-                                        return Err(self.sink.ferma(err(&PublicMessage::Curated(
-                                            "geometria GeoJSON non valida",
-                                        ))))
-                                    }
+                                // L'errore e' gia' nostro, con il suo codice:
+                                // passa intero invece di essere appiattito nel
+                                // testo di serde.
+                                let geometria = match crate::geometria_progressiva::analizza(
+                                    raw_text,
+                                    &self.sink.limiti_wkb,
+                                ) {
+                                    Ok(geometria) => geometria,
+                                    Err(errore) => return Err(self.sink.ferma(errore)),
                                 };
                                 self.sink.wkb_buf.clear();
-                                // Qui l'errore e' gia' nostro, con il suo
-                                // codice: passa intero invece di essere
-                                // appiattito nel testo di serde.
-                                if let Err(errore) =
-                                    wkb_from_gj_value(&gj.value, &mut self.sink.wkb_buf, max_bytes)
-                                {
+                                if let Err(errore) = encode_wkb_into_bounded(
+                                    &geometria,
+                                    WkbFlavor::Iso,
+                                    &mut self.sink.wkb_buf,
+                                    max_bytes,
+                                ) {
                                     return Err(self.sink.ferma(errore));
                                 }
                                 geometry.append_value(&self.sink.wkb_buf);
@@ -1306,8 +1316,16 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     // pass-1: schema
     // Quote della campagna: tetto per cella e per feature stretti apposta,
     // cosi' un input ostile non allochi oltre il budget di libFuzzer.
+    // I tre tetti sono **dichiarati**, non ereditati dal default: una campagna
+    // dichiara il proprio budget, e un default qui direbbe che la campagna gira
+    // con le quote della produzione mentre gira con un tetto per cella cento
+    // volte piu' stretto.
     let quote = QuoteInferenza {
-        cella: 1_048_576,
+        cella: WkbLimits {
+            max_cell_bytes: 1_048_576,
+            max_components: 100_000,
+            max_depth: 64,
+        },
         feature: 100_000,
     };
     let mut accs = SchemaAccumulators {
@@ -1337,7 +1355,7 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
         output: RowOutput::Discard,
         geom: Some(BinaryBuilder::new()),
         wkb_buf: Vec::new(),
-        max_cell_bytes: quote.cella,
+        limiti_wkb: quote.cella,
         builders: cols
             .iter()
             .map(|(_, column_type)| InferredColumnBuilder::new(*column_type))

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 128,
+  "totale": 129,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -20,8 +20,8 @@
       "ragione": "path/stem di staging non semantici; un fallback `custom` è confinato al costruttore dei test; dal 2026-08-24 anche `unwrap_or_else(|errore| panic!(...))` nel lettore della fixture del target `filegdb_reader`, che e' il modo in cui quel modulo di test dice «questa fixture doveva esserci» -- non una degradazione a un default, e la stessa forma gia' registrata per driver-common, driver-shp e plenora-io-cli"
     },
     "driver-geojson": {
-      "conteggio": 4,
-      "ragione": "nome diagnostico; geometrie senza coordinate sono ora rifiutate; ai due punti di uscita del deserializzatore il canale laterale porta l'errore vero quando la causa è nostra e resta vuoto quando a fallire è serde sul JSON malformato — il default è il messaggio giusto per quel caso"
+      "conteggio": 5,
+      "ragione": "nome diagnostico; geometrie senza coordinate sono ora rifiutate; ai due punti di uscita del deserializzatore il canale laterale porta l'errore vero quando la causa è nostra e resta vuoto quando a fallire è serde sul JSON malformato — il default è il messaggio giusto per quel caso; piu' il messaggio che distingue un JSON malformato da un rifiuto di una nostra regola, quando il canale laterale dell'errore e' vuoto"
     },
     "driver-geoparquet": {
       "conteggio": 3,

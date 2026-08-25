@@ -6,11 +6,11 @@ use plenora_io_model::wkb::{
 };
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
-fn format_error(reason: &PublicMessage) -> PlenoraIoError {
+pub fn format_error(reason: &PublicMessage) -> PlenoraIoError {
     PlenoraIoError::formato_redatto("geojson", reason)
 }
 
-fn position(
+pub fn position(
     ordinates: &[f64],
 ) -> std::result::Result<(WkbCoordinate, CoordinateDimensions), PublicMessage> {
     let dimensions = match ordinates.len() {
@@ -70,7 +70,7 @@ fn polygon_coordinates(
     Ok((rings, dimensions))
 }
 
-fn require_uniform_dimensions(
+pub fn require_uniform_dimensions(
     known: &mut Option<CoordinateDimensions>,
     current: CoordinateDimensions,
 ) -> std::result::Result<(), PublicMessage> {
@@ -86,7 +86,7 @@ fn require_uniform_dimensions(
     }
 }
 
-fn geometry_dimensions(
+pub fn geometry_dimensions(
     geometries: &[WkbGeometry],
     empty_error: &'static str,
 ) -> std::result::Result<CoordinateDimensions, PublicMessage> {
@@ -121,6 +121,18 @@ fn polygon_geometry(values: &[Vec<Vec<f64>>]) -> std::result::Result<WkbGeometry
         dimensions,
         srid: None,
     })
+}
+
+/// La conversione come era prima del lotto S12, per la sola sonda che
+/// confronta i due confini.
+///
+/// Sostituire un deserializzatore rompe l'insieme accettato senza rompere un
+/// test: l'insieme e' molto piu' grande del corpus che lo descrive. Finche' la
+/// crate `geojson` resta una dipendenza -- la scrittura la usa -- tenerla come
+/// oracolo costa nulla e prova qualcosa che nessun'altra sonda prova.
+#[cfg(test)]
+pub fn converti_per_confronto(value: &geojson::Value) -> Result<WkbGeometry> {
+    convert(value).map_err(|messaggio| format_error(&messaggio))
 }
 
 fn convert(value: &geojson::Value) -> std::result::Result<WkbGeometry, PublicMessage> {

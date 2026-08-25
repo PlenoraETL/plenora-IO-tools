@@ -245,6 +245,14 @@ set -eu
 # testo fisso direbbe soltanto «uno di questi». Nessuna governa un percorso di
 # produzione. Nessuna revisione H-01 dovuta.
 
+# Sempre il 2026-08-25, la meta' GeoJSON di S12 porta driver-geojson da 4 a 5
+# (totale 128 -> 129). L'occorrenza e' in `analizza`: quando serde fallisce e il
+# canale laterale e' **vuoto**, l'errore non e' di una nostra regola ma del JSON
+# stesso, e il ripiego e' il messaggio che lo dice. Non e' un valore di comodo:
+# e' il caso in cui non c'e' un nostro errore da riportare, e distinguerlo da
+# quello in cui c'e' e' proprio il motivo per cui il canale laterale esiste.
+# Nessuna revisione H-01 dovuta.
+
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #
 # Questo script conservava la narrativa di ogni movimento del registro, e la

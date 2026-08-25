@@ -155,6 +155,17 @@
       "Crs/Validate/CrsUnresolved/Never"
     ]
   },
+  "crates/driver-geojson/src/geometria_progressiva.rs": {
+    "addebita": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "addebita_membri": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "dentro_la_profondita": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
   "crates/driver-geojson/src/geometry.rs": {
     "format_error": [
       "DataMapping/Read/Format/Never"

@@ -62,7 +62,14 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # invece che su ogni riga; due sono le sonde dei budget, che dai campi di
 # `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
 # e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-ATTESI = {"test": 65, "attrezzaggio": 6, "produzione": 2}
+ATTESI = {"test": 69, "attrezzaggio": 6, "produzione": 2}
+# La meta' GeoJSON di S12 ne aggiunge quattro, tutte nelle sonde di
+# `geometria_progressiva`: due derivano quote strette dal default -- li' il
+# default e' l'oggetto della prova -- e due sono il confronto con il confine
+# precedente e la parita' dei conteggi con `inspect_wkb`, che interrogano
+# entrambi i lati con i tetti predefiniti perche' e' la grammatica a essere
+# in prova. `produzione` resta 2: il punto d'ingresso del fuzzing dichiara i
+# propri tre tetti invece di ereditarli.
 # Le due ultime sono le sonde dell'unico irrigidimento del lotto S12 -- il
 # testo residuo rifiutato -- e del round-trip dei writer: provano la
 # grammatica con i tetti predefiniti, perche' e' la grammatica a essere in
