@@ -37,7 +37,7 @@
       "lcov_righe_strumentate": 34762,
       "cargo_lines_percentuale": 84.49,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. La feature decide che cosa entra nel denominatore: senza `--all-features` il percorso GDAL di `driver-filegdb` ne resterebbe fuori -- non scoperto, invisibile alla soglia. Che ogni misuratore la porti, e che ogni blocco feature-gated compaia davvero nel report, lo verifica il passo `check_coverage_exclusions`.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore sale a 34 762 righe, 433 piu' della corsa su feef241, e sono il classificatore ricorsivo con le sue sonde; la soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {

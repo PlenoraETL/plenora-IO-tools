@@ -892,6 +892,42 @@ class SondeFontiLegate(unittest.TestCase):
                 errori = gate.validate_stato_corrente(stato)
                 self.assertTrue(any(chiave in e for e in errori), errori)
 
+    # --- le frasi, non solo i numeri --------------------------------------
+    #
+    # `ragione`, `che_cosa_sono_le_scoperte` e `misurata_con` erano classificate
+    # «prosa», cioe' fuori da ogni confronto, mentre lo stato le **derivava**
+    # dall'evidenza: sostituirle con testo arbitrario lasciava il gate verde.
+    # Una spiegazione che nessuno confronta con cio' che spiega e' peggio di un
+    # numero sbagliato -- il numero lo si ricontrolla, la frase la si crede.
+    # Una sonda per foglia, perche' un solo caso non direbbe quale delle tre
+    # smettesse di essere legata.
+
+    def test_una_ragione_differenziale_inventata_e_rossa(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["diagnostica_differenziale"]["ragione"] = (
+            "e' andata benissimo"
+        )
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(
+            any("diagnostica_differenziale.ragione" in e for e in errori), errori
+        )
+
+    def test_una_spiegazione_delle_scoperte_inventata_e_rossa(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["diagnostica_differenziale"][
+            "che_cosa_sono_le_scoperte"
+        ] = "sono tutte righe di commento"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(
+            any("che_cosa_sono_le_scoperte" in e for e in errori), errori
+        )
+
+    def test_un_comando_di_misura_inventato_e_rosso(self) -> None:
+        stato = self.stato()
+        stato["ultima_misura"]["copertura"]["misurata_con"] = "cargo llvm-cov"
+        errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(any("copertura.misurata_con" in e for e in errori), errori)
+
     def test_un_blocco_negato_dallo_stato_e_rosso(self) -> None:
         """`release_blocking: false` accanto a un invariante che blocca."""
         stato = self.stato()

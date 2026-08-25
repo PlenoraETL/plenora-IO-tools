@@ -271,6 +271,15 @@ FOGLIE_LEGATE = frozenset(
         "ultima_misura.copertura.soglia",
         "ultima_misura.diagnostica_differenziale.baseline",
         "ultima_misura.diagnostica_differenziale.esito",
+        # Le tre frasi. Erano classificate «prosa», cioe' fuori da ogni
+        # confronto, mentre lo stato le **derivava** dall'evidenza: sostituirle
+        # con testo arbitrario lasciava il gate verde, ed e' la forma di falso
+        # verde piu' comoda -- una spiegazione che nessuno confronta con cio'
+        # che spiega. Sono prosa, ma non sono di questo documento: sono
+        # dell'evidenza, e qui vanno riportate identiche.
+        "ultima_misura.diagnostica_differenziale.ragione",
+        "ultima_misura.diagnostica_differenziale.che_cosa_sono_le_scoperte",
+        "ultima_misura.copertura.misurata_con",
         # I quattro conteggi da cui l'esito differenziale e' calcolato. Stanno
         # qui perche' l'esito da solo non si puo' controllare: una percentuale
         # senza numeratore e denominatore e' una cifra, e questa corsa e' la
@@ -340,17 +349,6 @@ FOGLIE_DICHIARATE = {
     "revisioni.ultima_qualificata.nota": "prosa",
     "ultima_misura.checkpoint.riconciliazione": "prosa: descrive il metodo, non un numero",
     "ultima_misura.copertura.nota": "prosa",
-    "ultima_misura.copertura.misurata_con": (
-        "prosa: dice **con quale comando** la misura e' stata presa, che non e' "
-        "un numero e non si deriva dai numeri. Le percentuali da sole non "
-        "distinguono una libreria misurata per intero da una misurata a meta'"
-    ),
-    "ultima_misura.diagnostica_differenziale.ragione": "prosa",
-    "ultima_misura.diagnostica_differenziale.che_cosa_sono_le_scoperte": (
-        "prosa: dice **che cosa** sono le righe rimaste scoperte, che i conteggi "
-        "non possono dire. E' l'affermazione che `righe_scoperte` nell'evidenza "
-        "rende controllabile"
-    ),
     "chiuso.fuzz_reader_shapefile.nota": "prosa",
     "chiuso.fuzz_filegdb.nota": "prosa",
     "aperto.loss_report.decisioni_aperte": (
@@ -463,6 +461,21 @@ CAMPI_DALL_EVIDENZA = (
     (
         ("diagnostica_differenziale", "cambiate_non_eseguibili"),
         ("misure", "diagnostica_differenziale", "cambiate_non_eseguibili"),
+    ),
+    # Le frasi si confrontano come i numeri. Una spiegazione che sopravvive alla
+    # corsa che spiegava e' peggio di un numero sbagliato: il numero lo si
+    # ricontrolla, la frase la si crede.
+    (
+        ("diagnostica_differenziale", "ragione"),
+        ("misure", "diagnostica_differenziale", "ragione"),
+    ),
+    (
+        ("diagnostica_differenziale", "che_cosa_sono_le_scoperte"),
+        ("misure", "diagnostica_differenziale", "che_cosa_sono_le_scoperte"),
+    ),
+    (
+        ("copertura", "misurata_con"),
+        ("misure", "copertura", "misurata_con"),
     ),
 )
 
