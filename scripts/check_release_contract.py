@@ -1580,8 +1580,23 @@ def _differenziale_coerente(evidenza: dict[str, Any]) -> list[str]:
             "o non lo e'; non c'e' un terzo stato."
         )
 
+    # `righe_scoperte` e' **obbligatorio** quando la diagnostica produce una
+    # percentuale, e la prima stesura lo riconciliava soltanto se presente:
+    # cancellarlo dall'evidenza non rendeva rosso niente, cioe' bastava
+    # toglierlo per non doverlo far tornare. Un elenco che si puo' omettere non
+    # e' una prova di che cosa resta scoperto.
+    #
+    # Con `esito: n/d` non c'e' niente da elencare, e pretenderlo direbbe di
+    # righe che nessuno ha misurato.
     elencate = diagnostica.get("righe_scoperte")
-    if elencate is not None:
+    if elencate is None and esito != "n/d":
+        errori.append(
+            "`diagnostica_differenziale.righe_scoperte` assente accanto a un "
+            f"esito «{esito}»: i conteggi dicono **quante** righe restano "
+            "scoperte, l'elenco dice **quali**, e senza l'affermazione non si "
+            "puo' controllare."
+        )
+    elif elencate is not None:
         if not isinstance(elencate, list) or not all(
             isinstance(v, str) and v for v in elencate
         ):

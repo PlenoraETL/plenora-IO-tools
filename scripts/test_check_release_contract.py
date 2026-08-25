@@ -1311,6 +1311,32 @@ class SondeEvidenzaCoerente(unittest.TestCase):
                     errori,
                 )
 
+    def test_un_elenco_di_scoperte_assente_e_rosso(self) -> None:
+        """L'arretrato della terza lettura: la riconciliazione avveniva solo se
+        l'elenco c'era, quindi bastava toglierlo per non doverlo far tornare."""
+        errori = self.errori_con(
+            lambda e: e["misure"]["diagnostica_differenziale"].pop("righe_scoperte")
+        )
+        self.assertTrue(any("righe_scoperte` assente" in m for m in errori), errori)
+
+    def test_con_n_d_l_elenco_non_e_preteso(self) -> None:
+        """Senza righe misurate non c'e' niente da elencare, e pretenderlo
+        parlerebbe di righe che nessuno ha guardato."""
+
+        def azzera(evidenza: dict) -> None:
+            evidenza["misure"]["diagnostica_differenziale"].update(
+                esito="n/d",
+                righe_cambiate_eseguibili=0,
+                coperte=0,
+                scoperte=0,
+            )
+            evidenza["misure"]["diagnostica_differenziale"].pop("righe_scoperte")
+
+        errori = self.errori_con(azzera)
+        self.assertFalse(
+            [m for m in errori if "righe_scoperte" in m], errori
+        )
+
     def test_l_elenco_delle_scoperte_deve_contarle_tutte(self) -> None:
         errori = self.errori_con(
             lambda e: e["misure"]["diagnostica_differenziale"].update(
