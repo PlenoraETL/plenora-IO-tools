@@ -187,6 +187,58 @@ BERSAGLI: dict[str, Bersaglio] = {
             }
         ),
     ),
+    "wkt_parse": Bersaglio(
+        nome="wkt_parse",
+        registro=REGISTRI / "profondita-fuzz-wkt.json",
+        famiglia_del_nucleo={
+            "analisi.ingresso": "funzioni",
+            "analisi.geometria": "funzioni",
+            "analisi.coordinata": "funzioni",
+            "analisi.poligono": "funzioni",
+            "analisi.multipunto": "funzioni",
+            "analisi.collezione": "funzioni",
+            "analisi.suffisso-attaccato": "funzioni",
+            "tetto.superato": "funzioni",
+            "rifiuto.testo-residuo": "righe",
+        },
+        perimetro_obbligatorio=frozenset(
+            {
+                "Cargo.lock",
+                "crates/driver-common/Cargo.toml",
+                "crates/driver-common/src",
+                "fuzz/Cargo.lock",
+                "fuzz/Cargo.toml",
+                "fuzz/fuzz_targets",
+                "fuzz/seeds/wkt_parse",
+            }
+        ),
+    ),
+    "geojson_reader": Bersaglio(
+        nome="geojson_reader",
+        registro=REGISTRI / "profondita-fuzz-geojson.json",
+        famiglia_del_nucleo={
+            "analisi.geometria": "funzioni",
+            "analisi.albero": "funzioni",
+            "analisi.figlie": "funzioni",
+            "budget.addebito": "funzioni",
+            "budget.profondita": "funzioni",
+            "errore.canale-laterale": "funzioni",
+            "addebito.posizione": "righe",
+            "tetto.annidamento": "righe",
+            "addebito.membri": "righe",
+        },
+        perimetro_obbligatorio=frozenset(
+            {
+                "Cargo.lock",
+                "crates/driver-geojson/Cargo.toml",
+                "crates/driver-geojson/src",
+                "fuzz/Cargo.lock",
+                "fuzz/Cargo.toml",
+                "fuzz/fuzz_targets",
+                "fuzz/seeds/geojson_reader",
+            }
+        ),
+    ),
 }
 
 

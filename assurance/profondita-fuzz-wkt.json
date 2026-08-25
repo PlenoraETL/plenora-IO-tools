@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "descrizione": "Che cosa il replay deterministico dei semi di `wkt_parse` ha raggiunto. Prodotto da `scripts/fuzz-profondita.sh wkt_parse`; letto da scripts/check_profondita_fuzz.py, che ne ricalcola l'impronta del perimetro e rifiuta una misura invecchiata.",
+  "target": "wkt_parse",
+  "corpus": {
+    "input": 24
+  },
+  "impronta_perimetro": "e2f54dccdf0f319a98437e57beb86eed72c1d9f12c89017a6dd1c742f2237b91",
+  "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
+  "requisiti": [
+    {
+      "id": "analisi.collezione",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 71
+    },
+    {
+      "id": "analisi.coordinata",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 79
+    },
+    {
+      "id": "analisi.geometria",
+      "famiglia": "funzione",
+      "simboli": 2,
+      "conteggio": 112
+    },
+    {
+      "id": "analisi.ingresso",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 39
+    },
+    {
+      "id": "analisi.multipunto",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 8
+    },
+    {
+      "id": "analisi.poligono",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 9
+    },
+    {
+      "id": "analisi.suffisso-attaccato",
+      "famiglia": "funzione",
+      "simboli": 3,
+      "conteggio": 603
+    },
+    {
+      "id": "rifiuto.testo-residuo",
+      "famiglia": "riga",
+      "riga": 263,
+      "conteggio": 2
+    },
+    {
+      "id": "tetto.superato",
+      "famiglia": "funzione",
+      "simboli": 1,
+      "conteggio": 1
+    }
+  ]
+}

@@ -1320,11 +1320,18 @@ pub fn __fuzz_read_geojson(bytes: &[u8]) -> std::result::Result<usize, String> {
     // dichiara il proprio budget, e un default qui direbbe che la campagna gira
     // con le quote della produzione mentre gira con un tetto per cella cento
     // volte piu' stretto.
+    //
+    // La profondita' e' 32 e non 64, e la ragione e' misurata: `serde_json` ha
+    // un limite di ricorsione suo, 128 livelli JSON, e ogni livello GeoJSON ne
+    // costa due -- l'oggetto e la sua lista. Oltre i sessantadue livelli e'
+    // **lui** a rifiutare, quindi con il tetto di produzione il nostro non
+    // morderebbe mai e la campagna non lo eserciterebbe. A 32 morde per primo,
+    // ed e' cio' che un input ostile deve incontrare.
     let quote = QuoteInferenza {
         cella: WkbLimits {
             max_cell_bytes: 1_048_576,
             max_components: 100_000,
-            max_depth: 64,
+            max_depth: 32,
         },
         feature: 100_000,
     };

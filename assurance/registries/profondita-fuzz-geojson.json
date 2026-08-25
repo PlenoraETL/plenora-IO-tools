@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "descrizione": "I requisiti di profondita' del target `geojson_reader`: che cosa il replay dei semi versionati deve attraversare perche' la deserializzazione limitata durante il parse sia esercitata.",
+  "target": "geojson_reader",
+  "artefatto": "assurance/profondita-fuzz-geojson.json",
+  "che_cosa_questa_misura_non_conta": "il tetto sui **componenti**, per la stessa ragione del target WKT: centomila posizioni non stanno nel cap del harness. A provarlo sono le sonde unitarie di `geometria_progressiva`, che dal default derivano quote strette. Il tetto sull'annidamento e' qui.",
+  "perimetro": {
+    "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",
+    "percorsi": [
+      "Cargo.lock",
+      "crates/driver-geojson/Cargo.toml",
+      "crates/driver-geojson/src",
+      "fuzz/Cargo.lock",
+      "fuzz/Cargo.toml",
+      "fuzz/fuzz_targets",
+      "fuzz/seeds/geojson_reader"
+    ]
+  },
+  "nucleo": [
+    "analisi.geometria",
+    "analisi.albero",
+    "analisi.figlie",
+    "budget.addebito",
+    "budget.profondita",
+    "errore.canale-laterale",
+    "addebito.posizione",
+    "tetto.annidamento",
+    "addebito.membri"
+  ],
+  "funzioni": [
+    {
+      "id": "analisi.geometria",
+      "segmenti": [
+        "driver_geojson",
+        "geometria_progressiva",
+        "SemeGeometria",
+        "visit_map"
+      ],
+      "perche": "l'oggetto geometria, letto chiave per chiave e in qualunque ordine le chiavi arrivino."
+    },
+    {
+      "id": "analisi.albero",
+      "segmenti": [
+        "driver_geojson",
+        "geometria_progressiva",
+        "SemeAlbero",
+        "visit_seq"
+      ],
+      "perche": "l'albero delle coordinate, dove ogni posizione viene riconosciuta **e addebitata** mentre si legge."
+    },
+    {
+      "id": "analisi.figlie",
+      "segmenti": [
+        "driver_geojson",
+        "geometria_progressiva",
+        "SemeGeometrie",
+        "visit_seq"
+      ],
+      "perche": "la lista `geometries` di una GeometryCollection: l'unico punto che fa crescere la profondita'."
+    },
+    {
+      "id": "budget.addebito",
+      "segmenti": [
+        "driver_geojson",
+        "geometria_progressiva",
+        "Budget",
+        "addebita"
+      ],
+      "perche": "l'addebito di una posizione o di una figlia. Se non fosse raggiunto, il budget non governerebbe niente."
+    },
+    {
+      "id": "budget.profondita",
+      "segmenti": [
+        "driver_geojson",
+        "geometria_progressiva",
+        "Budget",
+        "dentro_la_profondita"
+      ],
+      "perche": "il confronto con il tetto sull'annidamento, che un seme supera apposta."
+    },
+    {
+      "id": "errore.canale-laterale",
+      "segmenti": [
+        "driver_geojson",
+        "geometria_progressiva",
+        "Budget",
+        "ferma"
+      ],
+      "perche": "l'errore tipizzato esce da qui e non attraverso serde, che appiattirebbe categoria, fase e codice in un testo."
+    }
+  ],
+  "righe": [
+    {
+      "id": "addebito.posizione",
+      "file": "crates/driver-geojson/src/geometria_progressiva.rs",
+      "ancora": "return Ok(Albero::Posizione(ordinate));",
+      "perche": "una posizione e' una lista di soli numeri, e questa e' la riga che la riconosce come tale -- subito dopo averla addebitata. Se non fosse attraversata, il budget starebbe contando qualcos'altro."
+    },
+    {
+      "id": "tetto.annidamento",
+      "file": "crates/driver-geojson/src/geometria_progressiva.rs",
+      "ancora": "\"annidamento della geometria GeoJSON oltre il limite di\",",
+      "perche": "il rifiuto per annidamento oltre il tetto. E' l'unico dei tre budget raggiungibile da un input piu' corto del cap del harness, e un seme lo supera apposta."
+    },
+    {
+      "id": "addebito.membri",
+      "file": "crates/driver-geojson/src/geometria_progressiva.rs",
+      "ancora": "budget.addebita_membri(lette.len())?;",
+      "perche": "in GeoJSON i membri di un MULTIPOINT non hanno un oggetto proprio: sono le posizioni stesse. Senza questa riga il conteggio sarebbe la meta' di quello del bordo, ed e' il difetto che le sonde hanno trovato confrontando i due numeri."
+    }
+  ],
+  "non_e_qui": "la verifica semantica. A dirla sono le sonde di `driver-geojson`, che confrontano l'insieme accettato con quello del confine precedente e la contabilita' dei componenti con quella di `inspect_wkb`."
+}

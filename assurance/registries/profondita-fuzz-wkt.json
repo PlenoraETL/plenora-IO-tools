@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "descrizione": "I requisiti di profondita' del target `wkt_parse`: che cosa il replay dei semi versionati deve attraversare perche' l'analisi WKT limitata durante il parse sia esercitata e non solo compilata.",
+  "target": "wkt_parse",
+  "artefatto": "assurance/profondita-fuzz-wkt.json",
+  "che_cosa_questa_misura_non_conta": "il tetto sui **componenti**. Centomila coordinate non stanno in un input da quattro kilobyte, che e' il cap del harness: da qui quel ramo non e' raggiungibile, e dichiararlo raggiunto sarebbe falso. A provarlo sono le sonde unitarie di `wkt_progressivo`, che dal default derivano quote strette e verificano anche **dove** l'analisi si ferma. Il tetto sull'annidamento invece e' qui, perche' sessantacinque livelli di `GEOMETRYCOLLECTION` stanno in milleduecento byte.",
+  "perimetro": {
+    "descrizione": "I percorsi che possono cambiare che cosa il target raggiunge. La misura resta valida finche' il loro contenuto non cambia; il gate ne ricalcola l'impronta e la confronta con quella registrata.",
+    "percorsi": [
+      "Cargo.lock",
+      "crates/driver-common/Cargo.toml",
+      "crates/driver-common/src",
+      "fuzz/Cargo.lock",
+      "fuzz/Cargo.toml",
+      "fuzz/fuzz_targets",
+      "fuzz/seeds/wkt_parse"
+    ]
+  },
+  "nucleo": [
+    "analisi.ingresso",
+    "analisi.geometria",
+    "analisi.coordinata",
+    "analisi.poligono",
+    "analisi.multipunto",
+    "analisi.collezione",
+    "analisi.suffisso-attaccato",
+    "tetto.superato",
+    "rifiuto.testo-residuo"
+  ],
+  "funzioni": [
+    {
+      "id": "analisi.ingresso",
+      "segmenti": [
+        "driver_common",
+        "wkt_progressivo",
+        "analizza"
+      ],
+      "perche": "l'entry point dell'analisi progressiva. Senza, il target starebbe esercitando qualcos'altro."
+    },
+    {
+      "id": "analisi.geometria",
+      "segmenti": [
+        "driver_common",
+        "wkt_progressivo",
+        "geometria"
+      ],
+      "perche": "il dispatch sul tipo, e il punto in cui la profondita' viene confrontata con il tetto."
+    },
+    {
+      "id": "analisi.coordinata",
+      "segmenti": [
+        "driver_common",
+        "wkt_progressivo",
+        "coordinata"
+      ],
+      "perche": "dove ogni coordinata viene letta **e addebitata**: e' l'unita' del budget."
+    },
+    {
+      "id": "analisi.poligono",
+      "segmenti": [
+        "driver_common",
+        "wkt_progressivo",
+        "anelli"
+      ],
+      "perche": "gli anelli hanno una forma loro, e non passano dalla sequenza semplice."
+    },
+    {
+      "id": "analisi.multipunto",
+      "segmenti": [
+        "driver_common",
+        "wkt_progressivo",
+        "punto_membro"
+      ],
+      "perche": "le due sintassi di MULTIPOINT convivono qui: senza, una delle due resterebbe indimostrata."
+    },
+    {
+      "id": "analisi.collezione",
+      "segmenti": [
+        "driver_common",
+        "wkt_progressivo",
+        "collezione"
+      ],
+      "perche": "l'unico tipo che annida geometrie complete, e quindi l'unico che fa crescere la profondita'."
+    },
+    {
+      "id": "analisi.suffisso-attaccato",
+      "segmenti": [
+        "driver_common",
+        "wkt_progressivo",
+        "tipo_e_suffisso"
+      ],
+      "perche": "`POINTZ` e' `POINT` piu' `Z`. La sonda comparativa l'ha trovato mancante: e' una forma che vive in file veri."
+    },
+    {
+      "id": "tetto.superato",
+      "segmenti": [
+        "driver_common",
+        "wkt_progressivo",
+        "oltre_il_tetto"
+      ],
+      "perche": "il costruttore del rifiuto per superamento di tetto. Se non fosse raggiunto, nessun seme avrebbe mai superato un tetto."
+    }
+  ],
+  "righe": [
+    {
+      "id": "rifiuto.testo-residuo",
+      "file": "crates/driver-common/src/wkt_progressivo.rs",
+      "ancora": "return Err(errore(\"testo residuo dopo la geometria\"));",
+      "perche": "l'unico irrigidimento del lotto rispetto al parser precedente. Una riga che nessun input attraversa non e' una decisione: e' una frase."
+    }
+  ],
+  "non_e_qui": "la verifica semantica. Che un ramo sia raggiunto non dice che il suo contratto sia rispettato: a dirlo sono le sonde di `driver-common`, che chiamano lo stesso entry point e confrontano l'insieme accettato con quello del parser precedente."
+}
