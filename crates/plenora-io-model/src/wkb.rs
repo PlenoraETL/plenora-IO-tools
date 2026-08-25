@@ -10,8 +10,8 @@ use crate::error::Result;
 use crate::limits::WkbLimits;
 
 pub use crate::wkb_lossless::{
-    decode_wkb, encode_wkb, encode_wkb_into, encode_wkb_into_bounded, inspect_wkb, WkbCoordinate,
-    WkbFlavor, WkbGeometry, WkbInspection, WkbValue,
+    decode_wkb, encode_wkb, encode_wkb_into, encode_wkb_into_bounded, inspect_wkb, membro_ammesso,
+    WkbCoordinate, WkbFlavor, WkbGeometry, WkbInspection, WkbValue,
 };
 
 /// Serializza una geometria `geo-types` in WKB XY little-endian, riusando il

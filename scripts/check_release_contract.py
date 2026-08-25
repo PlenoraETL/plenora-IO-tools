@@ -346,6 +346,11 @@ FOGLIE_DICHIARATE = {
         "distinguono una libreria misurata per intero da una misurata a meta'"
     ),
     "ultima_misura.diagnostica_differenziale.ragione": "prosa",
+    "ultima_misura.diagnostica_differenziale.che_cosa_sono_le_scoperte": (
+        "prosa: dice **che cosa** sono le righe rimaste scoperte, che i conteggi "
+        "non possono dire. E' l'affermazione che `righe_scoperte` nell'evidenza "
+        "rende controllabile"
+    ),
     "chiuso.fuzz_reader_shapefile.nota": "prosa",
     "chiuso.fuzz_filegdb.nota": "prosa",
     "aperto.loss_report.decisioni_aperte": (

@@ -53,6 +53,7 @@ use plenora_io_model::crs::{CrsKind, RawCrs, ResolvedCrs};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::decode_wkb;
 
+use plenora_io_model::wkb::membro_ammesso;
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 
 fn err(reason: &PublicMessage) -> PlenoraIoError {
@@ -1479,6 +1480,28 @@ const fn gpkg_header(srs_id: i32, is_empty: bool) -> [u8; 8] {
 /// profondita' 64 — invece di costanti locali: due contratti per la stessa
 /// superficie divergono, e nessuno se ne accorge.
 ///
+/// Lo stesso numero non basta: serve la stessa **unita' di misura**. Un
+/// componente e' una coordinata o una geometria figlia, come conta
+/// `inspect_geometry` in `wkb_lossless`; gli anelli di un poligono e la
+/// geometria radice non si addebitano. La prima stesura contava geometrie
+/// visitate e anelli, e a quota stretta i due percorsi divergevano in entrambi
+/// i versi: un poligono con un anello vuoto passava di la' ed era rifiutato di
+/// qua, una `LineString` con piu' punti il contrario. Una sonda confronta gli
+/// esiti dei due su dieci payload e tredici quote.
+///
+/// Anche l'ordine e' quello: prima la plausibilita' in byte di un conteggio
+/// (`conteggio_plausibile`, che e' `Reader::ensure_count`), poi l'addebito. Un
+/// `count` ostile non deve poter esaurire il budget prima di essere
+/// riconosciuto impossibile.
+///
+/// # I membri di un aggregato
+///
+/// Un `MULTIPOINT` che contiene una `LINESTRING` non e' una geometria di cui
+/// abbia senso chiedersi se sia vuota. La regola su quali tipi un aggregato
+/// ammette e' quella del parser condiviso, chiesta a lui con `membro_ammesso`:
+/// riscriverne la tabella qui avrebbe creato una seconda verita', e le due
+/// sarebbero divergute in silenzio.
+///
 /// # Fail-closed, e l'unico caso che non lo e'
 ///
 /// Un payload troncato, con byte order non valido, con flavor ISO
@@ -1538,14 +1561,21 @@ impl BudgetForma {
         }
     }
 
-    /// Addebita un componente visitato.
+    /// Addebita componenti, con l'unita' di misura del parser condiviso.
+    ///
+    /// Un «componente» e' una **coordinata** o una **geometria figlia**, non una
+    /// geometria visitata: e' cio' che `inspect_geometry` conta in
+    /// `wkb_lossless`, e contare diversamente qui significherebbe avere due
+    /// tetti con lo stesso nome. La prima stesura addebitava la radice e ogni
+    /// anello, e a quota stretta i due percorsi divergevano in entrambi i versi
+    /// -- un poligono con un anello vuoto passava di la' e veniva rifiutato di
+    /// qua, una `LineString` con piu' punti il contrario.
     ///
     /// L'esaurimento e' un **rifiuto**, non una visita troncata: fermarsi a
     /// meta' e rispondere «vuoto» significherebbe rispondere di una geometria
-    /// di cui non si e' guardato il resto. E' anche cio' che rende finito il
-    /// ciclo sui figli quando un conteggio ostile ne dichiara miliardi.
-    fn addebita(&mut self) -> Result<()> {
-        self.componenti_residui = self.componenti_residui.checked_sub(1).ok_or_else(|| {
+    /// di cui non si e' guardato il resto.
+    fn addebita(&mut self, quanti: usize) -> Result<()> {
+        self.componenti_residui = self.componenti_residui.checked_sub(quanti).ok_or_else(|| {
             err(&PublicMessage::Curated(
                 "troppi componenti nella geometria WKB",
             ))
@@ -1554,10 +1584,31 @@ impl BudgetForma {
     }
 }
 
+/// Un conteggio dichiarato sta nei byte che restano?
+///
+/// E' `Reader::ensure_count` del parser condiviso: prima di addebitare o
+/// allocare qualunque cosa, un conteggio che pretende piu' byte di quanti il
+/// payload ne abbia e' gia' falso. Senza, un `count` ostile veniva scoperto
+/// solo dal primo elemento troncato -- stesso esito, ma dopo aver lavorato.
+fn conteggio_plausibile(dichiarati: u32, unita: usize, rimanenti: usize) -> Result<usize> {
+    let quanti = usize::try_from(dichiarati).map_err(|_| oltre_il_tipo())?;
+    match quanti.checked_mul(unita) {
+        Some(richiesti) if richiesti <= rimanenti => Ok(quanti),
+        _ => Err(err(&PublicMessage::Curated(
+            "conteggio WKB oltre i byte disponibili",
+        ))),
+    }
+}
+
 /// La forma di una geometria, con la sua lunghezza quando e' misurabile.
 enum FormaMisurata {
-    /// Forma e lunghezza note: la scansione dei fratelli puo' proseguire.
-    Nota { forma: WkbShape, byte: usize },
+    /// Forma, lunghezza e tipo base: la scansione dei fratelli puo'
+    /// proseguire, e il genitore puo' chiedersi se quel figlio gli e' ammesso.
+    Nota {
+        forma: WkbShape,
+        byte: usize,
+        tipo: u32,
+    },
     /// Tipo che questa classificazione non sa dimensionare. Non e' un errore
     /// del payload: e' il limite dichiarato di questa funzione, e da qui in
     /// poi nemmeno i fratelli sono raggiungibili.
@@ -1594,7 +1645,10 @@ fn forma_del_punto(
     cursore: usize,
     byte_coordinata: usize,
     little_endian: bool,
+    budget: &mut BudgetForma,
 ) -> Result<FormaMisurata> {
+    // Una coordinata, come `charge_coordinate` nel parser condiviso.
+    budget.addebita(1)?;
     let fine = cursore
         .checked_add(byte_coordinata)
         .ok_or_else(oltre_il_tipo)?;
@@ -1625,6 +1679,7 @@ fn forma_del_punto(
             WkbShape::NonEmpty
         },
         byte: fine,
+        tipo: 1,
     })
 }
 
@@ -1634,8 +1689,10 @@ fn forma_della_sequenza(
     cursore: usize,
     byte_coordinata: usize,
     little_endian: bool,
+    tipo: u32,
+    budget: &mut BudgetForma,
 ) -> Result<FormaMisurata> {
-    let (punti, fine) = salta_i_punti(payload, cursore, byte_coordinata, little_endian)?;
+    let (punti, fine) = salta_i_punti(payload, cursore, byte_coordinata, little_endian, budget)?;
     Ok(FormaMisurata::Nota {
         forma: if punti == 0 {
             WkbShape::Empty
@@ -1643,6 +1700,7 @@ fn forma_della_sequenza(
             WkbShape::NonEmpty
         },
         byte: fine,
+        tipo,
     })
 }
 
@@ -1656,16 +1714,20 @@ fn salta_i_punti(
     posizione: usize,
     byte_coordinata: usize,
     little_endian: bool,
+    budget: &mut BudgetForma,
 ) -> Result<(usize, usize)> {
     let dichiarati = leggi_u32(payload, posizione, little_endian).ok_or_else(troncato)?;
-    let punti = usize::try_from(dichiarati).map_err(|_| oltre_il_tipo())?;
+    let dopo = posizione.checked_add(4).ok_or_else(oltre_il_tipo)?;
+    let rimanenti = payload.len().saturating_sub(dopo);
+    // Prima la plausibilita' in byte, poi l'addebito: e' l'ordine di
+    // `skip_coordinates`, e conta -- un conteggio ostile non deve poter
+    // esaurire il budget prima di essere riconosciuto impossibile.
+    let punti = conteggio_plausibile(dichiarati, byte_coordinata, rimanenti)?;
+    budget.addebita(punti)?;
     let corpo = punti
         .checked_mul(byte_coordinata)
         .ok_or_else(oltre_il_tipo)?;
-    let fine = posizione
-        .checked_add(4)
-        .and_then(|dopo| dopo.checked_add(corpo))
-        .ok_or_else(oltre_il_tipo)?;
+    let fine = dopo.checked_add(corpo).ok_or_else(oltre_il_tipo)?;
     if payload.len() < fine {
         return Err(err(&PublicMessage::Curated(
             "WKB troncato: mancano le coordinate dichiarate",
@@ -1684,15 +1746,19 @@ fn forma_del_poligono(
     cursore: usize,
     byte_coordinata: usize,
     little_endian: bool,
+    tipo: u32,
     budget: &mut BudgetForma,
 ) -> Result<FormaMisurata> {
     let dichiarati = leggi_u32(payload, cursore, little_endian).ok_or_else(troncato)?;
-    let anelli = usize::try_from(dichiarati).map_err(|_| oltre_il_tipo())?;
     let mut posizione = cursore.checked_add(4).ok_or_else(oltre_il_tipo)?;
+    // Quattro byte a testa: e' l'intestazione minima di un anello, e l'unita'
+    // che `inspect_geometry` usa per lo stesso conteggio. Gli anelli **non**
+    // vengono addebitati: a costare sono i loro punti.
+    let anelli = conteggio_plausibile(dichiarati, 4, payload.len().saturating_sub(posizione))?;
     let mut con_punti = false;
     for _ in 0..anelli {
-        budget.addebita()?;
-        let (punti, fine) = salta_i_punti(payload, posizione, byte_coordinata, little_endian)?;
+        let (punti, fine) =
+            salta_i_punti(payload, posizione, byte_coordinata, little_endian, budget)?;
         posizione = fine;
         if punti > 0 {
             con_punti = true;
@@ -1705,6 +1771,7 @@ fn forma_del_poligono(
             WkbShape::Empty
         },
         byte: posizione,
+        tipo,
     })
 }
 
@@ -1719,11 +1786,16 @@ fn forma_della_collezione(
     cursore: usize,
     profondita: usize,
     little_endian: bool,
+    tipo: u32,
     budget: &mut BudgetForma,
 ) -> Result<FormaMisurata> {
     let dichiarati = leggi_u32(payload, cursore, little_endian).ok_or_else(troncato)?;
-    let figli = usize::try_from(dichiarati).map_err(|_| oltre_il_tipo())?;
     let mut posizione = cursore.checked_add(4).ok_or_else(oltre_il_tipo)?;
+    // Nove byte a testa -- byte order, tipo e almeno un conteggio -- e
+    // l'addebito **anticipato** dell'intero conteggio: entrambi vengono da
+    // `inspect_geometry`, e l'ordine e' la sua difesa contro un `count` ostile.
+    let figli = conteggio_plausibile(dichiarati, 9, payload.len().saturating_sub(posizione))?;
+    budget.addebita(figli)?;
     let mut forma = WkbShape::Empty;
     for _ in 0..figli {
         let resto = payload.get(posizione..).ok_or_else(|| {
@@ -1736,7 +1808,18 @@ fn forma_della_collezione(
             FormaMisurata::Nota {
                 forma: figlia,
                 byte,
+                tipo: tipo_figlio,
             } => {
+                // La regola dei membri e' quella del parser condiviso, chiesta
+                // a lui: un `MULTIPOINT` che contiene una `LINESTRING` non e'
+                // una geometria di cui abbia senso dire se sia vuota, ed e'
+                // gia' rifiutata da `inspect_wkb` a monte. Riscriverne la
+                // tabella qui avrebbe creato una seconda verita'.
+                if !membro_ammesso(tipo, tipo_figlio) {
+                    return Err(err(&PublicMessage::Curated(
+                        "aggregato WKB con membro di tipo non ammesso",
+                    )));
+                }
                 if !figlia.is_empty() {
                     forma = WkbShape::NonEmpty;
                 }
@@ -1750,6 +1833,7 @@ fn forma_della_collezione(
     Ok(FormaMisurata::Nota {
         forma,
         byte: posizione,
+        tipo,
     })
 }
 
@@ -1764,7 +1848,6 @@ fn forma_e_lunghezza(
             "WKB annidato troppo in profondita'",
         )));
     }
-    budget.addebita()?;
     if payload.len() < 5 {
         return Err(err(&PublicMessage::Curated(
             "WKB troppo corto per l'header base",
@@ -1783,12 +1866,31 @@ fn forma_e_lunghezza(
     let byte_coordinata = dimensioni.checked_mul(8).ok_or_else(oltre_il_tipo)?;
 
     match tipo_base {
-        1 => forma_del_punto(payload, cursore, byte_coordinata, little_endian),
-        2 | 8 => forma_della_sequenza(payload, cursore, byte_coordinata, little_endian),
-        3 | 17 => forma_del_poligono(payload, cursore, byte_coordinata, little_endian, budget),
-        4..=7 | 9..=12 | 15 | 16 => {
-            forma_della_collezione(payload, cursore, profondita, little_endian, budget)
-        }
+        1 => forma_del_punto(payload, cursore, byte_coordinata, little_endian, budget),
+        2 | 8 => forma_della_sequenza(
+            payload,
+            cursore,
+            byte_coordinata,
+            little_endian,
+            tipo_base,
+            budget,
+        ),
+        3 | 17 => forma_del_poligono(
+            payload,
+            cursore,
+            byte_coordinata,
+            little_endian,
+            tipo_base,
+            budget,
+        ),
+        4..=7 | 9..=12 | 15 | 16 => forma_della_collezione(
+            payload,
+            cursore,
+            profondita,
+            little_endian,
+            tipo_base,
+            budget,
+        ),
         _ => Ok(FormaMisurata::Indeterminata),
     }
 }
@@ -2397,6 +2499,15 @@ mod tests {
         buffer
     }
 
+    /// Una `LineString` XY con i punti indicati, coordinate a zero.
+    fn sequenza(punti: usize) -> Vec<u8> {
+        let mut buffer = wkb_le_header(2);
+        let quanti = u32::try_from(punti).expect("punti oltre u32 in una fixture");
+        buffer.extend_from_slice(&quanti.to_le_bytes());
+        buffer.extend_from_slice(&vec![0_u8; punti * 16]);
+        buffer
+    }
+
     /// Un poligono XY con gli anelli dichiarati, ciascuno con i punti indicati.
     ///
     /// Le coordinate sono zeri: la forma di un poligono dipende dal **numero**
@@ -2659,16 +2770,86 @@ mod tests {
         assert_eq!(forma(&ammesso).unwrap(), WkbShape::Empty);
     }
 
-    /// Il secondo budget: quanto e' costata la visita in tutto.
+    /// Il secondo budget, nell'unita' del parser condiviso: **coordinate e
+    /// geometrie figlie**, non geometrie visitate.
     ///
-    /// Un anello senza punti costa quattro byte e un componente, quindi il
-    /// tetto sui componenti si raggiunge molto prima di quello sui byte. Senza
-    /// questo budget la visita resterebbe lineare ma illimitata.
+    /// La prima stesura addebitava la radice e ogni anello, e a quota stretta i
+    /// due percorsi divergevano in entrambi i versi. Qui si prova a quota due,
+    /// invece che con un payload da centomila anelli: piu' piccolo, e prova in
+    /// piu' che il tetto e' quello **configurato**.
     #[test]
     fn wkb_shape_fallisce_chiuso_quando_il_budget_di_componenti_finisce() {
-        let limiti = WkbLimits::default();
-        let anelli = vec![0_usize; limiti.max_components + 1];
-        assert!(forma(&poligono(&anelli)).is_err());
+        let due = WkbLimits {
+            max_components: 2,
+            ..WkbLimits::default()
+        };
+
+        // Tre punti in una sequenza: tre coordinate, una in piu' del tetto.
+        assert!(wkb_shape(&sequenza(3), &due).is_err());
+        assert_eq!(
+            wkb_shape(&sequenza(2), &due).unwrap(),
+            WkbShape::NonEmpty,
+            "due coordinate stanno nel tetto"
+        );
+
+        // Tre figli in una collezione: il conteggio si addebita **prima** di
+        // visitarli, come in `inspect_geometry`.
+        let tre_figli = collezione(4, &[punto(1.0, 2.0), punto(3.0, 4.0), punto(5.0, 6.0)]);
+        assert!(wkb_shape(&tre_figli, &due).is_err());
+
+        // Un poligono con due anelli **vuoti** non costa niente: a pagare sono
+        // i punti, non gli anelli. Era il caso che divergeva dal parser
+        // condiviso.
+        assert_eq!(
+            wkb_shape(&poligono(&[0, 0]), &due).unwrap(),
+            WkbShape::Empty
+        );
+    }
+
+    /// La contabilita' e' **la stessa** del parser condiviso, non una simile.
+    ///
+    /// E' il rilievo che ha riaperto il lotto: due tetti con lo stesso nome e
+    /// due unita' di misura diverse. La sonda non confronta il codice, confronta
+    /// gli **esiti**: per ogni payload ben formato e per ogni quota da zero a
+    /// dodici, accettare o rifiutare deve coincidere con `inspect_wkb`.
+    #[test]
+    fn il_budget_dei_componenti_coincide_con_quello_del_parser_condiviso() {
+        let payload: Vec<(&str, Vec<u8>)> = vec![
+            ("POINT", punto(1.0, 2.0)),
+            ("POINT EMPTY", punto_vuoto()),
+            ("LINESTRING EMPTY", sequenza(0)),
+            ("LINESTRING 3 punti", sequenza(3)),
+            ("POLYGON EMPTY", poligono(&[])),
+            ("POLYGON un anello di 4", poligono(&[4])),
+            ("POLYGON due anelli vuoti", poligono(&[0, 0])),
+            (
+                "MULTIPOINT di 2",
+                collezione(4, &[punto(1.0, 2.0), punto_vuoto()]),
+            ),
+            (
+                "GEOMETRYCOLLECTION annidata",
+                collezione(7, &[collezione(7, &[punto_vuoto()])]),
+            ),
+            (
+                "MULTIPOLYGON di 2 poligoni",
+                collezione(6, &[poligono(&[4]), poligono(&[])]),
+            ),
+        ];
+        for (nome, byte) in payload {
+            for quota in 0..=12_usize {
+                let limiti = WkbLimits {
+                    max_components: quota,
+                    ..WkbLimits::default()
+                };
+                let nostro = wkb_shape(&byte, &limiti).is_ok();
+                let condiviso = plenora_io_model::wkb::inspect_wkb(&byte, &limiti).is_ok();
+                assert_eq!(
+                    nostro, condiviso,
+                    "{nome} a quota {quota}: la classificazione dice {nostro}, \
+                     il parser condiviso dice {condiviso}"
+                );
+            }
+        }
     }
 
     /// Il byte order non e' un dettaglio del punto: governa **ogni** intero
@@ -2716,6 +2897,52 @@ mod tests {
         assert_eq!(wkb_shape(&payload, &esatti).unwrap(), WkbShape::NonEmpty);
     }
 
+    /// Un aggregato non accetta qualunque figlio, e la regola e' **una sola**.
+    ///
+    /// Un `MULTIPOINT` che contiene una `LINESTRING` non e' una geometria di cui
+    /// abbia senso chiedersi se sia vuota: `inspect_wkb` la rifiuta, e fino a
+    /// questo commit la classificazione la accettava e rispondeva. Il wrapper di
+    /// scrittura la intercettava prima -- quindi nessun file corrotto -- ma
+    /// l'invariante prometteva piu' del codice.
+    ///
+    /// La tabella non e' riscritta qui: `membro_ammesso` e' la stessa che
+    /// `inspect_geometry` applica ai propri figli.
+    #[test]
+    fn wkb_shape_rifiuta_un_membro_di_tipo_non_ammesso() {
+        let rifiutati = [
+            (
+                "MULTIPOINT con una LINESTRING",
+                collezione(4, &[sequenza(2)]),
+            ),
+            (
+                "MULTILINESTRING con un POINT",
+                collezione(5, &[punto(1.0, 2.0)]),
+            ),
+            (
+                "MULTIPOLYGON con un POINT",
+                collezione(6, &[punto(1.0, 2.0)]),
+            ),
+            (
+                "MULTIPOLYGON con una LINESTRING",
+                collezione(6, &[sequenza(2)]),
+            ),
+        ];
+        for (nome, payload) in rifiutati {
+            assert!(forma(&payload).is_err(), "{nome}");
+            assert!(
+                plenora_io_model::wkb::inspect_wkb(&payload, &WkbLimits::default()).is_err(),
+                "{nome}: e il parser condiviso lo rifiuta gia'"
+            );
+        }
+
+        // `GEOMETRYCOLLECTION` accetta qualunque tipo, ed e' l'unico: una
+        // regola che rifiutasse tutto sarebbe altrettanto sbagliata.
+        let mista = collezione(7, &[punto_vuoto(), sequenza(0), poligono(&[])]);
+        assert_eq!(forma(&mista).unwrap(), WkbShape::Empty);
+        let mista_piena = collezione(7, &[punto_vuoto(), sequenza(2)]);
+        assert_eq!(forma(&mista_piena).unwrap(), WkbShape::NonEmpty);
+    }
+
     /// Il limite dichiarato: cio' che non sappiamo dimensionare non e' un
     /// difetto del payload, e non viene rifiutato.
     #[test]
@@ -2726,10 +2953,16 @@ mod tests {
         // Dentro una collezione il limite si propaga: senza la lunghezza del
         // figlio, i fratelli non sono raggiungibili, e la risposta
         // conservativa vale per l'intero contenitore.
-        let con_ignoto = collezione(7, &[wkb_le_header(13)]);
+        //
+        // Il figlio porta un conteggio oltre l'header perche' nove byte sono il
+        // minimo che un figlio puo' occupare: e' l'unita' con cui il parser
+        // condiviso giudica plausibile un conteggio, e un header nudo di cinque
+        // byte viene rifiutato prima -- correttamente, e per un'altra ragione.
+        let ignoto = [wkb_le_header(13), 0_u32.to_le_bytes().to_vec()].concat();
+        let con_ignoto = collezione(7, std::slice::from_ref(&ignoto));
         assert_eq!(forma(&con_ignoto).unwrap(), WkbShape::NonEmpty);
 
-        let vuoto_poi_ignoto = collezione(7, &[punto_vuoto(), wkb_le_header(13)]);
+        let vuoto_poi_ignoto = collezione(7, &[punto_vuoto(), ignoto]);
         assert_eq!(forma(&vuoto_poi_ignoto).unwrap(), WkbShape::NonEmpty);
     }
 

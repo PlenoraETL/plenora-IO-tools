@@ -668,10 +668,6 @@ def registra(
             print(messaggio, file=sys.stderr)
         return 1
 
-    revisione = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=False
-    ).stdout.strip()
-
     documento = {
         "schema_version": 1,
         "descrizione": (
@@ -684,11 +680,14 @@ def registra(
         "target": registro["target"],
         "corpus": {"input": input_totali},
         "impronta_perimetro": impronta,
-        "revisione_di_misura": revisione,
         "nota_sulla_revisione": (
-            "informativa: il commit che pubblica questa misura ne ha per forza "
-            "un'altra. A legare la misura all'albero e' l'impronta del "
-            "perimetro, non questo campo."
+            "la misura non nomina una revisione, e non e' una dimenticanza. Il "
+            "campo `revisione_di_misura` c'e' stato, dichiarato informativo, e "
+            "diceva lo SHA di HEAD al momento della corsa: uno SHA locale "
+            "riscritto prima di entrare in storia lo rendeva irrisolvibile, e un "
+            "identificatore che non risolve piu' e' peggio di nessun "
+            "identificatore. A legare la misura all'albero e' l'impronta del "
+            "perimetro, che invecchia quando il codice attraversato cambia."
         ),
         "requisiti": sorted(osservazioni, key=lambda voce: voce["id"]),
     }

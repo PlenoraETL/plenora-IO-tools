@@ -37,7 +37,7 @@
       "lcov_righe_strumentate": 34639,
       "cargo_lines_percentuale": 84.44,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. La feature conta: senza `--all-features` il percorso GDAL di `driver-filegdb` restava fuori dal denominatore -- non scoperto, invisibile alla soglia. Il denominatore cresce percio' di 2 275 righe rispetto alla misura precedente, e la percentuale non cala.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. La feature decide che cosa entra nel denominatore: senza `--all-features` il percorso GDAL di `driver-filegdb` ne resterebbe fuori -- non scoperto, invisibile alla soglia. Che ogni misuratore la porti, e che ogni blocco feature-gated compaia davvero nel report, lo verifica il passo `check_coverage_exclusions`.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
@@ -47,7 +47,8 @@
       "coperte": 379,
       "scoperte": 8,
       "cambiate_non_eseguibili": 288,
-      "ragione": "97.93% sulle 387 righe cambiate ed eseguibili. E' il primo numero di questo ramo: prima la diagnostica diceva `n/d` perche' la campagna compilava senza `gdal-backend` e classificava come non eseguibile tutto il tier GDB. Le 8 righe scoperte sono messaggi di `assert!` e il `panic!` di un helper delle sonde: si eseguono solo quando una sonda fallisce."
+      "ragione": "97.93% delle 387 righe cambiate ed eseguibili. La diagnostica ha fatto il proprio lavoro due volte in questo ramo: sulla corsa precedente, su 1bd499d, dava 96,55% e fra le dodici righe scoperte ne elencava tre di produzione -- `from_be_bytes` per gli interi, `from_be_bytes` per le coordinate, il ramo `0x00` del byte order. Il parser ricorsivo era nuovo e nessuna sonda gli passava un payload big-endian. Quelle tre sono coperte da 411a5aa, e la percentuale sale.",
+      "che_cosa_sono_le_scoperte": "tutte e 8 stanno in `crates/driver-gpkg/src/lib.rs` e sono difensive o irraggiungibili, e nessuna e' stata coperta fingendo. `oltre_il_tipo` e le sue chiusure costruiscono l'errore di overflow aritmetico: da un conteggio a 32 bit su `usize` a 64 bit non ci si arriva. Il `continue` dentro `chunks_exact(8)` vale per un blocco che non ha otto byte, e ogni blocco ne ha otto. «WKB troncato: manca un figlio dichiarato» sorveglia una posizione oltre la fine del payload, e ogni figlio misurato garantisce di non superarla: e' la guardia che vale il giorno in cui quell'invariante si rompesse, e toglierla per alzare una percentuale sarebbe il verso sbagliato."
     },
     "evidenza": "assurance/evidence/checkpoint-411a5aa.json"
   },

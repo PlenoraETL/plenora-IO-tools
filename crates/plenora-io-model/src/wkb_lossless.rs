@@ -412,6 +412,23 @@ fn geometry_type_from_base(base: u32) -> Result<GeometryType> {
     }
 }
 
+/// Un codice base puo' essere membro di un aggregato di quel tipo?
+///
+/// E' la stessa tabella che `inspect_geometry` applica ai figli, esposta perche'
+/// un secondo lettore di WKB non debba riscriverla. Ne esiste uno:
+/// `driver-gpkg` classifica il bit "empty" dell'header `GeoPackage` con un
+/// proprio scanner -- piu' permissivo di questo parser per necessita', vedi la
+/// sua prosa -- e senza questa funzione avrebbe dovuto duplicare la tabella. Due
+/// copie della stessa regola divergono, e nessuno se ne accorge finche' un file
+/// non passa da una e viene rifiutato dall'altra.
+///
+/// `false` anche quando il codice del figlio non e' un tipo riconosciuto: cio'
+/// che non si sa nominare non e' un membro ammesso.
+#[must_use]
+pub fn membro_ammesso(genitore: u32, figlio: u32) -> bool {
+    geometry_type_from_base(figlio).is_ok_and(|tipo| child_type_allowed(genitore, tipo))
+}
+
 // Tabella di contratto: una riga per codice base WKB. I codici 6
 // (MultiPolygon) e 15 (PolyhedralSurface) restano righe distinte anche se la
 // regola sui figli coincide, per restare confrontabili con la specifica.

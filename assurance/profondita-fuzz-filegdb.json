@@ -6,8 +6,7 @@
     "input": 21
   },
   "impronta_perimetro": "39590fe826979907ac662e142955849033f03bff1df2c6e6fe2e4c6c8b44fe55",
-  "revisione_di_misura": "f418951dfe3502cc02f4ab7602efa6691cb877d7",
-  "nota_sulla_revisione": "informativa: il commit che pubblica questa misura ne ha per forza un'altra. A legare la misura all'albero e' l'impronta del perimetro, non questo campo.",
+  "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "requisiti": [
     {
       "id": "drenaggio.batch",

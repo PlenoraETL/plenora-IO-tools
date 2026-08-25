@@ -5,9 +5,8 @@
   "corpus": {
     "input": 24
   },
-  "impronta_perimetro": "d0fd2c316b58b4d720a9a223db6d25285e5781a34d5a5f7b4082313a8f1c3cff",
-  "revisione_di_misura": "11800b02277c6533e9028daa22235147f9b605c0",
-  "nota_sulla_revisione": "informativa: il commit che pubblica questa misura ne ha per forza un'altra. A legare la misura all'albero e' l'impronta del perimetro, non questo campo.",
+  "impronta_perimetro": "3e1749af4836145b0168c55709f9c2d99bda363a201f5bfeacefd000efadb4f8",
+  "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "requisiti": [
     {
       "id": "bundle.prj-materializzato",

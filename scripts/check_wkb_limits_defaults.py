@@ -62,7 +62,10 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # invece che su ogni riga; due sono le sonde dei budget, che dai campi di
 # `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
 # e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-ATTESI = {"test": 52, "attrezzaggio": 4, "produzione": 2}
+ATTESI = {"test": 54, "attrezzaggio": 4, "produzione": 2}
+# Gli ultimi due sono le sonde del budget dei componenti e il confronto con
+# il parser condiviso: entrambe partono dal default per **stringerlo**, ed e'
+# li' che la quota configurata e quella predefinita si distinguono.
 # I due ultimi sono la sonda del tetto per cella, che dal default deriva
 # **due** quote strette -- una che rifiuta e una che ammette -- per provare
 # insieme che il tetto si applica e che e' quello configurato.

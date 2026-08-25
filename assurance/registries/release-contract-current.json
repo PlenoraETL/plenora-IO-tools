@@ -377,7 +377,7 @@
     {
       "id": "lotto.s11",
       "superficie": "classificazione WKB del bit 'empty' dell'header GeoPackage",
-      "invariante": "`wkb_shape` decide la forma di una collezione **ispezionando i figli**, ricorsivamente: un contenitore e' vuoto quando non contiene niente di non vuoto. La discesa e' governata dai budget del contratto del bordo -- gli stessi di `WkbLimits`, presi dalla configurazione e non da un default -- e troncamento, struttura invalida ed esaurimento di un budget falliscono chiusi, senza panico.",
+      "invariante": "`wkb_shape` decide la forma di una collezione **ispezionando i figli**, ricorsivamente: un contenitore e' vuoto quando non contiene niente di non vuoto. La discesa applica il contratto del bordo del parser condiviso: gli stessi tetti di `WkbLimits`, presi dalla configurazione e non da un default, con la stessa **unita' di conteggio** -- coordinate e geometrie figlie -- e la stessa regola su quali membri un aggregato ammette. Troncamento, struttura invalida, membro non ammesso ed esaurimento di un budget falliscono chiusi, senza panico.",
       "prova": {
         "tipo": "test",
         "crate": "driver-gpkg",
@@ -386,17 +386,19 @@
         "test": [
           "tests::wkb_shape_scende_nei_figli_delle_collection",
           "tests::wkb_shape_scende_negli_annidamenti",
+          "tests::wkb_shape_scende_nei_figli_anche_in_big_endian",
           "tests::wkb_shape_rileva_le_collezioni_vuote",
           "tests::wkb_shape_fallisce_chiuso_sui_figli_malformati",
+          "tests::wkb_shape_rifiuta_un_membro_di_tipo_non_ammesso",
           "tests::wkb_shape_fallisce_chiuso_quando_il_budget_di_profondita_finisce",
           "tests::wkb_shape_fallisce_chiuso_quando_il_budget_di_componenti_finisce",
-          "tests::wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare",
-          "tests::wkb_shape_scende_nei_figli_anche_in_big_endian",
-          "tests::wkb_shape_rifiuta_una_cella_oltre_il_tetto_configurato"
+          "tests::il_budget_dei_componenti_coincide_con_quello_del_parser_condiviso",
+          "tests::wkb_shape_rifiuta_una_cella_oltre_il_tetto_configurato",
+          "tests::wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare"
         ]
       },
       "stato": "verified",
-      "nota": "l'eccezione al fail-closed e' dichiarata e non e' una svista: i tipi che la classificazione non sa **dimensionare** -- le varianti curve e superficie fuori dall'insieme trattato -- restano il safe-default storico «non vuoto», e dentro una collezione il limite si propaga, perche' senza la lunghezza di un figlio i fratelli non sono raggiungibili. Non e' un difetto del payload: e' un limite nostro, e trasformarlo in un rifiuto farebbe fallire la scrittura di geometrie che oggi passano. La sonda `wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare` lo tiene fermo, cosi' il giorno in cui diventasse un rifiuto sarebbe una decisione e non un effetto. Il replay del target `gpkg_geometry` esercita la discesa su nove semi derivati dalla specifica, verificati byte a byte in CI. La diagnostica differenziale del livello 2 su `1bd499d` ha aggiunto le ultime due prove: il percorso **big-endian** del parser ricorsivo non era esercitato da nessuna sonda, e il tetto per cella nemmeno -- provarlo con il default vorrebbe dire costruire una cella da 64 MiB, provarlo con una quota stretta prova insieme che il tetto si applica e che e' quello configurato."
+      "nota": "l'eccezione al fail-closed e' dichiarata e non e' una svista: i tipi che la classificazione non sa **dimensionare** -- le varianti curve e superficie fuori dall'insieme trattato -- restano il safe-default storico «non vuoto», e dentro una collezione il limite si propaga, perche' senza la lunghezza di un figlio i fratelli non sono raggiungibili. Non e' un difetto del payload: e' un limite nostro, e trasformarlo in un rifiuto farebbe fallire la scrittura di geometrie che oggi passano. La sonda `wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare` lo tiene fermo, cosi' il giorno in cui diventasse un rifiuto sarebbe una decisione e non un effetto. Fuori da quell'eccezione la classificazione non e' piu' permissiva del parser condiviso: la contabilita' dei componenti e' la sua, provata confrontando gli esiti su dieci payload e tredici quote, e la regola sui membri di un aggregato e' la sua funzione `membro_ammesso`, non una copia della sua tabella. Il replay del target `gpkg_geometry` esercita la discesa su nove semi derivati dalla specifica, verificati byte a byte in CI."
     },
     {
       "id": "lotto.s12",
