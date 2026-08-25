@@ -107,6 +107,14 @@ jobs:
           python3 scripts/genera_fixture_filegdb.py --verifica
           python3 scripts/genera_semi_filegdb.py --verifica
           python3 -m unittest scripts.test_genera_fixture_filegdb
+      # I semi del lotto S11: le forme in cui una collezione dichiara figli
+      # ed e' semanticamente vuota, piu' quelle ostili che la discesa nei figli
+      # deve rifiutare chiudendo. Derivati dalla specifica, non committati a
+      # mano: qui gira la rilettura byte a byte.
+      - name: Verify the GeoPackage S11 seeds
+        run: |
+          python3 -m unittest scripts.test_genera_semi_gpkg
+          python3 scripts/genera_semi_gpkg.py --verifica
       # Il confine di AddressSanitizer nel target FileGDB. La **misura** vuole
       # il binario strumentato e sta in scripts/asan-filegdb.sh; qui gira solo
       # la sua rilettura, che pretende che i numeri raccontino il confine che la

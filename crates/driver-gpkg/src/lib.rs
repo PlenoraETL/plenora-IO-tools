@@ -2062,7 +2062,16 @@ fn create_feature_table(
 #[doc(hidden)]
 pub fn __fuzz_gpkg_geometry(bytes: &[u8]) -> Result<usize> {
     let payload = strip_gpkg_header(bytes)?;
-    decode_wkb(payload, &WkbLimits::default())?;
+    let limiti = WkbLimits::default();
+    // La classificazione **prima** del decoder lossless, e l'esito scartato di
+    // proposito. Farla seguire le avrebbe fatto vedere solo gli input che il
+    // decoder accetta -- cioe' nessuno dei casi che i suoi budget governano:
+    // figli troncati, tipi che non sa dimensionare, annidamento oltre il
+    // tetto. Qui non si asserisce niente su di essa: cio' che il target
+    // sorveglia e' che non panichi e che l'aritmetica resti dentro il tipo,
+    // sotto AddressSanitizer.
+    let _ = wkb_shape(payload, &limiti);
+    decode_wkb(payload, &limiti)?;
     Ok(bytes.len() - payload.len())
 }
 
