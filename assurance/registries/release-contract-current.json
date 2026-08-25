@@ -376,12 +376,25 @@
     },
     {
       "id": "lotto.s11",
-      "superficie": "conversione WKB <-> forme ESRI",
-      "invariante": "`wkb_shape` ispeziona i figli delle collection",
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "lotto S11 non aperto: le geometry collection sono attraversate al primo livello e i figli non sono ispezionati",
-      "sintesi": "`wkb_shape` non ispeziona i figli delle collection"
+      "superficie": "classificazione WKB del bit 'empty' dell'header GeoPackage",
+      "invariante": "`wkb_shape` decide la forma di una collezione **ispezionando i figli**, ricorsivamente: un contenitore e' vuoto quando non contiene niente di non vuoto. La discesa e' governata dai budget del contratto del bordo -- gli stessi di `WkbLimits`, presi dalla configurazione e non da un default -- e troncamento, struttura invalida ed esaurimento di un budget falliscono chiusi, senza panico.",
+      "prova": {
+        "tipo": "test",
+        "crate": "driver-gpkg",
+        "configurazione": "default",
+        "bersaglio": "lib",
+        "test": [
+          "tests::wkb_shape_scende_nei_figli_delle_collection",
+          "tests::wkb_shape_scende_negli_annidamenti",
+          "tests::wkb_shape_rileva_le_collezioni_vuote",
+          "tests::wkb_shape_fallisce_chiuso_sui_figli_malformati",
+          "tests::wkb_shape_fallisce_chiuso_quando_il_budget_di_profondita_finisce",
+          "tests::wkb_shape_fallisce_chiuso_quando_il_budget_di_componenti_finisce",
+          "tests::wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare"
+        ]
+      },
+      "stato": "verified",
+      "nota": "l'eccezione al fail-closed e' dichiarata e non e' una svista: i tipi che la classificazione non sa **dimensionare** -- le varianti curve e superficie fuori dall'insieme trattato -- restano il safe-default storico «non vuoto», e dentro una collezione il limite si propaga, perche' senza la lunghezza di un figlio i fratelli non sono raggiungibili. Non e' un difetto del payload: e' un limite nostro, e trasformarlo in un rifiuto farebbe fallire la scrittura di geometrie che oggi passano. La sonda `wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare` lo tiene fermo, cosi' il giorno in cui diventasse un rifiuto sarebbe una decisione e non un effetto. Il replay del target `gpkg_geometry` esercita la discesa su nove semi derivati dalla specifica, verificati byte a byte in CI."
     },
     {
       "id": "lotto.s12",

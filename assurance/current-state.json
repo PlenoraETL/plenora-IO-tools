@@ -96,12 +96,12 @@
     },
     "lotti": {
       "s10": "aperto",
-      "s11": "aperto",
+      "s11": "chiuso",
       "s12": "aperto",
       "qualifica_cross_component": "aperta",
       "perimetri": {
         "s10": "validazione completa di GeoParquet 1.1",
-        "s11": "wkb_shape ispeziona i figli delle collection",
+        "s11": "wkb_shape ispeziona i figli delle collection, con i budget del bordo",
         "s12": "parsing bounded di WKT e GeoJSON, fuzz dedicato, capability hostile_input_hardened"
       }
     },
