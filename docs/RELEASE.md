@@ -21,30 +21,30 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `feef241` |
-| revisione misurata | `feef241` |
+| ultima qualificata | `411a5aa` |
+| revisione misurata | `411a5aa` |
 | passi del checkpoint | 57 |
 | passi verdi | 57 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 46 622 |
+| input di replay | 47 375 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 86,22% |
-| righe coperte LCOV | 29 598 |
-| righe strumentate LCOV | 34 329 |
-| copertura cargo | 84,32% |
+| copertura LCOV | 86,34% |
+| righe coperte LCOV | 29 906 |
+| righe strumentate LCOV | 34 639 |
+| copertura cargo | 84,44% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `c04f229` |
-| esito differenziale | 92.56% |
+| baseline differenziale | `f7b6d79` |
+| esito differenziale | 97.93% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 6 |
-| S9, qualificato su | `feef241` |
+| S9, qualificato su | `411a5aa` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
 | candidate, versione del workspace | `1.0.1` |

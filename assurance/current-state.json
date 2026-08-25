@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "feef241",
+      "sha": "411a5aa",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "feef241",
+    "sha": "411a5aa",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 46622,
+      "replay_input": 47375,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,31 +32,31 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.22,
-      "lcov_righe_coperte": 29598,
-      "lcov_righe_strumentate": 34329,
-      "cargo_lines_percentuale": 84.32,
+      "lcov_percentuale": 86.34,
+      "lcov_righe_coperte": 29906,
+      "lcov_righe_strumentate": 34639,
+      "cargo_lines_percentuale": 84.44,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. La feature conta: senza `--all-features` il percorso GDAL di `driver-filegdb` restava fuori dal denominatore -- non scoperto, invisibile alla soglia. Il denominatore cresce percio' di 2 275 righe rispetto alla misura precedente, e la percentuale non cala.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "c04f229",
-      "esito": "92.56%",
-      "righe_cambiate_eseguibili": 242,
-      "coperte": 224,
-      "scoperte": 18,
-      "cambiate_non_eseguibili": 305,
-      "ragione": "92.56% sulle 242 righe cambiate ed eseguibili. E' il primo numero di questo ramo: prima la diagnostica diceva `n/d` perche' la campagna compilava senza `gdal-backend` e classificava come non eseguibile tutto il tier GDB. Le 18 righe scoperte sono messaggi di `assert!` e il `panic!` di un helper delle sonde: si eseguono solo quando una sonda fallisce."
+      "baseline": "f7b6d79",
+      "esito": "97.93%",
+      "righe_cambiate_eseguibili": 387,
+      "coperte": 379,
+      "scoperte": 8,
+      "cambiate_non_eseguibili": 288,
+      "ragione": "97.93% sulle 387 righe cambiate ed eseguibili. E' il primo numero di questo ramo: prima la diagnostica diceva `n/d` perche' la campagna compilava senza `gdal-backend` e classificava come non eseguibile tutto il tier GDB. Le 8 righe scoperte sono messaggi di `assert!` e il `panic!` di un helper delle sonde: si eseguono solo quando una sonda fallisce."
     },
-    "evidenza": "assurance/evidence/checkpoint-feef241.json"
+    "evidenza": "assurance/evidence/checkpoint-411a5aa.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "feef241"
+      "qualificato_su": "411a5aa"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
