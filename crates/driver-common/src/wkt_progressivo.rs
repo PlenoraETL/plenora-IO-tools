@@ -206,6 +206,26 @@ impl Parola {
     const fn vuota(&self) -> bool {
         self.quante == 0
     }
+
+    const fn copia(&self) -> Self {
+        Self {
+            buffer: self.buffer,
+            quante: self.quante,
+        }
+    }
+
+    /// La stessa parola senza il suffisso indicato, se ce l'ha.
+    fn senza_coda(&self, coda: &str) -> Option<Self> {
+        let nuda = self.quante.checked_sub(coda.len())?;
+        let letto = self.buffer.get(..self.quante)?;
+        if !letto.ends_with(coda.as_bytes()) {
+            return None;
+        }
+        Some(Self {
+            buffer: self.buffer,
+            quante: nuda,
+        })
+    }
 }
 
 /// Quante ordinate porta una dimensionalita'.
@@ -248,11 +268,25 @@ fn geometria(
             analizzatore.profondita_massima,
         ));
     }
-    let tag = analizzatore.parola();
-    if tag.vuota() {
+    let parola = analizzatore.parola();
+    if parola.vuota() {
         return Err(errore("tipo di geometria atteso"));
     }
-    let dimensioni = dimensioni_dichiarate(analizzatore, attese)?;
+    // `POINT Z` e `POINTZ` sono la stessa cosa, e la seconda forma esce da
+    // writer veri. La sonda comparativa con il parser precedente l'ha trovata:
+    // leggere la parola per intero e non riconoscerla sarebbe stata una
+    // regressione grammaticale, cioe' esattamente cio' che quella sonda esiste
+    // per impedire.
+    let (tag, attaccate) = tipo_e_suffisso(&parola)?;
+    let dimensioni = match attaccate {
+        Some(attaccate) => {
+            if attese.is_some_and(|attese| attese != attaccate) {
+                return Err(errore("geometria annidata con dimensionalità incoerente"));
+            }
+            Some(attaccate)
+        }
+        None => dimensioni_dichiarate(analizzatore, attese)?,
+    };
 
     if tag.e("POINT") {
         punto(analizzatore, dimensioni, attese)
@@ -269,9 +303,46 @@ fn geometria(
     } else if tag.e("GEOMETRYCOLLECTION") {
         collezione(analizzatore, profondita, dimensioni, attese)
     } else {
+        // `tipo_e_suffisso` ha gia' verificato che il nome sia uno dei sette:
+        // questo ramo resta perche' il `match` sia esaustivo, e vale il giorno
+        // in cui l'elenco `TIPI` e questa catena smettessero di coincidere.
         Err(errore("tipo di geometria non riconosciuto"))
     }
 }
+
+/// Il nome del tipo e il suffisso dimensionale che gli sta attaccato.
+///
+/// `POINTZ` e' `POINT` piu' `Z`. Il taglio si prova solo quando la parola
+/// intera non e' un tipo noto: `POINT` finisce per `T`, e nessun tipo finisce
+/// per `Z` o `M`, quindi non c'e' ambiguita' da risolvere.
+fn tipo_e_suffisso(parola: &Parola) -> Result<(Parola, Option<CoordinateDimensions>)> {
+    if TIPI.iter().any(|tipo| parola.e(tipo)) {
+        return Ok((parola.copia(), None));
+    }
+    for (suffisso, dimensioni) in [
+        ("ZM", CoordinateDimensions::Xyzm),
+        ("Z", CoordinateDimensions::Xyz),
+        ("M", CoordinateDimensions::Xym),
+    ] {
+        if let Some(nudo) = parola.senza_coda(suffisso) {
+            if TIPI.iter().any(|tipo| nudo.e(tipo)) {
+                return Ok((nudo, Some(dimensioni)));
+            }
+        }
+    }
+    Err(errore("tipo di geometria non riconosciuto"))
+}
+
+/// I sette tipi che il core WKB rappresenta, e nessun altro.
+const TIPI: [&str; 7] = [
+    "POINT",
+    "LINESTRING",
+    "POLYGON",
+    "MULTIPOINT",
+    "MULTILINESTRING",
+    "MULTIPOLYGON",
+    "GEOMETRYCOLLECTION",
+];
 
 /// La dimensionalita' dichiarata dal tag `Z`/`M`/`ZM`, se c'e'.
 ///
@@ -688,6 +759,236 @@ fn componenti_usati(testo: &str, limiti: &WkbLimits) -> usize {
     limiti.max_components - analizzatore.componenti_residui
 }
 
+/// L'adattatore **storico**, conservato come oracolo di confronto.
+///
+/// # Perche' esiste ancora
+///
+/// La sostituzione di un parser e' il tipo di cambiamento che rompe la
+/// grammatica senza rompere un test: l'insieme accettato e' molto piu' grande
+/// del corpus di sonde che lo descrive, e «il workspace e' verde» non dice che
+/// i due parser accettino le stesse cose. Dice che accettano le cose che
+/// qualcuno ha gia' scritto.
+///
+/// Qui il vecchio percorso -- `wkt 0.14.0` che costruisce l'albero, piu'
+/// l'adattatore che lo converte -- resta disponibile ai soli test, e la sonda
+/// del confronto lo interroga su un corpus generato: stessi ingressi, stessa
+/// risposta, stessa geometria. Le uniche divergenze ammesse sono i rifiuti che
+/// il nuovo confine aggiunge, cioe' i tetti.
+///
+/// # Quando si potra' togliere
+///
+/// Quando la crate `wkt` uscira' anche dalla scrittura. Finche' e' una
+/// dipendenza comunque presente, tenerla come oracolo costa nulla e prova
+/// qualcosa che nessun'altra sonda prova.
+#[cfg(test)]
+mod adattatore_storico {
+    use plenora_io_model::contract::CoordinateDimensions;
+    use plenora_io_model::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
+    use plenora_io_model::{PlenoraIoError, PublicMessage, Result};
+    use wkt::types::{Coord, Dimension};
+    use wkt::Wkt;
+
+    fn error(message: &'static str) -> PlenoraIoError {
+        PlenoraIoError::wkb_redatto(&PublicMessage::CuratedPair("WKT:", message))
+    }
+
+    fn validate_finite_coordinate(x: f64, y: f64, z: Option<f64>, m: Option<f64>) -> Result<()> {
+        if !x.is_finite()
+            || !y.is_finite()
+            || z.is_some_and(|value| !value.is_finite())
+            || m.is_some_and(|value| !value.is_finite())
+        {
+            return Err(error("coordinata non finita"));
+        }
+        Ok(())
+    }
+
+    const fn contract_dimensions(dimension: Dimension) -> CoordinateDimensions {
+        match dimension {
+            Dimension::XY => CoordinateDimensions::Xy,
+            Dimension::XYZ => CoordinateDimensions::Xyz,
+            Dimension::XYM => CoordinateDimensions::Xym,
+            Dimension::XYZM => CoordinateDimensions::Xyzm,
+        }
+    }
+
+    fn coordinate_from_wkt(
+        coordinate: &Coord<f64>,
+        expected: CoordinateDimensions,
+    ) -> Result<WkbCoordinate> {
+        let actual = contract_dimensions(coordinate.dimension());
+        if actual != expected {
+            // La dimensionalita' attesa e' quella della geometria, che il
+            // chiamante ha in mano: nel messaggio resta quella osservata, che e'
+            // l'informazione che lui non ha.
+            return Err(PlenoraIoError::wkb_redatto(&PublicMessage::CuratedPair(
+                "WKT: coordinata con dimensionalità incoerente con la geometria:",
+                actual.nome(),
+            )));
+        }
+        validate_finite_coordinate(coordinate.x, coordinate.y, coordinate.z, coordinate.m)?;
+        Ok(WkbCoordinate {
+            x: coordinate.x,
+            y: coordinate.y,
+            z: coordinate.z,
+            m: coordinate.m,
+        })
+    }
+
+    fn coordinates_from_wkt(
+        coordinates: &[Coord<f64>],
+        expected: CoordinateDimensions,
+    ) -> Result<Vec<WkbCoordinate>> {
+        coordinates
+            .iter()
+            .map(|coordinate| coordinate_from_wkt(coordinate, expected))
+            .collect()
+    }
+
+    // Dispatch esaustivo sui rami del tipo WKT: la lunghezza e' nel numero di
+    // varianti, non in complessita' logica.
+    #[allow(clippy::too_many_lines)]
+    fn geometry_from_wkt(value: &Wkt<f64>) -> Result<WkbGeometry> {
+        let (value, dimensions) = match value {
+            Wkt::Point(point) => {
+                let dimensions = contract_dimensions(point.dimension());
+                let coordinate = point
+                    .coord()
+                    .ok_or_else(|| error("POINT EMPTY non rappresentabile nel core WKB"))?;
+                (
+                    WkbValue::Point(coordinate_from_wkt(coordinate, dimensions)?),
+                    dimensions,
+                )
+            }
+            Wkt::LineString(line) => {
+                let dimensions = contract_dimensions(line.dimension());
+                (
+                    WkbValue::LineString(coordinates_from_wkt(line.coords(), dimensions)?),
+                    dimensions,
+                )
+            }
+            Wkt::Polygon(polygon) => {
+                let dimensions = contract_dimensions(polygon.dimension());
+                let rings = polygon
+                    .rings()
+                    .iter()
+                    .map(|ring| {
+                        if contract_dimensions(ring.dimension()) != dimensions {
+                            return Err(error("anello Polygon con dimensionalità incoerente"));
+                        }
+                        coordinates_from_wkt(ring.coords(), dimensions)
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                (WkbValue::Polygon(rings), dimensions)
+            }
+            Wkt::MultiPoint(multipoint) => {
+                let dimensions = contract_dimensions(multipoint.dimension());
+                let children = multipoint
+                    .points()
+                    .iter()
+                    .map(|point| {
+                        if contract_dimensions(point.dimension()) != dimensions {
+                            return Err(error("Point annidato con dimensionalità incoerente"));
+                        }
+                        let coordinate = point
+                            .coord()
+                            .ok_or_else(|| error("POINT EMPTY annidato non rappresentabile"))?;
+                        Ok(WkbGeometry {
+                            value: WkbValue::Point(coordinate_from_wkt(coordinate, dimensions)?),
+                            dimensions,
+                            srid: None,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                (WkbValue::MultiPoint(children), dimensions)
+            }
+            Wkt::MultiLineString(multiline) => {
+                let dimensions = contract_dimensions(multiline.dimension());
+                let children = multiline
+                    .line_strings()
+                    .iter()
+                    .map(|line| {
+                        if contract_dimensions(line.dimension()) != dimensions {
+                            return Err(error("LineString annidata con dimensionalità incoerente"));
+                        }
+                        Ok(WkbGeometry {
+                            value: WkbValue::LineString(coordinates_from_wkt(
+                                line.coords(),
+                                dimensions,
+                            )?),
+                            dimensions,
+                            srid: None,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                (WkbValue::MultiLineString(children), dimensions)
+            }
+            Wkt::MultiPolygon(multipolygon) => {
+                let dimensions = contract_dimensions(multipolygon.dimension());
+                let children = multipolygon
+                    .polygons()
+                    .iter()
+                    .map(|polygon| {
+                        if contract_dimensions(polygon.dimension()) != dimensions {
+                            return Err(error("Polygon annidato con dimensionalità incoerente"));
+                        }
+                        let rings = polygon
+                            .rings()
+                            .iter()
+                            .map(|ring| {
+                                if contract_dimensions(ring.dimension()) != dimensions {
+                                    return Err(error(
+                                        "anello MultiPolygon con dimensionalità incoerente",
+                                    ));
+                                }
+                                coordinates_from_wkt(ring.coords(), dimensions)
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+                        Ok(WkbGeometry {
+                            value: WkbValue::Polygon(rings),
+                            dimensions,
+                            srid: None,
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                (WkbValue::MultiPolygon(children), dimensions)
+            }
+            Wkt::GeometryCollection(collection) => {
+                let dimensions = contract_dimensions(collection.dimension());
+                let children = collection
+                    .geometries()
+                    .iter()
+                    .map(|child| {
+                        let child = geometry_from_wkt(child)?;
+                        if child.dimensions != dimensions {
+                            return Err(error(
+                                "GeometryCollection con dimensionalità annidate differenti",
+                            ));
+                        }
+                        Ok(child)
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                (WkbValue::GeometryCollection(children), dimensions)
+            }
+        };
+        Ok(WkbGeometry {
+            value,
+            dimensions,
+            srid: None,
+        })
+    }
+
+    /// Il percorso di lettura come era prima del lotto S12.
+    pub(super) fn analizza_come_prima(testo: &str) -> Result<WkbGeometry> {
+        let albero: Wkt<f64> = testo
+            .parse()
+            .map_err(|_| error("sintassi WKT non valida"))?;
+        let geometria = geometry_from_wkt(&albero)?;
+        crate::wkt_lossless::verifica_esprimibile(&geometria)?;
+        Ok(geometria)
+    }
+}
+
 #[cfg(test)]
 mod sonde {
     use super::{analizza, componenti_usati, consumato_prima_del_rifiuto};
@@ -891,6 +1192,227 @@ mod sonde {
         for (testo, perche) in rifiutati {
             assert!(analizza(testo, &limiti).is_err(), "{testo}: {perche}");
         }
+    }
+
+    /// **La prova che la grammatica non e' cambiata.**
+    ///
+    /// Sostituire un parser rompe l'insieme accettato senza rompere un test:
+    /// l'insieme e' molto piu' grande del corpus che lo descrive, e «il
+    /// workspace e' verde» dice soltanto che i due parser accettano le cose
+    /// che qualcuno ha gia' scritto.
+    ///
+    /// Qui il confronto e' con il parser **precedente** -- la crate `wkt` piu'
+    /// il suo adattatore, conservati per questo -- su un corpus generato per
+    /// combinazione: sette tipi, quattro dimensionalita', le forme vuote, le
+    /// due sintassi di `MULTIPOINT`, gli spazi, le maiuscole, e una quarantina
+    /// di storpiature.
+    ///
+    /// La regola del confronto ha tre righe e la terza e' quella che conta:
+    ///
+    /// * accettano entrambi -> la geometria deve essere **la stessa**;
+    /// * rifiutano entrambi -> niente da dire;
+    /// * il vecchio accetta e il nuovo no -> ammesso **solo** se il nuovo
+    ///   rifiuto e' un tetto, che e' cio' che il lotto aggiunge;
+    /// * il vecchio rifiuta e il nuovo accetta -> mai. Accettare piu' di prima
+    ///   e' una regressione silenziosa, ed e' la direzione che nessun test
+    ///   esistente avrebbe visto.
+    #[test]
+    fn accetta_esattamente_cio_che_accettava_il_parser_precedente() {
+        let limiti = WkbLimits::default();
+        let corpus = corpus_di_confronto();
+        assert!(
+            corpus.len() > 200,
+            "corpus troppo piccolo: {}",
+            corpus.len()
+        );
+
+        let mut concordi = 0_usize;
+        let mut solo_per_i_tetti = 0_usize;
+        let mut piu_stretti = 0_usize;
+        for testo in &corpus {
+            let prima = super::adattatore_storico::analizza_come_prima(testo);
+            let dopo = crate::wkt_lossless::parse_wkt_bounded(testo, &limiti);
+            match (prima, dopo) {
+                (Ok(prima), Ok(dopo)) => {
+                    assert_eq!(prima, dopo, "geometrie diverse per «{testo}»");
+                    concordi += 1;
+                }
+                (Err(_), Err(_)) => concordi += 1,
+                (Ok(_), Err(errore)) => {
+                    let per_un_tetto = errore.code == plenora_io_model::IoErrorCode::LimitExceeded;
+                    assert!(
+                        per_un_tetto || per_il_testo_residuo(testo),
+                        "«{testo}» era accettato e ora e' rifiutato senza che sia un tetto: {errore}"
+                    );
+                    if per_un_tetto {
+                        solo_per_i_tetti += 1;
+                    } else {
+                        piu_stretti += 1;
+                    }
+                }
+                (Err(errore), Ok(_)) => {
+                    panic!("«{testo}» era rifiutato ({errore}) e ora e' accettato");
+                }
+            }
+        }
+        assert_eq!(
+            piu_stretti, 3,
+            "le divergenze piu' strette sono tre e sono elencate: se cambiano, \
+             la decisione sul testo residuo va ripresa"
+        );
+        assert_eq!(
+            concordi + solo_per_i_tetti + piu_stretti,
+            corpus.len(),
+            "ogni caso deve ricadere in una delle righe della regola"
+        );
+    }
+
+    /// I tre casi in cui l'analisi progressiva e' **piu' stretta**, elencati.
+    ///
+    /// # La decisione, che non e' mia
+    ///
+    /// La crate `wkt` ignora cio' che segue la geometria: `POINT (1 2))` e
+    /// `POINT (1 2) POINT (3 4)` per lei sono un punto, e il resto non c'e'.
+    /// L'analisi progressiva lo rifiuta, e il rifiuto **non** viene da un
+    /// tetto: e' un irrigidimento, cioe' un cambio dell'insieme accettato.
+    ///
+    /// Rifiutare e' il verso giusto -- una cella troncata o due celle
+    /// concatenate non sono un punto -- ma e' una decisione di contratto: un
+    /// file che oggi si legge potrebbe smettere. Finche' non e' presa, i tre
+    /// casi stanno qui **per nome**, e il loro numero e' asserito: se ne
+    /// comparisse un quarto, questa sonda diventerebbe rossa invece di
+    /// allargare in silenzio l'eccezione.
+    fn per_il_testo_residuo(testo: &str) -> bool {
+        [
+            "POINT (1 2))",
+            "POINT (1 2) POINT (3 4)",
+            include_str!("../../../fuzz/seeds/wkt_parse/multipolygon-con-membro-vuoto.wkt"),
+        ]
+        .contains(&testo)
+    }
+
+    /// Il corpus del confronto, generato per combinazione.
+    ///
+    /// Generato e non scritto a mano: un elenco scritto a mano contiene i casi
+    /// a cui si e' pensato, che sono esattamente quelli che i test esistenti
+    /// gia' coprono. La combinazione produce anche quelli a cui non si e'
+    /// pensato -- ed e' li' che una riscrittura sbaglia.
+    // Il corpus e' lungo perche' e' un elenco di casi, non una funzione con
+    // logica: dividerlo in tre pezzi renderebbe piu' difficile leggere che cosa
+    // copre, che e' la sola cosa che conta qui.
+    #[allow(clippy::too_many_lines)]
+    fn corpus_di_confronto() -> Vec<String> {
+        let dimensioni = ["", " Z", " M", " ZM"];
+        let coordinate = ["1 2", "1 2 3", "1 2 3", "1 2 3 4"];
+        let mut corpus = Vec::new();
+
+        for (indice, suffisso) in dimensioni.iter().enumerate() {
+            let uno = coordinate[indice];
+            let due = format!("{uno},{uno}");
+            let quattro = format!("{uno},{uno},{uno},{uno}");
+            let forme = [
+                format!("POINT{suffisso} ({uno})"),
+                format!("POINT{suffisso} EMPTY"),
+                format!("LINESTRING{suffisso} ({due})"),
+                format!("LINESTRING{suffisso} EMPTY"),
+                format!("POLYGON{suffisso} (({quattro}))"),
+                format!("POLYGON{suffisso} (({quattro}),({quattro}))"),
+                format!("POLYGON{suffisso} EMPTY"),
+                format!("POLYGON{suffisso} (EMPTY)"),
+                format!("MULTIPOINT{suffisso} ({due})"),
+                format!("MULTIPOINT{suffisso} (({uno}),({uno}))"),
+                format!("MULTIPOINT{suffisso} EMPTY"),
+                format!("MULTIPOINT{suffisso} (EMPTY)"),
+                format!("MULTILINESTRING{suffisso} (({due}),({due}))"),
+                format!("MULTILINESTRING{suffisso} EMPTY"),
+                format!("MULTILINESTRING{suffisso} (EMPTY)"),
+                format!("MULTIPOLYGON{suffisso} ((({quattro})))"),
+                format!("MULTIPOLYGON{suffisso} EMPTY"),
+                format!("MULTIPOLYGON{suffisso} (EMPTY)"),
+                format!("GEOMETRYCOLLECTION{suffisso} (POINT{suffisso} ({uno}))"),
+                format!(
+                    "GEOMETRYCOLLECTION{suffisso} (POINT{suffisso} ({uno}),LINESTRING{suffisso} ({due}))"
+                ),
+                format!("GEOMETRYCOLLECTION{suffisso} EMPTY"),
+                format!(
+                    "GEOMETRYCOLLECTION{suffisso} (GEOMETRYCOLLECTION{suffisso} (POINT{suffisso} ({uno})))"
+                ),
+            ];
+            for forma in forme {
+                // Ogni forma in quattro vesti: com'e', minuscola, con spazi
+                // dentro le parentesi, e senza lo spazio prima della parentesi.
+                corpus.push(forma.clone());
+                corpus.push(forma.to_lowercase());
+                corpus.push(forma.replace('(', "(  ").replace(')', "  )"));
+                corpus.push(forma.replace(" (", "("));
+            }
+        }
+
+        // Le storpiature: quelle che un file vero produce sbagliando, e quelle
+        // che un input ostile produce apposta.
+        for storpiatura in [
+            "",
+            " ",
+            "POINT",
+            "POINT (",
+            "POINT ()",
+            "POINT (1)",
+            "POINT (1 2",
+            "POINT 1 2)",
+            "POINT (1 2))",
+            "POINT (1 2) POINT (3 4)",
+            "POINT (1 2 3 4 5)",
+            "POINT (a b)",
+            "POINT (1 due)",
+            "POINT (1 2,3 4)",
+            "POINT Z (1 2)",
+            "POINT M (1 2)",
+            "POINT ZM (1 2 3)",
+            "LINESTRING (1 2)",
+            "LINESTRING (,)",
+            "LINESTRING (1 2,)",
+            "LINESTRING (1 2,3 4 5)",
+            "POLYGON (1 2,3 4)",
+            "POLYGON ((1 2,3 4)",
+            "MULTIPOINT (1 2,(3 4))",
+            "MULTIPOINT ((1 2),3 4)",
+            "MULTIPOLYGON (((1 2,3 4)),((5 6",
+            "GEOMETRYCOLLECTION (POINT (1 2)",
+            "GEOMETRYCOLLECTION (GEOMETRYCOLLECTION EMPTY)",
+            "GEOMETRYCOLLECTION (POINT (1 2),POINT Z (1 2 3))",
+            "CIRCULARSTRING (0 0,1 1,2 2)",
+            "TRIANGLE ((0 0,1 0,1 1,0 0))",
+            "TIN (((0 0,1 0,1 1,0 0)))",
+            "POINT EMPTY EMPTY",
+            "EMPTY",
+            "POINT (1e2 -3E-1)",
+            "POINT (+1 -2)",
+            "POINT (1. .2)",
+            "POINT (1..2 3)",
+            "POINT (1 2)\n",
+            "\tPOINT (1 2)",
+            "POINT\n(1 2)",
+            "PoInT (1 2)",
+            "POINTZ (1 2 3)",
+            "POINT Z(1 2 3)",
+            "POINT  ZM  (1 2 3 4)",
+            "POINT (1 2 nan)",
+            "POINT (inf 2)",
+            "MULTIPOINT (EMPTY,EMPTY)",
+            "GEOMETRYCOLLECTION (EMPTY)",
+        ] {
+            corpus.push(storpiatura.to_owned());
+        }
+
+        // I semi versionati del target: sono il corpus che il fuzzer ha gia'
+        // trovato interessante, ed e' il posto dove le divergenze si nascondono.
+        for seme in [
+            include_str!("../../../fuzz/seeds/wkt_parse/polygon-con-anello-vuoto.wkt"),
+            include_str!("../../../fuzz/seeds/wkt_parse/multipolygon-con-membro-vuoto.wkt"),
+        ] {
+            corpus.push(seme.to_owned());
+        }
+        corpus
     }
 
     /// Una parola piu' lunga del vocabolario non alloca.

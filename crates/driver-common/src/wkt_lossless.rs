@@ -317,7 +317,7 @@ pub fn format_wkt_into(geometry: &WkbGeometry, output: &mut String) -> Result<()
 /// con una sola coordinata fa round-trip corretto, quindi non lo rifiutiamo —
 /// il controllo riguarda la fedelta' della conversione, non la validita' OGC
 /// della geometria, che e' un'altra decisione e non e' presa qui.
-fn verifica_esprimibile(geometry: &WkbGeometry) -> Result<()> {
+pub(crate) fn verifica_esprimibile(geometry: &WkbGeometry) -> Result<()> {
     match &geometry.value {
         WkbValue::Polygon(anelli) => {
             if anelli.iter().any(Vec::is_empty) {

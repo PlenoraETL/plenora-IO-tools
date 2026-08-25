@@ -62,7 +62,10 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # invece che su ogni riga; due sono le sonde dei budget, che dai campi di
 # `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
 # e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-ATTESI = {"test": 62, "attrezzaggio": 6, "produzione": 2}
+ATTESI = {"test": 63, "attrezzaggio": 6, "produzione": 2}
+# La sessantatreesima e' la sonda che confronta l'insieme accettato con
+# quello del parser precedente: interroga entrambi i confini con i tetti
+# predefiniti, perche' e' l'insieme accettato a essere in prova, non le quote.
 # Il lotto S12 muove `test` da 54 a 62 e `attrezzaggio` da 4 a 6, e
 # **non** muove `produzione`. E' il punto: `parse_wkt` -- la comodita'
 # pubblica senza tetti -- e' sparita invece di entrare in LEGITTIME. Una
