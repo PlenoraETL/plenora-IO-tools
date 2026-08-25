@@ -62,7 +62,20 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # invece che su ogni riga; due sono le sonde dei budget, che dai campi di
 # `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
 # e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-ATTESI = {"test": 54, "attrezzaggio": 4, "produzione": 2}
+ATTESI = {"test": 62, "attrezzaggio": 6, "produzione": 2}
+# Il lotto S12 muove `test` da 54 a 62 e `attrezzaggio` da 4 a 6, e
+# **non** muove `produzione`. E' il punto: `parse_wkt` -- la comodita'
+# pubblica senza tetti -- e' sparita invece di entrare in LEGITTIME. Una
+# funzione che sceglie da sola le quote riporta indietro cio' che S5 ha
+# portato fino all'inferenza, e non c'era ragione per cui il default fosse
+# la scelta giusta: chi analizza WKT dichiara con quali limiti.
+#
+# Le otto occorrenze nei test sono le sonde dei tetti in `wkt_progressivo`,
+# che dal default derivano quote strette -- li' il default e' l'oggetto
+# della prova -- e i due helper unici che tengono i predefiniti in un posto
+# solo invece che su venti righe di sonda. Le due nell'attrezzaggio sono i
+# suoi gemelli in `plenora-fuzz` e nel target `wkt_parse`, che non hanno
+# opzioni da cui prendere una quota.
 # Gli ultimi due sono le sonde del budget dei componenti e il confronto con
 # il parser condiviso: entrambe partono dal default per **stringerlo**, ed e'
 # li' che la quota configurata e quella predefinita si distinguono.

@@ -24,9 +24,6 @@
     ]
   },
   "crates/driver-common/src/wkt_lossless.rs": {
-    "coordinate_from_wkt": [
-      "DataMapping/Validate/Wkb/Never"
-    ],
     "coordinate_to_wkt": [
       "DataMapping/Validate/Wkb/Never"
     ],
@@ -34,6 +31,17 @@
       "DataMapping/Validate/Wkb/Never"
     ],
     "parse_wkt_bounded": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ]
+  },
+  "crates/driver-common/src/wkt_progressivo.rs": {
+    "coordinata": [
+      "DataMapping/Validate/Wkb/Never"
+    ],
+    "errore": [
+      "DataMapping/Validate/Wkb/Never"
+    ],
+    "oltre_il_tetto": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },

@@ -17,10 +17,6 @@ use rust_xlsxwriter::Workbook;
 use serde_json::Value as JsonValue;
 
 use driver_common::wkt_lossless::{format_wkt, parse_wkt_bounded};
-// `parse_wkt` resta usato dai test unitari (fixture su geometrie note): il
-// codice di produzione ora passa dalla variante bounded (finding #6).
-#[cfg(test)]
-use driver_common::wkt_lossless::parse_wkt;
 use driver_common::{
     classify_i64, geometry_field, geometry_index, json_from_array, ColType, InferredColumnBuilder,
     ObservedValueClass, TypeAccumulator,
@@ -1015,7 +1011,7 @@ fn encode_geometry_cell(
     row: &[Data],
     bounds: SheetBounds,
     geom: XlsxGeomSpec,
-    cella_wkt: usize,
+    cella_wkt: WkbLimits,
     detected_dimensions: &mut BTreeSet<CoordinateDimensions>,
     detected_types: &mut BTreeSet<GeometryType>,
     wkb_buffer: &mut Vec<u8>,
@@ -1030,7 +1026,7 @@ fn encode_geometry_cell(
             // Da S5 e' la quota **configurata** dal chiamante: chi stringe
             // `--max-wkb-cell-bytes` vede il rifiuto qui, dove l'AST verrebbe
             // allocato, invece che dopo.
-            let geometry = parse_wkt_bounded(text.trim(), cella_wkt)?;
+            let geometry = parse_wkt_bounded(text.trim(), &cella_wkt)?;
             detected_dimensions.insert(geometry.dimensions);
             detected_types.insert(geometry.geometry_type());
             wkb_buffer.clear();
@@ -1038,7 +1034,7 @@ fn encode_geometry_cell(
                 &geometry,
                 WkbFlavor::Iso,
                 wkb_buffer,
-                cella_wkt,
+                cella_wkt.max_cell_bytes,
             )?;
         }
         XlsxGeomSpec::Xy(x_column, y_column) => {
@@ -1061,7 +1057,7 @@ fn encode_geometry_cell(
                         &geometry,
                         WkbFlavor::Iso,
                         wkb_buffer,
-                        cella_wkt,
+                        cella_wkt.max_cell_bytes,
                     )?;
                 }
                 (None, None) => return Ok(false),
@@ -1197,7 +1193,7 @@ struct XlsxQuote {
     /// Tetto sui byte di una cella WKT, applicato **prima** di costruire
     /// l'AST. Fino a S5 il percorso di produzione usava qui il default del
     /// contratto, quindi `--max-wkb-cell-bytes` non arrivava all'inferenza.
-    cella_wkt: usize,
+    cella_wkt: WkbLimits,
 }
 
 impl XlsxQuote {
@@ -1206,7 +1202,7 @@ impl XlsxQuote {
             colonne: opts.max_columns(),
             righe: opts.max_rows(),
             byte_ingresso: opts.max_input_bytes(),
-            cella_wkt: opts.wkb_limits().max_cell_bytes,
+            cella_wkt: opts.wkb_limits(),
         }
     }
 }
@@ -1583,6 +1579,10 @@ fn coordinate_cell(cell: Option<&Data>, axis: &'static str) -> Result<Option<f64
 
 #[cfg(test)]
 mod tests {
+    /// WKT con i tetti predefiniti: qui si provano le fixture, non le quote.
+    fn wkt(testo: &str) -> plenora_io_model::Result<plenora_io_model::wkb::WkbGeometry> {
+        super::parse_wkt_bounded(testo, &plenora_io_model::limits::WkbLimits::default())
+    }
     use super::*;
 
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.
@@ -2227,7 +2227,7 @@ mod tests {
     fn write_then_read_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("out.xlsx");
-        let wkb = encode_wkb(&parse_wkt("POINT (12.5 45.9)").unwrap(), WkbFlavor::Iso).unwrap();
+        let wkb = encode_wkb(&wkt("POINT (12.5 45.9)").unwrap(), WkbFlavor::Iso).unwrap();
         let schema: SchemaRef = Arc::new(Schema::new(vec![
             geometry_field(GEOMETRY, "EPSG:4326"),
             Field::new("nome", arrow_schema::DataType::Utf8, true),
@@ -2449,7 +2449,7 @@ mod tests {
     fn xlsx_wkt_xym_round_trip_preserves_payload_and_contract() {
         let dir = tempfile::tempdir().unwrap();
         let output = dir.path().join("xym.xlsx");
-        let expected = parse_wkt("MULTILINESTRING M ((0 0 5,1 1 6))").unwrap();
+        let expected = wkt("MULTILINESTRING M ((0 0 5,1 1 6))").unwrap();
         let bytes = encode_wkb(&expected, WkbFlavor::Iso).unwrap();
         let mut geometry_contract =
             GeometryColumnContract::wkb_xy(FieldId(0), GEOMETRY, ResolvedCrs::wgs84(), false);
@@ -2522,7 +2522,11 @@ mod tests {
             .as_any()
             .downcast_ref::<BinaryArray>()
             .unwrap();
-        let actual = decode_wkb(geometry.value(0), &WkbLimits::default()).unwrap();
+        let actual = decode_wkb(
+            geometry.value(0),
+            &plenora_io_model::limits::WkbLimits::default(),
+        )
+        .unwrap();
         assert_eq!(actual, expected);
     }
 }

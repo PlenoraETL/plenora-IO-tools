@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 123,
+  "totale": 125,
   "per_crate": {
     "driver-common": {
-      "conteggio": 4,
-      "ragione": "quattro `unwrap_or_else(|e| panic!(…))` nei test di round-trip WKT: il modo in cui quel file dice «questo caso doveva passare». **Non era nel registro fino al 2026-08-21**: il gate testuale non lo elencava, quindi non lo contava affatto"
+      "conteggio": 6,
+      "ragione": "nome diagnostico e messaggi delle sonde: `unwrap_or_else(|errore| panic!(...))` dice quale campione fra molti ha fallito e con quale errore. Il parser progressivo WKT non ne ha nessuno, ed e' voluto: la dimensionalita' di un aggregato la decide il primo elemento, non un valore di ripiego"
     },
     "driver-csv": {
       "conteggio": 2,

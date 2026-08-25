@@ -223,6 +223,20 @@ set -eu
 # stessa forma gia' registrata per driver-common, driver-shp e plenora-io-cli, e
 # non governa nessun percorso di produzione. Nessuna revisione H-01 dovuta.
 
+# Il 2026-08-25, il lotto S12 porta driver-common da 4 a 6 (totale 123 -> 125).
+# Le due occorrenze sono `unwrap_or_else(|errore| panic!(...))` nelle sonde del
+# modulo `wkt_progressivo`: il modo in cui una sonda dice «questo testo doveva
+# essere accettato» portando dentro il messaggio quale testo e quale errore --
+# senza, un elenco di dodici campioni direbbe soltanto «uno di questi». E' la
+# stessa forma gia' registrata per driver-filegdb, driver-shp e plenora-io-cli,
+# e nessuna delle due governa un percorso di produzione: il parser progressivo
+# che quelle sonde esercitano non ha un solo `unwrap_or*`, ed e' voluto. La
+# prima stesura ne aveva tredici, tutti `unwrap_or(CoordinateDimensions::Xy)`,
+# e ognuno nascondeva la regola vera -- e' il **primo elemento** a decidere la
+# dimensionalita' di un aggregato. Riscritti gli aggregati leggendo il primo
+# fuori dal ciclo, i tredici sono spariti da soli: era un ripiego che copriva
+# un caso che non esiste. Nessuna revisione H-01 dovuta.
+
 # --- INFRA-4 (2026-08-21): il conteggio e' passato a Python -----------------
 #
 # Questo script conservava la narrativa di ogni movimento del registro, e la

@@ -2,9 +2,18 @@
 //! Coverage-guided sull'adattatore WKT dimensionale condiviso da CSV/XLSX.
 use libfuzzer_sys::fuzz_target;
 
-use driver_common::wkt_lossless::{format_wkt, parse_wkt};
+use driver_common::wkt_lossless::{format_wkt, parse_wkt_bounded};
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{decode_wkb, encode_wkb, WkbFlavor, WkbGeometry, WkbValue};
+
+/// WKT con i tetti predefiniti, in un posto solo.
+///
+/// Il target non ha opzioni da cui prendere una quota: dichiara la predefinita
+/// una volta. I tetti li esercita comunque, perche' l'analisi li applica
+/// **durante** il parse e il fuzzer arriva a superarli.
+fn analizza(testo: &str) -> plenora_io_model::Result<WkbGeometry> {
+    parse_wkt_bounded(testo, &WkbLimits::default())
+}
 
 fn all_finite(geometry: &WkbGeometry) -> bool {
     let coordinate = |coordinate: &plenora_io_model::wkb::WkbCoordinate| {
@@ -39,9 +48,9 @@ fuzz_target!(|data: &[u8]| {
         Ok(text) => text,
         Err(_) => return,
     };
-    if let Ok(geometry) = parse_wkt(text) {
+    if let Ok(geometry) = analizza(text) {
         let formatted = format_wkt(&geometry).expect("WKT accettato deve essere serializzabile");
-        let reparsed = parse_wkt(&formatted).expect("il nostro WKT deve essere rileggibile");
+        let reparsed = analizza(&formatted).expect("il nostro WKT deve essere rileggibile");
         let encoded =
             encode_wkb(&geometry, WkbFlavor::Iso).expect("WKT accettato deve produrre WKB");
         let decoded = decode_wkb(&encoded, &WkbLimits::default())

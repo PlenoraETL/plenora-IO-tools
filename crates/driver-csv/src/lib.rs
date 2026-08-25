@@ -466,7 +466,7 @@ impl OpenDatasetHandle for CsvDataset {
             SorgenteCsv {
                 path: self.path.clone(),
                 delim: self.delim,
-                cella_wkt: self.wkb_limits.max_cell_bytes,
+                cella_wkt: self.wkb_limits,
             },
             include_geometry.then_some(self.geom),
             attrs,
@@ -512,8 +512,12 @@ fn classify(cell: &str) -> ObservedValueClass {
 /// parsing di una cella.
 #[derive(Clone, Copy)]
 struct QuoteInferenza {
-    /// Tetto sui byte di una singola cella WKT, **prima** di costruire l'AST.
-    cella_wkt: usize,
+    /// I tetti del bordo per una cella WKT.
+    ///
+    /// Era il solo tetto in byte. Da S12 l'analisi e' progressiva e applica
+    /// anche componenti e profondita' **durante** il parse: il tipo che
+    /// viaggia e' quindi il contratto intero, non una sua meta'.
+    cella_wkt: WkbLimits,
     /// Tetto sulle righe visitate dalle passate di inferenza.
     ///
     /// Non e' `max_input_entries`: quella quota governa l'enumerazione della
@@ -527,7 +531,7 @@ struct QuoteInferenza {
 impl QuoteInferenza {
     fn from_read_options(opts: &ReadOptions) -> Self {
         Self {
-            cella_wkt: opts.wkb_limits().max_cell_bytes,
+            cella_wkt: opts.wkb_limits(),
             righe: opts.max_rows(),
         }
     }
@@ -610,7 +614,7 @@ fn infer_wkt_geometry(
         // questa riga usava il default, quindi il flag non arrivava
         // all'inferenza e una cella oltre la soglia configurata veniva
         // parsata comunque.
-        let geometry = parse_wkt_bounded(text, quote.cella_wkt)?;
+        let geometry = parse_wkt_bounded(text, &quote.cella_wkt)?;
         dimensions.insert(geometry.dimensions);
         geometry_types.insert(geometry.geometry_type());
     }
@@ -634,7 +638,7 @@ fn infer_wkt_geometry(
 struct SorgenteCsv {
     path: PathBuf,
     delim: u8,
-    cella_wkt: usize,
+    cella_wkt: WkbLimits,
 }
 
 fn spawn_parser(
@@ -698,7 +702,7 @@ fn append_geometry(
     geom: GeomSpec,
     rec: &csv::StringRecord,
     buf: &mut Vec<u8>,
-    cella_wkt: usize,
+    cella_wkt: WkbLimits,
 ) -> Result<()> {
     match geom {
         GeomSpec::Wkt(wi) => {
@@ -709,9 +713,9 @@ fn append_geometry(
                 // Stessa quota dell'inferenza, non il default: un flag che
                 // vale in una passata e non nell'altra sarebbe peggio che non
                 // averlo, perche' il rifiuto arriverebbe a meta' lettura.
-                let geometry = parse_wkt_bounded(cell, cella_wkt)?;
+                let geometry = parse_wkt_bounded(cell, &cella_wkt)?;
                 buf.clear();
-                encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, buf, cella_wkt)?;
+                encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, buf, cella_wkt.max_cell_bytes)?;
                 geom_b.append_value(buf.as_slice());
             }
         }
@@ -744,7 +748,7 @@ fn append_geometry(
                 srid: None,
             };
             buf.clear();
-            encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, buf, cella_wkt)?;
+            encode_wkb_into_bounded(&geometry, WkbFlavor::Iso, buf, cella_wkt.max_cell_bytes)?;
             geom_b.append_value(buf.as_slice());
         }
     }
@@ -1052,9 +1056,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let percorso = csv_con_wkt(&dir, "POINT (1 2)");
 
-        assert!(infer_wkt_geometry(&percorso, b',', 1, quote_con_cella(11, 100)).is_ok());
+        assert!(infer_wkt_geometry(&percorso, b',', 1, quote_con_cella(con_byte(11), 100)).is_ok());
 
-        let errore = infer_wkt_geometry(&percorso, b',', 1, quote_con_cella(10, 100))
+        let errore = infer_wkt_geometry(&percorso, b',', 1, quote_con_cella(con_byte(10), 100))
             .expect_err("undici caratteri con tetto dieci devono fallire");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
     }
@@ -1071,21 +1075,43 @@ mod tests {
 
         let mut builder = BinaryBuilder::new();
         assert!(
-            append_geometry(&mut builder, GeomSpec::Wkt(1), &record, &mut buffer, 64).is_ok(),
+            append_geometry(
+                &mut builder,
+                GeomSpec::Wkt(1),
+                &record,
+                &mut buffer,
+                con_byte(64)
+            )
+            .is_ok(),
             "con un tetto capiente la cella passa"
         );
 
         let mut builder = BinaryBuilder::new();
-        let errore = append_geometry(&mut builder, GeomSpec::Wkt(1), &record, &mut buffer, 10)
-            .expect_err("undici caratteri con tetto dieci devono fallire");
+        let errore = append_geometry(
+            &mut builder,
+            GeomSpec::Wkt(1),
+            &record,
+            &mut buffer,
+            con_byte(10),
+        )
+        .expect_err("undici caratteri con tetto dieci devono fallire");
         assert_eq!(errore.code, plenora_io_model::IoErrorCode::LimitExceeded);
     }
 
     fn quote(righe: usize) -> QuoteInferenza {
-        quote_con_cella(4_096, righe)
+        quote_con_cella(con_byte(4_096), righe)
     }
 
-    const fn quote_con_cella(cella_wkt: usize, righe: usize) -> QuoteInferenza {
+    /// I tetti del bordo con il solo cap in byte stretto: le sonde qui
+    /// provano quello, e gli altri due hanno le loro in `wkt_progressivo`.
+    fn con_byte(cella: usize) -> WkbLimits {
+        WkbLimits {
+            max_cell_bytes: cella,
+            ..WkbLimits::default()
+        }
+    }
+
+    fn quote_con_cella(cella_wkt: WkbLimits, righe: usize) -> QuoteInferenza {
         QuoteInferenza { cella_wkt, righe }
     }
 

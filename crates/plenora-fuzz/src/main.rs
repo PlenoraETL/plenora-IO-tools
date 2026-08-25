@@ -23,7 +23,15 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use driver_common::wkt_lossless::{format_wkt, parse_wkt};
+use driver_common::wkt_lossless::{format_wkt, parse_wkt_bounded};
+
+/// WKT con i tetti predefiniti, in un posto solo.
+///
+/// L'attrezzaggio non ha opzioni da cui prendere una quota: dichiara la
+/// predefinita una volta invece di ripeterla a ogni chiamata.
+fn analizza_wkt(testo: &str) -> plenora_io_model::Result<plenora_io_model::wkb::WkbGeometry> {
+    parse_wkt_bounded(testo, &plenora_io_model::limits::WkbLimits::default())
+}
 use geo_types::Geometry;
 use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{
@@ -609,11 +617,11 @@ fn check_gj_value(v: &geojson::Value) -> Result<(), String> {
 /// L'adattatore WKT dimensionale di CSV/XLSX non deve mai panic; se accetta,
 /// deve produrre WKT e WKB rileggibili senza cambiare tipo o dimensioni.
 fn check_wkt(s: &str) -> Result<(), String> {
-    if let Ok(geometry) = parse_wkt(s) {
+    if let Ok(geometry) = analizza_wkt(s) {
         let text = format_wkt(&geometry)
             .map_err(|e| format!("serializzazione WKT dopo parse OK fallisce: {e}"))?;
         let reparsed =
-            parse_wkt(&text).map_err(|e| format!("WKT prodotto non rileggibile: {e}"))?;
+            analizza_wkt(&text).map_err(|e| format!("WKT prodotto non rileggibile: {e}"))?;
         if geometry != reparsed {
             return Err("round-trip WKT altera geometria o ordinate".to_owned());
         }

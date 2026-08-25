@@ -1,6 +1,7 @@
 //! Conversione condivisa fra WKT dimensionale e l'AST WKB lossless.
 
 use plenora_io_model::contract::{CoordinateDimensions, GeometryType};
+use plenora_io_model::limits::WkbLimits;
 use plenora_io_model::wkb::{WkbCoordinate, WkbGeometry, WkbValue};
 use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result};
 use wkt::types::{
@@ -24,15 +25,6 @@ fn error(message: &'static str) -> PlenoraIoError {
 /// Il prefisso del sottosistema, in un posto solo.
 const PREFISSO: &str = "WKT:";
 
-const fn contract_dimensions(dimension: Dimension) -> CoordinateDimensions {
-    match dimension {
-        Dimension::XY => CoordinateDimensions::Xy,
-        Dimension::XYZ => CoordinateDimensions::Xyz,
-        Dimension::XYM => CoordinateDimensions::Xym,
-        Dimension::XYZM => CoordinateDimensions::Xyzm,
-    }
-}
-
 fn dimension(dimensions: CoordinateDimensions) -> Result<Dimension> {
     match dimensions {
         CoordinateDimensions::Xy => Ok(Dimension::XY),
@@ -54,202 +46,36 @@ fn validate_finite_coordinate(x: f64, y: f64, z: Option<f64>, m: Option<f64>) ->
     Ok(())
 }
 
-fn coordinate_from_wkt(
-    coordinate: &Coord<f64>,
-    expected: CoordinateDimensions,
-) -> Result<WkbCoordinate> {
-    let actual = contract_dimensions(coordinate.dimension());
-    if actual != expected {
-        // La dimensionalita' attesa e' quella della geometria, che il
-        // chiamante ha in mano: nel messaggio resta quella osservata, che e'
-        // l'informazione che lui non ha.
-        return Err(PlenoraIoError::wkb_redatto(&PublicMessage::CuratedPair(
-            "WKT: coordinata con dimensionalità incoerente con la geometria:",
-            actual.nome(),
-        )));
-    }
-    validate_finite_coordinate(coordinate.x, coordinate.y, coordinate.z, coordinate.m)?;
-    Ok(WkbCoordinate {
-        x: coordinate.x,
-        y: coordinate.y,
-        z: coordinate.z,
-        m: coordinate.m,
-    })
-}
-
-fn coordinates_from_wkt(
-    coordinates: &[Coord<f64>],
-    expected: CoordinateDimensions,
-) -> Result<Vec<WkbCoordinate>> {
-    coordinates
-        .iter()
-        .map(|coordinate| coordinate_from_wkt(coordinate, expected))
-        .collect()
-}
-
-// Dispatch esaustivo sui rami del tipo WKT: la lunghezza e' nel numero di
-// varianti, non in complessita' logica.
-#[allow(clippy::too_many_lines)]
-fn geometry_from_wkt(value: &Wkt<f64>) -> Result<WkbGeometry> {
-    let (value, dimensions) = match value {
-        Wkt::Point(point) => {
-            let dimensions = contract_dimensions(point.dimension());
-            let coordinate = point
-                .coord()
-                .ok_or_else(|| error("POINT EMPTY non rappresentabile nel core WKB"))?;
-            (
-                WkbValue::Point(coordinate_from_wkt(coordinate, dimensions)?),
-                dimensions,
-            )
-        }
-        Wkt::LineString(line) => {
-            let dimensions = contract_dimensions(line.dimension());
-            (
-                WkbValue::LineString(coordinates_from_wkt(line.coords(), dimensions)?),
-                dimensions,
-            )
-        }
-        Wkt::Polygon(polygon) => {
-            let dimensions = contract_dimensions(polygon.dimension());
-            let rings = polygon
-                .rings()
-                .iter()
-                .map(|ring| {
-                    if contract_dimensions(ring.dimension()) != dimensions {
-                        return Err(error("anello Polygon con dimensionalità incoerente"));
-                    }
-                    coordinates_from_wkt(ring.coords(), dimensions)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            (WkbValue::Polygon(rings), dimensions)
-        }
-        Wkt::MultiPoint(multipoint) => {
-            let dimensions = contract_dimensions(multipoint.dimension());
-            let children = multipoint
-                .points()
-                .iter()
-                .map(|point| {
-                    if contract_dimensions(point.dimension()) != dimensions {
-                        return Err(error("Point annidato con dimensionalità incoerente"));
-                    }
-                    let coordinate = point
-                        .coord()
-                        .ok_or_else(|| error("POINT EMPTY annidato non rappresentabile"))?;
-                    Ok(WkbGeometry {
-                        value: WkbValue::Point(coordinate_from_wkt(coordinate, dimensions)?),
-                        dimensions,
-                        srid: None,
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            (WkbValue::MultiPoint(children), dimensions)
-        }
-        Wkt::MultiLineString(multiline) => {
-            let dimensions = contract_dimensions(multiline.dimension());
-            let children = multiline
-                .line_strings()
-                .iter()
-                .map(|line| {
-                    if contract_dimensions(line.dimension()) != dimensions {
-                        return Err(error("LineString annidata con dimensionalità incoerente"));
-                    }
-                    Ok(WkbGeometry {
-                        value: WkbValue::LineString(coordinates_from_wkt(
-                            line.coords(),
-                            dimensions,
-                        )?),
-                        dimensions,
-                        srid: None,
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            (WkbValue::MultiLineString(children), dimensions)
-        }
-        Wkt::MultiPolygon(multipolygon) => {
-            let dimensions = contract_dimensions(multipolygon.dimension());
-            let children = multipolygon
-                .polygons()
-                .iter()
-                .map(|polygon| {
-                    if contract_dimensions(polygon.dimension()) != dimensions {
-                        return Err(error("Polygon annidato con dimensionalità incoerente"));
-                    }
-                    let rings = polygon
-                        .rings()
-                        .iter()
-                        .map(|ring| {
-                            if contract_dimensions(ring.dimension()) != dimensions {
-                                return Err(error(
-                                    "anello MultiPolygon con dimensionalità incoerente",
-                                ));
-                            }
-                            coordinates_from_wkt(ring.coords(), dimensions)
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                    Ok(WkbGeometry {
-                        value: WkbValue::Polygon(rings),
-                        dimensions,
-                        srid: None,
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            (WkbValue::MultiPolygon(children), dimensions)
-        }
-        Wkt::GeometryCollection(collection) => {
-            let dimensions = contract_dimensions(collection.dimension());
-            let children = collection
-                .geometries()
-                .iter()
-                .map(|child| {
-                    let child = geometry_from_wkt(child)?;
-                    if child.dimensions != dimensions {
-                        return Err(error(
-                            "GeometryCollection con dimensionalità annidate differenti",
-                        ));
-                    }
-                    Ok(child)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            (WkbValue::GeometryCollection(children), dimensions)
-        }
-    };
-    Ok(WkbGeometry {
-        value,
-        dimensions,
-        srid: None,
-    })
-}
-
-/// Analizza WKT 2D/3D/M/ZM senza proiettarlo su `geo-types`.
+/// Analizza WKT 2D/3D/M/ZM applicando i tetti **durante** il parse.
+///
+/// Non esiste una variante senza tetti. C'e' stata -- `parse_wkt`, che
+/// chiamava questa con i default -- e il gate dei default l'ha rifiutata: una
+/// comodita' pubblica che sceglie da sola le quote riporta indietro cio' che
+/// S5 ha portato fino all'inferenza. Chi analizza WKT dichiara con quali
+/// limiti, anche quando sono quelli predefiniti.
+///
+/// Finding #6 review 2026-08-15: il parser `wkt` costruiva l'AST intero
+/// prima che qualsiasi budget vedesse il risultato, e una cella CSV/XLSX
+/// ostile poteva superare i limiti dichiarati dal chiamante senza che il
+/// driver se ne accorgesse. Il cap in byte era l'unica difesa: esatto e
+/// grossolano, perche' dice quanto puo' essere lungo l'input e non quanto
+/// puo' costare.
+///
+/// Il lotto S12 ha chiuso il rinvio. Tutti e tre i tetti si applicano ora
+/// **durante** il parse -- byte sul testo, componenti e profondita' mentre
+/// si consuma -- perche' l'analisi e' progressiva: `wkt_progressivo`
+/// costruisce la geometria mentre legge e addebita ogni coordinata e ogni
+/// figlio nel momento in cui li legge. Cio' che non e' stato letto non e'
+/// stato allocato.
 ///
 /// # Errors
 ///
-/// Restituisce [`PlenoraIoError::Wkb`] se la sintassi WKT non è valida, se la
-/// dimensionalità è incoerente fra geometria e coordinate, se una coordinata
-/// non è finita o se la geometria non è rappresentabile nel core WKB.
-pub fn parse_wkt(text: &str) -> Result<WkbGeometry> {
-    parse_wkt_bounded(text, usize::MAX)
-}
-
-/// Come [`parse_wkt`] ma rifiuta a monte i testi WKT piu' lunghi di
-/// `max_bytes`.
-///
-/// Finding #6 review 2026-08-15: il parser `wkt` costruisce l'AST intero
-/// prima che qualsiasi budget veda il risultato; una singola cella
-/// CSV/XLSX ostile puo' superare i limiti dichiarati dal chiamante senza
-/// che il driver se ne accorga. Il cap sulla lunghezza del testo e' una
-/// prima linea di difesa: e' esatto quando la cella e' UTF-8 e non ha
-/// bisogno di conoscere la struttura interna.
-///
-/// La bound completa (`max_components`/`max_depth` applicati durante il
-/// parse e non solo su `verifica_esprimibile` / `inspect_wkb` a valle)
-/// richiede un parser progressivo diverso da `wkt 0.14.0`. E' il perimetro
-/// di S12, in `RELEASE.md § S10, S11, S12`.
-///
-/// # Errors
-///
-/// Le stesse di [`parse_wkt`] piu' `LimitExceeded` se `text.len() > max_bytes`.
-pub fn parse_wkt_bounded(text: &str, max_bytes: usize) -> Result<WkbGeometry> {
+/// Sintassi non valida, dimensionalita' incoerente, coordinata non finita;
+/// piu' `LimitExceeded` quando il testo supera
+/// `max_cell_bytes`, i componenti superano `max_components` o l'annidamento
+/// supera `max_depth`.
+pub fn parse_wkt_bounded(text: &str, limiti: &WkbLimits) -> Result<WkbGeometry> {
+    let max_bytes = limiti.max_cell_bytes;
     if text.len() > max_bytes {
         return Err(PlenoraIoError::limite_redatto(
             &PublicMessage::CuratedBetween(
@@ -260,14 +86,7 @@ pub fn parse_wkt_bounded(text: &str, max_bytes: usize) -> Result<WkbGeometry> {
             ),
         ));
     }
-    let parsed: Wkt<f64> = text
-        .parse()
-        // Il testo della crate `wkt` non esce: e' testo di dipendenza, ed
-        // e' il caso da cui INV-10 e' partito. La posizione dell'errore di
-        // sintassi non e' recuperabile senza farlo uscire, e non la si
-        // inventa.
-        .map_err(|_| error("sintassi WKT non valida"))?;
-    let geometria = geometry_from_wkt(&parsed)?;
+    let geometria = crate::wkt_progressivo::analizza(text, limiti)?;
     // Simmetria con la scrittura: quello che accettiamo da testo deve poter
     // tornare a testo. Accettare in lettura una geometria che non sappiamo
     // riscrivere e' una trappola — si legge un CSV e poi non lo si riesce a
@@ -659,6 +478,14 @@ fn scrivi_multipoligono_con_membri_vuoti(
 
 #[cfg(test)]
 mod tests {
+    /// I tetti predefiniti, in un posto solo.
+    ///
+    /// Le sonde di questo modulo provano la conversione fra WKT e AST, non le
+    /// quote: ripetere `WkbLimits::default()` su venti righe direbbe che le
+    /// stanno provando. A provarle sono le sonde di `wkt_progressivo`.
+    fn analizza_con_i_predefiniti(testo: &str) -> Result<WkbGeometry> {
+        super::parse_wkt_bounded(testo, &WkbLimits::default())
+    }
     use super::*;
 
     #[test]
@@ -670,9 +497,13 @@ mod tests {
             "MULTIPOLYGON ZM(((0 0 1 10,0 2 2 11,2 0 3 12,0 0 1 10)))",
             "GEOMETRYCOLLECTION Z(POINT Z(1 2 3),LINESTRING Z(0 0 0,1 1 1))",
         ] {
-            let geometry = parse_wkt(text).unwrap();
+            let geometry = analizza_con_i_predefiniti(text).unwrap();
             let encoded = format_wkt(&geometry).unwrap();
-            assert_eq!(parse_wkt(&encoded).unwrap(), geometry, "{encoded}");
+            assert_eq!(
+                analizza_con_i_predefiniti(&encoded).unwrap(),
+                geometry,
+                "{encoded}"
+            );
         }
     }
 
@@ -740,7 +571,7 @@ mod tests {
             let testo = format_wkt(&geometria).expect("serializzazione");
             assert_eq!(testo, atteso);
             assert_eq!(
-                parse_wkt(&testo).expect("rilettura"),
+                analizza_con_i_predefiniti(&testo).expect("rilettura"),
                 geometria,
                 "round-trip di {testo}"
             );
@@ -780,7 +611,10 @@ mod tests {
         };
         let testo = format_wkt(&geometria).expect("serializzazione");
         assert_eq!(testo, "GEOMETRYCOLLECTION(POINT(1 2),MULTIPOLYGON(EMPTY))");
-        assert_eq!(parse_wkt(&testo).expect("rilettura"), geometria);
+        assert_eq!(
+            analizza_con_i_predefiniti(&testo).expect("rilettura"),
+            geometria
+        );
     }
 
     /// Le quattro forme che il WKT non sa esprimere fedelmente devono
@@ -847,7 +681,7 @@ mod tests {
             let geometria = xy(value);
             let testo = format_wkt(&geometria).expect(nome);
             assert_eq!(
-                parse_wkt(&testo).expect(nome),
+                analizza_con_i_predefiniti(&testo).expect(nome),
                 geometria,
                 "{nome}: round-trip di {testo}"
             );
@@ -868,7 +702,7 @@ mod tests {
             "MULTIPOLYGON((EMPTY))",
             "MULTILINESTRING(EMPTY)",
         ] {
-            let esito = parse_wkt(testo);
+            let esito = analizza_con_i_predefiniti(testo);
             if let Ok(geometria) = &esito {
                 format_wkt(geometria).unwrap_or_else(|errore| {
                     panic!("{testo}: accettato in lettura ma non riscrivibile: {errore}")
@@ -878,11 +712,13 @@ mod tests {
 
         // Le forme vuote di primo livello restano accettate e riscrivibili.
         for testo in ["POLYGON EMPTY", "LINESTRING EMPTY", "MULTIPOLYGON(EMPTY)"] {
-            let geometria = parse_wkt(testo).unwrap_or_else(|errore| panic!("{testo}: {errore}"));
+            let geometria = analizza_con_i_predefiniti(testo)
+                .unwrap_or_else(|errore| panic!("{testo}: {errore}"));
             let riscritto =
                 format_wkt(&geometria).unwrap_or_else(|errore| panic!("{testo}: {errore}"));
             assert_eq!(
-                parse_wkt(&riscritto).unwrap_or_else(|errore| panic!("{testo}: {errore}")),
+                analizza_con_i_predefiniti(&riscritto)
+                    .unwrap_or_else(|errore| panic!("{testo}: {errore}")),
                 geometria,
                 "{testo}: round-trip via {riscritto}"
             );
@@ -891,14 +727,16 @@ mod tests {
 
     #[test]
     fn rejects_empty_point_and_mixed_collection_dimensions() {
-        assert!(parse_wkt("POINT EMPTY").is_err());
-        assert!(parse_wkt("GEOMETRYCOLLECTION(POINT(1 2),POINT Z(1 2 3))").is_err());
+        assert!(analizza_con_i_predefiniti("POINT EMPTY").is_err());
+        assert!(
+            analizza_con_i_predefiniti("GEOMETRYCOLLECTION(POINT(1 2),POINT Z(1 2 3))").is_err()
+        );
     }
 
     #[test]
     fn rejects_non_finite_coordinates_from_text_and_wkb() {
-        assert!(parse_wkt("POINT (2e308 -1e-308)").is_err());
-        assert!(parse_wkt("POINT ZM (1 2 NaN 4)").is_err());
+        assert!(analizza_con_i_predefiniti("POINT (2e308 -1e-308)").is_err());
+        assert!(analizza_con_i_predefiniti("POINT ZM (1 2 NaN 4)").is_err());
 
         let geometry = WkbGeometry {
             value: WkbValue::Point(WkbCoordinate {
@@ -915,11 +753,11 @@ mod tests {
 
     #[test]
     fn reusable_formatter_appends_and_preserves_buffer_on_error() {
-        let geometry = parse_wkt("LINESTRING Z(0 1 2,3 4 5)").unwrap();
+        let geometry = analizza_con_i_predefiniti("LINESTRING Z(0 1 2,3 4 5)").unwrap();
         let mut output = "prefix:".to_owned();
         format_wkt_into(&geometry, &mut output).unwrap();
         assert_eq!(
-            parse_wkt(output.strip_prefix("prefix:").unwrap()).unwrap(),
+            analizza_con_i_predefiniti(output.strip_prefix("prefix:").unwrap()).unwrap(),
             geometry
         );
 

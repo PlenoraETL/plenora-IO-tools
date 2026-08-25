@@ -5,6 +5,10 @@
 
 pub mod prevalida_arrow;
 pub mod wkt_lossless;
+// L'analisi progressiva del WKT: usata da `wkt_lossless`, non esposta.
+// Il confine pubblico resta `parse_wkt_bounded`, che aggiunge il tetto in byte
+// e la verifica di esprimibilita'.
+mod wkt_progressivo;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
