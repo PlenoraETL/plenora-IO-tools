@@ -390,11 +390,13 @@
           "tests::wkb_shape_fallisce_chiuso_sui_figli_malformati",
           "tests::wkb_shape_fallisce_chiuso_quando_il_budget_di_profondita_finisce",
           "tests::wkb_shape_fallisce_chiuso_quando_il_budget_di_componenti_finisce",
-          "tests::wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare"
+          "tests::wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare",
+          "tests::wkb_shape_scende_nei_figli_anche_in_big_endian",
+          "tests::wkb_shape_rifiuta_una_cella_oltre_il_tetto_configurato"
         ]
       },
       "stato": "verified",
-      "nota": "l'eccezione al fail-closed e' dichiarata e non e' una svista: i tipi che la classificazione non sa **dimensionare** -- le varianti curve e superficie fuori dall'insieme trattato -- restano il safe-default storico «non vuoto», e dentro una collezione il limite si propaga, perche' senza la lunghezza di un figlio i fratelli non sono raggiungibili. Non e' un difetto del payload: e' un limite nostro, e trasformarlo in un rifiuto farebbe fallire la scrittura di geometrie che oggi passano. La sonda `wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare` lo tiene fermo, cosi' il giorno in cui diventasse un rifiuto sarebbe una decisione e non un effetto. Il replay del target `gpkg_geometry` esercita la discesa su nove semi derivati dalla specifica, verificati byte a byte in CI."
+      "nota": "l'eccezione al fail-closed e' dichiarata e non e' una svista: i tipi che la classificazione non sa **dimensionare** -- le varianti curve e superficie fuori dall'insieme trattato -- restano il safe-default storico «non vuoto», e dentro una collezione il limite si propaga, perche' senza la lunghezza di un figlio i fratelli non sono raggiungibili. Non e' un difetto del payload: e' un limite nostro, e trasformarlo in un rifiuto farebbe fallire la scrittura di geometrie che oggi passano. La sonda `wkb_shape_non_rifiuta_i_tipi_che_non_sa_dimensionare` lo tiene fermo, cosi' il giorno in cui diventasse un rifiuto sarebbe una decisione e non un effetto. Il replay del target `gpkg_geometry` esercita la discesa su nove semi derivati dalla specifica, verificati byte a byte in CI. La diagnostica differenziale del livello 2 su `1bd499d` ha aggiunto le ultime due prove: il percorso **big-endian** del parser ricorsivo non era esercitato da nessuna sonda, e il tetto per cella nemmeno -- provarlo con il default vorrebbe dire costruire una cella da 64 MiB, provarlo con una quota stretta prova insieme che il tetto si applica e che e' quello configurato."
     },
     {
       "id": "lotto.s12",

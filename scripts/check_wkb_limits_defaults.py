@@ -62,7 +62,10 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # invece che su ogni riga; due sono le sonde dei budget, che dai campi di
 # `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
 # e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-ATTESI = {"test": 50, "attrezzaggio": 4, "produzione": 2}
+ATTESI = {"test": 52, "attrezzaggio": 4, "produzione": 2}
+# I due ultimi sono la sonda del tetto per cella, che dal default deriva
+# **due** quote strette -- una che rifiuta e una che ammette -- per provare
+# insieme che il tetto si applica e che e' quello configurato.
 
 # Occorrenze di produzione **legittime**: il default e' la scelta giusta, non
 # un residuo. Chiave: `percorso::funzione`; valore: `(quante, perche')`.

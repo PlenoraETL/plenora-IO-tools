@@ -2371,6 +2371,32 @@ mod tests {
         buffer
     }
 
+    /// `POINT (x y)` **big-endian**: stesso significato, byte al contrario.
+    ///
+    /// Il byte order lo sceglie chi scrive, ed e' il primo byte del payload:
+    /// un lettore che sapesse leggere solo una delle due forme rifiuterebbe
+    /// meta' dei file legittimi -- o peggio, ne leggerebbe i conteggi al
+    /// contrario.
+    fn punto_be(x: f64, y: f64) -> Vec<u8> {
+        let mut buffer = vec![0x00_u8];
+        buffer.extend_from_slice(&1_u32.to_be_bytes());
+        buffer.extend_from_slice(&x.to_be_bytes());
+        buffer.extend_from_slice(&y.to_be_bytes());
+        buffer
+    }
+
+    /// Una collezione big-endian con i figli gia' serializzati.
+    fn collezione_be(tipo: u32, figli: &[Vec<u8>]) -> Vec<u8> {
+        let mut buffer = vec![0x00_u8];
+        buffer.extend_from_slice(&tipo.to_be_bytes());
+        let quanti = u32::try_from(figli.len()).expect("figli oltre u32 in una fixture");
+        buffer.extend_from_slice(&quanti.to_be_bytes());
+        for figlio in figli {
+            buffer.extend_from_slice(figlio);
+        }
+        buffer
+    }
+
     /// Un poligono XY con gli anelli dichiarati, ciascuno con i punti indicati.
     ///
     /// Le coordinate sono zeri: la forma di un poligono dipende dal **numero**
@@ -2643,6 +2669,51 @@ mod tests {
         let limiti = WkbLimits::default();
         let anelli = vec![0_usize; limiti.max_components + 1];
         assert!(forma(&poligono(&anelli)).is_err());
+    }
+
+    /// Il byte order non e' un dettaglio del punto: governa **ogni** intero
+    /// che la discesa legge.
+    ///
+    /// La diagnostica differenziale del livello 2 su `1bd499d` ha trovato
+    /// queste righe mai eseguite: il parser ricorsivo era nuovo, e nessuna
+    /// sonda gli passava un payload big-endian. Un conteggio di figli letto
+    /// nell'endianess sbagliata non e' un errore che si nota: e' un numero
+    /// enorme o zero, cioe' un rifiuto o un «vuoto» falso.
+    #[test]
+    fn wkb_shape_scende_nei_figli_anche_in_big_endian() {
+        let vuota = collezione_be(7, &[punto_be(f64::NAN, f64::NAN)]);
+        assert_eq!(forma(&vuota).unwrap(), WkbShape::Empty);
+
+        let piena = collezione_be(7, &[punto_be(f64::NAN, f64::NAN), punto_be(1.0, 2.0)]);
+        assert_eq!(forma(&piena).unwrap(), WkbShape::NonEmpty);
+
+        // Le due endianess convivono nello stesso albero: ogni figlio dichiara
+        // la propria, ed e' cio' che rende sbagliato ereditarla dal padre.
+        let mista = collezione(7, &[punto_be(f64::NAN, f64::NAN), punto_vuoto()]);
+        assert_eq!(forma(&mista).unwrap(), WkbShape::Empty);
+
+        assert!(forma(&collezione_be(7, &[punto_be(1.0, 2.0)])[..8]).is_err());
+    }
+
+    /// Il tetto per cella e' il primo dei tre, e viene dalla **configurazione**.
+    ///
+    /// Provarlo con il default vorrebbe dire costruire una cella da 64 MiB;
+    /// provarlo con una quota stretta prova due cose in una riga -- che il
+    /// tetto si applica, e che e' quello passato e non quello predefinito.
+    #[test]
+    fn wkb_shape_rifiuta_una_cella_oltre_il_tetto_configurato() {
+        let payload = collezione(7, &[punto(1.0, 2.0)]);
+        let stretti = WkbLimits {
+            max_cell_bytes: payload.len() - 1,
+            ..WkbLimits::default()
+        };
+        assert!(wkb_shape(&payload, &stretti).is_err());
+
+        let esatti = WkbLimits {
+            max_cell_bytes: payload.len(),
+            ..WkbLimits::default()
+        };
+        assert_eq!(wkb_shape(&payload, &esatti).unwrap(), WkbShape::NonEmpty);
     }
 
     /// Il limite dichiarato: cio' che non sappiamo dimensionare non e' un
