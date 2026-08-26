@@ -368,11 +368,24 @@
     {
       "id": "lotto.s10",
       "superficie": "driver-geoparquet",
-      "invariante": "GeoParquet 1.1 e' validato per intero",
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "lotto S10 non aperto: la validazione completa di GeoParquet 1.1 non esiste",
-      "sintesi": "validazione completa di GeoParquet 1.1 non aperta"
+      "invariante": "i metadati `geo` di GeoParquet sono validati **per intero**, e i due modi di rifiutarli sono distinti: un documento che non rispetta la specifica e' un errore di formato, uno corretto che chiede una semantica non implementata e' un errore di funzionalita' non supportata. Il perimetro e' esattamente 1.0.0 e 1.1.0 -- i due valori che gli schemi ufficiali fissano -- ed e' dichiarato nel catalogo dal campo `spec_version_supported`, confrontato con l'elenco che il codice applica. Ogni campo del documento ha una prova positiva e una negativa, e l'insieme dei campi non e' trascritto: e' estratto dal modulo che li legge, cosi' un campo aggiunto senza sonde e' rosso.",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/check_metadati_geoparquet.py"
+        ],
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "-m",
+            "unittest",
+            "scripts.test_check_metadati_geoparquet"
+          ]
+        ]
+      },
+      "stato": "verified",
+      "nota": "prima di questo lotto il lettore consultava cinque campi su undici, e di `encoding` -- il campo che dice se i byte sono WKB -- non sapeva nulla: una colonna con codifica nativa GeoArrow, valida in 1.1, veniva consegnata a valle etichettata `geoarrow.wkb`, cioe' letta come se fosse WKB; e `edges: \"spherical\"` veniva trattato come planare, che cambia il significato geometrico dei dati. Un metadato `geo` malformato, infine, era indistinguibile da un file che `geo` non ce l'ha: un GeoParquet corrotto veniva letto come Parquet semplice, con la colonna geometria indovinata per nome. Ora un `geo` presente e' validato o rifiutato; `geo` assente resta Parquet semplice, che e' un caso legittimo e diverso. Codifiche native e bordi sferici sono rifiutati come funzionalita' valide e non implementate. Il writer dichiara `1.1.0` invece di `1.0.0`: emetteva `covering`, che esiste da 1.1, quindi il documento si contraddiceva. Il covering ben formato ma con percorsi annidati resta accettato e inutilizzabile per il pruning, che in questo driver e' fail-open per contratto: la differenza con `encoding` sta nel danno -- quello cambia il significato dei dati, questo toglie un'ottimizzazione."
     },
     {
       "id": "lotto.s11",

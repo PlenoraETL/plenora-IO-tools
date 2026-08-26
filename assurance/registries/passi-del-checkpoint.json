@@ -86,6 +86,14 @@
       "log": true
     },
     {
+      "id": "sonde_metadati_geoparquet",
+      "log": true
+    },
+    {
+      "id": "check_metadati_geoparquet",
+      "log": true
+    },
+    {
       "id": "sonde_quarantena",
       "log": true
     },

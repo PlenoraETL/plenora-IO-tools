@@ -594,6 +594,10 @@ passo check_capability_ostile python3 scripts/check_capability_input_ostile.py
 passo prove_di_confine python3 scripts/check_prove_di_confine.py
 passo sonde_semi_s12 python3 -m unittest scripts.test_genera_semi_s12
 passo semi_s12 python3 scripts/genera_semi_s12.py --verifica
+# I gate del lotto S10: la validazione dei metadati GeoParquet, e il perimetro
+# di versione che il catalogo dichiara.
+passo sonde_metadati_geoparquet python3 -m unittest scripts.test_check_metadati_geoparquet
+passo check_metadati_geoparquet python3 scripts/check_metadati_geoparquet.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder

@@ -96,12 +96,12 @@
       ]
     },
     "lotti": {
-      "s10": "aperto",
+      "s10": "chiuso",
       "s11": "chiuso",
       "s12": "chiuso",
       "qualifica_cross_component": "aperta",
       "perimetri": {
-        "s10": "validazione completa di GeoParquet 1.1",
+        "s10": "metadati `geo` di GeoParquet validati per intero, con il rifiuto dei metadati non conformi distinto da quello delle funzionalita' valide e non implementate; perimetro 1.0.0 e 1.1.0, dichiarato nel catalogo da `spec_version_supported` e confrontato con l'elenco che il codice applica",
         "s11": "wkb_shape ispeziona i figli delle collection, con i budget del bordo",
         "s12": "parsing bounded di WKT e GeoJSON durante il parse, misura di profondita' sui due target, capability hostile_input_hardened verificata dal codice"
       }

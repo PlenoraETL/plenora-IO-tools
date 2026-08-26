@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 94.57% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
-| blocchi | 5 |
+| blocchi | 4 |
 | S9, qualificato su | `57378fd` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -65,7 +65,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 | `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
 | `wire.loss-report` | contratto non ratificato |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
-| `lotto.s10` | validazione completa di GeoParquet 1.1 non aperta |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
 
 <!-- generato da assurance/current-state.json: fine -->
