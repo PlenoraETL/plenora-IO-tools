@@ -598,6 +598,11 @@ passo semi_s12 python3 scripts/genera_semi_s12.py --verifica
 # di versione che il catalogo dichiara.
 passo sonde_metadati_geoparquet python3 -m unittest scripts.test_check_metadati_geoparquet
 passo check_metadati_geoparquet python3 scripts/check_metadati_geoparquet.py
+# Gli schemi ufficiali come autorita' indipendente: lock, byte, sha256, `$id`,
+# draft, `$ref`, gli elenchi chiusi ricavati dallo schema, la closure del driver
+# e il suo censimento.
+passo sonde_schemi_geoparquet python3 -m unittest scripts.test_check_schemi_geoparquet
+passo check_schemi_geoparquet python3 scripts/check_schemi_geoparquet.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder

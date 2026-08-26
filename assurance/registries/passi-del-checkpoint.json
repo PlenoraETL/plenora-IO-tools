@@ -94,6 +94,14 @@
       "log": true
     },
     {
+      "id": "sonde_schemi_geoparquet",
+      "log": true
+    },
+    {
+      "id": "check_schemi_geoparquet",
+      "log": true
+    },
+    {
       "id": "sonde_quarantena",
       "log": true
     },
