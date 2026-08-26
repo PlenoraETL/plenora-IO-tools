@@ -139,6 +139,51 @@ class SondeDellaCapability(unittest.TestCase):
         )
         self.assertTrue(any("driver-fantasma" in e for e in errori), errori)
 
+    def test_una_voce_vuota_non_e_una_prova(self) -> None:
+        """La via per tenersi un `true` cancellando cio' che lo giustifica.
+
+        `crate in prove` era soddisfatto da `()`: la voce c'era, il gate la
+        contava, e `cargo test -- --exact` senza nomi non filtra -- esegue tutto
+        ed esce 0.
+        """
+        driver = {"driver-testo": ("fn leggi() { parse_wkt_bounded(t, l); }\n", True)}
+        errori = gate.verifica(self.albero(driver), {"driver-testo": ()})
+        self.assertTrue(any("voce delle prove e' vuota" in e for e in errori), errori)
+        # E il driver risulta anche senza prova: la voce vuota non lo copre.
+        self.assertTrue(any("prova **eseguita**" in e for e in errori), errori)
+
+    def test_un_identita_ripetuta_e_rossa(self) -> None:
+        """Il harness elenca ogni test una volta, il conteggio ne direbbe due."""
+        driver = {"driver-testo": ("fn leggi() { parse_wkt_bounded(t, l); }\n", True)}
+        errori = gate.verifica(
+            self.albero(driver),
+            {"driver-testo": ("tests::una_prova", "tests::una_prova")},
+        )
+        self.assertTrue(any("piu' di una volta" in e for e in errori), errori)
+
+    def test_un_identita_vuota_e_rossa(self) -> None:
+        driver = {"driver-testo": ("fn leggi() { parse_wkt_bounded(t, l); }\n", True)}
+        errori = gate.verifica(self.albero(driver), {"driver-testo": ("",)})
+        self.assertTrue(any("non valida" in e for e in errori), errori)
+
+    def test_la_mappa_reale_e_ben_formata(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        self.assertEqual(gate.mappa_valida(gate.PROVE_DELLA_CAPABILITY), [])
+
+    def test_le_prove_reali_non_sono_quelle_del_cap_in_byte(self) -> None:
+        """La distinzione che questo lotto esiste per fare.
+
+        Il cap in byte esisteva prima del parser progressivo e scatta prima di
+        deserializzare: un test che lo esercita resta verde anche rimettendo il
+        parser vecchio. Le prove della capability devono esercitare il tetto sui
+        **componenti**, e i loro nomi lo dicono.
+        """
+        for crate, nomi in gate.PROVE_DELLA_CAPABILITY.items():
+            for nome in nomi:
+                with self.subTest(driver=crate):
+                    self.assertIn("componenti", nome)
+                    self.assertNotIn("cell_bytes", nome)
+
     def test_le_prove_reali_coprono_i_driver_che_dichiarano(self) -> None:
         """La controprova positiva sulla mappa vera, non su un albero finto."""
         dichiarano = {

@@ -1669,6 +1669,72 @@ mod tests {
     /// batch e' una `InternalMemoryLease`, che esiste solo dentro un
     /// `PipelineContext`. `opzioni_lettura()` costruisce ancora il ramo
     /// legacy — sparira' in S4.e — e con quello `open` fallisce chiuso.
+    /// La capability `hostile_input_hardened`, provata dove S12 la sposta.
+    ///
+    /// Non e' il cap in byte: quello esisteva prima del parser progressivo e
+    /// scatta **prima** di deserializzare, quindi un test che lo esercita
+    /// resterebbe verde anche rimettendo il parser vecchio. Prova nulla di
+    /// questo lotto.
+    ///
+    /// Qui l'input sta comodamente sotto il cap in byte, e a fermarlo e' il
+    /// tetto sui **componenti** -- l'unita' che solo un'analisi che addebita
+    /// mentre consuma puo' applicare. Le tre condizioni stanno insieme
+    /// apposta:
+    ///
+    ///   * con il tetto stretto il rifiuto e' esattamente `LimitExceeded`;
+    ///   * con il default lo stesso identico input passa, quindi il rifiuto
+    ///     viene dal tetto e non dall'input;
+    ///   * l'input e' molto piu' corto del cap in byte, che percio' non
+    ///     c'entra.
+    ///
+    /// E' la prova che `check_capability_input_ostile.py` esegue per questo
+    /// driver: cancellarla, rinominarla o indebolirla rende rossa la
+    /// capability nel catalogo.
+    #[test]
+    fn la_cella_wkt_e_rifiutata_per_componenti_sotto_il_cap_in_byte() {
+        const COMPONENTI: usize = 5;
+        let wkt = "LINESTRING (0 0,1 1,2 2,3 3,4 4)";
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let output = dir.path().join("linea.xlsx");
+        let mut workbook = Workbook::new();
+        let sheet = workbook.add_worksheet();
+        sheet.write_string(0, 0, "geometry").expect("intestazione");
+        sheet.write_string(1, 0, wkt).expect("cella");
+        workbook.save(&output).expect("salvataggio");
+
+        assert!(
+            wkt.len() < plenora_io_model::limits::WkbLimits::default().max_cell_bytes / 1_000,
+            "l'input deve stare comodamente sotto il cap in byte"
+        );
+
+        let opzioni = |componenti: usize| {
+            opzioni_lettura_con(
+                plenora_io_model::budget::PipelineLimits::default()
+                    .with_max_wkb_components(componenti),
+            )
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry")
+        };
+
+        assert!(
+            XlsDriver
+                .open(Source::Path(output.clone()), opzioni(COMPONENTI))
+                .is_ok(),
+            "con {COMPONENTI} componenti di tetto la stessa cella deve passare"
+        );
+
+        match XlsDriver.open(Source::Path(output), opzioni(COMPONENTI - 1)) {
+            Err(errore) => assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::LimitExceeded,
+                "il rifiuto deve venire dal tetto sui componenti: {}",
+                errore.message
+            ),
+            Ok(_) => panic!("una cella oltre il tetto sui componenti deve fallire"),
+        }
+    }
+
     /// L'inferenza XLSX usa il tetto per cella **configurato**.
     ///
     /// Fino a S5 `encode_geometry_cell` passava

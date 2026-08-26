@@ -1572,6 +1572,19 @@ mod tests {
         }
     }
 
+    /// Opzioni con il tetto sui **componenti** configurato, e nient'altro.
+    fn opzioni_con_componenti(componenti: usize) -> ReadOptions {
+        let limiti =
+            plenora_io_model::budget::PipelineLimits::default().with_max_wkb_components(componenti);
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limiti)
+            .build()
+        {
+            Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
+            Err(error) => unreachable!("limiti di test non validi: {error:?}"),
+        }
+    }
+
     fn geojson_con_feature(dir: &tempfile::TempDir, quante: usize) -> std::path::PathBuf {
         let percorso = dir.path().join("input.geojson");
         let feature: Vec<String> = (0..quante)
@@ -1695,6 +1708,77 @@ mod tests {
         let mut buffer = Vec::new();
         wkb_from_gj_value(&valore, &mut buffer, 169).expect("al tetto esatto la codifica passa");
         assert_eq!(buffer.len(), 169);
+    }
+
+    /// La capability `hostile_input_hardened`, provata dove S12 la sposta.
+    ///
+    /// Non e' il cap in byte: quello esisteva prima del parser progressivo e
+    /// scatta **prima** di deserializzare, quindi un test che lo esercita
+    /// resterebbe verde anche rimettendo il parser vecchio. Prova nulla di
+    /// questo lotto.
+    ///
+    /// Qui l'input sta comodamente sotto il cap in byte, e a fermarlo e' il
+    /// tetto sui **componenti** -- l'unita' che solo un'analisi che addebita
+    /// mentre consuma puo' applicare. Le tre condizioni stanno insieme
+    /// apposta:
+    ///
+    ///   * con il tetto stretto il rifiuto e' esattamente `LimitExceeded`;
+    ///   * con il default lo stesso identico input passa, quindi il rifiuto
+    ///     viene dal tetto e non dall'input;
+    ///   * l'input e' molto piu' corto del cap in byte, che percio' non
+    ///     c'entra.
+    ///
+    /// E' la prova che `check_capability_input_ostile.py` esegue per questo
+    /// driver: cancellarla, rinominarla o indebolirla rende rossa la
+    /// capability nel catalogo.
+    #[test]
+    fn la_geometria_e_rifiutata_per_componenti_sotto_il_cap_in_byte() {
+        // Cinque posizioni, cioe' cinque componenti nell'unita' del bordo.
+        const COMPONENTI: usize = 5;
+        let geometria = r#"{"type":"LineString","coordinates":[[0,0],[1,1],[2,2],[3,3],[4,4]]}"#;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = dir.path().join("linea.geojson");
+        std::fs::write(
+            &percorso,
+            format!(
+                r#"{{"type":"FeatureCollection","features":[{{"type":"Feature","properties":{{"id":1}},"geometry":{geometria}}}]}}"#
+            ),
+        )
+        .expect("scrittura");
+
+        assert!(
+            geometria.len() < plenora_io_model::limits::WkbLimits::default().max_cell_bytes / 1_000,
+            "l'input deve stare comodamente sotto il cap in byte"
+        );
+
+        let letto = |componenti: usize| {
+            let dataset = GeoJsonDriver
+                .open(
+                    Source::Path(percorso.clone()),
+                    opzioni_con_componenti(componenti),
+                )
+                .expect("l'inferenza non tocca il tetto sui componenti");
+            let mut reader = dataset
+                .open_layer_reader(&req())
+                .expect("il reader si apre");
+            reader.next_batch()
+        };
+
+        assert!(
+            letto(COMPONENTI).is_ok(),
+            "con {COMPONENTI} componenti di tetto la stessa geometria deve passare"
+        );
+
+        match letto(COMPONENTI - 1) {
+            Err(errore) => assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::LimitExceeded,
+                "il rifiuto deve venire dal tetto sui componenti: {}",
+                errore.message
+            ),
+            Ok(_) => panic!("una geometria oltre il tetto sui componenti deve fallire"),
+        }
     }
 
     /// L'inferenza usa il tetto per cella **configurato**, non il default.

@@ -68,6 +68,21 @@ def esegui(crate: str, nomi: tuple[str, ...], cosa: str = "sonda") -> list[str]:
     a cercare nel file sbagliato. La **regola** e' la stessa, e averla in due
     copie vorrebbe dire vederle divergere.
     """
+    # Un elenco vuoto non e' un filtro vuoto: `cargo test -- --exact` senza nomi
+    # non filtra niente, esegue **tutto** ed esce 0. Chiamarlo con zero nomi
+    # certificherebbe una prova che nessuno ha nominato.
+    if not nomi:
+        return [
+            f"{crate}: nessuna identita' da eseguire. `--exact` senza nomi non "
+            "filtra: eseguirebbe l'intera suite e uscirebbe 0, cioe' direbbe "
+            "verde senza aver guardato cio' che doveva."
+        ]
+    ripetute = sorted({n for n in nomi if nomi.count(n) > 1})
+    if ripetute:
+        return [
+            f"{crate}: le identita' {ripetute} sono dichiarate piu' di una volta. "
+            "Il harness ne elenca una, e il conteggio ne annuncerebbe due."
+        ]
     comando = ["cargo", "test", "-p", crate, "--lib", "--locked", "--", "--exact", *nomi]
     try:
         esito = subprocess.run(
@@ -106,30 +121,8 @@ def esegui(crate: str, nomi: tuple[str, ...], cosa: str = "sonda") -> list[str]:
     return errori
 
 
-def elenco_senza_ripetizioni() -> list[str]:
-    """L'elenco dichiarato non ripete un'identita'.
-
-    Sembra pedanteria e non lo e': il gate conta le sonde sommando le lunghezze
-    dei suoi elenchi, mentre il harness elenca ogni test una volta sola. Un nome
-    scritto due volte faceva percio' annunciare «8 sonde» a fronte di sette
-    eseguite -- e un gate che dichiara di aver provato piu' di quanto ha provato
-    e' esattamente cio' che questo file esiste per impedire altrove.
-    """
-    errori: list[str] = []
-    for crate, nomi in PROVE.items():
-        for nome in sorted({n for n in nomi if nomi.count(n) > 1}):
-            errori.append(
-                f"{crate}: la sonda «{nome}» e' dichiarata piu' di una volta. "
-                "Il conteggio annuncerebbe piu' prove di quante ne girano."
-            )
-    return errori
-
-
 def verifica() -> list[str]:
-    errori = elenco_senza_ripetizioni()
-    if errori:
-        # Senza elenco onesto, l'esecuzione misurerebbe la cosa sbagliata.
-        return errori
+    errori: list[str] = []
     for crate, nomi in PROVE.items():
         errori.extend(esegui(crate, nomi))
     return errori

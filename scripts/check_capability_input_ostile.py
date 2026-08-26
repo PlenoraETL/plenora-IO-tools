@@ -107,18 +107,62 @@ def _invocazione(nome: str) -> re.Pattern[str]:
 IMPORTAZIONE = re.compile(r"^\s*(pub\s+)?use\s[^;]*;", re.MULTILINE)
 
 # La prova eseguita di ciascun driver che dichiara `true`: l'identita' esatta
-# del test che apre un dataset vero attraverso l'entry point pubblico con una
-# quota piu' stretta del default, e pretende il rifiuto tipizzato.
+# del test che apre un dataset vero attraverso l'entry point pubblico e pretende
+# il rifiuto tipizzato.
+#
+# La quota stretta e' quella sui **componenti**, e non e' un dettaglio.
+#
+# La prima stesura nominava i tre test sul cap in byte, e non provavano questo
+# lotto: il cap in byte esisteva prima del parser progressivo e scatta **prima**
+# di deserializzare, quindi restavano verdi anche rimettendo il parser vecchio.
+# Verificato neutralizzando il budget dei componenti nei due parser: i tre test
+# sul cap in byte restano verdi, questi tre diventano rossi. E' la differenza
+# fra provare S5 e provare S12.
+#
+# I tre input stanno comodamente sotto il cap in byte, passano con il tetto sui
+# componenti al valore esatto e sono rifiutati con `LimitExceeded` a un
+# componente di meno.
 #
 # L'elenco e' una **mappa chiusa**: un driver che dichiara `true` e non compare
 # qui e' rosso, e una voce che nomina un driver che non dichiara `true` pure. E'
 # la stessa disciplina di `check_prove_di_confine.py`, per la stessa ragione: un
 # riferimento testuale non e' una prova, un'esecuzione si'.
 PROVE_DELLA_CAPABILITY: dict[str, tuple[str, ...]] = {
-    "driver-csv": ("tests::inference_uses_configured_wkt_cell_bytes_not_default",),
-    "driver-geojson": ("tests::inference_uses_configured_wkt_cell_bytes_not_default",),
-    "driver-xls": ("tests::inference_uses_configured_wkt_cell_bytes_not_default",),
+    "driver-csv": ("tests::la_cella_wkt_e_rifiutata_per_componenti_sotto_il_cap_in_byte",),
+    "driver-geojson": (
+        "tests::la_geometria_e_rifiutata_per_componenti_sotto_il_cap_in_byte",
+    ),
+    "driver-xls": ("tests::la_cella_wkt_e_rifiutata_per_componenti_sotto_il_cap_in_byte",),
 }
+
+
+def mappa_valida(prove: dict[str, tuple[str, ...]]) -> list[str]:
+    """Ogni voce nomina almeno una prova, e nomina prove distinte.
+
+    `crate in prove` era soddisfatto da `"driver-csv": ()`: la voce c'era, il
+    gate la contava, e `cargo test -- --exact` senza nomi non filtra niente --
+    esegue tutto ed esce 0. Un `true` si sarebbe tenuto cancellando la prova.
+    """
+    errori: list[str] = []
+    for crate, nomi in sorted(prove.items()):
+        if not isinstance(nomi, tuple) or not nomi:
+            errori.append(
+                f"{crate}: la voce delle prove e' vuota. Una voce vuota conta "
+                "come prova presente e non esegue niente, che e' il modo di "
+                "tenersi un `true` cancellando cio' che lo giustifica."
+            )
+            continue
+        for nome in nomi:
+            if not isinstance(nome, str) or not nome:
+                errori.append(f"{crate}: identita' di prova non valida: «{nome}»")
+        ripetute = sorted({n for n in nomi if nomi.count(n) > 1})
+        if ripetute:
+            errori.append(
+                f"{crate}: le prove {ripetute} sono dichiarate piu' di una volta. "
+                "Il harness elenca ogni test una volta sola, quindi il conteggio "
+                "annuncerebbe piu' prove di quante ne girano."
+            )
+    return errori
 
 # Il commento con cui un driver apre la propria dichiarazione. Il valore sta
 # nella prima riga non commentata che segue: leggerlo riga per riga invece che
@@ -200,7 +244,7 @@ def verifica(
     """
     if prove is None:
         prove = PROVE_DELLA_CAPABILITY
-    errori: list[str] = []
+    errori = mappa_valida(prove)
     driver = crate_dei_driver(radice)
     for crate in sorted(set(prove) - set(driver)):
         errori.append(
@@ -211,7 +255,8 @@ def verifica(
     for crate in driver:
         detto = dichiarato(radice, crate)
         visto = osservato(radice, crate)
-        provato = crate in prove
+        # `crate in prove` non basta: una voce vuota c'e' e non prova niente.
+        provato = bool(prove.get(crate))
         if detto is not None and detto and not provato:
             errori.append(
                 f"{crate}: dichiara `hostile_input_hardened = true` e non ha una "
@@ -268,7 +313,9 @@ def main() -> int:
         f"{len(irrigiditi)} la dichiarano ({', '.join(irrigiditi)}), ognuno "
         "chiama un'analisi che applica i tetti durante il parse, e ognuno lo "
         f"**dimostra**: {quante} prove eseguite attraverso l'entry point "
-        "pubblico con una quota piu' stretta del default, ciascuna passata."
+        "pubblico con il tetto sui **componenti** stretto e l'input sotto il cap "
+        "in byte, ciascuna passata. Il cap in byte non proverebbe questo lotto: "
+        "esisteva prima del parser progressivo."
     )
     return 0
 
