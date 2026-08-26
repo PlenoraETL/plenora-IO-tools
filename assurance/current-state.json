@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "2c80650",
+      "sha": "ae7597e",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "2c80650",
+    "sha": "ae7597e",
     "checkpoint": {
       "passi_eseguiti": 57,
       "passi_verdi": 57,
@@ -23,7 +23,7 @@
       "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 48089,
+      "replay_input": 50025,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.37,
-      "lcov_righe_coperte": 30025,
-      "lcov_righe_strumentate": 34762,
-      "cargo_lines_percentuale": 84.49,
+      "lcov_percentuale": 86.83,
+      "lcov_righe_coperte": 31509,
+      "lcov_righe_strumentate": 36287,
+      "cargo_lines_percentuale": 85.03,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore sale a 34 762 righe, 433 piu' della corsa su feef241, e sono il classificatore ricorsivo con le sue sonde; la soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore sale a 36 287 righe, 1 958 piu' della corsa su 2c80650: sono i due parser progressivi con le loro sonde. La soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "f7b6d79",
-      "esito": "97.06%",
-      "righe_cambiate_eseguibili": 510,
-      "coperte": 495,
-      "scoperte": 15,
-      "cambiate_non_eseguibili": 417,
-      "ragione": "97.06% delle 510 righe cambiate ed eseguibili. Le righe cambiate e il loro esito sono gli stessi della corsa su 8038420: da allora questo ramo ha toccato solo il gate documentale, che sta in Python. La diagnostica ha lavorato tre volte in questo ramo: su 1bd499d dava 96,55% e indicava tre righe di produzione mai eseguite -- il percorso big-endian del parser ricorsivo, che nessuna sonda attraversava -- coperte da 411a5aa; su 411a5aa dava 97,93%. Qui le righe cambiate salgono a 510 perche' la seconda lettura ha riscritto la contabilita' dei componenti e aggiunto la regola sui membri, con le loro sonde.",
-      "che_cosa_sono_le_scoperte": "tutte e 15 stanno in `crates/driver-gpkg/src/lib.rs`, e nessuna e' stata coperta fingendo. Quattro sono messaggi di `assert!` delle sonde nuove, che si eseguono solo quando una sonda fallisce. Le altre sono difensive: `oltre_il_tipo` costruisce l'errore di overflow aritmetico, e da un conteggio a 32 bit su `usize` a 64 bit non ci si arriva; il `continue` dentro `chunks_exact(8)` vale per un blocco che non ha otto byte, e ogni blocco ne ha otto; «manca un figlio dichiarato» sorveglia una posizione oltre la fine del payload, che ogni figlio misurato garantisce di non superare. «mancano le coordinate dichiarate» e' diventata irraggiungibile **in questa corsa**, ed e' un effetto della correzione: `conteggio_plausibile` rifiuta ora un conteggio impossibile prima che si arrivi a contare i byte, come fa `ensure_count` nel parser condiviso. La guardia resta, e vale il giorno in cui quell'ordine cambiasse."
+      "baseline": "1a51044",
+      "esito": "95.39%",
+      "righe_cambiate_eseguibili": 1734,
+      "coperte": 1654,
+      "scoperte": 80,
+      "cambiate_non_eseguibili": 1136,
+      "ragione": "95.39% delle 1734 righe cambiate ed eseguibili. E' il lotto piu' grosso del percorso -- due parser riscritti -- e la diagnostica ha fatto due volte cio' per cui sta nel denominatore: ha indicato sei righe che nessun test attraversava, e dietro c'era una regressione vera -- `MULTIPOINT ()` accettata dove il confine precedente la rifiuta; poi ha indicato `visit_i64`, mai eseguito perche' ne' il corpus ne' i semi avevano una coordinata negativa. La sonda comparativa non aveva visto nessuna delle due.",
+      "che_cosa_sono_le_scoperte": "le 80 sono attribuite una per una, e quarantaquattro non sono codice di produzione: trentatre' stanno in `mod adattatore_storico` -- l'implementazione di riferimento tenuta per il confronto, che e' `cfg(test)` -- e le altre undici sono messaggi di sonde e helper di prova. Le trentasei di produzione sono di quattro famiglie, tutte dichiarate: guardie **seconde**, che ricontrollano cio' che una guardia precedente ha gia' rifiutato -- la dimensionalita' che `coordinata` respinge, il `match` esaustivo dopo che `tipo_e_suffisso` ha validato il nome, l'annidamento del tipo gia' escluso a monte; un `unreachable!` e un `expecting` che serde chiama solo per formattare un messaggio; la quota dichiarata dal punto d'ingresso del fuzzing, che `cargo test` non esegue; e l'accessore `hostile_input_hardened()`, che esiste per simmetria con gli altri campi del descrittore mentre il catalogo serializza il campo direttamente. Nessuna e' stata coperta fingendo, e nessuna guardia e' stata tolta per alzare una percentuale."
     },
-    "evidenza": "assurance/evidence/checkpoint-2c80650.json"
+    "evidenza": "assurance/evidence/checkpoint-ae7597e.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "2c80650"
+      "qualificato_su": "ae7597e"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
