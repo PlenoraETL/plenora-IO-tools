@@ -1769,24 +1769,87 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         self.assertIsNotNone(guasto)
         self.assertIn("non e' leggibile", guasto)
 
-    def test_un_registro_storico_illeggibile_o_malformato_e_rosso(self) -> None:
-        """Le altre porte: byte che non sono UTF-8, e JSON senza `passi`."""
+    # --- lo schema del registro e' chiuso ---------------------------------
+    #
+    # Il registro decide che cosa un'evidenza deve contenere, quindi una lettura
+    # permissiva non e' un dettaglio: `log: "false"` e' una stringa non vuota,
+    # cioe' vera, e quella voce avrebbe preteso un log dove il registro voleva
+    # dire il contrario. L'evidenza sarebbe stata giudicata contro una regola
+    # che nessuno ha scritto.
+    #
+    # Gli stessi casi valgono per il registro storico e per quello corrente,
+    # perche' e' la **stessa** funzione a leggerli: verificare la forma solo dove
+    # non si scrive piu' sarebbe verificarla dove non serve.
+
+    MALFORMATI = (
+        ("non e' UTF-8", b"\xff\xfe non testo"),
+        ("non e' JSON", b"{ questo non e' json"),
+        ("non e' un oggetto", b"[]"),
+        ("schema_version assente", b'{"passi": [{"id": "fmt", "log": true}]}'),
+        ("schema_version sbagliata", b'{"schema_version": 2, "passi": [{"id": "fmt", "log": true}]}'),
+        ("non ha `passi`", b'{"schema_version": 1}'),
+        ("`passi` e' una lista vuota", b'{"schema_version": 1, "passi": []}'),
+        ("una voce senza `id`", b'{"schema_version": 1, "passi": [{"log": true}]}'),
+        ("una voce senza `log`", b'{"schema_version": 1, "passi": [{"id": "fmt"}]}'),
+        (
+            "un campo in piu'",
+            b'{"schema_version": 1, "passi": [{"id": "fmt", "log": true, "extra": 1}]}',
+        ),
+        ("`id` vuoto", b'{"schema_version": 1, "passi": [{"id": "", "log": true}]}'),
+        ("`id` non stringa", b'{"schema_version": 1, "passi": [{"id": 7, "log": true}]}'),
+        ("`log` intero", b'{"schema_version": 1, "passi": [{"id": "fmt", "log": 1}]}'),
+        (
+            "`log` stringa",
+            b'{"schema_version": 1, "passi": [{"id": "fmt", "log": "false"}]}',
+        ),
+        (
+            "un'identita' ripetuta",
+            b'{"schema_version": 1, "passi": [{"id": "fmt", "log": true},'
+            b' {"id": "fmt", "log": true}]}',
+        ),
+    )
+
+    def test_un_registro_malformato_e_rosso(self) -> None:
+        for nome, grezzo in self.MALFORMATI:
+            with self.subTest(caso=nome):
+                _, _, guasto = gate.registro_dal_testo(grezzo, "in prova")
+                self.assertIsNotNone(guasto, nome)
+                self.assertIn("in prova", guasto)
+
+    def test_un_registro_ben_formato_si_legge(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        ordine, senza_log, guasto = gate.registro_dal_testo(
+            b'{"schema_version": 1, "passi": ['
+            b'{"id": "fmt", "log": true}, {"id": "in_linea", "log": false}]}',
+            "in prova",
+        )
+        self.assertIsNone(guasto)
+        self.assertEqual(ordine, ("fmt", "in_linea"))
+        self.assertEqual(senza_log, frozenset({"in_linea"}))
+
+    def test_lo_stesso_schema_vale_per_il_registro_corrente(self) -> None:
+        """Il registro del working tree passa dalla stessa porta."""
+        self.assertEqual(gate._registro_corrente_ben_formato({}), [])
+        for nome, grezzo in self.MALFORMATI:
+            with self.subTest(caso=nome):
+                with mock.patch.object(
+                    pathlib.Path, "read_bytes", return_value=grezzo
+                ):
+                    errori = gate._registro_corrente_ben_formato({})
+                self.assertEqual(len(errori), 1, nome)
+                self.assertIn(gate.REGISTRO_DEI_PASSI_RELATIVO, errori[0])
+
+    def test_un_registro_storico_malformato_e_rosso(self) -> None:
+        """La stessa porta, dal ramo che legge da `git show`."""
         risolta = gate.revisione_risolta("HEAD")
         senza_cache = gate.registro_della_revisione.__wrapped__
-
-        casi = (
-            ("non e' UTF-8", b"\xff\xfe non testo"),
-            ("non e' JSON", b"{ questo non e' json"),
-            ("non ha `passi`", b'{"schema_version": 1}'),
-            ("`passi` e' una lista vuota", b'{"passi": []}'),
-            ("una voce senza `id`", b'{"passi": [{"log": true}]}'),
-        )
-        for nome, uscita in casi:
+        for nome, grezzo in self.MALFORMATI:
             with self.subTest(caso=nome):
-                finto = subprocess.CompletedProcess([], 0, stdout=uscita, stderr=b"")
+                finto = subprocess.CompletedProcess([], 0, stdout=grezzo, stderr=b"")
                 with mock.patch.object(gate.subprocess, "run", return_value=finto):
                     _, _, guasto = senza_cache(risolta)
                 self.assertIsNotNone(guasto, nome)
+                self.assertIn(risolta[:7], guasto)
 
     def test_l_elenco_reale_copre_il_manifest(self) -> None:
         """La controprova positiva, sui numeri di questa corsa."""

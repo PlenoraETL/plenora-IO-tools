@@ -1357,6 +1357,105 @@ REGISTRO_DI_PROFONDITA_FILEGDB = (
 MISURA_ASAN_FILEGDB = ROOT / "assurance" / "asan-filegdb.json"
 
 
+# Lo schema del registro dei passi. E' **chiuso**, e in entrambe le direzioni:
+# una voce e' esattamente `{id, log}`, l'identita' e' una stringa non vuota e
+# `log` e' un booleano.
+#
+# Non e' pedanteria. Il registro decide che cosa un'evidenza deve contenere, e
+# la lettura permissiva accettava `log: 1`, `log: "false"`, un campo in piu' che
+# nessuno guarda e uno `schema_version` sbagliato: `not v["log"]` su `"false"`
+# e' falso, cioe' quella voce avrebbe preteso un log dove il registro voleva
+# dire il contrario, e l'evidenza sarebbe stata giudicata contro una regola che
+# nessuno ha scritto.
+SCHEMA_DEL_REGISTRO = 1
+CAMPI_DI_VOCE_DEL_REGISTRO = frozenset({"id", "log"})
+
+
+def registro_dal_testo(
+    grezzo: bytes, dove: str
+) -> tuple[tuple[str, ...], frozenset[str], str | None]:
+    """`(identita' in ordine, quelle senza log, errore)` da un registro serio.
+
+    `dove` compare nei messaggi e non altrove: e' la revisione, o il percorso,
+    di cui si sta parlando.
+    """
+    try:
+        testo = grezzo.decode("utf-8")
+    except UnicodeDecodeError as errore:
+        return (), frozenset(), f"il registro dei passi {dove} non e' UTF-8: {errore}"
+    try:
+        documento = json.loads(testo)
+    except json.JSONDecodeError as errore:
+        return (), frozenset(), f"il registro dei passi {dove} non e' JSON: {errore}"
+    if not isinstance(documento, dict):
+        return (), frozenset(), f"il registro dei passi {dove} non e' un oggetto"
+
+    versione = documento.get("schema_version")
+    if versione != SCHEMA_DEL_REGISTRO:
+        return (), frozenset(), (
+            f"il registro dei passi {dove} dichiara `schema_version` "
+            f"«{versione}», atteso {SCHEMA_DEL_REGISTRO}. Uno schema diverso si "
+            "legge con regole diverse, e leggerlo con queste sarebbe leggerlo "
+            "male senza accorgersene."
+        )
+
+    voci = documento.get("passi")
+    if not isinstance(voci, list) or not voci:
+        return (), frozenset(), (
+            f"il registro dei passi {dove} non dichiara un elenco `passi` non vuoto"
+        )
+
+    ordine: list[str] = []
+    senza_log: set[str] = set()
+    for posizione, voce in enumerate(voci, 1):
+        if not isinstance(voce, dict) or set(voce) != CAMPI_DI_VOCE_DEL_REGISTRO:
+            return (), frozenset(), (
+                f"il registro dei passi {dove}, voce {posizione}: campi "
+                f"{sorted(voce) if isinstance(voce, dict) else voce}, attesi "
+                f"esattamente {sorted(CAMPI_DI_VOCE_DEL_REGISTRO)}"
+            )
+        identita = voce["id"]
+        if not isinstance(identita, str) or not identita:
+            return (), frozenset(), (
+                f"il registro dei passi {dove}, voce {posizione}: `id` non e' "
+                f"una stringa non vuota ma «{identita}»"
+            )
+        log = voce["log"]
+        # `isinstance(1, bool)` e' falso, quindi `log: 1` non passa di qui: e'
+        # esattamente il caso che la lettura permissiva accettava.
+        if not isinstance(log, bool):
+            return (), frozenset(), (
+                f"il registro dei passi {dove}, voce {posizione} «{identita}»: "
+                f"`log` non e' un booleano ma «{log}» ({type(log).__name__})"
+            )
+        if identita in ordine:
+            return (), frozenset(), (
+                f"il registro dei passi {dove} dichiara «{identita}» due volte. "
+                "Due passi omonimi scriverebbero lo stesso log, e il manifest ne "
+                "conterebbe uno."
+            )
+        ordine.append(identita)
+        if not log:
+            senza_log.add(identita)
+    return tuple(ordine), frozenset(senza_log), None
+
+
+def _registro_corrente_ben_formato(_stato: dict[str, Any]) -> list[str]:
+    """Il registro del working tree passa lo **stesso** schema di quelli storici.
+
+    Senza, la validazione stretta varrebbe per i registri del passato e non per
+    quello che la prossima corsa riconciliera': la forma sarebbe verificata
+    dappertutto tranne dove si scrive.
+    """
+    percorso = ROOT / REGISTRO_DEI_PASSI_RELATIVO
+    if not percorso.exists():
+        return [f"{REGISTRO_DEI_PASSI_RELATIVO}: assente dal working tree"]
+    _, _, guasto = registro_dal_testo(
+        percorso.read_bytes(), f"in {REGISTRO_DEI_PASSI_RELATIVO}"
+    )
+    return [] if guasto is None else [guasto]
+
+
 @functools.lru_cache(maxsize=8)
 def registro_della_revisione(
     revisione: str,
@@ -1400,22 +1499,7 @@ def registro_della_revisione(
             "il registro di quella revisione non c'e' niente contro cui "
             "verificare l'elenco, e il registro corrente descrive un'altra corsa."
         )
-    try:
-        documento = json.loads(esito.stdout.decode("utf-8"))
-        voci = documento["passi"]
-        ordine = tuple(v["id"] for v in voci)
-        senza_log = frozenset(v["id"] for v in voci if not v["log"])
-    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, KeyError) as errore:
-        return (), frozenset(), (
-            f"il registro dei passi alla revisione «{revisione[:7]}» non ha la "
-            f"forma attesa ({type(errore).__name__}): {errore}"
-        )
-    if not ordine:
-        return (), frozenset(), (
-            f"il registro dei passi alla revisione «{revisione[:7]}» non "
-            "dichiara alcun passo"
-        )
-    return ordine, senza_log, None
+    return registro_dal_testo(esito.stdout, f"alla revisione «{revisione[:7]}»")
 
 # Gli artefatti che una corsa produce e che non sono il log di un passo.
 # L'elenco e' chiuso: il manifest e' esattamente i log dei passi piu' questi, e
@@ -2461,6 +2545,7 @@ def validate_stato_corrente(stato: dict[str, Any]) -> list[str]:
         + _profondita_legata(stato)
         + _profondita_filegdb_legata(stato)
         + _docset_legato(stato)
+        + _registro_corrente_ben_formato(stato)
     )
 
 
