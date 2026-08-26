@@ -147,7 +147,7 @@ pub enum Conformita {
 /// esplicitamente di **non sapere** il proprio CRS veniva letto come se avesse
 /// dichiarato di essere in WGS84, che e' un'affermazione che nessuno aveva
 /// fatto.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Crs {
     /// Il campo non c'e': la specifica dice `OGC:CRS84`.
     Assente,
@@ -1580,8 +1580,8 @@ mod sonde {
         ] {
             let mut colonna = colonna_minima();
             colonna["crs"] = finto.clone();
-            let errore =
-                analizza(&con_versione("1.0.0", &colonna), true).expect_err("{finto} non passa");
+            let esito = analizza(&con_versione("1.0.0", &colonna), true);
+            let errore = esito.expect_err("una forma diversa da quella storica non passa");
             assert_eq!(
                 errore.code,
                 plenora_io_model::IoErrorCode::Format,

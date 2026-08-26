@@ -124,14 +124,14 @@ fn compila() -> Result<Validatori, &'static str> {
 }
 
 fn validatori() -> Result<&'static Validatori, PlenoraIoError> {
-    match VALIDATORI.get_or_init(compila) {
-        Ok(pronti) => Ok(pronti),
-        // Il testo dell'errore interno **non** entra nel messaggio pubblico: e'
-        // nostro, non di chi legge il file, e non lo aiuterebbe.
-        Err(_) => Err(non_conforme(&PublicMessage::Curated(
-            "gli schemi GeoParquet incorporati non sono utilizzabili",
-        ))),
-    }
+    // `map_err` e non un ripiego: il testo dell'errore interno **non** entra nel
+    // messaggio pubblico -- e' nostro, non di chi legge il file, e non lo
+    // aiuterebbe -- ma l'esito resta un errore, non un valore di comodo.
+    VALIDATORI.get_or_init(compila).as_ref().map_err(|_| {
+        non_conforme(&PublicMessage::Curated(
+            "gli schemi `GeoParquet` incorporati non sono utilizzabili",
+        ))
+    })
 }
 
 /// Il documento rispetta lo schema ufficiale della versione che dichiara?

@@ -2200,22 +2200,18 @@ pub fn wkb_bbox(bytes: &[u8]) -> Option<[f64; 4]> {
 #[allow(clippy::similar_names)]
 fn build_bbox_columns(geom: &BinaryArray, geometria_nullable: bool) -> Vec<ArrayRef> {
     let rows = geom.len();
-    let (mut minx, mut miny, mut maxx, mut maxy) = (
-        Vec::with_capacity(rows),
-        Vec::with_capacity(rows),
-        Vec::with_capacity(rows),
-        Vec::with_capacity(rows),
-    );
+    // Un array di quattro colonne, non quattro variabili in una tupla: sono i
+    // quattro spigoli nell'ordine di `BBOX_SPIGOLI`, e il tipo lo dice.
+    let mut colonne: [Vec<Option<f64>>; 4] = std::array::from_fn(|_| Vec::with_capacity(rows));
     for row in 0..rows {
         let bbox = if geom.is_null(row) {
             None
         } else {
             wkb_bbox(geom.value(row))
         };
-        minx.push(bbox.map(|bbox| bbox[0]));
-        miny.push(bbox.map(|bbox| bbox[1]));
-        maxx.push(bbox.map(|bbox| bbox[2]));
-        maxy.push(bbox.map(|bbox| bbox[3]));
+        for (spigolo, valori) in colonne.iter_mut().enumerate() {
+            valori.push(bbox.map(|bbox| bbox[spigolo]));
+        }
     }
     // I quattro figli entrano in una struct sola. I nulli stanno **nei figli**
     // e non nel buffer della struct: dove non c'e' geometria non c'e' riquadro,
@@ -2224,7 +2220,7 @@ fn build_bbox_columns(geom: &BinaryArray, geometria_nullable: bool) -> Vec<Array
     // deve comparire.
     let figli: Vec<(Arc<Field>, ArrayRef)> = BBOX_SPIGOLI
         .into_iter()
-        .zip([minx, miny, maxx, maxy])
+        .zip(colonne)
         .map(|(spigolo, valori)| {
             (
                 Arc::new(Field::new(spigolo, DataType::Float64, geometria_nullable)),
