@@ -3126,6 +3126,208 @@ mod tests {
         writer.close().unwrap();
     }
 
+    // --- il driver davanti a un metadato `geo` -----------------------------
+    //
+    // Il modulo `metadati` e' provato campo per campo dalle sue sonde. Qui si
+    // prova l'altra meta': che il **driver** usi quella validazione, e che i
+    // comportamenti di punta del lotto -- un `geo` malformato rifiutato, un
+    // `geo` assente tollerato -- accadano aprendo un file vero.
+
+    /// Un parquet con una colonna geometria e il metadato `geo` che si vuole.
+    ///
+    /// `None` scrive il file **senza** la chiave: e' il caso «Parquet
+    /// semplice», che resta legittimo e va distinto da un `geo` che c'e' e non
+    /// regge.
+    fn parquet_con_geo(dir: &tempfile::TempDir, geo: Option<&str>) -> std::path::PathBuf {
+        let percorso = dir.path().join("con_geo.parquet");
+        let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let geom = BinaryArray::from(vec![Some(punto.as_slice())]);
+        let ids = Int64Array::from(vec![1_i64]);
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(geom), Arc::new(ids)]).unwrap();
+        let file = File::create(&percorso).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        if let Some(documento) = geo {
+            writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), documento.to_owned()));
+        }
+        writer.close().unwrap();
+        percorso
+    }
+
+    /// Il documento minimo, con i campi che si vogliono in piu'.
+    fn geo_con(extra: &str) -> String {
+        format!(
+            r#"{{"version":"1.1.0","primary_column":"geometry","columns":{{"geometry":{{"encoding":"WKB","geometry_types":["Point"]{extra}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn un_parquet_senza_geo_resta_leggibile_come_parquet_semplice() {
+        // `geo` assente non e' un file rotto: e' un Parquet che non pretende di
+        // essere GeoParquet, e la colonna geometria si riconosce dal nome.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = parquet_con_geo(&dir, None);
+        let dataset = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .expect("un Parquet semplice con una colonna `geometry` si apre");
+        let contratto = &dataset.layers()[0].contract;
+        assert!(contratto.schema.index_of("geometry").is_ok());
+        // E non porta metadati nativi GeoParquet, perche' non ne ha dichiarati.
+        let geometria = contratto.geometry.as_ref().expect("colonna geometria");
+        assert!(!geometria.native_metadata.contains_key("geoparquet.version"));
+    }
+
+    #[test]
+    fn un_geo_malformato_ferma_l_apertura_invece_di_passare_per_assente() {
+        // Il difetto che il lotto chiude: `serde_json::from_str(..).ok()`
+        // faceva diventare `None` qualunque documento malformato, cioe' lo
+        // rendeva indistinguibile da un file che `geo` non ce l'ha -- e il
+        // driver passava a indovinare la colonna dal nome.
+        let dir = tempfile::tempdir().expect("tempdir");
+        for documento in [
+            "{ non json",
+            "[]",
+            r#"{"primary_column":"geometry","columns":{}}"#,
+            r#"{"version":"1.1.0","primary_column":"geometry"}"#,
+        ] {
+            let percorso = parquet_con_geo(&dir, Some(documento));
+            let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+            assert!(
+                matches!(
+                    esito,
+                    Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+                ),
+                "«{documento}» deve fermare l'apertura come metadato non conforme"
+            );
+        }
+    }
+
+    #[test]
+    fn un_geo_dichiarato_e_vuoto_ferma_l_apertura() {
+        // La chiave c'e' e il valore no: e' un documento che si dichiara e non
+        // si scrive, non un file senza metadati.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = parquet_con_geo(&dir, Some(""));
+        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "un `geo` vuoto non e' un file senza metadati"
+        );
+    }
+
+    #[test]
+    fn una_versione_non_supportata_ferma_l_apertura_con_il_proprio_codice() {
+        // E il codice e' quello della funzionalita' non supportata, non quello
+        // dei metadati non conformi: il file va bene, noi no.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con("").replace("1.1.0", "2.0.0");
+        let percorso = parquet_con_geo(&dir, Some(&documento));
+        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Unsupported
+            ),
+            "una 2.0.0 e' una versione che non leggiamo, non un file sbagliato"
+        );
+    }
+
+    #[test]
+    fn una_primary_column_assente_dallo_schema_ferma_l_apertura() {
+        // Prima nessuno lo verificava: il nome arrivava fino al retag dello
+        // schema, dove non trovava niente da ri-etichettare, e la geometria
+        // spariva senza un errore.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con("").replace("\"geometry\"", "\"non_c_e\"");
+        let percorso = parquet_con_geo(&dir, Some(&documento));
+        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "una colonna dichiarata e assente deve fermare l'apertura"
+        );
+    }
+
+    #[test]
+    fn i_campi_validati_arrivano_al_contratto() {
+        // Validare un campo e poi scartarlo sarebbe meta' del lavoro: chi legge
+        // a valle non saprebbe che quel file dichiara bordi, orientamento,
+        // epoca e riquadro di ingombro.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con(
+            r#","edges":"planar","orientation":"counterclockwise","bbox":[0,0,1,1],"epoch":2021.5"#,
+        );
+        let percorso = parquet_con_geo(&dir, Some(&documento));
+        let dataset = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .expect("il documento e' conforme");
+        let geometria = dataset.layers()[0]
+            .contract
+            .geometry
+            .as_ref()
+            .expect("colonna geometria");
+        let nativi = &geometria.native_metadata;
+        assert_eq!(
+            nativi.get("geoparquet.version").map(String::as_str),
+            Some("1.1.0")
+        );
+        assert_eq!(
+            nativi.get("geoparquet.edges").map(String::as_str),
+            Some("planar")
+        );
+        assert_eq!(
+            nativi.get("geoparquet.orientation").map(String::as_str),
+            Some("counterclockwise")
+        );
+        assert_eq!(
+            nativi.get("geoparquet.bbox").map(String::as_str),
+            Some("0,0,1,1")
+        );
+        assert_eq!(
+            nativi.get("geoparquet.epoch").map(String::as_str),
+            Some("2021.5")
+        );
+    }
+
+    #[test]
+    fn le_colonne_geometriche_secondarie_sono_nominate_dal_contratto() {
+        // Un GeoParquet puo' averne piu' di una, e il contratto non nominava
+        // quelle che non erano la primaria: un consumatore non aveva modo di
+        // sapere che esistessero.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = concat!(
+            r#"{"version":"1.1.0","primary_column":"geometry","columns":{"#,
+            r#""geometry":{"encoding":"WKB","geometry_types":["Point"]},"#,
+            r#""altra":{"encoding":"WKB","geometry_types":[]}}}"#,
+        );
+        let percorso = parquet_con_geo(&dir, Some(documento));
+        let dataset = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .expect("il documento e' conforme");
+        let geometria = dataset.layers()[0]
+            .contract
+            .geometry
+            .as_ref()
+            .expect("colonna geometria");
+        assert_eq!(
+            geometria
+                .native_metadata
+                .get("geoparquet.altre_colonne")
+                .map(String::as_str),
+            Some("altra")
+        );
+    }
+
     #[test]
     fn legacy_bbox_names_are_preserved_by_default() {
         // Finding #4 follow-up follow-up review 2026-08-15: senza

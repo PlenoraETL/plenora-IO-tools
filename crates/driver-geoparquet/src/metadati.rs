@@ -794,6 +794,25 @@ mod sonde {
     }
 
     #[test]
+    fn columns_con_una_colonna_che_non_e_un_oggetto_e_non_conforme() {
+        // La forma della colonna e' controllata, e nessuna sonda la esercitava:
+        // il gate pretende i due versi **per campo**, e questa e' la forma del
+        // contenitore, non di un campo. Una lacuna che l'elenco dei campi non
+        // poteva vedere.
+        for valore in [json!(7), json!("WKB"), json!([]), json!(null)] {
+            let testo = json!({
+                "version": "1.1.0",
+                "primary_column": "geometry",
+                "columns": {"geometry": valore},
+            })
+            .to_string();
+            assert!(non_conforme_con(&testo)
+                .message
+                .contains("non e' un oggetto"));
+        }
+    }
+
+    #[test]
     fn columns_con_una_secondaria_malformata_e_non_conforme() {
         // Una colonna che non e' la primaria puo' essere letta da un
         // consumatore diverso: lasciarla passare malformata vorrebbe dire
