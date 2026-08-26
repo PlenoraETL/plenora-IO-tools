@@ -33,8 +33,16 @@ dichiarata e' una garanzia che nessuno usa.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# Lo spoglio di commenti e stringhe e' gia' scritto, provato e usato da un altro
+# gate: riscriverlo qui vorrebbe dire avere due implementazioni della stessa
+# regola, e la seconda sbaglierebbe da sola il giorno in cui la prima cambia.
+from check_wkb_limits_defaults import spoglia  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CRATES = ROOT / "crates"
@@ -48,6 +56,24 @@ INGRESSI_PROGRESSIVI = (
     # GeoJSON: la deserializzazione che addebita mentre serde consegna.
     "geometria_progressiva::analizza",
 )
+
+# Un attraversamento e' una **chiamata**, non il nome scritto da qualche parte.
+#
+# La prima stesura cercava il nome come sottostringa, e tre cose diverse
+# passavano per la stessa: una chiamata vera, un commento che la nomina -- e
+# questo file, come ogni altro qui dentro, spiega le proprie ragioni nominando
+# i simboli -- e un `use` che importa il simbolo senza usarlo. La controprova
+# e' stata costruita e passava: `hostile_input_hardened = true` con il solo
+# commento.
+#
+# Il sorgente viene percio' spogliato di commenti e stringhe, e cio' che resta
+# deve essere il nome seguito da una parentesi aperta: un `use` non ne ha.
+def _invocazione(nome: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![A-Za-z0-9_]){re.escape(nome)}\s*\(")
+
+
+# Un `use` non e' un attraversamento: importa un simbolo, non lo chiama.
+IMPORTAZIONE = re.compile(r"^\s*(pub\s+)?use\s[^;]*;", re.MULTILINE)
 
 # Il commento con cui un driver apre la propria dichiarazione. Il valore sta
 # nella prima riga non commentata che segue: leggerlo riga per riga invece che
@@ -106,9 +132,16 @@ def dichiarato(radice: Path, crate: str) -> bool | None:
 
 
 def osservato(radice: Path, crate: str) -> bool:
-    """Il driver attraversa davvero un ingresso progressivo?"""
-    sorgenti = _sorgenti(radice, crate)
-    return any(ingresso in sorgenti for ingresso in INGRESSI_PROGRESSIVI)
+    """Il driver **chiama** davvero un ingresso progressivo?
+
+    Non «lo nomina»: lo chiama. Commenti e stringhe spariscono prima di
+    guardare, le importazioni pure, e cio' che resta deve essere il nome
+    seguito da una parentesi aperta.
+    """
+    sorgenti = IMPORTAZIONE.sub(" ", spoglia(_sorgenti(radice, crate)))
+    return any(
+        _invocazione(ingresso).search(sorgenti) for ingresso in INGRESSI_PROGRESSIVI
+    )
 
 
 def verifica(radice: Path) -> list[str]:
@@ -126,9 +159,10 @@ def verifica(radice: Path) -> list[str]:
             continue
         if detto and not visto:
             errori.append(
-                f"{crate}: dichiara `hostile_input_hardened = true` e non chiama "
-                f"nessuno di {list(INGRESSI_PROGRESSIVI)}. Un `true` costa un "
-                "carattere; la garanzia costa un parser."
+                f"{crate}: dichiara `hostile_input_hardened = true` e non "
+                f"**chiama** nessuno di {list(INGRESSI_PROGRESSIVI)}. Nominarli "
+                "in un commento o importarli non basta: un `true` costa un "
+                "carattere, la garanzia costa un parser."
             )
         if visto and not detto:
             errori.append(

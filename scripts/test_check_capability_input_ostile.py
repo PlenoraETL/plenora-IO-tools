@@ -4,9 +4,13 @@ Il gate esiste per impedire una cosa sola: che un `true` costi un carattere. Se
 il gate sbagliasse, la capability tornerebbe una parola -- e sarebbe una parola
 che il catalogo pubblica, cioe' che qualcuno fuori di qui usa per decidere.
 
-Le sonde muovono i tre modi in cui potrebbe diventare verde senza meritarlo: un
-valore dichiarato senza il parser, un parser senza il valore, e un driver che
-non dichiara affatto.
+Le sonde muovono i modi in cui potrebbe diventare verde senza meritarlo: un
+valore dichiarato senza il parser, un parser senza il valore, un driver che non
+dichiara affatto -- e i tre residui che *somigliano* a un attraversamento senza
+esserlo, il nome dentro un commento, il nome dentro una stringa, il simbolo
+soltanto importato. L'ultima e' la piu' importante: cancellare la chiamata vera
+e lasciare l'import e il commento che la nominano e' il modo in cui una
+garanzia si perde senza che nessun diff sembri toglierla.
 """
 
 from __future__ import annotations
@@ -57,6 +61,71 @@ class SondeDellaCapability(unittest.TestCase):
         radice = self.albero({"driver-bugiardo": ("fn leggi() { }\n", True)})
         errori = gate.verifica(radice)
         self.assertTrue(any("costa un carattere" in e for e in errori), errori)
+
+    def test_il_nome_in_un_commento_non_e_un_attraversamento(self) -> None:
+        """La controprova che la prima stesura non superava: un `true` con il
+        solo nome del parser dentro un commento.
+
+        Un gate del genere spiega le proprie ragioni nominando i simboli, e
+        cosi' fa ogni file di questo repository: se il nome contasse ovunque
+        comparisse, documentare costerebbe una capability."""
+        radice = self.albero(
+            {
+                "driver-commentato": (
+                    "// un giorno chiameremo parse_wkt_bounded(testo, limiti)\n"
+                    "fn leggi() { }\n",
+                    True,
+                )
+            }
+        )
+        errori = gate.verifica(radice)
+        self.assertTrue(any("non **chiama**" in e for e in errori), errori)
+
+    def test_un_simbolo_solo_importato_non_e_un_attraversamento(self) -> None:
+        """`use` porta il nome in scope, non lo esegue."""
+        radice = self.albero(
+            {
+                "driver-importatore": (
+                    "use driver_common::wkt_lossless::parse_wkt_bounded;\n"
+                    "fn leggi() { }\n",
+                    True,
+                )
+            }
+        )
+        errori = gate.verifica(radice)
+        self.assertTrue(any("non **chiama**" in e for e in errori), errori)
+
+    def test_cancellare_la_chiamata_lasciando_i_residui_e_rosso(self) -> None:
+        """Il caso che tiene insieme i due precedenti: la chiamata sparisce e
+        restano l'import e il commento che la nominano. E' il modo in cui una
+        garanzia si perde senza che nessun diff sembri toglierla."""
+        con_chiamata = (
+            "use driver_common::wkt_lossless::parse_wkt_bounded;\n"
+            "// la cella WKT passa da parse_wkt_bounded\n"
+            "fn leggi() { parse_wkt_bounded(testo, limiti); }\n"
+        )
+        albero = self.albero({"driver-vero": (con_chiamata, True)})
+        self.assertEqual(gate.verifica(albero), [])
+
+        senza_chiamata = (
+            "use driver_common::wkt_lossless::parse_wkt_bounded;\n"
+            "// la cella WKT passa da parse_wkt_bounded\n"
+            "fn leggi() { }\n"
+        )
+        errori = gate.verifica(self.albero({"driver-vero": (senza_chiamata, True)}))
+        self.assertTrue(any("non **chiama**" in e for e in errori), errori)
+
+    def test_una_stringa_che_nomina_il_parser_non_conta(self) -> None:
+        radice = self.albero(
+            {
+                "driver-loquace": (
+                    'fn messaggio() -> &str { "usa parse_wkt_bounded(x, y)" }\n',
+                    True,
+                )
+            }
+        )
+        errori = gate.verifica(radice)
+        self.assertTrue(any("non **chiama**" in e for e in errori), errori)
 
     def test_un_parser_senza_il_true_e_rosso(self) -> None:
         """La direzione opposta conta quanto la prima: una garanzia che non e'
