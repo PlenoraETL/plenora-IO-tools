@@ -1,4 +1,4 @@
-//! I metadati `geo` di GeoParquet, validati per intero.
+//! I metadati `geo` di `GeoParquet`, validati per intero.
 //!
 //! # Che cosa c'era prima
 //!
@@ -6,7 +6,7 @@
 //! `None`, cioe' **indistinguibile da un file che `geo` non ce l'ha**: il
 //! driver passava a indovinare la colonna geometria fra `geometry`, `geom` e
 //! `wkb`, e la colonna indovinata poteva non essere quella che
-//! `primary_column` dichiarava. Un GeoParquet corrotto veniva letto come
+//! `primary_column` dichiarava. Un `GeoParquet` corrotto veniva letto come
 //! Parquet semplice, e nessuno lo sapeva.
 //!
 //! Dei campi del documento ne venivano consultati cinque -- `primary_column`,
@@ -14,7 +14,7 @@
 //! `edges`, `orientation`, `epoch` e il `bbox` di colonna non venivano guardati
 //! affatto. Le due conseguenze che pesavano:
 //!
-//! * una colonna con `encoding` nativo `GeoArrow` -- valida in GeoParquet 1.1
+//! * una colonna con `encoding` nativo `GeoArrow` -- valida in `GeoParquet` 1.1
 //!   -- veniva consegnata a valle etichettata `geoarrow.wkb`, cioe' **letta
 //!   come se fosse WKB**;
 //! * `edges: "spherical"` veniva trattato come planare, e i bordi sferici non
@@ -82,7 +82,7 @@ const NOMI_DI_TIPO: [(&str, GeometryType); 7] = [
 /// Sono due, e non quattro. Il pattern e'
 /// `^(GeometryCollection|(Multi)?(Point|LineString|Polygon))( Z)?$` in
 /// entrambi gli schemi, 1.0.0 e 1.1.0: **`" M"` e `" ZM"` non esistono** in
-/// GeoParquet.
+/// `GeoParquet`.
 ///
 /// La prima stesura li ammetteva, e la ragione che ci aveva scritto accanto --
 /// «il nostro writer li emette, rifiutarli renderebbe illeggibili i file che
@@ -206,7 +206,7 @@ pub struct ColonnaGeo {
     /// per spigolo, il secondo uguale al nome dello spigolo -- `["bbox",
     /// "xmin"]` -- cioe' una colonna struct con quattro figli. La prima stesura
     /// leggeva e scriveva un solo segmento, e quei documenti **non erano
-    /// GeoParquet 1.1 validi**.
+    /// `GeoParquet` 1.1 validi**.
     ///
     /// Vale `None` quando il covering non c'e', e quando c'e' in un documento
     /// **1.0.0**: li' la specifica non gli attribuisce alcun significato, e
@@ -556,24 +556,28 @@ fn crs(
     oggetto: &serde_json::Map<String, serde_json::Value>,
     conformita: Conformita,
 ) -> Result<Crs> {
-    match oggetto.get("crs") {
-        None => Ok(Crs::Assente),
-        Some(serde_json::Value::Null) => Ok(Crs::Nullo),
-        // La forma storica si riconosce **solo** se il documento e' stato
-        // accettato per compatibilita': altrimenti non e' mai arrivato qui.
-        Some(valore)
-            if conformita == Conformita::CrsStoricoSoloIdentificatore
-                && identificatore_storico(valore).is_some() =>
-        {
-            Ok(Crs::StoricoSoloIdentificatore(
-                identificatore_storico(valore).unwrap_or_default(),
-            ))
-        }
-        Some(valore) if valore.is_object() => Ok(Crs::Documento(valore.clone())),
-        Some(_) => Err(non_conforme(&PublicMessage::Curated(
-            "colonna GeoParquet con un `crs` che non e' ne' un oggetto PROJJSON ne' null",
-        ))),
+    let Some(valore) = oggetto.get("crs") else {
+        return Ok(Crs::Assente);
+    };
+    if valore.is_null() {
+        return Ok(Crs::Nullo);
     }
+    // La forma storica si riconosce **solo** se il documento e' stato accettato
+    // per compatibilita': altrimenti non e' mai arrivato fin qui. Si legge una
+    // volta e si usa quella -- rileggerla dopo una guardia `is_some()` avrebbe
+    // richiesto un ripiego per un caso che la guardia ha gia' escluso, e un
+    // ripiego che non puo' scattare non e' una difesa.
+    if conformita == Conformita::CrsStoricoSoloIdentificatore {
+        if let Some(id) = identificatore_storico(valore) {
+            return Ok(Crs::StoricoSoloIdentificatore(id));
+        }
+    }
+    if valore.is_object() {
+        return Ok(Crs::Documento(valore.clone()));
+    }
+    Err(non_conforme(&PublicMessage::Curated(
+        "colonna GeoParquet con un `crs` che non e' ne' un oggetto PROJJSON ne' null",
+    )))
 }
 
 /// I bordi della colonna.
@@ -701,7 +705,7 @@ fn epoch(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Option<
 /// La prima stesura accettava un solo segmento e lo chiamava «utilizzabile»,
 /// trattando quello a due segmenti come «valido e inutilizzabile»: esattamente
 /// al contrario. E il writer emetteva la forma piatta, cioe' scriveva documenti
-/// che GeoParquet 1.1 non ammette.
+/// che `GeoParquet` 1.1 non ammette.
 ///
 /// # E solo in 1.1.0
 ///

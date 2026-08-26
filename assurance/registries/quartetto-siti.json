@@ -197,11 +197,17 @@
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never"
     ],
+    "crs_da_scrivere": [
+      "Unsupported/Validate/Unsupported/Never"
+    ],
     "crs_from": [
       "Crs/Validate/CrsUnresolved/Never"
     ],
     "fmt_err": [
       "DataMapping/Read/Format/Never"
+    ],
+    "geometry_type_label": [
+      "Unsupported/Validate/Unsupported/Never"
     ]
   },
   "crates/driver-geoparquet/src/metadati.rs": {
@@ -215,6 +221,11 @@
   "crates/driver-geoparquet/src/pagine.rs": {
     "errore": [
       "esplicito/esplicito/Generic/esplicito"
+    ]
+  },
+  "crates/driver-geoparquet/src/schema_ufficiale.rs": {
+    "non_conforme": [
+      "DataMapping/Read/Format/Never"
     ]
   },
   "crates/driver-gpkg/src/lib.rs": {

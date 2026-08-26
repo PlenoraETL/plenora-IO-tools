@@ -814,14 +814,14 @@ pub struct GeoParquetDriver;
 /// opt-in scritto male taceva invece di correggersi.
 /// L'opt-in alla lettura del `crs` storico, non conforme.
 ///
-/// Spento per default, e deve restarlo: ogni GeoParquet che questo repository
+/// Spento per default, e deve restarlo: ogni `GeoParquet` che questo repository
 /// ha scritto fino a S10 dichiara `crs: {"id": {...}}`, che **non e'** un
 /// documento PROJJSON e che lo schema ufficiale rifiuta in entrambe le
 /// versioni. Quei file non sono conformi, e accettarli in silenzio vorrebbe
 /// dire chiamare conforme cio' che non lo e'.
 ///
 /// Chi ha quei dati accende l'opzione e sa che cosa sta accettando: il
-/// contratto lo dichiara, e la via non entra nel supporto GeoParquet dichiarato
+/// contratto lo dichiara, e la via non entra nel supporto `GeoParquet` dichiarato
 /// conforme.
 fn opt_in_crs_storico(format_options: &std::collections::BTreeMap<String, String>) -> Result<bool> {
     format_options
@@ -1086,10 +1086,10 @@ enum CrsDaScrivere {
     Documento(String),
 }
 
-/// Gli identificatori che, dentro GeoParquet, **sono** CRS84.
+/// Gli identificatori che, dentro `GeoParquet`, **sono** CRS84.
 ///
 /// `OGC:CRS84` lo e' per definizione. `EPSG:4326` lo e' per una ragione che sta
-/// nel formato e non nel registro EPSG: GeoParquet impone l'ordine degli assi
+/// nel formato e non nel registro EPSG: `GeoParquet` impone l'ordine degli assi
 /// longitudine-latitudine alle coordinate che memorizza, quindi un dataset
 /// dichiarato `EPSG:4326` e scritto qui ha le stesse coordinate, nello stesso
 /// ordine, di uno dichiarato `OGC:CRS84`. I due sono equivalenti **in questo
@@ -2017,7 +2017,7 @@ fn percorso_presente(schema: &Schema, percorso: &[String]) -> bool {
 ///
 /// Restano qui perche' i file scritti allora esistono, e perche'
 /// `bbox_legacy_by_name` -- l'opt-in che gia' c'era -- serve a riconoscerle. Il
-/// writer non le produce piu': non erano un covering GeoParquet 1.1 valido.
+/// writer non le produce piu': non erano un covering `GeoParquet` 1.1 valido.
 const BBOX_COLS: [&str; 4] = ["_bbox_minx", "_bbox_miny", "_bbox_maxx", "_bbox_maxy"];
 
 /// Il nome della colonna struct che porta il covering conforme.
@@ -2037,7 +2037,7 @@ fn is_bbox_col(name: &str) -> bool {
 /// Lo schema 1.1.0 pretende che ogni spigolo del `covering.bbox` sia un
 /// percorso di **due** segmenti, il secondo uguale al nome dello spigolo:
 /// `["bbox", "xmin"]`. Quattro colonne piatte non possono esprimerlo, e i file
-/// che questo writer produceva -- `["_bbox_minx"]` -- non erano GeoParquet 1.1
+/// che questo writer produceva -- `["_bbox_minx"]` -- non erano `GeoParquet` 1.1
 /// validi, benche' il documento si dichiarasse tale.
 ///
 /// # Nullabilita'
@@ -2515,7 +2515,7 @@ mod tests {
     // e' successo -- emettevamo un `covering` piatto e lo leggevamo come
     // valido.
 
-    /// Scrive un GeoParquet vero e ne restituisce il metadato `geo` grezzo.
+    /// Scrive un `GeoParquet` vero e ne restituisce il metadato `geo` grezzo.
     fn geo_di_un_file_scritto(dir: &tempfile::TempDir) -> (String, std::path::PathBuf) {
         let percorso = dir.path().join("scritto.parquet");
         let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(9.19, 45.46))).unwrap();
@@ -2591,10 +2591,9 @@ mod tests {
 
         for spigolo in BBOX_SPIGOLI {
             let atteso = vec![BBOX_STRUCT.to_owned(), spigolo.to_owned()];
-            let indice = foglie
-                .iter()
-                .position(|p| *p == atteso)
-                .unwrap_or_else(|| panic!("manca la foglia {BBOX_STRUCT}.{spigolo}"));
+            let Some(indice) = foglie.iter().position(|p| *p == atteso) else {
+                panic!("manca la foglia {BBOX_STRUCT}.{spigolo}");
+            };
             let colonna = descrittore.column(indice);
             assert_eq!(
                 colonna.physical_type(),
