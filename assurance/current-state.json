@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "9aabadb",
+      "sha": "cdd9f72",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "9aabadb",
+    "sha": "cdd9f72",
     "checkpoint": {
       "passi_eseguiti": 63,
       "passi_verdi": 63,
@@ -23,7 +23,7 @@
       "riconciliazione": "63 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 50693,
+      "replay_input": 51268,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.82,
-      "lcov_righe_coperte": 31526,
-      "lcov_righe_strumentate": 36310,
-      "cargo_lines_percentuale": 85.0,
+      "lcov_percentuale": 86.83,
+      "lcov_righe_coperte": 31541,
+      "lcov_righe_strumentate": 36327,
+      "cargo_lines_percentuale": 85.01,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore e' 36 310 righe, 23 piu' della corsa su ae7597e: sono le due correzioni della seconda lettura, la regola temporale del gate del contratto e la separazione di `Tipo` in due famiglie. La soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore e' 36 327 righe, 17 piu' della corsa su 9aabadb: sono le quattro correzioni della terza lettura -- la sonda discriminante, la prova eseguita della capability, lo schema chiuso del registro. La soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
       "baseline": "1a51044",
-      "esito": "95.11%",
-      "righe_cambiate_eseguibili": 1757,
-      "coperte": 1671,
-      "scoperte": 86,
-      "cambiate_non_eseguibili": 1189,
-      "ragione": "95,11% delle 1757 righe cambiate ed eseguibili. E' il lotto piu' grosso del percorso -- due parser riscritti -- e la diagnostica ha fatto tre volte cio' per cui sta nel denominatore: ha indicato sei righe che nessun test attraversava, e dietro c'era una regressione vera -- `MULTIPOINT ()` accettata dove il confine precedente la rifiuta; poi `visit_i64`, mai eseguito perche' ne' il corpus ne' i semi avevano una coordinata negativa; e ora indica i rami negativi elencati sotto.",
-      "che_cosa_sono_le_scoperte": "le 86 sono attribuite una per una. Quarantotto non sono codice di produzione: stanno dietro un `cfg(test)` -- `mod adattatore_storico`, che e' l'implementazione di riferimento tenuta per il confronto, e i messaggi e gli helper delle sonde. Le trentotto di produzione sono tutte rami negativi, e si dividono in tre gruppi che non hanno la stessa natura, ed e' la ragione per cui sono elencati separatamente qui sotto invece che riassunti in un numero."
+      "esito": "95.04%",
+      "righe_cambiate_eseguibili": 1774,
+      "coperte": 1686,
+      "scoperte": 88,
+      "cambiate_non_eseguibili": 1209,
+      "ragione": "95,04% delle 1774 righe cambiate ed eseguibili. E' il lotto piu' grosso del percorso -- due parser riscritti -- e la diagnostica ha fatto tre volte cio' per cui sta nel denominatore: ha indicato sei righe che nessun test attraversava, e dietro c'era una regressione vera -- `MULTIPOINT ()` accettata dove il confine precedente la rifiuta; poi `visit_i64`, mai eseguito perche' ne' il corpus ne' i semi avevano una coordinata negativa; e ora indica i rami negativi elencati sotto.",
+      "che_cosa_sono_le_scoperte": "le 88 sono attribuite una per una. Cinquanta non sono codice di produzione: stanno dietro un `cfg(test)` -- `mod adattatore_storico`, che e' l'implementazione di riferimento tenuta per il confronto, e i messaggi e gli helper delle sonde. Le trentotto di produzione sono tutte rami negativi, e si dividono in tre gruppi che non hanno la stessa natura, ed e' la ragione per cui sono elencati separatamente qui sotto invece che riassunti in un numero."
     },
-    "evidenza": "assurance/evidence/checkpoint-9aabadb.json"
+    "evidenza": "assurance/evidence/checkpoint-cdd9f72.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "9aabadb"
+      "qualificato_su": "cdd9f72"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
