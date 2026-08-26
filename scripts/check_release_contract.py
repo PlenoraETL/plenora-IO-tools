@@ -874,6 +874,11 @@ def _git(*argomenti: str) -> str | None:
 ESITO_LIVELLO_2 = "S9 checkpoint level 2 passed"
 
 
+@functools.lru_cache(maxsize=None)
+def _revisione_risolta(revisione: str) -> str | None:
+    return _git("rev-parse", "--verify", revisione + "^{commit}") or None
+
+
 def revisione_risolta(revisione: Any) -> str | None:
     """Lo SHA completo del commit designato, o `None` se non ne designa uno.
 
@@ -886,10 +891,16 @@ def revisione_risolta(revisione: Any) -> str | None:
     Qui ogni revisione viene **risolta da git**, e il confronto e' fra SHA
     completi. Una revisione vuota, troppo corta, ambigua o assente dalla storia
     non risolve, e non c'e' un prefisso che possa cavarsela.
+
+    Il risultato e' memoizzato: un gate non muove HEAD mentre gira, e ogni
+    altra revisione che risolve e' un commit, cioe' immutabile. Senza, le sonde
+    dell'evidenza risolvevano la stessa revisione una volta per sonda -- una
+    settantina di `git rev-parse` che su un repository montato da fuori si
+    sentono.
     """
     if not isinstance(revisione, str) or not revisione:
         return None
-    return _git("rev-parse", "--verify", revisione + "^{commit}") or None
+    return _revisione_risolta(revisione)
 
 
 def _git_riesce(*argomenti: str) -> bool:
