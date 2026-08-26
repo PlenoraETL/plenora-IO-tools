@@ -544,6 +544,19 @@ echo "--- 1. compilazione e test -----------------------------------"
 passo sonde_checkpoint bash scripts/test_s9_checkpoint.sh
 passo fmt cargo fmt --all -- --check
 passo clippy cargo clippy --workspace --all-targets --all-features -- -D warnings
+# I lint di sicurezza, nella forma **esatta** in cui CI li impone.
+#
+# Mancavano, e il 2026-08-26 hanno lasciato passare un `unreachable!` in codice
+# consegnato attraverso un livello 1 e un livello 2: entrambi dichiaravano
+# «nessun fallito» eseguendo un insieme di controlli piu' debole di quello che
+# la pipeline applica sullo stesso commit. E' lo stesso difetto che questa
+# intestazione racconta per `cargo fmt --check`, ripetuto: un elenco di passi
+# tenuto a mano diverge, e diverge in silenzio.
+#
+# `plenora-bench` e `plenora-fuzz` restano fuori con le stesse ragioni di CI:
+# sono attrezzaggio, non vengono consegnati, e li' un `panic!` e' il modo
+# giusto di fermarsi.
+passo clippy_sicurezza cargo clippy --workspace --lib --bins --all-features --locked     --exclude plenora-bench --exclude plenora-fuzz     -- -D warnings -D unsafe-code -D clippy::unwrap_used -D clippy::expect_used     -D clippy::panic -D clippy::unreachable -D clippy::todo -D clippy::unimplemented
 # `--all-features` abilita `gdal-backend`, quindi il percorso stub di
 # driver-filegdb non veniva compilato da nessun passo. Il 2026-08-21 e'
 # rimasto rotto per un'intera tranche, e a trovarlo e' stata la misura di
@@ -573,6 +586,14 @@ passo sonde_niente_leak python3 -m unittest scripts.test_check_niente_leak
 passo check_niente_leak python3 scripts/check_niente_leak.py
 passo sonde_wkb_limits python3 -m unittest scripts.test_check_wkb_limits_defaults
 passo check_wkb_limits python3 scripts/check_wkb_limits_defaults.py
+# I gate del lotto S12. Girano in CI dal primo commit del lotto; qui erano
+# assenti, cioe' il checkpoint dichiarava verde un commit senza avere guardato
+# la capability che quel commit pubblica.
+passo sonde_capability_ostile python3 -m unittest scripts.test_check_capability_input_ostile
+passo check_capability_ostile python3 scripts/check_capability_input_ostile.py
+passo prove_di_confine python3 scripts/check_prove_di_confine.py
+passo sonde_semi_s12 python3 -m unittest scripts.test_genera_semi_s12
+passo semi_s12 python3 scripts/genera_semi_s12.py --verifica
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder

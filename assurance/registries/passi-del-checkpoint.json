@@ -18,6 +18,10 @@
       "log": true
     },
     {
+      "id": "clippy_sicurezza",
+      "log": true
+    },
+    {
       "id": "clippy_default",
       "log": true
     },
@@ -59,6 +63,26 @@
     },
     {
       "id": "check_wkb_limits",
+      "log": true
+    },
+    {
+      "id": "sonde_capability_ostile",
+      "log": true
+    },
+    {
+      "id": "check_capability_ostile",
+      "log": true
+    },
+    {
+      "id": "prove_di_confine",
+      "log": true
+    },
+    {
+      "id": "sonde_semi_s12",
+      "log": true
+    },
+    {
+      "id": "semi_s12",
       "log": true
     },
     {
