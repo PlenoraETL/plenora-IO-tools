@@ -531,8 +531,12 @@ fn covering(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Opti
         ))
     })?;
 
-    let mut nomi = Vec::with_capacity(SPIGOLI.len());
-    for spigolo in SPIGOLI {
+    // I quattro spigoli si leggono in un array, non in un `Vec`: il tipo dice
+    // che sono quattro, e cosi' in fondo non serve un ramo per il caso «non ne
+    // ho quattro» -- un ramo che non puo' accadere non e' un controllo, e' una
+    // promessa.
+    let mut nomi: [Vec<String>; 4] = [const { Vec::new() }; 4];
+    for (posizione, spigolo) in SPIGOLI.into_iter().enumerate() {
         let percorso = riquadro
             .get(spigolo)
             .ok_or_else(|| {
@@ -563,25 +567,20 @@ fn covering(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Opti
                 })?;
             segmenti.push(letto.to_owned());
         }
-        nomi.push(segmenti);
+        nomi[posizione] = segmenti;
     }
 
     // Ben formato ma annidato: valido, e non utilizzabile per il pruning.
-    if nomi.iter().any(|segmenti| segmenti.len() != 1) {
+    let [xmin, ymin, xmax, ymax] = nomi;
+    let (Ok([xmin]), Ok([ymin]), Ok([xmax]), Ok([ymax])) = (
+        <[String; 1]>::try_from(xmin),
+        <[String; 1]>::try_from(ymin),
+        <[String; 1]>::try_from(xmax),
+        <[String; 1]>::try_from(ymax),
+    ) else {
         return Ok(None);
-    }
-    let mut piatti = nomi
-        .into_iter()
-        .filter_map(|segmenti| segmenti.into_iter().next());
-    // I quattro nomi si prendono insieme, e non uno per volta con un ripiego a
-    // testa: `unwrap_or_default()` avrebbe messo una stringa vuota al posto di
-    // un nome mancante, cioe' avrebbe dato al pruning una colonna che non
-    // esiste. Qui o ci sono tutti e quattro, o il covering resta spento -- che
-    // e' il verso in cui questo driver sbaglia per contratto.
-    match (piatti.next(), piatti.next(), piatti.next(), piatti.next()) {
-        (Some(xmin), Some(ymin), Some(xmax), Some(ymax)) => Ok(Some([xmin, ymin, xmax, ymax])),
-        _ => Ok(None),
-    }
+    };
+    Ok(Some([xmin, ymin, xmax, ymax]))
 }
 
 #[cfg(test)]

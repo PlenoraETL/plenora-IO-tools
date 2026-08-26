@@ -3208,9 +3208,9 @@ mod tests {
     }
 
     #[test]
-    fn un_geo_dichiarato_e_vuoto_ferma_l_apertura() {
-        // La chiave c'e' e il valore no: e' un documento che si dichiara e non
-        // si scrive, non un file senza metadati.
+    fn un_geo_con_valore_vuoto_ferma_l_apertura() {
+        // La chiave c'e' e il valore e' la stringa vuota: non e' JSON, e il
+        // rifiuto viene da li'. E' il caso che un writer distratto produce.
         let dir = tempfile::tempdir().expect("tempdir");
         let percorso = parquet_con_geo(&dir, Some(""));
         let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
@@ -3219,7 +3219,48 @@ mod tests {
                 esito,
                 Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
             ),
-            "un `geo` vuoto non e' un file senza metadati"
+            "una stringa vuota non e' un documento `geo`"
+        );
+    }
+
+    #[test]
+    fn un_geo_dichiarato_senza_valore_ferma_l_apertura() {
+        // Diverso dal precedente, e la copertura lo ha mostrato: nel formato
+        // Parquet il valore di una `KeyValue` e' **opzionale**, quindi la
+        // chiave `geo` puo' esserci senza alcun valore. La sonda di prima
+        // scriveva la stringa vuota e passava dal ramo «non e' JSON»,
+        // lasciando questo scoperto -- il nome prometteva una cosa e ne
+        // provava un'altra.
+        //
+        // `KeyValue::new` non sa esprimerlo, quindi la voce si costruisce a
+        // mano. E' un documento che si dichiara e non si scrive, e non un file
+        // senza metadati: chi lo legge deve saperlo.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = dir.path().join("geo_senza_valore.parquet");
+        let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let geom = BinaryArray::from(vec![Some(punto.as_slice())]);
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )]));
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(geom)]).unwrap();
+        let file = File::create(&percorso).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.append_key_value_metadata(KeyValue {
+            key: "geo".to_owned(),
+            value: None,
+        });
+        writer.close().unwrap();
+
+        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "una chiave `geo` senza valore non e' un file senza metadati"
         );
     }
 
