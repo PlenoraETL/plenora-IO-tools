@@ -1551,6 +1551,17 @@ mod sonde {
             letti.primaria.crs,
             Crs::StoricoSoloIdentificatore("EPSG:4326".to_owned())
         );
+
+        // Il `code` puo' essere una stringa: e' una delle due forme che la
+        // versione storica emetteva, a seconda di come l'identificatore era
+        // stato scritto.
+        let mut colonna = colonna_minima();
+        colonna["crs"] = json!({"id": {"authority": "EPSG", "code": "4326"}});
+        let con_stringa = analizza(&con_versione("1.0.0", &colonna), true).expect("accettato");
+        assert_eq!(
+            con_stringa.primaria.crs,
+            Crs::StoricoSoloIdentificatore("EPSG:4326".to_owned())
+        );
     }
 
     #[test]

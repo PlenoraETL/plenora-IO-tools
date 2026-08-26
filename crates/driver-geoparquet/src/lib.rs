@@ -2350,6 +2350,14 @@ fn geometry_type_label(
     let suffix = match dimensions {
         CoordinateDimensions::Xy => "",
         CoordinateDimensions::Xyz => " Z",
+        // Difesa di ultima istanza, e **irraggiungibile** dall'API pubblica: chi
+        // dichiara XYM nel contratto non apre nemmeno il writer -- lo ferma la
+        // capability del formato -- e chi lo tace si vede rifiutare la riga dal
+        // controllo di dimensionalita' del contratto. La sonda
+        // `una_geometria_con_la_misura_m_non_e_scrivibile` prova tutt'e due le
+        // vie; questa riga resta perche' il `match` deve trattare il caso, e
+        // trattarlo restituendo un'etichetta che lo schema rifiuta sarebbe
+        // peggio.
         CoordinateDimensions::Xym | CoordinateDimensions::Xyzm => {
             return Err(PlenoraIoError::non_supportato_redatto(
                 &PublicMessage::CuratedPair(
@@ -2624,6 +2632,185 @@ mod tests {
                 "{storica} non deve piu' essere emessa"
             );
         }
+    }
+
+    // --- le promesse del lotto, esercitate ---------------------------------
+
+    /// Un `Point M` in WKB ISO: tipo 2001, tre ordinate.
+    ///
+    /// `to_wkb` di geo-types non sa produrlo -- il suo modello non ha la misura
+    /// M -- quindi si scrive a mano. E' l'unico modo di far arrivare al writer
+    /// una geometria che `GeoParquet` non sa rappresentare.
+    fn wkb_point_m(x: f64, y: f64, m: f64) -> Vec<u8> {
+        let mut byte = vec![1_u8];
+        byte.extend_from_slice(&2001_u32.to_le_bytes());
+        byte.extend_from_slice(&x.to_le_bytes());
+        byte.extend_from_slice(&y.to_le_bytes());
+        byte.extend_from_slice(&m.to_le_bytes());
+        byte
+    }
+
+    #[test]
+    fn una_geometria_con_la_misura_m_non_e_scrivibile() {
+        // La decisione del lotto e' che XYM e XYZM non si scrivono: il pattern
+        // dello schema ammette `( Z)?` e nient'altro, e omettere il suffisso
+        // direbbe che quelle geometrie sono XY, facendo sparire la misura M
+        // senza che nessuno lo dichiari.
+        //
+        // La prova e' **end-to-end**, e mostra che le vie sono due e tutt'e due
+        // chiuse. Non asserisce un codice d'errore solo: asserisce che da
+        // nessuna delle due parti si riesce a scrivere.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let punto = wkb_point_m(1.0, 2.0, 3.0);
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )
+        .with_metadata(geometry_field_meta("EPSG:4326"))]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+        )
+        .unwrap();
+
+        // Via 1: il contratto **dichiara** XYM. Il formato lo rifiuta
+        // all'apertura, prima ancora di ricevere un byte.
+        let mut geometria =
+            GeometryColumnContract::wkb_xy(FieldId(0), "geometry", ResolvedCrs::wgs84(), true);
+        geometria.dimensions = CoordinateDimensions::Xym;
+        let dichiarato = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema: schema.clone(),
+                    geometry: Some(geometria),
+                },
+            }],
+        };
+        let apertura = GeoParquetDriver.create(
+            Sink::Path(dir.path().join("dichiarato.parquet")),
+            &dichiarato,
+            &opzioni_scrittura(),
+        );
+        assert!(
+            matches!(
+                apertura,
+                Err(ref errore) if errore.category == plenora_io_model::ErrorCategory::Unsupported
+            ),
+            "un contratto che dichiara XYM non apre nemmeno un writer GeoParquet"
+        );
+
+        // Via 2: il contratto dichiara XY e i **dati** portano la misura M. La
+        // riga e' rifiutata prima di essere scritta.
+        let taciuto = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut writer = GeoParquetDriver
+            .create(
+                Sink::Path(dir.path().join("taciuto.parquet")),
+                &taciuto,
+                &opzioni_scrittura(),
+            )
+            .expect("con un contratto XY il writer si apre");
+        let scrittura = writer.write(&batch);
+        assert!(
+            matches!(
+                scrittura,
+                Err(ref errore)
+                    if errore.capability_reason
+                        == Some(plenora_io_model::CapabilityReason::CoordinateDimensions)
+            ),
+            "una geometria XYM sotto un contratto XY e' rifiutata prima della scrittura"
+        );
+    }
+
+    #[test]
+    fn un_crs_mancante_si_scrive_null_e_si_rilegge_sconosciuto() {
+        // `null` e' un'affermazione: dice che il CRS non c'e'. L'omissione ne
+        // sarebbe un'altra -- direbbe CRS84 -- e le due non si scambiano.
+        let geo = build_geo_metadata("geometry", &BTreeSet::new(), &CrsDaScrivere::Nullo)
+            .expect("il documento si costruisce");
+        let documento: serde_json::Value = serde_json::from_str(&geo).expect("JSON");
+        assert_eq!(
+            documento["columns"]["geometry"]["crs"],
+            serde_json::Value::Null
+        );
+        schema_ufficiale::valida(&documento, "1.1.0").expect("conforme");
+
+        // E in lettura `null` non diventa CRS84: diventa «non lo so».
+        let letti = metadati::analizza(&geo, false).expect("conforme");
+        assert_eq!(letti.primaria.crs, metadati::Crs::Nullo);
+        let crs = crs_from(Some(&letti)).expect("risolto");
+        assert_eq!(
+            crs.id.as_deref(),
+            None,
+            "un CRS assente non ha identificatore"
+        );
+    }
+
+    #[test]
+    fn una_definizione_projjson_si_scrive_per_intero() {
+        // Non un riassunto: il documento che il contratto porta, tale e quale.
+        // `{"id": ...}` non e' PROJJSON, ed e' cio' che questo writer emetteva.
+        let projjson = serde_json::json!({
+            "type": "GeographicCRS",
+            "name": "WGS 84 (CRS84)",
+            "datum": {
+                "type": "GeodeticReferenceFrame",
+                "name": "World Geodetic System 1984",
+                "ellipsoid": {
+                    "name": "WGS 84",
+                    "semi_major_axis": 6_378_137,
+                    "inverse_flattening": 298.257_223_563
+                }
+            },
+            "coordinate_system": {
+                "subtype": "ellipsoidal",
+                "axis": [
+                    {"name": "Geodetic longitude", "abbreviation": "Lon", "direction": "east", "unit": "degree"},
+                    {"name": "Geodetic latitude", "abbreviation": "Lat", "direction": "north", "unit": "degree"}
+                ]
+            }
+        });
+        let geo = build_geo_metadata(
+            "geometry",
+            &BTreeSet::new(),
+            &CrsDaScrivere::Documento(projjson.to_string()),
+        )
+        .expect("il documento si costruisce");
+        let documento: serde_json::Value = serde_json::from_str(&geo).expect("JSON");
+        assert_eq!(documento["columns"]["geometry"]["crs"], projjson);
+        // E il risultato e' conforme: e' il PROJJSON referenziato a dirlo.
+        schema_ufficiale::valida(&documento, "1.1.0").expect("conforme");
+    }
+
+    #[test]
+    fn un_covering_in_un_documento_1_0_0_non_toglie_colonne() {
+        // La specifica 1.0 non attribuisce significato a `covering`: quel campo
+        // viene ignorato, e le colonne che nomina restano colonne utente.
+        // Toglierle sarebbe attribuirgli noi un significato che la sua versione
+        // non gli da'.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = concat!(
+            r#"{"version":"1.0.0","primary_column":"geometry","columns":{"geometry":{"#,
+            r#""encoding":"WKB","geometry_types":["Point"],"#,
+            r#""covering":{"bbox":{"xmin":["bbox","xmin"],"ymin":["bbox","ymin"],"#,
+            r#""xmax":["bbox","xmax"],"ymax":["bbox","ymax"]}}}}}"#,
+        );
+        let percorso = parquet_con_geo(&dir, Some(documento));
+        let dataset = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .expect("un 1.0.0 con `covering` resta valido");
+        let contratto = &dataset.layers()[0].contract;
+        assert!(contratto.schema.index_of("id").is_ok());
+        assert!(contratto.schema.index_of("geometry").is_ok());
     }
 
     #[test]
