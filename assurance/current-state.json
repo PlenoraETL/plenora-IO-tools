@@ -8,22 +8,22 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "ae7597e",
+      "sha": "9aabadb",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "ae7597e",
+    "sha": "9aabadb",
     "checkpoint": {
-      "passi_eseguiti": 57,
-      "passi_verdi": 57,
+      "passi_eseguiti": 63,
+      "passi_verdi": 63,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "57 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
+      "riconciliazione": "63 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 50025,
+      "replay_input": 50693,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.83,
-      "lcov_righe_coperte": 31509,
-      "lcov_righe_strumentate": 36287,
-      "cargo_lines_percentuale": 85.03,
+      "lcov_percentuale": 86.82,
+      "lcov_righe_coperte": 31526,
+      "lcov_righe_strumentate": 36310,
+      "cargo_lines_percentuale": 85.0,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore sale a 36 287 righe, 1 958 piu' della corsa su 2c80650: sono i due parser progressivi con le loro sonde. La soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore e' 36 310 righe, 23 piu' della corsa su ae7597e: sono le due correzioni della seconda lettura, la regola temporale del gate del contratto e la separazione di `Tipo` in due famiglie. La soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
       "baseline": "1a51044",
-      "esito": "95.39%",
-      "righe_cambiate_eseguibili": 1734,
-      "coperte": 1654,
-      "scoperte": 80,
-      "cambiate_non_eseguibili": 1136,
-      "ragione": "95.39% delle 1734 righe cambiate ed eseguibili. E' il lotto piu' grosso del percorso -- due parser riscritti -- e la diagnostica ha fatto due volte cio' per cui sta nel denominatore: ha indicato sei righe che nessun test attraversava, e dietro c'era una regressione vera -- `MULTIPOINT ()` accettata dove il confine precedente la rifiuta; poi ha indicato `visit_i64`, mai eseguito perche' ne' il corpus ne' i semi avevano una coordinata negativa. La sonda comparativa non aveva visto nessuna delle due.",
-      "che_cosa_sono_le_scoperte": "le 80 sono attribuite una per una, e quarantaquattro non sono codice di produzione: trentatre' stanno in `mod adattatore_storico` -- l'implementazione di riferimento tenuta per il confronto, che e' `cfg(test)` -- e le altre undici sono messaggi di sonde e helper di prova. Le trentasei di produzione sono di quattro famiglie, tutte dichiarate: guardie **seconde**, che ricontrollano cio' che una guardia precedente ha gia' rifiutato -- la dimensionalita' che `coordinata` respinge, il `match` esaustivo dopo che `tipo_e_suffisso` ha validato il nome, l'annidamento del tipo gia' escluso a monte; un `unreachable!` e un `expecting` che serde chiama solo per formattare un messaggio; la quota dichiarata dal punto d'ingresso del fuzzing, che `cargo test` non esegue; e l'accessore `hostile_input_hardened()`, che esiste per simmetria con gli altri campi del descrittore mentre il catalogo serializza il campo direttamente. Nessuna e' stata coperta fingendo, e nessuna guardia e' stata tolta per alzare una percentuale."
+      "esito": "95.11%",
+      "righe_cambiate_eseguibili": 1757,
+      "coperte": 1671,
+      "scoperte": 86,
+      "cambiate_non_eseguibili": 1189,
+      "ragione": "95,11% delle 1757 righe cambiate ed eseguibili. E' il lotto piu' grosso del percorso -- due parser riscritti -- e la diagnostica ha fatto tre volte cio' per cui sta nel denominatore: ha indicato sei righe che nessun test attraversava, e dietro c'era una regressione vera -- `MULTIPOINT ()` accettata dove il confine precedente la rifiuta; poi `visit_i64`, mai eseguito perche' ne' il corpus ne' i semi avevano una coordinata negativa; e ora indica i rami negativi elencati sotto.",
+      "che_cosa_sono_le_scoperte": "le 86 sono attribuite una per una. Quarantotto non sono codice di produzione: stanno dietro un `cfg(test)` -- `mod adattatore_storico`, che e' l'implementazione di riferimento tenuta per il confronto, e i messaggi e gli helper delle sonde. Le trentotto di produzione sono tutte rami negativi, e si dividono in tre gruppi che non hanno la stessa natura, ed e' la ragione per cui sono elencati separatamente qui sotto invece che riassunti in un numero."
     },
-    "evidenza": "assurance/evidence/checkpoint-ae7597e.json"
+    "evidenza": "assurance/evidence/checkpoint-9aabadb.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "ae7597e"
+      "qualificato_su": "9aabadb"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",

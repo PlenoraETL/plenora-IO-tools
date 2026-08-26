@@ -471,7 +471,7 @@ Nessun documento è un database. I gate leggono file strutturati:
 | `assurance/registries/dependency-exceptions.json` | advisory accettati, con condizione di chiusura | `audit_ignores.py`, CI |
 | `assurance/registries/vendor-{dxf,gdal}-fork.json` | provenienza dei fork | `check_{dxf,gdal}_fork.py` |
 | `assurance/registries/assurance-n1-copertura-negativa.json` | rami negativi | `check_assurance_n1*.py` |
-| `assurance/registries/passi-del-checkpoint.json` | i passi del checkpoint, per identità | `s9-checkpoint.sh`, `check_release_contract.py` |
+| `assurance/registries/passi-del-checkpoint.json` | i passi del checkpoint, per identità | `s9-checkpoint.sh` (worktree), `check_release_contract.py` (`git show` dalla revisione misurata) |
 | `assurance/registries/sonde-deterministiche.json` | i rami che dipendevano dallo scheduling, e la sonda che li esercita | `check_sonde_deterministiche.py` |
 | `assurance/campagne-copertura.json` | il verbale della dimostrazione di riproducibilità della copertura | nessuno: è un fatto passato, non una fonte |
 | `assurance/registries/quartetto-siti.json` | quartetto per sito di costruzione | `check_quartetto_sito.py` |

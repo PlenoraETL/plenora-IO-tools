@@ -1,0 +1,556 @@
+{
+  "schema_version": 1,
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione 9aabadb. Ogni numero viene dalla corsa qui descritta, e da nessun'altra. Il commit che pubblica questo file ha uno SHA diverso e NON eredita la misura.",
+  "esito": "S9 checkpoint level 2 passed",
+  "non_significa": "non autorizza una release e non promuove la readiness di alcun componente ne' del sistema; la readiness di sistema e' di proprieta' esterna, vedi release/system-rc-gate.json",
+  "corsa": {
+    "revisione_iniziale": "9aabadb02e6e6a8e23258a675473032b956b0690",
+    "revisione_finale": "9aabadb02e6e6a8e23258a675473032b956b0690",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "nota": "revisione e impronta finali sono **rilette**, non ristampate: `git rev-parse HEAD` e `impronta_albero` girano di nuovo a fine corsa.",
+    "nota_impronta": "sotto lo schema `impronta-albero-v1` un albero pulito da' sempre lo stesso valore, perche' i tre componenti -- staged, unstaged, untracked non ignorati -- sono vuoti. L'impronta misura le modifiche **non committate**, non il contenuto del commit: quello e' gia' nominato dalla revisione.",
+    "albero_all_avvio": "pulito, 0 file non committati",
+    "base_diagnostica": "1a51044",
+    "perche_questa_base": "e' la testa di `main`, cioe' il punto da cui questo ramo parte: la diagnostica differenziale misura le righe che il ramo cambia, non quelle che l'ultima tranche ha toccato.",
+    "percorso_di_corsa": "/out/livello2 (bind mount fuori dal repository)",
+    "stdout_conservato": "la corsa scrive il proprio stdout dentro il volume montato, non sul terminale di chi la lancia, e fuori dalla directory dei log: se ci stesse dentro entrerebbe nel manifest come artefatto che nessun passo dichiara.",
+    "registro_dei_passi": "il registro contro cui questa evidenza si verifica e' quello **presente in 9aabadb**, letto con `git show`: una corsa passata non puo' aver eseguito un passo introdotto dopo. E' la stessa revisione il cui registro la corsa ha riconciliato dal proprio worktree."
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 63,
+    "eseguiti": 63,
+    "verdi": 63,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i passi sono ricostruiti dalle **righe stampate** dalla corsa, non accettati dal rapporto dello strumento che li ha eseguiti.",
+    "ordine_dichiarato": "le identita' compaiono nell'**ordine** del registro, e l'ordine e' verificato: `sonde_checkpoint` per primo perche' se il gate che misura e' rotto tutto cio' che segue e' una misura di cui non si sa niente, la copertura dopo il fuzzing perche' legge il profdata che quello ha prodotto.",
+    "insieme_dichiarato": "le identita' sono **esattamente** quelle di `assurance/registries/passi-del-checkpoint.json` alla revisione 9aabadb: sessantatre', sei piu' della corsa precedente. I sei sono `clippy_sicurezza` -- i lint di sicurezza nella forma esatta di CI, che il checkpoint non eseguiva -- e i cinque gate del lotto S12.",
+    "che_cosa_aggiunge_l_elenco": "i contatori dicono **quanti** passi; l'elenco dice **quali**, con l'esito e il log di ciascuno, ed e' cio' a cui il manifest e' legato.",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 50693,
+      "target": 15,
+      "target_totali": 15,
+      "crash": 0
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "target_totali": 15,
+      "finding": 0,
+      "quarantena": 0
+    },
+    "copertura": {
+      "lcov_percentuale": 86.82,
+      "lcov_righe_coperte": 31526,
+      "lcov_righe_strumentate": 36310,
+      "cargo_lines_percentuale": 85.0,
+      "soglia": 80.0,
+      "campagna": "una sola: `coverage_pulizia` rimuove i profili precedenti e il report parte cancellato, cosi' la misura non puo' ereditare niente da una corsa che non e' questa.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore e' 36 310 righe, 23 piu' della corsa su ae7597e: sono le due correzioni della seconda lettura, la regola temporale del gate del contratto e la separazione di `Tipo` in due famiglie. La soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
+      "controprova_indipendente": "i record `DA:` di lcov.info ricontati fuori dallo strumento danno 31526/36310, cioe' la stessa coppia che il gate legge dal report.",
+      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate",
+      "perche_anche_il_conteggio": "la percentuale e' arrotondata a due decimali, e a questa scala poche righe spostano meno di un centesimo: senza il conteggio, una misura diversa potrebbe stampare lo stesso numero."
+    },
+    "diagnostica_differenziale": {
+      "base": "1a51044",
+      "righe_cambiate_eseguibili": 1757,
+      "coperte": 1671,
+      "scoperte": 86,
+      "cambiate_non_eseguibili": 1189,
+      "esito": "95.11%",
+      "ragione": "95,11% delle 1757 righe cambiate ed eseguibili. E' il lotto piu' grosso del percorso -- due parser riscritti -- e la diagnostica ha fatto tre volte cio' per cui sta nel denominatore: ha indicato sei righe che nessun test attraversava, e dietro c'era una regressione vera -- `MULTIPOINT ()` accettata dove il confine precedente la rifiuta; poi `visit_i64`, mai eseguito perche' ne' il corpus ne' i semi avevano una coordinata negativa; e ora indica i rami negativi elencati sotto.",
+      "che_cosa_sono_le_scoperte": "le 86 sono attribuite una per una. Quarantotto non sono codice di produzione: stanno dietro un `cfg(test)` -- `mod adattatore_storico`, che e' l'implementazione di riferimento tenuta per il confronto, e i messaggi e gli helper delle sonde. Le trentotto di produzione sono tutte rami negativi, e si dividono in tre gruppi che non hanno la stessa natura, ed e' la ragione per cui sono elencati separatamente qui sotto invece che riassunti in un numero.",
+      "i_tre_gruppi": {
+        "irraggiungibili_dopo_il_rifiuto_della_lista_vuota": "tre rami di `geometria_progressiva.rs` -- «geometria GeoJSON senza coordinate» (359-362), «Polygon GeoJSON senza anelli» (388-389) e l'arm `Albero::Elenco(_) => None` (318) -- non sono piu' raggiungibili dall'API pubblica. La guardia che li precede e' il rifiuto di `figli.is_empty()` in `SemeAlbero::visit_seq`, introdotto dalla prima correzione della seconda lettura: un `Elenco` vuoto non puo' piu' esistere, quindi `dimensioni` non puo' piu' restare `None`; e dentro il ramo `elenchi == 0` ogni figlio e' una `Posizione`, quindi l'arm `Elenco` non si sceglie. Sono difese corrette e ora mute. Coperto e irraggiungibile non sono la stessa cosa: dichiararle coperte sarebbe la compensazione che ASSURANCE-N1 esiste per escludere, e la loro sistemazione -- registrarle con la guardia che le precede, o toglierle -- appartiene al bloccante `copertura.rami-negativi`, che resta aperto.",
+        "raggiungibili_e_non_ancora_sondati": "trentadue righe: i rifiuti di annidamento diverso da quello del tipo in `posizioni`, `anelli`, `MultiLineString` e `MultiPolygon` (347-349, 374-376, 623-625, 646-648), i rifiuti di dimensionalita' incoerente del WKT progressivo (297, 322, 343, 480, 483, 500, 714-716) e l'`expecting` di `SemeGeometrie` (530-532). Sono raggiungibili -- per esempio un `Polygon` le cui `coordinates` sono una posizione invece di una lista di anelli, o `GEOMETRYCOLLECTION (POINT (1 2),POINT Z (1 2 3))` -- e nessuna sonda le esercita. Appartengono anch'esse a `copertura.rami-negativi`.",
+        "quote_predefinite_dei_driver": "sette righe di `driver-geojson/src/lib.rs` (1334-1338, 1368) e una di `driver-xls/src/lib.rs` (1062): la struttura delle quote e il passaggio dei limiti alla cella. Sono dati, non rami, e l'unico modo di «coprirle» sarebbe una sonda che le rilegge."
+      },
+      "righe_scoperte": [
+        "crates/driver-common/src/wkt_lossless.rs:505",
+        "crates/driver-common/src/wkt_progressivo.rs:297",
+        "crates/driver-common/src/wkt_progressivo.rs:322",
+        "crates/driver-common/src/wkt_progressivo.rs:343",
+        "crates/driver-common/src/wkt_progressivo.rs:480",
+        "crates/driver-common/src/wkt_progressivo.rs:483",
+        "crates/driver-common/src/wkt_progressivo.rs:500",
+        "crates/driver-common/src/wkt_progressivo.rs:714",
+        "crates/driver-common/src/wkt_progressivo.rs:715",
+        "crates/driver-common/src/wkt_progressivo.rs:716",
+        "crates/driver-common/src/wkt_progressivo.rs:784",
+        "crates/driver-common/src/wkt_progressivo.rs:807",
+        "crates/driver-common/src/wkt_progressivo.rs:808",
+        "crates/driver-common/src/wkt_progressivo.rs:809",
+        "crates/driver-common/src/wkt_progressivo.rs:810",
+        "crates/driver-common/src/wkt_progressivo.rs:860",
+        "crates/driver-common/src/wkt_progressivo.rs:874",
+        "crates/driver-common/src/wkt_progressivo.rs:895",
+        "crates/driver-common/src/wkt_progressivo.rs:901",
+        "crates/driver-common/src/wkt_progressivo.rs:916",
+        "crates/driver-common/src/wkt_progressivo.rs:923",
+        "crates/driver-common/src/wkt_progressivo.rs:924",
+        "crates/driver-common/src/wkt_progressivo.rs:925",
+        "crates/driver-common/src/wkt_progressivo.rs:1013",
+        "crates/driver-common/src/wkt_progressivo.rs:1014",
+        "crates/driver-common/src/wkt_progressivo.rs:1031",
+        "crates/driver-common/src/wkt_progressivo.rs:1052",
+        "crates/driver-common/src/wkt_progressivo.rs:1088",
+        "crates/driver-common/src/wkt_progressivo.rs:1095",
+        "crates/driver-common/src/wkt_progressivo.rs:1133",
+        "crates/driver-common/src/wkt_progressivo.rs:1185",
+        "crates/driver-common/src/wkt_progressivo.rs:1253",
+        "crates/driver-common/src/wkt_progressivo.rs:1254",
+        "crates/driver-common/src/wkt_progressivo.rs:1273",
+        "crates/driver-common/src/wkt_progressivo.rs:1276",
+        "crates/driver-common/src/wkt_progressivo.rs:1281",
+        "crates/driver-common/src/wkt_progressivo.rs:1282",
+        "crates/driver-common/src/wkt_progressivo.rs:1288",
+        "crates/driver-common/src/wkt_progressivo.rs:1289",
+        "crates/driver-common/src/wkt_progressivo.rs:1294",
+        "crates/driver-common/src/wkt_progressivo.rs:1480",
+        "crates/driver-common/src/wkt_progressivo.rs:1497",
+        "crates/driver-common/src/wkt_progressivo.rs:1530",
+        "crates/driver-geojson/src/geometria_progressiva.rs:318",
+        "crates/driver-geojson/src/geometria_progressiva.rs:347",
+        "crates/driver-geojson/src/geometria_progressiva.rs:348",
+        "crates/driver-geojson/src/geometria_progressiva.rs:349",
+        "crates/driver-geojson/src/geometria_progressiva.rs:359",
+        "crates/driver-geojson/src/geometria_progressiva.rs:360",
+        "crates/driver-geojson/src/geometria_progressiva.rs:361",
+        "crates/driver-geojson/src/geometria_progressiva.rs:362",
+        "crates/driver-geojson/src/geometria_progressiva.rs:374",
+        "crates/driver-geojson/src/geometria_progressiva.rs:375",
+        "crates/driver-geojson/src/geometria_progressiva.rs:376",
+        "crates/driver-geojson/src/geometria_progressiva.rs:388",
+        "crates/driver-geojson/src/geometria_progressiva.rs:389",
+        "crates/driver-geojson/src/geometria_progressiva.rs:530",
+        "crates/driver-geojson/src/geometria_progressiva.rs:531",
+        "crates/driver-geojson/src/geometria_progressiva.rs:532",
+        "crates/driver-geojson/src/geometria_progressiva.rs:623",
+        "crates/driver-geojson/src/geometria_progressiva.rs:624",
+        "crates/driver-geojson/src/geometria_progressiva.rs:625",
+        "crates/driver-geojson/src/geometria_progressiva.rs:646",
+        "crates/driver-geojson/src/geometria_progressiva.rs:647",
+        "crates/driver-geojson/src/geometria_progressiva.rs:648",
+        "crates/driver-geojson/src/geometria_progressiva.rs:770",
+        "crates/driver-geojson/src/geometria_progressiva.rs:862",
+        "crates/driver-geojson/src/geometria_progressiva.rs:869",
+        "crates/driver-geojson/src/geometria_progressiva.rs:900",
+        "crates/driver-geojson/src/geometria_progressiva.rs:906",
+        "crates/driver-geojson/src/geometria_progressiva.rs:976",
+        "crates/driver-geojson/src/geometria_progressiva.rs:1016",
+        "crates/driver-geojson/src/geometria_progressiva.rs:1052",
+        "crates/driver-geojson/src/geometria_progressiva.rs:1053",
+        "crates/driver-geojson/src/geometria_progressiva.rs:1055",
+        "crates/driver-geojson/src/geometria_progressiva.rs:1056",
+        "crates/driver-geojson/src/lib.rs:1334",
+        "crates/driver-geojson/src/lib.rs:1335",
+        "crates/driver-geojson/src/lib.rs:1336",
+        "crates/driver-geojson/src/lib.rs:1337",
+        "crates/driver-geojson/src/lib.rs:1338",
+        "crates/driver-geojson/src/lib.rs:1368",
+        "crates/driver-xls/src/lib.rs:1062",
+        "crates/plenora-io-core/src/descriptor.rs:799",
+        "crates/plenora-io-core/src/descriptor.rs:800",
+        "crates/plenora-io-core/src/descriptor.rs:801"
+      ],
+      "che_cosa_esercita_quel_codice": "i due parser progressivi sono esercitati da quattro parti, e la corsa le attraversa tutte: le sonde unitarie dei due moduli, le prove di confine eseguite per nome da `check_prove_di_confine.py`, i due target di fuzzing sui semi versionati, e il confronto con il confine precedente su un corpus rappresentativo.",
+      "confronto_con_la_corsa_precedente": "la corsa su ae7597e dava 95,39% su 1734 righe cambiate ed eseguibili, con 80 scoperte di cui 36 di produzione; qui 95,11% su 1757, con 86 scoperte di cui 38 di produzione. Le due di piu' sono i rami che la prima correzione ha reso muti, e il calo di ventotto centesimi e' quello: non righe nuove non provate, ma righe vecchie diventate irraggiungibili."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": "/out/livello2 (bind mount fuori dal repository)",
+    "file": 65,
+    "digest_manifest": "dbf32e998b21fa9f1fed7602307100c8988b67ddfa84d15b2ed3cf799966323c",
+    "forma_del_manifest": "`percorso` NUL `sha256 del contenuto` LF, in ordine di percorso; nessun timestamp e nessun metadato di filesystem, cosi' il digest dipende solo da cio' che la corsa ha prodotto. La forma e' quella di `digest_del_manifest` in check_release_contract.py, che la ricalcola e la confronta: un digest che nessuno puo' ricalcolare e' una stringa, non un'impronta.",
+    "risultato_della_corsa": "`risultato.json` fa parte del manifest, ed e' preteso: e' l'ultimo file che la corsa scrive, ed e' scritto in modo atomico. Porta esito «superato», revisione e impronta iniziali e finali, i conteggi e l'elenco dei passi.",
+    "attesta_la_chiusura_di_s9": "`check_errori_redatti.log` e' fra gli artefatti: e' il passo che misura il censimento dei costruttori legacy, ed e' cio' che rende questa corsa l'attestazione della chiusura di S9 invece di una corsa che parla d'altro.",
+    "manifest": {
+      "assurance_fallbacks.log": "fc5e4d3a6bce11cbfff7bcd3da7176645e10877a8036aeb2b058579d871cc259",
+      "assurance_n1_integrita.log": "c55c7647af6c9a2db7e1ca46f59883ca73ea52d989d9fa0897218bc86c565b4e",
+      "assurance_n1_prove.log": "8f3b72fc888d3f84fe4073cb76fa4dffb6ef348cfdfba8fe8da2c9aee7aef6fc",
+      "catalog.json": "40eb59680d72ce4c35dc4f41a939e9ea27b6a3480cc8005b09fa513f12c2e4eb",
+      "check_action_pins.log": "c125dc241c876a62a8598f74f6109651fda752f4ac6adeb82f5a6e0380d55545",
+      "check_capability_ostile.log": "aaeeb34a03f18a82a0f09683ed7fbe089b04e95a959074750a6d88d85f2ae962",
+      "check_coverage_exclusions.log": "78e26c9fa681d8d982c8d8eff3d827312cce89334b5a057352347c50f625aaf6",
+      "check_dependency_pins.log": "3f472480b7f82381eed29cd34314d7c6dd5fed5ba268437a3df868b7415edb71",
+      "check_docset.log": "21fddca1298b159a7e3a280e32393e21faa2efd32f15a0b63379cbd8b349836f",
+      "check_dxf_fork.log": "aec602c5ee9d01f42f5ae0939436af4f921116b5f5620bbabbfbbff62e465dbe",
+      "check_errori_redatti.log": "b4600a323e1d6820b3df96a9b4bf4e3b56865ea3d5faf435dbb404f1f21e41b9",
+      "check_filegdb_catalog.log": "b45eb8a08d237c28497cf4829f6d0100af3142a18bcd69b79700fac565ce167e",
+      "check_gdal_fork.log": "e308ae8a812b3f76b8219308e03171db550ef436183a755baacb7b3ec0a984fe",
+      "check_identita.log": "7dd2dc912a6c5c0e9def102a2f717ed9aec1ba4f5801fc8543a3f6b3260cac1a",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "00a494834217279145829fd0da0dcc536211846bb7c08cb59fa25d46c28db3c7",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "d6f1da5b9aa207ba83cfd6bbc7679aec929e40676a405e99c31a92ce7096840f",
+      "check_release.log": "e16f058c167a8f75205900b6e1b343aa1a98bdb21310a6cadd5d8766e6195536",
+      "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
+      "check_wkb_limits.log": "72f040c215c0e7802aa0cc04cae15ff23dd3e75c7bc80ab82e862eb3dbcaf933",
+      "clippy.log": "2e65f6428806286e296f6702812d31a25cc68d4c551ca4c975ac40f28bc0d4a9",
+      "clippy_default.log": "998c0a824d486ef91347baaee96f2b8b932f803d873c2310fb483bff117c8662",
+      "clippy_sicurezza.log": "8def25398d64035f139b4c2d312a5303719a2d55b17a6e3e57dd473c3674ce26",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "coverage_diff.log": "a17d3f0bb61805e58cef4e51850b9999522a5f106deb1d507810d26e5bea2485",
+      "coverage_export.log": "a9f2eaad3b9e4823a60a49fa56e31b30742b266a6b336236a6ee6ab73ea89c2f",
+      "coverage_misura.log": "208dcaf45bc142a3c34a9d742d51e0cfc8c0700690269620dca69b995f9edf17",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "df1f43b26c25b8a76a8ebd6941bdfb4ccabf26b065a56c9011774252fba790b8",
+      "coverage_soglia_dal_report.log": "36cabdecb88e344b04ea64e86973a6cd477a83ef578bbde2f79200abd387e10f",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz_replay.log": "e5a7f5b4156568d056e8451e77e2b5b27143006449f00a991a8c36f07f6b4354",
+      "fuzz_smoke.log": "70502fb555580bffe6654a32d0d327507f9c14c82b4b9b68dbcc9ce3359a047a",
+      "lcov.info": "9a52101c86d68ef9582e1bbdaa8f7d280769e4ff10097aedb0ba9cabd1b7c1df",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "2c69adc9c71aef5ad46839e52d609ff709498801a0fd85f8c4321ebfcded79e4",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "sonde_action_pins.log": "ce895947b8ffcb2e77addf8382970fd1c07ecab9486fbbfca209319a47c37f4f",
+      "sonde_assurance_n1.log": "b6518f574bb58a93ffd34e105a728181415aded27c52ad61b484d52875b20189",
+      "sonde_assurance_n1_prove.log": "c3d689e923f4f468afcebb1c363e07d2e614d912cad1519116c5a5b83922dbd7",
+      "sonde_audit_ignores.log": "b95b5805bef96b568b1b2424b637003cd6f306e6312d682e4f2e4e23f635b26a",
+      "sonde_capability_ostile.log": "6aa39340f649750c95b68436f0c2f701cc9033fb85d398c3ecf63dd71a9cb21b",
+      "sonde_checkpoint.log": "e94268b86733efaccab0d790800daf50081093160fb95d50fba995d3bce46cd3",
+      "sonde_coverage_excl.log": "7912a4e6fbcd7da3da98ef82d71b4dba0fcf0e53f86374eed64882094c30f252",
+      "sonde_docset.log": "5286fc650625a245365e9006877197544f76f2b2006846e041c31c6f3434fc97",
+      "sonde_errori_redatti.log": "aa20a2cbd4b495b721d271e618f4947b6f3d248ae4d791571f591ce4cc5a7919",
+      "sonde_fallback.log": "c9f2c1b54e73f254402bb1a5b42d7d0ba1341d1dcb01aa3cc77c43238566aaf5",
+      "sonde_filegdb.log": "0e6726d50e803379d5dba8bffa695156ec8dd968c17d4b7aceb115bede57015c",
+      "sonde_fork.log": "2f33b40e621078678c02cfa07dab7d8944e0c0c4bc8d059e0e161bcd16a0767c",
+      "sonde_identita.log": "3b0dbb90387b342ccecc50446a0fb5e4385d86a3f467e5b97d63f8924fc08aff",
+      "sonde_niente_leak.log": "3b82a5edb3bd49215f35f4dc7214845621b4788fb7d7ded298f1465ff900db15",
+      "sonde_prevalidazione.log": "2d99faa05b0f36882c9ce51519365b18528daf5120fe203dd9d5db0305eb727f",
+      "sonde_quarantena.log": "0797a603f79e55a5612211749887a547eca16fda33260dc9b3baf57657cc4f17",
+      "sonde_quartetto.log": "26f599755db571bd9b1e025f21092acc4379cafd3617fe7b8b69ba0155bf7fdf",
+      "sonde_release.log": "8c0f5d2c4c6dc62649b295880b8d03d6da7e63a06b88c183539e79e130f685bb",
+      "sonde_semi_s12.log": "b52502e107e47c12ade55744e35f7f0ab726600cba16104a05d81ffb5acd75a5",
+      "sonde_toolchain.log": "4f46f56bd7ffafd80559d18675e7376e6ef1426caf0f1b104463f68e61170d26",
+      "sonde_wkb_condiviso.log": "fe008aab760eb03ccac7578e2b84665b1b50b0d7f855b17a0c7a8d039435b658",
+      "sonde_wkb_limits.log": "cad4b5a6c7a3ead5c109e2d6fde865e8a8e6bb34d6d5fec7c4bd9f3be355982d",
+      "test.log": "0b496dcf117ce2c0b827381646908f55e0f208ecd79ec8f7747fa5685bd69d1d",
+      "test_default.log": "ab71f17baf4e96d746930ab50a281710975a3bd371bf9a711d7dad6d0977c528"
+    }
+  },
+  "nessun_confronto_fra_corse": "i numeri di questa evidenza descrivono questa corsa. Confrontarli con quelli di un'altra revisione e' legittimo come lettura e non come verifica: un'evidenza non eredita e non e' ereditata."
+}
