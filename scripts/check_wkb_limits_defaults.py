@@ -62,7 +62,7 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # invece che su ogni riga; due sono le sonde dei budget, che dai campi di
 # `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
 # e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-ATTESI = {"test": 76, "attrezzaggio": 6, "produzione": 2}
+ATTESI = {"test": 77, "attrezzaggio": 6, "produzione": 2}
 # Le sette ultime sono le sonde di **confine** del lotto S12: per ogni forma
 # derivano dal default una quota esatta e una piu' stretta di uno, perche' il
 # tetto sui componenti va provato dove morde e non «da qualche parte sopra».

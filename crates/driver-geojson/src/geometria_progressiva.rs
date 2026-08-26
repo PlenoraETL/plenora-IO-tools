@@ -286,7 +286,27 @@ impl<'de> Visitor<'de> for SemeAlbero<'_> {
             figli.push(figlio);
         }
 
-        if elenchi == 0 && !figli.is_empty() {
+        // La terza condizione, e chiude l'ultima via in cui un nodo poteva
+        // entrare nell'albero **senza pagare**.
+        //
+        // Una lista vuota non e' una posizione e non contiene niente che si
+        // addebiti: `[[],[],[],...]` costava zero componenti e cresceva finche'
+        // il cap in byte non lo fermava, cioe' dopo aver costruito tutto
+        // l'albero. E' lo stesso amplificatore delle ordinate, nella variante
+        // «nodi strutturali senza coordinate».
+        //
+        // Rifiutarla subito non cambia l'insieme accettato: una lista vuota non
+        // puo' far parte di una geometria valida in nessuno dei due confini --
+        // senza coordinate, `posizioni` non ha una dimensionalita' da dedurre e
+        // `anelli` non ha anelli -- quindi il rifiuto arrivava comunque, solo
+        // alla fine invece che qui.
+        if figli.is_empty() {
+            return Err(self.budget.di_formato(&PublicMessage::Curated(
+                "coordinates GeoJSON con una lista vuota",
+            )));
+        }
+
+        if elenchi == 0 {
             // Una posizione: e' qui che si addebita, ed e' la stessa unita'
             // che il bordo conta. L'addebito arriva dopo aver letto al piu'
             // quattro ordinate, non dopo averne lette quante ne arrivano.
@@ -910,6 +930,47 @@ mod sonde {
             IoErrorCode::Format
         );
         assert!(come_prima(misto).is_err(), "e il confine precedente pure");
+    }
+
+    /// Nemmeno una lista **vuota** entra nell'albero senza pagare.
+    ///
+    /// Era la terza via dell'amplificatore, nella variante «nodi strutturali
+    /// senza coordinate»: `[[],[],[],...]` costava zero componenti e cresceva
+    /// finche' il cap in byte non lo fermava -- cioe' dopo aver costruito tutto
+    /// l'albero.
+    ///
+    /// La coda non e' JSON, ed e' li' la prova: se l'analisi arrivasse in fondo
+    /// prima di rifiutare, il rifiuto sarebbe di sintassi. Siccome si ferma
+    /// alla **prima** lista vuota, la coda non viene nemmeno letta.
+    #[test]
+    fn una_lista_vuota_ferma_l_analisi_alla_prima() {
+        let limiti = WkbLimits::default();
+        let mut testo = String::from(r#"{"type":"MultiPolygon","coordinates":["#);
+        for indice in 0..20_000 {
+            if indice > 0 {
+                testo.push(',');
+            }
+            testo.push_str("[]");
+        }
+        testo.push_str("], questa coda non e' JSON e non deve essere letta");
+
+        let errore = analizza(&testo, &limiti).expect_err("la lista vuota ferma l'analisi");
+        assert_eq!(
+            errore.code,
+            IoErrorCode::Format,
+            "atteso il rifiuto della lista vuota, non quello della coda"
+        );
+
+        // E il confine precedente la rifiutava gia', quindi l'insieme accettato
+        // non cambia: cambia **quando** ci si ferma.
+        for testo in [
+            r#"{"type":"MultiPolygon","coordinates":[[]]}"#,
+            r#"{"type":"Polygon","coordinates":[[]]}"#,
+            r#"{"type":"LineString","coordinates":[[]]}"#,
+        ] {
+            assert!(analizza(testo, &limiti).is_err(), "{testo}");
+            assert!(come_prima(testo).is_err(), "{testo}: e prima pure");
+        }
     }
 
     /// L'unita' di conteggio e' quella del bordo, e non «una simile».

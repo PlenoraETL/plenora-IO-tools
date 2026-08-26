@@ -48,6 +48,11 @@ PROVE: dict[str, tuple[str, ...]] = {
         "geometria_progressiva::sonde::il_tetto_sui_componenti_e_esatto",
         "geometria_progressiva::sonde::una_lista_di_numeri_non_cresce_oltre_una_posizione",
         "geometria_progressiva::sonde::oltre_una_certa_profondita_rifiuta_serde_e_non_noi",
+        # L'ultima via per entrare nell'albero senza pagare: una lista vuota
+        # non era ne' una posizione ne' un elenco addebitato, e `[[],[],...]`
+        # cresceva finche' il solo cap in byte non lo fermava. La sonda prova
+        # che l'analisi si ferma sulla **prima**.
+        "geometria_progressiva::sonde::una_lista_vuota_ferma_l_analisi_alla_prima",
     ),
 }
 
@@ -94,8 +99,30 @@ def esegui(crate: str, nomi: tuple[str, ...]) -> list[str]:
     return errori
 
 
-def verifica() -> list[str]:
+def elenco_senza_ripetizioni() -> list[str]:
+    """L'elenco dichiarato non ripete un'identita'.
+
+    Sembra pedanteria e non lo e': il gate conta le sonde sommando le lunghezze
+    dei suoi elenchi, mentre il harness elenca ogni test una volta sola. Un nome
+    scritto due volte faceva percio' annunciare «8 sonde» a fronte di sette
+    eseguite -- e un gate che dichiara di aver provato piu' di quanto ha provato
+    e' esattamente cio' che questo file esiste per impedire altrove.
+    """
     errori: list[str] = []
+    for crate, nomi in PROVE.items():
+        for nome in sorted({n for n in nomi if nomi.count(n) > 1}):
+            errori.append(
+                f"{crate}: la sonda «{nome}» e' dichiarata piu' di una volta. "
+                "Il conteggio annuncerebbe piu' prove di quante ne girano."
+            )
+    return errori
+
+
+def verifica() -> list[str]:
+    errori = elenco_senza_ripetizioni()
+    if errori:
+        # Senza elenco onesto, l'esecuzione misurerebbe la cosa sbagliata.
+        return errori
     for crate, nomi in PROVE.items():
         errori.extend(esegui(crate, nomi))
     return errori
