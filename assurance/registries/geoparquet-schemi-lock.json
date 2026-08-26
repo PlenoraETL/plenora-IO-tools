@@ -1,0 +1,54 @@
+{
+  "schema_version": 2,
+  "descrizione": "Gli schemi ufficiali che questo repository usa come **autorita' indipendente**: GeoParquet 1.0.0 e 1.1.0, e i PROJJSON che il loro campo `crs` referenzia. Il gate del lotto S10 derivava l'insieme dei campi dallo stesso modulo che doveva controllare: un campo dimenticato non era una lacuna, diventava la definizione del perimetro. Qui il perimetro viene da fuori, e il codice ci si confronta.",
+  "acquisizione": "una tantum dagli URL ufficiali, autorizzata il 2026-08-26. I byte sono quelli scaricati, non una ricostruzione: `sha256` e' del file cosi' com'e'. `sha256_canonico` -- sha256 di `json.dumps(documento, sort_keys=True, separators=(',', ':'))` -- e' la seconda impronta, e regge anche se l'origine dovesse cambiare soltanto la formattazione.",
+  "risoluzione_dei_ref": "i `$ref` di GeoParquet verso PROJJSON si risolvono **soltanto** da un registro in memoria costruito su questi file. Nessun accesso HTTP e nessun accesso al filesystem a runtime: uno schema che si scarica quando serve non e' fissato, e' sperato.",
+  "come_si_aggiorna": "si riscarica dall'URL, si ricalcolano le due impronte e si aggiorna questo file nello stesso commit che cambia lo schema, con la ragione. Un digest che nessuno ricalcola e' una stringa.",
+  "recuperati_il": "2026-08-26",
+  "schemi": [
+    {
+      "famiglia": "geoparquet",
+      "versione": "1.0.0",
+      "url": "https://geoparquet.org/releases/v1.0.0/schema.json",
+      "id": "https://geoparquet.org/releases/v1.0.0/schema.json",
+      "percorso": "assurance/schemi/geoparquet-1.0.0.schema.json",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "byte": 1172,
+      "sha256": "72ca4586a99b44e518bddcd2937a1c1d7f7d68beb9f2f8b7bd87ff1c10309c56",
+      "sha256_canonico": "6d37bc806c475cae27e160863321611027010c3c957eb97efca15911126dca93"
+    },
+    {
+      "famiglia": "geoparquet",
+      "versione": "1.1.0",
+      "url": "https://geoparquet.org/releases/v1.1.0/schema.json",
+      "id": "https://geoparquet.org/releases/v1.1.0/schema.json",
+      "percorso": "assurance/schemi/geoparquet-1.1.0.schema.json",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "byte": 1824,
+      "sha256": "ccc1df2b40aa004383b4dc896e1da6b355a19f2324d832d0605052651f99a054",
+      "sha256_canonico": "9366987110a2356a3a50d4cca442d879a16a918640c21b48f3bdf74bf2cc6e98"
+    },
+    {
+      "famiglia": "projjson",
+      "versione": "0.5",
+      "url": "https://proj.org/schemas/v0.5/projjson.schema.json",
+      "id": "https://proj.org/schemas/v0.5/projjson.schema.json",
+      "percorso": "assurance/schemi/projjson-0.5.schema.json",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "byte": 37360,
+      "sha256": "d7d92c13bf545d03307cf52f1efef9a0339c7a2ac9f626a6616ad5c66e2e7e7c",
+      "sha256_canonico": "0a49d36ffaeebed4c78cee0ccf103e53faf9f4b9f20a1719af245e6765434ef4"
+    },
+    {
+      "famiglia": "projjson",
+      "versione": "0.7",
+      "url": "https://proj.org/schemas/v0.7/projjson.schema.json",
+      "id": "https://proj.org/schemas/v0.7/projjson.schema.json",
+      "percorso": "assurance/schemi/projjson-0.7.schema.json",
+      "draft": "http://json-schema.org/draft-07/schema#",
+      "byte": 38418,
+      "sha256": "67f090556bae996522edad482597c0f9e1b919ca4c9288ac9f8f7cd4180f49b6",
+      "sha256_canonico": "74e720e5be3833c4113de2c837d626563d3552c1eb71b6a0abf876059f6e7028"
+    }
+  ]
+}
