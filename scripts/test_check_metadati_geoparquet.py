@@ -28,8 +28,9 @@ fn colonna(o: &Map) -> Result<()> {
 }
 '''
 
-VERSIONI_NEL_MODULO = '''pub const VERSIONI_SUPPORTATE: [&str; 2] = ["1.0.0", "1.1.0"];
-'''
+# Il perimetro finto su cui girano le sonde: due campi, quanti bastano a
+# distinguere «coperto» da «non coperto».
+CAMPI_FINTI = {"version", "encoding"}
 
 SONDE = '''
 #[cfg(test)]
@@ -57,22 +58,24 @@ mod sonde {
 
 class SondeDelGate(unittest.TestCase):
     def errori(self, produzione: str = PRODUZIONE, sonde: str = SONDE) -> list[str]:
-        """Il gate su un modulo finto.
+        """Il gate su un modulo finto, con un perimetro finto.
 
-        Il perimetro dichiarato viene dal descrittore vero, che qui non c'entra:
-        si finge coerente con il modulo finto, cosi' le sonde della copertura
-        provano la copertura e quelle del perimetro provano il perimetro.
+        Il perimetro viene dagli schemi ufficiali, e qui si inietta: provare la
+        copertura su moduli inventati e' l'unico modo di provare la regola
+        invece di provare il modulo di oggi.
         """
-        with mock.patch.object(gate, "versione_dichiarata", return_value="1.1.0"):
-            return gate.verifica(VERSIONI_NEL_MODULO + produzione + sonde)[0]
+        return gate.verifica(produzione + sonde, campi=CAMPI_FINTI)[0]
 
     def test_un_modulo_coerente_e_verde(self) -> None:
         self.assertEqual(self.errori(), [])
 
-    def test_un_campo_letto_e_mai_provato_e_rosso(self) -> None:
-        """Il caso per cui il gate esiste: un campo aggiunto senza sonde."""
-        con_edges = PRODUZIONE + '\nfn bordi(o: &Map) { let _ = o.get("edges"); }\n'
-        errori = self.errori(produzione=con_edges)
+    def test_un_campo_della_specifica_mai_provato_e_rosso(self) -> None:
+        """Il caso per cui il gate esiste, e che la versione circolare **non
+        poteva vedere**: un campo che la specifica definisce e che il driver non
+        legge non entrava nemmeno nel suo perimetro, quindi risultava coperto.
+
+        Qui il perimetro viene dagli schemi, e la lacuna si vede."""
+        errori = gate.verifica(PRODUZIONE + SONDE, campi=CAMPI_FINTI | {"edges"})[0]
         self.assertTrue(any("«edges»" in e for e in errori), errori)
         self.assertEqual(
             len([e for e in errori if "«edges»" in e]),
@@ -108,30 +111,28 @@ class SondeDelGate(unittest.TestCase):
         self.assertTrue(any("non comincia con nessuno" in e for e in errori), errori)
 
     def test_una_sonda_non_puo_inventarsi_un_campo(self) -> None:
-        """Il modo piu' sottile di rendere verde il gate: dichiarare un campo
-        dentro le sonde e coprirlo da soli.
+        """Il modo piu' sottile di rendere verde il gate, e ora impossibile per
+        costruzione.
 
-        L'estrazione si ferma a `mod sonde` proprio per questo: cio' che il gate
-        misura viene da cio' che il driver legge in produzione, e le sonde
-        costruiscono documenti -- se contassero, il perimetro se lo
-        sceglierebbero loro.
+        Nella versione circolare il perimetro veniva dai `.get("...")` del
+        modulo, quindi una sonda che ne dichiarava uno se lo trovava nel
+        perimetro e lo copriva da sola. Ora il perimetro viene dagli schemi
+        ufficiali: una sonda che nomina qualcosa che non e' un campo della
+        specifica non trova un campo suo, ed e' rossa.
         """
         inventato = SONDE.replace(
             "    #[test]\n    fn documento_minimo_e_accettato() {}",
             '    #[test]\n    fn finto_e_accettato() { let _ = o.get("finto"); }',
         )
         errori = self.errori(sonde=inventato)
-        # `finto` non entra fra i campi, quindi la sonda che lo nomina non
-        # trova un campo suo...
         self.assertTrue(any("non comincia con nessuno" in e for e in errori), errori)
-        # ...e il campo inventato non compare nella copertura.
-        self.assertNotIn("finto", gate.verifica(PRODUZIONE + inventato)[1])
+        self.assertNotIn("finto", gate.verifica(PRODUZIONE + inventato, campi=CAMPI_FINTI)[1])
 
-    def test_un_modulo_che_non_interroga_niente_e_rosso(self) -> None:
-        """Se il modulo cambia forma, il gate misura il vuoto e deve dirlo."""
-        with mock.patch.object(gate, "versione_dichiarata", return_value="1.1.0"):
-            errori = gate.verifica("fn niente() {}" + chr(10))[0]
-        self.assertTrue(any("nessun campo interrogato" in e for e in errori), errori)
+    def test_un_perimetro_vuoto_e_rosso(self) -> None:
+        """Senza perimetro il gate misura il vuoto, e va rifatto invece che
+        tolto."""
+        errori = gate.verifica("fn niente() {}" + chr(10), campi=set())[0]
+        self.assertTrue(any("nessun campo estratto" in e for e in errori), errori)
 
     def test_i_versi_sono_un_elenco_chiuso(self) -> None:
         """Aggiungerne uno qui senza pensarci sarebbe il modo di far passare un
@@ -151,42 +152,17 @@ class SondeDelGate(unittest.TestCase):
             },
         )
 
-    # --- il perimetro dichiarato e quello applicato ----------------------
-
-    def test_un_perimetro_dichiarato_diverso_da_quello_applicato_e_rosso(self) -> None:
-        """`spec_version_supported` e' un'affermazione pubblica: chi legge il
-        catalogo decide su di essa, e un perimetro dichiarato diverso da quello
-        applicato e' peggio di nessun perimetro."""
-        con_versioni = VERSIONI_NEL_MODULO + PRODUZIONE
-        with mock.patch.object(gate, "versione_dichiarata", return_value="2.0.0"):
-            errori = gate.perimetro_dichiarato(con_versioni)
-        self.assertTrue(any("2.0.0" in e and "1.1.0" in e for e in errori), errori)
-
-        with mock.patch.object(gate, "versione_dichiarata", return_value="1.1.0"):
-            self.assertEqual(gate.perimetro_dichiarato(con_versioni), [])
-
-    def test_un_perimetro_non_dichiarato_e_rosso(self) -> None:
-        con_versioni = VERSIONI_NEL_MODULO + PRODUZIONE
-        with mock.patch.object(gate, "versione_dichiarata", return_value=None):
-            errori = gate.perimetro_dichiarato(con_versioni)
-        self.assertTrue(any("non dichiara" in e for e in errori), errori)
-
-    def test_senza_versioni_nel_modulo_il_gate_e_rosso(self) -> None:
-        """Se il modulo cambia forma, il confronto non ha piu' un termine."""
-        errori = gate.perimetro_dichiarato(PRODUZIONE)
-        self.assertTrue(any("VERSIONI_SUPPORTATE" in e for e in errori), errori)
-
-    def test_il_perimetro_reale_e_coerente(self) -> None:
-        """La controprova positiva sui file veri."""
-        self.assertEqual(gate.versioni_accettate(gate.sorgente()), ["1.0.0", "1.1.0"])
-        self.assertEqual(gate.versione_dichiarata(), "1.1.0")
-        self.assertEqual(gate.perimetro_dichiarato(gate.sorgente()), [])
-
     def test_il_modulo_reale_e_coperto(self) -> None:
         """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
         errori, copertura = gate.verifica()
         self.assertEqual(errori, [], errori)
-        # Gli undici campi della specifica, piu' il documento stesso.
+        # Gli undici campi che gli schemi ufficiali definiscono, piu' il
+        # documento stesso. Il numero non e' scritto qui a mano: viene
+        # dall'autorita', e questa asserzione lo fissa perche' una sua
+        # variazione sia una decisione e non un effetto.
+        campi, guasti = gate.campi_dello_schema()
+        self.assertEqual(guasti, [], guasti)
+        self.assertEqual(len(campi), 11)
         self.assertEqual(len(copertura), 12)
         for campo, versi in copertura.items():
             self.assertTrue(versi["positiva"], campo)

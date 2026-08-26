@@ -9,14 +9,22 @@ campi che nessuno controlla non lasciano traccia, e a mancare e' proprio cio'
 che non c'e'. Prima di questo lotto il lettore ne consultava cinque su undici, e
 di `encoding` -- il campo che dice se i byte sono WKB -- non sapeva nulla.
 
-Qui l'insieme dei campi non e' trascritto: e' **estratto dal modulo che li
-legge**. Il gate confronta cio' che `metadati.rs` interroga con l'elenco delle
-prove, nelle due direzioni:
+Qui l'insieme dei campi viene **dagli schemi ufficiali fissati**, e da nessun
+altro posto.
 
-* un campo che il modulo legge e nessuna prova esercita e' rosso -- e' il caso
-  di un campo aggiunto senza sonde;
-* un campo dichiarato qui e non letto dal modulo e' rosso -- e' il caso di una
-  sonda rimasta a provare qualcosa che nessuno guarda piu'.
+La prima stesura lo estraeva dal modulo che doveva controllare -- da cio' che
+`metadati.rs` interrogava con `.get("...")`. Era circolare: un campo che il
+driver dimenticava non era una lacuna, diventava la definizione del perimetro,
+e il gate certificava «coperto per intero» un insieme scelto dall'imputato. Il
+controllo vecchio non e' rimasto accanto a quello nuovo: sarebbe stato una
+seconda definizione concorrente, e due definizioni della stessa cosa divergono.
+
+Il confronto va nelle due direzioni:
+
+* un campo dello schema che nessuna prova esercita e' rosso -- ed e' il caso che
+  la versione circolare non poteva vedere, perche' un campo non letto non
+  entrava nemmeno nel suo elenco;
+* una sonda che nomina qualcosa che negli schemi non c'e' e' rossa.
 
 Per ogni campo servono **entrambi i versi**: una prova che accetta e una che
 rifiuta. Solo la seconda direbbe che il validatore rifiuta tutto; solo la prima,
@@ -57,15 +65,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # implementazioni della stessa regola.
 from check_prove_di_confine import esegui as esegui_i_test  # noqa: E402
 
+# Gli schemi fissati, e la loro verifica, vivono nel gate che li custodisce:
+# importarli evita di avere due letture dello stesso lock.
+import check_schemi_geoparquet as schemi  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 MODULO = ROOT / "crates" / "driver-geoparquet" / "src" / "metadati.rs"
-DESCRITTORE = ROOT / "crates" / "driver-geoparquet" / "src" / "lib.rs"
 CRATE = "driver-geoparquet"
 PERCORSO_DELLE_SONDE = "metadati::sonde::"
-
-# I campi che il modulo interroga, estratti da come li interroga.
-LETTURA = re.compile(r'\.get\("([a-z_]+)"\)')
-OBBLIGATORIA = re.compile(r'stringa_obbligatoria\(\s*\w+\s*,\s*"([a-z_]+)"')
 
 # Il documento non e' un campo del documento, e ha comunque bisogno delle due
 # prove: `geo` che non e' JSON, o non e' un oggetto, e' il primo modo in cui un
@@ -86,76 +93,32 @@ NEGATIVI = (
 SONDA = re.compile(r"#\[test\]\s*\n\s*fn ([a-z_0-9]+)\(\)")
 
 
-# Le versioni che il validatore accetta, e quella che il catalogo dichiara.
-VERSIONI = re.compile(r"VERSIONI_SUPPORTATE: \[&str; \d+\] = \[([^\]]*)\]")
-DICHIARATA = re.compile(
-    r"// `spec_version_supported`:(?:[^\n]*\n\s*//[^\n]*)*\n\s*Some\(\s*\"([^\"]+)\"\s*\)"
-)
-CITAZIONE = re.compile(r"\"([^\"]+)\"")
-
-
-def versioni_accettate(testo: str) -> list[str]:
-    """Le versioni che il validatore accetta, dal modulo che le applica."""
-    trovato = VERSIONI.search(testo)
-    return CITAZIONE.findall(trovato.group(1)) if trovato else []
-
-
-def versione_dichiarata() -> str | None:
-    """La versione che il descrittore pubblica nel catalogo."""
-    trovato = DICHIARATA.search(DESCRITTORE.read_text(encoding="utf-8"))
-    return trovato.group(1) if trovato else None
-
-
-def perimetro_dichiarato(testo: str) -> list[str]:
-    """Il catalogo dichiara la versione massima che il validatore applica.
-
-    `spec_version_supported` e' un'affermazione pubblica: un consumatore la
-    legge per sapere se una 2.0 sarebbe accettata. Confrontarla con l'elenco che
-    il codice applica e' l'unico modo perche' sia una verita' invece che una
-    riga di JSON -- ed e' la stessa disciplina della capability
-    `hostile_input_hardened`.
-    """
-    accettate = versioni_accettate(testo)
-    if not accettate:
-        return [
-            "non si legge `VERSIONI_SUPPORTATE` dal modulo: senza, il perimetro "
-            "dichiarato nel catalogo non ha niente con cui essere confrontato"
-        ]
-    dichiarata = versione_dichiarata()
-    if dichiarata is None:
-        return [
-            "il descrittore di `driver-geoparquet` non dichiara "
-            "`spec_version_supported`: il perimetro che il codice applica "
-            "resterebbe invisibile a chi legge il catalogo"
-        ]
-    massima = max(accettate)
-    if dichiarata != massima:
-        return [
-            f"il catalogo dichiara «{dichiarata}» e il validatore accetta "
-            f"{accettate}, la cui massima e' «{massima}». Un perimetro "
-            "dichiarato diverso da quello applicato e' peggio di nessun "
-            "perimetro: chi legge il catalogo decide su di esso."
-        ]
-    return []
-
 
 def sorgente() -> str:
     return MODULO.read_text(encoding="utf-8")
 
 
-def campi_letti(testo: str) -> set[str]:
-    """I campi che il **codice di produzione** interroga davvero.
+def campi_dello_schema() -> tuple[set[str], list[str]]:
+    """I campi che la **specifica** definisce, dagli schemi fissati.
 
-    L'estrazione si ferma a `mod sonde`, e non e' pedanteria: le sonde
-    costruiscono documenti e li interrogano, quindi contarle vorrebbe dire
-    lasciare che una sonda si inventi un campo -- e poi lo copra da sola. Cio'
-    che il gate misura deve venire da cio' che il driver legge in produzione.
+    Sono i tre obbligatori del documento e le proprieta' dell'oggetto-colonna,
+    presi dall'unione delle due versioni: un campo che esiste solo in 1.1 --
+    `covering` -- va comunque provato.
 
-    `covering.bbox` si interroga con lo stesso nome del `bbox` di colonna: qui
-    e' un campo solo, e le prove del covering stanno sotto `covering`.
+    Gli schemi arrivano dal gate che ne verifica lock, byte, sha256, `$id`,
+    draft e `$ref`: se quelli non tornano, qui non si arriva.
     """
-    produzione = testo.split("mod sonde {", 1)[0]
-    return set(LETTURA.findall(produzione)) | set(OBBLIGATORIA.findall(produzione))
+    documenti, errori = schemi.schemi_fissati()
+    if errori:
+        return set(), errori
+
+    campi: set[str] = set()
+    for chiave, documento in documenti.items():
+        if not chiave.startswith("geoparquet-"):
+            continue
+        campi.update(documento.get("required", []))
+        campi.update(schemi.colonna_dello_schema(documento)["properties"])
+    return campi, []
 
 
 def sonde(testo: str) -> list[str]:
@@ -183,22 +146,25 @@ def campo_di(nome: str, campi: set[str]) -> str | None:
 
 def verifica(
     testo: str | None = None,
+    campi: set[str] | None = None,
 ) -> tuple[list[str], dict[str, dict[str, list[str]]]]:
-    """Il sorgente e' iniettabile perche' le sonde di questo gate ne
-    costruiscono di finti: provare la regola su moduli inventati e' l'unico modo
-    di provarla invece di provare il modulo di oggi."""
+    """Il sorgente e il perimetro sono iniettabili perche' le sonde di questo
+    gate ne costruiscono di finti: provare la regola su moduli inventati e'
+    l'unico modo di provarla invece di provare il modulo di oggi."""
     if testo is None:
         testo = sorgente()
-    letti = campi_letti(testo)
-    attesi = letti | {DOCUMENTO}
     errori: list[str] = []
+    if campi is None:
+        campi, errori = campi_dello_schema()
+        if errori:
+            return errori, {}
+    attesi = campi | {DOCUMENTO}
 
-    if not letti:
+    if not campi:
         return (
             [
-                f"{MODULO.name}: nessun campo interrogato. L'estrazione guarda "
-                "`.get(\"...\")` e `stringa_obbligatoria`: se il modulo cambia "
-                "forma, questo gate misura il vuoto e va rifatto, non tolto."
+                "nessun campo estratto dagli schemi ufficiali: senza perimetro "
+                "questo gate misura il vuoto, e va rifatto invece che tolto."
             ],
             {},
         )
@@ -220,13 +186,12 @@ def verifica(
         campo = campo_di(nome, attesi)
         if campo is None:
             errori.append(
-                f"la sonda «{nome}» non comincia con nessuno dei campi che il "
-                f"modulo legge {sorted(attesi)}: non si sa che cosa provi."
+                f"la sonda «{nome}» non comincia con nessuno dei campi che gli "
+                f"schemi ufficiali definiscono {sorted(attesi)}: non si sa che "
+                "cosa provi."
             )
             continue
         copertura[campo][direzione].append(nome)
-
-    errori.extend(perimetro_dichiarato(testo))
 
     for campo, versi in copertura.items():
         for direzione in ("positiva", "negativa"):
@@ -258,11 +223,10 @@ def main() -> int:
     quante = sum(len(v["positiva"]) + len(v["negativa"]) for v in copertura.values())
     print(
         f"metadati GeoParquet validati per intero: {len(copertura)} campi "
-        f"estratti dal modulo che li legge, ciascuno con almeno una prova "
+        f"estratti **dagli schemi ufficiali fissati**, ciascuno con almeno una prova "
         f"positiva e una negativa, per {quante} sonde eseguite e passate. "
-        f"Le versioni lette sono {versioni_accettate(sorgente())}, e il "
-        f"catalogo dichiara «{versione_dichiarata()}»: oltre, il rifiuto e' di "
-        "funzionalita' non supportata, non di formato."
+        "Il perimetro di versione dichiarato nel catalogo e' verificato dal "
+        "gate degli schemi, che lo confronta con l'autorita' e non con il codice."
     )
     return 0
 
