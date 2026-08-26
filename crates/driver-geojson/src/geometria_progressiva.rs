@@ -402,29 +402,42 @@ impl Albero {
 }
 
 /// Il tipo dichiarato dal membro `type`.
+///
+/// Sono due famiglie, e il tipo lo dice invece di lasciarlo sapere a chi
+/// legge: una collezione porta `geometries`, tutte le altre portano
+/// `coordinates`. Tenerle in un enum solo costringeva a chiudere la
+/// costruzione con un ramo impossibile, e un ramo impossibile non e' un
+/// controllo: e' una promessa, che regge finche' nessuno aggiunge un caso.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tipo {
+    Collezione,
+    ConCoordinate(ConCoordinate),
+}
+
+/// I tipi che portano `coordinates`, cioe' tutti tranne uno.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConCoordinate {
     Point,
     MultiPoint,
     LineString,
     MultiLineString,
     Polygon,
     MultiPolygon,
-    GeometryCollection,
 }
 
 impl Tipo {
     fn dal_nome(nome: &str) -> Option<Self> {
-        match nome {
-            "Point" => Some(Self::Point),
-            "MultiPoint" => Some(Self::MultiPoint),
-            "LineString" => Some(Self::LineString),
-            "MultiLineString" => Some(Self::MultiLineString),
-            "Polygon" => Some(Self::Polygon),
-            "MultiPolygon" => Some(Self::MultiPolygon),
-            "GeometryCollection" => Some(Self::GeometryCollection),
-            _ => None,
-        }
+        let con_coordinate = match nome {
+            "Point" => ConCoordinate::Point,
+            "MultiPoint" => ConCoordinate::MultiPoint,
+            "LineString" => ConCoordinate::LineString,
+            "MultiLineString" => ConCoordinate::MultiLineString,
+            "Polygon" => ConCoordinate::Polygon,
+            "MultiPolygon" => ConCoordinate::MultiPolygon,
+            "GeometryCollection" => return Some(Self::Collezione),
+            _ => return None,
+        };
+        Some(Self::ConCoordinate(con_coordinate))
     }
 }
 
@@ -553,20 +566,23 @@ fn costruisci(
     figlie: Option<Vec<WkbGeometry>>,
     budget: &Budget,
 ) -> Result<WkbGeometry, PlenoraIoError> {
-    if tipo == Tipo::GeometryCollection {
-        let figlie = figlie.ok_or_else(|| {
-            errore_di_formato(&PublicMessage::Curated(
-                "GeometryCollection GeoJSON senza 'geometries'",
-            ))
-        })?;
-        let dimensioni = geometry_dimensions(&figlie, "GeometryCollection GeoJSON vuota")
-            .map_err(|m| errore_di_formato(&m))?;
-        return Ok(WkbGeometry {
-            value: WkbValue::GeometryCollection(figlie),
-            dimensions: dimensioni,
-            srid: None,
-        });
-    }
+    let tipo = match tipo {
+        Tipo::ConCoordinate(con_coordinate) => con_coordinate,
+        Tipo::Collezione => {
+            let figlie = figlie.ok_or_else(|| {
+                errore_di_formato(&PublicMessage::Curated(
+                    "GeometryCollection GeoJSON senza 'geometries'",
+                ))
+            })?;
+            let dimensioni = geometry_dimensions(&figlie, "GeometryCollection GeoJSON vuota")
+                .map_err(|m| errore_di_formato(&m))?;
+            return Ok(WkbGeometry {
+                value: WkbValue::GeometryCollection(figlie),
+                dimensions: dimensioni,
+                srid: None,
+            });
+        }
+    };
 
     let coordinate = coordinate.ok_or_else(|| {
         errore_di_formato(&PublicMessage::Curated(
@@ -575,15 +591,15 @@ fn costruisci(
     })?;
 
     let (valore, dimensioni) = match tipo {
-        Tipo::Point => {
+        ConCoordinate::Point => {
             let (sola, dimensioni) = coordinate.posizione()?;
             (WkbValue::Point(sola), dimensioni)
         }
-        Tipo::LineString => {
+        ConCoordinate::LineString => {
             let (lette, dimensioni) = coordinate.posizioni(budget)?;
             (WkbValue::LineString(lette), dimensioni)
         }
-        Tipo::MultiPoint => {
+        ConCoordinate::MultiPoint => {
             let (lette, dimensioni) = coordinate.posizioni(budget)?;
             budget.addebita_membri(lette.len())?;
             let figlie = lette
@@ -596,11 +612,11 @@ fn costruisci(
                 .collect();
             (WkbValue::MultiPoint(figlie), dimensioni)
         }
-        Tipo::Polygon => {
+        ConCoordinate::Polygon => {
             let (anelli, dimensioni) = coordinate.anelli(budget)?;
             (WkbValue::Polygon(anelli), dimensioni)
         }
-        Tipo::MultiLineString => {
+        ConCoordinate::MultiLineString => {
             let elenco = match coordinate {
                 Albero::Elenco(rami) => rami,
                 Albero::Posizione(_) => {
@@ -623,7 +639,7 @@ fn costruisci(
                 .map_err(|m| errore_di_formato(&m))?;
             (WkbValue::MultiLineString(membri), dimensioni)
         }
-        Tipo::MultiPolygon => {
+        ConCoordinate::MultiPolygon => {
             let elenco = match coordinate {
                 Albero::Elenco(rami) => rami,
                 Albero::Posizione(_) => {
@@ -646,7 +662,6 @@ fn costruisci(
                 .map_err(|m| errore_di_formato(&m))?;
             (WkbValue::MultiPolygon(membri), dimensioni)
         }
-        Tipo::GeometryCollection => unreachable!("trattata sopra"),
     };
     Ok(WkbGeometry {
         value: valore,
