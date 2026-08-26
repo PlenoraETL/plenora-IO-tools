@@ -73,6 +73,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     Runtime::PureRust,
     // `hostile_input_hardened`: non dichiarato: l'input e' binario, con prevalidazione dello schema.
     false,
+    // `spec_version_supported`: il formato non si versiona in un modo che
+    // il driver possa dichiarare per intero.
+    None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: ALL_ARROW_TYPES,

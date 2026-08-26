@@ -27,6 +27,17 @@ adattivo — memoria finché il budget lo consente, poi spool su disco. Un error
 metà lettura non consegna righe parziali, e una scrittura rifiutata non lascia
 una destinazione.
 
+**Fin dove arriva il supporto di una specifica**: il catalogo lo dichiara nel
+campo `spec_version_supported` di ciascun driver. `geoparquet` dichiara
+`1.1.0`: legge per intero i metadati `geo` delle versioni 1.0.0 e 1.1.0 — i due
+valori che gli schemi ufficiali fissano — e scrive 1.1.0. Una versione oltre
+viene rifiutata come **funzionalità non supportata**, che è cosa diversa da
+metadati non conformi: il primo errore dice che il file va bene e noi no, il
+secondo che il file è sbagliato. Con lo stesso criterio sono rifiutate le
+codifiche native GeoArrow e i bordi sferici, entrambi validi in GeoParquet 1.1
+e non implementati qui. Gli altri driver dichiarano `null`: i loro formati non
+si versionano in un modo che il driver possa dichiarare per intero.
+
 ### Determinismo
 
 I driver garantiscono **determinismo semantico**, non byte per byte: a parità di

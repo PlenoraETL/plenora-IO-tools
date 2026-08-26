@@ -108,6 +108,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     // `hostile_input_hardened`: la geometria si deserializza direttamente nell'AST, addebitando ogni
     // posizione e ogni figlia mentre serde le consegna (S12).
     true,
+    // `spec_version_supported`: il formato non si versiona in un modo che
+    // il driver possa dichiarare per intero.
+    None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,

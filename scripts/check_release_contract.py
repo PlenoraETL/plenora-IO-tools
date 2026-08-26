@@ -2668,7 +2668,12 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
     # entrato con il lotto S12: la regola `add_optional_field` del contratto lo
     # consente **con un record d'impatto**, e il record e' preteso qui sotto --
     # senza, la regola sarebbe una frase e l'aggiunta un fatto compiuto.
-    catalog_fields = ["available", "hostile_input_hardened", "required_feature"]
+    catalog_fields = [
+        "available",
+        "hostile_input_hardened",
+        "required_feature",
+        "spec_version_supported",
+    ]
     if catalog.get("optional_driver_fields") != catalog_fields:
         errors.append("cli-protocol-v1: campi catalogo additivi opzionali inattesi")
     if catalog.get("current_producer") != {
@@ -2702,9 +2707,33 @@ def validate_cli_protocol_v1(document: dict[str, Any]) -> list[str]:
             "filegdb": "gdal-backend",
             "other_drivers": None,
         },
+        # Entrato con il lotto S10, con la stessa regola e lo stesso record.
+        "spec_version_supported": {
+            "type": "string_or_null",
+            "value_when_declared": (
+                "the_highest_specification_version_the_driver_reads_in_full"
+            ),
+            "null_means": (
+                "the_format_is_not_versioned_in_a_way_the_driver_can_declare"
+            ),
+            "nota": (
+                "dice dove il supporto si ferma. Senza, un consumatore che vede "
+                "un formato nel catalogo non ha modo di sapere se una versione "
+                "successiva della sua specifica sarebbe letta: lo dedurrebbe, e "
+                "si sbaglierebbe. Un driver che dichiara una versione rifiuta "
+                "quelle oltre con un errore di funzionalita' **non supportata**, "
+                "distinto da quello di metadati non conformi: il primo dice che "
+                "il file va bene e noi no, il secondo che il file e' sbagliato, "
+                "e mandare chi legge a correggere un file corretto e' il danno "
+                "che la distinzione evita."
+            ),
+            "esempio": "geoparquet dichiara 1.1.0: legge 1.0.0 e 1.1.0, e 2.0 no.",
+            "verificata_da": "scripts/check_metadati_geoparquet.py",
+        },
     }:
         errors.append("cli-protocol-v1: semantica campi driver inattesa")
     errors.extend(_record_di_impatto(document, "drivers[].hostile_input_hardened"))
+    errors.extend(_record_di_impatto(document, "drivers[].spec_version_supported"))
 
     convert = envelopes.get("convert", {})
     required_convert = {

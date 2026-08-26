@@ -762,6 +762,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     Runtime::PureRust,
     // `hostile_input_hardened`: non dichiarato: l'input e' binario, con prevalidazione delle pagine.
     false,
+    // `spec_version_supported`: GeoParquet 1.1.0. Il validatore accetta
+    // esattamente 1.0.0 e 1.1.0 -- i due valori che gli schemi ufficiali
+    // fissano -- e oltre rifiuta come funzionalita' non supportata. Il campo
+    // dice al consumatore dove il supporto finisce, invece di lasciarglielo
+    // dedurre dal fatto che il formato compare nel catalogo.
+    Some("1.1.0"),
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: ALL_ARROW_TYPES,

@@ -71,6 +71,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     // `hostile_input_hardened`: non dichiarato: il percorso passa da GDAL,
     // che non e' nostro e non e' strumentato.
     false,
+    // `spec_version_supported`: il formato non si versiona in un modo che
+    // il driver possa dichiarare per intero.
+    None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: FILEGDB_ATTRIBUTE_TYPES,

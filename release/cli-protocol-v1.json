@@ -57,13 +57,15 @@
       "optional_driver_fields": [
         "available",
         "hostile_input_hardened",
-        "required_feature"
+        "required_feature",
+        "spec_version_supported"
       ],
       "current_producer": {
         "required_driver_fields": [
           "available",
           "hostile_input_hardened",
-          "required_feature"
+          "required_feature",
+          "spec_version_supported"
         ]
       },
       "driver_field_semantics": {
@@ -85,6 +87,14 @@
           "false_means": "not_declared_not_unsafe",
           "nota": "true dice che i tetti del bordo -- byte, componenti, profondita' -- si applicano mentre il testo viene consumato, non dopo che l'albero e' stato costruito. false non dice «insicuro»: dice che questa garanzia non e' dichiarata, e un driver binario ne ha altre che questo booleano non riassume.",
           "verificata_da": "scripts/check_capability_input_ostile.py"
+        },
+        "spec_version_supported": {
+          "type": "string_or_null",
+          "value_when_declared": "the_highest_specification_version_the_driver_reads_in_full",
+          "null_means": "the_format_is_not_versioned_in_a_way_the_driver_can_declare",
+          "nota": "dice dove il supporto si ferma. Senza, un consumatore che vede un formato nel catalogo non ha modo di sapere se una versione successiva della sua specifica sarebbe letta: lo dedurrebbe, e si sbaglierebbe. Un driver che dichiara una versione rifiuta quelle oltre con un errore di funzionalita' **non supportata**, distinto da quello di metadati non conformi: il primo dice che il file va bene e noi no, il secondo che il file e' sbagliato, e mandare chi legge a correggere un file corretto e' il danno che la distinzione evita.",
+          "esempio": "geoparquet dichiara 1.1.0: legge 1.0.0 e 1.1.0, e 2.0 no.",
+          "verificata_da": "scripts/check_metadati_geoparquet.py"
         }
       }
     },
@@ -167,6 +177,15 @@
         "geojson",
         "xlsx"
       ]
+    },
+    {
+      "field": "drivers[].spec_version_supported",
+      "kind": "add_optional_field",
+      "protocol_version": 1,
+      "lotto": "S10",
+      "data": "2026-08-26",
+      "impatto_sui_consumatori": "nessuna rottura: il campo si aggiunge, non sostituisce e non cambia significato ad altri. Un consumatore che non lo conosce lo ignora; uno che lo legge ottiene un'affermazione in piu' -- e ne ottiene una che prima doveva indovinare. La regola `add_optional_field` del contratto lo consente proprio a questa condizione, e questo record e' cio' che la regola chiede.",
+      "perche_ora": "il lotto S10 valida i metadati GeoParquet per intero e fissa il perimetro a 1.0.0 e 1.1.0. Un perimetro che il codice applica e il catalogo non dichiara e' un perimetro che il consumatore scopre quando un file gli viene rifiutato."
     }
   ]
 }

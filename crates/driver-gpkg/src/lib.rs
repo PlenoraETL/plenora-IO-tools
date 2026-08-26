@@ -197,6 +197,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     // `hostile_input_hardened`: non dichiarato: l'input e' binario. La classificazione WKB e' bounded
     // (S11), ma questa capability parla del parsing degli input di testo.
     false,
+    // `spec_version_supported`: il formato non si versiona in un modo che
+    // il driver possa dichiarare per intero.
+    None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: GPKG_ATTRIBUTE_TYPES,

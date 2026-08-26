@@ -140,6 +140,9 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
     // `hostile_input_hardened`: le celle WKT passano da `parse_wkt_bounded`, che applica byte,
     // componenti e profondita' mentre consuma il testo (S12).
     true,
+    // `spec_version_supported`: il formato non si versiona in un modo che
+    // il driver possa dichiarare per intero.
+    None,
     Some(FormatWriteCapabilities {
         field_names: UTF8_FIELD_NAMES,
         allowed_types: SCALAR_TYPES,

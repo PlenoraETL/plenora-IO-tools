@@ -597,6 +597,15 @@ pub struct FormatDescriptor {
     /// dimostri: `scripts/check_capability_input_ostile.py` confronta questa
     /// riga con i moduli che il driver attraversa davvero.
     hostile_input_hardened: bool,
+    /// La versione massima della specifica del formato che il driver legge
+    /// **per intero**, o `None` se il formato non si versiona cosi'.
+    ///
+    /// Serve a dire dove il supporto si ferma. Senza, un consumatore che vede
+    /// `geoparquet` nel catalogo non ha modo di sapere se una 2.0 sarebbe
+    /// letta: dedurrebbe di si', e si sbaglierebbe. Il driver che la dichiara
+    /// rifiuta le versioni oltre con un errore di funzionalita' non
+    /// supportata, distinto da quello di metadati non conformi.
+    spec_version_supported: Option<&'static str>,
     write_capabilities: Option<FormatWriteCapabilities>,
     /// Le `format_options` che il driver interpreta (L0.7, S6).
     ///
@@ -653,6 +662,7 @@ impl FormatDescriptor {
         fidelity_class: Fidelity,
         runtime: Runtime,
         hostile_input_hardened: bool,
+        spec_version_supported: Option<&'static str>,
         write_capabilities: Option<FormatWriteCapabilities>,
         format_options: plenora_io_model::format_options::SchemaOpzioniFormato,
         semantic_version: u32,
@@ -679,6 +689,7 @@ impl FormatDescriptor {
             fidelity_class,
             runtime,
             hostile_input_hardened,
+            spec_version_supported,
             write_capabilities,
             format_options,
             semantic_version,
@@ -798,6 +809,12 @@ impl FormatDescriptor {
     #[must_use]
     pub const fn hostile_input_hardened(&self) -> bool {
         self.hostile_input_hardened
+    }
+
+    /// La versione massima della specifica del formato letta per intero.
+    #[must_use]
+    pub const fn spec_version_supported(&self) -> Option<&'static str> {
+        self.spec_version_supported
     }
 
     #[must_use]
