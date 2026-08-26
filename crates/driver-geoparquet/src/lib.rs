@@ -100,6 +100,8 @@ use plenora_io_model::{
 /// tetto sul **rapporto** di decompressione — come quello che il contenitore
 /// XLSX applica — rifiuterebbe anche file leciti molto comprimibili, e sarebbe
 /// un restringimento del contratto invece di una difesa.
+mod metadati;
+use metadati::MetadatiGeo;
 mod pagine;
 
 const MAX_BYTE_CHUNK_ISPEZIONATO: i64 = 1 << 30;
@@ -829,7 +831,7 @@ impl FormatDriver for GeoParquetDriver {
                 .map_err(|_| fmt_err(&PublicMessage::Curated("Parquet non valido")))
         })?;
         let parquet_schema = builder.schema().clone();
-        let geo = read_geo_meta(&builder);
+        let geo = read_geo_meta(&builder)?;
         let (geom_name, crs) = resolve_geometry_and_crs(&parquet_schema, geo.as_ref())?;
         // Finding #4 follow-up follow-up review 2026-08-15: il fallback
         // legacy per-nome (accettare `_bbox_minx/miny/maxx/maxy` come
@@ -843,7 +845,7 @@ impl FormatDriver for GeoParquetDriver {
         // esplicitamente, prendendosi responsabilita' del comportamento
         // documentato.
         let legacy_by_name_opt_in = opt_in_bbox_legacy(&opts.format_options)?;
-        let covering_names = covering_bbox_columns(geo.as_ref(), &geom_name);
+        let covering_names = covering_bbox_columns(geo.as_ref());
         // Retag strippa SOLO i nomi realmente dichiarati come covering o —
         // se il caller ha chiesto il fallback legacy — quelli
         // convenzionali. Un file senza covering metadata e senza opt-in
@@ -907,11 +909,11 @@ impl FormatDriver for GeoParquetDriver {
         let geometry_field_id = FieldId(geom_idx as u32);
         let mut geometry = GeometryColumnContract::wkb_passthrough(
             geometry_field_id,
-            geom_name.clone(),
+            geom_name,
             crs,
             out_schema.field(geom_idx).is_nullable(),
         );
-        apply_geo_column_metadata(&mut geometry, geo.as_ref(), &geom_name);
+        apply_geo_column_metadata(&mut geometry, geo.as_ref());
         let contract = DataContract::new(out_schema, Some(geometry));
         // `DataContract::new` rende i metadati geometrici del contratto
         // autoritativi; anche i batch runtime devono essere retaggati con
@@ -1648,46 +1650,77 @@ fn compression_from(opts: &WriteOptions) -> Result<Compression> {
     }
 }
 
-fn read_geo_meta(builder: &ParquetRecordBatchReaderBuilder<File>) -> Option<serde_json::Value> {
-    let kv = builder.metadata().file_metadata().key_value_metadata()?;
-    let raw = kv
-        .iter()
-        .find(|e| e.key == "geo")
-        .and_then(|e| e.value.clone())?;
-    serde_json::from_str(&raw).ok()
+/// I metadati `geo` del file, validati per intero.
+///
+/// `Ok(None)` vuol dire **una cosa sola**: la chiave `geo` non c'e', cioe' il
+/// file e' un Parquet semplice e non pretende di essere `GeoParquet`. Per quel
+/// caso il driver continua a indovinare la colonna geometria dal nome, che e'
+/// un comportamento legittimo e documentato.
+///
+/// Prima `Ok(None)` ne voleva dire due, e la seconda era il difetto: un `geo`
+/// **presente e malformato** finiva anche lui li', e un `GeoParquet` corrotto
+/// veniva letto come Parquet semplice -- con la colonna indovinata per nome,
+/// che poteva non essere quella dichiarata da `primary_column`. Ora un
+/// documento presente viene validato, e se non regge il file e' rifiutato.
+fn read_geo_meta(builder: &ParquetRecordBatchReaderBuilder<File>) -> Result<Option<MetadatiGeo>> {
+    let Some(kv) = builder.metadata().file_metadata().key_value_metadata() else {
+        return Ok(None);
+    };
+    let Some(voce) = kv.iter().find(|e| e.key == "geo") else {
+        return Ok(None);
+    };
+    let Some(grezzo) = voce.value.as_deref() else {
+        // La chiave c'e' e il valore no: e' un documento che si dichiara e non
+        // si scrive, non un file senza metadati.
+        return Err(fmt_err(&PublicMessage::Curated(
+            "metadato `geo` GeoParquet dichiarato e vuoto",
+        )));
+    };
+    metadati::analizza(grezzo).map(Some)
 }
 
 /// Nome colonna geometria + CRS risolto dai metadati `geo`.
 fn resolve_geometry_and_crs(
     schema: &Schema,
-    geo: Option<&serde_json::Value>,
+    geo: Option<&MetadatiGeo>,
 ) -> Result<(String, ResolvedCrs)> {
-    let primary = geo
-        .and_then(|g| g.get("primary_column"))
-        .and_then(|v| v.as_str())
-        .map(str::to_owned)
-        .or_else(|| {
-            ["geometry", "geom", "wkb"]
-                .iter()
-                .find(|n| schema.index_of(n).is_ok())
-                .map(std::string::ToString::to_string)
-        })
+    if let Some(geo) = geo {
+        // La colonna che i metadati dichiarano deve esistere nel file. Prima
+        // nessuno lo verificava: un `primary_column` che nominava una colonna
+        // assente arrivava fino al retag dello schema, dove non trovava niente
+        // da ri-etichettare e la geometria spariva senza un errore.
+        if schema.index_of(&geo.nome_primaria).is_err() {
+            return Err(fmt_err(&PublicMessage::Curated(
+                "metadato `geo` GeoParquet che dichiara una `primary_column` assente dallo schema",
+            )));
+        }
+        let crs = crs_from(Some(geo))?;
+        return Ok((geo.nome_primaria.clone(), crs));
+    }
+
+    // Nessun metadato `geo`: e' un Parquet semplice, e la colonna geometria si
+    // riconosce dal nome. Resta il comportamento di sempre.
+    let primary = ["geometry", "geom", "wkb"]
+        .iter()
+        .find(|n| schema.index_of(n).is_ok())
+        .map(std::string::ToString::to_string)
         .ok_or_else(|| {
             fmt_err(&PublicMessage::Curated(
                 "nessuna colonna geometria: non è GeoParquet",
             ))
         })?;
-    let crs = crs_from(geo, &primary)?;
-    Ok((primary, crs))
+    Ok((primary, ResolvedCrs::wgs84()))
 }
 
-fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> Result<ResolvedCrs> {
-    let crs = geo
-        .and_then(|g| g.get("columns"))
-        .and_then(|c| c.get(primary))
-        .and_then(|c| c.get("crs"));
-    match crs {
-        None | Some(serde_json::Value::Null) => Ok(ResolvedCrs::wgs84()),
+/// Il CRS della colonna primaria.
+///
+/// La **semantica** non cambia in questo lotto: `crs` assente o nullo resta
+/// WGS84, come prima. Cio' che cambia e' che la forma e' validata a monte --
+/// `crs` presente deve essere un oggetto PROJJSON -- quindi qui non arriva piu'
+/// una stringa da interpretare a naso.
+fn crs_from(geo: Option<&MetadatiGeo>) -> Result<ResolvedCrs> {
+    match geo.and_then(|g| g.primaria.crs.as_ref()) {
+        None => Ok(ResolvedCrs::wgs84()),
         Some(v) => {
             let id = v.get("id").and_then(|i| {
                 let a = i.get("authority").and_then(|a| a.as_str())?;
@@ -1723,57 +1756,37 @@ fn crs_from(geo: Option<&serde_json::Value>, primary: &str) -> Result<ResolvedCr
     }
 }
 
-// La catena di suffissi è ordinata (" ZM" prima di " Z"/" M"): tradurla in
-// `map_or_else` annidati non cambierebbe il risultato ma nasconderebbe la
-// priorità, che qui è il contratto della funzione.
-#[allow(clippy::option_if_let_else)]
-fn parse_geo_type_label(label: &str) -> Option<(GeometryType, CoordinateDimensions)> {
-    let (name, dimensions) = if let Some(name) = label.strip_suffix(" ZM") {
-        (name, CoordinateDimensions::Xyzm)
-    } else if let Some(name) = label.strip_suffix(" Z") {
-        (name, CoordinateDimensions::Xyz)
-    } else if let Some(name) = label.strip_suffix(" M") {
-        (name, CoordinateDimensions::Xym)
-    } else {
-        (label, CoordinateDimensions::Xy)
-    };
-    let geometry_type = match name {
-        "Point" => GeometryType::Point,
-        "LineString" => GeometryType::LineString,
-        "Polygon" => GeometryType::Polygon,
-        "MultiPoint" => GeometryType::MultiPoint,
-        "MultiLineString" => GeometryType::MultiLineString,
-        "MultiPolygon" => GeometryType::MultiPolygon,
-        "GeometryCollection" => GeometryType::GeometryCollection,
-        _ => return None,
-    };
-    Some((geometry_type, dimensions))
-}
-
-fn apply_geo_column_metadata(
-    contract: &mut GeometryColumnContract,
-    geo: Option<&serde_json::Value>,
-    primary: &str,
-) {
-    let Some(column) = geo
-        .and_then(|value| value.get("columns"))
-        .and_then(|columns| columns.get(primary))
-    else {
+fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<&MetadatiGeo>) {
+    let Some(geo) = geo else {
         return;
     };
+    let colonna = &geo.primaria;
     contract
         .native_metadata
-        .insert("geoparquet.column".to_owned(), column.to_string());
+        .insert("geoparquet.column".to_owned(), colonna.grezza.to_string());
+    // La versione che il documento dichiara, validata: e' l'informazione che
+    // dice a valle con quali regole quel metadato va letto, e non c'era.
+    contract
+        .native_metadata
+        .insert("geoparquet.version".to_owned(), geo.versione.to_owned());
+    // Le altre colonne geometriche del file. Un GeoParquet puo' averne piu' di
+    // una, e finora il contratto non nominava quelle che non erano la primaria:
+    // un consumatore non aveva modo di sapere che esistessero.
+    if !geo.secondarie.is_empty() {
+        let altre: Vec<&str> = geo.secondarie.keys().map(String::as_str).collect();
+        contract
+            .native_metadata
+            .insert("geoparquet.altre_colonne".to_owned(), altre.join(","));
+    }
     let mut dimensions = BTreeSet::new();
-    if let Some(labels) = column.get("geometry_types").and_then(|v| v.as_array()) {
-        for label in labels.iter().filter_map(|value| value.as_str()) {
-            if let Some((geometry_type, dimension)) = parse_geo_type_label(label) {
-                if !contract.geometry_types.contains(&geometry_type) {
-                    contract.geometry_types.push(geometry_type);
-                }
-                dimensions.insert(dimension);
-            }
+    // I tipi arrivano gia' validati: un'etichetta fuori dalla specifica ha
+    // fermato il file, invece di sparire da un `filter_map` e lasciare il
+    // contratto piu' povero senza che nulla lo dicesse.
+    for (geometry_type, dimension) in &colonna.tipi {
+        if !contract.geometry_types.contains(geometry_type) {
+            contract.geometry_types.push(*geometry_type);
         }
+        dimensions.insert(*dimension);
     }
     if !contract.geometry_types.is_empty() {
         let geometry_types = std::mem::take(&mut contract.geometry_types);
@@ -1982,30 +1995,14 @@ fn build_bbox_columns(geom: &BinaryArray) -> Vec<ArrayRef> {
 /// il mapping; per i file legacy (anche quelli emessi dai nostri writer
 /// precedenti) il chiamante puo' fare fallback ai nomi convenzionali
 /// `BBOX_COLS`.
-fn covering_bbox_columns(geo: Option<&serde_json::Value>, primary: &str) -> Option<Vec<String>> {
-    let covering = geo?
-        .get("columns")?
-        .get(primary)?
-        .get("covering")?
-        .get("bbox")?;
-    let mut names = Vec::with_capacity(4);
-    for edge in ["xmin", "ymin", "xmax", "ymax"] {
-        // Il covering `GeoParquet` 1.1 espone i column path come array di
-        // stringhe; la specifica ammette anche path annidati per campi
-        // dentro struct (es. `["bbox", "xmin"]`). Il pruning del driver
-        // opera sui root fields Parquet, quindi accetta esplicitamente
-        // solo path di lunghezza 1. Un covering annidato non viene
-        // interpretato: il fallback documentato torna al comportamento
-        // "nessun covering utilizzabile" invece di prendere il primo
-        // elemento e perdere il leaf (follow-up review 2026-08-15).
-        let path = covering.get(edge)?.as_array()?;
-        if path.len() != 1 {
-            return None;
-        }
-        let name = path.first()?.as_str()?.to_owned();
-        names.push(name);
-    }
-    Some(names)
+fn covering_bbox_columns(geo: Option<&MetadatiGeo>) -> Option<Vec<String>> {
+    // La forma del covering e' validata da `metadati`: qui arriva o un
+    // covering utilizzabile per il pruning -- quattro spigoli, percorsi di un
+    // segmento -- o niente. Un covering annidato e' valido e inutilizzabile, e
+    // il pruning resta spento: fail-open, come per ogni statistica che questo
+    // driver non sa usare.
+    geo.and_then(|g| g.primaria.covering.as_ref())
+        .map(|nomi| nomi.to_vec())
 }
 
 /// Ricostruisce lo schema marcando la geometria come `geoarrow.wkb`+`crs` ed
@@ -2161,7 +2158,12 @@ fn build_geo_metadata(
     let mut columns = HashMap::new();
     columns.insert(geom_name.to_owned(), column);
     Ok(serde_json::json!({
-        "version": "1.0.0",
+        // 1.1.0, non 1.0.0: `covering` esiste **da** 1.1, e questo writer lo
+        // emette. Dichiarare 1.0.0 mentre si scrive un metadato 1.1 era una
+        // contraddizione dentro lo stesso documento, e il lettore che
+        // credesse alla versione avrebbe letto un file con le regole di
+        // un'altra. La dichiarazione segue cio' che si scrive.
+        "version": "1.1.0",
         "primary_column": geom_name,
         "columns": columns,
     })
@@ -3138,7 +3140,7 @@ mod tests {
 
     #[test]
     fn default_crs_is_crs84_with_longitude_latitude_axis_order() {
-        let crs = crs_from(None, "geometry").unwrap();
+        let crs = crs_from(None).unwrap();
         assert_eq!(crs.id.as_deref(), Some("OGC:CRS84"));
         assert_eq!(
             crs.axis_order,
@@ -3163,17 +3165,28 @@ mod tests {
 
     #[test]
     fn projjson_without_identifier_is_a_typed_unresolved_crs() {
-        let geo = serde_json::json!({
-            "columns": {
-                "geometry": {
-                    "crs": {
-                        "type": "ProjectedCRS",
-                        "name": "survey-grid-secret"
+        // Il documento e' completo perche' ora passa dalla validazione: un
+        // `crs` senza identificatore e' conforme alla specifica -- PROJJSON
+        // ammette un oggetto senza `id` -- e a non poterlo risolvere siamo noi.
+        let geo = metadati::analizza(
+            &serde_json::json!({
+                "version": "1.1.0",
+                "primary_column": "geometry",
+                "columns": {
+                    "geometry": {
+                        "encoding": "WKB",
+                        "geometry_types": ["Point"],
+                        "crs": {
+                            "type": "ProjectedCRS",
+                            "name": "survey-grid-secret"
+                        }
                     }
                 }
-            }
-        });
-        let error = crs_from(Some(&geo), "geometry").unwrap_err();
+            })
+            .to_string(),
+        )
+        .expect("il documento e' conforme");
+        let error = crs_from(Some(&geo)).unwrap_err();
         assert_eq!(error.code, plenora_io_model::IoErrorCode::CrsUnresolved);
         assert_eq!(error.driver.as_deref(), Some("geoparquet"));
         assert!(!error.to_string().contains("survey-grid-secret"));
@@ -3432,7 +3445,15 @@ mod tests {
             .expect("metadato 'geo' assente (non è GeoParquet)");
         let geo: serde_json::Value = serde_json::from_str(&geo_raw).unwrap();
 
-        assert_eq!(geo["version"].as_str(), Some("1.0.0"));
+        // 1.1.0: il writer emette `covering`, che esiste da 1.1, e la
+        // versione dichiarata dice quale documento e' questo.
+        assert_eq!(geo["version"].as_str(), Some("1.1.0"));
+        // E cio' che scriviamo si rilegge dal nostro stesso validatore: un
+        // writer che emette un documento che il nostro lettore rifiuterebbe
+        // sarebbe un guasto che nessuna delle due meta' vedrebbe da sola.
+        let riletto = metadati::analizza(&geo_raw).expect("il documento scritto e' conforme");
+        assert_eq!(riletto.versione, "1.1.0");
+        assert_eq!(riletto.nome_primaria, "geometry");
         assert_eq!(geo["primary_column"].as_str(), Some("geometry"));
         let col = &geo["columns"]["geometry"];
         assert_eq!(col["encoding"].as_str(), Some("WKB"));
