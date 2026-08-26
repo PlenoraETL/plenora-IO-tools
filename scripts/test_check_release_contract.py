@@ -1787,6 +1787,17 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         ("non e' un oggetto", b"[]"),
         ("schema_version assente", b'{"passi": [{"id": "fmt", "log": true}]}'),
         ("schema_version sbagliata", b'{"schema_version": 2, "passi": [{"id": "fmt", "log": true}]}'),
+        # `true` e `1.0` sono entrambi uguali a 1 in Python: senza il confronto
+        # sul **tipo** passavano per la versione 1, e un documento di cui non si
+        # sa niente sarebbe stato letto con le regole di uno che si conosce.
+        (
+            "schema_version booleana",
+            b'{"schema_version": true, "passi": [{"id": "fmt", "log": true}]}',
+        ),
+        (
+            "schema_version in virgola mobile",
+            b'{"schema_version": 1.0, "passi": [{"id": "fmt", "log": true}]}',
+        ),
         ("non ha `passi`", b'{"schema_version": 1}'),
         ("`passi` e' una lista vuota", b'{"schema_version": 1, "passi": []}'),
         ("una voce senza `id`", b'{"schema_version": 1, "passi": [{"log": true}]}'),

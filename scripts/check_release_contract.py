@@ -1391,7 +1391,12 @@ def registro_dal_testo(
         return (), frozenset(), f"il registro dei passi {dove} non e' un oggetto"
 
     versione = documento.get("schema_version")
-    if versione != SCHEMA_DEL_REGISTRO:
+    # `type(...) is int`, non `isinstance` e non il solo `==`: in Python `True`
+    # e `1.0` sono entrambi uguali a 1, quindi `schema_version: true` e
+    # `schema_version: 1.0` passavano per la versione 1. Un JSON che dichiara un
+    # booleano dove va un intero non e' la versione 1: e' un documento di cui non
+    # si sa niente.
+    if type(versione) is not int or versione != SCHEMA_DEL_REGISTRO:
         return (), frozenset(), (
             f"il registro dei passi {dove} dichiara `schema_version` "
             f"«{versione}», atteso {SCHEMA_DEL_REGISTRO}. Uno schema diverso si "
