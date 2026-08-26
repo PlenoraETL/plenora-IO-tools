@@ -915,6 +915,13 @@ mod sonde {
         assert_eq!(errore.code, IoErrorCode::LimitExceeded);
     }
 
+    /// Il messaggio curato del rifiuto della lista vuota, e quello generico
+    /// della sintassi. Stanno qui, nominati, perche' la sonda della lista vuota
+    /// li **confronta**: portano lo stesso `IoErrorCode`, e cio' che li separa
+    /// e' soltanto il testo.
+    const MESSAGGIO_LISTA_VUOTA: &str = "coordinates GeoJSON con una lista vuota";
+    const MESSAGGIO_GENERICO: &str = "geometria GeoJSON non valida";
+
     /// L'albero delle coordinate non accumula prima di addebitare.
     ///
     /// Era il buco: una lista di soli numeri costava un componente qualunque
@@ -970,10 +977,40 @@ mod sonde {
         testo.push_str("], questa coda non e' JSON e non deve essere letta");
 
         let errore = analizza(&testo, &limiti).expect_err("la lista vuota ferma l'analisi");
-        assert_eq!(
-            errore.code,
-            IoErrorCode::Format,
-            "atteso il rifiuto della lista vuota, non quello della coda"
+        assert_eq!(errore.code, IoErrorCode::Format);
+        // Il **codice** non basta a distinguere i due rifiuti: la coda
+        // malformata porta anche lei `Format`, quindi una sonda che guardasse
+        // solo quello resterebbe verde togliendo il rifiuto anticipato -- cioe'
+        // proprio nel caso che deve cogliere. A distinguerli e' il messaggio
+        // curato, ed e' quello che si pretende.
+        assert!(
+            errore.message.contains(MESSAGGIO_LISTA_VUOTA),
+            "atteso il rifiuto della lista vuota, non quello della coda: {}",
+            errore.message
+        );
+
+        // La controprova che rende la riga sopra una discriminazione e non una
+        // formula: **la stessa coda**, dietro liste che vuote non sono. Qui
+        // l'analisi arriva in fondo, e il rifiuto e' quello generico di sintassi
+        // -- messaggio diverso, stesso codice.
+        let mut valido = String::from(r#"{"type":"MultiPolygon","coordinates":["#);
+        for indice in 0..20_000 {
+            if indice > 0 {
+                valido.push(',');
+            }
+            valido.push_str("[[[0,0],[1,0],[1,1],[0,0]]]");
+        }
+        valido.push_str("], questa coda non e' JSON e non deve essere letta");
+        let di_sintassi = analizza(&valido, &limiti).expect_err("la coda non e' JSON");
+        assert_eq!(di_sintassi.code, IoErrorCode::Format);
+        assert!(
+            di_sintassi.message.contains(MESSAGGIO_GENERICO),
+            "la coda da' il rifiuto generico: {}",
+            di_sintassi.message
+        );
+        assert!(
+            !di_sintassi.message.contains(MESSAGGIO_LISTA_VUOTA),
+            "i due messaggi devono essere distinguibili"
         );
 
         // E il confine precedente la rifiutava gia', quindi l'insieme accettato
