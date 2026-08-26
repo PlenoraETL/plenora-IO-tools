@@ -8,22 +8,22 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "57378fd",
+      "sha": "a67020f",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "57378fd",
+    "sha": "a67020f",
     "checkpoint": {
-      "passi_eseguiti": 63,
-      "passi_verdi": 63,
+      "passi_eseguiti": 65,
+      "passi_verdi": 65,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "63 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
+      "riconciliazione": "65 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 51825,
+      "replay_input": 53915,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 86.82,
-      "lcov_righe_coperte": 31630,
-      "lcov_righe_strumentate": 36430,
-      "cargo_lines_percentuale": 85.01,
+      "lcov_percentuale": 87.13,
+      "lcov_righe_coperte": 32516,
+      "lcov_righe_strumentate": 37320,
+      "cargo_lines_percentuale": 85.36,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore e' 36 430 righe, 103 piu' della corsa su cdd9f72: sono le tre prove nuove della capability, una per driver, con i loro helper. La soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`, e senza quella feature quelle righe non sarebbero scoperte ma **fuori misura**. Il denominatore e' 37 320 righe, 990 piu' della corsa su 57378fd: sono il modulo `metadati`, le sue sonde, le sonde del driver e il gate del lotto. La soglia resta 80%. Che ogni misuratore porti la feature e che ogni blocco feature-gated compaia davvero nel report lo verifica il passo `check_coverage_exclusions`: sette ancore, tutte trovate, e otto blocchi dichiarati non ancorabili.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "1a51044",
-      "esito": "94.57%",
-      "righe_cambiate_eseguibili": 1877,
-      "coperte": 1775,
-      "scoperte": 102,
-      "cambiate_non_eseguibili": 1337,
-      "ragione": "94,57% delle 1877 righe cambiate ed eseguibili. E' il lotto piu' grosso del percorso -- due parser riscritti -- e la diagnostica ha fatto tre volte cio' per cui sta nel denominatore: ha indicato sei righe che nessun test attraversava, e dietro c'era una regressione vera -- `MULTIPOINT ()` accettata dove il confine precedente la rifiuta; poi `visit_i64`, mai eseguito perche' ne' il corpus ne' i semi avevano una coordinata negativa; e ora indica i rami negativi elencati sotto.",
-      "che_cosa_sono_le_scoperte": "le 102 sono attribuite una per una. Sessantaquattro non sono codice di produzione: stanno dietro un `cfg(test)` -- `mod adattatore_storico`, che e' l'implementazione di riferimento tenuta per il confronto, e i messaggi e gli helper delle sonde. Le trentotto di produzione si dividono in tre gruppi -- sette, ventiquattro e sette righe -- che non hanno la stessa natura, ed e' la ragione per cui sono elencati separatamente qui sotto invece che riassunti in un numero. I tre conteggi sommano trentotto: nelle due evidenze precedenti non sommavano, ed era un errore di questa prosa e non della misura, che elencava le righe una per una."
+      "baseline": "a0fa639",
+      "esito": "98.57%",
+      "righe_cambiate_eseguibili": 980,
+      "coperte": 966,
+      "scoperte": 14,
+      "cambiate_non_eseguibili": 725,
+      "ragione": "98,57% delle 980 righe cambiate ed eseguibili, ed e' la diagnostica ad aver portato il lotto qui. La prima corsa dava 95,51% con ventinove righe di produzione mai eseguite, e fra quelle c'erano **i comportamenti di punta del lotto**: un `geo` malformato rifiutato, un `geo` assente tollerato, una versione oltre il perimetro fermata. Erano provati nel modulo `metadati`, campo per campo, e non attraverso il driver -- cioe' non da dove un utente li incontra. Il modulo poteva essere perfetto e il driver non usarlo, e nessun test lo avrebbe detto.",
+      "che_cosa_sono_le_scoperte": "le 14 sono attribuite una per una. Tredici non sono codice di produzione: stanno dietro un `cfg(test)`, e sono messaggi e helper delle sonde. La quattordicesima e' l'unica riga di produzione rimasta scoperta, ed e' descritta qui sotto."
     },
-    "evidenza": "assurance/evidence/checkpoint-57378fd.json"
+    "evidenza": "assurance/evidence/checkpoint-a67020f.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "57378fd"
+      "qualificato_su": "a67020f"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",

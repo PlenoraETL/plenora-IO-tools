@@ -1872,10 +1872,10 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         evidenza = self.evidenza()
         passi, errori = gate._passi_dichiarati(evidenza)
         self.assertEqual(errori, [], errori)
-        self.assertEqual(len(passi), 63)
+        self.assertEqual(len(passi), 65)
         self.assertEqual(gate._manifest_legato_ai_passi(evidenza, passi), [])
         con_log = {v["log"] for v in passi if v["log"]}
-        self.assertEqual(len(con_log), 61)
+        self.assertEqual(len(con_log), 63)
         self.assertEqual(
             set(evidenza["artefatti"]["manifest"]),
             con_log | set(gate.ARTEFATTI_NON_DI_PASSO),
