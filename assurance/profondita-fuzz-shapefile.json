@@ -5,19 +5,19 @@
   "corpus": {
     "input": 24
   },
-  "impronta_perimetro": "1bd521918bf8fc5cf7e324f785505d83f16d8653e891f03d3f1a1331af6a6451",
+  "impronta_perimetro": "cd5e16a2cef3793275e8def6e1af2ade146cc7360f5a95f278d9206b50835599",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "requisiti": [
     {
       "id": "bundle.prj-materializzato",
       "famiglia": "riga",
-      "riga": 3497,
+      "riga": 3500,
       "conteggio": 1
     },
     {
       "id": "bundle.shx-materializzato",
       "famiglia": "riga",
-      "riga": 3491,
+      "riga": 3494,
       "conteggio": 25
     },
     {
@@ -83,7 +83,7 @@
     {
       "id": "prevalidazione.conteggi-del-multipunto",
       "famiglia": "riga",
-      "riga": 1594,
+      "riga": 1597,
       "conteggio": 4
     },
     {
@@ -113,67 +113,67 @@
     {
       "id": "rifiuto.campo-dbf-corto",
       "famiglia": "riga",
-      "riga": 2145,
+      "riga": 2148,
       "conteggio": 2
     },
     {
       "id": "rifiuto.cardinalita-nel-drenaggio",
       "famiglia": "riga",
-      "riga": 3258,
+      "riga": 3261,
       "conteggio": 1
     },
     {
       "id": "rifiuto.conteggi-all-apertura",
       "famiglia": "riga",
-      "riga": 2822,
+      "riga": 2825,
       "conteggio": 1
     },
     {
       "id": "rifiuto.conteggio-negativo",
       "famiglia": "riga",
-      "riga": 1667,
+      "riga": 1670,
       "conteggio": 1
     },
     {
       "id": "rifiuto.data-e-ora-fuori-intervallo",
       "famiglia": "riga",
-      "riga": 2213,
+      "riga": 2216,
       "conteggio": 2
     },
     {
       "id": "rifiuto.data-non-interpretabile",
       "famiglia": "riga",
-      "riga": 2206,
+      "riga": 2209,
       "conteggio": 4
     },
     {
       "id": "rifiuto.indice-delle-parti",
       "famiglia": "riga",
-      "riga": 1699,
+      "riga": 1702,
       "conteggio": 2
     },
     {
       "id": "rifiuto.indice-dentro-un-record",
       "famiglia": "riga",
-      "riga": 1866,
+      "riga": 1869,
       "conteggio": 1
     },
     {
       "id": "rifiuto.indice-fuori-dal-shp",
       "famiglia": "riga",
-      "riga": 1925,
+      "riga": 1928,
       "conteggio": 1
     },
     {
       "id": "rifiuto.offset-dbf-corto",
       "famiglia": "riga",
-      "riga": 2070,
+      "riga": 2073,
       "conteggio": 1
     },
     {
       "id": "rifiuto.record-troppo-corto",
       "famiglia": "riga",
-      "riga": 1661,
+      "riga": 1664,
       "conteggio": 1
     },
     {

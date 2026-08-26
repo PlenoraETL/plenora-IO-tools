@@ -5,7 +5,7 @@
   "corpus": {
     "input": 21
   },
-  "impronta_perimetro": "da1137082802514df2fe52f6460d49fc36e42c76fc601935a2eb14ea839f2915",
+  "impronta_perimetro": "4c3d78e91ffda31b4645f984c7b38ad7caa06b03c4d3e4eef740032c5ad27ddc",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "requisiti": [
     {
@@ -23,7 +23,7 @@
     {
       "id": "drenaggio.righe",
       "famiglia": "riga",
-      "riga": 338,
+      "riga": 341,
       "conteggio": 22
     },
     {
@@ -59,19 +59,19 @@
     {
       "id": "materializzazione.fixture-intatta",
       "famiglia": "riga",
-      "riga": 297,
+      "riga": 300,
       "conteggio": 2
     },
     {
       "id": "materializzazione.parte-scelta-dal-payload",
       "famiglia": "riga",
-      "riga": 298,
+      "riga": 301,
       "conteggio": 20
     },
     {
       "id": "materializzazione.parti",
       "famiglia": "riga",
-      "riga": 238,
+      "riga": 241,
       "conteggio": 440
     },
     {
