@@ -47,8 +47,11 @@ use plenora_io_model::{NumeroStrutturale, PlenoraIoError, PublicMessage, Result}
 
 /// Le versioni di `GeoParquet` che questa libreria legge, per intero.
 ///
-/// Non `1.0.x` e `1.1.x`: gli schemi ufficiali fissano questi due valori esatti.
-pub const VERSIONI_SUPPORTATE: [&str; 2] = ["1.0.0", "1.1.0"];
+/// Vengono dal modulo che porta gli schemi: `"version"` e' un `const` negli
+/// schemi ufficiali, e queste sono le due versioni per cui un validatore e'
+/// incorporato. Riscriverle qui vorrebbe dire avere due elenchi da tenere
+/// allineati a mano.
+pub use crate::schema_ufficiale::VERSIONI_SUPPORTATE;
 
 /// Le codifiche native introdotte da `GeoParquet` 1.1.
 ///
@@ -74,16 +77,21 @@ const NOMI_DI_TIPO: [(&str, GeometryType); 7] = [
     ("GeometryCollection", GeometryType::GeometryCollection),
 ];
 
-/// I suffissi di dimensionalita', **in ordine di priorita'**.
+/// I suffissi di dimensionalita' ammessi dallo schema ufficiale.
 ///
-/// `" ZM"` prima di `" Z"` e `" M"`: la catena e' ordinata, e l'ordine e' il
-/// contratto. `" M"` e `" ZM"` sono ammessi perche' il nostro writer li emette
-/// quando i dati hanno quelle dimensioni -- rifiutarli renderebbe illeggibili i
-/// file che abbiamo scritto noi.
-const SUFFISSI: [(&str, CoordinateDimensions); 4] = [
-    (" ZM", CoordinateDimensions::Xyzm),
+/// Sono due, e non quattro. Il pattern e'
+/// `^(GeometryCollection|(Multi)?(Point|LineString|Polygon))( Z)?$` in
+/// entrambi gli schemi, 1.0.0 e 1.1.0: **`" M"` e `" ZM"` non esistono** in
+/// GeoParquet.
+///
+/// La prima stesura li ammetteva, e la ragione che ci aveva scritto accanto --
+/// «il nostro writer li emette, rifiutarli renderebbe illeggibili i file che
+/// abbiamo scritto noi» -- era il ragionamento sbagliato: il writer emetteva
+/// metadati non conformi, e la conclusione giusta era correggere il writer, non
+/// allargare il lettore. Ora il writer rifiuta di scrivere geometrie XYM e
+/// XYZM, e il lettore rifiuta le loro etichette.
+const SUFFISSI: [(&str, CoordinateDimensions); 2] = [
     (" Z", CoordinateDimensions::Xyz),
-    (" M", CoordinateDimensions::Xym),
     ("", CoordinateDimensions::Xy),
 ];
 
@@ -113,6 +121,49 @@ pub enum Orientamento {
     Antiorario,
 }
 
+/// Come il documento e' stato accettato.
+///
+/// Esiste perche' una via di compatibilita' che non si vede diventa il
+/// comportamento normale: chi legge il contratto deve poter sapere che quel
+/// file **non** e' conforme, anche quando lo abbiamo letto lo stesso.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Conformita {
+    /// Il documento rispetta lo schema ufficiale della versione che dichiara.
+    Conforme,
+    /// Il documento e' conforme **tranne** che nel `crs`, che porta la forma
+    /// storica `{"id": {...}}` prodotta da questo repository prima del lotto
+    /// S10. Accettato solo su richiesta esplicita.
+    CrsStoricoSoloIdentificatore,
+}
+
+/// Il sistema di riferimento dichiarato da una colonna.
+///
+/// Sono **tre** stati, e la specifica li distingue: il campo assente vuol dire
+/// `OGC:CRS84`, il campo `null` vuol dire che il CRS non c'e' -- mancante o
+/// sconosciuto -- e un documento PROJJSON vuol dire quel CRS.
+///
+/// La prima stesura ne aveva due: assente e `null` finivano tutt'e due in
+/// `None`, e il driver li trasformava tutt'e due in CRS84. Un file che dichiara
+/// esplicitamente di **non sapere** il proprio CRS veniva letto come se avesse
+/// dichiarato di essere in WGS84, che e' un'affermazione che nessuno aveva
+/// fatto.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Crs {
+    /// Il campo non c'e': la specifica dice `OGC:CRS84`.
+    Assente,
+    /// Il campo c'e' e vale `null`: il CRS non e' dichiarato.
+    Nullo,
+    /// Un documento PROJJSON.
+    Documento(serde_json::Value),
+    /// La forma storica `{"id": {"authority": ..., "code": ...}}`, che PROJJSON
+    /// non e' e che questo repository ha scritto fino a S10.
+    ///
+    /// Porta l'identificatore composto -- `EPSG:4326` -- perche' e' cio' che
+    /// quel file dichiarava: ignorarlo vorrebbe dire dichiarare CRS84 un dato
+    /// che CRS84 non e'.
+    StoricoSoloIdentificatore(String),
+}
+
 /// I metadati `geo` di un file, validati.
 ///
 /// La colonna primaria sta in un campo suo, e non dentro la mappa, perche' la
@@ -123,6 +174,8 @@ pub enum Orientamento {
 pub struct MetadatiGeo {
     /// La versione dichiarata, gia' ristretta a `VERSIONI_SUPPORTATE`.
     pub versione: &'static str,
+    /// Se il documento e' conforme, o accettato per compatibilita'.
+    pub conformita: Conformita,
     pub nome_primaria: String,
     pub primaria: ColonnaGeo,
     /// Le altre colonne geometriche, validate come la prima.
@@ -140,22 +193,26 @@ pub struct ColonnaGeo {
     /// I tipi dichiarati. Puo' essere vuoto: la specifica lo ammette, e vuol
     /// dire «non vincolato», non «nessuna geometria».
     pub tipi: Vec<(GeometryType, CoordinateDimensions)>,
-    /// Il `crs` dichiarato, se presente e non nullo.
-    pub crs: Option<serde_json::Value>,
+    /// Il `crs` dichiarato, nei suoi tre stati distinti.
+    pub crs: Crs,
     pub bordi: Bordi,
     pub orientamento: Option<Orientamento>,
     pub bbox: Option<Vec<f64>>,
     pub epoch: Option<f64>,
-    /// I quattro nomi di colonna del `covering.bbox`, se dichiarato e
-    /// **utilizzabile** per il pruning.
+    /// I quattro **percorsi di colonna** del `covering.bbox`, in ordine
+    /// `xmin, ymin, xmax, ymax`.
     ///
-    /// Un covering ben formato ma con percorsi annidati e' valido e non
-    /// utilizzabile: qui vale `None` e non e' un errore. La differenza con
-    /// `encoding` e `edges` e' netta e sta nel danno -- quelli cambiano il
-    /// significato dei dati, questo toglie soltanto un'ottimizzazione, e il
-    /// pruning di questo driver e' fail-open per contratto: una statistica che
-    /// non si sa usare fa leggere di piu', mai di meno.
-    pub covering: Option<[String; 4]>,
+    /// Percorsi, non nomi: lo schema 1.1.0 pretende esattamente due segmenti
+    /// per spigolo, il secondo uguale al nome dello spigolo -- `["bbox",
+    /// "xmin"]` -- cioe' una colonna struct con quattro figli. La prima stesura
+    /// leggeva e scriveva un solo segmento, e quei documenti **non erano
+    /// GeoParquet 1.1 validi**.
+    ///
+    /// Vale `None` quando il covering non c'e', e quando c'e' in un documento
+    /// **1.0.0**: li' la specifica non gli attribuisce alcun significato, e
+    /// darglielo lo darebbe noi. Restare senza pruning e' il verso in cui
+    /// questo driver sbaglia per contratto.
+    pub covering: Option<[Vec<String>; 4]>,
 }
 
 /// Analizza il documento `geo` di un file, per intero.
@@ -164,7 +221,7 @@ pub struct ColonnaGeo {
 ///
 /// `Format` se il documento non rispetta la specifica, `Unsupported` se chiede
 /// una versione o una semantica che questa libreria non implementa.
-pub fn analizza(grezzo: &str) -> Result<MetadatiGeo> {
+pub fn analizza(grezzo: &str, accetta_crs_storico: bool) -> Result<MetadatiGeo> {
     let documento: serde_json::Value = serde_json::from_str(grezzo).map_err(|_| {
         non_conforme(&PublicMessage::Curated(
             "metadato `geo` GeoParquet che non e' JSON",
@@ -176,7 +233,67 @@ pub fn analizza(grezzo: &str) -> Result<MetadatiGeo> {
         ))
     })?;
 
+    // La versione decide **quale** schema e' l'autorita', quindi si legge
+    // prima: senza, non si saprebbe contro cosa validare.
     let versione = versione(oggetto)?;
+
+    // Da qui in poi ci sono due giudizi, e non sono lo stesso giudizio.
+    //
+    // Lo **schema ufficiale** dice se il documento e' conforme: e' l'autorita',
+    // e il verdetto e' suo. La **lettura** trasforma il documento in una
+    // struttura tipizzata, e sa dire con precisione che cosa non andava --
+    // «manca uno spigolo del covering» invece di «non rispetta lo schema».
+    //
+    // Tenerli separati e' cio' che impedisce alla nostra prosa di diventare la
+    // specifica. Le quattro combinazioni sono tutte trattate, e due di esse
+    // sono divergenze che vale la pena poter vedere:
+    //
+    //   schema rifiuta + lettura rifiuta  -> il caso normale, e si da' il
+    //                                        messaggio preciso;
+    //   schema rifiuta + lettura accetta  -> la nostra regola e' piu' **larga**
+    //                                        dello schema: vince lo schema, e
+    //                                        il documento e' rifiutato lo stesso;
+    //   schema accetta + lettura rifiuta  -> la nostra regola e' piu' **stretta**
+    //                                        dello schema. Rifiutiamo, perche'
+    //                                        non sappiamo costruire la struttura,
+    //                                        e il messaggio lo dice;
+    //   accettano entrambi                -> si legge.
+    let mut esito_schema = crate::schema_ufficiale::valida(&documento, versione);
+    let mut conformita = Conformita::Conforme;
+
+    // La via di compatibilita', **stretta e spenta per default**.
+    //
+    // Vale solo per 1.0.0 -- la versione che questo repository scriveva -- e
+    // solo se, tolti quei `crs`, il documento e' conforme: cosi' l'opzione
+    // tollera esattamente cio' che dichiara di tollerare, e un file con altri
+    // difetti non passa perche' qualcuno l'ha accesa.
+    if esito_schema.is_err() && accetta_crs_storico && versione == "1.0.0" {
+        if let Some(senza) = senza_crs_storici(&documento) {
+            if crate::schema_ufficiale::valida(&senza, versione).is_ok() {
+                esito_schema = Ok(());
+                conformita = Conformita::CrsStoricoSoloIdentificatore;
+            }
+        }
+    }
+
+    match (esito_schema, leggi(oggetto, versione, conformita)) {
+        (Ok(()), letto) => letto,
+        (Err(dello_schema), Err(preciso)) => {
+            // Il verdetto e' dello schema, la ragione e' la nostra: e' il caso
+            // in cui i due giudizi coincidono, che e' il caso normale.
+            let _ = dello_schema;
+            Err(preciso)
+        }
+        (Err(dello_schema), Ok(_)) => Err(dello_schema),
+    }
+}
+
+/// Legge un documento gia' conforme, e ne costruisce la struttura tipizzata.
+fn leggi(
+    oggetto: &serde_json::Map<String, serde_json::Value>,
+    versione: &'static str,
+    conformita: Conformita,
+) -> Result<MetadatiGeo> {
     let colonna_primaria = stringa_obbligatoria(oggetto, "primary_column")?;
 
     let colonne_grezze = oggetto
@@ -200,22 +317,73 @@ pub fn analizza(grezzo: &str) -> Result<MetadatiGeo> {
             "metadato `geo` GeoParquet in cui `primary_column` non compare fra `columns`",
         ))
     })?;
-    let primaria = colonna(grezza_primaria, versione)?;
+    let primaria = colonna(grezza_primaria, versione, conformita)?;
 
     let mut secondarie = BTreeMap::new();
     for (nome, grezza) in colonne_grezze {
         if nome == &colonna_primaria {
             continue;
         }
-        secondarie.insert(nome.clone(), colonna(grezza, versione)?);
+        secondarie.insert(nome.clone(), colonna(grezza, versione, conformita)?);
     }
 
     Ok(MetadatiGeo {
         versione,
+        conformita,
         nome_primaria: colonna_primaria,
         primaria,
         secondarie,
     })
+}
+
+/// La forma storica **esatta** che questo repository scriveva nel campo `crs`.
+///
+/// `{"id": {"authority": <stringa non vuota>, "code": <stringa o intero>}}`, e
+/// nient'altro: nessuna chiave in piu' al primo livello ne' dentro `id`. E' una
+/// via di compatibilita', non un modo di accettare PROJJSON invalidi in
+/// generale -- se fosse larga, sarebbe un buco travestito da cortesia.
+fn identificatore_storico(crs: &serde_json::Value) -> Option<String> {
+    let oggetto = crs.as_object()?;
+    if oggetto.len() != 1 {
+        return None;
+    }
+    let id = oggetto.get("id")?.as_object()?;
+    if id.len() != 2 {
+        return None;
+    }
+    let autorita = id.get("authority")?.as_str().filter(|s| !s.is_empty())?;
+    let codice = match id.get("code")? {
+        serde_json::Value::String(s) if !s.is_empty() => s.clone(),
+        serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => n.to_string(),
+        _ => return None,
+    };
+    Some(format!("{autorita}:{codice}"))
+}
+
+/// Il documento con i `crs` storici sostituiti da `null`, se ce n'e' almeno uno.
+///
+/// Serve a chiedere all'autorita' una domanda precisa: «a parte quei `crs`,
+/// questo documento e' conforme?». Se la risposta e' si', l'unica non
+/// conformita' e' quella che l'opzione dichiara di tollerare; se e' no, il file
+/// ha altro che non va e l'opzione non lo salva.
+fn senza_crs_storici(documento: &serde_json::Value) -> Option<serde_json::Value> {
+    let mut copia = documento.clone();
+    let colonne = copia.get_mut("columns")?.as_object_mut()?;
+    let mut trovato = false;
+    for (_, colonna) in colonne.iter_mut() {
+        let Some(oggetto) = colonna.as_object_mut() else {
+            continue;
+        };
+        let storico = oggetto
+            .get("crs")
+            .and_then(identificatore_storico)
+            .is_some();
+        if storico {
+            oggetto.insert("crs".to_owned(), serde_json::Value::Null);
+            trovato = true;
+        }
+    }
+    trovato.then_some(copia)
 }
 
 /// La versione dichiarata, ristretta ai due valori degli schemi ufficiali.
@@ -259,7 +427,11 @@ fn stringa_obbligatoria(
 }
 
 /// I metadati di una colonna.
-fn colonna(grezza: &serde_json::Value, versione: &'static str) -> Result<ColonnaGeo> {
+fn colonna(
+    grezza: &serde_json::Value,
+    versione: &'static str,
+    conformita: Conformita,
+) -> Result<ColonnaGeo> {
     let oggetto = grezza.as_object().ok_or_else(|| {
         non_conforme(&PublicMessage::Curated(
             "colonna GeoParquet che non e' un oggetto",
@@ -268,12 +440,12 @@ fn colonna(grezza: &serde_json::Value, versione: &'static str) -> Result<Colonna
 
     encoding(oggetto, versione)?;
     let tipi = geometry_types(oggetto)?;
-    let crs = crs(oggetto)?;
+    let crs = crs(oggetto, conformita)?;
     let bordi = bordi(oggetto)?;
     let orientamento = orientamento(oggetto)?;
     let bbox = bbox(oggetto)?;
     let epoch = epoch(oggetto)?;
-    let covering = covering(oggetto)?;
+    let covering = covering(oggetto, versione)?;
 
     Ok(ColonnaGeo {
         grezza: grezza.clone(),
@@ -348,9 +520,15 @@ fn geometry_types(
                 "colonna GeoParquet con un tipo geometrico che non appartiene alla specifica",
             ))
         })?;
-        if !tipi.contains(&letto) {
-            tipi.push(letto);
+        // `uniqueItems: true`. La prima stesura deduplicava in silenzio, cioe'
+        // accettava un documento che lo schema rifiuta e ne nascondeva la
+        // ragione: chi lo ha scritto continuava a scriverlo.
+        if tipi.contains(&letto) {
+            return Err(non_conforme(&PublicMessage::Curated(
+                "colonna GeoParquet con un tipo geometrico ripetuto in `geometry_types`",
+            )));
         }
+        tipi.push(letto);
     }
     Ok(tipi)
 }
@@ -369,18 +547,31 @@ pub fn etichetta_di_tipo(etichetta: &str) -> Option<(GeometryType, CoordinateDim
     None
 }
 
-/// Il `crs` della colonna.
+/// Il `crs` della colonna, nei suoi tre stati.
 ///
-/// Assente o `null` restano cio' che erano: la semantica del CRS non cambia in
-/// questo lotto, che valida la forma. Presente e non nullo deve essere un
-/// oggetto -- PROJJSON e' un oggetto, e una stringa li' vorrebbe dire che
-/// qualcuno ha scritto un WKT dove va un documento.
-fn crs(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Option<serde_json::Value>> {
+/// Lo schema dice `oneOf: [PROJJSON, null]`, e il campo e' opzionale: assente,
+/// `null` e documento sono tre cose diverse, e la differenza fra le prime due
+/// e' quella che il driver sbagliava.
+fn crs(
+    oggetto: &serde_json::Map<String, serde_json::Value>,
+    conformita: Conformita,
+) -> Result<Crs> {
     match oggetto.get("crs") {
-        None | Some(serde_json::Value::Null) => Ok(None),
-        Some(valore) if valore.is_object() => Ok(Some(valore.clone())),
+        None => Ok(Crs::Assente),
+        Some(serde_json::Value::Null) => Ok(Crs::Nullo),
+        // La forma storica si riconosce **solo** se il documento e' stato
+        // accettato per compatibilita': altrimenti non e' mai arrivato qui.
+        Some(valore)
+            if conformita == Conformita::CrsStoricoSoloIdentificatore
+                && identificatore_storico(valore).is_some() =>
+        {
+            Ok(Crs::StoricoSoloIdentificatore(
+                identificatore_storico(valore).unwrap_or_default(),
+            ))
+        }
+        Some(valore) if valore.is_object() => Ok(Crs::Documento(valore.clone())),
         Some(_) => Err(non_conforme(&PublicMessage::Curated(
-            "colonna GeoParquet con un `crs` che non e' un oggetto PROJJSON",
+            "colonna GeoParquet con un `crs` che non e' ne' un oggetto PROJJSON ne' null",
         ))),
     }
 }
@@ -473,18 +664,15 @@ fn bbox(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Option<V
         numeri.push(letto);
     }
 
-    // Un `bbox` in cui il minimo supera il massimo non descrive un rettangolo:
-    // descrive due numeri scambiati. Il pruning che lo credesse leggerebbe
-    // **meno** del dovuto, ed e' l'unico verso in cui il pruning non puo'
-    // sbagliare.
-    let meta = numeri.len() / 2;
-    for asse in 0..meta {
-        if numeri[asse] > numeri[asse + meta] {
-            return Err(non_conforme(&PublicMessage::Curated(
-                "colonna GeoParquet con un `bbox` in cui un minimo supera il proprio massimo",
-            )));
-        }
-    }
+    // Il minimo **puo'** superare il massimo, e lo schema non lo vieta: un
+    // riquadro che attraversa l'antimeridiano si scrive proprio cosi'. La
+    // prima stesura lo rifiutava, cioe' dichiarava non conforme un documento
+    // che la specifica accetta -- una divergenza nostra nel verso del rifiuto,
+    // che e' comunque una divergenza.
+    //
+    // Cio' che quel riquadro non e' e' **usabile per il pruning** con la
+    // semplice intersezione di rettangoli: `interpretabile_per_il_pruning` lo
+    // dice al chiamante, che spegne il pruning invece di rifiutare il file.
     Ok(Some(numeri))
 }
 
@@ -501,43 +689,71 @@ fn epoch(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Option<
     })
 }
 
-/// Il `covering.bbox`, validato nella forma e usato solo se utilizzabile.
+/// Il `covering.bbox`, come lo schema 1.1.0 lo definisce.
 ///
-/// Un covering malformato e' un documento che non rispetta la specifica, e
-/// quindi un errore. Un covering ben formato con percorsi annidati e' valido:
-/// non e' un errore, e semplicemente non serve al pruning, che qui lavora sui
-/// campi radice. La differenza sta nel danno -- `encoding` ed `edges` cambiano
-/// il significato dei dati, un covering inutilizzabile toglie
-/// un'ottimizzazione, e il pruning di questo driver e' fail-open per contratto.
-fn covering(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Option<[String; 4]>> {
+/// # Due segmenti, non uno
+///
+/// Ogni spigolo e' un percorso di **esattamente due** segmenti, il secondo
+/// uguale al nome dello spigolo: `["bbox", "xmin"]`. E' la forma di una colonna
+/// **struct** con quattro figli, ed e' l'unica che lo schema ammette --
+/// `minItems: 2, maxItems: 2`, con `{"const": "xmin"}` in seconda posizione.
+///
+/// La prima stesura accettava un solo segmento e lo chiamava «utilizzabile»,
+/// trattando quello a due segmenti come «valido e inutilizzabile»: esattamente
+/// al contrario. E il writer emetteva la forma piatta, cioe' scriveva documenti
+/// che GeoParquet 1.1 non ammette.
+///
+/// # E solo in 1.1.0
+///
+/// `covering` non esiste nello schema 1.0.0. Un documento 1.0.0 che lo porta
+/// resta **valido** -- l'oggetto-colonna non ha `additionalProperties: false`
+/// in nessuna delle due versioni, quindi le chiavi in piu' sono ammesse -- e
+/// quel campo non ha significato: attribuirglielo lo attribuiremmo noi. Viene
+/// percio' ignorato, e nemmeno validato nella forma, perche' non c'e' una forma
+/// che quella versione gli imponga.
+///
+/// Chi ha file scritti con le quattro colonne piatte ha l'opzione che gia'
+/// esisteva, `bbox_legacy_by_name`: e' li' che quel riconoscimento vive, ed e'
+/// esplicito.
+fn covering(
+    oggetto: &serde_json::Map<String, serde_json::Value>,
+    versione: &'static str,
+) -> Result<Option<[Vec<String>; 4]>> {
     let Some(valore) = oggetto.get("covering") else {
         return Ok(None);
     };
+    if versione != "1.1.0" {
+        return Ok(None);
+    }
     let covering = valore.as_object().ok_or_else(|| {
         non_conforme(&PublicMessage::CuratedPair(
             "colonna GeoParquet con un campo che non e' un oggetto",
             "covering",
         ))
     })?;
-    let Some(riquadro) = covering.get("bbox") else {
-        // `covering` senza `bbox` non dichiara niente che questo driver usi, e
-        // la specifica non chiude l'insieme delle sue chiavi.
-        return Ok(None);
-    };
-    let riquadro = riquadro.as_object().ok_or_else(|| {
-        non_conforme(&PublicMessage::CuratedPair(
-            "colonna GeoParquet con un campo che non e' un oggetto",
-            "covering.bbox",
-        ))
-    })?;
+    // `required: ["bbox"]`: un covering senza `bbox` non e' conforme. La prima
+    // stesura lo accettava dicendo che «la specifica non chiude l'insieme delle
+    // chiavi di covering» -- vero per le chiavi in piu', falso per quella che
+    // manca.
+    let riquadro = covering
+        .get("bbox")
+        .ok_or_else(|| {
+            non_conforme(&PublicMessage::CuratedPair(
+                "colonna GeoParquet con un `covering` senza il campo obbligatorio",
+                "bbox",
+            ))
+        })?
+        .as_object()
+        .ok_or_else(|| {
+            non_conforme(&PublicMessage::CuratedPair(
+                "colonna GeoParquet con un campo che non e' un oggetto",
+                "covering.bbox",
+            ))
+        })?;
 
-    // I quattro spigoli si leggono in un array, non in un `Vec`: il tipo dice
-    // che sono quattro, e cosi' in fondo non serve un ramo per il caso «non ne
-    // ho quattro» -- un ramo che non puo' accadere non e' un controllo, e' una
-    // promessa.
-    let mut nomi: [Vec<String>; 4] = [const { Vec::new() }; 4];
+    let mut percorsi: [Vec<String>; 4] = [const { Vec::new() }; 4];
     for (posizione, spigolo) in SPIGOLI.into_iter().enumerate() {
-        let percorso = riquadro
+        let segmenti = riquadro
             .get(spigolo)
             .ok_or_else(|| {
                 non_conforme(&PublicMessage::Curated(
@@ -550,37 +766,41 @@ fn covering(oggetto: &serde_json::Map<String, serde_json::Value>) -> Result<Opti
                     "colonna GeoParquet con uno spigolo di `covering.bbox` che non e' un percorso",
                 ))
             })?;
-        if percorso.is_empty() {
-            return Err(non_conforme(&PublicMessage::Curated(
-                "colonna GeoParquet con uno spigolo di `covering.bbox` dal percorso vuoto",
+        if segmenti.len() != 2 {
+            return Err(non_conforme(&PublicMessage::CuratedWith(
+                "colonna GeoParquet con uno spigolo di `covering.bbox` i cui segmenti non sono",
+                NumeroStrutturale::Limite(2),
             )));
         }
-        let mut segmenti = Vec::with_capacity(percorso.len());
-        for segmento in percorso {
-            let letto = segmento
-                .as_str()
-                .filter(|testo| !testo.is_empty())
-                .ok_or_else(|| {
-                    non_conforme(&PublicMessage::Curated(
-                        "colonna GeoParquet con un segmento di `covering.bbox` che non e' un nome",
-                    ))
-                })?;
-            segmenti.push(letto.to_owned());
+        let colonna = segmenti[0]
+            .as_str()
+            .filter(|testo| !testo.is_empty())
+            .ok_or_else(|| {
+                non_conforme(&PublicMessage::Curated(
+                    "colonna GeoParquet con un `covering.bbox` il cui primo segmento non e' un nome",
+                ))
+            })?;
+        // Il secondo segmento e' `const`: deve essere **quello** spigolo.
+        if segmenti[1].as_str() != Some(spigolo) {
+            return Err(non_conforme(&PublicMessage::Curated(
+                "colonna GeoParquet con un `covering.bbox` il cui secondo segmento non nomina il proprio spigolo",
+            )));
         }
-        nomi[posizione] = segmenti;
+        percorsi[posizione] = vec![colonna.to_owned(), spigolo.to_owned()];
     }
+    Ok(Some(percorsi))
+}
 
-    // Ben formato ma annidato: valido, e non utilizzabile per il pruning.
-    let [xmin, ymin, xmax, ymax] = nomi;
-    let (Ok([xmin]), Ok([ymin]), Ok([xmax]), Ok([ymax])) = (
-        <[String; 1]>::try_from(xmin),
-        <[String; 1]>::try_from(ymin),
-        <[String; 1]>::try_from(xmax),
-        <[String; 1]>::try_from(ymax),
-    ) else {
-        return Ok(None);
-    };
-    Ok(Some([xmin, ymin, xmax, ymax]))
+/// Un `bbox` di colonna si puo' usare per il pruning con la sola intersezione?
+///
+/// No, se un minimo supera il proprio massimo: il riquadro attraversa
+/// l'antimeridiano, ed e' un documento **valido** che la semplice intersezione
+/// di rettangoli interpreterebbe al contrario -- leggendo **meno** del dovuto,
+/// che e' l'unico verso in cui il pruning non puo' sbagliare.
+#[must_use]
+pub fn interpretabile_per_il_pruning(riquadro: &[f64]) -> bool {
+    let meta = riquadro.len() / 2;
+    (0..meta).all(|asse| riquadro[asse] <= riquadro[asse + meta])
 }
 
 #[cfg(test)]
@@ -620,12 +840,12 @@ mod sonde {
 
     #[track_caller]
     fn accettato(testo: &str) -> MetadatiGeo {
-        analizza(testo).expect("il documento e' conforme e supportato")
+        analizza(testo, false).expect("il documento e' conforme e supportato")
     }
 
     #[track_caller]
     fn non_conforme_con(testo: &str) -> PlenoraIoError {
-        let errore = analizza(testo).expect_err("il documento non e' conforme");
+        let errore = analizza(testo, false).expect_err("il documento non e' conforme");
         assert_eq!(
             errore.code,
             IoErrorCode::Format,
@@ -638,7 +858,7 @@ mod sonde {
 
     #[track_caller]
     fn non_supportato_con(testo: &str) -> PlenoraIoError {
-        let errore = analizza(testo).expect_err("la funzionalita' non e' supportata");
+        let errore = analizza(testo, false).expect_err("la funzionalita' non e' supportata");
         assert_eq!(
             errore.code,
             IoErrorCode::Unsupported,
@@ -658,7 +878,7 @@ mod sonde {
         assert!(letti.primaria.tipi.is_empty());
         assert!(letti.secondarie.is_empty());
         assert_eq!(letti.primaria.bordi, Bordi::Planari);
-        assert!(letti.primaria.crs.is_none());
+        assert_eq!(letti.primaria.crs, Crs::Assente);
         assert!(letti.primaria.covering.is_none());
     }
 
@@ -886,23 +1106,32 @@ mod sonde {
     fn geometry_types_dall_insieme_chiuso_e_accettato() {
         let letti = accettato(&con_campo(
             "geometry_types",
-            json!([
-                "Point",
-                "Point Z",
-                "Point M",
-                "Point ZM",
-                "GeometryCollection"
-            ]),
+            json!(["Point", "Point Z", "GeometryCollection", "MultiPolygon Z"]),
         ));
-        assert_eq!(letti.primaria.tipi.len(), 5);
+        assert_eq!(letti.primaria.tipi.len(), 4);
         assert_eq!(
             letti.primaria.tipi[0],
             (GeometryType::Point, CoordinateDimensions::Xy)
         );
         assert_eq!(
-            letti.primaria.tipi[3],
-            (GeometryType::Point, CoordinateDimensions::Xyzm)
+            letti.primaria.tipi[1],
+            (GeometryType::Point, CoordinateDimensions::Xyz)
         );
+    }
+
+    #[test]
+    fn geometry_types_con_la_misura_m_e_non_conforme() {
+        // Il pattern dello schema, in **entrambe** le versioni, e'
+        // `^(GeometryCollection|(Multi)?(Point|LineString|Polygon))( Z)?$`:
+        // `" M"` e `" ZM"` non esistono in GeoParquet.
+        //
+        // La prima stesura li ammetteva, e la ragione che ci aveva scritto
+        // accanto -- «il nostro writer li emette» -- era il ragionamento
+        // sbagliato: il writer emetteva metadati non conformi, e la
+        // conclusione giusta era correggere il writer.
+        for etichetta in ["Point M", "Point ZM", "LineString M", "MultiPolygon ZM"] {
+            non_conforme_con(&con_campo("geometry_types", json!([etichetta])));
+        }
     }
 
     #[test]
@@ -933,30 +1162,58 @@ mod sonde {
     }
 
     #[test]
-    fn geometry_types_ripetuto_e_accettato() {
-        // Accettato, e contato una volta sola: il contratto della colonna non
-        // deve ereditare le ripetizioni del documento.
-        let letti = accettato(&con_campo("geometry_types", json!(["Point", "Point"])));
-        assert_eq!(letti.primaria.tipi.len(), 1);
+    fn geometry_types_ripetuto_e_non_conforme() {
+        // `uniqueItems: true`. La prima stesura deduplicava in silenzio: cioe'
+        // accettava un documento che lo schema rifiuta, e ne nascondeva la
+        // ragione -- chi lo aveva scritto continuava a scriverlo.
+        let errore = non_conforme_con(&con_campo("geometry_types", json!(["Point", "Point"])));
+        assert!(errore.message.contains("ripetuto"), "{}", errore.message);
     }
 
     // --- crs -----------------------------------------------------------
 
     #[test]
     fn crs_assente_nullo_o_oggetto_e_accettato() {
-        assert!(accettato(&documento(&colonna_minima()))
-            .primaria
-            .crs
-            .is_none());
-        assert!(accettato(&con_campo("crs", json!(null)))
-            .primaria
-            .crs
-            .is_none());
+        // Tre stati distinti, e la distinzione e' il rilievo: assente vuol dire
+        // CRS84, `null` vuol dire che il CRS non c'e'. La prima stesura li
+        // riduceva tutt'e due a «niente», e il driver li trasformava tutt'e due
+        // in CRS84 -- mettendo in bocca a chi ha scritto il file
+        // un'affermazione che non aveva fatto.
+        assert_eq!(
+            accettato(&documento(&colonna_minima())).primaria.crs,
+            Crs::Assente
+        );
+        assert_eq!(
+            accettato(&con_campo("crs", json!(null))).primaria.crs,
+            Crs::Nullo
+        );
+        // Un PROJJSON **vero**: lo schema referenziato lo pretende completo, e
+        // `{"type": ..., "name": ...}` da solo non lo e'. E' la differenza che
+        // solo l'autorita' sa fare, e che la nostra prosa non sapeva.
         let letti = accettato(&con_campo(
             "crs",
-            json!({"id": {"authority": "EPSG", "code": 4326}}),
+            json!({
+                "type": "GeographicCRS",
+                "name": "WGS 84 (CRS84)",
+                "datum": {
+                    "type": "GeodeticReferenceFrame",
+                    "name": "World Geodetic System 1984",
+                    "ellipsoid": {
+                        "name": "WGS 84",
+                        "semi_major_axis": 6_378_137,
+                        "inverse_flattening": 298.257_223_563
+                    }
+                },
+                "coordinate_system": {
+                    "subtype": "ellipsoidal",
+                    "axis": [
+                        {"name": "Geodetic longitude", "abbreviation": "Lon", "direction": "east", "unit": "degree"},
+                        {"name": "Geodetic latitude", "abbreviation": "Lat", "direction": "north", "unit": "degree"}
+                    ]
+                }
+            }),
         ));
-        assert!(letti.primaria.crs.is_some());
+        assert!(matches!(letti.primaria.crs, Crs::Documento(_)));
     }
 
     #[test]
@@ -1061,21 +1318,33 @@ mod sonde {
     }
 
     #[test]
-    fn bbox_con_un_minimo_oltre_il_proprio_massimo_e_non_conforme() {
-        // Non descrive un rettangolo: descrive due numeri scambiati. Un
-        // pruning che gli credesse leggerebbe **meno** del dovuto, ed e'
-        // l'unico verso in cui il pruning non puo' sbagliare.
+    fn bbox_con_un_minimo_oltre_il_proprio_massimo_e_accettato() {
+        // Lo schema non lo vieta, e un riquadro che attraversa l'antimeridiano
+        // si scrive proprio cosi'. La prima stesura lo rifiutava: dichiarava
+        // non conforme un documento che la specifica accetta, cioe' divergeva
+        // dall'autorita' nel verso del rifiuto -- che e' comunque divergere.
         for valore in [
             json!([1.0, 0.0, 0.0, 1.0]),
             json!([0.0, 1.0, 1.0, 0.0]),
             json!([0, 0, 5, 1, 1, 1]),
         ] {
-            let errore = non_conforme_con(&con_campo("bbox", valore));
-            assert!(errore.message.contains("minimo"), "{}", errore.message);
+            accettato(&con_campo("bbox", valore));
         }
-        // Il confine: minimo uguale al massimo e' un rettangolo degenere, ed e'
-        // legittimo -- una sola geometria puntuale lo produce.
         accettato(&con_campo("bbox", json!([1.0, 1.0, 1.0, 1.0])));
+    }
+
+    #[test]
+    fn bbox_invertito_non_interpretabile_per_il_pruning_e_accettato() {
+        // Cio' che quel riquadro non e' e' **usabile** con la semplice
+        // intersezione di rettangoli: chi lo usasse leggerebbe meno del dovuto.
+        // Il file resta valido e il pruning si spegne, che e' il verso in cui
+        // questo driver sbaglia per contratto.
+        assert!(interpretabile_per_il_pruning(&[0.0, 0.0, 1.0, 1.0]));
+        assert!(interpretabile_per_il_pruning(&[1.0, 1.0, 1.0, 1.0]));
+        assert!(!interpretabile_per_il_pruning(&[1.0, 0.0, 0.0, 1.0]));
+        assert!(!interpretabile_per_il_pruning(&[
+            0.0, 0.0, 5.0, 1.0, 1.0, 1.0
+        ]));
     }
 
     #[test]
@@ -1135,6 +1404,18 @@ mod sonde {
 
     // --- covering ------------------------------------------------------
 
+    /// Il covering nella forma che lo schema 1.1.0 designa: due segmenti per
+    /// spigolo, il secondo uguale al nome dello spigolo.
+    fn covering_conforme() -> serde_json::Value {
+        json!({"bbox": {
+            "xmin": ["bbox", "xmin"],
+            "ymin": ["bbox", "ymin"],
+            "xmax": ["bbox", "xmax"],
+            "ymax": ["bbox", "ymax"],
+        }})
+    }
+
+    /// La forma che questo repository emetteva prima di S10: un segmento solo.
     fn covering_piatto() -> serde_json::Value {
         json!({"bbox": {
             "xmin": ["_bbox_minx"],
@@ -1145,38 +1426,60 @@ mod sonde {
     }
 
     #[test]
-    fn covering_piatto_utilizzabile_e_accettato() {
-        let letti = accettato(&con_campo("covering", covering_piatto()));
+    fn covering_di_due_segmenti_e_accettato() {
+        let letti = accettato(&con_campo("covering", covering_conforme()));
         assert_eq!(
             letti.primaria.covering,
             Some([
-                "_bbox_minx".to_owned(),
-                "_bbox_miny".to_owned(),
-                "_bbox_maxx".to_owned(),
-                "_bbox_maxy".to_owned(),
+                vec!["bbox".to_owned(), "xmin".to_owned()],
+                vec!["bbox".to_owned(), "ymin".to_owned()],
+                vec!["bbox".to_owned(), "xmax".to_owned()],
+                vec!["bbox".to_owned(), "ymax".to_owned()],
             ])
         );
     }
 
     #[test]
-    fn covering_annidato_inutilizzabile_e_accettato() {
-        // La distinzione che questo modulo tiene: `encoding` ed `edges`
-        // cambiano il significato dei dati e fermano il file; un covering che
-        // non sappiamo usare toglie solo un'ottimizzazione, e il pruning di
-        // questo driver e' fail-open per contratto.
-        let annidato = json!({"bbox": {
-            "xmin": ["bbox", "xmin"],
-            "ymin": ["bbox", "ymin"],
+    fn covering_di_un_solo_segmento_e_non_conforme() {
+        // E' la forma che questo writer emetteva, dichiarando 1.1.0: quei file
+        // **non erano** GeoParquet 1.1 validi. Lo schema vuole
+        // `minItems: 2, maxItems: 2`, e la prima stesura di questo modulo
+        // chiamava «utilizzabile» proprio la forma sbagliata e «valida e
+        // inutilizzabile» quella giusta -- esattamente al contrario.
+        let errore = non_conforme_con(&con_campo("covering", covering_piatto()));
+        assert!(errore.message.contains("segmenti"), "{}", errore.message);
+    }
+
+    #[test]
+    fn covering_col_secondo_segmento_sbagliato_e_non_conforme() {
+        // Il secondo segmento e' un `const`: deve nominare **quello** spigolo.
+        // Uno scambio qui darebbe al pruning le colonne incrociate.
+        let scambiato = json!({"bbox": {
+            "xmin": ["bbox", "ymin"],
+            "ymin": ["bbox", "xmin"],
             "xmax": ["bbox", "xmax"],
             "ymax": ["bbox", "ymax"],
         }});
-        let letti = accettato(&con_campo("covering", annidato));
-        assert!(letti.primaria.covering.is_none());
+        let errore = non_conforme_con(&con_campo("covering", scambiato));
+        assert!(errore.message.contains("spigolo"), "{}", errore.message);
+    }
+
+    #[test]
+    fn covering_senza_bbox_e_non_conforme() {
+        // `required: ["bbox"]`. La prima stesura lo accettava dicendo che «la
+        // specifica non chiude l'insieme delle chiavi di covering»: vero per le
+        // chiavi in piu', falso per quella che manca.
+        let errore = non_conforme_con(&con_campo("covering", json!({"altro": {}})));
+        assert!(errore.message.contains("bbox"), "{}", errore.message);
     }
 
     #[test]
     fn covering_malformato_e_non_conforme() {
-        let mancante = json!({"bbox": {"xmin": ["a"], "ymin": ["b"], "xmax": ["c"]}});
+        let mancante = json!({"bbox": {
+            "xmin": ["bbox", "xmin"],
+            "ymin": ["bbox", "ymin"],
+            "xmax": ["bbox", "xmax"],
+        }});
         assert!(non_conforme_con(&con_campo("covering", mancante))
             .message
             .contains("spigolo"));
@@ -1185,40 +1488,126 @@ mod sonde {
             json!("bbox"),
             json!([]),
             json!({"bbox": "niente"}),
-            json!({"bbox": {"xmin": "a", "ymin": ["b"], "xmax": ["c"], "ymax": ["d"]}}),
-            json!({"bbox": {"xmin": [], "ymin": ["b"], "xmax": ["c"], "ymax": ["d"]}}),
-            json!({"bbox": {"xmin": [7], "ymin": ["b"], "xmax": ["c"], "ymax": ["d"]}}),
-            json!({"bbox": {"xmin": [""], "ymin": ["b"], "xmax": ["c"], "ymax": ["d"]}}),
+            json!({"bbox": {"xmin": "a", "ymin": ["b", "ymin"], "xmax": ["c", "xmax"], "ymax": ["d", "ymax"]}}),
+            json!({"bbox": {"xmin": [], "ymin": ["b", "ymin"], "xmax": ["c", "xmax"], "ymax": ["d", "ymax"]}}),
+            json!({"bbox": {"xmin": [7, "xmin"], "ymin": ["b", "ymin"], "xmax": ["c", "xmax"], "ymax": ["d", "ymax"]}}),
+            json!({"bbox": {"xmin": ["", "xmin"], "ymin": ["b", "ymin"], "xmax": ["c", "xmax"], "ymax": ["d", "ymax"]}}),
         ] {
             non_conforme_con(&con_campo("covering", valore));
         }
     }
 
     #[test]
-    fn covering_senza_bbox_e_accettato() {
-        // La specifica non chiude l'insieme delle chiavi di `covering`: una
-        // chiave che non usiamo non e' un file rotto.
-        let letti = accettato(&con_campo("covering", json!({"altro": {}})));
-        assert!(letti.primaria.covering.is_none());
+    fn covering_in_un_documento_1_0_0_ignorato_e_accettato() {
+        // `covering` non esiste nello schema 1.0.0, e un documento 1.0.0 che lo
+        // porta resta **valido**: l'oggetto-colonna non ha
+        // `additionalProperties: false` in nessuna delle due versioni, quindi le
+        // chiavi in piu' sono ammesse.
+        //
+        // Non ha pero' significato, e attribuirglielo lo attribuiremmo noi:
+        // viene ignorato, e nemmeno validato nella forma -- non c'e' una forma
+        // che quella versione gli imponga. Chi ha file scritti con le quattro
+        // colonne piatte usa `bbox_legacy_by_name`, che e' esplicito.
+        for forma in [covering_conforme(), covering_piatto(), json!({"bbox": {}})] {
+            let mut colonna = colonna_minima();
+            colonna["covering"] = forma;
+            let letti = accettato(&con_versione("1.0.0", &colonna));
+            assert_eq!(letti.versione, "1.0.0");
+            assert!(letti.primaria.covering.is_none());
+        }
+    }
+
+    // --- la via storica, stretta e spenta per default ---------------------
+
+    /// Il `crs` che questo repository scriveva fino a S10: non e' PROJJSON.
+    fn crs_storico() -> serde_json::Value {
+        json!({"id": {"authority": "EPSG", "code": 4326}})
+    }
+
+    fn documento_storico() -> String {
+        let mut colonna = colonna_minima();
+        colonna["crs"] = crs_storico();
+        con_versione("1.0.0", &colonna)
     }
 
     #[test]
-    fn covering_in_un_documento_1_0_0_e_accettato() {
-        // `covering` esiste da 1.1, e i nostri file scritti prima di questo
-        // lotto dichiarano 1.0.0 **e** portano il covering. Rifiutarli
-        // renderebbe illeggibile cio' che abbiamo scritto noi, e la specifica
-        // 1.0 non chiude l'insieme delle chiavi.
+    fn crs_storico_senza_opt_in_e_non_conforme() {
+        // Senza opzione resta `Format`, ed e' il default: la via di
+        // compatibilita' che si accende da sola non e' una via, e' il
+        // comportamento normale.
+        let errore = analizza(&documento_storico(), false).expect_err("non conforme");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    }
+
+    #[test]
+    fn crs_storico_con_opt_in_conserva_l_identificatore_ed_e_accettato() {
+        let letti = analizza(&documento_storico(), true).expect("accettato per compatibilita'");
+        assert_eq!(letti.conformita, Conformita::CrsStoricoSoloIdentificatore);
+        assert_eq!(
+            letti.primaria.crs,
+            Crs::StoricoSoloIdentificatore("EPSG:4326".to_owned())
+        );
+    }
+
+    #[test]
+    fn crs_storico_in_un_documento_1_1_0_e_non_conforme() {
+        // Vale solo per 1.0.0, che e' la versione che questo repository
+        // scriveva: un 1.1.0 con quel `crs` non e' un nostro file storico, e
+        // non c'e' ragione di tollerarlo.
         let mut colonna = colonna_minima();
-        colonna["covering"] = covering_piatto();
-        let letti = accettato(&con_versione("1.0.0", &colonna));
-        assert_eq!(letti.versione, "1.0.0");
-        assert!(letti.primaria.covering.is_some());
+        colonna["crs"] = crs_storico();
+        let errore = analizza(&con_versione("1.1.0", &colonna), true).expect_err("non conforme");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    }
+
+    #[test]
+    fn crs_storico_di_forma_diversa_e_non_conforme() {
+        // Non e' un permesso di accettare PROJJSON invalidi: e' il permesso di
+        // accettare **quella** forma. Se fosse largo, sarebbe un buco travestito
+        // da cortesia.
+        for finto in [
+            json!({"id": {"authority": "EPSG", "code": 4326}, "type": "GeographicCRS"}),
+            json!({"id": {"authority": "", "code": 4326}}),
+            json!({"id": {"authority": "EPSG"}}),
+            json!({"id": {"authority": "EPSG", "code": 4326, "extra": 1}}),
+            json!({"id": {"authority": "EPSG", "code": [4326]}}),
+            json!({"identifier": {"authority": "EPSG", "code": 4326}}),
+            json!({"type": "GeographicCRS", "name": "incompleto"}),
+        ] {
+            let mut colonna = colonna_minima();
+            colonna["crs"] = finto.clone();
+            let errore =
+                analizza(&con_versione("1.0.0", &colonna), true).expect_err("{finto} non passa");
+            assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::Format,
+                "{finto}"
+            );
+        }
+    }
+
+    #[test]
+    fn crs_storico_con_altri_difetti_e_non_conforme() {
+        // Tolti i `crs` storici il documento deve essere conforme: l'opzione
+        // tollera esattamente cio' che dichiara di tollerare.
+        let mut colonna = colonna_minima();
+        colonna["crs"] = crs_storico();
+        colonna["geometry_types"] = json!(["Point M"]);
+        let errore = analizza(&con_versione("1.0.0", &colonna), true).expect_err("non conforme");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+    }
+
+    #[test]
+    fn documento_conforme_con_opt_in_acceso_e_accettato() {
+        // L'opzione non cambia il giudizio su cio' che e' gia' conforme.
+        let letti = analizza(&documento(&colonna_minima()), true).expect("conforme");
+        assert_eq!(letti.conformita, Conformita::Conforme);
     }
 
     // --- l'insieme chiuso, letto da fuori --------------------------------
 
     #[test]
-    fn geometry_types_i_ventotto_nomi_sono_accettati() {
+    fn geometry_types_i_quattordici_nomi_sono_accettati() {
         let mut quante = 0;
         for (nome, tipo) in NOMI_DI_TIPO {
             for (suffisso, dimensioni) in SUFFISSI {
@@ -1231,7 +1620,7 @@ mod sonde {
                 quante += 1;
             }
         }
-        assert_eq!(quante, 28, "sette nomi per quattro dimensionalita'");
+        assert_eq!(quante, 14, "sette nomi per due dimensionalita': XY e Z");
         for storta in ["", " Z", "Point Q", "pointz", "Point-Z"] {
             assert!(etichetta_di_tipo(storta).is_none(), "{storta}");
         }

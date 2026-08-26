@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::{
-    Array, ArrayRef, BinaryArray, Float64Array, LargeBinaryArray, RecordBatch, RecordBatchOptions,
+    new_null_array, Array, ArrayRef, BinaryArray, Float64Array, LargeBinaryArray, RecordBatch,
+    RecordBatchOptions, StructArray,
 };
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use parquet::arrow::arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder};
@@ -101,6 +102,7 @@ use plenora_io_model::{
 /// XLSX applica — rifiuterebbe anche file leciti molto comprimibili, e sarebbe
 /// un restringimento del contratto invece di una difesa.
 mod metadati;
+mod schema_ufficiale;
 use metadati::MetadatiGeo;
 mod pagine;
 
@@ -715,6 +717,14 @@ use plenora_io_model::format_options::{
 /// contratto travestita da pulizia dello schema.
 const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
     OpzioneFormato {
+        chiave: "accept_legacy_crs_id_only",
+        fase: FaseOpzione::Lettura,
+        valore: ValoreAmmesso::Booleano,
+        predefinito: Some("false"),
+        descrizione:
+            "opt-in alla lettura del `crs` storico non conforme scritto da plenora fino a S10",
+    },
+    OpzioneFormato {
         chiave: "bbox_legacy_by_name",
         fase: FaseOpzione::Lettura,
         valore: ValoreAmmesso::Booleano,
@@ -802,6 +812,29 @@ pub struct GeoParquetDriver;
 /// La forma booleana e' quella dello schema, non una lista scritta a mano qui:
 /// prima "false" e "pippo" erano indistinguibili — entrambi "non vero" — e un
 /// opt-in scritto male taceva invece di correggersi.
+/// L'opt-in alla lettura del `crs` storico, non conforme.
+///
+/// Spento per default, e deve restarlo: ogni GeoParquet che questo repository
+/// ha scritto fino a S10 dichiara `crs: {"id": {...}}`, che **non e'** un
+/// documento PROJJSON e che lo schema ufficiale rifiuta in entrambe le
+/// versioni. Quei file non sono conformi, e accettarli in silenzio vorrebbe
+/// dire chiamare conforme cio' che non lo e'.
+///
+/// Chi ha quei dati accende l'opzione e sa che cosa sta accettando: il
+/// contratto lo dichiara, e la via non entra nel supporto GeoParquet dichiarato
+/// conforme.
+fn opt_in_crs_storico(format_options: &std::collections::BTreeMap<String, String>) -> Result<bool> {
+    format_options
+        .get("accept_legacy_crs_id_only")
+        .map_or(Ok(false), |valore| {
+            plenora_io_model::format_options::booleano(
+                "geoparquet",
+                "accept_legacy_crs_id_only",
+                valore,
+            )
+        })
+}
+
 fn opt_in_bbox_legacy(format_options: &std::collections::BTreeMap<String, String>) -> Result<bool> {
     format_options
         .get("bbox_legacy_by_name")
@@ -837,7 +870,7 @@ impl FormatDriver for GeoParquetDriver {
                 .map_err(|_| fmt_err(&PublicMessage::Curated("Parquet non valido")))
         })?;
         let parquet_schema = builder.schema().clone();
-        let geo = read_geo_meta(&builder)?;
+        let geo = read_geo_meta(&builder, opt_in_crs_storico(&opts.format_options)?)?;
         let (geom_name, crs) = resolve_geometry_and_crs(&parquet_schema, geo.as_ref())?;
         // Finding #4 follow-up follow-up review 2026-08-15: il fallback
         // legacy per-nome (accettare `_bbox_minx/miny/maxx/maxy` come
@@ -851,56 +884,37 @@ impl FormatDriver for GeoParquetDriver {
         // esplicitamente, prendendosi responsabilita' del comportamento
         // documentato.
         let legacy_by_name_opt_in = opt_in_bbox_legacy(&opts.format_options)?;
-        let covering_names = covering_bbox_columns(geo.as_ref());
-        // Retag strippa SOLO i nomi realmente dichiarati come covering o —
-        // se il caller ha chiesto il fallback legacy — quelli
-        // convenzionali. Un file senza covering metadata e senza opt-in
-        // conserva tutte le colonne utente esattamente come sono.
-        // Il ramo `map_or_else` suggerito da clippy annida due rami
-        // logici distinti dentro una sola espressione: qui l'`if let`
-        // separa "dichiarato dal metadata" da "opt-in legacy" in modo
-        // lineare.
-        #[allow(clippy::option_if_let_else)]
-        let strip_names: Option<Vec<String>> = if let Some(names) = &covering_names {
-            Some(names.clone())
-        } else if legacy_by_name_opt_in
-            && BBOX_COLS.iter().all(|n| parquet_schema.index_of(n).is_ok())
-        {
-            Some(BBOX_COLS.iter().map(|s| (*s).to_owned()).collect())
-        } else {
-            None
-        };
+        // Il covering dichiarato -- quattro **percorsi**, gia' validati nella
+        // forma dello schema 1.1.0 -- oppure, su richiesta esplicita, le
+        // quattro colonne piatte storiche.
+        //
+        // I due casi non si mescolano e l'ordine e' quello: un covering
+        // dichiarato vale, e il riconoscimento per nome resta cio' che era, un
+        // opt-in per i file scritti prima che il covering avesse una forma.
+        let covering: Option<[Vec<String>; 4]> = covering_bbox_paths(geo.as_ref()).or_else(|| {
+            legacy_by_name_opt_in
+                .then(|| BBOX_COLS.map(|nome| vec![nome.to_owned()]))
+                .filter(|percorsi| {
+                    percorsi
+                        .iter()
+                        .all(|p| percorso_presente(&parquet_schema, p))
+                })
+        });
+        // Retag toglie dallo schema esposto **solo** le colonne radice che il
+        // covering occupa: con la forma conforme e' la colonna struct, con
+        // quella storica sono le quattro piatte. Un file senza covering e senza
+        // opt-in conserva tutte le colonne utente esattamente come sono.
+        let strip_names: Option<Vec<String>> = covering.as_ref().map(radici_del_covering);
         let out_schema = retag_schema(&parquet_schema, &geom_name, &crs, strip_names.as_deref());
-        // Il covering realmente utilizzabile per il pruning: solo se
-        // dichiarato dal metadata E tutte le colonne dichiarate sono
-        // presenti, oppure se l'opt-in legacy e' attivo E i quattro nomi
-        // convenzionali sono presenti. In ogni altro caso il pruning
-        // spaziale resta disabilitato.
-        #[allow(clippy::option_if_let_else)]
-        let bbox_covering: Option<[String; 4]> = if let Some(declared) = &covering_names {
-            let all_present = declared.iter().all(|n| parquet_schema.index_of(n).is_ok());
-            if all_present && declared.len() == 4 {
-                Some([
-                    declared[0].clone(),
-                    declared[1].clone(),
-                    declared[2].clone(),
-                    declared[3].clone(),
-                ])
-            } else {
-                None
-            }
-        } else if legacy_by_name_opt_in
-            && BBOX_COLS.iter().all(|n| parquet_schema.index_of(n).is_ok())
-        {
-            Some([
-                BBOX_COLS[0].to_owned(),
-                BBOX_COLS[1].to_owned(),
-                BBOX_COLS[2].to_owned(),
-                BBOX_COLS[3].to_owned(),
-            ])
-        } else {
-            None
-        };
+        // Il covering realmente utilizzabile per il pruning: solo se ogni
+        // percorso dichiarato esiste davvero nello schema Parquet. In ogni
+        // altro caso il pruning spaziale resta spento, che e' il verso in cui
+        // questo driver sbaglia per contratto.
+        let bbox_covering: Option<[Vec<String>; 4]> = covering.filter(|percorsi| {
+            percorsi
+                .iter()
+                .all(|p| percorso_presente(&parquet_schema, p))
+        });
         // Mappa logico → fisico prima di consumare `out_schema` per il
         // contratto. Ogni campo esposto viene localizzato per nome nello
         // schema Parquet originale. Un campo esposto senza corrispondente
@@ -1004,11 +1018,19 @@ impl FormatDriver for GeoParquetDriver {
             )));
         }
         let (geom_idx, geom_name, legacy_crs_meta) = geometry_field(&schema)?;
-        let crs_meta = crs_meta_for_write(layer.contract.geometry.as_ref(), legacy_crs_meta);
-        // Schema di scrittura = utente + colonne bbox covering (spatial pruning).
+        // Il CRS si decide **all'apertura**, non alla chiusura: se non e'
+        // scrivibile in modo conforme, e' meglio saperlo prima di aver scritto
+        // un file intero.
+        let crs_meta = crs_da_scrivere(layer.contract.geometry.as_ref(), legacy_crs_meta)?;
+        // Schema di scrittura = utente + la colonna struct `bbox` del covering.
+        //
+        // Una colonna sola, con quattro figli: e' la forma che il covering
+        // GeoParquet 1.1 designa, e la nullabilita' segue quella della
+        // geometria.
+        let geometria_nullable = schema.field(geom_idx).is_nullable();
         let mut aug_fields: Vec<Field> =
             schema.fields().iter().map(|f| f.as_ref().clone()).collect();
-        aug_fields.extend(bbox_fields());
+        aug_fields.push(bbox_field(geometria_nullable));
         let write_schema: SchemaRef = Arc::new(Schema::new_with_metadata(
             aug_fields,
             schema.metadata().clone(),
@@ -1036,6 +1058,7 @@ impl FormatDriver for GeoParquetDriver {
                 crs_meta,
                 geometry_types: BTreeSet::new(),
                 wkb_limits: opts.wkb_limits(),
+                geometria_nullable,
             }),
             self.descriptor(),
             plan,
@@ -1044,18 +1067,81 @@ impl FormatDriver for GeoParquetDriver {
     }
 }
 
-fn crs_meta_for_write(
+/// Che cosa il writer mette nel campo `crs` della colonna.
+///
+/// Tre esiti, e nessun quarto silenzioso. La prima stesura ne aveva uno solo --
+/// `{"id": {...}}`, che **non e' un documento PROJJSON** -- e in piu' aveva un
+/// buco: se l'identificatore non aveva la forma `AUTH:CODE`, il campo non
+/// veniva scritto affatto, e un lettore lo avrebbe interpretato come «assente»,
+/// cioe' come CRS84. Un file in un altro sistema di riferimento si dichiarava
+/// WGS84 senza che nessuno lo avesse deciso.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum CrsDaScrivere {
+    /// CRS84: il campo si omette, ed e' la specifica a dire che assente vuol
+    /// dire questo.
+    Omesso,
+    /// Nessun CRS: `crs: null`. E' un'affermazione, non un'omissione.
+    Nullo,
+    /// Un documento PROJJSON, emesso per intero.
+    Documento(String),
+}
+
+/// Gli identificatori che, dentro GeoParquet, **sono** CRS84.
+///
+/// `OGC:CRS84` lo e' per definizione. `EPSG:4326` lo e' per una ragione che sta
+/// nel formato e non nel registro EPSG: GeoParquet impone l'ordine degli assi
+/// longitudine-latitudine alle coordinate che memorizza, quindi un dataset
+/// dichiarato `EPSG:4326` e scritto qui ha le stesse coordinate, nello stesso
+/// ordine, di uno dichiarato `OGC:CRS84`. I due sono equivalenti **in questo
+/// formato**, e non lo sarebbero altrove.
+///
+/// La canonicalizzazione e' percio' a CRS84, e si esprime **omettendo** il
+/// campo: la specifica dice che assente vuol dire CRS84. Non e' una perdita --
+/// il dato che esce e' identico al dato che entra -- ed e' l'unico modo di
+/// tenere scrivibile il caso comune senza sintetizzare un PROJJSON che nessuno
+/// ci ha dato.
+const EQUIVALENTI_A_CRS84: [&str; 2] = ["OGC:CRS84", "EPSG:4326"];
+
+fn crs_da_scrivere(
     geometry: Option<&GeometryColumnContract>,
     legacy_crs_meta: Option<String>,
-) -> Option<String> {
-    geometry
-        .and_then(|geometry| match &geometry.crs {
-            CrsResolution::Resolved(crs) => crs.id.as_deref(),
-            CrsResolution::DeclaredButUnresolved(raw) => raw.authority_hint.as_deref(),
-            CrsResolution::Missing => None,
-        })
-        .map(str::to_owned)
-        .or(legacy_crs_meta)
+) -> Result<CrsDaScrivere> {
+    let risoluzione = geometry.map(|geometria| &geometria.crs);
+    let definizione = match risoluzione {
+        Some(CrsResolution::Resolved(crs)) => crs.definition.as_deref(),
+        _ => None,
+    };
+    // Una definizione che e' un oggetto JSON e' il documento PROJJSON che il
+    // contratto porta: si emette per intero, che e' cio' che lo schema chiede.
+    if let Some(testo) = definizione {
+        if let Ok(serde_json::Value::Object(_)) = serde_json::from_str::<serde_json::Value>(testo) {
+            return Ok(CrsDaScrivere::Documento(testo.to_owned()));
+        }
+    }
+
+    let identificatore = match risoluzione {
+        Some(CrsResolution::Resolved(crs)) => crs.id.as_deref(),
+        Some(CrsResolution::DeclaredButUnresolved(raw)) => raw.authority_hint.as_deref(),
+        Some(CrsResolution::Missing) | None => None,
+    }
+    .map(str::to_owned)
+    .or(legacy_crs_meta);
+
+    match identificatore {
+        None => Ok(CrsDaScrivere::Nullo),
+        Some(id) if EQUIVALENTI_A_CRS84.contains(&id.as_str()) => Ok(CrsDaScrivere::Omesso),
+        // Conosciuto per identificatore e non rappresentabile: rifiuto. La
+        // tentazione sarebbe scrivere `null` -- «CRS sconosciuto» -- ma noi lo
+        // conosciamo, e dichiarare di non saperlo sarebbe una perdita semantica
+        // che nessuno ha dichiarato. Anche `{"id": ...}` sarebbe una scorciatoia:
+        // non e' PROJJSON, e il file non sarebbe conforme.
+        Some(_) => Err(PlenoraIoError::non_supportato_redatto(
+            &PublicMessage::Curated(
+                "il CRS e' noto solo per identificatore e GeoParquet pretende un documento PROJJSON: \
+                 nessuna definizione PROJJSON disponibile per questa scrittura",
+            ),
+        )),
+    }
 }
 
 struct GeoParquetDataset {
@@ -1066,7 +1152,7 @@ struct GeoParquetDataset {
     /// presenti tutti e quattro i nomi convenzionali `_bbox_minx`/... .
     /// Il pruning spaziale legge min/max da queste colonne (finding #4
     /// review 2026-08-15 + follow-up).
-    bbox_covering: Option<[String; 4]>,
+    bbox_covering: Option<[Vec<String>; 4]>,
     /// Mappa dagli indici logici dello schema esposto (`out_schema`, senza
     /// le colonne bbox interne) agli indici fisici root dello schema
     /// `Parquet`. Prima del follow-up review 2026-08-15 la CLI passava
@@ -1348,24 +1434,26 @@ struct GeoParquetWriter {
     write_schema: SchemaRef,
     geom_idx: usize,
     geom_name: String,
-    crs_meta: Option<String>,
+    crs_meta: CrsDaScrivere,
     geometry_types: BTreeSet<(GeometryType, CoordinateDimensions)>,
     wkb_limits: WkbLimits,
+    /// La nullabilita' della geometria, che la colonna `bbox` segue.
+    geometria_nullable: bool,
 }
 
 impl FormatWriter for GeoParquetWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let geom = batch.column(self.geom_idx);
         accumulate_geometry_types(geom, &mut self.geometry_types, &self.wkb_limits)?;
-        // Aggiunge le 4 colonne bbox covering per il pruning spaziale.
-        let bbox_cols = geom.as_any().downcast_ref::<BinaryArray>().map_or_else(
+        // Aggiunge la colonna struct `bbox` del covering, per il pruning.
+        let bbox_cols: Vec<ArrayRef> = geom.as_any().downcast_ref::<BinaryArray>().map_or_else(
             || {
-                bbox_fields()
-                    .iter()
-                    .map(|_| Arc::new(Float64Array::new_null(batch.num_rows())) as ArrayRef)
-                    .collect()
+                vec![new_null_array(
+                    bbox_field(self.geometria_nullable).data_type(),
+                    batch.num_rows(),
+                )]
             },
-            build_bbox_columns,
+            |binaria| build_bbox_columns(binaria, self.geometria_nullable),
         );
         let mut cols: Vec<ArrayRef> = batch.columns().to_vec();
         cols.extend(bbox_cols);
@@ -1387,11 +1475,7 @@ impl FormatWriter for GeoParquetWriter {
                 "writer Parquet non disponibile al finish",
             ))
         })?;
-        let geo = build_geo_metadata(
-            &self.geom_name,
-            &self.geometry_types,
-            self.crs_meta.as_deref(),
-        )?;
+        let geo = build_geo_metadata(&self.geom_name, &self.geometry_types, &self.crs_meta)?;
         writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo));
         writer.close().map_err(|_| {
             fmt_err(&PublicMessage::Curated(
@@ -1572,17 +1656,21 @@ fn gruppi_dopo_pruning_spaziale(
     // `covering.bbox` GeoParquet 1.1 o dal fallback storico su `BBOX_COLS`.
     // Non piu' hard-coded: un covering con nomi personalizzati viene ora
     // realmente usato dal pruning.
-    covering: Option<&[String; 4]>,
+    covering: Option<&[Vec<String>; 4]>,
 ) -> Option<Vec<usize>> {
     let (Some(q), Some(covering)) = (hint, covering) else {
         return None;
     };
-    let leaf = |name: &str| (0..schema.num_columns()).find(|&i| schema.column(i).name() == name);
+    // Le foglie si risolvono per **percorso**, non per nome. Con il covering
+    // conforme a 1.1 la foglia si chiama `xmin` e vive dentro la colonna struct
+    // `bbox`: cercarla per nome la troverebbe -- e troverebbe anche una colonna
+    // utente che si chiama `xmin` e non c'entra niente.
+    let foglia = |percorso: &[String]| indice_della_foglia(schema, percorso);
     let (Some(cminx), Some(cminy), Some(cmaxx), Some(cmaxy)) = (
-        leaf(&covering[0]),
-        leaf(&covering[1]),
-        leaf(&covering[2]),
-        leaf(&covering[3]),
+        foglia(&covering[0]),
+        foglia(&covering[1]),
+        foglia(&covering[2]),
+        foglia(&covering[3]),
     ) else {
         return None;
     };
@@ -1611,8 +1699,22 @@ fn gruppi_dopo_pruning_spaziale(
         );
         let keep_it = match ext {
             (Some(minx), Some(miny), Some(maxx), Some(maxy)) => {
-                // Interseca l'hint? (nessuna intersezione = fuori da un lato)
-                !(maxx < q.minx || minx > q.maxx || maxy < q.miny || miny > q.maxy)
+                // Un'estensione con un minimo oltre il proprio massimo non e'
+                // un errore: e' un insieme di geometrie che attraversa
+                // l'antimeridiano, e la semplice intersezione di rettangoli la
+                // leggerebbe al contrario -- **escludendo** row group che
+                // servono. Il pruning si spegne per quel gruppo e lo tiene: si
+                // legge di piu', mai di meno.
+                //
+                // E' la stessa ragione per cui la conformita' non rifiuta piu'
+                // un `bbox` invertito: lo schema lo ammette, e a non saperlo
+                // usare siamo noi.
+                if metadati::interpretabile_per_il_pruning(&[minx, miny, maxx, maxy]) {
+                    // Interseca l'hint? (nessuna intersezione = fuori da un lato)
+                    !(maxx < q.minx || minx > q.maxx || maxy < q.miny || miny > q.maxy)
+                } else {
+                    true
+                }
             }
             _ => true,
         };
@@ -1668,7 +1770,10 @@ fn compression_from(opts: &WriteOptions) -> Result<Compression> {
 /// veniva letto come Parquet semplice -- con la colonna indovinata per nome,
 /// che poteva non essere quella dichiarata da `primary_column`. Ora un
 /// documento presente viene validato, e se non regge il file e' rifiutato.
-fn read_geo_meta(builder: &ParquetRecordBatchReaderBuilder<File>) -> Result<Option<MetadatiGeo>> {
+fn read_geo_meta(
+    builder: &ParquetRecordBatchReaderBuilder<File>,
+    accetta_crs_storico: bool,
+) -> Result<Option<MetadatiGeo>> {
     let Some(kv) = builder.metadata().file_metadata().key_value_metadata() else {
         return Ok(None);
     };
@@ -1682,7 +1787,7 @@ fn read_geo_meta(builder: &ParquetRecordBatchReaderBuilder<File>) -> Result<Opti
             "metadato `geo` GeoParquet dichiarato e vuoto",
         )));
     };
-    metadati::analizza(grezzo).map(Some)
+    metadati::analizza(grezzo, accetta_crs_storico).map(Some)
 }
 
 /// Nome colonna geometria + CRS risolto dai metadati `geo`.
@@ -1718,16 +1823,34 @@ fn resolve_geometry_and_crs(
     Ok((primary, ResolvedCrs::wgs84()))
 }
 
-/// Il CRS della colonna primaria.
+/// Il CRS della colonna primaria, nei tre stati che la specifica distingue.
 ///
-/// La **semantica** non cambia in questo lotto: `crs` assente o nullo resta
-/// WGS84, come prima. Cio' che cambia e' che la forma e' validata a monte --
-/// `crs` presente deve essere un oggetto PROJJSON -- quindi qui non arriva piu'
-/// una stringa da interpretare a naso.
+/// * **assente** -- lo schema dice `OGC:CRS84`, ed e' l'unico caso in cui il
+///   driver puo' assumerlo;
+/// * **`null`** -- il file dichiara di **non** avere un CRS. Trasformarlo in
+///   CRS84, come faceva la prima stesura, e' mettere in bocca a chi ha scritto
+///   il file un'affermazione che non ha fatto: chi legge crederebbe di avere
+///   coordinate in WGS84 dove nessuno lo ha detto;
+/// * **documento** -- il PROJJSON dichiarato.
 fn crs_from(geo: Option<&MetadatiGeo>) -> Result<ResolvedCrs> {
-    match geo.and_then(|g| g.primaria.crs.as_ref()) {
-        None => Ok(ResolvedCrs::wgs84()),
-        Some(v) => {
+    let Some(geo) = geo else {
+        // Nessun metadato `geo`: e' un Parquet semplice, e la colonna geometria
+        // e' stata riconosciuta dal nome. Vale cio' che valeva.
+        return Ok(ResolvedCrs::wgs84());
+    };
+    match &geo.primaria.crs {
+        metadati::Crs::Assente => Ok(ResolvedCrs::wgs84()),
+        // Nessun identificatore, nessuna definizione, natura ignota: e' la
+        // rappresentazione di «non lo so», e non ne esiste un'altra.
+        metadati::Crs::Nullo => Ok(ResolvedCrs::new(None, CrsKind::Unknown, None)),
+        // Accettato per compatibilita': l'identificatore e' cio' che quel file
+        // dichiarava, e si conserva. Il contratto dice altrove che il file non
+        // era conforme, cosi' chi legge non scambia la cortesia per conformita'.
+        metadati::Crs::StoricoSoloIdentificatore(id) => {
+            let genere = crs_kind_for_authority_id(id);
+            Ok(ResolvedCrs::new(Some(id.clone()), genere, None))
+        }
+        metadati::Crs::Documento(v) => {
             let id = v.get("id").and_then(|i| {
                 let a = i.get("authority").and_then(|a| a.as_str())?;
                 let code = i.get("code").map(|c| match c {
@@ -1775,6 +1898,14 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
     contract
         .native_metadata
         .insert("geoparquet.version".to_owned(), geo.versione.to_owned());
+    // Se il file e' entrato dalla via di compatibilita', il contratto lo dice.
+    // Una deroga che non si vede diventa il comportamento normale.
+    if geo.conformita == metadati::Conformita::CrsStoricoSoloIdentificatore {
+        contract.native_metadata.insert(
+            "geoparquet.compatibilita".to_owned(),
+            "crs_storico_solo_identificatore_non_conforme".to_owned(),
+        );
+    }
     // Le altre colonne geometriche del file. Un GeoParquet puo' averne piu' di
     // una, e finora il contratto non nominava quelle che non erano la primaria:
     // un consumatore non aveva modo di sapere che esistessero.
@@ -1849,17 +1980,82 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
 
 /// Colonne bbox interne (covering "plenora"): 4 f64 flat per row, con statistiche
 /// min/max Parquet per row group → pruning spaziale.
-const BBOX_COLS: [&str; 4] = ["_bbox_minx", "_bbox_miny", "_bbox_maxx", "_bbox_maxy"];
-
-fn is_bbox_col(name: &str) -> bool {
-    BBOX_COLS.contains(&name)
+/// L'indice della foglia Parquet che quel percorso designa.
+///
+/// Il confronto e' sui **segmenti** del percorso della foglia, non sul suo
+/// nome: `["bbox", "xmin"]` designa la foglia `xmin` dentro la colonna struct
+/// `bbox`, e non una qualunque colonna che si chiami `xmin`.
+fn indice_della_foglia(
+    schema: &parquet::schema::types::SchemaDescriptor,
+    percorso: &[String],
+) -> Option<usize> {
+    (0..schema.num_columns()).find(|&i| schema.column(i).path().parts() == percorso)
 }
 
-fn bbox_fields() -> Vec<Field> {
-    BBOX_COLS
-        .iter()
-        .map(|n| Field::new(*n, DataType::Float64, true))
-        .collect()
+/// Quel percorso esiste nello schema Parquet?
+fn percorso_presente(schema: &Schema, percorso: &[String]) -> bool {
+    let Some((radice, resto)) = percorso.split_first() else {
+        return false;
+    };
+    let Ok(indice) = schema.index_of(radice) else {
+        return false;
+    };
+    let mut campo = schema.field(indice).clone();
+    for segmento in resto {
+        let DataType::Struct(figli) = campo.data_type() else {
+            return false;
+        };
+        let Some(trovato) = figli.iter().find(|f| f.name() == segmento) else {
+            return false;
+        };
+        campo = (**trovato).clone();
+    }
+    true
+}
+
+/// Le quattro colonne piatte che questo writer emetteva **prima** di S10.
+///
+/// Restano qui perche' i file scritti allora esistono, e perche'
+/// `bbox_legacy_by_name` -- l'opt-in che gia' c'era -- serve a riconoscerle. Il
+/// writer non le produce piu': non erano un covering GeoParquet 1.1 valido.
+const BBOX_COLS: [&str; 4] = ["_bbox_minx", "_bbox_miny", "_bbox_maxx", "_bbox_maxy"];
+
+/// Il nome della colonna struct che porta il covering conforme.
+const BBOX_STRUCT: &str = "bbox";
+
+/// Gli spigoli, nell'ordine in cui lo schema e il pruning li nominano.
+const BBOX_SPIGOLI: [&str; 4] = ["xmin", "ymin", "xmax", "ymax"];
+
+fn is_bbox_col(name: &str) -> bool {
+    name == BBOX_STRUCT || BBOX_COLS.contains(&name)
+}
+
+/// La colonna `bbox` del covering: una struct con quattro figli `FLOAT64`.
+///
+/// # Perche' una struct
+///
+/// Lo schema 1.1.0 pretende che ogni spigolo del `covering.bbox` sia un
+/// percorso di **due** segmenti, il secondo uguale al nome dello spigolo:
+/// `["bbox", "xmin"]`. Quattro colonne piatte non possono esprimerlo, e i file
+/// che questo writer produceva -- `["_bbox_minx"]` -- non erano GeoParquet 1.1
+/// validi, benche' il documento si dichiarasse tale.
+///
+/// # Nullabilita'
+///
+/// Segue la geometria: dove non c'e' geometria non c'e' riquadro, e dichiarare
+/// non-nullo un campo che sara' nullo sarebbe una promessa che i dati smentono
+/// alla prima riga senza geometria.
+fn bbox_field(geometria_nullable: bool) -> Field {
+    Field::new(
+        BBOX_STRUCT,
+        DataType::Struct(
+            BBOX_SPIGOLI
+                .iter()
+                .map(|spigolo| Field::new(*spigolo, DataType::Float64, geometria_nullable))
+                .collect(),
+        ),
+        geometria_nullable,
+    )
 }
 
 fn upd(bb: &mut [f64; 4], x: f64, y: f64) {
@@ -2002,7 +2198,7 @@ pub fn wkb_bbox(bytes: &[u8]) -> Option<[f64; 4]> {
 // `minx`/`miny` e `maxx`/`maxy` sono le componenti canoniche di un bounding
 // box: rinominarle per soddisfare `similar_names` peggiorerebbe la leggibilità.
 #[allow(clippy::similar_names)]
-fn build_bbox_columns(geom: &BinaryArray) -> Vec<ArrayRef> {
+fn build_bbox_columns(geom: &BinaryArray, geometria_nullable: bool) -> Vec<ArrayRef> {
     let rows = geom.len();
     let (mut minx, mut miny, mut maxx, mut maxy) = (
         Vec::with_capacity(rows),
@@ -2021,12 +2217,22 @@ fn build_bbox_columns(geom: &BinaryArray) -> Vec<ArrayRef> {
         maxx.push(bbox.map(|bbox| bbox[2]));
         maxy.push(bbox.map(|bbox| bbox[3]));
     }
-    vec![
-        Arc::new(Float64Array::from(minx)),
-        Arc::new(Float64Array::from(miny)),
-        Arc::new(Float64Array::from(maxx)),
-        Arc::new(Float64Array::from(maxy)),
-    ]
+    // I quattro figli entrano in una struct sola. I nulli stanno **nei figli**
+    // e non nel buffer della struct: dove non c'e' geometria non c'e' riquadro,
+    // e `wkb_bbox` ha gia' restituito `None` per quelle righe. Le statistiche
+    // che il pruning legge sono quelle delle foglie, ed e' li' che il nullo
+    // deve comparire.
+    let figli: Vec<(Arc<Field>, ArrayRef)> = BBOX_SPIGOLI
+        .into_iter()
+        .zip([minx, miny, maxx, maxy])
+        .map(|(spigolo, valori)| {
+            (
+                Arc::new(Field::new(spigolo, DataType::Float64, geometria_nullable)),
+                Arc::new(Float64Array::from(valori)) as ArrayRef,
+            )
+        })
+        .collect();
+    vec![Arc::new(StructArray::from(figli))]
 }
 
 /// Estrae dai metadati `geo.columns.<primary>.covering.bbox` la lista dei
@@ -2035,14 +2241,30 @@ fn build_bbox_columns(geom: &BinaryArray) -> Vec<ArrayRef> {
 /// il mapping; per i file legacy (anche quelli emessi dai nostri writer
 /// precedenti) il chiamante puo' fare fallback ai nomi convenzionali
 /// `BBOX_COLS`.
-fn covering_bbox_columns(geo: Option<&MetadatiGeo>) -> Option<Vec<String>> {
-    // La forma del covering e' validata da `metadati`: qui arriva o un
-    // covering utilizzabile per il pruning -- quattro spigoli, percorsi di un
-    // segmento -- o niente. Un covering annidato e' valido e inutilizzabile, e
-    // il pruning resta spento: fail-open, come per ogni statistica che questo
-    // driver non sa usare.
-    geo.and_then(|g| g.primaria.covering.as_ref())
-        .map(|nomi| nomi.to_vec())
+/// I quattro **percorsi** del covering dichiarato, gia' validati da `metadati`.
+///
+/// Percorsi e non nomi: lo schema 1.1.0 pretende due segmenti per spigolo, cioe'
+/// una colonna struct. `metadati` restituisce `None` quando il covering non c'e'
+/// e quando sta in un documento 1.0.0, dove la specifica non gli attribuisce
+/// significato.
+fn covering_bbox_paths(geo: Option<&MetadatiGeo>) -> Option<[Vec<String>; 4]> {
+    geo.and_then(|g| g.primaria.covering.clone())
+}
+
+/// I nomi di colonna **radice** che un covering occupa.
+///
+/// Sono cio' che il retag toglie dallo schema esposto: con la forma conforme e'
+/// un nome solo -- la colonna struct -- e con quella storica sono quattro.
+fn radici_del_covering(percorsi: &[Vec<String>; 4]) -> Vec<String> {
+    let mut radici: Vec<String> = Vec::with_capacity(4);
+    for percorso in percorsi {
+        if let Some(radice) = percorso.first() {
+            if !radici.contains(radice) {
+                radici.push(radice.clone());
+            }
+        }
+    }
+    radici
 }
 
 /// Ricostruisce lo schema marcando la geometria come `geoarrow.wkb`+`crs` ed
@@ -2119,11 +2341,27 @@ fn geometry_type_label(
     geometry_type: GeometryType,
     dimensions: CoordinateDimensions,
 ) -> Result<String> {
+    // Il pattern dello schema, in entrambe le versioni, e'
+    // `...( Z)?$`: **`" M"` e `" ZM"` non esistono in GeoParquet**. Questo
+    // writer li emetteva, cioe' produceva documenti che lo schema ufficiale
+    // rifiuta -- e il nostro lettore li accettava, chiudendo il cerchio su
+    // un'incompatibilita' che nessuno dei due vedeva.
+    //
+    // Il rifiuto e' di **funzionalita' non supportata**, non di formato: i dati
+    // sono corretti, e a non saperli rappresentare in questo formato siamo noi.
+    // Omettere il suffisso sarebbe peggio: il file direbbe che quelle geometrie
+    // sono XY, e la misura M sparirebbe senza che nessuno lo dichiari.
     let suffix = match dimensions {
         CoordinateDimensions::Xy => "",
         CoordinateDimensions::Xyz => " Z",
-        CoordinateDimensions::Xym => " M",
-        CoordinateDimensions::Xyzm => " ZM",
+        CoordinateDimensions::Xym | CoordinateDimensions::Xyzm => {
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::CuratedPair(
+                    "GeoParquet non rappresenta la misura M: sono scrivibili soltanto",
+                    "XY e XYZ",
+                ),
+            ))
+        }
         CoordinateDimensions::Unknown => {
             return Err(fmt_err(&PublicMessage::Curated(
                 "dimensionalità WKB ignota",
@@ -2159,7 +2397,7 @@ fn accumulate_geometry_types(
 fn build_geo_metadata(
     geom_name: &str,
     types: &BTreeSet<(GeometryType, CoordinateDimensions)>,
-    crs: Option<&str>,
+    crs: &CrsDaScrivere,
 ) -> Result<String> {
     let mut geometry_types = types
         .iter()
@@ -2177,22 +2415,32 @@ fn build_geo_metadata(
     let mut column = serde_json::json!({
         "encoding": "WKB",
         "geometry_types": geometry_types,
+        // Percorsi di **due** segmenti, il secondo uguale al nome dello
+        // spigolo: e' l'unica forma che lo schema 1.1.0 ammette, e designa i
+        // figli della colonna struct `bbox`.
         "covering": {
             "bbox": {
-                "xmin": [BBOX_COLS[0]],
-                "ymin": [BBOX_COLS[1]],
-                "xmax": [BBOX_COLS[2]],
-                "ymax": [BBOX_COLS[3]],
+                "xmin": [BBOX_STRUCT, BBOX_SPIGOLI[0]],
+                "ymin": [BBOX_STRUCT, BBOX_SPIGOLI[1]],
+                "xmax": [BBOX_STRUCT, BBOX_SPIGOLI[2]],
+                "ymax": [BBOX_STRUCT, BBOX_SPIGOLI[3]],
             }
         },
     });
-    // crs "AUTH:CODE" -> {"id":{authority,code}}, altrimenti null.
-    if let Some(id) = crs {
-        if let Some((auth, code)) = id.split_once(':') {
-            let code_val: serde_json::Value = code
-                .parse::<i64>()
-                .map_or_else(|_| serde_json::Value::from(code), serde_json::Value::from);
-            column["crs"] = serde_json::json!({"id": {"authority": auth, "code": code_val}});
+    match crs {
+        // Assente: la specifica dice CRS84, ed e' cio' che intendiamo.
+        CrsDaScrivere::Omesso => {}
+        // Presente e nullo: dichiariamo di non avere un CRS.
+        CrsDaScrivere::Nullo => {
+            column["crs"] = serde_json::Value::Null;
+        }
+        CrsDaScrivere::Documento(testo) => {
+            let documento: serde_json::Value = serde_json::from_str(testo).map_err(|_| {
+                fmt_err(&PublicMessage::Curated(
+                    "definizione PROJJSON non rileggibile al momento di scriverla",
+                ))
+            })?;
+            column["crs"] = documento;
         }
     }
     let mut columns = HashMap::new();
@@ -2236,6 +2484,192 @@ mod tests {
             Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
             Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
         }
+    }
+
+    /// Opzioni di lettura con l'opt-in al `crs` storico non conforme.
+    ///
+    /// I semi di questo repository sono stati scritti prima di S10 e portano
+    /// `crs: {"id": {...}}`, che non e' un documento PROJJSON: lo schema
+    /// ufficiale li rifiuta, e per leggerli si dichiara di volerlo fare.
+    fn opzioni_lettura_legacy() -> ReadOptions {
+        let mut opzioni = opzioni_lettura();
+        opzioni
+            .format_options
+            .insert("accept_legacy_crs_id_only".to_owned(), "true".to_owned());
+        opzioni
+    }
+
+    /// Un seme storico di questo repository: `crs` nella forma non conforme.
+    fn seme_storico() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../fuzz/seeds/geoparquet_reader/bit-width-dizionario-fuori-intervallo.parquet",
+        )
+    }
+
+    // --- l'output del writer, contro l'autorita' --------------------------
+    //
+    // Queste due prove non passano dal modulo `metadati`: scrivono un Parquet
+    // vero e ne guardano il risultato con gli schemi ufficiali e con il
+    // descrittore Parquet. Un writer verificato dal proprio lettore non e'
+    // verificato: i due possono sbagliare insieme, ed e' esattamente cio' che
+    // e' successo -- emettevamo un `covering` piatto e lo leggevamo come
+    // valido.
+
+    /// Scrive un GeoParquet vero e ne restituisce il metadato `geo` grezzo.
+    fn geo_di_un_file_scritto(dir: &tempfile::TempDir) -> (String, std::path::PathBuf) {
+        let percorso = dir.path().join("scritto.parquet");
+        let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(9.19, 45.46))).unwrap();
+        let geom = BinaryArray::from(vec![Some(punto.as_slice())]);
+        let ids = Int64Array::from(vec![1_i64]);
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true)
+                .with_metadata(geometry_field_meta("EPSG:4326")),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch =
+            RecordBatch::try_new(schema.clone(), vec![Arc::new(geom), Arc::new(ids)]).unwrap();
+
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut writer = GeoParquetDriver
+            .create(Sink::Path(percorso.clone()), &plan, &opzioni_scrittura())
+            .expect("il writer si apre");
+        writer.write(&batch).expect("scrittura");
+        writer.finish().expect("chiusura");
+
+        let builder =
+            ParquetRecordBatchReaderBuilder::try_new(File::open(&percorso).unwrap()).unwrap();
+        let grezzo = builder
+            .metadata()
+            .file_metadata()
+            .key_value_metadata()
+            .expect("key_value_metadata")
+            .iter()
+            .find(|e| e.key == "geo")
+            .and_then(|e| e.value.clone())
+            .expect("metadato `geo`");
+        (grezzo, percorso)
+    }
+
+    #[test]
+    fn il_metadato_scritto_rispetta_lo_schema_ufficiale() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (grezzo, _) = geo_di_un_file_scritto(&dir);
+        let documento: serde_json::Value =
+            serde_json::from_str(&grezzo).expect("il metadato e' JSON");
+
+        // La versione dichiarata e' quella che si scrive, e lo schema contro cui
+        // si valida e' il suo.
+        assert_eq!(documento["version"].as_str(), Some("1.1.0"));
+        schema_ufficiale::valida(&documento, "1.1.0")
+            .expect("il metadato scritto rispetta GeoParquet 1.1.0 e il PROJJSON che referenzia");
+    }
+
+    #[test]
+    fn la_colonna_bbox_scritta_ha_la_forma_fisica_che_il_covering_designa() {
+        // Lo schema JSON dice che il covering nomina `["bbox", "xmin"]`; non dice
+        // che nel Parquet esista una colonna struct `bbox` con quel figlio, di
+        // quel tipo e con quella nullabilita'. Se non esistesse, il documento
+        // sarebbe conforme e il pruning non troverebbe niente: due verifiche
+        // diverse, ed e' la ragione per cui questa sta accanto all'altra.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (_, percorso) = geo_di_un_file_scritto(&dir);
+        let builder =
+            ParquetRecordBatchReaderBuilder::try_new(File::open(&percorso).unwrap()).unwrap();
+        let descrittore = builder.metadata().file_metadata().schema_descr();
+
+        let foglie: Vec<Vec<String>> = (0..descrittore.num_columns())
+            .map(|i| descrittore.column(i).path().parts().to_vec())
+            .collect();
+
+        for spigolo in BBOX_SPIGOLI {
+            let atteso = vec![BBOX_STRUCT.to_owned(), spigolo.to_owned()];
+            let indice = foglie
+                .iter()
+                .position(|p| *p == atteso)
+                .unwrap_or_else(|| panic!("manca la foglia {BBOX_STRUCT}.{spigolo}"));
+            let colonna = descrittore.column(indice);
+            assert_eq!(
+                colonna.physical_type(),
+                parquet::basic::Type::DOUBLE,
+                "{spigolo} deve essere un FLOAT64"
+            );
+            assert_eq!(
+                colonna.self_type().get_basic_info().repetition(),
+                parquet::basic::Repetition::OPTIONAL,
+                "{spigolo} segue la nullabilita' della geometria"
+            );
+        }
+
+        // L'ordine e' quello dello schema e del pruning, e non e' un dettaglio:
+        // un covering con gli spigoli incrociati darebbe al pruning i numeri
+        // sbagliati senza che nulla lo dica.
+        let ordine: Vec<&Vec<String>> = foglie
+            .iter()
+            .filter(|p| p.first().map(String::as_str) == Some(BBOX_STRUCT))
+            .collect();
+        assert_eq!(ordine.len(), 4, "quattro figli, non uno di piu'");
+        for (posizione, spigolo) in BBOX_SPIGOLI.into_iter().enumerate() {
+            assert_eq!(ordine[posizione][1], spigolo, "ordine dei figli");
+        }
+
+        // E le quattro colonne piatte di prima **non** ci sono piu'.
+        for storica in BBOX_COLS {
+            assert!(
+                !foglie
+                    .iter()
+                    .any(|p| p.first().map(String::as_str) == Some(storica)),
+                "{storica} non deve piu' essere emessa"
+            );
+        }
+    }
+
+    #[test]
+    fn un_file_storico_senza_opt_in_e_rifiutato() {
+        // Il default e' il rifiuto, e deve restarlo: ogni GeoParquet che questo
+        // repository ha scritto fino a S10 dichiara un `crs` che lo schema
+        // ufficiale non ammette, e accettarlo in silenzio vorrebbe dire
+        // chiamare conforme cio' che non lo e'.
+        let esito = GeoParquetDriver.open(Source::Path(seme_storico()), opzioni_lettura());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "senza opt-in un file non conforme resta rifiutato"
+        );
+    }
+
+    #[test]
+    fn un_file_storico_con_opt_in_si_apre_e_conserva_il_crs() {
+        // Con l'opzione il file si apre, l'identificatore che dichiarava e'
+        // conservato -- ignorarlo direbbe CRS84 di un dato che CRS84 non e' --
+        // e il contratto **dichiara** che il file e' entrato da una via non
+        // conforme: una deroga che non si vede diventa il comportamento
+        // normale.
+        let dataset = GeoParquetDriver
+            .open(Source::Path(seme_storico()), opzioni_lettura_legacy())
+            .expect("con l'opt-in il file storico si apre");
+        let geometria = dataset.layers()[0]
+            .contract
+            .geometry
+            .as_ref()
+            .expect("colonna geometria");
+        assert_eq!(geometria.crs.id(), Some("EPSG:4326"));
+        assert_eq!(
+            geometria
+                .native_metadata
+                .get("geoparquet.compatibilita")
+                .map(String::as_str),
+            Some("crs_storico_solo_identificatore_non_conforme")
+        );
     }
 
     use arrow_array::Int64Array;
@@ -2879,7 +3313,8 @@ mod tests {
         assert!(seme.is_file(), "seme assente: {}", seme.display());
 
         let dataset = GeoParquetDriver
-            .open(Source::Path(seme), opzioni_lettura())
+            // Seme storico: `crs` nella forma non conforme, quindi opt-in.
+            .open(Source::Path(seme), opzioni_lettura_legacy())
             .expect("l'apertura legge i soli metadati e riesce");
         let richiesta = ReadRequest {
             layer: LayerId(0),
@@ -2999,7 +3434,8 @@ mod tests {
         assert!(seme.is_file(), "seme assente: {}", seme.display());
 
         let dataset = GeoParquetDriver
-            .open(Source::Path(seme), opzioni_lettura())
+            // Seme storico: `crs` nella forma non conforme, quindi opt-in.
+            .open(Source::Path(seme), opzioni_lettura_legacy())
             .expect("l'apertura legge i soli metadati e riesce");
         let richiesta = ReadRequest {
             layer: LayerId(0),
@@ -3432,17 +3868,61 @@ mod tests {
     }
 
     #[test]
-    fn writer_crs_id_comes_from_the_contract_without_legacy_field_metadata() {
+    fn un_crs_noto_solo_per_identificatore_non_e_scrivibile() {
+        // Il caso che il writer risolveva scrivendo `{"id": {...}}`, che non e'
+        // un documento PROJJSON: il file si dichiarava GeoParquet e non lo era.
+        //
+        // Le due scorciatoie sono peggio del rifiuto. Omettere il campo
+        // direbbe CRS84, cioe' un altro sistema di riferimento; scrivere `null`
+        // direbbe «non lo so», mentre noi lo sappiamo -- e sarebbe una perdita
+        // semantica che nessuno ha dichiarato.
         let geometry = GeometryColumnContract::wkb_xy(
             FieldId(0),
             "geometry",
             ResolvedCrs::new(Some("EPSG:3003".to_owned()), CrsKind::Projected, None),
             true,
         );
+        let errore = crs_da_scrivere(Some(&geometry), None).expect_err("non e' scrivibile");
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+        assert!(!errore.to_string().contains("EPSG:3003"));
+    }
 
+    #[test]
+    fn un_crs_con_definizione_projjson_si_scrive_per_intero() {
+        let projjson = r#"{"type":"GeographicCRS","name":"WGS 84"}"#;
+        let geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(
+                Some("OGC:CRS84".to_owned()),
+                CrsKind::Geographic,
+                Some(projjson.to_owned()),
+            ),
+            true,
+        );
         assert_eq!(
-            crs_meta_for_write(Some(&geometry), None).as_deref(),
-            Some("EPSG:3003")
+            crs_da_scrivere(Some(&geometry), None).expect("scrivibile"),
+            CrsDaScrivere::Documento(projjson.to_owned())
+        );
+    }
+
+    #[test]
+    fn crs84_omette_il_campo_e_un_crs_mancante_scrive_null() {
+        // Assente vuol dire CRS84 per la specifica: ometterlo e' dirlo.
+        let crs84 = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(Some("OGC:CRS84".to_owned()), CrsKind::Geographic, None),
+            true,
+        );
+        assert_eq!(
+            crs_da_scrivere(Some(&crs84), None).expect("scrivibile"),
+            CrsDaScrivere::Omesso
+        );
+        // Nessun CRS: `null` e' un'affermazione, l'omissione ne sarebbe un'altra.
+        assert_eq!(
+            crs_da_scrivere(None, None).expect("scrivibile"),
+            CrsDaScrivere::Nullo
         );
     }
 
@@ -3461,12 +3941,47 @@ mod tests {
                         "geometry_types": ["Point"],
                         "crs": {
                             "type": "ProjectedCRS",
-                            "name": "survey-grid-secret"
+                            "name": "survey-grid-secret",
+                            "base_crs": {
+                                "type": "GeographicCRS",
+                                "name": "WGS 84",
+                                "datum": {
+                                    "type": "GeodeticReferenceFrame",
+                                    "name": "World Geodetic System 1984",
+                                    "ellipsoid": {
+                                        "name": "WGS 84",
+                                        "semi_major_axis": 6_378_137,
+                                        "inverse_flattening": 298.257_223_563
+                                    }
+                                },
+                                "coordinate_system": {
+                                    "subtype": "ellipsoidal",
+                                    "axis": [
+                                        {"name": "Geodetic longitude", "abbreviation": "Lon", "direction": "east", "unit": "degree"},
+                                        {"name": "Geodetic latitude", "abbreviation": "Lat", "direction": "north", "unit": "degree"}
+                                    ]
+                                }
+                            },
+                            "conversion": {
+                                "name": "unnamed",
+                                "method": {"name": "Transverse Mercator"},
+                                "parameters": [
+                                    {"name": "Latitude of natural origin", "value": 0, "unit": "degree"}
+                                ]
+                            },
+                            "coordinate_system": {
+                                "subtype": "Cartesian",
+                                "axis": [
+                                    {"name": "Easting", "abbreviation": "E", "direction": "east", "unit": "metre"},
+                                    {"name": "Northing", "abbreviation": "N", "direction": "north", "unit": "metre"}
+                                ]
+                            }
                         }
                     }
                 }
             })
             .to_string(),
+            false,
         )
         .expect("il documento e' conforme");
         let error = crs_from(Some(&geo)).unwrap_err();
@@ -3561,7 +4076,25 @@ mod tests {
         let layer = &ds.layers()[0];
         let geom_c = layer.contract.geometry.as_ref().unwrap();
         assert_eq!(geom_c.name, "geometry");
-        assert_eq!(geom_c.crs.id(), Some("EPSG:4326"));
+        // Il dataset e' stato scritto dichiarando `EPSG:4326` e si rilegge
+        // `OGC:CRS84`: e' la **canonicalizzazione**, non una perdita.
+        //
+        // GeoParquet impone alle coordinate che memorizza l'ordine
+        // longitudine-latitudine, quindi dentro questo formato i due sistemi
+        // sono lo stesso sistema: gli stessi numeri, nello stesso ordine. Il
+        // writer lo esprime **omettendo** il campo `crs`, che per la specifica
+        // vuol dire esattamente CRS84.
+        //
+        // L'alternativa sarebbe stata scrivere `{"id": {...}}`, che non e' un
+        // documento PROJJSON e avrebbe reso il file non conforme, oppure
+        // rifiutare la scrittura -- e allora quasi nessun dataset sarebbe
+        // scrivibile in GeoParquet.
+        assert_eq!(geom_c.crs.id(), Some("OGC:CRS84"));
+        assert_eq!(
+            geom_c.crs.as_resolved().map(|crs| crs.axis_order),
+            Some(plenora_io_model::crs::AxisOrder::LongitudeLatitude),
+            "l'ordine degli assi e' quello che rende equivalenti i due sistemi"
+        );
 
         let mut reader = ds
             .open_layer_reader(&ReadRequest {
@@ -3734,7 +4267,8 @@ mod tests {
         // E cio' che scriviamo si rilegge dal nostro stesso validatore: un
         // writer che emette un documento che il nostro lettore rifiuterebbe
         // sarebbe un guasto che nessuna delle due meta' vedrebbe da sola.
-        let riletto = metadati::analizza(&geo_raw).expect("il documento scritto e' conforme");
+        let riletto =
+            metadati::analizza(&geo_raw, false).expect("il documento scritto e' conforme");
         assert_eq!(riletto.versione, "1.1.0");
         assert_eq!(riletto.nome_primaria, "geometry");
         assert_eq!(geo["primary_column"].as_str(), Some("geometry"));
@@ -3750,8 +4284,26 @@ mod tests {
             types.contains(&"Point"),
             "geometry_types deve contenere 'Point', era {types:?}"
         );
-        assert_eq!(col["crs"]["id"]["authority"].as_str(), Some("EPSG"));
-        assert_eq!(col["crs"]["id"]["code"].as_i64(), Some(4326));
+        // `crs` **assente**: il dataset e' `EPSG:4326`, che in questo formato e'
+        // CRS84, e la specifica dice che il campo assente vuol dire CRS84. Il
+        // writer emetteva `{"id": {"authority": "EPSG", "code": 4326}}`, che non
+        // e' un documento PROJJSON: lo schema pretende `oneOf: [PROJJSON,
+        // null]`, e quel file si dichiarava GeoParquet senza esserlo.
+        assert!(
+            col.get("crs").is_none(),
+            "un CRS equivalente a CRS84 si esprime omettendo il campo, era {:?}",
+            col.get("crs")
+        );
+        // E il covering e' nella forma che lo schema 1.1.0 designa: due
+        // segmenti per spigolo, il secondo uguale al nome dello spigolo.
+        assert_eq!(
+            col["covering"]["bbox"]["xmin"],
+            serde_json::json!(["bbox", "xmin"])
+        );
+        assert_eq!(
+            col["covering"]["bbox"]["ymax"],
+            serde_json::json!(["bbox", "ymax"])
+        );
 
         // 2) la colonna geometria è fisicamente BYTE_ARRAY (WKB) nel Parquet.
         let pschema = builder.metadata().file_metadata().schema_descr();
