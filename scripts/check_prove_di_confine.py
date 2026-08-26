@@ -59,8 +59,15 @@ PROVE: dict[str, tuple[str, ...]] = {
 RIGA_DI_ESITO = re.compile(r"^test (?P<nome>\S+) \.\.\. (?P<esito>\w+)")
 
 
-def esegui(crate: str, nomi: tuple[str, ...]) -> list[str]:
-    """Esegue le sonde nominate e pretende che ognuna passi, una volta sola."""
+def esegui(crate: str, nomi: tuple[str, ...], cosa: str = "sonda") -> list[str]:
+    """Esegue i test nominati e pretende che ognuno passi, una volta sola.
+
+    `cosa` nomina cio' che si sta eseguendo, perche' questa funzione la usa
+    anche il gate della capability: li' non sono «sonde di confine» ma «prove
+    della capability», e un messaggio che dicesse la parola sbagliata manderebbe
+    a cercare nel file sbagliato. La **regola** e' la stessa, e averla in due
+    copie vorrebbe dire vederle divergere.
+    """
     comando = ["cargo", "test", "-p", crate, "--lib", "--locked", "--", "--exact", *nomi]
     try:
         esito = subprocess.run(
@@ -75,7 +82,7 @@ def esegui(crate: str, nomi: tuple[str, ...]) -> list[str]:
         if trovato:
             nome = trovato.group("nome")
             if nome in visti:
-                return [f"{crate}: la sonda «{nome}» compare due volte nell'elenco"]
+                return [f"{crate}: {cosa} «{nome}» compare due volte nell'elenco"]
             visti[nome] = trovato.group("esito")
 
     errori: list[str] = []
@@ -83,19 +90,19 @@ def esegui(crate: str, nomi: tuple[str, ...]) -> list[str]:
         coda = "\n".join(esito.stdout.strip().splitlines()[-4:])
         errori.append(
             f"{crate}: il harness esce con {esito.returncode}. Un harness che "
-            f"fallisce non certifica le sonde che ha elencato prima di "
+            f"fallisce non certifica cio' che ha elencato prima di "
             f"fallire.\n{coda}"
         )
     for nome in nomi:
         stato = visti.get(nome)
         if stato is None:
             errori.append(
-                f"{crate}: la sonda «{nome}» non e' stata eseguita. Un filtro "
+                f"{crate}: {cosa} «{nome}» non e' stata eseguita. Un filtro "
                 "che non trova niente lascia `cargo test` a zero test e a exit "
                 "0: il silenzio non e' un verde."
             )
         elif stato != "ok":
-            errori.append(f"{crate}: la sonda «{nome}» esce con «{stato}»")
+            errori.append(f"{crate}: {cosa} «{nome}» esce con «{stato}»")
     return errori
 
 

@@ -20,11 +20,36 @@ confronto con il codice, il modo piu' semplice di ottenerla e' scriverla: un
 `true` costa un carattere, e nessun test esistente lo smentirebbe -- il
 descrittore compila comunque, il catalogo si serializza comunque.
 
-Qui la dichiarazione viene confrontata con cio' che il driver **attraversa**:
-i due entry point che il lotto S12 ha reso progressivi. Chi dichiara `true`
-senza chiamarli e' rosso; chi li chiama senza dichiararlo pure -- la seconda
-direzione conta quanto la prima, perche' una garanzia che c'e' e non e'
-dichiarata e' una garanzia che nessuno usa.
+Qui la dichiarazione viene confrontata con il codice in due modi, e servono
+tutti e due.
+
+## Uno: la chiamata
+
+Il driver deve **chiamare** uno dei due entry point che il lotto S12 ha reso
+progressivi. Chi dichiara `true` senza chiamarli e' rosso; chi li chiama senza
+dichiararlo pure -- la seconda direzione conta quanto la prima, perche' una
+garanzia che c'e' e non e' dichiarata e' una garanzia che nessuno usa.
+
+Questo controllo legge il **testo**, e va detto cio' che percio' non puo'
+vedere: una chiamata dentro `#[cfg(any())]`, dietro una feature spenta, o nel
+corpo di una macro che nessuno invoca, e' testo che assomiglia a una chiamata e
+non e' codice che gira. Distinguerli vorrebbe dire avere un compilatore, e un
+gate che legge sorgenti non ce l'ha.
+
+## Due: la prova eseguita
+
+Percio' ogni driver che dichiara `true` deve avere anche una prova **eseguita
+attraverso il proprio entry point pubblico**, con una quota stretta: si apre un
+dataset vero con un tetto piu' piccolo del default, si da' in pasto una
+geometria che lo supera, e si pretende il rifiuto tipizzato -- piu' l'asserzione
+che con il default quella stessa geometria passerebbe, se no il test non
+distinguerebbe la quota dal caso.
+
+E' questa la parte che regge il peso. Una chiamata esclusa dalla compilazione
+non fa passare nessun test; una sostituita con il parser non progressivo fa
+fallire il rifiuto o il codice. Il controllo sul testo resta perche' e'
+istantaneo e coglie la sparizione pura, ma da solo non basterebbe, e questo file
+non finge il contrario.
 
 # Uso
 
@@ -43,6 +68,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # gate: riscriverlo qui vorrebbe dire avere due implementazioni della stessa
 # regola, e la seconda sbaglierebbe da sola il giorno in cui la prima cambia.
 from check_wkb_limits_defaults import spoglia  # noqa: E402
+
+# Eseguire test nominati e pretendere che ognuno passi una volta sola e' gia'
+# scritto e provato: `--exact` da solo non basta, perche' un filtro che non
+# trova niente lascia `cargo test` a zero test e a exit 0. Riscriverlo qui
+# vorrebbe dire avere due implementazioni della stessa regola.
+from check_prove_di_confine import esegui as esegui_i_test  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CRATES = ROOT / "crates"
@@ -74,6 +105,20 @@ def _invocazione(nome: str) -> re.Pattern[str]:
 
 # Un `use` non e' un attraversamento: importa un simbolo, non lo chiama.
 IMPORTAZIONE = re.compile(r"^\s*(pub\s+)?use\s[^;]*;", re.MULTILINE)
+
+# La prova eseguita di ciascun driver che dichiara `true`: l'identita' esatta
+# del test che apre un dataset vero attraverso l'entry point pubblico con una
+# quota piu' stretta del default, e pretende il rifiuto tipizzato.
+#
+# L'elenco e' una **mappa chiusa**: un driver che dichiara `true` e non compare
+# qui e' rosso, e una voce che nomina un driver che non dichiara `true` pure. E'
+# la stessa disciplina di `check_prove_di_confine.py`, per la stessa ragione: un
+# riferimento testuale non e' una prova, un'esecuzione si'.
+PROVE_DELLA_CAPABILITY: dict[str, tuple[str, ...]] = {
+    "driver-csv": ("tests::inference_uses_configured_wkt_cell_bytes_not_default",),
+    "driver-geojson": ("tests::inference_uses_configured_wkt_cell_bytes_not_default",),
+    "driver-xls": ("tests::inference_uses_configured_wkt_cell_bytes_not_default",),
+}
 
 # Il commento con cui un driver apre la propria dichiarazione. Il valore sta
 # nella prima riga non commentata che segue: leggerlo riga per riga invece che
@@ -144,11 +189,44 @@ def osservato(radice: Path, crate: str) -> bool:
     )
 
 
-def verifica(radice: Path) -> list[str]:
+def verifica(
+    radice: Path, prove: dict[str, tuple[str, ...]] | None = None
+) -> list[str]:
+    """La dichiarazione, la chiamata e la prova eseguita si corrispondono.
+
+    `prove` e' iniettabile perche' le sonde di questo gate costruiscono alberi
+    finti, dove i test veri non esistono: iniettarlo e' l'unico modo di provare
+    la regola invece della mappa.
+    """
+    if prove is None:
+        prove = PROVE_DELLA_CAPABILITY
     errori: list[str] = []
-    for crate in crate_dei_driver(radice):
+    driver = crate_dei_driver(radice)
+    for crate in sorted(set(prove) - set(driver)):
+        errori.append(
+            f"{crate}: e' nominato fra le prove della capability e non e' un "
+            "driver di questo albero. Una prova che nomina un driver che non "
+            "c'e' non prova niente, e nasconde che il driver vero non ne ha una."
+        )
+    for crate in driver:
         detto = dichiarato(radice, crate)
         visto = osservato(radice, crate)
+        provato = crate in prove
+        if detto is not None and detto and not provato:
+            errori.append(
+                f"{crate}: dichiara `hostile_input_hardened = true` e non ha una "
+                "prova **eseguita** attraverso il proprio entry point pubblico. "
+                "Il controllo sul testo non distingue una chiamata che gira da "
+                "una dentro `#[cfg(any())]`, dietro una feature spenta o in una "
+                "macro mai invocata: a distinguerle e' un test che apre un "
+                "dataset vero con una quota stretta e pretende il rifiuto."
+            )
+        if detto is not None and not detto and provato:
+            errori.append(
+                f"{crate}: ha una prova della capability e dichiara "
+                "`hostile_input_hardened = false`. La mappa delle prove e i "
+                "descrittori devono dire la stessa cosa."
+            )
         if detto is None:
             errori.append(
                 f"{crate}: la capability `hostile_input_hardened` non e' "
@@ -175,16 +253,22 @@ def verifica(radice: Path) -> list[str]:
 
 def main() -> int:
     errori = verifica(ROOT)
+    if not errori:
+        for crate, nomi in sorted(PROVE_DELLA_CAPABILITY.items()):
+            errori.extend(esegui_i_test(crate, nomi, "la prova della capability"))
     for messaggio in errori:
         print(messaggio, file=sys.stderr)
     if errori:
         return 1
     quanti = crate_dei_driver(ROOT)
     irrigiditi = [c for c in quanti if dichiarato(ROOT, c)]
+    quante = sum(len(n) for n in PROVE_DELLA_CAPABILITY.values())
     print(
         f"capability `hostile_input_hardened` verificata su {len(quanti)} driver: "
-        f"{len(irrigiditi)} la dichiarano ({', '.join(irrigiditi)}), e ognuno "
-        "attraversa davvero un'analisi che applica i tetti durante il parse"
+        f"{len(irrigiditi)} la dichiarano ({', '.join(irrigiditi)}), ognuno "
+        "chiama un'analisi che applica i tetti durante il parse, e ognuno lo "
+        f"**dimostra**: {quante} prove eseguite attraverso l'entry point "
+        "pubblico con una quota piu' stretta del default, ciascuna passata."
     )
     return 0
 
