@@ -939,14 +939,19 @@ class SondeFontiLegate(unittest.TestCase):
     def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
         """Un lotto che il registro tiene bloccante non puo' dirsi chiuso.
 
-        Si appoggia a S10, che e' l'ultimo dei tre lotti ancora aperto: S11 ha
-        chiuso con il suo ramo e S12 con questo. Quando anche S10 chiudera',
-        questa sonda dovra' appoggiarsi a un altro invariante bloccante -- e
-        sara' il gate a dirlo, diventando rossa."""
+        Si appoggiava a S10, e con la chiusura di S10 e' diventata rossa -- che
+        e' cio' che la sua vecchia prosa prometteva: «sara' il gate a dirlo».
+        Ora si appoggia alla qualifica cross-component, che resta bloccante e
+        che questo repository non puo' chiudere da solo, perche' perimetro e
+        harness sono di proprieta' esterna. Quando chiudera' anche quella,
+        questa sonda tornera' rossa e vorra' dire che non c'e' piu' un
+        bloccante: sara' il momento di guardare la release, non la sonda."""
         stato = self.stato()
-        stato["aperto"]["lotti"]["s10"] = "chiuso"
+        stato["aperto"]["lotti"]["qualifica_cross_component"] = "chiusa"
         errori = gate.validate_stato_corrente(stato)
-        self.assertTrue(any("lotti.s10" in e for e in errori), errori)
+        self.assertTrue(
+            any("lotti.qualifica_cross_component" in e for e in errori), errori
+        )
 
     def test_un_lotto_chiuso_dichiarato_aperto_e_rosso(self) -> None:
         """La direzione opposta, provabile solo da quando un lotto ha chiuso:

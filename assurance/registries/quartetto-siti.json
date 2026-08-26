@@ -204,6 +204,14 @@
       "DataMapping/Read/Format/Never"
     ]
   },
+  "crates/driver-geoparquet/src/metadati.rs": {
+    "non_conforme": [
+      "DataMapping/Read/Format/Never"
+    ],
+    "non_supportata": [
+      "Unsupported/Validate/Unsupported/Never"
+    ]
+  },
   "crates/driver-geoparquet/src/pagine.rs": {
     "errore": [
       "esplicito/esplicito/Generic/esplicito"

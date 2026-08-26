@@ -1784,6 +1784,40 @@ fn apply_geo_column_metadata(contract: &mut GeometryColumnContract, geo: Option<
             .native_metadata
             .insert("geoparquet.altre_colonne".to_owned(), altre.join(","));
     }
+    // I campi che la validazione legge arrivano **fino al contratto**.
+    //
+    // Validarli e poi buttarli via sarebbe stata la meta' del lavoro: chi legge
+    // a valle non saprebbe che quel file dichiara bordi planari, un
+    // orientamento degli anelli, un'epoca delle coordinate o un riquadro di
+    // ingombro. `bordi` e' sempre `Planari` -- gli altri valori non arrivano
+    // qui, perche' il rifiuto li ferma a monte -- e proprio per questo dirlo ha
+    // senso: e' l'unica cosa che quel campo puo' valere in un file che abbiamo
+    // accettato.
+    contract.native_metadata.insert(
+        "geoparquet.edges".to_owned(),
+        match colonna.bordi {
+            metadati::Bordi::Planari => "planar".to_owned(),
+        },
+    );
+    if let Some(orientamento) = colonna.orientamento {
+        contract.native_metadata.insert(
+            "geoparquet.orientation".to_owned(),
+            match orientamento {
+                metadati::Orientamento::Antiorario => "counterclockwise".to_owned(),
+            },
+        );
+    }
+    if let Some(riquadro) = colonna.bbox.as_ref() {
+        let numeri: Vec<String> = riquadro.iter().map(ToString::to_string).collect();
+        contract
+            .native_metadata
+            .insert("geoparquet.bbox".to_owned(), numeri.join(","));
+    }
+    if let Some(epoca) = colonna.epoch {
+        contract
+            .native_metadata
+            .insert("geoparquet.epoch".to_owned(), epoca.to_string());
+    }
     let mut dimensions = BTreeSet::new();
     // I tipi arrivano gia' validati: un'etichetta fuori dalla specifica ha
     // fermato il file, invece di sparire da un `filter_map` e lasciare il
