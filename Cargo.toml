@@ -33,6 +33,12 @@ dxf = "=0.6.1"
 gdal = "=0.17.1"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+# Validazione JSON-Schema draft-07 per i metadati GeoParquet.
+# `default-features = false` toglie i resolver HTTP e filesystem: i `$ref`
+# si risolvono **solo** da un registro in memoria costruito sugli schemi
+# fissati in `assurance/schemi/`. Uno schema che si scarica quando serve
+# non e' fissato: e' sperato.
+jsonschema = { version = "=0.51.0", default-features = false }
 base64 = "=0.22.1"
 tempfile = "=3.27.0"
 libc = "=0.2.189"
