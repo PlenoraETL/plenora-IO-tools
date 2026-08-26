@@ -1325,7 +1325,11 @@ def _numero(valore: Any) -> bool:
 # dichiarava e non sapeva che `fmt` dovesse esistere: togliere un gate e
 # aggiornare coerentemente contatori, artefatti e digest passava. `len == 57`
 # non basterebbe — un passo tolto e uno aggiunto lasciano il totale fermo.
-REGISTRO_DEI_PASSI = ROOT / "assurance" / "registries" / "passi-del-checkpoint.json"
+#
+# Il percorso e' **relativo** perche' il registro va letto dove la corsa lo ha
+# letto: alla revisione che l'evidenza misura, non nel working tree. Vedi
+# `registro_della_revisione`.
+REGISTRO_DEI_PASSI_RELATIVO = "assurance/registries/passi-del-checkpoint.json"
 
 # Il registro dei requisiti di profondita' del fuzzing: `_profondita_legata` ne
 # legge il percorso dell'artefatto invece di riscriverlo, cosi' lo stato non puo'
@@ -1342,14 +1346,65 @@ REGISTRO_DI_PROFONDITA_FILEGDB = (
 MISURA_ASAN_FILEGDB = ROOT / "assurance" / "asan-filegdb.json"
 
 
-@functools.lru_cache(maxsize=1)
-def passi_del_checkpoint() -> tuple[tuple[str, ...], frozenset[str]]:
-    """`(identita' in ordine, quelle senza log)`, dal registro canonico."""
-    documento = json.loads(REGISTRO_DEI_PASSI.read_text(encoding="utf-8"))
-    voci = documento["passi"]
-    return tuple(v["id"] for v in voci), frozenset(
-        v["id"] for v in voci if not v["log"]
+@functools.lru_cache(maxsize=8)
+def registro_della_revisione(
+    revisione: str,
+) -> tuple[tuple[str, ...], frozenset[str], str | None]:
+    """`(identita' in ordine, quelle senza log, errore)` **alla revisione data**.
+
+    # Perche' non dal working tree
+
+    Un'evidenza e' il verbale di una corsa passata, e una corsa passata non puo'
+    aver eseguito un passo introdotto dopo. Confrontarla con il registro di HEAD
+    faceva percio' due cose sbagliate insieme: dichiarava incoerente
+    un'evidenza che era esatta quando e' stata scritta, e rendeva il registro
+    **immutabile**, perche' aggiungere un passo rendeva rosso questo gate,
+    quindi rossi livello 1 e livello 2, quindi impossibile produrre l'evidenza
+    nuova che avrebbe sciolto il nodo. Il registro e' rimasto fermo non per
+    scelta ma per costruzione.
+
+    Il registro viene percio' letto **dalla revisione che l'evidenza misura**,
+    che e' un commit e quindi immutabile. Cio' che il checkpoint fa a ogni corsa
+    non cambia: riconcilia cio' che ha eseguito con il registro del suo
+    worktree, per insieme, ordine e log.
+
+    # Nessun ripiego
+
+    Se la revisione non si risolve, se il file non esiste a quella revisione, o
+    se non e' un JSON con la forma attesa, la risposta e' un errore. Ripiegare
+    sul registro corrente vorrebbe dire verificare un verbale contro un altro
+    documento e chiamarlo verificato, che e' peggio del non averlo verificato:
+    ne ha l'aspetto.
+    """
+    esito = subprocess.run(
+        ["git", "show", f"{revisione}:{REGISTRO_DEI_PASSI_RELATIVO}"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
     )
+    if esito.returncode != 0:
+        return (), frozenset(), (
+            f"il registro dei passi non e' leggibile alla revisione "
+            f"«{revisione[:7]}»: `git show` esce con {esito.returncode}. Senza "
+            "il registro di quella revisione non c'e' niente contro cui "
+            "verificare l'elenco, e il registro corrente descrive un'altra corsa."
+        )
+    try:
+        documento = json.loads(esito.stdout.decode("utf-8"))
+        voci = documento["passi"]
+        ordine = tuple(v["id"] for v in voci)
+        senza_log = frozenset(v["id"] for v in voci if not v["log"])
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, KeyError) as errore:
+        return (), frozenset(), (
+            f"il registro dei passi alla revisione «{revisione[:7]}» non ha la "
+            f"forma attesa ({type(errore).__name__}): {errore}"
+        )
+    if not ordine:
+        return (), frozenset(), (
+            f"il registro dei passi alla revisione «{revisione[:7]}» non "
+            "dichiara alcun passo"
+        )
+    return ordine, senza_log, None
 
 # Gli artefatti che una corsa produce e che non sono il log di un passo.
 # L'elenco e' chiuso: il manifest e' esattamente i log dei passi piu' questi, e
@@ -1382,7 +1437,20 @@ def _passi_dichiarati(evidenza: dict[str, Any]) -> tuple[list[dict[str, Any]], l
             "cui essere legato"
         ]
 
-    dichiarati, senza_log = passi_del_checkpoint()
+    # Il registro contro cui confrontare e' quello **della corsa**, non quello
+    # di adesso. `evidenza_coerente` ha gia' preteso che revisione iniziale e
+    # finale coincidano, quindi nominare la finale nomina l'unica revisione
+    # che la corsa descrive.
+    revisione = revisione_risolta(_dentro(evidenza, ("corsa", "revisione_finale")))
+    if revisione is None:
+        return passi, [
+            "`corsa.revisione_finale` non si risolve a un commit: senza la "
+            "revisione misurata non si sa quale registro dei passi la corsa "
+            "abbia riconciliato, e l'elenco non e' verificabile."
+        ]
+    dichiarati, senza_log, guasto = registro_della_revisione(revisione)
+    if guasto is not None:
+        return passi, [f"`riconciliazione.passi`: {guasto}"]
 
     errori: list[str] = []
     for voce in passi:
@@ -1428,14 +1496,15 @@ def _passi_dichiarati(evidenza: dict[str, Any]) -> tuple[list[dict[str, Any]], l
     if mancanti:
         errori.append(
             f"`riconciliazione.passi`: {mancanti} sono dichiarati dal registro "
-            "dei passi e non compaiono. Una corsa che non li esegue misura un "
-            "altro insieme, e i suoi conteggi sono coerenti con se stessi."
+            f"dei passi alla revisione «{revisione[:7]}» e non compaiono. Una "
+            "corsa che non li esegue misura un altro insieme, e i suoi conteggi "
+            "sono coerenti con se stessi."
         )
     if estranei:
         errori.append(
             f"`riconciliazione.passi`: {estranei} non sono nel registro dei "
-            "passi. Un passo che nessuno ha dichiarato non e' verificato da "
-            "nessuno."
+            f"passi alla revisione «{revisione[:7]}». Un passo che nessuno ha "
+            "dichiarato non e' verificato da nessuno."
         )
 
     # L'**ordine** e' dichiarato dal registro, e va confrontato: presenza,

@@ -28,6 +28,7 @@ import contextlib
 import io
 import json
 import pathlib
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -1146,6 +1147,30 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         with mock.patch.object(gate, "_evidenza", return_value=finta):
             return gate.validate_stato_corrente(self.stato())
 
+    def registro_di(self, revisione: str) -> tuple[tuple[str, ...], frozenset[str]]:
+        """Il registro dei passi a una revisione, preteso leggibile."""
+        risolta = gate.revisione_risolta(revisione)
+        self.assertIsNotNone(risolta, f"«{revisione}» non si risolve")
+        ordine, senza_log, guasto = gate.registro_della_revisione(risolta)
+        self.assertIsNone(guasto, guasto)
+        return ordine, senza_log
+
+    def verbale_di(self, revisione: str, ordine, senza_log) -> dict:
+        """Il minimo che `_passi_dichiarati` legge: la revisione e l'elenco."""
+        return {
+            "corsa": {"revisione_finale": revisione},
+            "riconciliazione": {
+                "passi": [
+                    {
+                        "id": identita,
+                        "esito": "verde",
+                        "log": None if identita in senza_log else f"{identita}.log",
+                    }
+                    for identita in ordine
+                ]
+            },
+        }
+
     def test_l_evidenza_reale_e_coerente(self) -> None:
         """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
         self.assertEqual(gate.evidenza_coerente(self.evidenza(), None), [])
@@ -1510,7 +1535,7 @@ class SondeEvidenzaCoerente(unittest.TestCase):
 
     def test_i_due_passi_in_linea_devono_esserci(self) -> None:
         """Senza, la corsa non ha verificato di aver misurato un albero solo."""
-        for identita in sorted(gate.passi_del_checkpoint()[1]):
+        for identita in sorted(self.registro_di(self.revisione_misurata())[1]):
             with self.subTest(passo=identita):
                 errori = self.errori_con(
                     lambda e, i=identita: e["riconciliazione"].__setitem__(
@@ -1615,17 +1640,153 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         self.assertEqual(len(divergenze), 1, errori)
         self.assertIn("posizione 4", divergenze[0])
 
+    def revisione_misurata(self) -> str:
+        return self.evidenza()["corsa"]["revisione_finale"]
+
     def test_l_ordine_reale_coincide_col_registro(self) -> None:
-        dichiarati, _ = gate.passi_del_checkpoint()
+        dichiarati, _ = self.registro_di(self.revisione_misurata())
         passi = self.evidenza()["riconciliazione"]["passi"]
         self.assertEqual([v["id"] for v in passi], list(dichiarati))
 
     def test_l_insieme_reale_coincide_col_registro(self) -> None:
-        """La controprova positiva, e la sola cosa che lega i due elenchi."""
-        dichiarati, senza_log = gate.passi_del_checkpoint()
+        """La controprova positiva, e la sola cosa che lega i due elenchi.
+
+        Il registro e' quello della **revisione misurata**: un'evidenza nuova
+        deve coincidere esattamente con il registro del commit che descrive.
+        """
+        dichiarati, senza_log = self.registro_di(self.revisione_misurata())
         passi = self.evidenza()["riconciliazione"]["passi"]
         self.assertEqual([v["id"] for v in passi], list(dichiarati))
         self.assertEqual({v["id"] for v in passi if v["log"] is None}, set(senza_log))
+
+    # --- il registro e' quello della revisione misurata --------------------
+    #
+    # Un'evidenza e' il verbale di una corsa passata, e una corsa passata non
+    # puo' aver eseguito un passo introdotto dopo. Confrontarla con il registro
+    # di HEAD faceva due cose sbagliate insieme: dichiarava incoerente
+    # un'evidenza esatta quando e' stata scritta, e rendeva il registro
+    # **immutabile** -- aggiungere un passo rendeva rosso il gate, quindi rossi
+    # livello 1 e livello 2, quindi impossibile produrre l'evidenza nuova che
+    # avrebbe sciolto il nodo.
+    #
+    # `554dd38` e' scelto perche' e' un commit reale e immutabile il cui
+    # registro **differisce** da quello corrente: se un giorno tornassero a
+    # coincidere queste sonde non proverebbero piu' niente, e la disuguaglianza
+    # asserita sotto lo direbbe invece di lasciarlo accadere.
+    REVISIONE_STORICA = "554dd38"
+
+    def test_il_registro_storico_differisce_da_quello_corrente(self) -> None:
+        storico, _ = self.registro_di(self.REVISIONE_STORICA)
+        corrente, _ = self.registro_di("HEAD")
+        self.assertNotEqual(
+            list(storico),
+            list(corrente),
+            "le due revisioni dichiarano lo stesso registro: le sonde che "
+            "seguono non distinguerebbero piu' la regola temporale da quella "
+            "che confrontava con HEAD",
+        )
+
+    def test_un_registro_cresciuto_non_invalida_una_vecchia_evidenza(self) -> None:
+        """La ragione per cui la regola e' temporale, provata dove si vede."""
+        ordine, senza_log = self.registro_di(self.REVISIONE_STORICA)
+        verbale = self.verbale_di(self.REVISIONE_STORICA, ordine, senza_log)
+        passi, errori = gate._passi_dichiarati(verbale)
+        self.assertEqual(errori, [], errori)
+        self.assertEqual(len(passi), len(ordine))
+
+    def test_contro_il_registro_storico_le_quattro_alterazioni_restano_rosse(
+        self,
+    ) -> None:
+        """La regola temporale non allenta il confronto: lo sposta nel tempo.
+
+        Tolto, aggiunto, rinominato, spostato: tutte e quattro restano rosse
+        contro il registro della revisione misurata, che e' esattamente cio'
+        che restava rosso prima contro quello di HEAD.
+        """
+        ordine, senza_log = self.registro_di(self.REVISIONE_STORICA)
+
+        def alterato(muta):
+            verbale = self.verbale_di(self.REVISIONE_STORICA, ordine, senza_log)
+            muta(verbale["riconciliazione"]["passi"])
+            return gate._passi_dichiarati(verbale)[1]
+
+        def togli(passi):
+            del passi[2]
+
+        def aggiungi(passi):
+            # Il log segue l'identita', se no il rifiuto arriverebbe da li' e
+            # non dal confronto con il registro, che e' cio' che si prova qui.
+            passi.append(
+                {
+                    "id": "passo_mai_dichiarato",
+                    "esito": "verde",
+                    "log": "passo_mai_dichiarato.log",
+                }
+            )
+
+        def rinomina(passi):
+            passi[2]["id"] = "un_altro_nome"
+            passi[2]["log"] = "un_altro_nome.log"
+
+        def sposta(passi):
+            passi[3], passi[4] = passi[4], passi[3]
+
+        for nome, muta, atteso in (
+            ("tolto", togli, "non compaiono"),
+            ("aggiunto", aggiungi, "non sono nel registro"),
+            ("rinominato", rinomina, "non compaiono"),
+            ("spostato", sposta, "ordine divergente"),
+        ):
+            with self.subTest(alterazione=nome):
+                errori = alterato(muta)
+                self.assertTrue(any(atteso in m for m in errori), errori)
+
+    # --- nessun ripiego: se non si legge, e' rosso -------------------------
+
+    def test_una_revisione_che_non_si_risolve_e_rossa(self) -> None:
+        """Senza revisione non si sa quale registro la corsa abbia riconciliato."""
+        for revisione in ("", "non-un-commit", "0" * 40):
+            with self.subTest(revisione=revisione):
+                verbale = {
+                    "corsa": {"revisione_finale": revisione},
+                    "riconciliazione": {
+                        "passi": [{"id": "fmt", "esito": "verde", "log": "fmt.log"}]
+                    },
+                }
+                errori = gate._passi_dichiarati(verbale)[1]
+                self.assertTrue(any("non si risolve" in m for m in errori), errori)
+
+    def test_un_registro_assente_a_quella_revisione_e_rosso(self) -> None:
+        """Il registro dei passi non e' sempre esistito: prima di `7f2dc0c` il
+        file non c'era, e `git show` non lo trova. Ripiegare sul registro
+        corrente vorrebbe dire verificare un verbale contro un altro documento
+        e chiamarlo verificato."""
+        prima = gate.revisione_risolta("7f2dc0c^")
+        self.assertIsNotNone(prima)
+        ordine, senza_log, guasto = gate.registro_della_revisione(prima)
+        self.assertEqual(ordine, ())
+        self.assertEqual(senza_log, frozenset())
+        self.assertIsNotNone(guasto)
+        self.assertIn("non e' leggibile", guasto)
+
+    def test_un_registro_storico_illeggibile_o_malformato_e_rosso(self) -> None:
+        """Le altre porte: byte che non sono UTF-8, e JSON senza `passi`."""
+        risolta = gate.revisione_risolta("HEAD")
+        senza_cache = gate.registro_della_revisione.__wrapped__
+
+        casi = (
+            ("non e' UTF-8", b"\xff\xfe non testo"),
+            ("non e' JSON", b"{ questo non e' json"),
+            ("non ha `passi`", b'{"schema_version": 1}'),
+            ("`passi` e' una lista vuota", b'{"passi": []}'),
+            ("una voce senza `id`", b'{"passi": [{"log": true}]}'),
+        )
+        for nome, uscita in casi:
+            with self.subTest(caso=nome):
+                finto = subprocess.CompletedProcess([], 0, stdout=uscita, stderr=b"")
+                with mock.patch.object(gate.subprocess, "run", return_value=finto):
+                    _, _, guasto = senza_cache(risolta)
+                self.assertIsNotNone(guasto, nome)
 
     def test_l_elenco_reale_copre_il_manifest(self) -> None:
         """La controprova positiva, sui numeri di questa corsa."""
