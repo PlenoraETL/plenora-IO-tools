@@ -21,30 +21,30 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `f3c1507` |
-| revisione misurata | `f3c1507` |
+| ultima qualificata | `973080c` |
+| revisione misurata | `973080c` |
 | passi del checkpoint | 67 |
 | passi verdi | 67 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 54 970 |
+| input di replay | 56 461 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 87,26% |
-| righe coperte LCOV | 33 162 |
-| righe strumentate LCOV | 38 005 |
-| copertura cargo | 85,51% |
+| copertura LCOV | 87,40% |
+| righe coperte LCOV | 33 869 |
+| righe strumentate LCOV | 38 750 |
+| copertura cargo | 85,68% |
 | soglia di copertura | 80,00% |
 | baseline differenziale | `a0fa639` |
-| esito differenziale | 96.82% |
+| esito differenziale | 95.54% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 4 |
-| S9, qualificato su | `f3c1507` |
+| S9, qualificato su | `973080c` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
 | candidate, versione del workspace | `1.0.1` |

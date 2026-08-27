@@ -1,0 +1,614 @@
+{
+  "schema_version": 1,
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione 973080c. Ogni numero viene dalla corsa qui descritta, e da nessun'altra. Il commit che pubblica questo file ha uno SHA diverso e NON eredita la misura.",
+  "esito": "S9 checkpoint level 2 passed",
+  "non_significa": "non autorizza una release e non promuove la readiness di alcun componente ne' del sistema; la readiness di sistema e' di proprieta' esterna, vedi release/system-rc-gate.json",
+  "corsa": {
+    "revisione_iniziale": "973080c95a980fe820c1977f64e1e0cbe891a13b",
+    "revisione_finale": "973080c95a980fe820c1977f64e1e0cbe891a13b",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "nota": "revisione e impronta finali sono **rilette**, non ristampate: `git rev-parse HEAD` e `impronta_albero` girano di nuovo a fine corsa.",
+    "nota_impronta": "sotto lo schema `impronta-albero-v1` un albero pulito da' sempre lo stesso valore, perche' i tre componenti -- staged, unstaged, untracked non ignorati -- sono vuoti. L'impronta misura le modifiche **non committate**, non il contenuto del commit: quello e' gia' nominato dalla revisione.",
+    "albero_all_avvio": "pulito, 0 file non committati",
+    "base_diagnostica": "a0fa639",
+    "perche_questa_base": "e' la testa di `main`, cioe' il punto da cui questo ramo parte: la diagnostica differenziale misura le righe che il ramo cambia, non quelle che l'ultima tranche ha toccato.",
+    "percorso_di_corsa": "/work/target/s9-livello2 (volume Docker `plenora-io-target`, fuori dall'albero versionato: `target/` e' ignorato, e il passo `albero_invariato` lo conferma verde a fine corsa)",
+    "stdout_conservato": "la corsa scrive il proprio stdout in `/work/target/livello2.log`, dentro il volume montato e **fuori** dalla directory dei log: se ci stesse dentro entrerebbe nel manifest come artefatto che nessun passo dichiara. Il container gira staccato, non con `--rm` legato al terminale di chi lo lancia: la corsa precedente e' stata interrotta due volte perche' il processo che la guardava e' morto, e con `--rm` sarebbe morta anche lei.",
+    "registro_dei_passi": "il registro contro cui questa evidenza si verifica e' quello **presente in 973080c**, letto con `git show`: una corsa passata non puo' aver eseguito un passo introdotto dopo."
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 67,
+    "eseguiti": 67,
+    "verdi": 67,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i passi sono ricostruiti dalle **righe stampate** dalla corsa, non accettati dal rapporto dello strumento che li ha eseguiti.",
+    "ordine_dichiarato": "le identita' compaiono nell'**ordine** del registro, e l'ordine e' verificato: `sonde_checkpoint` per primo perche' se il gate che misura e' rotto tutto cio' che segue e' una misura di cui non si sa niente, la copertura dopo il fuzzing perche' legge il profdata che quello ha prodotto.",
+    "insieme_dichiarato": "le identita' sono **esattamente** quelle di `assurance/registries/passi-del-checkpoint.json` alla revisione 973080c: sessantasette, le stesse della corsa su f3c1507. Questo giro non aggiunge passi al registro: aggiunge prove **dentro** un gate che c'era gia', ed e' il verso giusto -- il gate degli schemi esegue ventitre' prove di conformita' invece di sei.",
+    "che_cosa_aggiunge_l_elenco": "i contatori dicono **quanti** passi; l'elenco dice **quali**, con l'esito e il log di ciascuno, ed e' cio' a cui il manifest e' legato.",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 56461,
+      "target": 15,
+      "target_totali": 15,
+      "crash": 0
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "target_totali": 15,
+      "finding": 0,
+      "quarantena": 0
+    },
+    "copertura": {
+      "lcov_percentuale": 87.4,
+      "lcov_righe_coperte": 33869,
+      "lcov_righe_strumentate": 38750,
+      "cargo_lines_percentuale": 85.68,
+      "soglia": 80.0,
+      "campagna": "una sola: `coverage_pulizia` rimuove i profili precedenti e il report parte cancellato, cosi' la misura non puo' ereditare niente da una corsa che non e' questa.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 38 750 righe, 745 piu' della corsa su f3c1507: sono la riconciliazione del metadato con lo schema fisico, i due cancelli in scrittura, la bitmap del covering e le diciassette sonde che li esercitano. La soglia resta 80%.",
+      "controprova_indipendente": "i record `DA:` di lcov.info ricontati fuori dallo strumento danno 33869/38750, cioe' la stessa coppia che il gate legge dal report.",
+      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate",
+      "perche_anche_il_conteggio": "la percentuale e' arrotondata a due decimali, e a questa scala poche righe spostano meno di un centesimo: senza il conteggio, una misura diversa potrebbe stampare lo stesso numero."
+    },
+    "diagnostica_differenziale": {
+      "base": "a0fa639",
+      "righe_cambiate_eseguibili": 2666,
+      "coperte": 2547,
+      "scoperte": 119,
+      "cambiate_non_eseguibili": 2055,
+      "esito": "95.54%",
+      "ragione": "95,54% delle 2666 righe cambiate ed eseguibili. La diagnostica ha di nuovo fatto il suo mestiere: sulla prima corsa di questo giro indicava scoperte due righe della riconciliazione -- lo spigolo che non e' una colonna di valori e gli spigoli di precisione diversa -- e la seconda e' un requisito che la specifica pretende e che il lotto dichiarava di verificare. Erano raggiungibili e non provate, e ora hanno una sonda ciascuna.",
+      "che_cosa_sono_le_scoperte": "le 119 sono attribuite una per una nell'evidenza. Sessantuno non sono codice di produzione: stanno dentro `mod tests` o `mod sonde`. Le cinquantotto di produzione si dividono in quattro gruppi che non hanno la stessa natura, e i quattro conteggi sommano cinquantotto.",
+      "i_quattro_gruppi": {
+        "difese che lo schema preclude a monte": "tredici righe, tutte in `covering_riconciliato`. Un documento che arriva li' e' gia' stato validato contro lo schema ufficiale, e lo schema 1.1 chiude quei casi da solo: il percorso che non ha due segmenti (`lib.rs:2137-2139`), lo spigolo che ne designa un altro (`2142-2144`), il covering senza spigoli (`2157`), la colonna che non e' un gruppo (`2176-2178`), e la geometria assente dalla radice (`2223-2225`), che `colonna_geometrica_presente` ha gia' preteso poche righe prima. Restano perche' la riconciliazione non deve dipendere dall'ordine in cui la si chiama, ma nessuna sonda puo' raggiungerle passando dall'autorita'.",
+        "errori interni che non possono darsi": "dodici righe: il metadato appena costruito che non si rilegge come JSON (`lib.rs:1508-1511`), la costruzione della colonna del covering che fallisce (`2490-2493`), e il PROJJSON gia' validato che non si rilegge al momento di scriverlo (`2706-2709`). Sono tre `map_err` su operazioni il cui ingresso lo abbiamo prodotto noi una riga sopra. Non sono ripieghi -- l'esito resta un errore -- e non sono provabili senza rompere il codice che li precede.",
+        "il ramo XYM, gia' dichiarato irraggiungibile": "sei righe (`lib.rs:2625-2630`). Era gia' cosi' nella corsa precedente e la ragione non e' cambiata: chi dichiara XYM nel contratto non apre nemmeno il writer, chi lo tace si vede rifiutare la riga dal controllo di dimensionalita'. La sonda `una_geometria_con_la_misura_m_non_e_scrivibile` prova tutt'e due le vie chiuse.",
+        "rami raggiungibili e non ancora sondati": "ventisette righe, e sono l'unico gruppo su cui ci sia del lavoro da fare. Il `crs` dichiarato e non risolto (`lib.rs:1146`); il riquadro nullo quando la colonna geometrica non e' binaria (`1473-1476`); il row group che si tiene perche' non porta statistiche (`1751`); il Parquet che non ha proprio metadati chiave-valore (`1813`); i quattro rifiuti e la discesa riuscita di `percorso_presente` (`2249-2262`), che dopo questo lotto serve alla sola via storica per nome; due righe di `metadati` (`375`, `573`); i due fallimenti chiusi di `schema_ufficiale` (`138-141`, `173-176`), che restano muti perche' gli schemi incorporati si compilano -- una sonda lo verifica -- e la versione e' ristretta a monte; e l'accessore `spec_version_supported` (`descriptor.rs:816-818`), che nessuno chiama perche' il campo viene letto per serializzazione."
+      },
+      "righe_scoperte": [
+        "crates/driver-geoparquet/src/lib.rs:1146",
+        "crates/driver-geoparquet/src/lib.rs:1473",
+        "crates/driver-geoparquet/src/lib.rs:1474",
+        "crates/driver-geoparquet/src/lib.rs:1475",
+        "crates/driver-geoparquet/src/lib.rs:1476",
+        "crates/driver-geoparquet/src/lib.rs:1508",
+        "crates/driver-geoparquet/src/lib.rs:1509",
+        "crates/driver-geoparquet/src/lib.rs:1510",
+        "crates/driver-geoparquet/src/lib.rs:1511",
+        "crates/driver-geoparquet/src/lib.rs:1751",
+        "crates/driver-geoparquet/src/lib.rs:1813",
+        "crates/driver-geoparquet/src/lib.rs:2137",
+        "crates/driver-geoparquet/src/lib.rs:2138",
+        "crates/driver-geoparquet/src/lib.rs:2139",
+        "crates/driver-geoparquet/src/lib.rs:2142",
+        "crates/driver-geoparquet/src/lib.rs:2143",
+        "crates/driver-geoparquet/src/lib.rs:2144",
+        "crates/driver-geoparquet/src/lib.rs:2157",
+        "crates/driver-geoparquet/src/lib.rs:2176",
+        "crates/driver-geoparquet/src/lib.rs:2177",
+        "crates/driver-geoparquet/src/lib.rs:2178",
+        "crates/driver-geoparquet/src/lib.rs:2223",
+        "crates/driver-geoparquet/src/lib.rs:2224",
+        "crates/driver-geoparquet/src/lib.rs:2225",
+        "crates/driver-geoparquet/src/lib.rs:2249",
+        "crates/driver-geoparquet/src/lib.rs:2252",
+        "crates/driver-geoparquet/src/lib.rs:2256",
+        "crates/driver-geoparquet/src/lib.rs:2257",
+        "crates/driver-geoparquet/src/lib.rs:2259",
+        "crates/driver-geoparquet/src/lib.rs:2260",
+        "crates/driver-geoparquet/src/lib.rs:2262",
+        "crates/driver-geoparquet/src/lib.rs:2490",
+        "crates/driver-geoparquet/src/lib.rs:2491",
+        "crates/driver-geoparquet/src/lib.rs:2492",
+        "crates/driver-geoparquet/src/lib.rs:2493",
+        "crates/driver-geoparquet/src/lib.rs:2625",
+        "crates/driver-geoparquet/src/lib.rs:2626",
+        "crates/driver-geoparquet/src/lib.rs:2627",
+        "crates/driver-geoparquet/src/lib.rs:2628",
+        "crates/driver-geoparquet/src/lib.rs:2629",
+        "crates/driver-geoparquet/src/lib.rs:2630",
+        "crates/driver-geoparquet/src/lib.rs:2706",
+        "crates/driver-geoparquet/src/lib.rs:2707",
+        "crates/driver-geoparquet/src/lib.rs:2708",
+        "crates/driver-geoparquet/src/lib.rs:2709",
+        "crates/driver-geoparquet/src/lib.rs:2862",
+        "crates/driver-geoparquet/src/lib.rs:2868",
+        "crates/driver-geoparquet/src/lib.rs:2873",
+        "crates/driver-geoparquet/src/lib.rs:2895",
+        "crates/driver-geoparquet/src/lib.rs:2959",
+        "crates/driver-geoparquet/src/lib.rs:3006",
+        "crates/driver-geoparquet/src/lib.rs:3010",
+        "crates/driver-geoparquet/src/lib.rs:3079",
+        "crates/driver-geoparquet/src/lib.rs:3085",
+        "crates/driver-geoparquet/src/lib.rs:3138",
+        "crates/driver-geoparquet/src/lib.rs:3167",
+        "crates/driver-geoparquet/src/lib.rs:3191",
+        "crates/driver-geoparquet/src/lib.rs:3265",
+        "crates/driver-geoparquet/src/lib.rs:3332",
+        "crates/driver-geoparquet/src/lib.rs:3410",
+        "crates/driver-geoparquet/src/lib.rs:3414",
+        "crates/driver-geoparquet/src/lib.rs:3419",
+        "crates/driver-geoparquet/src/lib.rs:3420",
+        "crates/driver-geoparquet/src/lib.rs:3428",
+        "crates/driver-geoparquet/src/lib.rs:3429",
+        "crates/driver-geoparquet/src/lib.rs:3437",
+        "crates/driver-geoparquet/src/lib.rs:3494",
+        "crates/driver-geoparquet/src/lib.rs:4074",
+        "crates/driver-geoparquet/src/lib.rs:4075",
+        "crates/driver-geoparquet/src/lib.rs:4076",
+        "crates/driver-geoparquet/src/lib.rs:4086",
+        "crates/driver-geoparquet/src/lib.rs:4090",
+        "crates/driver-geoparquet/src/lib.rs:4115",
+        "crates/driver-geoparquet/src/lib.rs:4122",
+        "crates/driver-geoparquet/src/lib.rs:4377",
+        "crates/driver-geoparquet/src/lib.rs:4397",
+        "crates/driver-geoparquet/src/lib.rs:4441",
+        "crates/driver-geoparquet/src/lib.rs:4461",
+        "crates/driver-geoparquet/src/lib.rs:4482",
+        "crates/driver-geoparquet/src/lib.rs:4588",
+        "crates/driver-geoparquet/src/lib.rs:4607",
+        "crates/driver-geoparquet/src/lib.rs:4631",
+        "crates/driver-geoparquet/src/lib.rs:4658",
+        "crates/driver-geoparquet/src/lib.rs:4683",
+        "crates/driver-geoparquet/src/lib.rs:4717",
+        "crates/driver-geoparquet/src/lib.rs:4745",
+        "crates/driver-geoparquet/src/lib.rs:4759",
+        "crates/driver-geoparquet/src/lib.rs:4793",
+        "crates/driver-geoparquet/src/lib.rs:4813",
+        "crates/driver-geoparquet/src/lib.rs:4846",
+        "crates/driver-geoparquet/src/lib.rs:4959",
+        "crates/driver-geoparquet/src/lib.rs:4963",
+        "crates/driver-geoparquet/src/lib.rs:4996",
+        "crates/driver-geoparquet/src/lib.rs:5030",
+        "crates/driver-geoparquet/src/lib.rs:5061",
+        "crates/driver-geoparquet/src/lib.rs:5218",
+        "crates/driver-geoparquet/src/lib.rs:5409",
+        "crates/driver-geoparquet/src/lib.rs:5607",
+        "crates/driver-geoparquet/src/lib.rs:5608",
+        "crates/driver-geoparquet/src/metadati.rs:375",
+        "crates/driver-geoparquet/src/metadati.rs:573",
+        "crates/driver-geoparquet/src/metadati.rs:856",
+        "crates/driver-geoparquet/src/metadati.rs:869",
+        "crates/driver-geoparquet/src/metadati.rs:924",
+        "crates/driver-geoparquet/src/metadati.rs:1378",
+        "crates/driver-geoparquet/src/metadati.rs:1599",
+        "crates/driver-geoparquet/src/metadati.rs:1633",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:138",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:139",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:140",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:141",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:173",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:174",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:175",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:176",
+        "crates/driver-geoparquet/src/schema_ufficiale.rs:322",
+        "crates/plenora-io-core/src/descriptor.rs:816",
+        "crates/plenora-io-core/src/descriptor.rs:817",
+        "crates/plenora-io-core/src/descriptor.rs:818"
+      ],
+      "dove_finiscono": "tutte e cinquantotto appartengono al bloccante `copertura.rami-negativi`, che resta aperto e che questo lotto non chiude. Le trentotto di S12 restano dove erano: gli insiemi si sommano, non si sostituiscono. Il censimento finale va fatto dopo `wire.loss-report`, che puo' aggiungerne altri.",
+      "che_cosa_esercita_quel_codice": "la validazione e' esercitata da tre parti, e la corsa le attraversa tutte: le sonde del modulo `metadati`, che il gate esegue per nome pretendendo una prova positiva e una negativa per ogni campo che **gli schemi** definiscono; le sonde di `schema_ufficiale`, che provano il registro dei `$ref` in memoria; e le sonde del driver, che aprono e scrivono file veri. Le diciassette nuove stanno tutte nel terzo gruppo, ed e' voluto: cio' che questo giro ha corretto non si vede senza un file addosso."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": "/work/target/s9-livello2 (volume Docker `plenora-io-target`, fuori dall'albero versionato: `target/` e' ignorato, e il passo `albero_invariato` lo conferma verde a fine corsa)",
+    "file": 69,
+    "digest_manifest": "2f0dd6490c7a59f8d76f9951fea8a73beb095a08d0e2332807a8ea864476881c",
+    "forma_del_manifest": "`percorso` NUL `sha256 del contenuto` LF, in ordine di percorso; nessun timestamp e nessun metadato di filesystem, cosi' il digest dipende solo da cio' che la corsa ha prodotto. La forma e' quella di `digest_del_manifest` in check_release_contract.py, che la ricalcola e la confronta: un digest che nessuno puo' ricalcolare e' una stringa, non un'impronta.",
+    "risultato_della_corsa": "`risultato.json` fa parte del manifest, ed e' preteso: e' l'ultimo file che la corsa scrive, ed e' scritto in modo atomico.",
+    "attesta_la_chiusura_di_s9": "`check_errori_redatti.log` e' fra gli artefatti: e' il passo che misura il censimento dei costruttori legacy, ed e' cio' che rende questa corsa l'attestazione della chiusura di S9 invece di una corsa che parla d'altro.",
+    "manifest": {
+      "assurance_fallbacks.log": "fc5e4d3a6bce11cbfff7bcd3da7176645e10877a8036aeb2b058579d871cc259",
+      "assurance_n1_integrita.log": "c55c7647af6c9a2db7e1ca46f59883ca73ea52d989d9fa0897218bc86c565b4e",
+      "assurance_n1_prove.log": "8f3b72fc888d3f84fe4073cb76fa4dffb6ef348cfdfba8fe8da2c9aee7aef6fc",
+      "catalog.json": "81ba5850084ffaa02c56fa3da0ce9a079de343195c443578497a72d145c30e82",
+      "check_action_pins.log": "c125dc241c876a62a8598f74f6109651fda752f4ac6adeb82f5a6e0380d55545",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_coverage_exclusions.log": "31113f3b3eee794ea971dfcec606883294c5eae14a1cac8c75cf3db3adec8431",
+      "check_dependency_pins.log": "3f472480b7f82381eed29cd34314d7c6dd5fed5ba268437a3df868b7415edb71",
+      "check_docset.log": "21fddca1298b159a7e3a280e32393e21faa2efd32f15a0b63379cbd8b349836f",
+      "check_dxf_fork.log": "aec602c5ee9d01f42f5ae0939436af4f921116b5f5620bbabbfbbff62e465dbe",
+      "check_errori_redatti.log": "b4600a323e1d6820b3df96a9b4bf4e3b56865ea3d5faf435dbb404f1f21e41b9",
+      "check_filegdb_catalog.log": "b45eb8a08d237c28497cf4829f6d0100af3142a18bcd69b79700fac565ce167e",
+      "check_gdal_fork.log": "e308ae8a812b3f76b8219308e03171db550ef436183a755baacb7b3ec0a984fe",
+      "check_identita.log": "c776c3a977f66cc38a8b507e9bd35775b1ca10537f1980e6ecf17fe908ff1229",
+      "check_metadati_geoparquet.log": "ba4875feae70b56ae74989120da34d66ab91857430495510f756ed31ca7a335a",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "00aa721844850cca6c828a758bd0cff97b28368bf620654d9aecf2b8c362d71e",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "b950cc660bce800072c1784c15d65d8372a7b622be65a653eb2026c687e64382",
+      "check_release.log": "cf91184b888a3bca3a7c6d6db8ca83854861b63e1e88ed5a750b012b1a647a7d",
+      "check_schemi_geoparquet.log": "d5c76e7deea8bd22226fe04bdc3fe4dfe1b42eeeb917d1f05f97fcf7b97bc4f4",
+      "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
+      "check_wkb_limits.log": "26d7e08e2f7b299be1f74b631494da73a599acb0b61ace7ff4d59a6b1537a7de",
+      "clippy.log": "c8c88e1055341a39bc2f17749d52550c968926dff59fbb30d21be0650b4cc937",
+      "clippy_default.log": "dbf17614ba1be000c5cdcee71490f08415a3690881704a00c0d256142dd47d0f",
+      "clippy_sicurezza.log": "1204db76e4634aba49d8ed7198510434d927bdc70071a97e3b757ece1e1af57b",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "coverage_diff.log": "6eaee5045a8dea1e95f46cfa12ae662cfc124b8a9eb62a8ee40f226b02ad0e2a",
+      "coverage_export.log": "e99a0e91ab088fa37889cbfb79888a9f34bfd3b81561602202c689a886867742",
+      "coverage_misura.log": "f5402100e79d82b0183fd82923df0c5e4565893f58e6ed6d557aebcc4eec4c5e",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "db77478114d918f065f74675382869b9f0bf4d1c6cb9aee5256b4f9c827547e4",
+      "coverage_soglia_dal_report.log": "587c44f90cae12dd7a959576939b78d8904c4f5520b1b3090e8f478e819bd4e3",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz_replay.log": "304d03970d42ab990002ed3718cf39f9dd5753844f4f5c78660faee26dfd4fcc",
+      "fuzz_smoke.log": "24247edd2b4e8f1d32d166caeb5dd170ad550c34db5d746a5e64816806aefc40",
+      "lcov.info": "d991972b02a69919cdcda97fb8be51290bbb4e59dfc0aac4aa2f7c74e911e883",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "a41a3e01d92a41f8ed8be9b39790d074941f272fa6ffcd9d77247bd91713d42f",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "sonde_action_pins.log": "3e5e13e45c5679793abc28956a6df70007e21db734fe0b654ea32d652c337f49",
+      "sonde_assurance_n1.log": "ea652c61c25295c95e783b19a5963ad9ef37626f6bd948a5bb9a37049998521d",
+      "sonde_assurance_n1_prove.log": "dd67151a2a679395d9219a596c8dfa34bcf243f94ff5e46ec273ac7235fcf9e2",
+      "sonde_audit_ignores.log": "65378dcad145da2497120819bebfc3c46534dce9714ce064b3d809a56654aca2",
+      "sonde_capability_ostile.log": "bf66a1cd57d6f4548de8ce42652f02cf400a6ab098c56af1908b891a9ec3e933",
+      "sonde_checkpoint.log": "e94268b86733efaccab0d790800daf50081093160fb95d50fba995d3bce46cd3",
+      "sonde_coverage_excl.log": "54cb1dc3f13bf7e5e1d5929d3c08d9bd76c6508aaf3e1354fca9ca13e10899ed",
+      "sonde_docset.log": "fbadf746c7b9958ca92e3da7d67ef61e43fada8bbcec2030a0ff1c7ea86bf126",
+      "sonde_errori_redatti.log": "f14fa4d68125be780e9740d44119802d97d828ad67e5d698da64639170ef5df2",
+      "sonde_fallback.log": "eab4281419f49474c6773f172eab4705e82da9e9196e5418e92a366609bcb99e",
+      "sonde_filegdb.log": "4a47540567d76f65510115143aff5a8b11fe4010a9ff51e8497f60d84ce55347",
+      "sonde_fork.log": "722c3a0653252b946cde7a5f55b0243c119daec63246011ceba9bd3974e3e5c6",
+      "sonde_identita.log": "80144f3bf12d071a1497821467ab02765712cb11da3f547a5e2b5cf79f938e9a",
+      "sonde_metadati_geoparquet.log": "6542cfa23588d4af4daf63616bca8620905d5eaafa2553b28a1b909d41dc65b8",
+      "sonde_niente_leak.log": "f633ad8e738512bb7562a43fab273ab65cdc5a224925052dd0e38b5bd4931a80",
+      "sonde_prevalidazione.log": "6ebfdfd4b3c00fc8d529c9d9843a65a06a2c956847a10a8789c0a9c804012d92",
+      "sonde_quarantena.log": "21c7e48d0b1ec908feef784bbce1fa55f2c9a7acf76382fa7578754a78bd1ed8",
+      "sonde_quartetto.log": "eb55bdeb232a5345b812b14974fa3803a4265c20b50cb28f1fb75acf884da36e",
+      "sonde_release.log": "41c4de312165f58af3a7a1bd46f442ac089977fa6430120d0bf7d52f74370f1d",
+      "sonde_schemi_geoparquet.log": "4320a8f8934241f291f65ef168fcd1aa7dd4aaf60ed25b2fec541271f67c4305",
+      "sonde_semi_s12.log": "f633ad8e738512bb7562a43fab273ab65cdc5a224925052dd0e38b5bd4931a80",
+      "sonde_toolchain.log": "0b25b87cdaf7c9018e588e07a12cb645e1f465cee2bc7bfbc81d62d0985a72ed",
+      "sonde_wkb_condiviso.log": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+      "sonde_wkb_limits.log": "ca18ffc8e8fdc6b71e49e9b4fd64e04661daa3243fb767d57a64ce80ea2d7b63",
+      "test.log": "75e2ad5ac83497a54a920e2271b9d0f2d8c38b2b14b49e87d34360f4df5c49f9",
+      "test_default.log": "6a9b6e49825b40e5f53c0a4b6bff247a1900c3179205c9e53daa0323b4f6b552"
+    }
+  },
+  "nessun_confronto_fra_corse": "i numeri di questa evidenza descrivono questa corsa. Confrontarli con quelli di un'altra revisione e' legittimo come lettura e non come verifica: un'evidenza non eredita e non e' ereditata."
+}

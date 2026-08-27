@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "f3c1507",
+      "sha": "973080c",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "f3c1507",
+    "sha": "973080c",
     "checkpoint": {
       "passi_eseguiti": 67,
       "passi_verdi": 67,
@@ -23,7 +23,7 @@
       "riconciliazione": "67 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
     },
     "fuzz": {
-      "replay_input": 54970,
+      "replay_input": 56461,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 87.26,
-      "lcov_righe_coperte": 33162,
-      "lcov_righe_strumentate": 38005,
-      "cargo_lines_percentuale": 85.51,
+      "lcov_percentuale": 87.4,
+      "lcov_righe_coperte": 33869,
+      "lcov_righe_strumentate": 38750,
+      "cargo_lines_percentuale": 85.68,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 38 005 righe, 685 piu' della corsa su a67020f: sono il modulo che porta gli schemi nel runtime, la riscrittura della validazione, il covering a colonna struct e le sonde che li esercitano. La soglia resta 80%.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 38 750 righe, 745 piu' della corsa su f3c1507: sono la riconciliazione del metadato con lo schema fisico, i due cancelli in scrittura, la bitmap del covering e le diciassette sonde che li esercitano. La soglia resta 80%.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
       "baseline": "a0fa639",
-      "esito": "96.82%",
-      "righe_cambiate_eseguibili": 1763,
-      "coperte": 1707,
-      "scoperte": 56,
-      "cambiate_non_eseguibili": 1525,
-      "ragione": "96,82% delle 1763 righe cambiate ed eseguibili, ed e' la diagnostica ad aver portato il lotto qui. Sulla corsa precedente indicava trentanove righe di produzione mai eseguite, e fra quelle c'erano quattro promesse del lotto: il rifiuto di XYM in scrittura, `crs: null`, il PROJJSON emesso per intero, e il CRS nullo che in lettura non diventa CRS84. Erano decise, implementate e non provate.",
-      "che_cosa_sono_le_scoperte": "le 56 sono attribuite una per una. Ventitre' non sono codice di produzione: stanno dietro un `cfg(test)`. Le trentatre' di produzione si dividono in quattro gruppi che non hanno la stessa natura, ed e' la ragione per cui sono elencati separatamente qui sotto invece che riassunti in un numero. I quattro conteggi sommano trentatre'."
+      "esito": "95.54%",
+      "righe_cambiate_eseguibili": 2666,
+      "coperte": 2547,
+      "scoperte": 119,
+      "cambiate_non_eseguibili": 2055,
+      "ragione": "95,54% delle 2666 righe cambiate ed eseguibili. La diagnostica ha di nuovo fatto il suo mestiere: sulla prima corsa di questo giro indicava scoperte due righe della riconciliazione -- lo spigolo che non e' una colonna di valori e gli spigoli di precisione diversa -- e la seconda e' un requisito che la specifica pretende e che il lotto dichiarava di verificare. Erano raggiungibili e non provate, e ora hanno una sonda ciascuna.",
+      "che_cosa_sono_le_scoperte": "le 119 sono attribuite una per una nell'evidenza. Sessantuno non sono codice di produzione: stanno dentro `mod tests` o `mod sonde`. Le cinquantotto di produzione si dividono in quattro gruppi che non hanno la stessa natura, e i quattro conteggi sommano cinquantotto."
     },
-    "evidenza": "assurance/evidence/checkpoint-f3c1507.json"
+    "evidenza": "assurance/evidence/checkpoint-973080c.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "f3c1507"
+      "qualificato_su": "973080c"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
