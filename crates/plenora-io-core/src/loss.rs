@@ -660,8 +660,23 @@ pub(crate) fn declare_crs_inconsistency(contract: &LayerContract, report: &mut L
     report.add_example(LossExample {
         category: INCONSISTENT_CRS_REPRESENTATIONS.to_owned(),
         posizione: Posizione {
+            // `layer_index` resta assente: questa osservazione arriva da un
+            // bordo di **lettura**, che vede un contratto di layer alla volta e
+            // non la sequenza in cui sta. Inventare uno zero direbbe «il primo»
+            // di un elenco che qui non esiste.
             layer_index: None,
-            field_index: None,
+            // L'indice della colonna geometrica, ricavato dallo schema: il
+            // contratto la nomina, la posizione la conta, ed e' la stessa
+            // sequenza che gli altri `field_index` indicizzano. Lasciarlo
+            // assente avrebbe tolto a questo esempio la sola cosa che la
+            // redazione gli lascia per dire **dove**.
+            field_index: contract
+                .contract
+                .schema
+                .fields()
+                .iter()
+                .position(|campo| campo.name() == &geometry.name)
+                .map(crate::driver::saturating_u64),
             type_class: None,
         },
         context: format!(

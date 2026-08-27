@@ -506,7 +506,8 @@ const fn saturating_usize(value: u64) -> usize {
 // Simmetrico a `saturating_usize`: il cast e' raggiunto solo con un valore gia'
 // provato entro `u64::MAX`.
 #[allow(clippy::cast_possible_truncation)]
-pub(crate) const fn saturating_u64(value: usize) -> u64 {
+#[must_use]
+pub const fn saturating_u64(value: usize) -> u64 {
     if usize::BITS > u64::BITS && value > u64::MAX as usize {
         u64::MAX
     } else {

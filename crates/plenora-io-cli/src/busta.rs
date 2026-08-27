@@ -835,10 +835,19 @@ mod sonde {
     fn un_esempio_fuori_misura_non_sfratta_un_esempio_valido() {
         // Stesso difetto delle ragioni, e stessa correzione: il filtro sta alla
         // porta, quindi le fuori misura non occupano il trattenimento.
-        let fuori: Vec<_> = (0..u64::try_from(MAX_ESEMPI_TRATTENUTI).unwrap())
+        // Le fuori misura occupano le posizioni **canonicamente minori**, e le
+        // valide quelle dopo. E' cio' che rende la sonda discriminante: con la
+        // strategia difettosa -- trattieni prima, filtra dopo -- le
+        // duecentocinquantasei minori riempirebbero il trattenimento e le
+        // valide, essendo maggiori, verrebbero sfrattate. Con le valide alle
+        // posizioni basse la sonda passerebbe anche col difetto, perche'
+        // sopravvivrebbero comunque.
+        let quante_fuori = u64::try_from(MAX_ESEMPI_TRATTENUTI).unwrap();
+        let fuori: Vec<_> = (0..quante_fuori)
             .map(|i| esempio(i, &"x".repeat(MAX_BYTE_DETTAGLIO + 1)))
             .collect();
-        let validi: Vec<_> = (0..u64::try_from(MAX_LOSS_EXAMPLES).unwrap())
+        let validi: Vec<_> = (quante_fuori
+            ..quante_fuori + u64::try_from(MAX_LOSS_EXAMPLES).unwrap())
             .map(|i| esempio(i, "il tipo dell'attributo richiede una coercizione"))
             .collect();
 

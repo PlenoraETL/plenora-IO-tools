@@ -2374,6 +2374,9 @@ mod tests {
                 // la cosa che l'incoerenza deve dire.
                 &[serde_json::json!({
                     "category": "inconsistent_crs_representations",
+                    // La geometria e' il campo zero dello schema: l'esempio dice
+                    // **dove** senza dire come si chiama.
+                    "field_index": 0,
                     "context": "definition_epsg=absent id_epsg=4326 srid=3003",
                 })],
             )

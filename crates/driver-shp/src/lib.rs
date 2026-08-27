@@ -2981,7 +2981,9 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
                 field_index: columns
                     .iter()
                     .position(|column| column.name == name)
-                    .map(|i| (i + 1) as u64),
+                    // `saturating_add` prima della conversione: sommare e poi
+                    // convertire potrebbe traboccare prima di saturare.
+                    .map(|i| plenora_io_core::driver::saturating_u64(i.saturating_add(1))),
                 type_class: None,
             },
             context: "DBF Numeric già decodificato come f64 senza precisione intera unitaria"

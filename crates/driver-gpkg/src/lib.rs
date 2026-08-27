@@ -680,7 +680,7 @@ impl GpkgReader {
             .fields()
             .iter()
             .position(|campo| campo.name() == nome)
-            .map(|indice| indice as u64)
+            .map(plenora_io_core::driver::saturating_u64)
     }
 }
 

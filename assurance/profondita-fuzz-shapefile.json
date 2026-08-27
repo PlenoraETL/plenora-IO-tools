@@ -5,19 +5,19 @@
   "corpus": {
     "input": 24
   },
-  "impronta_perimetro": "7a6770935f8d6baa6de5ce3f6593a9112d144d6289db5f3eab7363ad89a9064d",
+  "impronta_perimetro": "722338f6cea4e04ec3b2689bd1be7bb303ce50f5e05c3d782b1f1cb63f628aeb",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "requisiti": [
     {
       "id": "bundle.prj-materializzato",
       "famiglia": "riga",
-      "riga": 3515,
+      "riga": 3517,
       "conteggio": 1
     },
     {
       "id": "bundle.shx-materializzato",
       "famiglia": "riga",
-      "riga": 3509,
+      "riga": 3511,
       "conteggio": 25
     },
     {
@@ -119,7 +119,7 @@
     {
       "id": "rifiuto.cardinalita-nel-drenaggio",
       "famiglia": "riga",
-      "riga": 3276,
+      "riga": 3278,
       "conteggio": 1
     },
     {
