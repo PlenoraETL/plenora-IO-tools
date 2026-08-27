@@ -139,6 +139,8 @@ jobs:
           python3 scripts/check_metadati_geoparquet.py
           python3 -m unittest scripts.test_check_schemi_geoparquet
           python3 scripts/check_schemi_geoparquet.py
+          python3 -m unittest scripts.test_check_categorie_di_perdita
+          python3 scripts/check_categorie_di_perdita.py
       # I semi del lotto S11: le forme in cui una collezione dichiara figli
       # ed e' semanticamente vuota, piu' quelle ostili che la discesa nei figli
       # deve rifiutare chiudendo. Derivati dalla specifica, non committati a

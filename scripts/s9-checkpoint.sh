@@ -603,6 +603,12 @@ passo check_metadati_geoparquet python3 scripts/check_metadati_geoparquet.py
 # e il suo censimento.
 passo sonde_schemi_geoparquet python3 -m unittest scripts.test_check_schemi_geoparquet
 passo check_schemi_geoparquet python3 scripts/check_schemi_geoparquet.py
+# Il vocabolario delle categorie di perdita: chiuso, dichiarato in un registro
+# fuori dal codice, e con una sola via dinamica ammessa -- quella di DXF, che
+# il lotto wire.loss-report chiude. Una seconda via renderebbe la cardinalita'
+# della busta CLI una decisione di chi fornisce il file.
+passo sonde_categorie_di_perdita python3 -m unittest scripts.test_check_categorie_di_perdita
+passo check_categorie_di_perdita python3 scripts/check_categorie_di_perdita.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder

@@ -949,7 +949,7 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                 &mut loss,
                 &layer.name,
                 &geometry.name,
-                "crs_id",
+                RappresentazioneDelCrs::CrsId,
                 crs_id.map(str::len),
                 capabilities.crs_representations.crs_id,
             );
@@ -957,7 +957,7 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                 &mut loss,
                 &layer.name,
                 &geometry.name,
-                "srid",
+                RappresentazioneDelCrs::Srid,
                 geometry.srid.map(|srid| srid.to_string().len()),
                 capabilities.crs_representations.srid,
             );
@@ -965,7 +965,7 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                 &mut loss,
                 &layer.name,
                 &geometry.name,
-                "crs_definition",
+                RappresentazioneDelCrs::CrsDefinition,
                 crs_definition.map(str::len),
                 capabilities.crs_representations.crs_definition,
             );
@@ -1004,31 +1004,78 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
     loss
 }
 
+/// Quale delle tre rappresentazioni del CRS non e' stata preservata.
+///
+/// Un tipo e non una stringa: la categoria di perdita che ne esce e' una
+/// **chiave sul filo**, e una chiave costruita con `format!` e' una chiave che
+/// nessuno puo' enumerare leggendo il codice. Le sei combinazioni sono qui,
+/// scritte per esteso, ed e' cio' che permette al registro di dichiararle e al
+/// gate di verificarle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RappresentazioneDelCrs {
+    CrsId,
+    Srid,
+    CrsDefinition,
+}
+
+impl RappresentazioneDelCrs {
+    /// Il nome della rappresentazione, per la diagnostica strutturale.
+    const fn nome(self) -> &'static str {
+        match self {
+            Self::CrsId => "crs_id",
+            Self::Srid => "srid",
+            Self::CrsDefinition => "crs_definition",
+        }
+    }
+
+    /// La categoria di perdita, una delle **sei** che questa coppia produce.
+    const fn categoria(self, stato: CrsRepresentationState) -> Option<&'static str> {
+        match (self, stato) {
+            (_, CrsRepresentationState::Preserved) => None,
+            (Self::CrsId, CrsRepresentationState::Absent) => Some(CRS_ID_NOT_PRESERVED_ABSENT),
+            (Self::CrsId, CrsRepresentationState::Derived) => Some(CRS_ID_NOT_PRESERVED_DERIVED),
+            (Self::Srid, CrsRepresentationState::Absent) => Some(SRID_NOT_PRESERVED_ABSENT),
+            (Self::Srid, CrsRepresentationState::Derived) => Some(SRID_NOT_PRESERVED_DERIVED),
+            (Self::CrsDefinition, CrsRepresentationState::Absent) => {
+                Some(CRS_DEFINITION_NOT_PRESERVED_ABSENT)
+            }
+            (Self::CrsDefinition, CrsRepresentationState::Derived) => {
+                Some(CRS_DEFINITION_NOT_PRESERVED_DERIVED)
+            }
+        }
+    }
+}
+
+const CRS_ID_NOT_PRESERVED_ABSENT: &str = "crs_id_not_preserved_absent";
+const CRS_ID_NOT_PRESERVED_DERIVED: &str = "crs_id_not_preserved_derived";
+const SRID_NOT_PRESERVED_ABSENT: &str = "srid_not_preserved_absent";
+const SRID_NOT_PRESERVED_DERIVED: &str = "srid_not_preserved_derived";
+const CRS_DEFINITION_NOT_PRESERVED_ABSENT: &str = "crs_definition_not_preserved_absent";
+const CRS_DEFINITION_NOT_PRESERVED_DERIVED: &str = "crs_definition_not_preserved_derived";
+
 fn record_crs_representation_loss(
     loss: &mut LossReport,
     layer: &str,
     field: &str,
-    representation: &str,
+    representation: RappresentazioneDelCrs,
     value_bytes: Option<usize>,
     state: CrsRepresentationState,
 ) {
-    let (Some(value_bytes), category_suffix) = (
-        value_bytes,
-        match state {
-            CrsRepresentationState::Preserved => return,
-            CrsRepresentationState::Absent => "absent",
-            CrsRepresentationState::Derived => "derived",
-        },
-    ) else {
+    // Due guardie e non una tupla: la categoria e' una **chiave sul filo**, e
+    // legarla da sola la rende leggibile a chi la cerca -- il gate del
+    // vocabolario compreso, che deve poter risalire dall'uso alla costante.
+    let Some(category) = representation.categoria(state) else {
         return;
     };
-    let category = format!("{representation}_not_preserved_{category_suffix}");
-    loss.record(&category, 1);
+    let Some(value_bytes) = value_bytes else {
+        return;
+    };
+    let nome = representation.nome();
+    loss.record(category, 1);
     loss.add_example(LossExample {
-        category,
+        category: category.to_owned(),
         context: format!(
-            "layer={layer} field={field} representation={representation} \
-             state={category_suffix} value_bytes={value_bytes}"
+            "layer={layer} field={field} representation={nome} value_bytes={value_bytes}"
         ),
     });
 }
@@ -2716,7 +2763,7 @@ mod tests {
             &mut loss,
             "layer",
             "geometry",
-            "crs_id",
+            RappresentazioneDelCrs::CrsId,
             Some(9),
             CrsRepresentationState::Derived,
         );
@@ -2724,7 +2771,7 @@ mod tests {
             &mut loss,
             "layer",
             "geometry",
-            "srid",
+            RappresentazioneDelCrs::Srid,
             Some(4),
             CrsRepresentationState::Absent,
         );
@@ -2732,7 +2779,7 @@ mod tests {
             &mut loss,
             "layer",
             "geometry",
-            "crs_definition",
+            RappresentazioneDelCrs::CrsDefinition,
             Some(42),
             CrsRepresentationState::Preserved,
         );

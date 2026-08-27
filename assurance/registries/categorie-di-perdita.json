@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "descrizione": "Il vocabolario chiuso delle categorie di perdita che il workspace puo' registrare in `LossReport::counts`. E' l'autorita', e sta **fuori** dal codice che la produce: un gate che ricavasse l'elenco dai siti che deve controllare certificherebbe che il codice e' uguale a se stesso. Una categoria aggiunta in Rust e non qui rende rosso `check_categorie_di_perdita.py`, e viceversa.",
+  "perche_un_vocabolario_chiuso": "le chiavi di `counts` finiscono nella busta JSON della CLI, che e' un'interfaccia esterna. Una chiave costruita a runtime e' una chiave che nessuno puo' enumerare leggendo il codice, e se la costruisce con un nome preso dal file allora la cardinalita' e i byte della busta li decide chi fornisce il file.",
+  "limite_di_lunghezza_byte": 128,
+  "categorie": [
+    {
+      "id": "MultiPoint esploso in entità DXF",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "MultiLineString esplosa in entità DXF",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "MultiPolygon esplosa in entità DXF",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "GeometryCollection esplosa in entità DXF",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "CIRCLE tassellata",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "ARC tassellato",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "TEXT rappresentato come punto",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "MTEXT rappresentato come punto",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "SOLID rappresentato come Polygon",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "ELLIPSE tassellata",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "SPLINE tassellata",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "archi bulge tassellati",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "bulge DXF con quote diverse approssimato sul piano iniziale",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "blocco INSERT esploso",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "valori attributi INSERT non rappresentati come colonne",
+      "superficie": "driver-dxf",
+      "forma": "literal"
+    },
+    {
+      "id": "coercion tipo attributo",
+      "superficie": "plenora-io-core",
+      "forma": "literal"
+    },
+    {
+      "id": "gpkg_integer_column_real_truncated",
+      "superficie": "driver-gpkg",
+      "forma": "costante"
+    },
+    {
+      "id": "gpkg_integer_column_real_saturated",
+      "superficie": "driver-gpkg",
+      "forma": "costante"
+    },
+    {
+      "id": "gpkg_integer_column_non_finite_discarded",
+      "superficie": "driver-gpkg",
+      "forma": "costante"
+    },
+    {
+      "id": "gpkg_real_column_integer_precision_unverifiable",
+      "superficie": "driver-gpkg",
+      "forma": "costante"
+    },
+    {
+      "id": "dbf_numeric_integer_precision_unverifiable",
+      "superficie": "driver-shp",
+      "forma": "costante"
+    },
+    {
+      "id": "inconsistent_crs_representations",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "crs_id_not_preserved_absent",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "crs_id_not_preserved_derived",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "srid_not_preserved_absent",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "srid_not_preserved_derived",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "crs_definition_not_preserved_absent",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    },
+    {
+      "id": "crs_definition_not_preserved_derived",
+      "superficie": "plenora-io-core",
+      "forma": "costante"
+    }
+  ],
+  "vie_dinamiche_ammesse": [
+    {
+      "file": "crates/driver-dxf/src/lib.rs",
+      "espressione": "&format!(\"attributo non rappresentato in DXF: {c}\")",
+      "perche": "e' il difetto che il lotto wire.loss-report chiude, non una scelta: `c` e' `f.name()` dello schema di origine, cioe' un identificatore che decide chi fornisce il file. In una conversione verso DXF la busta echeggia l'intestazione del file, una chiave per colonna scartata, fino a `max_columns` chiavi di lunghezza libera.",
+      "destino": "il modello nuovo registra la categoria chiusa `dxf_attribute_not_represented` e tiene l'identita' dell'attributo fuori dalla categoria; la chiave dinamica sopravvive **solo** dentro l'adattatore del protocollo v1, che e' congelato byte per byte. Questa voce si sposta li' quando l'adattatore esiste, e non deve mai diventare due."
+    }
+  ],
+  "esclusi_dal_censimento": {
+    "ShpRowDiagnostics::record": "omonimo con quattro argomenti, non scrive in `LossReport::counts`. Il gate distingue per arieta': `LossReport::record` ne prende due.",
+    "LossReport::record dentro i propri metodi": "in `plenora-io-core/src/loss.rs` la chiamata con ricevente `self` e' la primitiva stessa e la propagazione di `merge`, non un produttore di categorie."
+  }
+}
