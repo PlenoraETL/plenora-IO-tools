@@ -222,6 +222,8 @@
     "verificata_da": "le sonde di forma in `plenora-io-cli`, che pretendono esattamente sei chiavi e nessuna in piu'."
   },
   "sonde_che_lo_provano": [
+    "anche_gli_esempi_respinti_sono_limitati",
+    "anche_l_insieme_delle_respinte_e_limitato",
     "i_conteggi_pubblicati_restano_esatti",
     "i_tetti_dichiarati_sommano_al_tetto_della_busta",
     "il_budget_esaurito_e_una_causa_a_parte",
@@ -232,11 +234,13 @@
     "il_trattenimento_degli_esempi_sfratta_il_maggiore_e_lo_dichiara",
     "il_trattenimento_sfratta_la_maggiore_e_lo_dichiara",
     "il_v1_deduplica_sulla_chiave_vecchia_e_il_v2_sulla_canonica",
+    "l_ordine_canonico_e_una_relazione_e_non_solo_un_taglio",
     "la_forma_di_un_esempio_coincide_col_derive",
     "la_forma_scritta_a_mano_coincide_col_derive",
     "la_fusione_degli_esempi_e_componibile",
     "la_fusione_degli_esempi_non_supera_il_trattenimento",
     "la_fusione_non_supera_il_trattenimento",
+    "la_fusione_porta_con_se_le_respinte_e_le_limita",
     "la_sessantacinquesima_categoria_resta_fuori_ed_e_dichiarata",
     "la_sezione_v2_non_dipende_dall_ordine_di_inserimento",
     "la_stessa_ragione_offerta_molte_volte_e_una_sola_omissione",

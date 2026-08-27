@@ -1012,6 +1012,108 @@ mod sonde {
         }
     }
 
+    /// `n` ragioni distinte e **fuori misura**, per saturare le respinte.
+    fn ragioni_fuori_misura(quante: u64) -> Vec<FidelityReason> {
+        (0..quante)
+            .map(|i| {
+                FidelityReason::redatta(
+                    FidelityReasonCode::AttributeLoss,
+                    "x".repeat(MAX_BYTE_DETTAGLIO + 1),
+                    Posizione {
+                        layer_index: Some(0),
+                        field_index: Some(i),
+                        type_class: None,
+                    },
+                    "irrilevante",
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn anche_l_insieme_delle_respinte_e_limitato() {
+        // Le respinte non conservano la stringa che le ha fatte respingere, ma
+        // conservano una chiave: senza tetto, quella sarebbe una quota di
+        // memoria decisa da chi fornisce il file -- cioe' il difetto che tutto
+        // il lotto toglie, rientrato dalla porta di servizio.
+        let valutazione = valutazione_con(&ragioni_fuori_misura(
+            u64::try_from(MAX_RAGIONI_TRATTENUTE).unwrap() + 1,
+        ));
+        assert_eq!(valutazione.ragioni_trattenute(), 0);
+        assert_eq!(
+            valutazione.respinte_per_misura(),
+            MAX_RAGIONI_TRATTENUTE as u64,
+            "le respinte si fermano al proprio tetto"
+        );
+        assert!(!valutazione.omesse_esatte());
+    }
+
+    #[test]
+    fn anche_gli_esempi_respinti_sono_limitati() {
+        let quanti = u64::try_from(MAX_ESEMPI_TRATTENUTI).unwrap() + 1;
+        let fuori: Vec<_> = (0..quanti)
+            .map(|i| esempio(i, &"x".repeat(MAX_BYTE_DETTAGLIO + 1)))
+            .collect();
+        let rapporto = rapporto_con_esempi(&fuori);
+        assert_eq!(rapporto.esempi_trattenuti(), 0);
+        assert_eq!(rapporto.respinti_per_misura(), MAX_ESEMPI_TRATTENUTI as u64);
+        assert!(!rapporto.omesse_esatte());
+    }
+
+    #[test]
+    fn la_fusione_porta_con_se_le_respinte_e_le_limita() {
+        // Fondere due valutazioni che hanno **entrambe** respinto: le chiavi si
+        // uniscono, e l'unione resta sotto il proprio tetto. Se la fusione le
+        // perdesse, `omesse_per_byte` scenderebbe fondendo -- cioe' la
+        // diagnostica direbbe che si e' perso meno perche' si e' composto di
+        // piu'.
+        let meta = u64::try_from(MAX_RAGIONI_TRATTENUTE).unwrap();
+        let mut prima = valutazione_con(&ragioni_fuori_misura(meta));
+        let seconda = valutazione_con(
+            &ragioni_fuori_misura(meta * 2)
+                .into_iter()
+                .skip(usize::try_from(meta).unwrap())
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(prima.respinte_per_misura(), meta);
+        prima.merge(&seconda);
+        assert_eq!(
+            prima.respinte_per_misura(),
+            meta,
+            "l'unione delle respinte resta sotto il tetto"
+        );
+        assert!(!prima.omesse_esatte());
+
+        let mut rapporto = rapporto_con_esempi(
+            &(0..meta)
+                .map(|i| esempio(i, &"x".repeat(MAX_BYTE_DETTAGLIO + 1)))
+                .collect::<Vec<_>>(),
+        );
+        let altro = rapporto_con_esempi(
+            &(meta..meta * 2)
+                .map(|i| esempio(i, &"x".repeat(MAX_BYTE_DETTAGLIO + 1)))
+                .collect::<Vec<_>>(),
+        );
+        rapporto.merge(&altro);
+        assert_eq!(rapporto.respinti_per_misura(), meta);
+        assert!(!rapporto.omesse_esatte());
+    }
+
+    #[test]
+    fn l_ordine_canonico_e_una_relazione_e_non_solo_un_taglio() {
+        // `Ord` decide dove la sezione taglia, e `PartialOrd`/`PartialEq` sono
+        // la stessa relazione vista dagli operatori. Le collezioni usano
+        // `cmp`, quindi senza questa sonda gli altri due esisterebbero solo
+        // per soddisfare la gerarchia dei trait, mai eseguiti.
+        let ragioni = ragioni_distinte(2);
+        let (prima, seconda) = (&ragioni[0], &ragioni[1]);
+        assert!(prima < seconda, "l'indice di campo minore viene prima");
+        assert!(seconda > prima);
+        assert_eq!(prima.partial_cmp(seconda), Some(std::cmp::Ordering::Less));
+        assert_eq!(prima, &prima.clone());
+        assert_ne!(prima, seconda);
+    }
+
     #[test]
     fn il_trattenimento_sfratta_la_maggiore_e_lo_dichiara() {
         // La meccanica centrale del trattenimento, e fino a questa sonda
