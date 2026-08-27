@@ -1,0 +1,244 @@
+{
+  "manifest_version": 1,
+  "component": "plenora-IO-tools",
+  "protocol_version": 2,
+  "status": "in_qualifica",
+  "compatibility_scope": "cli_json_only",
+  "perche_una_versione_nuova": "il v1 e' congelato (`status: frozen_for_1_0`) e le sue regole dicono che cambiare il tipo o il significato di un campo obbligatorio richiede una versione nuova. Il v2 fa esattamente questo su `counts` e su `reasons[].detail`: il primo acquista un tetto e una forma diversa, il secondo perde gli identificatori che vengono dal file. Chiamarlo v1 con qualche correzione avrebbe prodotto un protocollo che si presenta come v1 e ne cambia il significato, cioe' la rottura che l'ICD esiste per impedire.",
+  "che_cosa_risolve": "nel v1 la cardinalita' e la dimensione della diagnostica le decide chi fornisce il file: `counts` non ha tetto, nessuna stringa ha un limite in byte, e `reasons[].detail` porta nomi di layer e di attributo piu' la forma `Debug` di tipi di una dipendenza -- che puo' cambiare sotto di noi senza che nessuno tocchi il protocollo.",
+  "rust_api": {
+    "status": "internal_unstable",
+    "semver_guarantee": false,
+    "crates_publish": false,
+    "reason": "invariato rispetto al v1: R15.4.1 prevede l'estrazione dei tipi di confine da plenora-io-model."
+  },
+  "selezione": {
+    "predefinito": "v2",
+    "v1_come": "--legacy-protocol-v1-unsafe",
+    "perche_quel_nome": "il nome dichiara che cosa si sta scegliendo. `--protocol 1` sarebbe stato piu' corto e avrebbe fatto sembrare le due versioni due opzioni pari: non lo sono.",
+    "avviso": "chi sceglie il v1 riceve su **stderr** un avviso che nomina i due difetti: identificatori controllati dal file e fino a 4096 chiavi. Su stdout non ci va niente, perche' il v1 e' congelato byte per byte e aggiungere un avviso al documento sarebbe cambiarlo.",
+    "gate_di_release": "usano il v2 e soltanto il v2. La qualifica cross-component riguarda il v2."
+  },
+  "limiti_della_diagnostica": {
+    "categorie_per_sezione": 64,
+    "byte_per_identificatore_di_categoria": 128,
+    "ragioni_per_sezione": 64,
+    "esempi_per_sezione": 64,
+    "byte_per_dettaglio_curato": 512,
+    "sezioni_con_budget_proprio": 5,
+    "byte_per_sezione": 12288,
+    "byte_per_la_struttura_aggregata": 4096,
+    "byte_totali": 65536,
+    "unita": "byte UTF-8 della serializzazione JSON **effettiva**, escaping e chiavi compresi. Misurare la lunghezza delle stringhe di partenza misurerebbe un'altra cosa: un dettaglio con virgolette o accenti occupa piu' byte di quanti caratteri abbia.",
+    "ripartizione": "fissa. Dodici KiB a ciascuna delle cinque sezioni -- `read_fidelity`, `write_fidelity`, `conversion_fidelity`, `read_loss`, `write_loss` -- e quattro KiB alla struttura aggregata e alle dichiarazioni.",
+    "niente_redistribuzione": "il budget non speso da una sezione **non** passa a un'altra. Con un consumo sequenziale una sezione grande affamerebbe quelle che la seguono, e la stessa sezione produrrebbe un output diverso a seconda di quanto ha occupato un'altra: una diagnostica che cambia per ragioni che non la riguardano non e' una diagnostica.",
+    "caso_peggiore_dichiarato": "sessantaquattro categorie da centoventotto byte occupano 11 510 byte serializzati su 12 288, cioe' entrano con 778 byte di margine. La prova `il_caso_peggiore_dichiarato_entra_nei_dodici_kib` lo misura sui byte JSON che escono davvero, non sulla somma delle lunghezze."
+  },
+  "ordine_dentro_una_sezione_di_perdita": [
+    "metadati di troncamento",
+    "counts, con i conteggi esatti",
+    "esempi, fino al budget residuo"
+  ],
+  "troncamento": {
+    "sempre_dichiarato": "nessuna voce esce in silenzio. Il campo `troncato` dice se qualcosa manca, e `omesse` dice **quanto** e **per quale delle quattro ragioni**.",
+    "quattro_cause_separate": {
+      "categorie_omesse": "categorie oltre il tetto di cardinalita'",
+      "ragioni_omesse": "ragioni oltre il tetto di cardinalita'",
+      "esempi_omessi": "esempi oltre il tetto di cardinalita'",
+      "omesse_per_byte": "voci lasciate fuori perche' il budget in byte della sezione si e' esaurito"
+    },
+    "perche_separate": "sono quattro modi diversi di restare fuori, e portano a decisioni diverse: «ci sono piu' di sessantaquattro categorie» e «lo spazio e' finito» non si somministrano allo stesso lettore nello stesso modo. Sommarle in un numero solo direbbe che qualcosa e' stato tolto senza dire che cosa.",
+    "i_conteggi_restano_esatti": "si omette una voce intera, mai si riscrive un conteggio. Un `12` al posto di `300` sarebbe un valore che significa due cose.",
+    "fallire_chiusi": "se nemmeno la struttura minima -- la sola dichiarazione di troncamento -- entra nel budget della sezione, la CLI **fallisce** invece di pubblicare una sezione senza dichiarazione. La sola cosa peggiore di una diagnostica troncata e' una troncata che tace."
+  },
+  "determinismo": {
+    "ordine_canonico": "la selezione e il taglio dipendono da un ordine canonico, non dall'ordine d'inserimento. Le categorie escono ordinate per identificatore; le ragioni per `(codice, dettaglio)`, dove l'ordine dei codici e' quello in cui sono dichiarati nell'enumerazione -- e quell'ordine e' contratto quanto i nomi.",
+    "perche": "l'ordine d'inserimento dipende da quali adattatori sono stati composti, cioe' da qualcosa che chi fornisce il file non controlla e chi lo legge non puo' prevedere. Due corse sullo stesso file devono tagliare nello stesso punto.",
+    "soglie_sui_byte": "le soglie sono sui byte UTF-8 e non spezzano un carattere: una voce entra intera o resta fuori intera."
+  },
+  "redazione": {
+    "stato": "decisa, non ancora implementata",
+    "perche_e_qui": "il manifesto e' `in_qualifica` e dichiara la regola prima del codice che la onora, ma lo dice: un manifesto che promette cio' che il codice non fa e' peggio di uno incompleto. Finche' questa voce dice «non ancora implementata», `detail` nel v2 porta ancora i nomi che il v1 portava.",
+    "regola": "nessun nome proveniente dal file compare in `detail` o negli esempi. Le posizioni si dichiarano con indici numerici -- `layer_index`, `field_index` -- e non con i nomi ne' con un loro hash: un hash e' ancora un identificatore controllato da chi fornisce il file, e correlarlo e' banale.",
+    "tipi_di_dipendenza": "il tipo di un attributo passa da un vocabolario **nostro** chiuso, mai dalla forma `Debug` di un tipo di dipendenza. Oggi quella forma e' sul filo in tutt'e due i protocolli, e un aggiornamento della dipendenza cambierebbe la busta senza che nessuno tocchi il protocollo.",
+    "autorita": "il codice strutturato e' autorevole. L'eventuale testo e' descrittivo e stabile, e non e' un campo su cui costruire un parser.",
+    "come_convivra_col_v1": "il v1 e' congelato e i suoi `detail` devono restare quelli che sono. L'identita' resta percio' **in memoria**, e soltanto l'adattatore v1 -- confinato in un modulo legacy -- puo' pubblicarla. E' lo stesso disegno della chiave dinamica di DXF."
+  },
+  "envelopes": {
+    "catalog": {
+      "contract": "plenora-io-catalog-v2",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "determinism",
+        "drivers"
+      ],
+      "optional_driver_fields": [
+        "available",
+        "hostile_input_hardened",
+        "required_feature",
+        "spec_version_supported"
+      ],
+      "current_producer": {
+        "required_driver_fields": [
+          "available",
+          "hostile_input_hardened",
+          "required_feature",
+          "spec_version_supported"
+        ]
+      },
+      "driver_field_semantics": {
+        "available": {
+          "type": "boolean",
+          "true_when": "runtime_probe_satisfies_descriptor"
+        },
+        "required_feature": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "filegdb": "gdal-backend",
+          "other_drivers": null
+        },
+        "hostile_input_hardened": {
+          "type": "boolean",
+          "true_when": "every_geometry_text_the_driver_parses_is_bounded_during_the_parse",
+          "false_means": "not_declared_not_unsafe",
+          "nota": "true dice che i tetti del bordo -- byte, componenti, profondita' -- si applicano mentre il testo viene consumato, non dopo che l'albero e' stato costruito. false non dice «insicuro»: dice che questa garanzia non e' dichiarata, e un driver binario ne ha altre che questo booleano non riassume.",
+          "verificata_da": "scripts/check_capability_input_ostile.py"
+        },
+        "spec_version_supported": {
+          "type": "string_or_null",
+          "value_when_declared": "the_highest_specification_version_the_driver_reads_in_full",
+          "null_means": "the_format_is_not_versioned_in_a_way_the_driver_can_declare",
+          "nota": "dice dove il supporto si ferma. Senza, un consumatore che vede un formato nel catalogo non ha modo di sapere se una versione successiva della sua specifica sarebbe letta: lo dedurrebbe, e si sbaglierebbe. Un driver che dichiara una versione rifiuta quelle oltre con un errore di funzionalita' **non supportata**, distinto da quello di metadati non conformi: il primo dice che il file va bene e noi no, il secondo che il file e' sbagliato, e mandare chi legge a correggere un file corretto e' il danno che la distinzione evita.",
+          "esempio": "geoparquet dichiara 1.1.0: legge 1.0.0 e 1.1.0, e 2.0 no.",
+          "verificata_da": "scripts/check_metadati_geoparquet.py"
+        }
+      },
+      "nota": "identica alla v1 salvo il nome del contratto: il catalogo non porta diagnostica di perdita, e i suoi campi restano quelli. Cambia soltanto perche' il protocollo e' uno e la versione la dichiarano tutte le buste allo stesso modo."
+    },
+    "inspect": {
+      "contract": "plenora-io-inspect-v2",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "format",
+        "fidelity",
+        "layers"
+      ]
+    },
+    "layers": {
+      "contract": "plenora-io-layers-v2",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "format",
+        "fidelity",
+        "layers"
+      ]
+    },
+    "read": {
+      "contract": "plenora-io-read-v2",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "format",
+        "fidelity",
+        "layer",
+        "rows_read",
+        "batches",
+        "truncated"
+      ]
+    },
+    "convert": {
+      "contract": "plenora-io-convert-v2",
+      "required_top_level": [
+        "status",
+        "protocol_version",
+        "contract",
+        "from",
+        "to",
+        "layers",
+        "total_rows",
+        "bytes_written",
+        "publish_outcome",
+        "read_fidelity",
+        "write_fidelity",
+        "conversion_fidelity",
+        "read_loss",
+        "write_loss"
+      ],
+      "forbidden_legacy_fields": [
+        "loss"
+      ]
+    }
+  },
+  "sezioni_diagnostiche": {
+    "fidelity": {
+      "campi": [
+        "level",
+        "reasons",
+        "troncato",
+        "omesse"
+      ],
+      "reasons": [
+        "code",
+        "detail"
+      ]
+    },
+    "loss": {
+      "campi": [
+        "lossless",
+        "counts",
+        "troncato",
+        "omesse"
+      ],
+      "counts": "un **elenco** di `{categoria, conteggio}`, non una mappa: l'elenco ha un ordine dichiarato e una lunghezza dichiarata, la mappa aveva l'uno e l'altra impliciti. E' il cambiamento di tipo che rende necessario il v2."
+    }
+  },
+  "busta_degli_errori": {
+    "stato": "invariata, `plenora-io-error-v1` su stderr",
+    "perche": "la busta degli errori non porta diagnostica di perdita e non e' cio' che questo lotto corregge; e' su stderr, mentre la garanzia byte-per-byte del v1 riguarda lo stdout JSON. Toccarla sarebbe un cambiamento di struttura che nessuno ha chiesto.",
+    "decisione_aperta_per_l_owner": "se il v2 debba portare con se' anche `plenora-io-error-v2`, per avere una versione sola su tutte le superfici, o se la busta degli errori resti una superficie a parte con un proprio ciclo. Qui e' lasciata come sta."
+  },
+  "compatibility_rules": {
+    "remove_or_rename_required_field": "requires_new_protocol_version",
+    "change_field_type_or_meaning": "requires_new_protocol_version",
+    "add_optional_field": "allowed_with_change_impact_record",
+    "extend_closed_enum": "requires_explicit_compatibility_review"
+  },
+  "qualifica": {
+    "locale": "il v2 si implementa e si qualifica in questo repository.",
+    "esterna": "l'accettazione del protocollo da parte di plenora-contracts/conformance resta nel bloccante `sistema.qualifica-cross-component`, che ha un owner esterno. Questo manifesto non la dichiara conclusa."
+  },
+  "change_impact": [
+    {
+      "field": "drivers[].hostile_input_hardened",
+      "kind": "add_optional_field",
+      "protocol_version": 1,
+      "lotto": "S12",
+      "data": "2026-08-25",
+      "impatto_sui_consumatori": "nessuna rottura: il campo si aggiunge, non sostituisce e non cambia significato ad altri. Un consumatore che non lo conosce lo ignora; uno che lo legge ottiene un'affermazione in piu'. La regola `add_optional_field` del contratto lo consente proprio a questa condizione, e questo record e' cio' che la regola chiede.",
+      "perche_ora": "il lotto S12 ha reso il parsing di WKT e GeoJSON limitato durante il parse. Una garanzia che resta dentro il nostro codice non e' verificabile da chi ci sta intorno: dichiararla nel catalogo e' il modo in cui la catena a tre componenti puo' controllarla senza leggere i nostri sorgenti.",
+      "chi_la_dichiara_oggi": [
+        "csv",
+        "geojson",
+        "xlsx"
+      ]
+    },
+    {
+      "field": "drivers[].spec_version_supported",
+      "kind": "add_optional_field",
+      "protocol_version": 1,
+      "lotto": "S10",
+      "data": "2026-08-26",
+      "impatto_sui_consumatori": "nessuna rottura: il campo si aggiunge, non sostituisce e non cambia significato ad altri. Un consumatore che non lo conosce lo ignora; uno che lo legge ottiene un'affermazione in piu' -- e ne ottiene una che prima doveva indovinare. La regola `add_optional_field` del contratto lo consente proprio a questa condizione, e questo record e' cio' che la regola chiede.",
+      "perche_ora": "il lotto S10 valida i metadati GeoParquet per intero e fissa il perimetro a 1.0.0 e 1.1.0. Un perimetro che il codice applica e il catalogo non dichiara e' un perimetro che il consumatore scopre quando un file gli viene rifiutato."
+    }
+  ]
+}

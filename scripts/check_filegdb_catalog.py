@@ -16,10 +16,14 @@ except ImportError:  # pragma: no cover - taken when run as scripts/<file>.py
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI_PROTOCOL_V1 = ROOT / "release" / "cli-protocol-v1.json"
+# Il manifesto del protocollo **predefinito**: il produttore del catalogo
+# emette il v2, e confrontarlo col v1 direbbe che ha cambiato forma quando a
+# cambiare e' stata la versione. Il v1 resta selezionabile, ma non e' cio'
+# che i gate di release verificano.
+CLI_PROTOCOL = ROOT / "release" / "cli-protocol-v2.json"
 
 
-def load_protocol(path: Path = CLI_PROTOCOL_V1) -> dict[str, Any]:
+def load_protocol(path: Path = CLI_PROTOCOL) -> dict[str, Any]:
     """Load the frozen v1 CLI protocol manifest the evidence is judged against."""
     document = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(document, dict):
@@ -99,9 +103,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
+    # Il nome del contratto viene dal manifesto, non ripetuto qui: un
+    # messaggio che nomina una versione diversa da quella verificata e' la
+    # seconda verita' che questo gate esiste per non creare.
+    contratto = protocol["envelopes"]["catalog"]["contract"]
     print(
         "FileGDB catalog evidence passed: the real CLI emitted a conforming "
-        "plenora-io-catalog-v1 current-producer envelope reporting boolean "
+        f"{contratto} current-producer envelope reporting boolean "
         f"available={str(expected_available).lower()} and "
         'required_feature="gdal-backend" for FileGDB.'
     )

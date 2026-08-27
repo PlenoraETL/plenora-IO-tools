@@ -13,8 +13,8 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
         self.protocol = load_protocol()
         self.catalog = {
             "status": "ok",
-            "protocol_version": 1,
-            "contract": "plenora-io-catalog-v1",
+            "protocol_version": 2,
+            "contract": "plenora-io-catalog-v2",
             "determinism": "byte_for_byte",
             "drivers": [
                 {
@@ -85,8 +85,11 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
     def test_rejects_envelope_identity_drift(self) -> None:
         for field, replacement in (
             ("status", "error"),
-            ("protocol_version", 2),
-            ("contract", "plenora-io-catalog-v2"),
+            # Valori **sbagliati** sotto il protocollo corrente: la sonda
+            # verifica il rifiuto, quindi devono restare diversi da quelli
+            # buoni. Erano 2 e `-v2` quando il corrente era il v1.
+            ("protocol_version", 3),
+            ("contract", "plenora-io-catalog-v3"),
             ("determinism", "best_effort"),
         ):
             with self.subTest(field=field):
@@ -119,8 +122,8 @@ class FileGdbCatalogEvidenceTests(unittest.TestCase):
         self.assertTrue(self.validate(catalog))
 
     def test_rejects_non_object_root_and_non_array_drivers(self) -> None:
-        self.assertTrue(self.validate(["plenora-io-catalog-v1"]))
-        self.assertTrue(self.validate("plenora-io-catalog-v1"))
+        self.assertTrue(self.validate(["plenora-io-catalog-v2"]))
+        self.assertTrue(self.validate("plenora-io-catalog-v2"))
 
         catalog = copy.deepcopy(self.catalog)
         catalog["drivers"] = {"filegdb": {"available": True}}

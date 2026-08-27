@@ -28,7 +28,13 @@ pub struct LossExample {
     pub context: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// I codici con cui una valutazione di fedelta' motiva il proprio livello.
+///
+/// `Ord` non e' decorativo: e' **l'ordine canonico** con cui le ragioni escono
+/// nella busta, e coincide con l'ordine in cui i codici sono dichiarati qui.
+/// Riordinare le varianti cambierebbe l'uscita di file che non sono cambiati,
+/// quindi l'ordine di dichiarazione e' contratto quanto i nomi.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FidelityReasonCode {
     AssessmentPending,
