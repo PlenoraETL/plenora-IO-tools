@@ -1013,6 +1013,88 @@ mod sonde {
     }
 
     #[test]
+    fn il_trattenimento_sfratta_la_maggiore_e_lo_dichiara() {
+        // La meccanica centrale del trattenimento, e fino a questa sonda
+        // nessuna la eseguiva: le altre si fermano al tetto, e lo sfratto parte
+        // alla voce successiva. «Sfrattare la maggiore» invece di «rifiutare le
+        // successive» e' cio' che rende il contenuto indipendente dall'ordine
+        // di inserimento, quindi e' la proprieta' che merita di essere provata.
+        let distinte = u64::try_from(MAX_RAGIONI_TRATTENUTE).unwrap() + 1;
+        let tutte = ragioni_distinte(distinte);
+        let avanti = valutazione_con(&tutte);
+        let indietro = valutazione_con(&tutte.iter().rev().cloned().collect::<Vec<_>>());
+
+        assert_eq!(avanti.ragioni_trattenute(), MAX_RAGIONI_TRATTENUTE);
+        assert!(
+            !avanti.omesse_esatte(),
+            "un trattenimento saturo rende i contatori limiti inferiori"
+        );
+
+        // La sfrattata e' la **maggiore**, non l'ultima arrivata: le due
+        // valutazioni trattengono lo stesso insieme pur avendo ricevuto le
+        // voci in ordine opposto.
+        let a: Vec<_> = avanti.ragioni_canoniche().collect();
+        let b: Vec<_> = indietro.ragioni_canoniche().collect();
+        assert_eq!(a, b, "lo sfratto non deve dipendere dall'ordine di arrivo");
+        let ultima = tutte.last().expect("almeno una");
+        assert!(
+            !a.contains(&ultima),
+            "la maggiore per chiave canonica deve essere quella sfrattata"
+        );
+
+        let (sezione, _) = sezione_di_fedelta(&avanti, BYTE_PER_SEZIONE).expect("budget");
+        assert_eq!(sezione["omesse_esatte"], json!(false));
+    }
+
+    #[test]
+    fn il_trattenimento_degli_esempi_sfratta_il_maggiore_e_lo_dichiara() {
+        let quanti = u64::try_from(MAX_ESEMPI_TRATTENUTI).unwrap() + 1;
+        let tutti: Vec<_> = (0..quanti)
+            .map(|i| esempio(i, "il tipo dell'attributo richiede una coercizione"))
+            .collect();
+        let rapporto = rapporto_con_esempi(&tutti);
+        assert_eq!(rapporto.esempi_trattenuti(), MAX_ESEMPI_TRATTENUTI);
+        assert!(!rapporto.omesse_esatte());
+
+        let (sezione, troncamento) =
+            sezione_di_perdita(&rapporto, BYTE_PER_SEZIONE).expect("budget");
+        assert_eq!(sezione["omesse_esatte"], json!(false));
+        assert_eq!(
+            troncamento.esempi_omessi,
+            (MAX_ESEMPI_TRATTENUTI - MAX_LOSS_EXAMPLES) as u64
+        );
+    }
+
+    #[test]
+    fn la_fusione_non_supera_il_trattenimento() {
+        // `merge` puo' portare l'insieme oltre il tetto, e li' lo sfratto deve
+        // valere come alla porta: due meta' ciascuna sotto il tetto sommano a
+        // qualcosa che lo supera.
+        let meta = u64::try_from(MAX_RAGIONI_TRATTENUTE).unwrap();
+        let prima = valutazione_con(&ragioni_distinte(meta));
+        let seconda = valutazione_con(
+            &(meta..meta * 2)
+                .map(|i| ragioni_distinte(i + 1)[usize::try_from(i).unwrap()].clone())
+                .collect::<Vec<_>>(),
+        );
+        let mut fusa = prima;
+        fusa.merge(&seconda);
+        assert_eq!(fusa.ragioni_trattenute(), MAX_RAGIONI_TRATTENUTE);
+        assert!(!fusa.omesse_esatte());
+    }
+
+    #[test]
+    fn la_fusione_degli_esempi_non_supera_il_trattenimento() {
+        let meta = u64::try_from(MAX_ESEMPI_TRATTENUTI).unwrap();
+        let prima: Vec<_> = (0..meta).map(|i| esempio(i, "primo")).collect();
+        let seconda: Vec<_> = (meta..meta * 2).map(|i| esempio(i, "secondo")).collect();
+        let mut fuso = rapporto_con_esempi(&prima);
+        fuso.merge(&rapporto_con_esempi(&seconda));
+        assert_eq!(fuso.esempi_trattenuti(), MAX_ESEMPI_TRATTENUTI);
+        assert!(!fuso.omesse_esatte());
+    }
+
+    #[test]
     fn la_stessa_ragione_offerta_molte_volte_e_una_sola_omissione() {
         // Le offerte duplicate sono **deduplicate**, non occorrenze: una
         // ragione e' un fatto, e le occorrenze hanno la loro sede in `counts`.
