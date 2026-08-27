@@ -32,6 +32,7 @@ MANIFESTO_SANO = {
     "compatibility_scope": "cli_json_only",
     "limiti_della_diagnostica": dict(LIMITI_SANI),
     "sonde_che_lo_provano": sorted(SONDE_SANE),
+    "sonde_della_redazione": [],
 }
 
 
@@ -206,6 +207,32 @@ class UnaCostanteDefinitaDueVolte(unittest.TestCase):
 
     def test_i_sorgenti_reali_non_ne_hanno(self):
         gate.costanti()  # non solleva: nessuna costante del budget e' doppia
+
+
+class LeSondeDellaRedazione(unittest.TestCase):
+    def test_una_dichiarata_e_inesistente_e_rossa(self):
+        manifesto = copy.deepcopy(MANIFESTO_SANO)
+        manifesto["sonde_della_redazione"] = ["una_sonda_della_redazione_mai_scritta"]
+        errori = esito(manifesto)
+        self.assertTrue(
+            any("una_sonda_della_redazione_mai_scritta" in e for e in errori), errori
+        )
+
+    def test_un_elenco_assente_o_malformato_e_rosso(self):
+        for valore in (None, "una_sonda", ["una_sonda", 7], {}):
+            manifesto = copy.deepcopy(MANIFESTO_SANO)
+            manifesto["sonde_della_redazione"] = valore
+            self.assertTrue(
+                any("sonde_della_redazione" in e for e in esito(manifesto)),
+                f"{valore!r} doveva essere rosso",
+            )
+
+    def test_quelle_reali_esistono_davvero(self):
+        # Il verso che il gate pretende, verificato sul repository: se una
+        # sparisse, la redazione resterebbe dichiarata e non piu' provata.
+        nel_driver = set(gate.SONDA.findall(gate.DRIVER.read_text(encoding="utf-8")))
+        for nome in gate.contratto()["sonde_della_redazione"]:
+            self.assertIn(nome, nel_driver)
 
 
 class IlValoreDiUnaCostante(unittest.TestCase):

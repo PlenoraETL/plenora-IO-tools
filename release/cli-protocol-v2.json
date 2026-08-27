@@ -235,6 +235,11 @@
     "una_sezione_di_fedelta_senza_spazio_fallisce_chiusa",
     "una_voce_fuori_misura_non_sfratta_una_voce_valida"
   ],
+  "sonde_della_redazione": [
+    "i_nomi_del_file_restano_nel_v1_e_spariscono_dal_v2",
+    "la_fusione_non_perde_la_frase_congelata"
+  ],
+  "sonde_della_redazione_nota": "stanno in `plenora-io-core/src/driver.rs`, dove vivono i quattro siti che portavano nomi presi dal file. Il gate ne pretende l'esistenza e **non** l'esaustivita': quel file ha decine di sonde che col protocollo non c'entrano, e promettere i due versi su un perimetro che non delimita direbbe piu' di quanto si guarda. La prima usa nomi canary con accenti e apostrofo -- l'apostrofo perche' e' il carattere che le frasi congelate mettono fra virgolette -- e pretende che nessuno compaia in cio' che il v2 trattiene; la seconda che la fusione non butti via la frase congelata, che e' cio' che `add_reason(code, detail)` faceva.",
   "sonde_che_lo_provano_nota": "l'elenco e' **esaustivo** e il gate lo verifica nei due versi: ogni nome deve esistere in `busta.rs`, e ogni sonda di `busta.rs` deve essere nominata qui. Una sonda che il contratto non cita si puo' cancellare senza che il checkpoint se ne accorga; una che il contratto cita e non esiste e' una prova promessa e mai eseguita, che si legge come verificata. Cio' che le sonde provano e' il comportamento descritto qui sopra -- limiti, ordine, troncamento, determinismo -- non la coerenza fra questo manifesto e il codice, che e' cio' che il gate stesso confronta.",
   "compatibility_rules": {
     "remove_or_rename_required_field": "requires_new_protocol_version",

@@ -32,7 +32,7 @@ use crate::descriptor::{
     ArrowTypeClass, AttributeWriteSupport, CrsRepresentationState, FormatDescriptor,
     GeometryWriteSupport, NullabilitySupport, TypeCoercionPolicy,
 };
-use crate::loss::{FidelityAssessment, FidelityReasonCode, LossExample, LossReport};
+use crate::loss::{FidelityAssessment, FidelityReasonCode, LossExample, LossReport, Posizione};
 #[cfg(test)]
 use crate::request::BatchTarget;
 use crate::request::{incremental_batch_memory_size, ReadRequest, WritePlan};
@@ -1087,17 +1087,37 @@ fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> Fid
         return assessment;
     };
 
-    for layer in &plan.layers {
+    // I quattro siti che portavano nomi presi dal file. Ciascuno emette ora due
+    // cose: un testo **curato** con la posizione strutturata, che e' cio' che il
+    // v2 pubblica, e la frase congelata alla lettera, che e' cio' che il v1
+    // continua a pubblicare. Non si ricostruisce: si conserva, cosi' il
+    // congelamento del v1 e' una tautologia invece di un invariante da
+    // difendere a ogni ritocco di un `format!`.
+    //
+    // `field_index` e' l'indice in `schema.fields()` e conta **anche** la
+    // colonna geometrica: quella e' la sequenza che questo ciclo attraversa, e
+    // un indice che ne saltasse un elemento non sarebbe l'indice di questa
+    // sequenza. Il ramo la salta come *ragione*, non come *posizione*.
+    for (indice_layer, layer) in plan.layers.iter().enumerate() {
+        let layer_index = Some(saturating_u64(indice_layer));
         let geometry_name = layer
             .contract
             .geometry
             .as_ref()
             .map(|geometry| geometry.name.as_str());
-        for field in layer.contract.schema.fields() {
+        for (indice_campo, field) in layer.contract.schema.fields().iter().enumerate() {
+            let field_index = Some(saturating_u64(indice_campo));
+            let dove = Posizione {
+                layer_index,
+                field_index,
+                type_class: None,
+            };
             let is_geometry = geometry_name == Some(field.name().as_str());
             if !is_geometry && capabilities.attributes == AttributeWriteSupport::LossReported {
-                assessment.add_reason(
+                assessment.add_reason_redatta(
                     FidelityReasonCode::AttributeLoss,
+                    "l'attributo non e' nativo del formato, o e' dichiarato come perdita",
+                    dove,
                     format!(
                         "{}: attributo '{}' non nativo o loss-reported",
                         layer.name,
@@ -1105,13 +1125,21 @@ fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> Fid
                     ),
                 );
             }
-            if !capabilities
-                .allowed_types
-                .contains(&crate::capabilities::arrow_type_class(field.data_type()))
+            let classe = crate::capabilities::arrow_type_class(field.data_type());
+            if !capabilities.allowed_types.contains(&classe)
                 && capabilities.type_coercion == TypeCoercionPolicy::LossReported
             {
-                assessment.add_reason(
+                assessment.add_reason_redatta(
                     FidelityReasonCode::TypeCoercion,
+                    "il tipo dell'attributo richiede una coercizione",
+                    Posizione {
+                        // La **classe**, non la forma `Debug` del tipo di
+                        // `arrow`: quella e' di una dipendenza, e un suo
+                        // aggiornamento cambierebbe la busta senza che nessuno
+                        // tocchi il protocollo.
+                        type_class: Some(classe),
+                        ..dove
+                    },
                     format!(
                         "{}: tipo {:?} di '{}' richiede coercion",
                         layer.name,
@@ -1122,8 +1150,10 @@ fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> Fid
             }
             if field.is_nullable() && capabilities.nullability == NullabilitySupport::FormatDefined
             {
-                assessment.add_reason(
+                assessment.add_reason_redatta(
                     FidelityReasonCode::NullabilityChanged,
+                    "la nullability dell'attributo la definisce il formato",
+                    dove,
                     format!(
                         "{}: nullability di '{}' definita dal formato",
                         layer.name,
@@ -1146,8 +1176,14 @@ fn assess_write_contract(descriptor: &FormatDescriptor, plan: &WritePlan) -> Fid
                 })
             })
         {
-            assessment.add_reason(
+            assessment.add_reason_redatta(
                 FidelityReasonCode::StructureChanged,
+                "le geometrie multipart sono esplose in entita' singole",
+                Posizione {
+                    layer_index,
+                    field_index: None,
+                    type_class: None,
+                },
                 format!("{}: geometrie multipart esplose in entità DXF", layer.name),
             );
         }
@@ -3051,6 +3087,192 @@ mod tests {
             metadata.insert(PLENORA_DIMENSIONS_KEY.to_owned(), dimensions.to_owned());
         }
         Field::new(name, DataType::Binary, true).with_metadata(metadata)
+    }
+
+    /// Un descrittore che dichiara perdita su tutt'e tre gli assi, cosi' che i
+    /// tre rami redatti di `assess_write_contract` si accendano tutti.
+    fn descrittore_che_dichiara_perdite() -> crate::descriptor::FormatDescriptor {
+        crate::descriptor::FormatDescriptor::const_new(
+            "prova-con-perdite",
+            crate::descriptor::Direction::Bidirectional,
+            crate::descriptor::ReadMode::StreamingSequential,
+            crate::descriptor::NativeReadMode::StreamingSequential,
+            crate::descriptor::DeliverySemantics::OperationAtomic,
+            crate::descriptor::BufferingStrategy::AdaptiveMemoryThenDisk,
+            crate::descriptor::DeterminismLevel::Semantic,
+            Some(crate::descriptor::WriteMode::Streaming),
+            Some(crate::descriptor::DeterminismLevel::Semantic),
+            false,
+            false,
+            crate::descriptor::ReaderConcurrency::SingleActiveReader,
+            crate::descriptor::ProjectionSupport::None,
+            crate::descriptor::PredicatePruningSupport::None,
+            crate::descriptor::SpatialPruningSupport::None,
+            crate::descriptor::CrsHandling::Embedded,
+            crate::descriptor::Fidelity::Conditional,
+            crate::descriptor::Runtime::PureRust,
+            false,
+            None,
+            Some(crate::descriptor::FormatWriteCapabilities {
+                field_names: crate::descriptor::DBF_FIELD_NAMES,
+                // Nessun tipo ammesso: cosi' il ramo della coercizione si
+                // accende su ogni attributo invece che su alcuni.
+                allowed_types: &[],
+                type_coercion: crate::descriptor::TypeCoercionPolicy::LossReported,
+                attributes: crate::descriptor::AttributeWriteSupport::LossReported,
+                geometry: WKB_XY_GEOMETRY,
+                crs: crate::descriptor::CrsWriteSupport::Embedded,
+                crs_representations: crate::descriptor::CrsRepresentationCapabilities::new(
+                    crate::descriptor::CrsRepresentationState::Preserved,
+                    crate::descriptor::CrsRepresentationState::Preserved,
+                    crate::descriptor::CrsRepresentationState::Preserved,
+                ),
+                nullability: crate::descriptor::NullabilitySupport::FormatDefined,
+                multi_layer: true,
+            }),
+            plenora_io_model::format_options::SchemaOpzioniFormato::VUOTO,
+            1,
+            1,
+            1,
+        )
+    }
+
+    /// Due layer, due attributi ciascuno, con nomi che nessun testo curato
+    /// potrebbe contenere per caso.
+    fn piano_con_nomi_canary() -> WritePlan {
+        let campi = || {
+            vec![
+                Field::new("CANARY_CAMPO_àèì'\"uno", DataType::Int64, true),
+                Field::new("CANARY_CAMPO_àèì'\"due", DataType::Utf8, true),
+            ]
+        };
+        WritePlan {
+            layers: vec![
+                crate::request::WriteLayer {
+                    name: "CANARY_LAYER_àèì'\"alfa".to_owned(),
+                    contract: plenora_io_model::contract::DataContract {
+                        schema: Arc::new(Schema::new(campi())),
+                        geometry: None,
+                    },
+                },
+                crate::request::WriteLayer {
+                    name: "CANARY_LAYER_àèì'\"beta".to_owned(),
+                    contract: plenora_io_model::contract::DataContract {
+                        schema: Arc::new(Schema::new(campi())),
+                        geometry: None,
+                    },
+                },
+            ],
+        }
+    }
+
+    /// I nomi presi dal file restano nel v1 e spariscono dal v2.
+    ///
+    /// I nomi della fixture sono canary con accenti e apostrofo -- l'apostrofo
+    /// perche' e' il carattere che le frasi congelate mettono fra virgolette --
+    /// e la sonda pretende che **nessuno** compaia in cio' che il v2 trattiene,
+    /// nemmeno dentro una stringa piu' lunga.
+    #[test]
+    fn i_nomi_del_file_restano_nel_v1_e_spariscono_dal_v2() {
+        let valutazione = assess_write_contract(
+            &descrittore_che_dichiara_perdite(),
+            &piano_con_nomi_canary(),
+        );
+
+        // Il v1 li porta, alla lettera e non ricostruiti: sono i dettagli
+        // dinamici, non un esempio statico.
+        let v1: Vec<&str> = valutazione
+            .ragioni_v1()
+            .iter()
+            .map(crate::loss::FidelityReason::detail_v1)
+            .collect();
+        assert!(!v1.is_empty(), "la fixture deve produrre ragioni");
+        assert!(
+            v1.iter().any(|d| d.contains("CANARY_LAYER_àèì'\"alfa")),
+            "il v1 deve conservare il nome del layer: {v1:?}"
+        );
+        assert!(
+            v1.iter().any(|d| d.contains("CANARY_CAMPO_àèì'\"due")),
+            "il v1 deve conservare il nome dell'attributo: {v1:?}"
+        );
+
+        // Il v2 non li porta, e porta invece gli indici.
+        //
+        // La posizione si pretende sui **quattro codici redatti**, non su ogni
+        // ragione: `for_format` ne aggiunge una di livello formato, che una
+        // posizione non ce l'ha e non deve averla -- non parla di un layer ne'
+        // di un campo. Pretenderla anche li' verificherebbe una cosa falsa.
+        let mut con_indice_di_campo = 0_usize;
+        for ragione in valutazione.ragioni_canoniche() {
+            assert!(
+                !ragione.detail.contains("CANARY"),
+                "un nome del file e' rimasto nel testo curato: {}",
+                ragione.detail
+            );
+            let redatta = matches!(
+                ragione.code,
+                FidelityReasonCode::AttributeLoss
+                    | FidelityReasonCode::TypeCoercion
+                    | FidelityReasonCode::NullabilityChanged
+                    | FidelityReasonCode::StructureChanged
+            );
+            if redatta {
+                assert!(
+                    ragione.posizione.layer_index.is_some(),
+                    "una ragione redatta senza layer_index non dice dove: {ragione:?}"
+                );
+                if ragione.posizione.field_index.is_some() {
+                    con_indice_di_campo += 1;
+                }
+            }
+        }
+        assert!(
+            con_indice_di_campo >= 2,
+            "gli indici di campo devono distinguere cio' che i nomi distinguevano"
+        );
+
+        // E i due layer restano distinti: se la redazione li appiattisse,
+        // la deduplicazione canonica li fonderebbe in uno.
+        let layer_visti: std::collections::BTreeSet<_> = valutazione
+            .ragioni_canoniche()
+            .filter_map(|r| r.posizione.layer_index)
+            .collect();
+        assert_eq!(
+            layer_visti,
+            [0, 1].into_iter().collect(),
+            "i due layer devono restare distinti dopo la redazione"
+        );
+    }
+
+    /// La fusione conserva l'identita' legacy, che `add_reason(code, detail)`
+    /// avrebbe buttato via facendo cambiare byte alla sezione v1.
+    #[test]
+    fn la_fusione_non_perde_la_frase_congelata() {
+        let letta = assess_write_contract(
+            &descrittore_che_dichiara_perdite(),
+            &piano_con_nomi_canary(),
+        );
+        let mut fusa = FidelityAssessment::con_livello(crate::descriptor::Fidelity::Approximating);
+        fusa.merge(&letta);
+
+        let prima: Vec<&str> = letta
+            .ragioni_v1()
+            .iter()
+            .map(crate::loss::FidelityReason::detail_v1)
+            .collect();
+        let dopo: Vec<&str> = fusa
+            .ragioni_v1()
+            .iter()
+            .map(crate::loss::FidelityReason::detail_v1)
+            .collect();
+        assert_eq!(prima, dopo, "la fusione deve conservare le frasi del v1");
+
+        let posizioni_prima: Vec<_> = letta.ragioni_canoniche().map(|r| r.posizione).collect();
+        let posizioni_dopo: Vec<_> = fusa.ragioni_canoniche().map(|r| r.posizione).collect();
+        assert_eq!(
+            posizioni_prima, posizioni_dopo,
+            "la fusione deve conservare le posizioni del v2"
+        );
     }
 
     fn legacy_plan(fields: Vec<Field>) -> WritePlan {

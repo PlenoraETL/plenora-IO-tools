@@ -59,6 +59,7 @@ CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
 BUSTA = ROOT / "crates" / "plenora-io-cli" / "src" / "busta.rs"
 LOSS = ROOT / "crates" / "plenora-io-core" / "src" / "loss.rs"
 REGISTRO_CATEGORIE = ROOT / "assurance" / "registries" / "categorie-di-perdita.json"
+DRIVER = ROOT / "crates" / "plenora-io-core" / "src" / "driver.rs"
 
 #: Il numero dichiarato nel contratto, e la costante che lo produce.
 #:
@@ -289,6 +290,34 @@ def verifica(
             "promessa e mai eseguita vale meno di una non promessa: la prima si legge "
             "come verificata."
         )
+    # Le sonde della redazione stanno in `driver.rs`, dove i quattro siti
+    # redatti vivono, e li' l'esaustivita' non si puo' pretendere: quel file ha
+    # decine di sonde che col protocollo non c'entrano. Qui il verso e' **uno
+    # solo** -- ogni nome dichiarato deve esistere -- ed e' dichiarato tale,
+    # perche' un gate che promettesse i due versi su un perimetro che non
+    # delimita direbbe piu' di quanto guarda.
+    della_redazione = manifesto.get("sonde_della_redazione")
+    if not isinstance(della_redazione, list) or not all(
+        isinstance(s, str) for s in della_redazione
+    ):
+        errori.append(
+            "cli-protocol-v2: `sonde_della_redazione` assente o non un elenco di nomi."
+        )
+    else:
+        try:
+            nel_driver = set(SONDA.findall(DRIVER.read_text(encoding="utf-8")))
+        except OSError as errore:
+            errori.append(f"sonde della redazione illeggibili: {errore}")
+            nel_driver = None
+        if nel_driver is not None:
+            assenti = sorted(set(della_redazione) - nel_driver)
+            if assenti:
+                errori.append(
+                    f"sonde della redazione dichiarate e inesistenti: {assenti}. "
+                    "Sono le prove che i nomi presi dal file restano nel v1 e spariscono "
+                    "dal v2: promesse e assenti, la redazione si leggerebbe come verificata."
+                )
+
     mute = sorted(esistenti - set(dichiarate))
     if mute:
         errori.append(
@@ -313,7 +342,8 @@ def main() -> int:
         f"protocollo v2 verificato: {len(MAPPATURA)} limiti dichiarati dal manifesto e "
         f"applicati dal codice, nessuna costante del budget taciuta; "
         f"{len(contratto()['sonde_che_lo_provano'])} sonde nominate dal contratto, "
-        "tutte presenti e nessuna in piu'."
+        f"tutte presenti e nessuna in piu'; "
+        f"{len(contratto()['sonde_della_redazione'])} sonde della redazione, tutte presenti."
     )
     return 0
 
