@@ -1881,14 +1881,20 @@ class SondeEvidenzaCoerente(unittest.TestCase):
                 self.assertIn(risolta[:7], guasto)
 
     def test_l_elenco_reale_copre_il_manifest(self) -> None:
-        """La controprova positiva, sui numeri di questa corsa."""
+        """La controprova positiva, sui numeri della corsa **corrente**.
+
+        I due numeri sono scritti a mano di proposito: se venissero dall'evidenza
+        stessa la sonda direbbe che un file e' uguale a se' stesso. Cambiano a
+        ogni corsa che aggiunge o toglie un passo, e cambiarli e' il modo in cui
+        chi rilegge l'evidenza si accorge di quanti passi ha misurato.
+        """
         evidenza = self.evidenza()
         passi, errori = gate._passi_dichiarati(evidenza)
         self.assertEqual(errori, [], errori)
-        self.assertEqual(len(passi), 67)
+        self.assertEqual(len(passi), 73)
         self.assertEqual(gate._manifest_legato_ai_passi(evidenza, passi), [])
         con_log = {v["log"] for v in passi if v["log"]}
-        self.assertEqual(len(con_log), 65)
+        self.assertEqual(len(con_log), 71)
         self.assertEqual(
             set(evidenza["artefatti"]["manifest"]),
             con_log | set(gate.ARTEFATTI_NON_DI_PASSO),

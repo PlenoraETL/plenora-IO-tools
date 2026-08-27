@@ -8,22 +8,22 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "973080c",
+      "sha": "eb6acf2",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "973080c",
+    "sha": "eb6acf2",
     "checkpoint": {
-      "passi_eseguiti": 67,
-      "passi_verdi": 67,
+      "passi_eseguiti": 73,
+      "passi_verdi": 73,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "67 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dalle righe stampate e non accettato dal rapporto dello strumento"
+      "riconciliazione": "73 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento"
     },
     "fuzz": {
-      "replay_input": 56461,
+      "replay_input": 58998,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 87.4,
-      "lcov_righe_coperte": 33869,
-      "lcov_righe_strumentate": 38750,
-      "cargo_lines_percentuale": 85.68,
+      "lcov_percentuale": 87.55,
+      "lcov_righe_coperte": 34263,
+      "lcov_righe_strumentate": 39135,
+      "cargo_lines_percentuale": 85.81,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 38 750 righe, 745 piu' della corsa su f3c1507: sono la riconciliazione del metadato con lo schema fisico, i due cancelli in scrittura, la bitmap del covering e le diciassette sonde che li esercitano. La soglia resta 80%.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "a0fa639",
-      "esito": "95.54%",
-      "righe_cambiate_eseguibili": 2666,
-      "coperte": 2547,
-      "scoperte": 119,
-      "cambiate_non_eseguibili": 2055,
-      "ragione": "95,54% delle 2666 righe cambiate ed eseguibili. La diagnostica ha di nuovo fatto il suo mestiere: sulla prima corsa di questo giro indicava scoperte due righe della riconciliazione -- lo spigolo che non e' una colonna di valori e gli spigoli di precisione diversa -- e la seconda e' un requisito che la specifica pretende e che il lotto dichiarava di verificare. Erano raggiungibili e non provate, e ora hanno una sonda ciascuna.",
-      "che_cosa_sono_le_scoperte": "le 119 sono attribuite una per una nell'evidenza. Sessantuno non sono codice di produzione: stanno dentro `mod tests` o `mod sonde`. Le cinquantotto di produzione si dividono in quattro gruppi che non hanno la stessa natura, e i quattro conteggi sommano cinquantotto."
+      "baseline": "a6110ea",
+      "esito": "98.31%",
+      "righe_cambiate_eseguibili": 473,
+      "coperte": 465,
+      "scoperte": 8,
+      "cambiate_non_eseguibili": 405,
+      "ragione": "98,31% delle 473 righe cambiate ed eseguibili. La diagnostica ha fatto il suo mestiere due volte in questo lotto, su corse che il checkpoint aveva gia' dichiarato superate: ha mostrato che i rami di sfratto del trattenimento e quelli degli insiemi delle respinte non erano esercitati da nessuna sonda. Sono nove sonde nuove, e sono la ragione per cui questa corsa e' la terza.",
+      "che_cosa_sono_le_scoperte": "otto righe, tutte della stessa natura: sono i **messaggi di asserzione** delle sonde della redazione. Vengono valutati solo quando l'asserzione fallisce, cioe' mai su una corsa verde. Non sono codice di produzione e non sono un ramo non provato: sono il testo che la sonda stamperebbe se il codice regredisse."
     },
-    "evidenza": "assurance/evidence/checkpoint-973080c.json"
+    "evidenza": "assurance/evidence/checkpoint-eb6acf2.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "973080c"
+      "qualificato_su": "eb6acf2"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",

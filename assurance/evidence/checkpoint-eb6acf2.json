@@ -1,0 +1,534 @@
+{
+  "schema_version": 1,
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione eb6acf2, che chiude il lotto `wire.loss-report`.",
+  "esito": "S9 checkpoint level 2 passed",
+  "non_significa": "non autorizza una release e non promuove la readiness di alcun componente ne' del sistema. Restano tre bloccanti: il debito di copertura negativa, la candidate che non qualifica HEAD, e la qualifica cross-component, che ha un owner esterno.",
+  "corsa": {
+    "revisione_iniziale": "eb6acf2d97d9990ee102737083f59cb9de36c3e0",
+    "revisione_finale": "eb6acf2d97d9990ee102737083f59cb9de36c3e0",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "nota": "revisione e impronta finali sono **rilette** a fine corsa, non ristampate da quelle iniziali: un passo che scrivesse nell'albero che sta qualificando lo renderebbe un altro albero, e il confronto lo direbbe.",
+    "albero_all_avvio": "pulito, 0 file non committati",
+    "base_diagnostica": "a6110ea",
+    "perche_questa_base": "e' l'ultimo commit prima del lotto della redazione: la diagnostica differenziale misura le righe che **questo** lotto ha cambiato, non quelle del ramo intero.",
+    "registro_dei_passi": "il registro contro cui questa evidenza si verifica e' `assurance/registries/passi-del-checkpoint.json`, che dichiara settantatre passi.",
+    "corse_precedenti": "due, entrambe **superate** con 73/73, su `e24a61e` e `7157981`. Sono state scartate non per un rosso ma per cio' che la diagnostica differenziale ha mostrato: la prima lasciava scoperti i sedici rami di sfratto del trattenimento, la seconda i dodici degli insiemi delle respinte. Un checkpoint verde dice che i passi passano, non che il codice nuovo sia esercitato.",
+    "nota_impronta": "sotto lo schema `impronta-albero-v1` un albero pulito da' sempre la stessa impronta a parita' di contenuto: e' del **contenuto** che parla, non della revisione, ed e' per questo che coincide con quella di corse precedenti su alberi diversi solo per la storia."
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 73,
+    "eseguiti": 73,
+    "verdi": 73,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i conteggi sono ricostruiti dall'elenco dei passi che la corsa ha registrato, non accettati dal sommario dello strumento: un totale che si crede sulla parola non e' una riconciliazione.",
+    "insieme_dichiarato": "le identita' sono **esattamente** quelle del registro; la corsa fallisce chiusa se divergono, e la verifica non e' uno dei passi contati -- la domanda «li ho eseguiti tutti?» non puo' essere uno degli elementi contati.",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_categorie_di_perdita",
+        "esito": "verde",
+        "log": "sonde_categorie_di_perdita.log"
+      },
+      {
+        "id": "check_categorie_di_perdita",
+        "esito": "verde",
+        "log": "check_categorie_di_perdita.log"
+      },
+      {
+        "id": "sonde_protocollo_v2",
+        "esito": "verde",
+        "log": "sonde_protocollo_v2.log"
+      },
+      {
+        "id": "check_protocollo_v2",
+        "esito": "verde",
+        "log": "check_protocollo_v2.log"
+      },
+      {
+        "id": "sonde_confine_v1",
+        "esito": "verde",
+        "log": "sonde_confine_v1.log"
+      },
+      {
+        "id": "check_confine_v1",
+        "esito": "verde",
+        "log": "check_confine_v1.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 58998,
+      "target": 15,
+      "target_totali": 15,
+      "crash": 0
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "target_totali": 15,
+      "finding": 0,
+      "quarantena": 0
+    },
+    "copertura": {
+      "lcov_percentuale": 87.55,
+      "lcov_righe_coperte": 34263,
+      "lcov_righe_strumentate": 39135,
+      "cargo_lines_percentuale": 85.81,
+      "soglia": 80.0,
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`.",
+      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate."
+    },
+    "diagnostica_differenziale": {
+      "base": "a6110ea",
+      "righe_cambiate_eseguibili": 473,
+      "coperte": 465,
+      "scoperte": 8,
+      "cambiate_non_eseguibili": 405,
+      "esito": "98.31%",
+      "ragione": "98,31% delle 473 righe cambiate ed eseguibili. La diagnostica ha fatto il suo mestiere due volte in questo lotto, su corse che il checkpoint aveva gia' dichiarato superate: ha mostrato che i rami di sfratto del trattenimento e quelli degli insiemi delle respinte non erano esercitati da nessuna sonda. Sono nove sonde nuove, e sono la ragione per cui questa corsa e' la terza.",
+      "che_cosa_sono_le_scoperte": "otto righe, tutte della stessa natura: sono i **messaggi di asserzione** delle sonde della redazione. Vengono valutati solo quando l'asserzione fallisce, cioe' mai su una corsa verde. Non sono codice di produzione e non sono un ramo non provato: sono il testo che la sonda stamperebbe se il codice regredisse.",
+      "perche_non_si_chiudono": "esercitarli vorrebbe dire far fallire deliberatamente una sonda, cioe' scrivere una prova che pretende il rosso di un'altra prova. Il valore sarebbe zero e il costo una sonda che nessuno sa piu' leggere.",
+      "righe_scoperte": [
+        "crates/driver-shp/src/lib.rs:4785",
+        "crates/plenora-io-core/src/driver.rs:3238",
+        "crates/plenora-io-core/src/driver.rs:3242",
+        "crates/plenora-io-core/src/driver.rs:3255",
+        "crates/plenora-io-core/src/driver.rs:3268",
+        "crates/plenora-io-core/src/driver.rs:3277",
+        "crates/plenora-io-core/src/driver.rs:3289",
+        "crates/plenora-io-core/src/driver.rs:3320"
+      ]
+    }
+  },
+  "cosa_chiude": {
+    "invariante": "wire.loss-report",
+    "da": "release_blocking",
+    "a": "verified",
+    "bloccanti_residui": [
+      "copertura.rami-negativi",
+      "release.candidate-non-valida-per-head",
+      "sistema.qualifica-cross-component"
+    ]
+  },
+  "artefatti": {
+    "percorso_di_corsa": "/work/target/s9-l2wire3 (volume Docker `plenora-io-target`, fuori dall'albero versionato: `target/` e' ignorato, e il passo `albero_invariato` lo conferma verde a fine corsa)",
+    "file": 75,
+    "digest_manifest": "d60a3e3da140799240f8c963981ab1176632ba387d84089aaede831f38fc31ee",
+    "forma_del_manifest": "`percorso` NUL `sha256 del contenuto` LF, in ordine di percorso; nessun timestamp e nessun metadato di filesystem, cosi' il digest dipende solo da cio' che la corsa ha prodotto. La forma e' quella di `digest_del_manifest` in check_release_contract.py, che la ricalcola e la confronta: un digest che nessuno puo' ricalcolare e' una stringa, non un'impronta.",
+    "risultato_della_corsa": "`risultato.json` fa parte del manifest, ed e' preteso: e' l'ultimo file che la corsa scrive, e un manifest senza di lui descriverebbe una corsa che non ha concluso.",
+    "manifest": {
+      "assurance_fallbacks.log": "8a8668bb71dc8a3abd033faf887bb6c98c2b8e41d786541c550720165c3454e3",
+      "assurance_n1_integrita.log": "c55c7647af6c9a2db7e1ca46f59883ca73ea52d989d9fa0897218bc86c565b4e",
+      "assurance_n1_prove.log": "8f3b72fc888d3f84fe4073cb76fa4dffb6ef348cfdfba8fe8da2c9aee7aef6fc",
+      "catalog.json": "3859a679b413724010fd2748fe9221df4af76fcea1633957d0a75e046faa20f9",
+      "check_action_pins.log": "c125dc241c876a62a8598f74f6109651fda752f4ac6adeb82f5a6e0380d55545",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_categorie_di_perdita.log": "4ce9a44d800a19c5b8376fdeae922112e27d4d99e4073d51bc6768757a234f81",
+      "check_confine_v1.log": "542f332bd3b461c45bd09e83f962c34df98e38f6303358cbe499f17129c841b1",
+      "check_coverage_exclusions.log": "12e16671710385d058593fa6ad94489ac502acae6a774e549c34bde57098a87f",
+      "check_dependency_pins.log": "3f472480b7f82381eed29cd34314d7c6dd5fed5ba268437a3df868b7415edb71",
+      "check_docset.log": "21fddca1298b159a7e3a280e32393e21faa2efd32f15a0b63379cbd8b349836f",
+      "check_dxf_fork.log": "aec602c5ee9d01f42f5ae0939436af4f921116b5f5620bbabbfbbff62e465dbe",
+      "check_errori_redatti.log": "b4600a323e1d6820b3df96a9b4bf4e3b56865ea3d5faf435dbb404f1f21e41b9",
+      "check_filegdb_catalog.log": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+      "check_gdal_fork.log": "e308ae8a812b3f76b8219308e03171db550ef436183a755baacb7b3ec0a984fe",
+      "check_identita.log": "500e17f9c44d878c5b73397f81288a54526daaf3966db05daa4f9391ea41366e",
+      "check_metadati_geoparquet.log": "ba4875feae70b56ae74989120da34d66ab91857430495510f756ed31ca7a335a",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "00aa721844850cca6c828a758bd0cff97b28368bf620654d9aecf2b8c362d71e",
+      "check_protocollo_v2.log": "0976d414de0620558826a4d14784afb4598d225ab2991e786097cc9e624352e5",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "b950cc660bce800072c1784c15d65d8372a7b622be65a653eb2026c687e64382",
+      "check_release.log": "82e1c57b2a9ba253394ceb12664801e15cab3b4478c4e4fa87fe4a7eeb0b365b",
+      "check_schemi_geoparquet.log": "d5c76e7deea8bd22226fe04bdc3fe4dfe1b42eeeb917d1f05f97fcf7b97bc4f4",
+      "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
+      "check_wkb_limits.log": "26d7e08e2f7b299be1f74b631494da73a599acb0b61ace7ff4d59a6b1537a7de",
+      "clippy.log": "85c2ed96f75796ecc7aaadcc2d2cd2a1ff7e1c37ae583b112b12943984ba12ed",
+      "clippy_default.log": "6ca60bcce081dbf5d57b050c47599732153441f72f208b3722f2ddd42ac10515",
+      "clippy_sicurezza.log": "98da7a927678e9317ae47cfd7d64ed62fb58a73b7d4db97c551564d24d292484",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "coverage_diff.log": "966b7d1dbc95100e3819c3ec8ff25a726ca8ede5a2d9ad06502e609bb31c89b9",
+      "coverage_export.log": "66bc020cf100a239ea74d4c9923970ef897bb163d795b99b4b656fdf7dc8de82",
+      "coverage_misura.log": "f321a41a98754088d1e254f1a6c6aca1adaabfc5618610d122c2833a22978b2c",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "0eb37dedad6067afbc7d8fa4706a3ccea79fd179fdbf53aa4268c960d224b8b3",
+      "coverage_soglia_dal_report.log": "ef0454af7fc6a2ea618f3f3de948db99b12bc3e43111da638d5d8aeb8a0addd4",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz_replay.log": "e81d4d0849820de47cfe200b5282ef0237e63b67dc163f28ff5c6a84e762a7d0",
+      "fuzz_smoke.log": "6faf071fb7fc7730b6de5a4ae6721b70515e51c826a4873456e454d87896adfe",
+      "lcov.info": "e920b12874558460d235f2c3d5087e8a4a87cc84e0817d2074fbea781c1583d6",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "a0c980d939a3947787df85ade1c994b090b017434aa13d36dc428bbb536c0f85",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "sonde_action_pins.log": "3e5e13e45c5679793abc28956a6df70007e21db734fe0b654ea32d652c337f49",
+      "sonde_assurance_n1.log": "c0e3387940a5d4f563f6e2f8e64939baaaf24b285ce7046ffcdd627fe669f657",
+      "sonde_assurance_n1_prove.log": "4dced8ea8878af0a8b24aeaef1f95be8d365dadb60c2e79b95c4e30ee0b163d7",
+      "sonde_audit_ignores.log": "65378dcad145da2497120819bebfc3c46534dce9714ce064b3d809a56654aca2",
+      "sonde_capability_ostile.log": "013b468f01e41f462f9a45a8402ad71d207fc3757cfa84b356a6032030ccde44",
+      "sonde_categorie_di_perdita.log": "ac1d63b23c32b3ff308934eec6648c610839e2eb0e1ec628a76fcf443b4d20fd",
+      "sonde_checkpoint.log": "e94268b86733efaccab0d790800daf50081093160fb95d50fba995d3bce46cd3",
+      "sonde_confine_v1.log": "cdb7f93ed0a53e91c6ed5daa05b1e2c0bdc86117b4eab8a65e80ac5443f65f50",
+      "sonde_coverage_excl.log": "be47d2c1eb04e85a5d7a139a37dbe7944e4672bf8ff9881c3447998971a86acd",
+      "sonde_docset.log": "2fdae25d144059f9a660851089bc34c2ef0dc271ff2dbf7c284ad3db9af52fb4",
+      "sonde_errori_redatti.log": "7552bd12ae276340729a65d44a110f392bc7234a9105e01401a941279fa79dfd",
+      "sonde_fallback.log": "5684d13977a1f6829bcd5f644c72b35ab6f8d42951d571a5f230c4cc35a359f3",
+      "sonde_filegdb.log": "6ebfdfd4b3c00fc8d529c9d9843a65a06a2c956847a10a8789c0a9c804012d92",
+      "sonde_fork.log": "173c8d51fab0353724da434ba2e1176e15470fdf98a93f01deeaf8df86bf7eca",
+      "sonde_identita.log": "b6a161abed43b9a0dba9259cd451b39b20b10425ac13cc14786554c0e6fac7f1",
+      "sonde_metadati_geoparquet.log": "960da5fc1eb9cb5a2641bf51f826142d685bb57a0263278672f16391e5ced49c",
+      "sonde_niente_leak.log": "a8bd00c9cba87f09c3945cb02be0e8ca19feadde270e9fe9453a97e1c0a1c9e0",
+      "sonde_prevalidazione.log": "d5c42298542e8087193ca809f6dfcba308030c868c5e717efbc32ab0ad47b9de",
+      "sonde_protocollo_v2.log": "9842945fb7679c798c862edb066482275854f7aaed05aeb4f58488598bb09ce3",
+      "sonde_quarantena.log": "670a39115e7523a8984e4842e16547cb2094b03fad392b037b4b9dc8b2656e62",
+      "sonde_quartetto.log": "1b54e7bd3e4f0557cdf06d1076b6ef63ce21d6c17ecec62d2881ac93eafe1fed",
+      "sonde_release.log": "acf840da6fe93743311ba66c7b1d81a6d5c5d2c77d5aabf3c6a99a1c1a1bdc77",
+      "sonde_schemi_geoparquet.log": "3b40d2e0dc4834333849d5eee49866eaa34dbac13ff2501f3ea3e28fa0929ad1",
+      "sonde_semi_s12.log": "bd39be70bbe6f872fa41f467482f6920c2f78894aaff1fd5efd2dbc13c45543d",
+      "sonde_toolchain.log": "b565133ab43eb843485dd8441615b1c2f89b21ce2bae650170287548bd6b07bf",
+      "sonde_wkb_condiviso.log": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
+      "sonde_wkb_limits.log": "5684d13977a1f6829bcd5f644c72b35ab6f8d42951d571a5f230c4cc35a359f3",
+      "test.log": "b67fb6ff3407dd0b3f23878e152d01d0034d6f05697ce6776047b4460aae6553",
+      "test_default.log": "3a56311af3d243390034d4237e10e9cea82d903fc3405ee5fc7556ce62e3fa80"
+    }
+  }
+}
