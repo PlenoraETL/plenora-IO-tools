@@ -873,6 +873,12 @@ impl FormatDriver for GeoParquetDriver {
         let parquet_schema = builder.schema().clone();
         let geo = read_geo_meta(&builder, opt_in_crs_storico(&opts.format_options)?)?;
         let (geom_name, crs) = resolve_geometry_and_crs(&parquet_schema, geo.as_ref())?;
+        // **Prima** di toccare lo schema esposto: il metadato viene confrontato
+        // col file, e se non regge il file e' rifiutato. Farlo dopo il retag
+        // vorrebbe dire aver gia' tolto colonne sulla fiducia.
+        if let Some(geo) = geo.as_ref() {
+            riconcilia_con_lo_schema_fisico(&parquet_schema, builder.parquet_schema(), geo)?;
+        }
         // Finding #4 follow-up follow-up review 2026-08-15: il fallback
         // legacy per-nome (accettare `_bbox_minx/miny/maxx/maxy` come
         // covering anche in assenza di metadata `covering.bbox`) e' stato
@@ -907,15 +913,12 @@ impl FormatDriver for GeoParquetDriver {
         // opt-in conserva tutte le colonne utente esattamente come sono.
         let strip_names: Option<Vec<String>> = covering.as_ref().map(radici_del_covering);
         let out_schema = retag_schema(&parquet_schema, &geom_name, &crs, strip_names.as_deref());
-        // Il covering realmente utilizzabile per il pruning: solo se ogni
-        // percorso dichiarato esiste davvero nello schema Parquet. In ogni
-        // altro caso il pruning spaziale resta spento, che e' il verso in cui
-        // questo driver sbaglia per contratto.
-        let bbox_covering: Option<[Vec<String>; 4]> = covering.filter(|percorsi| {
-            percorsi
-                .iter()
-                .all(|p| percorso_presente(&parquet_schema, p))
-        });
+        // Il covering utilizzabile per il pruning e' quello che si e' ottenuto:
+        // se e' dichiarato, la riconciliazione ha gia' preteso che i quattro
+        // percorsi esistano -- e se non esistevano non siamo arrivati fin qui --
+        // mentre la via storica per nome ha filtrato la presenza sopra. Un
+        // ulteriore filtro qui sarebbe un ramo che non puo' scattare.
+        let bbox_covering: Option<[Vec<String>; 4]> = covering;
         // Mappa logico → fisico prima di consumare `out_schema` per il
         // contratto. Ogni campo esposto viene localizzato per nome nello
         // schema Parquet originale. Un campo esposto senza corrispondente
@@ -2022,6 +2025,222 @@ fn indice_della_foglia(
     percorso: &[String],
 ) -> Option<usize> {
     (0..schema.num_columns()).find(|&i| schema.column(i).path().parts() == percorso)
+}
+
+/// Riconcilia il metadato `geo` con lo schema **fisico** del file.
+///
+/// Il metadato e' un'affermazione sul file, e finora nessuno la confrontava col
+/// file: si verificava che la `primary_column` esistesse, e li' finiva. Una
+/// colonna secondaria inventata, una geometria dichiarata su una colonna di
+/// interi, un `covering` che nomina percorsi inesistenti o sparsi su strutture
+/// diverse -- tutto passava, e le radici del covering venivano perfino tolte
+/// dallo schema esposto **prima** che qualcuno controllasse che esistessero.
+///
+/// La specifica chiede il contrario: i percorsi devono esistere, appartenere
+/// alla stessa bounding group e avere la forma fisica che il § *Bounding Box
+/// Columns* prescrive -- nomi, ordine, tipo e ripetizione. Un file che dice di
+/// se' qualcosa che non e' vero e' un file malformato, e va rifiutato prima di
+/// esporne uno schema che nessuno potra' leggere.
+///
+/// # Errors
+///
+/// `Format` se una colonna dichiarata non esiste o non e' binaria, o se il
+/// `covering` non regge il confronto con lo schema fisico.
+fn riconcilia_con_lo_schema_fisico(
+    arrow: &Schema,
+    parquet: &parquet::schema::types::SchemaDescriptor,
+    geo: &MetadatiGeo,
+) -> Result<()> {
+    // La primaria e le secondarie si trattano allo stesso modo: sono colonne
+    // geometriche dichiarate, e una dichiarazione falsa non e' meno falsa
+    // perche' riguarda una colonna secondaria.
+    for (nome, colonna) in
+        std::iter::once((&geo.nome_primaria, &geo.primaria)).chain(geo.secondarie.iter())
+    {
+        colonna_geometrica_presente(arrow, nome)?;
+        if let Some(percorsi) = colonna.covering.as_ref() {
+            covering_riconciliato(parquet, nome, percorsi)?;
+        }
+    }
+    Ok(())
+}
+
+/// Una colonna geometrica dichiarata esiste, ed e' binaria.
+///
+/// L'unica codifica che questo driver accetta e' `WKB`, e `WKB` sta in una
+/// colonna di byte. Dichiararla su una colonna di interi o di stringhe e'
+/// un'incoerenza fra il metadato e i dati, non una variante da tollerare.
+fn colonna_geometrica_presente(arrow: &Schema, nome: &str) -> Result<()> {
+    let indice = arrow.index_of(nome).map_err(|_| {
+        fmt_err(&PublicMessage::Curated(
+            "metadato `geo` GeoParquet che dichiara una colonna geometrica assente dallo schema del file",
+        ))
+    })?;
+    if !matches!(
+        arrow.field(indice).data_type(),
+        DataType::Binary | DataType::LargeBinary | DataType::BinaryView
+    ) {
+        return Err(fmt_err(&PublicMessage::Curated(
+            "colonna dichiarata geometrica `WKB` e non binaria nello schema del file",
+        )));
+    }
+    Ok(())
+}
+
+/// Gli spigoli di una bounding group, nell'ordine che la specifica prescrive.
+///
+/// Sono due forme e non una: `zmin`/`zmax` sono ammessi, e vanno **in mezzo**,
+/// non in coda. Un file tridimensionale conforme non e' un file da rifiutare.
+const FORME_DEL_COVERING: [&[&str]; 2] = [
+    &["xmin", "ymin", "xmax", "ymax"],
+    &["xmin", "ymin", "zmin", "xmax", "ymax", "zmax"],
+];
+
+/// Il `covering` regge il confronto con lo schema fisico del file?
+///
+/// Qui si verifica cio' che lo schema JSON non puo' vedere. Lo schema conosce i
+/// **percorsi** dichiarati nel metadato; il file ha una struct vera, con dei
+/// figli veri, in un ordine vero, di un tipo vero, e con una ripetizione sua.
+/// La specifica 1.1 pretende (§ *Bounding Box Columns*):
+///
+/// * la colonna sta **alla radice**, e non dentro un altro gruppo;
+/// * i figli si chiamano `xmin, ymin, xmax, ymax`, **in quest'ordine**, oppure
+///   `xmin, ymin, zmin, xmax, ymax, zmax` se c'e' la terza dimensione: niente
+///   figli in piu', niente `zmin` da solo, niente ordine diverso;
+/// * i figli sono `FLOAT` **oppure** `DOUBLE`, e tutti dello stesso tipo;
+/// * la ripetizione della colonna e' **quella della geometria**: un riquadro
+///   se e solo se c'e' una geometria.
+///
+/// La prima stesura guardava solo che i percorsi esistessero, che avessero la
+/// stessa radice, che le foglie fossero `DOUBLE` e non ripetute. Cercare le
+/// foglie per percorso non dice niente sul loro ordine -- una struct ordinata
+/// `ymin, xmin, xmax, ymax` le contiene tutte -- `max_rep_level` esclude le
+/// liste ma lascia passare una geometria opzionale con un riquadro
+/// obbligatorio, e pretendere `DOUBLE` rifiutava come malformato un file che la
+/// specifica dichiara valido.
+fn covering_riconciliato(
+    parquet: &parquet::schema::types::SchemaDescriptor,
+    nome_geometria: &str,
+    percorsi: &[Vec<String>; 4],
+) -> Result<()> {
+    use parquet::basic::Type as TipoFisico;
+
+    let malformato = |messaggio: &'static str| fmt_err(&PublicMessage::Curated(messaggio));
+
+    // I quattro percorsi dichiarati designano la stessa colonna, e ciascuno
+    // designa il proprio spigolo. Sono due segmenti perche' lo schema 1.1 non
+    // ne ammette altri, ed e' anche il modo in cui la specifica dice «alla
+    // radice, non dentro un altro gruppo».
+    let mut radice: Option<&String> = None;
+    for (percorso, spigolo) in percorsi.iter().zip(BBOX_SPIGOLI) {
+        let [prima, seconda] = percorso.as_slice() else {
+            return Err(malformato(
+                "covering GeoParquet con un percorso che non ha due segmenti: la colonna sta alla radice",
+            ));
+        };
+        if seconda != spigolo {
+            return Err(malformato(
+                "covering GeoParquet con uno spigolo che designa una foglia di un altro nome",
+            ));
+        }
+        match radice {
+            None => radice = Some(prima),
+            Some(attesa) if attesa == prima => {}
+            Some(_) => {
+                return Err(malformato(
+                    "covering GeoParquet con gli spigoli su colonne diverse: la specifica ne vuole una sola",
+                ))
+            }
+        }
+    }
+    let Some(radice) = radice else {
+        return Err(malformato("covering GeoParquet senza spigoli"));
+    };
+
+    // La struct vera, presa dalla radice dello schema Parquet: e' li' che
+    // stanno l'ordine dei figli, il loro tipo e la ripetizione, che il
+    // metadato non porta e la ricerca per percorso non guarda.
+    let radice_dello_schema = parquet.root_schema();
+    let campo = |nome: &str| {
+        radice_dello_schema
+            .get_fields()
+            .iter()
+            .find(|campo| campo.name() == nome)
+    };
+    let Some(gruppo) = campo(radice) else {
+        return Err(malformato(
+            "covering GeoParquet che dichiara una colonna assente dalla radice dello schema del file",
+        ));
+    };
+    if !gruppo.is_group() {
+        return Err(malformato(
+            "covering GeoParquet che designa una colonna che non e' un gruppo",
+        ));
+    }
+
+    // Nomi **e ordine**, insieme: sono la stessa affermazione, e verificarne
+    // uno solo la lascia mezza vera.
+    let figli: Vec<&str> = gruppo.get_fields().iter().map(|f| f.name()).collect();
+    if !FORME_DEL_COVERING.contains(&figli.as_slice()) {
+        return Err(malformato(
+            "covering GeoParquet con figli diversi da `xmin, ymin, xmax, ymax` -- o dalla forma con `zmin` e `zmax` -- nell'ordine prescritto",
+        ));
+    }
+
+    // `FLOAT` **oppure** `DOUBLE`, e tutti lo stesso: la specifica ammette le
+    // due precisioni e vieta di mescolarle. Le statistiche di un `FLOAT` si
+    // allargano a `f64` senza perdere niente, quindi il pruning le usa come
+    // quelle di un `DOUBLE`.
+    let mut tipo_comune: Option<TipoFisico> = None;
+    for figlio in gruppo.get_fields() {
+        if !figlio.is_primitive() {
+            return Err(malformato(
+                "spigolo del covering GeoParquet che non e' una colonna di valori",
+            ));
+        }
+        let tipo = figlio.get_physical_type();
+        if tipo != TipoFisico::FLOAT && tipo != TipoFisico::DOUBLE {
+            return Err(malformato(
+                "spigolo del covering GeoParquet che non e' `FLOAT` ne' `DOUBLE`",
+            ));
+        }
+        match tipo_comune {
+            None => tipo_comune = Some(tipo),
+            Some(atteso) if atteso == tipo => {}
+            Some(_) => {
+                return Err(malformato(
+                    "covering GeoParquet con spigoli di precisione diversa: la specifica li vuole tutti dello stesso tipo",
+                ))
+            }
+        }
+    }
+
+    // «Un riquadro se e solo se c'e' una geometria» e' un'affermazione sulla
+    // ripetizione, non sui valori: se la geometria e' opzionale e il riquadro
+    // obbligatorio, il file promette un riquadro anche dove geometria non ce
+    // n'e'. Confrontarle e' l'unico modo di accorgersene leggendo lo schema.
+    let Some(geometria) = campo(nome_geometria) else {
+        return Err(malformato(
+            "colonna geometria assente dalla radice dello schema del file",
+        ));
+    };
+    // `None` soltanto per la radice dello schema, che non ha ripetizione: qui
+    // sono due suoi figli, e un ripiego a `REQUIRED` sarebbe un valore inventato
+    // proprio nel confronto che deve dire la verita'. Il caso impossibile cade
+    // nello stesso rifiuto invece di aprirsi un ramo suo.
+    let ripetizione = |campo: &parquet::schema::types::Type| {
+        let info = campo.get_basic_info();
+        info.has_repetition().then(|| info.repetition())
+    };
+    match (ripetizione(gruppo), ripetizione(geometria)) {
+        (Some(del_covering), Some(della_geometria)) if del_covering == della_geometria => {}
+        _ => {
+            return Err(malformato(
+                "covering GeoParquet con una ripetizione diversa da quella della geometria: il riquadro c'e' se e solo se c'e' la geometria",
+            ))
+        }
+    }
+    Ok(())
 }
 
 /// Quel percorso esiste nello schema Parquet?
@@ -3995,6 +4214,123 @@ mod tests {
         percorso
     }
 
+    /// Come `parquet_con_geo`, ma con una **seconda colonna binaria** reale.
+    ///
+    /// Serve alle colonne geometriche secondarie: dichiararne una che nel file
+    /// non c'e' non e' un contratto piu' ricco, e' un contratto falso.
+    fn parquet_con_due_binarie(dir: &tempfile::TempDir, geo: &str) -> std::path::PathBuf {
+        let percorso = dir.path().join("due_binarie.parquet");
+        let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true),
+            Field::new("altra", DataType::Binary, true),
+            Field::new("id", DataType::Int64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+                Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+                Arc::new(Int64Array::from(vec![1_i64])),
+            ],
+        )
+        .unwrap();
+        let file = File::create(&percorso).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo.to_owned()));
+        writer.close().unwrap();
+        percorso
+    }
+
+    /// Un file con una colonna `bbox` della **forma** che si chiede.
+    ///
+    /// Forma vuol dire tutto cio' che la specifica prescrive e che il metadato
+    /// non porta: quali figli, in che ordine, di che tipo, e con quale
+    /// ripetizione rispetto alla geometria. Una fixture che sapesse costruire
+    /// solo la forma giusta non potrebbe provare nessuno dei rifiuti.
+    fn parquet_con_covering(
+        dir: &tempfile::TempDir,
+        geo: &str,
+        figli: &[(&str, DataType)],
+        bbox_nullable: bool,
+        geometria_nullable: bool,
+    ) -> std::path::PathBuf {
+        let percorso = dir.path().join("con_covering.parquet");
+        let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let campi: Vec<Arc<Field>> = figli
+            .iter()
+            .map(|(nome, tipo)| Arc::new(Field::new(*nome, tipo.clone(), true)))
+            .collect();
+        let valori: Vec<ArrayRef> = figli
+            .iter()
+            .map(|(_, tipo)| valore_del_figlio(tipo))
+            .collect();
+        let bbox = StructArray::try_new(campi.clone().into(), valori, None).unwrap();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, geometria_nullable),
+            Field::new(BBOX_STRUCT, DataType::Struct(campi.into()), bbox_nullable),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+                Arc::new(bbox),
+            ],
+        )
+        .unwrap();
+        let file = File::create(&percorso).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+        writer.write(&batch).unwrap();
+        writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo.to_owned()));
+        writer.close().unwrap();
+        percorso
+    }
+
+    /// Un valore per un figlio della struct, del tipo che il figlio dichiara.
+    ///
+    /// Il caso `Struct` serve a costruire un figlio che **non** e' una colonna
+    /// di valori: la specifica vuole quattro numeri, e un gruppo annidato passa
+    /// il controllo dei nomi e dell'ordine senza essere un numero.
+    fn valore_del_figlio(tipo: &DataType) -> ArrayRef {
+        match tipo {
+            DataType::Float32 => {
+                Arc::new(arrow_array::Float32Array::from(vec![Some(1.0_f32)])) as ArrayRef
+            }
+            DataType::Struct(figli) => {
+                let dentro: Vec<ArrayRef> = figli
+                    .iter()
+                    .map(|figlio| valore_del_figlio(figlio.data_type()))
+                    .collect();
+                Arc::new(StructArray::try_new(figli.clone(), dentro, None).unwrap()) as ArrayRef
+            }
+            DataType::Int64 => Arc::new(Int64Array::from(vec![Some(1_i64)])) as ArrayRef,
+            _ => Arc::new(Float64Array::from(vec![Some(1.0)])) as ArrayRef,
+        }
+    }
+
+    /// I quattro spigoli conformi, tutti `DOUBLE`.
+    fn spigoli_double() -> Vec<(&'static str, DataType)> {
+        BBOX_SPIGOLI
+            .into_iter()
+            .map(|nome| (nome, DataType::Float64))
+            .collect()
+    }
+
+    /// Un documento 1.1.0 con il `covering.bbox` costruito sui percorsi dati.
+    fn geo_con_covering(percorsi: [[&str; 2]; 4]) -> String {
+        let spigoli: Vec<String> = BBOX_SPIGOLI
+            .into_iter()
+            .zip(percorsi)
+            .map(|(spigolo, percorso)| {
+                let (radice, foglia) = (percorso[0], percorso[1]);
+                format!("\"{spigolo}\":[\"{radice}\",\"{foglia}\"]")
+            })
+            .collect();
+        let elenco = spigoli.join(",");
+        geo_con(&format!(",\"covering\":{{\"bbox\":{{{elenco}}}}}"))
+    }
+
     /// Il documento minimo, con i campi che si vogliono in piu'.
     fn geo_con(extra: &str) -> String {
         format!(
@@ -4049,7 +4385,10 @@ mod tests {
         // rifiuto viene da li'. E' il caso che un writer distratto produce.
         let dir = tempfile::tempdir().expect("tempdir");
         let percorso = parquet_con_geo(&dir, Some(""));
-        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
         assert!(
             matches!(
                 esito,
@@ -4090,7 +4429,10 @@ mod tests {
         });
         writer.close().unwrap();
 
-        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
         assert!(
             matches!(
                 esito,
@@ -4107,7 +4449,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let documento = geo_con("").replace("1.1.0", "2.0.0");
         let percorso = parquet_con_geo(&dir, Some(&documento));
-        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
         assert!(
             matches!(
                 esito,
@@ -4125,7 +4470,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let documento = geo_con("").replace("\"geometry\"", "\"non_c_e\"");
         let percorso = parquet_con_geo(&dir, Some(&documento));
-        let esito = GeoParquetDriver.open(Source::Path(percorso), opzioni_lettura());
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
         assert!(
             matches!(
                 esito,
@@ -4187,7 +4535,9 @@ mod tests {
             r#""geometry":{"encoding":"WKB","geometry_types":["Point"]},"#,
             r#""altra":{"encoding":"WKB","geometry_types":[]}}}"#,
         );
-        let percorso = parquet_con_geo(&dir, Some(documento));
+        // La colonna `altra` esiste **nel file**, ed e' binaria: prima questa
+        // sonda la dichiarava e basta, e passava su un file che non ce l'aveva.
+        let percorso = parquet_con_due_binarie(&dir, documento);
         let dataset = GeoParquetDriver
             .open(Source::Path(percorso), opzioni_lettura())
             .expect("il documento e' conforme");
@@ -4202,6 +4552,513 @@ mod tests {
                 .get("geoparquet.altre_colonne")
                 .map(String::as_str),
             Some("altra")
+        );
+    }
+
+    // --- il metadato confrontato col file ---------------------------------
+
+    /// Il documento con una colonna secondaria dichiarata sul nome dato.
+    fn geo_con_secondaria(nome: &str) -> String {
+        format!(
+            "{}\"{nome}\":{}",
+            concat!(
+                r#"{"version":"1.1.0","primary_column":"geometry","columns":{"#,
+                r#""geometry":{"encoding":"WKB","geometry_types":["Point"]},"#,
+            ),
+            r#"{"encoding":"WKB","geometry_types":[]}}}"#,
+        )
+    }
+
+    #[test]
+    fn una_secondaria_dichiarata_e_assente_ferma_l_apertura() {
+        // Il metadato e' un'affermazione sul file, e nessuno la confrontava col
+        // file. Una colonna geometrica inesistente veniva pubblicata nel
+        // contratto come se ci fosse, e chi andava a cercarla non la trovava.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = parquet_con_due_binarie(&dir, &geo_con_secondaria("inventata"));
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "una secondaria inesistente deve fermare l'apertura: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn una_geometrica_dichiarata_su_una_colonna_non_binaria_ferma_l_apertura() {
+        // `id` esiste, ed e' un intero. Il `WKB` sta nei byte: dichiararlo qui
+        // e' un'incoerenza fra il metadato e i dati, non una variante.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = parquet_con_due_binarie(&dir, &geo_con_secondaria("id"));
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "una geometria dichiarata su una colonna di interi deve fermare l'apertura: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn un_covering_ben_formato_si_apre_e_toglie_la_sua_radice() {
+        // Il verso positivo: quattro percorsi che esistono, in una struct sola,
+        // con foglie `DOUBLE`. La colonna del covering non e' un dato utente e
+        // sparisce dallo schema esposto; la geometria resta.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            ["bbox", "xmin"],
+            ["bbox", "ymin"],
+            ["bbox", "xmax"],
+            ["bbox", "ymax"],
+        ]);
+        let percorso = parquet_con_covering(&dir, &documento, &spigoli_double(), true, true);
+        let dataset = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .expect("un covering che corrisponde al file si apre");
+        let contratto = &dataset.layers()[0].contract;
+        assert!(contratto.schema.index_of("geometry").is_ok());
+        assert!(
+            contratto.schema.index_of("bbox").is_err(),
+            "la radice del covering non e' una colonna utente"
+        );
+    }
+
+    #[test]
+    fn un_covering_che_nomina_percorsi_assenti_ferma_l_apertura() {
+        // E li ferma **prima** del retag. Era questo l'ordine sbagliato: le
+        // radici del covering venivano tolte dallo schema esposto sulla fiducia,
+        // e solo dopo qualcuno si chiedeva se esistessero. Un file che dichiara
+        // un covering che non ha usciva con delle colonne in meno.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            ["riquadro", "xmin"],
+            ["riquadro", "ymin"],
+            ["riquadro", "xmax"],
+            ["riquadro", "ymax"],
+        ]);
+        let percorso = parquet_con_covering(&dir, &documento, &spigoli_double(), true, true);
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "un covering che nomina percorsi assenti deve fermare l'apertura: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn un_covering_sparso_su_strutture_diverse_ferma_l_apertura() {
+        // La specifica vuole una bounding group sola. Due spigoli in una struct
+        // e due in un'altra non sono un riquadro: sono quattro numeri.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            ["bbox", "xmin"],
+            ["bbox", "ymin"],
+            ["altrove", "xmax"],
+            ["altrove", "ymax"],
+        ]);
+        let percorso = parquet_con_covering(&dir, &documento, &spigoli_double(), true, true);
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "un covering sparso su piu' colonne deve fermare l'apertura: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn un_covering_con_i_figli_in_ordine_diverso_ferma_l_apertura() {
+        // Cercare le foglie per percorso non dice niente sul loro **ordine**:
+        // una struct `ymin, xmin, xmax, ymax` le contiene tutte e quattro, con i
+        // nomi giusti, e ognuna si trova al proprio percorso. La specifica
+        // pretende l'ordine perche' chi legge il riquadro senza rileggerne i
+        // nomi -- e sono in molti a farlo -- scambierebbe le due ascisse con le
+        // due ordinate.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            [BBOX_STRUCT, "xmin"],
+            [BBOX_STRUCT, "ymin"],
+            [BBOX_STRUCT, "xmax"],
+            [BBOX_STRUCT, "ymax"],
+        ]);
+        let scambiati = [
+            ("ymin", DataType::Float64),
+            ("xmin", DataType::Float64),
+            ("xmax", DataType::Float64),
+            ("ymax", DataType::Float64),
+        ];
+        let percorso = parquet_con_covering(&dir, &documento, &scambiati, true, true);
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "i figli fuori ordine devono fermare l'apertura: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn un_covering_con_la_ripetizione_opposta_ferma_l_apertura() {
+        // «Un riquadro se e solo se c'e' una geometria» e' un'affermazione sulla
+        // **ripetizione**, e la prima stesura la cercava dove non stava: guardava
+        // che le foglie non fossero ripetute, cioe' escludeva le liste, e
+        // lasciava passare una geometria opzionale con un riquadro obbligatorio.
+        // Un file cosi' promette un riquadro anche dove geometria non ce n'e'.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            [BBOX_STRUCT, "xmin"],
+            [BBOX_STRUCT, "ymin"],
+            [BBOX_STRUCT, "xmax"],
+            [BBOX_STRUCT, "ymax"],
+        ]);
+        // geometria opzionale, riquadro obbligatorio
+        let percorso = parquet_con_covering(&dir, &documento, &spigoli_double(), false, true);
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "una ripetizione diversa da quella della geometria deve fermare l'apertura: {esito:?}"
+        );
+
+        // E nell'altro verso: geometria obbligatoria, riquadro opzionale.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = parquet_con_covering(&dir, &documento, &spigoli_double(), true, false);
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "e neppure il verso opposto e' ammesso: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn un_covering_con_figli_in_piu_o_a_meta_ferma_l_apertura() {
+        // Due forme sono ammesse e nessun'altra. Un quinto figlio non e' un
+        // campo utente da ignorare: la colonna del covering non e' una colonna
+        // utente, e cio' che ci sta dentro deve essere il riquadro. E `zmin`
+        // senza `zmax` non e' la forma tridimensionale a meta': non e' una forma.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            [BBOX_STRUCT, "xmin"],
+            [BBOX_STRUCT, "ymin"],
+            [BBOX_STRUCT, "xmax"],
+            [BBOX_STRUCT, "ymax"],
+        ]);
+
+        let in_piu = [
+            ("xmin", DataType::Float64),
+            ("ymin", DataType::Float64),
+            ("xmax", DataType::Float64),
+            ("ymax", DataType::Float64),
+            ("mmax", DataType::Float64),
+        ];
+        let percorso = parquet_con_covering(&dir, &documento, &in_piu, true, true);
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "un figlio in piu' deve fermare l'apertura: {esito:?}"
+        );
+
+        let solo_zmin = [
+            ("xmin", DataType::Float64),
+            ("ymin", DataType::Float64),
+            ("zmin", DataType::Float64),
+            ("xmax", DataType::Float64),
+            ("ymax", DataType::Float64),
+        ];
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = parquet_con_covering(&dir, &documento, &solo_zmin, true, true);
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "`zmin` senza `zmax` deve fermare l'apertura: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn un_covering_a_sei_figli_e_valido_e_si_apre() {
+        // La forma tridimensionale e' conforme, e `zmin`/`zmax` vanno **in
+        // mezzo**, non in coda. Rifiutarla sarebbe rifiutare un file che la
+        // specifica dichiara valido, ed e' il verso in cui un lettore fa il
+        // danno peggiore: dice che il file e' rotto quando rotto non e'.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            [BBOX_STRUCT, "xmin"],
+            [BBOX_STRUCT, "ymin"],
+            [BBOX_STRUCT, "xmax"],
+            [BBOX_STRUCT, "ymax"],
+        ]);
+        let tridimensionale = [
+            ("xmin", DataType::Float64),
+            ("ymin", DataType::Float64),
+            ("zmin", DataType::Float64),
+            ("xmax", DataType::Float64),
+            ("ymax", DataType::Float64),
+            ("zmax", DataType::Float64),
+        ];
+        let percorso = parquet_con_covering(&dir, &documento, &tridimensionale, true, true);
+        let dataset = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .expect("la forma a sei figli e' conforme");
+        let contratto = &dataset.layers()[0].contract;
+        assert!(contratto.schema.index_of("geometry").is_ok());
+        assert!(
+            contratto.schema.index_of(BBOX_STRUCT).is_err(),
+            "e resta la colonna del covering, non una colonna utente"
+        );
+    }
+
+    #[test]
+    fn un_covering_float_e_valido_e_serve_al_pruning() {
+        // `FLOAT` **oppure** `DOUBLE`: la specifica ammette le due precisioni.
+        // Pretendere `DOUBLE` classificava come malformato un file valido.
+        //
+        // E il comportamento non e' «accettato e ignorato»: le statistiche di un
+        // `FLOAT` si allargano a `f64` senza perdere una cifra, quindi il
+        // covering serve al pruning esattamente come quello a doppia precisione.
+        // La sonda lo mostra sui row group saltati, non sull'apertura.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = dir.path().join("covering_float.parquet");
+        let righe = 400_usize;
+        let meta = righe / 2;
+
+        let punto = |x: f64| to_wkb(&Geometry::Point(Point::new(x, 45.0))).unwrap();
+        // Prima meta' attorno a x=0, seconda attorno a x=100: due row group con
+        // estensioni disgiunte.
+        let ascisse: Vec<f64> = (0..righe)
+            .map(|i| if i < meta { 0.0 } else { 100.0 })
+            .collect();
+        let geometrie: Vec<Vec<u8>> = ascisse.iter().map(|x| punto(*x)).collect();
+        let spigoli: Vec<(&str, DataType)> = BBOX_SPIGOLI
+            .into_iter()
+            .map(|nome| (nome, DataType::Float32))
+            .collect();
+        let campi: Vec<Arc<Field>> = spigoli
+            .iter()
+            .map(|(nome, tipo)| Arc::new(Field::new(*nome, tipo.clone(), true)))
+            .collect();
+        // Un riquadro degenere per riga: il punto stesso. In `f32` i valori
+        // scelti sono esatti.
+        #[allow(clippy::cast_possible_truncation)]
+        let colonne: Vec<ArrayRef> = [0_usize, 1, 2, 3]
+            .into_iter()
+            .map(|spigolo| {
+                let valori: Vec<Option<f32>> = ascisse
+                    .iter()
+                    .map(|x| {
+                        Some(if spigolo % 2 == 0 {
+                            *x as f32
+                        } else {
+                            45.0_f32
+                        })
+                    })
+                    .collect();
+                Arc::new(arrow_array::Float32Array::from(valori)) as ArrayRef
+            })
+            .collect();
+        let bbox = StructArray::try_new(campi.clone().into(), colonne, None).unwrap();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("geometry", DataType::Binary, true),
+            Field::new(BBOX_STRUCT, DataType::Struct(campi.into()), true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(BinaryArray::from(
+                    geometrie
+                        .iter()
+                        .map(|w| Some(w.as_slice()))
+                        .collect::<Vec<_>>(),
+                )),
+                Arc::new(bbox),
+            ],
+        )
+        .unwrap();
+        let proprieta = parquet::file::properties::WriterProperties::builder()
+            .set_max_row_group_row_count(Some(meta))
+            .build();
+        let file = File::create(&percorso).unwrap();
+        let mut writer = ArrowWriter::try_new(file, schema, Some(proprieta)).unwrap();
+        writer.write(&batch).unwrap();
+        writer.append_key_value_metadata(KeyValue::new(
+            "geo".to_owned(),
+            geo_con_covering([
+                [BBOX_STRUCT, "xmin"],
+                [BBOX_STRUCT, "ymin"],
+                [BBOX_STRUCT, "xmax"],
+                [BBOX_STRUCT, "ymax"],
+            ]),
+        ));
+        writer.close().unwrap();
+
+        let dataset = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .expect("un covering `FLOAT` e' conforme");
+        let mut lettore = dataset
+            .open_layer_reader(&ReadRequest {
+                layer: LayerId(0),
+                projected_fields: None,
+                projection_mode: ProjectionMode::BestEffort,
+                pruning_predicate: None,
+                spatial_pruning_hint: Some(plenora_io_core::request::Bbox {
+                    minx: 90.0,
+                    miny: 40.0,
+                    maxx: 110.0,
+                    maxy: 50.0,
+                }),
+                scope: ReadScope::default(),
+                batch_target: BatchTarget::default(),
+                cancellation: CancellationToken::default(),
+            })
+            .expect("lettore");
+        let mut lette = 0;
+        while let Some(batch) = lettore.next_batch().expect("batch") {
+            lette += batch.num_rows();
+        }
+        assert!(
+            lette < righe,
+            "il covering `FLOAT` deve far saltare il row group lontano, lette {lette} su {righe}"
+        );
+        assert!(
+            lette >= meta,
+            "e non deve far perdere le righe che l'hint include, lette {lette}"
+        );
+    }
+
+    #[test]
+    fn un_covering_con_gli_spigoli_di_precisione_diversa_ferma_l_apertura() {
+        // «`FLOAT` oppure `DOUBLE`» non vuol dire «uno per spigolo»: la
+        // specifica ammette le due precisioni e vieta di mescolarle. Un riquadro
+        // con `xmin` a singola precisione e gli altri tre a doppia non e' un
+        // riquadro piu' preciso su tre lati: e' un riquadro i cui lati non si
+        // confrontano fra loro.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            [BBOX_STRUCT, "xmin"],
+            [BBOX_STRUCT, "ymin"],
+            [BBOX_STRUCT, "xmax"],
+            [BBOX_STRUCT, "ymax"],
+        ]);
+        let mescolati = [
+            ("xmin", DataType::Float32),
+            ("ymin", DataType::Float64),
+            ("xmax", DataType::Float64),
+            ("ymax", DataType::Float64),
+        ];
+        let percorso = parquet_con_covering(&dir, &documento, &mescolati, true, true);
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "spigoli di precisione diversa devono fermare l'apertura: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn un_covering_con_uno_spigolo_annidato_ferma_l_apertura() {
+        // Nomi giusti, ordine giusto, e `xmin` non e' un numero ma un gruppo.
+        // Il controllo dei nomi non se ne accorge -- il nome e' quello -- e il
+        // controllo del tipo fisico non esiste per un gruppo: e' il caso in cui
+        // il covering ha la forma giusta e il contenuto no.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            [BBOX_STRUCT, "xmin"],
+            [BBOX_STRUCT, "ymin"],
+            [BBOX_STRUCT, "xmax"],
+            [BBOX_STRUCT, "ymax"],
+        ]);
+        let annidato =
+            DataType::Struct(vec![Arc::new(Field::new("valore", DataType::Float64, true))].into());
+        let figli = [
+            ("xmin", annidato),
+            ("ymin", DataType::Float64),
+            ("xmax", DataType::Float64),
+            ("ymax", DataType::Float64),
+        ];
+        let percorso = parquet_con_covering(&dir, &documento, &figli, true, true);
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "uno spigolo che non e' un valore deve fermare l'apertura: {esito:?}"
+        );
+    }
+
+    #[test]
+    fn un_covering_con_le_foglie_del_tipo_sbagliato_ferma_l_apertura() {
+        // Percorsi giusti, struct giusta, tipo sbagliato. Lo schema JSON non
+        // puo' vedere questo: conosce i percorsi, non i tipi fisici del file.
+        // Il pruning che ne nascerebbe leggerebbe statistiche di interi come se
+        // fossero coordinate.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let documento = geo_con_covering([
+            ["bbox", "xmin"],
+            ["bbox", "ymin"],
+            ["bbox", "xmax"],
+            ["bbox", "ymax"],
+        ]);
+        let spigoli: Vec<(&str, DataType)> = BBOX_SPIGOLI
+            .into_iter()
+            .map(|nome| (nome, DataType::Int64))
+            .collect();
+        let percorso = parquet_con_covering(&dir, &documento, &spigoli, true, true);
+        // Il valore d'esito non e' `Debug`: si scarta, e resta l'errore.
+        let esito = GeoParquetDriver
+            .open(Source::Path(percorso), opzioni_lettura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "un covering con foglie non `DOUBLE` deve fermare l'apertura: {esito:?}"
         );
     }
 
