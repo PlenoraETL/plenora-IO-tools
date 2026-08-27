@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 95.54% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
-| blocchi | 4 |
+| blocchi | 3 |
 | S9, qualificato su | `973080c` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -63,7 +63,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 | Blocco | Sintesi |
 |---|---|
 | `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
-| `wire.loss-report` | contratto non ratificato |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
 
@@ -266,18 +265,19 @@ siano raggiungibili**: in un gruppo su tre affrontati finora, un solo ramo su
 tre lo era. Quella determinazione non si parallelizza e non si fa leggendo i
 commenti.
 
-### 2. Ratifica e implementazione di `LossReport`
+### 2. Ratifica e implementazione di `LossReport` — **chiuso**
 
-**Criterio di uscita.** Le cinque decisioni sono ratificate e implementate:
-struttura delle categorie, limiti — cardinalità, byte per stringa, byte totali —,
-politica di redazione, comportamento deterministico al limite, versionamento
-della busta.
+**Criterio di uscita, soddisfatto.** Le cinque decisioni sono ratificate e
+implementate: struttura delle categorie, limiti — cardinalità, byte per stringa,
+byte totali —, politica di redazione, comportamento deterministico al limite,
+versionamento della busta.
 
-La superficie è già sul wire, quindi qualunque scelta è un cambio di contratto e
-richiede una nuova versione.
+La superficie era già sul wire, quindi la scelta è stata un cambio di contratto
+e ha richiesto una versione nuova: il **protocollo 2**, con il v1 congelato e
+selezionabile solo da un'opzione che dice nel nome che cosa si sceglie.
 
 **Blocco rimosso.** L'ultima superficie pubblica senza contratto ratificato ne
-acquista uno. Vedi [PRODUCT.md § LossReport](PRODUCT.md#lossreport--non-ratificato).
+ha uno, e `wire.loss-report` è `verified` nel registro. Vedi [PRODUCT.md § LossReport](PRODUCT.md#lossreport--ratificato-con-il-protocollo-2).
 
 ### 3. S10, S11, S12
 

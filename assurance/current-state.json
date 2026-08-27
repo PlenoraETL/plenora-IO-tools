@@ -85,9 +85,9 @@
       "release_blocking": true
     },
     "loss_report": {
-      "stato": "non_ratificato",
-      "release_blocking": true,
-      "decisioni_aperte": [
+      "stato": "ratificato",
+      "release_blocking": false,
+      "decisioni_ratificate": [
         "struttura delle categorie e degli identificatori",
         "limiti di cardinalita', dimensione per stringa e byte totali",
         "politica di redazione",

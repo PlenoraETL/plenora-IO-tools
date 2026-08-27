@@ -350,11 +350,45 @@
     {
       "id": "wire.loss-report",
       "superficie": "read_loss, write_loss e fidelity nelle buste della CLI",
-      "invariante": null,
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "contratto NON RATIFICATO. Cardinalita' di `counts` senza tetto nel contratto, nessun limite in byte su alcuna stringa, e `FidelityReason.detail` porta nomi di layer e attributo e la forma `Debug` di tipi di dipendenza. Cinque decisioni aperte: struttura, limiti, redazione, comportamento al limite, versionamento.",
-      "sintesi": "contratto non ratificato"
+      "invariante": "la diagnostica di perdita ha un tetto **dichiarato**, in cardinalita' e in byte, e a deciderlo e' il contratto e non chi fornisce il file. Le categorie vengono da un vocabolario chiuso che vive in un registro fuori dai sorgenti che lo producono, con una sola via dinamica ammessa e dichiarata. Ogni sezione sta nei propri dodici KiB, misurati sulla serializzazione JSON effettiva -- escaping, chiavi e dichiarazione di troncamento comprese -- e il budget non speso non si redistribuisce. Il filtro di ammissibilita' sta **alla porta** e non nell'adattatore, cosi' che una voce fuori misura non occupi un posto ne' sfratti una voce valida; il trattenimento e' canonico e sfratta la maggiore, quindi cio' che si pubblica non dipende dall'ordine in cui gli adattatori sono stati composti. Il troncamento e' sempre dichiarato con le quattro cause separate, e `omesse_esatte` dice se quei quattro contatori sono esatti o limiti inferiori. I conteggi pubblicati restano esatti: si omette una voce intera, mai si riscrive un numero; se nemmeno la dichiarazione entra nel budget si fallisce chiusi. **Nessun nome preso dal file** compare in `reasons[].detail` ne' in `esempi[].context`: le posizioni si dichiarano con indici numerici e il tipo con una classe del nostro vocabolario chiuso, mai con la forma `Debug` di un tipo di dipendenza. Tutto questo e' il protocollo **2**: il v1 e' congelato, resta selezionabile con `--legacy-protocol-v1-unsafe` -- che dice nel nome che cosa si sceglie -- e la sua identita' e' conservata alla lettera in un campo che un solo adattatore legge.",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/check_protocollo_v2.py"
+        ],
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "scripts/check_confine_v1.py"
+          ],
+          [
+            "python3",
+            "scripts/check_categorie_di_perdita.py"
+          ],
+          [
+            "python3",
+            "-m",
+            "unittest",
+            "scripts.test_check_protocollo_v2"
+          ],
+          [
+            "python3",
+            "-m",
+            "unittest",
+            "scripts.test_check_confine_v1"
+          ],
+          [
+            "python3",
+            "-m",
+            "unittest",
+            "scripts.test_check_categorie_di_perdita"
+          ]
+        ],
+        "artefatto": "release/cli-protocol-v2.json"
+      },
+      "stato": "verified",
+      "nota": "la ratifica e' una decisione scritta, e queste prove non la producono: verificano che cio' che e' stato deciso sia anche applicato, e che le rappresentazioni non divergano. Undici limiti del manifesto sono confrontati con le costanti che li applicano, in due crate e nei due versi; il payload trattenuto e' **derivato** da quei limiti e non scritto accanto a loro; il registro delle categorie e' confrontato con la stessa costante, cosi' che l'autorita' resti una sola. Ventitre' sonde della busta e due della redazione sono nominate dal contratto, perche' una sonda che nessuno cita si puo' cancellare senza che il checkpoint se ne accorga. Il confine del v1 e' verificato da un gate e non dalla visibilita' di Rust, che non sa dire «questo modulo e nessun altro». Cio' che questo invariante **non** afferma e' l'accettazione del protocollo da parte di plenora-contracts/conformance, che vive nel bloccante `sistema.qualifica-cross-component` e ha un owner esterno."
     },
     {
       "id": "release.candidate-non-valida-per-head",

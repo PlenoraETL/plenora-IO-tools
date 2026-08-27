@@ -930,11 +930,24 @@ class SondeFontiLegate(unittest.TestCase):
         self.assertTrue(any("copertura.misurata_con" in e for e in errori), errori)
 
     def test_un_blocco_negato_dallo_stato_e_rosso(self) -> None:
-        """`release_blocking: false` accanto a un invariante che blocca."""
+        """`release_blocking: false` accanto a un invariante che blocca.
+
+        Si appoggiava a `loss_report`, ed e' diventata rossa quando quel
+        contratto e' stato ratificato: negare un blocco che non c'e' piu' non
+        e' un errore, e il gate faceva bene a tacere. Ora si appoggia al debito
+        di copertura negativa, che resta bloccante con quarantatre' gruppi
+        aperti su quarantanove.
+
+        Il giorno in cui **quello** si chiudera' questa sonda tornera' rossa, e
+        andra' ripuntata di nuovo: e' il prezzo di una sonda che si appoggia a
+        un fatto vero invece che a un caso inventato, ed e' il prezzo giusto --
+        un invariante finto direbbe che il gate funziona su qualcosa che nel
+        registro non esiste.
+        """
         stato = self.stato()
-        stato["aperto"]["loss_report"]["release_blocking"] = False
+        stato["aperto"]["assurance_n1"]["release_blocking"] = False
         errori = gate.validate_stato_corrente(stato)
-        self.assertTrue(any("wire.loss-report" in e for e in errori), errori)
+        self.assertTrue(any("copertura.rami-negativi" in e for e in errori), errori)
 
     def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
         """Un lotto che il registro tiene bloccante non puo' dirsi chiuso.

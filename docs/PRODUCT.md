@@ -65,8 +65,9 @@ publish li rende visibili insieme o per nulla.
 | **condizionale** | la perdita dipende dal contratto, non dal formato: un CSV senza colonne esotiche è lossless, con un tipo temporale non lo è |
 | **approssimante** | il formato approssima per costruzione. DXF tassella archi ed ellissi, esplode le geometrie multipart, rappresenta il testo come punto |
 
-Ciò che si perde è dichiarato nel report di perdita, non taciuto. Il **contratto**
-di quel report non è però ancora ratificato: vedi [LossReport](#lossreport--non-ratificato).
+Ciò che si perde è dichiarato nel report di perdita, non taciuto, e il
+**contratto** di quel report è ratificato: vedi
+[LossReport](#lossreport--ratificato-con-il-protocollo-2).
 
 ### Modalità di lettura nativa
 
@@ -264,45 +265,77 @@ Un cambio breaking richiede una nuova versione di contratto, non una nota.
 
 ---
 
-## LossReport — NON RATIFICATO
+## LossReport — ratificato con il protocollo 2
 
-**Il contratto del report di perdita non è ratificato**, e la sua superficie è
-già sul wire: `read_loss`, `write_loss` e `fidelity` compaiono nelle buste di
-`convert`, `inspect`, `layers` e `read`.
+Il contratto del report di perdita è **ratificato**, ed è il
+[protocollo 2](../release/cli-protocol-v2.json). Le cinque decisioni che lo
+tenevano aperto — struttura, limiti, redazione, comportamento al limite,
+versionamento — sono chiuse, e ciascuna è applicata dal codice e verificata da
+un gate.
 
-Che cosa esce oggi:
+Che cosa esce oggi, nel v2:
 
 ```json
-"read_loss":  { "lossless": false, "counts": { "<categoria>": 3 } },
-"read_fidelity": { "level": "...", "reasons": [ { "code": "...", "detail": "..." } ] }
+"read_loss": {
+  "lossless": false,
+  "troncato": false,
+  "omesse_esatte": true,
+  "omesse": { "categorie_omesse": 0, "ragioni_omesse": 0,
+              "esempi_omessi": 0, "omesse_per_byte": 0 },
+  "counts": [ { "categoria": "coercion tipo attributo", "conteggio": 3 } ],
+  "esempi": [ { "category": "coercion tipo attributo",
+                "layer_index": 0, "field_index": 4, "type_class": "decimal",
+                "context": "il tipo dell'attributo richiede una coercizione" } ]
+}
 ```
 
-Stato misurato della superficie:
+### I limiti, e chi li decide
 
 | Grandezza | Tetto |
 |---|---|
-| cardinalità di `counts` | nessuno nel contratto; di fatto delimitata da `max_columns` |
-| lunghezza di una chiave di `counts` | **nessuno** |
-| numero di `reasons` | 64 |
-| lunghezza di un `detail` | **nessuno** |
-| byte totali della busta di perdita | **nessuno** |
+| categorie in `counts` | **64** |
+| byte di un identificatore di categoria | **128**, ovunque compaia |
+| ragioni in `reasons` | **64** |
+| esempi in `esempi` | **64** |
+| byte di un `detail` o di un `context` | **512** |
+| byte di una sezione | **12 KiB**, sulla serializzazione effettiva |
+| byte della diagnostica di una busta | **64 KiB** |
 
-`FidelityReason.detail` porta nomi di layer e di attributo e la forma `Debug` di
-tipi di dipendenza. Il vocabolario di `counts` mescola identificatori macchina e
-prosa, quindi un consumatore non può né farne `match` né mostrarlo.
+Nessuno di questi numeri lo decide chi fornisce il file, ed è il cambiamento
+che il v2 porta. Il budget non speso da una sezione **non** passa a un'altra:
+con un consumo sequenziale una sezione grande affamerebbe quelle che la
+seguono, e la stessa sezione produrrebbe un output diverso a seconda di quanto
+ha occupato un'altra.
 
-### Le cinque decisioni aperte
+### Nessun nome preso dal file
 
-1. **Struttura** — `counts` resta indicizzata per stringa, o per un enum chiuso?
-2. **Limiti** — tetto alla cardinalità, tetto in byte per stringa, tetto ai byte
-   totali della busta.
-3. **Redazione** — quali valori possono comparire. La regola degli errori non si
-   applica per analogia: un report di perdita ha lo scopo opposto, cioè dire
-   *quale* colonna si è persa.
-4. **Comportamento al limite** — troncare o rifiutare, che cosa si conserva, e
-   come si dichiara ciò che è stato omesso.
-5. **Versionamento** — qualunque scelta rompe un consumatore che legga le chiavi
-   attuali.
+`reasons[].detail` e `esempi[].context` portano testo **curato**: stabile,
+descrittivo, scritto da noi. Dove si è persa una cosa lo dicono `layer_index` e
+`field_index`, che sono indici e non nomi — e nemmeno un hash dei nomi, che
+resterebbe un identificatore controllato da chi fornisce il file. Il tipo di un
+attributo passa da `type_class`, un vocabolario chiuso nostro, mai dalla forma
+`Debug` di un tipo di dipendenza.
 
-Finché non sono ratificate, **nessuna promessa di compatibilità copre questa
-superficie**, e la voce resta bloccante per il rilascio.
+L'unica eccezione è dichiarata: i **codici numerici** di un registro di
+autorità CRS possono comparire in un `context`, perché senza di loro
+un'incoerenza fra `crs_definition`, `crs_id` e `srid` non è leggibile. Le
+stringhe libere che li accompagnano restano vietate.
+
+### Il troncamento è sempre dichiarato
+
+Quattro cause separate, perché «sono più di sessantaquattro» e «lo spazio è
+finito» portano a decisioni diverse. I conteggi pubblicati restano esatti: si
+omette una voce intera, mai si riscrive un numero. Se nemmeno la dichiarazione
+di troncamento entra nel budget, la CLI **fallisce** invece di pubblicare una
+sezione che tace.
+
+`omesse_esatte` qualifica i quattro contatori: vale `false` quando una perdita
+di esattezza interna li rende limiti inferiori.
+
+### Il v1 resta quello che era
+
+`--legacy-protocol-v1-unsafe` seleziona il protocollo congelato, difetti
+compresi, e lo dice nel nome. I suoi `detail` sono conservati **alla lettera** —
+non ricostruiti — in un campo privato che un solo adattatore legge, e a
+pretendere che il lettore resti uno solo è un gate: la visibilità di Rust non sa
+dire «questo modulo e nessun altro».

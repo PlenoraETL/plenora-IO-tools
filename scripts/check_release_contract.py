@@ -351,9 +351,11 @@ FOGLIE_DICHIARATE = {
     "ultima_misura.copertura.nota": "prosa",
     "chiuso.fuzz_reader_shapefile.nota": "prosa",
     "chiuso.fuzz_filegdb.nota": "prosa",
-    "aperto.loss_report.decisioni_aperte": (
-        "l'elenco delle decisioni aperte del contratto LossReport: non e' "
-        "misurato da niente, ed e' cio' che una ratifica dovra' chiudere"
+    "aperto.loss_report.decisioni_ratificate": (
+        "le cinque decisioni che la ratifica del contratto LossReport ha "
+        "chiuso. Non sono misurate da niente -- sono l'elenco di cio' su cui "
+        "si e' deciso, non di cio' che si e' misurato -- e a verificare che "
+        "quanto deciso sia anche applicato e' la `prova` di `wire.loss-report`"
     ),
     "aperto.lotti.perimetri.s10": "prosa: il perimetro del lotto",
     "aperto.lotti.perimetri.s11": "prosa: il perimetro del lotto",
