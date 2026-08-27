@@ -13,6 +13,7 @@ plenora-io-model = { path = "../plenora-io-model" }
 plenora-io-core = { path = "../plenora-io-core" }
 driver-common = { path = "../driver-common" }
 arrow-array.workspace = true
+arrow-buffer.workspace = true
 arrow-schema.workspace = true
 jsonschema.workspace = true
 parquet.workspace = true

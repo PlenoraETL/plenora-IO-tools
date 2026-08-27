@@ -569,6 +569,7 @@ name = "driver-geoparquet"
 version = "1.0.1"
 dependencies = [
  "arrow-array",
+ "arrow-buffer",
  "arrow-schema",
  "base64",
  "driver-common",

@@ -14,6 +14,7 @@ use arrow_array::{
     new_null_array, Array, ArrayRef, BinaryArray, Float64Array, LargeBinaryArray, RecordBatch,
     RecordBatchOptions, StructArray,
 };
+use arrow_buffer::NullBuffer;
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use parquet::arrow::arrow_reader::{ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder};
 use parquet::arrow::{ArrowWriter, ProjectionMask};
@@ -1446,15 +1447,13 @@ impl FormatWriter for GeoParquetWriter {
         let geom = batch.column(self.geom_idx);
         accumulate_geometry_types(geom, &mut self.geometry_types, &self.wkb_limits)?;
         // Aggiunge la colonna struct `bbox` del covering, per il pruning.
-        let bbox_cols: Vec<ArrayRef> = geom.as_any().downcast_ref::<BinaryArray>().map_or_else(
-            || {
-                vec![new_null_array(
-                    bbox_field(self.geometria_nullable).data_type(),
-                    batch.num_rows(),
-                )]
-            },
-            |binaria| build_bbox_columns(binaria, self.geometria_nullable),
-        );
+        let bbox_cols: Vec<ArrayRef> = match geom.as_any().downcast_ref::<BinaryArray>() {
+            Some(binaria) => build_bbox_columns(binaria, self.geometria_nullable)?,
+            None => vec![new_null_array(
+                bbox_field(self.geometria_nullable).data_type(),
+                batch.num_rows(),
+            )],
+        };
         let mut cols: Vec<ArrayRef> = batch.columns().to_vec();
         cols.extend(bbox_cols);
         let aug = RecordBatch::try_new(self.write_schema.clone(), cols).map_err(|_| {
@@ -2198,7 +2197,7 @@ pub fn wkb_bbox(bytes: &[u8]) -> Option<[f64; 4]> {
 // `minx`/`miny` e `maxx`/`maxy` sono le componenti canoniche di un bounding
 // box: rinominarle per soddisfare `similar_names` peggiorerebbe la leggibilità.
 #[allow(clippy::similar_names)]
-fn build_bbox_columns(geom: &BinaryArray, geometria_nullable: bool) -> Vec<ArrayRef> {
+fn build_bbox_columns(geom: &BinaryArray, geometria_nullable: bool) -> Result<Vec<ArrayRef>> {
     let rows = geom.len();
     // Un array di quattro colonne, non quattro variabili in una tupla: sono i
     // quattro spigoli nell'ordine di `BBOX_SPIGOLI`, e il tipo lo dice.
@@ -2213,22 +2212,34 @@ fn build_bbox_columns(geom: &BinaryArray, geometria_nullable: bool) -> Vec<Array
             valori.push(bbox.map(|bbox| bbox[spigolo]));
         }
     }
-    // I quattro figli entrano in una struct sola. I nulli stanno **nei figli**
-    // e non nel buffer della struct: dove non c'e' geometria non c'e' riquadro,
-    // e `wkb_bbox` ha gia' restituito `None` per quelle righe. Le statistiche
-    // che il pruning legge sono quelle delle foglie, ed e' li' che il nullo
-    // deve comparire.
-    let figli: Vec<(Arc<Field>, ArrayRef)> = BBOX_SPIGOLI
+    // I quattro figli entrano in una struct sola, e la struct porta **la bitmap
+    // di validita' della geometria**.
+    //
+    // Metterla soltanto nei figli non basta, ed era il difetto: `StructArray::from`
+    // costruisce la struct con `nulls: None`, cosi' il `bbox` risultava
+    // **presente** anche sulle righe senza geometria. GeoParquet 1.1 chiede un
+    // riquadro se e solo se la geometria c'e', e un `bbox` presente con quattro
+    // figli nulli afferma un'altra cosa: afferma che il riquadro esiste e non si
+    // conosce.
+    let campi: Vec<Arc<Field>> = BBOX_SPIGOLI
         .into_iter()
-        .zip(colonne)
-        .map(|(spigolo, valori)| {
-            (
-                Arc::new(Field::new(spigolo, DataType::Float64, geometria_nullable)),
-                Arc::new(Float64Array::from(valori)) as ArrayRef,
-            )
-        })
+        .map(|spigolo| Arc::new(Field::new(spigolo, DataType::Float64, geometria_nullable)))
         .collect();
-    vec![Arc::new(StructArray::from(figli))]
+    let valori: Vec<ArrayRef> = colonne
+        .into_iter()
+        .map(|valori| Arc::new(Float64Array::from(valori)) as ArrayRef)
+        .collect();
+    let validita = geometria_nullable.then(|| {
+        (0..rows)
+            .map(|row| !geom.is_null(row))
+            .collect::<NullBuffer>()
+    });
+    let struttura = StructArray::try_new(campi.into(), valori, validita).map_err(|_| {
+        fmt_err(&PublicMessage::Curated(
+            "costruzione della colonna del covering fallita",
+        ))
+    })?;
+    Ok(vec![Arc::new(struttura)])
 }
 
 /// Estrae dai metadati `geo.columns.<primary>.covering.bbox` la lista dei
@@ -2648,6 +2659,82 @@ mod tests {
         byte.extend_from_slice(&y.to_le_bytes());
         byte.extend_from_slice(&m.to_le_bytes());
         byte
+    }
+
+    #[test]
+    fn dove_la_geometria_e_nulla_il_covering_e_nullo() {
+        // GeoParquet 1.1 chiede un riquadro **se e solo se** la geometria c'e'.
+        //
+        // La prima stesura metteva i nulli soltanto nei quattro figli e
+        // costruiva la struct con `StructArray::from`, che la crea senza bitmap
+        // di validita': il `bbox` risultava allora **presente** su ogni riga, e
+        // su quelle senza geometria affermava che il riquadro esiste e non si
+        // conosce. Lo schema Parquet non lo mostrava -- i campi erano gia'
+        // marcati opzionali -- e solo i valori riletti lo dicono.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = dir.path().join("con_nulli.parquet");
+        let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )
+        .with_metadata(geometry_field_meta("OGC:CRS84"))]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![
+                Some(punto.as_slice()),
+                None,
+            ]))],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut writer = GeoParquetDriver
+            .create(Sink::Path(percorso.clone()), &plan, &opzioni_scrittura())
+            .expect("il writer si apre");
+        writer.write(&batch).expect("il batch si scrive");
+        writer.finish().expect("il file si pubblica");
+
+        // Si rilegge il Parquet **grezzo**: il driver toglie il covering dallo
+        // schema esposto, quindi passando da `open` non lo si vedrebbe.
+        let riletto = File::open(&percorso).expect("il file esiste");
+        let mut lettore = ParquetRecordBatchReaderBuilder::try_new(riletto)
+            .expect("Parquet valido")
+            .build()
+            .expect("lettore");
+        let riga = lettore
+            .next()
+            .expect("almeno un batch")
+            .expect("batch leggibile");
+        let indice = riga
+            .schema()
+            .index_of(BBOX_STRUCT)
+            .expect("la colonna del covering c'e'");
+        let bbox = riga
+            .column(indice)
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .expect("il covering e' una struct");
+        assert!(!bbox.is_null(0), "dove la geometria c'e', il riquadro c'e'");
+        assert!(
+            bbox.is_null(1),
+            "dove la geometria non c'e', il riquadro non c'e'"
+        );
+        // E i figli seguono la struct, invece di contraddirla.
+        for spigolo in 0..4 {
+            assert!(
+                bbox.column(spigolo).is_null(1),
+                "anche lo spigolo {spigolo} e' nullo sulla riga senza geometria"
+            );
+        }
     }
 
     #[test]
