@@ -936,7 +936,8 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
         return loss;
     };
 
-    for layer in &plan.layers {
+    for (indice_layer, layer) in plan.layers.iter().enumerate() {
+        let layer_index = Some(saturating_u64(indice_layer));
         if let Some(geometry) = &layer.contract.geometry {
             let (crs_id, crs_definition) = match &geometry.crs {
                 CrsResolution::Resolved(crs) => (crs.id.as_deref(), crs.definition.as_deref()),
@@ -947,24 +948,33 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
             };
             record_crs_representation_loss(
                 &mut loss,
-                &layer.name,
-                &geometry.name,
+                Posizione {
+                    layer_index,
+                    field_index: indice_della_geometria(layer, &geometry.name),
+                    type_class: None,
+                },
                 RappresentazioneDelCrs::CrsId,
                 crs_id.map(str::len),
                 capabilities.crs_representations.crs_id,
             );
             record_crs_representation_loss(
                 &mut loss,
-                &layer.name,
-                &geometry.name,
+                Posizione {
+                    layer_index,
+                    field_index: indice_della_geometria(layer, &geometry.name),
+                    type_class: None,
+                },
                 RappresentazioneDelCrs::Srid,
                 geometry.srid.map(|srid| srid.to_string().len()),
                 capabilities.crs_representations.srid,
             );
             record_crs_representation_loss(
                 &mut loss,
-                &layer.name,
-                &geometry.name,
+                Posizione {
+                    layer_index,
+                    field_index: indice_della_geometria(layer, &geometry.name),
+                    type_class: None,
+                },
                 RappresentazioneDelCrs::CrsDefinition,
                 crs_definition.map(str::len),
                 capabilities.crs_representations.crs_definition,
@@ -976,7 +986,7 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
             .geometry
             .as_ref()
             .map(|geometry| geometry.name.as_str());
-        for field in layer.contract.schema.fields() {
+        for (indice_campo, field) in layer.contract.schema.fields().iter().enumerate() {
             if geometry_name == Some(field.name().as_str()) || is_geometry_field(field) {
                 continue;
             }
@@ -996,7 +1006,12 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                 loss.record("coercion tipo attributo", 1);
                 loss.add_example(LossExample {
                     category: "coercion tipo attributo".to_owned(),
-                    context: format!("layer={} field={}", layer.name, field.name()),
+                    posizione: Posizione {
+                        layer_index,
+                        field_index: Some(saturating_u64(indice_campo)),
+                        type_class: Some(type_class),
+                    },
+                    context: "il tipo dell'attributo richiede una coercizione".to_owned(),
                 });
             }
         }
@@ -1053,10 +1068,26 @@ const SRID_NOT_PRESERVED_DERIVED: &str = "srid_not_preserved_derived";
 const CRS_DEFINITION_NOT_PRESERVED_ABSENT: &str = "crs_definition_not_preserved_absent";
 const CRS_DEFINITION_NOT_PRESERVED_DERIVED: &str = "crs_definition_not_preserved_derived";
 
+/// L'indice della colonna geometrica in `schema.fields()`.
+///
+/// Il contratto nomina la geometria, la posizione la conta: e' la stessa
+/// sequenza che gli altri `field_index` indicizzano, quindi il numero e'
+/// confrontabile con i loro. `None` se il contratto nomina una colonna che lo
+/// schema non ha -- che sarebbe un'incoerenza da dichiarare altrove, non da
+/// nascondere qui con uno zero.
+fn indice_della_geometria(layer: &crate::request::WriteLayer, nome: &str) -> Option<u64> {
+    layer
+        .contract
+        .schema
+        .fields()
+        .iter()
+        .position(|field| field.name() == nome)
+        .map(saturating_u64)
+}
+
 fn record_crs_representation_loss(
     loss: &mut LossReport,
-    layer: &str,
-    field: &str,
+    dove: Posizione,
     representation: RappresentazioneDelCrs,
     value_bytes: Option<usize>,
     state: CrsRepresentationState,
@@ -1072,11 +1103,13 @@ fn record_crs_representation_loss(
     };
     let nome = representation.nome();
     loss.record(category, 1);
+    // `nome` viene dal nostro vocabolario chiuso e `value_bytes` e' una
+    // lunghezza: nessuno dei due e' un identificatore preso dal file. Dove si
+    // sia persa la rappresentazione lo dice `posizione`.
     loss.add_example(LossExample {
         category: category.to_owned(),
-        context: format!(
-            "layer={layer} field={field} representation={nome} value_bytes={value_bytes}"
-        ),
+        posizione: dove,
+        context: format!("representation={nome} value_bytes={value_bytes}"),
     });
 }
 
@@ -2776,9 +2809,14 @@ mod tests {
             loss.counts.get(crate::INCONSISTENT_CRS_REPRESENTATIONS),
             Some(&1)
         );
-        assert_eq!(loss.examples().len(), 1);
-        assert!(loss.examples()[0].context.contains("crs_id=EPSG:4326"));
-        assert!(loss.examples()[0].context.contains("srid=3003"));
+        assert_eq!(loss.esempi_trattenuti(), 1);
+        let esempio = loss.esempi_canonici().next().expect("un esempio");
+        // `crs_id` non c'e' piu': e' un identificatore che viene dal file. I
+        // tre SRID restano, perche' sono codici di autorita' e sono **la cosa**
+        // che l'esempio deve dire.
+        assert!(!esempio.context.contains("EPSG:4326"));
+        assert!(esempio.context.contains("srid=3003"));
+        assert!(esempio.context.contains("definition_epsg="));
     }
 
     #[test]
@@ -2797,24 +2835,33 @@ mod tests {
         let mut loss = LossReport::default();
         record_crs_representation_loss(
             &mut loss,
-            "layer",
-            "geometry",
+            Posizione {
+                layer_index: Some(0),
+                field_index: Some(0),
+                type_class: None,
+            },
             RappresentazioneDelCrs::CrsId,
             Some(9),
             CrsRepresentationState::Derived,
         );
         record_crs_representation_loss(
             &mut loss,
-            "layer",
-            "geometry",
+            Posizione {
+                layer_index: Some(0),
+                field_index: Some(0),
+                type_class: None,
+            },
             RappresentazioneDelCrs::Srid,
             Some(4),
             CrsRepresentationState::Absent,
         );
         record_crs_representation_loss(
             &mut loss,
-            "layer",
-            "geometry",
+            Posizione {
+                layer_index: Some(0),
+                field_index: Some(0),
+                type_class: None,
+            },
             RappresentazioneDelCrs::CrsDefinition,
             Some(42),
             CrsRepresentationState::Preserved,
@@ -2826,8 +2873,7 @@ mod tests {
             .counts
             .contains_key("crs_definition_not_preserved_absent"));
         assert!(loss
-            .examples()
-            .iter()
+            .esempi_canonici()
             .any(|example| example.context.contains("value_bytes=9")));
     }
 

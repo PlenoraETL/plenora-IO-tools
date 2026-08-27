@@ -1541,7 +1541,7 @@ mod tests {
     /// dichiarati, e la sezione porta la propria dichiarazione di troncamento
     /// anche quando non ha troncato niente: una dichiarazione che compare solo
     /// quando serve non e' una garanzia.
-    fn perdita_v2_attesa(lossless: bool, conteggi: &[(&str, u64)]) -> Value {
+    fn perdita_v2_attesa(lossless: bool, conteggi: &[(&str, u64)], esempi: &[Value]) -> Value {
         let counts: Vec<Value> = conteggi
             .iter()
             .map(|(categoria, conteggio)| {
@@ -1551,7 +1551,9 @@ mod tests {
         serde_json::json!({
             "lossless": lossless,
             "counts": counts,
+            "esempi": esempi,
             "troncato": false,
+            "omesse_esatte": true,
             "omesse": {
                 "categorie_omesse": 0,
                 "ragioni_omesse": 0,
@@ -2364,9 +2366,19 @@ mod tests {
         assert_candidate_envelope("convert", &document);
         assert_eq!(
             document["read_loss"],
-            perdita_v2_attesa(false, &[("inconsistent_crs_representations", 1)],)
+            perdita_v2_attesa(
+                false,
+                &[("inconsistent_crs_representations", 1)],
+                // L'esempio esce **redatto**: nessun nome di layer o di
+                // colonna, e i tre SRID -- che sono codici di autorita' e sono
+                // la cosa che l'incoerenza deve dire.
+                &[serde_json::json!({
+                    "category": "inconsistent_crs_representations",
+                    "context": "definition_epsg=absent id_epsg=4326 srid=3003",
+                })],
+            )
         );
-        assert_eq!(document["write_loss"], perdita_v2_attesa(true, &[]));
+        assert_eq!(document["write_loss"], perdita_v2_attesa(true, &[], &[]));
         assert_eq!(document["conversion_fidelity"]["level"], "approximating");
 
         let reopened = driver

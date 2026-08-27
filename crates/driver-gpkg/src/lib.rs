@@ -640,6 +640,50 @@ struct GpkgReader {
     reported: BTreeSet<(String, &'static str)>,
 }
 
+impl GpkgReader {
+    /// L'indice di una colonna in `schema.fields()`, risolto dal nome.
+    ///
+    /// E' la stessa sequenza che indicizzano gli altri `field_index`, quindi il
+    /// numero e' confrontabile con i loro. `None` se lo schema non ha una
+    /// colonna con quel nome, che sarebbe un'incoerenza da dichiarare altrove
+    /// e non da nascondere qui con uno zero.
+    ///
+    /// Il chiamante lo calcola **prima** di `self.loss.add_example`: dentro
+    /// l'argomento sarebbe un prestito di `self` dentro un prestito mutabile.
+    /// L'esempio **redatto** di una coercizione osservata su una colonna.
+    ///
+    /// Il nome della colonna non entra: al suo posto c'e' l'indice, e
+    /// `dettaglio` viene dal nostro vocabolario di coercizioni, non dal file.
+    /// Si costruisce **prima** di `self.loss.add_example`, perche' dentro
+    /// l'argomento sarebbe un prestito di `self` dentro un prestito mutabile.
+    fn esempio_di_coercizione(
+        &self,
+        nome: &str,
+        categoria: &str,
+        dettaglio: &str,
+    ) -> plenora_io_core::loss::LossExample {
+        plenora_io_core::loss::LossExample {
+            category: categoria.to_owned(),
+            posizione: plenora_io_core::loss::Posizione {
+                layer_index: None,
+                field_index: self.indice_nello_schema(nome),
+                type_class: None,
+            },
+            context: dettaglio.to_owned(),
+        }
+    }
+
+    fn indice_nello_schema(&self, nome: &str) -> Option<u64> {
+        self.layer
+            .contract
+            .schema
+            .fields()
+            .iter()
+            .position(|campo| campo.name() == nome)
+            .map(|indice| indice as u64)
+    }
+}
+
 impl LayerReader for GpkgReader {
     fn contract(&self) -> &LayerContract {
         &self.layer
@@ -718,11 +762,9 @@ impl LayerReader for GpkgReader {
                 let category = coercion.category();
                 self.loss.record(category, 1);
                 let name = self.attrs[i].0.clone();
+                let esempio = self.esempio_di_coercizione(&name, category, coercion.detail());
                 if self.reported.insert((name.clone(), category)) {
-                    self.loss.add_example(plenora_io_core::loss::LossExample {
-                        category: category.to_owned(),
-                        context: format!("field={name}: {}", coercion.detail()),
-                    });
+                    self.loss.add_example(esempio);
                 }
             }
             count += 1;
@@ -2364,11 +2406,12 @@ mod tests {
         // Il 7.0 convertito dall'affinita' non e' una perdita.
         assert_eq!(loss.counts.values().sum::<u64>(), 2);
         // Un esempio per coppia (campo, categoria), mai uno per riga.
-        assert_eq!(loss.examples().len(), 2);
-        assert!(loss
-            .examples()
-            .iter()
-            .all(|example| example.context.starts_with("field=id:")));
+        assert_eq!(loss.esempi_trattenuti(), 2);
+        // Il nome della colonna non c'e' piu': al suo posto l'indice nello
+        // schema, e i due esempi restano distinti per quello.
+        assert!(loss.esempi_canonici().all(|example| {
+            !example.context.contains("field=") && example.posizione.field_index.is_some()
+        }));
     }
 
     /// Le due guardie difensive non sono raggiungibili da un file: `SQLite`

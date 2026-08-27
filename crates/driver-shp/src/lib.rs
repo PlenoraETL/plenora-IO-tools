@@ -42,7 +42,7 @@ use plenora_io_core::driver::{
     spawn_batch_reader, BatchEmitter, FormatDriver, FormatWriter, LayerReader, OpenDatasetHandle,
     Published, ReadOptions, Sink, Source, WriteOptions,
 };
-use plenora_io_core::loss::{LossExample, LossReport};
+use plenora_io_core::loss::{LossExample, LossReport, Posizione};
 use plenora_io_core::publish::{
     create_staged_dir, publish_dir_atomic, publish_files_ordered_limited,
 };
@@ -2968,9 +2968,24 @@ fn infer_shp_schema(path: &Path) -> Result<ShpInference> {
     for name in precision_risk_fields {
         loss.add_example(LossExample {
             category: DBF_NUMERIC_INTEGER_PRECISION_UNVERIFIABLE.to_owned(),
-            context: format!(
-                "field={name}: DBF Numeric già decodificato come f64 senza precisione intera unitaria"
-            ),
+            posizione: Posizione {
+                layer_index: None,
+                // L'indice in `schema.fields()`, non in `cols`: lo schema mette
+                // la geometria **prima** delle colonne DBF, quindi la colonna
+                // `i`-esima di `cols` e' la `i+1`-esima dello schema. Il numero
+                // deve essere confrontabile con gli altri `field_index`, che
+                // quella sequenza indicizzano. L'accoppiamento e' verificato
+                // dalla sonda `la_geometria_e_il_primo_campo_dello_schema`:
+                // se un giorno lo schema cambiasse ordine, questo `+ 1`
+                // sarebbe sbagliato e nessuno se ne accorgerebbe.
+                field_index: columns
+                    .iter()
+                    .position(|column| column.name == name)
+                    .map(|i| (i + 1) as u64),
+                type_class: None,
+            },
+            context: "DBF Numeric già decodificato come f64 senza precisione intera unitaria"
+                .to_owned(),
         });
     }
     Ok(ShpInference {
@@ -4753,6 +4768,23 @@ mod tests {
         assert_eq!(rows, vec![8, 8]);
 
         let complete_dataset = ShpDriver.open(Source::Path(path), read_opts()).unwrap();
+        // L'accoppiamento su cui poggia il `field_index` degli esempi: lo schema
+        // mette la geometria **davanti** alle colonne DBF, e l'indice pubblicato
+        // e' `posizione in cols + 1`. Se l'ordine cambiasse, quegli indici
+        // indicherebbero la colonna sbagliata e nessuno se ne accorgerebbe.
+        {
+            let contratto = &complete_dataset.layers()[0];
+            assert_eq!(
+                contratto.contract.schema.field(0).name(),
+                &contratto
+                    .contract
+                    .geometry
+                    .as_ref()
+                    .expect("uno shapefile ha una geometria")
+                    .name,
+                "la geometria deve essere il primo campo dello schema"
+            );
+        }
         let mut complete_request = request;
         complete_request.scope = ReadScope::Complete;
         let mut complete = complete_dataset

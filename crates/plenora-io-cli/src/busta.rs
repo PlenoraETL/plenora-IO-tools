@@ -37,7 +37,8 @@ use serde_json::{json, Map, Value};
 
 use plenora_io_core::descriptor::{ArrowTypeClass, Fidelity};
 use plenora_io_core::loss::{
-    FidelityAssessment, FidelityReason, FidelityReasonCode, LossReport, MAX_FIDELITY_REASONS,
+    FidelityAssessment, FidelityReason, FidelityReasonCode, LossExample, LossReport,
+    MAX_FIDELITY_REASONS, MAX_LOSS_EXAMPLES,
 };
 // Il tetto sull'identificatore viene da `plenora-io-core`. Riscriverlo qui ne
 // farebbe una seconda definizione, e il gate del manifesto confronta il
@@ -138,13 +139,13 @@ pub struct Troncamento {
     pub categorie_omesse: u64,
     /// Ragioni oltre `MAX_FIDELITY_REASONS`.
     pub ragioni_omesse: u64,
-    /// Esempi oltre il proprio tetto di cardinalita'.
+    /// Esempi oltre `MAX_LOSS_EXAMPLES`.
     ///
-    /// Vale sempre zero finche' gli esempi non vanno sul filo: il v2 li
-    /// pubblichera' quando la redazione ci sara', perche' oggi il loro
-    /// `context` porta nomi presi dal file. Il campo c'e' dall'inizio perche'
-    /// e' contratto, e un campo che compare piu' tardi e' un cambiamento di
-    /// protocollo.
+    /// Il campo esisteva prima degli esempi sul filo, e valeva sempre zero: era
+    /// dichiarato dall'inizio perche' e' contratto, e un campo che compare piu'
+    /// tardi e' un cambiamento di protocollo. Ora il v2 li pubblica -- la
+    /// redazione c'e', e il `context` non porta piu' nomi presi dal file --
+    /// quindi il contatore conta davvero.
     pub esempi_omessi: u64,
     /// Voci lasciate fuori per un **limite in byte**: quello della singola
     /// voce -- un identificatore oltre 128 byte, un dettaglio oltre 512 -- o
@@ -282,6 +283,9 @@ pub fn sezione_di_perdita(
     //    una dichiarazione che entra solo se avanza spazio non e' una garanzia.
     let mut base = Map::new();
     base.insert("troncato".to_owned(), json!(false));
+    // `false` e non `true`: e' la stringa piu' lunga delle due, e lo spazio si
+    // riserva al caso peggiore come per la dichiarazione di troncamento.
+    base.insert("omesse_esatte".to_owned(), json!(false));
     base.insert("omesse".to_owned(), Troncamento::segnaposto_massimo());
     if byte_serializzati(&Value::Object(base.clone())) > budget {
         return Err(BudgetInsufficiente);
@@ -316,15 +320,67 @@ pub fn sezione_di_perdita(
         },
     );
     troncamento.omesse_per_byte = troncamento.omesse_per_byte.saturating_add(per_byte);
+    troncamento.omesse_per_byte = troncamento
+        .omesse_per_byte
+        .saturating_add(rapporto.respinti_per_misura());
 
+    // 3. Gli esempi, **fino al budget residuo**: sono l'ultimo blocco
+    //    dell'ordine canonico perche' sono la voce piu' sacrificabile. I
+    //    conteggi devono uscire interi anche quando gli esempi non ci stanno,
+    //    mai il contrario: un conteggio troncato mentirebbe su un numero, un
+    //    esempio omesso e' un'illustrazione in meno e viene dichiarata.
+    //
+    //    Arrivano gia' tutti ammissibili -- categoria entro i 128 byte,
+    //    contesto entro i 512 -- perche' il filtro sta alla porta di
+    //    `LossReport`, e gia' in ordine canonico.
     let mut documento = base;
     documento.insert("counts".to_owned(), counts);
+    troncamento.esempi_omessi = rapporto
+        .esempi_trattenuti()
+        .saturating_sub(MAX_LOSS_EXAMPLES) as u64;
+    let esempi_candidati: Vec<_> = rapporto.esempi_canonici().take(MAX_LOSS_EXAMPLES).collect();
+    let (esempi, esempi_per_byte) = entro_il_budget(
+        &documento,
+        "esempi",
+        &esempi_candidati,
+        budget,
+        |accumulatore: &mut Value, esempio: &&LossExample| {
+            if let Value::Array(voci) = accumulatore {
+                voci.push(documento_dell_esempio(esempio));
+            }
+        },
+    );
+    troncamento.omesse_per_byte = troncamento.omesse_per_byte.saturating_add(esempi_per_byte);
+
+    documento.insert("esempi".to_owned(), esempi);
     documento.insert(
         "troncato".to_owned(),
         json!(!troncamento.niente_di_omesso()),
     );
+    documento.insert("omesse_esatte".to_owned(), json!(rapporto.omesse_esatte()));
     documento.insert("omesse".to_owned(), troncamento.documento());
     Ok((Value::Object(documento), troncamento))
+}
+
+/// Un esempio diagnostico nella sua forma sul filo.
+///
+/// Scritto a mano come tutti i nomi del protocollo, e una sonda pretende che
+/// coincida col derive: cosi' il derive non puo' divergere da questo senza
+/// diventare rosso.
+fn documento_dell_esempio(esempio: &LossExample) -> Value {
+    let mut documento = Map::new();
+    documento.insert("category".to_owned(), json!(esempio.category));
+    if let Some(indice) = esempio.posizione.layer_index {
+        documento.insert("layer_index".to_owned(), json!(indice));
+    }
+    if let Some(indice) = esempio.posizione.field_index {
+        documento.insert("field_index".to_owned(), json!(indice));
+    }
+    if let Some(classe) = esempio.posizione.type_class {
+        documento.insert("type_class".to_owned(), documento_della_classe(classe));
+    }
+    documento.insert("context".to_owned(), json!(esempio.context));
+    Value::Object(documento)
 }
 
 /// Una valutazione di fedelta' dentro il proprio budget.
@@ -598,7 +654,9 @@ mod sonde {
     use super::*;
     // Il tetto sul dettaglio lo applica la porta, in core: le sonde lo
     // prendono da li' invece che dall'adattatore, che non lo nomina piu'.
-    use plenora_io_core::loss::{Posizione, MAX_BYTE_DETTAGLIO, MAX_RAGIONI_TRATTENUTE};
+    use plenora_io_core::loss::{
+        Posizione, MAX_BYTE_DETTAGLIO, MAX_ESEMPI_TRATTENUTI, MAX_RAGIONI_TRATTENUTE,
+    };
 
     fn rapporto_con(categorie: usize, byte_per_id: usize) -> LossReport {
         let mut rapporto = LossReport::default();
@@ -749,6 +807,123 @@ mod sonde {
                 )
             })
             .collect()
+    }
+
+    /// Un esempio con posizione e contesto dati.
+    fn esempio(campo: u64, contesto: &str) -> LossExample {
+        LossExample {
+            category: "coercion tipo attributo".to_owned(),
+            posizione: Posizione {
+                layer_index: Some(0),
+                field_index: Some(campo),
+                type_class: None,
+            },
+            context: contesto.to_owned(),
+        }
+    }
+
+    fn rapporto_con_esempi(esempi: &[LossExample]) -> LossReport {
+        let mut rapporto = LossReport::default();
+        rapporto.record("coercion tipo attributo", 1);
+        for e in esempi {
+            rapporto.add_example(e.clone());
+        }
+        rapporto
+    }
+
+    #[test]
+    fn un_esempio_fuori_misura_non_sfratta_un_esempio_valido() {
+        // Stesso difetto delle ragioni, e stessa correzione: il filtro sta alla
+        // porta, quindi le fuori misura non occupano il trattenimento.
+        let fuori: Vec<_> = (0..u64::try_from(MAX_ESEMPI_TRATTENUTI).unwrap())
+            .map(|i| esempio(i, &"x".repeat(MAX_BYTE_DETTAGLIO + 1)))
+            .collect();
+        let validi: Vec<_> = (0..u64::try_from(MAX_LOSS_EXAMPLES).unwrap())
+            .map(|i| esempio(i, "il tipo dell'attributo richiede una coercizione"))
+            .collect();
+
+        for (nome, ordine) in [
+            (
+                "prima i fuori misura",
+                [fuori.clone(), validi.clone()].concat(),
+            ),
+            ("prima i validi", [validi, fuori].concat()),
+        ] {
+            let (sezione, troncamento) =
+                sezione_di_perdita(&rapporto_con_esempi(&ordine), BYTE_PER_SEZIONE)
+                    .expect("budget");
+            assert_eq!(
+                sezione["esempi"].as_array().map(Vec::len),
+                Some(MAX_LOSS_EXAMPLES),
+                "{nome}: gli ammissibili devono uscire tutti"
+            );
+            assert_eq!(troncamento.esempi_omessi, 0, "{nome}");
+            assert!(troncamento.omesse_per_byte > 0, "{nome}");
+            assert_eq!(sezione["omesse_esatte"], json!(false), "{nome}");
+        }
+    }
+
+    #[test]
+    fn una_categoria_fuori_misura_non_entra_nemmeno_in_un_esempio() {
+        // Il tetto sull'identificatore vale **ovunque compaia**: limitarlo in
+        // `counts` e non negli esempi vorrebbe dire che i dodici KiB li decide
+        // la meta' senza tetto.
+        let mut lungo = esempio(0, "contesto breve");
+        lungo.category = "c".repeat(MAX_BYTE_ID_CATEGORIA + 1);
+        let (sezione, troncamento) =
+            sezione_di_perdita(&rapporto_con_esempi(&[lungo]), BYTE_PER_SEZIONE).expect("budget");
+        assert_eq!(sezione["esempi"].as_array().map(Vec::len), Some(0));
+        assert!(troncamento.omesse_per_byte > 0);
+        assert_eq!(sezione["omesse_esatte"], json!(false));
+    }
+
+    #[test]
+    fn la_fusione_degli_esempi_e_componibile() {
+        // `merge` concatenava e troncava, quindi fondere A con B dava un
+        // risultato diverso da fondere B con A: la diagnostica cambiava a
+        // seconda di come gli adattatori erano stati composti.
+        let a: Vec<_> = (0..40).map(|i| esempio(i, "primo insieme")).collect();
+        let b: Vec<_> = (30..80).map(|i| esempio(i, "secondo insieme")).collect();
+
+        let mut ab = rapporto_con_esempi(&a);
+        ab.merge(&rapporto_con_esempi(&b));
+        let mut ba = rapporto_con_esempi(&b);
+        ba.merge(&rapporto_con_esempi(&a));
+
+        let (sezione_ab, tr_ab) = sezione_di_perdita(&ab, BYTE_PER_SEZIONE).expect("budget");
+        let (sezione_ba, tr_ba) = sezione_di_perdita(&ba, BYTE_PER_SEZIONE).expect("budget");
+        assert_eq!(
+            sezione_ab, sezione_ba,
+            "l'unione non deve dipendere dall'ordine"
+        );
+        assert_eq!(tr_ab, tr_ba);
+    }
+
+    #[test]
+    fn la_forma_di_un_esempio_coincide_col_derive() {
+        // Come per le ragioni: l'adattatore resta scritto a mano e autorevole,
+        // e la sonda impedisce al derive di divergere da lui.
+        let vuoto = LossExample {
+            category: "coercion tipo attributo".to_owned(),
+            posizione: Posizione::default(),
+            context: "con \"virgolette\" e accènti".to_owned(),
+        };
+        let pieno = LossExample {
+            category: "coercion tipo attributo".to_owned(),
+            posizione: Posizione {
+                layer_index: Some(2),
+                field_index: Some(5),
+                type_class: Some(ArrowTypeClass::Temporal),
+            },
+            context: "il tipo dell'attributo richiede una coercizione".to_owned(),
+        };
+        for esempio in [&vuoto, &pieno] {
+            assert_eq!(
+                documento_dell_esempio(esempio),
+                serde_json::to_value(esempio).expect("serializzabile"),
+                "adattatore e derive divergono su {esempio:?}"
+            );
+        }
     }
 
     #[test]

@@ -42,7 +42,7 @@
   "ordine_dentro_una_sezione_di_perdita": [
     "metadati di troncamento",
     "counts, con i conteggi esatti",
-    "esempi, fino al budget residuo"
+    "esempi, fino al budget residuo -- redatti, e dal 2026-08-27 effettivamente pubblicati"
   ],
   "troncamento": {
     "sempre_dichiarato": "nessuna voce esce in silenzio. Il campo `troncato` dice se qualcosa manca, e `omesse` dice **quanto** e **per quale delle quattro ragioni**.",
@@ -54,6 +54,8 @@
     },
     "perche_separate": "sono quattro modi diversi di restare fuori, e portano a decisioni diverse: «ci sono piu' di sessantaquattro categorie» e «lo spazio e' finito» non si somministrano allo stesso lettore nello stesso modo. Sommarle in un numero solo direbbe che qualcosa e' stato tolto senza dire che cosa.",
     "i_conteggi_restano_esatti": "si omette una voce intera, mai si riscrive un conteggio. Un `12` al posto di `300` sarebbe un valore che significa due cose.",
+    "forma_di_un_esempio": "`category` dal vocabolario chiuso, gli indici piatti di `posizione` -- `layer_index`, `field_index`, `type_class`, tutti opzionali -- e `context`, testo **curato**. Gli esempi sono il terzo blocco dell'ordine canonico ed escono **fino al budget residuo**: sono la voce piu' sacrificabile, e i conteggi devono uscire interi anche quando gli esempi non ci stanno, mai il contrario. Un conteggio troncato mentirebbe su un numero; un esempio omesso e' un'illustrazione in meno, ed e' dichiarata in `esempi_omessi`.",
+    "codici_di_autorita_ammessi": "i codici numerici di un registro di autorita' CRS -- EPSG e simili -- **possono** comparire nel `context` di un esempio, ed e' un'eccezione dichiarata e non un'omissione. Vengono dal file, ma non sono identificatori scelti da chi lo fornisce: sono numeri di un registro pubblico, di cardinalita' e forma note, e senza di loro un'incoerenza fra `crs_definition`, `crs_id` e `srid` non e' leggibile -- l'esempio direbbe che tre valori discordano senza dire quali. Restano vietate le stringhe libere che li accompagnano, `crs_id` compreso: quella e' testo che il file decide. La resa e' **nostra** e non quella di un tipo di libreria: un codice assente si scrive `absent`, mai `None`, e uno presente si scrive col numero nudo, mai `Some(4326)`. Un consumatore che facesse `match` sulla forma `Debug` di un `Option` dipenderebbe da come si stampa un tipo che non e' nostro.",
     "omesse_esatte": "un **qualificatore sull'esattezza** dei quattro contatori, non una quinta causa di omissione. Vale `false` per qualunque perdita di esattezza interna -- il trattenimento che satura, una voce respinta perche' fuori misura -- e allora i quattro sono **limiti inferiori**. Una voce respinta non si conserva, quindi non si puo' sapere se un'altra respinta le fosse identica: il conteggio delle respinte e' deduplicato sulla sola coppia `(code, posizione)`, che non e' un'identita' esatta, ed e' per questo che qualunque respinta rende il campo `false`. Una diagnostica che tacesse la propria approssimazione sarebbe peggio di una troncata, che almeno lo dichiara.",
     "fallire_chiusi": "se nemmeno la struttura minima -- la sola dichiarazione di troncamento -- entra nel budget della sezione, la CLI **fallisce** invece di pubblicare una sezione senza dichiarazione. La sola cosa peggiore di una diagnostica troncata e' una troncata che tace."
   },
@@ -223,15 +225,19 @@
     "il_taglio_non_dipende_dall_ordine_di_inserimento",
     "il_tetto_complessivo_e_verificato_sull_insieme",
     "il_v1_deduplica_sulla_chiave_vecchia_e_il_v2_sulla_canonica",
+    "la_forma_di_un_esempio_coincide_col_derive",
     "la_forma_scritta_a_mano_coincide_col_derive",
+    "la_fusione_degli_esempi_e_componibile",
     "la_sessantacinquesima_categoria_resta_fuori_ed_e_dichiarata",
     "la_sezione_v2_non_dipende_dall_ordine_di_inserimento",
     "la_stessa_ragione_offerta_molte_volte_e_una_sola_omissione",
     "le_ragioni_entrano_in_ordine_canonico_e_il_resto_e_dichiarato",
     "senza_spazio_per_la_dichiarazione_si_fallisce_chiusi",
     "un_dettaglio_di_cinquecentotredici_byte_resta_fuori",
+    "un_esempio_fuori_misura_non_sfratta_un_esempio_valido",
     "un_identificatore_di_centoventinove_byte_resta_fuori",
     "un_identificatore_unicode_si_misura_in_byte",
+    "una_categoria_fuori_misura_non_entra_nemmeno_in_un_esempio",
     "una_sezione_di_fedelta_senza_spazio_fallisce_chiusa",
     "una_voce_fuori_misura_non_sfratta_una_voce_valida"
   ],

@@ -55,11 +55,36 @@ pub const MAX_BYTE_DETTAGLIO: usize = 512;
 /// Categoria stabile per R4.3.1/R4.6.1, leggibile dagli harness di conformità.
 pub const INCONSISTENT_CRS_REPRESENTATIONS: &str = "inconsistent_crs_representations";
 
-#[derive(Clone, Debug, Serialize)]
+/// Un esempio diagnostico, nella forma che il v2 pubblica.
+///
+/// L'ordine dei campi **e'** l'ordine canonico: `category`, poi `posizione`,
+/// poi `context`. Il derive di `Ord` lo prende da qui, quindi spostarli
+/// cambierebbe il punto in cui la sezione taglia.
+///
+/// Non c'e' un `context_v1` e non ci deve essere: il v1 pubblica solo
+/// `lossless` e `counts`, quindi gli esempi non hanno un passato congelato da
+/// conservare. Il vecchio `context` con `layer=` e `field=` non sopravvive in
+/// nessuna forma -- non e' mai andato sul filo.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct LossExample {
     pub category: String,
-    /// Descrizione strutturale, mai il valore sensibile (es. "layer=X row=12").
+    #[serde(flatten)]
+    pub posizione: Posizione,
+    /// Descrizione **curata**: strutturale, stabile, e mai un nome che viene
+    /// dal file. Dove si e' persa una cosa lo dice `posizione`.
     pub context: String,
+}
+
+impl LossExample {
+    /// Entra in cio' che il v2 puo' pubblicare?
+    ///
+    /// Il tetto sull'identificatore vale **ovunque compaia**, non solo in
+    /// `counts`: limitarlo in meta' sezione e non nell'altra vorrebbe dire che
+    /// i dodici KiB li decide la meta' senza tetto. E `context` prende lo
+    /// stesso tetto di `detail`, perche' sono la stessa specie di stringa.
+    const fn ammissibile(&self) -> bool {
+        self.category.len() <= MAX_BYTE_ID_CATEGORIA && self.context.len() <= MAX_BYTE_DETTAGLIO
+    }
 }
 
 /// I codici con cui una valutazione di fedelta' motiva il proprio livello.
@@ -490,8 +515,23 @@ fn reason_code_for_loss(category: &str) -> FidelityReasonCode {
 pub struct LossReport {
     /// Aggregati per categoria: (categoria -> conteggio).
     pub counts: BTreeMap<String, u64>,
-    /// Esempi diagnostici, limitati a `MAX_LOSS_EXAMPLES`.
-    examples: Vec<LossExample>,
+    /// Gli esempi trattenuti: i **minori** `MAX_ESEMPI_TRATTENUTI` per chiave
+    /// canonica, tutti ammissibili sul filo.
+    ///
+    /// Erano i primi 64 per inserimento, e la selezione dipendeva percio' da
+    /// quali adattatori fossero stati composti: `merge` concatenava e troncava,
+    /// quindi fondere A con B dava un risultato diverso da fondere B con A.
+    esempi: BTreeSet<LossExample>,
+    /// Le posizioni degli esempi respinti perche' fuori misura.
+    ///
+    /// La sola `posizione`, e non la categoria: quando e' proprio `category` a
+    /// essere fuori misura non c'e' niente da conservare. Il conteggio e'
+    /// percio' un **limite inferiore**, ed e' la ragione per cui una qualunque
+    /// respinta rende i contatori non esatti.
+    respinti: BTreeSet<Posizione>,
+    /// Qualunque perdita di esattezza interna: trattenimento saturo, o una
+    /// voce respinta per misura.
+    esattezza_persa: bool,
 }
 
 impl LossReport {
@@ -500,16 +540,45 @@ impl LossReport {
         *count = count.saturating_add(n);
     }
 
-    /// Aggiunge un esempio solo finché sotto il tetto (bounded).
+    /// La porta degli esempi: filtro di ammissibilita', poi trattenimento
+    /// canonico con sfratto della maggiore.
     pub fn add_example(&mut self, example: LossExample) {
-        if self.examples.len() < MAX_LOSS_EXAMPLES {
-            self.examples.push(example);
+        if !example.ammissibile() {
+            self.esattezza_persa = true;
+            self.respinti.insert(example.posizione);
+            if self.respinti.len() > MAX_ESEMPI_TRATTENUTI {
+                self.respinti.pop_last();
+            }
+            return;
+        }
+        if self.esempi.insert(example) && self.esempi.len() > MAX_ESEMPI_TRATTENUTI {
+            self.esempi.pop_last();
+            self.esattezza_persa = true;
         }
     }
 
+    /// Gli esempi trattenuti, gia' in ordine canonico.
+    pub fn esempi_canonici(&self) -> impl Iterator<Item = &LossExample> {
+        self.esempi.iter()
+    }
+
+    /// Quanti ne sono trattenuti: il v2 ne pubblica al piu'
+    /// `MAX_LOSS_EXAMPLES`, e la differenza e' `esempi_omessi`.
     #[must_use]
-    pub fn examples(&self) -> &[LossExample] {
-        &self.examples
+    pub fn esempi_trattenuti(&self) -> usize {
+        self.esempi.len()
+    }
+
+    /// Quanti esempi sono stati respinti per misura, come limite inferiore.
+    #[must_use]
+    pub fn respinti_per_misura(&self) -> u64 {
+        self.respinti.len() as u64
+    }
+
+    /// I contatori degli esempi sono esatti?
+    #[must_use]
+    pub const fn omesse_esatte(&self) -> bool {
+        !self.esattezza_persa
     }
 
     #[must_use]
@@ -519,16 +588,26 @@ impl LossReport {
 
     /// Unisce report prodotti da livelli diversi (piano statico, driver,
     /// publish) senza perdere il bound diagnostico.
+    ///
+    /// **Componibile**: e' l'unione di due insiemi canonici, non una
+    /// concatenazione troncata, quindi fondere A con B da' lo stesso risultato
+    /// di fondere B con A. La forma precedente non lo garantiva, e la
+    /// diagnostica cambiava a seconda dell'ordine in cui gli adattatori erano
+    /// stati composti -- cioe' per ragioni che non la riguardano.
     pub fn merge(&mut self, other: &Self) {
         for (category, count) in &other.counts {
             self.record(category, *count);
         }
-        for example in &other.examples {
-            if self.examples.len() >= MAX_LOSS_EXAMPLES {
-                break;
-            }
-            self.examples.push(example.clone());
+        for example in &other.esempi {
+            self.add_example(example.clone());
         }
+        for posizione in &other.respinti {
+            self.respinti.insert(*posizione);
+        }
+        while self.respinti.len() > MAX_ESEMPI_TRATTENUTI {
+            self.respinti.pop_last();
+        }
+        self.esattezza_persa |= other.esattezza_persa;
     }
 }
 
@@ -572,17 +651,39 @@ pub(crate) fn declare_crs_inconsistency(contract: &LayerContract, report: &mut L
     }
 
     report.record(INCONSISTENT_CRS_REPRESENTATIONS, 1);
-    let srid = geometry
-        .srid
-        .map_or_else(|| "<none>".to_owned(), |value| value.to_string());
-    let crs_id = crs_id.map_or("<none>", |value| value);
+    // Ne' `crs_id` ne' il nome del layer o della colonna entrano nel testo: il
+    // primo e' una stringa libera che viene dal file, gli altri due pure.
+    // Restano i tre codici di autorita', che sono numeri di un registro
+    // standard e sono **la cosa** che l'esempio deve dire: senza i tre numeri
+    // l'incoerenza non e' leggibile. Il contratto li autorizza per nome.
+    let _ = crs_id;
     report.add_example(LossExample {
         category: INCONSISTENT_CRS_REPRESENTATIONS.to_owned(),
+        posizione: Posizione {
+            layer_index: None,
+            field_index: None,
+            type_class: None,
+        },
         context: format!(
-            "layer={} field={} definition_epsg={definition_srid:?} crs_id={} srid={srid}",
-            contract.name, geometry.name, crs_id
+            "definition_epsg={} id_epsg={} srid={}",
+            codice_di_autorita(definition_srid),
+            codice_di_autorita(id_srid),
+            codice_di_autorita(native_srid),
         ),
     });
+}
+
+/// Un codice di autorita' nella sua resa **curata**: il numero, oppure
+/// `absent`.
+///
+/// `{:?}` su un `Option` produce `None` e `Some(4326)`, che e' la forma `Debug`
+/// di un tipo della libreria standard: la stessa specie di cosa che la
+/// redazione vieta quando esclude la forma `Debug` dei tipi di dipendenza. Un
+/// consumatore che ne facesse `match` dipenderebbe da come `Option` si stampa,
+/// che non e' un nostro contratto. La resa la scriviamo noi, e resta questa
+/// anche se un giorno il tipo cambiasse.
+fn codice_di_autorita(valore: Option<i64>) -> String {
+    valore.map_or_else(|| "absent".to_owned(), |codice| codice.to_string())
 }
 
 #[cfg(test)]
@@ -655,9 +756,12 @@ mod tests {
         declare_crs_inconsistency(&layer, &mut report);
 
         assert_eq!(report.counts[INCONSISTENT_CRS_REPRESENTATIONS], 1);
-        assert!(report.examples()[0]
+        assert!(report
+            .esempi_canonici()
+            .next()
+            .expect("un esempio")
             .context
-            .contains("definition_epsg=Some(3003)"));
+            .contains("definition_epsg=3003"));
     }
 
     #[test]
