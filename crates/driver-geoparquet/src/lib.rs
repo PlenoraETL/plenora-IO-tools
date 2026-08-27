@@ -1103,6 +1103,9 @@ enum CrsDaScrivere {
 /// ci ha dato.
 const EQUIVALENTI_A_CRS84: [&str; 2] = ["OGC:CRS84", "EPSG:4326"];
 
+/// La versione che questo writer dichiara, e contro cui valida cio' che scrive.
+const VERSIONE_SCRITTA: &str = "1.1.0";
+
 fn crs_da_scrivere(
     geometry: Option<&GeometryColumnContract>,
     legacy_crs_meta: Option<String>,
@@ -1112,11 +1115,26 @@ fn crs_da_scrivere(
         Some(CrsResolution::Resolved(crs)) => crs.definition.as_deref(),
         _ => None,
     };
-    // Una definizione che e' un oggetto JSON e' il documento PROJJSON che il
-    // contratto porta: si emette per intero, che e' cio' che lo schema chiede.
+    // Una definizione che e' un oggetto JSON e' **candidata** a essere il
+    // PROJJSON che il contratto porta. Candidata, non tale: chiamare PROJJSON
+    // qualunque oggetto era il difetto, e produceva file non conformi con la
+    // stessa disinvoltura con cui ne produceva di conformi. Chi decide e' lo
+    // schema, in scrittura come in lettura.
     if let Some(testo) = definizione {
-        if let Ok(serde_json::Value::Object(_)) = serde_json::from_str::<serde_json::Value>(testo) {
-            return Ok(CrsDaScrivere::Documento(testo.to_owned()));
+        if let Ok(serde_json::Value::Object(oggetto)) =
+            serde_json::from_str::<serde_json::Value>(testo)
+        {
+            let documento = serde_json::Value::Object(oggetto);
+            if schema_ufficiale::e_projjson(&documento)? {
+                return Ok(CrsDaScrivere::Documento(testo.to_owned()));
+            }
+            // Si nomina il campo, mai il contenuto: il documento arriva dal
+            // contratto e non entra in un messaggio pubblico.
+            return Err(PlenoraIoError::non_supportato_redatto(
+                &PublicMessage::Curated(
+                    "definizione CRS che non e' un documento PROJJSON valido: `GeoParquet` non ha un modo conforme di scriverla",
+                ),
+            ));
         }
     }
 
@@ -1475,6 +1493,21 @@ impl FormatWriter for GeoParquetWriter {
             ))
         })?;
         let geo = build_geo_metadata(&self.geom_name, &self.geometry_types, &self.crs_meta)?;
+
+        // Ultimo cancello prima della pubblicazione, e lo tiene l'autorita'.
+        //
+        // Le difese a monte sono puntuali -- il CRS qui, i tipi geometrici la',
+        // il covering altrove -- e ciascuna copre il caso che conosce. Questa
+        // copre il documento **intero**, cioe' anche le combinazioni che nessuno
+        // ha previsto. E sta qui, non dopo: un file pubblicato non si ritira, e
+        // se il metadato non e' conforme quel file non deve esistere.
+        let documento: serde_json::Value = serde_json::from_str(&geo).map_err(|_| {
+            fmt_err(&PublicMessage::Curated(
+                "metadato `geo` costruito e non rileggibile come JSON",
+            ))
+        })?;
+        schema_ufficiale::valida(&documento, VERSIONE_SCRITTA)?;
+
         writer.append_key_value_metadata(KeyValue::new("geo".to_owned(), geo));
         writer.close().map_err(|_| {
             fmt_err(&PublicMessage::Curated(
@@ -2466,7 +2499,7 @@ fn build_geo_metadata(
         // contraddizione dentro lo stesso documento, e il lettore che
         // credesse alla versione avrebbe letto un file con le regole di
         // un'altra. La dichiarazione segue cio' che si scrive.
-        "version": "1.1.0",
+        "version": VERSIONE_SCRITTA,
         "primary_column": geom_name,
         "columns": columns,
     })
@@ -2659,6 +2692,104 @@ mod tests {
         byte.extend_from_slice(&y.to_le_bytes());
         byte.extend_from_slice(&m.to_le_bytes());
         byte
+    }
+
+    // --- cio' che il writer pubblica ---------------------------------------
+
+    #[test]
+    fn un_crs_che_non_e_projjson_non_produce_alcun_file() {
+        // Il writer chiamava PROJJSON qualunque oggetto JSON gli arrivasse, e lo
+        // copiava nel metadato senza chiedere niente a nessuno: un `crs` fatto
+        // cosi' produceva un GeoParquet non conforme, pubblicato e indistin-
+        // guibile da uno buono.
+        //
+        // La prova guarda il **filesystem**, non il codice d'errore soltanto: la
+        // promessa e' che un file del genere non esista.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = dir.path().join("mai_scritto.parquet");
+        let crs = ResolvedCrs::new(
+            Some("EPSG:4326".to_owned()),
+            plenora_io_model::crs::CrsKind::Geographic,
+            Some(r#"{"questo":"non e' PROJJSON"}"#.to_owned()),
+        );
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "geometry",
+            DataType::Binary,
+            true,
+        )
+        .with_metadata(geometry_field_meta("EPSG:4326"))]));
+        let mut geometria = GeometryColumnContract::wkb_xy(FieldId(0), "geometry", crs, true);
+        geometria.set_exact_geometry_types(vec![GeometryType::Point]);
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: Some(geometria),
+                },
+            }],
+        };
+        let esito = GeoParquetDriver
+            .create(Sink::Path(percorso.clone()), &plan, &opzioni_scrittura())
+            .map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Unsupported
+            ),
+            "un `crs` che non e' PROJJSON non e' scrivibile in GeoParquet: {esito:?}"
+        );
+        assert!(!percorso.exists(), "e non deve restare niente sul disco");
+    }
+
+    #[test]
+    fn un_metadato_finale_non_conforme_non_viene_pubblicato() {
+        // L'ultimo cancello, esercitato **dall'API pubblica**.
+        //
+        // Lo schema vuole `primary_column` di almeno un carattere. Una colonna
+        // geometrica senza nome e' un contratto che Arrow accetta e che
+        // GeoParquet non puo' rappresentare: il documento si costruisce, e non
+        // e' conforme. Nessuna delle difese puntuali a monte guarda il nome
+        // della colonna -- e' proprio il tipo di caso che nessuno prevede -- e
+        // arriva quindi al controllo finale, che e' li' per questo.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let percorso = dir.path().join("senza_nome.parquet");
+        let punto: Vec<u8> = to_wkb(&Geometry::Point(Point::new(1.0, 2.0))).unwrap();
+        let schema =
+            Arc::new(Schema::new(vec![Field::new("", DataType::Binary, true)
+                .with_metadata(geometry_field_meta("OGC:CRS84"))]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+        )
+        .unwrap();
+        let plan = WritePlan {
+            layers: vec![WriteLayer {
+                name: "l".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        };
+        let mut writer = GeoParquetDriver
+            .create(Sink::Path(percorso.clone()), &plan, &opzioni_scrittura())
+            .expect("il writer si apre: il difetto non e' visibile qui");
+        writer
+            .write(&batch)
+            .expect("il batch si scrive nello staging");
+        let esito = writer.finish().map(|_| ());
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Format
+            ),
+            "un metadato che lo schema ufficiale rifiuta ferma la pubblicazione: {esito:?}"
+        );
+        assert!(
+            !percorso.exists(),
+            "e il file non arriva a destinazione: cio' che e' pubblicato non si ritira"
+        );
     }
 
     #[test]
@@ -4158,20 +4289,76 @@ mod tests {
 
     #[test]
     fn un_crs_con_definizione_projjson_si_scrive_per_intero() {
-        let projjson = r#"{"type":"GeographicCRS","name":"WGS 84"}"#;
+        // Un PROJJSON **completo**: `type`, `name`, `datum` e
+        // `coordinate_system`, che e' cio' che lo schema 0.7 pretende. La prima
+        // stesura di questa sonda ne usava uno di due campi, e passava: era il
+        // writer a non guardare, non il documento a essere valido.
+        let projjson = projjson_crs84();
         let geometry = GeometryColumnContract::wkb_xy(
             FieldId(0),
             "geometry",
             ResolvedCrs::new(
                 Some("OGC:CRS84".to_owned()),
                 CrsKind::Geographic,
-                Some(projjson.to_owned()),
+                Some(projjson.clone()),
             ),
             true,
         );
         assert_eq!(
             crs_da_scrivere(Some(&geometry), None).expect("scrivibile"),
-            CrsDaScrivere::Documento(projjson.to_owned())
+            CrsDaScrivere::Documento(projjson)
+        );
+    }
+
+    /// Un PROJJSON 0.7 valido per CRS84, usato dove ne serve uno vero.
+    fn projjson_crs84() -> String {
+        serde_json::json!({
+            "type": "GeographicCRS",
+            "name": "WGS 84 (CRS84)",
+            "datum": {
+                "type": "GeodeticReferenceFrame",
+                "name": "World Geodetic System 1984",
+                "ellipsoid": {
+                    "name": "WGS 84",
+                    "semi_major_axis": 6_378_137,
+                    "inverse_flattening": 298.257_223_563
+                }
+            },
+            "coordinate_system": {
+                "subtype": "ellipsoidal",
+                "axis": [
+                    {"name": "Geodetic longitude", "abbreviation": "Lon", "direction": "east", "unit": "degree"},
+                    {"name": "Geodetic latitude", "abbreviation": "Lat", "direction": "north", "unit": "degree"}
+                ]
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn un_projjson_incompleto_non_e_scrivibile() {
+        // Il contrario esatto della sonda sopra, e il caso che quella copriva
+        // per sbaglio: un oggetto che si presenta come PROJJSON e non lo e'.
+        // Non e' una questione di forma: `datum` e `coordinate_system` sono cio'
+        // che rende un CRS utilizzabile da chi legge, e un documento che non li
+        // porta non descrive alcun sistema di riferimento.
+        let geometry = GeometryColumnContract::wkb_xy(
+            FieldId(0),
+            "geometry",
+            ResolvedCrs::new(
+                Some("OGC:CRS84".to_owned()),
+                CrsKind::Geographic,
+                Some(r#"{"type":"GeographicCRS","name":"WGS 84"}"#.to_owned()),
+            ),
+            true,
+        );
+        let esito = crs_da_scrivere(Some(&geometry), None);
+        assert!(
+            matches!(
+                esito,
+                Err(ref errore) if errore.code == plenora_io_model::IoErrorCode::Unsupported
+            ),
+            "un PROJJSON incompleto non e' un PROJJSON: {esito:?}"
         );
     }
 

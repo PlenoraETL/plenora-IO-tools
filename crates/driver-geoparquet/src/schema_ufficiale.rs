@@ -72,6 +72,12 @@ pub const VERSIONI_SUPPORTATE: [&str; 2] = ["1.0.0", "1.1.0"];
 struct Validatori {
     v1_0_0: Validator,
     v1_1_0: Validator,
+    /// Il PROJJSON che la 1.1.0 referenzia, interrogabile **da solo**.
+    ///
+    /// Serve in scrittura: un `crs` che non e' PROJJSON va fermato prima di
+    /// creare qualsiasi file, e va fermato dicendo che il difetto sta nel CRS.
+    /// Interrogare il solo PROJJSON e' cio' che permette di dirlo.
+    projjson: Validator,
 }
 
 static VALIDATORI: OnceLock<Result<Validatori, &'static str>> = OnceLock::new();
@@ -120,6 +126,7 @@ fn compila() -> Result<Validatori, &'static str> {
             GEOPARQUET_1_1_0,
             "lo schema GeoParquet 1.1.0 non si compila",
         )?,
+        projjson: compila_uno(PROJJSON_0_7, "lo schema PROJJSON 0.7 non si compila")?,
     })
 }
 
@@ -132,6 +139,20 @@ fn validatori() -> Result<&'static Validatori, PlenoraIoError> {
             "gli schemi `GeoParquet` incorporati non sono utilizzabili",
         ))
     })
+}
+
+/// Il documento e' un PROJJSON 0.7 valido?
+///
+/// E' la stessa autorita' che la 1.1.0 raggiunge per `$ref`, interrogata
+/// direttamente. `Ok(false)` vuol dire «non e' PROJJSON»; l'errore e' riservato
+/// al caso in cui gli schemi incorporati non siano utilizzabili, e allora si
+/// fallisce chiusi come altrove.
+///
+/// # Errors
+///
+/// `Format` se gli schemi incorporati non sono utilizzabili.
+pub fn e_projjson(documento: &Value) -> Result<bool, PlenoraIoError> {
+    Ok(validatori()?.projjson.is_valid(documento))
 }
 
 /// Il documento rispetta lo schema ufficiale della versione che dichiara?
