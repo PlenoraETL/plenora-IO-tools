@@ -69,12 +69,13 @@
     "soglie_sui_byte": "le soglie sono sui byte UTF-8 e non spezzano un carattere: una voce entra intera o resta fuori intera."
   },
   "redazione": {
-    "stato": "decisa, non ancora implementata",
-    "perche_e_qui": "il manifesto e' `in_qualifica` e dichiara la regola prima del codice che la onora, ma lo dice: un manifesto che promette cio' che il codice non fa e' peggio di uno incompleto. Finche' questa voce dice «non ancora implementata», `detail` nel v2 porta ancora i nomi che il v1 portava.",
+    "stato": "implementata",
+    "implementata_il": "2026-08-27",
+    "che_cosa_e_cambiato": "i quattro siti di `assess_write_contract` e i cinque produttori di esempi non mettono piu' nomi presi dal file nel testo che il v2 pubblica: al loro posto ci sono `layer_index`, `field_index` e `type_class`, e il testo e' curato. La frase congelata del v1 e' conservata alla lettera in un campo privato e `#[serde(skip)]`, letto da un solo adattatore -- e a pretendere che il lettore resti uno solo e' `check_confine_v1.py`, perche' la visibilita' di Rust non sa dire «questo modulo e nessun altro». Lo stato cambia **insieme** a quel gate e non prima: una regola dichiarata implementata senza cio' che la verifica e' una promessa, non un fatto.",
     "regola": "nessun nome proveniente dal file compare in `detail` o negli esempi. Le posizioni si dichiarano con indici numerici -- `layer_index`, `field_index` -- e non con i nomi ne' con un loro hash: un hash e' ancora un identificatore controllato da chi fornisce il file, e correlarlo e' banale.",
     "tipi_di_dipendenza": "il tipo di un attributo passa da un vocabolario **nostro** chiuso, mai dalla forma `Debug` di un tipo di dipendenza. Oggi quella forma e' sul filo in tutt'e due i protocolli, e un aggiornamento della dipendenza cambierebbe la busta senza che nessuno tocchi il protocollo.",
     "autorita": "il codice strutturato e' autorevole. L'eventuale testo e' descrittivo e stabile, e non e' un campo su cui costruire un parser.",
-    "come_convivra_col_v1": "il v1 e' congelato e i suoi `detail` devono restare quelli che sono. L'identita' resta percio' **in memoria**, e soltanto l'adattatore v1 -- confinato in un modulo legacy -- puo' pubblicarla. E' lo stesso disegno della chiave dinamica di DXF."
+    "come_convive_col_v1": "il v1 e' congelato e i suoi `detail` restano quelli che erano, **alla lettera**: la frase non si ricostruisce dai pezzi, si conserva. Vive in un campo privato e `#[serde(skip)]` di `FidelityReason`, popolato solo nelle sessantaquattro copie che il v1 pubblica e mai in quelle che il v2 trattiene -- quella stringa porta nomi presi dal file, quindi la sua lunghezza la decide chi fornisce il file, e la struttura che serve il v2 non la contiene affatto. A leggerla e' il solo `mod legacy_v1`, e `check_confine_v1.py` pretende che i lettori restino quelli. E' lo stesso disegno della chiave dinamica di DXF."
   },
   "envelopes": {
     "catalog": {

@@ -616,6 +616,13 @@ passo check_categorie_di_perdita python3 scripts/check_categorie_di_perdita.py
 # ciascuno coerente con se stesso.
 passo sonde_protocollo_v2 python3 -m unittest scripts.test_check_protocollo_v2
 passo check_protocollo_v2 python3 scripts/check_protocollo_v2.py
+# Il confine del v1: `detail_v1()` restituisce i nomi presi dal file, e li
+# pubblica **un solo** adattatore. La visibilita' di Rust non sa dire «questo
+# modulo e nessun altro», e un accessore pubblico e' pubblico: senza questo
+# passo la prima chiamata fuori posto rimetterebbe sul filo del v2 cio' che il
+# v2 esiste per togliere.
+passo sonde_confine_v1 python3 -m unittest scripts.test_check_confine_v1
+passo check_confine_v1 python3 scripts/check_confine_v1.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder

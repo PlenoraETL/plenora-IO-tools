@@ -118,6 +118,14 @@
       "log": true
     },
     {
+      "id": "sonde_confine_v1",
+      "log": true
+    },
+    {
+      "id": "check_confine_v1",
+      "log": true
+    },
+    {
       "id": "sonde_quarantena",
       "log": true
     },
