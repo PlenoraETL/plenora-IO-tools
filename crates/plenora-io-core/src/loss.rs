@@ -4,7 +4,8 @@
 //! Vedi `PRODUCT.md § LossReport`. Aggregato per categoria e **bounded**:
 //! conteggi piu' un numero limitato di esempi, mai una voce per feature.
 
-use std::collections::BTreeMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
@@ -12,12 +13,29 @@ use plenora_io_model::contract::LayerContract;
 use plenora_io_model::crs::{definition_authority_srid, CrsResolution};
 
 use crate::capabilities::known_crs_values_disagree;
-use crate::descriptor::Fidelity;
+use crate::descriptor::{ArrowTypeClass, Fidelity};
 
 /// Tetto agli esempi diagnostici conservati (nessun accumulo illimitato).
 pub const MAX_LOSS_EXAMPLES: usize = 64;
 /// Anche le motivazioni della valutazione restano bounded.
 pub const MAX_FIDELITY_REASONS: usize = 64;
+/// Quante ragioni distinte si trattengono, oltre le `MAX_FIDELITY_REASONS`
+/// che il v2 pubblica.
+///
+/// Trattenerne esattamente 64 renderebbe il taglio dipendente dall'inserimento:
+/// la sessantacinquesima veniva scartata **prima** che l'adattatore ordinasse,
+/// quindi l'insieme conservato dipendeva da quali adattatori fossero stati
+/// composti e in che ordine. Trattenendone di piu' e ordinandole per chiave
+/// canonica, cio' che si pubblica non dipende piu' da come e' arrivato.
+///
+/// Quattro volte il tetto sul filo, e non di piu', perche' e' la memoria a
+/// governare la scelta: un file con mille colonne produce migliaia di ragioni
+/// distinte e satura qualunque soglia ragionevole, quindi alzarla comprerebbe
+/// esattezza solo per file gia' patologici pagandola su tutti gli altri.
+pub const MAX_RAGIONI_TRATTENUTE: usize = 4 * MAX_FIDELITY_REASONS;
+/// Quanti esempi distinti si trattengono, oltre i `MAX_LOSS_EXAMPLES` che il
+/// v2 pubblica. Stessa ragione di `MAX_RAGIONI_TRATTENUTE`.
+pub const MAX_ESEMPI_TRATTENUTI: usize = 4 * MAX_LOSS_EXAMPLES;
 /// Quanti byte UTF-8 puo' misurare l'identificatore di una categoria.
 ///
 /// Vive qui, e non nell'adattatore, perche' il filtro di ammissibilita' e'
@@ -65,10 +83,142 @@ pub enum FidelityReasonCode {
     LossReported,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// Dove si e' persa una cosa, senza dire come si chiama.
+///
+/// Indici e non nomi, e nemmeno un hash dei nomi: un hash resta un
+/// identificatore che chi fornisce il file controlla, e correlarlo e' banale.
+///
+/// `u64` e non `u32` perche' nessun tetto lo giustificherebbe: `max_columns` e'
+/// `u64` nel modello ed e' configurabile, e sui layer non esiste alcun limite.
+/// Entrambi gli indici sono **zero-based**; `field_index` indicizza
+/// `layer.contract.schema.fields()` e conta **anche** la colonna geometrica,
+/// perche' quella e' la sequenza che il ciclo attraversa e un indice che salta
+/// un elemento non e' l'indice di quella sequenza.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct Posizione {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer_index: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_index: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_class: Option<ArrowTypeClass>,
+}
+
+/// Una motivazione della valutazione, nella forma che il v2 pubblica.
+///
+/// `detail` e' **curato**: stabile, descrittivo, e mai un nome che viene dal
+/// file. La parte autorevole e' `posizione`; il testo la descrive e non la
+/// sostituisce, e non e' un campo su cui costruire un parser.
+///
+/// `dettaglio_v1` porta il `detail` **esatto** che il v1 pubblicava, alla
+/// lettera e non ricostruito dai pezzi: e' cio' che rende il congelamento del
+/// v1 una tautologia invece di un invariante da difendere a ogni ritocco di un
+/// `format!`. Vale `None` dove il sito non aveva nomi da togliere, e li' il v1
+/// ricade sul testo curato, che e' gia' identico a quello di prima.
+#[derive(Clone, Debug, Serialize)]
 pub struct FidelityReason {
     pub code: FidelityReasonCode,
     pub detail: String,
+    #[serde(flatten)]
+    pub posizione: Posizione,
+    /// `skip` non e' una precauzione: e' la ragione per cui questo campo puo'
+    /// esistere. Il derive di `Serialize` non deve poter pubblicare i nomi che
+    /// il v2 toglie, e a leggerlo e' il solo adattatore v1.
+    #[serde(skip)]
+    dettaglio_v1: Option<String>,
+}
+
+impl FidelityReason {
+    /// Una ragione senza posizione ne' passato: il caso dei siti che non hanno
+    /// mai portato nomi presi dal file.
+    #[must_use]
+    pub fn nuova(code: FidelityReasonCode, detail: impl Into<String>) -> Self {
+        Self {
+            code,
+            detail: detail.into(),
+            posizione: Posizione::default(),
+            dettaglio_v1: None,
+        }
+    }
+
+    /// Una ragione redatta: testo curato e posizione per il v2, la frase
+    /// congelata per il v1.
+    #[must_use]
+    pub fn redatta(
+        code: FidelityReasonCode,
+        detail: impl Into<String>,
+        posizione: Posizione,
+        dettaglio_v1: impl Into<String>,
+    ) -> Self {
+        Self {
+            code,
+            detail: detail.into(),
+            posizione,
+            dettaglio_v1: Some(dettaglio_v1.into()),
+        }
+    }
+
+    /// Il `detail` che il v1 pubblica.
+    ///
+    /// **Un solo chiamante**, l'adattatore v1, e a verificarlo e' un gate: la
+    /// visibilita' di Rust non sa dire «questo modulo e nessun altro».
+    #[must_use]
+    pub fn detail_v1(&self) -> &str {
+        self.dettaglio_v1.as_deref().unwrap_or(&self.detail)
+    }
+
+    /// La chiave canonica: cio' che il v2 vede, e nient'altro.
+    fn chiave(&self) -> (FidelityReasonCode, Posizione, &str) {
+        (self.code, self.posizione, &self.detail)
+    }
+
+    /// Entra in cio' che il v2 puo' pubblicare?
+    ///
+    /// Il filtro sta **alla porta** e non nell'adattatore: una voce fuori
+    /// misura che venisse trattenuta occuperebbe un posto e potrebbe sfrattare
+    /// una voce valida, e la sezione uscirebbe piu' povera di quanto il tetto
+    /// imponga.
+    const fn ammissibile(&self) -> bool {
+        self.detail.len() <= MAX_BYTE_DETTAGLIO
+    }
+
+    /// La ragione senza il materiale riservato al v1.
+    ///
+    /// Cio' che si trattiene per il v2 non porta mai `dettaglio_v1`: quella
+    /// stringa contiene nomi presi dal file, quindi la sua lunghezza la decide
+    /// chi fornisce il file, e trattenerla su centinaia di copie sarebbe una
+    /// quota di memoria non delimitata. Il beneficio non e' solo la memoria: la
+    /// struttura che serve il v2 non contiene il materiale legacy, quindi non
+    /// puo' perderlo per nessuna via.
+    fn senza_legacy(mut self) -> Self {
+        self.dettaglio_v1 = None;
+        self
+    }
+}
+
+/// `Eq` e `Ord` **non** guardano `dettaglio_v1`.
+///
+/// Se lo guardassero, il materiale riservato al v1 deciderebbe che cosa il v2
+/// considera un duplicato e in che ordine taglia. Cio' che distinguevano i nomi
+/// lo distinguono ora gli indici, che stanno in `posizione`.
+impl PartialEq for FidelityReason {
+    fn eq(&self, altra: &Self) -> bool {
+        self.chiave() == altra.chiave()
+    }
+}
+
+impl Eq for FidelityReason {}
+
+impl PartialOrd for FidelityReason {
+    fn partial_cmp(&self, altra: &Self) -> Option<Ordering> {
+        Some(self.cmp(altra))
+    }
+}
+
+impl Ord for FidelityReason {
+    fn cmp(&self, altra: &Self) -> Ordering {
+        self.chiave().cmp(&altra.chiave())
+    }
 }
 
 /// Valutazione concreta restituita da `open`/`create`.
@@ -76,65 +226,211 @@ pub struct FidelityReason {
 /// Vedi `PRODUCT.md § LossReport`. Il descrittore resta la capacità generale;
 /// questa struttura porta l'esito osservato per il dataset o il contratto
 /// corrente.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// **Niente `Serialize`**, e non per dimenticanza.
+///
+/// Il derive pubblicherebbe `prime_v1`, `canoniche`, `respinte` e la meccanica
+/// del trattenimento: il materiale riservato al v1 e la struttura interna,
+/// entrambi fuori da qualunque forma sul filo. Le due forme le costruisce
+/// l'adattatore, a mano, ed e' li' che i nomi sul filo sono contratto. Niente
+/// lo serializzava, quindi non c'e' nulla da sostituire; a impedire che il
+/// derive ritorni e' un gate, perche' toglierlo non impedisce a nessuno di
+/// rimetterlo.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FidelityAssessment {
     pub level: Fidelity,
-    pub reasons: Vec<FidelityReason>,
+    /// Le prime `MAX_FIDELITY_REASONS` per **inserimento**, deduplicate sulla
+    /// chiave vecchia -- `(code, detail_v1())` -- e senza filtro in byte: e'
+    /// esattamente cio' che il v1 pubblicava, congelato.
+    prime_v1: Vec<FidelityReason>,
+    /// Le minori `MAX_RAGIONI_TRATTENUTE` per chiave **canonica**, tutte
+    /// ammissibili sul filo e senza materiale legacy: e' da qui che il v2
+    /// pubblica le sue sessantaquattro.
+    canoniche: BTreeSet<FidelityReason>,
+    /// Le chiavi delle voci respinte perche' fuori misura.
+    ///
+    /// Solo `(code, posizione)`: la stringa che le ha fatte respingere non si
+    /// trattiene, se no il rifiuto non servirebbe a niente. Ne segue che il
+    /// conteggio e' un **limite inferiore** -- due ragioni con lo stesso codice
+    /// e la stessa posizione ma dettagli diversi contano per una -- ed e' la
+    /// ragione per cui qualunque voce respinta rende i contatori non esatti.
+    respinte: BTreeSet<(FidelityReasonCode, Posizione)>,
+    /// Qualunque perdita di esattezza interna: un trattenimento saturo, una
+    /// voce respinta per misura. Non e' una quinta causa di omissione, e' un
+    /// qualificatore sull'esattezza delle quattro.
+    esattezza_persa: bool,
 }
 
 impl FidelityAssessment {
     #[must_use]
     pub const fn lossless() -> Self {
+        Self::con_livello(Fidelity::Lossless)
+    }
+
+    /// Una valutazione vuota al livello dato.
+    #[must_use]
+    pub const fn con_livello(level: Fidelity) -> Self {
         Self {
-            level: Fidelity::Lossless,
-            reasons: Vec::new(),
+            level,
+            prime_v1: Vec::new(),
+            canoniche: BTreeSet::new(),
+            respinte: BTreeSet::new(),
+            esattezza_persa: false,
         }
     }
 
     #[must_use]
     pub fn for_format(format: &str, class: Fidelity) -> Self {
-        match class {
-            Fidelity::Lossless => Self::lossless(),
-            Fidelity::Conditional => Self {
-                level: Fidelity::Conditional,
-                reasons: vec![FidelityReason {
-                    code: FidelityReasonCode::FormatConstraint,
-                    detail: format!(
+        let (level, reason) = match class {
+            Fidelity::Lossless => return Self::lossless(),
+            Fidelity::Conditional => (
+                Fidelity::Conditional,
+                FidelityReason::nuova(
+                    FidelityReasonCode::FormatConstraint,
+                    format!(
                         "{format}: fedeltà condizionata ai tipi e alle semantiche del contratto"
                     ),
-                }],
-            },
-            Fidelity::Approximating => Self {
-                level: Fidelity::Approximating,
-                reasons: vec![FidelityReason {
-                    code: FidelityReasonCode::GeometryApproximation,
-                    detail: format!("{format}: il formato può richiedere approssimazioni"),
-                }],
-            },
-        }
+                ),
+            ),
+            Fidelity::Approximating => (
+                Fidelity::Approximating,
+                FidelityReason::nuova(
+                    FidelityReasonCode::GeometryApproximation,
+                    format!("{format}: il formato può richiedere approssimazioni"),
+                ),
+            ),
+        };
+        let mut valutazione = Self::con_livello(level);
+        valutazione.offri(reason);
+        valutazione
     }
 
     pub fn unassessed(context: impl Into<String>) -> Self {
-        Self {
-            level: Fidelity::Conditional,
-            reasons: vec![FidelityReason {
-                code: FidelityReasonCode::AssessmentPending,
-                detail: context.into(),
-            }],
-        }
+        let mut valutazione = Self::con_livello(Fidelity::Conditional);
+        valutazione.offri(FidelityReason::nuova(
+            FidelityReasonCode::AssessmentPending,
+            context,
+        ));
+        valutazione
     }
 
     pub fn add_reason(&mut self, code: FidelityReasonCode, detail: impl Into<String>) {
-        if self.reasons.len() >= MAX_FIDELITY_REASONS {
+        self.offri(FidelityReason::nuova(code, detail));
+    }
+
+    /// Una ragione con posizione strutturata e frase v1 congelata.
+    pub fn add_reason_redatta(
+        &mut self,
+        code: FidelityReasonCode,
+        detail: impl Into<String>,
+        posizione: Posizione,
+        dettaglio_v1: impl Into<String>,
+    ) {
+        self.offri(FidelityReason::redatta(
+            code,
+            detail,
+            posizione,
+            dettaglio_v1,
+        ));
+    }
+
+    /// La porta: una ragione entra nelle due collezioni, ciascuna con la
+    /// propria regola. Le due semantiche non si conciliano perche' non sono
+    /// una sola.
+    fn offri(&mut self, reason: FidelityReason) {
+        self.accetta_v1(&reason);
+        self.accetta_v2(reason);
+    }
+
+    /// Primi 64 per inserimento, dedup sulla chiave **vecchia**, nessun filtro.
+    ///
+    /// Deduplicare sull'`Eq` del v2 legherebbe il v1 congelato all'identita'
+    /// nuova, che e' esattamente cio' che non deve poter accadere.
+    fn accetta_v1(&mut self, reason: &FidelityReason) {
+        if self.prime_v1.len() >= MAX_FIDELITY_REASONS {
             return;
         }
-        let reason = FidelityReason {
-            code,
-            detail: detail.into(),
-        };
-        if !self.reasons.contains(&reason) {
-            self.reasons.push(reason);
+        let gia_presente = self
+            .prime_v1
+            .iter()
+            .any(|r| r.code == reason.code && r.detail_v1() == reason.detail_v1());
+        if !gia_presente {
+            self.prime_v1.push(reason.clone());
         }
+    }
+
+    /// Filtro alla porta, poi trattenimento canonico con sfratto della maggiore.
+    fn accetta_v2(&mut self, reason: FidelityReason) {
+        if !reason.ammissibile() {
+            self.esattezza_persa = true;
+            self.respinte.insert((reason.code, reason.posizione));
+            if self.respinte.len() > MAX_RAGIONI_TRATTENUTE {
+                self.respinte.pop_last();
+            }
+            return;
+        }
+        if !self.canoniche.insert(reason.senza_legacy()) {
+            return;
+        }
+        if self.canoniche.len() > MAX_RAGIONI_TRATTENUTE {
+            // La **maggiore**, non l'ultima arrivata: rifiutare le successive
+            // rimetterebbe l'insieme in mano all'ordine d'inserimento, che e'
+            // cio' da cui il trattenimento canonico lo toglie.
+            self.canoniche.pop_last();
+            self.esattezza_persa = true;
+        }
+    }
+
+    /// Le ragioni che il v1 pubblica, nell'ordine in cui sono arrivate.
+    #[must_use]
+    pub fn ragioni_v1(&self) -> &[FidelityReason] {
+        &self.prime_v1
+    }
+
+    /// Le ragioni trattenute per il v2, gia' in ordine canonico.
+    pub fn ragioni_canoniche(&self) -> impl Iterator<Item = &FidelityReason> {
+        self.canoniche.iter()
+    }
+
+    /// Quante ne sono trattenute: il v2 ne pubblica al piu'
+    /// `MAX_FIDELITY_REASONS`, e la differenza e' `ragioni_omesse`.
+    #[must_use]
+    pub fn ragioni_trattenute(&self) -> usize {
+        self.canoniche.len()
+    }
+
+    /// Quante voci sono state respinte per misura, come limite inferiore.
+    #[must_use]
+    pub fn respinte_per_misura(&self) -> u64 {
+        self.respinte.len() as u64
+    }
+
+    /// I contatori di omissione sono esatti?
+    #[must_use]
+    pub const fn omesse_esatte(&self) -> bool {
+        !self.esattezza_persa
+    }
+
+    /// Fonde un'altra valutazione **nelle due collezioni separatamente**.
+    ///
+    /// Ricostruire ogni ragione da `code` e `detail`, come faceva
+    /// `combined_fidelity`, perderebbe sia la posizione sia la frase v1: la
+    /// sezione di conversione del v1 cambierebbe byte, e quella del v2
+    /// perderebbe gli indici. E le due collezioni vanno fuse ciascuna con la
+    /// propria regola, se no il v1 finisce a dipendere dall'identita' del v2.
+    pub fn merge(&mut self, altra: &Self) {
+        for reason in &altra.prime_v1 {
+            self.accetta_v1(reason);
+        }
+        for reason in &altra.canoniche {
+            self.accetta_v2(reason.clone());
+        }
+        for chiave in &altra.respinte {
+            self.respinte.insert(*chiave);
+        }
+        while self.respinte.len() > MAX_RAGIONI_TRATTENUTE {
+            self.respinte.pop_last();
+        }
+        self.esattezza_persa |= altra.esattezza_persa;
     }
 
     /// Le perdite osservate prevalgono su una valutazione teorica e rendono
@@ -323,9 +619,9 @@ mod tests {
         let assessment =
             FidelityAssessment::for_format("test", Fidelity::Conditional).with_loss_report(&report);
         assert_eq!(assessment.level, Fidelity::Approximating);
-        assert_eq!(assessment.reasons.len(), MAX_FIDELITY_REASONS);
+        assert_eq!(assessment.ragioni_v1().len(), MAX_FIDELITY_REASONS);
         assert!(assessment
-            .reasons
+            .ragioni_v1()
             .iter()
             .any(|reason| reason.code == FidelityReasonCode::LossReported));
     }

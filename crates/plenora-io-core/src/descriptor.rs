@@ -180,7 +180,13 @@ pub struct FieldNamePolicy {
     pub reserved_names: &'static [&'static str],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// La classe di tipo di un attributo: un vocabolario **chiuso** e nostro.
+///
+/// `Ord` non e' decorativo, come per `FidelityReasonCode`: questa classe entra
+/// in `Posizione`, che e' parte della chiave canonica con cui la diagnostica
+/// ordina e taglia. Riordinare le varianti cambierebbe l'uscita di file che non
+/// sono cambiati, quindi l'ordine di dichiarazione e' contratto quanto i nomi.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArrowTypeClass {
     Boolean,

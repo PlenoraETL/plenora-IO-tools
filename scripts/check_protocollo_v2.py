@@ -76,6 +76,8 @@ MAPPATURA: dict[str, str] = {
     "byte_per_sezione": "BYTE_PER_SEZIONE",
     "byte_per_la_struttura_aggregata": "BYTE_DELLA_STRUTTURA",
     "byte_totali": "MAX_BYTE_BUSTA",
+    "ragioni_trattenute": "MAX_RAGIONI_TRATTENUTE",
+    "esempi_trattenuti": "MAX_ESEMPI_TRATTENUTI",
 }
 
 #: Le costanti `usize` pubbliche di questi due file **sono** il budget: non ce

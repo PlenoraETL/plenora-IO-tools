@@ -156,13 +156,14 @@ fn combined_fidelity(read: &FidelityAssessment, write: &FidelityAssessment) -> F
         (Fidelity::Conditional, _) | (_, Fidelity::Conditional) => Fidelity::Conditional,
         (Fidelity::Lossless, Fidelity::Lossless) => Fidelity::Lossless,
     };
-    let mut combined = FidelityAssessment {
-        level,
-        reasons: Vec::new(),
-    };
-    for reason in read.reasons.iter().chain(&write.reasons) {
-        combined.add_reason(reason.code, reason.detail.clone());
-    }
+    // `merge` e non `add_reason(code, detail)`: ricostruire ogni ragione dai due
+    // campi perderebbe la posizione **e** la frase congelata del v1, quindi la
+    // sezione di conversione cambierebbe byte in tutt'e due i protocolli. E le
+    // due collezioni si fondono ciascuna con la propria regola: il v1 sulla
+    // chiave vecchia, il v2 su quella canonica.
+    let mut combined = FidelityAssessment::con_livello(level);
+    combined.merge(read);
+    combined.merge(write);
     combined
 }
 
@@ -2295,7 +2296,7 @@ mod tests {
 
         assert_eq!(combined.level, Fidelity::Approximating);
         assert_eq!(
-            combined.reasons.len(),
+            combined.ragioni_v1().len(),
             plenora_io_core::MAX_FIDELITY_REASONS
         );
     }

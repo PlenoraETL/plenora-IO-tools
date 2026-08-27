@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 129,
+  "totale": 130,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -60,8 +60,8 @@
       "ragione": "default CLI dichiarati (`layer=0`, estensione assente); presentazione di CRS unresolved; fallback di serializzazione confinati al protocollo diagnostico; messaggi `panic!` esclusivamente nei test di conformance"
     },
     "plenora-io-core": {
-      "conteggio": 16,
-      "ragione": "un path senza parent esplicito usa la directory corrente, senza modificare dati o contratti"
+      "conteggio": 17,
+      "ragione": "due decisioni, entrambe senza effetto su dati o contratti. Un path senza parent esplicito usa la directory corrente. E `FidelityReason::detail_v1` ricade sul testo curato quando `dettaglio_v1` e' `None`: i sette siti che non hanno mai portato nomi presi dal file non hanno una frase congelata da conservare, e li' le due stringhe coincidono gia'. Il fallback e' quindi la forma in cui il v1 resta identico a se stesso dove non c'era niente da redigere, non una scelta presa in mancanza di meglio"
     },
     "plenora-io-model": {
       "conteggio": 1,

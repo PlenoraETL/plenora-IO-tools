@@ -35,15 +35,18 @@
 
 use serde_json::{json, Map, Value};
 
-use plenora_io_core::descriptor::Fidelity;
+use plenora_io_core::descriptor::{ArrowTypeClass, Fidelity};
 use plenora_io_core::loss::{
     FidelityAssessment, FidelityReason, FidelityReasonCode, LossReport, MAX_FIDELITY_REASONS,
 };
-// I due tetti in byte vengono da `plenora-io-core`, dove sta la porta che li
-// applica. Riscriverli qui ne farebbe una seconda definizione, e il gate del
-// manifesto confronta il contratto con **una** costante, non con la copia che
-// l'adattatore si tiene.
-pub use plenora_io_core::loss::{MAX_BYTE_DETTAGLIO, MAX_BYTE_ID_CATEGORIA};
+// Il tetto sull'identificatore viene da `plenora-io-core`. Riscriverlo qui ne
+// farebbe una seconda definizione, e il gate del manifesto confronta il
+// contratto con **una** costante, non con la copia che l'adattatore si tiene.
+//
+// `MAX_BYTE_DETTAGLIO` non compare piu' qui: il filtro che lo applica si e'
+// spostato alla porta, in core, e un adattatore che lo nominasse ancora
+// lascerebbe credere che sia lui a farlo rispettare.
+pub use plenora_io_core::loss::MAX_BYTE_ID_CATEGORIA;
 
 /// Quante categorie distinte una sezione `counts` puo' pubblicare.
 pub const MAX_CATEGORIE: usize = 64;
@@ -344,28 +347,32 @@ pub fn sezione_di_fedelta(
     let mut base = Map::new();
     base.insert("level".to_owned(), documento_del_livello(valutazione.level));
     base.insert("troncato".to_owned(), json!(false));
+    // `false` e non `true`: e' la stringa piu' lunga delle due, e lo spazio si
+    // riserva al caso peggiore come per la dichiarazione di troncamento.
+    base.insert("omesse_esatte".to_owned(), json!(false));
     base.insert("omesse".to_owned(), Troncamento::segnaposto_massimo());
     if byte_serializzati(&Value::Object(base.clone())) > budget {
         return Err(BudgetInsufficiente);
     }
 
-    // Come per gli identificatori: un dettaglio oltre il tetto non entra,
-    // e il taglio non spezza un carattere perche' la voce esce **intera**.
-    let (ammesse, fuori_misura): (Vec<_>, Vec<_>) = valutazione
-        .reasons
-        .iter()
-        .partition(|ragione| ragione.detail.len() <= MAX_BYTE_DETTAGLIO);
-    troncamento.omesse_per_byte = fuori_misura.len() as u64;
-    let mut ordinate: Vec<_> = ammesse;
-    ordinate.sort_by(|a, b| (a.code, &a.detail).cmp(&(b.code, &b.detail)));
-    let oltre_la_soglia = ordinate.len().saturating_sub(MAX_FIDELITY_REASONS);
-    troncamento.ragioni_omesse = oltre_la_soglia as u64;
-    let candidate = &ordinate[..ordinate.len().min(MAX_FIDELITY_REASONS)];
+    // Il filtro sui byte **non e' qui**: sta alla porta di `FidelityAssessment`,
+    // dove le ragioni entrano. Partizionare adesso lascerebbe le voci fuori
+    // misura occupare un posto nel trattenimento e sfrattare voci valide, e la
+    // sezione uscirebbe piu' povera di quanto il tetto imponga. Qui arrivano
+    // gia' tutte ammissibili e gia' in ordine canonico.
+    troncamento.omesse_per_byte = valutazione.respinte_per_misura();
+    troncamento.ragioni_omesse = valutazione
+        .ragioni_trattenute()
+        .saturating_sub(MAX_FIDELITY_REASONS) as u64;
+    let candidate: Vec<_> = valutazione
+        .ragioni_canoniche()
+        .take(MAX_FIDELITY_REASONS)
+        .collect();
 
     let (reasons, per_byte) =
-        entro_il_budget(&base, "reasons", candidate, budget, |acc, ragione| {
+        entro_il_budget(&base, "reasons", &candidate, budget, |acc, ragione| {
             if let Value::Array(voci) = acc {
-                voci.push(documento_della_ragione(ragione));
+                voci.push(documento_della_ragione_v2(ragione));
             }
         });
     troncamento.omesse_per_byte = troncamento.omesse_per_byte.saturating_add(per_byte);
@@ -375,6 +382,16 @@ pub fn sezione_di_fedelta(
     documento.insert(
         "troncato".to_owned(),
         json!(!troncamento.niente_di_omesso()),
+    );
+    // I quattro contatori sono esatti? Non e' una quinta causa di omissione: e'
+    // un qualificatore sull'esattezza delle quattro. Vale `false` per qualunque
+    // perdita di esattezza interna -- un trattenimento saturo, una voce
+    // respinta per misura -- e allora i quattro sono **limiti inferiori**. Una
+    // diagnostica che tacesse la propria approssimazione sarebbe peggio di una
+    // troncata, che almeno lo dichiara.
+    documento.insert(
+        "omesse_esatte".to_owned(),
+        json!(valutazione.omesse_esatte()),
     );
     documento.insert("omesse".to_owned(), troncamento.documento());
     Ok((Value::Object(documento), troncamento))
@@ -420,11 +437,60 @@ fn documento_del_codice(codice: FidelityReasonCode) -> Value {
 }
 
 /// Una ragione di fedelta' nella sua forma sul filo.
-fn documento_della_ragione(ragione: &FidelityReason) -> Value {
-    json!({
-        "code": documento_del_codice(ragione.code),
-        "detail": ragione.detail,
-    })
+fn documento_della_ragione_v2(ragione: &FidelityReason) -> Value {
+    let mut documento = Map::new();
+    documento.insert("code".to_owned(), documento_del_codice(ragione.code));
+    documento.insert("detail".to_owned(), json!(ragione.detail));
+    if let Some(indice) = ragione.posizione.layer_index {
+        documento.insert("layer_index".to_owned(), json!(indice));
+    }
+    if let Some(indice) = ragione.posizione.field_index {
+        documento.insert("field_index".to_owned(), json!(indice));
+    }
+    if let Some(classe) = ragione.posizione.type_class {
+        documento.insert("type_class".to_owned(), documento_della_classe(classe));
+    }
+    Value::Object(documento)
+}
+
+/// La classe di tipo nella sua forma sul filo.
+///
+/// Riusa `ArrowTypeClass::nome()`, che quella mappatura ce l'ha gia': scriverne
+/// qui una seconda avrebbe aggiunto una terza rappresentazione delle stesse
+/// dieci stringhe -- col `Serialize` derivato a fare da terza -- dentro il
+/// lotto che le copie esiste per toglierle. La sonda
+/// `la_forma_scritta_a_mano_coincide_col_derive` pretende che adattatore e
+/// derive coincidano, quindi la catena resta inchiodata da un capo all'altro.
+fn documento_della_classe(classe: ArrowTypeClass) -> Value {
+    json!(classe.nome())
+}
+
+/// L'adattatore del protocollo congelato, e l'**unico** posto che legge
+/// l'identita' legacy.
+///
+/// Sta in un modulo suo perche' la condivisione era il difetto: una funzione
+/// sola per i due protocolli avrebbe fatto uscire dal v2 cio' che il v2
+/// toglie, alla prima modifica distratta. La visibilita' di Rust non sa dire
+/// «questo modulo e nessun altro», quindi a pretendere un solo chiamante di
+/// `detail_v1()` e' un gate.
+mod legacy_v1 {
+    use super::{documento_del_codice, documento_del_livello, json, FidelityAssessment, Value};
+
+    /// La sezione di fedelta' nella forma del 2026-08: livello e ragioni, senza
+    /// tetti e senza dichiarazioni.
+    pub fn sezione_di_fedelta(valutazione: &FidelityAssessment) -> Value {
+        json!({
+            "level": documento_del_livello(valutazione.level),
+            "reasons": valutazione
+                .ragioni_v1()
+                .iter()
+                .map(|ragione| json!({
+                    "code": documento_del_codice(ragione.code),
+                    "detail": ragione.detail_v1(),
+                }))
+                .collect::<Vec<_>>(),
+        })
+    }
 }
 
 /// La diagnostica di una busta sta nel tetto complessivo?
@@ -522,14 +588,7 @@ pub fn documento_di_fedelta(
     protocollo: Protocollo,
 ) -> Result<Value, BudgetInsufficiente> {
     match protocollo {
-        Protocollo::V1Legacy => Ok(json!({
-            "level": documento_del_livello(valutazione.level),
-            "reasons": valutazione
-                .reasons
-                .iter()
-                .map(documento_della_ragione)
-                .collect::<Vec<_>>(),
-        })),
+        Protocollo::V1Legacy => Ok(legacy_v1::sezione_di_fedelta(valutazione)),
         Protocollo::V2 => sezione_di_fedelta(valutazione, BYTE_PER_SEZIONE).map(|(v, _)| v),
     }
 }
@@ -537,6 +596,9 @@ pub fn documento_di_fedelta(
 #[cfg(test)]
 mod sonde {
     use super::*;
+    // Il tetto sul dettaglio lo applica la porta, in core: le sonde lo
+    // prendono da li' invece che dall'adattatore, che non lo nomina piu'.
+    use plenora_io_core::loss::{Posizione, MAX_BYTE_DETTAGLIO, MAX_RAGIONI_TRATTENUTE};
 
     fn rapporto_con(categorie: usize, byte_per_id: usize) -> LossReport {
         let mut rapporto = LossReport::default();
@@ -657,12 +719,183 @@ mod sonde {
         );
     }
 
+    /// Una valutazione con le ragioni offerte nell'ordine dato.
+    fn valutazione_con(ordine: &[FidelityReason]) -> FidelityAssessment {
+        let mut valutazione = FidelityAssessment::con_livello(Fidelity::Approximating);
+        for ragione in ordine {
+            valutazione.add_reason_redatta(
+                ragione.code,
+                ragione.detail.clone(),
+                ragione.posizione,
+                ragione.detail_v1(),
+            );
+        }
+        valutazione
+    }
+
+    /// `n` ragioni distinte, discriminate dalla posizione e non dal testo.
+    fn ragioni_distinte(quante: u64) -> Vec<FidelityReason> {
+        (0..quante)
+            .map(|i| {
+                FidelityReason::redatta(
+                    FidelityReasonCode::AttributeLoss,
+                    "l'attributo non e' nativo",
+                    Posizione {
+                        layer_index: Some(0),
+                        field_index: Some(i),
+                        type_class: None,
+                    },
+                    format!("layer «uno»: attributo 'campo{i}' non nativo"),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn la_sezione_v2_non_dipende_dall_ordine_di_inserimento() {
+        // Il difetto che il trattenimento canonico toglie: la
+        // sessantacinquesima veniva scartata **prima** che l'adattatore
+        // ordinasse, quindi l'insieme pubblicato dipendeva da quali adattatori
+        // fossero stati composti e in che ordine -- cioe' da qualcosa che ne'
+        // chi fornisce il file ne' chi lo legge controlla.
+        let mut avanti = ragioni_distinte(u64::try_from(MAX_FIDELITY_REASONS).unwrap() + 1);
+        let indietro: Vec<_> = avanti.iter().rev().cloned().collect();
+
+        let (v2_avanti, tr_avanti) =
+            sezione_di_fedelta(&valutazione_con(&avanti), BYTE_PER_SEZIONE).expect("budget");
+        let (v2_indietro, tr_indietro) =
+            sezione_di_fedelta(&valutazione_con(&indietro), BYTE_PER_SEZIONE).expect("budget");
+
+        assert_eq!(
+            v2_avanti, v2_indietro,
+            "due ordini di inserimento devono dare la stessa sezione v2"
+        );
+        assert_eq!(tr_avanti, tr_indietro);
+        assert_eq!(
+            tr_avanti.ragioni_omesse, 1,
+            "sessantacinque distinte, sessantaquattro pubblicate"
+        );
+        assert_eq!(v2_avanti["omesse_esatte"], json!(true));
+
+        // E il v1 **deve** invece differire: sono i primi 64 per inserimento,
+        // ed e' la semantica congelata. Asserirlo la rende deliberata invece
+        // che scoperta il giorno in cui qualcuno la cambia per sbaglio.
+        avanti.truncate(MAX_FIDELITY_REASONS + 1);
+        let v1_avanti =
+            documento_di_fedelta(&valutazione_con(&avanti), Protocollo::V1Legacy).expect("v1");
+        let v1_indietro =
+            documento_di_fedelta(&valutazione_con(&indietro), Protocollo::V1Legacy).expect("v1");
+        assert_ne!(
+            v1_avanti, v1_indietro,
+            "il v1 e' primi-64-per-inserimento: se non differisse, non sarebbe congelato"
+        );
+    }
+
+    #[test]
+    fn una_voce_fuori_misura_non_sfratta_una_voce_valida() {
+        // Con il filtro nell'adattatore invece che alla porta, le fuori misura
+        // occupavano un posto nel trattenimento e le valide restavano fuori:
+        // duecentocinquantasei canonicamente minori ma oltre il tetto
+        // avrebbero fatto pubblicare **zero** ragioni.
+        let fuori: Vec<_> = (0..u64::try_from(MAX_RAGIONI_TRATTENUTE).unwrap())
+            .map(|i| {
+                FidelityReason::redatta(
+                    FidelityReasonCode::AssessmentPending, // il codice minore: canonicamente prima
+                    "x".repeat(MAX_BYTE_DETTAGLIO + 1),
+                    Posizione {
+                        layer_index: Some(0),
+                        field_index: Some(i),
+                        type_class: None,
+                    },
+                    "irrilevante",
+                )
+            })
+            .collect();
+        let valide = ragioni_distinte(u64::try_from(MAX_FIDELITY_REASONS).unwrap());
+
+        for (nome, ordine) in [
+            (
+                "prima le fuori misura",
+                [fuori.clone(), valide.clone()].concat(),
+            ),
+            ("prima le valide", [valide, fuori].concat()),
+        ] {
+            let (sezione, troncamento) =
+                sezione_di_fedelta(&valutazione_con(&ordine), BYTE_PER_SEZIONE).expect("budget");
+            assert_eq!(
+                sezione["reasons"].as_array().map(Vec::len),
+                Some(MAX_FIDELITY_REASONS),
+                "{nome}: le ammissibili devono uscire tutte"
+            );
+            assert_eq!(troncamento.ragioni_omesse, 0, "{nome}");
+            assert!(troncamento.omesse_per_byte > 0, "{nome}");
+            assert_eq!(
+                sezione["omesse_esatte"],
+                json!(false),
+                "{nome}: una voce respinta rende i contatori limiti inferiori"
+            );
+        }
+    }
+
+    #[test]
+    fn la_stessa_ragione_offerta_molte_volte_e_una_sola_omissione() {
+        // Le offerte duplicate sono **deduplicate**, non occorrenze: una
+        // ragione e' un fatto, e le occorrenze hanno la loro sede in `counts`.
+        // Contare le offerte legherebbe i contatori a quante volte un driver
+        // ha chiamato, cioe' a come sono stati composti gli adattatori.
+        let una = &ragioni_distinte(1)[0];
+        let ripetuta: Vec<_> = std::iter::repeat_n(una.clone(), MAX_FIDELITY_REASONS + 1).collect();
+        let (sezione, troncamento) =
+            sezione_di_fedelta(&valutazione_con(&ripetuta), BYTE_PER_SEZIONE).expect("budget");
+        assert_eq!(sezione["reasons"].as_array().map(Vec::len), Some(1));
+        assert_eq!(troncamento.ragioni_omesse, 0);
+        assert_eq!(sezione["omesse_esatte"], json!(true));
+    }
+
+    #[test]
+    fn il_v1_deduplica_sulla_chiave_vecchia_e_il_v2_sulla_canonica() {
+        // Due ragioni che il v2 distingue -- posizioni diverse -- e che il v1
+        // considera la stessa, perche' la sua frase congelata coincide. Se il
+        // v1 deduplicasse sull'`Eq` del v2, il protocollo congelato dipenderebbe
+        // dall'identita' nuova, che e' esattamente cio' che non deve accadere.
+        let a = FidelityReason::redatta(
+            FidelityReasonCode::AttributeLoss,
+            "l'attributo non e' nativo",
+            Posizione {
+                layer_index: Some(0),
+                field_index: Some(1),
+                type_class: None,
+            },
+            "layer «uno»: attributo non nativo",
+        );
+        let b = FidelityReason::redatta(
+            FidelityReasonCode::AttributeLoss,
+            "l'attributo non e' nativo",
+            Posizione {
+                layer_index: Some(0),
+                field_index: Some(2),
+                type_class: None,
+            },
+            "layer «uno»: attributo non nativo",
+        );
+        let valutazione = valutazione_con(&[a, b]);
+        let (v2, _) = sezione_di_fedelta(&valutazione, BYTE_PER_SEZIONE).expect("budget");
+        let v1 = documento_di_fedelta(&valutazione, Protocollo::V1Legacy).expect("v1");
+        assert_eq!(
+            v2["reasons"].as_array().map(Vec::len),
+            Some(2),
+            "gli indici distinguono cio' che i nomi distinguevano"
+        );
+        assert_eq!(
+            v1["reasons"].as_array().map(Vec::len),
+            Some(1),
+            "il v1 dedupica sulla propria frase, come ha sempre fatto"
+        );
+    }
+
     #[test]
     fn le_ragioni_entrano_in_ordine_canonico_e_il_resto_e_dichiarato() {
-        let mut valutazione = FidelityAssessment {
-            level: Fidelity::Approximating,
-            reasons: Vec::new(),
-        };
+        let mut valutazione = FidelityAssessment::con_livello(Fidelity::Approximating);
         for i in 0..MAX_FIDELITY_REASONS {
             valutazione.add_reason(FidelityReasonCode::AttributeLoss, format!("{i:04}"));
         }
@@ -682,10 +915,7 @@ mod sonde {
 
     #[test]
     fn una_sezione_di_fedelta_senza_spazio_fallisce_chiusa() {
-        let valutazione = FidelityAssessment {
-            level: Fidelity::Lossless,
-            reasons: Vec::new(),
-        };
+        let valutazione = FidelityAssessment::con_livello(Fidelity::Lossless);
         assert_eq!(
             sezione_di_fedelta(&valutazione, 8),
             Err(BudgetInsufficiente)
@@ -731,10 +961,7 @@ mod sonde {
     #[test]
     fn un_dettaglio_di_cinquecentotredici_byte_resta_fuori() {
         for (byte, dentro) in [(MAX_BYTE_DETTAGLIO, 1_usize), (MAX_BYTE_DETTAGLIO + 1, 0)] {
-            let mut valutazione = FidelityAssessment {
-                level: Fidelity::Approximating,
-                reasons: Vec::new(),
-            };
+            let mut valutazione = FidelityAssessment::con_livello(Fidelity::Approximating);
             valutazione.add_reason(FidelityReasonCode::AttributeLoss, "x".repeat(byte));
             let (documento, troncamento) =
                 sezione_di_fedelta(&valutazione, BYTE_PER_SEZIONE).expect("budget");
@@ -849,13 +1076,44 @@ mod sonde {
                 "{codice:?}"
             );
         }
-        let ragione = FidelityReason {
-            code: FidelityReasonCode::AttributeLoss,
-            detail: "con \"virgolette\" e accènti".to_owned(),
-        };
+        // La forma scritta a mano e quella del derive devono **coincidere**, e
+        // nei due casi: posizione vuota e posizione piena. E' cio' che
+        // impedisce al derive di divergere dall'adattatore -- un campo aggiunto
+        // al tipo senza `skip` e senza toccare l'adattatore diventa rosso qui --
+        // e insieme prova che `dettaglio_v1` non esce dalla serializzazione.
+        let vuota = FidelityReason::redatta(
+            FidelityReasonCode::AttributeLoss,
+            "con \"virgolette\" e accènti",
+            Posizione::default(),
+            "layer «segreto»: attributo 'riservato' non nativo",
+        );
+        let piena = FidelityReason::redatta(
+            FidelityReasonCode::TypeCoercion,
+            "il tipo dell'attributo richiede una coercizione",
+            Posizione {
+                layer_index: Some(3),
+                field_index: Some(7),
+                type_class: Some(ArrowTypeClass::Decimal),
+            },
+            "layer «segreto»: tipo Decimal128(38, 9) di 'riservato' richiede coercion",
+        );
+        for ragione in [&vuota, &piena] {
+            let a_mano = documento_della_ragione_v2(ragione);
+            assert_eq!(
+                a_mano,
+                serde_json::to_value(ragione).expect("serializzabile"),
+                "adattatore e derive divergono su {ragione:?}"
+            );
+            let testo = a_mano.to_string();
+            assert!(
+                !testo.contains("segreto") && !testo.contains("riservato"),
+                "il materiale riservato al v1 e' uscito dal v2: {testo}"
+            );
+        }
         assert_eq!(
-            documento_della_ragione(&ragione),
-            serde_json::to_value(&ragione).expect("serializzabile")
+            documento_della_ragione_v2(&piena)["type_class"],
+            serde_json::json!("decimal"),
+            "la classe di tipo esce col nome del filo"
         );
     }
 

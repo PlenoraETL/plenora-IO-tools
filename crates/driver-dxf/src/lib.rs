@@ -2387,7 +2387,7 @@ mod tests {
             plenora_io_core::Fidelity::Approximating
         );
         assert!(planned_fidelity
-            .reasons
+            .ragioni_v1()
             .iter()
             .any(|reason| { reason.code == plenora_io_core::FidelityReasonCode::AttributeLoss }));
         w.write(&batch).unwrap();
@@ -2400,7 +2400,7 @@ mod tests {
         );
         assert!(published
             .fidelity
-            .reasons
+            .ragioni_v1()
             .iter()
             .any(|reason| reason.detail.contains("occorrenze")));
 

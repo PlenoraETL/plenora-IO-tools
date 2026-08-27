@@ -5,7 +5,7 @@
   "corpus": {
     "input": 24
   },
-  "impronta_perimetro": "2caf349332e54fd237bf054b15d125cb4fa88a6d66744ea735f1ccc0525cdd42",
+  "impronta_perimetro": "caa5e98ee75be74b99014505acec605c85f3f25c6e313134183a8bf47103e179",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "requisiti": [
     {
