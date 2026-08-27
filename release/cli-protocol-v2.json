@@ -210,6 +210,24 @@
     "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-io-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
     "verificata_da": "le sonde di forma in `plenora-io-cli`, che pretendono esattamente sei chiavi e nessuna in piu'."
   },
+  "sonde_che_lo_provano": [
+    "i_conteggi_pubblicati_restano_esatti",
+    "i_tetti_dichiarati_sommano_al_tetto_della_busta",
+    "il_budget_esaurito_e_una_causa_a_parte",
+    "il_caso_peggiore_dichiarato_entra_nei_dodici_kib",
+    "il_documento_finale_sta_nel_budget_anche_dichiarando_il_troncamento",
+    "il_taglio_non_dipende_dall_ordine_di_inserimento",
+    "il_tetto_complessivo_e_verificato_sull_insieme",
+    "la_forma_scritta_a_mano_coincide_col_derive",
+    "la_sessantacinquesima_categoria_resta_fuori_ed_e_dichiarata",
+    "le_ragioni_entrano_in_ordine_canonico_e_il_resto_e_dichiarato",
+    "senza_spazio_per_la_dichiarazione_si_fallisce_chiusi",
+    "un_dettaglio_di_cinquecentotredici_byte_resta_fuori",
+    "un_identificatore_di_centoventinove_byte_resta_fuori",
+    "un_identificatore_unicode_si_misura_in_byte",
+    "una_sezione_di_fedelta_senza_spazio_fallisce_chiusa"
+  ],
+  "sonde_che_lo_provano_nota": "l'elenco e' **esaustivo** e il gate lo verifica nei due versi: ogni nome deve esistere in `busta.rs`, e ogni sonda di `busta.rs` deve essere nominata qui. Una sonda che il contratto non cita si puo' cancellare senza che il checkpoint se ne accorga; una che il contratto cita e non esiste e' una prova promessa e mai eseguita, che si legge come verificata. Cio' che le sonde provano e' il comportamento descritto qui sopra -- limiti, ordine, troncamento, determinismo -- non la coerenza fra questo manifesto e il codice, che e' cio' che il gate stesso confronta.",
   "compatibility_rules": {
     "remove_or_rename_required_field": "requires_new_protocol_version",
     "change_field_type_or_meaning": "requires_new_protocol_version",

@@ -110,6 +110,14 @@
       "log": true
     },
     {
+      "id": "sonde_protocollo_v2",
+      "log": true
+    },
+    {
+      "id": "check_protocollo_v2",
+      "log": true
+    },
+    {
       "id": "sonde_quarantena",
       "log": true
     },

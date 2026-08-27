@@ -609,6 +609,13 @@ passo check_schemi_geoparquet python3 scripts/check_schemi_geoparquet.py
 # della busta CLI una decisione di chi fornisce il file.
 passo sonde_categorie_di_perdita python3 -m unittest scripts.test_check_categorie_di_perdita
 passo check_categorie_di_perdita python3 scripts/check_categorie_di_perdita.py
+# I numeri del protocollo v2, confrontati col codice che li applica. Il
+# manifesto ne dichiara nove, e stanno come costanti in due crate diversi:
+# nessuno li confrontava. Un tetto alzato nel codice e non nel manifesto
+# lascerebbe il contratto a promettere il numero vecchio, e i due resterebbero
+# ciascuno coerente con se stesso.
+passo sonde_protocollo_v2 python3 -m unittest scripts.test_check_protocollo_v2
+passo check_protocollo_v2 python3 scripts/check_protocollo_v2.py
 passo sonde_quarantena python3 -m unittest scripts.test_check_quarantena_fuzz
 passo check_quarantena python3 scripts/check_quarantena_fuzz.py
 passo sonde_prevalidazione python3 -m unittest scripts.test_check_prevalidazione_decoder
