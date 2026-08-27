@@ -204,9 +204,11 @@
     }
   },
   "busta_degli_errori": {
-    "stato": "invariata, `plenora-io-error-v1` su stderr",
-    "perche": "la busta degli errori non porta diagnostica di perdita e non e' cio' che questo lotto corregge; e' su stderr, mentre la garanzia byte-per-byte del v1 riguarda lo stdout JSON. Toccarla sarebbe un cambiamento di struttura che nessuno ha chiesto.",
-    "decisione_aperta_per_l_owner": "se il v2 debba portare con se' anche `plenora-io-error-v2`, per avere una versione sola su tutte le superfici, o se la busta degli errori resti una superficie a parte con un proprio ciclo. Qui e' lasciata come sta."
+    "contract": "plenora-io-error-v1",
+    "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
+    "perche_non_si_versiona": "non e' una decisione lasciata aperta: e' su stderr, non contiene diagnostica di perdita, e ne' la sua struttura ne' il suo significato cambiano con il v2. Creare un `plenora-io-error-v2` identico moltiplicherebbe i nomi senza aggiungere un'affermazione, e un consumatore dovrebbe imparare due contratti per leggere lo stesso documento.",
+    "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-io-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
+    "verificata_da": "le sonde di forma in `plenora-io-cli`, che pretendono esattamente sei chiavi e nessuna in piu'."
   },
   "compatibility_rules": {
     "remove_or_rename_required_field": "requires_new_protocol_version",
