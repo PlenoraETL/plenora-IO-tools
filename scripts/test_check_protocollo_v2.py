@@ -22,6 +22,7 @@ from scripts import check_protocollo_v2 as gate
 NOTE_SANE = {costante: 10 + i for i, costante in enumerate(gate.MAPPATURA.values())}
 LIMITI_SANI = {chiave: NOTE_SANE[costante] for chiave, costante in gate.MAPPATURA.items()}
 SONDE_SANE = {"una_sonda", "un_altra_sonda"}
+REGISTRO_SANO = {"limite_di_lunghezza_byte": NOTE_SANE["MAX_BYTE_ID_CATEGORIA"]}
 
 MANIFESTO_SANO = {
     "manifest_version": 1,
@@ -34,11 +35,12 @@ MANIFESTO_SANO = {
 }
 
 
-def esito(manifesto=None, note=None, esistenti=None) -> list[str]:
+def esito(manifesto=None, note=None, esistenti=None, registro=None) -> list[str]:
     return gate.verifica(
         copy.deepcopy(MANIFESTO_SANO) if manifesto is None else manifesto,
         dict(NOTE_SANE) if note is None else note,
         set(SONDE_SANE) if esistenti is None else esistenti,
+        dict(REGISTRO_SANO) if registro is None else registro,
     )
 
 
@@ -115,6 +117,26 @@ class LIdentitaDelManifesto(unittest.TestCase):
         self.assertTrue(any("status" in e for e in esito(manifesto)))
 
 
+class IlRegistroDelleCategorie(unittest.TestCase):
+    def test_un_tetto_divergente_dalla_costante_e_rosso(self):
+        registro = {"limite_di_lunghezza_byte": NOTE_SANE["MAX_BYTE_ID_CATEGORIA"] + 1}
+        errori = esito(registro=registro)
+        self.assertTrue(any("MAX_BYTE_ID_CATEGORIA" in e for e in errori), errori)
+
+    def test_un_tetto_assente_e_rosso(self):
+        self.assertTrue(any("registro" in e for e in esito(registro={})))
+
+    def test_il_registro_reale_coincide_con_la_costante(self):
+        # La catena che rende una sola l'autorita': il registro e' confrontato
+        # qui con la costante Rust, e `check_categorie_di_perdita.py` confronta
+        # con il registro la propria. Se questo legame si rompesse, quel gate
+        # resterebbe verde mentre applica un tetto diverso dal codice.
+        self.assertEqual(
+            gate.registro_categorie()["limite_di_lunghezza_byte"],
+            gate.costanti()["MAX_BYTE_ID_CATEGORIA"],
+        )
+
+
 class LeSondeNominateDalContratto(unittest.TestCase):
     def test_una_sonda_dichiarata_e_inesistente_e_rossa(self):
         manifesto = copy.deepcopy(MANIFESTO_SANO)
@@ -142,6 +164,48 @@ class LeSondeNominateDalContratto(unittest.TestCase):
         # niente: se finisse fra le sonde, il contratto dovrebbe nominarlo.
         self.assertNotIn("rapporto_con", gate.sonde())
         self.assertIn("il_caso_peggiore_dichiarato_entra_nei_dodici_kib", gate.sonde())
+
+
+class UnaCostanteDefinitaDueVolte(unittest.TestCase):
+    """Il falso verde che la sovrascrittura silenziosa produceva.
+
+    Non e' un caso teorico: prima di questa tranche `MAX_BYTE_DETTAGLIO` stava
+    in `busta.rs` e la porta che lo applica sta in `loss.rs`. Se una copia
+    sopravvivesse allo spostamento, il gate confronterebbe il manifesto con una
+    sola delle due e sarebbe verde mentre il codice ne applica un'altra.
+    """
+
+    UNO = ("crates/uno.rs", "pub const MAX_CATEGORIE: usize = 64;\n")
+    ALTRO = ("crates/altro.rs", "pub const MAX_CATEGORIE: usize = 99;\n")
+
+    def test_due_file_che_la_dichiarano_sollevano(self):
+        with self.assertRaises(ValueError) as contesto:
+            gate.costanti_dai_testi([self.UNO, self.ALTRO])
+        messaggio = str(contesto.exception)
+        self.assertIn("MAX_CATEGORIE", messaggio)
+        self.assertIn("crates/uno.rs", messaggio)
+        self.assertIn("crates/altro.rs", messaggio)
+
+    def test_vale_anche_dentro_lo_stesso_file(self):
+        doppia = ("crates/uno.rs", self.UNO[1] + self.ALTRO[1])
+        with self.assertRaises(ValueError):
+            gate.costanti_dai_testi([doppia])
+
+    def test_lo_stesso_valore_ripetuto_non_e_una_scusante(self):
+        # Due definizioni concordi oggi sono due definizioni che domani
+        # divergono: il gate rifiuta la doppiezza, non il disaccordo.
+        gemella = ("crates/altro.rs", self.UNO[1])
+        with self.assertRaises(ValueError):
+            gate.costanti_dai_testi([self.UNO, gemella])
+
+    def test_il_gate_lo_riporta_invece_di_esplodere(self):
+        errori = gate.verifica(
+            copy.deepcopy(MANIFESTO_SANO), None, set(SONDE_SANE), dict(REGISTRO_SANO)
+        )
+        self.assertIsInstance(errori, list)
+
+    def test_i_sorgenti_reali_non_ne_hanno(self):
+        gate.costanti()  # non solleva: nessuna costante del budget e' doppia
 
 
 class IlValoreDiUnaCostante(unittest.TestCase):

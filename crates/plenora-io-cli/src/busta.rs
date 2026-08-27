@@ -39,13 +39,14 @@ use plenora_io_core::descriptor::Fidelity;
 use plenora_io_core::loss::{
     FidelityAssessment, FidelityReason, FidelityReasonCode, LossReport, MAX_FIDELITY_REASONS,
 };
+// I due tetti in byte vengono da `plenora-io-core`, dove sta la porta che li
+// applica. Riscriverli qui ne farebbe una seconda definizione, e il gate del
+// manifesto confronta il contratto con **una** costante, non con la copia che
+// l'adattatore si tiene.
+pub use plenora_io_core::loss::{MAX_BYTE_DETTAGLIO, MAX_BYTE_ID_CATEGORIA};
 
 /// Quante categorie distinte una sezione `counts` puo' pubblicare.
 pub const MAX_CATEGORIE: usize = 64;
-/// Quanti byte UTF-8 puo' misurare l'identificatore di una categoria.
-pub const MAX_BYTE_ID_CATEGORIA: usize = 128;
-/// Quanti byte UTF-8 puo' misurare un dettaglio curato.
-pub const MAX_BYTE_DETTAGLIO: usize = 512;
 /// Le sezioni con un budget proprio: tre fedelta' e due rapporti di perdita.
 pub const SEZIONI: usize = 5;
 /// Il budget di ciascuna sezione, in byte della sua serializzazione JSON.

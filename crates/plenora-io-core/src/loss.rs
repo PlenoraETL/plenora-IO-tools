@@ -18,6 +18,22 @@ use crate::descriptor::Fidelity;
 pub const MAX_LOSS_EXAMPLES: usize = 64;
 /// Anche le motivazioni della valutazione restano bounded.
 pub const MAX_FIDELITY_REASONS: usize = 64;
+/// Quanti byte UTF-8 puo' misurare l'identificatore di una categoria.
+///
+/// Vive qui, e non nell'adattatore, perche' il filtro di ammissibilita' e'
+/// **alla porta**: una voce fuori misura non viene trattenuta, quindi non puo'
+/// occupare un posto ne' sfrattare una voce valida. Il tetto deve percio'
+/// essere noto dove le voci entrano, e da qui l'adattatore lo prende invece di
+/// possederne una copia. Il manifesto del protocollo e il registro delle
+/// categorie sono confrontati con questa costante da `check_protocollo_v2.py`:
+/// l'autorita' e' una sola, e le altre due sono copie verificate.
+pub const MAX_BYTE_ID_CATEGORIA: usize = 128;
+/// Quanti byte UTF-8 puo' misurare un dettaglio curato.
+///
+/// Stesso ragionamento di `MAX_BYTE_ID_CATEGORIA`, e vale su `reasons[].detail`
+/// come su `esempi[].context`: sono la stessa specie di stringa, e limitarne
+/// una sola lascerebbe l'altra a decidere i byte della sezione.
+pub const MAX_BYTE_DETTAGLIO: usize = 512;
 /// Categoria stabile per R4.3.1/R4.6.1, leggibile dagli harness di conformità.
 pub const INCONSISTENT_CRS_REPRESENTATIONS: &str = "inconsistent_crs_representations";
 

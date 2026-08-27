@@ -58,6 +58,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
 BUSTA = ROOT / "crates" / "plenora-io-cli" / "src" / "busta.rs"
 LOSS = ROOT / "crates" / "plenora-io-core" / "src" / "loss.rs"
+REGISTRO_CATEGORIE = ROOT / "assurance" / "registries" / "categorie-di-perdita.json"
 
 #: Il numero dichiarato nel contratto, e la costante che lo produce.
 #:
@@ -129,13 +130,50 @@ def contratto() -> dict:
     return json.loads(CONTRATTO.read_text(encoding="utf-8"))
 
 
-def costanti() -> dict[str, int]:
-    """Le costanti del budget, nell'ordine in cui i file le definiscono."""
+def registro_categorie() -> dict:
+    """Il registro del vocabolario, che dichiara il proprio tetto in byte."""
+    return json.loads(REGISTRO_CATEGORIE.read_text(encoding="utf-8"))
+
+
+def costanti_dai_testi(sorgenti: list[tuple[str, str]]) -> dict[str, int]:
+    """Le costanti del budget, nell'ordine in cui i sorgenti le definiscono.
+
+    Una costante definita **due volte** e' un errore, non l'ultima che vince.
+    La prima stesura faceva `note[nome] = ...`, cioe' sovrascriveva in silenzio:
+    con `MAX_BYTE_DETTAGLIO` dichiarata sia in `busta.rs` sia in `loss.rs` il
+    gate avrebbe confrontato il manifesto con **una sola** delle due e sarebbe
+    stato verde mentre il codice ne applicava un'altra. E' precisamente il
+    difetto che questo lotto toglie dal codice, e sarebbe rimasto nel gate che
+    lo verifica.
+
+    L'ordine conta e non e' un dettaglio: `MAX_BYTE_BUSTA` e' scritta in
+    funzione delle precedenti e si risolve solo se sono gia' note.
+    """
     note: dict[str, int] = {}
-    for sorgente in SORGENTI:
-        for nome, espressione in CONST_USIZE.findall(sorgente.read_text(encoding="utf-8")):
+    duplicate: dict[str, list[str]] = {}
+    provenienza: dict[str, str] = {}
+    for nome_sorgente, testo in sorgenti:
+        for nome, espressione in CONST_USIZE.findall(testo):
+            if nome in note:
+                duplicate.setdefault(nome, [provenienza[nome]]).append(nome_sorgente)
+                continue
             note[nome] = valore(espressione, note)
+            provenienza[nome] = nome_sorgente
+    if duplicate:
+        elenco = "; ".join(f"`{n}` in {sorted(set(d))}" for n, d in sorted(duplicate.items()))
+        raise ValueError(
+            f"costanti del budget definite piu' di una volta: {elenco}. "
+            "Due definizioni non sono una ridondanza: il compilatore ne usa una per "
+            "contesto e questo gate ne confronterebbe un'altra."
+        )
     return note
+
+
+def costanti() -> dict[str, int]:
+    """Le costanti del budget, lette dai sorgenti che le dichiarano."""
+    return costanti_dai_testi(
+        [(str(s.relative_to(ROOT)), s.read_text(encoding="utf-8")) for s in SORGENTI]
+    )
 
 
 def sonde() -> set[str]:
@@ -152,6 +190,7 @@ def verifica(
     manifesto: dict | None = None,
     note: dict[str, int] | None = None,
     esistenti: set[str] | None = None,
+    registro: dict | None = None,
 ) -> list[str]:
     """Gli errori trovati, in elenco. Vuoto significa verde.
 
@@ -181,7 +220,7 @@ def verifica(
     try:
         note = costanti() if note is None else note
     except (OSError, ValueError, SyntaxError) as errore:
-        errori.append(f"costanti del budget illeggibili: {errore}")
+        errori.append(f"costanti del budget non determinate: {errore}")
         return errori
 
     for chiave, costante in MAPPATURA.items():
@@ -208,6 +247,25 @@ def verifica(
             "Un tetto che vive solo nel codice non e' una promessa: chi legge la busta "
             "non ha modo di conoscerlo, e lo scopre quando lo colpisce."
         )
+
+    # Il registro delle categorie dichiara lo stesso tetto, e `check_categorie
+    # _di_perdita.py` ci confronta la propria costante. Legandolo qui alla
+    # costante Rust, tutte e tre le copie risalgono a **una** autorita': quel
+    # gate resta pinnato per transitivita' senza dover leggere Rust anche lui.
+    try:
+        registro = registro_categorie() if registro is None else registro
+    except (OSError, ValueError) as errore:
+        errori.append(f"registro delle categorie illeggibile: {errore}")
+        registro = None
+    if registro is not None:
+        dichiarato = registro.get("limite_di_lunghezza_byte")
+        atteso = note.get("MAX_BYTE_ID_CATEGORIA")
+        if dichiarato != atteso:
+            errori.append(
+                f"il registro delle categorie dichiara un tetto di {dichiarato!r} byte e "
+                f"`MAX_BYTE_ID_CATEGORIA` ne vale {atteso}. Lo stesso identificatore sarebbe "
+                "limitato in un posto e non nell'altro."
+            )
 
     dichiarate = manifesto.get("sonde_che_lo_provano")
     if not isinstance(dichiarate, list) or not all(isinstance(s, str) for s in dichiarate):
