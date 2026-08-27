@@ -892,11 +892,11 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let perdita_in_scrittura = loss_doc(&published.fidelity, &published.loss, protocollo)?;
     if protocollo == Protocollo::V2 {
         busta::diagnostica_entro_il_totale(&[
-            &lettura,
-            &scrittura,
-            &conversione,
-            &perdita_in_lettura,
-            &perdita_in_scrittura,
+            ("read_fidelity", &lettura),
+            ("write_fidelity", &scrittura),
+            ("conversion_fidelity", &conversione),
+            ("read_loss", &perdita_in_lettura),
+            ("write_loss", &perdita_in_scrittura),
         ])
         .map_err(|_| budget_err())?;
     }

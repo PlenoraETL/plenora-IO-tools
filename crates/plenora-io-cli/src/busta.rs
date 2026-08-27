@@ -150,6 +150,35 @@ pub struct Troncamento {
 }
 
 impl Troncamento {
+    /// La dichiarazione **piu' grande** che questa sezione potra' emettere.
+    ///
+    /// Si misura con questa, non con quella vuota. La prima stesura riservava
+    /// lo spazio della dichiarazione a zero e poi ci scriveva i contatori veri:
+    /// una sezione che ne tronca ottantamila sostituisce `0` con cinque cifre,
+    /// e il documento finale usciva **oltre** il budget su cui era stato deciso
+    /// il taglio. I dodici KiB devono comprendere anche cio' che la sezione
+    /// dichiara di aver tolto, se no il tetto vale per un documento diverso da
+    /// quello che esce.
+    ///
+    /// Lo spazio si riserva a `u64::MAX` -- venti cifre -- e non al massimo che
+    /// l'ingresso corrente potrebbe produrre: il contatore e' un `u64` e niente
+    /// nel tipo lo limita piu' in basso. Una stima piu' stretta rimetterebbe il
+    /// tetto in mano a quante voci porta il file, che e' esattamente cio' che i
+    /// limiti esistono per togliergli.
+    ///
+    /// `troncato` sta a `false` e non a `true` perche' `false` e' la stringa
+    /// **piu' lunga** delle due: il caso peggiore e' quello, per quanto suoni
+    /// strano che il peggiore sia il caso in cui non si e' tolto niente.
+    fn segnaposto_massimo() -> Value {
+        Self {
+            categorie_omesse: u64::MAX,
+            ragioni_omesse: u64::MAX,
+            esempi_omessi: u64::MAX,
+            omesse_per_byte: u64::MAX,
+        }
+        .documento()
+    }
+
     /// La forma sul filo, scritta a mano e non derivata.
     ///
     /// I nomi dei quattro campi sono contratto: derivarli dai nomi Rust
@@ -249,7 +278,7 @@ pub fn sezione_di_perdita(
     //    una dichiarazione che entra solo se avanza spazio non e' una garanzia.
     let mut base = Map::new();
     base.insert("troncato".to_owned(), json!(false));
-    base.insert("omesse".to_owned(), Troncamento::default().documento());
+    base.insert("omesse".to_owned(), Troncamento::segnaposto_massimo());
     if byte_serializzati(&Value::Object(base.clone())) > budget {
         return Err(BudgetInsufficiente);
     }
@@ -314,7 +343,7 @@ pub fn sezione_di_fedelta(
     let mut base = Map::new();
     base.insert("level".to_owned(), documento_del_livello(valutazione.level));
     base.insert("troncato".to_owned(), json!(false));
-    base.insert("omesse".to_owned(), Troncamento::default().documento());
+    base.insert("omesse".to_owned(), Troncamento::segnaposto_massimo());
     if byte_serializzati(&Value::Object(base.clone())) > budget {
         return Err(BudgetInsufficiente);
     }
@@ -410,9 +439,20 @@ fn documento_della_ragione(ragione: &FidelityReason) -> Value {
 ///
 /// `BudgetInsufficiente` se le sezioni piu' la struttura superano
 /// `MAX_BYTE_BUSTA`.
-pub fn diagnostica_entro_il_totale(sezioni: &[&Value]) -> Result<usize, BudgetInsufficiente> {
-    let byte: usize = sezioni.iter().map(|s| byte_serializzati(s)).sum();
-    let totale = byte.saturating_add(BYTE_DELLA_STRUTTURA);
+pub fn diagnostica_entro_il_totale(
+    sezioni: &[(&str, &Value)],
+) -> Result<usize, BudgetInsufficiente> {
+    // La serializzazione **finale** dell'oggetto diagnostico, non la somma
+    // nominale delle cinque quote: sommare i numeri del contratto direbbe
+    // sempre 61 440 e non guarderebbe mai i nomi delle chiavi, le graffe, le
+    // virgole -- cioe' i byte che escono. I quattro KiB sono riserva
+    // strutturale **dentro** questo tetto, non un addendo da mettergli accanto,
+    // e non sono un limite sul resto della risposta, che diagnostica non e'.
+    let mut diagnostica = Map::new();
+    for (nome, valore) in sezioni {
+        diagnostica.insert((*nome).to_owned(), (*valore).clone());
+    }
+    let totale = byte_serializzati(&Value::Object(diagnostica));
     if totale > MAX_BYTE_BUSTA {
         return Err(BudgetInsufficiente);
     }
@@ -707,21 +747,66 @@ mod sonde {
     }
 
     #[test]
+    fn il_documento_finale_sta_nel_budget_anche_dichiarando_il_troncamento() {
+        // La dichiarazione fa parte della sezione, e la sua dimensione dipende
+        // da **quanto** si e' tolto: riservare lo spazio dei contatori a zero e
+        // poi scriverci numeri veri faceva uscire il documento oltre il budget
+        // su cui era stato deciso il taglio.
+        //
+        // Non un budget scelto a mano: se ne provano molti, perche' il difetto
+        // si vede solo dove la sezione finisce esattamente al bordo, e quel
+        // punto dipende da quanto e' lunga la dichiarazione.
+        let rapporto = rapporto_con(MAX_CATEGORIE + 500, 96);
+        for budget in (300..4_000).step_by(37) {
+            let Ok((documento, troncamento)) = sezione_di_perdita(&rapporto, budget) else {
+                continue;
+            };
+            let byte = documento.to_string().len();
+            assert!(
+                byte <= budget,
+                "budget {budget}: il documento finale ne occupa {byte}, e dichiara {troncamento:?}"
+            );
+            assert_eq!(
+                documento["omesse"],
+                troncamento.documento(),
+                "la dichiarazione emessa deve essere quella calcolata"
+            );
+        }
+    }
+
+    #[test]
     fn il_tetto_complessivo_e_verificato_sull_insieme() {
+        // I nomi sono quelli veri della busta: il totale misura la
+        // serializzazione **finale**, chiavi comprese, non la somma nominale
+        // delle cinque quote -- quella direbbe sempre 61 440 e non guarderebbe
+        // mai un byte di cio' che esce.
+        const NOMI: [&str; SEZIONI] = [
+            "read_fidelity",
+            "write_fidelity",
+            "conversion_fidelity",
+            "read_loss",
+            "write_loss",
+        ];
+
         // Cinque sezioni ciascuna dentro i propri dodici KiB non dicono niente
         // sull'aggregato: e' la ragione per cui questo controllo esiste. Con le
         // cinque piene si sta dentro; con una sesta no -- e la sesta non esiste,
         // ma il controllo deve accorgersene se un giorno esistesse.
         let rapporto = rapporto_con(MAX_CATEGORIE, MAX_BYTE_ID_CATEGORIA);
         let (sezione, _) = sezione_di_perdita(&rapporto, BYTE_PER_SEZIONE).expect("budget");
-        let cinque: Vec<&Value> = (0..SEZIONI).map(|_| &sezione).collect();
+        let cinque: Vec<(&str, &Value)> = NOMI.iter().map(|n| (*n, &sezione)).collect();
         let totale = diagnostica_entro_il_totale(&cinque).expect("cinque sezioni piene stanno");
         assert!(
             totale <= MAX_BYTE_BUSTA,
             "{totale} byte oltre il tetto di {MAX_BYTE_BUSTA}"
         );
+        assert!(
+            totale > SEZIONI * BYTE_PER_SEZIONE / 2,
+            "il totale deve misurare qualcosa di reale, non un numero simbolico: {totale}"
+        );
 
-        let sei: Vec<&Value> = (0..=SEZIONI).map(|_| &sezione).collect();
+        let mut sei = cinque;
+        sei.push(("una_sesta", &sezione));
         assert_eq!(
             diagnostica_entro_il_totale(&sei),
             Err(BudgetInsufficiente),
