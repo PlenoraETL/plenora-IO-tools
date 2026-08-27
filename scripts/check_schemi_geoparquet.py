@@ -70,6 +70,35 @@ PROVE_DI_CONFORMITA = (
     "schema_ufficiale::sonde::gli_schemi_incorporati_si_compilano",
     "schema_ufficiale::sonde::lo_schema_rifiuta_cio_che_la_specifica_rifiuta",
     "schema_ufficiale::sonde::il_rifiuto_non_dice_niente_del_documento",
+    # Il `crs` che il writer pubblica e' PROJJSON perche' lo schema lo dice, non
+    # perche' e' un oggetto JSON; e un documento finale non conforme non arriva
+    # mai a destinazione.
+    "tests::un_projjson_incompleto_non_e_scrivibile",
+    "tests::un_crs_che_non_e_projjson_non_produce_alcun_file",
+    "tests::un_metadato_finale_non_conforme_non_viene_pubblicato",
+    # Un riquadro se e solo se la geometria c'e', **nei valori** e non solo nello
+    # schema: la nullabilita' dichiarata nei campi non e' la nullabilita' scritta.
+    "tests::dove_la_geometria_e_nulla_il_covering_e_nullo",
+    # Il metadato riconciliato con lo schema fisico del file: le colonne
+    # dichiarate esistono e sono binarie, i percorsi del covering esistono, stanno
+    # in una struct sola e hanno foglie `DOUBLE` -- e lo si verifica **prima** di
+    # togliere quelle colonne dallo schema esposto.
+    "tests::un_covering_ben_formato_si_apre_e_toglie_la_sua_radice",
+    "tests::una_secondaria_dichiarata_e_assente_ferma_l_apertura",
+    "tests::una_geometrica_dichiarata_su_una_colonna_non_binaria_ferma_l_apertura",
+    "tests::un_covering_che_nomina_percorsi_assenti_ferma_l_apertura",
+    "tests::un_covering_sparso_su_strutture_diverse_ferma_l_apertura",
+    "tests::un_covering_con_le_foglie_del_tipo_sbagliato_ferma_l_apertura",
+    # La forma fisica della bounding group per intero, § *Bounding Box Columns*:
+    # nomi e ordine dei figli, le due forme ammesse e nessun'altra, la
+    # ripetizione uguale a quella della geometria, e `FLOAT` accanto a `DOUBLE`.
+    "tests::un_covering_con_i_figli_in_ordine_diverso_ferma_l_apertura",
+    "tests::un_covering_con_figli_in_piu_o_a_meta_ferma_l_apertura",
+    "tests::un_covering_con_la_ripetizione_opposta_ferma_l_apertura",
+    "tests::un_covering_a_sei_figli_e_valido_e_si_apre",
+    "tests::un_covering_float_e_valido_e_serve_al_pruning",
+    "tests::un_covering_con_gli_spigoli_di_precisione_diversa_ferma_l_apertura",
+    "tests::un_covering_con_uno_spigolo_annidato_ferma_l_apertura",
 )
 
 # La compatibilita' storica sta **fuori** dalla prova di conformita': non e' una
