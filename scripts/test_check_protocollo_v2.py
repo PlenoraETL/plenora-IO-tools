@@ -21,6 +21,15 @@ from scripts import check_protocollo_v2 as gate
 #: Un valore distinto per costante: vedi il docstring del modulo.
 NOTE_SANE = {costante: 10 + i for i, costante in enumerate(gate.MAPPATURA.values())}
 LIMITI_SANI = {chiave: NOTE_SANE[costante] for chiave, costante in gate.MAPPATURA.items()}
+#: I due payload sono **derivati** dai tetti, e il manifesto sano li porta gia'
+#: coerenti: le sonde li rompono una alla volta.
+LIMITI_SANI["payload_stringhe_v2_trattenute_ragioni"] = (
+    LIMITI_SANI["ragioni_trattenute"] * LIMITI_SANI["byte_per_dettaglio_curato"]
+)
+LIMITI_SANI["payload_stringhe_v2_trattenute_esempi"] = LIMITI_SANI["esempi_trattenuti"] * (
+    LIMITI_SANI["byte_per_identificatore_di_categoria"]
+    + LIMITI_SANI["byte_per_dettaglio_curato"]
+)
 SONDE_SANE = {"una_sonda", "un_altra_sonda"}
 REGISTRO_SANO = {"limite_di_lunghezza_byte": NOTE_SANE["MAX_BYTE_ID_CATEGORIA"]}
 
@@ -207,6 +216,38 @@ class UnaCostanteDefinitaDueVolte(unittest.TestCase):
 
     def test_i_sorgenti_reali_non_ne_hanno(self):
         gate.costanti()  # non solleva: nessuna costante del budget e' doppia
+
+
+class IlPayloadDelleStringheTrattenute(unittest.TestCase):
+    def test_un_payload_che_non_deriva_dai_limiti_e_rosso(self):
+        for chiave in (
+            "payload_stringhe_v2_trattenute_ragioni",
+            "payload_stringhe_v2_trattenute_esempi",
+        ):
+            manifesto = copy.deepcopy(MANIFESTO_SANO)
+            manifesto["limiti_della_diagnostica"][chiave] += 1
+            self.assertTrue(any(chiave in e for e in esito(manifesto)), chiave)
+
+    def test_un_payload_assente_e_rosso(self):
+        for chiave in (
+            "payload_stringhe_v2_trattenute_ragioni",
+            "payload_stringhe_v2_trattenute_esempi",
+        ):
+            manifesto = copy.deepcopy(MANIFESTO_SANO)
+            del manifesto["limiti_della_diagnostica"][chiave]
+            self.assertTrue(any(chiave in e for e in esito(manifesto)), chiave)
+
+    def test_alzare_un_tetto_senza_rifare_il_payload_e_rosso(self):
+        # Il caso che conta: il payload e' **derivato**, quindi un tetto che
+        # cambia e un payload che resta indietro devono divergere subito.
+        manifesto = copy.deepcopy(MANIFESTO_SANO)
+        manifesto["limiti_della_diagnostica"]["ragioni_trattenute"] *= 2
+        note = dict(NOTE_SANE)
+        note["MAX_RAGIONI_TRATTENUTE"] *= 2
+        errori = esito(manifesto, note=note)
+        self.assertTrue(
+            any("payload_stringhe_v2_trattenute_ragioni" in e for e in errori), errori
+        )
 
 
 class LeSondeDellaRedazione(unittest.TestCase):

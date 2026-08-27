@@ -243,6 +243,41 @@ def verifica(
                 "che il codice non applica."
             )
 
+    # Il payload dichiarato e' **derivato** dai limiti, non un numero scritto a
+    # mano accanto a loro: se fosse indipendente sarebbe una quarta copia da
+    # tenere allineata, e il modo in cui si disallinea non si vedrebbe. Qui si
+    # ricalcola e si confronta.
+    derivati = {
+        "payload_stringhe_v2_trattenute_ragioni": (
+            ("ragioni_trattenute", "byte_per_dettaglio_curato"),
+            lambda a, b: a * b,
+        ),
+        "payload_stringhe_v2_trattenute_esempi": (
+            (
+                "esempi_trattenuti",
+                "byte_per_identificatore_di_categoria",
+                "byte_per_dettaglio_curato",
+            ),
+            lambda a, b, c: a * (b + c),
+        ),
+    }
+    for chiave, (fattori, calcolo) in derivati.items():
+        if any(f not in limiti for f in fattori):
+            continue
+        if chiave not in limiti:
+            errori.append(
+                f"cli-protocol-v2: `{chiave}` non e' dichiarato. Un payload che nessuno "
+                "dichiara non e' una promessa."
+            )
+            continue
+        atteso = calcolo(*(limiti[f] for f in fattori))
+        if limiti[chiave] != atteso:
+            errori.append(
+                f"cli-protocol-v2: `{chiave}` dichiara {limiti[chiave]!r}, e dai limiti "
+                f"si ricava {atteso}. Il payload si **deriva** dai tetti: dichiararne uno "
+                "diverso sarebbe una quarta copia da tenere allineata a mano."
+            )
+
     non_dichiarate = sorted(set(note) - set(MAPPATURA.values()))
     if non_dichiarate:
         errori.append(
