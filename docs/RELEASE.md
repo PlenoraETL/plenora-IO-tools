@@ -21,13 +21,13 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `8f134fa` |
-| revisione misurata | `8f134fa` |
+| ultima qualificata | `f64723b` |
+| revisione misurata | `f64723b` |
 | passi del checkpoint | 73 |
 | passi verdi | 73 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 63 142 |
+| input di replay | 63 838 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
@@ -44,7 +44,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 3 |
-| S9, qualificato su | `8f134fa` |
+| S9, qualificato su | `f64723b` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
 | candidate, versione del workspace | `1.0.1` |

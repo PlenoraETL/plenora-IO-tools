@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione 8f134fa, che chiude le due tranche di assurance rimaste da `wire.loss-report`: la misura di profondita' riproducibile e le clausole di comportamento confrontate con il codice.",
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione f64723b, che chiude le due tranche di assurance rimaste da `wire.loss-report`: la misura di profondita' riproducibile e le clausole di comportamento confrontate con il codice.",
   "esito": "S9 checkpoint level 2 passed",
   "non_significa": "non autorizza una release e non promuove la readiness di alcun componente ne' del sistema. Restano tre bloccanti: il debito di copertura negativa, la candidate che non qualifica HEAD, e la qualifica cross-component, che ha un owner esterno.",
   "corsa": {
-    "revisione_iniziale": "8f134fa16099bba9c3ce258e81d22a5d7d3f2645",
-    "revisione_finale": "8f134fa16099bba9c3ce258e81d22a5d7d3f2645",
+    "revisione_iniziale": "f64723b3ac95441b3b54d3271d1a6117c802485a",
+    "revisione_finale": "f64723b3ac95441b3b54d3271d1a6117c802485a",
     "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
     "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
     "nota": "revisione e impronta finali sono **rilette** a fine corsa, non ristampate da quelle iniziali: un passo che scrivesse nell'albero che sta qualificando non qualifica niente, e la sola prova che non sia successo e' una seconda lettura.",
@@ -14,7 +14,7 @@
     "base_diagnostica": "c930b2a",
     "perche_questa_base": "e' l'ultimo commit prima di questo giro: la diagnostica differenziale misura le righe che **queste due tranche** hanno cambiato, non quelle del ramo intero, che le corse precedenti hanno gia' misurato.",
     "registro_dei_passi": "il registro contro cui questa evidenza si verifica e' `assurance/registries/passi-del-checkpoint.json`, che dichiara settantatre passi. Le due tranche non ne aggiungono nessuno: le loro prove sono eseguite da `check_release_contract.py`, che e' gia' un passo.",
-    "corse_precedenti": "sette, tutte **superate** con 73/73, su `e24a61e`, `7157981`, `eb6acf2`, `bc6ada4`, `00f0f32`, `0f31911` e `2a9c8ec`. Le loro evidenze restano vere per le rispettive revisioni, che pero' non sono piu' correnti. Le ultime tre sono di questo stesso giro e sono state **sostituite**, non scartate: vedi `cosa_chiude`."
+    "corse_precedenti": "otto, tutte **superate** con 73/73, su `e24a61e`, `7157981`, `eb6acf2`, `bc6ada4`, `00f0f32`, `0f31911`, `2a9c8ec` e `8f134fa`. Le loro evidenze restano vere per le rispettive revisioni, che pero' non sono piu' correnti. Le ultime quattro sono di questo stesso giro e sono state **sostituite**, non scartate: vedi `cosa_chiude`."
   },
   "riconciliazione": {
     "identificatori_distinti": 73,
@@ -395,7 +395,7 @@
   },
   "misure": {
     "fuzz_replay": {
-      "input": 63142,
+      "input": 63838,
       "target": 15,
       "target_totali": 15,
       "crash": 0
@@ -412,7 +412,7 @@
       "lcov_righe_strumentate": 39149,
       "cargo_lines_percentuale": 85.82,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 39 149 righe, dodici piu' della corsa su `bc6ada4`, e stanno tutte in `plenora-io-core/src/loss.rs`: sono le quattro funzioni che gli esempi hanno al posto del derive di `Ord` -- `chiave()`, `eq`, `partial_cmp` e `cmp`. Le due correzioni del gate, che sono le ultime cose che questo giro ha cambiato, non toccano il denominatore: sono fatte di Python, JSON e Markdown, che la copertura non osserva.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 39 149 righe, dodici piu' della corsa su `bc6ada4`, e stanno tutte in `plenora-io-core/src/loss.rs`: sono le quattro funzioni che gli esempi hanno al posto del derive di `Ord` -- `chiave()`, `eq`, `partial_cmp` e `cmp`. Le tre correzioni del gate, che sono le ultime cose che questo giro ha cambiato, non toccano il denominatore: sono fatte di Python, JSON e Markdown, che la copertura non osserva.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate."
     },
     "diagnostica_differenziale": {
@@ -422,15 +422,15 @@
       "scoperte": 0,
       "cambiate_non_eseguibili": 34,
       "esito": "100.00%",
-      "ragione": "100% delle dodici righe cambiate ed eseguibili, che sono le quattro funzioni con cui `LossExample` ha sostituito il derive di `Ord`. Sono le stesse dodici delle due corse precedenti di questo giro: la revisione qualificata e' cambiata due volte per correzioni del **gate**, e un gate non ha righe misurate da questa diagnostica -- e' Python. Cio' che lo prova sono le sue sonde, ottantuno, che `check_release_contract.py` esegue come passo del checkpoint.",
+      "ragione": "100% delle dodici righe cambiate ed eseguibili, che sono le quattro funzioni con cui `LossExample` ha sostituito il derive di `Ord`. Sono le stesse dodici delle tre corse precedenti di questo giro: la revisione qualificata e' cambiata tre volte per correzioni del **gate**, e un gate non ha righe misurate da questa diagnostica -- e' Python. Cio' che lo prova sono le sue sonde, ottantasette, che `check_release_contract.py` esegue come passo del checkpoint.",
       "che_cosa_sono_le_scoperte": "nessuna. Le otto righe scoperte delle corse precedenti erano i messaggi di asserzione delle sonde della redazione, e non compaiono qui per una ragione che non e' un miglioramento: non sono cambiate fra `c930b2a` e questa revisione, e la diagnostica differenziale guarda soltanto le righe cambiate. Restano dove erano, e restano non chiudibili.",
       "righe_scoperte": []
     }
   },
   "artefatti": {
-    "percorso_di_corsa": "/work/target/s9-l2s (volume Docker `plenora-io-target`, fuori dall'albero versionato: `target/` e' ignorato, e il passo `albero_invariato` lo conferma rileggendo l'impronta)",
+    "percorso_di_corsa": "/work/target/s9-l2t3 (volume Docker `plenora-io-target`, fuori dall'albero versionato: `target/` e' ignorato, e il passo `albero_invariato` lo conferma rileggendo l'impronta)",
     "file": 75,
-    "digest_manifest": "378690101b07523a725a5096e6ff92e0b1e7b497a0c7b41bfac716ef4573445e",
+    "digest_manifest": "b45b79eb78e744aa4b09182aba1b0245803f5980272bb0fbd3eae7ba336b0902",
     "forma_del_manifest": "`percorso` NUL `sha256 del contenuto` LF, in ordine di percorso; nessun timestamp e nessun metadato di filesystem, cosi' il digest dipende solo da cio' che i file contengono.",
     "risultato_della_corsa": "`risultato.json` fa parte del manifest, ed e' preteso: e' l'ultimo file che la corsa scrive, e un manifest senza di lui descriverebbe una corsa che non e' arrivata in fondo.",
     "manifest": {
@@ -442,7 +442,7 @@
       "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
       "check_categorie_di_perdita.log": "4ce9a44d800a19c5b8376fdeae922112e27d4d99e4073d51bc6768757a234f81",
       "check_confine_v1.log": "542f332bd3b461c45bd09e83f962c34df98e38f6303358cbe499f17129c841b1",
-      "check_coverage_exclusions.log": "d1a01017607f89fe5694b79f273d6245dd5f2204dd27585ba2d4ea266662309f",
+      "check_coverage_exclusions.log": "068468554c307d3214e9a2c7333e11c8ee44fb4ad854f3a9718b0b1831c3bf91",
       "check_dependency_pins.log": "3f472480b7f82381eed29cd34314d7c6dd5fed5ba268437a3df868b7415edb71",
       "check_docset.log": "21fddca1298b159a7e3a280e32393e21faa2efd32f15a0b63379cbd8b349836f",
       "check_dxf_fork.log": "aec602c5ee9d01f42f5ae0939436af4f921116b5f5620bbabbfbbff62e465dbe",
@@ -462,53 +462,53 @@
       "check_schemi_geoparquet.log": "d5c76e7deea8bd22226fe04bdc3fe4dfe1b42eeeb917d1f05f97fcf7b97bc4f4",
       "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
       "check_wkb_limits.log": "26d7e08e2f7b299be1f74b631494da73a599acb0b61ace7ff4d59a6b1537a7de",
-      "clippy.log": "2ba968c6dc0b878a77502b1d5ae2d3f5f4af8c7db5568ba89c530cdf71acf570",
-      "clippy_default.log": "3d64be19016496942ebf22adfde0d2629b809412e62f29e568538f710bf82c17",
-      "clippy_sicurezza.log": "0ff5a0d101ddead8d435ab5a4750f724a7880079e938ae290bdbbf2d82f6c320",
+      "clippy.log": "22ea7ed1ae39a4f5ca3b6cb354040ab292274ce34b08baa2dceffdc48b1704be",
+      "clippy_default.log": "e7d35684b603e91d944e0a3354c123279d65709e0e82986969a0404d15a1a62f",
+      "clippy_sicurezza.log": "7dec77d32f9f50ce9d90b8fc87a2ed7a50a61a2133ada8f591435d00e4ff6eb7",
       "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
-      "coverage_diff.log": "54b211774f5befbb80bd936c95f0e3545f676acd296e139de663af0c87c26356",
-      "coverage_export.log": "b1b6912edcf026d5f3f0d8fac96af64eba76860d14efd06823c2da31db6c1ed8",
-      "coverage_misura.log": "3484d4543f23f18e0cc24982ee3bd128fb4effb764779752e451d5002a70ef03",
+      "coverage_diff.log": "d2123ccfe74781b4ad3ea736eb62a72ade52021f0172c3266f1bcf18327c9e2b",
+      "coverage_export.log": "28b15285e4eefa51d87c61d7b2bcc044ab76c271c68a4bccc27616414cb67a28",
+      "coverage_misura.log": "dd83ddd7313a8ba4f4640423a133ec4f048ebda601c45f5f6babdb5492392d29",
       "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "coverage_soglia_controprova.log": "5facd834ab04a7aefb31cf84ee30b086668a78b82276a733ce6f2c2901f5c9c2",
       "coverage_soglia_dal_report.log": "5e2cf29ff88343b04810677ec0d0662e84110b7ccc778eccf91f4fded8220e97",
       "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "fuzz_replay.log": "48dd9040ca11c4215f9c32cbfdf8fd881678428097743957179b40fccdf43139",
-      "fuzz_smoke.log": "fd98edbcc4f51b5b985b94508958436bc2040f1724de3c58e03e5260c0195214",
-      "lcov.info": "eb4a4ac2b3827fb968db7c354b21bb1ae0eb94534400999f134861574928882a",
+      "fuzz_replay.log": "c846a1f529874750528d7c3c321d4a8808509370806a8b36d14c2dd9a3acf781",
+      "fuzz_smoke.log": "d8c1e72fae0745390c97dace7457386044c4c0f3b5e3aa94ceec6972c00e0bc9",
+      "lcov.info": "d02bf242f2278bee3e5ef1f32f931264e7508afb8596e972fc080f520c9dcda7",
       "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
-      "risultato.json": "094a923775950a2f76828d874147ed23e1aac6458247ba6ae10fc74f6dc2d2a7",
+      "risultato.json": "44f6f65498a491a0889995091104864831ab2a10043536273e64722dac573286",
       "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
       "sonde_action_pins.log": "3e5e13e45c5679793abc28956a6df70007e21db734fe0b654ea32d652c337f49",
-      "sonde_assurance_n1.log": "7ec580543a8cc85e0e4d0b04ad949f11eaa519faee1a4fd6b50c59d2916b45ed",
+      "sonde_assurance_n1.log": "b0e340eb06d83e4d5d2133b14948f77d655d6fdcb199127f1d9e2537410d9a06",
       "sonde_assurance_n1_prove.log": "4dced8ea8878af0a8b24aeaef1f95be8d365dadb60c2e79b95c4e30ee0b163d7",
       "sonde_audit_ignores.log": "62cfbeb2911bb226088bfb0918eb4b05008ea70b20bce854ee2ca8a564bd37a5",
-      "sonde_capability_ostile.log": "892c22626c60aa7494f39b47dfd7eb6f5844b0e3121dc22c2fe032446a40d3ab",
-      "sonde_categorie_di_perdita.log": "3319e35031dd3c963f81b6eb9322fae597c7d3a51497db2aa3ec9b491697d4ab",
+      "sonde_capability_ostile.log": "baed6155bda0fc09c4d278df448ed6f7f44093bb279f2936d0f5e257da84aa70",
+      "sonde_categorie_di_perdita.log": "3959c3f375b0a73d1d5dd3cf020b3a6e508aa1ea7a134970823c7ecfeed27069",
       "sonde_checkpoint.log": "e94268b86733efaccab0d790800daf50081093160fb95d50fba995d3bce46cd3",
-      "sonde_confine_v1.log": "d779cf48c84955e436a55feef3a25b27d0d1a797bb2cb6986755b2f7cbea74e3",
-      "sonde_coverage_excl.log": "3e113cb0e65b4a314cec4aa9fc4d039449023d99ae8865741cc23fa4dee6968b",
-      "sonde_docset.log": "2cfeaaa729d4eab5c3aa315ad087af48da32eff6dcf6d47957c5aeebf4f95f39",
-      "sonde_errori_redatti.log": "22e69128faed2c5b9f76178176222e7a4635dbd31155df18e4fad6455f8ab9ea",
+      "sonde_confine_v1.log": "6d3a54eb892ab5e303858661bd477f59c44cb2d159aa28c4576951fefd011bdf",
+      "sonde_coverage_excl.log": "cb5c229e0eeab5aae27f7b372e4b013c3d761210577bf3ba6d2f30ac781a3bd7",
+      "sonde_docset.log": "d5dad3f50bc4f46275538280fec3bf716968ec7d90e97c666ba6b486a3348d59",
+      "sonde_errori_redatti.log": "7552bd12ae276340729a65d44a110f392bc7234a9105e01401a941279fa79dfd",
       "sonde_fallback.log": "7c758af7411e05fc2e6c4fb89045f7a03d9a5957d5305092903a23a66373d034",
-      "sonde_filegdb.log": "2d407504d003cfe404f23be48347e686ae1f67393860d4067d9a0bf06b1ddd60",
-      "sonde_fork.log": "c2d66b0dbe1595fcc7587fc9794be31fbd49aadb28a0c0c853bb763ba1c82965",
+      "sonde_filegdb.log": "b16c2d37f8720077a281358023a1ae49c385415ecb8a4149a4a55f0a91241625",
+      "sonde_fork.log": "58cf262f905962cd63460f08b617639c8b812c4fd632a6a3d12fd038536930c0",
       "sonde_identita.log": "af55efa5c3ceb122f8184c380aa405d3f3b4e7e0c1e892773d0eff31d0645c8a",
-      "sonde_metadati_geoparquet.log": "dc38ec330fd491582ed41e10b62759fbe3cb18ec0e0ba65df4c7570215e0a420",
+      "sonde_metadati_geoparquet.log": "a2f243794c6d0bb3411a92861920e8af2aa57f8f26a66b669fec6894341696f0",
       "sonde_niente_leak.log": "2688e3aac5879831defab5e5f231a6f331e395be82e99f6caef62e863a873ffe",
-      "sonde_prevalidazione.log": "c0a234441cecc9937a09c7cbc31cee2a9774cd3f1dce8048b17104e7e417c7f1",
-      "sonde_protocollo_v2.log": "08dfce416a283ba929ac03648973a62782dca3a8e79d530145549060d9c34a80",
+      "sonde_prevalidazione.log": "58a520a024f15707222afe6575db8a3a9dbe7469c2c156ae0f9979903d48645a",
+      "sonde_protocollo_v2.log": "6e6bacf47b48df7b621c390f37327b3d14c416acfc80a035fd5cb56012c20d65",
       "sonde_quarantena.log": "74c03fc16fde9a2dfeff03db0ec8f472a5a8dfed04e9e982a912b4b7f64faee3",
-      "sonde_quartetto.log": "2f7b850c977121d8774a5cdcc47ed550746f0edb17a5b087b7ace1ccd82a6307",
-      "sonde_release.log": "1605f4cbb25aa5eecd3067050c479a861f82eaadaf40449c0832f0e04cb002c5",
-      "sonde_schemi_geoparquet.log": "b532479cd8af178c43e6445812a8d2238774dfc2c7a70445799c6c9e53204776",
-      "sonde_semi_s12.log": "c85e44116f14ff1dd26195049beb85bb5d7d7acc141cfd198d549bea399f2258",
+      "sonde_quartetto.log": "26e4fc70ea6b6384bf46375bf00ad2ce38024aabcad5482770bd95e72ba6bbc6",
+      "sonde_release.log": "27a8484cc011e598da18af0214f0fd1516ff0535e8623065bdf35db8faf8442c",
+      "sonde_schemi_geoparquet.log": "6bfd42ba50f1c2b5d5ba4b9d058b9c0ba31dff0b7e6b9dfbb4cf0e05b0edbd30",
+      "sonde_semi_s12.log": "dd818658e9c8008cb354da9371485cb574dabd3d7c356cdfa1c694608942fdca",
       "sonde_toolchain.log": "c7de476d1b78f867b2bbe4e9d11b5587cebe9384a2c3f2a5dc48ff78e0c49d6d",
       "sonde_wkb_condiviso.log": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
-      "sonde_wkb_limits.log": "5684d13977a1f6829bcd5f644c72b35ab6f8d42951d571a5f230c4cc35a359f3",
-      "test.log": "e61e8e9ad204ae96e7ee260b3bf15e212c6ee2b89a3f8f3d9e8130d22ea77959",
-      "test_default.log": "34f3a5428d087a23abd3b4dee3fe58426a1a7ebc1632800284627a66c52ebef9"
+      "sonde_wkb_limits.log": "7c758af7411e05fc2e6c4fb89045f7a03d9a5957d5305092903a23a66373d034",
+      "test.log": "97c4dd8dbbf4e79be8155e910f25a66ab59a056e9f7a758e5ed9b4c6c29d1731",
+      "test_default.log": "8891a418d30d3b15ef30a5af803843e986bdd4ba9d77cde322aa95b492a2c28e"
     }
   },
   "cosa_chiude": {
@@ -526,7 +526,8 @@
         "in": "00f0f32",
         "indurito_in": [
           "2a9c8ec",
-          "8f134fa"
+          "8f134fa",
+          "f64723b"
         ]
       }
     ],
@@ -545,9 +546,14 @@
         "revisione": "2a9c8ec",
         "esito": "superata, 73/73",
         "perche": "secondo giro di revisione sullo stesso gate, e due vie ancora aperte. Le letture erano ammesse per **segno**, e un segno ammette tutto cio' che comincia con quel segno: il punto ammetteva `.clone_from(&nuova)`, che scrive per auto-borrow senza che `&mut` compaia, e la virgola ammetteva `(troncamento.omesse_per_byte,) = (nuova,)`, che e' un'assegnazione. E i commenti si toglievano **dopo** aver cercato, e solo quelli di riga: un corpo canonico dentro `/* ... */`, seguito da quello vero, veniva scelto per primo. Chiuse in `8f134fa`."
+      },
+      {
+        "revisione": "8f134fa",
+        "esito": "superata, 73/73",
+        "perche": "terzo giro di revisione, e le due vie ancora aperte erano le stesse **due radici** delle quattro precedenti sulle parti non ancora toccate. Le stringhe non erano mascherate prima di cercare, quindi un corpo canonico scritto dentro un letterale veniva scelto al posto di quello vero, come gia' faceva un commento a blocco; e `,` e `)` restavano ammessi come lettura, quindi `scrivi!(troncamento.omesse_per_byte, nuova)` -- una macro che assegna cio' che riceve -- passava per lettura. Chiuse in `f64723b`, che toglie anche un falso **rosso** introdotto dal giro precedente: una stringa che si limitava a nominare il contatore fabbricava un sito."
       }
     ],
-    "perche_tre_sostituzioni": "nessuna e' stata scartata per un rosso, e nessuna delle due revisioni correttive dopo la prima tocca una riga di produzione: cambiano cio' che il **gate accetterebbe**, che e' l'unica cosa che un gate afferma. Un invariante che dichiara «il gate ricava il comportamento dal codice» non e' verificato da un gate che ne accetta un altro, e la revisione lo ha trovato due volte prima che fosse vero.",
+    "perche_quattro_sostituzioni": "nessuna e' stata scartata per un rosso, e nessuna delle tre revisioni correttive dopo la prima tocca una riga di produzione: cambiano cio' che il **gate accetterebbe**, e cio' che rifiuterebbe a torto, che e' l'unica cosa che un gate afferma. Un invariante che dichiara «il gate ricava il comportamento dal codice» non e' verificato da un gate che ne accetta un altro, e la revisione lo ha trovato **tre volte** prima che fosse vero. Le sei vie hanno due radici sole: il gate cercava su testo che non e' codice -- commenti, poi stringhe -- e ammetteva per segno cio' che va ammesso per forma -- la sottostringa, il punto, la virgola. Ogni giro ha chiuso una radice su una parte, e il successivo l'ha trovata sull'altra.",
     "bloccanti_residui": [
       "copertura.rami-negativi",
       "release.candidate-non-valida-per-head",

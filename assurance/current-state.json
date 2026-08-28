@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "8f134fa",
+      "sha": "f64723b",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "8f134fa",
+    "sha": "f64723b",
     "checkpoint": {
       "passi_eseguiti": 73,
       "passi_verdi": 73,
@@ -23,7 +23,7 @@
       "riconciliazione": "73 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento"
     },
     "fuzz": {
-      "replay_input": 63142,
+      "replay_input": 63838,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -37,7 +37,7 @@
       "lcov_righe_strumentate": 39149,
       "cargo_lines_percentuale": 85.82,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 39 149 righe, dodici piu' della corsa su `bc6ada4`, e stanno tutte in `plenora-io-core/src/loss.rs`: sono le quattro funzioni che gli esempi hanno al posto del derive di `Ord` -- `chiave()`, `eq`, `partial_cmp` e `cmp`. Le due correzioni del gate, che sono le ultime cose che questo giro ha cambiato, non toccano il denominatore: sono fatte di Python, JSON e Markdown, che la copertura non osserva.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 39 149 righe, dodici piu' della corsa su `bc6ada4`, e stanno tutte in `plenora-io-core/src/loss.rs`: sono le quattro funzioni che gli esempi hanno al posto del derive di `Ord` -- `chiave()`, `eq`, `partial_cmp` e `cmp`. Le tre correzioni del gate, che sono le ultime cose che questo giro ha cambiato, non toccano il denominatore: sono fatte di Python, JSON e Markdown, che la copertura non osserva.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
@@ -47,17 +47,17 @@
       "coperte": 12,
       "scoperte": 0,
       "cambiate_non_eseguibili": 34,
-      "ragione": "100% delle dodici righe cambiate ed eseguibili, che sono le quattro funzioni con cui `LossExample` ha sostituito il derive di `Ord`. Sono le stesse dodici delle due corse precedenti di questo giro: la revisione qualificata e' cambiata due volte per correzioni del **gate**, e un gate non ha righe misurate da questa diagnostica -- e' Python. Cio' che lo prova sono le sue sonde, ottantuno, che `check_release_contract.py` esegue come passo del checkpoint.",
+      "ragione": "100% delle dodici righe cambiate ed eseguibili, che sono le quattro funzioni con cui `LossExample` ha sostituito il derive di `Ord`. Sono le stesse dodici delle tre corse precedenti di questo giro: la revisione qualificata e' cambiata tre volte per correzioni del **gate**, e un gate non ha righe misurate da questa diagnostica -- e' Python. Cio' che lo prova sono le sue sonde, ottantasette, che `check_release_contract.py` esegue come passo del checkpoint.",
       "che_cosa_sono_le_scoperte": "nessuna. Le otto righe scoperte delle corse precedenti erano i messaggi di asserzione delle sonde della redazione, e non compaiono qui per una ragione che non e' un miglioramento: non sono cambiate fra `c930b2a` e questa revisione, e la diagnostica differenziale guarda soltanto le righe cambiate. Restano dove erano, e restano non chiudibili."
     },
-    "evidenza": "assurance/evidence/checkpoint-8f134fa.json"
+    "evidenza": "assurance/evidence/checkpoint-f64723b.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "8f134fa"
+      "qualificato_su": "f64723b"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
