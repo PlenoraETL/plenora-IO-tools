@@ -1124,6 +1124,56 @@ mod sonde {
     }
 
     #[test]
+    fn l_ordine_canonico_degli_esempi_e_quello_dei_tre_campi() {
+        // La sonda gemella della precedente, e nasce con la stessa lacuna: gli
+        // esempi **derivavano** `Ord`, quindi `eq` e `partial_cmp` non erano
+        // righe di sorgente e non c'era niente da non coprire. Ora passano da
+        // `chiave()` -- perche' il gate del protocollo legge l'ordine da li'
+        // invece che dall'ordine di dichiarazione dei campi -- e sono codice
+        // che qualcuno deve eseguire.
+        //
+        // La priorita' e' l'affermazione che conta: `category`, poi
+        // `posizione`, poi `context`. E' cio' che il derive dava, ed e' cio'
+        // che il contratto dichiara in `determinismo.ordine_canonico.esempi`:
+        // scriverla a mano senza provarla avrebbe potuto cambiare il punto in
+        // cui la sezione taglia senza che nulla lo dicesse.
+        let alfa = LossExample {
+            category: "alfa".to_owned(),
+            posizione: Posizione {
+                layer_index: Some(9),
+                field_index: Some(9),
+                type_class: None,
+            },
+            context: "zeta".to_owned(),
+        };
+        let beta = LossExample {
+            category: "beta".to_owned(),
+            posizione: Posizione::default(),
+            context: "alfa".to_owned(),
+        };
+        assert!(
+            alfa < beta,
+            "la categoria decide per prima, anche contro posizione e contesto maggiori"
+        );
+
+        // A parita' di categoria decide la posizione, e non il contesto.
+        let vicino = esempio(0, "zeta");
+        let lontano = esempio(9, "alfa");
+        assert!(vicino < lontano, "la posizione decide prima del contesto");
+
+        // A parita' di categoria e posizione resta il contesto.
+        assert!(esempio(3, "alfa") < esempio(3, "beta"));
+
+        // Gli operatori sono la stessa relazione di `cmp`, che e' quella che le
+        // collezioni usano: senza questa parte `partial_cmp` e `eq`
+        // esisterebbero solo per soddisfare la gerarchia dei trait.
+        assert!(lontano > vicino);
+        assert_eq!(vicino.partial_cmp(&lontano), Some(std::cmp::Ordering::Less));
+        assert_eq!(vicino, vicino.clone());
+        assert_ne!(vicino, lontano);
+    }
+
+    #[test]
     fn il_trattenimento_sfratta_la_maggiore_e_lo_dichiara() {
         // La meccanica centrale del trattenimento, e fino a questa sonda
         // nessuna la eseguiva: le altre si fermano al tetto, e lo sfratto parte
