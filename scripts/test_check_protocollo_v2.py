@@ -33,6 +33,22 @@ LIMITI_SANI["payload_stringhe_v2_trattenute_esempi"] = LIMITI_SANI["esempi_tratt
 SONDE_SANE = {"una_sonda", "un_altra_sonda"}
 REGISTRO_SANO = {"limite_di_lunghezza_byte": NOTE_SANE["MAX_BYTE_ID_CATEGORIA"]}
 
+#: Il comportamento **ricavato dal codice**, come lo restituisce il gate. Le
+#: sonde del confronto lo iniettano; quelle della derivazione lo producono da un
+#: sorgente finto, ed e' li' che si prova che venga davvero dal codice.
+COMPORTAMENTO_SANO = {
+    "ordine_canonico": {
+        "ragioni": ["code", "posizione", "detail"],
+        "esempi": ["category", "posizione", "context"],
+    },
+    "identita_delle_respinte": {
+        "ragioni": ["code", "posizione"],
+        "esempi": ["posizione"],
+    },
+    "fonti_di_omesse_per_byte": ["budget_della_sezione", "limite_della_voce"],
+    "errori": [],
+}
+
 MANIFESTO_SANO = {
     "manifest_version": 1,
     "component": "plenora-IO-tools",
@@ -40,18 +56,153 @@ MANIFESTO_SANO = {
     "status": "in_qualifica",
     "compatibility_scope": "cli_json_only",
     "limiti_della_diagnostica": dict(LIMITI_SANI),
+    "determinismo": {
+        "ordine_canonico": {
+            "ragioni": ["code", "posizione", "detail"],
+            "esempi": ["category", "posizione", "context"],
+            "come_si_ricava": "dalle due `chiave()`",
+            "nota": "prosa che resta",
+        }
+    },
+    "troncamento": {
+        "identita_delle_respinte": {
+            "ragioni": ["code", "posizione"],
+            "esempi": ["posizione"],
+        },
+        "omesse_per_byte": {"fonti": ["limite_della_voce", "budget_della_sezione"]},
+    },
     "sonde_che_lo_provano": sorted(SONDE_SANE),
     "sonde_della_redazione": [],
 }
 
 
-def esito(manifesto=None, note=None, esistenti=None, registro=None) -> list[str]:
+def esito(
+    manifesto=None, note=None, esistenti=None, registro=None, comportamento=None
+) -> list[str]:
     return gate.verifica(
         copy.deepcopy(MANIFESTO_SANO) if manifesto is None else manifesto,
         dict(NOTE_SANE) if note is None else note,
         set(SONDE_SANE) if esistenti is None else esistenti,
         dict(REGISTRO_SANO) if registro is None else registro,
+        copy.deepcopy(COMPORTAMENTO_SANO) if comportamento is None else comportamento,
     )
+
+
+# --- i sorgenti finti da cui il comportamento si ricava ---------------------
+#
+# Non sono `loss.rs` e `busta.rs` accorciati per comodita': sono il solo modo di
+# provare che il gate **legga** invece di credere. Una sonda che rompesse il
+# manifesto proverebbe il confronto; queste rompono il codice, che e' il lato da
+# cui la clausola invecchia.
+
+LOSS_FINTO = """\
+#[derive({derive_esempi})]
+pub struct LossExample {{
+    pub category: String,
+    pub posizione: Posizione,
+    pub context: String,
+}}
+
+impl LossExample {{
+    fn chiave(&self) -> (&str, Posizione, &str) {{
+        ({campi_esempi})
+    }}
+{chiave_in_piu}}}
+
+impl PartialEq for LossExample {{
+    fn eq(&self, altro: &Self) -> bool {{
+        self.chiave() == altro.chiave()
+    }}
+}}
+
+impl Ord for LossExample {{
+    fn cmp(&self, altro: &Self) -> Ordering {{
+        {corpo_ord_esempi}
+    }}
+}}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FidelityReason {{
+    pub code: FidelityReasonCode,
+    pub detail: String,
+    pub posizione: Posizione,
+}}
+
+impl FidelityReason {{
+    fn chiave(&self) -> (FidelityReasonCode, Posizione, &str) {{
+        ({campi_ragioni})
+    }}
+}}
+
+impl PartialEq for FidelityReason {{
+    fn eq(&self, altra: &Self) -> bool {{
+        self.chiave() == altra.chiave()
+    }}
+}}
+
+impl Ord for FidelityReason {{
+    fn cmp(&self, altra: &Self) -> Ordering {{
+        self.chiave().cmp(&altra.chiave())
+    }}
+}}
+
+#[derive(Clone, Debug)]
+pub struct FidelityAssessment {{
+    prime_v1: Vec<FidelityReason>,
+    respinte: BTreeSet<{elemento_respinte}>,
+}}
+
+impl FidelityAssessment {{
+    pub fn respinte_per_misura(&self) -> u64 {{
+        self.respinte.len() as u64
+    }}
+}}
+
+#[derive(Clone, Debug, Default)]
+pub struct LossReport {{
+    esempi: BTreeSet<LossExample>,
+    respinti: BTreeSet<{elemento_respinti}>,
+}}
+
+impl LossReport {{
+    pub fn respinti_per_misura(&self) -> u64 {{
+        self.respinti.len() as u64
+    }}
+}}
+"""
+
+BUSTA_FINTA = """\
+pub fn sezione_di_perdita(rapporto: &LossReport, budget: usize) -> Value {{
+    let (ammesse, fuori_misura): (Vec<_>, Vec<_>) = rapporto
+        .counts
+        .iter()
+        .partition(|(categoria, _)| categoria.len() <= MAX_BYTE_ID_CATEGORIA);
+    troncamento.omesse_per_byte = fuori_misura.len() as u64;
+    let (counts, per_byte) = entro_il_budget(&base, "counts", ammesse, budget, spingi);
+    troncamento.omesse_per_byte = troncamento.omesse_per_byte.saturating_add(per_byte);
+    troncamento.omesse_per_byte = troncamento
+        .omesse_per_byte
+        .saturating_add(rapporto.respinti_per_misura());
+{sito_in_piu}}}
+"""
+
+
+def loss_finto(**modifiche) -> str:
+    parametri = {
+        "derive_esempi": "Clone, Debug, Serialize",
+        "campi_esempi": "&self.category, self.posizione, &self.context",
+        "campi_ragioni": "self.code, self.posizione, &self.detail",
+        "corpo_ord_esempi": "self.chiave().cmp(&altro.chiave())",
+        "chiave_in_piu": "",
+        "elemento_respinte": "(FidelityReasonCode, Posizione)",
+        "elemento_respinti": "Posizione",
+    }
+    parametri.update(modifiche)
+    return LOSS_FINTO.format(**parametri)
+
+
+def busta_finta(sito_in_piu: str = "") -> str:
+    return BUSTA_FINTA.format(sito_in_piu=sito_in_piu)
 
 
 class IlRepositorySano(unittest.TestCase):
@@ -304,3 +455,272 @@ class IlValoreDiUnaCostante(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
+    """Il gate **legge** i due sorgenti, e non crede a una seconda copia.
+
+    E' la differenza fra questa tranche e ciò che c'era prima: le tre clausole
+    erano prosa, e una prosa che descriva un codice cambiato sotto di lei resta
+    verde per sempre. Ogni sonda qui sotto cambia il **codice** e pretende che
+    quello che il gate ricava cambi con lui.
+    """
+
+    def test_il_sorgente_finto_sano_da_le_tre_clausole(self):
+        ordine, errori = gate.ordine_canonico_dal_codice(loss_finto())
+        self.assertEqual(errori, [])
+        self.assertEqual(ordine, COMPORTAMENTO_SANO["ordine_canonico"])
+        identita, errori = gate.identita_delle_respinte_dal_codice(loss_finto())
+        self.assertEqual(errori, [])
+        self.assertEqual(identita, COMPORTAMENTO_SANO["identita_delle_respinte"])
+        fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(), loss_finto()
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(fonti, COMPORTAMENTO_SANO["fonti_di_omesse_per_byte"])
+
+    def test_il_gate_ricava_le_tre_clausole_dai_sorgenti_veri(self):
+        """Il caso sano sul repository, che e' cio' che il manifesto dichiara."""
+        derivato = gate.comportamento_dal_codice()
+        self.assertEqual(derivato["errori"], [])
+        self.assertEqual(derivato["ordine_canonico"], COMPORTAMENTO_SANO["ordine_canonico"])
+        self.assertEqual(
+            derivato["identita_delle_respinte"],
+            COMPORTAMENTO_SANO["identita_delle_respinte"],
+        )
+        self.assertEqual(
+            derivato["fonti_di_omesse_per_byte"],
+            COMPORTAMENTO_SANO["fonti_di_omesse_per_byte"],
+        )
+
+    def test_riordinare_la_chiave_cambia_l_ordine_ricavato(self):
+        """Il campo del manifesto seguirebbe il codice, e il confronto sarebbe
+        rosso: e' la proprieta' per cui la clausola smette di essere prosa."""
+        ordine, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(campi_esempi="self.posizione, &self.category, &self.context")
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(ordine["esempi"], ["posizione", "category", "context"])
+
+    def test_un_campo_tolto_dalla_chiave_si_vede(self):
+        ordine, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(campi_ragioni="self.code, &self.detail")
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(ordine["ragioni"], ["code", "detail"])
+
+    def test_un_derive_di_ord_rimesso_sulla_struttura_e_rosso(self):
+        """Con il derive l'ordine torna a essere quello di dichiarazione dei
+        campi, e `chiave()` resta una funzione vera che non decide piu'."""
+        for derivato in ("Clone, Debug, PartialOrd, Ord, Serialize", "Clone, Eq, Serialize"):
+            with self.subTest(derivato=derivato):
+                _, errori = gate.ordine_canonico_dal_codice(
+                    loss_finto(derive_esempi=derivato)
+                )
+                self.assertTrue(any("deriva" in e for e in errori), errori)
+
+    def test_un_ord_che_non_passa_da_chiave_e_rosso(self):
+        _, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(corpo_ord_esempi="self.category.cmp(&altro.category)")
+        )
+        self.assertTrue(any("non passa da `chiave()`" in e for e in errori), errori)
+
+    def test_una_chiave_sparita_e_rossa(self):
+        senza = loss_finto().replace("fn chiave(&self) -> (&str, Posizione, &str)", "fn nulla(&self)")
+        _, errori = gate.ordine_canonico_dal_codice(senza)
+        self.assertTrue(any("non esiste piu'" in e for e in errori), errori)
+
+    def test_due_chiavi_nello_stesso_tipo_sono_ambigue(self):
+        in_piu = (
+            "\n    fn chiave(&self) -> (&str, &str) {\n"
+            "        (&self.category, &self.context)\n"
+            "    }\n"
+        )
+        _, errori = gate.ordine_canonico_dal_codice(loss_finto(chiave_in_piu=in_piu))
+        self.assertTrue(any("ambiguo" in e for e in errori), errori)
+
+    def test_una_chiave_che_ripete_un_campo_e_rossa(self):
+        _, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(campi_esempi="&self.category, &self.category, &self.context")
+        )
+        self.assertTrue(any("piu' di una volta" in e for e in errori), errori)
+
+    def test_cambiare_l_identita_delle_respinte_si_vede(self):
+        identita, errori = gate.identita_delle_respinte_dal_codice(
+            loss_finto(elemento_respinti="(FidelityReasonCode, Posizione)")
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(identita["esempi"], ["code", "posizione"])
+
+    def test_un_tipo_che_il_gate_non_sa_nominare_e_rosso(self):
+        _, errori = gate.identita_delle_respinte_dal_codice(
+            loss_finto(elemento_respinte="(FidelityReasonCode, Posizione, String)")
+        )
+        self.assertTrue(any("non sa nominare" in e for e in errori), errori)
+
+    def test_un_componente_ripetuto_nella_chiave_delle_respinte_e_rosso(self):
+        _, errori = gate.identita_delle_respinte_dal_codice(
+            loss_finto(elemento_respinte="(Posizione, Posizione)")
+        )
+        self.assertTrue(any("due volte lo stesso campo" in e for e in errori), errori)
+
+    def test_un_insieme_che_non_e_piu_un_btreeset_e_rosso(self):
+        senza = loss_finto().replace("respinti: BTreeSet<Posizione>,", "respinti: Vec<Posizione>,")
+        _, errori = gate.identita_delle_respinte_dal_codice(senza)
+        self.assertTrue(any("non e' piu' un `BTreeSet`" in e for e in errori), errori)
+
+    def test_un_sito_del_contatore_che_non_si_classifica_e_rosso(self):
+        """Una terza fonte comparsa senza dichiarazione: e' il modo normale in
+        cui una clausola invecchia, ed e' cio' che il gate deve vedere."""
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                "    troncamento.omesse_per_byte = qualcosa_di_nuovo.len() as u64;\n"
+            ),
+            loss_finto(),
+        )
+        self.assertTrue(any("nessuna delle due fonti" in e for e in errori), errori)
+
+    def test_un_sito_ambiguo_e_rosso(self):
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                "    troncamento.omesse_per_byte = per_byte + fuori_misura.len() as u64;\n"
+            ),
+            loss_finto(),
+        )
+        self.assertTrue(any("entrambe le fonti" in e for e in errori), errori)
+
+    def test_senza_il_budget_della_sezione_e_rosso(self):
+        senza = busta_finta().replace("entro_il_budget", "una_funzione_qualunque")
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(senza, loss_finto())
+        self.assertTrue(any("budget della sezione" in e for e in errori), errori)
+
+    def test_senza_la_partizione_sui_byte_e_rosso(self):
+        senza = busta_finta().replace("MAX_BYTE_ID_CATEGORIA", "UN_NUMERO")
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(senza, loss_finto())
+        self.assertTrue(any("filtro alla porta" in e for e in errori), errori)
+
+    def test_senza_siti_il_contatore_non_ha_fonti(self):
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta().replace("troncamento.omesse_per_byte", "altro_contatore"),
+            loss_finto(),
+        )
+        self.assertTrue(any("nessun sito incrementa" in e for e in errori), errori)
+
+    def test_un_accessore_delle_respinte_sparito_e_rosso(self):
+        senza = loss_finto().replace("pub fn respinti_per_misura", "fn quanti")
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(busta_finta(), senza)
+        self.assertTrue(any("accessori" in e for e in errori), errori)
+
+
+class IlManifestoDescriveIlComportamento(unittest.TestCase):
+    """Il confronto: il campo del manifesto contro cio' che il codice compone."""
+
+    def test_il_manifesto_finto_e_verde(self):
+        self.assertEqual(esito(), [])
+
+    def test_un_ordine_canonico_divergente_e_rosso(self):
+        for clausola in ("ragioni", "esempi"):
+            with self.subTest(clausola):
+                manifesto = copy.deepcopy(MANIFESTO_SANO)
+                manifesto["determinismo"]["ordine_canonico"][clausola] = ["posizione"]
+                errori = esito(manifesto)
+                self.assertTrue(
+                    any("ordine_canonico" in e and clausola in e for e in errori), errori
+                )
+
+    def test_un_identita_delle_respinte_divergente_e_rossa(self):
+        for clausola in ("ragioni", "esempi"):
+            with self.subTest(clausola):
+                manifesto = copy.deepcopy(MANIFESTO_SANO)
+                manifesto["troncamento"]["identita_delle_respinte"][clausola] = ["detail"]
+                errori = esito(manifesto)
+                self.assertTrue(
+                    any("identita_delle_respinte" in e and clausola in e for e in errori),
+                    errori,
+                )
+
+    def test_le_fonti_divergenti_sono_rosse(self):
+        manifesto = copy.deepcopy(MANIFESTO_SANO)
+        manifesto["troncamento"]["omesse_per_byte"]["fonti"] = ["limite_della_voce"]
+        errori = esito(manifesto)
+        self.assertTrue(any("fonti" in e for e in errori), errori)
+
+    def test_un_campo_ripetuto_e_rosso(self):
+        """`["code", "code"]` e `["code"]` descrivono la stessa identita' e si
+        leggono come due: un componente ripetuto non stringe niente."""
+        casi = (
+            (("determinismo", "ordine_canonico", "ragioni"), ["code", "code", "detail"]),
+            (
+                ("troncamento", "identita_delle_respinte", "esempi"),
+                ["posizione", "posizione"],
+            ),
+            (
+                ("troncamento", "omesse_per_byte", "fonti"),
+                ["limite_della_voce", "limite_della_voce", "budget_della_sezione"],
+            ),
+        )
+        for percorso, valore in casi:
+            with self.subTest(percorso=percorso):
+                manifesto = copy.deepcopy(MANIFESTO_SANO)
+                dove = manifesto
+                for pezzo in percorso[:-1]:
+                    dove = dove[pezzo]
+                dove[percorso[-1]] = valore
+                errori = esito(manifesto)
+                self.assertTrue(
+                    any("non vuoti e distinti" in e for e in errori), errori
+                )
+
+    def test_una_clausola_che_torna_prosa_e_rossa(self):
+        """E' il difetto di partenza: una frase al posto di un campo."""
+        casi = (
+            ("determinismo", "ordine_canonico"),
+            ("troncamento", "identita_delle_respinte"),
+            ("troncamento", "omesse_per_byte"),
+        )
+        for sezione, clausola in casi:
+            with self.subTest(clausola=clausola):
+                manifesto = copy.deepcopy(MANIFESTO_SANO)
+                manifesto[sezione][clausola] = "una frase che descrive tutto"
+                errori = esito(manifesto)
+                self.assertTrue(any(clausola in e for e in errori), errori)
+
+    def test_una_sezione_intera_assente_e_rossa(self):
+        for sezione in ("determinismo", "troncamento"):
+            with self.subTest(sezione):
+                manifesto = copy.deepcopy(MANIFESTO_SANO)
+                del manifesto[sezione]
+                self.assertNotEqual(esito(manifesto), [])
+
+    def test_un_campo_in_piu_che_nessuno_confronta_e_rosso(self):
+        """Prosa con la forma di un campo: si legge come confrontata e non lo e'."""
+        casi = (
+            ("determinismo", "ordine_canonico"),
+            ("troncamento", "identita_delle_respinte"),
+            ("troncamento", "omesse_per_byte"),
+        )
+        for sezione, clausola in casi:
+            with self.subTest(clausola=clausola):
+                manifesto = copy.deepcopy(MANIFESTO_SANO)
+                manifesto[sezione][clausola]["categorie"] = ["identificatore"]
+                errori = esito(manifesto)
+                self.assertTrue(any("non ricava da nessuna parte" in e for e in errori), errori)
+
+    def test_la_prosa_accanto_ai_campi_resta_ammessa(self):
+        """Il significato residuo va ancora scritto: e' il campo che si aggiunge
+        alla frase, non la frase che si toglie."""
+        manifesto = copy.deepcopy(MANIFESTO_SANO)
+        for sezione, clausola in (
+            ("troncamento", "identita_delle_respinte"),
+            ("troncamento", "omesse_per_byte"),
+        ):
+            manifesto[sezione][clausola]["come_si_ricava"] = "da dove"
+            manifesto[sezione][clausola]["nota"] = "perche'"
+        self.assertEqual(esito(manifesto), [])
+
+    def test_un_errore_di_derivazione_arriva_all_elenco(self):
+        """Se il codice non si lascia leggere il gate e' rosso, e lo e' per la
+        ragione giusta: non si confronta un manifesto con il vuoto."""
+        errori = esito(comportamento={"errori": ["`LossExample::chiave()` non esiste piu'"]})
+        self.assertTrue(any("chiave()" in e for e in errori), errori)
+        self.assertFalse(any("non ricava da nessuna parte" in e for e in errori), errori)

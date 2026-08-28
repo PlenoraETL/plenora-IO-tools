@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 98.33% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
-| blocchi | 4 |
+| blocchi | 3 |
 | S9, qualificato su | `bc6ada4` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -64,7 +64,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 |---|---|
 | `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
-| `wire.clausole-confrontabili` | clausole di comportamento in prosa, non confrontate con il codice |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
 
 <!-- generato da assurance/current-state.json: fine -->
@@ -250,6 +249,42 @@ soltanto fra copie identiche — vivono in
 e non più nello shell script, perché in shell nessuna delle quattro si sarebbe
 potuta violare in una prova.
 
+**Le clausole di comportamento del contratto.** La ratifica di
+`wire.loss-report` aveva trovato quattro clausole di
+[`cli-protocol-v2.json`](../release/cli-protocol-v2.json) che descrivevano un
+codice cambiato sotto di loro. L'invariante era `verified` lo stesso, e per una
+ragione precisa: gli undici **numeri** del manifesto sono confrontati con il
+codice, mentre la prosa non la guarda nessuno.
+
+Un gate generale prosa-contro-comportamento non è realistico. Tre clausole però
+si strutturano, e sono ora campi confrontati come i numeri:
+
+| campo del manifesto | ricavato da |
+|---|---|
+| `determinismo.ordine_canonico.ragioni` e `.esempi` | i campi che `FidelityReason::chiave()` e `LossExample::chiave()` compongono |
+| `troncamento.identita_delle_respinte.ragioni` e `.esempi` | il tipo dell'elemento dei due `BTreeSet` che conservano le respinte |
+| `troncamento.omesse_per_byte.fonti` | i siti che incrementano il contatore, ciascuno dei quali deve ricadere in una delle due fonti e in una sola |
+
+Il gate **ricava** il comportamento dal codice invece di confrontare due copie
+del manifesto, che divergerebbero insieme. Ciò che sa da sé è *dove* guardare —
+il tipo, il campo, il nome della funzione — e se quel posto sparisce diventa
+rosso; se cambia ciò che c'è dentro, diventa rosso il confronto col manifesto.
+È rosso anche su un campo ripetuto, su una clausola tornata prosa, su un campo
+in più che nessuno confronta, su un tipo di respinta che non sa nominare e su un
+sito del contatore ambiguo.
+
+I due ordini non si estraevano allo stesso modo, ed era una decisione da
+prendere. `LossExample` derivava `Ord`, quindi il suo ordine era quello di
+**dichiarazione dei campi**: un fatto vero, ma di natura diversa da quello delle
+ragioni, e un gate avrebbe dovuto leggerlo da un altro posto e dichiarare il
+caso particolare. Gli si è data una `chiave()` esplicita: costa una funzione,
+lascia un meccanismo solo, e il comportamento sul filo non cambia — la tupla è
+quella dei campi nell'ordine in cui erano dichiarati. I due tipi delegano ora
+`Ord` e `PartialEq` a quella funzione e non li derivano, e il gate lo pretende.
+
+La rilettura umana resta per il significato residuo, che quei campi non
+catturano. Non più come **unica** difesa.
+
 ### La candidate `1.0.1` non qualifica HEAD
 
 Il manifesto di candidate è legato a una revisione che non è HEAD, con
@@ -350,50 +385,3 @@ impronta invariati; l'evidenza in un commit separato.
 
 Solo allora `release_authorized` può diventare `true`, e sarà una decisione
 scritta — non la conseguenza automatica di sei caselle verdi.
-
-#### Una tranche di assurance da chiudere prima di quel livello 2
-
-Erano **due**, trovate chiudendo `wire.loss-report` e rinviate deliberatamente
-per non allargarne la tesi. La riproducibilità della misura di profondità è
-chiusa — vedi [§ Chiuso](#chiuso) — e ne resta una. Il vincolo che avevano in
-comune vale ancora per quella che resta: cambia la revisione qualificata, quindi
-obbliga a un livello 2 nuovo con la sua evidenza.
-
-Non è una raccomandazione. È l'invariante `release_blocking`
-`wire.clausole-confrontabili` del
-[registro del contratto corrente](../assurance/registries/release-contract-current.json),
-dove dichiara per esteso la propria condizione di chiusura: un obbligo che
-vivesse soltanto in questa prosa ricreerebbe lo spazio non sorvegliato che la
-chiusura di `wire.loss-report` aveva appena trovato. Quel registro è l'autorità;
-quanto segue spiega **perché** esiste, e i numeri su cui poggia.
-
-**Tre clausole del contratto sono confrontabili e oggi sono prosa.** La
-ratifica di `wire.loss-report` ha trovato quattro clausole di
-[`cli-protocol-v2.json`](../release/cli-protocol-v2.json) che descrivevano un
-codice cambiato sotto di loro: l'invariante era `verified` perché i **numeri**
-sono confrontati con il codice, mentre la prosa non la guarda nessuno. Un gate
-generale prosa-contro-comportamento non è realistico; tre cose però si
-strutturano e diventerebbero confrontabili come già lo sono gli undici numeri:
-
-| oggi, prosa | domani, campo confrontabile |
-|---|---|
-| «le ragioni per `(codice, posizione, dettaglio)`» | `ordine_canonico.ragioni`, confrontato con i campi che `FidelityReason::chiave()` compone |
-| «gli esempi per `(categoria, posizione, contesto)`» | `ordine_canonico.esempi` — e qui il meccanismo è **un altro** |
-| «`(code, posizione)` per le ragioni, la sola `posizione` per gli esempi» | `identita_delle_respinte.ragioni` e `.esempi`, confrontate con i tipi dei due `BTreeSet` |
-| «due limiti contati insieme, della voce e della sezione» | `omesse_per_byte.fonti`, confrontate con i siti che incrementano il contatore |
-
-I due ordini **non** si estraggono allo stesso modo, ed è una decisione che la
-tranche deve prendere invece di ereditare. `FidelityReason` ha un `Ord` scritto
-a mano che passa da `chiave()`, quindi i campi dell'ordine sono nel corpo di
-quella funzione. `LossExample` deriva `Ord`, quindi il suo ordine è l'**ordine
-di dichiarazione dei campi** nella struttura — un fatto vero ma di natura
-diversa, che un gate deve leggere da un altro posto. O la verifica distingue i
-due casi e lo dichiara, oppure si introduce una `chiave()` esplicita anche per
-gli esempi e i due si confrontano allo stesso modo. La seconda costa una
-funzione e toglie un caso particolare; la prima non tocca il codice e lascia
-due letture da tenere allineate.
-
-La rilettura umana resta necessaria per il significato residuo, ma non deve
-essere l'**unica** difesa: le quattro clausole stale e una canary che passava
-anche con il difetto che diceva di escludere stavano tutte nello spazio che
-nessun gate guarda.

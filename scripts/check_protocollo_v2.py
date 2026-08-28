@@ -19,6 +19,29 @@ E' il difetto chiuso in `7eb1060` sui metadati GeoParquet -- il documento
 diceva del file cose che nessuno confrontava col file -- applicato al
 contratto invece che ai metadati.
 
+# Le tre clausole che erano prosa
+
+Gli undici numeri erano confrontati con il codice; tre clausole di
+**comportamento** no, ed erano prosa. La ratifica di `wire.loss-report` ha
+trovato quattro clausole di questo stesso manifesto che descrivevano un codice
+cambiato sotto di loro: l'invariante era `verified` perche' i numeri si
+confrontano e la prosa non la guarda nessuno.
+
+Un gate generale prosa-contro-comportamento non e' realistico; tre cose pero'
+si strutturano, e allora si confrontano come i numeri:
+
+  * l'**ordine canonico** di ragioni ed esempi, dai campi che le due `chiave()`
+    compongono;
+  * l'**identita'** su cui le respinte deduplicano, dal tipo dell'elemento dei
+    due `BTreeSet` che le conservano;
+  * le due **fonti** di `omesse_per_byte`, dai siti che incrementano il
+    contatore.
+
+In tutti e tre i casi il comportamento si **ricava dal codice**: il gate non
+confronta due copie del manifesto, che divergerebbero insieme. Cio' che sa da
+se' e' *dove* guardare -- il tipo, il campo, il nome della funzione -- e se
+quel posto sparisce diventa rosso.
+
 # Perche' la verifica e' nei due versi
 
 Il gate pretende che ogni numero dichiarato abbia una costante **e** che ogni
@@ -53,6 +76,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
@@ -100,6 +124,465 @@ IDENTITA = {
 
 CONST_USIZE = re.compile(r"^pub const ([A-Z][A-Z0-9_]*): usize = ([^;]+);", re.M)
 SONDA = re.compile(r"#\[test\]\s*\n\s*fn ([a-z_][a-z0-9_]*)\s*\(")
+
+# --- le tre clausole di comportamento --------------------------------------
+#
+# Gli undici numeri erano gia' confrontati col codice; queste tre cose no, ed
+# erano **prosa**. La ratifica di `wire.loss-report` ha trovato quattro clausole
+# di questo stesso manifesto che descrivevano un codice cambiato sotto di loro:
+# l'invariante era `verified` perche' i numeri si confrontano e la prosa non la
+# guarda nessuno.
+#
+# Un gate generale prosa-contro-comportamento non e' realistico. Queste tre si
+# strutturano, e allora si confrontano come i numeri: l'ordine canonico di
+# ragioni ed esempi, l'identita' su cui le respinte deduplicano, e le due fonti
+# di `omesse_per_byte`.
+#
+# Il gate le **ricava dal codice**, e non confronta due copie del manifesto.
+# Quello che sta scritto qui sotto e' *dove* guardare -- il tipo, il campo, il
+# nome della funzione -- non che cosa aspettarsi di trovarci: se il posto sparisce
+# il gate diventa rosso, e se cambia cio' che c'e' dentro diventa rosso il
+# confronto col manifesto.
+
+#: `clausola -> tipo Rust la cui chiave() compone l'ordine canonico`.
+#:
+#: Un meccanismo **solo**, e non due. `LossExample` derivava `Ord`, quindi il suo
+#: ordine era quello di dichiarazione dei campi: un fatto vero ma di natura
+#: diversa, che avrebbe obbligato questo gate a due letture e a dichiarare il
+#: caso particolare. Una `chiave()` esplicita anche per gli esempi costa una
+#: funzione e toglie il caso particolare: l'ordine si legge dove e' scritto.
+ORDINE_CANONICO: dict[str, str] = {
+    "ragioni": "FidelityReason",
+    "esempi": "LossExample",
+}
+
+#: I tratti che i due tipi devono **delegare** a `chiave()`, e cio' che non
+#: devono derivare. Con un derive al posto dell'impl l'ordine tornerebbe a
+#: essere quello di dichiarazione dei campi -- un posto che il manifesto non
+#: nomina -- e `chiave()` resterebbe una funzione vera che non decide piu'
+#: niente.
+TRATTI_DELEGATI = ("Ord", "PartialEq")
+DERIVE_VIETATI = frozenset({"Ord", "PartialOrd", "PartialEq", "Eq"})
+
+#: `clausola -> (struttura, campo)` del `BTreeSet` che conserva le respinte.
+INSIEMI_DELLE_RESPINTE: dict[str, tuple[str, str]] = {
+    "ragioni": ("FidelityAssessment", "respinte"),
+    "esempi": ("LossReport", "respinti"),
+}
+
+#: Come si legge un elemento di quei due insiemi. Un tipo non mappato e' un
+#: errore e non un caso da ignorare: significa che l'identita' su cui le
+#: respinte deduplicano e' cambiata, ed e' precisamente cio' che il manifesto
+#: dichiara.
+TIPI_DELLA_RESPINTA: dict[str, str] = {
+    "FidelityReasonCode": "code",
+    "Posizione": "posizione",
+}
+
+#: Le due fonti di `omesse_per_byte`, e il vocabolario con cui il manifesto le
+#: nomina. Sono contate insieme perche' la decisione che inducono e' la stessa
+#: -- la voce non c'e', e non e' una questione di cardinalita' -- ma restano
+#: due, e il manifesto deve dirlo.
+FONTE_DELLA_VOCE = "limite_della_voce"
+FONTE_DELLA_SEZIONE = "budget_della_sezione"
+
+#: I tetti in byte **per voce**: una partizione che ci si confronta e' il filtro
+#: alla porta, cioe' la prima delle due fonti.
+COSTANTI_DI_VOCE = ("MAX_BYTE_ID_CATEGORIA", "MAX_BYTE_DETTAGLIO")
+
+#: La funzione che consuma il budget della sezione. E' l'altra fonte, e il
+#: secondo valore che restituisce e' il numero di voci lasciate fuori.
+FUNZIONE_DEL_BUDGET = "entro_il_budget"
+
+#: Il contatore da cui i siti si riconoscono.
+CONTATORE = "troncamento.omesse_per_byte"
+
+IMPL = re.compile(
+    r"^impl(?:<[^>]*>)?\s+(?:(?P<tratto>[\w:]+)\s+for\s+)?(?P<tipo>\w+)", re.M
+)
+FN_CHIAVE = re.compile(
+    r"^(?P<rientro>[ ]*)fn chiave\(&self\)[^\n]*\{\n(?P<corpo>.*?)^(?P=rientro)\}",
+    re.M | re.S,
+)
+CAMPO_DI_SELF = re.compile(r"self\.(\w+)")
+DERIVE_DELLA_STRUTTURA = re.compile(
+    r"#\[derive\(([^)]*)\)\]\s*(?:#\[[^\]]*\]\s*)*pub struct (\w+)"
+)
+ACCESSORE_DELLA_LUNGHEZZA = re.compile(
+    r"pub fn (\w+)\(&self\) -> u64 \{\s*self\.(\w+)\.len\(\) as u64\s*\}"
+)
+LEGAME_A_DUE = re.compile(r"let \(\s*\w+\s*,\s*(\w+)\s*\)[^=]*=\s*(.*?);", re.S)
+SITO_DEL_CONTATORE = re.compile(re.escape(CONTATORE) + r"\s*=\s*(.*?);", re.S)
+PAROLA = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _corpo_della_struttura(testo: str, tipo: str) -> str | None:
+    """Il corpo di `pub struct <tipo> { ... }`, o `None` se non c'e' piu'."""
+    trovato = re.search(
+        r"^pub struct " + re.escape(tipo) + r"\b[^\n]*\{\n(.*?)^\}",
+        testo,
+        re.M | re.S,
+    )
+    return trovato.group(1) if trovato else None
+
+
+def _tipo_che_possiede(testo: str, posizione: int) -> tuple[str | None, str | None]:
+    """`(tratto, tipo)` del blocco `impl` che contiene quella posizione.
+
+    Si guarda all'indietro invece di bilanciare le graffe: in un sorgente Rust
+    le graffe stanno anche dentro le stringhe -- `format!("{format}: ...")` --
+    e un contatore ingenuo si perderebbe alla prima.
+    """
+    ultimo = None
+    for trovato in IMPL.finditer(testo):
+        if trovato.start() > posizione:
+            break
+        ultimo = trovato
+    if ultimo is None:
+        return None, None
+    return ultimo.group("tratto"), ultimo.group("tipo")
+
+
+def _corpo_dell_impl(testo: str, tratto: str, tipo: str) -> str | None:
+    """Il testo di `impl <tratto> for <tipo>`, fino al blocco `impl` successivo."""
+    for trovato in IMPL.finditer(testo):
+        if trovato.group("tratto") != tratto or trovato.group("tipo") != tipo:
+            continue
+        successivo = IMPL.search(testo, trovato.end())
+        return testo[trovato.start() : successivo.start() if successivo else len(testo)]
+    return None
+
+
+def ordine_canonico_dal_codice(testo: str) -> tuple[dict[str, list[str]], list[str]]:
+    """`{clausola: campi}` dalle `chiave()` dei due tipi, con le loro guardie.
+
+    Non basta leggere la funzione: bisogna anche che sia lei a decidere. Un
+    `derive(Ord)` rimesso sulla struttura riporterebbe l'ordine nell'ordine di
+    dichiarazione dei campi, e `chiave()` diventerebbe una funzione vera che
+    con il punto in cui la sezione taglia non ha piu' rapporto.
+    """
+    errori: list[str] = []
+    chiavi: dict[str, list[str]] = {}
+    per_tipo: dict[str, list[list[str]]] = {}
+
+    for trovato in FN_CHIAVE.finditer(testo):
+        tratto, tipo = _tipo_che_possiede(testo, trovato.start())
+        if tratto is not None or tipo is None:
+            continue
+        per_tipo.setdefault(tipo, []).append(
+            CAMPO_DI_SELF.findall(trovato.group("corpo"))
+        )
+
+    derive = {tipo: campi for campi, tipo in DERIVE_DELLA_STRUTTURA.findall(testo)}
+
+    for clausola, tipo in ORDINE_CANONICO.items():
+        composizioni = per_tipo.get(tipo, [])
+        if not composizioni:
+            errori.append(
+                f"`{tipo}::chiave()` non esiste piu': l'ordine canonico di "
+                f"`{clausola}` non si legge da nessuna parte, e il manifesto lo "
+                "dichiarerebbe da solo."
+            )
+            continue
+        if len(composizioni) > 1:
+            errori.append(
+                f"`{tipo}` ha {len(composizioni)} funzioni `chiave()`: quale "
+                "componga l'ordine canonico e' ambiguo, e un'ambiguita' qui e' un "
+                "ordine indefinito."
+            )
+            continue
+        campi = composizioni[0]
+        if not campi:
+            errori.append(f"`{tipo}::chiave()` non compone alcun campo di `self`")
+            continue
+        ripetuti = sorted({c for c in campi if campi.count(c) > 1})
+        if ripetuti:
+            errori.append(
+                f"`{tipo}::chiave()` compone {ripetuti} piu' di una volta: un campo "
+                "ripetuto non aggiunge un criterio all'ordine."
+            )
+            continue
+
+        if tipo not in derive:
+            errori.append(f"`pub struct {tipo}` non si trova piu'")
+            continue
+        derivati = {d.strip() for d in derive[tipo].split(",") if d.strip()}
+        vietati = sorted(derivati & DERIVE_VIETATI)
+        if vietati:
+            errori.append(
+                f"`{tipo}` deriva {vietati}. Con il derive l'ordine torna a essere "
+                "quello di **dichiarazione dei campi**, cioe' un posto che il "
+                f"manifesto non nomina, e `{tipo}::chiave()` smette di decidere il "
+                "punto in cui la sezione taglia."
+            )
+            continue
+        mancanti = [
+            tratto
+            for tratto in TRATTI_DELEGATI
+            if "chiave()" not in (_corpo_dell_impl(testo, tratto, tipo) or "")
+        ]
+        if mancanti:
+            errori.append(
+                f"`impl {mancanti[0]} for {tipo}` non passa da `chiave()`. Se non ci "
+                "passa, i campi che quella funzione compone non sono l'ordine "
+                "canonico: sono un'opinione."
+            )
+            continue
+        chiavi[clausola] = campi
+
+    return chiavi, errori
+
+
+def identita_delle_respinte_dal_codice(
+    testo: str,
+) -> tuple[dict[str, list[str]], list[str]]:
+    """`{clausola: campi}` dal tipo dell'elemento dei due `BTreeSet`.
+
+    E' li' che l'identita' vive: una voce respinta non si conserva, e cio' su cui
+    il conteggio deduplica e' esattamente cio' che l'insieme contiene.
+    """
+    errori: list[str] = []
+    identita: dict[str, list[str]] = {}
+
+    for clausola, (struttura, campo) in INSIEMI_DELLE_RESPINTE.items():
+        corpo = _corpo_della_struttura(testo, struttura)
+        if corpo is None:
+            errori.append(f"`pub struct {struttura}` non si trova piu'")
+            continue
+        trovato = re.search(
+            r"^\s*" + re.escape(campo) + r": BTreeSet<(.+)>,$", corpo, re.M
+        )
+        if trovato is None:
+            errori.append(
+                f"`{struttura}.{campo}` non e' piu' un `BTreeSet`: l'identita' su "
+                f"cui le respinte di `{clausola}` deduplicano non si legge piu'."
+            )
+            continue
+        elemento = trovato.group(1).strip()
+        if elemento.startswith("(") and elemento.endswith(")"):
+            pezzi = [p.strip() for p in elemento[1:-1].split(",") if p.strip()]
+        else:
+            pezzi = [elemento]
+        campi: list[str] = []
+        for pezzo in pezzi:
+            if pezzo not in TIPI_DELLA_RESPINTA:
+                errori.append(
+                    f"`{struttura}.{campo}` conserva un `{pezzo}`, che questo gate "
+                    "non sa nominare. L'identita' delle respinte e' cambiata, ed e' "
+                    "precisamente cio' che il manifesto dichiara."
+                )
+                campi = []
+                break
+            campi.append(TIPI_DELLA_RESPINTA[pezzo])
+        if not campi:
+            continue
+        if len(set(campi)) != len(campi):
+            errori.append(
+                f"`{struttura}.{campo}` conserva due volte lo stesso campo: una "
+                "chiave con un componente ripetuto non e' piu' stretta, e' solo "
+                "illeggibile."
+            )
+            continue
+        identita[clausola] = campi
+
+    return identita, errori
+
+
+def fonti_di_omesse_per_byte_dal_codice(
+    busta: str, loss: str
+) -> tuple[list[str], list[str]]:
+    """Le fonti del contatore, dai **siti che lo incrementano**.
+
+    Ogni sito deve ricadere in una delle due fonti, e in una sola. Un sito che
+    non si classifica non e' un caso da ignorare: e' una terza fonte comparsa
+    senza che il manifesto la dichiari, ed e' il modo normale in cui una clausola
+    invecchia.
+    """
+    errori: list[str] = []
+
+    insiemi = {campo for _, campo in INSIEMI_DELLE_RESPINTE.values()}
+    accessori = {
+        nome
+        for nome, campo in ACCESSORE_DELLA_LUNGHEZZA.findall(loss)
+        if campo in insiemi
+    }
+    if len(accessori) != len(insiemi):
+        errori.append(
+            f"gli accessori che contano le respinte sono {sorted(accessori)}, e gli "
+            f"insiemi che le conservano sono {sorted(insiemi)}. Senza quel legame il "
+            "filtro alla porta non e' piu' riconoscibile fra le fonti del contatore."
+        )
+
+    del_budget: set[str] = set()
+    della_voce: set[str] = set()
+    for nome, destra in LEGAME_A_DUE.findall(busta):
+        if FUNZIONE_DEL_BUDGET in destra:
+            del_budget.add(nome)
+        elif ".partition(" in destra and any(c in destra for c in COSTANTI_DI_VOCE):
+            della_voce.add(nome)
+    if not del_budget:
+        errori.append(
+            f"nessun legame a `{FUNZIONE_DEL_BUDGET}`: il budget della sezione non "
+            "si riconosce piu' fra le fonti del contatore."
+        )
+    if not della_voce:
+        errori.append(
+            "nessuna partizione sui tetti in byte della singola voce: il filtro alla "
+            "porta non si riconosce piu' fra le fonti del contatore."
+        )
+
+    fonti: set[str] = set()
+    siti = SITO_DEL_CONTATORE.findall(busta)
+    if not siti:
+        errori.append(
+            f"nessun sito incrementa `{CONTATORE}`: il contatore non ha piu' fonti, e "
+            "la clausola descriverebbe un comportamento che non esiste."
+        )
+    for indice, destra in enumerate(siti, 1):
+        nomi = set(PAROLA.findall(destra))
+        trovate = set()
+        if nomi & del_budget:
+            trovate.add(FONTE_DELLA_SEZIONE)
+        if (nomi & della_voce) or (nomi & accessori):
+            trovate.add(FONTE_DELLA_VOCE)
+        if not trovate:
+            errori.append(
+                f"il sito {indice} di `{CONTATORE}` non ricade in nessuna delle due "
+                f"fonti dichiarate: «{' '.join(destra.split())}». Una terza fonte "
+                "comparsa senza che il manifesto la dichiari e' il modo normale in "
+                "cui una clausola invecchia."
+            )
+        elif len(trovate) > 1:
+            errori.append(
+                f"il sito {indice} di `{CONTATORE}` ricade in entrambe le fonti: "
+                f"«{' '.join(destra.split())}». Un sito ambiguo non dice da dove "
+                "venga la voce omessa."
+            )
+        fonti |= trovate
+
+    return sorted(fonti), errori
+
+
+def comportamento_dal_codice() -> dict[str, Any]:
+    """Le tre clausole di comportamento, dai due sorgenti che le decidono."""
+    try:
+        testo_loss = LOSS.read_text(encoding="utf-8")
+        testo_busta = BUSTA.read_text(encoding="utf-8")
+    except OSError as errore:
+        return {"errori": [f"sorgenti del comportamento illeggibili: {errore}"]}
+
+    ordine, errori_ordine = ordine_canonico_dal_codice(testo_loss)
+    identita, errori_identita = identita_delle_respinte_dal_codice(testo_loss)
+    fonti, errori_fonti = fonti_di_omesse_per_byte_dal_codice(testo_busta, testo_loss)
+    return {
+        "ordine_canonico": ordine,
+        "identita_delle_respinte": identita,
+        "fonti_di_omesse_per_byte": fonti,
+        "errori": errori_ordine + errori_identita + errori_fonti,
+    }
+
+
+def _elenco_di_campi(valore: Any) -> list[str] | None:
+    """Un elenco di nomi non vuoti e senza ripetizioni, o `None`.
+
+    Le ripetizioni non sono una svista da tollerare: `["code", "code"]` e
+    `["code"]` descrivono la stessa identita' e si leggono come due, e in un
+    ordine canonico un campo ripetuto non aggiunge un criterio.
+    """
+    if not isinstance(valore, list) or not valore:
+        return None
+    if not all(isinstance(nome, str) and nome for nome in valore):
+        return None
+    if len(set(valore)) != len(valore):
+        return None
+    return valore
+
+
+def _confronta_fonti(dichiarato: Any, derivate: list[str]) -> list[str]:
+    """Le fonti dichiarate contro quelle dei siti che incrementano il contatore.
+
+    Un **insieme** e non una sequenza: le due fonti sono contate insieme e non
+    hanno un ordine, quindi si confrontano ordinate. Cio' che conta e' che siano
+    quelle, e che non ce ne sia una terza che nessuno dichiara.
+    """
+    if not derivate:
+        return []
+    if not isinstance(dichiarato, dict):
+        return [
+            "cli-protocol-v2: `troncamento.omesse_per_byte` assente o non un oggetto. "
+            "Le due fonti restavano prosa, e una prosa non la confronta nessuno."
+        ]
+    errori: list[str] = []
+    fonti = _elenco_di_campi(dichiarato.get("fonti"))
+    if fonti is None:
+        errori.append(
+            "cli-protocol-v2: `troncamento.omesse_per_byte.fonti` non e' un elenco di "
+            "nomi non vuoti e distinti."
+        )
+    elif sorted(fonti) != derivate:
+        errori.append(
+            f"cli-protocol-v2: `troncamento.omesse_per_byte.fonti` dichiara "
+            f"{sorted(fonti)}, i siti che incrementano il contatore ne producono "
+            f"{derivate}. Il manifesto descrive un comportamento che il codice non ha."
+        )
+    estranee = sorted(set(dichiarato) - {"fonti"} - PROSA_AMMESSA)
+    if estranee:
+        errori.append(
+            f"cli-protocol-v2: `troncamento.omesse_per_byte` dichiara {estranee}, che "
+            "il gate non ricava da nessuna parte. Una clausola che nessuno confronta e' "
+            "prosa con la forma di un campo."
+        )
+    return errori
+
+
+#: Le due chiavi di prosa ammesse accanto ai campi confrontati: dove il gate
+#: guarda, e perche' la clausola esiste. Tutto il resto dentro quegli oggetti
+#: sarebbe un campo che nessuno confronta, cioe' il difetto di partenza con una
+#: forma nuova.
+PROSA_AMMESSA = frozenset({"come_si_ricava", "nota"})
+
+def _confronta_clausola(
+    percorso: str, dichiarato: Any, derivato: dict[str, list[str]]
+) -> list[str]:
+    """Il campo del manifesto contro cio' che il codice compone.
+
+    Se il codice non si e' lasciato leggere il confronto non si fa: il motivo e'
+    gia' nell'elenco degli errori, e aggiungere «il manifesto dichiara cose che
+    il gate non ricava» darebbe due diagnosi alla stessa causa.
+    """
+    if not derivato:
+        return []
+    if not isinstance(dichiarato, dict):
+        return [
+            f"cli-protocol-v2: `{percorso}` assente o non un oggetto. Una clausola di "
+            "comportamento che resta prosa non la confronta nessuno, ed e' la "
+            "famiglia di difetti che la ratifica del v2 ha trovato."
+        ]
+    errori: list[str] = []
+    for clausola, campi in sorted(derivato.items()):
+        valore = _elenco_di_campi(dichiarato.get(clausola))
+        if valore is None:
+            errori.append(
+                f"cli-protocol-v2: `{percorso}.{clausola}` non e' un elenco di nomi "
+                "non vuoti e distinti."
+            )
+            continue
+        if valore != campi:
+            errori.append(
+                f"cli-protocol-v2: `{percorso}.{clausola}` dichiara {valore}, il "
+                f"codice compone {campi}. Il manifesto descrive un comportamento che "
+                "il codice non ha."
+            )
+    estranee = sorted(set(dichiarato) - set(derivato) - PROSA_AMMESSA)
+    if estranee:
+        errori.append(
+            f"cli-protocol-v2: `{percorso}` dichiara {estranee}, che il gate non "
+            "ricava da nessuna parte. Una clausola che nessuno confronta e' prosa con "
+            "la forma di un campo."
+        )
+    return errori
+
+
 
 
 def valore(espressione: str, note: dict[str, int]) -> int:
@@ -194,12 +677,13 @@ def verifica(
     note: dict[str, int] | None = None,
     esistenti: set[str] | None = None,
     registro: dict | None = None,
+    comportamento: dict[str, Any] | None = None,
 ) -> list[str]:
     """Gli errori trovati, in elenco. Vuoto significa verde.
 
-    I tre argomenti esistono per le sonde: un gate verde sul repository sano
-    dice che oggi e' verde, non che domani diventerebbe rosso, e ogni
-    proprieta' affermata qui ha una sonda che la viola su un manifesto finto.
+    Gli argomenti esistono per le sonde: un gate verde sul repository sano dice
+    che oggi e' verde, non che domani diventerebbe rosso, e ogni proprieta'
+    affermata qui ha una sonda che la viola su un manifesto finto.
     """
     manifesto = contratto() if manifesto is None else manifesto
     errori: list[str] = []
@@ -305,6 +789,35 @@ def verifica(
                 "limitato in un posto e non nell'altro."
             )
 
+    # Le tre clausole di comportamento. Il comportamento si **ricava** dai due
+    # sorgenti che lo decidono; qui si confronta soltanto, come per i numeri.
+    comportamento = comportamento_dal_codice() if comportamento is None else comportamento
+    errori.extend(comportamento.get("errori", []))
+    determinismo = manifesto.get("determinismo")
+    troncamento = manifesto.get("troncamento")
+    errori.extend(
+        _confronta_clausola(
+            "determinismo.ordine_canonico",
+            determinismo.get("ordine_canonico") if isinstance(determinismo, dict) else None,
+            comportamento.get("ordine_canonico") or {},
+        )
+    )
+    errori.extend(
+        _confronta_clausola(
+            "troncamento.identita_delle_respinte",
+            troncamento.get("identita_delle_respinte")
+            if isinstance(troncamento, dict)
+            else None,
+            comportamento.get("identita_delle_respinte") or {},
+        )
+    )
+    errori.extend(
+        _confronta_fonti(
+            troncamento.get("omesse_per_byte") if isinstance(troncamento, dict) else None,
+            comportamento.get("fonti_di_omesse_per_byte") or [],
+        )
+    )
+
     dichiarate = manifesto.get("sonde_che_lo_provano")
     if not isinstance(dichiarate, list) or not all(isinstance(s, str) for s in dichiarate):
         errori.append("cli-protocol-v2: `sonde_che_lo_provano` assente o non un elenco di nomi.")
@@ -373,12 +886,16 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    manifesto = contratto()
     print(
         f"protocollo v2 verificato: {len(MAPPATURA)} limiti dichiarati dal manifesto e "
         f"applicati dal codice, nessuna costante del budget taciuta; "
-        f"{len(contratto()['sonde_che_lo_provano'])} sonde nominate dal contratto, "
+        f"tre clausole di comportamento ricavate dal codice e confrontate -- ordine "
+        f"canonico di ragioni ed esempi, identita' delle respinte, fonti di "
+        f"`omesse_per_byte`; "
+        f"{len(manifesto['sonde_che_lo_provano'])} sonde nominate dal contratto, "
         f"tutte presenti e nessuna in piu'; "
-        f"{len(contratto()['sonde_della_redazione'])} sonde della redazione, tutte presenti."
+        f"{len(manifesto['sonde_della_redazione'])} sonde della redazione, tutte presenti."
     )
     return 0
 

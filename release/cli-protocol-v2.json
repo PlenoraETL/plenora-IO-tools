@@ -54,17 +54,49 @@
       "categorie_omesse": "categorie oltre il tetto di cardinalita'",
       "ragioni_omesse": "ragioni oltre il tetto di cardinalita'",
       "esempi_omessi": "esempi oltre il tetto di cardinalita'",
-      "omesse_per_byte": "voci lasciate fuori per un limite **in byte**, e sono due limiti diversi contati insieme: quello della singola voce -- un identificatore oltre i 128 byte, un dettaglio o un contesto oltre i 512 -- e quello della sezione, che si esaurisce mentre le voci vi entrano. Sono contati insieme perche' la decisione che inducono e' la stessa: la voce non c'e' e non e' una questione di cardinalita'. Il primo si applica **alla porta**, prima del trattenimento, cosi' che una voce fuori misura non occupi un posto ne' sfratti una voce valida"
+      "omesse_per_byte": "voci lasciate fuori per un limite **in byte**, e sono due limiti diversi contati insieme: quello della singola voce -- un identificatore oltre i 128 byte, un dettaglio o un contesto oltre i 512 -- e quello della sezione, che si esaurisce mentre le voci vi entrano. Sono contati insieme perche' la decisione che inducono e' la stessa: la voce non c'e' e non e' una questione di cardinalita'. Il primo si applica **alla porta**, prima del trattenimento, cosi' che una voce fuori misura non occupi un posto ne' sfratti una voce valida. Le due fonti sono anche un campo confrontato con il codice: vedi `omesse_per_byte.fonti`"
     },
     "perche_separate": "sono quattro modi diversi di restare fuori, e portano a decisioni diverse: «ci sono piu' di sessantaquattro categorie» e «lo spazio e' finito» non si somministrano allo stesso lettore nello stesso modo. Sommarle in un numero solo direbbe che qualcosa e' stato tolto senza dire che cosa.",
     "i_conteggi_restano_esatti": "si omette una voce intera, mai si riscrive un conteggio. Un `12` al posto di `300` sarebbe un valore che significa due cose.",
     "forma_di_un_esempio": "`category` dal vocabolario chiuso, gli indici piatti di `posizione` -- `layer_index`, `field_index`, `type_class`, tutti opzionali -- e `context`, testo **curato**. Gli esempi sono il terzo blocco dell'ordine canonico ed escono **fino al budget residuo**: sono la voce piu' sacrificabile, e i conteggi devono uscire interi anche quando gli esempi non ci stanno, mai il contrario. Un conteggio troncato mentirebbe su un numero; un esempio omesso e' un'illustrazione in meno, ed e' dichiarata in `esempi_omessi`.",
     "codici_di_autorita_ammessi": "i codici numerici di un registro di autorita' CRS -- EPSG e simili -- **possono** comparire nel `context` di un esempio, ed e' un'eccezione dichiarata e non un'omissione. Vengono dal file, ma non sono identificatori scelti da chi lo fornisce: sono numeri di un registro pubblico, di cardinalita' e forma note, e senza di loro un'incoerenza fra `crs_definition`, `crs_id` e `srid` non e' leggibile -- l'esempio direbbe che tre valori discordano senza dire quali. Restano vietate le stringhe libere che li accompagnano, `crs_id` compreso: quella e' testo che il file decide. La resa e' **nostra** e non quella di un tipo di libreria: un codice assente si scrive `absent`, mai `None`, e uno presente si scrive col numero nudo, mai `Some(4326)`. Un consumatore che facesse `match` sulla forma `Debug` di un `Option` dipenderebbe da come si stampa un tipo che non e' nostro.",
     "omesse_esatte": "un **qualificatore sull'esattezza** dei quattro contatori, non una quinta causa di omissione. Vale `false` per qualunque perdita di esattezza interna -- il trattenimento che satura, una voce respinta perche' fuori misura -- e allora i quattro sono **limiti inferiori**. Una voce respinta non si conserva, quindi non si puo' sapere se un'altra respinta le fosse identica: il conteggio delle respinte e' deduplicato su una chiave **compatta e diversa nei due casi**: `(code, posizione)` per le ragioni, la sola `posizione` per gli esempi -- perche' quando e' proprio `category` a essere fuori misura non c'e' niente da conservare. Nessuna delle due e' un'identita' esatta, ed e' per questo che qualunque respinta rende il campo `false`. Una diagnostica che tacesse la propria approssimazione sarebbe peggio di una troncata, che almeno lo dichiara.",
+    "identita_delle_respinte": {
+      "ragioni": [
+        "code",
+        "posizione"
+      ],
+      "esempi": [
+        "posizione"
+      ],
+      "come_si_ricava": "dal tipo dell'elemento dei due `BTreeSet` che le conservano: `FidelityAssessment::respinte` e `LossReport::respinti`. Una voce respinta non si conserva, quindi cio' su cui il conteggio deduplica e' esattamente cio' che l'insieme contiene, e non c'e' un secondo posto in cui la stessa regola possa divergere.",
+      "nota": "i nomi sono quelli dei campi delle due strutture. Nessuna delle due chiavi e' un'identita' esatta, ed e' la ragione per cui qualunque respinta rende `omesse_esatte` falso: due ragioni con lo stesso codice e la stessa posizione ma dettagli diversi contano per una. Per gli esempi si conserva la sola posizione, perche' quando e' proprio `category` a essere fuori misura non c'e' niente da conservare."
+    },
+    "omesse_per_byte": {
+      "fonti": [
+        "limite_della_voce",
+        "budget_della_sezione"
+      ],
+      "come_si_ricava": "dai siti che assegnano `troncamento.omesse_per_byte` in `busta.rs`: ciascuno deve ricadere in una delle due fonti, e in una sola. Viene dal **budget della sezione** il sito che usa un valore restituito da `entro_il_budget`; viene dal **limite della voce** quello che usa la partizione sui tetti in byte, o un accessore che conta le respinte. Un sito che non si classifica e' una terza fonte comparsa senza che questo campo la dichiari, e il gate diventa rosso: e' il modo normale in cui una clausola invecchia.",
+      "nota": "sono due limiti diversi contati insieme perche' la decisione che inducono e' la stessa: la voce non c'e', e non e' una questione di cardinalita'. Che cosa siano per esteso lo dice `quattro_cause_separate.omesse_per_byte`; questo campo esiste perche' quella frase la rileggeva soltanto un umano."
+    },
     "fallire_chiusi": "se nemmeno la struttura minima -- la sola dichiarazione di troncamento -- entra nel budget della sezione, la CLI **fallisce** invece di pubblicare una sezione senza dichiarazione. La sola cosa peggiore di una diagnostica troncata e' una troncata che tace."
   },
   "determinismo": {
-    "ordine_canonico": "la selezione e il taglio dipendono da un ordine canonico, non dall'ordine d'inserimento. Le categorie escono ordinate per identificatore; le ragioni per `(codice, posizione, dettaglio)` e gli esempi per `(categoria, posizione, contesto)`, dove l'ordine dei codici e' quello in cui sono dichiarati nell'enumerazione -- e quell'ordine e' contratto quanto i nomi, come lo e' quello delle classi di tipo, che entrano nella posizione. La posizione sta nella chiave e non e' un ornamento: con la redazione due voci possono avere lo stesso testo curato e differire solo negli indici, e senza di essi il loro ordine relativo sarebbe indefinito.",
+    "ordine_canonico": {
+      "ragioni": [
+        "code",
+        "posizione",
+        "detail"
+      ],
+      "esempi": [
+        "category",
+        "posizione",
+        "context"
+      ],
+      "come_si_ricava": "dalla tupla che `chiave()` compone: `FidelityReason::chiave()` per le ragioni, `LossExample::chiave()` per gli esempi. I due tipi **delegano** `Ord` e `PartialEq` a quella funzione e non li derivano, e il gate lo pretende: con un `derive` l'ordine tornerebbe a essere quello di dichiarazione dei campi, cioe' un posto che questi due elenchi non nominano, e `chiave()` resterebbe una funzione vera che non decide piu' niente. Gli esempi avevano proprio quella forma, ed e' la ragione per cui ne hanno una `chiave()` adesso: un meccanismo solo, e nessun caso particolare da tenere allineato. I nomi sono quelli dei campi delle due strutture; `posizione` e' `#[serde(flatten)]`, e sul filo si legge come `layer_index`, `field_index` e `type_class`.",
+      "nota": "la selezione e il taglio dipendono da un ordine canonico, non dall'ordine d'inserimento. Le categorie escono ordinate per identificatore; le ragioni per `(codice, posizione, dettaglio)` e gli esempi per `(categoria, posizione, contesto)`, dove l'ordine dei codici e' quello in cui sono dichiarati nell'enumerazione -- e quell'ordine e' contratto quanto i nomi, come lo e' quello delle classi di tipo, che entrano nella posizione. La posizione sta nella chiave e non e' un ornamento: con la redazione due voci possono avere lo stesso testo curato e differire solo negli indici, e senza di essi il loro ordine relativo sarebbe indefinito."
+    },
     "perche": "l'ordine d'inserimento dipende da quali adattatori sono stati composti, cioe' da qualcosa che chi fornisce il file non controlla e chi lo legge non puo' prevedere. Due corse sullo stesso file devono tagliare nello stesso punto.",
     "soglie_sui_byte": "le soglie sono sui byte UTF-8 e non spezzano un carattere: una voce entra intera o resta fuori intera."
   },

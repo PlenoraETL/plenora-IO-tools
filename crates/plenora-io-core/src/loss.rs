@@ -57,15 +57,21 @@ pub const INCONSISTENT_CRS_REPRESENTATIONS: &str = "inconsistent_crs_representat
 
 /// Un esempio diagnostico, nella forma che il v2 pubblica.
 ///
-/// L'ordine dei campi **e'** l'ordine canonico: `category`, poi `posizione`,
-/// poi `context`. Il derive di `Ord` lo prende da qui, quindi spostarli
-/// cambierebbe il punto in cui la sezione taglia.
+/// L'ordine canonico e' la tupla che `chiave()` compone -- `category`, poi
+/// `posizione`, poi `context` -- e `Ord` ci delega, come per `FidelityReason`.
+///
+/// Veniva dal `derive`, cioe' dall'**ordine di dichiarazione dei campi**: un
+/// fatto vero, ma di natura diversa da quello delle ragioni, e un gate che
+/// volesse confrontare l'ordine col contratto avrebbe dovuto leggerlo in un
+/// altro posto e dichiarare il caso particolare. Un meccanismo solo per i due
+/// tipi lo toglie: l'ordine si legge dove e' scritto, e spostare i campi non lo
+/// cambia piu' di nascosto.
 ///
 /// Non c'e' un `context_v1` e non ci deve essere: il v1 pubblica solo
 /// `lossless` e `counts`, quindi gli esempi non hanno un passato congelato da
 /// conservare. Il vecchio `context` con `layer=` e `field=` non sopravvive in
 /// nessuna forma -- non e' mai andato sul filo.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct LossExample {
     pub category: String,
     #[serde(flatten)]
@@ -76,6 +82,15 @@ pub struct LossExample {
 }
 
 impl LossExample {
+    /// La chiave canonica: l'ordine con cui la sezione taglia.
+    ///
+    /// I campi che compone **sono** l'ordine canonico dichiarato in
+    /// `release/cli-protocol-v2.json`, e `check_protocollo_v2.py` li legge da
+    /// qui invece di credere alla prosa del manifesto.
+    fn chiave(&self) -> (&str, Posizione, &str) {
+        (&self.category, self.posizione, &self.context)
+    }
+
     /// Entra in cio' che il v2 puo' pubblicare?
     ///
     /// Il tetto sull'identificatore vale **ovunque compaia**, non solo in
@@ -84,6 +99,33 @@ impl LossExample {
     /// stesso tetto di `detail`, perche' sono la stessa specie di stringa.
     const fn ammissibile(&self) -> bool {
         self.category.len() <= MAX_BYTE_ID_CATEGORIA && self.context.len() <= MAX_BYTE_DETTAGLIO
+    }
+}
+
+/// `Eq` e `Ord` passano da `chiave()`, e non dal derive.
+///
+/// Il comportamento e' lo stesso che il derive dava -- la tupla e' quella dei
+/// campi nell'ordine in cui sono dichiarati -- ma il **posto** in cui l'ordine
+/// e' scritto non e' piu' implicito: e' il corpo di una funzione, come per
+/// `FidelityReason`, e un gate che confronta il contratto col codice ha un
+/// meccanismo solo da leggere invece di due.
+impl PartialEq for LossExample {
+    fn eq(&self, altro: &Self) -> bool {
+        self.chiave() == altro.chiave()
+    }
+}
+
+impl Eq for LossExample {}
+
+impl PartialOrd for LossExample {
+    fn partial_cmp(&self, altro: &Self) -> Option<Ordering> {
+        Some(self.cmp(altro))
+    }
+}
+
+impl Ord for LossExample {
+    fn cmp(&self, altro: &Self) -> Ordering {
+        self.chiave().cmp(&altro.chiave())
     }
 }
 

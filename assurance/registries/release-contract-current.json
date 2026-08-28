@@ -388,7 +388,7 @@
         "artefatto": "release/cli-protocol-v2.json"
       },
       "stato": "verified",
-      "nota": "la ratifica e' una decisione scritta, e queste prove non la producono: verificano che cio' che e' stato deciso sia anche applicato, e che le rappresentazioni non divergano. Undici limiti del manifesto sono confrontati con le costanti che li applicano, in due crate e nei due versi; il payload trattenuto e' **derivato** da quei limiti e non scritto accanto a loro; il registro delle categorie e' confrontato con la stessa costante, cosi' che l'autorita' resti una sola. Ventitre' sonde della busta e due della redazione sono nominate dal contratto, perche' una sonda che nessuno cita si puo' cancellare senza che il checkpoint se ne accorga. Il confine del v1 e' verificato da un gate e non dalla visibilita' di Rust, che non sa dire «questo modulo e nessun altro». Cio' che questo invariante **non** afferma e' l'accettazione del protocollo da parte di plenora-contracts/conformance, che vive nel bloccante `sistema.qualifica-cross-component` e ha un owner esterno."
+      "nota": "la ratifica e' una decisione scritta, e queste prove non la producono: verificano che cio' che e' stato deciso sia anche applicato, e che le rappresentazioni non divergano. Undici limiti del manifesto sono confrontati con le costanti che li applicano, in due crate e nei due versi; il payload trattenuto e' **derivato** da quei limiti e non scritto accanto a loro; il registro delle categorie e' confrontato con la stessa costante, cosi' che l'autorita' resti una sola. Le sonde della busta e quelle della redazione sono nominate dal contratto, perche' una sonda che nessuno cita si puo' cancellare senza che il checkpoint se ne accorga; quante siano lo conta il gate, e scriverlo qui sarebbe stata la seconda verita' -- lo era: diceva ventitre' mentre il contratto ne nominava trentuno. Il confine del v1 e' verificato da un gate e non dalla visibilita' di Rust, che non sa dire «questo modulo e nessun altro». Cio' che questo invariante **non** afferma e' l'accettazione del protocollo da parte di plenora-contracts/conformance, che vive nel bloccante `sistema.qualifica-cross-component` e ha un owner esterno."
     },
     {
       "id": "release.candidate-non-valida-per-head",
@@ -618,11 +618,25 @@
     {
       "id": "wire.clausole-confrontabili",
       "superficie": "le clausole di `release/cli-protocol-v2.json` che descrivono il comportamento del codice",
-      "invariante": null,
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "tre clausole sono **prosa** e potrebbero essere campi confrontati con il codice, come gia' lo sono gli undici numeri: l'ordine canonico di ragioni ed esempi, l'identita' su cui le respinte deduplicano, e le due fonti di `omesse_per_byte`. La ratifica di `wire.loss-report` ha trovato quattro clausole che descrivevano un codice cambiato sotto di loro mentre l'invariante era gia' `verified`, perche' i numeri sono confrontati e la prosa no. Chiude quando quelle tre diventano campi e il gate li ricava dal codice -- dai campi che `FidelityReason::chiave()` compone, dall'ordine di dichiarazione dei campi di `LossExample`, dai tipi dei due `BTreeSet` delle respinte e dai siti che incrementano il contatore. La rilettura umana resta per il significato residuo, non come unica difesa.",
-      "sintesi": "clausole di comportamento in prosa, non confrontate con il codice"
+      "invariante": "le tre clausole di **comportamento** del manifesto sono campi confrontati con il codice, come gia' lo sono gli undici numeri, e non piu' prosa: l'ordine canonico di ragioni ed esempi in `determinismo.ordine_canonico`, l'identita' su cui le respinte deduplicano in `troncamento.identita_delle_respinte`, e le due fonti del contatore in `troncamento.omesse_per_byte.fonti`. Il gate le **ricava dal codice** invece di confrontare due copie del manifesto, che divergerebbero insieme: dai campi che `FidelityReason::chiave()` e `LossExample::chiave()` compongono, dal tipo dell'elemento dei due `BTreeSet` che conservano le respinte, e dai siti che incrementano `troncamento.omesse_per_byte` -- ciascuno dei quali deve ricadere in una delle due fonti, e in una sola. I due tipi **delegano** `Ord` e `PartialEq` a `chiave()` e non li derivano, e il gate lo pretende: con un derive l'ordine tornerebbe a essere quello di dichiarazione dei campi, cioe' un posto che il manifesto non nomina. Il gate e' rosso su ogni divergenza, su un campo ripetuto, su una clausola tornata prosa, su un campo in piu' che nessuno confronta, su un tipo di respinta che non sa nominare, e su un sito del contatore non classificabile o ambiguo.",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "scripts/check_protocollo_v2.py"
+        ],
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "-m",
+            "unittest",
+            "scripts.test_check_protocollo_v2"
+          ]
+        ],
+        "artefatto": "release/cli-protocol-v2.json"
+      },
+      "stato": "verified",
+      "nota": "gli esempi hanno una `chiave()` esplicita, e prima non ce l'avevano: `LossExample` derivava `Ord`, quindi il suo ordine era quello di **dichiarazione dei campi** -- un fatto vero, ma di natura diversa da quello delle ragioni, e un gate avrebbe dovuto leggerlo da un altro posto e dichiarare il caso particolare. Delle due vie che la tranche poteva prendere si e' presa quella che toglie il caso particolare invece di quella che lo dichiara: costa una funzione, e lascia un meccanismo solo da leggere. Il comportamento sul filo non cambia -- la tupla e' quella dei campi nell'ordine in cui erano dichiarati. Cio' che questo invariante **non** afferma e' che tutta la prosa del manifesto sia confrontata: un gate generale prosa-contro-comportamento non e' realistico, e la rilettura umana resta per il significato residuo -- non piu' come unica difesa."
     },
     {
       "id": "sistema.qualifica-cross-component",
