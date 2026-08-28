@@ -268,6 +268,17 @@ SCRITTURE_COMPOSTE = ("<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^
 #: Le forme si confrontano su cio' che segue il contatore **con gli spazi
 #: normalizzati**, quindi non portano spazi in testa. Le piu' lunghe per prime,
 #: se no `>=` si legge come `>`.
+#:
+#: `,` e `)` **non** sono qui, e prima lo erano. Dentro una chiamata quei due
+#: segni non dicono niente su chi li riceve: una macro prende i token e puo'
+#: farne cio' che vuole, campo compreso --
+#:
+#:     scrivi!(troncamento.omesse_per_byte, nuova_fonte);
+#:
+#: -- che e' un'assegnazione scritta con una virgola. Un'occorrenza dentro una
+#: chiamata si ammette percio' per **chiamata** e non per segno: vedi
+#: `CHIAMATE_DI_SOLA_LETTURA`. Fuori da ogni chiamata restano queste forme, che
+#: consumano il contatore come valore e non possono scriverlo.
 LETTURE_AMMESSE = (
     ".saturating_add(",
     ">= ",
@@ -276,10 +287,17 @@ LETTURE_AMMESSE = (
     "!= ",
     "> ",
     "< ",
-    ", ",
-    ")",
     ";",
 )
+
+#: Le chiamate che possono ricevere il contatore senza scriverlo.
+#:
+#: L'elenco e' chiuso, e vale per **qualunque** occorrenza dentro una chiamata:
+#: `assert_eq!` e `assert_ne!` prendono i due lati per riferimento condiviso,
+#: `assert!` valuta un'espressione. Una chiamata che non e' qui e' rossa anche
+#: se innocua -- distinguere una macro che legge da una che scrive vuole
+#: l'espansione, non i token, e la sola alternativa onesta e' fallire chiusi.
+CHIAMATE_DI_SOLA_LETTURA = ("assert_eq!", "assert_ne!", "assert!")
 
 #: Un contatore preso per riferimento mutabile e' una scrittura che avviene
 #: altrove, e che questo modulo non puo' seguire.
@@ -440,6 +458,68 @@ def _senza_stringhe(testo: str) -> str:
     return "".join(fuori)
 
 
+def _sorgente_leggibile(testo: str) -> str:
+    """Il sorgente senza commenti e senza il **contenuto** delle stringhe.
+
+    E' cio' su cui questo modulo cerca, e nient'altro. I due passaggi chiudono
+    la stessa classe di difetto -- del testo che *sembra* codice e non lo e' --
+    e vanno fatti **prima di cercare**, non prima di confrontare:
+
+        impl Ord for LossExample {
+            const AIUTO: &str = "
+            fn cmp(&self, altro: &Self) -> Ordering {
+                self.chiave().cmp(&altro.chiave())
+            }
+        ";
+            fn cmp(&self, altro: &Self) -> Ordering {
+                self.category.cmp(&altro.category)
+            }
+        }
+
+    L'espressione regolare trovava il `fn cmp` **dentro la stringa**, che e'
+    canonico, e il corpo vero non veniva mai guardato. Lo stesso vale per un
+    `chiave()`, un `BTreeSet` o un sito del contatore scritti dentro una
+    stringa: fabbricherebbero un fatto che il codice non ha, o -- nell'altro
+    verso -- un rosso su una sonda che nomina il contatore in un messaggio.
+
+    L'ordine conta: prima i commenti, poi le stringhe. `_senza_commenti` salta
+    le stringhe, quindi un `//` dentro una stringa non apre un commento; e con
+    i commenti gia' tolti, una virgoletta dentro un commento non apre una
+    stringa.
+    """
+    return _senza_stringhe(_senza_commenti(testo))
+
+
+def _chiamata_che_racchiude(testo: str, posizione: int) -> str | None:
+    """Il nome della chiamata la cui parentesi aperta racchiude la posizione.
+
+    `None` se li' non c'e' nessuna chiamata: l'occorrenza sta al primo livello
+    dell'istruzione. Si guarda all'indietro bilanciando le parentesi, e ci si
+    ferma alla fine dell'istruzione precedente o all'inizio di un blocco.
+    """
+    profondita = 0
+    indice = posizione - 1
+    while indice >= 0:
+        carattere = testo[indice]
+        if carattere == ")":
+            profondita += 1
+        elif carattere == "(":
+            if profondita == 0:
+                fine = indice - 1
+                while fine >= 0 and testo[fine].isspace():
+                    fine -= 1
+                inizio = fine
+                while inizio >= 0 and (testo[inizio].isalnum() or testo[inizio] in "_!"):
+                    inizio -= 1
+                nome = testo[inizio + 1 : fine + 1]
+                return nome or None
+            profondita -= 1
+        elif carattere in ";{}" and profondita == 0:
+            return None
+        indice -= 1
+    return None
+
+
 def _normalizzato(testo: str) -> str:
     """Gli spazi non contano; tutto il resto si'."""
     return " ".join(testo.split())
@@ -494,7 +574,7 @@ def ordine_canonico_dal_codice(testo: str) -> tuple[dict[str, list[str]], list[s
     dichiarazione dei campi, e `chiave()` diventerebbe una funzione vera che
     con il punto in cui la sezione taglia non ha piu' rapporto.
     """
-    testo = _senza_commenti(testo)
+    testo = _sorgente_leggibile(testo)
     errori: list[str] = []
     chiavi: dict[str, list[str]] = {}
     per_tipo: dict[str, list[list[str]]] = {}
@@ -571,7 +651,7 @@ def identita_delle_respinte_dal_codice(
     E' li' che l'identita' vive: una voce respinta non si conserva, e cio' su cui
     il conteggio deduplica e' esattamente cio' che l'insieme contiene.
     """
-    testo = _senza_commenti(testo)
+    testo = _sorgente_leggibile(testo)
     errori: list[str] = []
     identita: dict[str, list[str]] = {}
 
@@ -629,8 +709,8 @@ def fonti_di_omesse_per_byte_dal_codice(
     senza che il manifesto la dichiari, ed e' il modo normale in cui una clausola
     invecchia.
     """
-    busta = _senza_commenti(busta)
-    loss = _senza_commenti(loss)
+    busta = _sorgente_leggibile(busta)
+    loss = _sorgente_leggibile(loss)
     errori: list[str] = []
 
     insiemi = {campo for _, campo in INSIEMI_DELLE_RESPINTE.values()}
@@ -673,7 +753,7 @@ def fonti_di_omesse_per_byte_dal_codice(
             "la clausola descriverebbe un comportamento che non esiste."
         )
     for indice, destra in enumerate(siti, 1):
-        nomi = set(PAROLA.findall(_senza_stringhe(destra)))
+        nomi = set(PAROLA.findall(destra))
         trovate = set()
         if nomi & del_budget:
             trovate.add(FONTE_DELLA_SEZIONE)
@@ -741,12 +821,28 @@ def _siti_del_contatore(busta: str) -> tuple[list[str], list[str]]:
             # compare un'assegnazione **dopo** l'occorrenza, allora il contatore
             # sta a sinistra di quella, ed e' scritto.
             istruzione = dopo[: dopo.find(";")] if ";" in dopo else dopo
-            destrutturante = ASSEGNAZIONE.search(_senza_stringhe(istruzione))
+            destrutturante = ASSEGNAZIONE.search(istruzione)
             if destrutturante is not None:
                 resto = istruzione[destrutturante.end() :]
-            elif any(dopo.startswith(lettura) for lettura in LETTURE_AMMESSE):
-                continue
             else:
+                # Dentro una chiamata l'ammissione e' della **chiamata**: i
+                # segni che seguono il contatore non dicono niente su chi lo
+                # riceve, e una macro puo' assegnarlo pur essendone separata da
+                # una virgola.
+                chiamata = _chiamata_che_racchiude(busta, uso.start())
+                if chiamata is not None:
+                    if chiamata in CHIAMATE_DI_SOLA_LETTURA:
+                        continue
+                    errori.append(
+                        f"`{CONTATORE}` e' passato a `{chiamata}`, che non e' fra le "
+                        f"chiamate di sola lettura {list(CHIAMATE_DI_SOLA_LETTURA)}: "
+                        f"«{_estratto(busta, uso)}». Una macro riceve i token e puo' "
+                        "assegnare cio' che le si passa, quindi da fuori una lettura "
+                        "e una scrittura si somigliano."
+                    )
+                    continue
+                if any(dopo.startswith(lettura) for lettura in LETTURE_AMMESSE):
+                    continue
                 errori.append(
                     f"uso di `{CONTATORE}` che questo gate non sa classificare: "
                     f"«{_estratto(busta, uso)}». Non e' ne' una scrittura nota ne' "

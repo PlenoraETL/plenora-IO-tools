@@ -275,44 +275,48 @@ in più che nessuno confronta, su un tipo di respinta che non sa nominare e su u
 sito del contatore ambiguo.
 
 **Leggere il codice non basta: bisogna leggerlo abbastanza stretto.** Il gate
-ha attraversato **due giri di revisione** prima della ratifica, e le quattro
-vie di falso verde trovate colpivano tutte l'affermazione che l'invariante fa —
-non un dettaglio attorno. Erano quattro modi di *sembrare* di ricavare dal
-codice:
+ha attraversato **tre giri di revisione** prima della ratifica, e le sei vie di
+falso verde trovate colpivano tutte l'affermazione che l'invariante fa — non un
+dettaglio attorno. Sotto le sei ci sono due radici sole.
 
-* la delega era verificata cercando la **sottostringa** `chiave()` nel blocco.
-  Passavano un ordine invertito — la sezione tiene le voci maggiori dove il
-  contratto ne promette le minori —, un criterio aggiunto dopo la chiave, e una
-  menzione in un commento accanto a un corpo che confronta tutt'altro. Ora la
-  forma dei corpi è **esatta**, e `PartialOrd` è verificato con gli altri due
-  perché `<` e `>` passano da lì;
-* i commenti venivano tolti **dopo** aver cercato, e solo quelli di riga. Un
-  corpo canonico dentro `/* … */`, seguito da quello vero, veniva scelto per
-  primo dall'espressione regolare e il vero non veniva mai guardato. Ora si
-  tolgono prima di cercare, di riga e a blocco, saltando le stringhe — perché
-  un `//` dentro una stringa non apre un commento;
-* il censimento delle fonti di `omesse_per_byte` guardava le sole assegnazioni
-  con `=`. Una fonte scritta `troncamento.omesse_per_byte += …` non veniva
-  censita affatto, e il campo avrebbe continuato a dichiararne due mentre nel
-  codice ce n'erano tre;
-* le letture erano ammesse per **segno**, e un segno ammette tutto ciò che
-  comincia con quel segno. Il punto ammetteva `.clone_from(&nuova)`, che scrive
-  per auto-borrow senza che `&mut` compaia; la virgola ammetteva
-  `(troncamento.omesse_per_byte,) = (nuova,)`, che è un'assegnazione. Ora una
-  chiamata si ammette per **nome intero**, e un'assegnazione che compare dopo
-  il contatore nella stessa istruzione lo rende scritto anche quando non lo
-  segue un `=`.
+**Cercava su testo che non è codice.** Un corpo canonico scritto dentro
+`/* … */`, o dentro un letterale di stringa, veniva scelto dall'espressione
+regolare prima di quello vero, che non veniva mai guardato. I commenti si
+toglievano dopo aver cercato e solo quelli di riga; le stringhe non si
+mascheravano affatto. Ora il sorgente si ripulisce **prima di cercare** — via i
+commenti, di riga e a blocco, via il contenuto delle stringhe — e vale per ogni
+ricerca del modulo, non per la sola delega: un `chiave()`, un `BTreeSet` o un
+sito del contatore scritti lì dentro mentirebbero allo stesso modo.
 
-Su ciò che resta si fallisce **chiusi**: distinguere lettura da scrittura senza
-un parser non si può fare per esaustione, e la sola alternativa onesta a un
-censimento incompleto è il rosso. Una forma legittima nuova si aggiunge
-all'elenco deliberatamente, ed è precisamente ciò che deve costare a chi tocca
-il contatore.
+**Ammetteva per segno ciò che va ammesso per forma.** Un segno ammette tutto
+ciò che comincia con quel segno, e quattro segni ammettevano quattro cose:
 
-Ciascuna via ha la propria sonda negativa, e così i due versi opposti: un
-commento legittimo dentro la forma canonica, e un `=` dentro una stringa di
-formato, devono restare **verdi**. Una stretta che si paga in rossi che nessuno
-sa leggere non è una stretta.
+| forma | perché passava |
+|---|---|
+| `self.chiave()` cercato come sottostringa | ordine invertito, criterio in più dopo la chiave, menzione in un commento |
+| `troncamento.omesse_per_byte += …` | il censimento cercava il solo `=` |
+| `troncamento.omesse_per_byte.clone_from(&nuova)` | il `.` ammetteva ogni metodo, e questo scrive per auto-borrow |
+| `scrivi!(troncamento.omesse_per_byte, nuova)` | la `,` ammetteva ogni chiamata, e una macro assegna ciò che riceve |
+
+Ora la forma dei corpi delegati è **esatta** — e `PartialOrd` è verificato con
+gli altri due, perché `<` e `>` passano da lì; una chiamata di metodo si
+ammette per **nome intero**; un'assegnazione che compare dopo il contatore
+nella stessa istruzione lo rende scritto anche quando non lo segue un `=`; e
+un'occorrenza dentro una chiamata si ammette per **chiamata**, non per segno —
+`assert_eq!`, `assert_ne!`, `assert!` e nient'altro.
+
+Su ciò che resta si fallisce **chiusi**: distinguere una lettura da una
+scrittura senza un parser non si può fare per esaustione, e distinguere una
+macro che legge da una che scrive vorrebbe l'espansione, non i token. La sola
+alternativa onesta a un censimento incompleto è il rosso, e una forma legittima
+nuova si aggiunge all'elenco deliberatamente — è precisamente ciò che deve
+costare a chi tocca il contatore.
+
+Ciascuna via ha la propria sonda negativa, e così i versi opposti, che pesano
+quanto le altre: un commento legittimo dentro la forma canonica, un `=` dentro
+una stringa di formato, una stringa che si limita a nominare il contatore e le
+tre asserzioni devono restare **verdi**. Una stretta che si paga in rossi che
+nessuno sa leggere non è una stretta.
 
 I due ordini non si estraevano allo stesso modo, ed era una decisione da
 prendere. `LossExample` derivava `Ord`, quindi il suo ordine era quello di

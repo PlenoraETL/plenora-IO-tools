@@ -623,6 +623,63 @@ class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
         _, errori = gate.ordine_canonico_dal_codice(commentata)
         self.assertTrue(any("non esiste piu'" in e for e in errori), errori)
 
+    def test_un_corpo_canonico_dentro_una_stringa_non_e_delega(self):
+        """La stessa classe del commento a blocco, con una stringa al posto suo.
+
+        Del testo che *sembra* codice e non lo e': l'espressione regolare
+        trovava il `fn cmp` dentro la stringa, che e' canonico, e il corpo vero
+        non veniva mai guardato. Le stringhe si mascherano prima di cercare,
+        come i commenti, e per la stessa ragione.
+        """
+        avvelenato = loss_finto().replace(
+            "impl Ord for LossExample {\n"
+            "    fn cmp(&self, altro: &Self) -> Ordering {\n"
+            "        self.chiave().cmp(&altro.chiave())\n"
+            "    }\n"
+            "}",
+            "impl Ord for LossExample {\n"
+            '    const AIUTO: &str = "\n'
+            "    fn cmp(&self, altro: &Self) -> Ordering {\n"
+            "        self.chiave().cmp(&altro.chiave())\n"
+            "    }\n"
+            '";\n'
+            "    fn cmp(&self, altro: &Self) -> Ordering {\n"
+            "        self.category.cmp(&altro.category)\n"
+            "    }\n"
+            "}",
+        )
+        self.assertIn("AIUTO", avvelenato, "la fixture non e' stata avvelenata")
+        _, errori = gate.ordine_canonico_dal_codice(avvelenato)
+        self.assertTrue(any("atteso esattamente" in e for e in errori), errori)
+
+    def test_una_chiave_dentro_una_stringa_non_conta(self):
+        """Se il `chiave()` vero e' sostituito da uno dentro una stringa,
+        l'ordine non si legge piu' da nessuna parte, e il gate deve dirlo."""
+        finta = loss_finto().replace(
+            "    fn chiave(&self) -> (&str, Posizione, &str) {\n"
+            "        (&self.category, self.posizione, &self.context)\n"
+            "    }\n",
+            '    const AIUTO: &str = "\n'
+            "    fn chiave(&self) -> (&str, Posizione, &str) {\n"
+            "        (&self.category, self.posizione, &self.context)\n"
+            "    }\n"
+            '";\n',
+        )
+        _, errori = gate.ordine_canonico_dal_codice(finta)
+        self.assertTrue(any("non esiste piu'" in e for e in errori), errori)
+
+    def test_un_sito_nominato_in_una_stringa_non_e_un_sito(self):
+        """Il verso opposto, e prima era un rosso vero: una stringa che **nomina**
+        il contatore -- una nota, un messaggio -- non e' un uso del contatore."""
+        fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                '    let nota = "troncamento.omesse_per_byte = nuova_fonte;";\n'
+            ),
+            loss_finto(),
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(fonti, COMPORTAMENTO_SANO["fonti_di_omesse_per_byte"])
+
     def test_un_commento_a_blocco_dentro_la_forma_canonica_resta_verde(self):
         """Come per i `//`: togliere i commenti non deve diventare un divieto
         di spiegarsi dentro una funzione."""
@@ -814,12 +871,57 @@ class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
 
         `assert_eq!(troncamento.omesse_per_byte, atteso, "{n} caratteri = {} byte")`
         porta un `=` nel messaggio, e cercarlo sul testo grezzo faceva chiamare
-        scrittura una sonda che legge il contatore.
+        scrittura una sonda che legge il contatore. Ora il contenuto delle
+        stringhe e' mascherato prima di ogni ricerca, non solo prima di questa.
         """
         fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(
             busta_finta(
                 '    assert_eq!(troncamento.omesse_per_byte, atteso, '
                 '"{n} caratteri = {} byte", quanti);\n'
+            ),
+            loss_finto(),
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(fonti, COMPORTAMENTO_SANO["fonti_di_omesse_per_byte"])
+
+    def test_una_macro_che_riceve_il_contatore_e_rossa(self):
+        """Il segno non dice niente su chi lo riceve.
+
+        `scrivi!(troncamento.omesse_per_byte, nuova_fonte)` e' un'assegnazione
+        scritta con una virgola: una macro prende i **token**, e da fuori una
+        lettura e una scrittura si somigliano. La virgola e la parentesi hanno
+        percio' lasciato l'elenco dei segni ammessi, e dentro una chiamata si
+        ammette la chiamata.
+        """
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta("    scrivi!(troncamento.omesse_per_byte, nuova_fonte);\n"),
+            loss_finto(),
+        )
+        self.assertTrue(any("scrivi!" in e for e in errori), errori)
+
+    def test_una_chiamata_sconosciuta_e_rossa(self):
+        """Vale anche per le funzioni, e con la parentesi al posto della
+        virgola: l'ammissione e' per nome, non per forma dell'argomento."""
+        for invocazione in (
+            "accumula(troncamento.omesse_per_byte);",
+            "somma(altro, troncamento.omesse_per_byte);",
+            "scrivi![troncamento.omesse_per_byte];",
+        ):
+            with self.subTest(invocazione=invocazione):
+                _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+                    busta_finta(f"    {invocazione}\n"), loss_finto()
+                )
+                self.assertNotEqual(errori, [], invocazione)
+
+    def test_le_chiamate_di_sola_lettura_restano_verdi(self):
+        """Il verso opposto: le tre asserzioni prendono i due lati per
+        riferimento condiviso, e sono cio' che le sonde della busta usano."""
+        fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                '    assert_eq!(troncamento.omesse_per_byte, 0, "{n} = {} byte", q);\n'
+                "    assert_ne!(troncamento.omesse_per_byte, 9);\n"
+                "    assert!(troncamento.omesse_per_byte > 0);\n"
+                "    let letto = troncamento.omesse_per_byte;\n"
             ),
             loss_finto(),
         )
