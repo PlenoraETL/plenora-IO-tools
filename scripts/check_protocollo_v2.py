@@ -269,16 +269,9 @@ SCRITTURE_COMPOSTE = ("<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^
 #: normalizzati**, quindi non portano spazi in testa. Le piu' lunghe per prime,
 #: se no `>=` si legge come `>`.
 #:
-#: `,` e `)` **non** sono qui, e prima lo erano. Dentro una chiamata quei due
-#: segni non dicono niente su chi li riceve: una macro prende i token e puo'
-#: farne cio' che vuole, campo compreso --
-#:
-#:     scrivi!(troncamento.omesse_per_byte, nuova_fonte);
-#:
-#: -- che e' un'assegnazione scritta con una virgola. Un'occorrenza dentro una
-#: chiamata si ammette percio' per **chiamata** e non per segno: vedi
-#: `CHIAMATE_DI_SOLA_LETTURA`. Fuori da ogni chiamata restano queste forme, che
-#: consumano il contatore come valore e non possono scriverlo.
+#: Sono le forme che **consumano il contatore come valore**: un confronto, la
+#: fine dell'istruzione, la sola catena di metodo che il contatore attraversa.
+#: Valgono ovunque, dentro o fuori una chiamata.
 LETTURE_AMMESSE = (
     ".saturating_add(",
     ">= ",
@@ -290,13 +283,32 @@ LETTURE_AMMESSE = (
     ";",
 )
 
+#: Le forme in cui il contatore e' un **argomento intero** di una chiamata: la
+#: virgola che lo separa dal successivo, o la parentesi che chiude.
+#:
+#: Valgono **solo** dentro una chiamata di sola lettura, e non da sole: sono la
+#: seconda meta' di una condizione, non un'alternativa. `,` e `)` non dicono
+#: niente su chi riceve il contatore -- una macro prende i token, e
+#: `scrivi!(troncamento.omesse_per_byte, nuova)` e' un'assegnazione scritta con
+#: una virgola.
+ARGOMENTI_DIRETTI = (", ", ")")
+
 #: Le chiamate che possono ricevere il contatore senza scriverlo.
 #:
-#: L'elenco e' chiuso, e vale per **qualunque** occorrenza dentro una chiamata:
-#: `assert_eq!` e `assert_ne!` prendono i due lati per riferimento condiviso,
-#: `assert!` valuta un'espressione. Una chiamata che non e' qui e' rossa anche
-#: se innocua -- distinguere una macro che legge da una che scrive vuole
-#: l'espansione, non i token, e la sola alternativa onesta e' fallire chiusi.
+#: L'elenco e' chiuso: `assert_eq!` e `assert_ne!` prendono i due lati per
+#: riferimento condiviso, `assert!` valuta un'espressione. Una chiamata che non
+#: e' qui e' rossa anche se innocua -- distinguere una macro che legge da una
+#: che scrive vuole l'espansione, non i token.
+#:
+#: Essere qui e' **necessario e non sufficiente**. La prima stesura ammetteva
+#: l'occorrenza per la sola chiamata, cioe' autorizzava tutta l'espressione
+#: racchiusa:
+#:
+#:     assert_eq!(troncamento.omesse_per_byte.clone_from(&nuova_fonte), ());
+#:
+#: `clone_from` muta il campo, `&mut` non compare, e l'asserzione e' fra quelle
+#: ammesse: il gate era verde. Un'asserzione ammette che il contatore le sia
+#: passato, non che dentro di lei gli si faccia qualunque cosa.
 CHIAMATE_DI_SOLA_LETTURA = ("assert_eq!", "assert_ne!", "assert!")
 
 #: Un contatore preso per riferimento mutabile e' una scrittura che avviene
@@ -341,153 +353,176 @@ def _corpo_dell_impl(testo: str, tratto: str, tipo: str) -> str | None:
     return None
 
 
-def _senza_commenti(testo: str) -> str:
-    """Il testo con i commenti sostituiti da spazi, e le righe al loro posto.
+#: Un letterale di carattere, distinto da una lifetime: `'a'` e `'\n'` lo sono,
+#: `'a` di `&'a str` no. Conta perche' `'"'` esiste, e una virgoletta dentro un
+#: carattere aprirebbe una stringa che non c'e'.
+CARATTERE = re.compile(r"'(?:\\[^']*|[^'\\\n])'")
 
-    **Sostituiti**, non tolti: le espressioni regolari di questo modulo si
-    ancorano al rientro e alle righe, e accorciare il testo sposterebbe cio'
-    che segue.
+#: I prefissi di letterale che questo scanner sa leggere. Qualunque altro --
+#: `c"`, `cr#"`, o un prefisso inventato -- e' un **errore**, non un caso da
+#: ignorare: una forma che non si sa leggere non si puo' mascherare, e cio' che
+#: resta visibile e' testo arbitrario.
+PREFISSI_GREZZI = ("r", "br")
+PREFISSI_SEMPLICI = ("", "b")
 
-    Va fatto **prima di cercare**, non prima di confrontare. La prima stesura
-    toglieva i soli `//` e lo faceva sul corpo gia' estratto, quindi
 
-        impl Ord for LossExample {
-            /*
-            fn cmp(&self, altro: &Self) -> Ordering {
-                self.chiave().cmp(&altro.chiave())
-            }
-            */
-            fn cmp(&self, altro: &Self) -> Ordering {
-                self.category.cmp(&altro.category)
-            }
-        }
+def _sorgente_leggibile(testo: str) -> tuple[str, list[str]]:
+    """Il sorgente con commenti e **contenuto** dei letterali fatti di spazi.
 
-    lasciava il gate verde: l'espressione regolare trovava il **primo** `fn cmp`,
-    che sta nel commento ed e' canonico, e il corpo vero non veniva mai
-    guardato. Vale per ogni ricerca di questo modulo, non per la sola delega: un
-    `chiave()`, un `BTreeSet` o un sito del contatore commentati mentirebbero
-    allo stesso modo.
+    E' cio' su cui questo modulo cerca, e nient'altro. La lunghezza si conserva,
+    perche' le espressioni regolari si ancorano al rientro e alle righe.
 
-    Le stringhe si saltano, perche' un `//` dentro una stringa non apre un
-    commento; i blocchi si annidano, come in Rust.
+    # Perche' un passo solo
+
+    Erano due -- via i commenti, poi via le stringhe -- e i due passi si devono
+    la stessa conoscenza: un `//` dentro una stringa non apre un commento, e una
+    virgoletta dentro un commento non apre una stringa. Due scanner che sanno
+    meta' della sintassi ciascuno si coprono a vicenda finche' la sintassi e'
+    quella che entrambi immaginano; qui la conoscenza sta in un posto solo.
+
+    # Che cosa deve mascherare, e perche'
+
+    Del testo che *sembra* codice e non lo e'. Un corpo canonico dentro
+    `/* ... */`, dentro `"..."` o dentro `r#"..."#` veniva trovato
+    dall'espressione regolare prima di quello vero, che non veniva mai
+    guardato -- e la stessa cosa vale per un `chiave()`, un `BTreeSet` o un sito
+    del contatore.
+
+    Le raw string sono il caso che uno scanner ingenuo sbaglia in **due** modi
+    insieme: `r#""` gli sembra una stringa aperta e subito chiusa, quindi
+    espone come codice cio' che segue, e il terminatore `"#` gli sembra una
+    stringa nuova, quindi maschera il codice vero che viene dopo. Quale dei due
+    effetti prevalga lo decide la parita' delle virgolette, cioe' niente che
+    abbia a che fare con il codice.
+
+    # Che cosa fa quando non sa
+
+    Fallisce chiuso e lo dice. Un letterale non terminato, un commento non
+    chiuso, un prefisso che non conosce: in tutti e tre i casi il resto del
+    testo non e' interpretabile, e restituirlo come codice sarebbe peggio che
+    non leggerlo.
     """
     fuori: list[str] = []
-    i, quanti = 0, len(testo)
-    profondita = 0
-    in_stringa = False
-    while i < quanti:
-        carattere = testo[i]
-        if profondita:
-            if testo.startswith("/*", i):
-                profondita += 1
-                fuori.append("  ")
-                i += 2
-                continue
-            if testo.startswith("*/", i):
-                profondita -= 1
-                fuori.append("  ")
-                i += 2
-                continue
-            fuori.append("\n" if carattere == "\n" else " ")
-            i += 1
-            continue
-        if in_stringa:
-            fuori.append(carattere)
-            if carattere == "\\" and i + 1 < quanti:
-                fuori.append(testo[i + 1])
-                i += 2
-                continue
-            if carattere == '"':
-                in_stringa = False
-            i += 1
-            continue
-        if carattere == '"':
-            in_stringa = True
-            fuori.append(carattere)
-            i += 1
-            continue
-        if testo.startswith("//", i):
-            while i < quanti and testo[i] != "\n":
+    errori: list[str] = []
+    indice, quanti = 0, len(testo)
+
+    while indice < quanti:
+        carattere = testo[indice]
+
+        if testo.startswith("//", indice):
+            while indice < quanti and testo[indice] != "\n":
                 fuori.append(" ")
-                i += 1
+                indice += 1
             continue
-        if testo.startswith("/*", i):
+
+        if testo.startswith("/*", indice):
             profondita = 1
             fuori.append("  ")
-            i += 2
+            indice += 2
+            while indice < quanti and profondita:
+                if testo.startswith("/*", indice):
+                    profondita += 1
+                    fuori.append("  ")
+                    indice += 2
+                elif testo.startswith("*/", indice):
+                    profondita -= 1
+                    fuori.append("  ")
+                    indice += 2
+                else:
+                    fuori.append(testo[indice] if testo[indice] == "\n" else " ")
+                    indice += 1
+            if profondita:
+                errori.append(
+                    "commento a blocco non chiuso: il resto del sorgente non e' "
+                    "interpretabile, e leggerlo come codice sarebbe peggio che non "
+                    "leggerlo."
+                )
+                return "".join(fuori), errori
             continue
-        fuori.append(carattere)
-        i += 1
-    return "".join(fuori)
 
-
-def _senza_stringhe(testo: str) -> str:
-    """Il testo con il **contenuto** dei letterali di stringa fatto di spazi.
-
-    La lunghezza si conserva, cosi' una posizione trovata qui vale anche sul
-    testo vero.
-
-    Serve dove un carattere decide una classificazione: un `=` dentro
-    `"{caratteri} caratteri = {} byte"` non e' un'assegnazione, e un nome di
-    variabile dentro una stringa non e' un uso di quella variabile. Cercarli sul
-    testo grezzo faceva chiamare scrittura una sonda che legge il contatore, e
-    avrebbe potuto far chiamare «fonte nota» una fonte nuova che nomina l'altra
-    in un messaggio d'errore.
-    """
-    fuori: list[str] = []
-    dentro = False
-    i, quanti = 0, len(testo)
-    while i < quanti:
-        carattere = testo[i]
-        if dentro:
-            if carattere == "\\" and i + 1 < quanti:
-                fuori.append("  ")
-                i += 2
+        if carattere == "'":
+            trovato = CARATTERE.match(testo, indice)
+            if trovato:
+                fuori.append("'")
+                fuori.append(" " * (trovato.end() - indice - 2))
+                fuori.append("'")
+                indice = trovato.end()
                 continue
-            if carattere == '"':
-                dentro = False
-                fuori.append(carattere)
-            else:
-                fuori.append(carattere if carattere == chr(10) else " ")
-            i += 1
+            # Una lifetime: non e' un letterale, si copia.
+            fuori.append(carattere)
+            indice += 1
             continue
-        fuori.append(carattere)
+
         if carattere == '"':
-            dentro = True
-        i += 1
-    return "".join(fuori)
+            # Il prefisso e i cancelletti stanno **prima** della virgoletta, e
+            # sono gia' stati copiati: qui si guarda indietro solo per sapere
+            # come si chiude il letterale.
+            fine_prefisso = indice - 1
+            cancelletti = 0
+            while fine_prefisso >= 0 and testo[fine_prefisso] == "#":
+                cancelletti += 1
+                fine_prefisso -= 1
+            inizio_prefisso = fine_prefisso
+            while inizio_prefisso >= 0 and (
+                testo[inizio_prefisso].isalpha() or testo[inizio_prefisso] == "_"
+            ):
+                inizio_prefisso -= 1
+            prefisso = testo[inizio_prefisso + 1 : fine_prefisso + 1]
 
+            if prefisso in PREFISSI_GREZZI:
+                chiusura = '"' + "#" * cancelletti
+                fine = testo.find(chiusura, indice + 1)
+                if fine < 0:
+                    errori.append(
+                        f"letterale grezzo `{prefisso}{'#' * cancelletti}\"` non "
+                        "terminato: il resto del sorgente non e' interpretabile."
+                    )
+                    return "".join(fuori), errori
+                fuori.append('"')
+                fuori.extend(
+                    c if c == "\n" else " " for c in testo[indice + 1 : fine]
+                )
+                fuori.append(chiusura)
+                indice = fine + len(chiusura)
+                continue
 
-def _sorgente_leggibile(testo: str) -> str:
-    """Il sorgente senza commenti e senza il **contenuto** delle stringhe.
+            if cancelletti or prefisso not in PREFISSI_SEMPLICI:
+                errori.append(
+                    f"forma di letterale non riconosciuta: «{prefisso}"
+                    f"{'#' * cancelletti}\"». Questo scanner sa leggere `\"`, `b\"`, "
+                    "`r\"` e `br#\"`; una forma che non sa leggere non la sa "
+                    "mascherare, e cio' che resterebbe visibile e' testo arbitrario."
+                )
+                return "".join(fuori), errori
 
-    E' cio' su cui questo modulo cerca, e nient'altro. I due passaggi chiudono
-    la stessa classe di difetto -- del testo che *sembra* codice e non lo e' --
-    e vanno fatti **prima di cercare**, non prima di confrontare:
+            fuori.append('"')
+            indice += 1
+            chiuso = False
+            while indice < quanti:
+                corrente = testo[indice]
+                if corrente == "\\" and indice + 1 < quanti:
+                    fuori.append("  ")
+                    indice += 2
+                    continue
+                if corrente == '"':
+                    fuori.append('"')
+                    indice += 1
+                    chiuso = True
+                    break
+                fuori.append(corrente if corrente == "\n" else " ")
+                indice += 1
+            if not chiuso:
+                errori.append(
+                    "letterale di stringa non terminato: il resto del sorgente non "
+                    "e' interpretabile."
+                )
+                return "".join(fuori), errori
+            continue
 
-        impl Ord for LossExample {
-            const AIUTO: &str = "
-            fn cmp(&self, altro: &Self) -> Ordering {
-                self.chiave().cmp(&altro.chiave())
-            }
-        ";
-            fn cmp(&self, altro: &Self) -> Ordering {
-                self.category.cmp(&altro.category)
-            }
-        }
+        fuori.append(carattere)
+        indice += 1
 
-    L'espressione regolare trovava il `fn cmp` **dentro la stringa**, che e'
-    canonico, e il corpo vero non veniva mai guardato. Lo stesso vale per un
-    `chiave()`, un `BTreeSet` o un sito del contatore scritti dentro una
-    stringa: fabbricherebbero un fatto che il codice non ha, o -- nell'altro
-    verso -- un rosso su una sonda che nomina il contatore in un messaggio.
-
-    L'ordine conta: prima i commenti, poi le stringhe. `_senza_commenti` salta
-    le stringhe, quindi un `//` dentro una stringa non apre un commento; e con
-    i commenti gia' tolti, una virgoletta dentro un commento non apre una
-    stringa.
-    """
-    return _senza_stringhe(_senza_commenti(testo))
+    return "".join(fuori), errori
 
 
 def _chiamata_che_racchiude(testo: str, posizione: int) -> str | None:
@@ -574,8 +609,9 @@ def ordine_canonico_dal_codice(testo: str) -> tuple[dict[str, list[str]], list[s
     dichiarazione dei campi, e `chiave()` diventerebbe una funzione vera che
     con il punto in cui la sezione taglia non ha piu' rapporto.
     """
-    testo = _sorgente_leggibile(testo)
-    errori: list[str] = []
+    testo, errori = _sorgente_leggibile(testo)
+    if errori:
+        return {}, errori
     chiavi: dict[str, list[str]] = {}
     per_tipo: dict[str, list[list[str]]] = {}
 
@@ -651,8 +687,9 @@ def identita_delle_respinte_dal_codice(
     E' li' che l'identita' vive: una voce respinta non si conserva, e cio' su cui
     il conteggio deduplica e' esattamente cio' che l'insieme contiene.
     """
-    testo = _sorgente_leggibile(testo)
-    errori: list[str] = []
+    testo, errori = _sorgente_leggibile(testo)
+    if errori:
+        return {}, errori
     identita: dict[str, list[str]] = {}
 
     for clausola, (struttura, campo) in INSIEMI_DELLE_RESPINTE.items():
@@ -709,8 +746,10 @@ def fonti_di_omesse_per_byte_dal_codice(
     senza che il manifesto la dichiari, ed e' il modo normale in cui una clausola
     invecchia.
     """
-    busta = _sorgente_leggibile(busta)
-    loss = _sorgente_leggibile(loss)
+    busta, guasti_busta = _sorgente_leggibile(busta)
+    loss, guasti_loss = _sorgente_leggibile(loss)
+    if guasti_busta or guasti_loss:
+        return [], guasti_busta + guasti_loss
     errori: list[str] = []
 
     insiemi = {campo for _, campo in INSIEMI_DELLE_RESPINTE.values()}
@@ -829,10 +868,14 @@ def _siti_del_contatore(busta: str) -> tuple[list[str], list[str]]:
                 # segni che seguono il contatore non dicono niente su chi lo
                 # riceve, e una macro puo' assegnarlo pur essendone separata da
                 # una virgola.
+                # Dentro una chiamata servono **tutte e due** le condizioni: che
+                # la chiamata sia di sola lettura, e che il contatore le sia
+                # passato come argomento intero o consumato come valore. La
+                # prima da sola autorizzava tutta l'espressione racchiusa, e
+                # `assert_eq!(troncamento.omesse_per_byte.clone_from(&x), ())`
+                # muta il campo dentro un'asserzione.
                 chiamata = _chiamata_che_racchiude(busta, uso.start())
-                if chiamata is not None:
-                    if chiamata in CHIAMATE_DI_SOLA_LETTURA:
-                        continue
+                if chiamata is not None and chiamata not in CHIAMATE_DI_SOLA_LETTURA:
                     errori.append(
                         f"`{CONTATORE}` e' passato a `{chiamata}`, che non e' fra le "
                         f"chiamate di sola lettura {list(CHIAMATE_DI_SOLA_LETTURA)}: "
@@ -841,13 +884,23 @@ def _siti_del_contatore(busta: str) -> tuple[list[str], list[str]]:
                         "e una scrittura si somigliano."
                     )
                     continue
-                if any(dopo.startswith(lettura) for lettura in LETTURE_AMMESSE):
+                ammesse = LETTURE_AMMESSE + (
+                    ARGOMENTI_DIRETTI if chiamata is not None else ()
+                )
+                if any(dopo.startswith(lettura) for lettura in ammesse):
                     continue
                 errori.append(
                     f"uso di `{CONTATORE}` che questo gate non sa classificare: "
                     f"«{_estratto(busta, uso)}». Non e' ne' una scrittura nota ne' "
                     "una lettura fra quelle ammesse, e un uso non classificato "
                     "potrebbe essere una fonte che nessuno dichiara."
+                    + (
+                        f" Che sia dentro `{chiamata}` non basta: un'asserzione "
+                        "ammette che il contatore le sia passato, non che dentro "
+                        "di lei gli si faccia qualunque cosa."
+                        if chiamata is not None
+                        else ""
+                    )
                 )
                 continue
 

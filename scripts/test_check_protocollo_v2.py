@@ -668,6 +668,88 @@ class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
         _, errori = gate.ordine_canonico_dal_codice(finta)
         self.assertTrue(any("non esiste piu'" in e for e in errori), errori)
 
+    def test_una_raw_string_non_fabbrica_codice(self):
+        """Uno scanner che non conosce `r#"..."#` sbaglia in **due** modi
+        insieme, e quale prevalga lo decide la parita' delle virgolette.
+
+        `r#""` gli sembra una stringa aperta e subito chiusa, quindi espone come
+        codice cio' che segue; il terminatore `"#` gli sembra una stringa nuova,
+        quindi maschera il codice vero che viene dopo. Niente di tutto questo ha
+        a che fare con il codice.
+        """
+        vero = (
+            "    fn chiave(&self) -> (&str, Posizione, &str) {\n"
+            "        (&self.category, self.posizione, &self.context)\n"
+            "    }\n"
+        )
+        avvelenato = loss_finto().replace(
+            vero,
+            '    const AIUTO: &str = r#""\n'
+            "    fn chiave(&self) -> (&str, Posizione, &str) {\n"
+            "        (self.posizione, &self.context)\n"
+            "    }\n"
+            '    "#;\n' + vero,
+        )
+        self.assertIn('r#"', avvelenato, "la fixture non e' stata avvelenata")
+        ordine, errori = gate.ordine_canonico_dal_codice(avvelenato)
+        self.assertEqual(errori, [])
+        self.assertEqual(ordine["esempi"], ["category", "posizione", "context"])
+
+    def test_le_forme_di_letterale_conosciute_non_disturbano(self):
+        """Byte string, raw con piu' cancelletti, byte-raw, e un carattere che
+        contiene una virgoletta -- `'\"'` esiste, e aprirebbe una stringa che
+        non c'e'."""
+        vero = (
+            "    fn chiave(&self) -> (&str, Posizione, &str) {\n"
+            "        (&self.category, self.posizione, &self.context)\n"
+            "    }\n"
+        )
+        letterali = (
+            'b"una \\" dentro"',
+            'r##"una "# dentro"##',
+            'br#"byte "grezza""#',
+            "'\"'",
+        )
+        for letterale in letterali:
+            with self.subTest(letterale=letterale):
+                fixture = loss_finto().replace(
+                    vero, f"    const AIUTO: &str = {letterale};\n" + vero
+                )
+                ordine, errori = gate.ordine_canonico_dal_codice(fixture)
+                self.assertEqual(errori, [], letterale)
+                self.assertEqual(ordine["esempi"], ["category", "posizione", "context"])
+
+    def test_una_forma_di_letterale_sconosciuta_fallisce_chiusa(self):
+        """Una forma che lo scanner non sa leggere non la sa mascherare, e cio'
+        che resterebbe visibile e' testo arbitrario: meglio dirlo."""
+        _, errori = gate.ordine_canonico_dal_codice(
+            'fn f() { let x = c"stringa C"; }\n'
+        )
+        self.assertTrue(any("non riconosciuta" in e for e in errori), errori)
+
+    def test_un_letterale_o_un_commento_non_chiuso_fallisce_chiuso(self):
+        casi = {
+            'fn f() { let x = "mai chiusa;\n}\n': "stringa non terminato",
+            'fn f() { let x = r#"mai chiusa;\n}\n': "grezzo `r#\"` non terminato",
+            "fn f() { /* mai chiuso\n}\n": "commento a blocco non chiuso",
+        }
+        for sorgente, atteso in casi.items():
+            with self.subTest(atteso=atteso):
+                chiavi, errori = gate.ordine_canonico_dal_codice(sorgente)
+                self.assertEqual(chiavi, {}, "su un sorgente illeggibile non si deriva")
+                self.assertTrue(any(atteso in e for e in errori), errori)
+
+    def test_un_sorgente_illeggibile_ferma_tutti_e_tre_i_derivatori(self):
+        """Non solo l'ordine: un sorgente che non si sa leggere non produce ne'
+        identita' delle respinte ne' fonti del contatore."""
+        rotto = 'fn f() { let x = c"stringa C"; }\n'
+        identita, errori = gate.identita_delle_respinte_dal_codice(rotto)
+        self.assertEqual(identita, {})
+        self.assertTrue(errori)
+        fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(rotto, loss_finto())
+        self.assertEqual(fonti, [])
+        self.assertTrue(errori)
+
     def test_un_sito_nominato_in_una_stringa_non_e_un_sito(self):
         """Il verso opposto, e prima era un rosso vero: una stringa che **nomina**
         il contatore -- una nota, un messaggio -- non e' un uso del contatore."""
@@ -912,6 +994,37 @@ class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
                     busta_finta(f"    {invocazione}\n"), loss_finto()
                 )
                 self.assertNotEqual(errori, [], invocazione)
+
+    def test_una_mutazione_dentro_un_asserzione_ammessa_e_rossa(self):
+        """L'asserzione ammette che il contatore le sia **passato**, non che
+        dentro di lei gli si faccia qualunque cosa.
+
+            assert_eq!(troncamento.omesse_per_byte.clone_from(&nuova), ());
+
+        `clone_from` muta il campo, `&mut` non compare, e l'asserzione e' fra
+        quelle ammesse: ammettere l'occorrenza per la sola chiamata autorizzava
+        tutta l'espressione racchiusa. Essere dentro una chiamata di sola
+        lettura e' **necessario e non sufficiente**: serve anche che il
+        contatore sia un argomento intero, o consumato come valore.
+        """
+        for mutazione in ("clone_from(&nuova_fonte)", "set(9)", "add_assign(1)"):
+            with self.subTest(mutazione=mutazione):
+                _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+                    busta_finta(
+                        "    assert_eq!(\n"
+                        f"        troncamento.omesse_per_byte.{mutazione},\n"
+                        "        ()\n"
+                        "    );\n"
+                    ),
+                    loss_finto(),
+                )
+                self.assertTrue(
+                    any("non sa classificare" in e for e in errori), errori
+                )
+                self.assertTrue(
+                    any("non basta" in e for e in errori),
+                    "il messaggio deve dire perche' l'asserzione non salva l'uso",
+                )
 
     def test_le_chiamate_di_sola_lettura_restano_verdi(self):
         """Il verso opposto: le tre asserzioni prendono i due lati per

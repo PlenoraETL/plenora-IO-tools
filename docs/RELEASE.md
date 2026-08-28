@@ -275,21 +275,33 @@ in più che nessuno confronta, su un tipo di respinta che non sa nominare e su u
 sito del contatore ambiguo.
 
 **Leggere il codice non basta: bisogna leggerlo abbastanza stretto.** Il gate
-ha attraversato **tre giri di revisione** prima della ratifica, e le sei vie di
-falso verde trovate colpivano tutte l'affermazione che l'invariante fa — non un
-dettaglio attorno. Sotto le sei ci sono due radici sole.
+ha attraversato **quattro giri di revisione** prima della ratifica, e le otto
+vie di falso verde trovate colpivano tutte l'affermazione che l'invariante fa —
+non un dettaglio attorno. Hanno **due radici sole**, e ogni giro ne ha chiusa
+una su una parte mentre il successivo la trovava sull'altra.
 
-**Cercava su testo che non è codice.** Un corpo canonico scritto dentro
-`/* … */`, o dentro un letterale di stringa, veniva scelto dall'espressione
-regolare prima di quello vero, che non veniva mai guardato. I commenti si
-toglievano dopo aver cercato e solo quelli di riga; le stringhe non si
-mascheravano affatto. Ora il sorgente si ripulisce **prima di cercare** — via i
-commenti, di riga e a blocco, via il contenuto delle stringhe — e vale per ogni
-ricerca del modulo, non per la sola delega: un `chiave()`, un `BTreeSet` o un
-sito del contatore scritti lì dentro mentirebbero allo stesso modo.
+**Cercava su testo che non è codice.** Un corpo canonico scritto dentro un
+commento o dentro un letterale veniva trovato dall'espressione regolare prima
+di quello vero, che non veniva mai guardato. I commenti si toglievano dopo aver
+cercato e solo quelli di riga; poi le stringhe non si mascheravano affatto; poi
+si mascheravano le stringhe ordinarie e non le *raw string*, di cui lo scanner
+non conosceva la sintassi — e lì sbagliava in due modi insieme, perché `r#""`
+gli sembra una stringa aperta e subito chiusa (espone come codice ciò che
+segue) mentre il terminatore `"#` gli sembra una stringa nuova (maschera il
+codice vero che viene dopo). Quale dei due effetti prevalga lo decideva la
+parità delle virgolette, cioè niente che avesse a che fare con il codice.
+
+Ora il sorgente si ripulisce **prima di cercare**, in un passo solo: via i
+commenti, di riga e a blocco annidati, e via il contenuto dei letterali —
+stringhe, byte string, raw string con qualunque numero di cancelletti, e
+caratteri, perché `'"'` esiste e una virgoletta dentro un carattere aprirebbe
+una stringa che non c'è. Su una forma che lo scanner non sa leggere, o su un
+letterale non terminato, si **fallisce chiusi**: ciò che non si sa mascherare
+non lo si sa nemmeno interpretare.
 
 **Ammetteva per segno ciò che va ammesso per forma.** Un segno ammette tutto
-ciò che comincia con quel segno, e quattro segni ammettevano quattro cose:
+ciò che comincia con quel segno, e ogni ammissione troppo larga ammetteva una
+scrittura:
 
 | forma | perché passava |
 |---|---|
@@ -297,13 +309,16 @@ ciò che comincia con quel segno, e quattro segni ammettevano quattro cose:
 | `troncamento.omesse_per_byte += …` | il censimento cercava il solo `=` |
 | `troncamento.omesse_per_byte.clone_from(&nuova)` | il `.` ammetteva ogni metodo, e questo scrive per auto-borrow |
 | `scrivi!(troncamento.omesse_per_byte, nuova)` | la `,` ammetteva ogni chiamata, e una macro assegna ciò che riceve |
+| `assert_eq!(troncamento.omesse_per_byte.clone_from(&nuova), ())` | la chiamata ammessa autorizzava tutta l'espressione racchiusa |
 
 Ora la forma dei corpi delegati è **esatta** — e `PartialOrd` è verificato con
 gli altri due, perché `<` e `>` passano da lì; una chiamata di metodo si
 ammette per **nome intero**; un'assegnazione che compare dopo il contatore
 nella stessa istruzione lo rende scritto anche quando non lo segue un `=`; e
-un'occorrenza dentro una chiamata si ammette per **chiamata**, non per segno —
-`assert_eq!`, `assert_ne!`, `assert!` e nient'altro.
+dentro una chiamata servono **due condizioni insieme** — che la chiamata sia
+`assert_eq!`, `assert_ne!` o `assert!`, **e** che il contatore le sia passato
+come argomento intero o consumato come valore. Un'asserzione ammette che il
+contatore le sia passato, non che dentro di lei gli si faccia qualunque cosa.
 
 Su ciò che resta si fallisce **chiusi**: distinguere una lettura da una
 scrittura senza un parser non si può fare per esaustione, e distinguere una
@@ -314,21 +329,9 @@ costare a chi tocca il contatore.
 
 Ciascuna via ha la propria sonda negativa, e così i versi opposti, che pesano
 quanto le altre: un commento legittimo dentro la forma canonica, un `=` dentro
-una stringa di formato, una stringa che si limita a nominare il contatore e le
-tre asserzioni devono restare **verdi**. Una stretta che si paga in rossi che
-nessuno sa leggere non è una stretta.
-
-I due ordini non si estraevano allo stesso modo, ed era una decisione da
-prendere. `LossExample` derivava `Ord`, quindi il suo ordine era quello di
-**dichiarazione dei campi**: un fatto vero, ma di natura diversa da quello delle
-ragioni, e un gate avrebbe dovuto leggerlo da un altro posto e dichiarare il
-caso particolare. Gli si è data una `chiave()` esplicita: costa una funzione,
-lascia un meccanismo solo, e il comportamento sul filo non cambia — la tupla è
-quella dei campi nell'ordine in cui erano dichiarati. I due tipi delegano ora
-`Ord` e `PartialEq` a quella funzione e non li derivano, e il gate lo pretende.
-
-La rilettura umana resta per il significato residuo, che quei campi non
-catturano. Non più come **unica** difesa.
+una stringa di formato, una stringa che si limita a nominare il contatore, le
+forme di letterale conosciute e le tre asserzioni devono restare **verdi**. Una
+stretta che si paga in rossi che nessuno sa leggere non è una stretta.
 
 ### La candidate `1.0.1` non qualifica HEAD
 
