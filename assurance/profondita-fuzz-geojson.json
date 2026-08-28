@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "descrizione": "Che cosa il replay deterministico dei semi di `geojson_reader` ha raggiunto. Prodotto da `scripts/fuzz-profondita.sh geojson_reader`; letto da scripts/check_profondita_fuzz.py, che ne ricalcola l'impronta del perimetro e rifiuta una misura invecchiata.",
   "target": "geojson_reader",
   "corpus": {
@@ -7,60 +7,61 @@
   },
   "impronta_perimetro": "9fa1ed9e85fceb74eabf73414317bdcc25b2b65ae0b616573450488969fc41a2",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
+  "nota_sul_raggiungimento": "ogni requisito dice `raggiunto`, non quante volte. Lo schema 1 registrava il `conteggio` delle esecuzioni e il gate ne pretendeva il segno: il numero pero' alternava fra due stati a parita' di albero -- otto requisiti su trentacinque, su quattro corse di cui due bit-identiche -- e ogni rimisura scriveva quel rumore in un file versionato, indistinguibile da un fatto. `raggiunto` e' la stessa affermazione senza la parte instabile: lo deriva questo generatore da `conteggio > 0`, e il gate lo pretende booleano e vero.",
   "requisiti": [
     {
       "id": "addebito.membri",
       "famiglia": "riga",
       "riga": 604,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "addebito.posizione",
       "famiglia": "riga",
       "riga": 321,
-      "conteggio": 39
+      "raggiunto": true
     },
     {
       "id": "analisi.albero",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 82
+      "raggiunto": true
     },
     {
       "id": "analisi.figlie",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 34
+      "raggiunto": true
     },
     {
       "id": "analisi.geometria",
       "famiglia": "funzione",
       "simboli": 4,
-      "conteggio": 53
+      "raggiunto": true
     },
     {
       "id": "budget.addebito",
       "famiglia": "funzione",
       "simboli": 3,
-      "conteggio": 41
+      "raggiunto": true
     },
     {
       "id": "budget.profondita",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 110
+      "raggiunto": true
     },
     {
       "id": "errore.canale-laterale",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 6
+      "raggiunto": true
     },
     {
       "id": "tetto.annidamento",
       "famiglia": "riga",
       "riga": 179,
-      "conteggio": 1
+      "raggiunto": true
     }
   ]
 }

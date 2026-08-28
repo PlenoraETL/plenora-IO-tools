@@ -108,8 +108,13 @@ jobs:
       # gira solo la sua lettura, che ricalcola l'impronta del perimetro e
       # diventa rossa appena il codice attraversato cambia senza che la misura
       # sia stata rifatta.
+      # Le sonde della selezione stanno qui e non con la misura: la misura non
+      # gira in CI, e le quattro condizioni che rendono la scelta deterministica
+      # sono affermazioni da provare a ogni push, non solo quando qualcuno
+      # rimisura.
       - name: Verify each fuzz target reaches the format it claims
         run: |
+          python3 -m unittest scripts.test_seleziona_binario_strumentato
           python3 -m unittest scripts.test_check_profondita_fuzz
           python3 scripts/check_profondita_fuzz.py shp_reader
           python3 scripts/check_profondita_fuzz.py filegdb_reader

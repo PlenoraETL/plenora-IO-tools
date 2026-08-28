@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 98.33% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
-| blocchi | 5 |
+| blocchi | 4 |
 | S9, qualificato su | `bc6ada4` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -64,7 +64,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 |---|---|
 | `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
-| `fuzz.profondita-riproducibile` | misura di profondita' non riproducibile, e scelta del binario non deterministica |
 | `wire.clausole-confrontabili` | clausole di comportamento in prosa, non confrontate con il codice |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
 
@@ -219,6 +218,38 @@ stato portato a un crash osservabile — non che GDAL sia stato esplorato.
 fosse costruita con la strumentazione, il gate diventerebbe rosso e la prosa
 dovrebbe cambiare con il fatto, invece di sopravvivergli.
 
+**Riproducibilità della misura di profondità.** L'artefatto di profondità
+registrava il `conteggio` delle esecuzioni per requisito, e quel numero non era
+riproducibile: su quattro corse di `scripts/fuzz-profondita.sh shp_reader`, due
+delle quali su albero bit-identico, otto requisiti su trentacinque alternavano
+fra **due** stati. Nessun verdetto ne dipendeva — il gate ne pretendeva il solo
+segno — ma il rumore entrava in un file versionato a ogni rimisura,
+indistinguibile da un fatto.
+
+Lo schema **2** dell'artefatto registra `"raggiunto": true`, che il generatore
+deriva da `conteggio > 0`: la stessa affermazione senza la parte instabile.
+Cancellare il conteggio e basta non sarebbe bastato, perché il suo segno *era*
+la prova di raggiungimento. Il gate pretende un booleano vero e rifiuta il campo
+assente, `false`, un numero al suo posto e un'osservazione che porti ancora
+`conteggio`; la versione dello schema è pretesa **esatta**, perché una misura di
+schema 1 risponde a un'altra domanda. Resta tutto ciò che era stabile: identità,
+famiglia, riga, simboli, input del corpus, impronta del perimetro.
+
+La proprietà è **dimostrata e non dichiarata**: i quattro artefatti in albero
+sono stati rimisurati con il generatore nuovo e coincidono byte per byte con la
+conversione dei precedenti.
+
+Allo stesso giro appartiene la selezione del binario strumentato, che si fermava
+al **primo** candidato restituito da `find` per cui `llvm-cov export` riusciva —
+un ordine che dipende dal filesystem, e un arresto che rendeva invisibile per
+costruzione l'esistenza di un secondo binario compatibile e diverso. Le quattro
+condizioni che la chiudono — enumerazione ordinata, verifica di **tutti** i
+candidati, fallimento se i compatibili non sono byte-identici, scelta canonica
+soltanto fra copie identiche — vivono in
+[`scripts/seleziona_binario_strumentato.py`](../scripts/seleziona_binario_strumentato.py)
+e non più nello shell script, perché in shell nessuna delle quattro si sarebbe
+potuta violare in una prova.
+
 ### La candidate `1.0.1` non qualifica HEAD
 
 Il manifesto di candidate è legato a una revisione che non è HEAD, con
@@ -320,64 +351,21 @@ impronta invariati; l'evidenza in un commit separato.
 Solo allora `release_authorized` può diventare `true`, e sarà una decisione
 scritta — non la conseguenza automatica di sei caselle verdi.
 
-#### Due tranche di assurance da chiudere prima di quel livello 2
+#### Una tranche di assurance da chiudere prima di quel livello 2
 
-Trovate chiudendo `wire.loss-report` e rinviate deliberatamente per non
-allargarne la tesi. Condividono un vincolo: cambiano entrambe la revisione
-qualificata e obbligano a un livello 2 nuovo con la sua evidenza, quindi
-**vanno fatte nello stesso giro** — separarle costa una corsa completa in più.
+Erano **due**, trovate chiudendo `wire.loss-report` e rinviate deliberatamente
+per non allargarne la tesi. La riproducibilità della misura di profondità è
+chiusa — vedi [§ Chiuso](#chiuso) — e ne resta una. Il vincolo che avevano in
+comune vale ancora per quella che resta: cambia la revisione qualificata, quindi
+obbliga a un livello 2 nuovo con la sua evidenza.
 
-Non sono raccomandazioni. Sono i due invarianti `release_blocking`
-`fuzz.profondita-riproducibile` e `wire.clausole-confrontabili` del
+Non è una raccomandazione. È l'invariante `release_blocking`
+`wire.clausole-confrontabili` del
 [registro del contratto corrente](../assurance/registries/release-contract-current.json),
-dove ciascuno dichiara per esteso la propria condizione di chiusura: un obbligo
-che vivesse soltanto in questa prosa ricreerebbe lo spazio non sorvegliato che
-la chiusura di `wire.loss-report` aveva appena trovato. Quel registro è
-l'autorità; quanto segue spiega **perché** esistono, e i numeri su cui poggiano.
-
-**La misura di profondità non è riproducibile.** Su quattro corse di
-`scripts/fuzz-profondita.sh shp_reader`, due delle quali su albero
-bit-identico, otto requisiti su 35 alternano fra **due** stati, e sono questi:
-
-| requisito | stato A | stato B |
-|---|---|---|
-| `bundle.shx-materializzato` | 25 | 24 |
-| `dbf.valori` | 22 | 24 |
-| `rifiuto.cardinalita-nel-drenaggio` | 1 | 2 |
-| `shp.geometria-polilinea` | 3 | 2 |
-| `shp.geometria-punto` | 6 | 8 |
-| `shp.intestazione` | 28 | 26 |
-| `shp.intestazione-di-record` | 10 | 11 |
-| `shx.indice` | 13 | 11 |
-
-Le quattro corse hanno dato **A, A, B, A**, e non una deriva: due stati soli, e
-il passaggio dall'uno all'altro non è correlato ad alcuna modifica del codice
-misurato. Le ultime due sono quelle che lo dimostrano: girano su un albero
-bit-identico e danno stati diversi. Stesso binario strumentato, stessa impronta di perimetro, stessi 24
-semi. Nessun requisito
-compare o sparisce, e `famiglia`, `riga` e `simboli` non si muovono mai: a
-variare è il solo `conteggio` delle esecuzioni, che
-[§ Che cosa quei numeri non dicono](#che-cosa-quei-numeri-non-dicono) già
-dichiara variabile e fuori da ogni soglia. Nessun verdetto ne dipende — il gate
-pretende `conteggio > 0` — ma il rumore entra in un artefatto versionato a ogni
-rimisura, indistinguibile da un fatto.
-
-La correzione decisa è sostituire il campo numerico con uno stabile,
-`"raggiunto": true`, derivato dal generatore da `conteggio > 0` e preteso dal
-gate come booleano. **Non** basta cancellare `conteggio`: oggi il suo segno *è*
-la prova di raggiungimento. Serve una versione nuova dello schema
-dell'artefatto e l'aggiornamento coordinato di artefatti, gate e sonde. Non si
-indaga per rendere deterministici i conteggi: non comprerebbe una proprietà che
-qualcuno usa.
-
-Allo stesso giro appartiene la selezione del binario strumentato:
-`fuzz-profondita.sh` enumera i candidati con `find` e si ferma al **primo** per
-cui `llvm-cov export` riesce. I candidati sono due e l'ordine di `find` dipende
-dal filesystem; nelle corse osservate ha scelto sempre lo stesso, quindi non è
-la causa del rilievo sopra, ma è una fragilità latente. Va chiusa con
-enumerazione deterministica, verifica di **tutti** i candidati invece
-dell'arresto al primo successo, fallimento se più candidati compatibili non
-sono byte-identici, e scelta canonica soltanto fra copie identiche.
+dove dichiara per esteso la propria condizione di chiusura: un obbligo che
+vivesse soltanto in questa prosa ricreerebbe lo spazio non sorvegliato che la
+chiusura di `wire.loss-report` aveva appena trovato. Quel registro è l'autorità;
+quanto segue spiega **perché** esiste, e i numeri su cui poggia.
 
 **Tre clausole del contratto sono confrontabili e oggi sono prosa.** La
 ratifica di `wire.loss-report` ha trovato quattro clausole di

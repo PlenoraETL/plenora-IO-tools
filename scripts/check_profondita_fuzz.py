@@ -39,6 +39,32 @@ Non e' legata allo SHA: il commit che *pubblica* una misura ha per forza uno SHA
 diverso da quello su cui e' girata, e legarla al commit la renderebbe scaduta
 per costruzione.
 
+# Perche' la misura dice «raggiunto» e non «quante volte»
+
+Fino allo schema 1 ogni requisito portava il `conteggio` delle esecuzioni, e il
+gate ne pretendeva il **segno**: `conteggio > 0`. Il numero pero' non e'
+riproducibile. Su quattro corse di `scripts/fuzz-profondita.sh shp_reader`, due
+delle quali su albero bit-identico, otto requisiti su trentacinque alternavano
+fra due stati: nessuno compariva o spariva, `famiglia`, `riga` e `simboli` non
+si muovevano, e a variare era il solo conteggio -- che `docs/RELEASE.md` gia'
+dichiarava variabile e fuori da ogni soglia.
+
+Nessun verdetto ne dipendeva. Il danno era un altro: il rumore entrava in un
+file **versionato** a ogni rimisura, indistinguibile da un fatto, e un artefatto
+che cambia senza che sia cambiato nulla insegna a non leggerlo.
+
+Lo schema 2 registra percio' `"raggiunto": true`, che il generatore deriva da
+`conteggio > 0` -- la stessa affermazione, senza la parte instabile. Cancellare
+`conteggio` e basta non sarebbe bastato: il suo segno *era* la prova di
+raggiungimento, e una misura senza ne' l'uno ne' l'altro non direbbe piu'
+niente. Il gate pretende un booleano **vero** e rifiuta il campo assente, il
+`false`, un numero al suo posto e un artefatto che porti ancora `conteggio`:
+quella e' la forma vecchia, e riletta con la regola nuova sarebbe verde per
+assenza di domanda.
+
+Non si e' indagato per rendere deterministici i conteggi. Comprerebbe una
+proprieta' che nessuno usa.
+
 # Che cosa questo gate non dice
 
 Che un ramo sia **raggiunto** non dice che il suo contratto sia verificato. La
@@ -74,6 +100,15 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRI = ROOT / "assurance" / "registries"
+
+#: La versione dello schema dell'artefatto di profondita'.
+#:
+#: E' `2` da quando il `conteggio` delle esecuzioni ha lasciato il posto a
+#: `raggiunto`. Il numero e' preteso e non ignorato: una misura di schema 1 non
+#: e' una misura incompleta, e' una misura che risponde a un'altra domanda, e
+#: leggerla con la regola nuova la farebbe passare senza portare l'affermazione
+#: che la regola nuova chiede.
+SCHEMA_ARTEFATTO = 2
 
 
 @dataclass(frozen=True)
@@ -549,13 +584,17 @@ def osserva(
                 for simbolo, conteggio in conteggi.items()
                 if pattern.search(simbolo)
             }
-            migliore = max(trovati.values(), default=None)
+            migliore = max(trovati.values(), default=0)
+            # Da qui in poi il conteggio non esce piu': la misura registra
+            # `raggiunto`, che e' il suo segno. Vedi il docstring del modulo --
+            # il numero alternava fra due stati a parita' di albero, e nessun
+            # verdetto ne dipendeva.
             osservazioni.append(
                 {
                     "id": voce["id"],
                     "famiglia": "funzione",
                     "simboli": len(trovati),
-                    "conteggio": migliore,
+                    "raggiunto": migliore > 0,
                 }
             )
             continue
@@ -570,7 +609,7 @@ def osserva(
                 "id": voce["id"],
                 "famiglia": "riga",
                 "riga": numero,
-                "conteggio": strumentate.get(numero, 0),
+                "raggiunto": strumentate.get(numero, 0) > 0,
             }
         )
     return osservazioni, errori
@@ -587,6 +626,19 @@ def verifica(
     errori.extend(problemi)
     if errori:
         return errori
+
+    # La versione dello schema si legge prima di tutto il resto, e si pretende
+    # esatta invece che «almeno». Una misura di schema 1 porta `conteggio` e non
+    # `raggiunto`: riletta qui direbbe soltanto che i requisiti ci sono tutti,
+    # senza portare l'affermazione che li dichiara raggiunti.
+    if misura.get("schema_version") != SCHEMA_ARTEFATTO:
+        errori.append(
+            f"la misura dichiara lo schema «{misura.get('schema_version')}», il "
+            f"gate legge lo schema {SCHEMA_ARTEFATTO}. Lo schema 1 registrava il "
+            "`conteggio` delle esecuzioni, che a parita' di albero non e' "
+            "riproducibile; il 2 registra `raggiunto`. Va rifatta con "
+            f"`scripts/fuzz-profondita.sh {bersaglio.nome}`."
+        )
 
     if misura.get("target") != registro.get("target"):
         errori.append(
@@ -669,13 +721,28 @@ def verifica(
                 f"il registro lo dichiara «{attesa}». Un ramo del sorgente e un "
                 "simbolo eseguito non rispondono alla stessa domanda."
             )
-        conteggio = voce.get("conteggio")
-        if not isinstance(conteggio, int) or isinstance(conteggio, bool):
-            errori.append(f"{identita}: conteggio «{conteggio}» non e' un intero")
-        elif conteggio <= 0:
+        # `raggiunto` deve essere un booleano **vero**, e i quattro modi di non
+        # esserlo sono errori distinti perche' portano a diagnosi distinte: il
+        # campo assente e' una misura che non afferma niente, `false` e' un ramo
+        # mai percorso, un numero e' la forma vecchia travestita, e `conteggio`
+        # ancora presente e' la forma vecchia intera.
+        if "conteggio" in voce:
             errori.append(
-                f"{identita}: non raggiunto dal replay del corpus (conteggio "
-                f"{conteggio}). Il target compila e non crasha, e non arriva qui."
+                f"{identita}: l'osservazione porta ancora `conteggio`. E' la "
+                "forma dello schema 1, dove il numero era instabile a parita' "
+                "di albero: la misura va rifatta, non ritoccata."
+            )
+        raggiunto = voce.get("raggiunto")
+        if not isinstance(raggiunto, bool):
+            errori.append(
+                f"{identita}: `raggiunto` vale «{raggiunto}» e non e' un "
+                "booleano. Un numero o un campo assente al suo posto non "
+                "affermano che il requisito sia stato raggiunto."
+            )
+        elif not raggiunto:
+            errori.append(
+                f"{identita}: non raggiunto dal replay del corpus. Il target "
+                "compila e non crasha, e non arriva qui."
             )
         simboli = voce.get("simboli")
         if voce.get("famiglia") == "funzione" and isinstance(simboli, bool):
@@ -721,7 +788,7 @@ def registra(
         return 1
 
     documento = {
-        "schema_version": 1,
+        "schema_version": SCHEMA_ARTEFATTO,
         "descrizione": (
             f"Che cosa il replay deterministico dei semi di `{bersaglio.nome}` ha "
             f"raggiunto. Prodotto da `scripts/fuzz-profondita.sh "
@@ -741,6 +808,16 @@ def registra(
             "identificatore. A legare la misura all'albero e' l'impronta del "
             "perimetro, che invecchia quando il codice attraversato cambia."
         ),
+        "nota_sul_raggiungimento": (
+            "ogni requisito dice `raggiunto`, non quante volte. Lo schema 1 "
+            "registrava il `conteggio` delle esecuzioni e il gate ne pretendeva "
+            "il segno: il numero pero' alternava fra due stati a parita' di "
+            "albero -- otto requisiti su trentacinque, su quattro corse di cui "
+            "due bit-identiche -- e ogni rimisura scriveva quel rumore in un file "
+            "versionato, indistinguibile da un fatto. `raggiunto` e' la stessa "
+            "affermazione senza la parte instabile: lo deriva questo generatore "
+            "da `conteggio > 0`, e il gate lo pretende booleano e vero."
+        ),
         "requisiti": sorted(osservazioni, key=lambda voce: voce["id"]),
     }
     uscita.parent.mkdir(parents=True, exist_ok=True)
@@ -749,7 +826,7 @@ def registra(
         encoding="utf-8",
         newline="\n",
     )
-    raggiunti = sum(1 for voce in osservazioni if (voce.get("conteggio") or 0) > 0)
+    raggiunti = sum(1 for voce in osservazioni if voce["raggiunto"])
     print(
         f"profondita' registrata in {uscita.relative_to(ROOT).as_posix()}: "
         f"{raggiunti}/{len(osservazioni)} requisiti raggiunti su "

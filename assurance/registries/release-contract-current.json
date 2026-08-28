@@ -568,11 +568,52 @@
     {
       "id": "fuzz.profondita-riproducibile",
       "superficie": "gli artefatti di profondita' dei target di fuzzing, e lo script che li produce",
-      "invariante": null,
-      "prova": null,
-      "stato": "release_blocking",
-      "manca": "l'artefatto **non e' riproducibile**: a parita' di albero otto requisiti su trentacinque alternano fra due stati, perche' registrano il `conteggio` delle esecuzioni, che `docs/RELEASE.md` dichiara variabile. Nessun verdetto ne dipende -- il gate pretende `conteggio > 0` -- ma il rumore entra in un file versionato a ogni rimisura, indistinguibile da un fatto. Chiude quando il campo numerico e' sostituito da `\"raggiunto\": true`, derivato dal generatore e preteso dal gate come booleano, con una versione nuova dello schema dell'artefatto e l'aggiornamento coordinato di artefatti, gate e sonde. Allo stesso giro appartiene la selezione del binario strumentato, che oggi si ferma al primo candidato che `find` restituisce: va chiusa con quattro condizioni: enumerazione deterministica dei candidati; verifica di **tutti**, invece dell'arresto al primo successo; fallimento se piu' candidati compatibili non sono byte-identici; e scelta canonica soltanto **fra copie identiche**, cosi' che quale delle due si prenda non possa cambiare la misura.",
-      "sintesi": "misura di profondita' non riproducibile, e scelta del binario non deterministica"
+      "invariante": "l'artefatto di profondita' e' **riproducibile**: due misure sullo stesso albero riscrivono lo stesso file, byte per byte. Ogni requisito dichiara `raggiunto`, un booleano che il generatore deriva da `conteggio > 0`, e non il conteggio delle esecuzioni -- che a parita' di albero alternava fra due stati su otto requisiti di trentacinque, e che nessun verdetto usava. Lo schema dell'artefatto e' il **2** ed e' preteso esatto: una misura di schema 1 risponde a un'altra domanda. Il gate pretende un booleano vero e rifiuta il campo assente, `false`, un numero al suo posto e un'osservazione che porti ancora `conteggio`. Le informazioni stabili restano tutte -- identita', famiglia, riga, simboli, input del corpus, impronta del perimetro. La selezione del binario strumentato e' deterministica per quattro condizioni congiunte: enumerazione ordinata dei candidati; verifica di **tutti**, invece dell'arresto al primo successo; fallimento se piu' candidati compatibili non sono byte-identici; e scelta canonica soltanto **fra copie identiche**, cosi' che quale delle due si prenda non possa cambiare la misura.",
+      "prova": {
+        "tipo": "gate",
+        "comando": [
+          "python3",
+          "-m",
+          "unittest",
+          "scripts.test_seleziona_binario_strumentato"
+        ],
+        "comandi_aggiuntivi": [
+          [
+            "python3",
+            "-m",
+            "unittest",
+            "scripts.test_check_profondita_fuzz"
+          ],
+          [
+            "python3",
+            "scripts/check_profondita_fuzz.py",
+            "shp_reader"
+          ],
+          [
+            "python3",
+            "scripts/check_profondita_fuzz.py",
+            "filegdb_reader"
+          ],
+          [
+            "python3",
+            "scripts/check_profondita_fuzz.py",
+            "wkt_parse"
+          ],
+          [
+            "python3",
+            "scripts/check_profondita_fuzz.py",
+            "geojson_reader"
+          ]
+        ],
+        "artefatto": [
+          "assurance/profondita-fuzz-shapefile.json",
+          "assurance/profondita-fuzz-filegdb.json",
+          "assurance/profondita-fuzz-wkt.json",
+          "assurance/profondita-fuzz-geojson.json"
+        ]
+      },
+      "stato": "verified",
+      "nota": "le quattro condizioni sulla selezione del binario si provano su funzioni iniettabili e non su binari veri: in shell nessuna delle quattro si sarebbe potuta violare in una prova, ed e' la ragione per cui la scelta ha lasciato `fuzz-profondita.sh`. La sonda che conta e' quella del secondo candidato compatibile e diverso **dopo** un primo gia' compatibile: con l'arresto al primo successo era verde, e lo era proprio nel caso in cui la misura sarebbe stata di un altro binario. Cio' che questo invariante **non** afferma e' che i conteggi delle esecuzioni siano deterministici: non si e' indagato, perche' comprerebbe una proprieta' che nessuno usa."
     },
     {
       "id": "wire.clausole-confrontabili",

@@ -89,11 +89,12 @@ def registro_minimo(bersaglio: gate.Bersaglio = SHP) -> dict:
 
 
 def misura_di(
-    registro: dict, conteggio: int = 3, bersaglio: gate.Bersaglio = SHP
+    registro: dict, raggiunto: bool = True, bersaglio: gate.Bersaglio = SHP
 ) -> dict:
     voci, errori = gate.requisiti(bersaglio, registro)
     assert not errori, errori
     return {
+        "schema_version": gate.SCHEMA_ARTEFATTO,
         "target": registro["target"],
         "corpus": {"input": 5},
         "impronta_perimetro": IMPRONTA,
@@ -102,7 +103,7 @@ def misura_di(
                 "id": voce["id"],
                 "famiglia": "funzione" if voce["famiglia"] == "funzioni" else "riga",
                 "simboli": 1,
-                "conteggio": conteggio,
+                "raggiunto": raggiunto,
             }
             for voce in voci
         ],
@@ -126,20 +127,65 @@ class SondeDellaVerifica(unittest.TestCase):
         """E' il caso per cui il gate esiste: il target gira e non arriva."""
         registro = registro_minimo()
         misura = misura_di(registro)
-        misura["requisiti"][0]["conteggio"] = 0
+        misura["requisiti"][0]["raggiunto"] = False
         errori = gate.verifica(bersaglio, registro, misura)
         self.assertTrue(any("non raggiunto dal replay" in m for m in errori), errori)
 
-    def test_un_conteggio_che_non_e_un_intero_e_rosso(self) -> None:
+    def test_un_raggiunto_che_non_e_un_booleano_e_rosso(self) -> None:
+        """I tre travestimenti che il gate deve rifiutare.
+
+        `1` e' il caso che conta: e' il vecchio conteggio scritto sotto il nome
+        nuovo, e in Python passerebbe per un valore di verita' se il gate si
+        limitasse a `if not raggiunto`.
+        """
+        for valore in (1, 0, "vero", None, []):
+            with self.subTest(valore=valore):
+                registro = registro_minimo()
+                misura = misura_di(registro)
+                misura["requisiti"][0]["raggiunto"] = valore
+                self.assertTrue(
+                    any(
+                        "non e' un booleano" in m
+                        for m in gate.verifica(bersaglio, registro, misura)
+                    )
+                )
+
+    def test_un_raggiunto_assente_e_rosso(self) -> None:
+        """Una misura che non afferma niente non e' una misura piu' corta."""
         registro = registro_minimo()
         misura = misura_di(registro)
-        misura["requisiti"][0]["conteggio"] = True
+        del misura["requisiti"][0]["raggiunto"]
         self.assertTrue(
-            any("non e' un intero" in m for m in gate.verifica(bersaglio, registro, misura))
+            any("non e' un booleano" in m for m in gate.verifica(bersaglio, registro, misura))
         )
 
+    def test_un_osservazione_che_porta_ancora_il_conteggio_e_rossa(self) -> None:
+        """La forma dello schema 1, riletta con la regola nuova.
+
+        Il campo instabile non deve poter tornare accanto a quello stabile: due
+        affermazioni sullo stesso requisito, e la prima e' quella che a parita'
+        di albero cambiava.
+        """
+        registro = registro_minimo()
+        misura = misura_di(registro)
+        misura["requisiti"][0]["conteggio"] = 7
+        self.assertTrue(
+            any("porta ancora `conteggio`" in m for m in gate.verifica(bersaglio, registro, misura))
+        )
+
+    def test_una_misura_dello_schema_vecchio_e_rossa(self) -> None:
+        """Lo schema 1 non e' una misura piu' vecchia: risponde a un'altra
+        domanda, e il gate che la leggesse direbbe di piu' di quanto guarda."""
+        registro = registro_minimo()
+        misura = misura_di(registro)
+        for valore in (1, None, "2", 3):
+            with self.subTest(valore=valore):
+                misura["schema_version"] = valore
+                errori = gate.verifica(bersaglio, registro, misura)
+                self.assertTrue(any("schema" in m for m in errori), errori)
+
     def test_una_funzione_senza_simboli_corrispondenti_e_rossa(self) -> None:
-        """Un conteggio positivo senza simboli e' una misura di niente: la
+        """Un requisito raggiunto senza simboli e' una misura di niente: la
         funzione e' stata rinominata, o non e' stata compilata nel target."""
         registro = registro_minimo()
         misura = misura_di(registro)
@@ -245,7 +291,9 @@ class SondeDellaVerifica(unittest.TestCase):
     def test_una_misura_che_osserva_cose_non_dichiarate_e_rossa(self) -> None:
         registro = registro_minimo()
         misura = misura_di(registro)
-        misura["requisiti"].append({"id": "estraneo", "famiglia": "riga", "conteggio": 9})
+        misura["requisiti"].append(
+            {"id": "estraneo", "famiglia": "riga", "raggiunto": True}
+        )
         self.assertTrue(
             any("non dichiara" in m for m in gate.verifica(bersaglio, registro, misura))
         )
@@ -458,7 +506,7 @@ class SondeSuOgniBersaglio(unittest.TestCase):
     def test_la_misura_viene_davvero_consumata(self) -> None:
         """Il requisito non raggiunto deve **fermare** il gate.
 
-        E' la proprieta' per cui la misura esiste: se un conteggio a zero
+        E' la proprieta' per cui la misura esiste: se un `raggiunto: false`
         passasse, l'artefatto sarebbe un documento che nessuno legge, e il gate
         direbbe «raggiunto» di un ramo mai percorso.
         """
@@ -467,7 +515,7 @@ class SondeSuOgniBersaglio(unittest.TestCase):
                 with self.subTest(bersaglio=corrente.nome, requisito=indice):
                     registro = registro_minimo(corrente)
                     misura = misura_di(registro, bersaglio=corrente)
-                    misura["requisiti"][indice]["conteggio"] = 0
+                    misura["requisiti"][indice]["raggiunto"] = False
                     errori = gate.verifica(corrente, registro, misura)
                     self.assertTrue(
                         any("non raggiunto dal replay" in m for m in errori), errori
@@ -505,8 +553,8 @@ class SondeDellaFormaDellaMisura(unittest.TestCase):
 
     Le tre sonde qui sotto nascono da altrettanti stati che il gate accettava
     mentre l'invariante dichiarava di rifiutarli. Nessuno dei tre era visibile
-    dai casi positivi: un conteggio positivo si ottiene da qualunque riga
-    eseguita, e `True` e' un intero per Python.
+    dai casi positivi: un `raggiunto: true` si scrive accanto a qualunque
+    osservazione, e `True` e' un intero per Python.
     """
 
     def setUp(self) -> None:
@@ -519,7 +567,7 @@ class SondeDellaFormaDellaMisura(unittest.TestCase):
 
         Il registro dice se un requisito e' un **ramo del sorgente** o un
         **simbolo eseguito**; la misura deve dire la stessa cosa. Senza il
-        confronto restava il solo conteggio, e un conteggio positivo non
+        confronto restava il solo `raggiunto`, e un booleano vero non
         distingue le due prove.
         """
         for corrente in bersagli():
@@ -636,8 +684,11 @@ class SondeDelBersaglioFileGDB(unittest.TestCase):
             "senza requisiti": lambda m: m.update(requisiti=[]),
             "requisiti non lista": lambda m: m.update(requisiti="tutti"),
             "senza corpus": lambda m: m.pop("corpus"),
-            "osservazione senza id": lambda m: m["requisiti"].append({"conteggio": 1}),
-            "conteggio non intero": lambda m: m["requisiti"][0].update(conteggio="molti"),
+            "osservazione senza id": lambda m: m["requisiti"].append({"raggiunto": True}),
+            "raggiunto non booleano": lambda m: m["requisiti"][0].update(raggiunto=1),
+            "raggiunto assente": lambda m: m["requisiti"][0].pop("raggiunto"),
+            "conteggio di ritorno": lambda m: m["requisiti"][0].update(conteggio=3),
+            "schema vecchio": lambda m: m.update(schema_version=1),
         }
         for nome, rompi in casi.items():
             with self.subTest(nome):

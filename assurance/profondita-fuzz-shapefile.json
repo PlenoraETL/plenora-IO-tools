@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "descrizione": "Che cosa il replay deterministico dei semi di `shp_reader` ha raggiunto. Prodotto da `scripts/fuzz-profondita.sh shp_reader`; letto da scripts/check_profondita_fuzz.py, che ne ricalcola l'impronta del perimetro e rifiuta una misura invecchiata.",
   "target": "shp_reader",
   "corpus": {
@@ -7,216 +7,217 @@
   },
   "impronta_perimetro": "722338f6cea4e04ec3b2689bd1be7bb303ce50f5e05c3d782b1f1cb63f628aeb",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
+  "nota_sul_raggiungimento": "ogni requisito dice `raggiunto`, non quante volte. Lo schema 1 registrava il `conteggio` delle esecuzioni e il gate ne pretendeva il segno: il numero pero' alternava fra due stati a parita' di albero -- otto requisiti su trentacinque, su quattro corse di cui due bit-identiche -- e ogni rimisura scriveva quel rumore in un file versionato, indistinguibile da un fatto. `raggiunto` e' la stessa affermazione senza la parte instabile: lo deriva questo generatore da `conteggio > 0`, e il gate lo pretende booleano e vero.",
   "requisiti": [
     {
       "id": "bundle.prj-materializzato",
       "famiglia": "riga",
       "riga": 3517,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "bundle.shx-materializzato",
       "famiglia": "riga",
       "riga": 3511,
-      "conteggio": 25
+      "raggiunto": true
     },
     {
       "id": "dbf.descrittori-di-campo",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 40
+      "raggiunto": true
     },
     {
       "id": "dbf.intestazione",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 31
+      "raggiunto": true
     },
     {
       "id": "dbf.valori",
       "famiglia": "funzione",
       "simboli": 8,
-      "conteggio": 22
+      "raggiunto": true
     },
     {
       "id": "drenaggio.batch",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 11
+      "raggiunto": true
     },
     {
       "id": "drenaggio.loss-report",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 18
+      "raggiunto": true
     },
     {
       "id": "driver.apertura",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 26
+      "raggiunto": true
     },
     {
       "id": "driver.crs",
       "famiglia": "funzione",
       "simboli": 4,
-      "conteggio": 26
+      "raggiunto": true
     },
     {
       "id": "driver.dbf-layout",
       "famiglia": "funzione",
       "simboli": 8,
-      "conteggio": 26
+      "raggiunto": true
     },
     {
       "id": "driver.geometria-inferita",
       "famiglia": "funzione",
       "simboli": 3,
-      "conteggio": 17
+      "raggiunto": true
     },
     {
       "id": "driver.schema",
       "famiglia": "funzione",
       "simboli": 11,
-      "conteggio": 26
+      "raggiunto": true
     },
     {
       "id": "prevalidazione.conteggi-del-multipunto",
       "famiglia": "riga",
       "riga": 1597,
-      "conteggio": 4
+      "raggiunto": true
     },
     {
       "id": "prevalidazione.contenuto-del-record",
       "famiglia": "funzione",
       "simboli": 4,
-      "conteggio": 52
+      "raggiunto": true
     },
     {
       "id": "prevalidazione.dbf",
       "famiglia": "funzione",
       "simboli": 7,
-      "conteggio": 44
+      "raggiunto": true
     },
     {
       "id": "prevalidazione.indice",
       "famiglia": "funzione",
       "simboli": 5,
-      "conteggio": 18
+      "raggiunto": true
     },
     {
       "id": "prevalidazione.struttura",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 24
+      "raggiunto": true
     },
     {
       "id": "rifiuto.campo-dbf-corto",
       "famiglia": "riga",
       "riga": 2148,
-      "conteggio": 2
+      "raggiunto": true
     },
     {
       "id": "rifiuto.cardinalita-nel-drenaggio",
       "famiglia": "riga",
       "riga": 3278,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "rifiuto.conteggi-all-apertura",
       "famiglia": "riga",
       "riga": 2825,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "rifiuto.conteggio-negativo",
       "famiglia": "riga",
       "riga": 1670,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "rifiuto.data-e-ora-fuori-intervallo",
       "famiglia": "riga",
       "riga": 2216,
-      "conteggio": 2
+      "raggiunto": true
     },
     {
       "id": "rifiuto.data-non-interpretabile",
       "famiglia": "riga",
       "riga": 2209,
-      "conteggio": 4
+      "raggiunto": true
     },
     {
       "id": "rifiuto.indice-delle-parti",
       "famiglia": "riga",
       "riga": 1702,
-      "conteggio": 2
+      "raggiunto": true
     },
     {
       "id": "rifiuto.indice-dentro-un-record",
       "famiglia": "riga",
       "riga": 1869,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "rifiuto.indice-fuori-dal-shp",
       "famiglia": "riga",
       "riga": 1928,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "rifiuto.offset-dbf-corto",
       "famiglia": "riga",
       "riga": 2073,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "rifiuto.record-troppo-corto",
       "famiglia": "riga",
       "riga": 1664,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "shp.conteggio-delle-forme",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 8
+      "raggiunto": true
     },
     {
       "id": "shp.geometria-multipunto",
       "famiglia": "funzione",
       "simboli": 6,
-      "conteggio": 1
+      "raggiunto": true
     },
     {
       "id": "shp.geometria-polilinea",
       "famiglia": "funzione",
       "simboli": 18,
-      "conteggio": 3
+      "raggiunto": true
     },
     {
       "id": "shp.geometria-punto",
       "famiglia": "funzione",
       "simboli": 10,
-      "conteggio": 6
+      "raggiunto": true
     },
     {
       "id": "shp.intestazione",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 28
+      "raggiunto": true
     },
     {
       "id": "shp.intestazione-di-record",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 10
+      "raggiunto": true
     },
     {
       "id": "shx.indice",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 13
+      "raggiunto": true
     }
   ]
 }

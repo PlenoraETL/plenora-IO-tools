@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "descrizione": "Che cosa il replay deterministico dei semi di `filegdb_reader` ha raggiunto. Prodotto da `scripts/fuzz-profondita.sh filegdb_reader`; letto da scripts/check_profondita_fuzz.py, che ne ricalcola l'impronta del perimetro e rifiuta una misura invecchiata.",
   "target": "filegdb_reader",
   "corpus": {
@@ -7,78 +7,79 @@
   },
   "impronta_perimetro": "08c26390481fd31b68eeb307453caecb5bd52fd91bd67b789ea65fedfeef7098",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
+  "nota_sul_raggiungimento": "ogni requisito dice `raggiunto`, non quante volte. Lo schema 1 registrava il `conteggio` delle esecuzioni e il gate ne pretendeva il segno: il numero pero' alternava fra due stati a parita' di albero -- otto requisiti su trentacinque, su quattro corse di cui due bit-identiche -- e ogni rimisura scriveva quel rumore in un file versionato, indistinguibile da un fatto. `raggiunto` e' la stessa affermazione senza la parte instabile: lo deriva questo generatore da `conteggio > 0`, e il gate lo pretende booleano e vero.",
   "requisiti": [
     {
       "id": "drenaggio.batch",
       "famiglia": "funzione",
       "simboli": 2,
-      "conteggio": 22
+      "raggiunto": true
     },
     {
       "id": "drenaggio.reader",
       "famiglia": "funzione",
       "simboli": 15,
-      "conteggio": 44
+      "raggiunto": true
     },
     {
       "id": "drenaggio.righe",
       "famiglia": "riga",
       "riga": 341,
-      "conteggio": 22
+      "raggiunto": true
     },
     {
       "id": "driver.apertura",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 22
+      "raggiunto": true
     },
     {
       "id": "driver.backend",
       "famiglia": "funzione",
       "simboli": 7,
-      "conteggio": 44
+      "raggiunto": true
     },
     {
       "id": "driver.contratto-geometrico",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 22
+      "raggiunto": true
     },
     {
       "id": "driver.crs",
       "famiglia": "funzione",
       "simboli": 4,
-      "conteggio": 22
+      "raggiunto": true
     },
     {
       "id": "driver.tipi-arrow",
       "famiglia": "funzione",
       "simboli": 1,
-      "conteggio": 44
+      "raggiunto": true
     },
     {
       "id": "materializzazione.fixture-intatta",
       "famiglia": "riga",
       "riga": 300,
-      "conteggio": 2
+      "raggiunto": true
     },
     {
       "id": "materializzazione.parte-scelta-dal-payload",
       "famiglia": "riga",
       "riga": 301,
-      "conteggio": 20
+      "raggiunto": true
     },
     {
       "id": "materializzazione.parti",
       "famiglia": "riga",
       "riga": 241,
-      "conteggio": 440
+      "raggiunto": true
     },
     {
       "id": "wrapper.dataset-gdal",
       "famiglia": "funzione",
       "simboli": 3,
-      "conteggio": 22
+      "raggiunto": true
     }
   ]
 }

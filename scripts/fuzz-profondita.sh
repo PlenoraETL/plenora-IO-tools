@@ -110,25 +110,40 @@ fi
 # combaciano **davvero** con il profdata. Nella corsa del 2026-08-21 il primo
 # candidato con il nome giusto era la build con AddressSanitizer, che di
 # copertura non ne ha.
+#
+# La scelta **non** e' piu' qui, e non e' piu' il primo che riesce. Questa parte
+# era `find | while read | break`: l'ordine lo dava il filesystem e l'arresto al
+# primo successo rendeva invisibile per costruzione l'esistenza di un secondo
+# binario compatibile e diverso. Le quattro condizioni che la chiudono --
+# enumerazione ordinata, verifica di tutti, rifiuto se i compatibili non sono
+# byte-identici, scelta canonica solo fra copie identiche -- stanno in un modulo
+# con le proprie sonde, perche' in shell nessuna delle quattro si potrebbe
+# violare in una prova.
 JSON="${USCITA}/${TARGET}.functions.json"
 LCOV="${USCITA}/${TARGET}.lcov"
-binario=""
-while IFS= read -r candidato; do
-    if "${LLVM_COV}" export "${candidato}" \
-        --instr-profile="${PROFDATA}" \
-        --format=text \
-        --skip-expansions \
-        > "${JSON}" 2>"${USCITA}/export.log"; then
-        binario="${candidato}"
-        break
-    fi
-done < <(find target fuzz/target -type f -name "${TARGET}" ! -name '*.d' 2>/dev/null)
+rm -f "${USCITA}/selezione.log"
+binario="$(python3 scripts/seleziona_binario_strumentato.py "${TARGET}" \
+    --radice target \
+    --radice fuzz/target \
+    --llvm-cov "${LLVM_COV}" \
+    --instr-profile "${PROFDATA}" \
+    --log "${USCITA}/selezione.log")" || {
+    echo "selezione del binario fallita (vedi ${USCITA}/selezione.log)" >&2
+    exit 1
+}
+echo "binario: ${binario}"
 
-if [ -z "${binario}" ]; then
-    echo "nessun binario combacia con il profdata (vedi ${USCITA}/export.log)" >&2
+# L'export delle funzioni si rifa' sul binario **scelto**: la selezione decide e
+# non produce, se no il file sul disco sarebbe quello di un candidato qualunque
+# fra quelli provati.
+if ! "${LLVM_COV}" export "${binario}" \
+    --instr-profile="${PROFDATA}" \
+    --format=text \
+    --skip-expansions \
+    > "${JSON}" 2>"${USCITA}/export.log"; then
+    echo "export delle funzioni fallito (vedi ${USCITA}/export.log)" >&2
     exit 1
 fi
-echo "binario: ${binario}"
 
 # Due proiezioni della **stessa** misura, non due misure: le funzioni servono ai
 # requisiti che nominano una funzione -- comprese quelle delle crate esterne, che
