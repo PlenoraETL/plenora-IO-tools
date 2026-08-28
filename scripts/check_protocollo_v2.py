@@ -234,7 +234,11 @@ ACCESSORE_DELLA_LUNGHEZZA = re.compile(
 )
 LEGAME_A_DUE = re.compile(r"let \(\s*\w+\s*,\s*(\w+)\s*\)[^=]*=\s*(.*?);", re.S)
 PAROLA = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-COMMENTO = re.compile(r"//[^\n]*")
+
+#: Un'assegnazione, e non un confronto ne' un'assegnazione composta: serve a
+#: riconoscere `(troncamento.omesse_per_byte,) = (nuova,)`, dove il contatore e'
+#: scritto pur non essendo seguito da `=`.
+ASSEGNAZIONE = re.compile(r"(?<![=!<>+\-*/%&|^])=(?!=)")
 
 #: **Ogni** uso del contatore, non le sole assegnazioni con `=`. Lo spazio in
 #: mezzo e' ammesso perche' `rustfmt` spezza la catena su piu' righe:
@@ -248,15 +252,34 @@ USO_DEL_CONTATORE = re.compile(r"troncamento\s*\.\s*omesse_per_byte")
 #: prime, se no `<<=` si legge come `<`.
 SCRITTURE_COMPOSTE = ("<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=")
 
-#: I contesti in cui il contatore e' **letto**, e nient'altro.
+#: Le forme **complete** in cui il contatore compare senza essere scritto.
 #:
-#: L'elenco e' chiuso e il resto e' un errore, non un caso da ignorare: e' la
-#: seconda meta' della correzione. Distinguere lettura da scrittura senza un
-#: parser non si puo' fare per esaustione, quindi si fallisce chiusi -- una
-#: forma nuova, anche innocua, va aggiunta qui **deliberatamente**, che e'
-#: precisamente cio' che deve costare a chi aggiunge una fonte. Le piu' lunghe
-#: per prime, cosi' `==` non si legge come l'inizio di un'assegnazione.
-LETTURE_AMMESSE = ("==", "!=", "<=", ">=", ".", ",", ")", ";", "]", "}", "{", "<", ">")
+#: Forme, e non singoli segni: un segno ammette tutto cio' che comincia con
+#: quel segno, ed e' cosi' che il `.` ammetteva
+#:
+#:     troncamento.omesse_per_byte.clone_from(&nuova_fonte);
+#:
+#: -- una scrittura per **auto-borrow**, in cui `&mut` non compare affatto. Una
+#: chiamata di metodo si ammette percio' per nome intero, non perche' comincia
+#: con un punto: `.saturating_add(` e' la sola catena che il contatore
+#: attraversa, e qualunque altro metodo e' rosso finche' qualcuno non lo scrive
+#: qui.
+#:
+#: Le forme si confrontano su cio' che segue il contatore **con gli spazi
+#: normalizzati**, quindi non portano spazi in testa. Le piu' lunghe per prime,
+#: se no `>=` si legge come `>`.
+LETTURE_AMMESSE = (
+    ".saturating_add(",
+    ">= ",
+    "<= ",
+    "== ",
+    "!= ",
+    "> ",
+    "< ",
+    ", ",
+    ")",
+    ";",
+)
 
 #: Un contatore preso per riferimento mutabile e' una scrittura che avviene
 #: altrove, e che questo modulo non puo' seguire.
@@ -301,19 +324,125 @@ def _corpo_dell_impl(testo: str, tratto: str, tipo: str) -> str | None:
 
 
 def _senza_commenti(testo: str) -> str:
-    """Il testo senza i commenti di riga, per confrontare un corpo di funzione.
+    """Il testo con i commenti sostituiti da spazi, e le righe al loro posto.
 
-    Un commento dentro il corpo canonico e' legittimo e non deve far divergere
-    la forma; un commento che **contiene** `chiave()` accanto a un corpo che
-    confronta altro, invece, non deve poterla soddisfare. Toglierli prima del
-    confronto ottiene le due cose insieme.
+    **Sostituiti**, non tolti: le espressioni regolari di questo modulo si
+    ancorano al rientro e alle righe, e accorciare il testo sposterebbe cio'
+    che segue.
+
+    Va fatto **prima di cercare**, non prima di confrontare. La prima stesura
+    toglieva i soli `//` e lo faceva sul corpo gia' estratto, quindi
+
+        impl Ord for LossExample {
+            /*
+            fn cmp(&self, altro: &Self) -> Ordering {
+                self.chiave().cmp(&altro.chiave())
+            }
+            */
+            fn cmp(&self, altro: &Self) -> Ordering {
+                self.category.cmp(&altro.category)
+            }
+        }
+
+    lasciava il gate verde: l'espressione regolare trovava il **primo** `fn cmp`,
+    che sta nel commento ed e' canonico, e il corpo vero non veniva mai
+    guardato. Vale per ogni ricerca di questo modulo, non per la sola delega: un
+    `chiave()`, un `BTreeSet` o un sito del contatore commentati mentirebbero
+    allo stesso modo.
+
+    Le stringhe si saltano, perche' un `//` dentro una stringa non apre un
+    commento; i blocchi si annidano, come in Rust.
     """
-    return COMMENTO.sub("", testo)
+    fuori: list[str] = []
+    i, quanti = 0, len(testo)
+    profondita = 0
+    in_stringa = False
+    while i < quanti:
+        carattere = testo[i]
+        if profondita:
+            if testo.startswith("/*", i):
+                profondita += 1
+                fuori.append("  ")
+                i += 2
+                continue
+            if testo.startswith("*/", i):
+                profondita -= 1
+                fuori.append("  ")
+                i += 2
+                continue
+            fuori.append("\n" if carattere == "\n" else " ")
+            i += 1
+            continue
+        if in_stringa:
+            fuori.append(carattere)
+            if carattere == "\\" and i + 1 < quanti:
+                fuori.append(testo[i + 1])
+                i += 2
+                continue
+            if carattere == '"':
+                in_stringa = False
+            i += 1
+            continue
+        if carattere == '"':
+            in_stringa = True
+            fuori.append(carattere)
+            i += 1
+            continue
+        if testo.startswith("//", i):
+            while i < quanti and testo[i] != "\n":
+                fuori.append(" ")
+                i += 1
+            continue
+        if testo.startswith("/*", i):
+            profondita = 1
+            fuori.append("  ")
+            i += 2
+            continue
+        fuori.append(carattere)
+        i += 1
+    return "".join(fuori)
+
+
+def _senza_stringhe(testo: str) -> str:
+    """Il testo con il **contenuto** dei letterali di stringa fatto di spazi.
+
+    La lunghezza si conserva, cosi' una posizione trovata qui vale anche sul
+    testo vero.
+
+    Serve dove un carattere decide una classificazione: un `=` dentro
+    `"{caratteri} caratteri = {} byte"` non e' un'assegnazione, e un nome di
+    variabile dentro una stringa non e' un uso di quella variabile. Cercarli sul
+    testo grezzo faceva chiamare scrittura una sonda che legge il contatore, e
+    avrebbe potuto far chiamare «fonte nota» una fonte nuova che nomina l'altra
+    in un messaggio d'errore.
+    """
+    fuori: list[str] = []
+    dentro = False
+    i, quanti = 0, len(testo)
+    while i < quanti:
+        carattere = testo[i]
+        if dentro:
+            if carattere == "\\" and i + 1 < quanti:
+                fuori.append("  ")
+                i += 2
+                continue
+            if carattere == '"':
+                dentro = False
+                fuori.append(carattere)
+            else:
+                fuori.append(carattere if carattere == chr(10) else " ")
+            i += 1
+            continue
+        fuori.append(carattere)
+        if carattere == '"':
+            dentro = True
+        i += 1
+    return "".join(fuori)
 
 
 def _normalizzato(testo: str) -> str:
     """Gli spazi non contano; tutto il resto si'."""
-    return " ".join(_senza_commenti(testo).split())
+    return " ".join(testo.split())
 
 
 def _delega_esatta(testo: str, tratto: str, tipo: str) -> str | None:
@@ -365,6 +494,7 @@ def ordine_canonico_dal_codice(testo: str) -> tuple[dict[str, list[str]], list[s
     dichiarazione dei campi, e `chiave()` diventerebbe una funzione vera che
     con il punto in cui la sezione taglia non ha piu' rapporto.
     """
+    testo = _senza_commenti(testo)
     errori: list[str] = []
     chiavi: dict[str, list[str]] = {}
     per_tipo: dict[str, list[list[str]]] = {}
@@ -441,6 +571,7 @@ def identita_delle_respinte_dal_codice(
     E' li' che l'identita' vive: una voce respinta non si conserva, e cio' su cui
     il conteggio deduplica e' esattamente cio' che l'insieme contiene.
     """
+    testo = _senza_commenti(testo)
     errori: list[str] = []
     identita: dict[str, list[str]] = {}
 
@@ -498,6 +629,8 @@ def fonti_di_omesse_per_byte_dal_codice(
     senza che il manifesto la dichiari, ed e' il modo normale in cui una clausola
     invecchia.
     """
+    busta = _senza_commenti(busta)
+    loss = _senza_commenti(loss)
     errori: list[str] = []
 
     insiemi = {campo for _, campo in INSIEMI_DELLE_RESPINTE.values()}
@@ -540,7 +673,7 @@ def fonti_di_omesse_per_byte_dal_codice(
             "la clausola descriverebbe un comportamento che non esiste."
         )
     for indice, destra in enumerate(siti, 1):
-        nomi = set(PAROLA.findall(destra))
+        nomi = set(PAROLA.findall(_senza_stringhe(destra)))
         trovate = set()
         if nomi & del_budget:
             trovate.add(FONTE_DELLA_SEZIONE)
@@ -593,30 +726,37 @@ def _siti_del_contatore(busta: str) -> tuple[list[str], list[str]]:
             )
             continue
 
-        dopo = busta[uso.end() :].lstrip()
+        coda = busta[uso.end() :]
+        dopo = " ".join(coda.split())
         composta = next((s for s in SCRITTURE_COMPOSTE if dopo.startswith(s)), None)
         if composta is not None:
             resto = dopo[len(composta) :]
         elif dopo.startswith("=") and not dopo.startswith("=="):
             resto = dopo[1:]
         else:
-            if not any(dopo.startswith(lettura) for lettura in LETTURE_AMMESSE):
+            # Il contatore puo' essere scritto **senza** comparire a sinistra di
+            # un `=` che lo segue immediatamente: `(troncamento.omesse_per_byte,)
+            # = (nuova_fonte,);` e' un'assegnazione destrutturante, e la virgola
+            # da sola la faceva passare per una lettura. Se nell'istruzione
+            # compare un'assegnazione **dopo** l'occorrenza, allora il contatore
+            # sta a sinistra di quella, ed e' scritto.
+            istruzione = dopo[: dopo.find(";")] if ";" in dopo else dopo
+            destrutturante = ASSEGNAZIONE.search(_senza_stringhe(istruzione))
+            if destrutturante is not None:
+                resto = istruzione[destrutturante.end() :]
+            elif any(dopo.startswith(lettura) for lettura in LETTURE_AMMESSE):
+                continue
+            else:
                 errori.append(
                     f"uso di `{CONTATORE}` che questo gate non sa classificare: "
                     f"«{_estratto(busta, uso)}». Non e' ne' una scrittura nota ne' "
                     "una lettura fra quelle ammesse, e un uso non classificato "
                     "potrebbe essere una fonte che nessuno dichiara."
                 )
-            continue
+                continue
 
         fine = resto.find(";")
-        if fine < 0:
-            errori.append(
-                f"scrittura di `{CONTATORE}` senza fine di istruzione: "
-                f"«{_estratto(busta, uso)}»"
-            )
-            continue
-        destre.append(resto[:fine])
+        destre.append(resto[:fine] if fine >= 0 else resto)
     return destre, errori
 
 

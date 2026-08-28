@@ -274,28 +274,45 @@ rosso; se cambia ciò che c'è dentro, diventa rosso il confronto col manifesto.
 in più che nessuno confronta, su un tipo di respinta che non sa nominare e su un
 sito del contatore ambiguo.
 
-**Leggere il codice non basta: bisogna leggerlo abbastanza stretto.** La prima
-stesura del gate aveva due vie di falso verde, trovate in revisione e chiuse
-prima della ratifica, ed erano due modi di *sembrare* di ricavare dal codice:
+**Leggere il codice non basta: bisogna leggerlo abbastanza stretto.** Il gate
+ha attraversato **due giri di revisione** prima della ratifica, e le quattro
+vie di falso verde trovate colpivano tutte l'affermazione che l'invariante fa —
+non un dettaglio attorno. Erano quattro modi di *sembrare* di ricavare dal
+codice:
 
-* la delega di `Ord`/`PartialEq` era verificata cercando la **sottostringa**
-  `chiave()` nel blocco. Passavano un ordine invertito — la sezione tiene le
-  voci maggiori dove il contratto ne promette le minori —, un criterio aggiunto
-  dopo la chiave, e persino una menzione in un commento accanto a un corpo che
-  confronta tutt'altro. Ora la forma dei tre corpi è **esatta**, i commenti si
-  tolgono prima del confronto, e `PartialOrd` è verificato con gli altri due
+* la delega era verificata cercando la **sottostringa** `chiave()` nel blocco.
+  Passavano un ordine invertito — la sezione tiene le voci maggiori dove il
+  contratto ne promette le minori —, un criterio aggiunto dopo la chiave, e una
+  menzione in un commento accanto a un corpo che confronta tutt'altro. Ora la
+  forma dei corpi è **esatta**, e `PartialOrd` è verificato con gli altri due
   perché `<` e `>` passano da lì;
+* i commenti venivano tolti **dopo** aver cercato, e solo quelli di riga. Un
+  corpo canonico dentro `/* … */`, seguito da quello vero, veniva scelto per
+  primo dall'espressione regolare e il vero non veniva mai guardato. Ora si
+  tolgono prima di cercare, di riga e a blocco, saltando le stringhe — perché
+  un `//` dentro una stringa non apre un commento;
 * il censimento delle fonti di `omesse_per_byte` guardava le sole assegnazioni
-  con `=`. Una fonte nuova scritta `troncamento.omesse_per_byte += ...` non
-  veniva censita affatto, e il campo avrebbe continuato a dichiararne due
-  mentre nel codice ce n'erano tre. Ora si classifica **ogni uso** del
-  contatore, e si fallisce chiusi su ciò che il gate non sa classificare: una
-  presa per riferimento mutabile, o una forma nuova. Distinguere lettura da
-  scrittura senza un parser non si può fare per esaustione, e la sola
-  alternativa onesta a un censimento incompleto è il rosso.
+  con `=`. Una fonte scritta `troncamento.omesse_per_byte += …` non veniva
+  censita affatto, e il campo avrebbe continuato a dichiararne due mentre nel
+  codice ce n'erano tre;
+* le letture erano ammesse per **segno**, e un segno ammette tutto ciò che
+  comincia con quel segno. Il punto ammetteva `.clone_from(&nuova)`, che scrive
+  per auto-borrow senza che `&mut` compaia; la virgola ammetteva
+  `(troncamento.omesse_per_byte,) = (nuova,)`, che è un'assegnazione. Ora una
+  chiamata si ammette per **nome intero**, e un'assegnazione che compare dopo
+  il contatore nella stessa istruzione lo rende scritto anche quando non lo
+  segue un `=`.
 
-Entrambe colpivano l'affermazione che l'invariante fa, non un dettaglio
-attorno, ed è la ragione per cui ciascuna ha la propria sonda negativa.
+Su ciò che resta si fallisce **chiusi**: distinguere lettura da scrittura senza
+un parser non si può fare per esaustione, e la sola alternativa onesta a un
+censimento incompleto è il rosso. Una forma legittima nuova si aggiunge
+all'elenco deliberatamente, ed è precisamente ciò che deve costare a chi tocca
+il contatore.
+
+Ciascuna via ha la propria sonda negativa, e così i due versi opposti: un
+commento legittimo dentro la forma canonica, e un `=` dentro una stringa di
+formato, devono restare **verdi**. Una stretta che si paga in rossi che nessuno
+sa leggere non è una stretta.
 
 I due ordini non si estraevano allo stesso modo, ed era una decisione da
 prendere. `LossExample` derivava `Ord`, quindi il suo ordine era quello di

@@ -577,6 +577,66 @@ class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
         )
         self.assertTrue(any("atteso esattamente" in e for e in errori), errori)
 
+    def test_un_corpo_canonico_dentro_un_commento_a_blocco_non_e_delega(self):
+        """Il quarto modo, e non lo chiudeva la rimozione dei soli `//`.
+
+        L'espressione regolare trovava il **primo** `fn cmp`, che sta nel
+        commento ed e' canonico, e il corpo vero non veniva mai guardato: il
+        gate restava verde su un ordine che il manifesto non descrive. I
+        commenti vanno tolti **prima di cercare**, non prima di confrontare.
+        """
+        avvelenato = loss_finto().replace(
+            "impl Ord for LossExample {\n"
+            "    fn cmp(&self, altro: &Self) -> Ordering {\n"
+            "        self.chiave().cmp(&altro.chiave())\n"
+            "    }\n"
+            "}",
+            "impl Ord for LossExample {\n"
+            "    /*\n"
+            "    fn cmp(&self, altro: &Self) -> Ordering {\n"
+            "        self.chiave().cmp(&altro.chiave())\n"
+            "    }\n"
+            "    */\n"
+            "    fn cmp(&self, altro: &Self) -> Ordering {\n"
+            "        self.category.cmp(&altro.category)\n"
+            "    }\n"
+            "}",
+        )
+        self.assertIn("/*", avvelenato, "la fixture non e' stata avvelenata")
+        _, errori = gate.ordine_canonico_dal_codice(avvelenato)
+        self.assertTrue(any("atteso esattamente" in e for e in errori), errori)
+
+    def test_una_chiave_dentro_un_commento_a_blocco_non_conta(self):
+        """La stessa classe dal lato della chiave: se il `chiave()` vero e'
+        commentato, l'ordine non si legge piu' da nessuna parte, e il gate deve
+        dirlo invece di leggere quello nel commento."""
+        commentata = loss_finto().replace(
+            "    fn chiave(&self) -> (&str, Posizione, &str) {\n"
+            "        (&self.category, self.posizione, &self.context)\n"
+            "    }\n",
+            "    /*\n"
+            "    fn chiave(&self) -> (&str, Posizione, &str) {\n"
+            "        (&self.category, self.posizione, &self.context)\n"
+            "    }\n"
+            "    */\n",
+        )
+        _, errori = gate.ordine_canonico_dal_codice(commentata)
+        self.assertTrue(any("non esiste piu'" in e for e in errori), errori)
+
+    def test_un_commento_a_blocco_dentro_la_forma_canonica_resta_verde(self):
+        """Come per i `//`: togliere i commenti non deve diventare un divieto
+        di spiegarsi dentro una funzione."""
+        ordine, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(
+                corpo_ord_esempi=(
+                    "/* la chiave decide, e nient'altro */\n"
+                    "        self.chiave().cmp(&altro.chiave())"
+                )
+            )
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(ordine["esempi"], ["category", "posizione", "context"])
+
     def test_un_commento_dentro_la_forma_canonica_resta_verde(self):
         """La forma esatta non deve diventare un divieto di spiegarsi: il
         confronto e' sul codice, e i commenti si tolgono prima."""
@@ -701,6 +761,66 @@ class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
         fonte gia' dichiarata non deve inventare una terza fonte."""
         fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(
             busta_finta("    troncamento.omesse_per_byte += per_byte;\n"),
+            loss_finto(),
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(fonti, COMPORTAMENTO_SANO["fonti_di_omesse_per_byte"])
+
+    def test_una_scrittura_per_auto_borrow_e_rossa(self):
+        """`&mut` non compare, eppure il contatore viene scritto.
+
+        `clone_from` prende `&mut self`, e Rust glielo passa da solo. Ammettere
+        il **punto** come lettura ammetteva ogni metodo, mutante compreso: una
+        chiamata si ammette per nome intero, non perche' comincia con un punto.
+        """
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                "    troncamento.omesse_per_byte.clone_from(&nuova_fonte);\n"
+            ),
+            loss_finto(),
+        )
+        self.assertTrue(any("non sa classificare" in e for e in errori), errori)
+
+    def test_solo_i_metodi_ammessi_passano_per_lettura(self):
+        """Non e' `clone_from` a essere in lista nera: e' `.saturating_add(` a
+        essere l'unica catena in lista bianca."""
+        for metodo in ("set", "replace", "take", "add_assign", "clone_from"):
+            with self.subTest(metodo=metodo):
+                _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+                    busta_finta(
+                        f"    troncamento.omesse_per_byte.{metodo}(nuova_fonte);\n"
+                    ),
+                    loss_finto(),
+                )
+                self.assertTrue(any("non sa classificare" in e for e in errori), errori)
+
+    def test_un_assegnazione_destrutturante_e_censita(self):
+        """Il contatore e' scritto senza essere seguito da `=`.
+
+        `(troncamento.omesse_per_byte,) = (nuova_fonte,);` e' un'assegnazione, e
+        la virgola da sola la faceva passare per una lettura. Qui viene censita
+        come sito, e la fonte nuova non si classifica: il gate e' rosso.
+        """
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                "    (troncamento.omesse_per_byte,) = (nuova_fonte.len() as u64,);\n"
+            ),
+            loss_finto(),
+        )
+        self.assertTrue(any("nessuna delle due fonti" in e for e in errori), errori)
+
+    def test_un_uguale_dentro_una_stringa_non_e_un_assegnazione(self):
+        """Il verso opposto della sonda precedente, e un caso vero.
+
+        `assert_eq!(troncamento.omesse_per_byte, atteso, "{n} caratteri = {} byte")`
+        porta un `=` nel messaggio, e cercarlo sul testo grezzo faceva chiamare
+        scrittura una sonda che legge il contatore.
+        """
+        fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                '    assert_eq!(troncamento.omesse_per_byte, atteso, '
+                '"{n} caratteri = {} byte", quanti);\n'
+            ),
             loss_finto(),
         )
         self.assertEqual(errori, [])
