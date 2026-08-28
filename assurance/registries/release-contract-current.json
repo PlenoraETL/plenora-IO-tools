@@ -566,6 +566,24 @@
       "nota": "la soglia resta 80% e non e' questa la cosa che cambia: cambia che cosa conta. `driver-filegdb` tiene l'intero percorso GDAL dietro `gdal-backend`, e senza quella feature quelle righe non erano «scoperte» ma invisibili -- fuori misura, quindi incapaci per costruzione di abbassare la percentuale. Una crate compare nel report anche quando se ne misura la meta', percio' il gate non si accontenta di vederla: pretende il comando con `--all-features` in **tutti** i posti che misurano, e nel report l'ancora di ogni blocco feature-gated. Il job di copertura installa GDAL, senza la quale quella misura non si puo' fare."
     },
     {
+      "id": "fuzz.profondita-riproducibile",
+      "superficie": "gli artefatti di profondita' dei target di fuzzing, e lo script che li produce",
+      "invariante": null,
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "l'artefatto **non e' riproducibile**: a parita' di albero otto requisiti su trentacinque alternano fra due stati, perche' registrano il `conteggio` delle esecuzioni, che `docs/RELEASE.md` dichiara variabile. Nessun verdetto ne dipende -- il gate pretende `conteggio > 0` -- ma il rumore entra in un file versionato a ogni rimisura, indistinguibile da un fatto. Chiude quando il campo numerico e' sostituito da `\"raggiunto\": true`, derivato dal generatore e preteso dal gate come booleano, con una versione nuova dello schema dell'artefatto e l'aggiornamento coordinato di artefatti, gate e sonde. Allo stesso giro appartiene la selezione del binario strumentato, che oggi si ferma al primo candidato che `find` restituisce: va chiusa con quattro condizioni: enumerazione deterministica dei candidati; verifica di **tutti**, invece dell'arresto al primo successo; fallimento se piu' candidati compatibili non sono byte-identici; e scelta canonica soltanto **fra copie identiche**, cosi' che quale delle due si prenda non possa cambiare la misura.",
+      "sintesi": "misura di profondita' non riproducibile, e scelta del binario non deterministica"
+    },
+    {
+      "id": "wire.clausole-confrontabili",
+      "superficie": "le clausole di `release/cli-protocol-v2.json` che descrivono il comportamento del codice",
+      "invariante": null,
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "tre clausole sono **prosa** e potrebbero essere campi confrontati con il codice, come gia' lo sono gli undici numeri: l'ordine canonico di ragioni ed esempi, l'identita' su cui le respinte deduplicano, e le due fonti di `omesse_per_byte`. La ratifica di `wire.loss-report` ha trovato quattro clausole che descrivevano un codice cambiato sotto di loro mentre l'invariante era gia' `verified`, perche' i numeri sono confrontati e la prosa no. Chiude quando quelle tre diventano campi e il gate li ricava dal codice -- dai campi che `FidelityReason::chiave()` compone, dall'ordine di dichiarazione dei campi di `LossExample`, dai tipi dei due `BTreeSet` delle respinte e dai siti che incrementano il contatore. La rilettura umana resta per il significato residuo, non come unica difesa.",
+      "sintesi": "clausole di comportamento in prosa, non confrontate con il codice"
+    },
+    {
       "id": "sistema.qualifica-cross-component",
       "superficie": "catena IO-tools -> data-tools -> database-tools",
       "invariante": "la catena e' qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma, comandi ed esiti registrati",

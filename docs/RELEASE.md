@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 98.33% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
-| blocchi | 3 |
+| blocchi | 5 |
 | S9, qualificato su | `bc6ada4` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -64,6 +64,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 |---|---|
 | `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
+| `fuzz.profondita-riproducibile` | misura di profondita' non riproducibile, e scelta del binario non deterministica |
+| `wire.clausole-confrontabili` | clausole di comportamento in prosa, non confrontate con il codice |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
 
 <!-- generato da assurance/current-state.json: fine -->
@@ -317,3 +319,93 @@ impronta invariati; l'evidenza in un commit separato.
 
 Solo allora `release_authorized` può diventare `true`, e sarà una decisione
 scritta — non la conseguenza automatica di sei caselle verdi.
+
+#### Due tranche di assurance da chiudere prima di quel livello 2
+
+Trovate chiudendo `wire.loss-report` e rinviate deliberatamente per non
+allargarne la tesi. Condividono un vincolo: cambiano entrambe la revisione
+qualificata e obbligano a un livello 2 nuovo con la sua evidenza, quindi
+**vanno fatte nello stesso giro** — separarle costa una corsa completa in più.
+
+Non sono raccomandazioni. Sono i due invarianti `release_blocking`
+`fuzz.profondita-riproducibile` e `wire.clausole-confrontabili` del
+[registro del contratto corrente](../assurance/registries/release-contract-current.json),
+dove ciascuno dichiara per esteso la propria condizione di chiusura: un obbligo
+che vivesse soltanto in questa prosa ricreerebbe lo spazio non sorvegliato che
+la chiusura di `wire.loss-report` aveva appena trovato. Quel registro è
+l'autorità; quanto segue spiega **perché** esistono, e i numeri su cui poggiano.
+
+**La misura di profondità non è riproducibile.** Su quattro corse di
+`scripts/fuzz-profondita.sh shp_reader`, due delle quali su albero
+bit-identico, otto requisiti su 35 alternano fra **due** stati, e sono questi:
+
+| requisito | stato A | stato B |
+|---|---|---|
+| `bundle.shx-materializzato` | 25 | 24 |
+| `dbf.valori` | 22 | 24 |
+| `rifiuto.cardinalita-nel-drenaggio` | 1 | 2 |
+| `shp.geometria-polilinea` | 3 | 2 |
+| `shp.geometria-punto` | 6 | 8 |
+| `shp.intestazione` | 28 | 26 |
+| `shp.intestazione-di-record` | 10 | 11 |
+| `shx.indice` | 13 | 11 |
+
+Le quattro corse hanno dato **A, A, B, A**, e non una deriva: due stati soli, e
+il passaggio dall'uno all'altro non è correlato ad alcuna modifica del codice
+misurato. Le ultime due sono quelle che lo dimostrano: girano su un albero
+bit-identico e danno stati diversi. Stesso binario strumentato, stessa impronta di perimetro, stessi 24
+semi. Nessun requisito
+compare o sparisce, e `famiglia`, `riga` e `simboli` non si muovono mai: a
+variare è il solo `conteggio` delle esecuzioni, che
+[§ Che cosa quei numeri non dicono](#che-cosa-quei-numeri-non-dicono) già
+dichiara variabile e fuori da ogni soglia. Nessun verdetto ne dipende — il gate
+pretende `conteggio > 0` — ma il rumore entra in un artefatto versionato a ogni
+rimisura, indistinguibile da un fatto.
+
+La correzione decisa è sostituire il campo numerico con uno stabile,
+`"raggiunto": true`, derivato dal generatore da `conteggio > 0` e preteso dal
+gate come booleano. **Non** basta cancellare `conteggio`: oggi il suo segno *è*
+la prova di raggiungimento. Serve una versione nuova dello schema
+dell'artefatto e l'aggiornamento coordinato di artefatti, gate e sonde. Non si
+indaga per rendere deterministici i conteggi: non comprerebbe una proprietà che
+qualcuno usa.
+
+Allo stesso giro appartiene la selezione del binario strumentato:
+`fuzz-profondita.sh` enumera i candidati con `find` e si ferma al **primo** per
+cui `llvm-cov export` riesce. I candidati sono due e l'ordine di `find` dipende
+dal filesystem; nelle corse osservate ha scelto sempre lo stesso, quindi non è
+la causa del rilievo sopra, ma è una fragilità latente. Va chiusa con
+enumerazione deterministica, verifica di **tutti** i candidati invece
+dell'arresto al primo successo, fallimento se più candidati compatibili non
+sono byte-identici, e scelta canonica soltanto fra copie identiche.
+
+**Tre clausole del contratto sono confrontabili e oggi sono prosa.** La
+ratifica di `wire.loss-report` ha trovato quattro clausole di
+[`cli-protocol-v2.json`](../release/cli-protocol-v2.json) che descrivevano un
+codice cambiato sotto di loro: l'invariante era `verified` perché i **numeri**
+sono confrontati con il codice, mentre la prosa non la guarda nessuno. Un gate
+generale prosa-contro-comportamento non è realistico; tre cose però si
+strutturano e diventerebbero confrontabili come già lo sono gli undici numeri:
+
+| oggi, prosa | domani, campo confrontabile |
+|---|---|
+| «le ragioni per `(codice, posizione, dettaglio)`» | `ordine_canonico.ragioni`, confrontato con i campi che `FidelityReason::chiave()` compone |
+| «gli esempi per `(categoria, posizione, contesto)`» | `ordine_canonico.esempi` — e qui il meccanismo è **un altro** |
+| «`(code, posizione)` per le ragioni, la sola `posizione` per gli esempi» | `identita_delle_respinte.ragioni` e `.esempi`, confrontate con i tipi dei due `BTreeSet` |
+| «due limiti contati insieme, della voce e della sezione» | `omesse_per_byte.fonti`, confrontate con i siti che incrementano il contatore |
+
+I due ordini **non** si estraggono allo stesso modo, ed è una decisione che la
+tranche deve prendere invece di ereditare. `FidelityReason` ha un `Ord` scritto
+a mano che passa da `chiave()`, quindi i campi dell'ordine sono nel corpo di
+quella funzione. `LossExample` deriva `Ord`, quindi il suo ordine è l'**ordine
+di dichiarazione dei campi** nella struttura — un fatto vero ma di natura
+diversa, che un gate deve leggere da un altro posto. O la verifica distingue i
+due casi e lo dichiara, oppure si introduce una `chiave()` esplicita anche per
+gli esempi e i due si confrontano allo stesso modo. La seconda costa una
+funzione e toglie un caso particolare; la prima non tocca il codice e lascia
+due letture da tenere allineate.
+
+La rilettura umana resta necessaria per il significato residuo, ma non deve
+essere l'**unica** difesa: le quattro clausole stale e una canary che passava
+anche con il difetto che diceva di escludere stavano tutte nello spazio che
+nessun gate guarda.

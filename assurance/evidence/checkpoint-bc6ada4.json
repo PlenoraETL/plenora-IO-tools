@@ -529,6 +529,7 @@
       "copertura.rami-negativi",
       "release.candidate-non-valida-per-head",
       "sistema.qualifica-cross-component"
-    ]
+    ],
+    "bloccanti_residui_nota": "sono i bloccanti **alla revisione misurata**, e questo elenco resta il fatto di quella corsa. Per lo stato corrente vale il registro, che il blocco generato di `docs/RELEASE.md` legge: enumerare qui cio' che e' cambiato dopo renderebbe questa nota stale al bloccante successivo."
   }
 }

@@ -198,6 +198,12 @@ INVARIANTI_OBBLIGATORI = frozenset(
         "lotto.s11",
         "lotto.s12",
         "sistema.qualifica-cross-component",
+        # I due rilievi lasciati dalla chiusura di `wire.loss-report`, e resi
+        # bloccanti invece che raccomandati: un obbligo che vive solo nella
+        # prosa della roadmap ricrea lo spazio non sorvegliato che quella
+        # chiusura aveva appena trovato.
+        "fuzz.profondita-riproducibile",
+        "wire.clausole-confrontabili",
         "stato.fonti-legate",
     }
 )
