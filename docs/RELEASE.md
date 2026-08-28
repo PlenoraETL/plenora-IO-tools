@@ -274,6 +274,29 @@ rosso; se cambia ciò che c'è dentro, diventa rosso il confronto col manifesto.
 in più che nessuno confronta, su un tipo di respinta che non sa nominare e su un
 sito del contatore ambiguo.
 
+**Leggere il codice non basta: bisogna leggerlo abbastanza stretto.** La prima
+stesura del gate aveva due vie di falso verde, trovate in revisione e chiuse
+prima della ratifica, ed erano due modi di *sembrare* di ricavare dal codice:
+
+* la delega di `Ord`/`PartialEq` era verificata cercando la **sottostringa**
+  `chiave()` nel blocco. Passavano un ordine invertito — la sezione tiene le
+  voci maggiori dove il contratto ne promette le minori —, un criterio aggiunto
+  dopo la chiave, e persino una menzione in un commento accanto a un corpo che
+  confronta tutt'altro. Ora la forma dei tre corpi è **esatta**, i commenti si
+  tolgono prima del confronto, e `PartialOrd` è verificato con gli altri due
+  perché `<` e `>` passano da lì;
+* il censimento delle fonti di `omesse_per_byte` guardava le sole assegnazioni
+  con `=`. Una fonte nuova scritta `troncamento.omesse_per_byte += ...` non
+  veniva censita affatto, e il campo avrebbe continuato a dichiararne due
+  mentre nel codice ce n'erano tre. Ora si classifica **ogni uso** del
+  contatore, e si fallisce chiusi su ciò che il gate non sa classificare: una
+  presa per riferimento mutabile, o una forma nuova. Distinguere lettura da
+  scrittura senza un parser non si può fare per esaustione, e la sola
+  alternativa onesta a un censimento incompleto è il rosso.
+
+Entrambe colpivano l'affermazione che l'invariante fa, non un dettaglio
+attorno, ed è la ragione per cui ciascuna ha la propria sonda negativa.
+
 I due ordini non si estraevano allo stesso modo, ed era una decisione da
 prendere. `LossExample` derivava `Ord`, quindi il suo ordine era quello di
 **dichiarazione dei campi**: un fatto vero, ma di natura diversa da quello delle

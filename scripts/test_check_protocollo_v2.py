@@ -111,7 +111,13 @@ impl LossExample {{
 
 impl PartialEq for LossExample {{
     fn eq(&self, altro: &Self) -> bool {{
-        self.chiave() == altro.chiave()
+        {corpo_eq_esempi}
+    }}
+}}
+
+impl PartialOrd for LossExample {{
+    fn partial_cmp(&self, altro: &Self) -> Option<Ordering> {{
+        {corpo_partial_cmp_esempi}
     }}
 }}
 
@@ -137,6 +143,12 @@ impl FidelityReason {{
 impl PartialEq for FidelityReason {{
     fn eq(&self, altra: &Self) -> bool {{
         self.chiave() == altra.chiave()
+    }}
+}}
+
+impl PartialOrd for FidelityReason {{
+    fn partial_cmp(&self, altra: &Self) -> Option<Ordering> {{
+        Some(self.cmp(altra))
     }}
 }}
 
@@ -192,6 +204,8 @@ def loss_finto(**modifiche) -> str:
         "derive_esempi": "Clone, Debug, Serialize",
         "campi_esempi": "&self.category, self.posizione, &self.context",
         "campi_ragioni": "self.code, self.posizione, &self.detail",
+        "corpo_eq_esempi": "self.chiave() == altro.chiave()",
+        "corpo_partial_cmp_esempi": "Some(self.cmp(altro))",
         "corpo_ord_esempi": "self.chiave().cmp(&altro.chiave())",
         "chiave_in_piu": "",
         "elemento_respinte": "(FidelityReasonCode, Posizione)",
@@ -523,7 +537,79 @@ class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
         _, errori = gate.ordine_canonico_dal_codice(
             loss_finto(corpo_ord_esempi="self.category.cmp(&altro.category)")
         )
-        self.assertTrue(any("non passa da `chiave()`" in e for e in errori), errori)
+        self.assertTrue(any("atteso esattamente" in e for e in errori), errori)
+
+    def test_un_ordine_invertito_e_rosso(self):
+        """Passava: nomina `chiave()`, e taglia dalla parte opposta.
+
+        E' il primo dei tre modi in cui cercare la sottostringa lasciava verde
+        un ordine che il manifesto non descrive. Un `cmp` invertito non e' un
+        ordine diverso in astratto: e' la sezione che tiene le voci **maggiori**
+        dove il contratto ne promette le minori.
+        """
+        _, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(corpo_ord_esempi="altro.chiave().cmp(&self.chiave())")
+        )
+        self.assertTrue(any("atteso esattamente" in e for e in errori), errori)
+
+    def test_un_criterio_in_piu_dopo_la_chiave_e_rosso(self):
+        """Il secondo modo: la chiave c'e', e non decide da sola."""
+        _, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(
+                corpo_ord_esempi=(
+                    "self.chiave().cmp(&altro.chiave())"
+                    ".then(self.context.cmp(&altro.context))"
+                )
+            )
+        )
+        self.assertTrue(any("atteso esattamente" in e for e in errori), errori)
+
+    def test_una_menzione_di_chiave_in_un_commento_non_e_delega(self):
+        """Il terzo modo, e il piu' facile da scrivere per sbaglio: la
+        sottostringa stava in un commento e il corpo confrontava tutt'altro."""
+        _, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(
+                corpo_eq_esempi=(
+                    "// passa da chiave(), come l'altro\n"
+                    "        self.category == altro.category"
+                )
+            )
+        )
+        self.assertTrue(any("atteso esattamente" in e for e in errori), errori)
+
+    def test_un_commento_dentro_la_forma_canonica_resta_verde(self):
+        """La forma esatta non deve diventare un divieto di spiegarsi: il
+        confronto e' sul codice, e i commenti si tolgono prima."""
+        ordine, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(
+                corpo_eq_esempi=(
+                    "// la chiave e' l'identita' che il v2 vede\n"
+                    "        self.chiave() == altro.chiave()"
+                )
+            )
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(ordine["esempi"], ["category", "posizione", "context"])
+
+    def test_un_partial_cmp_che_non_delega_a_cmp_e_rosso(self):
+        """`<` e `>` passano da qui, e le collezioni da `cmp`: se i due
+        divergono, gli operatori danno una relazione diversa da quella con cui
+        la sezione taglia."""
+        _, errori = gate.ordine_canonico_dal_codice(
+            loss_finto(
+                corpo_partial_cmp_esempi="self.category.partial_cmp(&altro.category)"
+            )
+        )
+        self.assertTrue(any("partial_cmp" in e for e in errori), errori)
+
+    def test_un_impl_delegato_che_sparisce_e_rosso(self):
+        for tratto in sorted(gate.FORME_DELEGATE):
+            with self.subTest(tratto=tratto):
+                senza = loss_finto().replace(
+                    f"impl {tratto} for LossExample", f"impl {tratto} for Altrove", 1
+                )
+                _, errori = gate.ordine_canonico_dal_codice(senza)
+                self.assertTrue(any(tratto in e for e in errori), errori)
 
     def test_una_chiave_sparita_e_rossa(self):
         senza = loss_finto().replace("fn chiave(&self) -> (&str, Posizione, &str)", "fn nulla(&self)")
@@ -579,6 +665,83 @@ class IlComportamentoSiRicavaDalCodice(unittest.TestCase):
             loss_finto(),
         )
         self.assertTrue(any("nessuna delle due fonti" in e for e in errori), errori)
+
+    def test_una_scrittura_composta_e_censita(self):
+        """Il secondo falso verde: il censimento cercava `=` e nient'altro.
+
+        `troncamento.omesse_per_byte += nuova_fonte;` non veniva censita affatto,
+        quindi il gate continuava a dichiarare **esattamente due** fonti mentre
+        nel codice ce n'era una terza. Qui la scrittura composta e' vista, e la
+        fonte nuova non si classifica: il gate diventa rosso invece di tacere.
+        """
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                "    troncamento.omesse_per_byte += nuova_fonte.len() as u64;\n"
+            ),
+            loss_finto(),
+        )
+        self.assertTrue(any("nessuna delle due fonti" in e for e in errori), errori)
+
+    def test_ogni_forma_di_scrittura_composta_e_censita(self):
+        """Non solo `+=`: la classificazione e' per operatore, non per caso."""
+        for operatore in gate.SCRITTURE_COMPOSTE:
+            with self.subTest(operatore=operatore):
+                _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+                    busta_finta(
+                        f"    troncamento.omesse_per_byte {operatore} ignota.len();\n"
+                    ),
+                    loss_finto(),
+                )
+                self.assertTrue(
+                    any("nessuna delle due fonti" in e for e in errori), errori
+                )
+
+    def test_una_scrittura_composta_da_una_fonte_nota_si_classifica(self):
+        """E la censisce **come sito**, non solo come errore: una `+=` da una
+        fonte gia' dichiarata non deve inventare una terza fonte."""
+        fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta("    troncamento.omesse_per_byte += per_byte;\n"),
+            loss_finto(),
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(fonti, COMPORTAMENTO_SANO["fonti_di_omesse_per_byte"])
+
+    def test_una_presa_per_riferimento_mutabile_e_rossa(self):
+        """La scrittura avvverrebbe altrove, e questo censimento non la segue."""
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta("    accumula(&mut troncamento.omesse_per_byte);\n"),
+            loss_finto(),
+        )
+        self.assertTrue(any("preso per riferimento" in e for e in errori), errori)
+
+    def test_un_uso_che_il_gate_non_sa_classificare_e_rosso(self):
+        """La seconda meta' della correzione: si fallisce **chiusi**.
+
+        Distinguere lettura da scrittura senza un parser non si puo' fare per
+        esaustione, quindi una forma che il gate non conosce e' rossa anche se
+        innocua. Aggiungerla all'elenco delle letture ammesse e' una decisione
+        che qualcuno deve prendere, ed e' precisamente cio' che deve costare a
+        chi tocca il contatore.
+        """
+        _, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta("    let quante = troncamento.omesse_per_byte as u64;\n"),
+            loss_finto(),
+        )
+        self.assertTrue(any("non sa classificare" in e for e in errori), errori)
+
+    def test_le_letture_ammesse_non_sono_siti(self):
+        """Un confronto o una lettura in una asserzione non e' una fonte: se lo
+        fosse, ogni sonda che guarda il contatore ne inventerebbe una."""
+        fonti, errori = gate.fonti_di_omesse_per_byte_dal_codice(
+            busta_finta(
+                "    assert_eq!(troncamento.omesse_per_byte, 0);\n"
+                "    assert!(troncamento.omesse_per_byte > 0);\n"
+                "    let letto = troncamento.omesse_per_byte;\n"
+            ),
+            loss_finto(),
+        )
+        self.assertEqual(errori, [])
+        self.assertEqual(fonti, COMPORTAMENTO_SANO["fonti_di_omesse_per_byte"])
 
     def test_un_sito_ambiguo_e_rosso(self):
         _, errori = gate.fonti_di_omesse_per_byte_dal_codice(

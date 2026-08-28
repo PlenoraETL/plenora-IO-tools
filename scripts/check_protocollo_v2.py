@@ -156,12 +156,33 @@ ORDINE_CANONICO: dict[str, str] = {
     "esempi": "LossExample",
 }
 
-#: I tratti che i due tipi devono **delegare** a `chiave()`, e cio' che non
-#: devono derivare. Con un derive al posto dell'impl l'ordine tornerebbe a
-#: essere quello di dichiarazione dei campi -- un posto che il manifesto non
-#: nomina -- e `chiave()` resterebbe una funzione vera che non decide piu'
-#: niente.
-TRATTI_DELEGATI = ("Ord", "PartialEq")
+#: I tratti che i due tipi devono **delegare** a `chiave()`, e la forma
+#: **esatta** con cui devono farlo: `(metodo, corpo ammesso)`, dove `{p}` e' il
+#: nome del parametro, che i due tipi scrivono in modo diverso.
+#:
+#: La forma esatta, e non la presenza di `chiave()` da qualche parte nel blocco.
+#: La prima stesura cercava la sottostringa, e passavano tre cose che l'ordine
+#: canonico lo cambiano:
+#:
+#:   * `altro.chiave().cmp(&self.chiave())` -- l'ordine **inverso**, che taglia
+#:     dalla parte opposta della sezione;
+#:   * `self.chiave().cmp(&altro.chiave()).then(...)` -- un criterio in piu'
+#:     dopo la chiave, cioe' un ordine che il manifesto non descrive;
+#:   * una menzione di `chiave()` in un **commento**, con il corpo che confronta
+#:     tutt'altro.
+#:
+#: Tutte e tre lasciavano il gate verde mentre l'affermazione che pretende di
+#: verificare -- «l'ordine e' quello che `chiave()` compone» -- era falsa.
+#:
+#: `PartialOrd` sta qui accanto agli altri due e non e' un di piu': `<` e `>`
+#: passano da li', e un `partial_cmp` che non fosse `Some(self.cmp(..))`
+#: darebbe agli operatori una relazione diversa da quella con cui le collezioni
+#: tagliano.
+FORME_DELEGATE: dict[str, tuple[str, str]] = {
+    "Ord": ("cmp", "self.chiave().cmp(&{p}.chiave())"),
+    "PartialOrd": ("partial_cmp", "Some(self.cmp({p}))"),
+    "PartialEq": ("eq", "self.chiave() == {p}.chiave()"),
+}
 DERIVE_VIETATI = frozenset({"Ord", "PartialOrd", "PartialEq", "Eq"})
 
 #: `clausola -> (struttura, campo)` del `BTreeSet` che conserva le respinte.
@@ -212,8 +233,34 @@ ACCESSORE_DELLA_LUNGHEZZA = re.compile(
     r"pub fn (\w+)\(&self\) -> u64 \{\s*self\.(\w+)\.len\(\) as u64\s*\}"
 )
 LEGAME_A_DUE = re.compile(r"let \(\s*\w+\s*,\s*(\w+)\s*\)[^=]*=\s*(.*?);", re.S)
-SITO_DEL_CONTATORE = re.compile(re.escape(CONTATORE) + r"\s*=\s*(.*?);", re.S)
 PAROLA = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+COMMENTO = re.compile(r"//[^\n]*")
+
+#: **Ogni** uso del contatore, non le sole assegnazioni con `=`. Lo spazio in
+#: mezzo e' ammesso perche' `rustfmt` spezza la catena su piu' righe:
+#: `troncamento\n    .omesse_per_byte\n    .saturating_add(..)`.
+USO_DEL_CONTATORE = re.compile(r"troncamento\s*\.\s*omesse_per_byte")
+
+#: Le scritture composte. Il censimento cercava `= `, quindi
+#: `troncamento.omesse_per_byte += nuova_fonte;` non veniva censito affatto e il
+#: gate continuava a dichiarare esattamente due fonti: una terza sarebbe entrata
+#: nel codice senza che nulla lo dicesse. Le piu' lunghe vanno provate per
+#: prime, se no `<<=` si legge come `<`.
+SCRITTURE_COMPOSTE = ("<<=", ">>=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=")
+
+#: I contesti in cui il contatore e' **letto**, e nient'altro.
+#:
+#: L'elenco e' chiuso e il resto e' un errore, non un caso da ignorare: e' la
+#: seconda meta' della correzione. Distinguere lettura da scrittura senza un
+#: parser non si puo' fare per esaustione, quindi si fallisce chiusi -- una
+#: forma nuova, anche innocua, va aggiunta qui **deliberatamente**, che e'
+#: precisamente cio' che deve costare a chi aggiunge una fonte. Le piu' lunghe
+#: per prime, cosi' `==` non si legge come l'inizio di un'assegnazione.
+LETTURE_AMMESSE = ("==", "!=", "<=", ">=", ".", ",", ")", ";", "]", "}", "{", "<", ">")
+
+#: Un contatore preso per riferimento mutabile e' una scrittura che avviene
+#: altrove, e che questo modulo non puo' seguire.
+PRESA_MUTABILE = ("&mut", "&")
 
 
 def _corpo_della_struttura(testo: str, tipo: str) -> str | None:
@@ -250,6 +297,63 @@ def _corpo_dell_impl(testo: str, tratto: str, tipo: str) -> str | None:
             continue
         successivo = IMPL.search(testo, trovato.end())
         return testo[trovato.start() : successivo.start() if successivo else len(testo)]
+    return None
+
+
+def _senza_commenti(testo: str) -> str:
+    """Il testo senza i commenti di riga, per confrontare un corpo di funzione.
+
+    Un commento dentro il corpo canonico e' legittimo e non deve far divergere
+    la forma; un commento che **contiene** `chiave()` accanto a un corpo che
+    confronta altro, invece, non deve poterla soddisfare. Toglierli prima del
+    confronto ottiene le due cose insieme.
+    """
+    return COMMENTO.sub("", testo)
+
+
+def _normalizzato(testo: str) -> str:
+    """Gli spazi non contano; tutto il resto si'."""
+    return " ".join(_senza_commenti(testo).split())
+
+
+def _delega_esatta(testo: str, tratto: str, tipo: str) -> str | None:
+    """`None` se `impl <tratto> for <tipo>` delega a `chiave()` **nella forma**.
+
+    Non «nomina `chiave()`»: e' *quel* corpo e nessun altro. Vedi
+    `FORME_DELEGATE` per i tre modi in cui la ricerca di una sottostringa
+    lasciava passare un ordine diverso da quello dichiarato.
+    """
+    metodo, atteso = FORME_DELEGATE[tratto]
+    corpo = _corpo_dell_impl(testo, tratto, tipo)
+    if corpo is None:
+        return (
+            f"`impl {tratto} for {tipo}` non esiste. Senza, l'ordine con cui la "
+            f"sezione taglia non passa da `{tipo}::chiave()`, e i campi che quella "
+            "funzione compone non sono l'ordine canonico: sono un'opinione."
+        )
+    trovato = re.search(
+        r"^(?P<rientro>[ ]*)fn "
+        + re.escape(metodo)
+        + r"\(&self, (?P<parametro>\w+): &Self\)[^\n]*\{\n"
+        r"(?P<corpo>.*?)^(?P=rientro)\}",
+        corpo,
+        re.M | re.S,
+    )
+    if trovato is None:
+        return (
+            f"`impl {tratto} for {tipo}`: `fn {metodo}(&self, ..: &Self)` non si "
+            "trova nella forma attesa."
+        )
+    osservato = _normalizzato(trovato.group("corpo"))
+    voluto = atteso.format(p=trovato.group("parametro"))
+    if osservato != voluto:
+        return (
+            f"`impl {tratto} for {tipo}`: il corpo di `{metodo}` e' «{osservato}», "
+            f"atteso esattamente «{voluto}». Un ordine invertito, un criterio in "
+            "piu' dopo la chiave o una menzione in un commento passerebbero per "
+            "delega senza esserlo, e l'ordine canonico dichiarato dal manifesto "
+            "sarebbe un altro."
+        )
     return None
 
 
@@ -316,17 +420,13 @@ def ordine_canonico_dal_codice(testo: str) -> tuple[dict[str, list[str]], list[s
                 "punto in cui la sezione taglia."
             )
             continue
-        mancanti = [
-            tratto
-            for tratto in TRATTI_DELEGATI
-            if "chiave()" not in (_corpo_dell_impl(testo, tratto, tipo) or "")
+        difetti = [
+            messaggio
+            for tratto in FORME_DELEGATE
+            if (messaggio := _delega_esatta(testo, tratto, tipo)) is not None
         ]
-        if mancanti:
-            errori.append(
-                f"`impl {mancanti[0]} for {tipo}` non passa da `chiave()`. Se non ci "
-                "passa, i campi che quella funzione compone non sono l'ordine "
-                "canonico: sono un'opinione."
-            )
+        if difetti:
+            errori.extend(difetti)
             continue
         chiavi[clausola] = campi
 
@@ -432,7 +532,8 @@ def fonti_di_omesse_per_byte_dal_codice(
         )
 
     fonti: set[str] = set()
-    siti = SITO_DEL_CONTATORE.findall(busta)
+    siti, problemi = _siti_del_contatore(busta)
+    errori.extend(problemi)
     if not siti:
         errori.append(
             f"nessun sito incrementa `{CONTATORE}`: il contatore non ha piu' fonti, e "
@@ -461,6 +562,70 @@ def fonti_di_omesse_per_byte_dal_codice(
         fonti |= trovate
 
     return sorted(fonti), errori
+
+
+def _siti_del_contatore(busta: str) -> tuple[list[str], list[str]]:
+    """Le parti destre di ogni **scrittura** del contatore, e cio' che non lo e'.
+
+    Il censimento cercava `troncamento.omesse_per_byte = ...;` e nient'altro.
+    Una fonte nuova scritta `troncamento.omesse_per_byte += nuova_fonte;` non
+    veniva censita: il gate continuava a dichiarare esattamente due fonti, e la
+    terza entrava nel codice senza che nulla lo dicesse. E' lo stesso falso
+    verde che questa clausola esiste per chiudere, dal lato del gate.
+
+    Qui si guarda **ogni** occorrenza del contatore e la si classifica:
+    assegnazione, assegnazione composta, o lettura fra quelle ammesse. Tutto il
+    resto e' un errore -- una presa per riferimento mutabile, o una forma che
+    questo modulo non conosce -- perche' distinguere lettura da scrittura senza
+    un parser non si puo' fare per esaustione, e la sola alternativa onesta a un
+    censimento incompleto e' fallire chiusi.
+    """
+    destre: list[str] = []
+    errori: list[str] = []
+    for uso in USO_DEL_CONTATORE.finditer(busta):
+        prima = busta[: uso.start()].rstrip()
+        if any(prima.endswith(segno) for segno in PRESA_MUTABILE):
+            errori.append(
+                f"`{CONTATORE}` e' preso per riferimento: «{_estratto(busta, uso)}». "
+                "La scrittura avviene altrove, e questo censimento non la puo' "
+                "seguire: la fonte che ne uscirebbe non sarebbe dichiarata da "
+                "nessuno."
+            )
+            continue
+
+        dopo = busta[uso.end() :].lstrip()
+        composta = next((s for s in SCRITTURE_COMPOSTE if dopo.startswith(s)), None)
+        if composta is not None:
+            resto = dopo[len(composta) :]
+        elif dopo.startswith("=") and not dopo.startswith("=="):
+            resto = dopo[1:]
+        else:
+            if not any(dopo.startswith(lettura) for lettura in LETTURE_AMMESSE):
+                errori.append(
+                    f"uso di `{CONTATORE}` che questo gate non sa classificare: "
+                    f"«{_estratto(busta, uso)}». Non e' ne' una scrittura nota ne' "
+                    "una lettura fra quelle ammesse, e un uso non classificato "
+                    "potrebbe essere una fonte che nessuno dichiara."
+                )
+            continue
+
+        fine = resto.find(";")
+        if fine < 0:
+            errori.append(
+                f"scrittura di `{CONTATORE}` senza fine di istruzione: "
+                f"«{_estratto(busta, uso)}»"
+            )
+            continue
+        destre.append(resto[:fine])
+    return destre, errori
+
+
+def _estratto(testo: str, uso: re.Match[str]) -> str:
+    """L'istruzione attorno a un uso, su una riga, per il messaggio d'errore."""
+    inizio = max(testo.rfind(";", 0, uso.start()), testo.rfind("\n", 0, uso.start()))
+    fine = testo.find(";", uso.end())
+    pezzo = testo[inizio + 1 : fine if fine >= 0 else uso.end() + 40]
+    return " ".join(pezzo.split())[:160]
 
 
 def comportamento_dal_codice() -> dict[str, Any]:
