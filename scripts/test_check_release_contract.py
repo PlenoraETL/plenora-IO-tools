@@ -1421,8 +1421,46 @@ class SondeEvidenzaCoerente(unittest.TestCase):
             [m for m in errori if "righe_scoperte" in m], errori
         )
 
+    def errori_con_scoperte(self, muta, quante: int = 3) -> list[str]:
+        """Come `errori_con`, ma su una diagnostica con righe scoperte **note**.
+
+        Le due sonde qui sotto violano il rapporto fra l'elenco e il conteggio,
+        e non possono partire da quello della corsa corrente: una corsa senza
+        righe scoperte -- che e' l'esito a cui si punta -- porta un elenco
+        vuoto, e da un elenco vuoto non si toglie ne' si ripete niente. Sono
+        proprieta' del **gate**, non della misura, e prima dipendevano da come
+        era andata l'ultima corsa: le sonde si rompevano proprio quando la
+        misura migliorava.
+        """
+        cambiate = quante * 2
+
+        def prepara(evidenza: dict) -> None:
+            diagnostica = evidenza["misure"]["diagnostica_differenziale"]
+            coperte = cambiate - quante
+            diagnostica.update(
+                righe_cambiate_eseguibili=cambiate,
+                coperte=coperte,
+                scoperte=quante,
+                esito=f"{coperte / cambiate * 100:.2f}%",
+                righe_scoperte=[f"crates/finta/src/lib.rs:{i}" for i in range(quante)],
+            )
+            muta(evidenza)
+
+        return self.errori_con(prepara)
+
+    def test_la_diagnostica_finta_e_verde(self) -> None:
+        """Se il caso sano fosse rosso, le due sonde qui sotto sarebbero verdi
+        per la ragione sbagliata e non proverebbero niente.
+
+        Si guarda il solo `righe_scoperte`: una diagnostica inventata **deve**
+        divergere dallo stato, che copia quella vera, e quelle divergenze sono
+        un'altra proprieta' -- provata dalle sonde del legame, non da queste.
+        """
+        errori = self.errori_con_scoperte(lambda e: None)
+        self.assertFalse([m for m in errori if "righe_scoperte" in m], errori)
+
     def test_l_elenco_delle_scoperte_deve_contarle_tutte(self) -> None:
-        errori = self.errori_con(
+        errori = self.errori_con_scoperte(
             lambda e: e["misure"]["diagnostica_differenziale"].update(
                 righe_scoperte=e["misure"]["diagnostica_differenziale"][
                     "righe_scoperte"
@@ -1442,7 +1480,7 @@ class SondeEvidenzaCoerente(unittest.TestCase):
                 elenco[0]
             ] + elenco[:-1]
 
-        errori = self.errori_con(ripeti)
+        errori = self.errori_con_scoperte(ripeti)
         self.assertTrue(any("ripete" in m for m in errori), errori)
 
     def test_una_campagna_di_fuzzing_a_zero_non_e_un_verde(self) -> None:

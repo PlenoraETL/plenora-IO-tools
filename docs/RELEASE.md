@@ -21,30 +21,30 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `bc6ada4` |
-| revisione misurata | `bc6ada4` |
+| ultima qualificata | `0f31911` |
+| revisione misurata | `0f31911` |
 | passi del checkpoint | 73 |
 | passi verdi | 73 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 59 882 |
+| input di replay | 61 615 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 87,55% |
-| righe coperte LCOV | 34 265 |
-| righe strumentate LCOV | 39 137 |
-| copertura cargo | 85,81% |
+| copertura LCOV | 87,56% |
+| righe coperte LCOV | 34 277 |
+| righe strumentate LCOV | 39 149 |
+| copertura cargo | 85,82% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `a6110ea` |
-| esito differenziale | 98.33% |
+| baseline differenziale | `c930b2a` |
+| esito differenziale | 100.00% |
 | gruppi ASSURANCE-N1 | 49 |
 | gruppi ASSURANCE-N1 aperti | 43 |
 | blocchi | 3 |
-| S9, qualificato su | `bc6ada4` |
+| S9, qualificato su | `0f31911` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
 | candidate, versione del workspace | `1.0.1` |
@@ -97,15 +97,16 @@ riga resta variabile, e non entra in alcuna soglia.
 Il conteggio dei passi è **riconciliato dagli identificatori** — distinti, senza
 duplicati — e non accettato dal rapporto che lo strumento stampa su se stesso.
 
-La diagnostica differenziale è **n/d**, e la baseline contro cui è stata
-misurata è nel blocco generato: la prosa ne nominava un'altra, perché era
-scritta a mano. Nessuna **riga Rust** si è mossa fra le due revisioni, né
-eseguibile né commento. Il resto del delta è fatto di script Python e shell,
-JSON di registro e Markdown — nessuno dei quali entra in quella misura.
+La diagnostica differenziale misura **le sole righe cambiate** fra la baseline
+del blocco generato e la revisione misurata. Non è la copertura del componente,
+che è l'altra cifra: qui un 100% è un'affermazione su dodici righe, ed è forte
+proprio perché è stretta — sono le righe che questo giro ha scritto, e sono
+tutte esercitate.
 
-Non è una misura mancata, ed è la ragione per cui la formulazione conta: dire
-«nessuna riga eseguibile è cambiata» sarebbe falso, perché gli script cambiati
-sono eseguibili. Semplicemente, la copertura non li osserva.
+Il resto del delta è fatto di script Python e shell, JSON di registro e
+Markdown, e nessuno di questi entra in quella misura. Dire «nessuna riga
+eseguibile è cambiata» sarebbe falso, perché gli script cambiati sono
+eseguibili. Semplicemente, la copertura non li osserva.
 
 ### Chiuso
 

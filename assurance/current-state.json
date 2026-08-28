@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "bc6ada4",
+      "sha": "0f31911",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "bc6ada4",
+    "sha": "0f31911",
     "checkpoint": {
       "passi_eseguiti": 73,
       "passi_verdi": 73,
@@ -23,7 +23,7 @@
       "riconciliazione": "73 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento"
     },
     "fuzz": {
-      "replay_input": 59882,
+      "replay_input": 61615,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 87.55,
-      "lcov_righe_coperte": 34265,
-      "lcov_righe_strumentate": 39137,
-      "cargo_lines_percentuale": 85.81,
+      "lcov_percentuale": 87.56,
+      "lcov_righe_coperte": 34277,
+      "lcov_righe_strumentate": 39149,
+      "cargo_lines_percentuale": 85.82,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 39 137 righe, 387 piu' della corsa su 973080c: sono la porta del trattenimento, le due collezioni della valutazione, la redazione dei nove produttori e le trentuno sonde che le esercitano.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore e' 39 149 righe, dodici piu' della corsa su `bc6ada4`, e stanno tutte in `plenora-io-core/src/loss.rs`: sono le quattro funzioni che gli esempi hanno al posto del derive di `Ord` -- `chiave()`, `eq`, `partial_cmp` e `cmp`. La sonda che le esercita sta in `plenora-io-cli/src/busta.rs`, che la regex di esclusione tiene fuori dalla misura.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate"
     },
     "diagnostica_differenziale": {
-      "baseline": "a6110ea",
-      "esito": "98.33%",
-      "righe_cambiate_eseguibili": 478,
-      "coperte": 470,
-      "scoperte": 8,
-      "cambiate_non_eseguibili": 419,
-      "ragione": "98,33% delle 478 righe cambiate ed eseguibili. La diagnostica ha scartato **tre** corse che il checkpoint aveva gia' dichiarato superate: le prime due mostravano codice nuovo non esercitato -- i rami di sfratto del trattenimento, poi quelli degli insiemi delle respinte -- e la terza e' stata superata da una revisione correttiva, perche' quattro clausole del contratto descrivevano un codice che le tranche avevano cambiato sotto di loro e una canary passava anche con il difetto che diceva di escludere. Nove sonde nuove e una resa discriminante.",
-      "che_cosa_sono_le_scoperte": "otto righe, tutte della stessa natura: sono i **messaggi di asserzione** delle sonde della redazione. Vengono valutati solo quando l'asserzione fallisce, cioe' mai su una corsa verde. Non sono codice di produzione e non sono un ramo non provato: sono il testo che la sonda stamperebbe se il codice regredisse."
+      "baseline": "c930b2a",
+      "esito": "100.00%",
+      "righe_cambiate_eseguibili": 12,
+      "coperte": 12,
+      "scoperte": 0,
+      "cambiate_non_eseguibili": 34,
+      "ragione": "100% delle dodici righe cambiate ed eseguibili, che sono le quattro funzioni con cui `LossExample` ha sostituito il derive di `Ord`. La corsa precedente, su `00f0f32`, era **superata** 73/73 e ne mostrava sei scoperte: `PartialEq::eq` e `PartialOrd::partial_cmp`, codice che il derive non produceva e che nessuna prova eseguiva -- le collezioni usano `cmp`. La sonda che li esercita, e che pretende la priorita' fra i tre campi, e' in `0f31911`, e questa corsa la misura.",
+      "che_cosa_sono_le_scoperte": "nessuna. Le otto righe scoperte delle corse precedenti erano i messaggi di asserzione delle sonde della redazione, e non compaiono qui per una ragione che non e' un miglioramento: non sono cambiate fra `c930b2a` e questa revisione, e la diagnostica differenziale guarda soltanto le righe cambiate. Restano dove erano, e restano non chiudibili."
     },
-    "evidenza": "assurance/evidence/checkpoint-bc6ada4.json"
+    "evidenza": "assurance/evidence/checkpoint-0f31911.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "bc6ada4"
+      "qualificato_su": "0f31911"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
