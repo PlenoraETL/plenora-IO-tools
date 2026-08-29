@@ -733,6 +733,78 @@ fn cmd_read(cli: &Cli) -> CliResult {
     }))
 }
 
+/// Trasferisce un layer dal reader al writer **in streaming**, trattenendo al
+/// massimo un batch per volta.
+///
+/// # Perché non basta leggere tutto e poi scrivere
+///
+/// Fino a questa revisione la CLI accumulava in un `Vec` tutti i batch del
+/// layer prima del primo write, e lo faceva per una ragione vera:
+/// `declare_input_total` esige la cardinalità **prima** del primo write del
+/// layer (`plenora-io-core/src/driver.rs`), e per conoscerla sembrava servisse
+/// aver già letto tutto. Il costo era `O(dataset)` di memoria, e cadeva
+/// esattamente dove la libreria aveva speso più fatica per non pagarlo: sotto
+/// la CLI, l'adapter operation-atomic tiene già i batch verificati in uno
+/// `StagedSpool` che migra su disco oltre soglia, con picco indipendente dalla
+/// dimensione dell'input. La CLI riportava in RAM ciò che lo spool aveva appena
+/// tolto — e con esso il `--memory-bytes` che l'operatore aveva scelto.
+///
+/// # La sequenza
+///
+/// 1. il **primo** `next_batch` conclude l'esame bounded dell'intero scope: è
+///    lì che l'atomicità operativa viene pagata, ed è lì che il totale diventa
+///    un fatto;
+/// 2. `accepted_total` restituisce quel totale. Se non lo restituisce si
+///    **fallisce chiuso**: nessun ripiego che riaccumuli il layer, perché un
+///    ripiego silenzioso rimetterebbe il difetto dove era, visibile solo a chi
+///    misura la memoria;
+/// 3. `declare_input_total` riceve il totale prima di qualunque write;
+/// 4. da lì si alternano write e letture, un batch per volta, e il batch
+///    corrente viene rilasciato **prima** di chiedere il successivo.
+///
+/// L'alternanza del punto 4 è la proprietà che rende bounded il consumo, e non
+/// si deduce dalla memoria misurata: una lettura che precede la scrittura del
+/// batch corrente consuma il doppio senza che nessun contatore lo dica. È per
+/// questo che la sonda la osserva direttamente.
+///
+/// # Errors
+///
+/// Se il reader non sa dichiarare il totale accettato, se un conteggio
+/// trabocca, o se lettura e scrittura falliscono.
+fn trasferisci_layer(
+    reader: &mut dyn plenora_io_core::driver::LayerReader,
+    writer: &mut dyn plenora_io_core::driver::FormatWriter,
+    sink_layer: plenora_io_model::contract::LayerId,
+) -> Result<(usize, usize), PlenoraIoError> {
+    let mut corrente = reader.next_batch()?;
+    let input_total = reader.accepted_total().ok_or_else(|| {
+        PlenoraIoError::contratto_redatto(&PublicMessage::Curated(
+            "il reader non dichiara la cardinalita' accettata: conversione rifiutata",
+        ))
+    })?;
+    writer.declare_input_total(sink_layer, input_total)?;
+    let (mut rows, mut batches) = (0usize, 0usize);
+    while let Some(batch) = corrente.take() {
+        rows = rows.checked_add(batch.num_rows()).ok_or_else(|| {
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio righe CLI",
+            ))
+        })?;
+        batches = batches.checked_add(1).ok_or_else(|| {
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio batch CLI",
+            ))
+        })?;
+        writer.write_to_layer(sink_layer, &batch)?;
+        // Rilascio esplicito prima della lettura successiva: senza di esso il
+        // picco sarebbe di due batch, e la sonda dell'alternanza resterebbe
+        // verde su un codice che occupa il doppio.
+        drop(batch);
+        corrente = reader.next_batch()?;
+    }
+    Ok((rows, batches))
+}
+
 // La pipeline di conversione è operation-atomic: apertura, validazione fino a
 // EOF, trasferimento batch e pubblicazione devono restare in un'unica sequenza
 // leggibile, con i fallimenti nell'ordine esatto in cui la CLI li espone.
@@ -836,38 +908,14 @@ fn cmd_convert(cli: &Cli) -> CliResult {
         let mut reader = ds
             .open_layer_reader(&read_request(l.id.0, ReadScope::Complete))
             .map_err(map_err)?;
-        let (mut rows, mut batches) = (0usize, 0usize);
-        let mut layer_batches = Vec::new();
-        while let Some(batch) = reader.next_batch().map_err(map_err)? {
-            rows = rows.checked_add(batch.num_rows()).ok_or_else(|| {
-                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio righe CLI",
-                )))
-            })?;
-            batches = batches.checked_add(1).ok_or_else(|| {
-                map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "overflow nel conteggio batch CLI",
-                )))
-            })?;
-            layer_batches.push(batch);
-        }
-        let input_total = u64::try_from(rows).map_err(|_| {
-            map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                "cardinalita sorgente non rappresentabile",
-            )))
-        })?;
         let sink_layer =
             plenora_io_model::contract::LayerId(u32::try_from(sink_idx).map_err(|_| {
                 map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
                     "numero di layer sorgente non rappresentabile",
                 )))
             })?);
-        writer
-            .declare_input_total(sink_layer, input_total)
-            .map_err(map_err)?;
-        for batch in layer_batches {
-            writer.write_to_layer(sink_layer, &batch).map_err(map_err)?;
-        }
+        let (rows, batches) =
+            trasferisci_layer(reader.as_mut(), writer.as_mut(), sink_layer).map_err(map_err)?;
         read_loss.merge(&reader.loss_report());
         total_rows = total_rows.checked_add(rows).ok_or_else(|| {
             map_err(PlenoraIoError::limite_redatto(&PublicMessage::Curated(
@@ -2820,6 +2868,264 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("BIFF .xls"));
+    }
+
+    /// Ciò che il trasferimento di un layer fa, nell'ordine in cui lo fa.
+    ///
+    /// La memoria misurata non distingue un trasferimento in streaming da uno
+    /// che accumula: un `Vec` di batch sta sotto qualunque soglia se il caso di
+    /// prova è piccolo, e sopra qualunque soglia se è grande. A distinguere le
+    /// due implementazioni è la **sequenza**, e questo è il tipo che la rende
+    /// osservabile.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    enum Evento {
+        Lettura,
+        Dichiarazione(u64),
+        Scrittura(usize),
+    }
+
+    #[derive(Clone, Default)]
+    struct Diario(std::rc::Rc<std::cell::RefCell<Vec<Evento>>>);
+
+    impl Diario {
+        fn annota(&self, evento: Evento) {
+            self.0.borrow_mut().push(evento);
+        }
+
+        fn eventi(&self) -> Vec<Evento> {
+            self.0.borrow().clone()
+        }
+    }
+
+    fn batch_di_prova(righe: usize) -> arrow_array::RecordBatch {
+        let schema =
+            std::sync::Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+                "n",
+                arrow_schema::DataType::Int64,
+                false,
+            )]));
+        let quante = i64::try_from(righe).expect("righe rappresentabili");
+        let colonna = std::sync::Arc::new(arrow_array::Int64Array::from(
+            (0..quante).collect::<Vec<_>>(),
+        ));
+        match arrow_array::RecordBatch::try_new(schema, vec![colonna]) {
+            Ok(batch) => batch,
+            Err(errore) => unreachable!("batch di prova: {errore:?}"),
+        }
+    }
+
+    /// Reader che imita il contratto dell'adapter operation-atomic: il totale
+    /// diventa noto al **primo** `next_batch` e non prima.
+    struct ReaderStrumentato {
+        contratto: LayerContract,
+        residui: std::collections::VecDeque<arrow_array::RecordBatch>,
+        totale: u64,
+        esaminato: bool,
+        /// Se falso il reader non dichiara mai il totale: è il caso che deve
+        /// far fallire chiuso il trasferimento.
+        dichiara: bool,
+        diario: Diario,
+    }
+
+    impl ReaderStrumentato {
+        fn nuovo(righe_per_batch: &[usize], dichiara: bool, diario: Diario) -> Self {
+            let residui: std::collections::VecDeque<_> = righe_per_batch
+                .iter()
+                .map(|righe| batch_di_prova(*righe))
+                .collect();
+            let totale = righe_per_batch
+                .iter()
+                .map(|righe| u64::try_from(*righe).expect("righe rappresentabili"))
+                .sum::<u64>();
+            let schema = residui.front().map_or_else(
+                || std::sync::Arc::new(arrow_schema::Schema::empty()),
+                arrow_array::RecordBatch::schema,
+            );
+            Self {
+                contratto: LayerContract {
+                    id: plenora_io_model::contract::LayerId(0),
+                    name: "prova".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: None,
+                    },
+                },
+                residui,
+                totale,
+                esaminato: false,
+                dichiara,
+                diario,
+            }
+        }
+    }
+
+    impl plenora_io_core::driver::LayerReader for ReaderStrumentato {
+        fn contract(&self) -> &LayerContract {
+            &self.contratto
+        }
+
+        fn next_batch(&mut self) -> plenora_io_model::Result<Option<arrow_array::RecordBatch>> {
+            self.diario.annota(Evento::Lettura);
+            self.esaminato = true;
+            Ok(self.residui.pop_front())
+        }
+
+        fn accepted_total(&self) -> Option<u64> {
+            (self.dichiara && self.esaminato).then_some(self.totale)
+        }
+    }
+
+    struct WriterStrumentato {
+        diario: Diario,
+    }
+
+    impl plenora_io_core::driver::FormatWriter for WriterStrumentato {
+        fn declare_input_total(
+            &mut self,
+            _layer: plenora_io_model::contract::LayerId,
+            total: u64,
+        ) -> plenora_io_model::Result<()> {
+            self.diario.annota(Evento::Dichiarazione(total));
+            Ok(())
+        }
+
+        fn write(&mut self, batch: &arrow_array::RecordBatch) -> plenora_io_model::Result<()> {
+            self.diario.annota(Evento::Scrittura(batch.num_rows()));
+            Ok(())
+        }
+
+        fn finish(self: Box<Self>) -> plenora_io_model::Result<plenora_io_core::Published> {
+            Ok(plenora_io_core::Published {
+                bytes: 0,
+                loss: LossReport::default(),
+                fidelity: FidelityAssessment::lossless(),
+                outcome: PublishOutcome::Published,
+            })
+        }
+    }
+
+    /// La sonda che l'implementazione precedente non passa.
+    ///
+    /// Il codice che accumulava in `layer_batches` produceva
+    /// `Lettura`×4 → `Dichiarazione` → `Scrittura`×3: tutte le letture prima di
+    /// ogni scrittura. Qui l'ordine atteso è scritto per intero, quindi la
+    /// differenza non dipende da quanto sia grande il caso di prova né da
+    /// quanta memoria consumi — che è precisamente ciò che una prova «input più
+    /// grande del budget» non garantisce, perché quel codice non passava dai
+    /// contatori e poteva restare verde.
+    #[test]
+    fn il_trasferimento_alterna_lettura_e_scrittura_un_batch_per_volta() {
+        let diario = Diario::default();
+        let mut reader = ReaderStrumentato::nuovo(&[2, 3, 5], true, diario.clone());
+        let mut writer = WriterStrumentato {
+            diario: diario.clone(),
+        };
+
+        let (righe, batches) = trasferisci_layer(
+            &mut reader,
+            &mut writer,
+            plenora_io_model::contract::LayerId(0),
+        )
+        .expect("trasferimento riuscito");
+
+        assert_eq!(righe, 10);
+        assert_eq!(batches, 3);
+        assert_eq!(
+            diario.eventi(),
+            vec![
+                Evento::Lettura,
+                Evento::Dichiarazione(10),
+                Evento::Scrittura(2),
+                Evento::Lettura,
+                Evento::Scrittura(3),
+                Evento::Lettura,
+                Evento::Scrittura(5),
+                Evento::Lettura,
+            ]
+        );
+    }
+
+    /// L'ordine atteso, detto come invariante e non come elenco.
+    ///
+    /// L'elenco esatto della sonda precedente si rompe se cambia il numero dei
+    /// batch; questa dice la proprietà per cui quell'elenco è quello — a ogni
+    /// lettura, i batch già consegnati sono tutti già scritti — e resta vera per
+    /// qualunque partizione della sorgente, compresa quella con batch vuoti.
+    #[test]
+    fn nessuna_lettura_precede_la_scrittura_del_batch_gia_consegnato() {
+        for partizione in [vec![1_usize], vec![1, 1], vec![4, 1, 1, 9], vec![0, 7, 0]] {
+            let diario = Diario::default();
+            let mut reader = ReaderStrumentato::nuovo(&partizione, true, diario.clone());
+            let mut writer = WriterStrumentato {
+                diario: diario.clone(),
+            };
+            trasferisci_layer(
+                &mut reader,
+                &mut writer,
+                plenora_io_model::contract::LayerId(0),
+            )
+            .expect("trasferimento riuscito");
+
+            let (mut letture, mut scritture) = (0_usize, 0_usize);
+            for evento in diario.eventi() {
+                match evento {
+                    Evento::Lettura => {
+                        assert_eq!(
+                            letture, scritture,
+                            "lettura chiesta con {letture} batch consegnati e {scritture} scritti, partizione {partizione:?}"
+                        );
+                        letture += 1;
+                    }
+                    Evento::Scrittura(_) => scritture += 1,
+                    Evento::Dichiarazione(_) => {}
+                }
+            }
+        }
+    }
+
+    /// Sorgente vuota: il totale è `Some(0)`, non «non lo so».
+    #[test]
+    fn una_sorgente_vuota_dichiara_zero_e_non_scrive() {
+        let diario = Diario::default();
+        let mut reader = ReaderStrumentato::nuovo(&[], true, diario.clone());
+        let mut writer = WriterStrumentato {
+            diario: diario.clone(),
+        };
+
+        let (righe, batches) = trasferisci_layer(
+            &mut reader,
+            &mut writer,
+            plenora_io_model::contract::LayerId(0),
+        )
+        .expect("trasferimento riuscito");
+
+        assert_eq!((righe, batches), (0, 0));
+        assert_eq!(
+            diario.eventi(),
+            vec![Evento::Lettura, Evento::Dichiarazione(0)]
+        );
+    }
+
+    /// Fail-closed: senza totale non si converte, e non si riaccumula.
+    #[test]
+    fn senza_cardinalita_accettata_il_trasferimento_fallisce_chiuso() {
+        let diario = Diario::default();
+        let mut reader = ReaderStrumentato::nuovo(&[2, 3], false, diario.clone());
+        let mut writer = WriterStrumentato {
+            diario: diario.clone(),
+        };
+
+        let errore = trasferisci_layer(
+            &mut reader,
+            &mut writer,
+            plenora_io_model::contract::LayerId(0),
+        )
+        .expect_err("senza totale il trasferimento deve fallire");
+
+        assert_eq!(errore.category, ErrorCategory::InvalidPlan);
+        // Nessuna dichiarazione e nessuna scrittura: la sola lettura è quella
+        // che conclude l'esame dello scope.
+        assert_eq!(diario.eventi(), vec![Evento::Lettura]);
     }
 }
 

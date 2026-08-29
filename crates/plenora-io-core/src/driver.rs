@@ -658,6 +658,31 @@ pub trait LayerReader {
     /// Restituisce un errore se il flusso sorgente è malformato, se un limite
     /// viene superato o se l'operazione viene annullata.
     fn next_batch(&mut self) -> Result<Option<RecordBatch>>;
+    /// Cardinalità **già accettata e ancora da consegnare più quella già
+    /// consegnata**: il numero esatto di righe che questo reader ha ammesso
+    /// per l'intero scope della richiesta.
+    ///
+    /// Contratto, in tre clausole che stanno insieme:
+    ///
+    /// 1. `Some(n)` solo dopo che il reader ha **completato** l'esame dello
+    ///    scope senza violazioni: `n` è allora la somma delle righe di tutti i
+    ///    batch che `next_batch` consegnerà, contando anche quelli già
+    ///    consegnati. Non è una stima e non è un limite superiore.
+    /// 2. `None` finché quel numero non è un fatto: prima che l'esame sia
+    ///    concluso, e per ogni reader che consegna in streaming vero e non
+    ///    può conoscere il totale senza aver letto tutto.
+    /// 3. Dopo un errore terminale è di nuovo `None`: un totale sopravvissuto
+    ///    all'errore che lo invalida sarebbe la peggiore delle due risposte.
+    ///
+    /// Il default è `None`, che è la risposta onesta di un reader che non sa.
+    /// Chi ha bisogno del totale **prima** di scrivere — `declare_input_total`
+    /// lo esige prima del primo write del layer — lo ottiene chiamando
+    /// `next_batch` una volta: l'adapter operation-atomic conclude lì l'esame
+    /// dello scope, e da quel momento il totale è noto senza che il chiamante
+    /// abbia dovuto trattenere in memoria più di un batch.
+    fn accepted_total(&self) -> Option<u64> {
+        None
+    }
     /// Report di perdita (vuoto per i driver Lossless) — `PRODUCT.md § LossReport`.
     fn loss_report(&self) -> LossReport {
         LossReport::default()

@@ -574,6 +574,24 @@ impl LayerReader for BudgetedReader {
         }
     }
 
+    /// Il totale e' un fatto **solo** dopo un drenaggio concluso senza errore
+    /// terminale.
+    ///
+    /// `rows_scanned` e le righe consegnate coincidono per costruzione: quando
+    /// l'accumulatore delle violazioni resta vuoto ogni batch contato entra
+    /// nello spool, e lo spool consegna esattamente cio' che ha ricevuto.
+    /// Quando invece una violazione emerge, il drenaggio finisce in `Err` e
+    /// `terminal_error` e' impostato: qui si torna a `None`, perche' un totale
+    /// che sopravvive all'errore che lo invalida e' peggio di nessun totale.
+    ///
+    /// Vale anche per una sorgente vuota, dove il drenaggio e' concluso e il
+    /// totale e' `Some(0)`: distinguere "zero righe" da "non lo so" e'
+    /// precisamente cio' che serve a chi deve dichiarare la cardinalita' prima
+    /// di scrivere.
+    fn accepted_total(&self) -> Option<u64> {
+        (self.drained && self.terminal_error.is_none()).then_some(self.rows_scanned)
+    }
+
     fn loss_report(&self) -> LossReport {
         reader_loss(self.inner.as_ref())
     }
@@ -1239,6 +1257,14 @@ impl LayerReader for CancellationReader {
         result
     }
 
+    /// Inoltra: questo adapter non cambia quante righe passano, e un totale
+    /// inventato qui sarebbe una seconda verita'. Dopo la cancellazione il
+    /// reader sottostante non c'e' piu' e la risposta torna `None`, che e'
+    /// esatta — quel totale non descrive piu' nulla che verra' consegnato.
+    fn accepted_total(&self) -> Option<u64> {
+        self.inner.as_ref().and_then(|inner| inner.accepted_total())
+    }
+
     fn loss_report(&self) -> LossReport {
         self.loss.clone()
     }
@@ -1290,6 +1316,11 @@ impl LayerReader for BatchTargetReader {
             }
             self.pending = Some((batch, 0));
         }
+    }
+
+    /// Inoltra: il ritaglio cambia **quanti batch** escono, non quante righe.
+    fn accepted_total(&self) -> Option<u64> {
+        self.inner.accepted_total()
     }
 
     fn loss_report(&self) -> LossReport {
@@ -1384,6 +1415,11 @@ impl LayerReader for SingleActiveLayerReader {
             self.lease.release();
         }
         result
+    }
+
+    /// Inoltra: la gate sull'unicita' del reader non tocca la cardinalita'.
+    fn accepted_total(&self) -> Option<u64> {
+        self.inner.accepted_total()
     }
 
     fn loss_report(&self) -> LossReport {

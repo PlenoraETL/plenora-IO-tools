@@ -383,13 +383,15 @@
   "crates/plenora-io-cli/src/main.rs": {
     "cmd_convert": [
       "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "local_err_doc": [
       "esplicito/esplicito/Generic/esplicito"
+    ],
+    "trasferisci_layer": [
+      "InvalidPlan/Validate/Contract/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/plenora-io-core/src/capabilities.rs": {
