@@ -24,8 +24,12 @@ in [ENGINEERING.md](ENGINEERING.md); dove siamo nel percorso di rilascio sta in
 
 **Consegna e buffering sono uguali per tutti**: `operation_atomic` con buffering
 adattivo — memoria finché il budget lo consente, poi spool su disco. Un errore a
-metà lettura non consegna righe parziali, e una scrittura rifiutata non lascia
-una destinazione.
+metà lettura non consegna righe parziali.
+
+Una scrittura rifiutata non lascia una destinazione, con **una** eccezione
+dichiarata: il set di file sciolti dello Shapefile, che si ottiene solo
+accettandolo esplicitamente e il cui contratto è più sotto, in
+[§ Publish](#publish-che-cosa-diventa-visibile-e-quando).
 
 **Fin dove arriva il supporto di una specifica**: il catalogo lo dichiara nel
 campo `spec_version_supported` di ciascun driver. `geoparquet` dichiara
@@ -54,8 +58,71 @@ proprietà di quel comando, non dei driver, e vale la pena non confonderle:
 riconvertire due volte lo stesso file può produrre due output diversi byte per
 byte e ugualmente corretti.
 
-`gpkg` e `filegdb` sono multi-layer. `shp` e `filegdb` pubblicano più file, e il
-publish li rende visibili insieme o per nulla.
+`gpkg` e `filegdb` sono multi-layer.
+
+### Publish: che cosa diventa visibile, e quando
+
+Il publish ha tre forme. **Due sono crash-atomic e una no**, e la differenza non
+è un dettaglio di implementazione: decide che cosa un altro processo può vedere
+sul disco se il nostro muore a metà.
+
+| forma | chi la usa | garanzia |
+|---|---|---|
+| file singolo | `csv`, `geojson`, `kml`, `xlsx`, `dxf`, `gpkg`, `geoparquet`, `arrow` | un rename: il file c'è per intero o non c'è |
+| directory-dataset | `filegdb`, e `shp` con destinazione `*.shp.d` | un rename della directory: tutti i file insieme, o nessuno |
+| set di file sciolti | `shp` con destinazione `*.shp` | **nessuna**: quattro rename in sequenza |
+
+La forma raccomandata in produzione per lo Shapefile è la **directory-dataset**,
+e si ottiene chiedendo una destinazione che finisce in `*.shp.d`. Dentro ci sono
+`data.shp`, `data.shx`, `data.dbf` e `data.prj`, e la directory diventa visibile
+con un rename solo.
+
+#### Il set sciolto va accettato, non subìto
+
+La forma compatibile — `dati.shp` accanto a `dati.shx`, `dati.dbf`, `dati.prj` —
+**non ha quella garanzia e non può averla**: quattro file separati non si rendono
+visibili in un atto solo su nessuno dei filesystem supportati. Per questo non si
+ottiene più deducendola dall'estensione: una destinazione `*.shp` è **rifiutata**
+finché non la si accetta con l'opzione di formato
+`publish_mode=loose_shapefile_set`. Il rifiuto è `InvalidConfiguration` — la
+richiesta è incompleta, non il prodotto incapace.
+
+Che cosa quell'accettazione comporta, per intero:
+
+| | |
+|---|---|
+| **ordine** | i companion prima, il `.shp` per ultimo: chi cerca il file marker non lo trova finché il resto non c'è |
+| **errore durante il publish** | i companion già spostati vengono riportati nello staging, best-effort |
+| **rollback riuscito** | l'errore porta `remote_effect: none`: nessuna destinazione è rimasta visibile |
+| **rollback fallito** | l'errore porta `remote_effect: partial` e `retry: requires_recovery`: sul disco **possono** esserci companion senza il `.shp` |
+| **processo ucciso a metà** | nessun rollback avviene: lo stesso stato parziale, e nessun errore che lo dichiari |
+
+L'ultima riga è la ragione per cui questa forma non è raccomandata: le prime
+quattro descrivono ciò che il codice fa, la quinta ciò che nessun codice in
+spazio utente può fare.
+
+#### Recovery di un set sciolto interrotto
+
+Vale per `remote_effect: partial` e per un processo ucciso durante il publish. È
+la stessa procedura, perché è lo stesso stato: un insieme incompleto di file
+accanto alla destinazione.
+
+1. **Non ripetere la scrittura senza guardare.** Il publish è no-clobber su ogni
+   file del set: un companion sopravvissuto fa fallire il tentativo successivo
+   con `OutputExists`, e quel fallimento è corretto — non è il segno che si può
+   riprovare.
+2. **Riconoscere lo stato.** Un set completo ha `.shp`, `.shx`, `.dbf` e, se il
+   layer porta un CRS, `.prj`. Un set senza `.shp` è incompleto per costruzione:
+   il marker è l'ultimo a essere pubblicato.
+3. **Rimuovere i companion rimasti**, cioè i file con lo stesso stem della
+   destinazione che il publish avrebbe scritto. Nessuno di essi è un dato
+   valido: appartengono a una scrittura che non si è conclusa.
+4. **Ripetere la conversione**, preferibilmente verso `*.shp.d`, dove questa
+   procedura non serve.
+
+Lo staging non va cercato: è una directory temporanea che il processo rimuove al
+termine, anche in errore. Ciò che il crollo può lasciare è **solo** accanto alla
+destinazione.
 
 ### Che cosa significano le classi di fedeltà
 
@@ -104,7 +171,8 @@ diverso da «assente»:
 | `xls` | `geometry_encoding` | scrittura | `wkt` \| `xy` | `wkt` |
 | `xls` | `wkt_column` | lettura | testo | assente |
 | `xls` | `sheet` | lettura | testo | primo foglio del workbook |
-| `shp` | opzioni di publish e nomi DBF | | | vedi catalogo |
+| `shp` | `publish_mode` | scrittura | `shapefile_directory_dataset` \| `loose_shapefile_set` | nessuno: `*.shp.d` si deduce, `*.shp` va accettata |
+| `shp` | diagnostica di riga e nomi DBF | | | vedi catalogo |
 | `geoparquet` | opzioni di scrittura | | | vedi catalogo |
 
 I driver senza opzioni dichiarate non ne accettano: passarne una è un errore di

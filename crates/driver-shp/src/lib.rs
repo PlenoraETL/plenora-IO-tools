@@ -399,25 +399,47 @@ fn is_directory_dataset_path(path: &Path) -> bool {
         })
 }
 
+/// Il set loose non si deduce: si chiede.
+///
+/// Un'estensione non e' un consenso. Fino a questa revisione una destinazione
+/// `*.shp` faceva dedurre il set loose, e chi la scriveva otteneva senza saperlo
+/// una pubblicazione **non crash-atomic**: quattro rename in sequenza, con
+/// rollback best-effort e, quando il rollback fallisce, companion visibili
+/// accanto a nessun `.shp`. Il rischio e' reale ma governabile; sceglierlo per
+/// distrazione non lo e'.
+///
+/// La regola nuova ha due meta' asimmetriche, e l'asimmetria e' voluta:
+///
+/// * `*.shp.d` **deduce** il directory-dataset, perche' e' la forma con la
+///   garanzia piu' forte — un rename solo, atomico — e non c'e' niente da
+///   accettare;
+/// * `*.shp` **non deduce nulla** e pretende `publish_mode=loose_shapefile_set`.
+///   Senza quell'opzione la scrittura e' rifiutata prima di creare lo staging.
+///
+/// Un `publish_mode` che contraddice il suffisso resta un errore in entrambi i
+/// versi: l'opzione dichiara la forma, non la sceglie contro la destinazione.
+///
+/// La procedura di recovery per un set loose interrotto sta in
+/// `PRODUCT.md § Publish` e in `ENGINEERING.md § Pipeline di scrittura`.
 fn publish_mode(path: &Path, opts: &WriteOptions) -> Result<ShapefilePublishMode> {
     let inferred = if is_directory_dataset_path(path) {
-        ShapefilePublishMode::DirectoryDataset
+        Some(ShapefilePublishMode::DirectoryDataset)
     } else if path
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("shp"))
     {
-        ShapefilePublishMode::LooseSet
+        // Nessuna deduzione: la scelta della forma debole appartiene a chi
+        // scrive, non all'estensione che ha battuto.
+        None
     } else {
         return Err(PlenoraIoError::non_supportato_redatto(&PublicMessage::Curated("l'output Shapefile deve terminare con .shp (loose set) o .shp.d (directory dataset)")));
     };
-    let Some(requested) = opts.format_options.get("publish_mode") else {
-        return Ok(inferred);
-    };
-    let requested = match requested.as_str() {
-        DIRECTORY_DATASET_MODE => ShapefilePublishMode::DirectoryDataset,
-        LOOSE_SET_MODE => ShapefilePublishMode::LooseSet,
-        _ => {
+    let requested = match opts.format_options.get("publish_mode").map(String::as_str) {
+        None => None,
+        Some(DIRECTORY_DATASET_MODE) => Some(ShapefilePublishMode::DirectoryDataset),
+        Some(LOOSE_SET_MODE) => Some(ShapefilePublishMode::LooseSet),
+        Some(_) => {
             // Il valore non esce: lo schema dichiara `publish_mode` come
             // `Enumerato`, quindi un valore diverso e' gia' stato respinto da
             // `valida_opzioni` con il suo token. Questo ramo e' difensivo.
@@ -428,16 +450,44 @@ fn publish_mode(path: &Path, opts: &WriteOptions) -> Result<ShapefilePublishMode
             ));
         }
     };
-    if requested != inferred {
-        // Entrambi sono `&'static str` del nostro enum, non testo runtime.
-        return Err(PlenoraIoError::non_supportato_redatto(
+    match (inferred, requested) {
+        (Some(dedotto), None) => Ok(dedotto),
+        (Some(dedotto), Some(chiesto)) if chiesto == dedotto => Ok(dedotto),
+        (None, Some(ShapefilePublishMode::LooseSet)) => Ok(ShapefilePublishMode::LooseSet),
+        (_, Some(chiesto)) => Err(PlenoraIoError::non_supportato_redatto(
+            // Entrambi sono `&'static str` del nostro enum, non testo runtime.
             &PublicMessage::CuratedPair(
                 "publish_mode richiede una destinazione con suffisso",
-                requested.destination_suffix(),
+                chiesto.destination_suffix(),
             ),
-        ));
+        )),
+        (None, None) => Err(opt_in_loose_mancante()),
     }
-    Ok(requested)
+}
+
+/// Il rifiuto che chiede il consenso, e dice che cosa si stava per accettare.
+///
+/// La categoria e' `InvalidConfiguration` e non `Unsupported`, per la regola
+/// dichiarata in [`plenora_io_model::ErrorCategory`]: il prodotto **sa** fare
+/// questa scrittura, e' la richiesta a essere incompleta. Davanti a
+/// `Unsupported` chi automatizza cambia driver o formato, che qui sarebbe la
+/// reazione sbagliata: cio' che serve e' una riga in piu' nella richiesta.
+///
+/// Stesso codice e stessa fase dello scarto di `valida_opzioni`, perche' e' la
+/// stessa specie di rifiuto: un'opzione di scrittura che manca.
+fn opt_in_loose_mancante() -> PlenoraIoError {
+    PlenoraIoError::redatto(
+        plenora_io_model::IoErrorCode::Unsupported,
+        plenora_io_model::ErrorCategory::InvalidConfiguration,
+        plenora_io_model::ErrorPhase::Validate,
+        plenora_io_model::RemoteEffect::None,
+        plenora_io_model::RetryDisposition::Never,
+        &PublicMessage::Curated(
+            "una destinazione .shp pubblica un set di file non crash-atomic: \
+             va accettata con publish_mode=loose_shapefile_set, oppure sostituita \
+             da una destinazione .shp.d, che pubblica con un solo rename atomico",
+        ),
+    )
 }
 
 impl ShapefilePublishMode {
@@ -482,7 +532,7 @@ const SCHEMA_OPZIONI: SchemaOpzioniFormato = SchemaOpzioniFormato::nuovo(&[
         fase: FaseOpzione::Scrittura,
         valore: ValoreAmmesso::Enumerato(&[DIRECTORY_DATASET_MODE, LOOSE_SET_MODE]),
         predefinito: None,
-        descrizione: "forma di pubblicazione; in assenza si deduce dall'estensione",
+        descrizione: "forma di pubblicazione; .shp.d si deduce, .shp va accettata",
     },
     OpzioneFormato {
         chiave: "row_diagnostics.examples_limit",
@@ -4210,6 +4260,17 @@ mod tests {
         }
     }
 
+    /// Opzioni di scrittura che **accettano** il set di file sciolti.
+    ///
+    /// Le prove che pubblicano su `*.shp` la usano al posto di
+    /// `opzioni_scrittura`: da questa revisione una destinazione `*.shp` non
+    /// deduce piu' la forma debole, la pretende dichiarata. Che le prove
+    /// debbano dichiararla e' il segno che il rifiuto funziona -- se potessero
+    /// continuare come prima, non funzionerebbe.
+    fn opzioni_scrittura_loose() -> WriteOptions {
+        opzioni_scrittura().with_format_option("publish_mode", LOOSE_SET_MODE)
+    }
+
     fn opzioni_lettura() -> ReadOptions {
         match plenora_io_model::budget::PipelineBudget::builder().build() {
             Ok(bundle) => ReadOptions::from_read_parts(bundle.into_read_parts()),
@@ -5052,7 +5113,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura_loose())
             .unwrap();
         w.write(&batch).unwrap();
         w.finish().unwrap();
@@ -5104,7 +5165,11 @@ mod tests {
             }],
         };
         let mut writer = ShpDriver
-            .create(Sink::Path(output.clone()), &plan, &opzioni_scrittura())
+            .create(
+                Sink::Path(output.clone()),
+                &plan,
+                &opzioni_scrittura_loose(),
+            )
             .unwrap();
         writer.declare_input_total(LayerId(0), 2).unwrap();
 
@@ -5204,6 +5269,110 @@ mod tests {
         drop(writer);
 
         assert!(!output.exists());
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    /// Il piano minimo delle prove sul publish: una sola colonna geometria.
+    fn piano_di_publish() -> WritePlan {
+        let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+        WritePlan {
+            layers: vec![WriteLayer {
+                name: "points".to_owned(),
+                contract: DataContract {
+                    schema,
+                    geometry: None,
+                },
+            }],
+        }
+    }
+
+    /// Una destinazione `*.shp` non deduce piu' la forma debole: la pretende.
+    ///
+    /// La sonda guarda due cose insieme, e la seconda conta quanto la prima: il
+    /// rifiuto arriva **prima** che qualunque cosa tocchi il disco. Un rifiuto
+    /// che lasciasse dietro di se' uno staging avrebbe gia' fatto il danno che
+    /// esiste per evitare.
+    #[test]
+    fn una_destinazione_shp_senza_opt_in_e_rifiutata_prima_dello_staging() {
+        let root = tempfile::tempdir().unwrap();
+
+        let errore = ShpDriver
+            .create(
+                Sink::Path(root.path().join("points.shp")),
+                &piano_di_publish(),
+                &opzioni_scrittura(),
+            )
+            .map(|_| ())
+            .unwrap_err();
+
+        // `InvalidConfiguration` e non `Unsupported`: il prodotto sa fare questa
+        // scrittura, e' la richiesta a essere incompleta. Chi automatizza deve
+        // aggiungere un'opzione, non cambiare driver.
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::InvalidConfiguration
+        );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Validate);
+        // Il messaggio nomina entrambe le uscite: quella che accetta il rischio
+        // e quella che non lo corre.
+        assert!(errore.message.contains(LOOSE_SET_MODE));
+        assert!(errore.message.contains(".shp.d"));
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    /// Accettata l'opzione, il set sciolto si pubblica come prima.
+    ///
+    /// Il rifiuto e' una domanda, non un divieto: chi risponde ottiene i quattro
+    /// file dove li ha chiesti.
+    #[test]
+    fn una_destinazione_shp_con_opt_in_pubblica_il_set_sciolto() {
+        let root = tempfile::tempdir().unwrap();
+        let uscita = root.path().join("points.shp");
+        let piano = piano_di_publish();
+        let batch = RecordBatch::new_empty(piano.layers[0].contract.schema.clone());
+
+        let mut writer = ShpDriver
+            .create(
+                Sink::Path(uscita.clone()),
+                &piano,
+                &opzioni_scrittura_loose(),
+            )
+            .unwrap();
+        writer.write(&batch).unwrap();
+        writer.finish().unwrap();
+
+        assert!(uscita.is_file());
+        assert!(uscita.with_extension("shx").is_file());
+        assert!(uscita.with_extension("dbf").is_file());
+        // Nessuna directory di staging sopravvive al publish.
+        assert!(std::fs::read_dir(root.path())
+            .unwrap()
+            .all(|voce| voce.unwrap().path().is_file()));
+    }
+
+    /// La contraddizione e' un errore anche nel verso opposto.
+    ///
+    /// Chiedere il set sciolto su una destinazione `*.shp.d` non e' «accettare il
+    /// rischio»: e' descrivere male la destinazione, e vale il rifiuto come il
+    /// verso gia' coperto.
+    #[test]
+    fn il_set_sciolto_chiesto_su_una_directory_dataset_e_rifiutato() {
+        let root = tempfile::tempdir().unwrap();
+
+        let errore = ShpDriver
+            .create(
+                Sink::Path(root.path().join("points.shp.d")),
+                &piano_di_publish(),
+                &opzioni_scrittura_loose(),
+            )
+            .map(|_| ())
+            .unwrap_err();
+
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Unsupported);
+        // Il messaggio nomina il suffisso che il modo **chiesto** pretende, e
+        // deve nominare quello: `contains("*.shp")` da solo sarebbe vero anche
+        // per `*.shp.d`, cioe' non distinguerebbe i due versi del rifiuto.
+        assert!(errore.message.ends_with("*.shp"), "{}", errore.message);
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     }
 
@@ -5310,7 +5479,7 @@ mod tests {
             }],
         };
         let mut w = driver
-            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura_loose())
             .unwrap();
         w.write(&batch).unwrap();
         w.finish().unwrap();
@@ -5399,7 +5568,7 @@ mod tests {
 
         let driver = ShpDriver;
         let mut writer = driver
-            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura())
+            .create(Sink::Path(out.clone()), &plan, &opzioni_scrittura_loose())
             .unwrap();
         writer.write(&batch).unwrap();
         writer.finish().unwrap();

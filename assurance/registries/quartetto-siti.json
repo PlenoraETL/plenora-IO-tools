@@ -322,6 +322,9 @@
       "esplicito/esplicito/Generic/esplicito",
       "esplicito/esplicito/Generic/esplicito"
     ],
+    "opt_in_loose_mancante": [
+      "esplicito/esplicito/Unsupported/esplicito"
+    ],
     "publish_mode": [
       "Unsupported/Validate/Unsupported/Never",
       "Unsupported/Validate/Unsupported/Never",

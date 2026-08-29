@@ -320,50 +320,70 @@ pub fn publish_files_ordered_limited(
         true
     };
 
-    // Finding #10 review 2026-08-15 + follow-up: il loop precedente
-    // lasciava una pubblicazione parziale visibile se un rename intermedio
-    // falliva. Il set loose non e' crash-atomic (per quello esiste
-    // `ShapefileDirectoryDataset`), ma un errore osservabile *durante* il
-    // publish produce un tentativo di rollback: rinominare in ordine
-    // inverso i companion gia' spostati per riportarli allo staging.
-    //
-    // Il contratto pubblico su `FormatWriter::finish` distingue ora due
-    // esiti d'errore per i set loose:
-    // - `RemoteEffect::None`: rollback completo, nessun companion visibile;
-    // - `RemoteEffect::Partial`: rollback fallito su almeno un file, il
-    //   file system puo' contenere companion pubblicati parzialmente.
-    //   Il chiamante deve verificare/pulire manualmente.
+    commit_ordered_renames(files, rollback_rename)?;
+    Ok((
+        bytes,
+        finalize_durability(first_destination, durable, staging_durability_confirmed),
+    ))
+}
+
+/// Il rename di rollback in produzione.
+///
+/// Volutamente **non** no-clobber: rimette il file al proprio staging, che e'
+/// una posizione che nessun altro vede, quindi la simmetrica riporta il file
+/// da dove era partito senza mai sovrascrivere qualcosa «in uso».
+fn rollback_rename(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::rename(from, to)
+}
+
+/// I rename, in ordine, con rollback dei companion gia' spostati.
+///
+/// # Perche' il rollback arriva da un parametro
+///
+/// Il set loose **non e' crash-atomic** — per quello esiste il
+/// directory-dataset — ma un errore osservabile *durante* il publish produce un
+/// tentativo di rollback, e l'esito di quel tentativo cambia cio' che l'errore
+/// dichiara al chiamante:
+///
+/// * `RemoteEffect::None` — rollback completo, nessun companion visibile;
+/// * `RemoteEffect::Partial` con `RetryDisposition::RequiresRecovery` — il
+///   rollback e' fallito su almeno un file: il filesystem **puo'** contenere
+///   companion pubblicati, e una retry cieca non e' sicura.
+///
+/// Il secondo ramo era, fino a questa revisione, provato soltanto su un errore
+/// sintetico: la sonda costruiva un `PlenoraIoError` e gli applicava
+/// `with_effect`, cioe' verificava che `with_effect` faccia il proprio lavoro —
+/// non che questo ciclo lo chiami, non che lo chiami nel caso giusto, e
+/// soprattutto non che l'affermazione «puo' restare visibile» sia **vera**. Un
+/// rollback che fallisce non si ottiene da un filesystem reale con i permessi:
+/// avanti e indietro attraversano le stesse due directory, quindi togliere il
+/// diritto al ritorno lo toglie anche all'andata.
+///
+/// Il parametro e' il seam minimo che rende quel ramo osservabile per intero,
+/// destinazione rimasta sul disco compresa. La produzione passa sempre
+/// [`rollback_rename`].
+fn commit_ordered_renames(
+    files: &[(PathBuf, PathBuf)],
+    rollback: fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<()> {
     let mut committed: Vec<(&PathBuf, &PathBuf)> = Vec::with_capacity(files.len());
     for (source, destination) in files {
         if let Err(error) = rename_noclobber(source, destination) {
             let mut rollback_failed = false;
             for (committed_source, committed_destination) in committed.iter().rev() {
-                // Rollback best-effort: `std::fs::rename` NON e' no-clobber,
-                // ma qui rimettiamo il file al proprio staging (una
-                // destinazione che non e' visibile ad altri), quindi la
-                // simmetrica torna il file alla posizione da cui e'
-                // partito senza mai sovrascrivere un file "in uso".
-                if std::fs::rename(*committed_destination, *committed_source).is_err() {
+                if rollback(committed_destination, committed_source).is_err() {
                     rollback_failed = true;
                 }
             }
-            let error = if rollback_failed {
-                // Se anche il rollback fallisce, l'errore reso al chiamante
-                // dichiara esplicitamente che il file system puo' contenere
-                // un dataset parziale. `RequiresRecovery` segnala che una
-                // retry cieca non e' sicura senza una pulizia manuale.
+            return Err(if rollback_failed {
                 error.with_effect(RemoteEffect::Partial, RetryDisposition::RequiresRecovery)
             } else {
                 error
-            };
-            return Err(error);
+            });
         }
         committed.push((source, destination));
     }
-    Ok((
-        bytes,
-        finalize_durability(first_destination, durable, staging_durability_confirmed),
-    ))
+    Ok(())
 }
 
 fn destination_parent(dest: &Path) -> &Path {
@@ -785,19 +805,19 @@ mod tests {
         assert!(!root.path().join("data.shp").exists());
     }
 
+    /// Una destinazione occupata **prima** del preflight non arriva ai rename.
+    ///
+    /// Il nome precedente di questa sonda — «error after first rename rolls
+    /// back» — descriveva un caso che il corpo non produceva: il preflight
+    /// falliva, quindi nessun rename avveniva e nessun rollback veniva
+    /// esercitato. La proprieta' che il corpo prova e' vera e vale la pena
+    /// tenerla, ma e' un'altra: l'ordine preflight → ciclo fa si' che un
+    /// `OutputExists` sul secondo file lasci lo staging intatto.
+    ///
+    /// Il caso che il vecchio nome prometteva e' provato dalle due sonde qui
+    /// sotto, che i rename li fanno davvero.
     #[test]
-    fn loose_set_error_after_first_rename_rolls_back_and_reports_none() {
-        // Finding #10 follow-up review 2026-08-15: quando il rollback
-        // best-effort riesce completamente, la destinazione non contiene
-        // alcun companion e l'errore reso al chiamante conserva
-        // `RemoteEffect::None` (nessuna destinazione visibile).
-        //
-        // Scenario deterministico: il primo rename ha successo, il
-        // secondo fallisce perche' la destinazione viene occupata da
-        // un'altra scrittura fra il preflight e il rename. Simuliamo il
-        // fallimento del secondo rename creando una directory al posto
-        // del file di destinazione dopo il preflight, tramite un
-        // helper che modifica l'ordine dei file.
+    fn loose_set_occupied_destination_fails_before_any_rename() {
         let root = tempfile::tempdir().unwrap();
         let staging = tempfile::Builder::new().tempdir_in(root.path()).unwrap();
         let source_dbf = staging.path().join("data.dbf");
@@ -837,25 +857,95 @@ mod tests {
         );
     }
 
+    /// Un set loose con due file diretti alla **stessa** destinazione.
+    ///
+    /// E' il modo per far fallire un rename *intermedio* su un filesystem vero,
+    /// senza finestre di corsa: il preflight vede la destinazione libera due
+    /// volte — perche' libera lo e' davvero, in quel momento — e il ciclo la
+    /// occupa al primo rename. Il secondo trova un `renameat` no-clobber che
+    /// rifiuta, ed e' il rifiuto che la produzione incontrerebbe se qualcuno
+    /// scrivesse quel nome fra preflight e publish.
+    fn set_con_destinazione_duplicata(
+        staging: &Path,
+        destinazione: &Path,
+    ) -> Vec<(PathBuf, PathBuf)> {
+        let primo = staging.join("data.dbf");
+        let secondo = staging.join("data.shp");
+        std::fs::write(&primo, b"dbf").unwrap();
+        std::fs::write(&secondo, b"shape").unwrap();
+        let unica = destinazione.join("dataset.dbf");
+        vec![(primo, unica.clone()), (secondo, unica)]
+    }
+
+    /// Il rollback che non riesce mai.
+    ///
+    /// Sostituisce cio' che nessun permesso di filesystem sa produrre: andata e
+    /// ritorno attraversano le stesse due directory, quindi togliere il diritto
+    /// al ritorno lo toglie anche all'andata, e il rename intermedio non
+    /// avverrebbe.
+    fn rollback_impossibile(_: &Path, _: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+    }
+
+    /// Rollback riuscito: il rename intermedio fallisce, niente resta visibile.
     #[test]
-    fn loose_set_rollback_failure_reports_partial_effect() {
-        // Finding #10 follow-up review 2026-08-15: quando il rollback
-        // best-effort fallisce (per esempio perche' il rename inverso
-        // non e' consentito), l'errore reso al chiamante deve dichiarare
-        // `RemoteEffect::Partial` e `RetryDisposition::RequiresRecovery`.
-        //
-        // Test unitario sul comportamento pubblico dell'errore: la
-        // catena di escalation `with_effect` e' l'unica via da cui il
-        // loop di publish trasforma un errore di rollback in un
-        // `RemoteEffect::Partial`. Un test end-to-end del filesystem
-        // richiederebbe un mock capace di rifiutare selettivamente
-        // solo rename simmetrici; non presente in questo repository.
-        use plenora_io_model::{IoErrorCode, PlenoraIoError};
-        let base = PlenoraIoError::Io(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
-        let escalated = base.with_effect(RemoteEffect::Partial, RetryDisposition::RequiresRecovery);
-        assert_eq!(escalated.remote_effect, RemoteEffect::Partial);
-        assert_eq!(escalated.retry, RetryDisposition::RequiresRecovery);
-        assert_eq!(escalated.code, IoErrorCode::Io);
+    fn loose_set_intermediate_rename_failure_rolls_back_and_reports_none() {
+        let root = tempfile::tempdir().unwrap();
+        let staging = tempfile::Builder::new().tempdir_in(root.path()).unwrap();
+        let files = set_con_destinazione_duplicata(staging.path(), root.path());
+        let destinazione = files[0].1.clone();
+
+        let error = publish_files_ordered_limited(&files, false, u64::MAX)
+            .expect_err("il secondo rename deve trovare la destinazione occupata");
+
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+        // Le tre affermazioni che rendono vero `RemoteEffect::None`: nessuna
+        // destinazione visibile, ed entrambi i sorgenti tornati allo staging.
+        assert_eq!(error.remote_effect, RemoteEffect::None);
+        assert_eq!(error.retry, RetryDisposition::Never);
+        assert!(
+            !destinazione.exists(),
+            "il rollback non ha tolto la destinazione gia' pubblicata"
+        );
+        assert!(
+            files[0].0.exists(),
+            "il primo file non e' tornato in staging"
+        );
+        assert!(
+            files[1].0.exists(),
+            "il secondo file non deve essere partito"
+        );
+    }
+
+    /// Rollback fallito: l'errore dichiara `Partial`, e la dichiarazione e'
+    /// vera.
+    ///
+    /// L'asserzione che conta e' l'ultima: la destinazione **e' rimasta sul
+    /// disco**. Senza di essa la sonda direbbe soltanto che `with_effect` scrive
+    /// due campi, che e' cio' che la versione precedente verificava — e un
+    /// `RemoteEffect::Partial` dichiarato su un filesystem pulito sarebbe un
+    /// allarme falso, cioe' il difetto opposto e altrettanto grave.
+    #[test]
+    fn loose_set_rollback_failure_reports_partial_and_leaves_the_destination() {
+        let root = tempfile::tempdir().unwrap();
+        let staging = tempfile::Builder::new().tempdir_in(root.path()).unwrap();
+        let files = set_con_destinazione_duplicata(staging.path(), root.path());
+        let destinazione = files[0].1.clone();
+
+        let error = commit_ordered_renames(&files, rollback_impossibile)
+            .expect_err("il secondo rename deve trovare la destinazione occupata");
+
+        assert_eq!(error.code, plenora_io_model::IoErrorCode::OutputExists);
+        assert_eq!(error.remote_effect, RemoteEffect::Partial);
+        assert_eq!(error.retry, RetryDisposition::RequiresRecovery);
+        assert!(
+            destinazione.exists(),
+            "l'errore dichiara Partial ma il disco e' pulito: la dichiarazione sarebbe falsa"
+        );
+        assert!(
+            !files[0].0.exists(),
+            "il primo file e' ancora in staging: non c'e' niente di parziale da dichiarare"
+        );
     }
 
     #[test]

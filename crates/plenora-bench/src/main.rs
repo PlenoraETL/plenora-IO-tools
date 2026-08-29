@@ -303,6 +303,24 @@ fn opzioni_scrittura() -> WriteOptions {
     }
 }
 
+/// Opzioni di scrittura per un driver specifico.
+///
+/// Serve a uno solo, e per una ragione che vale la pena scrivere: da quando una
+/// destinazione `*.shp` non deduce piu' il set di file sciolti, il benchmark
+/// deve **dichiararlo**. Continua a misurare la forma sciolta, non il
+/// directory-dataset, perche' i numeri servono a essere confrontati con quelli
+/// delle corse precedenti: cambiare la forma di publish cambierebbe cio' che si
+/// misura, e i due insiemi di numeri smetterebbero di parlare della stessa cosa
+/// senza che nulla lo dica.
+fn write_opts(id: &str) -> WriteOptions {
+    let opzioni = opzioni_scrittura();
+    if id == "shp" {
+        opzioni.with_format_option("publish_mode", "loose_shapefile_set")
+    } else {
+        opzioni
+    }
+}
+
 /// Opzioni di lettura sul modello unificato (S4.d).
 fn opzioni_lettura() -> ReadOptions {
     match plenora_io_model::budget::PipelineBudget::builder().build() {
@@ -340,7 +358,7 @@ fn feed_write(
         }],
     };
     let mut w = driver
-        .create(Sink::Path(path.to_owned()), &plan, &opzioni_scrittura())
+        .create(Sink::Path(path.to_owned()), &plan, &write_opts(id))
         .unwrap();
     let mut start = 0;
     let mut batches = 0;

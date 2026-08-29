@@ -142,13 +142,23 @@ Il **capability-check** è fail-closed: ciò che il formato non dichiara di sape
 scrivere viene rifiutato. I driver possono aggiungere vincoli propri, mai
 rimuoverne.
 
-Il **publish** è atomico in tre forme, secondo il formato: file singolo
-(rename), multi-file (tutti visibili insieme o nessuno), multi-layer. Con
-`--durable` il publish esegue `fsync` prima del rename, e l'esito di durabilità
-è riportato: un `fsync` fallito **dopo** il rename è un caso distinto da un
-publish non avvenuto, e il chiamante deve poterli separare.
+Il **publish** ha tre forme, e **due sole** sono crash-atomic: il rename di un
+file singolo e il rename di una directory-dataset. La terza — il set di file
+sciolti dello Shapefile, `*.shp` più companion — non lo è e non può esserlo,
+perché quattro file separati non diventano visibili in un atto solo. Il
+contratto di quella forma, l'opt-in che la richiede e la procedura di recovery
+stanno in [PRODUCT.md § Publish](PRODUCT.md#publish-che-cosa-diventa-visibile-e-quando).
 
-Una scrittura rifiutata non lascia una destinazione.
+Con `--durable` il publish esegue `fsync` prima del rename, e l'esito di
+durabilità è riportato: un `fsync` fallito **dopo** il rename è un caso distinto
+da un publish non avvenuto, e il chiamante deve poterli separare.
+
+Una scrittura rifiutata non lascia una destinazione, **tranne** nel set sciolto
+con rollback fallito: lì l'errore dichiara `RemoteEffect::Partial` e
+`RetryDisposition::RequiresRecovery`, ed è l'unico posto del componente dove un
+errore ammette che il filesystem possa essere rimasto sporco. Ammetterlo è la
+ragione per cui quei due campi esistono: un errore che tacesse sarebbe peggiore
+del set sciolto stesso.
 
 ## Difese sui formati ostili
 

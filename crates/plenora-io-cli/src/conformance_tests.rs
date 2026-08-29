@@ -788,13 +788,21 @@ fn field_type_and_limit_matrix_is_enforced() {
     assert!(rejected_types_checked >= 1);
 }
 
+/// L'estensione con cui la conformanza scrive ciascun driver.
+///
+/// Per lo Shapefile e' `shp.d`, cioe' il **directory-dataset**, e non la forma
+/// sciolta. Non e' una comodita' per far passare la suite: e' il profilo
+/// raccomandato in produzione — un rename solo, crash-atomic — ed e' quello che
+/// una suite di conformanza deve esercitare. La forma sciolta ha le proprie
+/// prove in `driver-shp`, dove l'opt-in che ora la richiede e' dichiarato per
+/// esteso.
 fn extension(driver: &str) -> &'static str {
     match driver {
         "geoparquet" => "parquet",
         "geojson" => "geojson",
         "csv" => "csv",
         "gpkg" => "gpkg",
-        "shp" => "shp",
+        "shp" => "shp.d",
         "kml" => "kml",
         "xls" => "xlsx",
         "dxf" => "dxf",
