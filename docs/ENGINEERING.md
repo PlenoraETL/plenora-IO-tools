@@ -97,8 +97,25 @@ spool.
 ### Spool e memoria
 
 Il buffering è adattivo: memoria finché il budget lo consente, poi un file
-temporaneo. La soglia è `memory_bytes`, e lo spool è **bounded** — superarlo è
+temporaneo. Lo spool è **bounded** — superare la quota di spill è
 `ResourceLimit`, non una scrittura senza fine.
+
+La soglia di migrazione **non è `memory_bytes`**: è la metà della capacità di
+memoria *effettiva*, cioè metà del minimo fra la quota locale della pipeline e
+quella del pool condiviso quando un pool c'è. L'altra metà resta al batch che il
+reader sta materializzando: con la soglia al 100% il buffer potrebbe consumare
+l'intera quota e far fallire la materializzazione del batch successivo, cioè
+rendere lo spool inutile proprio nel caso che deve risolvere. Derivarla dalla
+capacità effettiva e non dal solo limite locale ha la stessa ragione: con un pool
+più stretto, metà del limite locale sarebbe irraggiungibile e la migrazione non
+scatterebbe mai.
+
+Ne segue un vincolo che chi stringe `--memory-bytes` incontra: la quota deve
+restare **oltre il doppio** di un batch materializzato, il cui target di default
+è 8 MiB. Sotto quel valore il buffer sotto soglia e il batch in arrivo non ci
+stanno insieme, e l'operazione si ferma con `LIMIT_EXCEEDED` — «batch
+materializzato oltre la quota prenotata». È un rifiuto corretto, e non dice
+niente sul buffering.
 
 Il file temporaneo **non ha nome**. È creato con `tempfile::tempfile_in`, cioè
 scollegato dal filesystem appena aperto su Unix e con `FILE_FLAG_DELETE_ON_CLOSE`

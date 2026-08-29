@@ -299,7 +299,9 @@ volte.
 | `max_rows`, `max_columns` | cardinalità del contratto e dello stream |
 | `max_input_bytes`, `max_input_entries` | il footprint della sorgente, prima di aprirla |
 | `max_output_bytes` | la destinazione |
-| `memory_bytes` | la soglia oltre cui il buffering passa dalla memoria allo spool |
+| `memory_bytes` | la memoria della pipeline. **Non** è la soglia dello spool: quella è la metà della capacità effettiva, e l'altra metà resta al batch in materializzazione |
+| `spill_bytes` | i byte che lo spool può scrivere sul file temporaneo |
+| `duration_ms` | la deadline dell'operazione, dalla costruzione del budget |
 | `max_wkb_cell_bytes`, `max_wkb_components`, `max_wkb_depth` | ogni geometria, in lettura e in scrittura |
 | `decompression_ratio` | il rapporto fra byte dichiarati e byte compressi negli archivi |
 
