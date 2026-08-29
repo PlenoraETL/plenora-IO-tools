@@ -34,7 +34,7 @@ const ESTENSIONI_AMMESSE: &str =
     "parquet, geojson, csv, gpkg, shp, kml, xlsx, xls, dxf, gdb, arrow";
 
 /// I flag che la CLI riconosce. Stessa ragione.
-const OPZIONI_AMMESSE: &str = "--assume-crs, --durable, --in-opt, --layer, --limit,      --max-columns, --max-input-bytes, --max-input-entries, --max-output-bytes,      --max-rows, --max-vertices, --max-wkb-cell-bytes, --max-wkb-components,      --max-wkb-depth, --memory-bytes, --opt, --out-opt, --version";
+const OPZIONI_AMMESSE: &str = "--assume-crs, --deadline-ms, --durable, --in-opt, --layer,      --limit, --max-columns, --max-input-bytes, --max-input-entries,      --max-output-bytes, --max-rows, --max-vertices, --max-wkb-cell-bytes,      --max-wkb-components, --max-wkb-depth, --memory-bytes, --opt, --out-opt,      --version";
 
 #[allow(clippy::cast_possible_truncation)]
 const fn saturating_u64(value: usize) -> u64 {
@@ -286,6 +286,14 @@ struct Cli {
     /// tardi. Il tipo intermedio non serviva a nulla se non a tenere in vita
     /// il modello vecchio nel punto piu' visibile del componente.
     limits: PipelineLimits,
+    /// Il token che il gestore dei segnali arma.
+    ///
+    /// `parse` ne mette uno **nuovo e non armato**: un token e' un canale, e
+    /// fabbricarlo qui non lega niente a niente. Chi lo lega e' `run`, che
+    /// sostituisce quello del processo dopo il parsing. Un test che chiama
+    /// `parse` ottiene percio' un token isolato, e non puo' annullare per
+    /// sbaglio l'operazione di un altro test.
+    cancellazione: CancellationToken,
 }
 
 fn kv(s: &str) -> Result<(String, String), (i32, Value)> {
@@ -350,6 +358,14 @@ fn limite_da_flag<'a>(
     it: &mut impl Iterator<Item = &'a String>,
 ) -> Result<Option<PipelineLimits>, (i32, Value)> {
     let aggiornati = match flag {
+        // La deadline della pipeline, finora fissata a 30 000 ms nel modello e
+        // non raggiungibile da riga di comando. Sta con le altre quote perche'
+        // e' una quota: governa il tempo come `--max-rows` governa le righe, e
+        // condivide la disciplina fail-closed del gruppo — lo zero lo rifiuta
+        // `PipelineLimits::validate`, un valore che sposta la scadenza oltre
+        // cio' che `Instant` rappresenta lo rifiuta `build`. Nessuno dei due
+        // degrada al default.
+        "--deadline-ms" => limiti.with_duration_ms(parse_u64(it.next(), "--deadline-ms")?),
         "--max-input-bytes" => {
             limiti.with_max_input_bytes(parse_u64(it.next(), "--max-input-bytes")?)
         }
@@ -496,7 +512,10 @@ fn layer_json(l: &LayerContract) -> Value {
 /// modello: in entrambi i casi si fallisce chiuso invece di degradare a un
 /// default che l'utente non ha chiesto.
 fn read_pipeline(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
-    let bundle = PipelineBudget::builder().limits(cli.limits).build()?;
+    let bundle = PipelineBudget::builder()
+        .limits(cli.limits)
+        .cancellation(cli.cancellazione.clone())
+        .build()?;
     Ok(ReadOptions::from_read_parts(bundle.into_read_parts()))
 }
 
@@ -517,7 +536,10 @@ fn read_pipeline(cli: &Cli) -> Result<ReadOptions, PlenoraIoError> {
 /// Un flag fuori intervallo, o limiti che non superano la validazione del
 /// modello.
 fn convert_pipeline(cli: &Cli) -> Result<(ReadOptions, WriteOptions), PlenoraIoError> {
-    let bundle = PipelineBudget::builder().limits(cli.limits).build()?;
+    let bundle = PipelineBudget::builder()
+        .limits(cli.limits)
+        .cancellation(cli.cancellazione.clone())
+        .build()?;
     let (read, write) = bundle.into_convert_parts().into_parts();
     Ok((
         ReadOptions::from_read_parts(read),
@@ -665,7 +687,13 @@ fn cmd_layers(cli: &Cli) -> CliResult {
     }))
 }
 
-fn read_request(layer_id: u32, scope: ReadScope) -> ReadRequest {
+/// La richiesta di lettura, con **il** token del processo e non uno nuovo.
+///
+/// Il campo portava `CancellationToken::default()`, cioe' un token fresco per
+/// ogni richiesta: sintatticamente valido e semanticamente inerte, perche'
+/// nessuno poteva annullarlo. Il reader interrogava un canale che non aveva un
+/// altro capo.
+fn read_request(cli: &Cli, layer_id: u32, scope: ReadScope) -> ReadRequest {
     ReadRequest {
         layer: plenora_io_model::contract::LayerId(layer_id),
         projected_fields: None,
@@ -674,7 +702,7 @@ fn read_request(layer_id: u32, scope: ReadScope) -> ReadRequest {
         spatial_pruning_hint: None,
         scope,
         batch_target: BatchTarget::default(),
-        cancellation: CancellationToken::default(),
+        cancellation: cli.cancellazione.clone(),
     }
 }
 
@@ -706,6 +734,7 @@ fn cmd_read(cli: &Cli) -> CliResult {
         .clone();
     let mut reader = ds
         .open_layer_reader(&read_request(
+            cli,
             layer_id,
             cli.limit.map_or(ReadScope::Complete, |limit| {
                 ReadScope::AcceptedRows(limit as u64)
@@ -906,7 +935,7 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     let mut read_loss = LossReport::default();
     for (sink_idx, l) in selected.iter().enumerate() {
         let mut reader = ds
-            .open_layer_reader(&read_request(l.id.0, ReadScope::Complete))
+            .open_layer_reader(&read_request(cli, l.id.0, ReadScope::Complete))
             .map_err(map_err)?;
         let sink_layer =
             plenora_io_model::contract::LayerId(u32::try_from(sink_idx).map_err(|_| {
@@ -967,6 +996,83 @@ fn cmd_convert(cli: &Cli) -> CliResult {
     }))
 }
 
+/// L'exit code di un'operazione annullata: `128 + SIGINT`, come la shell si
+/// aspetta. E' lo stesso che `map_err` assegna alla categoria `Cancelled`, e
+/// resta lo stesso quando a uscire e' il secondo segnale invece della pipeline.
+const EXIT_ANNULLATO: i32 = 130;
+
+/// L'avviso quando la cancellazione non si puo' armare.
+///
+/// Non e' un errore fatale, e la scelta merita una riga. Un gestore che non si
+/// installa non rende sbagliato nulla di cio' che il comando produce: toglie
+/// soltanto la possibilita' di fermarlo con grazia, e con essa la pulizia dello
+/// staging su Ctrl+C. Rifiutare di lavorare per questo renderebbe la CLI
+/// inutilizzabile dove i segnali non sono disponibili, che e' un danno certo
+/// contro un rischio che riguarda una directory temporanea. Tacere invece
+/// lascerebbe credere a una garanzia che non c'e'.
+const AVVISO_SEGNALI: &str =
+    "avviso: gestore dei segnali non installato; Ctrl+C termina il processo senza \
+     annullare l'operazione, e lo staging in corso resta sul disco.";
+
+/// Arma il token del processo al primo segnale, esce al secondo.
+///
+/// # La cancellazione e' cooperativa
+///
+/// Il token non interrompe niente: lo si osserva. La pipeline lo controlla ai
+/// propri punti di verifica — fra un batch e il successivo, prima di ogni
+/// scrittura, all'ingresso di ogni operazione — e da li' ritorna un errore
+/// tipizzato che il consumatore vede come `CANCELLED`. Fra due punti di
+/// verifica passa il tempo che passa.
+///
+/// Cio' che questo garantisce e cio' che non garantisce va detto insieme:
+///
+/// * **garantito** — il ritorno ordinato fa cadere lo staging e lo spool, che
+///   sono `TempDir` e descrittori scollegati: si liberano con lo stack, in
+///   errore come in successo, e la destinazione non viene pubblicata;
+/// * **non garantito** — l'istante. Dentro una chiamata nativa che non torna —
+///   una `OGR_*` di GDAL sul percorso `FileGDB` e' l'esempio vero — il token
+///   non viene guardato da nessuno, e nessun codice in spazio utente puo'
+///   farlo guardare senza abbandonare la libreria a meta'.
+///
+/// Il **secondo** segnale esiste per quel caso: chi lo manda ha gia' chiesto e
+/// sta dicendo che non aspetta oltre. Il processo esce subito, e cio' che lo
+/// staging aveva in corso resta dov'e'. E' la stessa cosa che farebbe la
+/// disposizione predefinita di `SIGINT`, dichiarata invece che subita.
+fn installa_gestore_dei_segnali() -> CancellationToken {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let token = CancellationToken::new();
+    let armato = token.clone();
+    let gia_chiesto = std::sync::Arc::new(AtomicBool::new(false));
+    // `ctrlc` non esegue il gestore **dentro** il contesto del segnale: il
+    // gestore del sistema si limita a svegliare un thread dedicato, che poi
+    // chiama questa chiusura. E' cio' che rende lecito prendere un lock qui —
+    // `cancel` ne prende due — dove un gestore vero ammetterebbe solo funzioni
+    // async-signal-safe.
+    if ctrlc::set_handler(move || {
+        if gia_chiesto.swap(true, Ordering::SeqCst) {
+            std::process::exit(EXIT_ANNULLATO);
+        }
+        armato.cancel();
+    })
+    .is_err()
+    {
+        eprintln!("{AVVISO_SEGNALI}");
+    }
+    token
+}
+
+/// `parse`, piu' il legame con il token del processo.
+///
+/// Sta separata da `parse` perche' `parse` e' la funzione che le sonde
+/// esercitano, e non deve dipendere da uno stato di processo per essere
+/// verificabile.
+fn parse_legato(args: &[String], cancellazione: &CancellationToken) -> Result<Cli, (i32, Value)> {
+    let mut cli = parse(args)?;
+    cli.cancellazione = cancellazione.clone();
+    Ok(cli)
+}
+
 fn run() -> CliResult {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // L'avviso esce **su stderr**, e una volta sola, prima di qualunque busta.
@@ -977,16 +1083,20 @@ fn run() -> CliResult {
             eprintln!("{avviso}");
         }
     }
+    // Il gestore si installa **prima** del dispatch, non dentro il comando: un
+    // Ctrl+C battuto mentre la sorgente si apre deve trovare il token gia'
+    // armato.
+    let cancellazione = installa_gestore_dei_segnali();
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => Ok(json!({
             "status": "ok",
             "version": env!("CARGO_PKG_VERSION"),
         })),
         Some("catalog") => cmd_catalog(Protocollo::default()),
-        Some("inspect") => cmd_inspect(&parse(&args[1..])?),
-        Some("layers") => cmd_layers(&parse(&args[1..])?),
-        Some("read") => cmd_read(&parse(&args[1..])?),
-        Some("convert") => cmd_convert(&parse(&args[1..])?),
+        Some("inspect") => cmd_inspect(&parse_legato(&args[1..], &cancellazione)?),
+        Some("layers") => cmd_layers(&parse_legato(&args[1..], &cancellazione)?),
+        Some("read") => cmd_read(&parse_legato(&args[1..], &cancellazione)?),
+        Some("convert") => cmd_convert(&parse_legato(&args[1..], &cancellazione)?),
         _ => Err(usage_err(&PublicMessage::Curated(
             "uso: plenora-io <catalog|inspect|layers|read|convert> [args] | --version",
         ))),
@@ -1248,6 +1358,131 @@ mod tests {
             .limits(cli.limits)
             .build()
             .is_err());
+    }
+
+    #[test]
+    fn deadline_ms_ha_un_default_e_un_flag_che_lo_cambia() {
+        // Il default e' quello che il modello applicava gia': il flag rende
+        // raggiungibile un valore che c'era, non ne introduce uno nuovo.
+        let senza = parse(&["read".to_owned(), "x".to_owned()]).expect("flag validi");
+        assert_eq!(
+            senza.limits.duration_ms(),
+            PipelineLimits::default().duration_ms()
+        );
+        assert_eq!(senza.limits.duration_ms(), 30_000);
+
+        let con = parse(&[
+            "read".to_owned(),
+            "x".to_owned(),
+            "--deadline-ms".to_owned(),
+            "1500".to_owned(),
+        ])
+        .expect("flag validi");
+        assert_eq!(con.limits.duration_ms(), 1_500);
+        // La deadline non tocca le altre quote.
+        assert_eq!(
+            con.limits.memory_bytes(),
+            PipelineLimits::default().memory_bytes()
+        );
+    }
+
+    #[test]
+    fn deadline_ms_rifiuta_zero_e_valori_non_rappresentabili() {
+        for grezzo in ["0x10", "-1", "1.5", "18446744073709551616", ""] {
+            assert!(
+                parse(&[
+                    "read".to_owned(),
+                    "x".to_owned(),
+                    "--deadline-ms".to_owned(),
+                    grezzo.to_owned(),
+                ])
+                .is_err(),
+                "'{grezzo}' doveva essere rifiutato dal parser"
+            );
+        }
+        // Valore mancante.
+        assert!(parse(&[
+            "read".to_owned(),
+            "x".to_owned(),
+            "--deadline-ms".to_owned(),
+        ])
+        .is_err());
+        // Lo zero passa dal parser e lo rifiuta il modello, come le altre
+        // quote: e' li' che vive la regola, non nella CLI.
+        let zero = parse(&[
+            "read".to_owned(),
+            "x".to_owned(),
+            "--deadline-ms".to_owned(),
+            "0".to_owned(),
+        ])
+        .expect("il parser accetta lo zero");
+        assert!(PipelineBudget::builder()
+            .limits(zero.limits)
+            .build()
+            .is_err());
+        // Una deadline enorme non si avvolge. `build` somma i millisecondi a
+        // `Instant::now()` con `checked_add` e fallisce chiuso se la scadenza
+        // non e' rappresentabile; se invece la piattaforma la rappresenta --
+        // ed e' il caso di Linux con `u64::MAX`, che sono centinaia di milioni
+        // di anni -- l'operazione deve risultare **attiva**, non gia' scaduta.
+        //
+        // La sonda accetta entrambi gli esiti perche' entrambi sono corretti e
+        // quale si presenti dipende dalla piattaforma. Cio' che non accetta e'
+        // il terzo: una scadenza avvolta all'indietro, che farebbe fallire
+        // subito un'operazione a cui e' stato concesso il tempo massimo.
+        let enorme = parse(&[
+            "read".to_owned(),
+            "x".to_owned(),
+            "--deadline-ms".to_owned(),
+            u64::MAX.to_string(),
+        ])
+        .expect("il parser accetta il valore");
+        if let Ok(bundle) = PipelineBudget::builder().limits(enorme.limits).build() {
+            let opzioni = ReadOptions::from_read_parts(bundle.into_read_parts());
+            assert!(
+                opzioni.budget().context().ensure_active().is_ok(),
+                "la deadline massima si e' avvolta in una scadenza gia' passata"
+            );
+        }
+    }
+
+    /// Il token che la CLI passa alla pipeline e' **quello** del processo.
+    ///
+    /// Prima la `ReadRequest` portava `CancellationToken::default()`, cioe' un
+    /// token nuovo per ogni richiesta: nessuno poteva annullarlo, e il reader
+    /// interrogava un canale senza l'altro capo. La sonda confronta l'effetto,
+    /// non l'identita': annullare il token legato al `Cli` deve rendere
+    /// annullata la richiesta che ne nasce.
+    #[test]
+    fn la_richiesta_di_lettura_porta_il_token_legato_al_comando() {
+        let mut cli = parse(&["read".to_owned(), "x".to_owned()]).expect("flag validi");
+        let token = CancellationToken::new();
+        cli.cancellazione = token.clone();
+
+        let richiesta = read_request(&cli, 0, ReadScope::Complete);
+        assert!(!richiesta.cancellation.is_cancelled());
+
+        token.cancel();
+        assert!(
+            richiesta.cancellation.is_cancelled(),
+            "la richiesta porta un token scollegato da quello del comando"
+        );
+    }
+
+    /// E lo stesso token arriva al `PipelineContext` dei due rami.
+    #[test]
+    fn i_due_rami_di_convert_osservano_lo_stesso_token() {
+        let mut cli = parse(&["convert".to_owned()]).expect("flag validi");
+        let token = CancellationToken::new();
+        cli.cancellazione = token.clone();
+
+        let (ropts, wopts) = convert_pipeline(&cli).expect("pipeline costruita");
+        assert!(ropts.budget().context().ensure_active().is_ok());
+        assert!(wopts.budget().context().ensure_active().is_ok());
+
+        token.cancel();
+        assert!(ropts.budget().context().ensure_active().is_err());
+        assert!(wopts.budget().context().ensure_active().is_err());
     }
 
     #[test]

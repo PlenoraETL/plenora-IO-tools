@@ -72,7 +72,7 @@
       "misura": "assurance/profondita-fuzz-filegdb.json",
       "requisiti_di_profondita": 12,
       "confine_asan": "assurance/asan-filegdb.json",
-      "contatori_di_copertura": 170205,
+      "contatori_di_copertura": 174275,
       "file_sorgente_gdal_strumentati": 0,
       "nota": "lo spike ammetteva due esiti e l'esito e' il primo: il target esiste e attraversa il percorso vero. Il limite e' misurato sulla **libreria**, non dedotto dai contatori:  non porta un solo simbolo del runtime del sanitizer, quindi non e' strumentata. Ne segue che AddressSanitizer non verifica gli accessi dentro GDAL -- il controllo lo inserisce il compilatore, e codice non strumentato non consulta la shadow memory -- e restano osservabili solo gli errori dell'allocatore, quelli dentro le funzioni intercettate e i crash ordinari. Il fuzzer, separatamente, non ha feedback oltre il confine: un solo modulo porta contatori.",
       "simboli_asan_nella_libreria": 0

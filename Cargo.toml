@@ -41,6 +41,18 @@ serde_json = "=1.0.151"
 jsonschema = { version = "=0.51.0", default-features = false }
 base64 = "=0.22.1"
 tempfile = "=3.27.0"
+# L'unico modo di collegare Ctrl+C al `CancellationToken` senza `unsafe`, che
+# il workspace **vieta** (`unsafe_code = "forbid"`, non `deny`: nemmeno un
+# `#[allow]` mirato lo riaprirebbe). Installare un gestore di segnale richiede
+# `libc::signal` o l'equivalente Windows, cioe' codice unsafe che qui non puo'
+# esistere; `ctrlc` lo incapsula e copre entrambe le piattaforme -- `SIGINT` su
+# Unix, `SetConsoleCtrlHandler` su Windows -- dietro una sola API sicura.
+#
+# Conta anche **come** lo fa: il gestore del sistema si limita a svegliare un
+# thread dedicato, che poi chiama la nostra chiusura. E' cio' che rende lecito
+# prendere un lock nel gestore, dove un handler vero ammetterebbe solo funzioni
+# async-signal-safe.
+ctrlc = "=3.5.0"
 libc = "=0.2.189"
 rustix = { version = "=1.1.4", features = ["fs"] }
 atomicwrites = "=0.4.4"

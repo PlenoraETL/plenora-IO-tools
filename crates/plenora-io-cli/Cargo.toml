@@ -26,6 +26,7 @@ driver-dxf = { path = "../driver-dxf" }
 driver-filegdb = { path = "../driver-filegdb" }
 driver-ipc = { path = "../driver-ipc" }
 serde_json.workspace = true
+ctrlc.workspace = true
 
 [features]
 # Abilita il tier GDB (FileGDB via GDAL) nel binario.
