@@ -206,7 +206,37 @@ fn una_deadline_non_intera_e_un_errore_d_uso() {
 mod segnale {
     use super::{ambiente, busta, comando_convert, EXIT_ANNULLATO, RIGHE_SEGNALE};
     use std::path::Path;
-    use std::process::Command;
+    use std::process::{Child, Command};
+
+    /// Quanto si aspetta che lo staging compaia.
+    ///
+    /// Sessanta secondi, e non sei come nella prima stesura. Il numero non
+    /// descrive quanto ci mette il figlio a creare lo staging -- sono
+    /// millisecondi su una macchina ferma -- ma quanto puo' metterci su una
+    /// **carica**: dentro lo stesso binario di test girano in parallelo altre
+    /// quattro prove che convertono, e la corsa di livello 2 aggiunge la suite
+    /// intera. La prima stesura e' passata in isolamento ed e' diventata rossa
+    /// li', il che e' esattamente il difetto che un'attesa breve produce: una
+    /// sonda che riporta il carico della macchina invece della proprieta' che
+    /// dice di provare.
+    ///
+    /// Un'attesa lunga non rallenta nulla quando le cose funzionano: si esce al
+    /// primo riscontro.
+    const ATTESA_MASSIMA: std::time::Duration = std::time::Duration::from_secs(60);
+    const INTERVALLO: std::time::Duration = std::time::Duration::from_millis(10);
+
+    /// Che cosa e' successo mentre si aspettava.
+    ///
+    /// Tre esiti distinti, perche' due di loro sono difetti **diversi** e la
+    /// prima stesura li confondeva in un `bool`: «lo staging non e' comparso»
+    /// diceva la stessa cosa per un figlio lento e per un figlio morto, e nel
+    /// secondo caso nascondeva l'unica informazione utile, cioe' l'errore con
+    /// cui e' morto.
+    enum Attesa {
+        Comparso,
+        FiglioUscito(std::process::Output),
+        Scaduta,
+    }
 
     /// Attende che il figlio abbia davvero cominciato a scrivere.
     ///
@@ -215,18 +245,40 @@ mod segnale {
     /// sarebbe osservabile perche' non ci sarebbe niente da pulire. La
     /// condizione d'attesa e' percio' l'unica che rende la sonda quella che
     /// dice di essere: la directory di destinazione ha almeno una voce.
-    fn attendi_lo_staging(directory: &Path) -> bool {
-        for _ in 0..600 {
+    fn attendi_lo_staging(directory: &Path, figlio: &mut Child) -> Attesa {
+        let scadenza = std::time::Instant::now() + ATTESA_MASSIMA;
+        while std::time::Instant::now() < scadenza {
             if std::fs::read_dir(directory)
                 .expect("directory leggibile")
                 .next()
                 .is_some()
             {
-                return true;
+                return Attesa::Comparso;
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            // Dopo la directory, non prima: un figlio che ha gia' creato lo
+            // staging **e** e' gia' uscito va trattato come comparso, perche' la
+            // corsa e' persa comunque e l'esito piu' informativo e' il primo.
+            if figlio.try_wait().expect("stato del figlio").is_some() {
+                let uscita = figlio.stdout.take();
+                let errore = figlio.stderr.take();
+                let mut output = std::process::Output {
+                    status: figlio.wait().expect("il figlio termina"),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                };
+                if let Some(mut flusso) = uscita {
+                    use std::io::Read as _;
+                    let _ = flusso.read_to_end(&mut output.stdout);
+                }
+                if let Some(mut flusso) = errore {
+                    use std::io::Read as _;
+                    let _ = flusso.read_to_end(&mut output.stderr);
+                }
+                return Attesa::FiglioUscito(output);
+            }
+            std::thread::sleep(INTERVALLO);
         }
-        false
+        Attesa::Scaduta
     }
 
     #[test]
@@ -238,16 +290,25 @@ mod segnale {
         // con `stderr` vuoto perche' il figlio ha ereditato quello del test, e
         // la busta d'errore -- che e' meta' di cio' che la sonda verifica --
         // non arriverebbe mai qui.
-        let figlio = comando_convert(&ingresso, &uscita, Some("600000"))
+        let mut figlio = comando_convert(&ingresso, &uscita, Some("600000"))
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
             .expect("il binario parte");
 
-        assert!(
-            attendi_lo_staging(&directory),
-            "lo staging non e' comparso: il segnale proverebbe un'altra cosa"
-        );
+        match attendi_lo_staging(&directory, &mut figlio) {
+            Attesa::Comparso => {}
+            Attesa::FiglioUscito(output) => panic!(
+                "il figlio e' uscito con {:?} prima di creare lo staging.\nstdout: {}\nstderr: {}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+            Attesa::Scaduta => panic!(
+                "lo staging non e' comparso entro {ATTESA_MASSIMA:?} e il figlio e' ancora vivo: \
+                 la conversione non ha raggiunto la creazione del writer"
+            ),
+        }
 
         // Il `kill` della shell invece di una chiamata alla libc: il workspace
         // vieta `unsafe`, e il builtin fa esattamente cio' che serve senza
