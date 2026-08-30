@@ -718,6 +718,34 @@ class SondeFontiLegate(unittest.TestCase):
     Riporta numeri che vivono altrove e li rende a `docs/RELEASE.md` con la
     stessa autorita' con cui li renderebbe la fonte. Erano ricopiati a mano, e
     una cifra sbagliata nella copia era indistinguibile da una misura diversa.
+
+    # La perturbazione si ricava dal fatto, non da un letterale
+
+    Ogni sonda qui dentro **ritocca** una foglia dello stato e pretende che il
+    gate se ne accorga. Il valore del ritocco non puo' essere un letterale
+    scelto perche' «oggi e' diverso dal vero»: il giorno in cui la realta' ci
+    arriva sopra, la sonda smette di provare qualcosa e nessuno se ne accorge,
+    perche' resta **verde**.
+
+    Non e' un'ipotesi. `test_un_totale_n1_ritoccato_e_rosso` ritoccava
+    `gruppi_totali` con `50`, e il registro e' arrivato a cinquanta gruppi: il
+    ritocco coincideva con la verita', il gate non aveva niente da segnalare, e
+    il rosso e' venuto dalla sonda invece che dal fatto. La gemella sui gruppi
+    aperti aveva lo stesso difetto con `3`, e passava solo perche' nessun
+    conteggio ci era ancora arrivato.
+
+    La regola esisteva gia', e stava in [`muta`]: la sonda che prova **ogni**
+    foglia legata non ha mai usato letterali, perche' non poteva -- non sa che
+    valore trovera'. Erano le sorelle scritte a mano ad averla persa, ciascuna
+    con il proprio numero, e nessuna aveva un motivo per divergere.
+
+    Ora la usano tutte. Una regola sola, un'implementazione sola: se un giorno
+    `muta` dovra' cambiare -- per un tipo nuovo, o per un dominio dove `+ 999`
+    non e' abbastanza -- cambiera' in un posto.
+
+    Restano letterali soltanto i valori che **non possono** diventare veri per
+    costruzione -- uno SHA di soli zeri, un percorso in una directory sbagliata,
+    una stringa vuota -- perche' li' il letterale *e'* la proprieta' in prova.
     """
 
     def stato(self) -> dict:
@@ -800,7 +828,8 @@ class SondeFontiLegate(unittest.TestCase):
         for chiave in ("componenti_a_zero", "censimento_costruttori_legacy"):
             with self.subTest(chiave=chiave):
                 stato = self.stato()
-                stato["chiuso"]["s9_errori_strutturati"][chiave] = 999
+                censimento = stato["chiuso"]["s9_errori_strutturati"]
+                censimento[chiave] = self.muta(censimento[chiave])
                 errori = gate.validate_stato_corrente(stato)
                 self.assertTrue(any(chiave in e for e in errori), errori)
 
@@ -808,7 +837,8 @@ class SondeFontiLegate(unittest.TestCase):
         """Il numero dei requisiti raggiunti non e' leggibile a occhio, ed e' per
         questo il posto piu' facile in cui scriverne uno piu' bello."""
         stato = self.stato()
-        stato["chiuso"]["fuzz_reader_shapefile"]["requisiti_di_profondita"] = 999
+        misura = stato["chiuso"]["fuzz_reader_shapefile"]
+        misura["requisiti_di_profondita"] = self.muta(misura["requisiti_di_profondita"])
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(
             any("requisiti_di_profondita" in e for e in errori), errori
@@ -889,7 +919,7 @@ class SondeFontiLegate(unittest.TestCase):
         for chiave in ("markdown_canonici", "markdown_operativi"):
             with self.subTest(chiave=chiave):
                 stato = self.stato()
-                stato["docset"][chiave] = 999
+                stato["docset"][chiave] = self.muta(stato["docset"][chiave])
                 errori = gate.validate_stato_corrente(stato)
                 self.assertTrue(any(chiave in e for e in errori), errori)
 
@@ -985,14 +1015,20 @@ class SondeFontiLegate(unittest.TestCase):
 
     def test_un_numero_che_non_viene_dall_evidenza_e_rosso(self) -> None:
         stato = self.stato()
-        stato["ultima_misura"]["copertura"]["lcov_percentuale"] = 99.9
+        copertura = stato["ultima_misura"]["copertura"]
+        copertura["lcov_percentuale"] = self.muta(copertura["lcov_percentuale"])
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("lcov_percentuale" in e for e in errori), errori)
 
     def test_un_conteggio_di_passi_ritoccato_e_rosso(self) -> None:
         stato = self.stato()
-        stato["ultima_misura"]["checkpoint"]["passi_falliti"] = 0
-        stato["ultima_misura"]["checkpoint"]["passi_verdi"] = 58
+        # `passi_falliti = 0` stava qui e non ritoccava niente: i passi falliti
+        # sono gia' zero in un'evidenza superata, quindi la riga assegnava il
+        # valore vero. A ritoccare era il solo `passi_verdi`, e ora lo fa
+        # derivando dal fatto invece che dal numero di passi che il checkpoint
+        # aveva quando la sonda e' stata scritta.
+        passi = stato["ultima_misura"]["checkpoint"]
+        passi["passi_verdi"] = self.muta(passi["passi_verdi"])
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("passi_verdi" in e for e in errori), errori)
 
@@ -1103,15 +1139,30 @@ class SondeFontiLegate(unittest.TestCase):
 
     # --- ASSURANCE-N1 ------------------------------------------------------
 
+    # Il ritocco passa da `muta`, non da un letterale.
+    #
+    # La prima stesura scriveva `3` e `50`, scelti perche' allora erano diversi
+    # dai conteggi reali. Il giorno in cui il registro e' arrivato davvero a 50
+    # gruppi, la seconda sonda ha smesso di provare qualcosa: il «ritocco»
+    # coincideva con la verita', il gate non aveva niente da segnalare, e il
+    # rosso e' arrivato dalla sonda invece che dal fatto.
+    #
+    # E' la stessa famiglia di difetto che questa serie insegue -- un valore
+    # che significa due cose -- applicata a una sonda negativa: deve restare
+    # negativa **comunque cambi** il fatto che sorveglia, e l'unico modo e'
+    # ricavare il valore sbagliato da quello giusto, che e' cio' che `muta` fa
+    # da sempre per la sonda su tutte le foglie.
     def test_un_conteggio_n1_ritoccato_e_rosso(self) -> None:
         stato = self.stato()
-        stato["aperto"]["assurance_n1"]["gruppi_aperti"] = 3
+        n1 = stato["aperto"]["assurance_n1"]
+        n1["gruppi_aperti"] = self.muta(n1["gruppi_aperti"])
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("gruppi_aperti" in e for e in errori), errori)
 
     def test_un_totale_n1_ritoccato_e_rosso(self) -> None:
         stato = self.stato()
-        stato["aperto"]["assurance_n1"]["gruppi_totali"] = 50
+        n1 = stato["aperto"]["assurance_n1"]
+        n1["gruppi_totali"] = self.muta(n1["gruppi_totali"])
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("gruppi_totali" in e for e in errori), errori)
 
@@ -1132,7 +1183,9 @@ class SondeFontiLegate(unittest.TestCase):
 
     def test_una_versione_di_workspace_inventata_e_rossa(self) -> None:
         stato = self.stato()
-        stato["aperto"]["candidate_release"]["versione_workspace"] = "2.0.0"
+        # `"2.0.0"` era un letterale, e questo progetto puo' arrivarci.
+        candidate = stato["aperto"]["candidate_release"]
+        candidate["versione_workspace"] = self.muta(candidate["versione_workspace"])
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("versione_workspace" in e for e in errori), errori)
 
