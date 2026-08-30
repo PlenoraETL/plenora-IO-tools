@@ -43,7 +43,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 95.06% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 44 |
-| blocchi | 3 |
+| blocchi | 4 |
 | S9, qualificato su | `7905d8f` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -65,6 +65,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 | `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
+| `distribuzione.artefatti-qualificati` | artefatti di distribuzione non prodotti ne' qualificati |
 
 <!-- generato da assurance/current-state.json: fine -->
 
@@ -424,7 +425,32 @@ contiene né esegue test che compilino gli altri due componenti. La definizione
 Resta distinta dalla readiness del componente: nessuna delle due implica
 l'altra.
 
-### 5. Decisione finale di rilascio
+### 5. Artefatti di distribuzione
+
+**Criterio di uscita.** Sei condizioni separabili, e nessuna implica le altre:
+artefatti riproducibili per le piattaforme dichiarate, prodotti dalla revisione
+qualificata; la variante `gdal-backend` con il proprio runtime GDAL **fissato**,
+perché un artefatto che carica una libgdal qualunque non ha un'identità stabile;
+checksum e SBOM pubblicati accanto; una provenance che leghi artefatto,
+revisione e costruzione, verificabile da chi riceve; uno smoke test
+sull'artefatto **installato**, perché un test che gira nell'albero di build non
+prova che il pacchetto funzioni; un runbook di installazione, aggiornamento,
+rollback e recovery.
+
+**Blocco rimosso.** `distribuzione.artefatti-qualificati`.
+
+**Perché è un blocco e non un desiderio.** Era previsto e non contrattuale: la
+prosa lo nominava, il registro no. Un obbligo che vive solo nella prosa non
+ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura
+negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza
+avere niente da rilasciare**.
+
+**Costo.** Ignoto e non stimato qui. Ciò che si sa è che la CI oggi costruisce e
+prova il codice ma non produce nulla che qualcuno possa installare, quindi non
+esiste un oggetto di cui verificare identità e contenuto — e finché non esiste,
+il gate che lo qualificherebbe non si può scrivere.
+
+### 6. Decisione finale di rilascio
 
 **Criterio di uscita.** Tutti i punti precedenti chiusi;
 `check_release_contract.py --release` verde, cioè nessun invariante

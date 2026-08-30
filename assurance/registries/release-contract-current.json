@@ -255,7 +255,7 @@
         "artefatto": "assurance/registries/assurance-n1-copertura-negativa.json"
       },
       "stato": "release_blocking",
-      "manca": "43 gruppi su 49 restano aperti",
+      "manca": "44 gruppi su 50 restano aperti",
       "sintesi": "rami d'errore negativi non tutti verificati da un test eseguito"
     },
     {
@@ -651,6 +651,16 @@
       "stato": "release_blocking",
       "manca": "gate di sistema non superato. Perimetro e harness sono di **proprieta' esterna**: questo repository non contiene ne' esegue test che compilino gli altri due componenti, quindi la chiusura non e' raggiungibile da qui. La definizione e' in release/system-rc-gate.json.",
       "sintesi": "gate di sistema non superato, di proprietà esterna"
+    },
+    {
+      "id": "distribuzione.artefatti-qualificati",
+      "superficie": "cio' che si consegna: binari per Linux, Windows e macOS, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
+      "invariante": "un artefatto di distribuzione e' **qualificato**: e' prodotto da una revisione nominata, la sua identita' e' verificabile da chi lo riceve senza fidarsi di chi lo ha prodotto, e cio' che contiene e' dichiarato. In concreto: per ogni piattaforma supportata esiste un artefatto costruito dalla revisione qualificata; un checksum lo lega a quei byte; un SBOM ne dichiara le dipendenze con le loro licenze; una provenance lega artefatto, revisione e costruzione; uno smoke test gira sull'artefatto **installato** e non sull'albero di build; e un runbook dice come si installa, si aggiorna, si torna indietro e si recupera.",
+      "prova": null,
+      "stato": "release_blocking",
+      "manca": "tutto: oggi non esiste alcun artefatto di distribuzione, ne' il gate che lo qualificherebbe. La CI costruisce e prova il codice -- suite completa su Linux, `cargo test --workspace --all-targets` e FileGDB nativo su Windows, le sole prove di publish e i lint di sicurezza su macOS -- ma non produce nulla che qualcuno possa installare, quindi non c'e' un oggetto di cui verificare identita' e contenuto.\n\nLa chiusura richiede, e ciascuna e' separabile dalle altre: (1) artefatti riproducibili per le piattaforme che il prodotto dichiara di supportare, prodotti dalla revisione qualificata; (2) la variante `gdal-backend` con il proprio runtime GDAL **fissato**, perche' un artefatto che carica una libgdal qualunque non ha un'identita' stabile; (3) checksum e SBOM pubblicati accanto agli artefatti; (4) una provenance che leghi artefatto, revisione e costruzione, verificabile da chi riceve; (5) uno smoke test sull'artefatto **installato**, perche' un test che gira nell'albero di build non prova che il pacchetto funzioni; (6) un runbook di installazione, aggiornamento, rollback e recovery. Finche' non esistono, il gate che le verifica non si puo' scrivere -- ed e' la ragione per cui `prova` e' `null` e non un comando che ritorna verde su niente.",
+      "sintesi": "artefatti di distribuzione non prodotti ne' qualificati",
+      "perche_e_bloccante": "era **previsto e non contrattuale**: l'ordine di lavoro lo nominava, il registro no. Un obbligo che vive solo nella prosa non ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza avere niente da rilasciare**. Renderlo bloccante prima di lavorare sui gruppi ASSURANCE-N1 e' l'ordine giusto: si dichiara che cosa manca finche' manca a tutti, non quando e' l'ultima cosa rimasta."
     }
   ],
   "autorizzazione_di_release": {
