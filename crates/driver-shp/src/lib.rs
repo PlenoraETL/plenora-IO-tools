@@ -5521,9 +5521,13 @@ mod tests {
     /// Il gruppo era censito come «ramo semantico negativo mai eseguito da
     /// nulla». Da allora la forma sciolta e' diventata un opt-in esplicito, e
     /// tre sonde ne provano i rifiuti passando dalla `create`; questa tabella
-    /// chiude il gruppo alla sua origine, chiamando la funzione direttamente e
-    /// coprendo **tutte** le sei combinazioni invece delle tre che arrivano
-    /// dall'API.
+    /// chiude il gruppo alla sua origine, chiamando la funzione direttamente.
+    ///
+    /// Otto casi: le **sei** combinazioni fra i due suffissi supportati e i tre
+    /// stati dell'opzione, piu' **due** classi di destinazione invalida --
+    /// un'estensione estranea e un percorso senza estensione. Non e' «ogni
+    /// coppia possibile», che sarebbe piu' ampio di cio' che la tabella
+    /// enumera.
     #[test]
     fn n1_publish_mode_decide_per_ogni_coppia_di_destinazione_e_opzione() {
         let casi: Vec<(&str, &str, Option<&str>, Option<ShapefilePublishMode>)> = vec![

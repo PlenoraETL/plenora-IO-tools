@@ -1796,6 +1796,59 @@ mod tests {
         }
     }
 
+    /// `LettoreCelleSorvegliato`: dopo un fallimento non si legge piu', e le due
+    /// vie di lettura lo dicono con lo stesso errore.
+    ///
+    /// Il tipo promette che «dopo un panico il lettore viene scartato» sia una
+    /// proprieta' del **tipo** e non una convenzione da ricordare: al primo
+    /// fallimento il lettore cade e ogni chiamata successiva trova `None`.
+    /// Nessun percorso del driver ci prova -- tutti propagano -- ed e' proprio
+    /// per questo che le due guardie non erano mai state eseguite.
+    ///
+    /// La sonda costruisce lo stato invalidato direttamente, che e' l'unico modo
+    /// di raggiungerle senza far panicare `calamine` davvero: il tipo e' privato
+    /// del modulo e il campo pure, quindi la prova vive accanto a cio' che prova
+    /// e non finge di passare da un'API che non lo permette.
+    ///
+    /// # Che cosa **non** prova
+    ///
+    /// Che la guardia non sia a consumo. Partendo da `None` un `take()` e un
+    /// `as_mut()` si comportano identicamente -- entrambi lasciano il campo a
+    /// `None` e ogni chiamata successiva fallisce -- quindi la ripetizione qui
+    /// sotto osserva che il rifiuto e' **stabile**, non che sia `as_mut()` a
+    /// produrlo. Distinguere i due vorrebbe partire da un lettore vivo e
+    /// invalidarlo, cioe' far fallire `calamine` davvero.
+    #[test]
+    fn n1_un_lettore_invalidato_rifiuta_entrambe_le_letture() {
+        // `std::io::Cursor` soddisfa `Read + Seek` e non viene mai toccato: il
+        // lettore e' gia' `None`, quindi nessuna chiamata a `calamine` parte.
+        let mut invalidato: LettoreCelleSorvegliato<'_, std::io::Cursor<Vec<u8>>> =
+            LettoreCelleSorvegliato { lettore: None };
+
+        let Err(su_dimensioni) = invalidato.dimensioni() else {
+            panic!("un lettore invalidato non puo' dichiarare dimensioni");
+        };
+        assert!(
+            su_dimensioni.message.contains(LETTORE_INVALIDATO),
+            "dimensioni: arrivato «{}»",
+            su_dimensioni.message
+        );
+
+        let Err(su_cella) = invalidato.prossima_cella() else {
+            panic!("un lettore invalidato non puo' consegnare celle");
+        };
+        assert!(
+            su_cella.message.contains(LETTORE_INVALIDATO),
+            "prossima_cella: arrivato «{}»",
+            su_cella.message
+        );
+
+        // Il rifiuto e' stabile: interrogarlo di nuovo non lo fa cambiare idea.
+        // Non dice quale forma abbia la guardia -- vedi «Che cosa non prova».
+        assert!(invalidato.dimensioni().is_err());
+        assert!(invalidato.prossima_cella().is_err());
+    }
+
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.
     ///
     /// Sette varianti di `XlsxError` **portano il nome del foglio come dato**,

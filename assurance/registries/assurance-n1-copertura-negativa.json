@@ -221,7 +221,7 @@
       "righe": 6,
       "raggiunto_da_replay": 0,
       "disposizione": "chiuso",
-      "nota": "chiuso da una tabella sulle **otto** coppie destinazione/opzione, non sulle tre che arrivano dall'API pubblica: `*.shp.d` con e senza opzione, `*.shp` con e senza opt-in, le due contraddizioni incrociate, un'estensione estranea e un percorso senza estensione. Il gruppo era censito come «mai eseguito da nulla»; da allora la forma sciolta e' diventata un opt-in esplicito e tre sonde ne provano i rifiuti attraverso `create`, ma chiamare la funzione direttamente e' cio' che copre anche le coppie che l'API non sa produrre.",
+      "nota": "chiuso da una tabella su **otto** casi: le sei combinazioni fra i due suffissi supportati -- `*.shp.d` e `*.shp` -- e i tre stati dell'opzione `publish_mode` (assente, `directory-dataset`, `loose-set`), piu' due classi di destinazione invalida: un'estensione estranea e un percorso senza estensione. Non e' «ogni coppia possibile»: e' l'enumerazione chiusa di quelle due dimensioni piu' i due modi in cui la destinazione stessa non e' ammissibile. Il gruppo era censito come «mai eseguito da nulla»; da allora la forma sciolta e' diventata un opt-in esplicito e tre sonde ne provano i rifiuti attraverso `create`, ma chiamare la funzione direttamente e' cio' che copre anche le combinazioni che l'API non sa produrre.",
       "prova": [
         {
           "crate": "driver-shp",
@@ -524,16 +524,32 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 1,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso insieme a `driver-xls::prossima_cella`: sono la stessa guardia, ripetuta sulle due vie di lettura di `LettoreCelleSorvegliato`. Il tipo promette che «dopo un fallimento il lettore viene scartato» sia una proprieta' del **tipo** e non una convenzione da ricordare: al primo errore il lettore cade e ogni chiamata successiva trova `None`. Nessun percorso del driver ci prova, perche' tutti propagano -- ed e' esattamente per questo che la riga non era mai stata eseguita: e' li' per un ciclo che non esiste ancora. La sonda costruisce lo stato invalidato direttamente: e' l'unico modo di raggiungerla senza far panicare `calamine` davvero, il tipo e il campo sono privati del modulo, e la prova vive accanto a cio' che prova invece di fingere di passare da un'API che non lo permette. Cio' che la sonda **non** prova, e che una prima stesura della nota affermava: che la guardia non sia a consumo. Partendo da `None` un `take()` e un `as_mut()` si comportano identicamente, quindi la ripetizione osserva che il rifiuto e' stabile, non quale forma abbia la guardia. Distinguerli vorrebbe partire da un lettore vivo e invalidarlo, cioe' far fallire `calamine` davvero.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_un_lettore_invalidato_rifiuta_entrambe_le_letture",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::prossima_cella",
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 1,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso insieme a `driver-xls::dimensioni`: sono la stessa guardia, ripetuta sulle due vie di lettura di `LettoreCelleSorvegliato`. Il tipo promette che «dopo un fallimento il lettore viene scartato» sia una proprieta' del **tipo** e non una convenzione da ricordare: al primo errore il lettore cade e ogni chiamata successiva trova `None`. Nessun percorso del driver ci prova, perche' tutti propagano -- ed e' esattamente per questo che la riga non era mai stata eseguita: e' li' per un ciclo che non esiste ancora. La sonda costruisce lo stato invalidato direttamente: e' l'unico modo di raggiungerla senza far panicare `calamine` davvero, il tipo e il campo sono privati del modulo, e la prova vive accanto a cio' che prova invece di fingere di passare da un'API che non lo permette. Cio' che la sonda **non** prova, e che una prima stesura della nota affermava: che la guardia non sia a consumo. Partendo da `None` un `take()` e un `as_mut()` si comportano identicamente, quindi la ripetizione osserva che il rifiuto e' stabile, non quale forma abbia la guardia. Distinguerli vorrebbe partire da un lettore vivo e invalidarlo, cioe' far fallire `calamine` davvero.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_un_lettore_invalidato_rifiuta_entrambe_le_letture",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "plenora-io-cli::installa_gestore_dei_segnali",
