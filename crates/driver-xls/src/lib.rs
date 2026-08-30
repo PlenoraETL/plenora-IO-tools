@@ -2202,6 +2202,286 @@ mod tests {
         );
     }
 
+    /// Un `.xlsx` con `righe` x `colonne` celle, piu' l'intestazione.
+    ///
+    /// Passa dal writer vero invece di costruire byte a mano: qui non si prova
+    /// la tolleranza al formato malformato -- quello e' il mestiere delle
+    /// fixture di `valida_riferimenti_cella` -- ma il comportamento su un foglio
+    /// **valido** e semplicemente troppo grande per la quota.
+    fn scrivi_xlsx(percorso: &std::path::Path, righe: u32, colonne: u16) {
+        let mut cartella = Workbook::new();
+        let foglio = cartella.add_worksheet();
+        if colonne > 0 {
+            foglio.write_string(0, 0, "geometry").unwrap();
+            for colonna in 1..colonne {
+                foglio
+                    .write_string(0, colonna, format!("c{colonna}"))
+                    .unwrap();
+            }
+            for riga in 1..=righe {
+                foglio.write_string(riga, 0, "POINT (1 2)").unwrap();
+                for colonna in 1..colonne {
+                    foglio.write_string(riga, colonna, "v").unwrap();
+                }
+            }
+        }
+        cartella.save(percorso).unwrap();
+    }
+
+    /// Opzioni di lettura complete per un foglio con una colonna WKT.
+    ///
+    /// Il driver esige sia `wkt_column` sia `assume_crs`: senza, il rifiuto
+    /// arriverebbe da `resolve_geometry` o dalla fase CRS, e le sonde qui sotto
+    /// misurerebbero una guardia diversa da quella che dichiarano.
+    fn opzioni_lettura_wkt() -> ReadOptions {
+        opzioni_lettura_wkt_con(plenora_io_model::budget::PipelineLimits::default())
+    }
+
+    fn opzioni_lettura_wkt_con(limits: plenora_io_model::budget::PipelineLimits) -> ReadOptions {
+        opzioni_lettura_con(limits)
+            .with_assume_crs("EPSG:4326")
+            .with_format_option("wkt_column", "geometry")
+    }
+
+    /// I rifiuti che `infer_layout` decide **da se'** e puo' pronunciare.
+    ///
+    /// Il censimento del gruppo conta venticinque righe, ma solo tre sono
+    /// decisioni della funzione: la larghezza oltre la quota, l'altezza oltre la
+    /// quota, e il foglio che non produce nemmeno una cella. Tutto il resto e'
+    /// propagazione da un helper -- che ha il proprio gruppo, e va provato li',
+    /// altrimenti la stessa riga risulterebbe coperta due volte senza che
+    /// nessuna delle due prove dica dove -- oppure e' irraggiungibile, e le
+    /// quattro irraggiungibilita' hanno la loro sonda subito sotto.
+    ///
+    /// I due limiti si provano dal `open` del driver e non chiamando
+    /// `infer_layout` a mano: la quota arriva da `ReadOptions`, e passare per
+    /// l'entry point verifica anche che ci arrivi davvero.
+    #[test]
+    fn n1_infer_layout_rifiuta_le_due_quote() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Il controllo positivo: lo stesso foglio con quote sufficienti passa.
+        // Senza, un `open` che fallisse per qualunque altra ragione farebbe
+        // verde la tabella dei rifiuti.
+        let normale = dir.path().join("normale.xlsx");
+        scrivi_xlsx(&normale, 3, 3);
+        XlsDriver
+            .open(Source::Path(normale), opzioni_lettura_wkt())
+            .expect("tre righe per tre colonne stanno in qualunque quota di default");
+
+        // Larghezza oltre la quota: `--max-columns` a 2 su un foglio da 3.
+        let largo = dir.path().join("largo.xlsx");
+        scrivi_xlsx(&largo, 2, 3);
+        let Err(errore) = XlsDriver.open(
+            Source::Path(largo),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_columns(2),
+            ),
+        ) else {
+            panic!("tre colonne oltre una quota di due devono essere rifiutate");
+        };
+        assert!(
+            errore.message.contains("colonne oltre il limite"),
+            "atteso il rifiuto sulla larghezza, arrivato «{}»",
+            errore.message
+        );
+
+        // Altezza oltre la quota: `--max-rows` a 1 su un foglio da 3 righe dati.
+        let alto = dir.path().join("alto.xlsx");
+        scrivi_xlsx(&alto, 3, 2);
+        let Err(errore) = XlsDriver.open(
+            Source::Path(alto),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_rows(1),
+            ),
+        ) else {
+            panic!("tre righe oltre una quota di una devono essere rifiutate");
+        };
+        assert!(
+            errore.message.contains("righe oltre il limite"),
+            "atteso il rifiuto sull'altezza, arrivato «{}»",
+            errore.message
+        );
+    }
+
+    /// Il foglio senza celle: la guardia esiste ed e' corretta, ma `open` non
+    /// la puo' raggiungere.
+    ///
+    /// # Perche' non e' un rifiuto raggiungibile dall'esterno
+    ///
+    /// `observed_cells` conta **celle**, non righe: `for_each_dense_row`
+    /// attraversa comunque l'intervallo dichiarato dalle dimensioni, quindi la
+    /// riga d'intestazione viene sempre visitata, e su quella riga
+    /// `resolve_geometry` deve riuscire prima che il flusso arrivi al
+    /// controllo. Se il flusso di celle e' vuoto, ogni intestazione e' la
+    /// stringa vuota -- `data_to_string(Data::Empty)` la produce -- quindi
+    /// l'unico nome di colonna che vi si troverebbe e' `""`. E `""` non
+    /// arriva: `wkt_column` e' `ValoreAmmesso::Testo`, che esige testo non
+    /// vuoto, e il validatore centrale delle `format_options` lo ferma prima
+    /// che il driver apra il file.
+    ///
+    /// Le due meta' si provano separatamente perche' affermano cose diverse:
+    /// la prima che il controllo funziona, la seconda che la strada per
+    /// arrivarci e' chiusa altrove. Provare solo la seconda lascerebbe il ramo
+    /// non eseguito; provare solo la prima direbbe che e' raggiungibile.
+    #[test]
+    fn n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let vuoto = dir.path().join("vuoto.xlsx");
+        scrivi_xlsx(&vuoto, 0, 0);
+
+        // Meta' uno: chiamata diretta, con l'unica configurazione che porta
+        // fino al controllo. Il tipo e' privato del crate, quindi la prova puo'
+        // costruire cio' che l'entry point rifiuta.
+        let opzioni = opzioni_lettura();
+        let mut cartella: calamine::Xlsx<_> = calamine::open_workbook(&vuoto).unwrap();
+        let foglio = cartella.sheet_names().first().cloned().unwrap();
+        let mut nomi_colonne = BTreeMap::new();
+        nomi_colonne.insert("wkt_column".to_owned(), String::new());
+        let esito = infer_layout(
+            &mut cartella,
+            &foglio,
+            &nomi_colonne,
+            "EPSG:4326",
+            opzioni.cancellation(),
+            XlsxQuote::from_read_options(&opzioni),
+            opzioni.budget(),
+        );
+        let Err(errore) = esito else {
+            panic!("un foglio che non consegna nemmeno una cella non ha un layout da inferire");
+        };
+        assert!(
+            errore.message.contains("foglio vuoto"),
+            "atteso il rifiuto sul foglio vuoto, arrivato «{}»",
+            errore.message
+        );
+
+        // Meta' due: la stessa configurazione passata da `open` non arriva al
+        // driver. Il rifiuto e' dello schema delle opzioni, in fase di
+        // validazione, non dell'inferenza.
+        let Err(fermato) = XlsDriver.open(
+            Source::Path(vuoto),
+            opzioni_lettura()
+                .with_assume_crs("EPSG:4326")
+                .with_format_option("wkt_column", ""),
+        ) else {
+            panic!("un nome di colonna vuoto non e' un valore ammesso");
+        };
+        assert_eq!(
+            fermato.phase,
+            ErrorPhase::Validate,
+            "il rifiuto deve venire dalla validazione delle opzioni, non dalla lettura: {}",
+            fermato.message
+        );
+        assert!(
+            fermato.message.contains("testo non vuoto"),
+            "atteso il rifiuto dello schema sul valore vuoto, arrivato «{}»",
+            fermato.message
+        );
+    }
+
+    /// «intestazione XLSX assente» e «geometria XLSX non configurata» sono
+    /// irraggiungibili: `data_row_count` rifiuta prima le dimensioni che
+    /// renderebbero vuoto il ciclo.
+    ///
+    /// Le tre occorrenze -- il `geom.ok_or_else` dentro il ciclo, e i due
+    /// `ok_or_else` su `headers` e `geom` dopo -- esistono perche' il tipo e'
+    /// `Option`, non perche' un input le produca. `for_each_dense_row` itera su
+    /// `bounds.start.0..=bounds.end.0`, e la prima riga visitata assegna
+    /// entrambe le variabili oppure propaga l'errore di `resolve_geometry`.
+    /// Perche' quell'intervallo sia vuoto servirebbe `start.0 > end.0`, e
+    /// `data_row_count` lo rifiuta con «dimensioni XLSX non valide».
+    ///
+    /// La sonda non copre quelle righe: esegue la **guardia** che le rende
+    /// inarrivabili. Se la precedenza cambia -- se le dimensioni invertite
+    /// smettessero di essere rifiutate -- diventa rossa, e la
+    /// classificazione va rifatta.
+    #[test]
+    fn n1_le_dimensioni_invertite_precedono_l_intestazione_assente() {
+        for invertite in [
+            SheetBounds {
+                start: (5, 0),
+                end: (4, 3),
+            },
+            SheetBounds {
+                start: (0, 5),
+                end: (3, 4),
+            },
+        ] {
+            let esito = data_row_count(invertite).and_then(|_| data_row_width(invertite));
+            let Err(errore) = esito else {
+                panic!(
+                    "dimensioni con inizio oltre la fine devono essere rifiutate: start {:?}, end {:?}",
+                    invertite.start, invertite.end
+                );
+            };
+            assert!(
+                errore.message.contains("dimensioni XLSX non valide"),
+                "atteso il rifiuto sulle dimensioni, arrivato «{}»",
+                errore.message
+            );
+        }
+
+        // Il complemento, senza il quale la sonda direbbe solo che qualcosa
+        // viene rifiutato: con dimensioni accettate l'intervallo delle righe
+        // contiene almeno la riga d'intestazione, che e' l'affermazione da cui
+        // dipende l'irraggiungibilita'.
+        let accettate = SheetBounds {
+            start: (7, 2),
+            end: (7, 2),
+        };
+        assert!(
+            data_row_count(accettate).is_ok() && accettate.start.0 <= accettate.end.0,
+            "un foglio di una sola cella e' comunque un foglio con una riga da visitare"
+        );
+    }
+
+    /// «troppe colonne XLSX» e «indice colonna XLSX fuori intervallo» sono
+    /// irraggiungibili: la larghezza che `data_row_width` accetta non lascia
+    /// spazio ne' al `try_from` ne' all'overflow.
+    ///
+    /// Le quattro occorrenze -- due nel ciclo delle righe, due nel ciclo che
+    /// costruisce lo schema dalle intestazioni -- indicizzano una riga lunga
+    /// `data_row_width(bounds)`. Quella funzione calcola `end.1 - start.1 + 1`
+    /// in `u32`, quindi rifiuta gia' la riga larga quanto l'intero spazio delle
+    /// colonne: la larghezza massima accettata e' `u32::MAX`, l'offset massimo
+    /// `u32::MAX - 1`, e `start.1 + offset` non supera mai `end.1`.
+    ///
+    /// Gli estremi del formato sono verificati invece che argomentati: sono il
+    /// caso peggiore rappresentabile, e se passano passa ogni foglio.
+    #[test]
+    fn n1_la_larghezza_accettata_precede_i_due_rifiuti_sull_indice_di_colonna() {
+        assert!(
+            data_row_width(SheetBounds {
+                start: (0, 0),
+                end: (0, u32::MAX),
+            })
+            .is_err(),
+            "la riga larga quanto l'intero spazio delle colonne non e' rappresentabile"
+        );
+
+        for estreme in [
+            SheetBounds {
+                start: (0, 0),
+                end: (0, u32::MAX - 1),
+            },
+            SheetBounds {
+                start: (0, u32::MAX - 3),
+                end: (0, u32::MAX),
+            },
+        ] {
+            let larghezza = data_row_width(estreme).expect("le dimensioni sono valide");
+            let offset_massimo = larghezza - 1;
+            let Ok(offset) = u32::try_from(offset_massimo) else {
+                panic!("l'offset massimo di una riga larga {larghezza} deve stare in u32");
+            };
+            assert!(
+                estreme.start.1.checked_add(offset).is_some(),
+                "start.1 + offset non puo' traboccare: e' al piu' end.1, che e' un u32"
+            );
+        }
+    }
+
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.
     ///
     /// Sette varianti di `XlsxError` **portano il nome del foglio come dato**,

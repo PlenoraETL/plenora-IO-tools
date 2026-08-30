@@ -30,8 +30,40 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 25,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso separando le venticinque righe in quattro classi invece di coprirle in blocco, perche' una tabella unica avrebbe dichiarato «coperto» anche cio' che nessun input raggiunge. RIFIUTI PROPRI E RAGGIUNGIBILI: la larghezza oltre la quota e l'altezza oltre la quota, provati passando da `open` con `--max-columns` e `--max-rows`, e non chiamando la funzione a mano: la quota arriva da `ReadOptions`, e l'entry point verifica anche che ci arrivi. Accanto sta il controllo positivo, senza il quale un `open` che fallisse per qualunque altra ragione renderebbe verde la tabella dei rifiuti. RIFIUTO PROPRIO MA NON RAGGIUNGIBILE DA `open`: «foglio vuoto». `observed_cells` conta celle, non righe, e `for_each_dense_row` visita comunque la riga d'intestazione, dove `resolve_geometry` deve riuscire per prima; se il flusso di celle e' vuoto ogni intestazione e' la stringa vuota, quindi l'unico `wkt_column` che vi si troverebbe e' `\"\"` -- e `\"\"` non arriva, perche' `ValoreAmmesso::Testo` esige testo non vuoto e il validatore centrale delle `format_options` lo ferma in fase Validate. Le due meta' stanno nella stessa sonda: la chiamata diretta mostra che il controllo funziona, il passaggio da `open` mostra che la strada e' chiusa altrove -- e per questo la prova e' registrata `irraggiungibile` e non `coperto`, perche' la riga si esegue solo costruendo cio' che l'entry point rifiuta. PROPAGAZIONI: le restanti righe sono `?` su helper con un gruppo proprio (`resolve_geometry`, `for_each_dense_row`, `encode_geometry_cell`, `BoundedSpoolWriter::{geometry,data,finish}`) oppure gia' provati (`LettoreCelleSorvegliato::dimensioni`, `data_row_width`, `data_row_count`, `check_cancelled`, `ensure_active`); non sono contate qui, altrimenti la stessa riga risulterebbe coperta due volte senza che nessuna delle due prove dica dove. IRRAGGIUNGIBILI: quattro rifiuti in sette occorrenze, divisi in due sonde perche' le guardie che li precedono sono due e una prova sola non direbbe quale; la guardia viene eseguita, non argomentata. «intestazione XLSX assente» e «geometria XLSX non configurata» cadono perche' `data_row_count` rifiuta `start.0 > end.0`, quindi il ciclo visita sempre almeno la riga d'intestazione, che assegna `headers` e `geom` o propaga. «troppe colonne XLSX» e «indice colonna XLSX fuori intervallo» cadono per aritmetica: `data_row_width` fa `end.1 - start.1 + 1` in `u32`, quindi rifiuta gia' la riga larga quanto l'intero spazio delle colonne, e la larghezza massima accettata e' `u32::MAX` con offset massimo `u32::MAX - 1`; i due estremi del formato sono verificati, non supposti. RISCHIO RESIDUO DICHIARATO: `tempfile::NamedTempFile::new()?` propaga un fallimento d'ambiente (spool non creabile) che nessuna fixture del repository produce; resta l'unica riga della funzione senza esecuzione ne' prova di irraggiungibilita', e la sua copertura richiederebbe una directory temporanea sabotata a runtime.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_infer_layout_rifiuta_le_due_quote",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_il_foglio_senza_celle_e_fermato_dallo_schema_prima_di_infer_layout",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1385",
+          "guardia": "plenora-io-model::format_options::valida_opzioni"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_le_dimensioni_invertite_precedono_l_intestazione_assente",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1348-1349, 1387-1391",
+          "guardia": "driver-xls::data_row_count"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_la_larghezza_accettata_precede_i_due_rifiuti_sull_indice_di_colonna",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1366-1373, 1438-1445",
+          "guardia": "driver-xls::data_row_width"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::read_dbf_layout",
