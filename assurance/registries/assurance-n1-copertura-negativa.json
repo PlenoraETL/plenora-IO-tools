@@ -150,8 +150,22 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 9,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "PARZIALE dopo la tranche 1, e resta aperto: nessuna compensazione. L'overflow del prodotto `compressed * decompression_ratio` (463-466) e' ora coperto da `n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio`, con un moltiplicatore u64::MAX su un file normale -- la classe di equivalenza della precondizione, non un archivio patologico. Restano scoperti i due `checked_add` (452-455, 457-460), che sommano le dimensioni DICHIARATE nel central directory dello zip: valori controllati da chi costruisce l'archivio, quindi potenzialmente raggiungibili con un ZIP64 artefatto. Non sono dichiarati difensivi perche' non e' stato misurato se il crate `zip` li rifiuti prima: dichiararlo senza prova sarebbe la stessa supposizione che la tranche ha appena smontato altrove."
+      "disposizione": "chiuso",
+      "nota": "chiuso, e la parte che restava aperta e' stata **misurata** invece che supposta. La nota precedente diceva: i due `checked_add` sommano le dimensioni DICHIARATE nel central directory, «potenzialmente raggiungibili con un ZIP64 artefatto», e non erano dichiarabili difensivi perche' non era stato misurato se il crate `zip` le rifiuti prima. Con ZIP32 l'overflow non e' raggiungibile per **aritmetica**: le dimensioni stanno in campi `u32` -- al piu' 4 294 967 295 ciascuna -- e il conteggio delle voci nell'EOCD e' un `u16`, al piu' 65 535, quindi la somma massima e' circa 2,8 x 10^14, cinque ordini di grandezza sotto `u64::MAX`. Con ZIP64 i due campi diventano `u64`, e la sonda costruisce a mano un central directory che dichiara dimensioni senza contenerle -- non uno ZIP64 pienamente conforme, ma la superficie su cui la funzione lavora, perche' somma cio' che le voci dichiarano senza aprirle: il crate `zip` restituisce cio' che il central directory dichiara, la somma trabocca, e il rifiuto e' `ResourceLimit`. **Due casi e non uno.** Gli accumulatori sono due e il primo che trabocca ferma la funzione: con la stessa coppia di valori su compresso e decompresso -- come faceva la prima stesura -- fallisce sempre la somma dei compressi, e il ramo dei decompressi resta scoperto mentre la sonda e' verde. Ogni caso carica l'overflow su un accumulatore e tiene innocuo l'altro, e l'asserzione nomina il messaggio specifico: «overflow nel conteggio dei byte» da solo non distingue i due. La sonda verifica **prima** che lo stesso archivio con dimensioni piccole passi: senza quel controllo un rifiuto non distinguerebbe «la somma trabocca» da «il central directory costruito dalla sonda non e' accettato da `ZipArchive::new`». L'overflow del prodotto `compressed * decompression_ratio` resta coperto da `n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio`.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_il_rapporto_di_decompressione_non_trabocca_in_silenzio",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::polygon_wkb",

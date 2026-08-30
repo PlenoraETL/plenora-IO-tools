@@ -1849,6 +1849,201 @@ mod tests {
         assert!(invalidato.prossima_cella().is_err());
     }
 
+    /// Un central directory ZIP64 costruito a mano, che **dichiara** dimensioni
+    /// senza contenerle.
+    ///
+    /// Non e' uno ZIP64 pienamente conforme: le voci non hanno payload, e un
+    /// lettore che provasse a **estrarle** fallirebbe. Cio' che la fixture
+    /// costruisce, e l'unica cosa che serve qui, e' un central directory che
+    /// `ZipArchive::new` accetta e da cui `compressed_size()` e `size()`
+    /// restituiscono i valori dichiarati -- che e' esattamente la superficie su
+    /// cui `validate_archive_ratio` lavora, perche' somma cio' che le voci
+    /// dichiarano senza aprirle.
+    ///
+    /// Serve a misurare una cosa sola: se il crate `zip` restituisca i valori
+    /// dichiarati nel central directory senza confrontarli con i byte che
+    /// l'archivio contiene davvero. Da quella risposta dipende se i due
+    /// `checked_add` di `validate_archive_ratio` siano raggiungibili.
+    ///
+    /// Due voci, entrambe `stored` e vuote, ciascuna con la propria coppia
+    /// `(compressa, decompressa)`.
+    ///
+    /// Le due dimensioni sono **separate** e non e' un dettaglio di comodo:
+    /// `validate_archive_ratio` le somma in due accumulatori distinti, e la
+    /// prima stesura di questa fixture passava lo stesso valore a entrambi.
+    /// Con `u64::MAX` e `1` su tutti e due, alla seconda voce traboccava per
+    /// prima la somma dei compressi e il ramo dei decompressi non veniva mai
+    /// raggiunto: una sonda verde che copriva un `checked_add` su due.
+    fn zip64_con_dimensioni_dichiarate(voci: [(u64, u64); 2]) -> Vec<u8> {
+        let mut archivio = Vec::new();
+        let nomi = ["xl/worksheets/sheet1.xml", "xl/workbook.xml"];
+        let mut offset_locali = Vec::new();
+
+        for (nome, (compressa, decompressa)) in nomi.iter().zip(voci.iter()) {
+            offset_locali.push(archivio.len() as u64);
+            archivio.extend_from_slice(&0x0403_4b50_u32.to_le_bytes()); // firma locale
+            archivio.extend_from_slice(&45_u16.to_le_bytes()); // versione: ZIP64
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // flag
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // metodo: stored
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // ora
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // data
+            archivio.extend_from_slice(&0_u32.to_le_bytes()); // crc32
+            archivio.extend_from_slice(&u32::MAX.to_le_bytes()); // compresso: vedi ZIP64
+            archivio.extend_from_slice(&u32::MAX.to_le_bytes()); // decompresso: vedi ZIP64
+            let lunghezza_nome =
+                u16::try_from(nome.len()).expect("i nomi della sonda stanno in un u16");
+            archivio.extend_from_slice(&lunghezza_nome.to_le_bytes());
+            archivio.extend_from_slice(&20_u16.to_le_bytes()); // extra: 4 + 16
+            archivio.extend_from_slice(nome.as_bytes());
+            archivio.extend_from_slice(&0x0001_u16.to_le_bytes()); // tag ZIP64
+            archivio.extend_from_slice(&16_u16.to_le_bytes());
+            // Nessun byte di dati segue: la dichiarazione e' tutto cio' che conta.
+            archivio.extend_from_slice(&decompressa.to_le_bytes());
+            archivio.extend_from_slice(&compressa.to_le_bytes());
+        }
+
+        let inizio_central = archivio.len() as u64;
+        for ((nome, (compressa, decompressa)), offset) in
+            nomi.iter().zip(voci.iter()).zip(offset_locali.iter())
+        {
+            archivio.extend_from_slice(&0x0201_4b50_u32.to_le_bytes()); // firma central
+            archivio.extend_from_slice(&45_u16.to_le_bytes()); // creato da
+            archivio.extend_from_slice(&45_u16.to_le_bytes()); // richiede
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // flag
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // metodo
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // ora
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // data
+            archivio.extend_from_slice(&0_u32.to_le_bytes()); // crc32
+            archivio.extend_from_slice(&u32::MAX.to_le_bytes()); // compresso
+            archivio.extend_from_slice(&u32::MAX.to_le_bytes()); // decompresso
+            let lunghezza_nome =
+                u16::try_from(nome.len()).expect("i nomi della sonda stanno in un u16");
+            archivio.extend_from_slice(&lunghezza_nome.to_le_bytes());
+            archivio.extend_from_slice(&28_u16.to_le_bytes()); // extra: 4 + 24
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // commento
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // disco
+            archivio.extend_from_slice(&0_u16.to_le_bytes()); // attributi interni
+            archivio.extend_from_slice(&0_u32.to_le_bytes()); // attributi esterni
+            archivio.extend_from_slice(&u32::MAX.to_le_bytes()); // offset: vedi ZIP64
+            archivio.extend_from_slice(nome.as_bytes());
+            archivio.extend_from_slice(&0x0001_u16.to_le_bytes());
+            archivio.extend_from_slice(&24_u16.to_le_bytes());
+            archivio.extend_from_slice(&decompressa.to_le_bytes());
+            archivio.extend_from_slice(&compressa.to_le_bytes());
+            archivio.extend_from_slice(&offset.to_le_bytes()); // offset locale
+        }
+        let dimensione_central = archivio.len() as u64 - inizio_central;
+        let offset_zip64_eocd = archivio.len() as u64;
+
+        archivio.extend_from_slice(&0x0606_4b50_u32.to_le_bytes()); // ZIP64 EOCD
+        archivio.extend_from_slice(&44_u64.to_le_bytes()); // dimensione residua
+        archivio.extend_from_slice(&45_u16.to_le_bytes());
+        archivio.extend_from_slice(&45_u16.to_le_bytes());
+        archivio.extend_from_slice(&0_u32.to_le_bytes()); // disco
+        archivio.extend_from_slice(&0_u32.to_le_bytes()); // disco del central
+        archivio.extend_from_slice(&(nomi.len() as u64).to_le_bytes()); // voci sul disco
+        archivio.extend_from_slice(&(nomi.len() as u64).to_le_bytes()); // voci totali
+        archivio.extend_from_slice(&dimensione_central.to_le_bytes());
+        archivio.extend_from_slice(&inizio_central.to_le_bytes());
+
+        archivio.extend_from_slice(&0x0706_4b50_u32.to_le_bytes()); // localizzatore
+        archivio.extend_from_slice(&0_u32.to_le_bytes());
+        archivio.extend_from_slice(&offset_zip64_eocd.to_le_bytes());
+        archivio.extend_from_slice(&1_u32.to_le_bytes());
+
+        archivio.extend_from_slice(&0x0605_4b50_u32.to_le_bytes()); // EOCD
+        archivio.extend_from_slice(&0_u16.to_le_bytes());
+        archivio.extend_from_slice(&0_u16.to_le_bytes());
+        archivio.extend_from_slice(&u16::MAX.to_le_bytes()); // vedi ZIP64
+        archivio.extend_from_slice(&u16::MAX.to_le_bytes());
+        archivio.extend_from_slice(&u32::MAX.to_le_bytes());
+        archivio.extend_from_slice(&u32::MAX.to_le_bytes());
+        archivio.extend_from_slice(&0_u16.to_le_bytes()); // commento
+        archivio
+    }
+
+    /// Un caso della tabella di overflow: il nome, le due voci dell'archivio
+    /// come `(compressa, decompressa)`, e il messaggio che deve arrivare.
+    type CasoDiOverflow = (&'static str, [(u64, u64); 2], &'static str);
+
+    /// I due `checked_add` di `validate_archive_ratio` sono raggiungibili, **uno
+    /// per volta**, e la somma delle dimensioni dichiarate fallisce chiusa.
+    ///
+    /// # Perche' serviva un archivio costruito a mano
+    ///
+    /// Con ZIP32 l'overflow non e' raggiungibile per aritmetica: le dimensioni
+    /// stanno in campi `u32` -- al piu' 4 294 967 295 ciascuna -- e il conteggio
+    /// delle voci nell'EOCD e' un `u16`, al piu' 65 535. La somma massima e'
+    /// circa 2,8 x 10^14, cinque ordini di grandezza sotto `u64::MAX`. Nessuna
+    /// libreria che rispetti il formato puo' portarci.
+    ///
+    /// ZIP64 cambia i due campi in `u64`, e la domanda diventa una sola: il
+    /// crate `zip` restituisce cio' che il central directory **dichiara**, o lo
+    /// confronta con i byte presenti? Questa sonda lo misura invece di
+    /// supporlo, ed e' la ragione per cui il gruppo non era dichiarabile
+    /// difensivo.
+    ///
+    /// # Perche' due casi e non uno
+    ///
+    /// Gli accumulatori sono due e il primo che trabocca ferma la funzione. Con
+    /// la stessa coppia di valori su compresso e decompresso -- come faceva la
+    /// prima stesura -- fallisce sempre la somma dei **compressi**, e il ramo
+    /// dei decompressi resta scoperto mentre la sonda e' verde. Ogni caso
+    /// carica quindi l'overflow su un accumulatore e tiene innocuo l'altro, e
+    /// l'asserzione nomina il messaggio specifico invece del prefisso comune:
+    /// «overflow nel conteggio dei byte» non distingue i due.
+    #[test]
+    fn n1_le_dimensioni_dichiarate_in_zip64_non_sommano_in_silenzio() {
+        let dir = tempfile::tempdir().unwrap();
+        let opzioni = opzioni_lettura();
+
+        // Il controllo che rende interpretabile il resto: lo stesso archivio con
+        // dimensioni piccole **passa**. Senza, un rifiuto non distinguerebbe
+        // «la somma trabocca» da «il central directory costruito dalla sonda non
+        // e' leggibile», e la sonda proverebbe l'incapacita' di chi l'ha scritta
+        // invece del comportamento del driver.
+        let innocuo = dir.path().join("innocuo.xlsx");
+        std::fs::write(&innocuo, zip64_con_dimensioni_dichiarate([(2, 2), (3, 3)])).unwrap();
+        validate_archive_ratio(&innocuo, opzioni.budget()).expect(
+            "il central directory della sonda deve essere accettato da `ZipArchive::new`              con dimensioni piccole: se fallisce qui, a essere sbagliato e' l'archivio              costruito dalla sonda e non il driver",
+        );
+
+        // Un accumulatore per volta: `(compressa, decompressa)` per ciascuna
+        // delle due voci, e il messaggio che deve arrivare.
+        let casi: [CasoDiOverflow; 2] = [
+            (
+                "compressi",
+                [(u64::MAX, 2), (1, 3)],
+                "overflow nel conteggio dei byte compressi",
+            ),
+            (
+                "decompressi",
+                [(2, u64::MAX), (3, 1)],
+                "overflow nel conteggio dei byte decompressi",
+            ),
+        ];
+
+        for (nome, voci, atteso) in casi {
+            let percorso = dir.path().join(format!("{nome}.xlsx"));
+            std::fs::write(&percorso, zip64_con_dimensioni_dichiarate(voci)).unwrap();
+            let Err(errore) = validate_archive_ratio(&percorso, opzioni.budget()) else {
+                panic!(
+                    "«{nome}»: la somma di u64::MAX e 1 deve traboccare; se passa, il crate                      `zip` sta normalizzando le dimensioni dichiarate e il ramo va                      riclassificato"
+                );
+            };
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::ResourceLimit,
+                "«{nome}»: un overflow di conteggio e' un limite, non un formato non valido"
+            );
+            assert!(
+                errore.message.contains(atteso),
+                "«{nome}»: atteso «{atteso}», arrivato «{}». Un messaggio generico non                  distinguerebbe i due accumulatori, ed e' il difetto che questo caso esiste                  per escludere",
+                errore.message
+            );
+        }
+    }
+
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.
     ///
     /// Sette varianti di `XlsxError` **portano il nome del foglio come dato**,
