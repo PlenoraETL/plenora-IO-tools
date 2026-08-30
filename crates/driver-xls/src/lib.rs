@@ -496,9 +496,18 @@ const MAX_CIFRE_RIFERIMENTO: usize = 7;
 /// poter spendere memoria o tempo illimitati *nel controllo*.
 const MAX_BYTE_PARTE_XML: u64 = 64 * 1024 * 1024;
 
-/// Numero massimo di parti XML ispezionate. Un workbook conforme ne ha una per
-/// foglio piu' il manifesto; migliaia sono un abuso del contenitore.
-const MAX_PARTI_XML: usize = 4096;
+/// Numero massimo di **membri dell'archivio**, non delle sole parti XML.
+///
+/// Il controllo guarda `archive.len()`, cioe' ogni voce del central directory:
+/// un contenitore con migliaia di immagini viene fermato quanto uno con
+/// migliaia di fogli. E' voluto -- il tetto difende dall'abuso del contenitore,
+/// non dal numero di fogli -- e la costante si chiamava `MAX_PARTI_XML`, che
+/// suggeriva l'altra cosa. Un workbook conforme ha una parte per foglio piu' il
+/// manifesto e qualche risorsa; migliaia sono un abuso.
+///
+/// Il conteggio avviene **dopo** `ZipArchive::new`: limita cio' che si
+/// ispeziona, non la memoria gia' spesa per caricare il central directory.
+const MAX_MEMBRI_ARCHIVIO: usize = 4096;
 
 /// Impedisce il panico di `calamine` **prima** che avvenga (FZ-0).
 ///
@@ -534,13 +543,13 @@ fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|_| err(&PublicMessage::Curated("contenitore XLSX non valido")))?;
 
-    if archive.len() > MAX_PARTI_XML {
+    if archive.len() > MAX_MEMBRI_ARCHIVIO {
         return Err(PlenoraIoError::limite_redatto(
             &PublicMessage::CuratedBetween(
                 "XLSX:",
                 NumeroStrutturale::Conteggio(driver_common::saturating_u64(archive.len())),
                 "parti nel contenitore superano il tetto di",
-                NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_PARTI_XML)),
+                NumeroStrutturale::Limite(driver_common::saturating_u64(MAX_MEMBRI_ARCHIVIO)),
             ),
         ));
     }
@@ -549,22 +558,36 @@ fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<
     // soltanto attributi non qualificati chiamati `r` o `ref`; non legge nodi
     // di testo e quindi non pretende di validare, per esempio, il contenuto
     // dei nomi definiti in `xl/workbook.xml`.
-    let parti: Vec<String> = (0..archive.len())
-        .filter_map(|indice| {
-            let nome = archive.by_index(indice).ok()?.name().to_owned();
-            let minuscolo = nome.to_ascii_lowercase();
-            let e_foglio = minuscolo.starts_with("xl/worksheets/")
-                && std::path::Path::new(&minuscolo)
-                    .extension()
-                    .is_some_and(|estensione| estensione.eq_ignore_ascii_case("xml"));
-            (e_foglio || minuscolo == "xl/workbook.xml").then_some(nome)
+    //
+    // **La selezione non apre niente.** `name_for_index` legge il nome dal
+    // central directory, che e' gia' in memoria; l'apertura avviene dopo, solo
+    // per le voci scelte, e il suo errore si propaga.
+    //
+    // Fino a questa revisione la selezione passava da
+    // `archive.by_index(indice).ok()?` dentro un `filter_map`, e quel `?`
+    // trasformava **qualunque** errore di apertura in «parte ignorata»: una
+    // parte con central directory leggibile e header locale irraggiungibile
+    // spariva dal perimetro, e la funzione restituiva `Ok`. Era fail-open in
+    // una funzione il cui contratto dice che «non c'e' un ramo che, non
+    // riuscendo a controllare, prosegua lo stesso», e il `by_name` che seguiva
+    // non lo riparava, perche' cercava fra i nomi gia' filtrati.
+    let indici_nel_perimetro: Vec<usize> = (0..archive.len())
+        .filter(|indice| {
+            archive.name_for_index(*indice).is_some_and(|nome| {
+                let minuscolo = nome.to_ascii_lowercase();
+                let e_foglio = minuscolo.starts_with("xl/worksheets/")
+                    && std::path::Path::new(&minuscolo)
+                        .extension()
+                        .is_some_and(|estensione| estensione.eq_ignore_ascii_case("xml"));
+                e_foglio || minuscolo == "xl/workbook.xml"
+            })
         })
         .collect();
 
-    for nome in parti {
+    for indice in indici_nel_perimetro {
         budget.context().ensure_active()?;
         let membro = archive
-            .by_name(&nome)
+            .by_index(indice)
             .map_err(|_| err(&PublicMessage::Curated("parte XLSX non leggibile")))?;
         if membro.size() > MAX_BYTE_PARTE_XML {
             return Err(PlenoraIoError::limite_redatto(&PublicMessage::CuratedWith(
@@ -2042,6 +2065,141 @@ mod tests {
                 errore.message
             );
         }
+    }
+
+    /// Una parte enumerabile ma **non apribile** ferma la lettura.
+    ///
+    /// # Il difetto che questa sonda ha trovato
+    ///
+    /// La selezione del perimetro passava da `archive.by_index(indice).ok()?`
+    /// dentro un `filter_map`: qualunque errore di apertura diventava «parte
+    /// ignorata». Una parte con central directory leggibile e header locale
+    /// irraggiungibile spariva quindi dal perimetro, e
+    /// `valida_riferimenti_cella` restituiva `Ok` -- cioe' **fail-open**, in una
+    /// funzione il cui doc-comment promette che «non c'e' un ramo che, non
+    /// riuscendo a controllare, prosegua lo stesso».
+    ///
+    /// Non era una svista di stile: `?` dentro `filter_map` scarta l'errore per
+    /// costruzione, e il `by_name` successivo non lo ripara, perche' cerca fra i
+    /// nomi **gia' filtrati**.
+    /// Un archivio con due parti XML vere, e l'offset dell'header locale di una
+    /// di esse **corrotto nel central directory**.
+    ///
+    /// Costruito con il crate `zip` e poi ritoccato in un campo solo: cosi' il
+    /// contenuto e' valido, il central directory resta leggibile, e l'unica
+    /// cosa che cambia e' che quella voce non si apre. Costruirlo a mano
+    /// avrebbe messo in gioco anche la correttezza della fixture, e un rifiuto
+    /// non avrebbe piu' distinto le due cause.
+    fn xlsx_con_una_parte_non_apribile(corrompi: bool) -> Vec<u8> {
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut scrittore = zip::ZipWriter::new(&mut buffer);
+            let opzioni: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            for nome in ["xl/worksheets/sheet1.xml", "xl/workbook.xml"] {
+                scrittore.start_file(nome, opzioni).unwrap();
+                std::io::Write::write_all(&mut scrittore, b"<x r=\"A1\"/>").unwrap();
+            }
+            scrittore.finish().unwrap();
+        }
+        let mut byte = buffer.into_inner();
+        if !corrompi {
+            return byte;
+        }
+
+        // La prima voce del central directory: firma `PK\x01\x02`, e il
+        // relative offset dell'header locale nei quattro byte a 42.
+        let posizione = byte
+            .windows(4)
+            .position(|finestra| finestra == [0x50, 0x4b, 0x01, 0x02])
+            .expect("il central directory esiste");
+        byte[posizione + 42..posizione + 46].copy_from_slice(&3_u32.to_le_bytes());
+        byte
+    }
+
+    #[test]
+    fn n1_una_parte_enumerabile_ma_non_apribile_ferma_la_lettura() {
+        let dir = tempfile::tempdir().unwrap();
+        let opzioni = opzioni_lettura();
+
+        // Il controllo che rende interpretabile il rifiuto: lo stesso archivio
+        // **non** corrotto passa.
+        let integro = dir.path().join("integro.xlsx");
+        std::fs::write(&integro, xlsx_con_una_parte_non_apribile(false)).unwrap();
+        valida_riferimenti_cella(&integro, opzioni.budget())
+            .expect("con l'offset corretto entrambe le parti si aprono e si ispezionano");
+
+        // La voce ritoccata e' `xl/worksheets/sheet1.xml`, cioe' dentro il
+        // perimetro: e' quella che non deve poter sparire in silenzio.
+        let rotto = dir.path().join("rotto.xlsx");
+        std::fs::write(&rotto, xlsx_con_una_parte_non_apribile(true)).unwrap();
+
+        let Err(errore) = valida_riferimenti_cella(&rotto, opzioni.budget()) else {
+            panic!(
+                "una parte del perimetro che non si apre deve fermare la lettura; \
+                 restituire Ok e' il fail-open che il contratto esclude"
+            );
+        };
+        assert!(
+            errore.message.contains("parte XLSX non leggibile"),
+            "atteso il rifiuto sull'apertura della parte, arrivato «{}»",
+            errore.message
+        );
+    }
+
+    /// Un archivio con `quante` voci vuote e nomi **realmente distinti**.
+    ///
+    /// I nomi devono essere unici: `zip` 8.6 conserva le voci in una mappa
+    /// indicizzata per nome, e due voci omonime si sovrascrivono invece di
+    /// contarsi due volte. Una fixture con nomi ripetuti proverebbe un tetto
+    /// piu' basso di quello dichiarato.
+    fn xlsx_con_parti(quante: usize) -> Vec<u8> {
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut scrittore = zip::ZipWriter::new(&mut buffer);
+            let opzioni: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            for indice in 0..quante {
+                scrittore
+                    .start_file(format!("parte{indice}.bin"), opzioni)
+                    .unwrap();
+            }
+            scrittore.finish().unwrap();
+        }
+        buffer.into_inner()
+    }
+
+    /// Il tetto sulle parti conta **i membri dell'archivio**, non le sole parti
+    /// XML, e i due confini stanno uno accanto all'altro.
+    ///
+    /// Il **vecchio** nome della costante diceva «parti XML» mentre il controllo
+    /// guarda `archive.len()`, cioe' ogni membro: un contenitore con migliaia di
+    /// immagini viene fermato quanto uno con migliaia di fogli. E' il
+    /// comportamento voluto -- il tetto difende dall'abuso del contenitore, non
+    /// dal numero di fogli -- e la sonda lo fissa perche' un nome non e' una
+    /// prova: `MAX_MEMBRI_ARCHIVIO` oggi lo dice, ma potrebbe tornare a mentire.
+    #[test]
+    fn n1_il_tetto_sulle_parti_conta_i_membri_e_ha_i_due_confini() {
+        let dir = tempfile::tempdir().unwrap();
+        let opzioni = opzioni_lettura();
+
+        // Nessuna delle voci e' una parte XML del perimetro: se il tetto
+        // contasse le sole parti XML, questo archivio passerebbe.
+        let al_limite = dir.path().join("al-limite.xlsx");
+        std::fs::write(&al_limite, xlsx_con_parti(MAX_MEMBRI_ARCHIVIO)).unwrap();
+        valida_riferimenti_cella(&al_limite, opzioni.budget())
+            .expect("il confine e' inclusivo: esattamente MAX_MEMBRI_ARCHIVIO membri passano");
+
+        let oltre = dir.path().join("oltre.xlsx");
+        std::fs::write(&oltre, xlsx_con_parti(MAX_MEMBRI_ARCHIVIO + 1)).unwrap();
+        let Err(errore) = valida_riferimenti_cella(&oltre, opzioni.budget()) else {
+            panic!("un membro oltre il tetto deve fermare la lettura");
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::ResourceLimit,
+            "un tetto superato e' un limite, non un formato non valido"
+        );
     }
 
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.

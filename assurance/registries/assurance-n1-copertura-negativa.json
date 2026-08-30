@@ -118,8 +118,22 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 11,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso, e la chiusura ha trovato un **fail-open**. La selezione del perimetro passava da `archive.by_index(indice).ok()?` dentro un `filter_map`: quel `?` trasformava qualunque errore di apertura in «parte ignorata», quindi una parte con central directory leggibile e header locale irraggiungibile spariva dal perimetro e la funzione restituiva `Ok`. In una funzione il cui contratto dice che «non c'e' un ramo che, non riuscendo a controllare, prosegua lo stesso». Il `by_name` successivo non lo riparava, perche' cercava fra i nomi **gia' filtrati**. La regressione e' stata scritta **prima** della correzione e osservata rossa: un archivio con due parti XML vere, costruito con il crate `zip` e poi ritoccato in un campo solo -- il relative offset dell'header locale nel central directory. Costruirlo a mano avrebbe messo in gioco anche la correttezza della fixture, e un rifiuto non avrebbe piu' distinto le due cause; accanto c'e' il controllo che lo stesso archivio non corrotto passa. La correzione: `name_for_index` decide il perimetro leggendo dal central directory gia' in memoria, `by_index` apre **solo** le voci scelte propagando l'errore, e l'ispezione avviene su quella `ZipFile` invece di raccogliere i nomi e riaprirli. Il tetto sui membri ha ora i due confini: 4096 passa, 4097 no, con nomi realmente distinti -- `zip` 8.6 conserva le voci in una mappa indicizzata per nome e i duplicati si sovrascriverebbero, provando un tetto piu' basso di quello dichiarato. La costante e' stata rinominata `MAX_MEMBRI_ARCHIVIO`: contava gia' ogni voce dell'archivio e non le sole parti XML, e il vecchio nome diceva l'altra cosa. **Rischio residuo dichiarato**: il conteggio avviene dopo `ZipArchive::new`, quindi limita cio' che si ispeziona ma non la memoria gia' spesa per caricare il central directory.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_una_parte_enumerabile_ma_non_apribile_ferma_la_lettura",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_il_tetto_sulle_parti_conta_i_membri_e_ha_i_due_confini",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::create",
