@@ -118,8 +118,22 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 16,
       "raggiunto_da_replay": 5,
-      "disposizione": "test_tabellare",
-      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+      "disposizione": "chiuso",
+      "nota": "chiuso da una tabella che nomina **quale** colonna manca per **quale** configurazione. Il replay raggiungeva gia' cinque di queste righe -- reachability e panic-safety erano provate -- ma nessuna prova diceva la ragione, e i tre messaggi esistono proprio perche' mandano chi legge a correggere cose diverse: un `wkt_column` che non trova l'intestazione, un'ascissa che non la trova, un'ordinata che non la trova. Il quarto messaggio copre tre precondizioni distinte -- nessuna opzione, la sola ascissa, la sola ordinata -- e la tabella le tiene separate: nessuna regola incrociata ferma una coppia a meta' prima del driver, quindi tutte e tre arrivano davvero qui. Le colonne restituite sono verificate come **assolute**: `start_column` nella tabella e' cinque, e con uno zero al suo posto la sparizione della somma non si vedrebbe. Sono fissate anche due proprieta' che nessun messaggio d'errore esprime: la precedenza di `wkt_column` sulla coppia x/y -- senza la quale invertire i due `if` non romperebbe nulla -- e il fatto che l'insieme delle colonne consumate non ripeta, perche' `infer_layout` dimensiona gli accumulatori su `width - resolved_columns.len()` e una lista con ripetizioni li manderebbe fuori indice. Le accettazioni stanno accanto ai rifiuti perche' senza di loro una funzione che rifiutasse tutto supererebbe la tabella dei negativi. Una seconda sonda passa da `open` e verifica che il messaggio esca dal driver invariato: e' l'unica cosa che la chiamata diretta non puo' dire. Le tre combinazioni dentro `index` (`position`, `try_from`, `checked_add`) non sono rami distinti: collassano tutte sullo stesso `ok_or_else`, gia' eseguito dalla tabella.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_resolve_geometry_nomina_la_colonna_che_manca_e_da_precedenza_al_wkt",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_la_colonna_wkt_assente_esce_dal_driver_con_il_suo_messaggio",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::next_physical",
@@ -188,8 +202,24 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 10,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso con una fixture che nessuna libreria conforme produce, perche' i due rifiuti difendono proprio da quello: la funzione trasforma celle sparse in righe dense fidandosi di due cose che il file **dichiara** -- che le celle arrivino in ordine di riga crescente, e che stiano dentro le dimensioni dichiarate -- e senza quei controlli `values[offset]` scriverebbe fuori dal vettore della riga. La fixture sostituisce **solo** `xl/worksheets/sheet1.xml` dentro un `.xlsx` scritto da `rust_xlsxwriter`: tipi di contenuto, relazioni e workbook restano quelli di una libreria conforme, cosi' un rifiuto non puo' venire da una parte malformata che non c'entra, e la sostituzione e' verificata unica perche' se il writer rinominasse la parte la prova starebbe guardando un altro file. Le tre precondizioni sono tenute separate: colonna oltre l'ultima dichiarata, colonna prima della prima -- le due meta' della stessa condizione, che una sola fixture non distinguerebbe -- e una riga che torna indietro, che la funzione non puo' recuperare perche' tiene una sola cella in attesa. `for_each_dense_row` e' chiamata direttamente con un visitatore che restituisce sempre `Ok(true)`, cosi' l'esito viene dalla funzione e non dal chiamante. Il controllo positivo fissa anche che il valore restituito conti **celle** e non righe: e' l'unita' su cui `infer_layout` decide se il foglio sia vuoto, e una riga sparsa lo mostra. Resta una riga irraggiungibile, «indice colonna XLSX non rappresentabile»: l'offset e' un `u32`, e la conversione a `usize` fallisce solo dove `usize` e' piu' stretto di trentadue bit. Non c'e' una guardia a monte da eseguire -- la guardia e' il bersaglio di compilazione -- e per questo la verifica sta in un blocco `const`: su una piattaforma dove `usize` non copre `u32` il crate non compila, invece di far fallire un test che qualcuno potrebbe non eseguire. E' anche il momento in cui il ramo andrebbe riclassificato da irraggiungibile a coperto.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_for_each_dense_row_rifiuta_le_celle_fuori_ordine_e_fuori_dimensione",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_usize_copre_u32_su_ogni_piattaforma_supportata",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1013-1017",
+          "guardia": "bersaglio di compilazione: usize::BITS >= u32::BITS"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::validate_archive_ratio",

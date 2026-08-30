@@ -2482,6 +2482,369 @@ mod tests {
         }
     }
 
+    /// Ogni rifiuto di `resolve_geometry` nomina **quale** colonna manca, e la
+    /// colonna WKT ha la precedenza sulla coppia x/y.
+    ///
+    /// I quattro rifiuti hanno tre messaggi diversi perche' mandano chi legge a
+    /// correggere cose diverse: un `wkt_column` che non trova l'intestazione,
+    /// un'ascissa che non la trova, un'ordinata che non la trova, e la
+    /// configurazione che non dice niente. Il quarto messaggio copre tre
+    /// precondizioni distinte -- nessuna opzione, la sola ascissa, la sola
+    /// ordinata -- e la tabella le tiene separate: una coppia a meta' non e'
+    /// una configurazione assente, e se un giorno meritasse un messaggio
+    /// proprio la riga che lo dice e' gia' scritta.
+    ///
+    /// Le colonne restituite sono **assolute**, non offset: `start_column` qui
+    /// e' cinque, e ogni attesa lo somma. Con uno zero al suo posto la tabella
+    /// resterebbe verde anche se la somma sparisse.
+    #[test]
+    fn n1_resolve_geometry_nomina_la_colonna_che_manca_e_da_precedenza_al_wkt() {
+        const INIZIO: u32 = 5;
+        let intestazioni: Vec<String> = ["id", "geom", "lon", "lat"]
+            .iter()
+            .map(|nome| (*nome).to_owned())
+            .collect();
+        let opzioni = |coppie: &[(&str, &str)]| -> BTreeMap<String, String> {
+            coppie
+                .iter()
+                .map(|(chiave, valore)| ((*chiave).to_owned(), (*valore).to_owned()))
+                .collect()
+        };
+
+        for (caso, coppie, atteso) in [
+            (
+                "wkt_column che non e' fra le intestazioni",
+                vec![("wkt_column", "assente")],
+                "colonna WKT assente dall'intestazione",
+            ),
+            (
+                "ascissa assente, ordinata presente",
+                vec![("x_column", "assente"), ("y_column", "lat")],
+                "colonna X assente dall'intestazione",
+            ),
+            (
+                "ascissa presente, ordinata assente",
+                vec![("x_column", "lon"), ("y_column", "assente")],
+                "colonna Y assente dall'intestazione",
+            ),
+            (
+                "nessuna opzione di geometria",
+                vec![],
+                "specificare wkt_column, oppure x_column con y_column, in format_options",
+            ),
+            (
+                "coppia a meta': solo l'ascissa",
+                vec![("x_column", "lon")],
+                "specificare wkt_column, oppure x_column con y_column, in format_options",
+            ),
+            (
+                "coppia a meta': solo l'ordinata",
+                vec![("y_column", "lat")],
+                "specificare wkt_column, oppure x_column con y_column, in format_options",
+            ),
+        ] {
+            let esito = resolve_geometry(&intestazioni, INIZIO, &opzioni(&coppie));
+            let Err(errore) = esito else {
+                panic!("{caso}: doveva essere rifiutata");
+            };
+            assert_eq!(
+                errore.message, atteso,
+                "{caso}: il messaggio manda a correggere la cosa sbagliata"
+            );
+        }
+
+        // Le accettazioni: senza, una funzione che rifiutasse tutto passerebbe
+        // la tabella dei negativi.
+        let (wkt, colonne_wkt) =
+            resolve_geometry(&intestazioni, INIZIO, &opzioni(&[("wkt_column", "geom")]))
+                .expect("«geom» e' la seconda intestazione");
+        let XlsxGeomSpec::Wkt(colonna) = wkt else {
+            panic!("wkt_column deve produrre una geometria WKT");
+        };
+        assert_eq!(colonna, INIZIO + 1, "la colonna e' assoluta, non un offset");
+        assert_eq!(colonne_wkt, BTreeSet::from([INIZIO + 1]));
+
+        let (xy, colonne_xy) = resolve_geometry(
+            &intestazioni,
+            INIZIO,
+            &opzioni(&[("x_column", "lon"), ("y_column", "lat")]),
+        )
+        .expect("«lon» e «lat» sono la terza e la quarta intestazione");
+        let XlsxGeomSpec::Xy(x, y) = xy else {
+            panic!("x_column con y_column deve produrre una geometria x/y");
+        };
+        assert_eq!((x, y), (INIZIO + 2, INIZIO + 3));
+        assert_eq!(colonne_xy, BTreeSet::from([INIZIO + 2, INIZIO + 3]));
+
+        // La precedenza: con tutte e tre le opzioni valide vince il WKT, e la
+        // coppia x/y non contribuisce alle colonne consumate. Senza questa
+        // riga, invertire i due `if` non romperebbe nulla.
+        let (insieme, colonne_insieme) = resolve_geometry(
+            &intestazioni,
+            INIZIO,
+            &opzioni(&[
+                ("wkt_column", "geom"),
+                ("x_column", "lon"),
+                ("y_column", "lat"),
+            ]),
+        )
+        .expect("le tre colonne esistono tutte");
+        assert!(
+            matches!(insieme, XlsxGeomSpec::Wkt(colonna) if colonna == INIZIO + 1),
+            "wkt_column ha la precedenza sulla coppia x/y"
+        );
+        assert_eq!(colonne_insieme, BTreeSet::from([INIZIO + 1]));
+
+        // Ascissa e ordinata sulla stessa colonna sono accettate, e l'insieme
+        // ne contiene una sola. Non e' una svista: `infer_layout` dimensiona
+        // gli accumulatori su `width - resolved_columns.len()` e salta le
+        // colonne dell'insieme, quindi le due quantita' restano d'accordo. Se
+        // un giorno l'insieme diventasse una lista con ripetizioni, questa
+        // riga diventa rossa prima che gli accumulatori vadano fuori indice.
+        let (_, colonne_doppie) = resolve_geometry(
+            &intestazioni,
+            INIZIO,
+            &opzioni(&[("x_column", "lon"), ("y_column", "lon")]),
+        )
+        .expect("nulla vieta di leggere due volte la stessa colonna");
+        assert_eq!(colonne_doppie.len(), 1, "l'insieme non ripete la colonna");
+    }
+
+    /// Il rifiuto di `resolve_geometry` arriva fino a chi chiama `open`.
+    ///
+    /// La tabella qui sopra chiama la funzione direttamente; questa sonda
+    /// verifica che quel messaggio non venga riscritto o inghiottito lungo la
+    /// strada, che e' l'unica cosa che la chiamata diretta non puo' dire.
+    #[test]
+    fn n1_la_colonna_wkt_assente_esce_dal_driver_con_il_suo_messaggio() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("altra-colonna.xlsx");
+        scrivi_xlsx(&percorso, 2, 2);
+
+        let Err(errore) = XlsDriver.open(
+            Source::Path(percorso),
+            opzioni_lettura()
+                .with_assume_crs("EPSG:4326")
+                .with_format_option("wkt_column", "questa-non-c-e"),
+        ) else {
+            panic!("una colonna WKT che non esiste non e' una geometria");
+        };
+        assert_eq!(
+            errore.message, "colonna WKT assente dall'intestazione",
+            "il messaggio del driver deve restare quello della funzione"
+        );
+    }
+
+    /// Un `.xlsx` vero in cui **solo** `xl/worksheets/sheet1.xml` e' sostituito.
+    ///
+    /// Le dimensioni dichiarate e le celle presenti sono due cose diverse, e
+    /// nessuna libreria conforme le fa divergere: per costruire quella
+    /// divergenza il foglio va scritto a mano. Tutto il resto del contenitore
+    /// -- tipi di contenuto, relazioni, workbook -- resta quello prodotto da
+    /// `rust_xlsxwriter`, cosi' un rifiuto non puo' venire da una parte
+    /// malformata che non c'entra.
+    fn xlsx_con_foglio(dir: &std::path::Path, nome: &str, foglio_xml: &str) -> std::path::PathBuf {
+        let base = dir.join("base.xlsx");
+        let mut cartella = Workbook::new();
+        let primo = cartella.add_worksheet();
+        primo.write_string(0, 0, "segnaposto").unwrap();
+        cartella.save(&base).unwrap();
+
+        let mut archivio = zip::ZipArchive::new(std::fs::File::open(&base).unwrap()).unwrap();
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        let mut sostituite = 0usize;
+        {
+            let mut scrittore = zip::ZipWriter::new(&mut buffer);
+            let opzioni: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            for indice in 0..archivio.len() {
+                let mut membro = archivio.by_index(indice).unwrap();
+                let parte = membro.name().to_owned();
+                scrittore.start_file(parte.clone(), opzioni).unwrap();
+                if parte == "xl/worksheets/sheet1.xml" {
+                    sostituite += 1;
+                    std::io::Write::write_all(&mut scrittore, foglio_xml.as_bytes()).unwrap();
+                } else {
+                    std::io::copy(&mut membro, &mut scrittore).unwrap();
+                }
+            }
+            scrittore.finish().unwrap();
+        }
+        assert_eq!(
+            sostituite, 1,
+            "il foglio da sostituire deve esistere una volta sola: se il writer \
+             rinomina la parte, la fixture starebbe provando un altro file"
+        );
+
+        let percorso = dir.join(nome);
+        std::fs::write(&percorso, buffer.into_inner()).unwrap();
+        percorso
+    }
+
+    /// Il corpo di un foglio con le dimensioni dichiarate e le righe date.
+    fn foglio_xml(riferimento: &str, righe: &str) -> String {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\
+             <dimension ref=\"{riferimento}\"/><sheetData>{righe}</sheetData></worksheet>"
+        )
+    }
+
+    /// Una cella testuale in linea, senza tabella delle stringhe condivise.
+    fn cella(riferimento: &str, testo: &str) -> String {
+        format!("<c r=\"{riferimento}\" t=\"inlineStr\"><is><t>{testo}</t></is></c>")
+    }
+
+    /// `for_each_dense_row` sul foglio dato, con un visitatore che non decide
+    /// nulla: cosi' l'esito viene dalla funzione, non dal chiamante.
+    fn celle_osservate(percorso: &std::path::Path) -> Result<usize> {
+        let opzioni = opzioni_lettura();
+        let mut cartella: calamine::Xlsx<_> = calamine::open_workbook(percorso).unwrap();
+        let nome = cartella.sheet_names().first().cloned().unwrap();
+        let mut lettore = LettoreCelleSorvegliato::nuovo(&mut cartella, &nome)?;
+        let dimensioni = lettore.dimensioni()?;
+        for_each_dense_row(
+            &mut lettore,
+            dimensioni,
+            opzioni.cancellation(),
+            |_riga, _valori| Ok(true),
+        )
+    }
+
+    /// I due rifiuti di `for_each_dense_row`, e il conteggio che restituisce.
+    ///
+    /// La funzione trasforma un flusso di celle sparse in righe dense, e per
+    /// farlo si fida di due cose che il file dichiara e che nessuna libreria
+    /// conforme fa divergere: che le celle arrivino in ordine di riga
+    /// crescente, e che stiano dentro le dimensioni dichiarate. Un foglio
+    /// costruito a mano fa divergere entrambe, e allora la funzione deve
+    /// fermarsi invece di scrivere fuori dal vettore della riga -- che e' cio'
+    /// che `values[offset]` farebbe se l'offset non fosse gia' stato
+    /// confrontato con le dimensioni.
+    ///
+    /// Il controllo positivo non e' un contorno: fissa anche che il valore
+    /// restituito conti **celle** e non righe, cioe' l'unita' su cui
+    /// `infer_layout` decide se il foglio sia vuoto.
+    #[test]
+    fn n1_for_each_dense_row_rifiuta_le_celle_fuori_ordine_e_fuori_dimensione() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Il controllo positivo, e il conteggio: due righe per due colonne, ma
+        // la seconda riga ha una sola cella. Le celle sono tre, le righe due.
+        let conforme = xlsx_con_foglio(
+            dir.path(),
+            "conforme.xlsx",
+            &foglio_xml(
+                "A1:B2",
+                &format!(
+                    "<row r=\"1\">{}{}</row><row r=\"2\">{}</row>",
+                    cella("A1", "geometry"),
+                    cella("B1", "nome"),
+                    cella("A2", "POINT (1 2)")
+                ),
+            ),
+        );
+        assert_eq!(
+            celle_osservate(&conforme).expect("il foglio e' conforme"),
+            3,
+            "il conteggio e' di celle, non di righe: la riga sparsa ne porta una sola"
+        );
+
+        // Celle oltre l'ultima colonna dichiarata.
+        let oltre_la_fine = xlsx_con_foglio(
+            dir.path(),
+            "oltre-la-fine.xlsx",
+            &foglio_xml(
+                "A1:B2",
+                &format!(
+                    "<row r=\"1\">{}{}{}</row>",
+                    cella("A1", "geometry"),
+                    cella("B1", "nome"),
+                    cella("C1", "di troppo")
+                ),
+            ),
+        );
+        let Err(errore) = celle_osservate(&oltre_la_fine) else {
+            panic!("una cella oltre l'ultima colonna dichiarata non ha un posto nella riga");
+        };
+        assert_eq!(
+            errore.message,
+            "cella XLSX fuori dalle dimensioni dichiarate"
+        );
+
+        // Celle prima della prima colonna dichiarata: l'altra meta' della
+        // stessa condizione, che una sola fixture non distinguerebbe.
+        let prima_dell_inizio = xlsx_con_foglio(
+            dir.path(),
+            "prima-dell-inizio.xlsx",
+            &foglio_xml(
+                "B1:C1",
+                &format!(
+                    "<row r=\"1\">{}{}</row>",
+                    cella("A1", "di troppo"),
+                    cella("B1", "geometry")
+                ),
+            ),
+        );
+        let Err(errore) = celle_osservate(&prima_dell_inizio) else {
+            panic!("una cella prima della prima colonna dichiarata non ha un posto nella riga");
+        };
+        assert_eq!(
+            errore.message,
+            "cella XLSX fuori dalle dimensioni dichiarate"
+        );
+
+        // Righe fuori ordine: la terza prima della seconda. La funzione tiene
+        // una sola cella in attesa, quindi una riga che torna indietro non e'
+        // recuperabile: e' il caso che il rifiuto esiste per prendere.
+        let fuori_ordine = xlsx_con_foglio(
+            dir.path(),
+            "fuori-ordine.xlsx",
+            &foglio_xml(
+                "A1:A3",
+                &format!(
+                    "<row r=\"1\">{}</row><row r=\"3\">{}</row><row r=\"2\">{}</row>",
+                    cella("A1", "geometry"),
+                    cella("A3", "terza"),
+                    cella("A2", "seconda")
+                ),
+            ),
+        );
+        let Err(errore) = celle_osservate(&fuori_ordine) else {
+            panic!("una riga che torna indietro deve fermare la lettura");
+        };
+        assert_eq!(errore.message, "ordine delle celle XLSX non monotono");
+    }
+
+    /// «indice colonna XLSX non rappresentabile» e' irraggiungibile: la
+    /// piattaforma decide, e su tutte quelle supportate `usize` copre `u32`.
+    ///
+    /// L'offset e' `cell_column - bounds.start.1`, cioe' un `u32`, e la
+    /// conversione a `usize` fallisce solo dove `usize` e' piu' stretto di
+    /// trentadue bit. Non c'e' una guardia a monte da eseguire: la guardia e'
+    /// il bersaglio di compilazione, e per questo la verifica sta in un blocco
+    /// `const`. Su una piattaforma dove `usize` non copre `u32` il crate non
+    /// compila -- che e' esattamente il momento in cui quel ramo andrebbe
+    /// riclassificato da irraggiungibile a coperto, e un errore di
+    /// compilazione lo dice a chiunque, non solo a chi esegue i test.
+    #[test]
+    fn n1_usize_copre_u32_su_ogni_piattaforma_supportata() {
+        // In un blocco `const` perche' la proprieta' e' del bersaglio, non
+        // dell'esecuzione: cosi' una piattaforma dove `usize` e' piu' stretto
+        // di `u32` non fa passare la compilazione, invece di far fallire un
+        // test che qualcuno potrebbe non eseguire.
+        const {
+            assert!(
+                usize::BITS >= u32::BITS,
+                "usize piu' stretto di u32: il ramo diventa raggiungibile"
+            );
+        }
+        assert!(
+            usize::try_from(u32::MAX).is_ok(),
+            "la conversione che il ramo sorveglia non fallisce su questo bersaglio"
+        );
+    }
+
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.
     ///
     /// Sette varianti di `XlsxError` **portano il nome del foglio come dato**,
