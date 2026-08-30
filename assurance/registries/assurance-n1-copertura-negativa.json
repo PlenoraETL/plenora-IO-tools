@@ -440,6 +440,14 @@
       "raggiunto_da_replay": 0,
       "disposizione": "test_tabellare",
       "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+    },
+    {
+      "gruppo": "plenora-io-cli::installa_gestore_dei_segnali",
+      "file": "crates/plenora-io-cli/src/main.rs",
+      "righe": 1,
+      "raggiunto_da_replay": 0,
+      "disposizione": "fixture",
+      "nota": "la `std::process::exit` del secondo Ctrl+C. La **decisione** che ci porta -- primo segnale annulla, successivo esce -- e' provata deterministicamente da tre sonde su `reagisci_al_segnale`, estratta dalla chiusura del gestore proprio per renderla osservabile senza un segnale; verificate per controprova, che le rende rosse invertendo le transizioni e sostituendo lo `swap` con load+store. Resta scoperta la sola chiamata a `exit`, che nessun test in processo puo' osservare senza terminare il harness. La disposizione e' `fixture` e non `difensivo`: il ramo e' raggiungibile da un utente che batte Ctrl+C due volte, quindi non e' irraggiungibile -- e' soltanto non ancora esercitato. La via che lo chiuderebbe e' un test end-to-end che manda due `SIGINT` a un figlio vivo; oggi non e' deterministica, perche' fra il primo segnale e il rientro del processo passano millisecondi e la sonda proverebbe chi arriva primo invece della transizione. Il replay del fuzzer non raggiunge questo ramo per costruzione: i target non eseguono la CLI."
     }
   ]
 }

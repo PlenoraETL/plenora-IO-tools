@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::{json, Value};
 
@@ -1039,8 +1040,6 @@ const AVVISO_SEGNALI: &str =
 /// staging aveva in corso resta dov'e'. E' la stessa cosa che farebbe la
 /// disposizione predefinita di `SIGINT`, dichiarata invece che subita.
 fn installa_gestore_dei_segnali() -> CancellationToken {
-    use std::sync::atomic::{AtomicBool, Ordering};
-
     let token = CancellationToken::new();
     let armato = token.clone();
     let gia_chiesto = std::sync::Arc::new(AtomicBool::new(false));
@@ -1049,17 +1048,64 @@ fn installa_gestore_dei_segnali() -> CancellationToken {
     // chiama questa chiusura. E' cio' che rende lecito prendere un lock qui —
     // `cancel` ne prende due — dove un gestore vero ammetterebbe solo funzioni
     // async-signal-safe.
+    //
+    // Nella chiusura resta **una sola** decisione, e non e' una decisione: e'
+    // l'uscita. Tutto cio' che si puo' provare senza un segnale sta in
+    // [`reagisci_al_segnale`].
     if ctrlc::set_handler(move || {
-        if gia_chiesto.swap(true, Ordering::SeqCst) {
+        if reagisci_al_segnale(&gia_chiesto, &armato) == AzioneDelSegnale::UsciSubito {
             std::process::exit(EXIT_ANNULLATO);
         }
-        armato.cancel();
     })
     .is_err()
     {
         eprintln!("{AVVISO_SEGNALI}");
     }
     token
+}
+
+/// Che cosa fare quando arriva un segnale.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AzioneDelSegnale {
+    /// Primo segnale: si annulla in modo cooperativo e si lascia rientrare la
+    /// pipeline, che liberera' staging e spool scendendo lo stack.
+    Annulla,
+    /// Segnale successivo: chi lo manda ha gia' chiesto e non aspetta oltre.
+    UsciSubito,
+}
+
+/// La decisione primo/segnale-successivo, con il suo effetto sul token.
+///
+/// # Perche' sta fuori dalla chiusura
+///
+/// Per essere **provabile senza un segnale**. Dentro la chiusura le due
+/// transizioni si sarebbero potute osservare solo mandando `SIGINT` a un
+/// processo vero, e la seconda avrebbe richiesto di vincere una corsa contro il
+/// rientro della prima: fra il primo segnale e l'uscita del processo passano
+/// millisecondi. Una sonda costruita cosi' non prova la transizione, prova chi
+/// arriva primo — ed e' esattamente il difetto che questa tranche ha gia'
+/// trovato una volta, in una sonda tarata sul carico della macchina.
+///
+/// Qui le transizioni sono due chiamate e l'ordine lo decide il test.
+///
+/// # Che cosa resta fuori
+///
+/// La sola `std::process::exit`, che un test in processo non puo' osservare per
+/// costruzione: terminerebbe il harness. E' censita in ASSURANCE-N1 invece di
+/// essere dichiarata coperta.
+///
+/// # L'ordine dentro la funzione
+///
+/// `swap` prima di `cancel`, e non il contrario: due segnali che arrivassero
+/// insieme devono vedere **uno solo** vincere la prima transizione, e a
+/// deciderlo dev'essere l'operazione atomica, non l'ordine in cui i due thread
+/// entrano in `cancel`.
+fn reagisci_al_segnale(gia_chiesto: &AtomicBool, token: &CancellationToken) -> AzioneDelSegnale {
+    if gia_chiesto.swap(true, Ordering::SeqCst) {
+        return AzioneDelSegnale::UsciSubito;
+    }
+    token.cancel();
+    AzioneDelSegnale::Annulla
 }
 
 /// `parse`, piu' il legame con il token del processo.
@@ -1358,6 +1404,76 @@ mod tests {
             .limits(cli.limits)
             .build()
             .is_err());
+    }
+
+    /// Le due transizioni, nell'ordine, senza un segnale.
+    #[test]
+    fn il_primo_segnale_annulla_e_il_successivo_chiede_l_uscita() {
+        let gia_chiesto = AtomicBool::new(false);
+        let token = CancellationToken::new();
+        assert!(!token.is_cancelled(), "premessa: il token parte armabile");
+
+        assert_eq!(
+            reagisci_al_segnale(&gia_chiesto, &token),
+            AzioneDelSegnale::Annulla
+        );
+        assert!(
+            token.is_cancelled(),
+            "il primo segnale deve annullare, non solo dichiararlo"
+        );
+
+        assert_eq!(
+            reagisci_al_segnale(&gia_chiesto, &token),
+            AzioneDelSegnale::UsciSubito
+        );
+    }
+
+    /// La decisione non torna indietro.
+    ///
+    /// Un `swap` letto male — o sostituito da un `load` seguito da uno `store`
+    /// — potrebbe far rientrare la macchina nel primo stato, e un terzo Ctrl+C
+    /// annullerebbe di nuovo invece di uscire.
+    #[test]
+    fn dal_secondo_segnale_in_poi_la_decisione_resta_l_uscita() {
+        let gia_chiesto = AtomicBool::new(false);
+        let token = CancellationToken::new();
+        assert_eq!(
+            reagisci_al_segnale(&gia_chiesto, &token),
+            AzioneDelSegnale::Annulla
+        );
+        for numero in 2..=5 {
+            assert_eq!(
+                reagisci_al_segnale(&gia_chiesto, &token),
+                AzioneDelSegnale::UsciSubito,
+                "il segnale numero {numero} e' tornato alla prima transizione"
+            );
+        }
+    }
+
+    /// Il ramo dell'uscita non tocca il token.
+    ///
+    /// La sonda usa un token **diverso** alla seconda chiamata: se le due
+    /// transizioni fossero invertite, o se il ramo dell'uscita annullasse
+    /// comunque, quel token risulterebbe annullato. Con un token solo la
+    /// differenza non si vedrebbe, perche' era gia' annullato dalla prima.
+    #[test]
+    fn il_ramo_dell_uscita_non_annulla_nulla() {
+        let gia_chiesto = AtomicBool::new(false);
+        let primo = CancellationToken::new();
+        assert_eq!(
+            reagisci_al_segnale(&gia_chiesto, &primo),
+            AzioneDelSegnale::Annulla
+        );
+
+        let secondo = CancellationToken::new();
+        assert_eq!(
+            reagisci_al_segnale(&gia_chiesto, &secondo),
+            AzioneDelSegnale::UsciSubito
+        );
+        assert!(
+            !secondo.is_cancelled(),
+            "il ramo dell'uscita ha annullato un token: le transizioni sono invertite"
+        );
     }
 
     #[test]

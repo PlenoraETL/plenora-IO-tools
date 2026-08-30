@@ -41,8 +41,8 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | soglia di copertura | 80,00% |
 | baseline differenziale | `c930b2a` |
 | esito differenziale | 100.00% |
-| gruppi ASSURANCE-N1 | 49 |
-| gruppi ASSURANCE-N1 aperti | 43 |
+| gruppi ASSURANCE-N1 | 50 |
+| gruppi ASSURANCE-N1 aperti | 44 |
 | blocchi | 3 |
 | S9, qualificato su | `f4f8471` |
 | candidate, versione del manifesto | `1.0.1` |
