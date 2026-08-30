@@ -177,6 +177,56 @@ errore ammette che il filesystem possa essere rimasto sporco. Ammetterlo è la
 ragione per cui quei due campi esistono: un errore che tacesse sarebbe peggiore
 del set sciolto stesso.
 
+### Che cosa invecchia quando cambia una dipendenza
+
+Gli artefatti di profondità del fuzzing e il confine ASan non dichiarano una
+proprietà: la **misurano**, e portano l'impronta del perimetro che la determina.
+Quando quel perimetro cambia, l'impronta non coincide più e il gate diventa
+rosso — è il meccanismo che impedisce a una misura di sopravvivere al codice che
+descriveva.
+
+`Cargo.lock` è **dentro il perimetro di tutti**. Ne segue un fatto operativo che
+conviene conoscere prima di aggiungere un crate, invece di scoprirlo un rosso
+per volta:
+
+| che cosa rimisurare | come |
+|---|---|
+| `assurance/profondita-fuzz-shapefile.json` | `bash scripts/fuzz-profondita.sh shp_reader` |
+| `assurance/profondita-fuzz-geojson.json` | `bash scripts/fuzz-profondita.sh geojson_reader` |
+| `assurance/profondita-fuzz-wkt.json` | `bash scripts/fuzz-profondita.sh wkt_parse` |
+| `assurance/profondita-fuzz-filegdb.json` | `bash scripts/fuzz-profondita.sh filegdb_reader` |
+| `assurance/asan-filegdb.json` | `bash scripts/asan-filegdb.sh` |
+
+**Sono cinque, e la quinta è quella che si dimentica**: `asan-filegdb.json`
+porta la stessa impronta del perimetro FileGDB, quindi resta rossa da sola dopo
+che le quattro profondità sono tornate verdi. Se la sua corsa cambia
+`contatori_di_copertura`, il valore va allineato anche in
+`assurance/current-state.json` (`chiuso.fuzz_filegdb`), perché
+`stato.fonti-legate` pretende che i due coincidano.
+
+Le misure si rifanno **dopo** aver finito ogni modifica al codice, non durante:
+gli artefatti registrano anche la riga di ciascun simbolo, quindi invecchiano
+pure quando il codice si limita a spostarsi. Lo stesso vale per una modifica ai
+soli commenti dentro un file del perimetro.
+
+### Dove finiscono i log di una corsa
+
+`S9_CHECKPOINT_LOG_DIR` sceglie dove il checkpoint scrive i propri passi e il
+`risultato.json`. Il default è `/tmp`, che dentro un container sparisce con il
+container: l'evidenza di una misura non si ricostruisce da un rapporto, quindi
+una corsa di cui contano gli artefatti va puntata su un percorso che sopravvive.
+
+`/.s9-checkpoint/<sha>-attempt-<n>` è quel percorso, ed è ignorato da Git per
+due ragioni distinte. La prima è ovvia: sono artefatti locali. La seconda no —
+l'impronta dell'albero enumera i file non tracciati **non ignorati**, quindi una
+directory di log visibile renderebbe rosso `albero_invariato` per colpa dei log
+della corsa che lo sta calcolando.
+
+Una sottodirectory **nuova e vuota per tentativo**, non una riusata: i log di
+una corsa precedente verrebbero attribuiti a quella nuova. E `target/` non serve
+allo scopo, perché nella ricetta Docker di questo repository è un *volume* e non
+la directory dell'host.
+
 ## Difese sui formati ostili
 
 | | |

@@ -81,8 +81,8 @@ PROVE_DI_CONFORMITA = (
     "tests::dove_la_geometria_e_nulla_il_covering_e_nullo",
     # Il metadato riconciliato con lo schema fisico del file: le colonne
     # dichiarate esistono e sono binarie, i percorsi del covering esistono, stanno
-    # in una struct sola e hanno foglie `DOUBLE` -- e lo si verifica **prima** di
-    # togliere quelle colonne dallo schema esposto.
+    # in una struct sola e hanno foglie `FLOAT` oppure `DOUBLE` -- e lo si
+    # verifica **prima** di togliere quelle colonne dallo schema esposto.
     "tests::un_covering_ben_formato_si_apre_e_toglie_la_sua_radice",
     "tests::una_secondaria_dichiarata_e_assente_ferma_l_apertura",
     "tests::una_geometrica_dichiarata_su_una_colonna_non_binaria_ferma_l_apertura",

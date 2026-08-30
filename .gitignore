@@ -8,6 +8,25 @@
 # Log temporanei
 *.log
 
+# Artefatti di una corsa del checkpoint conservata sul disco.
+#
+# `S9_CHECKPOINT_LOG_DIR` puo' puntare qui invece che a `/tmp`: dentro un
+# container `/tmp` sparisce con il container, e con esso l'evidenza di una
+# misura che il rapporto non puo' ricostruire. `target/` non serve allo scopo,
+# perche' nella ricetta docker di questo repository e' un **volume** e non la
+# directory dell'host.
+#
+# Ignorarla protegge anche la misura, non solo il repository: l'impronta
+# dell'albero enumera i file non tracciati **non ignorati**, quindi una
+# directory di log visibile renderebbe rosso `albero_invariato` per colpa dei
+# log della corsa che lo sta calcolando.
+#
+# Una sottodirectory per **tentativo**, `<sha>-attempt-<n>`, nuova e vuota: i
+# log di una corsa precedente riusati verrebbero attribuiti a quella nuova, o
+# entrerebbero nel suo manifesto degli artefatti. Si conserva finche' il commit
+# di evidenza che la cita non e' stato generato e verificato.
+/.s9-checkpoint/
+
 # Cache locali degli script di assurance
 __pycache__/
 *.py[cod]
