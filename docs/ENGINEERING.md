@@ -223,9 +223,13 @@ directory di log visibile renderebbe rosso `albero_invariato` per colpa dei log
 della corsa che lo sta calcolando.
 
 Una sottodirectory **nuova e vuota per tentativo**, non una riusata: i log di
-una corsa precedente verrebbero attribuiti a quella nuova. E `target/` non serve
-allo scopo, perché nella ricetta Docker di questo repository è un *volume* e non
-la directory dell'host.
+una corsa precedente verrebbero attribuiti a quella nuova, o entrerebbero nel suo
+manifesto degli artefatti.
+
+`target/` sarebbe altrettanto persistente — nella ricetta Docker è un *volume*,
+che sopravvive alla rimozione del container, ed è ciò che le corse fino a
+`f4f8471` usavano. La differenza è che dal bind mount i log si leggono
+direttamente, mentre da un volume serve un secondo container che lo monti.
 
 ## Difese sui formati ostili
 

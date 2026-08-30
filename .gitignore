@@ -12,9 +12,13 @@
 #
 # `S9_CHECKPOINT_LOG_DIR` puo' puntare qui invece che a `/tmp`: dentro un
 # container `/tmp` sparisce con il container, e con esso l'evidenza di una
-# misura che il rapporto non puo' ricostruire. `target/` non serve allo scopo,
-# perche' nella ricetta docker di questo repository e' un **volume** e non la
-# directory dell'host.
+# misura che il rapporto non puo' ricostruire.
+#
+# `target/` andrebbe altrettanto bene quanto a persistenza -- nella ricetta
+# docker di questo repository e' un **volume**, che sopravvive alla rimozione
+# del container, ed e' cio' che le corse precedenti usavano. Qui si preferisce
+# una directory del bind mount per una ragione sola: si legge dall'host senza
+# montare il volume in un secondo container.
 #
 # Ignorarla protegge anche la misura, non solo il repository: l'impronta
 # dell'albero enumera i file non tracciati **non ignorati**, quindi una
