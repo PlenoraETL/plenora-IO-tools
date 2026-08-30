@@ -362,16 +362,32 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 3,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso da una tabella sui **quattordici** `ShapeType` che un header puo' dichiarare: tredici traduzioni asserite valore per valore -- etichetta e tipi geometrici -- e il solo Multipatch rifiutato. Enumerarli tutti invece del solo rifiuto non e' zelo: un `header_geometry` che traducesse `PolygonZ` in `MultiLineString` lascerebbe verde una sonda puntata sul Multipatch, e produrrebbe un contratto di layer sbagliato su ogni poligono 3D letto.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_header_geometry_traduce_ogni_shape_type_e_rifiuta_multipatch",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::resolve_crs",
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 3,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso sui quattro incroci dei due assi -- il `.prj` c'e' o no, `--assume-crs` c'e' o no -- piu' il caso che li distingue: con il `.prj` presente l'identificatore puo' arrivare dall'opzione **o** dal WKT, e se non arriva da nessuno dei due il rifiuto e' `CrsUnresolved`, che e' un codice diverso da quello del caso senza `.prj`. La sonda assevera il codice, non la sola presenza di un errore, e verifica anche che il WKT del `.prj` resti conservato accanto all'identificatore: e' la fonte, e perderla renderebbe il CRS non piu' ricostruibile.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_resolve_crs_copre_i_quattro_incroci_di_prj_e_assume_crs",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::shape_from_wkb",

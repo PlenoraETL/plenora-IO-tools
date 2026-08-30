@@ -5683,6 +5683,147 @@ mod tests {
         }
     }
 
+    /// `header_geometry`: ogni `ShapeType` che l'header puo' dichiarare.
+    ///
+    /// Tredici forme si traducono, una sola no. La tabella le enumera **tutte**
+    /// invece di provare solo il rifiuto: un `header_geometry` che sbagliasse la
+    /// traduzione di `PolygonZ` -- dicendo `MultiLineString` invece di
+    /// `MultiPolygon` -- lascerebbe verde una sonda che guarda il solo
+    /// Multipatch, e produrrebbe un contratto di layer sbagliato su ogni
+    /// poligono 3D letto.
+    #[test]
+    fn n1_header_geometry_traduce_ogni_shape_type_e_rifiuta_multipatch() {
+        let casi: Vec<(ShapeType, Option<&str>, Vec<GeometryType>)> = vec![
+            (ShapeType::NullShape, None, Vec::new()),
+            (
+                ShapeType::Point,
+                Some("point-xy"),
+                vec![GeometryType::Point],
+            ),
+            (
+                ShapeType::PointM,
+                Some("point-m"),
+                vec![GeometryType::Point],
+            ),
+            (
+                ShapeType::PointZ,
+                Some("point-z"),
+                vec![GeometryType::Point],
+            ),
+            (
+                ShapeType::Polyline,
+                Some("polyline-xy"),
+                vec![GeometryType::MultiLineString],
+            ),
+            (
+                ShapeType::PolylineM,
+                Some("polyline-m"),
+                vec![GeometryType::MultiLineString],
+            ),
+            (
+                ShapeType::PolylineZ,
+                Some("polyline-z"),
+                vec![GeometryType::MultiLineString],
+            ),
+            (
+                ShapeType::Polygon,
+                Some("polygon-xy"),
+                vec![GeometryType::MultiPolygon],
+            ),
+            (
+                ShapeType::PolygonM,
+                Some("polygon-m"),
+                vec![GeometryType::MultiPolygon],
+            ),
+            (
+                ShapeType::PolygonZ,
+                Some("polygon-z"),
+                vec![GeometryType::MultiPolygon],
+            ),
+            (
+                ShapeType::Multipoint,
+                Some("multipoint-xy"),
+                vec![GeometryType::MultiPoint],
+            ),
+            (
+                ShapeType::MultipointM,
+                Some("multipoint-m"),
+                vec![GeometryType::MultiPoint],
+            ),
+            (
+                ShapeType::MultipointZ,
+                Some("multipoint-z"),
+                vec![GeometryType::MultiPoint],
+            ),
+        ];
+
+        for (shape_type, etichetta, tipi) in casi {
+            let Ok((etichetta_letta, tipi_letti)) = header_geometry(shape_type) else {
+                panic!("{shape_type:?} e' rappresentabile e non doveva essere rifiutato");
+            };
+            assert_eq!(etichetta_letta, etichetta, "etichetta di {shape_type:?}");
+            assert_eq!(tipi_letti, tipi, "tipi geometrici di {shape_type:?}");
+        }
+
+        let Err(errore) = header_geometry(ShapeType::Multipatch) else {
+            panic!("Multipatch non e' rappresentabile e deve essere rifiutato");
+        };
+        assert!(errore.message.contains("Multipatch"));
+    }
+
+    /// `resolve_crs`: le quattro vie di un CRS, e le due che finiscono in errore.
+    ///
+    /// La funzione decide su due assi -- il `.prj` c'e' o no, `--assume-crs` c'e'
+    /// o no -- e i quattro incroci non danno quattro esiti uguali: con il `.prj`
+    /// l'identificatore puo' arrivare dall'opzione **o** dal WKT, e se non
+    /// arriva da nessuno dei due il rifiuto e' `CrsUnresolved`, che e' diverso
+    /// dal rifiuto senza `.prj`.
+    #[test]
+    fn n1_resolve_crs_copre_i_quattro_incroci_di_prj_e_assume_crs() {
+        let radice = tempfile::tempdir().unwrap();
+        let shp = radice.path().join("dati.shp");
+        std::fs::write(&shp, b"non letto da resolve_crs").unwrap();
+        let prj = radice.path().join("dati.prj");
+
+        // 1. niente `.prj`, niente `--assume-crs`: rifiuto esplicito.
+        let Err(errore) = resolve_crs(&shp, &opzioni_lettura()) else {
+            panic!("senza .prj e senza --assume-crs il CRS non e' deducibile");
+        };
+        assert!(errore.message.contains("senza .prj"));
+
+        // 2. niente `.prj`, ma `--assume-crs`: l'opzione decide.
+        let mut con_opzione = opzioni_lettura();
+        con_opzione.assume_crs = Some("EPSG:4326".to_owned());
+        let risolto = resolve_crs(&shp, &con_opzione).expect("l'opzione risolve da sola");
+        assert_eq!(risolto.id.as_deref(), Some("EPSG:4326"));
+        assert!(
+            risolto.definition.is_none(),
+            "senza .prj non c'e' WKT da conservare"
+        );
+
+        // 3. `.prj` con un WKT da cui l'autorita' si ricava.
+        std::fs::write(&prj, "GEOGCS[\"WGS 84\",AUTHORITY[\"EPSG\",\"4326\"]]").unwrap();
+        let risolto = resolve_crs(&shp, &opzioni_lettura()).expect("l'autorita' e' nel WKT");
+        assert_eq!(risolto.id.as_deref(), Some("EPSG:4326"));
+        assert!(
+            risolto.definition.is_some(),
+            "il WKT del .prj va conservato: e' la fonte"
+        );
+
+        // 4. `.prj` con un WKT senza autorita' e senza opzione: non risolto.
+        std::fs::write(&prj, "LOCAL_CS[\"senza autorita\"]").unwrap();
+        let Err(errore) = resolve_crs(&shp, &opzioni_lettura()) else {
+            panic!("un WKT senza autorita' e senza opzione non e' risolvibile");
+        };
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::CrsUnresolved);
+
+        // 5. lo stesso WKT, ma con `--assume-crs`: l'opzione vince sul silenzio
+        //    del WKT, e il WKT resta conservato accanto.
+        let risolto = resolve_crs(&shp, &con_opzione).expect("l'opzione copre il WKT muto");
+        assert_eq!(risolto.id.as_deref(), Some("EPSG:4326"));
+        assert!(risolto.definition.is_some());
+    }
+
     /// Il piano minimo delle prove sul publish: una sola colonna geometria.
     fn piano_di_publish() -> WritePlan {
         let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
