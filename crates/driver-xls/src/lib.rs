@@ -478,10 +478,16 @@ fn validate_archive_ratio(path: &PathBuf, budget: &OperationBudget) -> Result<()
     Ok(())
 }
 
-/// Limiti del **formato** XLSX per un riferimento di cella, non nostri:
-/// ECMA-376 fissa l'ultima colonna a `XFD` e l'ultima riga a 1.048.576, cioe'
-/// tre lettere e sette cifre. Un riferimento piu' lungo non e' un foglio
-/// grande: e' un file che non rispetta il formato che dichiara.
+/// Tetto sulla **lunghezza** di un token, ricavato dai massimi del formato
+/// XLSX e non da noi: ECMA-376 fissa l'ultima colonna a `XFD` e l'ultima riga a
+/// 1.048.576, cioe' tre lettere e sette cifre. Un token piu' lungo non puo'
+/// essere un riferimento di cella conforme, ma questa sola osservazione non
+/// rende il controllo sottostante un validatore completo del formato.
+///
+/// E' un tetto sulla lunghezza, **non** sul valore: `XFE1` ha tre lettere e
+/// passa pur essendo oltre l'ultima colonna. Per l'overflow che questo controllo
+/// esiste per impedire la lunghezza basta e avanza, e pretendere il valore
+/// esatto vorrebbe il contesto dell'elemento -- vedi `valida_valore_riferimento`.
 const MAX_LETTERE_RIFERIMENTO: usize = 3;
 const MAX_CIFRE_RIFERIMENTO: usize = 7;
 
@@ -510,10 +516,12 @@ const MAX_PARTI_XML: usize = 4096;
 ///
 /// # Perche' non e' una reimplementazione di `calamine`
 ///
-/// Il controllo non indovina cosa la libreria sappia digerire: applica il
-/// limite che **il formato stesso** dichiara. `XFD` e 1.048.576 sono
-/// nell'ECMA-376, non nel codice di `calamine`, quindi il criterio non cambia
-/// quando cambia la libreria — e nessun file conforme viene rifiutato.
+/// Il controllo non indovina la soglia alla quale la libreria trabocca: applica
+/// le lunghezze massime che **il formato stesso** dichiara. `XFD` e 1.048.576
+/// sono nell'ECMA-376, non nel codice di `calamine`, quindi il criterio non
+/// cambia quando cambia la libreria. Un riferimento conforme non viene
+/// rifiutato per questi due tetti di lunghezza; non e' una promessa sulla
+/// conformita' completa di ogni attributo chiamato `r` o `ref`.
 ///
 /// # Fail-closed
 ///
@@ -537,9 +545,10 @@ fn valida_riferimenti_cella(path: &PathBuf, budget: &OperationBudget) -> Result<
         ));
     }
 
-    // Le parti che portano riferimenti A1 e che il lettore di celle attraversa.
-    // `xl/workbook.xml` entra perche' vi compaiono i nomi definiti, che sono
-    // riferimenti anch'essi.
+    // Perimetro del pre-filtro: fogli e workbook. Lo scanner sotto ispeziona
+    // soltanto attributi non qualificati chiamati `r` o `ref`; non legge nodi
+    // di testo e quindi non pretende di validare, per esempio, il contenuto
+    // dei nomi definiti in `xl/workbook.xml`.
     let parti: Vec<String> = (0..archive.len())
         .filter_map(|indice| {
             let nome = archive.by_index(indice).ok()?.name().to_owned();
@@ -592,9 +601,12 @@ fn ispeziona_parte_xml<R: std::io::BufRead>(sorgente: R, budget: &OperationBudge
         for attributo in elemento.attributes().with_checks(true) {
             let attributo =
                 attributo.map_err(|_| err(&PublicMessage::Curated("attributo XLSX non valido")))?;
-            // Solo gli attributi che il lettore di celle interpreta come
-            // riferimento: `r` su `<row>` e `<c>`, `ref` su `<dimension>`.
-            // Un `r:id` di relazione ha il prefisso e non entra qui.
+            // Ogni attributo **non qualificato** chiamato `r` o `ref` nelle
+            // parti ispezionate entra nello stesso pre-filtro lessicale. Il
+            // nome dell'elemento non viene portato a valle, quindi qui non si
+            // assegna all'attributo la grammatica di `row`, `c`, `dimension` o
+            // di un altro elemento. Un `r:id` di relazione ha il prefisso e
+            // non entra.
             if !matches!(attributo.key.as_ref(), b"r" | b"ref") {
                 continue;
             }
@@ -603,8 +615,44 @@ fn ispeziona_parte_xml<R: std::io::BufRead>(sorgente: R, budget: &OperationBudge
     }
 }
 
-/// Verifica un valore di attributo: puo' contenere piu' riferimenti
-/// (`A1:C4`, o una lista separata da spazi), ognuno dei quali va nei limiti.
+/// **Pre-filtro contro l'overflow di `calamine`, non un validatore di
+/// formato.**
+///
+/// La distinzione non e' pedanteria: decide che cosa questa funzione promette e
+/// che cosa no, e la prima stesura della sua sonda l'ha sbagliata in entrambi i
+/// versi -- prima pretendendo il rifiuto di `AA`, poi chiamandolo «riferimento
+/// valido». Non e' ne' l'uno ne' l'altro: e' un token che **non puo' far
+/// traboccare** l'accumulatore, e tanto basta a lasciarlo passare.
+///
+/// # Che cosa garantisce
+///
+/// Che nessun token oltre le lunghezze massime di un riferimento conforme
+/// arrivi al parser. Il tetto e' preso dal formato -- `XFD` e 1.048.576, cioe'
+/// tre lettere e sette cifre -- e non dalle lunghezze alle quali l'overflow di
+/// `u32` diventa possibile in `calamine`, sette lettere o dieci cifre. I tetti
+/// sono quindi sufficienti a impedire il finding noto e non rifiutano un
+/// riferimento conforme **per la sola lunghezza**.
+///
+/// # Che cosa **non** garantisce, deliberatamente
+///
+/// Che il valore sia un riferimento conforme. Restano ammessi:
+///
+/// * i token di sole lettere o di sole cifre, che presi da soli non sono uno
+///   `ST_CellRef` -- un riferimento di cella vuole colonna **e** riga;
+/// * `XFE1` e `A1048577`, che stanno nei conteggi (tre lettere, sette cifre) ma
+///   fuori dagli estremi reali del formato;
+/// * la differenza fra gli elementi che portano il riferimento. `row@r` e' un
+///   indice di riga, `c@r` un riferimento singolo, `dimension@ref` un singolo o
+///   un intervallo, e questa funzione li riceve **tutti dallo stesso punto**,
+///   senza il nome dell'elemento: non puo' quindi pretendere la grammatica
+///   giusta per ciascuno.
+///
+/// Rendere il controllo conforme richiede di portare qui il contesto
+/// dell'elemento e di verificare gli estremi numerici, non le lunghezze. Un
+/// valore che oggi il pre-filtro inoltra potrebbe allora essere fermato prima
+/// del parser: e' una modifica del confine del pre-filtro e va decisa, non
+/// fatta passare per una correzione di questa sonda. Da cio' non segue che
+/// l'intero driver accetti oggi quel valore: `calamine` puo' ancora rifiutarlo.
 fn valida_valore_riferimento(valore: &[u8]) -> Result<()> {
     for token in valore
         .split(|byte| matches!(byte, b':' | b' ' | b',' | b'$'))
@@ -1589,6 +1637,164 @@ mod tests {
         super::parse_wkt_bounded(testo, &plenora_io_model::limits::WkbLimits::default())
     }
     use super::*;
+
+    // --- ASSURANCE-N1: i rami negativi del pre-filtro sui riferimenti ---
+
+    /// `valida_valore_riferimento`: gli input che farebbero traboccare
+    /// `calamine` non arrivano al parser.
+    ///
+    /// La sonda prova **il contratto del pre-filtro**, che non e' la conformita'
+    /// del riferimento. Vale la pena dire perche', perche' la prima stesura di
+    /// questa sonda ha sbagliato in tutti e due i versi: prima pretendeva il
+    /// rifiuto di `AA` -- descrivendo una grammatica che la funzione non
+    /// promette -- e poi, corretta, lo chiamava «riferimento valido», che e'
+    /// altrettanto falso. `AA` non e' un riferimento di cella: e' un token che
+    /// non puo' far traboccare l'accumulatore, e il pre-filtro lascia passare
+    /// esattamente quello.
+    ///
+    /// Le tre affermazioni, separate:
+    ///
+    /// 1. **fermato** cio' che eccede i conteggi del formato, con i due rifiuti
+    ///    tenuti distinti -- forma non A1 e lunghezza oltre i limiti;
+    /// 2. **passano** riferimenti conformi rappresentativi, estremi inclusi;
+    ///    il percorso end-to-end su un workbook conforme resta la prova che il
+    ///    pre-filtro non rifiuti il caso reale;
+    /// 3. **passano anche** valori lessicalmente innocui la cui conformita' e'
+    ///    falsa o dipende dal tipo dell'attributo: il prefiltro li delega al
+    ///    parser successivo, senza affermare che il driver li accetti.
+    #[test]
+    fn n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato() {
+        // 1. Fermato: piu' di tre lettere o piu' di sette cifre. L'overflow di
+        //    `calamine` diventa possibile solo a lunghezze maggiori -- sette
+        //    lettere o dieci cifre. Questi casi sono fermati perche' eccedono i
+        //    massimi lessicali del formato, non perche' ciascuno di essi
+        //    traboccherebbe davvero.
+        let oltre_i_conteggi: Vec<&str> = vec![
+            "ABCD1",
+            "XFDA1",
+            "AAAAAAA1",
+            "A12345678",
+            "A1234567890",
+            "A1:ZZZZ1",
+        ];
+        for valore in oltre_i_conteggi {
+            let Err(errore) = valida_valore_riferimento(valore.as_bytes()) else {
+                panic!("«{valore}» eccede i conteggi del formato e doveva essere fermato");
+            };
+            assert!(
+                errore.message.contains("oltre i limiti del formato"),
+                "«{valore}»: atteso il rifiuto sui limiti, arrivato «{}»",
+                errore.message
+            );
+        }
+
+        // Il secondo rifiuto, distinto dal primo: cifre prima delle lettere, o
+        // caratteri che non sono ne' l'une ne' l'altre.
+        let forma_non_a1: Vec<&str> = vec!["1A", "A1B", "A-1", "A1:2B"];
+        for valore in forma_non_a1 {
+            let Err(errore) = valida_valore_riferimento(valore.as_bytes()) else {
+                panic!("«{valore}» non ha la forma lettere-poi-cifre e doveva essere fermato");
+            };
+            assert!(
+                errore.message.contains("atteso stile A1"),
+                "«{valore}»: atteso il rifiuto di forma, arrivato «{}»",
+                errore.message
+            );
+        }
+
+        // 2. Passano riferimenti conformi rappresentativi, estremi compresi.
+        //    L'esaustivita' non viene inventata qui: il test sul workbook
+        //    conforme esercita il pre-filtro nel suo percorso reale.
+        let conformi: Vec<&str> = vec!["A1", "A1:C4", "XFD1048576", "XFD1", "A1048576"];
+        for valore in conformi {
+            assert!(
+                valida_valore_riferimento(valore.as_bytes()).is_ok(),
+                "«{valore}» e' conforme e non deve essere fermato"
+            );
+        }
+
+        // 3. Passano anche, ed e' **voluto**, valori che il pre-filtro puo'
+        //    inoltrare senza rischio di overflow. Alcuni non sono conformi,
+        //    per altri la conformita' dipende dal tipo dell'attributo: questa
+        //    funzione non ha quel contesto e non emette un verdetto. Il test
+        //    fissa la delega al parser, non l'accettazione da parte del driver.
+        let tollerati_dal_prefiltro: Vec<(&str, &str)> = vec![
+            ("", "nessun token da accumulare"),
+            (
+                "AA",
+                "sole lettere: non e' uno ST_CellRef, gli manca la riga",
+            ),
+            ("12", "sole cifre: valido per row@r, non come ST_CellRef"),
+            (
+                "$A$1",
+                "il dollaro viene separato senza decidere il tipo dell'attributo",
+            ),
+            (
+                "A1 B2 C3",
+                "la lista viene separata senza decidere il tipo dell'attributo",
+            ),
+            (
+                "A1,B2",
+                "l'unione viene separata senza decidere il tipo dell'attributo",
+            ),
+            ("A:A", "colonna intera: non ammessa da dimension@ref"),
+            ("1:1", "riga intera: non ammessa da dimension@ref"),
+            ("XFE1", "tre lettere, ma oltre l'ultima colonna XFD"),
+            ("A1048577", "sette cifre, ma oltre l'ultima riga"),
+        ];
+        for (valore, perche) in tollerati_dal_prefiltro {
+            assert!(
+                valida_valore_riferimento(valore.as_bytes()).is_ok(),
+                "«{valore}» ({perche}) viene oggi delegato al parser: fermarlo qui \
+                 cambia il confine del pre-filtro e richiede una decisione esplicita"
+            );
+        }
+    }
+
+    /// `cell_at`: i due modi in cui una colonna puo' non esistere.
+    ///
+    /// Una colonna **prima** dell'inizio dichiarato non produce un offset --
+    /// `checked_sub` fallisce -- e una colonna oltre la fine produce un offset
+    /// che la riga non contiene. Sono due rifiuti diversi, e la sonda li
+    /// distingue: confonderli manderebbe chi legge a cercare il difetto nel
+    /// posto sbagliato.
+    #[test]
+    fn n1_cell_at_distingue_la_colonna_prima_dell_inizio_da_quella_oltre_la_fine() {
+        let riga = vec![Data::Int(1), Data::Int(2), Data::Int(3)];
+        let bounds = SheetBounds {
+            start: (0, 5),
+            end: (10, 7),
+        };
+
+        for (colonna, atteso) in [(5_u32, 1_i64), (6, 2), (7, 3)] {
+            let Ok(Data::Int(valore)) = cell_at(&riga, bounds, colonna) else {
+                panic!("la colonna {colonna} e' dentro le dimensioni dichiarate");
+            };
+            assert_eq!(*valore, atteso, "colonna {colonna}");
+        }
+
+        for colonna in [0_u32, 1, 4] {
+            let Err(errore) = cell_at(&riga, bounds, colonna) else {
+                panic!("la colonna {colonna} precede l'inizio dichiarato");
+            };
+            assert!(
+                errore.message.contains("indice colonna XLSX non valido"),
+                "colonna {colonna}: arrivato «{}»",
+                errore.message
+            );
+        }
+
+        for colonna in [8_u32, 9, u32::MAX] {
+            let Err(errore) = cell_at(&riga, bounds, colonna) else {
+                panic!("la colonna {colonna} eccede la riga");
+            };
+            assert!(
+                errore.message.contains("fuori dalle dimensioni dichiarate"),
+                "colonna {colonna}: arrivato «{}»",
+                errore.message
+            );
+        }
+    }
 
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.
     ///

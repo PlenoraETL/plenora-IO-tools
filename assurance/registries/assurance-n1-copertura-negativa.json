@@ -322,8 +322,16 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso sui due modi in cui una colonna puo' non esistere, che sono difetti diversi: una colonna **prima** dell'inizio dichiarato non produce nemmeno un offset -- `checked_sub` fallisce -- mentre una oltre la fine produce un offset che la riga non contiene. La sonda assevera i due messaggi separatamente; confonderli manderebbe chi legge a cercare il difetto nel posto sbagliato. Accanto, le tre colonne dentro le dimensioni, con il valore atteso: senza, un `cell_at` che rifiutasse tutto supererebbe la tabella dei rifiuti.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_cell_at_distingue_la_colonna_prima_dell_inizio_da_quella_oltre_la_fine",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::read_spool_data",
@@ -500,8 +508,16 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 2,
       "raggiunto_da_replay": 2,
-      "disposizione": "test_tabellare",
-      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+      "disposizione": "chiuso",
+      "nota": "chiuso sul contratto che la funzione ha davvero, che **non** e' la conformita' del riferimento: e' un pre-filtro lessicale contro l'overflow di `calamine` (FZ-0). Ferma sia forme che non sa tokenizzare come lettere-poi-cifre, sia token che eccedono i massimi lessicali del formato -- tre lettere e sette cifre. L'overflow di `u32` diventa possibile soltanto a sette lettere o dieci cifre: non ogni valore rifiutato traboccherebbe, e la garanzia corretta e' che un riferimento conforme non viene rifiutato **per la sola lunghezza**. La sonda ha sbagliato in entrambi i versi prima di trovare questo confine: prima pretendeva il rifiuto di `AA`, poi lo chiamava riferimento valido; `AA` non e' uno `ST_CellRef`, ma e' innocuo per l'accumulatore e viene delegato al parser. La terza sezione censisce anche valori non conformi o dipendenti dal tipo dell'attributo -- fra cui `12`, `$A$1`, liste, `A:A`, `1:1`, `XFE1` e `A1048577` -- senza affermare che il driver li accetti: prova soltanto che oggi il pre-filtro li inoltra. `row@r`, `c@r`, `dimension@ref` e ogni altro attributo non qualificato chiamato `r` o `ref` arrivano dallo stesso punto senza il nome dell'elemento, quindi la grammatica specifica non e' esigibile qui. Portare quel contesto e fermare prima un valore oggi delegato sarebbe una modifica deliberata del confine, non una correzione implicita della sonda.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_valida_valore_riferimento_applica_i_tetti_senza_validare_il_formato",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::dimensioni",
