@@ -8,8 +8,22 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 25,
       "raggiunto_da_replay": 16,
-      "disposizione": "test_tabellare",
-      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+      "disposizione": "chiuso",
+      "nota": "chiuso da una tabella che nomina **quale** rifiuto arriva per **quale** input: SRID incorporato, i tre vuoti (MultiPoint, MultiLineString, MultiPolygon), la LineString sotto le due coordinate, la parte di MultiLineString sotto le due, GeometryCollection, i tipi estesi, e i rifiuti che arrivano dai delegati. Il replay del fuzzer raggiungeva gia' questi rami -- reachability e panic-safety erano provate -- ma nessuna prova diceva la ragione, e un rifiuto giusto per il motivo sbagliato manda chi legge l'errore a correggere la cosa sbagliata. TRE bracci `_ =>` restano **irraggiungibili per costruzione**, e non per supposizione: `take_child` confronta `child.geometry_type()` con il tipo atteso, e `geometry_type()` e' un match totale sul valore, quindi dopo un `take_child` riuscito il valore **non puo'** essere di un altro tipo. La guardia che rifiuta per prima e' quel confronto, e i tre casi «membro di tipo sbagliato» della tabella lo dimostrano: arriva l'errore di `take_child`, non quello del braccio difensivo. La sonda dell'accettazione sta accanto a quella dei rifiuti perche' senza di lei una funzione che rifiutasse tutto supererebbe la tabella dei negativi.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_topology_from_wkb_rifiuta_ogni_forma_non_rappresentabile",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_topology_from_wkb_accetta_le_forme_rappresentabili",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::infer_layout",
@@ -206,8 +220,16 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 6,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso da una tabella sulle **otto** coppie destinazione/opzione, non sulle tre che arrivano dall'API pubblica: `*.shp.d` con e senza opzione, `*.shp` con e senza opt-in, le due contraddizioni incrociate, un'estensione estranea e un percorso senza estensione. Il gruppo era censito come «mai eseguito da nulla»; da allora la forma sciolta e' diventata un opt-in esplicito e tre sonde ne provano i rifiuti attraverso `create`, ma chiamare la funzione direttamente e' cio' che copre anche le coppie che l'API non sa produrre.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_publish_mode_decide_per_ogni_coppia_di_destinazione_e_opzione",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::__fuzz_wkb_roundtrip",
@@ -222,16 +244,38 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 5,
       "raggiunto_da_replay": 5,
-      "disposizione": "test_tabellare",
-      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+      "disposizione": "chiuso",
+      "nota": "chiuso dalla stessa tabella, che copre i tre rifiuti -- nessun anello, anello sotto le quattro coordinate, anello non chiuso -- sia direttamente su `Polygon` sia attraverso `MultiPolygon`, dove il delegato viene chiamato in un punto diverso. Accanto, l'unica affermazione positiva della funzione: il **primo** anello e' l'esterno e gli altri no. Senza quella, marcare tutti gli anelli allo stesso modo lascerebbe verdi tutti i rifiuti.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_topology_from_wkb_rifiuta_ogni_forma_non_rappresentabile",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_polygon_rings_marca_esterno_solo_il_primo_anello",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::shapefile_source_path",
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 5,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso sui due rifiuti che una **directory** puo' produrre, tenuti distinti: «non e' un dataset» quando il suffisso non e' `*.shp.d`, e «dataset senza data.shp» quando lo e' ma manca il marker. Accanto, i due casi che la funzione non tocca -- un file e un percorso inesistente passano cosi' come sono -- e il verso positivo, dove un dataset completo risolve al proprio `data.shp`. Senza quest'ultimo, una funzione che rifiutasse ogni directory supererebbe la sonda.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_shapefile_source_path_distingue_i_due_rifiuti_di_una_directory",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-filegdb::create",
@@ -342,8 +386,16 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 3,
       "raggiunto_da_replay": 3,
-      "disposizione": "test_tabellare",
-      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+      "disposizione": "chiuso",
+      "nota": "chiuso dai tre casi annidati della tabella: membro con SRID proprio, membro con dimensioni diverse da quelle del padre, membro di tipo diverso da quello atteso. Sono le tre condizioni della guardia, una per ciascuna, e la terza e' anche cio' che rende difensivi i bracci `_ =>` di `topology_from_wkb`.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_topology_from_wkb_rifiuta_ogni_forma_non_rappresentabile",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::classe_xlsx",
@@ -382,8 +434,18 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 2,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "**irraggiungibile**, e non per supposizione: il censimento lo dava chiudibile con un test parametrico, e scritto quel test il messaggio che arriva non e' quello del driver ma quello del wrapper comune, che confronta il layer con il `WritePlan` prima di delegare. Il rifiuto del driver -- «Shapefile supporta un solo layer» -- non e' raggiungibile dall'API pubblica, e `ShpWriter` non e' costruibile da fuori. La sonda assevera la firma di CHI rifiuta e pretende **l'assenza** del messaggio del driver: se un giorno la guardia del piano smettesse di precederlo, diventerebbe rossa invece di continuare a dichiarare un'irraggiungibilita' finita. E' la stessa lezione di `driver-xls::create`: un test che si accontenta di `is_err()` dichiara coperto un ramo asserendo il rifiuto di qualcun altro.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_declare_input_total_e_fermato_dal_piano_prima_del_driver",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "900-904",
+          "guardia": "plenora-io-core::driver::LimitedWriter::declare_input_total"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::shape_to_wkb",

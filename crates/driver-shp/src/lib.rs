@@ -5272,6 +5272,417 @@ mod tests {
         assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
     }
 
+    // --- ASSURANCE-N1: i rami negativi della conversione WKB -> topologia ---
+    //
+    // Tre gruppi del censimento, chiusi insieme perche' sono la stessa
+    // superficie: `topology_from_wkb` decide, e delega a `take_child` e
+    // `polygon_rings`. Il replay del fuzzer li raggiungeva gia' -- reachability
+    // e panic-safety erano provate -- ma nessuna prova diceva **quale** rifiuto
+    // arriva per **quale** input, che e' il contratto.
+
+    /// Una coordinata XY, che e' l'unica forma che queste sonde usano.
+    fn xy(x: f64, y: f64) -> WkbCoordinate {
+        WkbCoordinate {
+            x,
+            y,
+            z: None,
+            m: None,
+        }
+    }
+
+    /// Un anello quadrato e chiuso: quattro coordinate, la prima uguale
+    /// all'ultima.
+    fn anello_valido() -> Vec<WkbCoordinate> {
+        vec![xy(0.0, 0.0), xy(1.0, 0.0), xy(1.0, 1.0), xy(0.0, 0.0)]
+    }
+
+    fn geometria(value: WkbValue) -> WkbGeometry {
+        WkbGeometry {
+            value,
+            dimensions: CoordinateDimensions::Xy,
+            srid: None,
+        }
+    }
+
+    /// Ogni rifiuto di `topology_from_wkb`, con l'input che lo produce.
+    ///
+    /// La sonda non verifica «fallisce»: verifica **quale** messaggio arriva.
+    /// Un rifiuto giusto per la ragione sbagliata manda chi legge l'errore a
+    /// correggere la cosa sbagliata, ed e' indistinguibile da quello giusto se
+    /// la sonda si accontenta di `is_err()`.
+    // La lunghezza e' nel numero di casi, non in complessita' logica: la
+    // funzione e' una tabella, e spezzarla in due meta' arbitrarie renderebbe
+    // piu' difficile vedere che i casi coprono ogni rifiuto.
+    #[allow(clippy::too_many_lines)]
+    #[test]
+    fn n1_topology_from_wkb_rifiuta_ogni_forma_non_rappresentabile() {
+        let casi: Vec<(&str, WkbGeometry, &str)> = vec![
+            (
+                "SRID incorporato",
+                WkbGeometry {
+                    value: WkbValue::Point(xy(1.0, 2.0)),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: Some(4326),
+                },
+                "SRID embedded",
+            ),
+            (
+                "MultiPoint vuoto",
+                geometria(WkbValue::MultiPoint(Vec::new())),
+                "MultiPoint vuoto",
+            ),
+            (
+                "LineString con una sola coordinata",
+                geometria(WkbValue::LineString(vec![xy(0.0, 0.0)])),
+                "LineString con meno di due coordinate",
+            ),
+            (
+                "MultiLineString vuoto",
+                geometria(WkbValue::MultiLineString(Vec::new())),
+                "MultiLineString vuoto",
+            ),
+            (
+                "parte di MultiLineString con una sola coordinata",
+                geometria(WkbValue::MultiLineString(vec![geometria(
+                    WkbValue::LineString(vec![xy(0.0, 0.0)]),
+                )])),
+                "parte LineString con meno di due coordinate",
+            ),
+            (
+                "MultiPolygon vuoto",
+                geometria(WkbValue::MultiPolygon(Vec::new())),
+                "MultiPolygon vuoto",
+            ),
+            (
+                "GeometryCollection",
+                geometria(WkbValue::GeometryCollection(Vec::new())),
+                "GeometryCollection non rappresentabile",
+            ),
+            (
+                "tipo esteso: CircularString",
+                geometria(WkbValue::CircularString(Vec::new())),
+                "tipo WKB esteso",
+            ),
+            (
+                "tipo esteso: Triangle",
+                geometria(WkbValue::Triangle(Vec::new())),
+                "tipo WKB esteso",
+            ),
+            (
+                "poligono senza anelli",
+                geometria(WkbValue::Polygon(Vec::new())),
+                "poligono vuoto",
+            ),
+            (
+                "anello con meno di quattro coordinate",
+                geometria(WkbValue::Polygon(vec![vec![
+                    xy(0.0, 0.0),
+                    xy(1.0, 0.0),
+                    xy(0.0, 0.0),
+                ]])),
+                "anello WKB non chiuso o con meno di quattro coordinate",
+            ),
+            (
+                "anello non chiuso",
+                geometria(WkbValue::Polygon(vec![vec![
+                    xy(0.0, 0.0),
+                    xy(1.0, 0.0),
+                    xy(1.0, 1.0),
+                    xy(0.0, 1.0),
+                ]])),
+                "anello WKB non chiuso o con meno di quattro coordinate",
+            ),
+            (
+                "membro di MultiPoint con SRID proprio",
+                geometria(WkbValue::MultiPoint(vec![WkbGeometry {
+                    value: WkbValue::Point(xy(1.0, 2.0)),
+                    dimensions: CoordinateDimensions::Xy,
+                    srid: Some(4326),
+                }])),
+                "geometria WKB annidata incoerente",
+            ),
+            (
+                "membro di MultiPoint con dimensioni diverse dal padre",
+                geometria(WkbValue::MultiPoint(vec![WkbGeometry {
+                    value: WkbValue::Point(xy(1.0, 2.0)),
+                    dimensions: CoordinateDimensions::Xyz,
+                    srid: None,
+                }])),
+                "geometria WKB annidata incoerente",
+            ),
+            (
+                "membro di MultiPoint che non e' un Point",
+                geometria(WkbValue::MultiPoint(vec![geometria(WkbValue::LineString(
+                    vec![xy(0.0, 0.0), xy(1.0, 1.0)],
+                ))])),
+                "geometria WKB annidata incoerente",
+            ),
+            (
+                "membro di MultiLineString che non e' una LineString",
+                geometria(WkbValue::MultiLineString(vec![geometria(WkbValue::Point(
+                    xy(0.0, 0.0),
+                ))])),
+                "geometria WKB annidata incoerente",
+            ),
+            (
+                "membro di MultiPolygon che non e' un Polygon",
+                geometria(WkbValue::MultiPolygon(vec![geometria(WkbValue::Point(
+                    xy(0.0, 0.0),
+                ))])),
+                "geometria WKB annidata incoerente",
+            ),
+            (
+                "anello non chiuso dentro un MultiPolygon",
+                geometria(WkbValue::MultiPolygon(vec![geometria(WkbValue::Polygon(
+                    vec![vec![xy(0.0, 0.0), xy(1.0, 0.0), xy(1.0, 1.0), xy(0.0, 1.0)]],
+                ))])),
+                "anello WKB non chiuso",
+            ),
+        ];
+
+        for (nome, ingresso, atteso) in casi {
+            // `let ... else` e non `unwrap_or_else(|| panic!(...))`: la seconda
+            // forma **sembra** un fallback -- il registro di H-01 conta
+            // `unwrap_or*` per sintassi -- mentre qui non c'e' nessun valore di
+            // ripiego, solo un'asserzione che diverge.
+            let Err(errore) = topology_from_wkb(ingresso) else {
+                panic!("«{nome}» doveva essere rifiutato e non lo e' stato");
+            };
+            assert!(
+                errore.message.contains(atteso),
+                "«{nome}»: atteso un rifiuto che nomina «{atteso}», arrivato «{}»",
+                errore.message
+            );
+        }
+    }
+
+    /// Le forme che **devono** passare, accanto a quelle che non devono.
+    ///
+    /// Senza questo verso, un `topology_from_wkb` che rifiutasse tutto
+    /// supererebbe la sonda dei rifiuti: e' il modo piu' rapido di far passare
+    /// una tabella di casi negativi.
+    #[test]
+    fn n1_topology_from_wkb_accetta_le_forme_rappresentabili() {
+        let casi: Vec<(&str, WkbValue)> = vec![
+            ("punto", WkbValue::Point(xy(1.0, 2.0))),
+            (
+                "multipunto con un membro",
+                WkbValue::MultiPoint(vec![geometria(WkbValue::Point(xy(1.0, 2.0)))]),
+            ),
+            (
+                "polilinea di due coordinate",
+                WkbValue::LineString(vec![xy(0.0, 0.0), xy(1.0, 1.0)]),
+            ),
+            (
+                "multipolilinea con una parte",
+                WkbValue::MultiLineString(vec![geometria(WkbValue::LineString(vec![
+                    xy(0.0, 0.0),
+                    xy(1.0, 1.0),
+                ]))]),
+            ),
+            (
+                "poligono con un anello chiuso",
+                WkbValue::Polygon(vec![anello_valido()]),
+            ),
+            (
+                "multipoligono con un membro",
+                WkbValue::MultiPolygon(vec![geometria(WkbValue::Polygon(vec![anello_valido()]))]),
+            ),
+        ];
+
+        for (nome, valore) in casi {
+            assert!(
+                topology_from_wkb(geometria(valore)).is_ok(),
+                "«{nome}» doveva essere accettato"
+            );
+        }
+    }
+
+    /// Il primo anello e' l'esterno, gli altri sono interni.
+    ///
+    /// E' l'unica affermazione **positiva** di `polygon_rings`, e senza di lei
+    /// la funzione potrebbe marcare tutti gli anelli allo stesso modo senza che
+    /// nessuna sonda se ne accorga: i rifiuti resterebbero tutti verdi.
+    #[test]
+    fn n1_polygon_rings_marca_esterno_solo_il_primo_anello() {
+        let mut destinazione = Vec::new();
+        polygon_rings(
+            vec![anello_valido(), anello_valido(), anello_valido()],
+            &mut destinazione,
+        )
+        .expect("tre anelli chiusi sono validi");
+
+        let esterni: Vec<bool> = destinazione.iter().map(|(esterno, _)| *esterno).collect();
+        assert_eq!(esterni, vec![true, false, false]);
+    }
+
+    /// `publish_mode`: ogni combinazione di destinazione e opzione, e il suo esito.
+    ///
+    /// Il gruppo era censito come «ramo semantico negativo mai eseguito da
+    /// nulla». Da allora la forma sciolta e' diventata un opt-in esplicito, e
+    /// tre sonde ne provano i rifiuti passando dalla `create`; questa tabella
+    /// chiude il gruppo alla sua origine, chiamando la funzione direttamente e
+    /// coprendo **tutte** le sei combinazioni invece delle tre che arrivano
+    /// dall'API.
+    #[test]
+    fn n1_publish_mode_decide_per_ogni_coppia_di_destinazione_e_opzione() {
+        let casi: Vec<(&str, &str, Option<&str>, Option<ShapefilePublishMode>)> = vec![
+            (
+                "*.shp.d senza opzione deduce il directory-dataset",
+                "dati.shp.d",
+                None,
+                Some(ShapefilePublishMode::DirectoryDataset),
+            ),
+            (
+                "*.shp.d con l'opzione che lo conferma",
+                "dati.shp.d",
+                Some(DIRECTORY_DATASET_MODE),
+                Some(ShapefilePublishMode::DirectoryDataset),
+            ),
+            (
+                "*.shp.d con l'opzione del set sciolto: contraddizione",
+                "dati.shp.d",
+                Some(LOOSE_SET_MODE),
+                None,
+            ),
+            (
+                "*.shp senza opzione: il set sciolto non si deduce",
+                "dati.shp",
+                None,
+                None,
+            ),
+            (
+                "*.shp con l'opt-in esplicito",
+                "dati.shp",
+                Some(LOOSE_SET_MODE),
+                Some(ShapefilePublishMode::LooseSet),
+            ),
+            (
+                "*.shp con l'opzione del directory-dataset: contraddizione",
+                "dati.shp",
+                Some(DIRECTORY_DATASET_MODE),
+                None,
+            ),
+            (
+                "un'estensione che non e' ne' l'una ne' l'altra",
+                "dati.dbf",
+                None,
+                None,
+            ),
+            ("nessuna estensione", "dati", Some(LOOSE_SET_MODE), None),
+        ];
+
+        for (nome, destinazione, opzione, atteso) in casi {
+            let mut opzioni = opzioni_scrittura();
+            if let Some(valore) = opzione {
+                opzioni = opzioni.with_format_option("publish_mode", valore);
+            }
+            let esito = publish_mode(Path::new(destinazione), &opzioni);
+            match (esito, atteso) {
+                (Ok(ottenuto), Some(voluto)) => assert_eq!(ottenuto, voluto, "«{nome}»"),
+                (Err(_), None) => {}
+                (Ok(ottenuto), None) => {
+                    panic!("«{nome}» doveva essere rifiutato, ha dato {ottenuto:?}")
+                }
+                (Err(errore), Some(_)) => panic!("«{nome}» doveva passare: {}", errore.message),
+            }
+        }
+    }
+
+    /// `shapefile_source_path`: i due rifiuti di una sorgente che e' una directory.
+    ///
+    /// Un file qualunque passa senza domande -- e' il caso comune, e la
+    /// funzione non lo tocca. Una **directory** invece deve chiamarsi `*.shp.d`
+    /// e contenere `data.shp`, e i due rifiuti sono distinti: il primo dice che
+    /// la directory non e' un dataset, il secondo che lo e' ma e' incompleta.
+    #[test]
+    fn n1_shapefile_source_path_distingue_i_due_rifiuti_di_una_directory() {
+        let radice = tempfile::tempdir().unwrap();
+
+        let file = radice.path().join("dati.shp");
+        std::fs::write(&file, b"non importa").unwrap();
+        assert_eq!(
+            shapefile_source_path(file.clone()).unwrap(),
+            file,
+            "un file non e' una directory: passa cosi' com'e'"
+        );
+
+        let inesistente = radice.path().join("assente.shp");
+        assert_eq!(
+            shapefile_source_path(inesistente.clone()).unwrap(),
+            inesistente,
+            "nemmeno un percorso inesistente e' una directory"
+        );
+
+        let non_dataset = radice.path().join("una-directory");
+        std::fs::create_dir(&non_dataset).unwrap();
+        let errore = shapefile_source_path(non_dataset)
+            .expect_err("una directory senza il suffisso non e' un dataset");
+        assert!(errore
+            .message
+            .contains("directory Shapefile non riconosciuta"));
+
+        let vuoto = radice.path().join("vuoto.shp.d");
+        std::fs::create_dir(&vuoto).unwrap();
+        let errore = shapefile_source_path(vuoto.clone())
+            .expect_err("un dataset senza data.shp e' incompleto");
+        assert!(errore.message.contains("directory dataset senza data.shp"));
+
+        std::fs::write(vuoto.join("data.shp"), b"non importa").unwrap();
+        assert_eq!(
+            shapefile_source_path(vuoto.clone()).unwrap(),
+            vuoto.join("data.shp"),
+            "con data.shp il dataset risolve al proprio marker"
+        );
+    }
+
+    /// `declare_input_total`: il rifiuto del driver e' **irraggiungibile**, e
+    /// questa sonda dice da chi.
+    ///
+    /// Il censimento lo dava «chiudibile con un test parametrico sulla classe
+    /// di equivalenza della sua precondizione». Scritto quel test, il messaggio
+    /// che arriva non e' quello di `ShpWriter` -- «Shapefile supporta un solo
+    /// layer» -- ma quello del wrapper comune, che confronta il layer con il
+    /// `WritePlan` **prima** di delegare.
+    ///
+    /// Non e' un dettaglio da nota a pie' di pagina: significa che quelle due
+    /// righe del driver non sono raggiungibili dall'API pubblica, e che un test
+    /// che si accontentasse di `is_err()` le avrebbe dichiarate coperte
+    /// asserendo il rifiuto di **qualcun altro**. La sonda assevera percio' la
+    /// firma di chi rifiuta, non la sola presenza di un errore.
+    ///
+    /// Il verso positivo sta accanto perche' senza di lui un
+    /// `declare_input_total` che rifiutasse **ogni** layer supererebbe la sonda
+    /// del rifiuto.
+    #[test]
+    fn n1_declare_input_total_e_fermato_dal_piano_prima_del_driver() {
+        let radice = tempfile::tempdir().unwrap();
+        let uscita = radice.path().join("punti.shp");
+        let piano = piano_di_publish();
+        let mut writer = ShpDriver
+            .create(Sink::Path(uscita), &piano, &opzioni_scrittura_loose())
+            .unwrap();
+
+        writer
+            .declare_input_total(LayerId(0), 3)
+            .expect("il layer zero e' nel piano, e va accettato");
+
+        for indice in [1_u32, 2, u32::MAX] {
+            let Err(errore) = writer.declare_input_total(LayerId(indice), 3) else {
+                panic!("il layer {indice} doveva essere rifiutato");
+            };
+            assert!(
+                errore.message.contains("fuori dal WritePlan"),
+                "layer {indice}: a rifiutare doveva essere il piano, non il driver;                  messaggio «{}»",
+                errore.message
+            );
+            assert!(
+                !errore.message.contains("Shapefile supporta un solo layer"),
+                "layer {indice}: e' arrivato il rifiuto del driver, quindi la guardia                  del piano non lo precede piu' e il gruppo va rivisto"
+            );
+        }
+    }
+
     /// Il piano minimo delle prove sul publish: una sola colonna geometria.
     fn piano_di_publish() -> WritePlan {
         let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
