@@ -1526,6 +1526,128 @@ mod tests {
         }
     }
 
+    /// Reader che dichiara un totale scelto dal test.
+    ///
+    /// Serve alle sonde degli inoltri: senza un `accepted_total` osservabile
+    /// sotto l'adapter, «l'adapter inoltra» non e' distinguibile da «l'adapter
+    /// restituisce `None` come il default».
+    struct ReaderConTotale {
+        contract: LayerContract,
+        totale: Option<u64>,
+    }
+
+    impl ReaderConTotale {
+        fn nuovo(totale: Option<u64>) -> Self {
+            let schema = Arc::new(Schema::new(vec![Field::new("n", DataType::Int64, false)]));
+            Self {
+                contract: LayerContract {
+                    id: LayerId(0),
+                    name: "totale".to_owned(),
+                    contract: DataContract {
+                        schema,
+                        geometry: None,
+                    },
+                },
+                totale,
+            }
+        }
+    }
+
+    impl LayerReader for ReaderConTotale {
+        fn contract(&self) -> &LayerContract {
+            &self.contract
+        }
+
+        fn next_batch(&mut self) -> Result<Option<RecordBatch>> {
+            Ok(None)
+        }
+
+        fn accepted_total(&self) -> Option<u64> {
+            self.totale
+        }
+    }
+
+    /// I tre adapter di passaggio inoltrano il totale, e non lo inventano.
+    ///
+    /// Erano tre righe di produzione che **nessuna prova raggiungeva**, e la
+    /// diagnostica differenziale del checkpoint le ha nominate. Non le raggiunge
+    /// una conversione vera perche' `BudgetedReader` e' l'adapter piu' esterno e
+    /// risponde da se': questi tre stanno sotto di lui e nessuno li interroga.
+    ///
+    /// Che non siano interrogati **oggi** non li rende inerti: il giorno in cui
+    /// l'ordine di composizione cambia, un inoltro che restituisse `None`
+    /// farebbe fallire chiuso una conversione con un errore che parla d'altro.
+    ///
+    /// La sonda verifica i due versi: un totale dichiarato passa, e l'assenza
+    /// resta assenza. Con il solo primo verso, un inoltro sostituito da
+    /// `Some(0)` resterebbe verde.
+    #[test]
+    fn gli_adapter_di_passaggio_inoltrano_il_totale_accettato() {
+        let cancellazione = CancellationToken::new();
+        for atteso in [Some(7_u64), None] {
+            let con_cancellazione = with_cancellation(
+                Box::new(ReaderConTotale::nuovo(atteso)),
+                cancellazione.clone(),
+            );
+            assert_eq!(
+                con_cancellazione.accepted_total(),
+                atteso,
+                "CancellationReader non inoltra {atteso:?}"
+            );
+
+            let con_target = with_batch_target(
+                Box::new(ReaderConTotale::nuovo(atteso)),
+                BatchTarget::default(),
+                cancellazione.clone(),
+            );
+            assert_eq!(
+                con_target.accepted_total(),
+                atteso,
+                "BatchTargetReader non inoltra {atteso:?}"
+            );
+
+            let gate = SingleReaderGate::new("prova");
+            let con_gate = gate
+                .open(LayerId(0), || Ok(Box::new(ReaderConTotale::nuovo(atteso))))
+                .expect("il gate apre il primo reader");
+            assert_eq!(
+                con_gate.accepted_total(),
+                atteso,
+                "SingleActiveLayerReader non inoltra {atteso:?}"
+            );
+        }
+    }
+
+    /// Il default del tratto: un reader che non lo implementa dice `None`.
+    ///
+    /// E' l'altra riga che il differenziale ha trovato scoperta, ed e' quella
+    /// che rende sicuro l'inoltro: senza un default che ammette di non sapere,
+    /// ogni driver dovrebbe inventarsi un totale.
+    #[test]
+    fn un_reader_che_non_dichiara_il_totale_risponde_none() {
+        let reader = OneBatchReader::new(vec![1, 2, 3]);
+        assert_eq!(reader.accepted_total(), None);
+    }
+
+    /// Dopo la cancellazione il totale non sopravvive al reader che lo diceva.
+    #[test]
+    fn il_totale_sparisce_quando_la_cancellazione_rilascia_il_reader() {
+        let cancellazione = CancellationToken::new();
+        let mut reader = with_cancellation(
+            Box::new(ReaderConTotale::nuovo(Some(3))),
+            cancellazione.clone(),
+        );
+        assert_eq!(reader.accepted_total(), Some(3));
+
+        cancellazione.cancel();
+        assert!(reader.next_batch().is_err());
+        assert_eq!(
+            reader.accepted_total(),
+            None,
+            "un totale che sopravvive al reader che lo produceva descrive righe che nessuno consegnera'"
+        );
+    }
+
     struct SequenceReader {
         contract: LayerContract,
         events: VecDeque<Result<Option<RecordBatch>>>,
