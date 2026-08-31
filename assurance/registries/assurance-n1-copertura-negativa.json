@@ -172,8 +172,16 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 11,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso sul conteggio dei byte dello staging, che precede la pubblicazione. Non e' un dettaglio d'ordine: un tetto controllato dopo avrebbe gia' scritto i file, e «superato il limite» sarebbe una constatazione invece di un rifiuto -- la sonda verifica infatti che nessuna delle quattro parti esista sul disco dopo il rifiuto. Il tetto vale sull'insieme, non su ciascuna parte: e' il set a essere l'unita' pubblicata. Il valore del tetto e' **misurato** da una corsa di riferimento con lo stesso lotto e poi abbassato di un byte, perche' un tetto scelto a caso rischia di far scattare la validazione della scrittura -- che deriva il proprio tetto dall'input osservato -- invece del conteggio di `finish`; quella corsa di riferimento e' anche il controllo positivo. IRRAGGIUNGIBILI «writer gia' chiuso» e «staging mancante»: `finish` prende `self: Box<Self>` e consuma lo stato, quindi non esiste una seconda chiamata che possa trovarli gia' presi. La guardia e' il tipo, non un controllo. Resta senza esecuzione l'overflow del conteggio dei byte, che richiederebbe uno staging da piu' di `u64::MAX` byte.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_finish_conta_i_byte_dello_staging_prima_di_pubblicare",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::valida_riferimenti_cella",
@@ -202,16 +210,48 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 10,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso distinguendo tre autorita' diverse. La colonna geometria manca nel **contratto**, cioe' in cio' che il piano dichiara. La destinazione occupata e' lo stato del **disco**, e il no-clobber vale sull'intero set: un `.shp` che non esiste ma con un `.dbf` accanto e' comunque una pubblicazione che sovrascriverebbe -- le quattro estensioni compagne sono provate una per una, perche' sono quattro rami dello stesso ciclo e una fixture sola non direbbe che le altre tre sono guardate. Le due forme di pubblicazione hanno il proprio rifiuto: la directory che esiste, e il set sciolto con un compagno presente. IRRAGGIUNGIBILE: il nome campo che il DBF non sa portare. La sonda lo prova e misura che il rifiuto **non** arriva da `create` ma dal capability-check, che conosce il tetto sui nomi dal descrittore e lo applica a ogni driver allo stesso modo, con `CapabilityReason::FieldNameTooLong` dichiarata. La costruzione del `FieldName` in `create` resta come difesa di tipo e non ha input. Stessa sorte per «Shapefile: un solo layer per file», gia' fermato da `validate_write` come nel gruppo omologo di `driver-xls`.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_create_rifiuta_il_contratto_il_nome_campo_e_la_destinazione_occupata",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_create_rifiuta_il_contratto_il_nome_campo_e_la_destinazione_occupata",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "706-710, 745-750",
+          "guardia": "plenora-io-core::capabilities::validate_write"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::write_shape",
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 10,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "il `match` e' totale perche' `Shape` e' un enum totale, e i suoi due rifiuti sono difese di tipo: `NullShape` e Multipatch non arrivano mai da `ShpWriter::write`. La strada e' chiusa due volte: la geometria assente e' rifiutata come `shapefile.null_geometry_unsupported` prima che una shape venga costruita, e il Multipatch come `shapefile.geometry_type_unsupported` guardando `shape_tag`. In mezzo c'e' una terza chiusura: `shape_from_wkb` non produce mai `NullShape`, verificato su tutte le coppie costruibili nel gruppo omonimo. La sonda esegue entrambe le meta' -- i due rifiuti chiamati direttamente, e i due tag su cui `write` li ferma prima -- perche' provare solo la prima direbbe che sono raggiungibili e solo la seconda lascerebbe i due rami non eseguiti. Le dodici traduzioni riuscite e il loro `map_err` comune sono attraversati da ogni prova di scrittura del crate.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_write_shape_rifiuta_nullshape_e_multipatch_ma_write_non_ce_li_manda",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_write_shape_rifiuta_nullshape_e_multipatch_ma_write_non_ce_li_manda",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1382-1389",
+          "guardia": "driver-shp::ShpWriter::write"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::for_each_dense_row",
@@ -444,8 +484,24 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso su cinque cause che sono diverse per chi ripara il dato -- geometria assente, WKB non decodificabile, forma che Shapefile non rappresenta, tipo diverso da quello che il file ha gia', cella che il DBF non sa portare -- e su una proprieta' che nessun messaggio esprime: il rifiuto arriva **prima** di scrivere. `write` prepara tutte le righe e le consegna al writer solo se nessuna e' stata rifiutata, perche' un file con dentro meta' batch sarebbe peggio di nessun file. FINDING DEL GRUPPO: tre delle difese di `ShpWriter::write` non hanno input, e non per costruzione interna ma perche' `plenora-io-core::with_write_validation` avvolge il writer e decide prima. Byte che non sono WKB non arrivano al driver: la validazione li rifiuta come `conversion.invalid_geometry`, e la causa `shapefile.invalid_geometry` resta senza input. Un lotto con la colonna geometria di tipo Arrow diverso non passa il confronto con il contratto dichiarato, e «colonna geometria non binaria» resta senza input. La sonda misura **quale** causa arriva davvero invece di supporla, e la riga accanto mostra dove il driver decide da se': una `GeometryCollection` e' WKB valido, e solo Shapefile sa di non saperla rappresentare. IRRAGGIUNGIBILI anche «writer chiuso» -- `finish` consuma `self: Box<Self>`, quindi dopo la chiusura non esiste un `write` da chiamare -- e i due «troppe righe Shapefile», che richiederebbero piu' di `u64::MAX` righe in un lotto.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_write_nomina_la_causa_di_ogni_riga_che_non_sa_scrivere",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_write_nomina_la_causa_di_ogni_riga_che_non_sa_scrivere",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "912-915, 924-926, 968-972",
+          "guardia": "plenora-io-core::with_write_validation"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::cell_at",

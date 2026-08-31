@@ -4260,6 +4260,21 @@ mod tests {
         }
     }
 
+    /// Opzioni di scrittura con i limiti dati.
+    ///
+    /// I tetti stanno nel budget, non nelle opzioni: passarli da qui e' l'unico
+    /// modo di provare il rifiuto sul tetto **e** l'accettazione sotto di esso
+    /// con lo stesso lotto.
+    fn opzioni_scrittura_con(limits: plenora_io_model::budget::PipelineLimits) -> WriteOptions {
+        match plenora_io_model::budget::PipelineBudget::builder()
+            .limits(limits)
+            .build()
+        {
+            Ok(bundle) => WriteOptions::from_write_parts(bundle.into_write_parts()),
+            Err(error) => unreachable!("bundle di test non costruibile: {error:?}"),
+        }
+    }
+
     /// Opzioni di scrittura che **accettano** il set di file sciolti.
     ///
     /// Le prove che pubblicano su `*.shp` la usano al posto di
@@ -6665,6 +6680,459 @@ mod tests {
         assert_eq!(
             errore.message,
             "dimensionalità WKB ignota non scrivibile in Shapefile"
+        );
+    }
+
+    /// Un piano di scrittura con la sola geometria, piu' i campi dati.
+    fn piano_di_scrittura(campi: Vec<Field>) -> WritePlan {
+        let mut colonne = vec![geometry_field(GEOMETRY, "EPSG:4326")];
+        colonne.extend(campi);
+        WritePlan {
+            layers: vec![WriteLayer {
+                name: "strato".to_owned(),
+                contract: DataContract {
+                    schema: Arc::new(Schema::new(colonne)),
+                    geometry: None,
+                },
+            }],
+        }
+    }
+
+    /// `create` rifiuta il contratto senza geometria, il nome campo che il DBF
+    /// non sa portare, e la destinazione gia' occupata in entrambe le forme.
+    ///
+    /// I tre rifiuti arrivano da tre autorita' diverse, e distinguerli conta.
+    /// La colonna geometria manca nel **contratto**, cioe' in cio' che il piano
+    /// dichiara. Il nome campo e' un limite del **formato**: il DBF porta al
+    /// massimo dieci caratteri ASCII, e troncarlo produrrebbe due colonne
+    /// omonime da un piano che ne aveva due distinte. La destinazione occupata
+    /// e' lo stato del **disco**, e il no-clobber vale sull'intero set: un
+    /// `.shp` che non esiste ma con un `.dbf` accanto e' comunque una
+    /// pubblicazione che sovrascriverebbe.
+    ///
+    /// Le quattro estensioni compagne sono provate una per una, e non con una
+    /// sola: sono quattro rami dello stesso ciclo, e una fixture sola non
+    /// direbbe che le altre tre sono guardate.
+    #[test]
+    fn n1_create_rifiuta_il_contratto_il_nome_campo_e_la_destinazione_occupata() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Il controllo positivo: lo stesso piano su una destinazione libera.
+        assert!(
+            ShpDriver
+                .create(
+                    Sink::Path(dir.path().join("libero.shp")),
+                    &piano_di_scrittura(Vec::new()),
+                    &opzioni_scrittura_loose(),
+                )
+                .is_ok(),
+            "un piano con la sola geometria e una destinazione libera si apre"
+        );
+
+        // Contratto senza colonna geometria.
+        let senza_geometria = WritePlan {
+            layers: vec![WriteLayer {
+                name: "strato".to_owned(),
+                contract: DataContract {
+                    schema: Arc::new(Schema::new(vec![Field::new(
+                        "nome",
+                        arrow_schema::DataType::Utf8,
+                        true,
+                    )])),
+                    geometry: None,
+                },
+            }],
+        };
+        let Err(errore) = ShpDriver.create(
+            Sink::Path(dir.path().join("senza-geometria.shp")),
+            &senza_geometria,
+            &opzioni_scrittura_loose(),
+        ) else {
+            panic!("uno shapefile senza colonna geometria non e' uno shapefile");
+        };
+        assert_eq!(
+            errore.message,
+            "il contratto non ha una colonna geometria geoarrow.wkb"
+        );
+
+        // Nome campo oltre i dieci caratteri che il DBF porta: il rifiuto
+        // **non** e' quello di `create`. Arriva prima dal capability-check, che
+        // conosce il tetto sui nomi dal descrittore e lo applica a ogni driver
+        // allo stesso modo. La riga di `create` che costruisce il `FieldName`
+        // resta come difesa di tipo e non ha input.
+        let Err(errore) = ShpDriver.create(
+            Sink::Path(dir.path().join("nome-lungo.shp")),
+            &piano_di_scrittura(vec![Field::new(
+                "un_nome_troppo_lungo",
+                arrow_schema::DataType::Utf8,
+                true,
+            )]),
+            &opzioni_scrittura_loose(),
+        ) else {
+            panic!("un nome oltre il limite del DBF non puo' essere troncato in silenzio");
+        };
+        assert_eq!(
+            errore.message, "nome oltre il limite del formato",
+            "il rifiuto deve venire dal capability-check, non da `create`"
+        );
+        assert_eq!(
+            errore.capability_reason,
+            Some(plenora_io_model::CapabilityReason::FieldNameTooLong),
+            "la ragione dichiarata e' cio' che rende il rifiuto interpretabile"
+        );
+
+        // La forma a directory: la destinazione che esiste gia'.
+        let cartella = dir.path().join("occupata.shp.d");
+        std::fs::create_dir(&cartella).unwrap();
+        let Err(errore) = ShpDriver.create(
+            Sink::Path(cartella),
+            &piano_di_scrittura(Vec::new()),
+            &opzioni_scrittura(),
+        ) else {
+            panic!("una directory che esiste non e' una destinazione libera");
+        };
+        assert_eq!(
+            errore.code,
+            plenora_io_model::IoErrorCode::OutputExists,
+            "il rifiuto e' il no-clobber: {}",
+            errore.message
+        );
+
+        // La forma a file sciolti: **ciascuna** delle quattro estensioni
+        // compagne blocca la pubblicazione, anche quando il `.shp` non c'e'.
+        for estensione in ["shp", "shx", "dbf", "prj"] {
+            let destinazione = dir.path().join(format!("occupato-{estensione}.shp"));
+            std::fs::write(destinazione.with_extension(estensione), b"").unwrap();
+            let Err(errore) = ShpDriver.create(
+                Sink::Path(destinazione),
+                &piano_di_scrittura(Vec::new()),
+                &opzioni_scrittura_loose(),
+            ) else {
+                panic!("un compagno `.{estensione}` gia' presente blocca il set");
+            };
+            assert_eq!(
+                errore.code,
+                plenora_io_model::IoErrorCode::OutputExists,
+                "«{estensione}»: {}",
+                errore.message
+            );
+        }
+    }
+
+    /// `write` nomina la causa di ogni riga che non sa scrivere, e non ne
+    /// scrive nessuna finche' una sola e' rifiutata.
+    ///
+    /// Le cause sono cinque e sono diverse per chi ripara il dato: una
+    /// geometria assente, un WKB che non si decodifica, una forma che
+    /// Shapefile non rappresenta, un tipo diverso da quello che il file ha gia'
+    /// -- il formato ne porta uno solo -- e una cella che il DBF non sa
+    /// portare. Un'unica causa «riga non scrivibile» manderebbe a cercare nel
+    /// posto sbagliato quattro volte su cinque.
+    ///
+    /// La proprieta' che le tiene insieme e' che il rifiuto arriva **prima** di
+    /// scrivere: `write` prepara tutte le righe e le consegna al writer solo se
+    /// nessuna e' stata rifiutata. Un file con dentro meta' batch sarebbe
+    /// peggio di nessun file.
+    // Cinque cause, la colonna non binaria e il controllo positivo in un
+    // test solo: separarli spezzerebbe il confronto che li rende
+    // interpretabili -- quale causa arriva davvero, e da chi.
+    #[allow(clippy::too_many_lines)]
+    #[test]
+    fn n1_write_nomina_la_causa_di_ogni_riga_che_non_sa_scrivere() {
+        let dir = tempfile::tempdir().unwrap();
+        let punto = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+        let collezione = encode_wkb(
+            &WkbGeometry {
+                value: WkbValue::GeometryCollection(Vec::new()),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+        )
+        .expect("una collezione vuota si codifica");
+
+        let scrittore = |nome: &str, campi: Vec<Field>| {
+            ShpDriver
+                .create(
+                    Sink::Path(dir.path().join(nome)),
+                    &piano_di_scrittura(campi),
+                    &opzioni_scrittura_loose(),
+                )
+                .expect("la destinazione e' libera")
+        };
+        let schema_solo_geometria: SchemaRef =
+            Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+        let lotto = |geometrie: Vec<Option<&[u8]>>| {
+            RecordBatch::try_new(
+                schema_solo_geometria.clone(),
+                vec![Arc::new(BinaryArray::from(geometrie))],
+            )
+            .unwrap()
+        };
+
+        for (caso, geometrie, causa) in [
+            (
+                "geometria assente",
+                vec![None],
+                "shapefile.null_geometry_unsupported",
+            ),
+            // Il rifiuto **non** e' quello del driver. `with_write_validation`
+            // decodifica il WKB prima di consegnare il lotto, e i byte che non
+            // sono WKB non arrivano mai a `ShpWriter::write`: la sua causa
+            // `shapefile.invalid_geometry` resta una difesa senza input. La
+            // riga successiva mostra invece dove il driver decide da se': una
+            // GeometryCollection e' WKB valido, e solo Shapefile sa di non
+            // saperla rappresentare.
+            (
+                "byte che non sono WKB",
+                vec![Some(b"non e' WKB".as_slice())],
+                "conversion.invalid_geometry",
+            ),
+            (
+                "forma che WKB rappresenta e Shapefile no",
+                vec![Some(collezione.as_slice())],
+                "shapefile.geometry_not_representable",
+            ),
+        ] {
+            let mut writer = scrittore(&format!("{}.shp", causa.replace('.', "-")), Vec::new());
+            writer
+                .declare_input_total(LayerId(0), 1)
+                .expect("il totale d'ingresso si dichiara prima di scrivere");
+            let Err(errore) = writer.write(&lotto(geometrie)) else {
+                panic!("{caso}: doveva essere rifiutata");
+            };
+            let diagnostica = errore
+                .row_diagnostics
+                .as_deref()
+                .expect("un rifiuto di riga porta la propria diagnostica");
+            assert_eq!(
+                diagnostica.counts.get(causa),
+                Some(&1),
+                "{caso}: causa attesa «{causa}», arrivate {:?}",
+                diagnostica.counts
+            );
+        }
+
+        // La colonna geometria che non e' binaria: non e' un rifiuto di riga
+        // ma del lotto, perche' non c'e' una riga da incolpare. E anche qui il
+        // rifiuto **non** e' quello del driver: `with_write_validation`
+        // confronta il lotto con il contratto dichiarato prima di consegnarlo,
+        // e un tipo Arrow diverso non passa quel confronto. La causa
+        // «colonna geometria non binaria» di `ShpWriter::write` resta una
+        // difesa senza input, come `shapefile.invalid_geometry`.
+        let schema_testo: SchemaRef = Arc::new(Schema::new(vec![Field::new(
+            GEOMETRY,
+            arrow_schema::DataType::Utf8,
+            true,
+        )
+        .with_metadata(geometry_field(GEOMETRY, "EPSG:4326").metadata().clone())]));
+        let non_binaria = RecordBatch::try_new(
+            schema_testo,
+            vec![Arc::new(arrow_array::StringArray::from(vec![Some(
+                "POINT (1 2)",
+            )]))],
+        )
+        .unwrap();
+        let mut writer = scrittore("non-binaria.shp", Vec::new());
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+        let Err(errore) = writer.write(&non_binaria) else {
+            panic!("una colonna geometria che non e' WKB non e' una geometria");
+        };
+        assert_eq!(
+            errore.message,
+            "batch diverso dal contratto dichiarato (schema, ordine, tipi, nullability o metadata) al layer 0"
+        );
+        assert!(
+            errore.row_diagnostics.is_none(),
+            "non c'e' una riga da incolpare: e' il lotto a essere sbagliato"
+        );
+
+        // Una cella che il DBF non sa portare: il tipo Arrow non ha una resa
+        // senza perdita, e la riga viene rifiutata con la propria causa.
+        let schema_data: SchemaRef = Arc::new(Schema::new(vec![
+            geometry_field(GEOMETRY, "EPSG:4326"),
+            Field::new("QUANDO", arrow_schema::DataType::Date32, true),
+        ]));
+        let con_data = RecordBatch::try_new(
+            schema_data,
+            vec![
+                Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
+                Arc::new(arrow_array::Date32Array::from(vec![Some(1_i32)])),
+            ],
+        )
+        .unwrap();
+        let mut writer = scrittore(
+            "cella.shp",
+            vec![Field::new("QUANDO", arrow_schema::DataType::Date32, true)],
+        );
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+        let Err(errore) = writer.write(&con_data) else {
+            panic!("una cella senza resa DBF non puo' diventare un valore approssimato");
+        };
+        let diagnostica = errore.row_diagnostics.as_deref().unwrap();
+        assert_eq!(
+            diagnostica.counts.get("shapefile.cell_not_representable"),
+            Some(&1),
+            "arrivate {:?}",
+            diagnostica.counts
+        );
+
+        // Il controllo positivo: un lotto interamente scrivibile passa, e senza
+        // di lui una tabella di soli rifiuti la passerebbe anche un `write` che
+        // rifiuta tutto.
+        let mut writer = scrittore("buono.shp", Vec::new());
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+        writer
+            .write(&lotto(vec![Some(punto.as_slice())]))
+            .expect("un punto XY e' scrivibile");
+    }
+
+    /// `write_shape` rifiuta `NullShape` e Multipatch, e `write` non ce li
+    /// manda mai.
+    ///
+    /// Le due righe esistono perche' `Shape` e' un enum totale e il `match` lo
+    /// deve essere: sono difese di tipo, non rifiuti raggiungibili. La strada
+    /// per arrivarci e' chiusa due volte da `ShpWriter::write`, che rifiuta la
+    /// geometria assente come `shapefile.null_geometry_unsupported` prima di
+    /// costruire qualunque shape, e il Multipatch come
+    /// `shapefile.geometry_type_unsupported` guardando `shape_tag`. In mezzo
+    /// c'e' una terza chiusura: `shape_from_wkb` non produce mai `NullShape`,
+    /// come la sonda del suo gruppo verifica su tutte le coppie costruibili.
+    ///
+    /// La sonda esegue entrambe le meta': i due rifiuti chiamati direttamente,
+    /// e le due cause con cui `write` li ferma prima.
+    #[test]
+    fn n1_write_shape_rifiuta_nullshape_e_multipatch_ma_write_non_ce_li_manda() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("scarto.shp");
+        let tabella = TableWriterBuilder::new();
+        let mut writer = Writer::from_path(&percorso, tabella).expect("il writer si apre");
+        let record = Record::default();
+
+        let Err(errore) = write_shape(&mut writer, Shape::NullShape, &record) else {
+            panic!("una geometria nulla non si scrive in uno Shapefile");
+        };
+        assert_eq!(
+            errore.message,
+            "geometria nulla non supportata in scrittura Shapefile"
+        );
+
+        let multipatch = Shape::Multipatch(shapefile::Multipatch::new(
+            shapefile::Patch::TriangleStrip(vec![
+                shapefile::PointZ::new(0.0, 0.0, 0.0, NO_DATA),
+                shapefile::PointZ::new(1.0, 0.0, 0.0, NO_DATA),
+                shapefile::PointZ::new(0.0, 1.0, 0.0, NO_DATA),
+            ]),
+        ));
+        let Err(errore) = write_shape(&mut writer, multipatch, &record) else {
+            panic!("il Multipatch non si scrive con questo driver");
+        };
+        assert_eq!(
+            errore.message,
+            "Multipatch non supportato in scrittura Shapefile"
+        );
+
+        // L'altra meta': le due cause con cui `write` ferma prima. La geometria
+        // assente e' gia' provata nella tabella delle cause; qui conta che il
+        // tag `unsupported` esista e sia quello del Multipatch, perche' e' il
+        // confronto che chiude la strada.
+        assert_eq!(
+            shape_tag(&Shape::Multipatch(shapefile::Multipatch::new(
+                shapefile::Patch::TriangleStrip(vec![shapefile::PointZ::new(
+                    0.0, 0.0, 0.0, NO_DATA
+                )]),
+            ))),
+            "unsupported",
+            "e' il tag su cui `write` rifiuta la riga prima di costruire la shape"
+        );
+        assert_eq!(
+            shape_tag(&Shape::NullShape),
+            "",
+            "la NullShape non ha tag, e `write` non la fa mai arrivare qui"
+        );
+    }
+
+    /// `finish` conta i byte dello staging e non pubblica oltre il tetto.
+    ///
+    /// Il conteggio precede la pubblicazione, e non e' un dettaglio d'ordine:
+    /// un tetto controllato dopo avrebbe gia' scritto i file, e «superato il
+    /// limite» sarebbe una constatazione invece di un rifiuto. Il tetto vale
+    /// sull'insieme delle quattro parti, non su ciascuna: e' il set a essere
+    /// l'unita' pubblicata.
+    #[test]
+    fn n1_finish_conta_i_byte_dello_staging_prima_di_pubblicare() {
+        let dir = tempfile::tempdir().unwrap();
+        let punto = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+        let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+        let lotto = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+        )
+        .unwrap();
+
+        // Prima la misura: quanti byte occupa davvero il set di una riga. Il
+        // tetto va scelto **sotto** quel valore e sopra cio' che la validazione
+        // della scrittura deriva dall'input osservato, altrimenti a rifiutare
+        // sarebbe quella e non il conteggio di `finish`.
+        let riferimento = dir.path().join("riferimento.shp");
+        let mut writer = ShpDriver
+            .create(
+                Sink::Path(riferimento.clone()),
+                &piano_di_scrittura(Vec::new()),
+                &opzioni_scrittura_loose(),
+            )
+            .expect("la destinazione e' libera");
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+        writer.write(&lotto).expect("il punto si scrive");
+        let pubblicato = writer.finish().expect("senza tetto stretto si pubblica");
+        let tetto = pubblicato.bytes - 1;
+
+        let destinazione = dir.path().join("stretto.shp");
+        let mut writer = ShpDriver
+            .create(
+                Sink::Path(destinazione.clone()),
+                &piano_di_scrittura(Vec::new()),
+                &opzioni_scrittura_con(
+                    plenora_io_model::budget::PipelineLimits::default()
+                        .with_max_output_bytes(tetto),
+                )
+                .with_format_option("publish_mode", LOOSE_SET_MODE),
+            )
+            .expect("la destinazione e' libera");
+        writer.declare_input_total(LayerId(0), 1).unwrap();
+        writer
+            .write(&lotto)
+            .expect("il punto si scrive nello staging");
+        let Err(errore) = writer.finish() else {
+            panic!("un set oltre il tetto non si pubblica");
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::ResourceLimit,
+            "un tetto superato e' un limite: {}",
+            errore.message
+        );
+        assert!(
+            errore.message.contains("byte oltre il limite di"),
+            "il messaggio deve dire qual e' il limite: «{}»",
+            errore.message
+        );
+        for estensione in ["shp", "shx", "dbf", "prj"] {
+            assert!(
+                !destinazione.with_extension(estensione).exists(),
+                "il rifiuto precede la pubblicazione: `.{estensione}` non deve esistere"
+            );
+        }
+
+        // Il controllo positivo e' la corsa di riferimento qui sopra: stesso
+        // lotto, stesso driver, tetto sufficiente, e il set pubblicato.
+        assert!(
+            riferimento.exists() && riferimento.with_extension("dbf").exists(),
+            "sotto il tetto il set si pubblica per intero"
+        );
+        assert!(
+            tetto < pubblicato.bytes,
+            "il tetto della prova negativa sta sotto la misura, non accanto"
         );
     }
 
