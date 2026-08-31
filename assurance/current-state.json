@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "dfa9fda",
+      "sha": "7549f22",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "dfa9fda",
+    "sha": "7549f22",
     "checkpoint": {
       "passi_eseguiti": 73,
       "passi_verdi": 73,
@@ -23,7 +23,7 @@
       "riconciliazione": "73 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento"
     },
     "fuzz": {
-      "replay_input": 69872,
+      "replay_input": 70286,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.87,
-      "lcov_righe_coperte": 37299,
-      "lcov_righe_strumentate": 41970,
-      "cargo_lines_percentuale": 87.36,
+      "lcov_percentuale": 88.94,
+      "lcov_righe_coperte": 37520,
+      "lcov_righe_strumentate": 42186,
+      "cargo_lines_percentuale": 87.44,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore cresce di 1035 righe rispetto alla corsa su `0a988de`, e sono le sonde di questa tranche: la percentuale sale mentre il denominatore cresce, quindi non e' l'effetto di un taglio.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate. Entrambe sono richieste e nessuna sostituisce l'altra."
     },
     "diagnostica_differenziale": {
-      "baseline": "0a988de",
-      "esito": "91.79%",
-      "righe_cambiate_eseguibili": 1035,
-      "coperte": 950,
-      "scoperte": 85,
-      "cambiate_non_eseguibili": 740,
-      "ragione": "91.79% delle 1035 righe cambiate ed eseguibili fra la revisione dell'evidenza precedente e questa: sedici chiusure ASSURANCE-N1 in `driver-shp`, con le fixture che le accompagnano.",
-      "che_cosa_sono_le_scoperte": "85, e **nessuna e' codice di produzione**. Il confine e' verificato riga per riga e non stimato: i due `mod tests` cominciano a 1668 in `driver-xls/src/lib.rs` e a 3609 in `driver-shp/src/lib.rs`, non compare nessun altro file, e tutte e 85 stanno oltre. Sono messaggi di asserzione e rami di `panic!` dentro le sonde, che si eseguono **solo quando la sonda fallisce**: una copertura del 100% su quelle righe significherebbe che ogni sonda e' fallita almeno una volta, ed e' la categoria che le evidenze precedenti dichiarano non chiudibile."
+      "baseline": "dfa9fda",
+      "esito": "90.04%",
+      "righe_cambiate_eseguibili": 251,
+      "coperte": 226,
+      "scoperte": 25,
+      "cambiate_non_eseguibili": 301,
+      "ragione": "90.04% delle 251 righe cambiate ed eseguibili fra l'evidenza precedente e questa: le estrazioni che hanno reso provabili gli otto residui, le sonde che li provano, e i tre difetti corretti chiudendoli.",
+      "che_cosa_sono_le_scoperte": "25, e **nessuna e' codice di produzione**. Il confine e' verificato riga per riga: i due `mod tests` cominciano a 1668 in `driver-xls/src/lib.rs` e a 3609 in `driver-shp/src/lib.rs`, non compare nessun altro file, e tutte e 25 stanno oltre. Sono messaggi di asserzione e rami di `panic!` dentro le sonde, che si eseguono solo quando la sonda fallisce."
     },
-    "evidenza": "assurance/evidence/checkpoint-dfa9fda.json"
+    "evidenza": "assurance/evidence/checkpoint-7549f22.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "dfa9fda"
+      "qualificato_su": "7549f22"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
