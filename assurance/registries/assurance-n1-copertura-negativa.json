@@ -78,16 +78,32 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 20,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso su quattro messaggi che separano quattro errori diversi di chi scrive le opzioni a mano: un limite che non e' un numero, un limite fuori intervallo, una policy senza il campo a cui si applica, e una policy che non esiste. «Configurazione non valida» li coprirebbe tutti e non aiuterebbe nessuno. Il caso che vale di piu' e' la policy senza campo: non e' un valore sbagliato ma una **coppia** incompleta, e senza il rifiuto la policy verrebbe ignorata in silenzio -- chi l'ha scritta crederebbe di aver redatto una chiave che invece non viene nemmeno emessa. Il simmetrico e' registrato accanto: un campo chiave **senza** policy e' anch'esso rifiutato, perche' il tipo dichiara che non esiste una policy implicita e l'assenza cade sul braccio `_`. I due confini del limite stanno uno accanto all'altro, rifiuto fuori e accettazione dentro, perche' con una meta' sola non si saprebbe se l'intervallo sia chiuso o aperto. Ogni rifiuto verifica anche categoria e fase: e' una configurazione sbagliata, e va fermata **prima** di leggere il file. Le accettazioni fissano due proprieta' che nessun messaggio esprime: senza opzioni la chiave e' assente e non esiste un default che compaia dal nulla, e l'indice del valore numerico grezzo si popola solo per i campi `N`/`F` -- una risposta che viene dal layout DBF mentre l'esistenza del campo viene dalle colonne, due fonti distinte che una fixture sola non distinguerebbe.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_from_options_rifiuta_ogni_configurazione_incoerente_delle_diagnostiche",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::native_coordinate",
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 18,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso da una tabella che nomina **quale** ordinata manca. La dimensionalita' non e' una proprieta' del singolo vertice: viene dal tipo di shape dichiarato nell'header e vale per tutto il layer, quindi un vertice che non la rispetta e' un file incoerente con la propria intestazione. I cinque messaggi distinti servono a chi ripara il dato -- deve sapere se aggiungere la quota o la misura -- e «geometria non valida» non glielo direbbe. Il caso piu' sottile e' il dataset ShapeZ dichiarato XYZ che porta una misura **valida**: non e' un dato assente ma un dato in piu', e accettarlo lo butterebbe via in silenzio; il confronto e' con `NO_DATA`, perche' nel formato la misura assente e' un valore e non l'assenza del campo. Il braccio `_` e' raggiunto da tre direzioni distinte -- XY con quota, XY con misura, XYM con quota -- e non da una sola, perche' un braccio catch-all provato da un punto solo non dice che cosa altro ci finisca dentro. La sonda implementa `NativePoint` su un vertice costruito a mano: `Point`, `PointM` e `PointZ` hanno le ordinate fissate dal tipo, e da loro non si ottiene un ShapeZ senza quota, che e' proprio il caso che i rifiuti esistono per prendere. Le cinque accettazioni verificano le ordinate restituite, non solo `is_ok`: una funzione che le scartasse passerebbe una tabella che guardasse il solo esito.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_native_coordinate_esige_le_ordinate_che_la_dimensionalita_dichiara",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::spawn_parser",
@@ -248,8 +264,16 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 7,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso sui due rifiuti e sulla gerarchia che li spiega. Nel formato Shapefile gli anelli sono una sequenza piatta e la gerarchia esiste solo nell'ordine: un anello interno appartiene all'ultimo esterno visto. Un file che apre con un interno non descrive un buco in niente, e la funzione non ha modo di indovinare a chi appartenga -- accettarlo significherebbe scegliere un contenitore a caso. Il secondo rifiuto e' l'insieme vuoto di anelli. Le due accettazioni fissano proprio la gerarchia, che nessun messaggio d'errore esprime: un esterno con un interno diventa **un** poligono di due anelli, due esterni diventano **due** poligoni; senza, uno scambio fra i due rami del `match` non romperebbe nulla. E' provata anche la propagazione da `native_coordinates`: un vertice incoerente con la dimensionalita' ferma la conversione invece di perdere l'ordinata.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_polygon_wkb_esige_un_anello_esterno_prima_di_ogni_interno",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::create",
@@ -326,8 +350,24 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 5,
       "raggiunto_da_replay": 1,
-      "disposizione": "test_tabellare",
-      "nota": "raggiunto dal replay: reachability e panic-safety provate, contratto no. Il seme non e' identificato -- il report e' aggregato sul corpus -- quindi la via piu' economica e' una fixture diretta dalla precondizione del ramo."
+      "disposizione": "chiuso",
+      "nota": "e' l'entry point del target del fuzzer, e la sua utilita' dipende da una cosa sola: che i rifiuti vengano dalla catena vera -- decodifica WKB, conversione nella shape ESRI, ritorno a WKB -- e non da un controllo scritto nel target. Una sonda che guardasse solo «non va in panico» non distinguerebbe un target che legge davvero da uno che rifiuta tutto all'ingresso, ed e' esattamente l'errore che il replay senza crash puo' nascondere. La tabella prende quindi tre punti diversi della catena: byte che non sono WKB (rifiuto dalla decodifica), una `GeometryCollection` che WKB rappresenta e Shapefile no (rifiuto dalla conversione), e un punto XY che attraversa e torna, con la lunghezza restituita maggiore di zero -- un contatore a zero sarebbe indistinguibile da un giro che non ha prodotto niente. Resta irraggiungibile il rifiuto «la conversione di una geometria ha prodotto NullShape»: `shape_to_wkb` restituisce `None` solo per `NullShape`, e `shape_from_wkb` non ne produce mai, come la sonda del suo gruppo verifica su tutte le sedici coppie costruibili.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_fuzz_wkb_roundtrip_propaga_i_rifiuti_della_catena",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_shape_from_wkb_non_produce_mai_nullshape_e_rifiuta_la_dimensionalita_ignota",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "3459-3463",
+          "guardia": "driver-shp::shape_from_wkb"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::polygon_rings",
@@ -562,8 +602,16 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 3,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso sull'unico rifiuto proprio della funzione -- la dimensionalita' ignota, che non ha una shape ESRI corrispondente -- e sulle sedici coppie (dimensionalita', topologia) che invece hanno una traduzione. Le sedici non sono un contorno: da loro dipende l'irraggiungibilita' registrata nel gruppo `driver-shp::__fuzz_wkb_roundtrip`, perche' ogni braccio costruisce una shape **concreta** e nessuno produce `NullShape`. La sonda esegue quella proprieta' invece di argomentarla: se un braccio futuro restituisse `NullShape`, diventa rossa. Le propagazioni da `point_m` e `point_z` erano gia' provate da `declared_dimensions_without_required_ordinates_are_rejected` e non sono contate qui.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_shape_from_wkb_non_produce_mai_nullshape_e_rifiuta_la_dimensionalita_ignota",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::take_child",
@@ -652,8 +700,16 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 2,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso separando l'assenza dal rifiuto. `NullShape` e' l'assenza di geometria **dichiarata dal formato**, non un errore: diventa `Ok(None)`, che a valle e' una riga senza geometria. Il Multipatch invece e' una forma che WKB non sa rappresentare in modo univoco -- le sue parti hanno una semantica di superficie che il modello piatto non porta -- e tradurlo comunque significherebbe scegliere una delle letture possibili senza dirlo. Le due cose escono dalla stessa funzione con lo stesso tipo di ritorno, e confonderle darebbe una riga senza geometria dove il file ne dichiarava una che non sappiamo scrivere. Il controllo positivo verifica anche che la dimensionalita' dichiarata sopravviva alla traduzione.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_shape_to_wkb_rende_nulla_la_nullshape_e_rifiuta_il_multipatch",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::encode_geometry_cell",

@@ -6275,4 +6275,673 @@ mod tests {
         assert!(shape_from_wkb(missing_z).is_err());
         assert!(shape_from_wkb(missing_m).is_err());
     }
+
+    // --- ASSURANCE-N1: le funzioni pure della conversione -----------------
+
+    /// Un vertice nativo costruito a mano, per provare `native_coordinate`
+    /// sulle combinazioni che i tipi di `shapefile` non permettono di formare.
+    ///
+    /// `Point`, `PointM` e `PointZ` hanno ciascuno le proprie ordinate fissate
+    /// dal tipo: da loro non si ottiene uno `ShapeZ` senza quota, che e' proprio
+    /// il caso che i rifiuti esistono per prendere. Il tratto e' privato del
+    /// modulo, quindi la sonda lo implementa dove vive.
+    #[derive(Clone, Copy)]
+    struct VerticeFinto {
+        z: Option<f64>,
+        m: Option<f64>,
+    }
+
+    impl NativePoint for VerticeFinto {
+        fn x(&self) -> f64 {
+            1.0
+        }
+        fn y(&self) -> f64 {
+            2.0
+        }
+        fn z(&self) -> Option<f64> {
+            self.z
+        }
+        fn m(&self) -> Option<f64> {
+            self.m
+        }
+    }
+
+    const fn vertice(z: Option<f64>, m: Option<f64>) -> VerticeFinto {
+        VerticeFinto { z, m }
+    }
+
+    /// `native_coordinate` esige le ordinate che la dimensionalita' dichiara, e
+    /// nomina quale manca.
+    ///
+    /// La dimensionalita' non e' una proprieta' del singolo vertice: viene dal
+    /// tipo di shape dichiarato nell'header, e vale per tutto il layer. Un
+    /// vertice che non la rispetta e' un file incoerente con la propria
+    /// intestazione, e i cinque messaggi distinti dicono **quale** ordinata
+    /// manca invece di «geometria non valida»: chi ripara il dato deve sapere
+    /// se aggiungere la quota o la misura.
+    ///
+    /// Il caso piu' sottile e' l'ultimo dei rifiuti: un dataset `ShapeZ`
+    /// dichiarato XYZ che porta una misura **valida**. Non e' un dato assente
+    /// ma un dato in piu', e accettarlo lo butterebbe via in silenzio; il
+    /// confronto e' con `NO_DATA`, perche' nel formato la misura assente e' un
+    /// valore, non l'assenza del campo.
+    // Nove rifiuti e cinque accettazioni in una tabella sola: separarle in
+    // due test spezzerebbe la coppia che le rende interpretabili -- una
+    // tabella di soli negativi la passa anche una funzione che rifiuta tutto.
+    #[allow(clippy::too_many_lines)]
+    #[test]
+    fn n1_native_coordinate_esige_le_ordinate_che_la_dimensionalita_dichiara() {
+        for (caso, punto, dimensioni, atteso) in [
+            (
+                "XYM senza misura",
+                vertice(None, None),
+                CoordinateDimensions::Xym,
+                "coordinata ShapeM senza misura",
+            ),
+            (
+                "XYZ senza quota",
+                vertice(None, Some(NO_DATA)),
+                CoordinateDimensions::Xyz,
+                "coordinata ShapeZ senza quota",
+            ),
+            (
+                "XYZ con una misura valida",
+                vertice(Some(3.0), Some(7.0)),
+                CoordinateDimensions::Xyz,
+                "misura valida trovata in un dataset ShapeZ dichiarato XYZ",
+            ),
+            (
+                "XYZM senza quota",
+                vertice(None, Some(7.0)),
+                CoordinateDimensions::Xyzm,
+                "coordinata ShapeZ senza quota",
+            ),
+            (
+                "XYZM senza misura",
+                vertice(Some(3.0), None),
+                CoordinateDimensions::Xyzm,
+                "coordinata ShapeZ senza misura nativa",
+            ),
+            (
+                "dimensionalita' non determinata",
+                vertice(None, None),
+                CoordinateDimensions::Unknown,
+                "dimensionalità Shapefile non determinata",
+            ),
+            (
+                "XY con una quota che non dovrebbe esserci",
+                vertice(Some(3.0), None),
+                CoordinateDimensions::Xy,
+                "variante Shape incoerente con la dimensionalità del layer",
+            ),
+            (
+                "XY con una misura che non dovrebbe esserci",
+                vertice(None, Some(7.0)),
+                CoordinateDimensions::Xy,
+                "variante Shape incoerente con la dimensionalità del layer",
+            ),
+            (
+                "XYM con una quota che non dovrebbe esserci",
+                vertice(Some(3.0), Some(7.0)),
+                CoordinateDimensions::Xym,
+                "variante Shape incoerente con la dimensionalità del layer",
+            ),
+        ] {
+            let Err(errore) = native_coordinate(&punto, dimensioni) else {
+                panic!("{caso}: doveva essere rifiutato");
+            };
+            assert_eq!(errore.message, atteso, "{caso}: messaggio sbagliato");
+        }
+
+        // Le accettazioni, e cio' che ciascuna porta con se': senza, una
+        // funzione che rifiutasse tutto supererebbe la tabella dei negativi, e
+        // una che scartasse le ordinate passerebbe una tabella che guardasse
+        // solo `is_ok`.
+        for (caso, punto, dimensioni, z, m) in [
+            (
+                "XY puro",
+                vertice(None, None),
+                CoordinateDimensions::Xy,
+                None,
+                None,
+            ),
+            (
+                "XYM con misura",
+                vertice(None, Some(7.0)),
+                CoordinateDimensions::Xym,
+                None,
+                Some(7.0),
+            ),
+            (
+                "XYZ con quota e misura assente per convenzione",
+                vertice(Some(3.0), Some(NO_DATA)),
+                CoordinateDimensions::Xyz,
+                Some(3.0),
+                None,
+            ),
+            (
+                "XYZ con quota e nessuna misura",
+                vertice(Some(3.0), None),
+                CoordinateDimensions::Xyz,
+                Some(3.0),
+                None,
+            ),
+            (
+                "XYZM completo",
+                vertice(Some(3.0), Some(7.0)),
+                CoordinateDimensions::Xyzm,
+                Some(3.0),
+                Some(7.0),
+            ),
+        ] {
+            let coordinata = match native_coordinate(&punto, dimensioni) {
+                Ok(coordinata) => coordinata,
+                Err(errore) => panic!("{caso}: doveva essere accettato: {errore:?}"),
+            };
+            assert_eq!(
+                (coordinata.z, coordinata.m),
+                (z, m),
+                "{caso}: ordinate perse"
+            );
+            assert!(
+                (coordinata.x - 1.0).abs() < f64::EPSILON
+                    && (coordinata.y - 2.0).abs() < f64::EPSILON,
+                "{caso}: X e Y devono passare invariate"
+            );
+        }
+    }
+
+    /// `polygon_wkb` esige un anello esterno prima di ogni interno, e almeno
+    /// uno in tutto.
+    ///
+    /// Nel formato Shapefile gli anelli sono una sequenza piatta, e la
+    /// gerarchia esiste solo nell'ordine: un anello interno appartiene
+    /// all'ultimo esterno visto. Un file che apre con un interno non descrive
+    /// un buco in niente, e la funzione non ha modo di indovinare a chi
+    /// appartenga -- accettarlo significherebbe scegliere un contenitore a
+    /// caso.
+    ///
+    /// Le due accettazioni fissano proprio la gerarchia: un esterno con un
+    /// interno diventa un poligono di due anelli, due esterni diventano due
+    /// poligoni. Senza, uno scambio fra i due rami non romperebbe nulla.
+    #[test]
+    fn n1_polygon_wkb_esige_un_anello_esterno_prima_di_ogni_interno() {
+        let anello = |chiuso: bool| {
+            let z = if chiuso { None } else { Some(3.0) };
+            vec![vertice(z, None), vertice(z, None), vertice(z, None)]
+        };
+
+        let Err(errore) = polygon_wkb(
+            &[PolygonRing::Inner(anello(true))],
+            CoordinateDimensions::Xy,
+        ) else {
+            panic!("un anello interno senza esterno non appartiene a niente");
+        };
+        assert_eq!(
+            errore.message,
+            "anello interno Shapefile senza anello esterno"
+        );
+
+        let vuoti: [PolygonRing<VerticeFinto>; 0] = [];
+        let Err(errore) = polygon_wkb(&vuoti, CoordinateDimensions::Xy) else {
+            panic!("un poligono senza anelli non e' un poligono");
+        };
+        assert_eq!(errore.message, "Polygon Shapefile senza anelli esterni");
+
+        // Un esterno con il suo interno: un poligono, due anelli.
+        let uno = polygon_wkb(
+            &[
+                PolygonRing::Outer(anello(true)),
+                PolygonRing::Inner(anello(true)),
+            ],
+            CoordinateDimensions::Xy,
+        )
+        .expect("un esterno con il suo interno e' un poligono con un buco");
+        let WkbValue::MultiPolygon(poligoni) = uno.value else {
+            panic!("il risultato e' sempre un MultiPolygon");
+        };
+        assert_eq!(poligoni.len(), 1, "un solo esterno, un solo poligono");
+        let WkbValue::Polygon(corona) = &poligoni[0].value else {
+            panic!("il membro e' un poligono");
+        };
+        assert_eq!(corona.len(), 2, "l'interno deve stare dentro l'esterno");
+
+        // Due esterni: due poligoni, non un poligono con due anelli.
+        let due = polygon_wkb(
+            &[
+                PolygonRing::Outer(anello(true)),
+                PolygonRing::Outer(anello(true)),
+            ],
+            CoordinateDimensions::Xy,
+        )
+        .expect("due esterni sono due poligoni");
+        let WkbValue::MultiPolygon(poligoni) = due.value else {
+            panic!("il risultato e' sempre un MultiPolygon");
+        };
+        assert_eq!(poligoni.len(), 2, "due esterni non si fondono in uno");
+
+        // La propagazione da `native_coordinates`: un vertice incoerente con
+        // la dimensionalita' ferma la conversione invece di perdere l'ordinata.
+        let Err(errore) = polygon_wkb(
+            &[PolygonRing::Outer(anello(false))],
+            CoordinateDimensions::Xy,
+        ) else {
+            panic!("un vertice con una quota in un layer XY e' incoerente");
+        };
+        assert_eq!(
+            errore.message,
+            "variante Shape incoerente con la dimensionalità del layer"
+        );
+    }
+
+    /// `shape_to_wkb` traduce l'assenza in `None` e rifiuta il Multipatch.
+    ///
+    /// `NullShape` e' l'assenza di geometria dichiarata dal formato, non un
+    /// errore: diventa `Ok(None)`, che a valle e' una riga senza geometria.
+    /// Il Multipatch invece e' una forma che WKB non sa rappresentare in modo
+    /// univoco -- le sue parti hanno una semantica di superficie che il modello
+    /// piatto non porta -- e tradurlo comunque significherebbe scegliere una
+    /// delle letture possibili e non dirlo.
+    #[test]
+    fn n1_shape_to_wkb_rende_nulla_la_nullshape_e_rifiuta_il_multipatch() {
+        assert!(
+            shape_to_wkb(&Shape::NullShape, CoordinateDimensions::Xy)
+                .expect("la NullShape non e' un errore")
+                .is_none(),
+            "la NullShape e' assenza di geometria, non un fallimento"
+        );
+
+        let multipatch = Shape::Multipatch(shapefile::Multipatch::new(
+            shapefile::Patch::TriangleStrip(vec![
+                shapefile::PointZ::new(0.0, 0.0, 0.0, NO_DATA),
+                shapefile::PointZ::new(1.0, 0.0, 0.0, NO_DATA),
+                shapefile::PointZ::new(0.0, 1.0, 0.0, NO_DATA),
+            ]),
+        ));
+        let Err(errore) = shape_to_wkb(&multipatch, CoordinateDimensions::Xyz) else {
+            panic!("il Multipatch non ha una traduzione WKB univoca");
+        };
+        assert_eq!(
+            errore.message,
+            "Multipatch non ha una conversione WKB univoca ed è rifiutato"
+        );
+
+        // Il controllo positivo: una forma traducibile passa e conserva la
+        // dimensionalita' dichiarata.
+        let punto = shape_to_wkb(
+            &Shape::Point(shapefile::Point::new(1.0, 2.0)),
+            CoordinateDimensions::Xy,
+        )
+        .expect("un punto XY si traduce")
+        .expect("un punto non e' un'assenza");
+        assert_eq!(punto.dimensions, CoordinateDimensions::Xy);
+    }
+
+    /// `shape_from_wkb` rifiuta la dimensionalita' ignota, ed e' la ragione per
+    /// cui `__fuzz_wkb_roundtrip` non puo' vedere una `NullShape`.
+    ///
+    /// La funzione decide su una coppia (dimensionalita', topologia), e ogni
+    /// braccio costruisce una shape **concreta**: nessuno produce `NullShape`.
+    /// Percio' il rifiuto «la conversione di una geometria ha prodotto
+    /// `NullShape`» dentro il target del fuzzer non ha input -- `shape_to_wkb`
+    /// restituisce `None` solo per `NullShape`, e li' non ci puo' arrivare.
+    ///
+    /// La sonda esegue quella precondizione su ogni combinazione che il target
+    /// puo' formare, invece di argomentarla: se un braccio futuro restituisse
+    /// `NullShape`, diventa rossa.
+    #[test]
+    fn n1_shape_from_wkb_non_produce_mai_nullshape_e_rifiuta_la_dimensionalita_ignota() {
+        let coordinata = |z: Option<f64>, m: Option<f64>| WkbCoordinate {
+            x: 1.0,
+            y: 2.0,
+            z,
+            m,
+        };
+        let ordinate = |dimensioni: CoordinateDimensions| match dimensioni {
+            CoordinateDimensions::Xy => coordinata(None, None),
+            CoordinateDimensions::Xym => coordinata(None, Some(7.0)),
+            CoordinateDimensions::Xyz => coordinata(Some(3.0), None),
+            _ => coordinata(Some(3.0), Some(7.0)),
+        };
+
+        for dimensioni in [
+            CoordinateDimensions::Xy,
+            CoordinateDimensions::Xym,
+            CoordinateDimensions::Xyz,
+            CoordinateDimensions::Xyzm,
+        ] {
+            let vertice = ordinate(dimensioni);
+            // I membri di un multi- sono geometrie, non coordinate: il modello
+            // porta la dimensionalita' su ciascuna, e costruirli a mano e'
+            // l'unico modo di formare le sedici coppie senza passare da un file.
+            let membro = |valore| WkbGeometry {
+                value: valore,
+                dimensions: dimensioni,
+                srid: None,
+            };
+            for (caso, valore) in [
+                ("punto", WkbValue::Point(vertice)),
+                (
+                    "multipunto",
+                    WkbValue::MultiPoint(vec![membro(WkbValue::Point(vertice))]),
+                ),
+                (
+                    "linea",
+                    WkbValue::MultiLineString(vec![membro(WkbValue::LineString(vec![
+                        vertice, vertice,
+                    ]))]),
+                ),
+                (
+                    "poligono",
+                    WkbValue::MultiPolygon(vec![membro(WkbValue::Polygon(vec![vec![
+                        vertice, vertice, vertice, vertice,
+                    ]]))]),
+                ),
+            ] {
+                let shape = match shape_from_wkb(WkbGeometry {
+                    value: valore,
+                    dimensions: dimensioni,
+                    srid: None,
+                }) {
+                    Ok(shape) => shape,
+                    Err(errore) => panic!("{caso} {dimensioni:?}: doveva convertirsi: {errore:?}"),
+                };
+                assert!(
+                    !matches!(shape, Shape::NullShape),
+                    "{caso} {dimensioni:?}: se questo fallisse, il rifiuto sulla NullShape \
+                     dentro __fuzz_wkb_roundtrip diventerebbe raggiungibile"
+                );
+            }
+        }
+
+        // La dimensionalita' ignota: l'unico rifiuto proprio della funzione.
+        let Err(errore) = shape_from_wkb(WkbGeometry {
+            value: WkbValue::Point(coordinata(None, None)),
+            dimensions: CoordinateDimensions::Unknown,
+            srid: None,
+        }) else {
+            panic!("una dimensionalita' ignota non si scrive in Shapefile");
+        };
+        assert_eq!(
+            errore.message,
+            "dimensionalità WKB ignota non scrivibile in Shapefile"
+        );
+    }
+
+    /// Uno schema DBF minimo per provare `ShpRowDiagnosticsConfig::from_options`.
+    ///
+    /// Le colonne e il layout servono a due cose diverse: le prime dicono se il
+    /// campo chiave esista, il secondo dice se sia numerico -- e quindi se il
+    /// valore grezzo vada tenuto da parte per la diagnostica. Tenerli separati
+    /// nella fixture riflette il fatto che nel codice sono due fonti distinte,
+    /// e una sola non basta a rispondere a entrambe le domande.
+    fn schema_di_prova() -> (Vec<ShpColumn>, DbfLayout) {
+        let colonne = vec![
+            ShpColumn {
+                name: "NOME".to_owned(),
+                column_type: ColType::Text,
+                exact_integer_slot: None,
+            },
+            ShpColumn {
+                name: "CODICE".to_owned(),
+                column_type: ColType::Integer,
+                exact_integer_slot: Some(0),
+            },
+        ];
+        let layout = DbfLayout {
+            header_length: 65,
+            record_length: 21,
+            record_count: 0,
+            fields: vec![
+                DbfFieldLayout {
+                    name: "NOME".to_owned(),
+                    field_type: b'C',
+                    offset: 1,
+                    width: 10,
+                    exact_integer_slot: None,
+                },
+                DbfFieldLayout {
+                    name: "CODICE".to_owned(),
+                    field_type: b'N',
+                    offset: 11,
+                    width: 10,
+                    exact_integer_slot: Some(0),
+                },
+            ],
+            exact_integer_count: 1,
+        };
+        (colonne, layout)
+    }
+
+    /// `from_options` rifiuta ogni configurazione incoerente delle diagnostiche
+    /// di riga, e ciascun rifiuto dice che cosa correggere.
+    ///
+    /// Sono opzioni che chi legge scrive a mano sulla riga di comando, e i
+    /// quattro messaggi separano quattro errori diversi: un limite che non e' un
+    /// numero, un limite fuori intervallo, una policy senza il campo a cui si
+    /// applica, e una policy che non esiste. «Configurazione non valida» li
+    /// coprirebbe tutti e non aiuterebbe nessuno.
+    ///
+    /// Il caso della policy senza campo e' quello che vale di piu': non e' un
+    /// valore sbagliato ma una **coppia** incompleta, e senza il rifiuto la
+    /// policy verrebbe ignorata in silenzio. Chi l'ha scritta crederebbe di aver
+    /// redatto una chiave che invece non viene nemmeno emessa.
+    // Sei rifiuti, i due confini del limite e quattro accettazioni: la
+    // lunghezza e' quella della classe di equivalenza, non di un test che fa
+    // troppe cose.
+    #[allow(clippy::too_many_lines)]
+    #[test]
+    fn n1_from_options_rifiuta_ogni_configurazione_incoerente_delle_diagnostiche() {
+        let (colonne, layout) = schema_di_prova();
+        let opzioni = |coppie: &[(&str, &str)]| -> BTreeMap<String, String> {
+            coppie
+                .iter()
+                .map(|(chiave, valore)| ((*chiave).to_owned(), (*valore).to_owned()))
+                .collect()
+        };
+
+        for (caso, coppie, atteso) in [
+            (
+                "limite che non e' un intero",
+                vec![("row_diagnostics.examples_limit", "molti")],
+                "row_diagnostics.examples_limit deve essere un intero",
+            ),
+            (
+                "limite negativo, che non e' un u64",
+                vec![("row_diagnostics.examples_limit", "-1")],
+                "row_diagnostics.examples_limit deve essere un intero",
+            ),
+            (
+                "policy senza il campo a cui si applica",
+                vec![("row_diagnostics.key_policy", "emit")],
+                "row_diagnostics.key_policy richiede row_diagnostics.key_field",
+            ),
+            (
+                "campo chiave che lo schema DBF non ha",
+                vec![("row_diagnostics.key_field", "ASSENTE")],
+                "row_diagnostics.key_field non esiste nello schema DBF",
+            ),
+            (
+                "policy che non e' ne' emit ne' redact",
+                vec![
+                    ("row_diagnostics.key_field", "NOME"),
+                    ("row_diagnostics.key_policy", "forse"),
+                ],
+                "row_diagnostics.key_policy deve essere 'emit' o 'redact'",
+            ),
+            (
+                "campo chiave senza policy: la scelta non ha un default implicito",
+                vec![("row_diagnostics.key_field", "NOME")],
+                "row_diagnostics.key_policy deve essere 'emit' o 'redact'",
+            ),
+        ] {
+            let esito = ShpRowDiagnosticsConfig::from_options(&opzioni(&coppie), &colonne, &layout);
+            let Err(errore) = esito else {
+                panic!("{caso}: doveva essere rifiutata");
+            };
+            assert_eq!(errore.message, atteso, "{caso}: messaggio sbagliato");
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::InvalidConfiguration,
+                "{caso}: e' una configurazione sbagliata, non un dato sbagliato"
+            );
+            assert_eq!(
+                errore.phase,
+                plenora_io_model::ErrorPhase::Validate,
+                "{caso}: il rifiuto deve arrivare prima di leggere il file"
+            );
+        }
+
+        // I due confini del limite, uno accanto all'altro: il rifiuto e'
+        // fuori, l'accettazione dentro. Con una sola meta' non si saprebbe se
+        // l'intervallo sia chiuso o aperto.
+        for (caso, valore) in [
+            ("zero, sotto il minimo", "0"),
+            (
+                "uno oltre il massimo",
+                &(MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT + 1).to_string(),
+            ),
+        ] {
+            let esito = ShpRowDiagnosticsConfig::from_options(
+                &opzioni(&[("row_diagnostics.examples_limit", valore)]),
+                &colonne,
+                &layout,
+            );
+            let Err(errore) = esito else {
+                panic!("{caso}: doveva essere rifiutata");
+            };
+            assert!(
+                errore
+                    .message
+                    .starts_with("row_diagnostics.examples_limit deve essere compreso fra 1 e"),
+                "{caso}: arrivato «{}»",
+                errore.message
+            );
+        }
+
+        for (caso, valore, atteso) in [
+            ("il minimo", "1", 1),
+            (
+                "il massimo",
+                &MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT.to_string(),
+                MAX_ROW_DIAGNOSTICS_EXAMPLES_LIMIT,
+            ),
+        ] {
+            let config = match ShpRowDiagnosticsConfig::from_options(
+                &opzioni(&[("row_diagnostics.examples_limit", valore)]),
+                &colonne,
+                &layout,
+            ) {
+                Ok(config) => config,
+                Err(errore) => panic!("{caso}: doveva essere accettato: {errore:?}"),
+            };
+            assert_eq!(config.examples_limit, atteso, "{caso}: limite perso");
+        }
+
+        // Nessuna opzione: il limite predefinito, e **nessuna** chiave. Il
+        // commento del tipo lo dice -- «non esiste una policy implicita» -- e
+        // senza questa riga un default che comparisse dal nulla passerebbe.
+        let vuota = ShpRowDiagnosticsConfig::from_options(&opzioni(&[]), &colonne, &layout)
+            .expect("nessuna opzione e' una configurazione valida");
+        assert_eq!(vuota.examples_limit, DEFAULT_ROW_DIAGNOSTICS_EXAMPLES_LIMIT);
+        assert!(
+            vuota.key.is_none(),
+            "senza key_field gli esempi non portano alcun oggetto chiave"
+        );
+
+        // Le due policy, e l'indice del campo numerico grezzo: `CODICE` e' di
+        // tipo `N`, quindi il valore grezzo va tenuto; `NOME` e' `C`, e non
+        // c'e' niente da tenere. Le due meta' vengono da fonti diverse -- le
+        // colonne per l'esistenza, il layout per il tipo -- e una sola non
+        // risponderebbe a entrambe.
+        for (caso, campo, policy, indice_grezzo) in [
+            ("campo testuale con emit", "NOME", "emit", None),
+            ("campo testuale con redact", "NOME", "redact", None),
+            ("campo numerico con emit", "CODICE", "emit", Some(1)),
+        ] {
+            let config = match ShpRowDiagnosticsConfig::from_options(
+                &opzioni(&[
+                    ("row_diagnostics.key_field", campo),
+                    ("row_diagnostics.key_policy", policy),
+                ]),
+                &colonne,
+                &layout,
+            ) {
+                Ok(config) => config,
+                Err(errore) => panic!("{caso}: doveva essere accettato: {errore:?}"),
+            };
+            let Some(chiave) = config.key else {
+                panic!("{caso}: la chiave doveva esserci");
+            };
+            assert_eq!(chiave.field, campo, "{caso}: campo perso");
+            assert_eq!(
+                matches!(chiave.policy, DiagnosticKeyPolicy::Emit),
+                policy == "emit",
+                "{caso}: policy invertita"
+            );
+            assert_eq!(
+                chiave.raw_numeric_field_index, indice_grezzo,
+                "{caso}: il valore grezzo si tiene solo per i campi numerici"
+            );
+        }
+    }
+
+    /// `__fuzz_wkb_roundtrip` propaga ogni rifiuto della catena e chiude il
+    /// giro su cio' che l'attraversa.
+    ///
+    /// E' l'entry point del target del fuzzer, e la sua utilita' dipende da una
+    /// cosa sola: che i rifiuti vengano dalla catena vera -- decodifica,
+    /// conversione nella shape ESRI, ritorno a WKB -- e non da un controllo
+    /// scritto nel target. Una sonda che guardasse solo «non va in panico» non
+    /// distinguerebbe un target che legge davvero da uno che rifiuta tutto
+    /// all'ingresso.
+    #[test]
+    fn n1_fuzz_wkb_roundtrip_propaga_i_rifiuti_della_catena() {
+        // Byte che non sono WKB: il rifiuto viene dalla decodifica.
+        assert!(
+            __fuzz_wkb_roundtrip(b"non e' WKB").is_err(),
+            "una sequenza che non e' WKB non attraversa la catena"
+        );
+        assert!(
+            __fuzz_wkb_roundtrip(&[]).is_err(),
+            "zero byte non sono una geometria"
+        );
+
+        // Una geometria vera attraversa e torna: la lunghezza restituita e'
+        // quella del WKB rigenerato, quindi non zero.
+        let punto = encode_wkb(
+            &WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x: 1.0,
+                    y: 2.0,
+                    z: None,
+                    m: None,
+                }),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+        )
+        .expect("un punto XY si codifica");
+        assert!(
+            __fuzz_wkb_roundtrip(&punto).expect("un punto attraversa la catena") > 0,
+            "il giro completo deve produrre byte, non un contatore a zero"
+        );
+
+        // Una forma che WKB rappresenta e Shapefile no: il rifiuto viene dalla
+        // conversione, non dalla decodifica.
+        let collezione = encode_wkb(
+            &WkbGeometry {
+                value: WkbValue::GeometryCollection(Vec::new()),
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+        )
+        .expect("una collezione vuota si codifica");
+        assert!(
+            __fuzz_wkb_roundtrip(&collezione).is_err(),
+            "una GeometryCollection non ha una shape ESRI corrispondente"
+        );
+    }
 }
