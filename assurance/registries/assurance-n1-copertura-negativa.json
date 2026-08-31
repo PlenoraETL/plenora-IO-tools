@@ -198,8 +198,24 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 15,
       "raggiunto_da_replay": 0,
-      "disposizione": "seme_fuzz",
-      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+      "disposizione": "chiuso",
+      "nota": "chiuso su tre rifiuti che vengono da tre fonti diverse. «record DBF incompleto» e «marcatore di record DBF non valido» sono raggiungibili da un file, e sono provati dalle fixture del gruppo `infer_shp_schema`, dove sono proprio le due guardie che rendono impossibile la divergenza fra le due letture del `.dbf`. «campo DBF fuori dal record» invece non ha input da un file: il metodo indicizza il buffer del record con gli offset del layout, e quei due valori arrivano da posti diversi -- il buffer e' lungo `record_length`, gli offset vengono dai descrittori -- ma `read_dbf_layout` li rende coerenti per costruzione, perche' `record_length` **e'** l'offset finale calcolato dai descrittori e non quello dichiarato nell'header. La sonda esegue la riga costruendo il layout incoerente direttamente (il tipo e' privato del modulo, quindi non finge di passare da un'API che non lo permette) e accanto verifica che un layout **letto davvero** abbia ogni campo dentro il record: e' la meta' che rende interpretabile la prima. Irraggiungibile anche l'overflow dell'offset, per lo stesso limite di formato registrato in `leggi_descrittori_dbf`: larghezza in un byte, numero di descrittori limitato da un `u16`.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_next_physical_rifiuta_il_campo_che_non_sta_nel_record",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "2419-2427",
+          "guardia": "driver-shp::read_dbf_layout"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_le_due_letture_del_dbf_non_possono_divergere",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::infer_geometry_info",
@@ -518,16 +534,32 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso sull'unico rifiuto della funzione. Mette insieme tre cose che arrivano da posti diversi -- lo schema del contratto, i costruttori delle colonne e il numero di righe osservate -- e Arrow pretende che concordino: un disaccordo qui produrrebbe un batch che il chiamante crede conforme al contratto e non lo e', cioe' esattamente la classe di difetto che il contratto esiste per escludere. Il caso provato e' uno schema che dichiara una colonna in piu' di quelle costruite. Il controllo positivo sta accanto e verifica le due quantita' che nessun errore esprime: il numero di righe, che viene dal conteggio osservato e non dalla lunghezza degli array, e il numero di colonne.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_finish_batch_rifiuta_lo_schema_che_non_torna_con_i_costruttori",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::open",
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "l'entry point non decide quasi niente da se': la sua parte e' mettere in fila le validazioni e comporre il contratto, e ogni rifiuto e' una propagazione. Percio' e' chiuso su due proprieta' che le prove dei singoli gruppi non possono dare. La prima: i messaggi **escono** invariati invece di essere riscritti o inghiottiti lungo la strada -- provata su due catene diverse, le opzioni di diagnostica e l'inferenza dello schema, perche' passano da punti diversi della funzione. La seconda: il nome del layer e' il gambo del file, un dettaglio che nessun errore esprime e che chi legge il contratto vede per primo; senza fissarlo, un letterale al suo posto non romperebbe nulla. Le validazioni a monte hanno i propri gruppi, gia' chiusi: `shapefile_source_path`, `resolve_crs`, `from_options`, `infer_shp_schema`.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_open_propaga_i_rifiuti_della_catena_e_nomina_il_layer_dal_file",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::write",

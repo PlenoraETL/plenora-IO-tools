@@ -6683,6 +6683,167 @@ mod tests {
         );
     }
 
+    /// `next_physical` rifiuta il campo che non sta nel record, e nessun layout
+    /// letto da un file glielo puo' presentare.
+    ///
+    /// Il metodo indicizza il buffer del record con gli offset del layout, e la
+    /// difesa esiste perche' quei due valori arrivano da posti diversi: il
+    /// buffer e' lungo `record_length`, gli offset vengono dai descrittori.
+    /// `read_dbf_layout` li rende coerenti per costruzione -- `record_length`
+    /// **e'** l'offset finale calcolato dai descrittori, non quello dichiarato
+    /// nell'header -- quindi da un file la difesa non ha input.
+    ///
+    /// Il tipo e' privato del modulo, e la sonda costruisce il layout
+    /// incoerente direttamente: e' l'unico modo di eseguire quella riga senza
+    /// fingere che un file possa produrla. Accanto sta la prova che un layout
+    /// **letto davvero** e' coerente, che e' la meta' che rende interpretabile
+    /// la prima.
+    #[test]
+    fn n1_next_physical_rifiuta_il_campo_che_non_sta_nel_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = bundle_con_dbf_ritoccato(dir.path(), "coerente.shp", &["CODICE"], |_| {});
+
+        // La meta' che vale come controllo: il layout che il lettore produce ha
+        // ogni campo dentro il record.
+        let letto = read_dbf_layout(&bundle).expect("il bundle e' conforme");
+        for campo in &letto.fields {
+            assert!(
+                campo.offset + campo.width <= letto.record_length,
+                "`read_dbf_layout` non produce campi che escono dal record: \
+                 offset {} + larghezza {} contro {}",
+                campo.offset,
+                campo.width,
+                letto.record_length
+            );
+        }
+
+        // Il layout incoerente: un campo che comincia dentro il record e finisce
+        // fuori. `exact_integer_slot` deve essere pieno, altrimenti il ciclo
+        // salta il campo e la riga non viene mai raggiunta.
+        let incoerente = DbfLayout {
+            header_length: letto.header_length,
+            record_length: letto.record_length,
+            record_count: 1,
+            fields: vec![DbfFieldLayout {
+                name: "CODICE".to_owned(),
+                field_type: b'N',
+                offset: 1,
+                width: letto.record_length + 10,
+                exact_integer_slot: Some(0),
+            }],
+            exact_integer_count: 1,
+        };
+        let mut righe = DbfExactIntegerRows::open(&bundle, &incoerente)
+            .expect("l'apertura non guarda gli offset dei campi");
+        let Err(errore) = righe.next_physical(None) else {
+            panic!("un campo che finisce fuori dal record non e' leggibile");
+        };
+        assert_eq!(errore.message, "campo DBF fuori dal record");
+    }
+
+    /// `finish_batch` rifiuta la combinazione che Arrow non accetta.
+    ///
+    /// La funzione mette insieme tre cose che arrivano da posti diversi: lo
+    /// schema del contratto, i costruttori delle colonne e il numero di righe
+    /// osservate. Arrow pretende che concordino, e la difesa esiste perche' un
+    /// disaccordo qui produrrebbe un batch che il chiamante crede conforme al
+    /// contratto e non lo e'.
+    ///
+    /// Il caso provato e' il piu' semplice dei tre disaccordi possibili: uno
+    /// schema che dichiara una colonna in piu' di quelle costruite.
+    #[test]
+    fn n1_finish_batch_rifiuta_lo_schema_che_non_torna_con_i_costruttori() {
+        let schema: SchemaRef = Arc::new(Schema::new(vec![
+            geometry_field(GEOMETRY, "EPSG:4326"),
+            Field::new("MANCANTE", arrow_schema::DataType::Utf8, true),
+        ]));
+
+        // Il controllo positivo: con il costruttore che lo schema dichiara, il
+        // batch si forma e porta le righe dichiarate.
+        let mut geometria = Some(BinaryBuilder::new());
+        if let Some(builder) = geometria.as_mut() {
+            builder.append_value(b"wkb");
+        }
+        let mut costruttori = vec![InferredColumnBuilder::new(ColType::Text)];
+        costruttori[0]
+            .append_str("uno")
+            .expect("un testo entra in un costruttore di testo");
+        let lotto = finish_batch(&schema, &mut geometria, &mut costruttori, 1)
+            .expect("schema e costruttori concordano");
+        assert_eq!(lotto.num_rows(), 1);
+        assert_eq!(lotto.num_columns(), 2);
+
+        // Lo stesso schema senza il costruttore della seconda colonna.
+        let mut geometria = Some(BinaryBuilder::new());
+        if let Some(builder) = geometria.as_mut() {
+            builder.append_value(b"wkb");
+        }
+        let Err(errore) = finish_batch(&schema, &mut geometria, &mut [], 1) else {
+            panic!("uno schema con una colonna in piu' dei costruttori non forma un batch");
+        };
+        assert_eq!(errore.message, "costruzione del RecordBatch fallita");
+    }
+
+    /// `open` propaga i rifiuti della catena e prende il nome del layer dal
+    /// nome del file.
+    ///
+    /// L'entry point non decide quasi niente da se': la sua parte e' mettere in
+    /// fila le validazioni e comporre il contratto. Le due cose che vale la
+    /// pena fissare sono percio' che i rifiuti **escano** con il proprio
+    /// messaggio invece di essere riscritti, e che il nome del layer sia il
+    /// gambo del file -- un dettaglio che nessun errore esprime e che chi legge
+    /// il contratto vede per primo.
+    #[test]
+    fn n1_open_propaga_i_rifiuti_della_catena_e_nomina_il_layer_dal_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = bundle_con_dbf_ritoccato(dir.path(), "comuni.shp", &["NOME"], |_| {});
+
+        // Il nome del layer viene dal gambo del file, non da un letterale.
+        let aperto = ShpDriver
+            .open(
+                Source::Path(bundle.clone()),
+                opzioni_lettura().with_assume_crs("EPSG:4326"),
+            )
+            .expect("un bundle conforme si apre");
+        assert_eq!(
+            aperto.layers()[0].name,
+            "comuni",
+            "il nome del layer e' il gambo del file"
+        );
+
+        // La propagazione dalle opzioni di diagnostica: il messaggio e' quello
+        // di `from_options`, non una riscrittura.
+        let Err(errore) = ShpDriver.open(
+            Source::Path(bundle),
+            opzioni_lettura()
+                .with_assume_crs("EPSG:4326")
+                .with_format_option("row_diagnostics.key_policy", "emit"),
+        ) else {
+            panic!("una policy senza campo non e' una configurazione valida");
+        };
+        assert_eq!(
+            errore.message,
+            "row_diagnostics.key_policy richiede row_diagnostics.key_field"
+        );
+
+        // La propagazione dall'inferenza dello schema: un `.dbf` con l'header
+        // ritoccato ferma l'apertura, e il messaggio resta quello del lettore.
+        let rotto = bundle_con_dbf_ritoccato(dir.path(), "rotto.shp", &["NOME"], |byte| {
+            byte[10..12].copy_from_slice(&99_u16.to_le_bytes());
+        });
+        let Err(errore) = ShpDriver.open(
+            Source::Path(rotto),
+            opzioni_lettura().with_assume_crs("EPSG:4326"),
+        ) else {
+            panic!("un header DBF incoerente non produce uno schema");
+        };
+        assert_eq!(
+            errore.message,
+            "lunghezza di record DBF dichiarata incoerente con i campi, byte richiesti 11",
+            "il messaggio del lettore deve uscire da `open` invariato"
+        );
+    }
+
     /// Il conteggio dell'header e `dbase` non possono divergere: due guardie
     /// diverse lo impediscono, e questa sonda le esegue entrambe.
     ///
