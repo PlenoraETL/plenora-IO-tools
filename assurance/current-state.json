@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "7905d8f",
+      "sha": "0a988de",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "7905d8f",
+    "sha": "0a988de",
     "checkpoint": {
       "passi_eseguiti": 73,
       "passi_verdi": 73,
@@ -23,7 +23,7 @@
       "riconciliazione": "73 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento"
     },
     "fuzz": {
-      "replay_input": 67747,
+      "replay_input": 69471,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 87.62,
-      "lcov_righe_coperte": 34489,
-      "lcov_righe_strumentate": 39361,
-      "cargo_lines_percentuale": 85.9,
+      "lcov_percentuale": 88.31,
+      "lcov_righe_coperte": 36150,
+      "lcov_righe_strumentate": 40935,
+      "cargo_lines_percentuale": 86.69,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore cresce di 212 righe rispetto alla corsa su `f4f8471`, e sono le sonde e il codice che questa tranche ha aggiunto.",
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore cresce di 1574 righe rispetto alla corsa su `7905d8f`, e sono le sonde che il lotto B1 ha aggiunto: la percentuale sale mentre il denominatore cresce, quindi non e' l'effetto di un taglio.",
       "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate. Entrambe sono richieste e nessuna sostituisce l'altra."
     },
     "diagnostica_differenziale": {
-      "baseline": "87a324f",
-      "esito": "95.06%",
-      "righe_cambiate_eseguibili": 243,
-      "coperte": 231,
-      "scoperte": 12,
-      "cambiate_non_eseguibili": 279,
-      "ragione": "95.06% delle 243 righe cambiate ed eseguibili di tutta la tranche A e del suo closeout. La misura precedente su questo stesso intervallo diceva 90,56% su 180 righe, e la differenza non e' rumore: aveva trovato **sei righe di produzione** che nessuna prova raggiungeva -- il default di `LayerReader::accepted_total` e i tre inoltri degli adapter di passaggio -- chiuse in `7905d8f` con quattro sonde che verificano i due versi dell'inoltro.",
-      "che_cosa_sono_le_scoperte": "12, e **nessuna e' codice di produzione**. Nove sono messaggi di asserzione dentro le sonde di `publish.rs` e di `reader_adapters.rs`: si eseguono solo quando l'asserzione fallisce, ed e' la categoria che le evidenze precedenti dichiarano non chiudibile. Le altre tre sono il `next_batch` di `ReaderConTotale`, l'aiutante che le sonde degli inoltri usano: il tratto lo pretende, e quelle sonde chiedono al reader soltanto il proprio totale. Diventeranno coperte da sole il giorno in cui una sonda avra' bisogno che quell'aiutante consegni un batch."
+      "baseline": "7905d8f",
+      "esito": "93.13%",
+      "righe_cambiate_eseguibili": 1587,
+      "coperte": 1478,
+      "scoperte": 109,
+      "cambiate_non_eseguibili": 1147,
+      "ragione": "93.13% delle 1587 righe cambiate ed eseguibili fra la revisione dell'evidenza precedente e questa: venticinque chiusure ASSURANCE-N1, la correzione della prenotazione di spill a lunghezza zero, e il ritocco allo strumento della diagnostica. La base e' `7905d8f` perche' e' l'ultimo albero qualificato: misurare da li' copre tutto il lotto B1 e niente che gli sia estraneo.",
+      "che_cosa_sono_le_scoperte": "109, e **nessuna e' codice di produzione**. Il confine e' verificato riga per riga e non stimato: i due `mod tests` cominciano a 1668 in `driver-xls/src/lib.rs` e a 3609 in `driver-shp/src/lib.rs`, e tutte e 109 stanno oltre. Sono messaggi di asserzione e rami di `panic!` dentro le sonde -- il ramo `else` di un `let ... else`, il braccio d'errore di un `match` su un esito atteso positivo -- che si eseguono **solo quando la sonda fallisce**. Una copertura del 100% su quelle righe significherebbe che ogni sonda e' fallita almeno una volta, ed e' la categoria che le evidenze precedenti dichiarano non chiudibile. Novantuno sono in `driver-xls`, che e' il crate dove questa tranche ha scritto quasi tutto; diciotto in `driver-shp`, dalle chiusure gia' registrate prima."
     },
-    "evidenza": "assurance/evidence/checkpoint-7905d8f.json"
+    "evidenza": "assurance/evidence/checkpoint-0a988de.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "7905d8f"
+      "qualificato_su": "0a988de"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
