@@ -552,67 +552,109 @@ contratto del runtime nativo. Qui c'è il perché.
 
 ### Due profili, non uno con un interruttore
 
-`base` è il binario e nient'altro: senza `gdal-backend` il workspace è Rust
-puro, e `driver-filegdb` degrada a uno stub che **rifiuta la capability**
-invece di fingerla.
+`base` porta il binario, il manifesto, l'SBOM e le licenze. Ciò che **non**
+porta è un runtime nativo: senza `gdal-backend` il workspace è Rust puro, e
+`driver-filegdb` degrada a uno stub che rifiuta la capability invece di
+fingerla.
 
-`filegdb` porta con sé il proprio runtime GDAL. Il profilo sta nel nome
-dell'archivio perché due archivi della stessa versione e piattaforma
+`filegdb` aggiunge il runtime GDAL fissato e i suoi dati. Il profilo sta nel
+nome dell'archivio perché due archivi della stessa versione e piattaforma
 differiscono per una capability, non per un dettaglio di build: chi scarica
 deve poterlo leggere invece di scoprirlo eseguendo `catalog`.
 
-### Il runtime è fissato, e non c'è ripiego
+### Il runtime è fissato
 
 GDAL **3.10.3** su tutte e tre le piattaforme. Non è una preferenza: oggi la
 CI misura FileGDB in scrittura *assente* su Ubuntu 22.04 e *presente* su
 24.04. È la distribuzione a decidere che cosa il prodotto sa fare, e un
-artefatto che eredita quella decisione non ha un'identità stabile — la sua
-qualifica non dice niente sulla copia che gira altrove.
+artefatto che eredita quella decisione non ha un'identità stabile.
 
 Windows è già fissato così: `scripts/windows-gdal-lock.json` porta
 quarantanove pacchetti OSGeo4W, ciascuno con dimensione e SHA-256 da un base
 URL dichiarato. Linux e macOS prendono la stessa versione da conda-forge, che
 la pubblica per tutte e tre le architetture con la stessa forma verificabile.
-Costruire GDAL dai sorgenti darebbe più controllo e porterebbe con sé PROJ,
-GEOS e sqlite da fissare a loro volta: è la strada da prendere se conda-forge
-si rivelasse insufficiente, non prima.
 
-Il binario carica **solo** le librerie spedite, e se non le trova fallisce:
-`$ORIGIN/../lib` su Linux, `@loader_path/../lib` su macOS, le DLL accanto al
-binario su Windows. `GDAL_DATA` e `PROJ_DATA` si risolvono dal percorso del
-binario e non dall'ambiente — un artefatto che dipendesse da variabili
-impostate a mano funzionerebbe sulla macchina di chi lo ha costruito e
-altrove no. `GDAL_DRIVER_PATH` è fissata alla directory dei plugin spediti,
-vuota se non se ne spedisce alcuno, così una GDAL di sistema con plugin non
-entra nel processo.
+Una versione uguale è la **precondizione** perché la capability sia uguale,
+non la prova. OSGeo4W e conda-forge possono compilare la stessa 3.10.3 con
+opzioni diverse, e opzioni diverse danno driver diversi. A dimostrarlo è lo
+smoke, che su ogni piattaforma **crea** un FileGDB vero con l'artefatto
+installato, lo **rilegge**, e verifica schema, numero di righe e geometria.
+`catalog` dichiara ciò che il driver crede di poter fare; fra la
+dichiarazione e il fatto c'è la GDAL spedita.
+
+### Che cosa si promette sulla risoluzione delle dipendenze
+
+> L'artefatto **integro, così come consegnato**, risolve GDAL e ogni
+> dipendenza che non appartenga all'allowlist ABI di sistema dentro il proprio
+> albero. Il gate verifica ogni risoluzione. Un'installazione modificata dopo
+> la consegna non conserva la qualifica.
+
+La prima stesura prometteva che il binario carichi *solo* le librerie spedite
+e altrimenti fallisca. Non è garantito dall'RPATH: `$ORIGIN/../lib` viene
+cercato per primo, ma il caricatore può comunque trovare una libreria con lo
+stesso SONAME nei percorsi di sistema se quella spedita sparisce, e anche su
+Windows la ricerca prosegue oltre la directory del binario. Era una promessa
+tecnicamente falsa, e in un contratto è peggio di una promessa assente.
+
+Il fail-closed anche dopo la rimozione di una libreria si otterrebbe con
+SONAME privati o con un launcher che verifica prima di eseguire. È un
+progetto a sé, e va soppesato contro la LGPL: le sue librerie devono restare
+sostituibili, e un artefatto che rifiutasse una sostituzione legittima
+violerebbe la licenza che sta rispettando.
+
+I meccanismi restano quelli: `$ORIGIN/../lib` su Linux,
+`@loader_path/../lib` su macOS, DLL accanto al binario su Windows.
+`GDAL_DATA` e `PROJ_DATA` si risolvono dal percorso del binario e non
+dall'ambiente — un artefatto che dipendesse da variabili impostate a mano
+funzionerebbe sulla macchina di chi lo ha costruito e altrove no.
+`GDAL_DRIVER_PATH` è fissata ai plugin spediti, vuota se non se ne spedisce
+alcuno.
+
+### Le baseline non sono alias
+
+`windows-2022` e `macos-15`, non `windows-latest` e `macos-latest`: un alias
+migra fra versioni del sistema, e con lui migrerebbe la base di costruzione
+senza che nessuno lo decida. Un artefatto la cui baseline cambia da sola non
+ha una provenienza.
+
+Su Linux la base è `ubuntu:22.04`, e la soglia dichiarata è **glibc 2.35** —
+non quella dell'immagine di sviluppo, che è Debian 12. Dedurre la soglia
+dall'ambiente di lavoro escluderebbe Ubuntu 22.04 per un accidente invece che
+per una proprietà del prodotto: il limite che la CI misura su 22.04 riguarda
+la GDAL *di sistema*, e il profilo distribuito porta la propria. La
+compatibilità si dimostra costruendo sulla base fissata, eseguendo lo smoke
+dell'artefatto installato su Ubuntu 22.04, e controllando le versioni
+`GLIBC_*` richieste dal binario e da ogni libreria spedita. Se la chiusura del
+lock pretenderà davvero una glibc successiva, a dirlo sarà quel controllo.
+
+Su macOS il deployment target è `15.0`, verificato in **ogni** Mach-O
+spedito. Promettere macOS 14 richiederebbe uno smoke che gira davvero su
+macOS 14, e un piano per quando quel runner sarà rimosso.
+
+Su Windows lo smoke gira su Windows Server 2022 e dimostra quello. Windows 10
+22H2 e Windows 11 sono dichiarati sulla compatibilità dell'ABI Win32 e
+sull'assenza di API riservate al server: è un'affermazione di compatibilità,
+non una prova eseguita, e va letta come tale finché non esiste un runner
+client.
 
 ### Che cosa l'artefatto porta con sé
 
-Oltre al binario: le licenze di ogni componente spedito, generate dal lock e
-non scritte a mano; un `MANIFEST.json` con versione, revisione, profilo,
-piattaforma e l'elenco dei file con SHA-256; un SBOM SPDX che prende le
-dipendenze Rust da `Cargo.lock` e quelle native dal lock del runtime.
-
-Fra le licenze della chiusura c'è LGPL, che impone di poter sostituire la
-libreria. Il layout con le librerie in `lib/` e il caricamento per percorso
-relativo lo permette già, e il runbook lo dirà esplicitamente.
+Le licenze di ogni componente spedito, generate dal lock e non scritte a
+mano; un `MANIFEST.json` con versione, revisione, profilo, piattaforma e
+l'elenco dei file con SHA-256; un SBOM SPDX che prende le dipendenze Rust da
+`Cargo.lock` e quelle native dal lock del runtime.
 
 ### Che cosa non è ancora vero
 
 Nessun artefatto è stato prodotto e nessuno smoke è stato eseguito. Il gate
 che verificherà tutto questo non esiste, e la ragione è la stessa scritta
 nell'invariante `distribuzione.artefatti-qualificati`: finché non c'è un
-artefatto, un gate che lo verifichi ritornerebbe verde su niente.
+artefatto, un gate che lo verifichi ritornerebbe verde su niente. Il registro
+elenca che cosa dovrà rifiutare, così quando nascerà non se lo inventerà.
 
 Durante lo sviluppo si producono soltanto artefatti di **prova**, e si vede
 dal manifesto: `canale: "prova"`, provenance `non_release: true`. Nessuno
 entra in un'evidenza qualificata.
-
-Una conseguenza va detta subito: l'artefatto Linux è costruito su Debian 12 e
-richiede **glibc ≥ 2.36**, quindi non gira su Ubuntu 22.04 — che la CI usa
-ancora nella matrice GDAL. Abbassare la soglia richiede una base di
-costruzione più vecchia, ed è una decisione separata da prendere prima di
-dichiarare la piattaforma supportata.
 
 ## Registri macchina
 
