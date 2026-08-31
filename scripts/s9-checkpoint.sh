@@ -766,8 +766,16 @@ if [ "${copertura_misurata}" -ne 1 ]; then
     echo "  Un numero calcolato su un report assente o stantio somiglia a una"
     echo "  misura, e descrive un albero che non e' quello dichiarato."
 elif [ -n "${S9_CHECKPOINT_BASE:-}" ]; then
+    # `--mostra 0` elenca **tutte** le righe scoperte, non le prime venti.
+    #
+    # Il valore predefinito dello strumento e' pensato per chi legge a
+    # schermo; qui il log e' un artefatto d'evidenza, e `check_release`
+    # pretende che l'evidenza porti `righe_scoperte` -- l'elenco, non il
+    # conteggio. Con il tetto predefinito un'evidenza con piu' di venti
+    # righe scoperte non e' scrivibile: i numeri dicono **quante**, e
+    # nessun artefatto della corsa dice **quali**.
     python3 scripts/coverage_diff.py --lcov "${LCOV}" \
-        --base "${S9_CHECKPOINT_BASE}" --head "${REVISIONE}" \
+        --base "${S9_CHECKPOINT_BASE}" --head "${REVISIONE}" --mostra 0 \
         > "${LOG_DIR}/coverage_diff.log" 2>&1
     esito_diff=$?
     cat "${LOG_DIR}/coverage_diff.log"
