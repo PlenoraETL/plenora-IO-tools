@@ -107,24 +107,20 @@ fn comando_convert(ingresso: &Path, uscita: &Path, deadline_ms: Option<&str>) ->
     comando
 }
 
-/// La busta d'errore e' l'**ultima** riga di `stderr`, non tutto `stderr`.
+/// `stderr` e' la busta d'errore: **un solo documento JSON**, e nient'altro.
 ///
-/// Prima di lei possono esserci diagnostiche -- la conferma di annullamento e'
-/// una di quelle -- e leggere l'intero flusso come JSON legherebbe la sonda al
-/// fatto che oggi non ce ne siano. La busta resta l'ultima riga per contratto:
-/// e' cio' che il comando dice di se' quando finisce.
+/// Non e' una comodita' della sonda, e' il contratto. Un consumatore che legge
+/// `stderr` con un parser JSON lo fa sull'intero flusso -- lo fa anche
+/// `tests/ostili.rs` -- e qualunque riga di testo prima della busta lo rompe.
+/// Analizzare soltanto l'ultima riga renderebbe questa sonda **compatibile**
+/// con una riga di troppo invece di rifiutarla, che e' il modo in cui un
+/// contratto si perde senza che nessun gate lo dica.
 fn busta(stderr: &str) -> serde_json::Value {
-    let ultima = stderr
-        .lines()
-        .rfind(|riga| !riga.trim().is_empty())
-        .expect("stderr non e' vuoto");
     // Un `match` e non un `unwrap_or_else`: non c'e' un valore di ripiego, e il
     // censimento dei fallback conta la forma sintattica.
-    match serde_json::from_str(ultima) {
+    match serde_json::from_str(stderr.trim()) {
         Ok(busta) => busta,
-        Err(errore) => {
-            panic!("l'ultima riga di stderr non e' la busta JSON ({errore}): «{ultima}»")
-        }
+        Err(errore) => panic!("stderr non e' un solo documento JSON ({errore}): «{stderr}»"),
     }
 }
 
@@ -298,126 +294,6 @@ mod segnale {
         Attesa::Scaduta
     }
 
-    /// Attende sulla `stderr` del figlio la riga che conferma l'annullamento.
-    ///
-    /// E' la **barriera** che rende deterministica la sonda del secondo
-    /// segnale: senza, il secondo `kill` partirebbe a un istante scelto dal
-    /// test, e quale dei due percorsi vince dipenderebbe da quanto e' carica la
-    /// macchina. Con la barriera il secondo segnale parte quando il primo e'
-    /// stato **osservato**, e la sonda misura una proprieta' invece di una
-    /// corsa.
-    fn attendi_la_conferma(
-        lettore: &mut std::io::BufReader<std::process::ChildStderr>,
-    ) -> Vec<String> {
-        use std::io::BufRead as _;
-        let mut righe = Vec::new();
-        loop {
-            let mut riga = String::new();
-            match lettore.read_line(&mut riga) {
-                Ok(0) => break,
-                Ok(_) => {}
-                Err(errore) => panic!("stderr del figlio non leggibile: {errore}"),
-            }
-            let conferma = riga.contains("annullamento richiesto");
-            righe.push(riga.trim_end().to_owned());
-            if conferma {
-                return righe;
-            }
-        }
-        panic!("la conferma dell'annullamento non e' arrivata; righe lette: {righe:?}");
-    }
-
-    /// Il secondo Ctrl+C esce subito, e non scrive la busta.
-    ///
-    /// # Perche' i due percorsi si distinguono davvero
-    ///
-    /// Il primo segnale arma il token e lascia rientrare la pipeline, che
-    /// scende lo stack, libera lo staging e **scrive la busta** `CANCELLED` su
-    /// `stderr`. Il secondo chiama `std::process::exit`: il processo se ne va da
-    /// dentro il gestore, e nessuno scrive piu' niente. L'assenza della busta
-    /// non e' un dettaglio di forma -- e' l'unica cosa che, da fuori, dice quale
-    /// dei due rami ha portato all'uscita, visto che il codice d'uscita e' `130`
-    /// in entrambi i casi.
-    ///
-    /// La conferma dell'annullamento e' la barriera fra i due segnali: esce dal
-    /// gestore appena il token e' armato, e il test la aspetta prima di mandare
-    /// il secondo. Senza, il secondo `kill` partirebbe a un istante scelto dal
-    /// test e la sonda misurerebbe il carico della macchina.
-    ///
-    /// La conferma compare **una volta sola**: se il secondo segnale avesse
-    /// preso di nuovo il ramo dell'annullamento ne comparirebbero due.
-    #[test]
-    fn il_secondo_sigint_esce_subito_e_non_scrive_la_busta() {
-        use std::io::Read as _;
-
-        let (_radice, ingresso, uscita) = ambiente(RIGHE_SEGNALE);
-        let directory = uscita.parent().expect("uscita ha un padre").to_path_buf();
-        let mut figlio = comando_convert(&ingresso, &uscita, Some("600000"))
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .expect("il binario parte");
-
-        match attendi_lo_staging(&directory, &mut figlio) {
-            Attesa::Comparso => {}
-            Attesa::FiglioUscito(output) => panic!(
-                "il figlio e' uscito con {:?} prima di creare lo staging.\nstderr: {}",
-                output.status.code(),
-                String::from_utf8_lossy(&output.stderr)
-            ),
-            Attesa::Scaduta => panic!("lo staging non e' comparso entro {ATTESA_MASSIMA:?}"),
-        }
-
-        let mut lettore =
-            std::io::BufReader::new(figlio.stderr.take().expect("stderr del figlio e' una pipe"));
-
-        let segnale = |pid: u32| {
-            let esito = Command::new("sh")
-                .arg("-c")
-                .arg(format!("kill -INT {pid}"))
-                .status()
-                .expect("la shell si esegue");
-            assert!(esito.success(), "kill -INT non riuscito");
-        };
-
-        segnale(figlio.id());
-        let prima_del_secondo = attendi_la_conferma(&mut lettore);
-        segnale(figlio.id());
-
-        let stato = figlio.wait().expect("il figlio termina");
-        let mut resto = String::new();
-        lettore
-            .read_to_string(&mut resto)
-            .expect("il resto di stderr e' leggibile");
-
-        assert_eq!(
-            stato.code(),
-            Some(EXIT_ANNULLATO),
-            "prima del secondo segnale: {prima_del_secondo:?}; dopo: «{resto}»"
-        );
-
-        let tutto: Vec<&str> = prima_del_secondo
-            .iter()
-            .map(String::as_str)
-            .chain(resto.lines())
-            .filter(|riga| !riga.trim().is_empty())
-            .collect();
-        assert_eq!(
-            tutto
-                .iter()
-                .filter(|riga| riga.contains("annullamento richiesto"))
-                .count(),
-            1,
-            "la conferma deve comparire una volta sola: se il secondo segnale avesse \
-             preso di nuovo il ramo dell'annullamento ne comparirebbero due. Righe: {tutto:?}"
-        );
-        assert!(
-            !tutto.iter().any(|riga| riga.contains("\"error\"")),
-            "il secondo segnale esce dal gestore: nessuno scrive la busta. Righe: {tutto:?}"
-        );
-        assert!(!uscita.exists(), "la destinazione non deve esistere");
-    }
-
     #[test]
     fn sigint_annulla_la_conversione_e_non_lascia_staging() {
         let (_radice, ingresso, uscita) = ambiente(RIGHE_SEGNALE);
@@ -466,9 +342,18 @@ mod segnale {
             "stderr: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert_eq!(
-            busta(&String::from_utf8_lossy(&output.stderr))["error"]["code"],
-            "CANCELLED"
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(busta(&stderr)["error"]["code"], "CANCELLED");
+        // La regressione. `busta` gia' pretende che l'intero flusso sia un
+        // documento solo, ma il messaggio che darebbe direbbe «JSON non
+        // valido», e chi legge cercherebbe un difetto nella serializzazione.
+        // Questa riga dice invece che cosa e' successo davvero: qualcuno ha
+        // scritto su `stderr` prima della busta. E' capitato, e la sonda che
+        // avrebbe dovuto accorgersene era stata resa compatibile con la riga
+        // di troppo invece di rifiutarla.
+        assert!(
+            stderr.trim_start().starts_with('{'),
+            "prima della busta non ci va nient'altro, nemmeno una diagnostica: «{stderr}»"
         );
         assert!(!uscita.exists(), "la destinazione non deve esistere");
         assert!(

@@ -683,14 +683,16 @@ class SondeCondizioni(unittest.TestCase):
         }
         self.assertEqual(gate.verifica_condizione(verde, self.registro()), [])
 
-    # La prima condizione obbligatoria soddisfatta.
+    # Le condizioni obbligatorie gia' soddisfatte, che percio' **non** compaiono
+    # fra i motivi del rifiuto.
     #
-    # Elencare **tutte** le obbligatorie fra i motivi confondeva «considerata»
-    # con «fallita», e sarebbe diventato falso al primo verde: una condizione
-    # soddisfatta non compare fra i motivi, perche' non e' un motivo. Da qui in
-    # poi la sonda pretende che questa sia assente e le altre presenti, cosi'
-    # una regressione del debito N1 la rende rossa dicendo che cosa e' tornato.
-    SODDISFATTE = frozenset({"debito-n1-a-zero"})
+    # Elencarle tutte fra i motivi confonderebbe «considerata» con «fallita», e
+    # diventerebbe falso al primo verde. L'insieme e' stato pieno per un
+    # commit: `debito-n1-a-zero` era soddisfatta, e la chiusura che la reggeva
+    # e' stata **ritirata** perche' pagava la determinatezza di una sonda con
+    # una riga in piu' su `stderr`, dove il contratto ne ammette zero. Quando
+    # tornera' a zero per la via giusta, questo insieme tornera' a contenerla.
+    SODDISFATTE: frozenset[str] = frozenset()
 
     def test_release_e_rossa_sul_registro_corrente(self) -> None:
         """La controprova d'insieme: oggi la release non e' autorizzabile.
@@ -981,24 +983,21 @@ class SondeFontiLegate(unittest.TestCase):
 
         Si e' gia' spostata due volte, e ogni spostamento e' una chiusura. Era
         su `loss_report`, ratificato; e' passata al debito di copertura
-        negativa, ed e' diventata rossa quando quello e' arrivato a zero --
-        esattamente come la sua prosa prometteva. Ora si appoggia alla
-        candidate di release, che resta bloccante perche' il manifesto
-        pendente e' legato a una revisione che non e' HEAD e il tag `v1.0.1`
-        non e' riutilizzabile.
+        negativa. Per un commit e' stata sulla candidate di release, perche' il
+        debito era arrivato a zero -- poi quella chiusura e' stata ritirata, e
+        la sonda e' tornata dov'era. Il viavai non e' rumore: e' il registro
+        che dice la verita' anche quando la verita' torna indietro.
 
-        Quando chiudera' anche quella, questa sonda tornera' rossa e andra'
-        ripuntata di nuovo. E' il prezzo di una sonda che si appoggia a un
-        fatto vero invece che a un caso inventato, ed e' il prezzo giusto: un
-        invariante finto direbbe che il gate funziona su qualcosa che nel
-        registro non esiste.
+        Quando il debito chiudera' per la via giusta, questa sonda tornera'
+        rossa e andra' ripuntata di nuovo. E' il prezzo di una sonda che si
+        appoggia a un fatto vero invece che a un caso inventato, ed e' il
+        prezzo giusto: un invariante finto direbbe che il gate funziona su
+        qualcosa che nel registro non esiste.
         """
         stato = self.stato()
-        stato["aperto"]["candidate_release"]["release_blocking"] = False
+        stato["aperto"]["assurance_n1"]["release_blocking"] = False
         errori = gate.validate_stato_corrente(stato)
-        self.assertTrue(
-            any("release.candidate-non-valida-per-head" in e for e in errori), errori
-        )
+        self.assertTrue(any("copertura.rami-negativi" in e for e in errori), errori)
 
     def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
         """Un lotto che il registro tiene bloccante non puo' dirsi chiuso.

@@ -1006,18 +1006,8 @@
       "file": "crates/plenora-io-cli/src/main.rs",
       "righe": 1,
       "raggiunto_da_replay": 0,
-      "disposizione": "chiuso",
-      "nota": "la `std::process::exit` del secondo Ctrl+C. La **decisione** che ci porta -- primo segnale annulla, successivo esce -- e' provata deterministicamente da tre sonde su `reagisci_al_segnale`, estratta dalla chiusura del gestore proprio per renderla osservabile senza un segnale; verificate per controprova, che le rende rosse invertendo le transizioni e sostituendo lo `swap` con load+store. Resta scoperta la sola chiamata a `exit`, che nessun test in processo puo' osservare senza terminare il harness. La disposizione e' `fixture` e non `difensivo`: il ramo e' raggiungibile da un utente che batte Ctrl+C due volte, quindi non e' irraggiungibile -- e' soltanto non ancora esercitato. La via che lo chiuderebbe e' un test end-to-end che manda due `SIGINT` a un figlio vivo; oggi non e' deterministica, perche' fra il primo segnale e il rientro del processo passano millisecondi e la sonda proverebbe chi arriva primo invece della transizione. Il replay del fuzzer non raggiunge questo ramo per costruzione: i target non eseguono la CLI. CHIUSO, e la nota precedente diceva bene perche' non lo era: «oggi non e' deterministica, perche' fra il primo segnale e il rientro del processo passano millisecondi e la sonda proverebbe chi arriva primo invece della transizione». Cio' che mancava era una **barriera**, e la barriera che serviva al test mancava anche all'operatore: dopo il primo Ctrl+C nessuno gli diceva che la richiesta era arrivata, ne' che il secondo fa una cosa diversa. Il gestore ora conferma su `stderr` appena il token e' armato, e la sonda aspetta quella riga prima di mandare il secondo segnale: misura una proprieta' invece di una corsa. I due percorsi si distinguono dall'assenza della busta -- il codice d'uscita e' `130` in entrambi -- e la conferma compare **una volta sola**, il che dice che il secondo segnale ha preso l'altro ramo. Verificata su venti corse consecutive e su cinque corse dell'intera suite del crate, dove gira insieme alle altre prove che convertono.",
-      "prova": [
-        {
-          "crate": "plenora-io-cli",
-          "configurazione": "default",
-          "test": "segnale::il_secondo_sigint_esce_subito_e_non_scrive_la_busta",
-          "esito": "coperto",
-          "bersaglio": "tests",
-          "file": "crates/plenora-io-cli/tests/deadline_e_segnali.rs"
-        }
-      ]
+      "disposizione": "fixture",
+      "nota": "la `std::process::exit` del secondo Ctrl+C. La **decisione** che ci porta -- primo segnale annulla, successivo esce -- e' provata deterministicamente da tre sonde su `reagisci_al_segnale`, estratta dalla chiusura del gestore proprio per renderla osservabile senza un segnale; verificate per controprova, che le rende rosse invertendo le transizioni e sostituendo lo `swap` con load+store. Resta scoperta la sola chiamata a `exit`. CHIUSURA RITIRATA: era stata chiusa con una sonda end-to-end che mandava due `SIGINT` a un figlio vivo, resa deterministica da una **barriera** -- una riga di conferma che il gestore scriveva su `stderr` appena armato il token. La barriera funzionava, ma pagata nel posto sbagliato: `stderr` porta **un solo documento JSON**, e ogni riga di testo prima della busta rompe chi la legge con un parser -- come fa `tests/ostili.rs` sull'intero flusso. Peggio, la sonda che avrebbe dovuto accorgersene era stata resa compatibile con la riga di troppo invece di rifiutarla: e' la compensazione che questo censimento esiste per escludere, e a trovarla e' stata una revisione. Il protocollo e' ripristinato, con una regressione che pretende che dopo un `SIGINT` `stderr` cominci con `{` e non con altro. La barriera va rifatta su un canale **privato della sonda** -- un osservatore iniettabile, no-op in produzione, oppure un processo fixture che installi lo stesso gestore e segnali altrove la ricezione del primo segnale -- cosi' la determinatezza non costa nulla al contratto pubblico."
     }
   ]
 }
