@@ -1181,6 +1181,17 @@ impl<'a> BoundedSpoolWriter<'a> {
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        // Una fetta vuota non occupa spool e non prenota niente.
+        //
+        // Senza questo ritorno la scrittura chiedeva `lease_spill(0)`, che nel
+        // modello di budget e' un errore -- «una lease deve essere maggiore di
+        // zero» -- e un `.xlsx` conforme con una cella di testo esplicitamente
+        // vuota veniva rifiutato come se avesse superato una quota. Il ramo
+        // non e' una scorciatoia: zero byte scritti sono zero byte contati, e
+        // `write_all(&[])` era gia' un'operazione senza effetto.
+        if bytes.is_empty() {
+            return Ok(());
+        }
         let length = u64::try_from(bytes.len())
             .map_err(|_| err(&PublicMessage::Curated("spool XLSX non rappresentabile")))?;
         let next = self.bytes.checked_add(length).ok_or_else(|| {
@@ -2843,6 +2854,518 @@ mod tests {
             usize::try_from(u32::MAX).is_ok(),
             "la conversione che il ramo sorveglia non fallisce su questo bersaglio"
         );
+    }
+
+    /// Legge una geometria dallo spool, restituendo l'esito e cio' che il
+    /// costruttore ha accumulato.
+    fn geometria_dallo_spool(byte: &[u8]) -> Result<Vec<Option<Vec<u8>>>> {
+        let mut costruttore = BinaryBuilder::new();
+        let mut buffer = Vec::new();
+        read_spool_geometry(
+            &mut std::io::Cursor::new(byte),
+            &mut costruttore,
+            &mut buffer,
+        )?;
+        let colonna = costruttore.finish();
+        Ok((0..colonna.len())
+            .map(|riga| (!colonna.is_null(riga)).then(|| colonna.value(riga).to_vec()))
+            .collect())
+    }
+
+    /// `read_spool_geometry` distingue il marcatore di nullo dal troncamento.
+    ///
+    /// Lo spool e' un formato **nostro**, scritto e riletto nella stessa
+    /// operazione, e il primo istinto sarebbe fidarsene. Non si puo': sta su
+    /// disco, e un file temporaneo troncato -- disco pieno, processo ucciso fra
+    /// la scrittura e la rilettura -- e' l'unico modo in cui la geometria di una
+    /// riga puo' arrivare a meta'. Il rifiuto separa quel caso dal marcatore di
+    /// geometria assente, che e' una lunghezza legittima e non un errore.
+    #[test]
+    fn n1_read_spool_geometry_separa_il_nullo_dal_troncamento() {
+        // Il marcatore di nullo: `u32::MAX` non e' una lunghezza, e' l'assenza.
+        assert_eq!(
+            geometria_dallo_spool(&SPOOL_NULL_GEOMETRY.to_le_bytes())
+                .expect("il marcatore di nullo e' un valore, non un errore"),
+            vec![None],
+            "il marcatore deve produrre una geometria assente, non una vuota"
+        );
+
+        // Una geometria vera: la lunghezza, poi esattamente quei byte.
+        let mut intera = 3_u32.to_le_bytes().to_vec();
+        intera.extend_from_slice(b"abc");
+        assert_eq!(
+            geometria_dallo_spool(&intera).expect("lunghezza e payload sono d'accordo"),
+            vec![Some(b"abc".to_vec())],
+            "una geometria intera deve arrivare identica"
+        );
+
+        // Una lunghezza zero e' una geometria vuota, non un'assenza: le due
+        // cose escono dallo stesso campo e solo il valore le distingue.
+        assert_eq!(
+            geometria_dallo_spool(&0_u32.to_le_bytes())
+                .expect("zero byte di geometria e' una lunghezza legittima"),
+            vec![Some(Vec::new())],
+            "lunghezza zero non e' il marcatore di assenza"
+        );
+
+        for (caso, byte) in [
+            ("nemmeno la lunghezza", Vec::new()),
+            ("lunghezza a meta'", vec![1, 0, 0]),
+            ("payload piu' corto della lunghezza dichiarata", {
+                let mut byte = 4_u32.to_le_bytes().to_vec();
+                byte.extend_from_slice(b"ab");
+                byte
+            }),
+        ] {
+            let Err(errore) = geometria_dallo_spool(&byte) else {
+                panic!("{caso}: uno spool incompleto non e' una geometria");
+            };
+            assert_eq!(
+                errore.message, "spool XLSX troncato o illeggibile",
+                "{caso}: il messaggio deve dire che il file e' incompleto"
+            );
+        }
+    }
+
+    /// Legge un valore dallo spool nel costruttore del tipo dato.
+    fn dato_dallo_spool(tipo: ColType, byte: &[u8]) -> Result<()> {
+        let mut costruttore = InferredColumnBuilder::new(tipo);
+        let mut buffer = Vec::new();
+        read_spool_data(
+            &mut std::io::Cursor::new(byte),
+            &mut costruttore,
+            &mut buffer,
+        )
+    }
+
+    /// `read_spool_data` rifiuta il tag sconosciuto, il booleano che non e' ne'
+    /// zero ne' uno, il testo non UTF-8 e ogni troncamento.
+    ///
+    /// Le quattro ragioni hanno quattro messaggi perche' dicono cose diverse a
+    /// chi legge il log: un tag sconosciuto e' uno spool scritto da un'altra
+    /// versione, un booleano fuori dai due valori e' un byte corrotto, un testo
+    /// non UTF-8 e' un payload corrotto, e un troncamento e' un file
+    /// incompleto. Il formato e' nostro, ma il file sta su disco, e cio' che
+    /// torna dal disco non e' cio' che ci si e' scritto per definizione.
+    ///
+    /// Le accettazioni stanno accanto ai rifiuti: senza, una funzione che
+    /// rifiutasse tutto supererebbe la tabella dei negativi.
+    #[test]
+    fn n1_read_spool_data_rifiuta_i_tag_i_booleani_e_i_testi_che_non_lo_sono() {
+        for (caso, tipo, byte) in [
+            ("nullo", ColType::Text, vec![SPOOL_NULL]),
+            (
+                "intero",
+                ColType::Integer,
+                [vec![SPOOL_INTEGER], 7_i64.to_le_bytes().to_vec()].concat(),
+            ),
+            (
+                "numero",
+                ColType::Number,
+                [vec![SPOOL_NUMBER], 1.5_f64.to_le_bytes().to_vec()].concat(),
+            ),
+            ("booleano falso", ColType::Boolean, vec![SPOOL_BOOLEAN, 0]),
+            ("booleano vero", ColType::Boolean, vec![SPOOL_BOOLEAN, 1]),
+            (
+                "testo",
+                ColType::Text,
+                [
+                    vec![SPOOL_TEXT],
+                    2_u32.to_le_bytes().to_vec(),
+                    b"ok".to_vec(),
+                ]
+                .concat(),
+            ),
+        ] {
+            assert!(
+                dato_dallo_spool(tipo, &byte).is_ok(),
+                "{caso}: uno spool ben formato deve essere accettato"
+            );
+        }
+
+        for (caso, tipo, byte, atteso) in [
+            (
+                "tag che nessuna versione di questo spool scrive",
+                ColType::Text,
+                vec![9],
+                "tag spool XLSX non valido",
+            ),
+            (
+                "booleano che non e' ne' zero ne' uno",
+                ColType::Boolean,
+                vec![SPOOL_BOOLEAN, 2],
+                "booleano spool XLSX non valido",
+            ),
+            (
+                "testo con un byte che UTF-8 non ammette",
+                ColType::Text,
+                [vec![SPOOL_TEXT], 1_u32.to_le_bytes().to_vec(), vec![0xff]].concat(),
+                "testo spool XLSX non UTF-8",
+            ),
+            (
+                "nemmeno il tag",
+                ColType::Text,
+                Vec::new(),
+                "spool XLSX troncato o illeggibile",
+            ),
+            (
+                "intero senza gli otto byte",
+                ColType::Integer,
+                vec![SPOOL_INTEGER, 1, 2, 3],
+                "spool XLSX troncato o illeggibile",
+            ),
+            (
+                "numero senza gli otto byte",
+                ColType::Number,
+                vec![SPOOL_NUMBER, 1, 2, 3],
+                "spool XLSX troncato o illeggibile",
+            ),
+            (
+                "booleano senza il byte del valore",
+                ColType::Boolean,
+                vec![SPOOL_BOOLEAN],
+                "spool XLSX troncato o illeggibile",
+            ),
+            (
+                "testo senza la lunghezza",
+                ColType::Text,
+                vec![SPOOL_TEXT, 1, 0],
+                "spool XLSX troncato o illeggibile",
+            ),
+            (
+                "testo piu' corto della lunghezza dichiarata",
+                ColType::Text,
+                [
+                    vec![SPOOL_TEXT],
+                    4_u32.to_le_bytes().to_vec(),
+                    b"ab".to_vec(),
+                ]
+                .concat(),
+                "spool XLSX troncato o illeggibile",
+            ),
+        ] {
+            let Err(errore) = dato_dallo_spool(tipo, &byte) else {
+                panic!("{caso}: doveva essere rifiutato");
+            };
+            assert_eq!(errore.message, atteso, "{caso}: messaggio sbagliato");
+        }
+    }
+
+    /// Le conversioni di ampiezza dello spool non falliscono su questo
+    /// bersaglio, e per questo i rami che le sorvegliano sono irraggiungibili.
+    ///
+    /// Sono tre: `usize::try_from(u32)` nelle due letture -- geometria e testo
+    /// -- e `u64::try_from(usize)` nella scrittura. Nessuna guardia a monte le
+    /// ferma: e' la larghezza dei tipi del bersaglio a deciderlo, quindi la
+    /// verifica sta in un blocco `const` e una piattaforma dove non vale non
+    /// compila. Sono i tre punti in cui i rami andrebbero riclassificati da
+    /// irraggiungibili a coperti.
+    #[test]
+    fn n1_le_conversioni_di_ampiezza_dello_spool_reggono_su_questo_bersaglio() {
+        const {
+            assert!(
+                usize::BITS >= u32::BITS,
+                "le lunghezze dello spool sono u32: senza questo, le due letture possono fallire"
+            );
+            assert!(
+                u64::BITS >= usize::BITS,
+                "la lunghezza di una fetta e' usize: senza questo, la scrittura puo' fallire"
+            );
+        }
+        assert!(usize::try_from(u32::MAX).is_ok());
+        assert!(u64::try_from(usize::MAX).is_ok());
+    }
+
+    /// Uno spool su un file dato, con quota e stato iniziale scelti.
+    ///
+    /// Il tipo e i suoi campi sono privati del modulo, quindi la sonda puo'
+    /// costruire lo stato che l'uso normale non produce -- un contatore gia'
+    /// a ridosso del massimo -- senza fingere di passare da un'API che non lo
+    /// permette.
+    fn spool_su(
+        file: &std::fs::File,
+        gia_scritti: u64,
+        quota: u64,
+        budget: OperationBudget,
+    ) -> BoundedSpoolWriter<'_> {
+        let mut spool = BoundedSpoolWriter::new(file, quota, budget);
+        spool.bytes = gia_scritti;
+        spool
+    }
+
+    /// `BoundedSpoolWriter::write` ferma la quota, l'overflow del contatore e
+    /// l'errore del file, e li distingue.
+    ///
+    /// I tre rifiuti mandano a fare cose diverse: la quota si alza con
+    /// `--max-input-bytes`, l'overflow del contatore e' un difetto nostro, e
+    /// l'errore di scrittura e' il disco. Un messaggio solo per tutti e tre
+    /// manderebbe chi legge a cambiare l'opzione sbagliata.
+    #[test]
+    fn n1_bounded_spool_writer_distingue_la_quota_dall_overflow_e_dal_disco() {
+        let dir = tempfile::tempdir().unwrap();
+        let opzioni = opzioni_lettura();
+
+        // Il controllo positivo: sotto la quota si scrive.
+        let percorso = dir.path().join("spool.bin");
+        let file = std::fs::File::create(&percorso).unwrap();
+        let mut spool = spool_su(&file, 0, 16, opzioni.budget().clone());
+        spool
+            .write(b"otto byt")
+            .expect("otto byte sotto una quota di sedici");
+        spool.finish().expect("la chiusura svuota il buffer");
+
+        // La quota: il confine e' inclusivo, e il byte successivo lo supera.
+        let file = std::fs::File::create(dir.path().join("quota.bin")).unwrap();
+        let mut spool = spool_su(&file, 0, 4, opzioni.budget().clone());
+        spool
+            .write(b"abcd")
+            .expect("quattro byte in una quota di quattro");
+        let Err(errore) = spool.write(b"e") else {
+            panic!("il byte che supera la quota deve essere rifiutato");
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::ResourceLimit,
+            "una quota superata e' un limite: {}",
+            errore.message
+        );
+        assert!(
+            errore.message.contains("byte oltre il limite di"),
+            "il messaggio deve dire qual e' il limite, arrivato «{}»",
+            errore.message
+        );
+
+        // L'overflow del contatore: raggiungibile solo da uno stato che l'uso
+        // normale non produce, ed e' per questo che la sonda lo costruisce.
+        // Non e' lo stesso rifiuto della quota, e con `u64::MAX` come quota il
+        // controllo sul limite non puo' scattare per primo.
+        let file = std::fs::File::create(dir.path().join("overflow.bin")).unwrap();
+        let mut spool = spool_su(&file, u64::MAX, u64::MAX, opzioni.budget().clone());
+        let Err(errore) = spool.write(b"x") else {
+            panic!("un contatore che trabocca non puo' proseguire in silenzio");
+        };
+        assert_eq!(
+            errore.message, "dimensione spool XLSX fuori intervallo",
+            "l'overflow del contatore non e' il rifiuto della quota"
+        );
+
+        // L'errore del file: un descrittore aperto in sola lettura fallisce
+        // alla scrittura, che e' il modo piu' vicino a un disco pieno che una
+        // sonda possa produrre senza toccare il sistema.
+        let sola_lettura = dir.path().join("sola-lettura.bin");
+        std::fs::write(&sola_lettura, b"").unwrap();
+        let file = std::fs::File::open(&sola_lettura).unwrap();
+        let mut spool = spool_su(&file, 0, 1024, opzioni.budget().clone());
+        // `BufWriter` accumula un byte senza toccare il file, quindi la
+        // scrittura riesce e l'errore arriva allo svuotamento. Le due chiamate
+        // sono separate apposta: e' l'unico modo di eseguire il `flush` di
+        // `finish`, che altrimenti resterebbe un ramo dichiarato e mai visto.
+        spool
+            .write(b"x")
+            .expect("un byte sta nel buffer: il file non e' ancora toccato");
+        let Err(errore) = spool.finish() else {
+            panic!("lo svuotamento su un file aperto in sola lettura deve fallire");
+        };
+        assert_eq!(
+            errore.phase,
+            ErrorPhase::Read,
+            "l'errore del disco resta nella fase in cui lo spool vive: {}",
+            errore.message
+        );
+    }
+
+    /// I byte che `BoundedSpoolWriter` produce per un valore o una geometria.
+    fn byte_spool(
+        scrivi: impl FnOnce(&mut BoundedSpoolWriter<'_>) -> Result<()>,
+    ) -> Result<Vec<u8>> {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("spool.bin");
+        let file = std::fs::File::create(&percorso).unwrap();
+        let opzioni = opzioni_lettura();
+        {
+            let mut spool = BoundedSpoolWriter::new(&file, u64::MAX, opzioni.budget().clone());
+            scrivi(&mut spool)?;
+            spool.finish()?;
+        }
+        Ok(std::fs::read(&percorso).unwrap())
+    }
+
+    /// `BoundedSpoolWriter::data` sceglie un tag per ogni variante, e cio' che
+    /// non e' un valore diventa nullo invece di sparire.
+    ///
+    /// La scrittura e la rilettura sono due meta' dello stesso formato, e una
+    /// tabella che guardasse solo i byte prodotti direbbe che il codificatore
+    /// e' coerente con se stesso. Qui ogni caso passa da `data` e torna da
+    /// `read_spool_data`: se i due si separassero -- un tag rinumerato da una
+    /// parte sola, una lunghezza scritta con l'ampiezza sbagliata -- e' il
+    /// giro completo a rompersi, non l'attesa scritta a mano.
+    ///
+    /// Il ramo `_` conta quanto gli altri: raccoglie il float non finito, la
+    /// data nativa, la cella d'errore e la cella vuota, cioe' tutto cio' che
+    /// non ha un tipo Arrow in cui finire. Diventano nullo, non spariscono:
+    /// una riga con una cella in meno sfaserebbe tutte le colonne successive.
+    #[test]
+    fn n1_bounded_spool_writer_data_da_un_tag_a_ogni_variante_e_annulla_il_resto() {
+        for (caso, valore, tag, tipo) in [
+            ("intero", Data::Int(-7), SPOOL_INTEGER, ColType::Integer),
+            (
+                "numero finito",
+                Data::Float(1.5),
+                SPOOL_NUMBER,
+                ColType::Number,
+            ),
+            (
+                "booleano",
+                Data::Bool(true),
+                SPOOL_BOOLEAN,
+                ColType::Boolean,
+            ),
+            (
+                "testo",
+                Data::String("ciao".to_owned()),
+                SPOOL_TEXT,
+                ColType::Text,
+            ),
+            (
+                "data ISO, che resta testo",
+                Data::DateTimeIso("2026-01-01".to_owned()),
+                SPOOL_TEXT,
+                ColType::Text,
+            ),
+            (
+                "durata ISO, che resta testo",
+                Data::DurationIso("PT1H".to_owned()),
+                SPOOL_TEXT,
+                ColType::Text,
+            ),
+            ("cella vuota", Data::Empty, SPOOL_NULL, ColType::Text),
+            (
+                "numero non finito",
+                Data::Float(f64::NAN),
+                SPOOL_NULL,
+                ColType::Number,
+            ),
+            (
+                "cella d'errore del foglio",
+                Data::Error(calamine::CellErrorType::Div0),
+                SPOOL_NULL,
+                ColType::Text,
+            ),
+        ] {
+            // Un `match` e non un `unwrap_or_else`: qui non c'e' un valore di
+            // ripiego, e il censimento dei fallback conta la forma sintattica.
+            let byte = match byte_spool(|spool| spool.data(&valore)) {
+                Ok(byte) => byte,
+                Err(errore) => panic!("{caso}: la scrittura non doveva fallire: {errore:?}"),
+            };
+            assert_eq!(
+                byte.first().copied(),
+                Some(tag),
+                "{caso}: il tag scritto non e' quello atteso"
+            );
+            assert!(
+                dato_dallo_spool(tipo, &byte).is_ok(),
+                "{caso}: cio' che la scrittura produce deve essere rileggibile"
+            );
+        }
+    }
+
+    /// `BoundedSpoolWriter::geometry` distingue l'assenza dalla geometria
+    /// vuota, e il giro completo lo conferma.
+    ///
+    /// Le due cose escono dallo stesso campo di quattro byte -- `u32::MAX` per
+    /// l'assenza, la lunghezza altrimenti -- e confonderle darebbe una colonna
+    /// dove ogni riga senza geometria ha una geometria vuota, che nel contratto
+    /// non e' la stessa cosa.
+    #[test]
+    fn n1_bounded_spool_writer_geometry_distingue_l_assenza_dalla_geometria_vuota() {
+        let assente = byte_spool(|spool| spool.geometry(None)).expect("l'assenza si scrive");
+        assert_eq!(
+            assente,
+            SPOOL_NULL_GEOMETRY.to_le_bytes().to_vec(),
+            "l'assenza e' il marcatore, e nient'altro dopo"
+        );
+        assert_eq!(
+            geometria_dallo_spool(&assente).expect("il marcatore si rilegge"),
+            vec![None]
+        );
+
+        let vuota =
+            byte_spool(|spool| spool.geometry(Some(&[]))).expect("la geometria vuota si scrive");
+        assert_eq!(
+            vuota,
+            0_u32.to_le_bytes().to_vec(),
+            "una geometria vuota e' lunghezza zero, non il marcatore"
+        );
+        assert_eq!(
+            geometria_dallo_spool(&vuota).expect("la lunghezza zero si rilegge"),
+            vec![Some(Vec::new())]
+        );
+
+        let intera =
+            byte_spool(|spool| spool.geometry(Some(b"wkb"))).expect("la geometria si scrive");
+        assert_eq!(
+            geometria_dallo_spool(&intera).expect("il giro completo si chiude"),
+            vec![Some(b"wkb".to_vec())],
+            "cio' che entra nello spool deve uscirne identico"
+        );
+    }
+
+    /// Una cella di testo esplicitamente vuota non e' un limite superato.
+    ///
+    /// # Il difetto che questa sonda ha trovato
+    ///
+    /// `BoundedSpoolWriter::write` chiedeva una prenotazione di spill per ogni
+    /// fetta, compresa quella vuota, e `lease_spill(0)` e' un errore nel
+    /// modello di budget. Il risultato era che un `.xlsx` conforme -- una cella
+    /// `<c t="inlineStr"><is><t></t></is></c>`, che il formato ammette e che
+    /// `calamine` consegna come `Data::String("")` -- veniva rifiutato con
+    /// `ResourceLimit` e il messaggio «una lease deve essere maggiore di zero».
+    ///
+    /// Non era un errore innocuo per essere fail-closed: mandava chi legge ad
+    /// alzare una quota che non c'entrava, per un file che non aveva niente di
+    /// sbagliato. Il rifiuto giusto per la ragione sbagliata e' comunque un
+    /// rifiuto sbagliato, e qui non era nemmeno giusto.
+    ///
+    /// Il caso e' emerso da `geometry(Some(&[]))`, che nessun percorso di
+    /// produzione chiama; la cella di testo vuota, invece, arriva da un file
+    /// vero, ed e' quella che la sonda usa.
+    #[test]
+    fn n1_una_cella_di_testo_vuota_non_e_una_quota_superata() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = xlsx_con_foglio(
+            dir.path(),
+            "cella-vuota.xlsx",
+            &foglio_xml(
+                "A1:B2",
+                &format!(
+                    "<row r=\"1\">{}{}</row><row r=\"2\">{}{}</row>",
+                    cella("A1", "geometry"),
+                    cella("B1", "nome"),
+                    cella("A2", "POINT (1 2)"),
+                    cella("B2", "")
+                ),
+            ),
+        );
+
+        XlsDriver
+            .open(
+                Source::Path(percorso),
+                opzioni_lettura()
+                    .with_assume_crs("EPSG:4326")
+                    .with_format_option("wkt_column", "geometry"),
+            )
+            .expect("una cella di testo vuota e' un valore, non una quota superata");
+
+        // La stessa proprieta' al livello dove il difetto stava: una fetta
+        // vuota non prenota e non conta.
+        let file = std::fs::File::create(dir.path().join("spool.bin")).unwrap();
+        let opzioni = opzioni_lettura();
+        let mut spool = spool_su(&file, 0, 0, opzioni.budget().clone());
+        spool
+            .write(&[])
+            .expect("zero byte stanno anche in una quota di zero");
+        spool.finish().expect("non c'e' niente da svuotare");
     }
 
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.

@@ -428,24 +428,78 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso da una tabella che tiene separate le quattro ragioni di rifiuto, perche' dicono cose diverse a chi legge il log: un tag sconosciuto e' uno spool scritto da un'altra versione, un booleano che non e' ne' zero ne' uno e' un byte corrotto, un testo non UTF-8 e' un payload corrotto, un troncamento e' un file incompleto. I troncamenti sono provati su ogni ramo che legge un payload -- tag, intero, numero, booleano, lunghezza del testo, testo -- e non su uno solo: sono `read_spool_exact` distinti, e una fixture sola ne coprirebbe uno. Le sei accettazioni stanno accanto ai rifiuti perche' senza di loro una funzione che rifiutasse tutto supererebbe la tabella dei negativi. Resta irraggiungibile `usize::try_from(u32)` sulla lunghezza del testo, per la stessa ragione del gruppo `read_spool_geometry`: e' la larghezza dei tipi del bersaglio, verificata in un blocco `const`.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_read_spool_data_rifiuta_i_tag_i_booleani_e_i_testi_che_non_lo_sono",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_le_conversioni_di_ampiezza_dello_spool_reggono_su_questo_bersaglio",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1560-1563",
+          "guardia": "bersaglio di compilazione: usize::BITS >= u32::BITS"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::read_spool_geometry",
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso da una tabella sui byte che lo spool puo' restituire. Il formato e' **nostro** -- scritto e riletto nella stessa operazione -- e il primo istinto sarebbe fidarsene; non si puo', perche' sta su disco, e un file temporaneo troncato (disco pieno, processo ucciso fra la scrittura e la rilettura) e' l'unico modo in cui la geometria di una riga puo' arrivare a meta'. I tre troncamenti sono tenuti separati -- nemmeno la lunghezza, lunghezza a meta', payload piu' corto del dichiarato -- perche' cadono su due `read_spool_exact` diversi e una sola fixture ne eserciterebbe uno solo. Le accettazioni fissano la distinzione che il campo di quattro byte porta da sola: `u32::MAX` e' l'assenza, zero e' una geometria vuota, e confonderle darebbe una colonna dove ogni riga senza geometria ne ha una vuota. Resta irraggiungibile `usize::try_from(u32)`: nessuna guardia a monte la ferma, e' la larghezza dei tipi del bersaglio a deciderlo, quindi la verifica sta in un blocco `const` e una piattaforma dove non vale non compila.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_read_spool_geometry_separa_il_nullo_dal_troncamento",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_le_conversioni_di_ampiezza_dello_spool_reggono_su_questo_bersaglio",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1513-1517",
+          "guardia": "bersaglio di compilazione: usize::BITS >= u32::BITS"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::write",
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "`BoundedSpoolWriter::write`, chiuso distinguendo i tre rifiuti che mandano a fare cose diverse: la quota si alza con `--max-input-bytes`, l'overflow del contatore e' un difetto nostro, e l'errore di scrittura e' il disco. Un messaggio solo per tutti e tre manderebbe chi legge a cambiare l'opzione sbagliata. La quota e' provata sul confine inclusivo e sul byte successivo. L'overflow del contatore si raggiunge solo da uno stato che l'uso normale non produce, e la sonda lo costruisce direttamente -- il tipo e i suoi campi sono privati del modulo -- con la quota a `u64::MAX`, cosi' il controllo sul limite non puo' scattare per primo e il rifiuto misurato e' davvero quello del `checked_add`. L'errore del disco si produce con un descrittore aperto in sola lettura: la scrittura di un byte riesce perche' `BufWriter` accumula, e l'errore arriva allo svuotamento, il che esegue anche il `flush` di `BoundedSpoolWriter::finish`. DIFETTO TROVATO E CORRETTO IN QUESTO GRUPPO: la funzione chiedeva una prenotazione di spill per ogni fetta, compresa quella vuota, e `lease_spill(0)` e' un errore nel modello di budget. Un `.xlsx` conforme con una cella `<c t=\"inlineStr\"><is><t></t></is></c>` -- che `calamine` consegna come `Data::String(\"\")` -- veniva rifiutato con `ResourceLimit` e il messaggio «una lease deve essere maggiore di zero», mandando chi legge ad alzare una quota che non c'entrava. Ora una fetta vuota non prenota e non conta: zero byte scritti sono zero byte contati, e `write_all(&[])` era gia' senza effetto. La regressione passa da un file vero, non solo dal tipo. Resta irraggiungibile `u64::try_from(usize)`: e' la larghezza dei tipi del bersaglio, verificata in un blocco `const`.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_bounded_spool_writer_distingue_la_quota_dall_overflow_e_dal_disco",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_una_cella_di_testo_vuota_non_e_una_quota_superata",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_le_conversioni_di_ampiezza_dello_spool_reggono_su_questo_bersaglio",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1204-1206",
+          "guardia": "bersaglio di compilazione: u64::BITS >= usize::BITS"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::write_cell",
@@ -524,16 +578,32 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 3,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "`BoundedSpoolWriter::data`, chiuso su una tabella che verifica il tag scritto per ogni variante di `calamine::Data` **e** la rileggibilita' di cio' che ha scritto: scrittura e rilettura sono due meta' dello stesso formato, e provarne una sola lascerebbe passare un tag rinumerato da una parte sola. Il ramo `_` conta quanto gli altri, perche' raccoglie tutto cio' che non ha un tipo Arrow in cui finire -- il float non finito, la data nativa, la cella d'errore, la cella vuota -- e la proprieta' provata e' che diventino **nullo** e non spariscano: una riga con una cella in meno sfaserebbe tutte le colonne successive. Le tre varianti testuali (`String`, `DateTimeIso`, `DurationIso`) sono elencate una per una perche' condividono un braccio del `match` e una sola non direbbe che le altre due ci passano. RISCHIO RESIDUO DICHIARATO: `u32::try_from(bytes.len())` sul testo resta senza esecuzione ne' prova di irraggiungibilita'; raggiungerlo richiede una cella di testo da oltre quattro gibibyte, quindi un file d'ingresso di quell'ordine, che nessuna fixture del repository produce.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_bounded_spool_writer_data_da_un_tag_a_ogni_variante_e_annulla_il_resto",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::geometry",
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 3,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "`BoundedSpoolWriter::geometry`, chiuso sul giro completo invece che sui soli byte prodotti: una tabella che guardasse solo cio' che il codificatore scrive direbbe che e' coerente con se stesso, mentre qui ogni caso passa da `geometry` e torna da `read_spool_geometry`. Se i due si separassero -- una lunghezza scritta con l'ampiezza sbagliata, il marcatore rinumerato da una parte sola -- e' il giro a rompersi, non un'attesa scritta a mano. La distinzione provata e' quella che il campo di quattro byte porta da solo: `u32::MAX` per l'assenza, la lunghezza altrimenti; confonderle darebbe una colonna dove ogni riga senza geometria ne ha una vuota, che nel contratto non e' la stessa cosa. Il caso «geometria vuota» ha fatto emergere il difetto della prenotazione a lunghezza zero, corretto nel gruppo `driver-xls::write`. RISCHIO RESIDUO DICHIARATO: `u32::try_from(bytes.len())` sulla geometria resta senza esecuzione ne' prova di irraggiungibilita'. Non e' irraggiungibile per costruzione -- `WkbLimits::max_cell_bytes` e' un `usize` senza tetto dichiarato, quindi su un bersaglio a sessantaquattro bit si puo' configurare oltre `u32::MAX` -- ma raggiungerlo richiede una cella WKB da oltre quattro gibibyte, che nessuna fixture del repository puo' produrre.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_bounded_spool_writer_geometry_distingue_l_assenza_dalla_geometria_vuota",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-gpkg::la_classe_sqlite_traduce_ogni_variante_costruibile",
