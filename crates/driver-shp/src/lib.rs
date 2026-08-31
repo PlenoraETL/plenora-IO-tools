@@ -6683,6 +6683,308 @@ mod tests {
         );
     }
 
+    /// Un descrittore di campo DBF: trentadue byte, con tipo, larghezza e
+    /// decimali nelle posizioni che il formato fissa.
+    ///
+    /// Il nome **non** sta qui: `leggi_descrittori_dbf` lo riceve gia'
+    /// decodificato da `dbase`, e questa e' la separazione che rende provabile
+    /// il rifiuto sui nomi senza costruire un file.
+    fn descrittore(tipo: u8, larghezza: u8, decimali: u8) -> [u8; DBF_FIELD_DESCRIPTOR_SIZE] {
+        let mut byte = [0_u8; DBF_FIELD_DESCRIPTOR_SIZE];
+        byte[11] = tipo;
+        byte[16] = larghezza;
+        byte[17] = decimali;
+        byte
+    }
+
+    /// `leggi_descrittori_dbf` rifiuta i nomi che perderebbero una colonna e le
+    /// larghezze che non descrivono niente.
+    ///
+    /// I nomi duplicati sono il caso che vale di piu', e il rifiuto non e'
+    /// pignoleria: il DBF confronta i nomi **senza distinguere maiuscole**, e
+    /// due colonne omonime finirebbero nella stessa chiave. Chi legge
+    /// perderebbe una colonna senza che nulla lo dica -- il file si aprirebbe,
+    /// il conteggio dei campi tornerebbe, e mancherebbe un dato.
+    ///
+    /// Il nome vuoto e la larghezza zero sono la stessa famiglia: un campo che
+    /// non ha un nome o non ha byte non e' una colonna, e accettarlo
+    /// sposterebbe tutti gli offset successivi.
+    ///
+    /// Ogni messaggio porta l'**indice**, non il nome: l'indice e' prodotto
+    /// dalla nostra enumerazione, il nome viene dal file.
+    #[test]
+    fn n1_leggi_descrittori_dbf_rifiuta_i_nomi_che_perderebbero_una_colonna() {
+        let nomi = |elenco: &[&str]| -> Vec<String> {
+            elenco.iter().map(|nome| (*nome).to_owned()).collect()
+        };
+        let flusso = |quanti: usize, larghezza: u8| {
+            let mut byte = Vec::new();
+            for _ in 0..quanti {
+                byte.extend_from_slice(&descrittore(b'C', larghezza, 0));
+            }
+            byte
+        };
+
+        for (caso, nomi_campi, byte, atteso) in [
+            (
+                "descrittore troncato",
+                nomi(&["NOME"]),
+                vec![0_u8; DBF_FIELD_DESCRIPTOR_SIZE - 1],
+                "descrittore di campo DBF incompleto",
+            ),
+            (
+                "nome vuoto",
+                nomi(&[""]),
+                flusso(1, 10),
+                "nome campo DBF vuoto, indice 0",
+            ),
+            (
+                "nomi duplicati",
+                nomi(&["NOME", "NOME"]),
+                flusso(2, 10),
+                "nomi campo DBF duplicati; il file e' rifiutato per non perdere una colonna, \
+                 secondo indice 1",
+            ),
+            (
+                "nomi duplicati con maiuscole diverse",
+                nomi(&["Nome", "NOME"]),
+                flusso(2, 10),
+                "nomi campo DBF duplicati; il file e' rifiutato per non perdere una colonna, \
+                 secondo indice 1",
+            ),
+            (
+                "larghezza zero",
+                nomi(&["NOME"]),
+                flusso(1, 0),
+                "campo DBF con larghezza zero, indice 0",
+            ),
+        ] {
+            let quanti = nomi_campi.len();
+            let esito = leggi_descrittori_dbf(&mut std::io::Cursor::new(byte), nomi_campi, quanti);
+            let Err(errore) = esito else {
+                panic!("{caso}: doveva essere rifiutato");
+            };
+            assert_eq!(errore.message, atteso, "{caso}: messaggio sbagliato");
+        }
+
+        // Le accettazioni, e le tre quantita' che la funzione calcola: gli
+        // offset si accumulano a partire dal deletion flag, la lunghezza di
+        // record e' l'offset finale, e lo slot di intero esatto si assegna solo
+        // ai campi numerici senza decimali larghi almeno dieci.
+        let mut byte = Vec::new();
+        byte.extend_from_slice(&descrittore(b'C', 10, 0)); // testo: nessuno slot
+        byte.extend_from_slice(&descrittore(b'N', 18, 0)); // intero esatto: slot 0
+        byte.extend_from_slice(&descrittore(b'N', 9, 0)); // troppo stretto
+        byte.extend_from_slice(&descrittore(b'N', 20, 8)); // con decimali
+        byte.extend_from_slice(&descrittore(b'N', 12, 0)); // intero esatto: slot 1
+        let (campi, lunghezza, esatti) = leggi_descrittori_dbf(
+            &mut std::io::Cursor::new(byte),
+            nomi(&["TESTO", "GRANDE", "STRETTO", "DECIMALE", "ALTRO"]),
+            5,
+        )
+        .expect("cinque descrittori ben formati");
+
+        assert_eq!(
+            campi.iter().map(|campo| campo.offset).collect::<Vec<_>>(),
+            vec![1, 11, 29, 38, 58],
+            "gli offset partono dal deletion flag e si accumulano"
+        );
+        assert_eq!(lunghezza, 70, "la lunghezza di record e' l'offset finale");
+        assert_eq!(esatti, 2, "solo due campi sono interi esatti");
+        assert_eq!(
+            campi
+                .iter()
+                .map(|campo| campo.exact_integer_slot)
+                .collect::<Vec<_>>(),
+            vec![None, Some(0), None, None, Some(1)],
+            "gli slot sono numerati in ordine, e solo per i campi che li meritano"
+        );
+    }
+
+    /// L'overflow della lunghezza record DBF e' irraggiungibile: l'aritmetica
+    /// del formato non ci arriva.
+    ///
+    /// L'offset accumula larghezze, e una larghezza sta in **un byte**: al piu'
+    /// 255. Il numero di descrittori e' limitato dalla lunghezza dell'header,
+    /// che sta in un `u16`: al piu' 65 535 byte, cioe' meno di 2048
+    /// descrittori da trentadue byte. Il massimo assoluto e' quindi circa mezzo
+    /// milione, quindici ordini di grandezza sotto `usize::MAX` su un bersaglio
+    /// a sessantaquattro bit. Non c'e' una guardia da eseguire: c'e' un limite
+    /// di formato, verificato qui invece che argomentato.
+    #[test]
+    fn n1_la_lunghezza_record_dbf_non_puo_traboccare() {
+        let descrittori_massimi = usize::from(u16::MAX) / DBF_FIELD_DESCRIPTOR_SIZE;
+        let larghezza_massima = usize::from(u8::MAX);
+        let massimo = 1 + descrittori_massimi * larghezza_massima;
+        assert!(
+            massimo < usize::MAX / 1_000_000,
+            "il massimo di formato ({massimo}) deve restare lontanissimo da usize::MAX: \
+             se un giorno non lo fosse, l'overflow andrebbe riclassificato"
+        );
+        assert!(
+            1_usize.checked_add(massimo).is_some(),
+            "la somma che la funzione esegue non trabocca nemmeno al massimo di formato"
+        );
+    }
+
+    /// Un bundle Shapefile valido, con il `.dbf` ritoccato in un campo solo.
+    ///
+    /// Costruito con il writer vero e poi modificato: cosi' `.shp` e `.shx`
+    /// restano quelli di un produttore conforme, e l'unico motivo per cui la
+    /// lettura puo' fallire e' il byte che la sonda ha cambiato. Costruirlo a
+    /// mano metterebbe in gioco anche la correttezza della fixture, e un
+    /// rifiuto non distinguerebbe piu' le due cause.
+    fn bundle_con_dbf_ritoccato(
+        dir: &Path,
+        nome: &str,
+        campi: &[&str],
+        ritocco: impl FnOnce(&mut Vec<u8>),
+    ) -> PathBuf {
+        let percorso = dir.join(nome);
+        let mut tabella = TableWriterBuilder::new();
+        for campo in campi {
+            tabella = tabella
+                .add_character_field(shapefile::dbase::FieldName::try_from(*campo).unwrap(), 10);
+        }
+        let mut writer = Writer::from_path(&percorso, tabella).expect("il writer si apre");
+        let mut record = Record::default();
+        for campo in campi {
+            record.insert(
+                (*campo).to_owned(),
+                FieldValue::Character(Some("uno".to_owned())),
+            );
+        }
+        writer
+            .write_shape_and_record(&shapefile::Point::new(1.0, 2.0), &record)
+            .expect("un punto si scrive");
+        drop(writer);
+
+        let dbf = percorso.with_extension("dbf");
+        let mut byte = std::fs::read(&dbf).expect("il dbf esiste");
+        ritocco(&mut byte);
+        std::fs::write(&dbf, byte).expect("il dbf si riscrive");
+        percorso
+    }
+
+    /// `read_dbf_layout` rifiuta le incoerenze fra header e descrittori, e le
+    /// altre le trova gia' fermate da `valida_intestazione_dbf`.
+    ///
+    /// Le due funzioni guardano lo stesso header e si sovrappongono di
+    /// proposito: `valida_intestazione_dbf` esiste per chiudere i punti in cui
+    /// `dbase` panica invece di tornare, quindi corre **prima** e per prima
+    /// rifiuta l'header troncato, il backlink `Visual FoxPro` piu' lungo
+    /// dell'header, l'offset del primo record piu' corto dell'intestazione e il
+    /// terminatore sbagliato. Le righe omonime dentro `read_dbf_layout` restano
+    /// come difesa di una lettura che non e' piu' isolata, e non hanno input.
+    ///
+    /// Cio' che `read_dbf_layout` decide **da se'** e' quello che l'altra
+    /// tronca invece di rifiutare: un numero di byte di descrittori che non e'
+    /// multiplo di trentadue. E la lunghezza di record dichiarata che non torna
+    /// con la somma dei campi -- l'unica delle due che riguarda i **record** e
+    /// non l'header.
+    ///
+    /// Resta fuori il confronto fra il conteggio dell'header e quello dei nomi
+    /// decodificati. Non e' dichiarato coperto e non e' dichiarato
+    /// irraggiungibile: i due conteggi vengono dalla stessa aritmetica
+    /// sull'header, e non ho saputo costruire un file in cui divergano --
+    /// nemmeno anticipando il terminatore fra i descrittori, che `dbase`
+    /// attraversa senza fermarsi. E' registrato come rischio residuo, perche'
+    /// dichiararlo irraggiungibile senza una prova sarebbe la supposizione che
+    /// questo censimento esiste per escludere.
+    #[test]
+    fn n1_read_dbf_layout_rifiuta_le_incoerenze_fra_header_e_descrittori() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Il controllo positivo: il bundle non ritoccato si legge.
+        let intatto = bundle_con_dbf_ritoccato(dir.path(), "intatto.shp", &["NOME"], |_| {});
+        let layout = read_dbf_layout(&intatto).expect("un bundle conforme ha un layout");
+        assert_eq!(layout.fields.len(), 1, "un campo dichiarato, uno letto");
+        assert_eq!(layout.record_count, 1, "un record scritto, uno dichiarato");
+
+        for (caso, campi, ritocco, atteso) in [
+            (
+                "byte di descrittori non multiplo di trentadue",
+                &["NOME"][..],
+                Box::new(|byte: &mut Vec<u8>| {
+                    let lunghezza = u16::from_le_bytes([byte[8], byte[9]]) + 1;
+                    byte[8..10].copy_from_slice(&lunghezza.to_le_bytes());
+                }) as Box<dyn FnOnce(&mut Vec<u8>)>,
+                "lunghezza descrittori DBF non valida",
+            ),
+            (
+                "lunghezza di record che non torna con i campi",
+                &["NOME"][..],
+                Box::new(|byte: &mut Vec<u8>| {
+                    byte[10..12].copy_from_slice(&99_u16.to_le_bytes());
+                }),
+                "lunghezza di record DBF dichiarata incoerente con i campi, byte richiesti 11",
+            ),
+        ] {
+            let percorso = bundle_con_dbf_ritoccato(
+                dir.path(),
+                &format!("{}.shp", caso.len()),
+                campi,
+                ritocco,
+            );
+            let Err(errore) = read_dbf_layout(&percorso) else {
+                panic!("{caso}: doveva essere rifiutato");
+            };
+            assert_eq!(errore.message, atteso, "{caso}: messaggio sbagliato");
+        }
+    }
+
+    /// Le righe di `read_dbf_layout` che `valida_intestazione_dbf` raggiunge
+    /// per prima.
+    ///
+    /// Non e' una duplicazione da togliere: `read_dbf_layout` legge l'header
+    /// una seconda volta, con la propria aritmetica, e senza quelle guardie
+    /// dipenderebbe dal fatto che qualcun altro l'abbia gia' controllato. La
+    /// sonda esegue la **precedenza**, cioe' che a rifiutare sia la prima: se
+    /// l'ordine cambiasse, il messaggio cambierebbe e la sonda diventerebbe
+    /// rossa.
+    #[test]
+    fn n1_valida_intestazione_dbf_precede_le_guardie_omonime_di_read_dbf_layout() {
+        let dir = tempfile::tempdir().unwrap();
+
+        for (caso, ritocco, atteso) in [
+            (
+                "header troncato sotto i trentadue byte",
+                Box::new(|byte: &mut Vec<u8>| byte.truncate(DBF_HEADER_SIZE - 1))
+                    as Box<dyn FnOnce(&mut Vec<u8>)>,
+                "header DBF incompleto",
+            ),
+            (
+                "offset del primo record dentro l'intestazione",
+                Box::new(|byte: &mut Vec<u8>| {
+                    byte[8..10].copy_from_slice(&8_u16.to_le_bytes());
+                }),
+                "offset del primo record DBF piu' corto dell'intestazione",
+            ),
+            (
+                "versione Visual FoxPro con header piu' corto del backlink",
+                Box::new(|byte: &mut Vec<u8>| {
+                    byte[0] = DBF_VISUAL_FOXPRO_VERSION;
+                    byte[8..10].copy_from_slice(&4_u16.to_le_bytes());
+                }),
+                "header Visual FoxPro piu' corto del backlink",
+            ),
+        ] {
+            let percorso = bundle_con_dbf_ritoccato(
+                dir.path(),
+                &format!("precedenza-{}.shp", caso.len()),
+                &["NOME"],
+                ritocco,
+            );
+            let Err(errore) = read_dbf_layout(&percorso) else {
+                panic!("{caso}: doveva essere rifiutato");
+            };
+            assert_eq!(
+                errore.message, atteso,
+                "{caso}: a rifiutare deve essere la validazione dell'intestazione"
+            );
+        }
+    }
+
     /// Un piano di scrittura con la sola geometria, piu' i campi dati.
     fn piano_di_scrittura(campi: Vec<Field>) -> WritePlan {
         let mut colonne = vec![geometry_field(GEOMETRY, "EPSG:4326")];

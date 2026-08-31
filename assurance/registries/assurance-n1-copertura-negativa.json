@@ -70,8 +70,24 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 24,
       "raggiunto_da_replay": 0,
-      "disposizione": "seme_fuzz",
-      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+      "disposizione": "chiuso",
+      "nota": "chiuso misurando **quale** delle due funzioni che leggono l'header rifiuta per prima. `valida_intestazione_dbf` e `read_dbf_layout` guardano lo stesso header e si sovrappongono di proposito: la prima esiste per chiudere i punti in cui `dbase` panica invece di tornare, quindi corre prima, e per prima rifiuta l'header troncato, il backlink Visual FoxPro piu' lungo dell'header e l'offset del primo record piu' corto dell'intestazione. Le righe omonime dentro `read_dbf_layout` restano come difesa di una lettura che non e' piu' isolata, e non hanno input: sono registrate irraggiungibili con la sonda che ne prova la **precedenza**, cosi' un cambio d'ordine la rende rossa invece di passare inosservato. Cio' che `read_dbf_layout` decide da se' e' quello che l'altra tronca invece di rifiutare -- un numero di byte di descrittori che non e' multiplo di trentadue -- e la lunghezza di record dichiarata che non torna con la somma dei campi, l'unica che riguarda i record e non l'header. Le fixture partono dal writer vero e ritoccano **un campo solo** del `.dbf`: `.shp` e `.shx` restano di un produttore conforme, e l'unico motivo per cui la lettura puo' fallire e' il byte cambiato. RISCHIO RESIDUO DICHIARATO: il confronto fra il conteggio di descrittori dell'header e quello dei nomi decodificati non e' ne' coperto ne' provato irraggiungibile. I due conteggi vengono dalla stessa aritmetica sull'header, e non e' stato possibile costruire un file in cui divergano -- nemmeno anticipando il terminatore fra i descrittori, che `dbase` attraversa senza fermarsi. Dichiararlo irraggiungibile senza una prova sarebbe la supposizione che questo censimento esiste per escludere.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_read_dbf_layout_rifiuta_le_incoerenze_fra_header_e_descrittori",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_valida_intestazione_dbf_precede_le_guardie_omonime_di_read_dbf_layout",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "2287-2290, 2293-2301, 2325-2334",
+          "guardia": "driver-shp::valida_intestazione_dbf"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::from_options",
@@ -126,8 +142,24 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 16,
       "raggiunto_da_replay": 0,
-      "disposizione": "seme_fuzz",
-      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+      "disposizione": "chiuso",
+      "nota": "chiuso su una tabella in memoria, senza file: la funzione riceve un `impl Read` e i nomi gia' decodificati da `dbase`, e quella separazione e' proprio cio' che rende provabile il rifiuto sui nomi senza costruire un `.dbf`. Il caso che vale di piu' e' il nome duplicato, e il rifiuto non e' pignoleria: il DBF confronta i nomi **senza distinguere maiuscole**, quindi due colonne omonime finirebbero nella stessa chiave e chi legge perderebbe una colonna senza che nulla lo dica -- il file si aprirebbe, il conteggio dei campi tornerebbe, e mancherebbe un dato. La coppia `Nome`/`NOME` e' provata accanto a `NOME`/`NOME` perche' la normalizzazione e' la parte che si perde per prima in un ritocco. Il nome vuoto e la larghezza zero sono la stessa famiglia: un campo senza nome o senza byte non e' una colonna, e accettarlo sposterebbe tutti gli offset successivi. Ogni messaggio porta l'**indice** e non il nome, perche' l'indice e' prodotto dalla nostra enumerazione mentre il nome viene dal file. L'accettazione verifica le tre quantita' che la funzione calcola e che nessun errore esprime: gli offset accumulati a partire dal deletion flag, la lunghezza di record come offset finale, e lo slot di intero esatto assegnato solo ai campi `N` senza decimali larghi almeno dieci -- con i tre casi che **non** lo meritano elencati accanto ai due che lo meritano. IRRAGGIUNGIBILE l'overflow della lunghezza record: la larghezza sta in un byte (al piu' 255) e il numero di descrittori e' limitato dalla lunghezza dell'header, che sta in un `u16`; il massimo di formato e' circa mezzo milione, quindici ordini di grandezza sotto `usize::MAX`. Non c'e' una guardia da eseguire, c'e' un limite di formato, ed e' verificato invece che argomentato.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_leggi_descrittori_dbf_rifiuta_i_nomi_che_perderebbero_una_colonna",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_la_lunghezza_record_dbf_non_puo_traboccare",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "1611-1615",
+          "guardia": "limite di formato: larghezza in u8, lunghezza header in u16"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::resolve_geometry",
