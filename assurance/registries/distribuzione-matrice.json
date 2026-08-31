@@ -51,7 +51,9 @@
       "runner_di_costruzione": "macos-15",
       "perche_non_macos_latest": "e' un alias, e oggi punta a macOS 26 ARM64. Migra fra versioni del sistema, quindi legare il contratto a `macos-latest` significa non legarlo a niente.",
       "deployment_target": "15.0",
-      "sistemi_utente_dichiarati": ["macOS 15 e successive, Apple Silicon"],
+      "sistemi_utente_dichiarati": [
+        "macOS 15 e successive, Apple Silicon"
+      ],
       "come_si_dimostra": [
         "`MACOSX_DEPLOYMENT_TARGET=15.0` alla costruzione",
         "verifica del deployment target in **ogni** Mach-O spedito, binario e librerie",
@@ -73,7 +75,9 @@
     },
     {
       "id": "filegdb",
-      "feature_cargo": ["gdal-backend"],
+      "feature_cargo": [
+        "gdal-backend"
+      ],
       "contiene_runtime_nativo": true,
       "descrizione": "quanto sopra, piu' il runtime GDAL fissato e i suoi dati.",
       "capability_filegdb": "presente, e la sua presenza e' dimostrata da uno smoke che scrive e rilegge un FileGDB vero"
@@ -88,13 +92,44 @@
   "layout_installato": {
     "radice": "la directory in cui l'archivio e' estratto; nessun percorso assoluto e' incorporato",
     "voci": [
-      { "percorso": "bin/plenora-io", "in_ogni_profilo": true, "nota": "su Windows `bin/plenora-io.exe`" },
-      { "percorso": "lib/", "in_ogni_profilo": false, "solo_profilo": "filegdb", "nota": "le librerie native fissate; su Windows le DLL stanno in `bin/`, che e' dove il caricatore guarda per prima" },
-      { "percorso": "share/gdal/", "in_ogni_profilo": false, "solo_profilo": "filegdb", "nota": "i dati di GDAL; senza, alcuni driver falliscono in modi che sembrano difetti del dato" },
-      { "percorso": "share/proj/", "in_ogni_profilo": false, "solo_profilo": "filegdb", "nota": "i dati di PROJ; senza, le trasformazioni di CRS falliscono o degradano" },
-      { "percorso": "LICENSES/", "in_ogni_profilo": true, "nota": "la licenza di ogni componente spedito, una per file, generata dal lock e non scritta a mano" },
-      { "percorso": "MANIFEST.json", "in_ogni_profilo": true, "nota": "versione, revisione, profilo, piattaforma, elenco dei file con sha256, e il lock del runtime quando c'e'" },
-      { "percorso": "SBOM.spdx.json", "in_ogni_profilo": true, "nota": "SPDX 2.3; le dipendenze Rust da `Cargo.lock`, quelle native dal lock del runtime" }
+      {
+        "percorso": "bin/plenora-io",
+        "in_ogni_profilo": true,
+        "nota": "su Windows `bin/plenora-io.exe`"
+      },
+      {
+        "percorso": "lib/",
+        "in_ogni_profilo": false,
+        "solo_profilo": "filegdb",
+        "nota": "le librerie native fissate; su Windows le DLL stanno in `bin/`, che e' dove il caricatore guarda per prima"
+      },
+      {
+        "percorso": "share/gdal/",
+        "in_ogni_profilo": false,
+        "solo_profilo": "filegdb",
+        "nota": "i dati di GDAL; senza, alcuni driver falliscono in modi che sembrano difetti del dato"
+      },
+      {
+        "percorso": "share/proj/",
+        "in_ogni_profilo": false,
+        "solo_profilo": "filegdb",
+        "nota": "i dati di PROJ; senza, le trasformazioni di CRS falliscono o degradano"
+      },
+      {
+        "percorso": "LICENSES/",
+        "in_ogni_profilo": true,
+        "nota": "la licenza di ogni componente spedito, una per file, generata dal lock e non scritta a mano"
+      },
+      {
+        "percorso": "MANIFEST.json",
+        "in_ogni_profilo": true,
+        "nota": "versione, revisione, profilo, piattaforma, elenco dei file con sha256, e il lock del runtime quando c'e'"
+      },
+      {
+        "percorso": "SBOM.spdx.json",
+        "in_ogni_profilo": true,
+        "nota": "SPDX 2.3; le dipendenze Rust da `Cargo.lock`, quelle native dal lock del runtime"
+      }
     ]
   },
   "contratto_gdal": {
@@ -109,9 +144,33 @@
       "nota": "il binding dichiara 3.6.0 come versione di riferimento e funziona con 3.10.3; il lock di Windows lo verifica gia' e i lock nuovi devono verificarlo allo stesso modo."
     },
     "origini": [
-      { "piattaforma": "windows-x86_64", "origine": "OSGeo4W", "lock": "scripts/windows-gdal-lock.json", "stato": "gia' fissato: 49 pacchetti, ciascuno con dimensione e sha256, da un base URL dichiarato" },
-      { "piattaforma": "linux-x86_64", "origine": "conda-forge", "lock": "scripts/linux-gdal-lock.json", "stato": "da produrre" },
-      { "piattaforma": "macos-aarch64", "origine": "conda-forge", "lock": "scripts/macos-gdal-lock.json", "stato": "da produrre" }
+      {
+        "piattaforma": "windows-x86_64",
+        "origine": "OSGeo4W",
+        "lock": "scripts/windows-gdal-lock.json",
+        "stato": "gia' fissato: 49 pacchetti, ciascuno con dimensione e sha256, da un base URL dichiarato"
+      },
+      {
+        "piattaforma": "linux-x86_64",
+        "origine": "conda-forge",
+        "lock": "scripts/linux-gdal-lock.json",
+        "stato": "fissato e verificato",
+        "pacchetti": 58,
+        "risolto_con": "micromamba 2.9.0, fissato per sha256 e usato una volta sola",
+        "misure": {
+          "glibc_massima_negli_elf_spediti": "2.17",
+          "requisito_virtuale_glibc": ">=2.17,<3.0.a0",
+          "chiusura_dt_needed": "55 librerie dentro l albero, 6 fuori e tutte nell allowlist ABI",
+          "openfilegdb": "creato e riletto un FileGDB vero con la libreria materializzata",
+          "prefisso_di_costruzione": "zero file di testo spediti con placeholder; 56 su 56 ELF con RPATH relativo a $ORIGIN"
+        }
+      },
+      {
+        "piattaforma": "macos-aarch64",
+        "origine": "conda-forge",
+        "lock": "scripts/macos-gdal-lock.json",
+        "stato": "da produrre"
+      }
     ],
     "perche_conda_forge_e_non_la_distribuzione": "la GDAL di distribuzione non e' fissabile: cambia con il sistema, e con essa cambia la capability. conda-forge pubblica la stessa versione per le tre piattaforme, ogni pacchetto con un sha256 verificabile e un URL stabile -- la stessa forma che OSGeo4W ha gia' su Windows. Costruire GDAL dai sorgenti darebbe piu' controllo e porterebbe con se' l'intera chiusura di PROJ, GEOS e sqlite da fissare a loro volta: e' la strada da prendere se conda-forge si rivelasse insufficiente, non prima.",
     "driver_pretesi": [
@@ -141,9 +200,18 @@
       "che_cosa_resta_vero": "sull'artefatto integro la risoluzione e' verificabile e verificata, ed e' questo che il gate misura. Cio' che non si promette e' il comportamento dopo che qualcuno ha tolto o sostituito una libreria.",
       "e_una_scelta_non_una_rinuncia": "il fail-closed anche dopo la rimozione di una libreria si otterrebbe con SONAME privati o con un launcher che verifica prima di eseguire. E' un progetto a se', e va soppesato contro la LGPL: le sue librerie devono restare sostituibili, e un artefatto che rifiutasse una sostituzione legittima violerebbe la licenza che sta rispettando.",
       "allowlist_abi_di_sistema": {
-        "stato": "da fissare quando il lock esiste",
+        "stato": "fissata per linux-x86_64 dalla prima chiusura verde",
         "criterio": "solo cio' che il sistema di destinazione garantisce per ABI: la libc e le sue compagne (`libc`, `libm`, `libdl`, `libpthread`, `librt`), il loader dinamico, `libgcc_s`. Tutto il resto -- `libstdc++` compresa, se il lock la spedisce -- va risolto dentro l'albero.",
-        "come_si_fissa": "dall'elenco che il controllo delle risoluzioni produce sulla prima costruzione verde, non da una lista scritta a memoria"
+        "come_si_fissa": "dall'elenco che il controllo delle risoluzioni produce sulla prima costruzione verde, non da una lista scritta a memoria",
+        "linux_x86_64": [
+          "ld-linux-x86-64.so.2",
+          "libc.so.6",
+          "libdl.so.2",
+          "libm.so.6",
+          "libpthread.so.0",
+          "libresolv.so.2"
+        ],
+        "come_e_stata_fissata": "dall'elenco che `check-linux-gdal-runtime.py` ha prodotto sulla chiusura materializzata, non da una lista scritta a memoria. `libstdc++` non vi compare perche' e' **spedita**, e la sua assenza dall'allowlist e' il modo in cui il gate se ne accorgerebbe se un giorno sparisse dall'albero."
       },
       "meccanismi_per_piattaforma": {
         "linux": "RPATH `$ORIGIN/../lib` sul binario e sulle librerie spedite",
@@ -171,7 +239,7 @@
   ],
   "ordine_di_lavoro": [
     "1. questo contratto (fatto)",
-    "2. il lock di Linux, e il costruttore che lo verifica",
+    "2. il lock di Linux, e il costruttore che lo verifica (fatto)",
     "3. Linux da zero a fine: build sulla base fissata, archivio, installazione in directory vuota, checksum, SBOM, provenance locale **non-release**, smoke sull'installato -- FileGDB scritto e riletto, simboli GLIBC controllati -- e prima sezione del runbook",
     "4. l'impianto comune estratto da Linux, e i job nativi su `windows-2022` e `macos-15` con gli smoke sui rispettivi runner",
     "5. il gate che rifiuta cio' che e' elencato sopra"
