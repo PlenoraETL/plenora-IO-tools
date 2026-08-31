@@ -683,6 +683,15 @@ class SondeCondizioni(unittest.TestCase):
         }
         self.assertEqual(gate.verifica_condizione(verde, self.registro()), [])
 
+    # La prima condizione obbligatoria soddisfatta.
+    #
+    # Elencare **tutte** le obbligatorie fra i motivi confondeva «considerata»
+    # con «fallita», e sarebbe diventato falso al primo verde: una condizione
+    # soddisfatta non compare fra i motivi, perche' non e' un motivo. Da qui in
+    # poi la sonda pretende che questa sia assente e le altre presenti, cosi'
+    # una regressione del debito N1 la rende rossa dicendo che cosa e' tornato.
+    SODDISFATTE = frozenset({"debito-n1-a-zero"})
+
     def test_release_e_rossa_sul_registro_corrente(self) -> None:
         """La controprova d'insieme: oggi la release non e' autorizzabile.
 
@@ -694,8 +703,16 @@ class SondeCondizioni(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()) as riportato:
                 esito = gate.main(["--release"])
         self.assertEqual(esito, 1)
-        for identita in gate.CONDIZIONI_OBBLIGATORIE:
-            self.assertIn(identita, riportato.getvalue())
+        motivi = riportato.getvalue()
+        for identita in sorted(gate.CONDIZIONI_OBBLIGATORIE - self.SODDISFATTE):
+            self.assertIn(identita, motivi)
+        for identita in sorted(self.SODDISFATTE):
+            self.assertNotIn(
+                identita,
+                motivi,
+                f"«{identita}» e' soddisfatta: se ricompare fra i motivi, "
+                "e' una regressione e va detta come tale",
+            )
 
 
 class SondeStatoEsterno(unittest.TestCase):
@@ -962,22 +979,26 @@ class SondeFontiLegate(unittest.TestCase):
     def test_un_blocco_negato_dallo_stato_e_rosso(self) -> None:
         """`release_blocking: false` accanto a un invariante che blocca.
 
-        Si appoggiava a `loss_report`, ed e' diventata rossa quando quel
-        contratto e' stato ratificato: negare un blocco che non c'e' piu' non
-        e' un errore, e il gate faceva bene a tacere. Ora si appoggia al debito
-        di copertura negativa, che resta bloccante con quarantatre' gruppi
-        aperti su quarantanove.
+        Si e' gia' spostata due volte, e ogni spostamento e' una chiusura. Era
+        su `loss_report`, ratificato; e' passata al debito di copertura
+        negativa, ed e' diventata rossa quando quello e' arrivato a zero --
+        esattamente come la sua prosa prometteva. Ora si appoggia alla
+        candidate di release, che resta bloccante perche' il manifesto
+        pendente e' legato a una revisione che non e' HEAD e il tag `v1.0.1`
+        non e' riutilizzabile.
 
-        Il giorno in cui **quello** si chiudera' questa sonda tornera' rossa, e
-        andra' ripuntata di nuovo: e' il prezzo di una sonda che si appoggia a
-        un fatto vero invece che a un caso inventato, ed e' il prezzo giusto --
-        un invariante finto direbbe che il gate funziona su qualcosa che nel
+        Quando chiudera' anche quella, questa sonda tornera' rossa e andra'
+        ripuntata di nuovo. E' il prezzo di una sonda che si appoggia a un
+        fatto vero invece che a un caso inventato, ed e' il prezzo giusto: un
+        invariante finto direbbe che il gate funziona su qualcosa che nel
         registro non esiste.
         """
         stato = self.stato()
-        stato["aperto"]["assurance_n1"]["release_blocking"] = False
+        stato["aperto"]["candidate_release"]["release_blocking"] = False
         errori = gate.validate_stato_corrente(stato)
-        self.assertTrue(any("copertura.rami-negativi" in e for e in errori), errori)
+        self.assertTrue(
+            any("release.candidate-non-valida-per-head" in e for e in errori), errori
+        )
 
     def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
         """Un lotto che il registro tiene bloccante non puo' dirsi chiuso.

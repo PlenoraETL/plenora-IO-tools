@@ -1155,6 +1155,28 @@ const SPOOL_NUMBER: u8 = 2;
 const SPOOL_BOOLEAN: u8 = 3;
 const SPOOL_TEXT: u8 = 4;
 
+/// La lunghezza di un payload dello spool, nei quattro byte che il formato le
+/// riserva.
+///
+/// Estratta dai due chiamanti -- `geometry` e `data` -- perche' dove stava non
+/// era provabile: la applicano alla lunghezza di una **fetta vera**, e una
+/// fetta oltre i quattro gibibyte non e' costruibile in una sonda senza
+/// allocarla. Qui la lunghezza e' un argomento, e il rifiuto si prova con un
+/// numero.
+///
+/// Il messaggio arriva dal chiamante e non e' un dettaglio: chi legge deve
+/// sapere se a non entrare sia una geometria o un testo, perche' le due cose si
+/// riducono in modi diversi.
+///
+/// # Errors
+///
+/// [`PlenoraIoError`] con categoria `ResourceLimit` se la lunghezza non entra
+/// in `u32`.
+fn lunghezza_dello_spool(byte: usize, oltre_il_tetto: &'static str) -> Result<u32> {
+    u32::try_from(byte)
+        .map_err(|_| PlenoraIoError::limite_redatto(&PublicMessage::Curated(oltre_il_tetto)))
+}
+
 struct BoundedSpoolWriter<'a> {
     writer: BufWriter<&'a std::fs::File>,
     bytes: u64,
@@ -1224,11 +1246,9 @@ impl<'a> BoundedSpoolWriter<'a> {
     fn geometry(&mut self, value: Option<&[u8]>) -> Result<()> {
         let length = match value {
             None => SPOOL_NULL_GEOMETRY,
-            Some(bytes) => u32::try_from(bytes.len()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                    "geometria XLSX troppo grande per lo spool",
-                ))
-            })?,
+            Some(bytes) => {
+                lunghezza_dello_spool(bytes.len(), "geometria XLSX troppo grande per lo spool")?
+            }
         };
         self.write(&length.to_le_bytes())?;
         if let Some(bytes) = value {
@@ -1250,11 +1270,8 @@ impl<'a> BoundedSpoolWriter<'a> {
             Data::Bool(value) => self.write(&[SPOOL_BOOLEAN, u8::from(*value)]),
             Data::String(value) | Data::DateTimeIso(value) | Data::DurationIso(value) => {
                 let bytes = value.as_bytes();
-                let length = u32::try_from(bytes.len()).map_err(|_| {
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "testo XLSX troppo grande per lo spool",
-                    ))
-                })?;
+                let length =
+                    lunghezza_dello_spool(bytes.len(), "testo XLSX troppo grande per lo spool")?;
                 self.write(&[SPOOL_TEXT])?;
                 self.write(&length.to_le_bytes())?;
                 self.write(bytes)
@@ -1292,6 +1309,33 @@ impl XlsxQuote {
             cella_wkt: opts.wkb_limits(),
         }
     }
+}
+
+/// Crea l'inode dello spool nella directory che l'operatore ha scelto.
+///
+/// # Il difetto che questa estrazione corregge
+///
+/// `infer_layout` creava il file con `NamedTempFile::new()`, che usa la
+/// directory temporanea di sistema e **ignora** `PLENORA_SPILL_DIR`. La
+/// documentazione dichiara che quella variabile sceglie dove vive lo spill; chi
+/// la impostava per mettere lo spill su un volume capiente vedeva lo spool
+/// XLSX finire altrove lo stesso, e se ne accorgeva a disco pieno.
+///
+/// # Perche' e' una funzione e non due righe
+///
+/// Il fallimento della creazione e' un errore d'ambiente, e dentro
+/// `infer_layout` non era raggiungibile da nessuna prova: la directory la
+/// sceglieva la libreria. Qui la directory e' un argomento, e una che non
+/// esiste si passa senza toccare l'ambiente del processo -- che gli altri test
+/// condividono.
+///
+/// # Errors
+///
+/// [`PlenoraIoError`] se la directory non ospita un file temporaneo nuovo.
+fn crea_lo_spool(directory: &std::path::Path) -> Result<Arc<tempfile::NamedTempFile>> {
+    tempfile::NamedTempFile::new_in(directory)
+        .map(Arc::new)
+        .map_err(|_| err(&PublicMessage::Curated("spool XLSX non creabile")))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1339,7 +1383,7 @@ where
     let mut accumulators: Vec<TypeAccumulator> = Vec::new();
     let mut detected_dimensions = BTreeSet::new();
     let mut detected_types = BTreeSet::new();
-    let spool = Arc::new(tempfile::NamedTempFile::new()?);
+    let spool = crea_lo_spool(&plenora_io_core::driver::spool::spill_directory()?)?;
     let mut spool_writer =
         BoundedSpoolWriter::new(spool.as_file(), quote.byte_ingresso, budget.clone());
     let mut wkb_buffer = Vec::new();
@@ -3733,6 +3777,107 @@ mod tests {
         assert_eq!(
             errore.message,
             "encoding xy richiede geometrie Point strettamente XY"
+        );
+    }
+
+    /// `lunghezza_dello_spool` rifiuta cio' che non entra nei quattro byte, e
+    /// dice **quale** payload non ci entra.
+    ///
+    /// I due chiamanti passano messaggi diversi perche' chi legge deve sapere
+    /// se a non entrare sia una geometria o un testo: le due cose si riducono
+    /// in modi diversi -- una semplificando la forma, l'altra tagliando la
+    /// cella -- e un messaggio solo manderebbe a fare la cosa sbagliata meta'
+    /// delle volte.
+    ///
+    /// Il confine e' provato dai due lati, ed e' l'unico modo di sapere se sia
+    /// incluso: `u32::MAX` byte entrano, il successivo no. La sonda non alloca
+    /// niente -- la lunghezza e' un argomento -- ed e' la ragione per cui la
+    /// conversione e' stata estratta dai chiamanti, dove la stessa prova
+    /// avrebbe richiesto quattro gibibyte di memoria.
+    #[test]
+    fn n1_lunghezza_dello_spool_rifiuta_i_payload_oltre_i_quattro_byte() {
+        let dentro = usize::try_from(u32::MAX).expect("usize copre u32 sui bersagli supportati");
+        assert_eq!(
+            lunghezza_dello_spool(dentro, "geometria XLSX troppo grande per lo spool")
+                .expect("il confine e' incluso"),
+            u32::MAX,
+            "la lunghezza massima rappresentabile deve passare, non essere respinta di misura"
+        );
+        assert_eq!(
+            lunghezza_dello_spool(0, "testo XLSX troppo grande per lo spool")
+                .expect("zero byte sono una lunghezza"),
+            0
+        );
+
+        // Il byte successivo. Su un bersaglio dove `usize` non superasse `u32`
+        // questo numero non esisterebbe, e il ramo sarebbe irraggiungibile
+        // invece che coperto: l'`expect` lo direbbe invece di lasciar passare
+        // una prova che non prova niente.
+        let oltre = dentro
+            .checked_add(1)
+            .expect("su un bersaglio a sessantaquattro bit c'e' spazio oltre u32::MAX");
+
+        for (caso, messaggio) in [
+            ("geometria", "geometria XLSX troppo grande per lo spool"),
+            ("testo", "testo XLSX troppo grande per lo spool"),
+        ] {
+            let Err(errore) = lunghezza_dello_spool(oltre, messaggio) else {
+                panic!("{caso}: una lunghezza oltre u32::MAX non entra in quattro byte");
+            };
+            assert_eq!(errore.message, messaggio, "{caso}: messaggio scambiato");
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::ResourceLimit,
+                "{caso}: e' un limite, non un dato malformato"
+            );
+        }
+    }
+
+    /// Lo spool XLSX nasce **nella directory scelta**, e se non la trova si
+    /// ferma invece di ripiegare.
+    ///
+    /// # Il difetto che questa sonda ha trovato
+    ///
+    /// La creazione passava da `NamedTempFile::new()`, che usa la directory
+    /// temporanea di sistema. `PLENORA_SPILL_DIR` dichiara di scegliere dove
+    /// vive lo spill -- e' scritto in `ENGINEERING.md` -- ma sul percorso XLSX
+    /// non la governava: chi la impostava per mettere lo spill su un volume
+    /// capiente se ne accorgeva a disco pieno, che e' il momento peggiore.
+    ///
+    /// Il ripiego non c'e' e non deve esserci: una directory scelta e non
+    /// utilizzabile e' un errore di configurazione, e proseguire su un altro
+    /// volume metterebbe i dati dove l'operatore non ha chiesto.
+    #[test]
+    fn n1_lo_spool_nasce_nella_directory_scelta_o_non_nasce() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // La directory scelta e' quella che ospita l'inode, e la prova non e'
+        // che la creazione riesca ma **dove**: con `NamedTempFile::new()` la
+        // riga sarebbe verde lo stesso, e il difetto sarebbe rimasto.
+        let spool = crea_lo_spool(dir.path()).expect("una directory esistente ospita lo spool");
+        assert_eq!(
+            spool.path().parent(),
+            Some(dir.path()),
+            "lo spool deve stare dove l'operatore ha scelto, non nella temp di sistema"
+        );
+
+        // Una directory che non esiste: fallimento chiuso, senza ripiego.
+        let assente = dir.path().join("questa-non-esiste");
+        let Err(errore) = crea_lo_spool(&assente) else {
+            panic!("una directory inesistente non puo' ospitare lo spool");
+        };
+        assert_eq!(errore.message, "spool XLSX non creabile");
+        assert!(
+            !assente.exists(),
+            "il rifiuto non deve creare la directory che mancava: sceglierla e' \
+             dell'operatore"
+        );
+
+        // La risoluzione che `infer_layout` usa e' quella del core, non una
+        // copia: due risoluzioni divergerebbero, e divergerebbero in silenzio.
+        assert!(
+            plenora_io_core::driver::spool::spill_directory().is_ok(),
+            "senza la variabile impostata la risoluzione da' la temp di sistema"
         );
     }
 

@@ -965,6 +965,10 @@ impl FormatWriter for ShpWriter {
                 self.input_total,
             ));
         }
+        // Il conteggio **prima** della scrittura: un lotto che farebbe
+        // traboccare il contatore viene rifiutato con il writer ancora intatto,
+        // invece di essere constatato dopo che le shape sono gia' sul disco.
+        let righe = righe_dopo_il_lotto(self.rows, batch.num_rows())?;
         let w = self
             .writer
             .as_mut()
@@ -973,14 +977,7 @@ impl FormatWriter for ShpWriter {
             write_shape(w, shape, &rec)?;
         }
         self.shape_type = st;
-        self.rows = self
-            .rows
-            .checked_add(u64::try_from(batch.num_rows()).map_err(|_| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe Shapefile"))
-            })?)
-            .ok_or_else(|| {
-                PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe Shapefile"))
-            })?;
+        self.rows = righe;
         Ok(())
     }
 
@@ -1000,18 +997,13 @@ impl FormatWriter for ShpWriter {
             std::fs::write(staging.path().join("data.prj"), wkt)?;
         }
 
-        let staged_bytes = ["dbf", "shx", "prj", "shp"]
+        let dimensioni = ["dbf", "shx", "prj", "shp"]
             .into_iter()
             .map(|ext| staging.path().join(format!("data.{ext}")))
             .filter(|path| path.exists())
-            .try_fold(0_u64, |total, path| {
-                let bytes = std::fs::metadata(path)?.len();
-                total.checked_add(bytes).ok_or_else(|| {
-                    PlenoraIoError::limite_redatto(&PublicMessage::Curated(
-                        "overflow nel conteggio dell'output Shapefile",
-                    ))
-                })
-            })?;
+            .map(|path| std::fs::metadata(path).map(|dati| dati.len()))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        let staged_bytes = byte_dello_staging(dimensioni)?;
         if staged_bytes > self.max_output_bytes {
             return Err(PlenoraIoError::limite_redatto(
                 &PublicMessage::CuratedBetween(
@@ -1358,6 +1350,47 @@ const fn shape_tag(s: &Shape) -> &'static str {
         Shape::NullShape => "",
         Shape::Multipatch(_) => "unsupported",
     }
+}
+
+/// Le righe scritte dopo un lotto, o il rifiuto se il conteggio non ci sta.
+///
+/// Estratta da `ShpWriter::write` per due ragioni, e la seconda conta piu'
+/// della prima. La prima: dove stava non era provabile senza un lotto da piu'
+/// di `u64::MAX` righe, mentre qui il conteggio e' un argomento. La seconda: il
+/// calcolo era **dopo** il ciclo che scrive le shape, quindi un rifiuto sarebbe
+/// arrivato a scrittura fatta. Lo staging viene comunque buttato, e nessun dato
+/// esce; ma un limite che si constata invece di fermare e' un limite piu'
+/// debole, e adesso il conteggio precede la scrittura.
+///
+/// # Errors
+///
+/// [`PlenoraIoError`] con categoria `ResourceLimit` se la cardinalita' del
+/// lotto non entra in `u64`, o se la somma con le righe gia' scritte trabocca.
+fn righe_dopo_il_lotto(gia_scritte: u64, nel_lotto: usize) -> Result<u64> {
+    let troppe =
+        || PlenoraIoError::limite_redatto(&PublicMessage::Curated("troppe righe Shapefile"));
+    let nel_lotto = u64::try_from(nel_lotto).map_err(|_| troppe())?;
+    gia_scritte.checked_add(nel_lotto).ok_or_else(troppe)
+}
+
+/// I byte dello staging, sommati senza traboccare.
+///
+/// Estratta da `ShpWriter::finish` per la stessa ragione: dove stava, la somma
+/// prendeva le dimensioni dal filesystem, e provarne l'overflow avrebbe
+/// richiesto uno staging da piu' di `u64::MAX` byte. Qui le dimensioni sono
+/// l'argomento, e l'aritmetica si prova con dei numeri.
+///
+/// # Errors
+///
+/// [`PlenoraIoError`] con categoria `ResourceLimit` se la somma trabocca.
+fn byte_dello_staging(dimensioni: impl IntoIterator<Item = u64>) -> Result<u64> {
+    dimensioni.into_iter().try_fold(0_u64, |totale, byte| {
+        totale.checked_add(byte).ok_or_else(|| {
+            PlenoraIoError::limite_redatto(&PublicMessage::Curated(
+                "overflow nel conteggio dell'output Shapefile",
+            ))
+        })
+    })
 }
 
 /// Scrive la shape come tipo ESRI concreto (l'enum `Shape` non è `EsriShape`).
@@ -2271,6 +2304,35 @@ fn valida_i_valori_temporali(
     Ok(())
 }
 
+/// I due conteggi di descrittori devono coincidere prima di leggerli.
+///
+/// Uno viene dalla nostra aritmetica sull'header, l'altro da quanti campi
+/// `dbase` ha decodificato. Non e' un controllo ridondante: `leggi_descrittori_dbf`
+/// scorre **un descrittore per nome decodificato**, quindi se i due numeri
+/// divergessero il lettore si fermerebbe a meta' dei trentadue byte di un
+/// descrittore, e il controllo sul terminatore che segue leggerebbe un byte
+/// qualunque. Il rifiuto qui tiene allineate le due letture prima che si
+/// disallineino.
+///
+/// Estratta dal chiamante perche' la divergenza non e' producibile da un file:
+/// dipende da come `dbase` interpreta l'header, cioe' da un contratto con la
+/// dipendenza e non da un input. Qui i due conteggi sono argomenti, e la logica
+/// del rifiuto si prova senza doverla far accadere.
+///
+/// # Errors
+///
+/// [`PlenoraIoError`] se i due conteggi non coincidono. Il numero che esce e'
+/// quello **decodificato**, che e' nostro; quello dell'header viene dal file.
+fn descrittori_concordi(dichiarati: usize, decodificati: usize) -> Result<()> {
+    if dichiarati == decodificati {
+        return Ok(());
+    }
+    Err(err(&PublicMessage::CuratedWith(
+        "numero di descrittori DBF incoerente con l'header, descrittori decodificati",
+        NumeroStrutturale::Conteggio(driver_common::saturating_u64(decodificati)),
+    )))
+}
+
 fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
     let path = shp_path.with_extension("dbf");
     valida_intestazione_dbf(&path)?;
@@ -2311,14 +2373,7 @@ fn read_dbf_layout(shp_path: &Path) -> Result<DbfLayout> {
     }
 
     let field_count = descriptor_bytes / DBF_FIELD_DESCRIPTOR_SIZE;
-    if decoded_names.len() != field_count {
-        // Il conteggio dell'header viene dal file; quello del decoder e'
-        // nostro, ed e' l'unico che esce.
-        return Err(err(&PublicMessage::CuratedWith(
-            "numero di descrittori DBF incoerente con l'header, descrittori decodificati",
-            NumeroStrutturale::Conteggio(driver_common::saturating_u64(decoded_names.len())),
-        )));
-    }
+    descrittori_concordi(field_count, decoded_names.len())?;
     let (fields, offset, exact_integer_count) =
         leggi_descrittori_dbf(&mut reader, decoded_names, field_count)?;
     let mut terminator = [0_u8; 1];
@@ -6680,6 +6735,315 @@ mod tests {
         assert_eq!(
             errore.message,
             "dimensionalità WKB ignota non scrivibile in Shapefile"
+        );
+    }
+
+    /// Un bundle in cui il `.dbf` conta piu' righe di quante geometrie abbia il
+    /// `.shp`.
+    ///
+    /// Nessun produttore conforme lo scrive, e all'apertura non passerebbe:
+    /// `infer_geometry_info` confronta i due conteggi e rifiuta. Serve percio'
+    /// a raggiungere il parser **saltando** quel confronto, che e' l'unico modo
+    /// di eseguire la difesa che il parser ha per lo stesso caso -- e che esiste
+    /// perche' fra l'apertura e la lettura il file puo' essere cambiato.
+    ///
+    /// Le due meta' vengono da due bundle scritti dal writer vero: il `.shp` e
+    /// lo `.shx` da quello corto, il `.dbf` da quello lungo. Nessun byte e'
+    /// costruito a mano, quindi l'unica incoerenza e' quella voluta.
+    fn bundle_disallineato(dir: &Path, nome: &str, geometrie: usize, record: usize) -> PathBuf {
+        let corto = bundle_di_righe(dir, &format!("corto-{nome}"), &["NOME"], geometrie, |_| {});
+        let lungo = bundle_di_righe(dir, &format!("lungo-{nome}"), &["NOME"], record, |_| {});
+        std::fs::copy(lungo.with_extension("dbf"), corto.with_extension("dbf"))
+            .expect("il dbf lungo prende il posto di quello corto");
+        corto
+    }
+
+    /// `spawn_parser` si ferma quando le geometrie finiscono prima dei record,
+    /// e i due contatori non possono traboccare.
+    ///
+    /// # Perche' passa dalla costruzione diretta dell'ingresso
+    ///
+    /// Dal driver questa difesa non ha input: `infer_geometry_info` confronta
+    /// geometrie e record all'apertura e rifiuta prima. Resta nel parser perche'
+    /// fra l'apertura e la lettura il file puo' cambiare, e allora la difesa e'
+    /// l'ultima cosa che sta fra un troncamento e una riga con gli attributi di
+    /// un'altra. `ShpParserInput` e' privato del modulo, quindi la sonda lo
+    /// costruisce dove vive.
+    ///
+    /// # I due contatori
+    ///
+    /// «numero di record Shapefile fuori intervallo u64» e «numero di record DBF
+    /// attivi fuori intervallo u64» non hanno input, e non serve una guardia per
+    /// dirlo: il ciclo gira al piu' `record_count` volte, e `record_count` e' un
+    /// `u32` letto dall'header. Un contatore `u64` che parte da zero e cresce di
+    /// uno per giro arriva al massimo a `u32::MAX`.
+    ///
+    /// La difesa simmetrica -- i record che finiscono prima delle geometrie --
+    /// e' chiusa altrove: pretenderebbe che l'iteratore di `dbase` si esaurisse
+    /// prima del lettore raw, e le due strade per farlo sono percorse e chiuse
+    /// in `n1_le_due_letture_del_dbf_non_possono_divergere`.
+    #[test]
+    fn n1_spawn_parser_si_ferma_quando_le_geometrie_finiscono_prima_dei_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = bundle_disallineato(dir.path(), "misto.shp", 1, 3);
+        let layout = read_dbf_layout(&bundle).expect("il dbf lungo e' ben formato");
+        assert_eq!(layout.record_count, 3, "il dbf porta tre record");
+
+        let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+        let layer = LayerContract {
+            id: LayerId(0),
+            name: "misto".to_owned(),
+            contract: DataContract::new(schema.clone(), None),
+        };
+        let ingresso = ShpParserInput {
+            path: bundle,
+            schema: schema.clone(),
+            cols: Vec::new(),
+            dbf_layout: layout.clone(),
+            dimensions: CoordinateDimensions::Xy,
+            expected_shape_type: Some("point-xy"),
+            expected_active_rows: u64::from(layout.record_count),
+            include_geometry: true,
+            batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(&schema, BatchTarget::default()),
+            layer,
+            loss: LossReport::default(),
+            row_diagnostics: ShpRowDiagnosticsConfig::from_options(&BTreeMap::new(), &[], &layout)
+                .expect("nessuna opzione di diagnostica"),
+            scope: ReadScope::Complete,
+            cancellation: plenora_io_model::CancellationToken::new(),
+        };
+
+        let mut lettore = spawn_parser(ingresso).expect("le validazioni pre-thread passano");
+        let mut errore = None;
+        loop {
+            match lettore.next_batch() {
+                Ok(Some(_)) => {}
+                Ok(None) => break,
+                Err(e) => {
+                    errore = Some(e);
+                    break;
+                }
+            }
+        }
+        let Some(errore) = errore else {
+            panic!("tre record contro una geometria non sono un allineamento");
+        };
+        assert_eq!(
+            errore.message, "numero di geometrie incoerente con i record DBF",
+            "il messaggio deve dire quale dei due file e' finito prima"
+        );
+
+        // I due contatori: il ciclo gira al piu' `record_count` volte, e quello
+        // e' un `u32`. Un `u64` che cresce di uno per giro non ci arriva.
+        assert!(
+            u64::from(u32::MAX).checked_add(1).is_some(),
+            "un contatore u64 che sale fino a u32::MAX non trabocca: e' la ragione per cui \
+             i due «fuori intervallo u64» non hanno input"
+        );
+
+        // Il controllo positivo, con lo stesso parser: un bundle allineato si
+        // legge fino in fondo. Senza, «fallisce sempre» supererebbe la prova.
+        let allineato = bundle_di_righe(dir.path(), "allineato.shp", &["NOME"], 3, |_| {});
+        let layout = read_dbf_layout(&allineato).expect("il bundle e' conforme");
+        let ingresso = ShpParserInput {
+            path: allineato,
+            schema: schema.clone(),
+            cols: Vec::new(),
+            dbf_layout: layout.clone(),
+            dimensions: CoordinateDimensions::Xy,
+            expected_shape_type: Some("point-xy"),
+            expected_active_rows: u64::from(layout.record_count),
+            include_geometry: true,
+            batch_sizer: plenora_io_core::AdaptiveBatchSizer::new(&schema, BatchTarget::default()),
+            layer: LayerContract {
+                id: LayerId(0),
+                name: "allineato".to_owned(),
+                contract: DataContract::new(schema, None),
+            },
+            loss: LossReport::default(),
+            row_diagnostics: ShpRowDiagnosticsConfig::from_options(&BTreeMap::new(), &[], &layout)
+                .expect("nessuna opzione di diagnostica"),
+            scope: ReadScope::Complete,
+            cancellation: plenora_io_model::CancellationToken::new(),
+        };
+        let mut lettore = spawn_parser(ingresso).expect("le validazioni pre-thread passano");
+        let mut righe = 0_usize;
+        while let Some(lotto) = lettore.next_batch().expect("un bundle allineato si legge") {
+            righe += lotto.num_rows();
+        }
+        assert_eq!(
+            righe, 3,
+            "tre record allineati a tre geometrie fanno tre righe"
+        );
+    }
+
+    /// `descrittori_concordi` rifiuta la divergenza fra le due letture
+    /// dell'header, e fa uscire il conteggio che e' nostro.
+    ///
+    /// Il controllo non e' ridondante, ed e' la parte che vale la pena fissare:
+    /// `leggi_descrittori_dbf` scorre **un descrittore per nome decodificato**,
+    /// quindi con due numeri diversi il lettore si fermerebbe a meta' dei
+    /// trentadue byte di un descrittore, e il controllo sul terminatore che
+    /// segue leggerebbe un byte qualunque. Il rifiuto tiene allineate le due
+    /// letture prima che si disallineino.
+    ///
+    /// Che il messaggio porti il conteggio **decodificato** e non quello
+    /// dell'header e' l'altra meta': il primo lo produciamo noi, il secondo
+    /// viene dal file, e nessun numero letto dal payload esce dai messaggi.
+    #[test]
+    fn n1_descrittori_concordi_rifiuta_la_divergenza_e_fa_uscire_il_numero_nostro() {
+        descrittori_concordi(3, 3).expect("due conteggi uguali non sono una divergenza");
+        descrittori_concordi(0, 0).expect("zero descrittori concordano con zero");
+
+        for (caso, dichiarati, decodificati) in [
+            ("l'header ne dichiara uno in piu'", 2, 1),
+            ("il decoder ne trova uno in piu'", 1, 2),
+        ] {
+            let Err(errore) = descrittori_concordi(dichiarati, decodificati) else {
+                panic!("{caso}: due conteggi diversi non possono allineare due letture");
+            };
+            assert!(
+                errore
+                    .message
+                    .starts_with("numero di descrittori DBF incoerente con l'header"),
+                "{caso}: arrivato «{}»",
+                errore.message
+            );
+            assert!(
+                errore.message.ends_with(&decodificati.to_string()),
+                "{caso}: deve uscire il conteggio decodificato ({decodificati}), \
+                 non quello letto dall'header: «{}»",
+                errore.message
+            );
+        }
+    }
+
+    /// `righe_dopo_il_lotto` ferma il contatore che traboccherebbe, e lo fa
+    /// **prima** che il lotto raggiunga il disco.
+    ///
+    /// Il contatore serve a due cose diverse -- il totale dichiarato e la
+    /// posizione delle righe nelle diagnostiche -- e un valore che ricomincia
+    /// da zero dopo un giro completo le rovinerebbe entrambe in silenzio.
+    ///
+    /// La conversione della cardinalita' del lotto resta senza input: e' una
+    /// `usize` verso `u64`, e su ogni bersaglio supportato non fallisce. Cio'
+    /// che si prova qui e' la somma, che dipende da uno stato accumulato e non
+    /// dal bersaglio.
+    #[test]
+    fn n1_righe_dopo_il_lotto_ferma_il_contatore_che_traboccherebbe() {
+        assert_eq!(
+            righe_dopo_il_lotto(7, 3).expect("dieci righe stanno in un u64"),
+            10
+        );
+        assert_eq!(
+            righe_dopo_il_lotto(u64::MAX, 0).expect("un lotto vuoto non aggiunge niente"),
+            u64::MAX,
+            "il confine e' incluso: e' l'ultimo valore rappresentabile, non il primo rifiutato"
+        );
+
+        let Err(errore) = righe_dopo_il_lotto(u64::MAX, 1) else {
+            panic!("una riga oltre l'ultimo valore rappresentabile non si conta");
+        };
+        assert_eq!(errore.message, "troppe righe Shapefile");
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::ResourceLimit
+        );
+
+        // La conversione infallibile: che questa riga compili e' la prova che
+        // l'altro ramo dell'aiutante non ha input su questo bersaglio.
+        let _: u64 = u64::try_from(usize::MAX).expect("usize sta in u64 sui bersagli supportati");
+    }
+
+    /// Il rifiuto sul contatore precede la scrittura, e lo staging resta come
+    /// era.
+    ///
+    /// E' la meta' che l'aritmetica da sola non prova: che il conteggio corra
+    /// **prima** del ciclo che scrive le shape. Un contatore verificato dopo
+    /// avrebbe gia' lasciato le geometrie nel file di staging, e il rifiuto
+    /// sarebbe una constatazione.
+    #[test]
+    fn n1_il_contatore_che_trabocca_ferma_il_lotto_prima_di_scriverlo() {
+        let dir = tempfile::tempdir().unwrap();
+        let punto = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+        let schema: SchemaRef = Arc::new(Schema::new(vec![geometry_field(GEOMETRY, "EPSG:4326")]));
+        let lotto = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(BinaryArray::from(vec![Some(punto.as_slice())]))],
+        )
+        .unwrap();
+
+        // Lo stato si costruisce direttamente: `create` restituisce un
+        // `Box<dyn FormatWriter>`, e da li' il contatore non e' raggiungibile.
+        let destinazione = dir.path().join("contatore.shp");
+        let staging = create_staged_dir(&destinazione).expect("lo staging si crea");
+        let percorso_shp = staging.path().join("data.shp");
+        let writer = Writer::from_path(&percorso_shp, TableWriterBuilder::new())
+            .expect("il writer dello staging si apre");
+        let mut stato = ShpWriter {
+            staging: Some(staging),
+            writer: Some(writer),
+            dest: destinazione,
+            durable: false,
+            publish_mode: ShapefilePublishMode::LooseSet,
+            attrs: Vec::new(),
+            geom_idx: 0,
+            prj: None,
+            shape_type: None,
+            rows: u64::MAX,
+            input_total: None,
+            wkb_limits: WkbLimits::default(),
+            max_output_bytes: u64::MAX,
+        };
+
+        let prima = std::fs::metadata(&percorso_shp)
+            .expect("il file di staging esiste")
+            .len();
+        let Err(errore) = stato.write(&lotto) else {
+            panic!("un lotto che fa traboccare il contatore non si scrive");
+        };
+        assert_eq!(errore.message, "troppe righe Shapefile");
+        assert_eq!(
+            std::fs::metadata(&percorso_shp)
+                .expect("il file di staging esiste ancora")
+                .len(),
+            prima,
+            "il rifiuto deve precedere la scrittura: lo staging non deve essere cresciuto"
+        );
+    }
+
+    /// `byte_dello_staging` somma le parti senza traboccare in silenzio.
+    ///
+    /// Il tetto sull'output vale sull'**insieme** delle quattro parti, e un
+    /// totale che ricominciasse da zero lo farebbe passare: il set verrebbe
+    /// pubblicato dichiarando meno byte di quanti ne occupa, che e' peggio di
+    /// un rifiuto.
+    #[test]
+    fn n1_byte_dello_staging_non_trabocca_in_silenzio() {
+        assert_eq!(
+            byte_dello_staging([1, 2, 3]).expect("tre parti si sommano"),
+            6
+        );
+        assert_eq!(
+            byte_dello_staging([]).expect("nessuna parte fa zero byte"),
+            0,
+            "un set senza parti presenti e' zero, non un errore"
+        );
+        assert_eq!(
+            byte_dello_staging([u64::MAX, 0]).expect("il confine e' incluso"),
+            u64::MAX
+        );
+
+        let Err(errore) = byte_dello_staging([u64::MAX, 1]) else {
+            panic!("una somma oltre u64::MAX non e' un conteggio");
+        };
+        assert_eq!(
+            errore.message,
+            "overflow nel conteggio dell'output Shapefile"
+        );
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::ResourceLimit
         );
     }
 

@@ -1015,6 +1015,19 @@ const AVVISO_SEGNALI: &str =
     "avviso: gestore dei segnali non installato; Ctrl+C termina il processo senza \
      annullare l'operazione, e lo staging in corso resta sul disco.";
 
+/// La riga che conferma il primo segnale e annuncia che cosa fa il secondo.
+///
+/// Serve a chi preme Ctrl+C e non vede succedere niente. La cancellazione e'
+/// cooperativa: fra il segnale e il rientro della pipeline passa il tempo che
+/// passa, e senza una conferma quel tempo e' indistinguibile da un comando che
+/// ha ignorato la richiesta. Chi non lo sa preme di nuovo, e il secondo segnale
+/// fa una cosa diversa dalla prima -- esce subito, lasciando lo staging dov'e'.
+/// Dirlo prima e' l'unico modo perche' la seconda pressione sia una scelta.
+///
+/// Va su `stderr` come ogni diagnostica: `stdout` porta il risultato, e un
+/// consumatore che lo legge non deve trovarci una riga di stato.
+const AVVISO_ANNULLAMENTO: &str = "annullamento richiesto: la pipeline rientra al prossimo punto      di verifica. Un secondo Ctrl+C esce subito e lascia lo staging sul disco.";
+
 /// Arma il token del processo al primo segnale, esce al secondo.
 ///
 /// # La cancellazione e' cooperativa
@@ -1056,6 +1069,11 @@ fn installa_gestore_dei_segnali() -> CancellationToken {
         if reagisci_al_segnale(&gia_chiesto, &armato) == AzioneDelSegnale::UsciSubito {
             std::process::exit(EXIT_ANNULLATO);
         }
+        // La conferma esce **dopo** che il token e' armato, non prima: una riga
+        // che precedesse l'armamento direbbe «annullato» di un annullamento non
+        // ancora chiesto, e chi la legge la userebbe per decidere se premere di
+        // nuovo.
+        eprintln!("{AVVISO_ANNULLAMENTO}");
     })
     .is_err()
     {

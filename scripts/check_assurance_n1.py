@@ -161,14 +161,25 @@ def _verifica_prova(nome: str, voce: dict, percorso: str | None) -> list[str]:
         # `check_assurance_n1_prove.py`, che esegue il harness e legge gli
         # esiti. Questo controllo resta perche' gira senza cargo e coglie
         # subito il caso piu' comune: una prova che sopravvive al proprio test.
-        testo = (ROOT / percorso).read_text(encoding="utf-8")
         for voce_prova in prova:
+            # Una prova puo' vivere altrove, e per i test d'integrazione **deve**:
+            # il ramo sta in `src/`, il test in `tests/`, e pretendere che
+            # coincidano escluderebbe proprio le prove che passano dal binario
+            # vero. `file` sulla singola prova dice dove cercarla; senza, si
+            # cerca nel file del gruppo.
+            dove = voce_prova.get("file", percorso)
+            if not (ROOT / dove).exists():
+                errori.append(
+                    f"{nome}: la prova dichiara il file {dove}, che non esiste."
+                )
+                continue
+            testo = (ROOT / dove).read_text(encoding="utf-8")
             identita = voce_prova.get("test", "")
             finale = identita.rsplit("::", 1)[-1]
             if not finale or f"fn {finale}(" not in testo:
                 errori.append(
                     f"{nome}: la prova «{identita}» non ha un simbolo in "
-                    f"{percorso}. Una prova che sopravvive al proprio test "
+                    f"{dove}. Una prova che sopravvive al proprio test "
                     "chiude un gruppo che nessuno verifica piu'."
                 )
     elif prova:

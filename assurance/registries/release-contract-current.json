@@ -254,9 +254,7 @@
         ],
         "artefatto": "assurance/registries/assurance-n1-copertura-negativa.json"
       },
-      "stato": "release_blocking",
-      "manca": "44 gruppi su 50 restano aperti",
-      "sintesi": "rami d'errore negativi non tutti verificati da un test eseguito"
+      "stato": "verified"
     },
     {
       "id": "fuzz.reader-shapefile",

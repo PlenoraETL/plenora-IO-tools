@@ -5,20 +5,20 @@
   "corpus": {
     "input": 24
   },
-  "impronta_perimetro": "0795495f62dd204f893d46800ba9e2adaa6eca442cf2c64e4684a978e567474e",
+  "impronta_perimetro": "882e0fa8d5d2bec55f833a585eb5b08a7fb7e0c4c64cf44c3e8f6114deafe28d",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "nota_sul_raggiungimento": "ogni requisito dice `raggiunto`, non quante volte. Lo schema 1 registrava il `conteggio` delle esecuzioni e il gate ne pretendeva il segno: il numero pero' alternava fra due stati a parita' di albero -- otto requisiti su trentacinque, su quattro corse di cui due bit-identiche -- e ogni rimisura scriveva quel rumore in un file versionato, indistinguibile da un fatto. `raggiunto` e' la stessa affermazione senza la parte instabile: lo deriva questo generatore da `conteggio > 0`, e il gate lo pretende booleano e vero.",
   "requisiti": [
     {
       "id": "bundle.prj-materializzato",
       "famiglia": "riga",
-      "riga": 3567,
+      "riga": 3622,
       "raggiunto": true
     },
     {
       "id": "bundle.shx-materializzato",
       "famiglia": "riga",
-      "riga": 3561,
+      "riga": 3616,
       "raggiunto": true
     },
     {
@@ -84,7 +84,7 @@
     {
       "id": "prevalidazione.conteggi-del-multipunto",
       "famiglia": "riga",
-      "riga": 1647,
+      "riga": 1680,
       "raggiunto": true
     },
     {
@@ -114,67 +114,67 @@
     {
       "id": "rifiuto.campo-dbf-corto",
       "famiglia": "riga",
-      "riga": 2198,
+      "riga": 2231,
       "raggiunto": true
     },
     {
       "id": "rifiuto.cardinalita-nel-drenaggio",
       "famiglia": "riga",
-      "riga": 3328,
+      "riga": 3383,
       "raggiunto": true
     },
     {
       "id": "rifiuto.conteggi-all-apertura",
       "famiglia": "riga",
-      "riga": 2875,
+      "riga": 2930,
       "raggiunto": true
     },
     {
       "id": "rifiuto.conteggio-negativo",
       "famiglia": "riga",
-      "riga": 1720,
+      "riga": 1753,
       "raggiunto": true
     },
     {
       "id": "rifiuto.data-e-ora-fuori-intervallo",
       "famiglia": "riga",
-      "riga": 2266,
+      "riga": 2299,
       "raggiunto": true
     },
     {
       "id": "rifiuto.data-non-interpretabile",
       "famiglia": "riga",
-      "riga": 2259,
+      "riga": 2292,
       "raggiunto": true
     },
     {
       "id": "rifiuto.indice-delle-parti",
       "famiglia": "riga",
-      "riga": 1752,
+      "riga": 1785,
       "raggiunto": true
     },
     {
       "id": "rifiuto.indice-dentro-un-record",
       "famiglia": "riga",
-      "riga": 1919,
+      "riga": 1952,
       "raggiunto": true
     },
     {
       "id": "rifiuto.indice-fuori-dal-shp",
       "famiglia": "riga",
-      "riga": 1978,
+      "riga": 2011,
       "raggiunto": true
     },
     {
       "id": "rifiuto.offset-dbf-corto",
       "famiglia": "riga",
-      "riga": 2123,
+      "riga": 2156,
       "raggiunto": true
     },
     {
       "id": "rifiuto.record-troppo-corto",
       "famiglia": "riga",
-      "riga": 1714,
+      "riga": 1747,
       "raggiunto": true
     },
     {

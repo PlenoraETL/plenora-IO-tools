@@ -272,6 +272,26 @@ class SondeProva(unittest.TestCase):
         errori = gate.integrita([voce])
         self.assertTrue(any("senza campo `prova`" in e for e in errori), errori)
 
+    def test_una_prova_puo_vivere_in_un_altro_file(self) -> None:
+        """I test d'integrazione stanno in `tests/`, il ramo in `src/`.
+
+        Pretendere che coincidano escluderebbe proprio le prove che passano dal
+        binario vero, che sono le uniche capaci di osservare un'uscita di
+        processo."""
+        altrove = dict(
+            CHIUSO_CON_PROVA["prova"][0],
+            test="tests::test_un_registro_completo_e_integro",
+            file="scripts/check_assurance_n1.py",
+        )
+        voce = dict(CHIUSO_CON_PROVA, prova=[altrove])
+        errori = gate.integrita([voce])
+        self.assertTrue(any("non ha un simbolo" in e for e in errori), errori)
+
+    def test_una_prova_che_dichiara_un_file_assente_e_rossa(self) -> None:
+        altrove = dict(CHIUSO_CON_PROVA["prova"][0], file="crates/mai-esistito/src/lib.rs")
+        errori = gate.integrita([dict(CHIUSO_CON_PROVA, prova=[altrove])])
+        self.assertTrue(any("che non esiste" in e for e in errori), errori)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -68,7 +68,11 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # `scrittore`, che tiene la quota in un posto solo invece che su ogni lotto.
 # In nessuna delle due il tetto e' l'oggetto della prova: sceglierne una
 # diversa proverebbe il driver sotto una quota che nessun uso reale imposta.
-ATTESI = {"test": 82, "attrezzaggio": 6, "produzione": 2}
+# `test` passa da 82 a 83 con la sonda che costruisce `ShpWriter` a mano per
+# portare il contatore delle righe a ridosso di `u64::MAX`: lo stato ha un
+# campo `wkb_limits`, e li' la quota e' il contesto della prova, non il suo
+# oggetto -- cio' che si prova e' l'ordine fra conteggio e scrittura.
+ATTESI = {"test": 83, "attrezzaggio": 6, "produzione": 2}
 # Le sette ultime sono le sonde di **confine** del lotto S12: per ogni forma
 # derivano dal default una quota esatta e una piu' stretta di uno, perche' il
 # tetto sui componenti va provato dove morde e non «da qualche parte sopra».

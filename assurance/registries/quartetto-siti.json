@@ -299,6 +299,9 @@
     ]
   },
   "crates/driver-shp/src/lib.rs": {
+    "byte_dello_staging": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
     "create": [
       "Unsupported/Validate/Unsupported/Never",
       "Conflict/Commit/OutputExists/Never",
@@ -312,7 +315,6 @@
       "DataMapping/Read/Format/Never"
     ],
     "finish": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "from_options": [
@@ -337,12 +339,11 @@
     "resolved_crs_id": [
       "Crs/Validate/Crs/Never"
     ],
+    "righe_dopo_il_lotto": [
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
     "shapefile_source_path": [
       "Unsupported/Validate/Unsupported/Never"
-    ],
-    "write": [
-      "ResourceLimit/Validate/LimitExceeded/Never",
-      "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
   "crates/driver-xls/src/lib.rs": {
@@ -352,17 +353,14 @@
       "Unsupported/Validate/Unsupported/Never",
       "esplicito/esplicito/Generic/esplicito"
     ],
-    "data": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "err": [
       "DataMapping/Read/Format/Never"
     ],
-    "geometry": [
-      "ResourceLimit/Validate/LimitExceeded/Never"
-    ],
     "infer_layout": [
       "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
+    "lunghezza_dello_spool": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
     "open": [

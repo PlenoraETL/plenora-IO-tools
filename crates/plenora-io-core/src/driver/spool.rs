@@ -151,12 +151,18 @@ pub fn adaptive_memory_threshold(budget: &OperationBudget) -> u64 {
 
 /// Directory che ospitera' l'inode dello spool.
 ///
+/// Pubblica perche' lo spill non e' solo quello di [`StagedSpool`]: anche i
+/// driver che tengono un proprio file temporaneo devono finire **dove
+/// l'operatore ha scelto**. Finche' e' stata privata, `driver-xls` creava il
+/// proprio spool nella directory temporanea di sistema e `PLENORA_SPILL_DIR`
+/// non lo governava, pur dichiarando di governare lo spill.
+///
 /// # Errors
 ///
 /// Restituisce un errore se `PLENORA_SPILL_DIR` e' impostata ma non e' una
 /// directory utilizzabile. Non ripiega su un'altra directory: un ripiego
 /// silenzioso metterebbe i dati su un volume che l'operatore non ha scelto.
-fn spill_directory() -> Result<PathBuf> {
+pub fn spill_directory() -> Result<PathBuf> {
     resolve_spill_directory(std::env::var_os(SPILL_DIR_ENV))
 }
 
