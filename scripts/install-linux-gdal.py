@@ -1,44 +1,72 @@
 #!/usr/bin/env python3
 """Materializza il runtime GDAL di Linux dal lock, senza solver.
 
-# Che cosa non fa
+# Perche' passa da micromamba e non da `tar`
 
-Non risolve. Non interroga il canale. Non legge metadata mobili. Prende
-`scripts/linux-gdal-lock.json`, scarica gli URL che vi stanno scritti, e
-**verifica dimensione e sha256 prima di aprire qualunque cosa**. Un pacchetto
-che non corrisponde ferma la costruzione: un artefatto costruito su un byte
-diverso da quello fissato non e' l'artefatto che il lock descrive.
+La prima stesura estraeva i pacchetti a mano. Sembrava piu' semplice e aveva
+due difetti che una revisione ha trovato.
 
-La differenza fra questo script e quello che ha *prodotto* il lock e' il punto:
-il produttore ha usato un solver, una volta, ed e' registrato dentro il lock
-insieme al proprio sha256. Il costruttore non ne ha uno.
+Il primo: **le rilocazioni di conda non venivano applicate**. Un pacchetto
+conda dichiara in `info/paths.json` quali file portano il prefisso di
+costruzione e vanno riscritti all'installazione. Senza quella riscrittura i
+binari restano con un placeholder, e il placeholder non e' una stringa inerte:
+in `libgdal` copre `share/gdal` e `lib/gdalplugins`, cioe' **dati e plugin**.
+L'RPATH non li riguarda -- prova la risoluzione delle librerie, non quella dei
+dati -- e ritenerli innocui perche' l'RPATH e' relativo era un falso verde.
 
-# Che cosa lascia dietro
+Il secondo: **l'ordine di estrazione**. Cinquantotto pacchetti estratti in
+ordine alfabetico possono sovrascriversi, e quell'ordine non e' quello che
+conda deciderebbe. Un file vinto dal pacchetto sbagliato non si vede.
 
-Il prefisso estratto e `rilocazioni.json`, l'elenco dei file che conda
-riscriverebbe all'installazione. Serve a `check-linux-gdal-runtime.py`, che
-decide se qualcosa di quel prefisso finirebbe nell'artefatto in una forma che
-il codice legge.
+micromamba in modalita' **esplicita** risolve entrambi: applica le rilocazioni
+come farebbe conda, rispetta il proprio ordine di link, e gestisce le
+collisioni. E non risolve niente: la lista esplicita porta gli URL del lock,
+uno per riga, ciascuno con il proprio sha256. Nessun solver, nessuna
+interrogazione del canale, nessun metadata mobile.
+
+# La verifica resta nostra
+
+Ogni pacchetto e' scaricato e confrontato con il lock **prima** che micromamba
+lo veda. Che poi anche conda controlli lo sha256 e' una seconda rete, non la
+prima: un artefatto costruito su un byte diverso da quello fissato non e'
+l'artefatto che il lock descrive, e a dirlo dev'essere il nostro controllo.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 import json
 import pathlib
 import subprocess
 import sys
 import tarfile
-import zipfile
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 
 
-def scarica_e_verifica(pacchetto: dict, cache: pathlib.Path) -> pathlib.Path:
-    """Il file, se e solo se e' quello che il lock nomina."""
+def procurati_micromamba(pin: dict, lavoro: pathlib.Path) -> pathlib.Path:
+    """Lo strumento, se e solo se e' quello che il lock nomina."""
+    archivio = lavoro / "micromamba.tar.bz2"
+    if not archivio.exists():
+        subprocess.run(["curl", "-sSL", "--fail", "-o", str(archivio), pin["url"]], check=True)
+    dati = archivio.read_bytes()
+    sha = hashlib.sha256(dati).hexdigest()
+    if len(dati) != pin["dimensione"] or sha != pin["sha256"]:
+        archivio.unlink(missing_ok=True)
+        sys.exit(
+            f"micromamba non corrisponde al pin del lock: {len(dati)} byte, sha256 {sha}. "
+            f"Attesi {pin['dimensione']} byte, sha256 {pin['sha256']}."
+        )
+    with tarfile.open(archivio, "r:bz2") as tf:
+        tf.extract("bin/micromamba", lavoro, filter="tar")
+    binario = lavoro / "bin" / "micromamba"
+    binario.chmod(0o755)
+    return binario
+
+
+def scarica_e_verifica(pacchetto: dict, cache: pathlib.Path) -> None:
     destinazione = cache / pacchetto["url"].rsplit("/", 1)[-1]
     if not destinazione.exists():
         subprocess.run(
@@ -47,48 +75,20 @@ def scarica_e_verifica(pacchetto: dict, cache: pathlib.Path) -> pathlib.Path:
     dati = destinazione.read_bytes()
     sha = hashlib.sha256(dati).hexdigest()
     if len(dati) != pacchetto["dimensione"] or sha != pacchetto["sha256"]:
-        # Il file rimosso, non lasciato in cache: una cache avvelenata farebbe
-        # fallire ogni corsa successiva senza dire perche'.
+        # Rimosso, non lasciato: una cache avvelenata farebbe fallire ogni
+        # corsa successiva senza dire perche'.
         destinazione.unlink(missing_ok=True)
         sys.exit(
             f"{pacchetto['nome']}: il file non corrisponde al lock "
-            f"({len(dati)} byte, sha256 {sha}). Atteso {pacchetto['dimensione']} byte, "
+            f"({len(dati)} byte, sha256 {sha}). Attesi {pacchetto['dimensione']} byte, "
             f"sha256 {pacchetto['sha256']}."
         )
-    return destinazione
-
-
-def estrai(archivio: pathlib.Path, dove: pathlib.Path) -> dict:
-    """Estrae un `.conda` e restituisce il suo `info/paths.json`.
-
-    Un `.conda` e' uno zip con dentro due tarball zstd: `info-*` con i metadati
-    e `pkg-*` con i file. `info/paths.json` dichiara quali file conda
-    riscriverebbe e con quale placeholder.
-    """
-    paths: dict = {}
-    with zipfile.ZipFile(archivio) as zf:
-        for nome in zf.namelist():
-            if not nome.endswith(".tar.zst"):
-                continue
-            # `zf.open` da' un flusso senza descrittore, che `subprocess` non sa
-            # passare: i byte si leggono e si consegnano a `zstd` interi.
-            decompresso = subprocess.run(
-                ["zstd", "-d", "-c"], input=zf.read(nome), stdout=subprocess.PIPE, check=True
-            ).stdout
-            with tarfile.open(fileobj=io.BytesIO(decompresso)) as tf:
-                if nome.startswith("info-"):
-                    membro = tf.extractfile("info/paths.json")
-                    if membro is not None:
-                        paths = json.load(membro)
-                else:
-                    tf.extractall(dove, filter="tar")
-    return paths
 
 
 def main() -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--prefisso", required=True, type=pathlib.Path)
-    argomenti.add_argument("--cache", required=True, type=pathlib.Path)
+    argomenti.add_argument("--lavoro", required=True, type=pathlib.Path)
     opzioni = argomenti.parse_args()
 
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
@@ -101,29 +101,45 @@ def main() -> int:
         # mescolerebbe due materializzazioni, e la seconda erediterebbe i file
         # della prima senza che nessuno lo veda.
         sys.exit(f"il prefisso deve essere assente o vuoto: {prefisso}")
-    prefisso.mkdir(parents=True, exist_ok=True)
-    opzioni.cache.mkdir(parents=True, exist_ok=True)
 
-    rilocazioni = []
+    lavoro: pathlib.Path = opzioni.lavoro
+    cache = lavoro / "pacchetti"
+    cache.mkdir(parents=True, exist_ok=True)
+
+    micromamba = procurati_micromamba(lock["risolto_con"], lavoro)
+
     for pacchetto in lock["pacchetti"]:
-        archivio = scarica_e_verifica(pacchetto, opzioni.cache)
-        for voce in estrai(archivio, prefisso).get("paths", []):
-            if voce.get("prefix_placeholder"):
-                rilocazioni.append(
-                    {
-                        "pacchetto": pacchetto["nome"],
-                        "file": voce["_path"],
-                        "placeholder": voce["prefix_placeholder"],
-                        "modo": voce.get("file_mode"),
-                    }
-                )
+        scarica_e_verifica(pacchetto, cache)
 
-    (prefisso / "rilocazioni.json").write_text(
-        json.dumps(rilocazioni, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    esplicito = lavoro / "esplicito.txt"
+    esplicito.write_text(
+        "@EXPLICIT\n" + "".join(f"{p['url']}#{p['sha256']}\n" for p in lock["pacchetti"]),
+        encoding="utf-8",
     )
+
+    subprocess.run(
+        [
+            str(micromamba),
+            "create",
+            "--yes",
+            "--prefix",
+            str(prefisso),
+            "--file",
+            str(esplicito),
+        ],
+        check=True,
+        env={
+            "MAMBA_ROOT_PREFIX": str(lavoro / "root"),
+            "CONDA_PKGS_DIRS": str(cache),
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(lavoro),
+        },
+        stdout=subprocess.DEVNULL,
+    )
+
     print(
-        f"materializzati {len(lock['pacchetti'])} pacchetti da {lock['canale']}, "
-        f"tutti verificati sul lock; {len(rilocazioni)} file con placeholder registrati"
+        f"materializzati {len(lock['pacchetti'])} pacchetti in {prefisso}: "
+        "verificati sul lock, rilocati da conda, nessun solver consultato"
     )
     return 0
 

@@ -557,33 +557,82 @@
       "sha256": "47d682b9f6d6ec9eb1a6e6c3e75ea6273e899e78fb7fc59f81d39745009fbc60"
     }
   ],
-  "misure_alla_creazione": {
-    "revisione_del_repository": "79e8ff1",
-    "chiusura_dt_needed": {
-      "interne": 56,
-      "esterne": [
-        "ld-linux-x86-64.so.2",
-        "libc.so.6",
-        "libdl.so.2",
-        "libm.so.6",
-        "libpthread.so.0",
-        "libresolv.so.2"
-      ],
-      "esterne_non_classificate": []
-    },
-    "glibc_massima_negli_elf_spediti": "2.17",
-    "glibc_dichiarata_nella_matrice": "2.35",
-    "openfilegdb": {
-      "driver_registrato": true,
-      "crea": true,
-      "rilegge": true,
-      "verificato": "un layer, un campo, una riga, geometria a posto; 19 file .gdbtable scritti",
-      "come": "scripts/sonda-openfilegdb.c, compilata contro la libreria materializzata"
-    },
-    "prefisso_di_costruzione": {
-      "file_di_testo_spediti_con_placeholder": 0,
-      "binari_spediti_con_stringa_inerte": 7,
-      "elf_con_rpath_relativo": "57 su 57"
-    }
+  "contratto_di_verifica": {
+    "nota": "Quello che `check-linux-gdal-runtime.py` pretende. Non ci sono numeri misurati qui: i numeri li produce il controllo. Una copia di un numero in un secondo posto e' una seconda verita', e in questo lock ce n'erano tre dello stesso fatto -- 55, 56 e 57 -- di cui due sbagliate.",
+    "glibc_massima_ammessa": "2.35",
+    "dipendenze_esterne_attese": [
+      "ld-linux-x86-64.so.2",
+      "libc.so.6",
+      "libdl.so.2",
+      "libm.so.6",
+      "libpthread.so.0",
+      "libresolv.so.2"
+    ],
+    "dipendenze_esterne_attese_nota": "l'insieme **esatto**, non un tetto. La politica ABI del controllo ne ammette di piu' -- `libstdc++` fra le altre -- e con la sola politica una libreria che smettesse di essere spedita, e venisse quindi presa dal sistema, resterebbe verde. Ogni variazione di questo insieme vuole un lock nuovo, perche' e' un cambio di cio' che l'artefatto porta con se'.",
+    "percorsi_assoluti_ammessi": [
+      {
+        "schema": "/share/gdal",
+        "categoria": "coperto_da_variabile",
+        "variabile": "GDAL_DATA",
+        "ragione": "il default cotto dentro punta al prefisso di costruzione; l'artefatto lo sovrascrive con un percorso derivato da quello del binario"
+      },
+      {
+        "schema": "/share/proj",
+        "categoria": "coperto_da_variabile",
+        "variabile": "PROJ_DATA",
+        "ragione": "come sopra: senza, le trasformazioni di CRS degradano in silenzio"
+      },
+      {
+        "schema": "/lib/gdalplugins",
+        "categoria": "coperto_da_variabile",
+        "variabile": "GDAL_DRIVER_PATH",
+        "ragione": "fissata alla directory dei plugin spediti, cosi' nessun plugin di sistema entra nel processo"
+      },
+      {
+        "schema": "/ssl(/.*)?",
+        "categoria": "coperto_da_variabile",
+        "variabile": "SSL_CERT_FILE, SSL_CERT_DIR",
+        "ragione": "OpenSSL cerca i certificati sotto il proprio OPENSSLDIR; l'artefatto punta al bundle spedito. Il prodotto legge file locali, ma GDAL apre URL se glielo si chiede, e un percorso di certificati che non esiste darebbe un errore TLS indistinguibile da un difetto di rete"
+      },
+      {
+        "schema": "/lib/(engines-3|ossl-modules)",
+        "categoria": "coperto_da_variabile",
+        "variabile": "OPENSSL_ENGINES, OPENSSL_MODULES",
+        "ragione": "moduli caricabili di OpenSSL: senza la variabile, il caricatore cercherebbe in un percorso del prefisso di costruzione"
+      },
+      {
+        "schema": "/share/terminfo",
+        "categoria": "coperto_da_variabile",
+        "variabile": "TERMINFO",
+        "ragione": "ncurses arriva nella chiusura per via di readline; l'artefatto non ha un'interfaccia interattiva, ma la variabile costa una riga e toglie un percorso inesistente"
+      },
+      {
+        "schema": "/etc/xml/catalog",
+        "categoria": "coperto_da_variabile",
+        "variabile": "XML_CATALOG_FILES",
+        "ragione": "libxml2 consulta il catalogo per risolvere DTD; puntarlo al vuoto e' cio' che vogliamo, perche' l'artefatto non deve risolvere entita' esterne"
+      },
+      {
+        "schema": "/(etc/gss(/.*)?|lib/gss/?|lib/krb5(/.*)?|var/krb5kdc(/.*)?|etc/krb5\\.conf.*)",
+        "categoria": "non_raggiungibile_dall_uso",
+        "ragione": "Kerberos entra nella chiusura per via di libcurl. L'artefatto legge e scrive file locali e non autentica nulla: nessun percorso del prodotto raggiunge GSSAPI. Resta scritto come residuo: se un giorno la CLI parlasse con un servizio autenticato, questa riga andrebbe rifatta"
+      },
+      {
+        "schema": "/(bin|sbin|lib|etc|share/locale)",
+        "categoria": "non_raggiungibile_dall_uso",
+        "ragione": "percorsi ausiliari di krb5 e la directory di configurazione che GDAL consulta se esiste. L'artefatto non ne spedisce il contenuto, e GDAL funziona senza: il default cotto dentro punta a una directory che sulla macchina di destinazione non c'e', e non c'e' nulla che debba trovarvisi"
+      },
+      {
+        "schema": "/include(/.*)?",
+        "categoria": "inerte",
+        "ragione": "percorsi sorgente e flag di compilazione finiti in una stringa del binario. Non sono aperti da nessun codice: sono cio' che il compilatore ha lasciato, come in ogni build precompilata"
+      },
+      {
+        "schema": "/",
+        "categoria": "inerte",
+        "ragione": "il prefisso nudo, senza suffisso: viene da `-fdebug-prefix-map=<PREFISSO>=...` nella stringa dei flag di compilazione che OpenSSL conserva. Non e' un percorso che qualcuno apre, e' meta' di una regola di riscrittura dei simboli di debug"
+      }
+    ],
+    "percorsi_assoluti_nota": "Dopo la rilocazione di conda il placeholder sparisce e al suo posto resta il prefisso d'installazione. Non e' una stringa inerte: in `libgdal` copre `share/gdal` e `lib/gdalplugins`, cioe' dati e plugin. Ritenerli innocui perche' l'RPATH e' relativo era un falso verde -- l'RPATH riguarda la risoluzione delle **librerie**. Ogni percorso va quindi classificato, e cio' che non rientra in una di queste regole fa rosso."
   }
 }

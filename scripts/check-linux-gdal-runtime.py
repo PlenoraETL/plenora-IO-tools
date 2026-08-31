@@ -1,21 +1,38 @@
 #!/usr/bin/env python3
-"""Le verifiche fail-closed sul lock materializzato.
+"""Le verifiche fail-closed sul runtime materializzato.
 
-Ognuna risponde a una domanda che il nome di un pacchetto non risponde:
+Ognuna risponde a una domanda che il nome di un pacchetto non risponde.
 
-1. **che cosa si spedisce davvero** — la chiusura `DT_NEEDED` di `libgdal`,
-   risolta dentro il prefisso, non l'elenco dei pacchetti;
-2. **niente resta del prefisso di costruzione** — i placeholder che conda
-   rilocherebbe, cercati nei soli file spediti;
-3. **la soglia glibc** — le versioni `GLIBC_*` pretese da **ogni** ELF
-   spedito, non dalla sola `libgdal.so`;
-4. **che cosa non e' nell'albero** — ogni `DT_NEEDED` non risolto dentro il
-   prefisso va classificato: o e' nell'allowlist ABI di sistema, o l'artefatto
-   non e' consegnabile.
+1. **Che cosa si spedisce davvero.** La chiusura `DT_NEEDED` a partire da una
+   radice **data**, non dall'elenco dei pacchetti. La radice e' un argomento
+   perche' alla fine dovra' essere `bin/plenora-io`: verificare la chiusura di
+   `libgdal.so` dice che cosa serve a GDAL, non che cosa serve all'artefatto.
 
-La capability di OpenFileGDB non si prova qui: si prova eseguendo, ed e' la
-sonda C accanto a questo file.
+2. **Che cosa sta fuori dall'albero.** Ogni `DT_NEEDED` non risolto dentro il
+   prefisso va classificato, e non basta che stia in una politica generosa:
+   deve coincidere **esattamente** con l'insieme che il lock dichiara. Una
+   politica sola lascerebbe passare la sparizione di una libreria spedita --
+   `libstdc++` che smette di essere nell'albero e viene presa dal sistema resta
+   verde, perche' `libstdc++` "e' una libreria di sistema ammissibile". I due
+   insiemi servono a due cose diverse: la politica dice che cosa **potrebbe**
+   essere legittimo, l'atteso dice che cosa **e'**.
+
+3. **La soglia glibc.** Le versioni `GLIBC_*` pretese da **ogni** ELF spedito.
+
+4. **I percorsi assoluti cotti dentro i binari.** Dopo la rilocazione di conda
+   il placeholder sparisce e al suo posto c'e' il prefisso d'installazione --
+   in `libgdal` per `share/gdal` e `lib/gdalplugins`, cioe' dati e plugin. Non
+   sono stringhe inerti, e ritenerle tali perche' l'RPATH e' relativo era un
+   falso verde: l'RPATH riguarda le librerie, non i dati. Ogni percorso va
+   quindi **classificato**: o e' coperto da una variabile che l'artefatto
+   imposta, o e' irrilevante per l'uso che l'artefatto fa della libreria, o e'
+   inerte per costruzione. Cio' che non rientra in nessuna delle tre fa rosso.
+
+5. **L'RPATH.** Non basta che contenga `$ORIGIN`: va **radicato** in `$ORIGIN`
+   e, normalizzato, non deve poter uscire dall'albero installato.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -24,31 +41,62 @@ import re
 import subprocess
 import sys
 
-PREFISSO = pathlib.Path()
-LIB = pathlib.Path()
+RADICE = pathlib.Path(__file__).resolve().parent.parent
+LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 
-# Cio' che il sistema di destinazione garantisce per ABI. Non e' una lista
-# scritta a memoria: e' il criterio, e l'elenco effettivo lo produce questa
-# verifica -- cio' che non vi rientra fa fallire.
-ALLOWLIST_ABI = {
-    "libc.so.6",
-    "libm.so.6",
-    "libdl.so.2",
-    "libpthread.so.0",
-    "librt.so.1",
-    "libgcc_s.so.1",
+# La **politica**: che cosa e' ammissibile trovare fuori dall'albero, perche' il
+# sistema di destinazione lo garantisce per ABI. Non e' l'elenco atteso: quello
+# sta nel lock, ed e' un sottoinsieme di questo.
+POLITICA_ABI = {
     "ld-linux-x86-64.so.2",
-    "linux-vdso.so.1",
+    "libc.so.6",
+    "libdl.so.2",
+    "libgcc_s.so.1",
+    "libm.so.6",
+    "libpthread.so.0",
     "libresolv.so.2",
+    "librt.so.1",
     "libutil.so.1",
+    "linux-vdso.so.1",
 }
 
 
-def dt_needed(percorso: pathlib.Path) -> list[str]:
-    uscita = subprocess.run(
+def leggi_dinamica(percorso: pathlib.Path) -> str:
+    return subprocess.run(
         ["readelf", "-d", str(percorso)], capture_output=True, text=True, check=True
     ).stdout
-    return re.findall(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]", uscita)
+
+
+def dt_needed(percorso: pathlib.Path) -> list[str]:
+    return re.findall(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]", leggi_dinamica(percorso))
+
+
+def rpath_di(percorso: pathlib.Path) -> list[str]:
+    trovati = re.findall(
+        r"\((?:RPATH|RUNPATH)\)\s+Library r(?:un)?path: \[([^\]]*)\]", leggi_dinamica(percorso)
+    )
+    return [x for gruppo in trovati for x in gruppo.split(":") if x]
+
+
+def rpath_esce_dall_albero(voce: str, profondita_dalla_radice: int) -> bool:
+    """L'RPATH, normalizzato, resta dentro l'albero installato?
+
+    `$ORIGIN/../lib` da `bin/` resta dentro; `$ORIGIN/../../lib` no. Il conto si
+    fa sui segmenti: ogni `..` risale, e risalire piu' della profondita' del
+    file dentro l'albero significa uscirne.
+    """
+    resto = voce[len("$ORIGIN") :].strip("/")
+    livello = profondita_dalla_radice
+    for segmento in resto.split("/"):
+        if segmento in ("", "."):
+            continue
+        if segmento == "..":
+            livello -= 1
+            if livello < 0:
+                return True
+        else:
+            livello += 1
+    return False
 
 
 def versioni_glibc(percorso: pathlib.Path) -> set[str]:
@@ -62,161 +110,156 @@ def chiave(versione: str) -> tuple[int, ...]:
     return tuple(int(x) for x in versione.split("."))
 
 
-def rpath_di(percorso: pathlib.Path) -> list[str]:
+def percorsi_assoluti(elf: pathlib.Path, prefisso: str) -> set[str]:
     uscita = subprocess.run(
-        ["readelf", "-d", str(percorso)], capture_output=True, text=True, check=True
+        ["strings", "-a", str(elf)], capture_output=True, text=True, check=True
     ).stdout
-    trovati = re.findall(r"\((?:RPATH|RUNPATH)\)\s+Library r(?:un)?path: \[([^\]]*)\]", uscita)
-    return [x for gruppo in trovati for x in gruppo.split(":") if x]
+    trovati = set()
+    for riga in uscita.splitlines():
+        for m in re.finditer(re.escape(prefisso) + r"(/[^\s\"']*)?", riga):
+            trovati.add(m.group(0))
+    return trovati
 
 
-def risolvi(nome: str) -> pathlib.Path | None:
-    candidato = LIB / nome
-    return candidato if candidato.exists() else None
+def classifica(percorso: str, prefisso: str, regole: list[dict]) -> dict | None:
+    relativo = percorso[len(prefisso) :] or "/"
+    for regola in regole:
+        if re.fullmatch(regola["schema"], relativo):
+            return regola
+    return None
 
 
 def main() -> int:
-    global PREFISSO, LIB
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--prefisso", required=True, type=pathlib.Path)
     argomenti.add_argument(
-        "--glibc-massima",
-        default="2.35",
-        help="la soglia dichiarata nella matrice di distribuzione",
+        "--radice",
+        default="lib/libgdal.so",
+        help="l'ELF da cui parte la chiusura, relativo al prefisso; alla fine sara' bin/plenora-io",
     )
     opzioni = argomenti.parse_args()
-    PREFISSO = opzioni.prefisso
-    LIB = PREFISSO / "lib"
 
+    prefisso: pathlib.Path = opzioni.prefisso.resolve()
+    lock = json.loads(LOCK.read_text(encoding="utf-8"))
+    contratto = lock["contratto_di_verifica"]
     errori: list[str] = []
 
-    radice_gdal = LIB / "libgdal.so"
-    if not radice_gdal.exists():
-        return int(bool(print("libgdal.so assente dal prefisso: il lock non porta GDAL")))
+    radice = (prefisso / opzioni.radice).resolve()
+    if not radice.exists():
+        sys.exit(f"radice della chiusura assente: {radice}")
 
     # --- 1. la chiusura ----------------------------------------------------
-    da_visitare = [radice_gdal.resolve()]
+    def risolvi(nome: str) -> pathlib.Path | None:
+        candidato = prefisso / "lib" / nome
+        return candidato.resolve() if candidato.exists() else None
+
+    da_visitare = [radice]
     interne: dict[str, pathlib.Path] = {}
     esterne: set[str] = set()
     while da_visitare:
-        corrente = da_visitare.pop()
-        for nome in dt_needed(corrente):
+        for nome in dt_needed(da_visitare.pop()):
             if nome in interne or nome in esterne:
                 continue
             trovata = risolvi(nome)
             if trovata is None:
                 esterne.add(nome)
             else:
-                interne[nome] = trovata.resolve()
-                da_visitare.append(trovata.resolve())
+                interne[nome] = trovata
+                da_visitare.append(trovata)
 
-    print(f"chiusura DT_NEEDED di libgdal: {len(interne)} librerie dentro l'albero")
+    spediti = [radice, *sorted(set(interne.values()))]
+    print(f"chiusura da {opzioni.radice}: {len(interne)} dipendenze interne, {len(spediti)} ELF")
 
-    # --- 4. classificazione ------------------------------------------------
-    non_classificate = sorted(esterne - ALLOWLIST_ABI)
-    print(f"dipendenze fuori dall'albero: {len(esterne)}")
-    for nome in sorted(esterne):
-        marchio = "ABI" if nome in ALLOWLIST_ABI else "NON CLASSIFICATA"
-        print(f"  {marchio:17s} {nome}")
-    if non_classificate:
+    # --- 2. esterne: politica **e** atteso ---------------------------------
+    attese = set(contratto["dipendenze_esterne_attese"])
+    fuori_politica = sorted(esterne - POLITICA_ABI)
+    if fuori_politica:
         errori.append(
-            f"dipendenze non classificate: {non_classificate}. O entrano nell'allowlist ABI "
-            "con una ragione, o vanno spedite dentro l'albero."
+            f"dipendenze fuori dalla politica ABI: {fuori_politica}. O sono spedite dentro "
+            "l'albero, o la politica va allargata con una ragione."
         )
+    if esterne != attese:
+        errori.append(
+            f"le dipendenze esterne non coincidono con quelle attese dal lock. "
+            f"In piu': {sorted(esterne - attese)}. In meno: {sorted(attese - esterne)}. "
+            "Una libreria che smette di essere spedita e viene presa dal sistema resta dentro la "
+            "politica, e solo l'insieme atteso se ne accorge: ogni variazione vuole un lock nuovo."
+        )
+    print(f"dipendenze esterne: {len(esterne)}, attese {len(attese)}")
 
-    # L'insieme spedito: libgdal, la sua chiusura interna, e i dati.
-    spediti = [radice_gdal.resolve(), *sorted(interne.values())]
-    dati = [PREFISSO / "share" / "gdal", PREFISSO / "share" / "proj"]
-
-    # --- 3. la soglia glibc ------------------------------------------------
-    massima = ("0",)
-    per_libreria: dict[str, str] = {}
+    # --- 3. glibc ----------------------------------------------------------
+    massima, per_elf = "0.0", {}
     for elf in spediti:
         versioni = versioni_glibc(elf)
         if not versioni:
             continue
         alta = max(versioni, key=chiave)
-        per_libreria[elf.name] = alta
-        if chiave(alta) > chiave(".".join(massima)):
-            massima = tuple(alta.split("."))
-    soglia = ".".join(massima)
-    print(f"\nGLIBC massima pretesa dagli ELF spediti: {soglia}")
-    for nome, versione in sorted(per_libreria.items(), key=lambda x: chiave(x[1]))[-5:]:
-        print(f"  {versione:8s} {nome}")
-    if chiave(soglia) > chiave(opzioni.glibc_massima):
+        per_elf[elf.name] = alta
+        if chiave(alta) > chiave(massima):
+            massima = alta
+    soglia = contratto["glibc_massima_ammessa"]
+    print(f"GLIBC massima negli ELF spediti: {massima} (soglia {soglia})")
+    if chiave(massima) > chiave(soglia):
         errori.append(
-            f"la chiusura pretende GLIBC_{soglia}, oltre la soglia "
-            f"{opzioni.glibc_massima} dichiarata nella matrice: il contratto Linux va "
-            "rinegoziato, non abbassato in silenzio."
+            f"la chiusura pretende GLIBC_{massima}, oltre la soglia {soglia}: il contratto "
+            "Linux va rinegoziato, non abbassato in silenzio."
         )
 
-    # --- 2. il prefisso di costruzione, dove **risolve** -------------------
-    #
-    # La prima stesura rifiutava qualunque occorrenza del prefisso di
-    # costruzione nei file spediti, e faceva rosso su sette librerie. La misura
-    # ha mostrato che cosa sono quelle occorrenze: percorsi **sorgente**
-    # compilati dentro il binario (`work/port/cpl_conv.cpp`), che ogni build
-    # prodotta da chiunque porta con se' -- Debian compresa -- e un placeholder
-    # che conda riscriverebbe all'installazione.
-    #
-    # Rifiutarle tutte significherebbe rifiutare ogni binario precompilato che
-    # esista. La domanda utile e' un'altra: **qualcosa risolve attraverso quel
-    # prefisso?** Se l'RPATH e' relativo a `$ORIGIN` e nessun file di testo
-    # spedito porta un placeholder, la risposta e' no, e il residuo e' inerte.
-    rilocazioni = json.loads((PREFISSO / "rilocazioni.json").read_text(encoding="utf-8"))
-    nomi_spediti = {p.name for p in spediti}
-    relativi_spediti = {f"lib/{n}" for n in nomi_spediti}
-    for cartella in dati:
-        if cartella.exists():
-            for f in cartella.rglob("*"):
-                if f.is_file():
-                    relativi_spediti.add(str(f.relative_to(PREFISSO)))
-
-    # (a) nessun file **di testo** spedito porta un placeholder: li' il prefisso
-    #     sarebbe un percorso che il codice legge, non una stringa inerte.
-    testo_spediti = [
-        r for r in rilocazioni if r["file"] in relativi_spediti and r.get("modo") == "text"
-    ]
-    if testo_spediti:
-        errori.append(
-            f"{len(testo_spediti)} file di testo spediti portano il prefisso di costruzione: "
-            f"{[r['file'] for r in testo_spediti][:5]}. Un percorso che non esiste sulla "
-            "macchina di destinazione e' un difetto che si manifesta lontano da qui."
-        )
-
-    # (b) ogni ELF spedito risolve per percorso **relativo**: un RPATH assoluto
-    #     -- o assente -- farebbe dipendere il caricamento da dove l'artefatto
-    #     e' stato costruito.
-    senza_rpath, rpath_assoluto = [], []
+    # --- 4. i percorsi assoluti cotti dentro -------------------------------
+    testo_prefisso = str(prefisso)
+    regole = contratto["percorsi_assoluti_ammessi"]
+    non_classificati: dict[str, list[str]] = {}
+    per_categoria: dict[str, int] = {}
     for elf in spediti:
-        percorsi = rpath_di(elf)
-        if not percorsi:
-            senza_rpath.append(elf.name)
-        elif any("$ORIGIN" not in x for x in percorsi):
-            rpath_assoluto.append((elf.name, percorsi))
-    if senza_rpath:
-        errori.append(f"ELF spediti senza RPATH: {senza_rpath[:5]}")
-    if rpath_assoluto:
-        errori.append(f"ELF spediti con RPATH non relativo: {rpath_assoluto[:5]}")
+        for percorso in percorsi_assoluti(elf, testo_prefisso):
+            regola = classifica(percorso, testo_prefisso, regole)
+            if regola is None:
+                non_classificati.setdefault(percorso.replace(testo_prefisso, "<PREFISSO>"), []).append(
+                    elf.name
+                )
+            else:
+                per_categoria[regola["categoria"]] = per_categoria.get(regola["categoria"], 0) + 1
+    print("percorsi assoluti cotti nei binari, per categoria:")
+    for categoria, quanti in sorted(per_categoria.items()):
+        print(f"  {categoria:22s} {quanti}")
+    if non_classificati:
+        errori.append(
+            f"{len(non_classificati)} percorsi assoluti non classificati: "
+            f"{sorted(non_classificati)[:6]}. Ognuno va dichiarato: coperto da una variabile che "
+            "l'artefatto imposta, irrilevante per l'uso che ne fa, o inerte per costruzione."
+        )
 
-    binari_spediti = [
-        r for r in rilocazioni if r["file"] in relativi_spediti and r.get("modo") != "text"
-    ]
-    print(f"\nprefisso di costruzione nei file spediti:")
-    print(f"  in file di testo: {len(testo_spediti)} (devono essere zero)")
-    print(f"  in binari, come stringa inerte: {len(binari_spediti)} (registrati, non rifiutati)")
-    print(f"  ELF con RPATH relativo a $ORIGIN: {len(spediti) - len(senza_rpath) - len(rpath_assoluto)}/{len(spediti)}")
+    # --- 5. RPATH radicato e che non esce ----------------------------------
+    difettosi = []
+    for elf in spediti:
+        try:
+            profondita = len(elf.relative_to(prefisso).parts) - 1
+        except ValueError:
+            profondita = 1
+        voci = rpath_di(elf)
+        if not voci:
+            difettosi.append((elf.name, "senza RPATH"))
+            continue
+        for voce in voci:
+            if not voce.startswith("$ORIGIN"):
+                difettosi.append((elf.name, f"non radicato in $ORIGIN: {voce}"))
+            elif rpath_esce_dall_albero(voce, profondita):
+                difettosi.append((elf.name, f"esce dall'albero: {voce}"))
+    print(f"ELF con RPATH radicato in $ORIGIN e interno all'albero: {len(spediti) - len(difettosi)}/{len(spediti)}")
+    if difettosi:
+        errori.append(f"RPATH non conformi: {difettosi[:5]}")
 
-    (PREFISSO / "verifica-runtime.json").write_text(
+    (prefisso / "verifica-runtime.json").write_text(
         json.dumps(
             {
-                "chiusura_interna": sorted(nomi_spediti),
-                "esterne": sorted(esterne),
-                "esterne_non_classificate": non_classificate,
-                "glibc_massima": soglia,
-                "glibc_per_libreria": per_libreria,
-                "placeholder_spediti_testo": testo_spediti,
-                "placeholder_spediti_binari": len(binari_spediti),
+                "radice": opzioni.radice,
+                "elf_spediti": [e.name for e in spediti],
+                "dipendenze_interne": len(interne),
+                "dipendenze_esterne": sorted(esterne),
+                "glibc_massima": massima,
+                "glibc_per_elf": per_elf,
+                "percorsi_assoluti_per_categoria": per_categoria,
+                "percorsi_assoluti_non_classificati": non_classificati,
             },
             ensure_ascii=False,
             indent=2,
@@ -230,7 +273,7 @@ def main() -> int:
         for e in errori:
             print(f"  {e}")
         return 1
-    print("\ntutte le verifiche sul lock materializzato sono verdi")
+    print("\ntutte le verifiche sul runtime materializzato sono verdi")
     return 0
 
 

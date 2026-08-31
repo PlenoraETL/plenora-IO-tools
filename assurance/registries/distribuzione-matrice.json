@@ -157,13 +157,15 @@
         "stato": "fissato e verificato",
         "pacchetti": 58,
         "risolto_con": "micromamba 2.9.0, fissato per sha256 e usato una volta sola",
-        "misure": {
-          "glibc_massima_negli_elf_spediti": "2.17",
-          "requisito_virtuale_glibc": ">=2.17,<3.0.a0",
-          "chiusura_dt_needed": "55 librerie dentro l albero, 6 fuori e tutte nell allowlist ABI",
-          "openfilegdb": "creato e riletto un FileGDB vero con la libreria materializzata",
-          "prefisso_di_costruzione": "zero file di testo spediti con placeholder; 56 su 56 ELF con RPATH relativo a $ORIGIN"
-        }
+        "dove_stanno_i_numeri": "in `scripts/linux-gdal-lock.json` per cio' che il controllo **pretende**, e in `verifica-runtime.json` dentro il prefisso per cio' che ha **misurato**. Qui non ce ne sono: la prima stesura ne aveva copiati tre dello stesso fatto -- 55, 56 e 57 dipendenze -- di cui due sbagliati, e nessun gate se ne accorgeva perche' erano prosa.",
+        "che_cosa_e_stato_verificato": [
+          "la chiusura DT_NEEDED da una radice data, non l'elenco dei pacchetti",
+          "le dipendenze esterne coincidono **esattamente** con quelle attese dal lock",
+          "la soglia GLIBC su ogni ELF spedito",
+          "ogni percorso assoluto cotto nei binari e' classificato: coperto da una variabile, non raggiungibile dall'uso, o inerte",
+          "ogni RPATH e' radicato in $ORIGIN e, normalizzato, non esce dall'albero",
+          "OpenFileGDB crea e rilegge un FileGDB vero, con la libreria materializzata"
+        ]
       },
       {
         "piattaforma": "macos-aarch64",
@@ -200,18 +202,10 @@
       "che_cosa_resta_vero": "sull'artefatto integro la risoluzione e' verificabile e verificata, ed e' questo che il gate misura. Cio' che non si promette e' il comportamento dopo che qualcuno ha tolto o sostituito una libreria.",
       "e_una_scelta_non_una_rinuncia": "il fail-closed anche dopo la rimozione di una libreria si otterrebbe con SONAME privati o con un launcher che verifica prima di eseguire. E' un progetto a se', e va soppesato contro la LGPL: le sue librerie devono restare sostituibili, e un artefatto che rifiutasse una sostituzione legittima violerebbe la licenza che sta rispettando.",
       "allowlist_abi_di_sistema": {
-        "stato": "fissata per linux-x86_64 dalla prima chiusura verde",
-        "criterio": "solo cio' che il sistema di destinazione garantisce per ABI: la libc e le sue compagne (`libc`, `libm`, `libdl`, `libpthread`, `librt`), il loader dinamico, `libgcc_s`. Tutto il resto -- `libstdc++` compresa, se il lock la spedisce -- va risolto dentro l'albero.",
-        "come_si_fissa": "dall'elenco che il controllo delle risoluzioni produce sulla prima costruzione verde, non da una lista scritta a memoria",
-        "linux_x86_64": [
-          "ld-linux-x86-64.so.2",
-          "libc.so.6",
-          "libdl.so.2",
-          "libm.so.6",
-          "libpthread.so.0",
-          "libresolv.so.2"
-        ],
-        "come_e_stata_fissata": "dall'elenco che `check-linux-gdal-runtime.py` ha prodotto sulla chiusura materializzata, non da una lista scritta a memoria. `libstdc++` non vi compare perche' e' **spedita**, e la sua assenza dall'allowlist e' il modo in cui il gate se ne accorgerebbe se un giorno sparisse dall'albero."
+        "due_insiemi": "la **politica** sta in `check-linux-gdal-runtime.py` e dice che cosa e' ammissibile trovare fuori dall'albero; l'**atteso** sta nel lock e dice che cosa c'e' davvero. La chiusura deve coincidere esattamente con l'atteso. Con la sola politica, una libreria che smettesse di essere spedita -- e venisse quindi presa dal sistema -- resterebbe verde, perche' e' una libreria di sistema ammissibile.",
+        "politica": "scripts/check-linux-gdal-runtime.py, costante POLITICA_ABI",
+        "atteso_per_piattaforma": "il campo `contratto_di_verifica.dipendenze_esterne_attese` del lock",
+        "ogni_variazione_vuole_un_lock_nuovo": true
       },
       "meccanismi_per_piattaforma": {
         "linux": "RPATH `$ORIGIN/../lib` sul binario e sulle librerie spedite",
