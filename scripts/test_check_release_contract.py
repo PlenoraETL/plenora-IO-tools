@@ -1239,6 +1239,33 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         with mock.patch.object(gate, "_evidenza", return_value=finta):
             return gate.validate_stato_corrente(self.stato())
 
+    # Le sonde che provano i controlli sui **rapporti** hanno bisogno di righe
+    # da misurare, e l'evidenza vera non gliele garantisce.
+    #
+    # Quando una tranche tocca soltanto crate fuori dal perimetro della
+    # diagnostica, l'evidenza reale arriva con zero righe cambiate ed `esito`
+    # `n/d` -- una forma legittima, e per queste sonde **degenere**: la
+    # perturbazione o non morde piu' (l'`n/d` c'e' gia') o fa scattare un
+    # controllo diverso da quello in prova (il denominatore a zero). Due sonde
+    # negative smettono cosi' di essere negative, e restano verdi senza provare
+    # niente -- la stessa famiglia di difetto gia' trovata sulle sonde del
+    # contratto, che perturbavano con un letterale invece che con il valore
+    # vero.
+    #
+    # `misurabile` costruisce la precondizione invece di presumerla: conteggi
+    # che tornano fra loro e una percentuale che e' il loro rapporto. Le sonde
+    # che provano il caso degenere continuano a partire dall'evidenza reale.
+    @staticmethod
+    def misurabile(evidenza: dict) -> dict:
+        evidenza["misure"]["diagnostica_differenziale"].update(
+            righe_cambiate_eseguibili=100,
+            coperte=90,
+            scoperte=10,
+            esito="90.00%",
+            righe_scoperte=[f"crates/finto/src/lib.rs:{n}" for n in range(1, 11)],
+        )
+        return evidenza
+
     def registro_di(self, revisione: str) -> tuple[tuple[str, ...], frozenset[str]]:
         """Il registro dei passi a una revisione, preteso leggibile."""
         risolta = gate.revisione_risolta(revisione)
@@ -1415,7 +1442,9 @@ class SondeEvidenzaCoerente(unittest.TestCase):
 
     def test_la_percentuale_differenziale_e_il_proprio_rapporto(self) -> None:
         errori = self.errori_con(
-            lambda e: e["misure"]["diagnostica_differenziale"].update(esito="99.99%")
+            lambda e: self.misurabile(e)["misure"]["diagnostica_differenziale"].update(
+                esito="99.99%"
+            )
         )
         self.assertTrue(
             any("diagnostica_differenziale.esito` vale 99.99" in m for m in errori),
@@ -1437,16 +1466,29 @@ class SondeEvidenzaCoerente(unittest.TestCase):
     def test_n_d_con_righe_da_misurare_e_rosso(self) -> None:
         """`n/d` e' la risposta quando non c'e' niente da misurare. Con righe
         eseguibili cambiate vorrebbe dire che la diagnostica ha misurato e non
-        ha concluso."""
+        ha concluso.
+
+        Le righe le mette la sonda: quando l'evidenza vera ne ha zero -- e
+        capita, se la tranche tocca solo crate fuori dal perimetro -- l'`n/d`
+        c'e' gia', la perturbazione non cambia niente e la sonda resterebbe
+        verde senza provare nulla."""
         errori = self.errori_con(
-            lambda e: e["misure"]["diagnostica_differenziale"].update(esito="n/d")
+            lambda e: self.misurabile(e)["misure"]["diagnostica_differenziale"].update(
+                esito="n/d"
+            )
         )
         self.assertTrue(any("e' una percentuale" in m for m in errori), errori)
 
     def test_una_percentuale_senza_denominatore_e_rossa(self) -> None:
+        """La percentuale la mette la sonda, insieme allo zero che la smentisce.
+
+        Azzerare i conteggi non basta: se l'evidenza vera porta gia' `n/d` --
+        e lo porta quando la tranche tocca solo crate fuori dal perimetro --
+        zero righe con `n/d` e' la forma **legittima**, e la sonda resterebbe
+        verde senza provare niente."""
         errori = self.errori_con(
             lambda e: e["misure"]["diagnostica_differenziale"].update(
-                righe_cambiate_eseguibili=0, coperte=0, scoperte=0
+                righe_cambiate_eseguibili=0, coperte=0, scoperte=0, esito="90.00%"
             )
         )
         self.assertTrue(any("senza denominatore" in m for m in errori), errori)
@@ -1471,9 +1513,14 @@ class SondeEvidenzaCoerente(unittest.TestCase):
 
     def test_un_elenco_di_scoperte_assente_e_rosso(self) -> None:
         """L'arretrato della terza lettura: la riconciliazione avveniva solo se
-        l'elenco c'era, quindi bastava toglierlo per non doverlo far tornare."""
+        l'elenco c'era, quindi bastava toglierlo per non doverlo far tornare.
+
+        Anche qui le righe scoperte le mette la sonda: senza, togliere un
+        elenco vuoto non toglierebbe niente."""
         errori = self.errori_con(
-            lambda e: e["misure"]["diagnostica_differenziale"].pop("righe_scoperte")
+            lambda e: self.misurabile(e)["misure"]["diagnostica_differenziale"].pop(
+                "righe_scoperte"
+            )
         )
         self.assertTrue(any("righe_scoperte` assente" in m for m in errori), errori)
 
