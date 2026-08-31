@@ -42,8 +42,8 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | baseline differenziale | `dfa9fda` |
 | esito differenziale | 90.04% |
 | gruppi ASSURANCE-N1 | 50 |
-| gruppi ASSURANCE-N1 aperti | 1 |
-| blocchi | 4 |
+| gruppi ASSURANCE-N1 aperti | 0 |
+| blocchi | 3 |
 | S9, qualificato su | `7549f22` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -62,7 +62,6 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `copertura.rami-negativi` | rami d'errore negativi non tutti verificati da un test eseguito |
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
 | `distribuzione.artefatti-qualificati` | artefatti di distribuzione non prodotti ne' qualificati |

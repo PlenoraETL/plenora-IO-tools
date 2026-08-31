@@ -687,12 +687,13 @@ class SondeCondizioni(unittest.TestCase):
     # fra i motivi del rifiuto.
     #
     # Elencarle tutte fra i motivi confonderebbe «considerata» con «fallita», e
-    # diventerebbe falso al primo verde. L'insieme e' stato pieno per un
-    # commit: `debito-n1-a-zero` era soddisfatta, e la chiusura che la reggeva
-    # e' stata **ritirata** perche' pagava la determinatezza di una sonda con
-    # una riga in piu' su `stderr`, dove il contratto ne ammette zero. Quando
-    # tornera' a zero per la via giusta, questo insieme tornera' a contenerla.
-    SODDISFATTE: frozenset[str] = frozenset()
+    # diventerebbe falso al primo verde. `debito-n1-a-zero` c'e' stata, e' stata
+    # tolta quando la chiusura che la reggeva e' stata ritirata -- pagava la
+    # determinatezza di una sonda con una riga in piu' su `stderr`, dove il
+    # contratto ne ammette zero -- ed e' tornata quando la barriera e' stata
+    # rifatta su un canale privato. Il viavai e' voluto: qui ci sta cio' che e'
+    # vero adesso, non cio' che si spera.
+    SODDISFATTE = frozenset({"debito-n1-a-zero"})
 
     def test_release_e_rossa_sul_registro_corrente(self) -> None:
         """La controprova d'insieme: oggi la release non e' autorizzabile.
@@ -981,23 +982,23 @@ class SondeFontiLegate(unittest.TestCase):
     def test_un_blocco_negato_dallo_stato_e_rosso(self) -> None:
         """`release_blocking: false` accanto a un invariante che blocca.
 
-        Si e' gia' spostata due volte, e ogni spostamento e' una chiusura. Era
-        su `loss_report`, ratificato; e' passata al debito di copertura
-        negativa. Per un commit e' stata sulla candidate di release, perche' il
-        debito era arrivato a zero -- poi quella chiusura e' stata ritirata, e
-        la sonda e' tornata dov'era. Il viavai non e' rumore: e' il registro
-        che dice la verita' anche quando la verita' torna indietro.
+        Era su `loss_report`, ratificato; e' passata al debito di copertura
+        negativa; e' arrivata sulla candidate di release quando quello e'
+        andato a zero, e' tornata indietro quando quella chiusura e' stata
+        ritirata, ed e' di nuovo qui ora che il debito ha chiuso per la via
+        giusta. Il viavai non e' rumore: e' una sonda che si appoggia a un
+        fatto vero invece che a un caso inventato, e i fatti veri si muovono.
 
-        Quando il debito chiudera' per la via giusta, questa sonda tornera'
-        rossa e andra' ripuntata di nuovo. E' il prezzo di una sonda che si
-        appoggia a un fatto vero invece che a un caso inventato, ed e' il
-        prezzo giusto: un invariante finto direbbe che il gate funziona su
-        qualcosa che nel registro non esiste.
+        Quando chiudera' anche la candidate, tornera' rossa e andra' ripuntata.
+        E' il prezzo giusto: un invariante finto direbbe che il gate funziona
+        su qualcosa che nel registro non esiste.
         """
         stato = self.stato()
-        stato["aperto"]["assurance_n1"]["release_blocking"] = False
+        stato["aperto"]["candidate_release"]["release_blocking"] = False
         errori = gate.validate_stato_corrente(stato)
-        self.assertTrue(any("copertura.rami-negativi" in e for e in errori), errori)
+        self.assertTrue(
+            any("release.candidate-non-valida-per-head" in e for e in errori), errori
+        )
 
     def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
         """Un lotto che il registro tiene bloccante non puo' dirsi chiuso.

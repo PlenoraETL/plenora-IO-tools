@@ -81,8 +81,8 @@
   "aperto": {
     "assurance_n1": {
       "gruppi_totali": 50,
-      "gruppi_aperti": 1,
-      "release_blocking": true
+      "gruppi_aperti": 0,
+      "release_blocking": false
     },
     "loss_report": {
       "stato": "ratificato",
