@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione dfa9fda, che porta il debito ASSURANCE-N1 da 19 a 2 gruppi chiudendo sedici gruppi di `driver-shp` in quattro commit. Le sonde hanno smentito tre ipotesi sulle cause di rifiuto del writer, che sarebbero passate per vere asserendo soltanto `is_err()`.",
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione dfa9fda, che chiude diciassette gruppi ASSURANCE-N1 di `driver-shp` in cinque commit. La corsa e' un fatto valido e resta tale; la conclusione che ne avevo tratto -- «debito a due gruppi» -- e' stata smentita da una revisione, e la correzione e' registrata in `cosa_chiude.smentita_dalla_revisione`.",
   "esito": "S9 checkpoint level 2 passed",
   "non_significa": "non autorizza una release e non promuove la readiness di alcun componente ne' del sistema. I quattro bloccanti restano aperti e `release_authorized` resta `false`.",
   "corsa": {
@@ -601,16 +601,12 @@
   "cosa_chiude": {
     "invarianti": [],
     "invarianti_nota": "nessuno. Il debito ASSURANCE-N1 scende a due gruppi ma non a zero, quindi `copertura.rami-negativi` resta aperto.",
-    "assurance_n1": "il censimento passa da **19 gruppi aperti a 2**. Le sedici chiusure di questa tranche sono tutte in `driver-shp`: `native_coordinate`, `polygon_wkb`, `shape_to_wkb`, `shape_from_wkb`, `__fuzz_wkb_roundtrip`, `from_options`, `create`, `write`, `write_shape`, `finish`, `leggi_descrittori_dbf`, `read_dbf_layout`, `infer_geometry_info`, `infer_shp_schema`, `next_physical`, `finish_batch`, `open` -- diciassette voci per sedici gruppi, perche' `finish` copre due funzioni omonime. Restano `driver-shp::spawn_parser` e `plenora-io-cli::installa_gestore_dei_segnali`.",
+    "assurance_n1": "il censimento passa da **19 gruppi aperti a 2** nella forma in cui il registro stava a questa revisione. Le diciassette chiusure sono tutte in `driver-shp` e stanno in **cinque** commit di lavoro -- `554de0a`, `c29a8cd`, `0cb51df`, `45f0faf`, `dfa9fda` -- piu' `2565504`, che e' evidenza e non chiude niente: `native_coordinate`, `polygon_wkb`, `shape_to_wkb`, `shape_from_wkb`, `__fuzz_wkb_roundtrip`, `from_options`, `create`, `write`, `write_shape`, `finish`, `leggi_descrittori_dbf`, `read_dbf_layout`, `infer_geometry_info`, `infer_shp_schema`, `next_physical`, `finish_batch`, `open`. Sull'intero lotto B1 le chiusure sono **42** -- 25 in `driver-shp` e 17 in `driver-xls` -- perche' il lotto parte da 44 gruppi aperti: la coppia «17 SHP e 11 XLS» descriveva soltanto il tratto da 30 a 2, non il lotto.",
     "ipotesi_smentite_dalle_sonde": {
       "che_cosa": "tre difese di `ShpWriter::write` e di `ShpDriver::create` che avevo classificato come raggiungibili non lo sono: `shapefile.invalid_geometry`, «colonna geometria non binaria» e il nome campo DBF oltre i dieci caratteri. A rifiutare arriva prima `plenora-io-core::with_write_validation` -- che decodifica il WKB e confronta il lotto con il contratto dichiarato -- o il capability-check, che conosce il tetto sui nomi dal descrittore.",
       "perche_e_rilevante": "le sonde asseriscono **quale** causa arriva, non `is_err()`. Con la seconda forma tutte e tre le ipotesi sarebbero passate per vere, e il registro direbbe «coperto» di righe che nessun input esegue. E' la stessa classe di errore che il censimento esiste per escludere, trovata dentro il censimento stesso."
     },
-    "residui_dichiarati": [
-      "driver-shp::read_dbf_layout: il confronto fra il conteggio di descrittori dell'header e quello dei nomi decodificati non e' ne' coperto ne' provato irraggiungibile. I due conteggi vengono dalla stessa aritmetica, e non e' stato possibile costruire un file in cui divergano -- nemmeno anticipando il terminatore fra i descrittori, che `dbase` attraversa senza fermarsi.",
-      "driver-shp::finish: l'overflow del conteggio dei byte dello staging richiederebbe piu' di `u64::MAX` byte su disco.",
-      "driver-shp::write: i due «troppe righe Shapefile» richiederebbero un lotto con piu' di `u64::MAX` righe."
-    ],
+    "residui_dichiarati": "non piu' elencati qui. Stanno nel campo `residui` dei gruppi `parziale` di `assurance/registries/assurance-n1-copertura-negativa.json`, dove il gate li vede e il conteggio del debito li conta. Elencarli in due posti era il difetto, non la cura.",
     "corse_sostituite": [],
     "bloccanti_residui": [
       "copertura.rami-negativi",
@@ -618,6 +614,12 @@
       "sistema.qualifica-cross-component",
       "distribuzione.artefatti-qualificati"
     ],
-    "bloccanti_residui_nota": "nessuno chiuso da questa corsa. `copertura.rami-negativi` si e' ristretto da 19 a 2 gruppi ma resta aperto; `sistema.qualifica-cross-component` ha un owner esterno e questo repository non lo puo' chiudere; `release.candidate-non-valida-per-head` pretende una candidate nuova, e `v1.0.1` non e' riutilizzabile; `distribuzione.artefatti-qualificati` non e' stato ancora affrontato."
+    "bloccanti_residui_nota": "nessuno chiuso da questa corsa. `copertura.rami-negativi` si e' ristretto da 44 a 8 gruppi -- non a 2, come questa evidenza affermava prima della revisione -- e resta aperto; `sistema.qualifica-cross-component` ha un owner esterno e questo repository non lo puo' chiudere; `release.candidate-non-valida-per-head` pretende una candidate nuova, e `v1.0.1` non e' riutilizzabile; `distribuzione.artefatti-qualificati` non e' stato ancora affrontato.",
+    "smentita_dalla_revisione": {
+      "che_cosa": "sei dei gruppi che questa corsa vedeva `chiuso` dichiaravano nella propria **nota** un ramo ne' eseguito ne' provato irraggiungibile: `driver-xls::infer_layout`, `driver-xls::data`, `driver-xls::geometry`, `driver-shp::read_dbf_layout`, `driver-shp::finish`, `driver-shp::write`. Il debito onesto e' quindi **8 gruppi**, non 2: quei sei, `driver-shp::spawn_parser` e `plenora-io-cli::installa_gestore_dei_segnali`.",
+      "perche_il_gate_non_lo_vedeva": "la nota e' prosa. Il gate non la legge, `debito()` non la conta, e lo stato generato diceva «chiuso». Un residuo dichiarato li' dentro e' una seconda verita' esattamente come quelle che questo registro esiste per impedire -- comparsa dentro il registro stesso, ed e' il finding piu' importante di questa tranche perche' non e' stato prodotto da una sonda ma da una rilettura.",
+      "correzione": "il registro ha ora un campo strutturato `residui` e una disposizione `parziale`, e le due cose si escludono per **controllo** e non per convenzione: un gruppo con un residuo non puo' essere `chiuso`, e uno `parziale` deve dire quali righe restano e perche'. Le prove dei gruppi parziali continuano a essere eseguite dal harness, altrimenti lasciarsi un residuo diventerebbe un modo per sottrarre le proprie prove alla misura.",
+      "conseguenza_su_questa_evidenza": "la corsa 73/73 su `dfa9fda` resta valida: misura un albero, e quell'albero non e' cambiato. Non resta valida la conclusione sul debito. La revisione qualificata restera' `dfa9fda` finche' una nuova corsa non qualifica l'albero corretto."
+    }
   }
 }

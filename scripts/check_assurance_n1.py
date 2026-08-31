@@ -35,9 +35,25 @@ candidato di release passi senza.
     test_tabellare   una classe di equivalenza chiusa da un test parametrico
     fixture          un input costruito a mano che raggiunge il ramo
     seme_fuzz        un seme versionato, per i rami che vivono dietro un parser
+    parziale         alcuni rami coperti, altri **dichiarati aperti** nel campo
+                     `residui`: resta debito, e porta con se' le prove che ha
     strutturale      markup o righe non eseguibili: nessuna prova dovuta
     difensivo        ramo raggiungibile solo se una dipendenza cambia
     chiuso           gia' coperto, con il test che lo copre
+
+# Perche' esiste `parziale`
+
+Prima di questa revisione un gruppo poteva essere `chiuso` mentre la sua
+**nota** dichiarava un ramo ne' eseguito ne' provato irraggiungibile. La nota e'
+prosa: il gate non la legge, il conteggio del debito non la vede, e lo stato
+generato dice «chiuso». E' la seconda verita' che questo registro esiste per
+impedire, comparsa dentro il registro stesso.
+
+`parziale` la rende impossibile. I residui hanno un campo **strutturato**, e un
+gruppo che ne dichiara uno non puo' essere chiuso: la mutua esclusione e' un
+controllo, non una convenzione. Le prove restano dichiarate e restano eseguite
+-- cio' che e' coperto continua a essere verificato -- ma il gruppo continua a
+contare come debito finche' il residuo non sparisce.
 """
 
 from __future__ import annotations
@@ -50,11 +66,21 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "assurance-n1-copertura-negativa.json"
 
-DISPOSIZIONI_APERTE = {"test_tabellare", "fixture", "seme_fuzz"}
+DISPOSIZIONI_APERTE = {"test_tabellare", "fixture", "seme_fuzz", "parziale"}
 DISPOSIZIONI_CHIUSE = {"strutturale", "difensivo", "chiuso"}
 DISPOSIZIONI = DISPOSIZIONI_APERTE | DISPOSIZIONI_CHIUSE
 
 CAMPI = {"gruppo", "file", "righe", "raggiunto_da_replay", "disposizione", "nota"}
+
+# Le disposizioni che devono dichiarare i propri residui, e quelle che non li
+# ammettono.
+#
+# `parziale` **deve** avere `residui`: senza, sarebbe un gruppo aperto che non
+# dice che cosa gli manchi, cioe' peggio di `test_tabellare`. Ogni altra
+# disposizione **non** li ammette, e la piu' importante e' `chiuso`: un gruppo
+# che ne dichiara uno non e' chiuso, e il registro non deve poterlo affermare.
+CON_RESIDUI = {"parziale"}
+CAMPI_RESIDUO = {"righe", "perche"}
 
 # Le disposizioni che devono **nominare una prova**, e la prova deve esistere.
 #
@@ -67,7 +93,7 @@ CAMPI = {"gruppo", "file", "righe", "raggiunto_da_replay", "disposizione", "nota
 # ramo **non e' esercitabile da un input**, quindi un test che lo esercitasse
 # non potrebbe esistere. La loro forza sta nella nota, che deve spiegare
 # perche' — ed e' una spiegazione che un revisore puo' contestare.
-CON_PROVA = {"chiuso"}
+CON_PROVA = {"chiuso", "parziale"}
 
 
 def carica() -> list[dict]:
@@ -102,6 +128,7 @@ def integrita(gruppi: list[dict]) -> list[str]:
         if percorso and not (ROOT / percorso).exists():
             errori.append(f"{nome}: il file {percorso} non esiste piu'")
         errori.extend(_verifica_prova(nome, voce, percorso))
+        errori.extend(_verifica_residui(nome, voce))
     return errori
 
 
@@ -149,9 +176,56 @@ def _verifica_prova(nome: str, voce: dict, percorso: str | None) -> list[str]:
         # conta, e renderebbe il registro ambiguo su cio' che e' chiuso.
         errori.append(
             f"{nome}: campo `prova` su disposizione «{disposizione}», che non lo "
-            "ammette. Se il ramo e' coperto, la disposizione va portata a "
-            "«chiuso»; se non lo e', la prova non va scritta."
+            "ammette. Se tutti i rami sono coperti la disposizione va portata a "
+            "«chiuso»; se ne resta qualcuno scoperto va portata a «parziale», "
+            "che pretende il campo `residui`; se non c'e' niente di coperto, la "
+            "prova non va scritta."
         )
+    return errori
+
+
+def _verifica_residui(nome: str, voce: dict) -> list[str]:
+    """Un residuo dichiarato tiene il gruppo aperto, e dice che cosa manca."""
+    errori: list[str] = []
+    disposizione = voce.get("disposizione")
+    residui = voce.get("residui")
+
+    if disposizione in CON_RESIDUI:
+        if not residui:
+            errori.append(
+                f"{nome}: disposizione «{disposizione}» senza campo `residui`. "
+                "Un gruppo parzialmente coperto deve dire **quali** rami restano "
+                "fuori, altrimenti dichiara meno di un gruppo semplicemente "
+                "aperto."
+            )
+            return errori
+    elif residui:
+        # Il controllo che questa revisione esiste per aggiungere. Un gruppo
+        # `chiuso` con un residuo dichiarato e' una contraddizione, e prima
+        # viveva nella prosa della nota -- dove nessun gate la vedeva.
+        errori.append(
+            f"{nome}: campo `residui` su disposizione «{disposizione}», che non "
+            "lo ammette. Un ramo ne' eseguito ne' provato irraggiungibile tiene "
+            "il gruppo aperto: la disposizione va portata a «parziale». "
+            "Dichiararlo nella nota di un gruppo chiuso e' una seconda verita' "
+            "che il conteggio del debito non vede."
+        )
+        return errori
+
+    if not residui:
+        return errori
+    if not isinstance(residui, list) or not all(isinstance(x, dict) for x in residui):
+        errori.append(f"{nome}: `residui` deve essere una lista di voci {{righe, perche}}")
+        return errori
+    for indice, residuo in enumerate(residui):
+        mancanti = CAMPI_RESIDUO - {k for k, v in residuo.items() if v}
+        if mancanti:
+            errori.append(
+                f"{nome}: residuo {indice} senza {sorted(mancanti)}. Le righe "
+                "dicono **dove**, la ragione dice **perche' non e' chiudibile "
+                "oggi**: senza l'una o l'altra il residuo non e' verificabile "
+                "da chi rilegge."
+            )
     return errori
 
 

@@ -233,6 +233,17 @@ class SondeVerifica(unittest.TestCase):
         aperto["disposizione"] = "test_tabellare"
         self.assertEqual(gate.prove_dichiarate([aperto]), [])
 
+    def test_le_prove_di_un_gruppo_parziale_vanno_eseguite(self) -> None:
+        """Un residuo aperto non esenta dal harness cio' che e' gia' coperto.
+
+        Escludere i gruppi parziali renderebbe conveniente lasciarsi un residuo
+        per sottrarre le proprie prove alla misura, che e' il contrario di cio'
+        per cui la disposizione esiste."""
+        parziale = gruppo()
+        parziale["disposizione"] = "parziale"
+        parziale["residui"] = [{"righe": "1-2", "perche": "una ragione"}]
+        self.assertEqual(len(gate.prove_dichiarate([parziale])), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

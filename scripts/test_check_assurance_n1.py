@@ -32,6 +32,39 @@ CHIUSO = {
     "nota": "markup",
 }
 
+# Un gruppo chiuso che nomina una prova esistente in questo stesso file.
+CHIUSO_CON_PROVA = {
+    "gruppo": "driver-x::h",
+    "file": "crates/driver-filegdb/src/lib.rs",
+    "righe": 4,
+    "raggiunto_da_replay": 0,
+    "disposizione": "chiuso",
+    "nota": "coperto da una tabella",
+    "prova": [
+        {
+            "crate": "driver-filegdb",
+            "test": "tests::create_without_gdal_feature_is_typed",
+            "configurazione": "default",
+            "esito": "coperto",
+        }
+    ],
+}
+
+# Un gruppo parzialmente coperto: porta le proprie prove **e** dice che cosa
+# gli manca.
+PARZIALE = dict(
+    CHIUSO_CON_PROVA,
+    gruppo="driver-x::i",
+    disposizione="parziale",
+    nota="due rami coperti, uno no",
+    residui=[
+        {
+            "righe": "40-44",
+            "perche": "richiederebbe una cella da oltre quattro gibibyte",
+        }
+    ],
+)
+
 
 class SondeN1(unittest.TestCase):
     # --- integrita' del registro -------------------------------------------
@@ -174,6 +207,70 @@ class SondeProva(unittest.TestCase):
         )
         self.assertEqual([v["gruppo"] for v in gate.debito([chiuso, aperto])],
                          ["driver-x::g"])
+
+
+    # --- residui dichiarati -------------------------------------------------
+    #
+    # Il difetto che questa serie di sonde chiude e' stato trovato da una
+    # revisione, non dal gate: sei gruppi erano `chiuso` mentre la loro **nota**
+    # dichiarava un ramo ne' eseguito ne' provato irraggiungibile. La nota e'
+    # prosa, il gate non la legge, e il conteggio del debito diceva due gruppi
+    # dove ce n'erano otto.
+
+    def test_un_gruppo_chiuso_con_un_residuo_e_rosso(self) -> None:
+        """La contraddizione che prima viveva nella prosa.
+
+        E' la sonda piu' importante del gruppo: senza, `residui` sarebbe un
+        campo decorativo, e un gruppo potrebbe continuare a dirsi chiuso mentre
+        dichiara cio' che gli manca."""
+        voce = dict(
+            CHIUSO_CON_PROVA,
+            residui=[{"righe": "10-12", "perche": "servirebbe un file da 4 GiB"}],
+        )
+        errori = gate.integrita([voce])
+        self.assertTrue(any("non lo ammette" in e for e in errori), errori)
+        self.assertTrue(any("seconda verita'" in e for e in errori), errori)
+
+    def test_un_gruppo_parziale_senza_residui_e_rosso(self) -> None:
+        """«Parziale» senza dire che cosa manca dichiara meno di «aperto»."""
+        voce = dict(PARZIALE)
+        del voce["residui"]
+        errori = gate.integrita([voce])
+        self.assertTrue(any("senza campo `residui`" in e for e in errori), errori)
+
+    def test_un_residuo_senza_righe_o_ragione_e_rosso(self) -> None:
+        """Le righe dicono dove, la ragione dice perche' non e' chiudibile."""
+        for mancante in ("righe", "perche"):
+            with self.subTest(mancante=mancante):
+                residuo = {"righe": "10-12", "perche": "una ragione"}
+                del residuo[mancante]
+                errori = gate.integrita([dict(PARZIALE, residui=[residuo])])
+                self.assertTrue(any(mancante in e for e in errori), errori)
+
+    def test_un_residuo_vuoto_vale_come_assente(self) -> None:
+        """Una stringa vuota riempie la casella senza dire niente."""
+        errori = gate.integrita(
+            [dict(PARZIALE, residui=[{"righe": "10-12", "perche": ""}])]
+        )
+        self.assertTrue(any("perche" in e for e in errori), errori)
+
+    def test_un_gruppo_parziale_conta_come_debito(self) -> None:
+        """La proprieta' per cui la disposizione esiste.
+
+        Se `parziale` non entrasse nel debito, il campo `residui` sarebbe un
+        modo piu' educato di chiudere un gruppo aperto."""
+        self.assertEqual([v["gruppo"] for v in gate.debito([PARZIALE])], [PARZIALE["gruppo"]])
+
+    def test_un_gruppo_parziale_ben_formato_e_integro(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        self.assertEqual(gate.integrita([PARZIALE]), [])
+
+    def test_un_gruppo_parziale_deve_nominare_le_prove_che_ha(self) -> None:
+        """Cio' che e' coperto resta verificato: il residuo non lo esenta."""
+        voce = dict(PARZIALE)
+        del voce["prova"]
+        errori = gate.integrita([voce])
+        self.assertTrue(any("senza campo `prova`" in e for e in errori), errori)
 
 
 if __name__ == "__main__":

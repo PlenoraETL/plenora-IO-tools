@@ -30,8 +30,8 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 25,
       "raggiunto_da_replay": 0,
-      "disposizione": "chiuso",
-      "nota": "chiuso separando le venticinque righe in quattro classi invece di coprirle in blocco, perche' una tabella unica avrebbe dichiarato «coperto» anche cio' che nessun input raggiunge. RIFIUTI PROPRI E RAGGIUNGIBILI: la larghezza oltre la quota e l'altezza oltre la quota, provati passando da `open` con `--max-columns` e `--max-rows`, e non chiamando la funzione a mano: la quota arriva da `ReadOptions`, e l'entry point verifica anche che ci arrivi. Accanto sta il controllo positivo, senza il quale un `open` che fallisse per qualunque altra ragione renderebbe verde la tabella dei rifiuti. RIFIUTO PROPRIO MA NON RAGGIUNGIBILE DA `open`: «foglio vuoto». `observed_cells` conta celle, non righe, e `for_each_dense_row` visita comunque la riga d'intestazione, dove `resolve_geometry` deve riuscire per prima; se il flusso di celle e' vuoto ogni intestazione e' la stringa vuota, quindi l'unico `wkt_column` che vi si troverebbe e' `\"\"` -- e `\"\"` non arriva, perche' `ValoreAmmesso::Testo` esige testo non vuoto e il validatore centrale delle `format_options` lo ferma in fase Validate. Le due meta' stanno nella stessa sonda: la chiamata diretta mostra che il controllo funziona, il passaggio da `open` mostra che la strada e' chiusa altrove -- e per questo la prova e' registrata `irraggiungibile` e non `coperto`, perche' la riga si esegue solo costruendo cio' che l'entry point rifiuta. PROPAGAZIONI: le restanti righe sono `?` su helper con un gruppo proprio (`resolve_geometry`, `for_each_dense_row`, `encode_geometry_cell`, `BoundedSpoolWriter::{geometry,data,finish}`) oppure gia' provati (`LettoreCelleSorvegliato::dimensioni`, `data_row_width`, `data_row_count`, `check_cancelled`, `ensure_active`); non sono contate qui, altrimenti la stessa riga risulterebbe coperta due volte senza che nessuna delle due prove dica dove. IRRAGGIUNGIBILI: quattro rifiuti in sette occorrenze, divisi in due sonde perche' le guardie che li precedono sono due e una prova sola non direbbe quale; la guardia viene eseguita, non argomentata. «intestazione XLSX assente» e «geometria XLSX non configurata» cadono perche' `data_row_count` rifiuta `start.0 > end.0`, quindi il ciclo visita sempre almeno la riga d'intestazione, che assegna `headers` e `geom` o propaga. «troppe colonne XLSX» e «indice colonna XLSX fuori intervallo» cadono per aritmetica: `data_row_width` fa `end.1 - start.1 + 1` in `u32`, quindi rifiuta gia' la riga larga quanto l'intero spazio delle colonne, e la larghezza massima accettata e' `u32::MAX` con offset massimo `u32::MAX - 1`; i due estremi del formato sono verificati, non supposti. RISCHIO RESIDUO DICHIARATO: `tempfile::NamedTempFile::new()?` propaga un fallimento d'ambiente (spool non creabile) che nessuna fixture del repository produce; resta l'unica riga della funzione senza esecuzione ne' prova di irraggiungibilita', e la sua copertura richiederebbe una directory temporanea sabotata a runtime.",
+      "disposizione": "parziale",
+      "nota": "chiuso separando le venticinque righe in quattro classi invece di coprirle in blocco, perche' una tabella unica avrebbe dichiarato «coperto» anche cio' che nessun input raggiunge. RIFIUTI PROPRI E RAGGIUNGIBILI: la larghezza oltre la quota e l'altezza oltre la quota, provati passando da `open` con `--max-columns` e `--max-rows`, e non chiamando la funzione a mano: la quota arriva da `ReadOptions`, e l'entry point verifica anche che ci arrivi. Accanto sta il controllo positivo, senza il quale un `open` che fallisse per qualunque altra ragione renderebbe verde la tabella dei rifiuti. RIFIUTO PROPRIO MA NON RAGGIUNGIBILE DA `open`: «foglio vuoto». `observed_cells` conta celle, non righe, e `for_each_dense_row` visita comunque la riga d'intestazione, dove `resolve_geometry` deve riuscire per prima; se il flusso di celle e' vuoto ogni intestazione e' la stringa vuota, quindi l'unico `wkt_column` che vi si troverebbe e' `\"\"` -- e `\"\"` non arriva, perche' `ValoreAmmesso::Testo` esige testo non vuoto e il validatore centrale delle `format_options` lo ferma in fase Validate. Le due meta' stanno nella stessa sonda: la chiamata diretta mostra che il controllo funziona, il passaggio da `open` mostra che la strada e' chiusa altrove -- e per questo la prova e' registrata `irraggiungibile` e non `coperto`, perche' la riga si esegue solo costruendo cio' che l'entry point rifiuta. PROPAGAZIONI: le restanti righe sono `?` su helper con un gruppo proprio (`resolve_geometry`, `for_each_dense_row`, `encode_geometry_cell`, `BoundedSpoolWriter::{geometry,data,finish}`) oppure gia' provati (`LettoreCelleSorvegliato::dimensioni`, `data_row_width`, `data_row_count`, `check_cancelled`, `ensure_active`); non sono contate qui, altrimenti la stessa riga risulterebbe coperta due volte senza che nessuna delle due prove dica dove. IRRAGGIUNGIBILI: quattro rifiuti in sette occorrenze, divisi in due sonde perche' le guardie che li precedono sono due e una prova sola non direbbe quale; la guardia viene eseguita, non argomentata. «intestazione XLSX assente» e «geometria XLSX non configurata» cadono perche' `data_row_count` rifiuta `start.0 > end.0`, quindi il ciclo visita sempre almeno la riga d'intestazione, che assegna `headers` e `geom` o propaga. «troppe colonne XLSX» e «indice colonna XLSX fuori intervallo» cadono per aritmetica: `data_row_width` fa `end.1 - start.1 + 1` in `u32`, quindi rifiuta gia' la riga larga quanto l'intero spazio delle colonne, e la larghezza massima accettata e' `u32::MAX` con offset massimo `u32::MAX - 1`; i due estremi del formato sono verificati, non supposti.",
       "prova": [
         {
           "crate": "driver-xls",
@@ -63,6 +63,12 @@
           "righe": "1366-1373, 1438-1445",
           "guardia": "driver-xls::data_row_width"
         }
+      ],
+      "residui": [
+        {
+          "righe": "1342",
+          "perche": "`tempfile::NamedTempFile::new()?` propaga un fallimento d'ambiente -- lo spool non creabile -- che nessuna fixture del repository produce. Coprirlo richiede una directory temporanea sabotata a runtime, oppure l'iniezione del creatore dello spool come dipendenza della funzione."
+        }
       ]
     },
     {
@@ -70,8 +76,8 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 24,
       "raggiunto_da_replay": 0,
-      "disposizione": "chiuso",
-      "nota": "chiuso misurando **quale** delle due funzioni che leggono l'header rifiuta per prima. `valida_intestazione_dbf` e `read_dbf_layout` guardano lo stesso header e si sovrappongono di proposito: la prima esiste per chiudere i punti in cui `dbase` panica invece di tornare, quindi corre prima, e per prima rifiuta l'header troncato, il backlink Visual FoxPro piu' lungo dell'header e l'offset del primo record piu' corto dell'intestazione. Le righe omonime dentro `read_dbf_layout` restano come difesa di una lettura che non e' piu' isolata, e non hanno input: sono registrate irraggiungibili con la sonda che ne prova la **precedenza**, cosi' un cambio d'ordine la rende rossa invece di passare inosservato. Cio' che `read_dbf_layout` decide da se' e' quello che l'altra tronca invece di rifiutare -- un numero di byte di descrittori che non e' multiplo di trentadue -- e la lunghezza di record dichiarata che non torna con la somma dei campi, l'unica che riguarda i record e non l'header. Le fixture partono dal writer vero e ritoccano **un campo solo** del `.dbf`: `.shp` e `.shx` restano di un produttore conforme, e l'unico motivo per cui la lettura puo' fallire e' il byte cambiato. RISCHIO RESIDUO DICHIARATO: il confronto fra il conteggio di descrittori dell'header e quello dei nomi decodificati non e' ne' coperto ne' provato irraggiungibile. I due conteggi vengono dalla stessa aritmetica sull'header, e non e' stato possibile costruire un file in cui divergano -- nemmeno anticipando il terminatore fra i descrittori, che `dbase` attraversa senza fermarsi. Dichiararlo irraggiungibile senza una prova sarebbe la supposizione che questo censimento esiste per escludere.",
+      "disposizione": "parziale",
+      "nota": "chiuso misurando **quale** delle due funzioni che leggono l'header rifiuta per prima. `valida_intestazione_dbf` e `read_dbf_layout` guardano lo stesso header e si sovrappongono di proposito: la prima esiste per chiudere i punti in cui `dbase` panica invece di tornare, quindi corre prima, e per prima rifiuta l'header troncato, il backlink Visual FoxPro piu' lungo dell'header e l'offset del primo record piu' corto dell'intestazione. Le righe omonime dentro `read_dbf_layout` restano come difesa di una lettura che non e' piu' isolata, e non hanno input: sono registrate irraggiungibili con la sonda che ne prova la **precedenza**, cosi' un cambio d'ordine la rende rossa invece di passare inosservato. Cio' che `read_dbf_layout` decide da se' e' quello che l'altra tronca invece di rifiutare -- un numero di byte di descrittori che non e' multiplo di trentadue -- e la lunghezza di record dichiarata che non torna con la somma dei campi, l'unica che riguarda i record e non l'header. Le fixture partono dal writer vero e ritoccano **un campo solo** del `.dbf`: `.shp` e `.shx` restano di un produttore conforme, e l'unico motivo per cui la lettura puo' fallire e' il byte cambiato.",
       "prova": [
         {
           "crate": "driver-shp",
@@ -86,6 +92,12 @@
           "esito": "irraggiungibile",
           "righe": "2287-2290, 2293-2301, 2325-2334",
           "guardia": "driver-shp::valida_intestazione_dbf"
+        }
+      ],
+      "residui": [
+        {
+          "righe": "2315-2321",
+          "perche": "il confronto fra il conteggio di descrittori dell'header e quello dei nomi decodificati non e' ne' coperto ne' provato irraggiungibile. I due conteggi vengono dalla stessa aritmetica sull'header, e non e' stato possibile costruire un file in cui divergano -- nemmeno anticipando il terminatore fra i descrittori, che `dbase` attraversa senza fermarsi. Le due uscite oneste sono provarlo raggiungibile con un file che lo raggiunga, oppure rimuovere il confronto come ridondante: dichiararlo irraggiungibile senza prova sarebbe la supposizione che questo censimento esiste per escludere."
         }
       ]
     },
@@ -127,7 +139,7 @@
       "righe": 18,
       "raggiunto_da_replay": 0,
       "disposizione": "seme_fuzz",
-      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+      "nota": "la nota precedente era invecchiata: diceva che il parsing di `.shp`/`.dbf` non avesse alcun fuzz target. Il target `shp_reader` esiste, ha i propri semi versionati, e la sua profondita' e' registrata in `assurance/profondita-fuzz-shapefile.json` con 35/35 requisiti raggiunti. Il gruppo resta aperto per un'altra ragione, e va detta com'e': le difese della funzione sorvegliano un disallineamento fra geometrie e record che `infer_geometry_info` rifiuta gia' all'apertura, quindi da un file non hanno input. Per eseguirle serve costruire `ShpParserInput` direttamente -- il tipo e' privato del modulo, quindi si puo' -- con `expected_active_rows` e `expected_shape_type` deliberatamente diversi da cio' che il bundle contiene. E' la strada di chiusura, e non e' stata ancora percorsa."
     },
     {
       "gruppo": "driver-shp::infer_shp_schema",
@@ -238,14 +250,20 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 11,
       "raggiunto_da_replay": 0,
-      "disposizione": "chiuso",
-      "nota": "chiuso sul conteggio dei byte dello staging, che precede la pubblicazione. Non e' un dettaglio d'ordine: un tetto controllato dopo avrebbe gia' scritto i file, e «superato il limite» sarebbe una constatazione invece di un rifiuto -- la sonda verifica infatti che nessuna delle quattro parti esista sul disco dopo il rifiuto. Il tetto vale sull'insieme, non su ciascuna parte: e' il set a essere l'unita' pubblicata. Il valore del tetto e' **misurato** da una corsa di riferimento con lo stesso lotto e poi abbassato di un byte, perche' un tetto scelto a caso rischia di far scattare la validazione della scrittura -- che deriva il proprio tetto dall'input osservato -- invece del conteggio di `finish`; quella corsa di riferimento e' anche il controllo positivo. IRRAGGIUNGIBILI «writer gia' chiuso» e «staging mancante»: `finish` prende `self: Box<Self>` e consuma lo stato, quindi non esiste una seconda chiamata che possa trovarli gia' presi. La guardia e' il tipo, non un controllo. Resta senza esecuzione l'overflow del conteggio dei byte, che richiederebbe uno staging da piu' di `u64::MAX` byte.",
+      "disposizione": "parziale",
+      "nota": "chiuso sul conteggio dei byte dello staging, che precede la pubblicazione. Non e' un dettaglio d'ordine: un tetto controllato dopo avrebbe gia' scritto i file, e «superato il limite» sarebbe una constatazione invece di un rifiuto -- la sonda verifica infatti che nessuna delle quattro parti esista sul disco dopo il rifiuto. Il tetto vale sull'insieme, non su ciascuna parte: e' il set a essere l'unita' pubblicata. Il valore del tetto e' **misurato** da una corsa di riferimento con lo stesso lotto e poi abbassato di un byte, perche' un tetto scelto a caso rischia di far scattare la validazione della scrittura -- che deriva il proprio tetto dall'input osservato -- invece del conteggio di `finish`; quella corsa di riferimento e' anche il controllo positivo. IRRAGGIUNGIBILI «writer gia' chiuso» e «staging mancante»: `finish` prende `self: Box<Self>` e consuma lo stato, quindi non esiste una seconda chiamata che possa trovarli gia' presi. La guardia e' il tipo, non un controllo.",
       "prova": [
         {
           "crate": "driver-shp",
           "test": "tests::n1_finish_conta_i_byte_dello_staging_prima_di_pubblicare",
           "configurazione": "default",
           "esito": "coperto"
+        }
+      ],
+      "residui": [
+        {
+          "righe": "1008-1013",
+          "perche": "l'overflow del conteggio dei byte dello staging richiederebbe uno staging da piu' di `u64::MAX` byte. Chiudibile estraendo il `try_fold` in un aiutante che accetta le dimensioni gia' misurate, invece di leggerle dal filesystem."
         }
       ]
     },
@@ -566,8 +584,8 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "chiuso",
-      "nota": "chiuso su cinque cause che sono diverse per chi ripara il dato -- geometria assente, WKB non decodificabile, forma che Shapefile non rappresenta, tipo diverso da quello che il file ha gia', cella che il DBF non sa portare -- e su una proprieta' che nessun messaggio esprime: il rifiuto arriva **prima** di scrivere. `write` prepara tutte le righe e le consegna al writer solo se nessuna e' stata rifiutata, perche' un file con dentro meta' batch sarebbe peggio di nessun file. FINDING DEL GRUPPO: tre delle difese di `ShpWriter::write` non hanno input, e non per costruzione interna ma perche' `plenora-io-core::with_write_validation` avvolge il writer e decide prima. Byte che non sono WKB non arrivano al driver: la validazione li rifiuta come `conversion.invalid_geometry`, e la causa `shapefile.invalid_geometry` resta senza input. Un lotto con la colonna geometria di tipo Arrow diverso non passa il confronto con il contratto dichiarato, e «colonna geometria non binaria» resta senza input. La sonda misura **quale** causa arriva davvero invece di supporla, e la riga accanto mostra dove il driver decide da se': una `GeometryCollection` e' WKB valido, e solo Shapefile sa di non saperla rappresentare. IRRAGGIUNGIBILI anche «writer chiuso» -- `finish` consuma `self: Box<Self>`, quindi dopo la chiusura non esiste un `write` da chiamare -- e i due «troppe righe Shapefile», che richiederebbero piu' di `u64::MAX` righe in un lotto.",
+      "disposizione": "parziale",
+      "nota": "chiuso su cinque cause che sono diverse per chi ripara il dato -- geometria assente, WKB non decodificabile, forma che Shapefile non rappresenta, tipo diverso da quello che il file ha gia', cella che il DBF non sa portare -- e su una proprieta' che nessun messaggio esprime: il rifiuto arriva **prima** di scrivere. `write` prepara tutte le righe e le consegna al writer solo se nessuna e' stata rifiutata, perche' un file con dentro meta' batch sarebbe peggio di nessun file. FINDING DEL GRUPPO: tre delle difese di `ShpWriter::write` non hanno input, e non per costruzione interna ma perche' `plenora-io-core::with_write_validation` avvolge il writer e decide prima. Byte che non sono WKB non arrivano al driver: la validazione li rifiuta come `conversion.invalid_geometry`, e la causa `shapefile.invalid_geometry` resta senza input. Un lotto con la colonna geometria di tipo Arrow diverso non passa il confronto con il contratto dichiarato, e «colonna geometria non binaria» resta senza input. La sonda misura **quale** causa arriva davvero invece di supporla, e la riga accanto mostra dove il driver decide da se': una `GeometryCollection` e' WKB valido, e solo Shapefile sa di non saperla rappresentare. IRRAGGIUNGIBILE anche «writer chiuso»: `finish` consuma `self: Box<Self>`, quindi dopo la chiusura non esiste un `write` da chiamare.",
       "prova": [
         {
           "crate": "driver-shp",
@@ -582,6 +600,12 @@
           "esito": "irraggiungibile",
           "righe": "912-915, 924-926, 968-972",
           "guardia": "plenora-io-core::with_write_validation"
+        }
+      ],
+      "residui": [
+        {
+          "righe": "976-984",
+          "perche": "i due «troppe righe Shapefile» -- la conversione della cardinalita' del lotto e la somma con le righe gia' scritte -- richiederebbero un lotto con piu' di `u64::MAX` righe. Il secondo e' chiudibile inizializzando `rows` vicino a `u64::MAX` sullo stato privato, e verificando che il rifiuto preceda la scrittura."
         }
       ]
     },
@@ -780,14 +804,20 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 3,
       "raggiunto_da_replay": 0,
-      "disposizione": "chiuso",
-      "nota": "`BoundedSpoolWriter::data`, chiuso su una tabella che verifica il tag scritto per ogni variante di `calamine::Data` **e** la rileggibilita' di cio' che ha scritto: scrittura e rilettura sono due meta' dello stesso formato, e provarne una sola lascerebbe passare un tag rinumerato da una parte sola. Il ramo `_` conta quanto gli altri, perche' raccoglie tutto cio' che non ha un tipo Arrow in cui finire -- il float non finito, la data nativa, la cella d'errore, la cella vuota -- e la proprieta' provata e' che diventino **nullo** e non spariscano: una riga con una cella in meno sfaserebbe tutte le colonne successive. Le tre varianti testuali (`String`, `DateTimeIso`, `DurationIso`) sono elencate una per una perche' condividono un braccio del `match` e una sola non direbbe che le altre due ci passano. RISCHIO RESIDUO DICHIARATO: `u32::try_from(bytes.len())` sul testo resta senza esecuzione ne' prova di irraggiungibilita'; raggiungerlo richiede una cella di testo da oltre quattro gibibyte, quindi un file d'ingresso di quell'ordine, che nessuna fixture del repository produce.",
+      "disposizione": "parziale",
+      "nota": "`BoundedSpoolWriter::data`, chiuso su una tabella che verifica il tag scritto per ogni variante di `calamine::Data` **e** la rileggibilita' di cio' che ha scritto: scrittura e rilettura sono due meta' dello stesso formato, e provarne una sola lascerebbe passare un tag rinumerato da una parte sola. Il ramo `_` conta quanto gli altri, perche' raccoglie tutto cio' che non ha un tipo Arrow in cui finire -- il float non finito, la data nativa, la cella d'errore, la cella vuota -- e la proprieta' provata e' che diventino **nullo** e non spariscano: una riga con una cella in meno sfaserebbe tutte le colonne successive. Le tre varianti testuali (`String`, `DateTimeIso`, `DurationIso`) sono elencate una per una perche' condividono un braccio del `match` e una sola non direbbe che le altre due ci passano.",
       "prova": [
         {
           "crate": "driver-xls",
           "test": "tests::n1_bounded_spool_writer_data_da_un_tag_a_ogni_variante_e_annulla_il_resto",
           "configurazione": "default",
           "esito": "coperto"
+        }
+      ],
+      "residui": [
+        {
+          "righe": "1253-1257",
+          "perche": "`u32::try_from(bytes.len())` sul testo richiede una cella da oltre quattro gibibyte, quindi un file d'ingresso di quell'ordine. Chiudibile come il gemello di `geometry`: estraendo la conversione in un aiutante provabile con una lunghezza dichiarata."
         }
       ]
     },
@@ -796,14 +826,20 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 3,
       "raggiunto_da_replay": 0,
-      "disposizione": "chiuso",
-      "nota": "`BoundedSpoolWriter::geometry`, chiuso sul giro completo invece che sui soli byte prodotti: una tabella che guardasse solo cio' che il codificatore scrive direbbe che e' coerente con se stesso, mentre qui ogni caso passa da `geometry` e torna da `read_spool_geometry`. Se i due si separassero -- una lunghezza scritta con l'ampiezza sbagliata, il marcatore rinumerato da una parte sola -- e' il giro a rompersi, non un'attesa scritta a mano. La distinzione provata e' quella che il campo di quattro byte porta da solo: `u32::MAX` per l'assenza, la lunghezza altrimenti; confonderle darebbe una colonna dove ogni riga senza geometria ne ha una vuota, che nel contratto non e' la stessa cosa. Il caso «geometria vuota» ha fatto emergere il difetto della prenotazione a lunghezza zero, corretto nel gruppo `driver-xls::write`. RISCHIO RESIDUO DICHIARATO: `u32::try_from(bytes.len())` sulla geometria resta senza esecuzione ne' prova di irraggiungibilita'. Non e' irraggiungibile per costruzione -- `WkbLimits::max_cell_bytes` e' un `usize` senza tetto dichiarato, quindi su un bersaglio a sessantaquattro bit si puo' configurare oltre `u32::MAX` -- ma raggiungerlo richiede una cella WKB da oltre quattro gibibyte, che nessuna fixture del repository puo' produrre.",
+      "disposizione": "parziale",
+      "nota": "`BoundedSpoolWriter::geometry`, chiuso sul giro completo invece che sui soli byte prodotti: una tabella che guardasse solo cio' che il codificatore scrive direbbe che e' coerente con se stesso, mentre qui ogni caso passa da `geometry` e torna da `read_spool_geometry`. Se i due si separassero -- una lunghezza scritta con l'ampiezza sbagliata, il marcatore rinumerato da una parte sola -- e' il giro a rompersi, non un'attesa scritta a mano. La distinzione provata e' quella che il campo di quattro byte porta da solo: `u32::MAX` per l'assenza, la lunghezza altrimenti; confonderle darebbe una colonna dove ogni riga senza geometria ne ha una vuota, che nel contratto non e' la stessa cosa. Il caso «geometria vuota» ha fatto emergere il difetto della prenotazione a lunghezza zero, corretto nel gruppo `driver-xls::write`.",
       "prova": [
         {
           "crate": "driver-xls",
           "test": "tests::n1_bounded_spool_writer_geometry_distingue_l_assenza_dalla_geometria_vuota",
           "configurazione": "default",
           "esito": "coperto"
+        }
+      ],
+      "residui": [
+        {
+          "righe": "1227-1231",
+          "perche": "`u32::try_from(bytes.len())` sulla geometria non e' irraggiungibile per costruzione -- `WkbLimits::max_cell_bytes` e' un `usize` senza tetto dichiarato, quindi su un bersaglio a sessantaquattro bit si puo' configurare oltre `u32::MAX` -- ma raggiungerlo richiede una cella WKB da oltre quattro gibibyte. Chiudibile estraendo la conversione in un aiutante provabile con una lunghezza dichiarata invece che con una fetta vera."
         }
       ]
     },

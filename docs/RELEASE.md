@@ -42,7 +42,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | baseline differenziale | `0a988de` |
 | esito differenziale | 91.79% |
 | gruppi ASSURANCE-N1 | 50 |
-| gruppi ASSURANCE-N1 aperti | 2 |
+| gruppi ASSURANCE-N1 aperti | 8 |
 | blocchi | 4 |
 | S9, qualificato su | `dfa9fda` |
 | candidate, versione del manifesto | `1.0.1` |

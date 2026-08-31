@@ -110,11 +110,20 @@ def analizza_uscita(testo: str) -> tuple[dict[str, str], list[str]]:
     return esiti, duplicati
 
 
+# Le disposizioni che dichiarano prove, e le cui prove vanno **eseguite**.
+#
+# `parziale` sta qui accanto a `chiuso` di proposito: un gruppo con un residuo
+# resta debito, ma cio' che ha gia' coperto e' coperto, e va verificato con lo
+# stesso rigore. Escluderlo renderebbe conveniente lasciare un residuo aperto
+# per sottrarre le proprie prove al harness.
+CON_PROVA = {"chiuso", "parziale"}
+
+
 def prove_dichiarate(gruppi: list[dict]) -> list[tuple[str, dict]]:
-    """`(gruppo, prova)` per ogni prova dichiarata da un gruppo chiuso."""
+    """`(gruppo, prova)` per ogni prova dichiarata da un gruppo che ne ha."""
     fuori: list[tuple[str, dict]] = []
     for voce in gruppi:
-        if voce.get("disposizione") != "chiuso":
+        if voce.get("disposizione") not in CON_PROVA:
             continue
         for prova in voce.get("prova") or []:
             if isinstance(prova, dict):
