@@ -1022,16 +1022,17 @@ fn parse_legato(args: &[String], cancellazione: &CancellationToken) -> Result<Cl
     Ok(cli)
 }
 
-fn run() -> CliResult {
+/// L'esito del comando, e il protocollo che ha prodotto il documento.
+///
+/// Il protocollo esce da `run` perche' l'avviso del v1 legacy **accompagna un
+/// output consegnato**, e chi lo consegna e' `main`. Dedurlo dagli argomenti
+/// direbbe un'altra cosa: `catalog` e `--version` non leggono il flag, e un
+/// avviso su una busta v2 parlerebbe di una diagnostica illimitata che quel
+/// documento non ha.
+type EsitoDelComando = (CliResult, Protocollo);
+
+fn run() -> EsitoDelComando {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // L'avviso esce **su stderr**, e una volta sola, prima di qualunque busta.
-    // Su stdout non ci va: il v1 e' congelato byte per byte, e aggiungere un
-    // avviso al documento sarebbe cambiarlo.
-    if args.iter().any(|a| a == "--legacy-protocol-v1-unsafe") {
-        if let Some(avviso) = Protocollo::V1Legacy.avviso() {
-            eprintln!("{avviso}");
-        }
-    }
     // Il gestore si installa **prima** del dispatch, non dentro il comando: un
     // Ctrl+C battuto mentre la sorgente si apre deve trovare il token gia'
     // armato.
@@ -1039,22 +1040,40 @@ fn run() -> CliResult {
     // Se non si installa, il comando non parte: la ragione sta su
     // `RIFIUTO_SEGNALI`, e in breve e' che un avviso testuale finirebbe davanti
     // alla busta e romperebbe il contratto di `stderr`.
-    let cancellazione =
-        installa_gestore_dei_segnali().map_err(|errore| errore_di_avvio(&errore))?;
-    match args.first().map(String::as_str) {
+    let cancellazione = match installa_gestore_dei_segnali() {
+        Ok(token) => token,
+        Err(errore) => return (Err(errore_di_avvio(&errore)), Protocollo::default()),
+    };
+    // I quattro comandi che leggono il protocollo dagli argomenti stanno
+    // insieme: solo loro possono consegnare un documento legacy, e solo per
+    // loro l'avviso ha un oggetto.
+    if let Some(nome @ ("inspect" | "layers" | "read" | "convert")) =
+        args.first().map(String::as_str)
+    {
+        let cli = match parse_legato(&args[1..], &cancellazione) {
+            Ok(cli) => cli,
+            Err(errore) => return (Err(errore), Protocollo::default()),
+        };
+        let protocollo = cli.protocollo;
+        let esito = match nome {
+            "inspect" => cmd_inspect(&cli),
+            "layers" => cmd_layers(&cli),
+            "read" => cmd_read(&cli),
+            _ => cmd_convert(&cli),
+        };
+        return (esito, protocollo);
+    }
+    let esito = match args.first().map(String::as_str) {
         Some("--version" | "-V") => Ok(json!({
             "status": "ok",
             "version": env!("CARGO_PKG_VERSION"),
         })),
         Some("catalog") => cmd_catalog(Protocollo::default()),
-        Some("inspect") => cmd_inspect(&parse_legato(&args[1..], &cancellazione)?),
-        Some("layers") => cmd_layers(&parse_legato(&args[1..], &cancellazione)?),
-        Some("read") => cmd_read(&parse_legato(&args[1..], &cancellazione)?),
-        Some("convert") => cmd_convert(&parse_legato(&args[1..], &cancellazione)?),
         _ => Err(usage_err(&PublicMessage::Curated(
             "uso: plenora-io <catalog|inspect|layers|read|convert> [args] | --version",
         ))),
-    }
+    };
+    (esito, Protocollo::default())
 }
 
 // Impronta stabile e non invertibile del messaggio di un panico. Duplica per
@@ -1184,7 +1203,17 @@ fn matrice_di_handoff() -> Value {
                 "non promesso: l'escaping JSON espande (una virgoletta -> 2 byte, un controllo -> 6); se servira', va dichiarato a parte e misurato dopo la serializzazione",
             "message_non_e_chiave_di_compatibilita": true,
             "message_testo_runtime": "vietato, salvo il token bounded di un'opzione rifiutata prodotto dal validatore centrale",
-            "assi_stabili": ["category", "phase", "code", "retry"]
+            "assi_stabili": ["category", "phase", "code", "retry"],
+            // Dove sta la busta, non solo com'e' fatta.
+            //
+            // Un consumatore la legge da `stderr` con un parser sull'intero
+            // flusso: se qualcosa la precedesse, il parser si fermerebbe sulla
+            // prima riga. E' successo -- un avviso emesso all'avvio finiva
+            // davanti alla busta di un comando che poi falliva -- e il vincolo
+            // e' qui perche' chi integra lo legga invece di scoprirlo.
+            "stderr_su_errore": "esattamente un documento JSON, e nient'altro",
+            "stderr_su_successo": "vuoto, salvo l'avviso del protocollo legacy quando e' stato scelto esplicitamente e la consegna e' riuscita",
+            "stdout_su_successo": "il documento del comando; l'avviso del legacy non ci entra, perche' il v1 e' congelato byte per byte"
         },
         "campi": [
             {
@@ -1246,8 +1275,25 @@ fn matrice_di_handoff() -> Value {
 fn main() {
     installa_hook_silenzioso();
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
-        Ok(Ok(doc)) => println!("{doc}"),
-        Ok(Err((exit, doc))) => {
+        // L'avviso del v1 legacy accompagna **una consegna riuscita**, e solo
+        // quella.
+        //
+        // Stava all'inizio di `run`, prima di qualunque esito. Su un comando
+        // che poi falliva finiva davanti alla busta, e chi legge `stderr` con
+        // un parser vi trovava due documenti dove il contratto ne promette
+        // uno. Sul percorso d'errore non c'e' nemmeno niente da avvertire: una
+        // busta v1 non e' stata consegnata, quindi la sua diagnostica
+        // illimitata non esiste.
+        //
+        // Su `stdout` non ci va: il v1 e' congelato byte per byte, e
+        // aggiungere un avviso al documento sarebbe cambiarlo.
+        Ok((Ok(doc), protocollo)) => {
+            if let Some(avviso) = protocollo.avviso() {
+                eprintln!("{avviso}");
+            }
+            println!("{doc}");
+        }
+        Ok((Err((exit, doc)), _)) => {
             eprintln!("{doc}");
             std::process::exit(exit);
         }

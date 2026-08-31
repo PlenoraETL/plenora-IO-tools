@@ -82,7 +82,10 @@
     "message_max_bytes_serializzato_nota": "non promesso: l'escaping JSON espande (una virgoletta -> 2 byte, un controllo -> 6); se servira', va dichiarato a parte e misurato dopo la serializzazione",
     "message_max_bytes_valore_decodificato": 2048,
     "message_non_e_chiave_di_compatibilita": true,
-    "message_testo_runtime": "vietato, salvo il token bounded di un'opzione rifiutata prodotto dal validatore centrale"
+    "message_testo_runtime": "vietato, salvo il token bounded di un'opzione rifiutata prodotto dal validatore centrale",
+    "stderr_su_errore": "esattamente un documento JSON, e nient'altro",
+    "stderr_su_successo": "vuoto, salvo l'avviso del protocollo legacy quando e' stato scelto esplicitamente e la consegna e' riuscita",
+    "stdout_su_successo": "il documento del comando; l'avviso del legacy non ci entra, perche' il v1 e' congelato byte per byte"
   },
   "vocabolari": {
     "code": [

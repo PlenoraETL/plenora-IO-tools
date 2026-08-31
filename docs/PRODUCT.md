@@ -409,3 +409,25 @@ compresi, e lo dice nel nome. I suoi `detail` sono conservati **alla lettera** �
 non ricostruiti — in un campo privato che un solo adattatore legge, e a
 pretendere che il lettore resti uno solo è un gate: la visibilità di Rust non sa
 dire «questo modulo e nessun altro».
+
+### Che cosa esce su stdout e che cosa su stderr
+
+Tre righe, e valgono insieme:
+
+* in caso di **errore**, `stderr` contiene sempre e soltanto la busta JSON. Un
+  consumatore la legge con un parser sull'intero flusso, e non trova mai nulla
+  che la preceda;
+* in caso di **successo con il protocollo legacy**, `stdout` conserva il
+  documento v1 byte per byte e `stderr` porta l'avviso che quel protocollo è
+  stato scelto;
+* con il protocollo predefinito e successo, `stderr` resta **vuoto**.
+
+L'avviso accompagna una consegna riuscita, e solo quella. Sul percorso d'errore
+non c'è niente da avvertire: una busta v1 non è stata consegnata, quindi la
+diagnostica illimitata di cui l'avviso parla non esiste. Su `stdout` non va
+perché il v1 è congelato byte per byte, e aggiungere un avviso al documento
+sarebbe cambiarlo.
+
+Il gestore dei segnali segue la stessa regola: se non si installa, il comando
+**non parte** e `stderr` porta un rifiuto tipizzato — non un avviso testuale che
+finirebbe davanti alla busta.
