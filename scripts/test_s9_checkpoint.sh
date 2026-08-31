@@ -225,10 +225,17 @@ esegui passo_pesante un_gate_qualunque true
 verifica "il rifiuto vale anche al livello 2" "1" "${#falliti[@]}"
 verifica "e il passo non viene eseguito" "0" "${verdi}"
 
-# I nove autorizzati sono esattamente nove, e sono quelli.
-verifica "l'elenco chiuso ha nove nomi" "9" "${#PASSI_PESANTI[@]}"
+# Gli undici autorizzati sono esattamente undici, e sono quelli.
+#
+# Il conteggio si aggiorna nello stesso commit che lo cambia: un elenco che
+# cresce senza che nessuno lo dica e' il modo in cui un gate sparisce dal
+# livello 1 in silenzio, cioe' il difetto che questa lista esiste per
+# chiudere. I due nomi nuovi sono la misura dedicata alla CLI, che sta fuori
+# dallo scope «library coverage» della soglia e ha percio' un export proprio.
+verifica "l'elenco chiuso ha undici nomi" "11" "${#PASSI_PESANTI[@]}"
 for atteso in fuzz_replay fuzz_smoke coverage_pulizia coverage_misura \
     coverage_export coverage_report_non_vuoto check_coverage_exclusions \
+    coverage_export_cli coverage_report_cli_non_vuoto \
     coverage_soglia_dal_report coverage_soglia_controprova; do
     if e_pesante_autorizzato "${atteso}"; then
         verifica "«${atteso}» e' autorizzato" "si" "si"

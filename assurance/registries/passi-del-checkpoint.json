@@ -282,6 +282,14 @@
       "log": true
     },
     {
+      "id": "coverage_export_cli",
+      "log": true
+    },
+    {
+      "id": "coverage_report_cli_non_vuoto",
+      "log": true
+    },
+    {
       "id": "coverage_soglia_dal_report",
       "log": true
     },

@@ -46,6 +46,20 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # esclude, le due misure parlerebbero di insiemi diversi con lo stesso nome.
 ESCLUSI = ("plenora-bench", "plenora-fuzz", "plenora-io-cli")
 
+# Il perimetro **complementare**, per la misura dedicata alla CLI.
+#
+# `plenora-io-cli` sta fuori dallo scope «library coverage» per scelta, e la
+# scelta resta: la soglia dell'80% vale sulle librerie. Ma «fuori dalla soglia»
+# era diventato «fuori da ogni misura», e il binario che gli utenti eseguono
+# non puo' essere l'unica cosa che nessuno guarda. Da qui la seconda corsa,
+# con lo stesso strumento e un perimetro dichiarato: nessuna soglia, un numero
+# che si legge.
+#
+# Non e' una deroga all'esclusione: e' una misura **diversa**, con un nome
+# diverso, che non entra nel denominatore della prima. Sommarle darebbe un
+# terzo numero che non e' ne' l'una ne' l'altra.
+SOLO_CLI = "plenora-io-cli"
+
 INTESTAZIONE_DIFF = re.compile(r"^\+\+\+ b/(.+)$")
 INTERVALLO = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@")
 
@@ -98,10 +112,12 @@ def copertura_lcov(percorso: pathlib.Path) -> dict[str, dict[int, int]]:
     return per_file
 
 
-def rilevante(percorso: str) -> bool:
+def rilevante(percorso: str, solo: str | None = None) -> bool:
     parti = percorso.split("/")
     if len(parti) < 2 or parti[0] != "crates":
         return False
+    if solo is not None:
+        return parti[1] == solo
     return parti[1] not in ESCLUSI
 
 
@@ -115,6 +131,14 @@ def main() -> int:
         type=int,
         default=20,
         help="quante righe scoperte elencare (0 per tutte)",
+    )
+    argomenti.add_argument(
+        "--solo",
+        default=None,
+        help=(
+            "misura una sola crate invece del perimetro di libreria; serve alla "
+            "corsa dedicata alla CLI, che la soglia esclude per scope"
+        ),
     )
     opzioni = argomenti.parse_args()
 
@@ -134,7 +158,7 @@ def main() -> int:
     non_eseguibili = 0
 
     for percorso, righe in sorted(cambiate.items()):
-        if not rilevante(percorso):
+        if not rilevante(percorso, opzioni.solo):
             continue
         conteggi = copertura.get(percorso, {})
         for numero in sorted(righe):
@@ -146,7 +170,11 @@ def main() -> int:
                 scoperte.append((percorso, numero))
 
     eseguibili = coperte + len(scoperte)
-    print(f"copertura delle righe cambiate fra {opzioni.base} e {opzioni.head}")
+    perimetro = f"crate «{opzioni.solo}»" if opzioni.solo else "perimetro di libreria"
+    print(
+        f"copertura delle righe cambiate fra {opzioni.base} e {opzioni.head} "
+        f"({perimetro})"
+    )
     print(f"  righe cambiate ed eseguibili: {eseguibili}")
     print(f"  coperte:                      {coperte}")
     print(f"  scoperte:                     {len(scoperte)}")

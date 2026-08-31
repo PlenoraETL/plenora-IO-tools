@@ -292,7 +292,7 @@ salta() {
     registra_passo "${nome}" "saltato" ""
 }
 
-# I **nove** passi che il livello 1 puo' omettere. Elenco chiuso.
+# Gli **undici** passi che il livello 1 puo' omettere. Elenco chiuso.
 #
 # Senza questo elenco `passo_pesante` accetterebbe qualunque nome, e marcare
 # per sbaglio un gate come pesante lo farebbe sparire dal livello 1 in
@@ -307,6 +307,8 @@ PASSI_PESANTI=(
     coverage_export
     coverage_report_non_vuoto
     check_coverage_exclusions
+    coverage_export_cli
+    coverage_report_cli_non_vuoto
     coverage_soglia_dal_report
     coverage_soglia_controprova
 )
@@ -688,6 +690,16 @@ passo_pesante fuzz_smoke bash scripts/fuzz-smoke.sh
 echo
 echo "--- 5. copertura, poi il suo gate ----------------------------"
 ESCLUSIONI='(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
+# Il secondo report **non esclude niente**, e la selezione del perimetro sta
+# nello strumento che lo legge.
+#
+# La strada alternativa era una regex complementare -- «tutto cio' che non e'
+# la CLI» -- e passava da un lookahead negativo, che non tutte le sintassi di
+# `--ignore-filename-regex` supportano. Una regex che non morde non fallisce:
+# include tutto in silenzio, e la misura dedicata direbbe i numeri di quella
+# di libreria con un altro nome. Filtrare per prefisso di percorso in
+# `coverage_diff.py` e' verificabile da una sonda, un lookahead no.
+LCOV_COMPLETO="${LOG_DIR}/lcov-completo.info"
 export PLENORA_CROSS_FS_TEST_ROOT="${PLENORA_CROSS_FS_TEST_ROOT:-/dev/shm}"
 # I dati di profiling precedenti vanno rimossi **prima** di misurare. Senza,
 # una misura fallita lascia in piedi quelli della corsa precedente, e i passi
@@ -714,6 +726,13 @@ passo_pesante_in_catena coverage_export cargo llvm-cov report --lcov --output-pa
 passo_pesante_in_catena coverage_report_non_vuoto test -s "${LCOV}"
 passo_pesante_in_catena check_coverage_exclusions python3 scripts/check_coverage_exclusions.py \
     --lcov "${LCOV}"
+# La misura dedicata alla CLI: stesso profdata, secondo report con il perimetro
+# complementare. Non ha soglia -- e' diagnostica come il differenziale di
+# libreria -- e non entra nel denominatore della prima: sommarle darebbe un
+# terzo numero che non e' ne' l'una ne' l'altra.
+passo_pesante_in_catena coverage_export_cli cargo llvm-cov report --lcov \
+    --output-path "${LCOV_COMPLETO}"
+passo_pesante_in_catena coverage_report_cli_non_vuoto test -s "${LCOV_COMPLETO}"
 # La soglia si legge **dallo stesso file** delle esclusioni.
 #
 # La versione di cargo resta accanto, ma NON come conferma dello stesso numero:
@@ -777,6 +796,10 @@ elif [ -n "${S9_CHECKPOINT_BASE:-}" ]; then
     python3 scripts/coverage_diff.py --lcov "${LCOV}" \
         --base "${S9_CHECKPOINT_BASE}" --head "${REVISIONE}" --mostra 0 \
         > "${LOG_DIR}/coverage_diff.log" 2>&1
+    python3 scripts/coverage_diff.py --lcov "${LCOV_COMPLETO}" \
+        --base "${S9_CHECKPOINT_BASE}" --head "${REVISIONE}" --mostra 0 \
+        --solo plenora-io-cli \
+        > "${LOG_DIR}/coverage_diff_cli.log" 2>&1
     esito_diff=$?
     cat "${LOG_DIR}/coverage_diff.log"
     if [ "${esito_diff}" -ne 0 ]; then
