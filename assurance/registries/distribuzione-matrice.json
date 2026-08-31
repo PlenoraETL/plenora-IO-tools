@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "stato": "contratto dichiarato, nessun artefatto prodotto",
+  "descrizione": "La matrice di distribuzione e il contratto del runtime GDAL, decisi **prima** del packaging. Il gate che li verifica non esiste ancora, e la ragione e' scritta nell'invariante `distribuzione.artefatti-qualificati`: finche' non esiste un artefatto, un gate che lo verifichi ritornerebbe verde su niente.",
+  "non_significa": "nessun artefatto e' stato prodotto, nessuno smoke e' stato eseguito, e questo file non qualifica niente. E' la decisione che rende scrivibile il packaging, non il packaging.",
+  "versione_del_prodotto": {
+    "sorgente": "Cargo.toml del workspace",
+    "nota": "la versione non e' ricopiata qui: due copie divergono. Il costruttore la legge da Cargo.toml e la scrive nel manifesto dell'artefatto."
+  },
+  "piattaforme": [
+    {
+      "id": "linux-x86_64",
+      "sistema": "linux",
+      "architettura": "x86_64",
+      "abi": "gnu",
+      "glibc_minima": "2.36",
+      "perche_questa_soglia": "e' la glibc dell'immagine di costruzione, Debian 12 bookworm. Dichiararne una piu' bassa senza costruire su una base piu' vecchia sarebbe una promessa non misurata. Conseguenza dichiarata: l'artefatto **non** gira su Ubuntu 22.04 (glibc 2.35), che la CI usa ancora nella matrice GDAL. Abbassarla richiede una base di costruzione piu' vecchia, ed e' una decisione separata.",
+      "estensione_archivio": "tar.gz",
+      "stato": "da produrre"
+    },
+    {
+      "id": "windows-x86_64",
+      "sistema": "windows",
+      "architettura": "x86_64",
+      "abi": "msvc",
+      "estensione_archivio": "zip",
+      "stato": "da produrre"
+    },
+    {
+      "id": "macos-aarch64",
+      "sistema": "macos",
+      "architettura": "aarch64",
+      "macos_minima": "14.0",
+      "perche_solo_aarch64": "e' cio' che i runner `macos-latest` sono. Un artefatto x86_64 richiederebbe un runner dedicato e un secondo smoke, e offrirlo senza eseguirlo sarebbe peggio che non offrirlo. Se servira', e' una riga in piu' in questa matrice e un job in piu', non un cambio di forma.",
+      "estensione_archivio": "tar.gz",
+      "stato": "da produrre"
+    }
+  ],
+  "profili": [
+    {
+      "id": "base",
+      "feature_cargo": [],
+      "contiene_runtime_nativo": false,
+      "descrizione": "il binario e nient'altro. Nessuna dipendenza nativa oltre la libc del sistema: il workspace e' Rust puro quando `gdal-backend` e' assente, e `driver-filegdb` degrada a uno stub che rifiuta la capability invece di fingere.",
+      "capability_filegdb": "assente, e dichiarata assente dal catalogo"
+    },
+    {
+      "id": "filegdb",
+      "feature_cargo": ["gdal-backend"],
+      "contiene_runtime_nativo": true,
+      "descrizione": "il binario piu' il **proprio** runtime GDAL. Non risolve una GDAL di sistema: se il runtime spedito manca o non si carica, il comando fallisce invece di trovarne un altro.",
+      "capability_filegdb": "presente, e la sua presenza e' verificata dallo smoke sull'artefatto installato"
+    }
+  ],
+  "nomi_degli_archivi": {
+    "forma": "plenora-io-<versione>-<profilo>-<piattaforma>.<estensione>",
+    "esempio": "plenora-io-1.0.1-filegdb-linux-x86_64.tar.gz",
+    "perche_il_profilo_nel_nome": "due archivi della stessa versione e piattaforma differiscono per una capability, non per un dettaglio di build. Chi scarica deve poterlo leggere dal nome invece di scoprirlo eseguendo `catalog`."
+  },
+  "layout_installato": {
+    "radice": "la directory in cui l'archivio e' estratto; nessun percorso assoluto e' incorporato",
+    "voci": [
+      {
+        "percorso": "bin/plenora-io",
+        "in_ogni_profilo": true,
+        "nota": "su Windows `bin/plenora-io.exe`"
+      },
+      {
+        "percorso": "lib/",
+        "in_ogni_profilo": false,
+        "solo_profilo": "filegdb",
+        "nota": "le librerie native fissate; il binario le trova per percorso relativo"
+      },
+      {
+        "percorso": "share/gdal/",
+        "in_ogni_profilo": false,
+        "solo_profilo": "filegdb",
+        "nota": "i dati di GDAL; senza, alcuni driver falliscono in modi che sembrano difetti del dato"
+      },
+      {
+        "percorso": "share/proj/",
+        "in_ogni_profilo": false,
+        "solo_profilo": "filegdb",
+        "nota": "i dati di PROJ; senza, le trasformazioni di CRS falliscono o degradano"
+      },
+      {
+        "percorso": "LICENSES/",
+        "in_ogni_profilo": true,
+        "nota": "la licenza di ogni componente spedito, una per file, generata dal lock e non scritta a mano"
+      },
+      {
+        "percorso": "MANIFEST.json",
+        "in_ogni_profilo": true,
+        "nota": "versione, revisione, profilo, piattaforma, elenco dei file con sha256, e il lock del runtime quando c'e'"
+      },
+      {
+        "percorso": "SBOM.spdx.json",
+        "in_ogni_profilo": true,
+        "nota": "SPDX 2.3; le dipendenze Rust da `Cargo.lock`, quelle native dal lock del runtime"
+      }
+    ]
+  },
+  "contratto_gdal": {
+    "versione": "3.10.3",
+    "perche_questa": "e' gia' la versione fissata per Windows in `scripts/windows-gdal-lock.json`, ed e' disponibile per linux-64, linux-aarch64 e osx-arm64 dalla stessa origine. Una versione sola su tutte le piattaforme e' la sola forma in cui la **capability** e' la stessa ovunque: oggi la CI misura FileGDB in scrittura assente su Ubuntu 22.04 e presente su 24.04, cioe' una differenza di prodotto prodotta dalla distribuzione.",
+    "binding_rust": {
+      "crate": "gdal",
+      "versione": "=0.17.1",
+      "fork": "vendor/gdal",
+      "binding_version_dichiarata": "3.6.0",
+      "nota": "il binding dichiara 3.6.0 come versione di riferimento e funziona con 3.10.3; il lock di Windows lo verifica gia' e i lock nuovi devono verificarlo allo stesso modo."
+    },
+    "origini": [
+      {
+        "piattaforma": "windows-x86_64",
+        "origine": "OSGeo4W",
+        "lock": "scripts/windows-gdal-lock.json",
+        "stato": "gia' fissato: 49 pacchetti, ciascuno con dimensione e sha256, da un base URL dichiarato"
+      },
+      {
+        "piattaforma": "linux-x86_64",
+        "origine": "conda-forge",
+        "lock": "scripts/linux-gdal-lock.json",
+        "stato": "da produrre"
+      },
+      {
+        "piattaforma": "macos-aarch64",
+        "origine": "conda-forge",
+        "lock": "scripts/macos-gdal-lock.json",
+        "stato": "da produrre"
+      }
+    ],
+    "perche_conda_forge_e_non_la_distribuzione": "la GDAL di distribuzione non e' fissabile: cambia con il sistema, e con essa cambia la capability. conda-forge pubblica la stessa versione per le tre piattaforme, ogni pacchetto con un sha256 verificabile e un URL stabile -- la stessa forma che OSGeo4W ha gia' su Windows. Costruire GDAL dai sorgenti darebbe piu' controllo e porterebbe con se' l'intera chiusura di PROJ, GEOS e sqlite da fissare a loro volta: e' la strada da prendere se conda-forge si rivelasse insufficiente, non prima.",
+    "driver_pretesi": [
+      {
+        "nome": "OpenFileGDB",
+        "tipo": "driver interno di GDAL, non un plugin",
+        "verifica": "lo smoke sull'artefatto installato pretende che `catalog` dichiari la capability FileGDB **disponibile**; il gate rifiuta un artefatto `filegdb` che la dichiari assente",
+        "nota": "il driver proprietario `FileGDB` di Esri non e' usato e non e' spedito"
+      }
+    ],
+    "plugin": {
+      "politica": "nessun plugin caricato da percorsi di sistema",
+      "come": "`GDAL_DRIVER_PATH` e' fissata alla directory dei plugin spediti -- vuota se non se ne spedisce alcuno -- cosi' una GDAL di sistema con plugin non entra nel processo. Non impostarla lascerebbe il default, che cerca in percorsi che l'artefatto non controlla."
+    },
+    "comportamento_del_loader": {
+      "regola": "il binario carica **solo** le librerie spedite, e se non le trova fallisce",
+      "linux": "RPATH `$ORIGIN/../lib` sul binario; nessun `LD_LIBRARY_PATH` richiesto all'utente e nessun ripiego su `/usr/lib`",
+      "macos": "`@loader_path/../lib` negli install name delle librerie e del binario, riscritti dopo la copia",
+      "windows": "le DLL accanto al binario in `bin/`, che e' la prima directory di ricerca del caricatore",
+      "dati": "`GDAL_DATA` e `PROJ_DATA` risolti a partire dal percorso del binario, non dall'ambiente: un artefatto che dipendesse da variabili impostate a mano funzionerebbe sulla macchina di chi lo ha costruito e altrove no",
+      "perche_nessun_ripiego": "una GDAL di sistema qualunque cambia i driver disponibili, le trasformazioni di CRS e i difetti noti. Un artefatto che la accetti non ha un'identita' stabile, e la sua qualifica non dice niente sulla copia che gira altrove."
+    },
+    "licenze": {
+      "regola": "ogni componente nativo spedito porta la propria licenza in `LICENSES/`, generata dal lock",
+      "note_attese": "GDAL e' MIT/X11, PROJ e' MIT, e la chiusura ne porta altre -- fra cui LGPL, che impone di poter sostituire la libreria. Il layout con le librerie in `lib/` e il caricamento per percorso relativo lo permette gia'; il runbook lo dira' esplicitamente.",
+      "verifica": "il gate rifiuta un artefatto in cui un file di `lib/` non abbia una licenza corrispondente in `LICENSES/`"
+    }
+  },
+  "cosa_deve_rifiutare_il_gate": [
+    "un archivio a cui manchi una delle voci dichiarate nel layout del suo profilo",
+    "un profilo `filegdb` il cui runtime non corrisponda al lock, per versione o per sha256",
+    "un binario che, sul percorso `filegdb`, risolva una libreria fuori dall'albero installato",
+    "un checksum che non torni con il file che nomina",
+    "un SBOM o una provenance assenti, o che nominino una revisione diversa da quella dell'artefatto",
+    "uno smoke non eseguito, o eseguito su qualcosa che non sia l'artefatto **installato**",
+    "una piattaforma dichiarata in questa matrice per cui non esista un artefatto verde"
+  ],
+  "ordine_di_lavoro": [
+    "1. questo contratto (fatto)",
+    "2. il lock di Linux, e il costruttore che lo verifica",
+    "3. Linux da zero a fine: build, archivio, installazione in directory vuota, checksum, SBOM, provenance locale **non-release**, smoke sull'installato, prima sezione del runbook",
+    "4. l'impianto comune estratto da Linux, e i job nativi Windows e macOS con gli smoke sui rispettivi runner",
+    "5. il gate che rifiuta cio' che e' elencato sopra"
+  ],
+  "artefatti_di_prova": {
+    "regola": "durante lo sviluppo si producono soltanto artefatti di prova, e si vede dal nome",
+    "come": "`MANIFEST.json` porta `canale: \"prova\"` e la provenance dichiara `non_release: true`. Un artefatto di prova non entra in nessuna evidenza qualificata, e il gate lo rifiuta come candidate."
+  }
+}

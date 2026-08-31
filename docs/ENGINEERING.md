@@ -540,6 +540,80 @@ contro la baseline archiviata.
 L'unico benchmark cablato in CI è quello **Windows / FileGDB narrow**, che
 produce un artefatto misurato a ogni corsa.
 
+## Distribuzione
+
+Non esiste ancora un artefatto. Esiste il contratto che lo governa, deciso
+prima del packaging perché tre workflow scritti su assunzioni non provate
+sarebbero tre volte lo stesso errore.
+
+La matrice sta in `assurance/registries/distribuzione-matrice.json`: sistemi,
+architetture, nomi degli archivi, layout installato, i due profili e il
+contratto del runtime nativo. Qui c'è il perché.
+
+### Due profili, non uno con un interruttore
+
+`base` è il binario e nient'altro: senza `gdal-backend` il workspace è Rust
+puro, e `driver-filegdb` degrada a uno stub che **rifiuta la capability**
+invece di fingerla.
+
+`filegdb` porta con sé il proprio runtime GDAL. Il profilo sta nel nome
+dell'archivio perché due archivi della stessa versione e piattaforma
+differiscono per una capability, non per un dettaglio di build: chi scarica
+deve poterlo leggere invece di scoprirlo eseguendo `catalog`.
+
+### Il runtime è fissato, e non c'è ripiego
+
+GDAL **3.10.3** su tutte e tre le piattaforme. Non è una preferenza: oggi la
+CI misura FileGDB in scrittura *assente* su Ubuntu 22.04 e *presente* su
+24.04. È la distribuzione a decidere che cosa il prodotto sa fare, e un
+artefatto che eredita quella decisione non ha un'identità stabile — la sua
+qualifica non dice niente sulla copia che gira altrove.
+
+Windows è già fissato così: `scripts/windows-gdal-lock.json` porta
+quarantanove pacchetti OSGeo4W, ciascuno con dimensione e SHA-256 da un base
+URL dichiarato. Linux e macOS prendono la stessa versione da conda-forge, che
+la pubblica per tutte e tre le architetture con la stessa forma verificabile.
+Costruire GDAL dai sorgenti darebbe più controllo e porterebbe con sé PROJ,
+GEOS e sqlite da fissare a loro volta: è la strada da prendere se conda-forge
+si rivelasse insufficiente, non prima.
+
+Il binario carica **solo** le librerie spedite, e se non le trova fallisce:
+`$ORIGIN/../lib` su Linux, `@loader_path/../lib` su macOS, le DLL accanto al
+binario su Windows. `GDAL_DATA` e `PROJ_DATA` si risolvono dal percorso del
+binario e non dall'ambiente — un artefatto che dipendesse da variabili
+impostate a mano funzionerebbe sulla macchina di chi lo ha costruito e
+altrove no. `GDAL_DRIVER_PATH` è fissata alla directory dei plugin spediti,
+vuota se non se ne spedisce alcuno, così una GDAL di sistema con plugin non
+entra nel processo.
+
+### Che cosa l'artefatto porta con sé
+
+Oltre al binario: le licenze di ogni componente spedito, generate dal lock e
+non scritte a mano; un `MANIFEST.json` con versione, revisione, profilo,
+piattaforma e l'elenco dei file con SHA-256; un SBOM SPDX che prende le
+dipendenze Rust da `Cargo.lock` e quelle native dal lock del runtime.
+
+Fra le licenze della chiusura c'è LGPL, che impone di poter sostituire la
+libreria. Il layout con le librerie in `lib/` e il caricamento per percorso
+relativo lo permette già, e il runbook lo dirà esplicitamente.
+
+### Che cosa non è ancora vero
+
+Nessun artefatto è stato prodotto e nessuno smoke è stato eseguito. Il gate
+che verificherà tutto questo non esiste, e la ragione è la stessa scritta
+nell'invariante `distribuzione.artefatti-qualificati`: finché non c'è un
+artefatto, un gate che lo verifichi ritornerebbe verde su niente.
+
+Durante lo sviluppo si producono soltanto artefatti di **prova**, e si vede
+dal manifesto: `canale: "prova"`, provenance `non_release: true`. Nessuno
+entra in un'evidenza qualificata.
+
+Una conseguenza va detta subito: l'artefatto Linux è costruito su Debian 12 e
+richiede **glibc ≥ 2.36**, quindi non gira su Ubuntu 22.04 — che la CI usa
+ancora nella matrice GDAL. Abbassare la soglia richiede una base di
+costruzione più vecchia, ed è una decisione separata da prendere prima di
+dichiarare la piattaforma supportata.
+
 ## Registri macchina
 
 Nessun documento è un database. I gate leggono file strutturati:
@@ -556,6 +630,7 @@ Nessun documento è un database. I gate leggono file strutturati:
 | `assurance/registries/sonde-deterministiche.json` | i rami che dipendevano dallo scheduling, e la sonda che li esercita | `check_sonde_deterministiche.py` |
 | `assurance/campagne-copertura.json` | il verbale della dimostrazione di riproducibilità della copertura | nessuno: è un fatto passato, non una fonte |
 | `assurance/registries/quartetto-siti.json` | quartetto per sito di costruzione | `check_quartetto_sito.py` |
+| `assurance/registries/distribuzione-matrice.json` | piattaforme, profili, layout e contratto del runtime GDAL | nessuno ancora: il gate nasce con il primo artefatto |
 | `release/cli-protocol-v1.json` | le sei buste della CLI | `check_release_contract.py` |
 | `release/system-rc-gate.json` | qualifica cross-component | esterno |
 | `assurance/evidence/checkpoint-<sha>.json` | la corsa che ha prodotto i numeri dello stato — **una sola**, la corrente | `check_release_contract.py` |
