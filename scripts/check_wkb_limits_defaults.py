@@ -62,7 +62,13 @@ DICHIARAZIONE_FN = re.compile(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)")
 # invece che su ogni riga; due sono le sonde dei budget, che dai campi di
 # `WkbLimits` derivano il payload oltre il tetto -- provano i limiti, quindi
 # e' li' che il default e' l'oggetto della prova e non una scorciatoia.
-ATTESI = {"test": 80, "attrezzaggio": 6, "produzione": 2}
+# `test` passa da 80 a 82 con le sonde N1 di `driver-xls`: una in
+# `encode_geometry_cell`, dove la quota e' il contesto sotto cui si prova la
+# distinzione fra assenza e geometria a meta', e una nell'attrezzo
+# `scrittore`, che tiene la quota in un posto solo invece che su ogni lotto.
+# In nessuna delle due il tetto e' l'oggetto della prova: sceglierne una
+# diversa proverebbe il driver sotto una quota che nessun uso reale imposta.
+ATTESI = {"test": 82, "attrezzaggio": 6, "produzione": 2}
 # Le sette ultime sono le sonde di **confine** del lotto S12: per ogni forma
 # derivano dal default una quota esatta e una piu' stretta di uno, perche' il
 # tetto sui componenti va provato dove morde e non «da qualche parte sopra».

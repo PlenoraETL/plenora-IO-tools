@@ -3368,6 +3368,374 @@ mod tests {
         spool.finish().expect("non c'e' niente da svuotare");
     }
 
+    /// `encode_geometry_cell` distingue la riga senza geometria dalla riga con
+    /// una geometria a meta'.
+    ///
+    /// Sono due esiti che si somigliano e non lo sono: una cella WKT vuota, o
+    /// una coppia x/y entrambe assenti, dicono «questa riga non ha geometria» e
+    /// producono `Ok(false)`, che a valle diventa un nullo. Una sola delle due
+    /// coordinate, invece, e' un dato incompleto: accettarlo significherebbe
+    /// inventare l'altra meta' o buttare via quella presente, e il rifiuto
+    /// esiste per non fare ne' l'una ne' l'altra cosa.
+    ///
+    /// Le due meta' incomplete sono provate separatamente perche' cadono sullo
+    /// stesso braccio `_` da due direzioni: con una fixture sola, invertire i
+    /// due `coordinate_cell` non romperebbe nulla.
+    #[test]
+    fn n1_encode_geometry_cell_separa_l_assenza_dalla_geometria_a_meta() {
+        let dimensioni = SheetBounds {
+            start: (0, 0),
+            end: (0, 2),
+        };
+        let codifica = |riga: &[Data], geom: XlsxGeomSpec| {
+            let mut viste = BTreeSet::new();
+            let mut tipi = BTreeSet::new();
+            let mut buffer = Vec::new();
+            encode_geometry_cell(
+                riga,
+                dimensioni,
+                geom,
+                WkbLimits::default(),
+                &mut viste,
+                &mut tipi,
+                &mut buffer,
+            )
+            .map(|presente| (presente, buffer.len()))
+        };
+
+        // WKT presente: la geometria c'e' e il buffer non e' vuoto.
+        let (presente, byte) = codifica(
+            &[
+                Data::String("POINT (1 2)".to_owned()),
+                Data::Empty,
+                Data::Empty,
+            ],
+            XlsxGeomSpec::Wkt(0),
+        )
+        .expect("un WKT valido si codifica");
+        assert!(presente && byte > 0, "una geometria vera riempie il buffer");
+
+        // WKT vuoto o soli spazi: assenza, non errore. Lo spazio conta: e' il
+        // caso che una cella «pulita a mano» produce piu' spesso del vuoto.
+        for testo in ["", "   "] {
+            let (presente, _) = codifica(
+                &[Data::String(testo.to_owned()), Data::Empty, Data::Empty],
+                XlsxGeomSpec::Wkt(0),
+            )
+            .expect("una cella WKT vuota non e' un errore");
+            assert!(!presente, "«{testo}» non e' una geometria");
+        }
+
+        // Coppia x/y completa, e coppia interamente assente.
+        let (presente, byte) = codifica(
+            &[Data::Empty, Data::Float(1.0), Data::Float(2.0)],
+            XlsxGeomSpec::Xy(1, 2),
+        )
+        .expect("una coppia completa si codifica");
+        assert!(presente && byte > 0);
+
+        let (presente, _) = codifica(
+            &[Data::Empty, Data::Empty, Data::Empty],
+            XlsxGeomSpec::Xy(1, 2),
+        )
+        .expect("una coppia interamente assente non e' un errore");
+        assert!(!presente, "nessuna coordinata significa nessuna geometria");
+
+        // Le due meta' incomplete.
+        for (caso, riga) in [
+            (
+                "solo l'ascissa",
+                [Data::Empty, Data::Float(1.0), Data::Empty],
+            ),
+            (
+                "solo l'ordinata",
+                [Data::Empty, Data::Empty, Data::Float(2.0)],
+            ),
+        ] {
+            let Err(errore) = codifica(&riga, XlsxGeomSpec::Xy(1, 2)) else {
+                panic!("{caso}: mezza coordinata non e' un punto");
+            };
+            assert_eq!(
+                errore.message, "geometria XY incompleta: X e Y devono essere entrambi presenti",
+                "{caso}: messaggio sbagliato"
+            );
+        }
+    }
+
+    /// `write_cell` scrive ogni valore che `json_from_array` sa produrre, e
+    /// propaga l'errore del formato invece di troncare.
+    ///
+    /// Le tre righe difensive del `match` non sono raggiungibili, e la ragione
+    /// e' la stessa per tutte e tre: `json_from_array` non produce quei valori.
+    /// Restituisce `Null`, `Bool`, `Number` o `String`, oppure fallisce -- non
+    /// esiste un percorso che le consegni un array o un oggetto JSON, e i
+    /// `Number` che costruisce sono `i64`, `u64` o `f64` finito, tutti
+    /// convertibili in `f64`. La sonda esegue quelle due precondizioni invece
+    /// di argomentarle.
+    #[test]
+    fn n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato() {
+        let mut cartella = Workbook::new();
+        let foglio = cartella.add_worksheet();
+
+        for (caso, array) in [
+            (
+                "nullo",
+                Arc::new(arrow_array::Int64Array::from(vec![None::<i64>])) as ArrayRef,
+            ),
+            (
+                "intero",
+                Arc::new(arrow_array::Int64Array::from(vec![Some(7_i64)])) as ArrayRef,
+            ),
+            (
+                "numero",
+                Arc::new(arrow_array::Float64Array::from(vec![Some(1.5_f64)])) as ArrayRef,
+            ),
+            (
+                "booleano",
+                Arc::new(arrow_array::BooleanArray::from(vec![Some(true)])) as ArrayRef,
+            ),
+            (
+                "testo",
+                Arc::new(arrow_array::StringArray::from(vec![Some("ciao")])) as ArrayRef,
+            ),
+        ] {
+            // Un `match` e non un `unwrap_or_else`: non c'e' un valore di
+            // ripiego, e il censimento dei fallback conta la forma sintattica.
+            match write_cell(foglio, 0, 0, &array, 0) {
+                Ok(()) => {}
+                Err(errore) => panic!("{caso}: {errore:?}"),
+            }
+        }
+
+        // La propagazione da `json_from_array`: un tipo Arrow che non ha una
+        // resa JSON senza perdita non diventa una cella approssimata.
+        let non_convertibile: ArrayRef =
+            Arc::new(arrow_array::Date32Array::from(vec![Some(1_i32)]));
+        let Err(errore) = write_cell(foglio, 1, 0, &non_convertibile, 0) else {
+            panic!("un tipo non convertibile non puo' diventare una cella");
+        };
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::Unsupported,
+            "e' una capability mancante, non un dato sbagliato: {}",
+            errore.message
+        );
+
+        // La propagazione dal formato: una stringa oltre il tetto per cella
+        // non viene troncata, viene rifiutata.
+        let troppo_lunga: ArrayRef = Arc::new(arrow_array::StringArray::from(vec![Some(
+            "x".repeat(40_000),
+        )]));
+        let Err(errore) = write_cell(foglio, 2, 0, &troppo_lunga, 0) else {
+            panic!("una cella oltre il tetto del formato non puo' essere troncata in silenzio");
+        };
+        assert!(
+            errore.message.starts_with("XLSX:"),
+            "il rifiuto deve venire dal formato, con la classe al posto del Display: «{}»",
+            errore.message
+        );
+    }
+
+    /// Le due precondizioni che rendono irraggiungibili i rami difensivi di
+    /// `write_cell`.
+    ///
+    /// La prima: `json_from_array` non restituisce mai un array o un oggetto
+    /// JSON, quindi il braccio `other` del `match` non ha input. La seconda: i
+    /// soli `Number` che costruisce vengono da `i64`, `u64` o `f64` finito, e
+    /// `as_f64` li converte tutti -- il rifiuto «numero non rappresentabile
+    /// come f64 in XLSX» non ha input nemmeno lui. Gli estremi sono verificati,
+    /// non argomentati.
+    #[test]
+    fn n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili() {
+        // Un tipo aggregato non diventa un `JsonValue::Array`: diventa un
+        // errore. E' la guardia che svuota il braccio `other`.
+        let lista: ArrayRef = Arc::new(arrow_array::ListArray::from_iter_primitive::<
+            arrow_array::types::Int32Type,
+            _,
+            _,
+        >(vec![Some(vec![Some(1), Some(2)])]));
+        assert!(
+            driver_common::json_from_array(&lista, 0).is_err(),
+            "un aggregato deve essere rifiutato, non convertito in un array JSON"
+        );
+
+        // I tre estremi dei `Number` costruibili: il piu' grande senza segno,
+        // il piu' piccolo con segno, e il float finito piu' grande.
+        for (caso, array) in [
+            (
+                "u64::MAX",
+                Arc::new(arrow_array::UInt64Array::from(vec![Some(u64::MAX)])) as ArrayRef,
+            ),
+            (
+                "i64::MIN",
+                Arc::new(arrow_array::Int64Array::from(vec![Some(i64::MIN)])) as ArrayRef,
+            ),
+            (
+                "f64::MAX",
+                Arc::new(arrow_array::Float64Array::from(vec![Some(f64::MAX)])) as ArrayRef,
+            ),
+        ] {
+            let valore = match driver_common::json_from_array(&array, 0) {
+                Ok(valore) => valore,
+                Err(errore) => panic!("{caso}: doveva convertirsi: {errore:?}"),
+            };
+            let JsonValue::Number(numero) = valore else {
+                panic!("{caso}: doveva essere un numero");
+            };
+            assert!(
+                numero.as_f64().is_some(),
+                "{caso}: se questo fallisse, «numero non rappresentabile come f64» diventerebbe raggiungibile"
+            );
+        }
+    }
+
+    /// Uno stato di scrittura XLSX con i lotti dati.
+    ///
+    /// La quota WKB e' quella predefinita perche' queste sonde non provano il
+    /// tetto: lo attraversano. Sceglierne una diversa proverebbe la scrittura
+    /// sotto una quota che nessun uso reale imposta.
+    ///
+    /// Restituisce gia' incassato perche' `FormatWriter::finish` prende
+    /// `self: Box<Self>`: il `Box` non e' un giro superfluo, e' la forma che
+    /// la firma del tratto richiede.
+    #[allow(clippy::unnecessary_box_returns)]
+    fn scrittore(
+        percorso: &std::path::Path,
+        xy: bool,
+        lotti: Vec<RecordBatch>,
+    ) -> Box<XlsWriterState> {
+        Box::new(XlsWriterState {
+            path: percorso.to_owned(),
+            durable: false,
+            xy,
+            batches: lotti,
+            wkb_limits: WkbLimits::default(),
+            max_output_bytes: u64::MAX,
+        })
+    }
+
+    /// Un lotto di una riga con la sola colonna geometria dichiarata.
+    fn lotto_geometrico(campo: Field, wkb: &[u8]) -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![campo])),
+            vec![Arc::new(BinaryArray::from(vec![Some(wkb)]))],
+        )
+        .unwrap()
+    }
+
+    /// Il WKB ISO di una geometria, per le sonde di scrittura.
+    fn wkb_di(valore: WkbValue) -> Vec<u8> {
+        encode_wkb(
+            &WkbGeometry {
+                value: valore,
+                dimensions: CoordinateDimensions::Xy,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+        )
+        .expect("le forme XY di queste sonde si codificano")
+    }
+
+    /// Un vertice XY senza Z ne' M.
+    const fn vertice(x: f64, y: f64) -> WkbCoordinate {
+        WkbCoordinate {
+            x,
+            y,
+            z: None,
+            m: None,
+        }
+    }
+
+    /// `XlsWriterState::finish` rifiuta il lotto senza geometria, quello con
+    /// una geometria non binaria, e la geometria che l'encoding `xy` non sa
+    /// rappresentare.
+    ///
+    /// I tre rifiuti dicono cose diverse a chi ha costruito il piano: manca la
+    /// colonna, la colonna c'e' ma non e' WKB, la colonna e' WKB ma contiene
+    /// qualcosa che due numeri non descrivono. L'ultimo e' il piu' facile da
+    /// confondere con una perdita accettabile -- «scrivo il centroide» -- e il
+    /// rifiuto e' la scelta opposta: l'encoding `xy` si chiede esplicitamente,
+    /// e chi lo chiede su una `LineString` ha sbagliato piano, non dato.
+    #[test]
+    fn n1_finish_rifiuta_il_lotto_senza_geometria_binaria_e_la_geometria_non_xy() {
+        let dir = tempfile::tempdir().unwrap();
+        let campo = geometry_field("geometry", "EPSG:4326");
+        let punto = wkb_di(WkbValue::Point(vertice(1.0, 2.0)));
+
+        // Le due accettazioni: senza, un `finish` che rifiutasse ogni
+        // geometria supererebbe la tabella dei rifiuti.
+        for (caso, xy) in [("wkt", false), ("xy", true)] {
+            let esito = scrittore(
+                &dir.path().join(format!("buono-{caso}.xlsx")),
+                xy,
+                vec![lotto_geometrico(campo.clone(), &punto)],
+            )
+            .finish();
+            // Un `match` e non un `unwrap_or_else`: non c'e' un valore di
+            // ripiego, e il censimento dei fallback conta la forma sintattica.
+            match esito {
+                Ok(_) => {}
+                Err(errore) => panic!("{caso}: un punto XY si scrive: {errore:?}"),
+            }
+        }
+
+        // Nessuna colonna dichiarata come geometria.
+        let senza = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "nome",
+                arrow_schema::DataType::Utf8,
+                true,
+            )])),
+            vec![Arc::new(arrow_array::StringArray::from(vec![Some("uno")]))],
+        )
+        .unwrap();
+        let Err(errore) = scrittore(&dir.path().join("senza.xlsx"), false, vec![senza]).finish()
+        else {
+            panic!("un foglio XLSX di questo driver ha sempre una colonna geometria");
+        };
+        assert_eq!(errore.message, "nessuna colonna geometria");
+
+        // Colonna dichiarata geometria ma di tipo non binario: i metadati sono
+        // gli stessi, cambia solo il tipo Arrow. E' cio' che un piano costruito
+        // a mano puo' produrre, ed e' il `downcast` a doverlo fermare.
+        let finta = Field::new("geometry", arrow_schema::DataType::Utf8, true)
+            .with_metadata(campo.metadata().clone());
+        let non_binaria = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![finta])),
+            vec![Arc::new(arrow_array::StringArray::from(vec![Some(
+                "POINT (1 2)",
+            )]))],
+        )
+        .unwrap();
+        let Err(errore) = scrittore(
+            &dir.path().join("non-binaria.xlsx"),
+            false,
+            vec![non_binaria],
+        )
+        .finish() else {
+            panic!("una colonna geometria che non e' WKB non e' una geometria");
+        };
+        assert_eq!(errore.message, "colonna geometria non binaria");
+
+        // Encoding `xy` su una geometria che due numeri non descrivono.
+        let linea = wkb_di(WkbValue::LineString(vec![
+            vertice(0.0, 0.0),
+            vertice(1.0, 1.0),
+        ]));
+        let Err(errore) = scrittore(
+            &dir.path().join("linea.xlsx"),
+            true,
+            vec![lotto_geometrico(campo, &linea)],
+        )
+        .finish() else {
+            panic!("l'encoding xy non puo' inventare due numeri per una linea");
+        };
+        assert_eq!(
+            errore.message,
+            "encoding xy richiede geometrie Point strettamente XY"
+        );
+    }
+
     /// `classe_xlsx` traduce ogni variante che sappiamo costruire.
     ///
     /// Sette varianti di `XlsxError` **portano il nome del foglio come dato**,

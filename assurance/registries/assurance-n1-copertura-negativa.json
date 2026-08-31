@@ -506,8 +506,24 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 4,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso su due fronti: le propagazioni, che sono raggiungibili, e i due rami difensivi del `match`, che non lo sono. Raggiungibili: un tipo Arrow senza resa JSON senza perdita non diventa una cella approssimata ma un `Unsupported`, e una stringa oltre il tetto per cella non viene troncata ma rifiutata dal formato -- con la **classe** dell'errore al posto del `Display` della dipendenza, che e' la ragione per cui `xls_err` esiste. Irraggiungibili: il braccio `other` e il rifiuto «numero non rappresentabile come f64 in XLSX». Per entrambi la guardia e' la stessa funzione, `driver-common::json_from_array`, che restituisce solo `Null`, `Bool`, `Number` o `String` oppure fallisce -- non esiste un percorso che consegni a `write_cell` un array o un oggetto JSON -- e i soli `Number` che costruisce vengono da `i64`, `u64` o `f64` finito, tutti convertibili con `as_f64`. Le due precondizioni sono eseguite, non argomentate: un aggregato Arrow viene rifiutato da `json_from_array`, e i tre estremi costruibili (`u64::MAX`, `i64::MIN`, `f64::MAX`) hanno `as_f64` pieno. Se una delle due cedesse, la sonda diventa rossa e i due rami vanno riclassificati.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_write_cell_scrive_i_valori_convertibili_e_propaga_il_rifiuto_del_formato",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_json_from_array_non_produce_ne_aggregati_ne_numeri_non_rappresentabili",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "826-832, 837-841",
+          "guardia": "driver-common::json_from_array"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::header_geometry",
@@ -644,16 +660,38 @@
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 2,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso separando due esiti che si somigliano e non lo sono. Una cella WKT vuota, o una coppia x/y con entrambe le coordinate assenti, dicono «questa riga non ha geometria» e producono `Ok(false)`, che a valle diventa un nullo. Una sola delle due coordinate e' invece un dato incompleto: accettarlo significherebbe inventare l'altra meta' o buttare via quella presente, e il rifiuto esiste per non fare ne' l'una ne' l'altra cosa. Le due meta' incomplete sono provate separatamente perche' cadono sullo stesso braccio `_` da due direzioni: con una fixture sola, invertire i due `coordinate_cell` non romperebbe nulla. La cella di soli spazi e' elencata accanto a quella vuota perche' e' il caso che una colonna «pulita a mano» produce piu' spesso del vuoto, e passa da `trim`, non da un confronto con la stringa vuota. Le accettazioni verificano che il buffer WKB venga davvero riempito: un `Ok(true)` con buffer vuoto passerebbe una tabella che guardasse solo il booleano.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_encode_geometry_cell_separa_l_assenza_dalla_geometria_a_meta",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::finish",
       "file": "crates/driver-xls/src/lib.rs",
       "righe": 2,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "il nome copre due funzioni omonime, e sono chiuse entrambe. `XlsWriterState::finish` ha tre rifiuti che dicono cose diverse a chi ha costruito il piano: manca la colonna geometria, la colonna c'e' ma non e' WKB, la colonna e' WKB ma contiene qualcosa che due numeri non descrivono. Il terzo e' il piu' facile da confondere con una perdita accettabile -- «scrivo il centroide» -- e il rifiuto e' la scelta opposta: l'encoding `xy` si chiede esplicitamente, e chiederlo su una LineString e' un piano sbagliato, non un dato sbagliato. Il caso della colonna non binaria e' costruito con **gli stessi metadati** della colonna vera e un tipo Arrow diverso: e' cio' che un piano costruito a mano puo' produrre, ed e' esattamente il `downcast` a doverlo fermare. Due accettazioni stanno accanto ai rifiuti -- un lotto WKB scritto su file vero, e lo stesso punto XY con encoding `xy` -- perche' senza di loro un `finish` che rifiutasse ogni geometria supererebbe la tabella. `BoundedSpoolWriter::finish` ha un solo ramo, lo svuotamento del buffer, ed e' eseguito dalla sonda del gruppo `driver-xls::write`: la scrittura di un byte riesce perche' `BufWriter` accumula, e l'errore arriva al `flush` su un descrittore aperto in sola lettura. Le due chiamate sono separate apposta, perche' un'asserzione «almeno una delle due fallisce» non avrebbe detto quale.",
+      "prova": [
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_finish_rifiuta_il_lotto_senza_geometria_binaria_e_la_geometria_non_xy",
+          "configurazione": "default",
+          "esito": "coperto"
+        },
+        {
+          "crate": "driver-xls",
+          "test": "tests::n1_bounded_spool_writer_distingue_la_quota_dall_overflow_e_dal_disco",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-xls::la_classe_xlsx_traduce_ogni_variante_costruibile",
