@@ -134,8 +134,18 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 16,
       "raggiunto_da_replay": 0,
-      "disposizione": "seme_fuzz",
-      "nota": "parsing di .shp/.dbf: non ha alcun fuzz target -- shp_wkb esercita solo la conversione WKB. Serve un seme versionato insieme al target mancante."
+      "disposizione": "chiuso",
+      "nota": "chiuso come irraggiungibilita' **misurata**, non supposta: le difese della funzione sorvegliano una divergenza fra le sue due letture del `.dbf` -- il lettore raw degli interi esatti e l'iteratore di `dbase` -- che due guardie diverse impediscono. Entrambe le letture sono guidate dallo stesso conteggio nell'header, quindi per farle divergere bisogna far fermare `dbase` prima, e `dbase` si ferma in due modi soli. Le due strade sono state percorse, non argomentate. Un `.dbf` troncato non arriva alla divergenza: il lettore raw pretende i byte del record e rifiuta con «record DBF incompleto». Un marcatore di fine file messo dove `dbase` lo leggerebbe come tale cade sul flag di cancellazione, e il lettore raw ammette solo lo spazio e l'asterisco: rifiuta con «marcatore di record DBF non valido». Entrambi i tentativi sono nella sonda, con il messaggio atteso: se una delle due guardie cedesse, la sonda diventa rossa e la classificazione va rifatta. La difesa simmetrica -- `dbase` con **piu'** record del conteggio -- e' chiusa altrove: `infer_geometry_info` confronta le geometrie con il conteggio dichiarato e corre prima del ciclo. Restano senza input «numero di record DBF fuori intervallo u64» -- il conteggio e' un `u32` e la conversione a `u64` e' infallibile, `From` e non `TryFrom`: che la riga compili e' la prova, e vale piu' di un'asserzione su un valore che il compilatore conosce gia' -- e le due «schema DBF senza accumulatore per un campo dichiarato», che sorvegliano una mappa costruita **dagli stessi** descrittori su cui poi si cerca: perche' un campo non vi si trovasse servirebbero due descrittori omonimi, e `leggi_descrittori_dbf` li rifiuta prima -- anche quando differiscono solo per le maiuscole, come la sonda esegue qui accanto. Il controllo positivo verifica che uno schema si inferisca davvero: senza, «rifiuta sempre» supererebbe la prova.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_le_due_letture_del_dbf_non_possono_divergere",
+          "configurazione": "default",
+          "esito": "irraggiungibile",
+          "righe": "2955-2959, 2963-2967, 2969-2974, 2988-2992, 3000-3005",
+          "guardia": "driver-shp::DbfExactIntegerRows + driver-shp::infer_geometry_info"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::leggi_descrittori_dbf",
@@ -196,8 +206,16 @@
       "file": "crates/driver-shp/src/lib.rs",
       "righe": 13,
       "raggiunto_da_replay": 0,
-      "disposizione": "test_tabellare",
-      "nota": "ramo semantico negativo mai eseguito da nulla; preesistente a S9 (verificato su effc4ab). Chiudibile con un test parametrico sulla classe di equivalenza della sua precondizione."
+      "disposizione": "chiuso",
+      "nota": "chiuso sul rifiuto che tiene insieme i due file del bundle. Uno Shapefile e' due file che si contano a vicenda -- il `.shp` porta le geometrie, il `.dbf` gli attributi, e la riga n e' la coppia dei due record n-esimi -- quindi se i conteggi non coincidono non esiste un allineamento giusto: non si sa quale dei due abbia la riga in piu', e leggere comunque accoppierebbe attributi con geometrie di un'altra riga. E' la perdita silenziosa che il rifiuto esiste per evitare, e il messaggio lo dice invece di «file corrotto». Il disallineamento e' provato in entrambi i versi -- meno record delle geometrie e piu' record delle geometrie -- e non da un lato solo, perche' il confronto e' un'uguaglianza e una fixture sola ne proverebbe una disuguaglianza sola. Un terzo caso passa dal file invece che dal parametro: il conteggio ritoccato nell'header del `.dbf`, cosi' il rifiuto arriva da un dato e non da un argomento di prova. Il controllo positivo verifica anche le due quantita' inferite -- tipo di shape e dimensionalita' -- che nessun errore esprime, e la propagazione dalla validazione della struttura chiude il caso del `.shp` assente. Le altre righe sono propagazioni: `header_geometry` ha il proprio gruppo, gia' chiuso.",
+      "prova": [
+        {
+          "crate": "driver-shp",
+          "test": "tests::n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono",
+          "configurazione": "default",
+          "esito": "coperto"
+        }
+      ]
     },
     {
       "gruppo": "driver-shp::finish",

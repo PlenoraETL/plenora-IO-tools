@@ -6683,6 +6683,168 @@ mod tests {
         );
     }
 
+    /// Il conteggio dell'header e `dbase` non possono divergere: due guardie
+    /// diverse lo impediscono, e questa sonda le esegue entrambe.
+    ///
+    /// `infer_shp_schema` scorre i record due volte in parallelo -- il lettore
+    /// raw degli interi esatti e l'iteratore di `dbase` -- e ha una difesa per
+    /// il caso in cui uno dei due finisca prima dell'altro. Entrambi sono
+    /// guidati dallo stesso conteggio nell'header, quindi per farli divergere
+    /// bisognerebbe far fermare `dbase` prima, e `dbase` si ferma in due modi
+    /// soli: alla fine fisica del file, o sul marcatore di fine record.
+    ///
+    /// **Le due strade sono chiuse, e la sonda le percorre invece di
+    /// argomentarle.** Un `.dbf` troncato non arriva alla divergenza: il
+    /// lettore raw pretende i byte del record e rifiuta con «record DBF
+    /// incompleto». Un marcatore di fine file messo dove `dbase` lo
+    /// leggerebbe come tale cade sul flag di cancellazione, e il lettore raw
+    /// ammette solo lo spazio e l'asterisco: rifiuta con «marcatore di record
+    /// DBF non valido».
+    ///
+    /// La seconda difesa -- `dbase` che ha **piu'** record del conteggio -- e'
+    /// chiusa da un'altra parte: `infer_geometry_info` confronta le geometrie
+    /// con il conteggio dichiarato e corre prima del ciclo.
+    ///
+    /// Restano senza input anche «numero di record DBF fuori intervallo u64»,
+    /// che sorveglia una conversione da `u32`, e «schema DBF senza accumulatore
+    /// per un campo dichiarato», che sorveglia una mappa costruita dagli stessi
+    /// descrittori su cui poi si cerca: perche' un campo non vi si trovasse
+    /// servirebbero due descrittori omonimi, e `leggi_descrittori_dbf` li
+    /// rifiuta prima.
+    #[test]
+    fn n1_le_due_letture_del_dbf_non_possono_divergere() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Il controllo positivo: due righe dichiarate, due presenti, schema
+        // inferito. Senza, «rifiuta sempre» supererebbe la prova.
+        let intatto = bundle_di_righe(dir.path(), "due.shp", &["NOME"], 2, |_| {});
+        let inferenza = infer_shp_schema(&intatto).expect("un bundle conforme si legge");
+        assert_eq!(inferenza.active_row_count, 2, "due righe attive");
+        assert_eq!(inferenza.cols.len(), 1, "un campo oltre la geometria");
+
+        // Prima strada: il file finisce prima di quanto l'header prometta.
+        let troncato = bundle_di_righe(dir.path(), "troncato.shp", &["NOME"], 2, |byte| {
+            let lunghezza_header = usize::from(u16::from_le_bytes([byte[8], byte[9]]));
+            let lunghezza_record = usize::from(u16::from_le_bytes([byte[10], byte[11]]));
+            byte.truncate(lunghezza_header + lunghezza_record);
+        });
+        let Err(errore) = infer_shp_schema(&troncato) else {
+            panic!("un header che promette piu' record di quanti ce ne sono non e' affidabile");
+        };
+        assert_eq!(
+            errore.message, "record DBF incompleto",
+            "a rifiutare e' il lettore raw, prima che le due letture divergano"
+        );
+
+        // Seconda strada: il marcatore di fine file dove `dbase` lo leggerebbe.
+        // Cade sul flag di cancellazione del terzo record, e il lettore raw
+        // ammette solo lo spazio e l'asterisco.
+        let marcato = bundle_di_righe(dir.path(), "marcato.shp", &["NOME"], 3, |byte| {
+            let lunghezza_header = usize::from(u16::from_le_bytes([byte[8], byte[9]]));
+            let lunghezza_record = usize::from(u16::from_le_bytes([byte[10], byte[11]]));
+            byte[lunghezza_header + 2 * lunghezza_record] = 0x1A;
+        });
+        let Err(errore) = infer_shp_schema(&marcato) else {
+            panic!("un marcatore di fine file in mezzo ai record non e' un record");
+        };
+        assert_eq!(
+            errore.message, "marcatore di record DBF non valido",
+            "a rifiutare e' il controllo sul flag di cancellazione"
+        );
+
+        // Le due difese che restano, e le loro precondizioni.
+        //
+        // La prima si prova senza asserzioni: il conteggio dei record e' un
+        // `u32`, e la conversione a `u64` e' **infallibile** -- `From`, non
+        // `TryFrom`. Che questa riga compili e' la prova, e vale piu' di
+        // un'asserzione su un valore che il compilatore conosce gia'.
+        let _: u64 = u64::from(u32::MAX);
+        let doppi = leggi_descrittori_dbf(
+            &mut std::io::Cursor::new(
+                [descrittore(b'C', 10, 0), descrittore(b'C', 10, 0)].concat(),
+            ),
+            vec!["NOME".to_owned(), "nome".to_owned()],
+            2,
+        );
+        assert!(
+            doppi.is_err(),
+            "due descrittori omonimi sono rifiutati prima: e' la ragione per cui la mappa \
+             degli accumulatori ha una voce per ogni campo"
+        );
+    }
+
+    /// `infer_geometry_info` pretende che i due file del bundle raccontino la
+    /// stessa storia.
+    ///
+    /// Uno Shapefile e' due file che si contano a vicenda: il `.shp` porta le
+    /// geometrie, il `.dbf` gli attributi, e la riga *n* e' la coppia dei due
+    /// record *n*-esimi. Se i conteggi non coincidono non esiste un
+    /// allineamento giusto -- non si sa quale dei due file abbia la riga in
+    /// piu' -- e leggere comunque accoppierebbe attributi con geometrie di
+    /// un'altra riga. E' la perdita silenziosa che il rifiuto esiste per
+    /// evitare, e il messaggio dice esattamente questo invece di «file
+    /// corrotto».
+    ///
+    /// Il conteggio ritoccato e' quello del `.dbf`, perche' e' un campo
+    /// dell'header e si cambia senza toccare i record: il `.shp` resta quello
+    /// che il writer ha prodotto, quindi l'unica cosa incoerente e' cio' che la
+    /// sonda ha dichiarato.
+    #[test]
+    fn n1_infer_geometry_info_rifiuta_i_conteggi_che_non_coincidono() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Il controllo positivo: un bundle intatto ha una geometria e un
+        // record, e l'inferenza restituisce il tipo dell'header.
+        let intatto = bundle_con_dbf_ritoccato(dir.path(), "intatto-geom.shp", &["NOME"], |_| {});
+        let info = infer_geometry_info(&intatto, 1).expect("un bundle conforme si legge");
+        assert_eq!(
+            info.shape_type,
+            Some("point-xy"),
+            "il tipo viene dall'header del .shp"
+        );
+        assert_eq!(info.dimensions, CoordinateDimensions::Xy);
+
+        // Il conteggio dichiarato dal chiamante non coincide con le geometrie.
+        for dichiarato in [0_u32, 2] {
+            let Err(errore) = infer_geometry_info(&intatto, dichiarato) else {
+                panic!("{dichiarato} record DBF contro una geometria non e' un allineamento");
+            };
+            assert_eq!(
+                errore.message, "numero di geometrie diverso dal numero di record DBF",
+                "il messaggio deve dire che i due file non si contano allo stesso modo"
+            );
+        }
+
+        // Lo stesso disallineamento visto dall'altra parte: e' il `.dbf` a
+        // dichiarare un conteggio che il `.shp` non conferma, ed e' la strada
+        // per cui il rifiuto arriva davvero da un file e non dal chiamante.
+        let ritoccato = bundle_con_dbf_ritoccato(
+            dir.path(),
+            "conteggio.shp",
+            &["NOME"],
+            |byte: &mut Vec<u8>| {
+                byte[4..8].copy_from_slice(&7_u32.to_le_bytes());
+            },
+        );
+        let layout = read_dbf_layout(&ritoccato).expect("l'header resta leggibile");
+        assert_eq!(layout.record_count, 7, "il ritocco e' arrivato dove doveva");
+        let Err(errore) = infer_geometry_info(&ritoccato, layout.record_count) else {
+            panic!("sette record dichiarati contro una geometria non e' un allineamento");
+        };
+        assert_eq!(
+            errore.message,
+            "numero di geometrie diverso dal numero di record DBF"
+        );
+
+        // La propagazione dalla validazione della struttura: senza il `.shp`
+        // non c'e' niente da contare, e il rifiuto arriva prima dell'apertura.
+        let assente = dir.path().join("non-esiste.shp");
+        assert!(
+            infer_geometry_info(&assente, 0).is_err(),
+            "un bundle senza `.shp` non ha geometrie da inferire"
+        );
+    }
+
     /// Un descrittore di campo DBF: trentadue byte, con tipo, larghezza e
     /// decimali nelle posizioni che il formato fissa.
     ///
@@ -6840,6 +7002,17 @@ mod tests {
         campi: &[&str],
         ritocco: impl FnOnce(&mut Vec<u8>),
     ) -> PathBuf {
+        bundle_di_righe(dir, nome, campi, 1, ritocco)
+    }
+
+    /// Come sopra, con il numero di righe scelto.
+    fn bundle_di_righe(
+        dir: &Path,
+        nome: &str,
+        campi: &[&str],
+        righe: usize,
+        ritocco: impl FnOnce(&mut Vec<u8>),
+    ) -> PathBuf {
         let percorso = dir.join(nome);
         let mut tabella = TableWriterBuilder::new();
         for campo in campi {
@@ -6854,9 +7027,11 @@ mod tests {
                 FieldValue::Character(Some("uno".to_owned())),
             );
         }
-        writer
-            .write_shape_and_record(&shapefile::Point::new(1.0, 2.0), &record)
-            .expect("un punto si scrive");
+        for _ in 0..righe {
+            writer
+                .write_shape_and_record(&shapefile::Point::new(1.0, 2.0), &record)
+                .expect("un punto si scrive");
+        }
         drop(writer);
 
         let dbf = percorso.with_extension("dbf");
