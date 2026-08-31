@@ -26,7 +26,8 @@
       ],
       "perche_non_si_deduce": "l'immagine di sviluppo e' Debian 12 (glibc 2.36), e dedurre da li' la soglia darebbe 2.36 -- cioe' escluderebbe Ubuntu 22.04 per un accidente dell'ambiente di lavoro, non per una proprieta' del prodotto. Il limite che la CI misura su 22.04 riguarda la **GDAL di sistema**, e il profilo distribuito porta la propria. Se la chiusura del lock pretendera' davvero una glibc successiva, a dimostrarlo sara' il controllo dei simboli, non un'immagine.",
       "estensione_archivio": "tar.gz",
-      "stato": "da produrre"
+      "stato": "da produrre",
+      "stato_costruzione": "costruita"
     },
     {
       "id": "windows-x86_64",
@@ -42,7 +43,8 @@
       ],
       "che_cosa_dimostra_lo_smoke": "lo smoke gira su Windows Server 2022 e dimostra **quello**. Windows 10 e 11 sono dichiarati sulla compatibilita' dell'ABI Win32 e sull'assenza di API riservate al server, non su una prova eseguita: finche' non esiste un runner client, la dichiarazione e' un'affermazione di compatibilita' e va letta come tale.",
       "estensione_archivio": "zip",
-      "stato": "da produrre"
+      "stato": "da produrre",
+      "stato_costruzione": "non_ancora_costruita"
     },
     {
       "id": "macos-aarch64",
@@ -62,7 +64,8 @@
       "perche_non_si_promette_macos_14": "prometterlo richiederebbe uno smoke che gira davvero su macOS 14, e un piano per quando quel runner sara' rimosso. Nessuna delle due cose esiste oggi.",
       "perche_solo_aarch64": "e' cio' che i runner macOS forniscono. Un artefatto x86_64 richiederebbe un runner dedicato e un secondo smoke, e offrirlo senza eseguirlo sarebbe peggio che non offrirlo. Se servira', e' una riga in piu' in questa matrice e un job in piu', non un cambio di forma.",
       "estensione_archivio": "tar.gz",
-      "stato": "da produrre"
+      "stato": "da produrre",
+      "stato_costruzione": "non_ancora_costruita"
     }
   ],
   "profili": [
@@ -133,7 +136,7 @@
     ]
   },
   "contratto_gdal": {
-    "versione": "3.10.3",
+    "versione": "3.9.3",
     "perche_questa": "e' gia' la versione fissata per Windows in `scripts/windows-gdal-lock.json`, ed e' disponibile per linux-64, linux-aarch64 e osx-arm64 dalla stessa origine. Una versione sola su tutte le piattaforme e' la **precondizione** perche' la capability sia la stessa ovunque -- non la prova: vedi `capability_non_segue_dalla_versione`.",
     "capability_non_segue_dalla_versione": "OSGeo4W e conda-forge possono compilare la stessa 3.10.3 con opzioni diverse, e opzioni diverse danno driver diversi. La versione uguale non dimostra niente da sola: a dimostrarlo e' lo smoke, che scrive e rilegge un FileGDB vero su ogni piattaforma.",
     "binding_rust": {
@@ -212,13 +215,34 @@
         "macos": "`@loader_path/../lib` negli install name di binario e librerie, riscritti dopo la copia",
         "windows": "le DLL in `bin/`, accanto al binario"
       },
-      "dati": "`GDAL_DATA` e `PROJ_DATA` risolti a partire dal percorso del binario, non dall'ambiente: un artefatto che dipendesse da variabili impostate a mano funzionerebbe sulla macchina di chi lo ha costruito e altrove no"
+      "dati": "`GDAL_DATA` e `PROJ_DATA` risolti a partire dal percorso del binario, non dall'ambiente: un artefatto che dipendesse da variabili impostate a mano funzionerebbe sulla macchina di chi lo ha costruito e altrove no",
+      "relocation_smoke": {
+        "che_cosa_e": "l'artefatto si costruisce in A, si archivia, **A viene cancellata**, si estrae in una B con percorso di lunghezza diversa, e si esegue da una terza directory -- senza ambiente conda e senza `LD_LIBRARY_PATH`. `GDAL_DATA`, `PROJ_DATA` e `GDAL_DRIVER_PATH` sono preimpostate a sentinelle inesistenti, per vedere se il binario usa comunque i percorsi relativi alla propria installazione. Scrive e rilegge un FileGDB **con un CRS**, cosi' da attraversare anche PROJ. Gli accessi ai file sono tracciati a parte, e qualunque tentativo di toccare A fa rosso. Alla fine si verifica che ogni libreria fuori dall'allowlist sia stata caricata da B.",
+        "che_cosa_dimostra": "i percorsi **effettivamente attraversati**. Non i ventotto percorsi incorporati: quelli TLS, XML, terminfo e Kerberos che lo smoke non esercita restano governati dalla loro classificazione strutturale, e **non diventano «provati» perche' lo smoke locale e' verde**. Le due garanzie sono diverse e vanno lette diverse: una e' una prova su un percorso, l'altra e' un'affermazione su un percorso non percorso.",
+        "perche_serve_lo_stesso": "che i percorsi cotti dentro non contino dipende dalle variabili che l'artefatto imposta, ed e' un ragionamento. Lo smoke lo mette alla prova dove si puo': se un percorso attraversato contasse davvero, cancellare A lo farebbe emergere."
+      },
+      "residui_legati_a_una_guardia": [
+        {
+          "residuo": "i percorsi cotti nei binari che riguardano TLS: i certificati sotto l'OPENSSLDIR di costruzione, i moduli e gli engine caricabili di OpenSSL, e i tredici percorsi di Kerberos che entra nella chiusura per via di libcurl",
+          "perche_oggi_non_conta": "l'artefatto legge e scrive file locali: non contatta nessun peer, non verifica nessun certificato e non negozia nessuna autenticazione. Il provider di default di OpenSSL e' compilato dentro `libcrypto` e non si cerca su disco.",
+          "guardia": "nessun driver dichiara una sorgente remota, e la CLI accetta `Source::Path`. Finche' e' cosi', nessuna chiamata puo' arrivare a un URL, a una sessione TLS o a un servizio che negozi un'autenticazione.",
+          "che_cosa_lo_riapre": "l'introduzione di una sorgente remota, di un'autenticazione, o di un driver che apra un URL. Il legame e' scritto qui perche' quel giorno la classificazione `non_raggiungibile_dall_uso` diventi falsa **per costruzione** invece che restare vera per abitudine: chi aggiunge la sorgente remota deve trovare questa riga."
+        },
+        {
+          "residuo": "il percorso del database terminfo di ncurses",
+          "perche_oggi_non_conta": "ncurses arriva nella chiusura per via di readline, e nessun percorso del prodotto inizializza un terminale: la CLI legge argomenti, scrive un documento JSON ed esce.",
+          "guardia": "la CLI non ha interfaccia interattiva, e nessun comando apre un prompt.",
+          "che_cosa_lo_riapre": "una modalita' interattiva, un prompt di conferma, o qualunque uso di readline. Spedire il database intero -- migliaia di file -- per prevenirlo oggi sarebbe sproporzionato, ma quel giorno la scelta va rifatta."
+        }
+      ],
+      "variabile_oppure_guardia": "Un percorso assoluto cotto in un binario spedito si chiude in due modi, e non sono intercambiabili. Con una **variabile**: l'artefatto spedisce cio' che serve e a runtime punta la variabile li'. Con una **guardia**: quel codice non si esegue, e al posto del file c'e' un fatto verificabile sul prodotto. La guardia e' la garanzia piu' forte quando regge -- la variabile copre il percorso, la guardia dice che nessuno ci arriva -- ed e' la piu' fragile nel tempo, perche' dipende da cio' che il prodotto **non** fa. Per questo ogni guardia porta scritto che cosa la riaprirebbe, e le variabili sono confrontate da una sonda con la tabella di `crates/plenora-io-cli/src/radici.rs` che le imposta davvero."
     },
     "licenze": {
       "regola": "ogni componente nativo spedito porta la propria licenza in `LICENSES/`, generata dal lock",
       "note_attese": "GDAL e' MIT/X11, PROJ e' MIT, e la chiusura ne porta altre -- fra cui LGPL, che impone di poter sostituire la libreria. Il layout con le librerie in `lib/` e il caricamento per percorso relativo lo permette, ed e' una delle ragioni per cui il contratto sulla risoluzione vale sull'artefatto **integro** invece di pretendere un fail-closed che renderebbe impossibile la sostituzione.",
       "verifica": "il gate rifiuta un artefatto in cui un file di `lib/` non abbia una licenza corrispondente in `LICENSES/`"
-    }
+    },
+    "versione_nota": "la versione e' 3.9 e non l'ultima disponibile perche' `gdal-sys 0.10.0` spedisce binding pre-costruiti soltanto per 3.0-3.9. Le due alternative erano peggiori: la feature `bindgen` genera i binding a build time e cambia `Cargo.lock`, e dichiarare a `gdal-sys` una versione diversa da quella spedita compila binding di una ABI contro una libreria di un'altra."
   },
   "cosa_deve_rifiutare_il_gate": [
     "un archivio a cui manchi una delle voci dichiarate nel layout del suo profilo",
@@ -241,5 +265,22 @@
   "artefatti_di_prova": {
     "regola": "durante lo sviluppo si producono soltanto artefatti di prova, e si vede dal nome",
     "come": "`MANIFEST.json` porta `canale: \"prova\"` e la provenance dichiara `non_release: true`. Un artefatto di prova non entra in nessuna evidenza qualificata, e il gate lo rifiuta come candidate."
-  }
+  },
+  "stato_costruzione_nota": "«costruita» significa che esiste un costruttore che produce l'artefatto e che l'artefatto e' stato prodotto e misurato. Non significa che sia una candidate: il canale sta nel manifesto. Le pretese che valgono solo fra artefatti reali -- per prima la versione unica di GDAL -- si applicano alle piattaforme costruite, e una piattaforma **non** costruita deve portare un blocco registrato che dice che cosa la costruirebbe. Senza quel blocco lo stato sarebbe una scappatoia per far tacere una sonda, e una sonda lo verifica.",
+  "blocchi_aperti": [
+    {
+      "piattaforma": "windows-x86_64",
+      "blocco": "il lock Windows dichiara GDAL 3.10.3 e `binding_version` 3.6.0, e `install-windows-gdal.ps1` forza `GDAL_VERSION=3.6.0` perche' `gdal-sys 0.10.0` non ha binding pre-costruiti oltre 3.9. Si compilano quindi binding di una ABI contro una libreria di un'altra: funziona finche' funziona, e quando smette non lo dice.",
+      "come_e_emerso": "costruendo l'artefatto Linux. Su Linux nessuno forzava la versione, e la build si e' fermata da sola con «No pre-built bindings available for GDAL version 3.10». Su Windows la stessa condizione era mascherata dalla forzatura, e nessun gate la vedeva.",
+      "che_cosa_lo_chiude": "portare la catena Windows -- che non e' conda, ha un proprio canale e un proprio formato di lock -- a una GDAL della serie 3.9, e togliere la forzatura di `GDAL_VERSION`. Va fatto dove si puo' verificare, cioe' sul runner `windows-2022` del lotto multipiattaforma: cambiarlo qui produrrebbe un lock non eseguito.",
+      "nel_frattempo": "la piattaforma resta `non_ancora_costruita`, e le sonde che pretendono coerenza fra artefatti reali non la includono. Non e' un'esenzione: e' che non c'e' ancora un artefatto di cui pretendere coerenza."
+    },
+    {
+      "piattaforma": "macos-aarch64",
+      "blocco": "non esiste ancora un costruttore per macOS, ne' un lock per `osx-arm64`.",
+      "come_e_emerso": "per costruzione: il lotto Linux e' il primo, e macOS e' nel lotto multipiattaforma.",
+      "che_cosa_lo_chiude": "il costruttore macOS sul runner `macos-15`, con `MACOSX_DEPLOYMENT_TARGET=15.0` verificato in ogni Mach-O e lo smoke sul proprio runner.",
+      "nel_frattempo": "come sopra."
+    }
+  ]
 }

@@ -14,6 +14,10 @@ use std::path::{Path, PathBuf};
 mod segnali;
 use segnali::installa_gestore_dei_segnali;
 
+// Le radici che l'artefatto porta con se': dove le librerie native trovano i
+// propri dati quando il binario e' installato invece che compilato qui.
+mod radici;
+
 use serde_json::{json, Value};
 
 use plenora_io_core::driver::{FormatDriver, ReadOptions, Sink, Source, WriteOptions};
@@ -1273,6 +1277,10 @@ fn matrice_di_handoff() -> Value {
 }
 
 fn main() {
+    // Per prima cosa, e prima che nasca un secondo thread: `set_var` muta
+    // l'ambiente del processo, e le librerie native lo leggono pigramente.
+    // Qualunque cosa qui sotto puo' gia' aprire un dataset.
+    radici::radici_dell_artefatto();
     installa_hook_silenzioso();
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
         // L'avviso del v1 legacy accompagna **una consegna riuscita**, e solo

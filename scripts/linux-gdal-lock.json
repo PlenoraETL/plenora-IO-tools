@@ -4,9 +4,9 @@
   "piattaforma": "linux-x86_64",
   "subdir": "linux-64",
   "canale": "conda-forge",
-  "gdal_version": "3.10.3",
+  "gdal_version": "3.9.3",
   "pacchetto_radice": "libgdal-core",
-  "binding_version": "3.6.0",
+  "binding_version": "3.9.0",
   "risolto_con": {
     "strumento": "micromamba",
     "versione": "2.9.0",
@@ -90,21 +90,21 @@
     },
     {
       "nome": "geos",
-      "versione": "3.14.1",
-      "build": "h55b0958_0",
+      "versione": "3.13.1",
+      "build": "h97f6797_0",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/geos-3.14.1-h55b0958_0.conda",
-      "dimensione": 2002850,
-      "sha256": "dc9f03bef913c8b3c94e93a61318b7437bd5e4f7136ef841e68df8de082405d5"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/geos-3.13.1-h97f6797_0.conda",
+      "dimensione": 1871567,
+      "sha256": "3a9c854fa8cf1165015b6ee994d003c3d6a8b0f532ca22b6b29cd6e8d03942ed"
     },
     {
       "nome": "geotiff",
       "versione": "1.7.4",
-      "build": "h1000f5c_4",
+      "build": "h239500f_2",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/geotiff-1.7.4-h1000f5c_4.conda",
-      "dimensione": 144495,
-      "sha256": "d17e2f34fe5c61eb620e8679368d8ee90be36379cd6023f8690bdcba1c60761c"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/geotiff-1.7.4-h239500f_2.conda",
+      "dimensione": 128758,
+      "sha256": "0cd4454921ac0dfbf9d092d7383ba9717e223f9e506bc1ac862c99f98d2a953c"
     },
     {
       "nome": "giflib",
@@ -117,12 +117,12 @@
     },
     {
       "nome": "icu",
-      "versione": "78.3",
-      "build": "py310h44b86e0_2",
+      "versione": "75.1",
+      "build": "he02047a_0",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/icu-78.3-py310h44b86e0_2.conda",
-      "dimensione": 14459115,
-      "sha256": "9f07834f0c546ab14d885ce0366285f61f44e326c0edd1fc63b8294e113ae432"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/icu-75.1-he02047a_0.conda",
+      "dimensione": 12129203,
+      "sha256": "71e750d509f5fa3421087ba88ef9a7b9be11c53174af3aa4d06aff4c18b38e8e"
     },
     {
       "nome": "json-c",
@@ -162,21 +162,21 @@
     },
     {
       "nome": "libarchive",
-      "versione": "3.8.9",
-      "build": "gpl_h3152399_101",
+      "versione": "3.7.7",
+      "build": "h75ea233_4",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libarchive-3.8.9-gpl_h3152399_101.conda",
-      "dimensione": 875346,
-      "sha256": "bfae027a67d02325cd6b75edd60beb67cf24483af9df0ae9ef74d4438e41c806"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libarchive-3.7.7-h75ea233_4.conda",
+      "dimensione": 866358,
+      "sha256": "d49b2a3617b689763d1377a5d1fbfc3c914ee0afa26b3c1858e1c4329329c6df"
     },
     {
       "nome": "libcurl",
       "versione": "8.21.0",
-      "build": "ha042cf0_5",
+      "build": "hcf29cc6_1",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libcurl-8.21.0-ha042cf0_5.conda",
-      "dimensione": 484517,
-      "sha256": "0b6cc13e36cf19ae9b764740112fc591682e189c99353be9f72f3d96ccf29d79"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libcurl-8.21.0-hcf29cc6_1.conda",
+      "dimensione": 478914,
+      "sha256": "7d243f45a48f62cb8e3b871dd336137fe0fb90094a191756fb553508837f6338"
     },
     {
       "nome": "libdeflate",
@@ -234,12 +234,12 @@
     },
     {
       "nome": "libgdal-core",
-      "versione": "3.10.3",
-      "build": "h1f481a6_27",
+      "versione": "3.9.3",
+      "build": "hcd9f083_19",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgdal-core-3.10.3-h1f481a6_27.conda",
-      "dimensione": 10979930,
-      "sha256": "ec121a0e7b0577d278c94781cc763f3fece3eba9db86ef5a9fa5b31511157671"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libgdal-core-3.9.3-hcd9f083_19.conda",
+      "dimensione": 10430252,
+      "sha256": "8de5ef8ae294bfa195c7e1b47e4f900aeb2f0499a2847d1d2af850b297a86d64"
     },
     {
       "nome": "libgomp",
@@ -314,40 +314,31 @@
       "sha256": "c19eefb87d70d9b4b0629fa48414a155a47a1be4f04583ae71ed8c5a9a32fdcb"
     },
     {
-      "nome": "libpsl",
-      "versione": "0.23.1",
-      "build": "hd9e3e90_1",
-      "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libpsl-0.23.1-hd9e3e90_1.conda",
-      "dimensione": 72519,
-      "sha256": "09e8effdc89bc5d021349318d32b85594f5b8d8e3ab8f90a85b81f8fe695a566"
-    },
-    {
       "nome": "librttopo",
       "versione": "1.1.0",
-      "build": "h46dd2a8_20",
+      "build": "hd718a1a_18",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/librttopo-1.1.0-h46dd2a8_20.conda",
-      "dimensione": 231670,
-      "sha256": "eb4082a5135102f5ba9c302da13164d4ed1181d5f0db9d49e5e11a815a7b526f"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/librttopo-1.1.0-hd718a1a_18.conda",
+      "dimensione": 232698,
+      "sha256": "394cf4356e0e26c4c95c9681e01e4def77049374ac78b737193e38c1861e8042"
     },
     {
       "nome": "libspatialite",
       "versione": "5.1.0",
-      "build": "gpl_h2abfd87_119",
+      "build": "he17ca71_14",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libspatialite-5.1.0-gpl_h2abfd87_119.conda",
-      "dimensione": 4097449,
-      "sha256": "403c1ad74ee70caaac02216a233ef9ec4531497ee14e7fea93a254a005ece88d"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libspatialite-5.1.0-he17ca71_14.conda",
+      "dimensione": 4047775,
+      "sha256": "82f7f5f4498a561edf84146bfcff3197e8b2d8796731d354446fc4fd6d058e94"
     },
     {
       "nome": "libsqlite",
       "versione": "3.53.4",
-      "build": "h13e7031_1",
+      "build": "h0737f62_1",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.53.4-h13e7031_1.conda",
-      "dimensione": 974348,
-      "sha256": "f20d70da54e5b31dd4a51fb1efeaafafd5ab6dd8d7ac9d1438eaa2526ac4ed3d"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libsqlite-3.53.4-h0737f62_1.conda",
+      "dimensione": 968893,
+      "sha256": "35c05bd0adfaf6fcac01fc3a42214e4e2a44e32f7ce2c77ddae419522c3c328d"
     },
     {
       "nome": "libssh2",
@@ -386,6 +377,15 @@
       "sha256": "10e125da82ca93e09191e66e5a94d566b2cf8d4024e2a0db3a9114297447e0d9"
     },
     {
+      "nome": "libuuid",
+      "versione": "2.42.2",
+      "build": "h5347b49_0",
+      "subdir": "linux-64",
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libuuid-2.42.2-h5347b49_0.conda",
+      "dimensione": 40017,
+      "sha256": "9b1bdce27a7e31f7d241aeecff67a1f3101d52a2b1e33ccc2cdf2613072bf81f"
+    },
+    {
       "nome": "libwebp-base",
       "versione": "1.6.0",
       "build": "hd42ef1d_1",
@@ -396,30 +396,12 @@
     },
     {
       "nome": "libxml2",
-      "versione": "2.15.3",
-      "build": "h49c6c72_1",
+      "versione": "2.13.9",
+      "build": "h04c0eec_0",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libxml2-2.15.3-h49c6c72_1.conda",
-      "dimensione": 46203,
-      "sha256": "a16a576a5844a3a0e1cdfc5e162b9fe9c64dccf6a93f44c293bb42851aebe2b4"
-    },
-    {
-      "nome": "libxml2-16",
-      "versione": "2.15.3",
-      "build": "hca6bf5a_1",
-      "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libxml2-16-2.15.3-hca6bf5a_1.conda",
-      "dimensione": 559721,
-      "sha256": "087d4de023f22d6a28b9e1b818961dd41e9bda6e9793590600ff16ca150bf9cb"
-    },
-    {
-      "nome": "libxml2-devel",
-      "versione": "2.15.3",
-      "build": "h49c6c72_1",
-      "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/libxml2-devel-2.15.3-h49c6c72_1.conda",
-      "dimensione": 80644,
-      "sha256": "443ff3b29df8eab5b075abed87e4edbf59ca5602f627a79bffe5b0855ea40ce9"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/libxml2-2.13.9-h04c0eec_0.conda",
+      "dimensione": 697033,
+      "sha256": "5d12e993894cb8e9f209e2e6bef9c90fa2b7a339a1f2ab133014b71db81f5d88"
     },
     {
       "nome": "libzlib",
@@ -477,21 +459,21 @@
     },
     {
       "nome": "pcre2",
-      "versione": "10.47",
-      "build": "h8b3dc9c_1",
+      "versione": "10.44",
+      "build": "hc749103_2",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/pcre2-10.47-h8b3dc9c_1.conda",
-      "dimensione": 1218833,
-      "sha256": "9ebb10a4eb3be51ae67d85c679f5a7a50cb040ed25c783e6331a225ea09991d4"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/pcre2-10.44-hc749103_2.conda",
+      "dimensione": 956207,
+      "sha256": "09717569649d89caafbf32f6cda1e65aef86e5a86c053d30e4ce77fca8d27b68"
     },
     {
       "nome": "proj",
-      "versione": "9.7.1",
-      "build": "he0df7b0_3",
+      "versione": "9.6.2",
+      "build": "h18fbb6c_2",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/proj-9.7.1-he0df7b0_3.conda",
-      "dimensione": 3593669,
-      "sha256": "c94d3d8ef40d1ea018860d66c416003bc03adede7d212efc9218bb64041fe2f7"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/proj-9.6.2-h18fbb6c_2.conda",
+      "dimensione": 3240415,
+      "sha256": "c1c9e38646a2d07007844625c8dea82404c8785320f8a6326b9338f8870875d0"
     },
     {
       "nome": "readline",
@@ -514,11 +496,11 @@
     {
       "nome": "sqlite",
       "versione": "3.53.4",
-      "build": "h9ffa6c4_1",
+      "build": "h6e79ffa_1",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/sqlite-3.53.4-h9ffa6c4_1.conda",
-      "dimensione": 205686,
-      "sha256": "b01812eff4e950a73933cb3dc14647a97ee377c7fab4858495b80a749ebfbf8b"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/sqlite-3.53.4-h6e79ffa_1.conda",
+      "dimensione": 205639,
+      "sha256": "45babc48aef7a468175a609848d56242e43c043a5c2a4d595c220cfc31488028"
     },
     {
       "nome": "uriparser",
@@ -531,12 +513,12 @@
     },
     {
       "nome": "xerces-c",
-      "versione": "3.3.0",
-      "build": "h78fed68_2",
+      "versione": "3.2.5",
+      "build": "h988505b_2",
       "subdir": "linux-64",
-      "url": "https://conda.anaconda.org/conda-forge/linux-64/xerces-c-3.3.0-h78fed68_2.conda",
-      "dimensione": 1675829,
-      "sha256": "1acbd62b33b6efc985f70e0b9f0013ca18fcef2df5a18edb1c81a6b63ad20dc0"
+      "url": "https://conda.anaconda.org/conda-forge/linux-64/xerces-c-3.2.5-h988505b_2.conda",
+      "dimensione": 1648243,
+      "sha256": "339ab0ff05170a295e59133cd0fa9a9c4ba32b6941c8a2a73484cc13f81e248a"
     },
     {
       "nome": "zlib",
@@ -590,21 +572,21 @@
       },
       {
         "schema": "/ssl(/.*)?",
-        "categoria": "coperto_da_variabile",
-        "variabile": "SSL_CERT_FILE, SSL_CERT_DIR",
-        "ragione": "OpenSSL cerca i certificati sotto il proprio OPENSSLDIR; l'artefatto punta al bundle spedito. Il prodotto legge file locali, ma GDAL apre URL se glielo si chiede, e un percorso di certificati che non esiste darebbe un errore TLS indistinguibile da un difetto di rete"
+        "categoria": "non_raggiungibile_dall_uso",
+        "guardia": "nessun driver dichiara una sorgente remota e la CLI accetta soltanto `Source::Path`. Finche' e' cosi', nessuna chiamata puo' aprire un URL, negoziare TLS o autenticarsi. Il giorno in cui una delle due cose cambia, questa classificazione va rifatta: vedi `residui_legati_a_una_guardia` nella matrice di distribuzione.",
+        "ragione": "i certificati che OpenSSL cerca sotto il proprio OPENSSLDIR. Servirebbero a verificare un peer TLS, e l'artefatto non ne contatta nessuno. Dichiararli invece «coperti da una variabile» avrebbe voluto dire spedire un bundle di CA intero per una libreria che non chiamiamo, e affermare una copertura piu' debole della guardia: la variabile copre il percorso, la guardia dice che nessuno ci arriva"
       },
       {
         "schema": "/lib/(engines-3|ossl-modules)",
-        "categoria": "coperto_da_variabile",
-        "variabile": "OPENSSL_ENGINES, OPENSSL_MODULES",
-        "ragione": "moduli caricabili di OpenSSL: senza la variabile, il caricatore cercherebbe in un percorso del prefisso di costruzione"
+        "categoria": "non_raggiungibile_dall_uso",
+        "guardia": "nessun driver dichiara una sorgente remota e la CLI accetta soltanto `Source::Path`. Finche' e' cosi', nessuna chiamata puo' aprire un URL, negoziare TLS o autenticarsi. Il giorno in cui una delle due cose cambia, questa classificazione va rifatta: vedi `residui_legati_a_una_guardia` nella matrice di distribuzione.",
+        "ragione": "moduli e engine caricabili di OpenSSL. Il provider di default e' compilato dentro `libcrypto` e non si cerca su disco; questi percorsi si attraversano solo caricando un provider aggiuntivo, cosa che nessun percorso del prodotto fa"
       },
       {
         "schema": "/share/terminfo",
-        "categoria": "coperto_da_variabile",
-        "variabile": "TERMINFO",
-        "ragione": "ncurses arriva nella chiusura per via di readline; l'artefatto non ha un'interfaccia interattiva, ma la variabile costa una riga e toglie un percorso inesistente"
+        "categoria": "non_raggiungibile_dall_uso",
+        "guardia": "la CLI non ha interfaccia interattiva: legge argomenti, scrive un documento JSON ed esce. ncurses arriva nella chiusura per via di readline, e nessun percorso del prodotto inizializza un terminale. Una modalita' interattiva o un prompt riaprirebbero la riga.",
+        "ragione": "il database dei terminali di ncurses. Spedirlo sarebbe migliaia di file per una libreria che entra nella chiusura e non viene mai inizializzata"
       },
       {
         "schema": "/etc/xml/catalog",
@@ -615,12 +597,19 @@
       {
         "schema": "/(etc/gss(/.*)?|lib/gss/?|lib/krb5(/.*)?|var/krb5kdc(/.*)?|etc/krb5\\.conf.*)",
         "categoria": "non_raggiungibile_dall_uso",
-        "ragione": "Kerberos entra nella chiusura per via di libcurl. L'artefatto legge e scrive file locali e non autentica nulla: nessun percorso del prodotto raggiunge GSSAPI. Resta scritto come residuo: se un giorno la CLI parlasse con un servizio autenticato, questa riga andrebbe rifatta"
+        "ragione": "Kerberos entra nella chiusura per via di libcurl. L'artefatto legge e scrive file locali e non autentica nulla: nessun percorso del prodotto raggiunge GSSAPI. Resta scritto come residuo: se un giorno la CLI parlasse con un servizio autenticato, questa riga andrebbe rifatta",
+        "guardia": "nessun driver dichiara una sorgente remota e la CLI accetta soltanto percorsi locali. Il giorno in cui una delle due cose cambia, questa classificazione va rifatta: vedi `residui_legati_a_una_guardia` nella matrice di distribuzione."
       },
       {
         "schema": "/(bin|sbin|lib|etc|share/locale)",
         "categoria": "non_raggiungibile_dall_uso",
         "ragione": "percorsi ausiliari di krb5 e la directory di configurazione che GDAL consulta se esiste. L'artefatto non ne spedisce il contenuto, e GDAL funziona senza: il default cotto dentro punta a una directory che sulla macchina di destinazione non c'e', e non c'e' nulla che debba trovarvisi"
+      },
+      {
+        "schema": "/lib/lib[a-z0-9_+-]+\\.so$",
+        "categoria": "inerte",
+        "guardia": "il controllo «ELF con DT_NEEDED assoluti» dev'essere zero. Finche' lo e', nessuna voce dinamica referenzia questa stringa, e resta testo.",
+        "ragione": "il residuo lasciato da `patchelf --replace-needed`. `libgdal.so.35` di conda-forge dichiarava `libsqlite3.so` per percorso assoluto -- il placeholder del prefisso di costruzione, che la rilocazione di conda sostituisce con quello di materializzazione -- e il costruttore lo riscrive con il solo nome. `patchelf` cambia la voce dinamica ma non cancella la vecchia stringa dalla tabella, e quella resta leggibile nel file. E' inerte **perche' nessuno la referenzia piu'**, e quel «nessuno» e' misurato, non affermato"
       },
       {
         "schema": "/include(/.*)?",
@@ -633,6 +622,9 @@
         "ragione": "il prefisso nudo, senza suffisso: viene da `-fdebug-prefix-map=<PREFISSO>=...` nella stringa dei flag di compilazione che OpenSSL conserva. Non e' un percorso che qualcuno apre, e' meta' di una regola di riscrittura dei simboli di debug"
       }
     ],
-    "percorsi_assoluti_nota": "Dopo la rilocazione di conda il placeholder sparisce e al suo posto resta il prefisso d'installazione. Non e' una stringa inerte: in `libgdal` copre `share/gdal` e `lib/gdalplugins`, cioe' dati e plugin. Ritenerli innocui perche' l'RPATH e' relativo era un falso verde -- l'RPATH riguarda la risoluzione delle **librerie**. Ogni percorso va quindi classificato, e cio' che non rientra in una di queste regole fa rosso."
+    "percorsi_assoluti_nota": "Dopo la rilocazione di conda il placeholder sparisce e al suo posto resta il prefisso d'installazione. Non e' una stringa inerte: in `libgdal` copre `share/gdal` e `lib/gdalplugins`, cioe' dati e plugin. Ritenerli innocui perche' l'RPATH e' relativo era un falso verde -- l'RPATH riguarda la risoluzione delle **librerie**. Ogni percorso va quindi classificato, e cio' che non rientra in una di queste regole fa rosso.",
+    "che_cosa_non_dimostra_lo_smoke": "il relocation smoke esercita alcuni di questi percorsi e non altri. Quelli non attraversati -- TLS, XML, terminfo, Kerberos -- restano governati dalla classificazione qui sopra, e uno smoke verde non li promuove a «provati».",
+    "variabili_e_guardie": "Le due categorie non sono intercambiabili. `coperto_da_variabile` dice che il percorso cotto dentro viene sostituito a runtime, e obbliga l'artefatto a **spedire** cio' che la variabile nomina; `non_raggiungibile_dall_uso` dice che quel codice non si esegue, e vuole una **guardia** verificabile invece di un file. La seconda e' la garanzia piu' forte quando regge, ed e' anche la piu' fragile nel tempo: per questo ogni riga porta scritto che cosa la riaprirebbe. Le variabili della prima categoria sono esattamente quelle che `crates/plenora-io-cli/src/radici.rs` imposta, e una sonda diventa rossa se i due elenchi divergono.",
+    "normalizzazione_dei_dt_needed": "L'artefatto non e' byte per byte cio' che i pacchetti contengono: `libgdal.so.35` viene riscritta per togliere una dipendenza dichiarata per percorso assoluto. E' una modifica a un binario di terze parti, sta scritta nel manifesto sotto `normalizzazioni`, e senza di essa l'artefatto non sarebbe spostabile -- il che e' l'unica ragione per cui esiste."
   }
 }

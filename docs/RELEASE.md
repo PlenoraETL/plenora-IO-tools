@@ -444,10 +444,182 @@ ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura
 negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza
 avere niente da rilasciare**.
 
-**Costo.** Ignoto e non stimato qui. Ciò che si sa è che la CI oggi costruisce e
-prova il codice ma non produce nulla che qualcuno possa installare, quindi non
-esiste un oggetto di cui verificare identità e contenuto — e finché non esiste,
-il gate che lo qualificherebbe non si può scrivere.
+**Costo.** Non piu' ignoto per Linux. Ciò che la CI produceva era codice provato
+e nessun oggetto installabile; ora il costruttore esiste, l'oggetto esiste, ed e'
+stato misurato. Windows e macOS restano da fare, e i loro costi sono ancora
+ignoti perche' dipendono da runner che qui non ci sono.
+
+**Stato al 31 agosto 2026.** Linux e' costruita e verificata in locale, con
+artefatti di **prova** -- `non_release: true` nel manifesto, non candidate.
+Windows e macOS non sono ancora costruite, e i loro blocchi stanno in
+`assurance/registries/distribuzione-matrice.json` sotto `blocchi_aperti`; una
+sonda verifica che ogni piattaforma non costruita ne porti uno, cosi' che lo
+stato non diventi un modo per far tacere le pretese.
+
+Quel che segue e' il runbook: descrive **cio' che e' stato eseguito**, e i
+numeri sono il referto di una corsa, non un contratto. Il contratto sta nel
+lock, e le misure le produce il controllo.
+
+#### Linux x86_64
+
+##### Che cosa contiene l'artefatto
+
+```
+plenora-io-<versione>-linux-x86_64-filegdb/
+  bin/plenora-io            il binario
+  lib/                      le librerie native, per SONAME
+  lib/gdalplugins/          i plugin di GDAL (vuota: i driver sono nel core)
+  share/gdal/               i dati di GDAL
+  share/proj/               le griglie di PROJ
+  LICENSES/PROVENIENZA.json quale pacchetto ha messo quale file, e con che licenza
+  MANIFEST.json             identita', canale, file spediti, normalizzazioni
+  SBOM.spdx.json            i pacchetti che hanno contribuito ai file spediti
+```
+
+L'albero e' **spostabile**: nessun percorso assoluto lo lega alla directory in
+cui e' stato costruito. Le librerie si risolvono con un `RPATH` radicato in
+`$ORIGIN`, e i dati di GDAL e di PROJ li trova il binario stesso, derivandoli
+dal proprio percorso (`crates/plenora-io-cli/src/radici.rs`).
+
+##### La base di costruzione
+
+Ubuntu 22.04, che porta glibc 2.35 — la soglia dichiarata nella matrice.
+L'immagine di sviluppo e' Debian 12 (glibc 2.36) e **non** va usata: darebbe un
+artefatto che non gira su Ubuntu 22.04, per un accidente dell'ambiente di
+lavoro invece che per una proprieta' del prodotto.
+
+```sh
+docker build -f Dockerfile.build-linux -t plenora-io-build-linux .
+```
+
+##### Il runtime GDAL
+
+Non si risolve nulla al momento della costruzione: `scripts/linux-gdal-lock.json`
+fissa i pacchetti con URL, dimensione e sha256, e lo strumento che li
+materializza -- micromamba -- e' fissato allo stesso modo.
+
+```sh
+docker run --rm -v "$PWD":/work -v /percorso/lavoro:/A -w /work \
+  plenora-io-build-linux \
+  python3 scripts/install-linux-gdal.py --prefisso /A/runtime --lavoro /A/cache
+```
+
+Il lock si **rigenera** soltanto quando si cambia versione di GDAL:
+
+```sh
+python3 scripts/genera-linux-gdal-lock.py --lavoro /A/nuovo --subdir linux-64
+```
+
+Rigenerarlo invalida ogni misura fatta sul precedente. La versione e' 3.9 e non
+l'ultima disponibile: `gdal-sys 0.10.0` spedisce binding pre-costruiti soltanto
+fino a 3.9, e le due alternative sono peggiori — la feature `bindgen` genera i
+binding a build time e cambia `Cargo.lock`, e dichiarare a `gdal-sys` una
+versione diversa da quella spedita compila l'ABI di una serie contro la
+libreria di un'altra.
+
+##### La costruzione
+
+```sh
+docker run --rm -v "$PWD":/work -v /percorso/lavoro:/A -w /work \
+  -e CARGO_HOME=/A/cargo plenora-io-build-linux \
+  python3 scripts/costruisci-artefatto-linux.py \
+    --prefisso /A/runtime --uscita /A/uscita --versione <versione>
+```
+
+Il canale predefinito e' `prova`: l'artefatto porta `non_release: true` nel
+manifesto, e non e' una candidate. Per una candidate serve `--canale candidate`,
+e va fatto sulla revisione definitiva.
+
+Il costruttore fa tre cose che vanno sapute:
+
+- **parte dal binario vero.** La chiusura `DT_NEEDED` si calcola da
+  `bin/plenora-io`, non da `libgdal.so`: la domanda e' che cosa serve
+  all'artefatto, e non che cosa serve a GDAL.
+- **copia per SONAME.** Nel prefisso `lib/libgdal.so.35` e' un symlink al file
+  versionato, e `libgdal.so.35` e' il nome che il loader cerchera'. Copiare il
+  file risolto e basta produce un albero che contiene la libreria e non la
+  trova.
+- **normalizza i `DT_NEEDED` assoluti.** `libgdal.so.35` di conda-forge
+  dichiara `libsqlite3.so` per percorso assoluto — il placeholder del prefisso,
+  che la rilocazione di conda sostituisce — e senza riscriverlo l'artefatto
+  smetterebbe di caricarsi appena quella directory non esiste. Le riscritture
+  sono elencate in `MANIFEST.json` sotto `normalizzazioni`, perche' modificare
+  un binario di terze parti va detto.
+
+##### Le verifiche
+
+**Runtime, sull'albero assemblato.**
+
+```sh
+python3 scripts/check-linux-gdal-runtime.py \
+  --prefisso /A/uscita/plenora-io-<versione>-linux-x86_64-filegdb \
+  --radice bin/plenora-io \
+  --prefisso-di-costruzione /A/runtime
+```
+
+I due prefissi non sono la stessa cosa, e confonderli e' un falso verde gia'
+capitato: `--prefisso` e' dove i file stanno adesso, `--prefisso-di-costruzione`
+e' cio' che i binari nominano dentro di se'. Se non se ne trova nessuno, il
+controllo diventa rosso invece di dichiarare che non ce ne sono.
+
+**Relocation smoke.**
+
+```sh
+bash scripts/relocation-smoke-linux.sh <archivio.tar.gz> <directory-A> [/smoke]
+```
+
+Costruisce in A, archivia, **cancella A**, estrae in una B di lunghezza diversa,
+esegue da una terza directory senza ambiente conda e senza `LD_LIBRARY_PATH`,
+con `GDAL_DATA`, `PROJ_DATA` e `GDAL_DRIVER_PATH` preimpostate a sentinelle
+inesistenti. Scrive e rilegge un FileGDB con un CRS, traccia gli accessi ai
+file e rifiuta qualunque tocco ad A, e verifica che ogni libreria fuori
+dall'allowlist ABI venga da B.
+
+Porta con se' la propria controprova: rinomina `share/gdal` in una copia e
+pretende che il comando **fallisca**. Senza, un verde direbbe soltanto che il
+comando riesce, non che le sentinelle fossero letali.
+
+Quello che dimostra sono i percorsi **effettivamente attraversati**. I percorsi
+TLS, XML, terminfo e Kerberos che non esercita restano governati dalla loro
+classificazione strutturale, e non diventano provati perche' lo smoke e' verde.
+
+##### Esito misurato
+
+Su GDAL 3.9.3, con l'artefatto costruito e verificato in locale:
+
+| misura | valore |
+| --- | --- |
+| dipendenze interne, dal binario | 56 |
+| ELF spediti | 56 |
+| dipendenze esterne | 6, esattamente le attese |
+| GLIBC massima | 2.34 (soglia 2.35) |
+| ELF con `DT_NEEDED` assoluti | 0 |
+| percorsi assoluti classificati | 29 su 29 |
+| RPATH radicati in `$ORIGIN` e interni | 56 su 56 |
+| relocation smoke | verde, con controprova |
+
+I numeri stanno qui come **referto di una corsa**, non come contratto: il
+contratto e' nel lock, e le misure le produce il controllo. Se divergono, e'
+questa tabella a essere vecchia.
+
+---
+
+#### Windows x86_64 — non ancora costruita
+
+Vedi `blocchi_aperti` in `assurance/registries/distribuzione-matrice.json`.
+In sintesi: il lock Windows dichiara GDAL 3.10.3 con `binding_version` 3.6.0, e
+`install-windows-gdal.ps1` forza `GDAL_VERSION=3.6.0`. Si compilano quindi
+binding di una ABI contro una libreria di un'altra. Il difetto e' emerso
+costruendo su Linux, dove nessuno forzava la versione e la build si e' fermata
+da sola.
+
+Va chiuso sul runner `windows-2022`, dove si puo' verificare.
+
+#### macOS aarch64 — non ancora costruita
+
+Non esiste ancora un costruttore ne' un lock per `osx-arm64`. Va fatto sul
+runner `macos-15`, con `MACOSX_DEPLOYMENT_TARGET=15.0` verificato in ogni
+Mach-O e lo smoke sul proprio runner.
 
 ### 6. Decisione finale di rilascio
 

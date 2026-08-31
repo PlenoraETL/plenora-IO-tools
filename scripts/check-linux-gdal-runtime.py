@@ -129,9 +129,51 @@ def classifica(percorso: str, prefisso: str, regole: list[dict]) -> dict | None:
     return None
 
 
+def chiusura(
+    radice: pathlib.Path, prefisso: pathlib.Path
+) -> tuple[dict[str, pathlib.Path], set[str]]:
+    """La chiusura `DT_NEEDED` da un ELF, divisa fra interna ed esterna.
+
+    Interna e' cio' che si risolve dentro `<prefisso>/lib`, cioe' cio' che
+    l'artefatto porta con se'; esterna e' tutto il resto, cioe' cio' che
+    pretende dalla macchina che lo ospita.
+
+    Vive qui, e non in chi assembla l'albero, perche' assemblare e verificare
+    devono partire dalla **stessa** lettura. Due implementazioni della stessa
+    domanda divergono, e divergerebbero esattamente fra le due parti che devono
+    essere d'accordo: chi decide che cosa spedire e chi controlla che cio' che
+    e' stato spedito basti.
+    """
+    da_visitare = [radice]
+    interne: dict[str, pathlib.Path] = {}
+    esterne: set[str] = set()
+    while da_visitare:
+        for nome in dt_needed(da_visitare.pop()):
+            if nome in interne or nome in esterne:
+                continue
+            candidato = prefisso / "lib" / nome
+            if candidato.exists():
+                risolta = candidato.resolve()
+                interne[nome] = risolta
+                da_visitare.append(risolta)
+            else:
+                esterne.add(nome)
+    return interne, esterne
+
+
 def main() -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--prefisso", required=True, type=pathlib.Path)
+    argomenti.add_argument(
+        "--prefisso-di-costruzione",
+        default=None,
+        type=pathlib.Path,
+        help=(
+            "il prefisso in cui il runtime e' stato materializzato, quando si verifica un albero "
+            "gia' assemblato. I percorsi assoluti cotti nei binari nominano **quello**, non "
+            "l'albero: cercare la stringa sbagliata non trova niente e stampa un verde"
+        ),
+    )
     argomenti.add_argument(
         "--radice",
         default="lib/libgdal.so",
@@ -149,24 +191,7 @@ def main() -> int:
         sys.exit(f"radice della chiusura assente: {radice}")
 
     # --- 1. la chiusura ----------------------------------------------------
-    def risolvi(nome: str) -> pathlib.Path | None:
-        candidato = prefisso / "lib" / nome
-        return candidato.resolve() if candidato.exists() else None
-
-    da_visitare = [radice]
-    interne: dict[str, pathlib.Path] = {}
-    esterne: set[str] = set()
-    while da_visitare:
-        for nome in dt_needed(da_visitare.pop()):
-            if nome in interne or nome in esterne:
-                continue
-            trovata = risolvi(nome)
-            if trovata is None:
-                esterne.add(nome)
-            else:
-                interne[nome] = trovata
-                da_visitare.append(trovata)
-
+    interne, esterne = chiusura(radice, prefisso)
     spediti = [radice, *sorted(set(interne.values()))]
     print(f"chiusura da {opzioni.radice}: {len(interne)} dipendenze interne, {len(spediti)} ELF")
 
@@ -205,8 +230,44 @@ def main() -> int:
             "Linux va rinegoziato, non abbassato in silenzio."
         )
 
+    # --- 3b. nessun DT_NEEDED assoluto -------------------------------------
+    #
+    # Un `DT_NEEDED` con un percorso assoluto non e' un nome da risolvere: e'
+    # una directory precisa, e l'RPATH non la governa. Una libreria che ne porti
+    # uno smette di caricarsi appena quella directory non esiste piu', cioe'
+    # ovunque tranne che sulla macchina che l'ha costruita.
+    #
+    # `libgdal.so.35` di conda-forge ne portava uno -- il placeholder del
+    # prefisso, riscritto dalla rilocazione -- e il costruttore ora lo
+    # normalizza. Questo controllo e' cio' che rende quella normalizzazione un
+    # fatto verificato invece di un passo che si spera sia avvenuto, ed e'
+    # anche cio' che permette di classificare come inerte la stringa che
+    # `patchelf` lascia orfana nella tabella delle stringhe.
+    assoluti_dichiarati = {
+        elf.name: [n for n in dt_needed(elf) if n.startswith("/")] for elf in spediti
+    }
+    con_assoluti = {k: v for k, v in assoluti_dichiarati.items() if v}
+    if con_assoluti:
+        errori.append(
+            f"{len(con_assoluti)} ELF dichiarano dipendenze per percorso assoluto: "
+            f"{sorted(con_assoluti)[:6]}. Un percorso assoluto non e' risolto dall'RPATH, e "
+            "l'artefatto smetterebbe di caricarsi fuori dalla macchina che l'ha costruito."
+        )
+    print(f"ELF con DT_NEEDED assoluti: {len(con_assoluti)} su {len(spediti)}")
+
     # --- 4. i percorsi assoluti cotti dentro -------------------------------
-    testo_prefisso = str(prefisso)
+    # Due prefissi, e confonderli e' un falso verde gia' capitato: `prefisso` e'
+    # dove i file **stanno adesso**, e serve a risolvere la chiusura;
+    # `prefisso_di_costruzione` e' cio' che i binari **nominano dentro di se'**.
+    # Su un runtime appena materializzato coincidono, e per questo la confusione
+    # non si vede; su un albero assemblato altrove no, e allora il controllo dei
+    # percorsi assoluti non trova nulla e conclude che non ce ne sono.
+    prefisso_di_costruzione = (
+        opzioni.prefisso_di_costruzione.resolve()
+        if opzioni.prefisso_di_costruzione
+        else prefisso
+    )
+    testo_prefisso = str(prefisso_di_costruzione)
     regole = contratto["percorsi_assoluti_ammessi"]
     non_classificati: dict[str, list[str]] = {}
     per_categoria: dict[str, int] = {}
@@ -222,6 +283,18 @@ def main() -> int:
     print("percorsi assoluti cotti nei binari, per categoria:")
     for categoria, quanti in sorted(per_categoria.items()):
         print(f"  {categoria:22s} {quanti}")
+    if not per_categoria and not non_classificati:
+        # Zero non e' un buon esito: e' il sintomo di aver cercato la stringa
+        # sbagliata. La rilocazione di conda **sostituisce** il placeholder con
+        # il prefisso, quindi qualche percorso c'e' sempre, e non trovarne
+        # nessuno significa che `testo_prefisso` non e' quello che i binari
+        # nominano. Verificando un albero assemblato altrove capita per
+        # costruzione, e senza questa riga il controllo stampava un verde.
+        errori.append(
+            "nessun percorso assoluto trovato negli ELF spediti. Dopo la rilocazione di conda "
+            f"qualcuno ce n'e' sempre, quindi «{testo_prefisso}» non e' il prefisso che i binari "
+            "nominano: passare --prefisso-di-costruzione."
+        )
     if non_classificati:
         errori.append(
             f"{len(non_classificati)} percorsi assoluti non classificati: "

@@ -24,6 +24,7 @@ MATRICE = RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
 LOCK_LINUX = RADICE / "scripts" / "linux-gdal-lock.json"
 LOCK_WINDOWS = RADICE / "scripts" / "windows-gdal-lock.json"
 CHECKER = RADICE / "scripts" / "check-linux-gdal-runtime.py"
+RADICI_RS = RADICE / "crates" / "plenora-io-cli" / "src" / "radici.rs"
 
 
 def carica(percorso: pathlib.Path) -> dict:
@@ -41,15 +42,75 @@ class SondeMatrice(unittest.TestCase):
         origini = {o["piattaforma"] for o in self.matrice["contratto_gdal"]["origini"]}
         self.assertEqual(piattaforme, origini)
 
-    def test_la_versione_gdal_e_una_sola(self) -> None:
-        """E' la precondizione perche' la capability sia la stessa ovunque.
+    def costruite(self) -> set[str]:
+        return {
+            p["id"]
+            for p in self.matrice["piattaforme"]
+            if p["stato_costruzione"] == "costruita"
+        }
 
-        Windows e Linux la dichiarano ciascuno nel proprio lock: se divergessero,
-        i due artefatti porterebbero prodotti diversi con lo stesso nome."""
+    def test_la_versione_gdal_e_una_sola_fra_le_piattaforme_costruite(self) -> None:
+        """E' la precondizione perche' la capability sia la stessa ovunque: se
+        due artefatti dichiarassero versioni diverse, porterebbero prodotti
+        diversi sotto lo stesso nome.
+
+        La pretesa vale fra artefatti **reali**. Una piattaforma non ancora
+        costruita non ha una capability di cui pretendere l'uguaglianza -- e
+        perche' lo stato non diventi un modo per far tacere questa sonda, ogni
+        piattaforma non costruita deve portare un blocco registrato."""
         dichiarata = self.matrice["contratto_gdal"]["versione"]
+        costruite = self.costruite()
+        self.assertIn("linux-x86_64", costruite, "il lotto Linux e' il primo: senza, non c'e' nulla")
         self.assertEqual(self.lock["gdal_version"], dichiarata)
-        if LOCK_WINDOWS.exists():
+        if "windows-x86_64" in costruite:
             self.assertEqual(carica(LOCK_WINDOWS)["gdal_version"], dichiarata)
+
+    def test_ogni_piattaforma_non_costruita_porta_un_blocco(self) -> None:
+        """La sonda che chiude la scappatoia.
+
+        Senza, `stato_costruzione` sarebbe un interruttore per spegnere le
+        pretese: basterebbe declassare una piattaforma per far passare una
+        divergenza. Dichiararla non costruita costa quindi dire **che cosa la
+        costruirebbe**, e chi legge trova il debito invece del silenzio."""
+        con_blocco = {b["piattaforma"] for b in self.matrice["blocchi_aperti"]}
+        non_costruite = {
+            p["id"] for p in self.matrice["piattaforme"]
+        } - self.costruite()
+        self.assertEqual(
+            non_costruite,
+            non_costruite & con_blocco,
+            f"senza blocco registrato: {sorted(non_costruite - con_blocco)}",
+        )
+        for blocco in self.matrice["blocchi_aperti"]:
+            with self.subTest(piattaforma=blocco["piattaforma"]):
+                for campo in ("blocco", "che_cosa_lo_chiude", "nel_frattempo"):
+                    self.assertTrue(blocco.get(campo), f"«{campo}» vuoto")
+
+    def test_i_binding_sono_della_serie_della_libreria_spedita(self) -> None:
+        """Il difetto che la costruzione Linux ha fatto emergere.
+
+        `gdal-sys` sceglie i binding pre-costruiti dalla versione che gli viene
+        dichiarata. Dichiararne una diversa da quella spedita compila l'ABI di
+        una serie contro la libreria di un'altra: funziona finche' funziona, e
+        quando smette non lo dice. Su Linux la build si e' fermata da sola --
+        non esistono binding per 3.10 -- e per questo il difetto si e' visto.
+
+        La pretesa vale sui lock delle piattaforme costruite: dove non c'e'
+        ancora un artefatto, il disallineamento e' registrato come blocco."""
+        per_piattaforma = {"linux-x86_64": LOCK_LINUX, "windows-x86_64": LOCK_WINDOWS}
+        for piattaforma in sorted(self.costruite()):
+            percorso = per_piattaforma.get(piattaforma)
+            if percorso is None or not percorso.exists():
+                continue
+            with self.subTest(piattaforma=piattaforma):
+                lock = carica(percorso)
+                serie = lambda v: ".".join(v.split(".")[:2])
+                self.assertEqual(
+                    serie(lock["binding_version"]),
+                    serie(lock["gdal_version"]),
+                    f"{piattaforma}: binding {lock['binding_version']} contro libreria "
+                    f"{lock['gdal_version']}",
+                )
 
     def test_la_soglia_glibc_e_la_stessa_nei_due_posti(self) -> None:
         """La matrice la **dichiara**, il lock la fa **pretendere** al controllo.
@@ -125,6 +186,59 @@ class SondeMatrice(unittest.TestCase):
                     self.assertIn(campo, pacchetto)
                 self.assertEqual(len(pacchetto["sha256"]), 64)
                 self.assertTrue(pacchetto["url"].startswith("https://"))
+
+    def test_le_variabili_dichiarate_sono_quelle_che_il_binario_imposta(self) -> None:
+        """Il lock dichiara che certi percorsi assoluti cotti nei binari sono
+        innocui **perche' una variabile li copre**. Quella variabile la imposta
+        `radici.rs`, e i due elenchi vivono in file diversi.
+
+        Se una riga sparisse da `radici.rs` -- o vi cambiasse nome -- la
+        classificazione nel lock resterebbe verde affermando una copertura che
+        non c'e' piu'. E' la stessa forma del difetto dei tre conteggi: due
+        verita' che nessuno confronta."""
+        rust = RADICI_RS.read_text(encoding="utf-8")
+        impostate = set(re.findall(r'variabile: "([A-Z_]+)"', rust))
+        impostate |= set(re.findall(r'^const CATALOGO_XML: &str = "([A-Z_]+)"', rust, re.M))
+        self.assertTrue(impostate, "nessuna variabile letta da radici.rs")
+
+        dichiarate: set[str] = set()
+        for regola in self.lock["contratto_di_verifica"]["percorsi_assoluti_ammessi"]:
+            if regola["categoria"] == "coperto_da_variabile":
+                dichiarate |= {v.strip() for v in regola["variabile"].split(",")}
+
+        self.assertEqual(
+            dichiarate,
+            impostate,
+            "il lock e radici.rs non nominano le stesse variabili: "
+            f"solo nel lock {sorted(dichiarate - impostate)}, "
+            f"solo in radici.rs {sorted(impostate - dichiarate)}",
+        )
+
+    def test_ogni_variabile_ha_un_bersaglio_nel_layout_installato(self) -> None:
+        """Una variabile che puntasse a una directory che l'artefatto non
+        spedisce sarebbe peggio del default: il default si riconosce come tale,
+        una nostra variabile rotta si legge come configurazione voluta.
+
+        A runtime `radici.rs` tace su cio' che non trova -- non puo' fare
+        altro, e tacere e' la scelta giusta. Che l'artefatto lo spedisca
+        dev'essere quindi una pretesa **del pacchetto**, ed e' questa."""
+        rust = RADICI_RS.read_text(encoding="utf-8")
+        relativi = re.findall(r'relativo: "([^"]+)"', rust)
+        self.assertTrue(relativi, "nessuna directory letta da radici.rs")
+
+        dichiarate = [
+            voce["percorso"].rstrip("/")
+            for voce in self.matrice["layout_installato"]["voci"]
+        ]
+        for relativo in relativi:
+            with self.subTest(relativo=relativo):
+                self.assertTrue(
+                    any(
+                        relativo == d or relativo.startswith(d + "/")
+                        for d in dichiarate
+                    ),
+                    f"«{relativo}» non ricade in nessuna voce del layout dichiarato: {dichiarate}",
+                )
 
     def test_lo_strumento_che_risolve_e_fissato(self) -> None:
         """Uno strumento che cambia da solo rende non riproducibile cio' che

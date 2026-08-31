@@ -1,0 +1,37 @@
+# La base di costruzione degli artefatti Linux. **Non** e' l'immagine di
+# sviluppo.
+#
+# Ubuntu 22.04 porta glibc 2.35, che e' la soglia dichiarata nella matrice di
+# distribuzione. L'immagine di sviluppo e' Debian 12 (glibc 2.36): costruire li'
+# darebbe un artefatto che non gira su Ubuntu 22.04, per un accidente
+# dell'ambiente di lavoro invece che per una proprieta' del prodotto.
+FROM ubuntu:22.04
+
+ARG RUST_VERSION=1.92.0
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CARGO_HOME=/usr/local/cargo \
+    RUSTUP_HOME=/usr/local/rustup \
+    PATH=/usr/local/cargo/bin:$PATH
+
+# `zstd` serve ai pacchetti conda, `binutils` alle verifiche sugli ELF,
+# `strace` al relocation smoke -- che deve poter dire **quali** file il binario
+# tocca, non soltanto che non e' fallito. `pkg-config` e' come `gdal-sys` trova
+# GDAL: qui non c'e' un `libgdal-dev` di sistema, e non deve essercene uno --
+# il GDAL contro cui si compila e' quello materializzato dal lock, e gli si
+# punta `PKG_CONFIG_PATH`.
+#
+# `patchelf` serve a normalizzare i `DT_NEEDED` assoluti, e non e' una
+# comodita': `libgdal.so.35` di conda-forge ne porta uno che la rilocazione di
+# conda riscrive con il prefisso di materializzazione. Un artefatto che lo
+# conservasse smetterebbe di caricarsi appena quel prefisso non esiste piu'.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential pkg-config ca-certificates curl python3 zstd binutils patchelf strace file \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain ${RUST_VERSION} --profile minimal --no-modify-path \
+ && rustc --version && cargo --version
+
+WORKDIR /work

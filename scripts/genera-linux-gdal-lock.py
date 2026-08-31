@@ -43,10 +43,33 @@ RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 
 CANALE = "conda-forge"
-SUBDIR = "linux-64"
-GDAL_VERSION = "3.10.3"
+# Due subdir, e non sono la stessa cosa: `SUBDIR_STRUMENTO` e' la piattaforma
+# su cui gira micromamba mentre risolve -- questa macchina -- e `--subdir` e' la
+# piattaforma per cui si risolve. Confonderle faceva scaricare un micromamba
+# per Windows su una macchina Linux, e la confusione si vedeva soltanto perche'
+# l'estrazione falliva.
+SUBDIR_STRUMENTO = "linux-64"
+SUBDIR_PREDEFINITO = "linux-64"
+# GDAL 3.9, e non l'ultima disponibile, perche' `gdal-sys 0.10.0` spedisce
+# binding pre-costruiti soltanto per 3.0-3.9. Su 3.10 la build si ferma da sola
+# con «No pre-built bindings available», e le due uscite da quel vicolo sono
+# entrambe peggiori di scendere di una minore.
+#
+# Abilitare la feature `bindgen` genererebbe i binding a build time: aggiunge
+# `bindgen` e `clang` alla catena, e soprattutto cambia `Cargo.lock` -- che qui
+# non e' un dettaglio, perche' una dipendenza in piu' invalida le misure che ci
+# stanno sopra.
+#
+# Dichiarare a `gdal-sys` una versione diversa da quella spedita -- che e' cio'
+# che `install-windows-gdal.ps1` faceva, forzando `GDAL_VERSION=3.6.0` su una
+# libreria 3.10.3 -- fa compilare binding di una ABI contro una libreria di
+# un'altra. Funziona finche' funziona, e quando smette non lo dice.
+#
+# `BINDING_VERSION` non e' una scelta indipendente: e' la serie di
+# `GDAL_VERSION`, e una sonda lo verifica.
+GDAL_VERSION = "3.9.3"
 PACCHETTO_RADICE = "libgdal-core"
-BINDING_VERSION = "3.6.0"
+BINDING_VERSION = ".".join(GDAL_VERSION.split(".")[:2]) + ".0"
 MICROMAMBA_VERSIONE = "2.9.0"
 
 
@@ -71,13 +94,13 @@ def pin_di_micromamba(lavoro: pathlib.Path) -> dict:
     candidati = [
         f
         for f in dati["files"]
-        if f["attrs"].get("subdir") == SUBDIR
+        if f["attrs"].get("subdir") == SUBDIR_STRUMENTO
         and f["version"] == MICROMAMBA_VERSIONE
         and f["basename"].endswith(".tar.bz2")
     ]
     if len(candidati) != 1:
         sys.exit(
-            f"micromamba {MICROMAMBA_VERSIONE}: attesa una build per {SUBDIR}, "
+            f"micromamba {MICROMAMBA_VERSIONE}: attesa una build per {SUBDIR_STRUMENTO}, "
             f"trovate {len(candidati)}"
         )
     scelto = candidati[0]
@@ -122,9 +145,28 @@ def soglia(vincoli: list[str]) -> str | None:
 def main() -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--lavoro", required=True, type=pathlib.Path)
+    argomenti.add_argument(
+        "--subdir",
+        default=SUBDIR_PREDEFINITO,
+        choices=["linux-64", "win-64", "osx-arm64"],
+        help="la piattaforma per cui si risolve; non quella su cui gira il risolutore",
+    )
+    argomenti.add_argument(
+        "--piattaforma",
+        default=None,
+        help="l'identita' della piattaforma nella matrice di distribuzione",
+    )
+    argomenti.add_argument("--uscita", default=None, help="il nome del file di lock prodotto")
     opzioni = argomenti.parse_args()
     lavoro: pathlib.Path = opzioni.lavoro
     lavoro.mkdir(parents=True, exist_ok=True)
+    subdir = opzioni.subdir
+    piattaforma = opzioni.piattaforma or {
+        "linux-64": "linux-x86_64",
+        "win-64": "windows-x86_64",
+        "osx-arm64": "macos-aarch64",
+    }[subdir]
+    uscita_lock = opzioni.uscita or f"{piattaforma.split('-')[0]}-gdal-lock.json"
 
     pin = pin_di_micromamba(lavoro)
     micromamba = procurati(pin, lavoro)
@@ -139,7 +181,7 @@ def main() -> int:
                 "--json",
                 "--yes",
                 "--platform",
-                SUBDIR,
+                subdir,
                 "--prefix",
                 str(lavoro / "env"),
                 "--override-channels",
@@ -184,8 +226,8 @@ def main() -> int:
             "pacchetto porta URL, dimensione e sha256, e il costruttore rifiuta cio' che non "
             "corrisponde."
         ),
-        "piattaforma": "linux-x86_64",
-        "subdir": SUBDIR,
+        "piattaforma": piattaforma,
+        "subdir": subdir,
         "canale": CANALE,
         "gdal_version": GDAL_VERSION,
         "pacchetto_radice": PACCHETTO_RADICE,
@@ -219,10 +261,10 @@ def main() -> int:
             file=sys.stderr,
         )
 
-    (lavoro / "linux-gdal-lock.json").write_text(
+    (lavoro / uscita_lock).write_text(
         json.dumps(lock, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    print(f"lock prodotto in {lavoro / 'linux-gdal-lock.json'}: {len(pacchetti)} pacchetti")
+    print(f"lock prodotto in {lavoro / uscita_lock}: {len(pacchetti)} pacchetti")
     for r in lock["requisiti_virtuali"]:
         print(f"  requisito virtuale {r['nome']}: minimo {r['minimo_richiesto']}")
     print("rileggilo prima di committarlo: e' un contratto, non un output.")
