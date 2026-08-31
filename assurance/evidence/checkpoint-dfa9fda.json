@@ -1,0 +1,623 @@
+{
+  "schema_version": 1,
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione dfa9fda, che porta il debito ASSURANCE-N1 da 19 a 2 gruppi chiudendo sedici gruppi di `driver-shp` in quattro commit. Le sonde hanno smentito tre ipotesi sulle cause di rifiuto del writer, che sarebbero passate per vere asserendo soltanto `is_err()`.",
+  "esito": "S9 checkpoint level 2 passed",
+  "non_significa": "non autorizza una release e non promuove la readiness di alcun componente ne' del sistema. I quattro bloccanti restano aperti e `release_authorized` resta `false`.",
+  "corsa": {
+    "revisione_iniziale": "dfa9fdafdb314ed61a5f477f275080828623bfa3",
+    "revisione_finale": "dfa9fdafdb314ed61a5f477f275080828623bfa3",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "nota": "revisione e impronta finali sono **rilette** a fine corsa, non ristampate da cio' che la testa aveva acquisito: una tautografia non e' una misura.",
+    "albero_all_avvio": "pulito, 0 file non committati",
+    "base_diagnostica": "0a988de",
+    "perche_questa_base": "e' la revisione dell'evidenza precedente, cioe' l'ultimo albero qualificato: la diagnostica misura esattamente le righe scritte da allora.",
+    "registro_dei_passi": "il registro contro cui questa evidenza si verifica e' `assurance/registries/passi-del-checkpoint.json`.",
+    "percorso_dei_log": "`.s9-checkpoint/dfa9fdafdb314ed61a5f477f275080828623bfa3-attempt-1`, sul bind mount dell'host e ignorata da git. I log sono copiati fuori dalla directory temporanea della corsa **prima** di calcolarne il manifest: un'evidenza che rimanda a un percorso effimero non e' verificabile da nessuno tranne chi l'ha scritta.",
+    "una_directory_per_tentativo": "`<sha>-attempt-<n>`, nuova e vuota a ogni corsa: log di una corsa precedente riusati verrebbero attribuiti a quella nuova, o entrerebbero nel suo manifest."
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 73,
+    "eseguiti": 73,
+    "verdi": 73,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i conteggi sono ricostruiti dall'elenco dei passi che la corsa registra, non accettati dal sommario che lo strumento stampa su se stesso.",
+    "insieme_dichiarato": "le identita' sono **esattamente** quelle del registro; la corsa fallisce se una manca o se ne compare una che il registro non nomina.",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_categorie_di_perdita",
+        "esito": "verde",
+        "log": "sonde_categorie_di_perdita.log"
+      },
+      {
+        "id": "check_categorie_di_perdita",
+        "esito": "verde",
+        "log": "check_categorie_di_perdita.log"
+      },
+      {
+        "id": "sonde_protocollo_v2",
+        "esito": "verde",
+        "log": "sonde_protocollo_v2.log"
+      },
+      {
+        "id": "check_protocollo_v2",
+        "esito": "verde",
+        "log": "check_protocollo_v2.log"
+      },
+      {
+        "id": "sonde_confine_v1",
+        "esito": "verde",
+        "log": "sonde_confine_v1.log"
+      },
+      {
+        "id": "check_confine_v1",
+        "esito": "verde",
+        "log": "check_confine_v1.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 69872,
+      "target": 15,
+      "target_totali": 15,
+      "crash": 0
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "target_totali": 15,
+      "finding": 0,
+      "quarantena": 0
+    },
+    "copertura": {
+      "lcov_percentuale": 88.87,
+      "lcov_righe_coperte": 37299,
+      "lcov_righe_strumentate": 41970,
+      "cargo_lines_percentuale": 87.36,
+      "soglia": 80.0,
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. `--all-features` decide che cosa entra nel denominatore: il percorso GDAL di `driver-filegdb` sta dietro `gdal-backend`. Il denominatore cresce di 1035 righe rispetto alla corsa su `0a988de`, e sono le sonde di questa tranche: la percentuale sale mentre il denominatore cresce, quindi non e' l'effetto di un taglio.",
+      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate. Entrambe sono richieste e nessuna sostituisce l'altra."
+    },
+    "diagnostica_differenziale": {
+      "base": "0a988de",
+      "esito": "91.79%",
+      "righe_cambiate_eseguibili": 1035,
+      "coperte": 950,
+      "scoperte": 85,
+      "cambiate_non_eseguibili": 740,
+      "righe_scoperte": [
+        "crates/driver-shp/src/lib.rs:4274",
+        "crates/driver-shp/src/lib.rs:6406",
+        "crates/driver-shp/src/lib.rs:6454",
+        "crates/driver-shp/src/lib.rs:6459",
+        "crates/driver-shp/src/lib.rs:6464",
+        "crates/driver-shp/src/lib.rs:6493",
+        "crates/driver-shp/src/lib.rs:6502",
+        "crates/driver-shp/src/lib.rs:6516",
+        "crates/driver-shp/src/lib.rs:6520",
+        "crates/driver-shp/src/lib.rs:6534",
+        "crates/driver-shp/src/lib.rs:6544",
+        "crates/driver-shp/src/lib.rs:6566",
+        "crates/driver-shp/src/lib.rs:6577",
+        "crates/driver-shp/src/lib.rs:6662",
+        "crates/driver-shp/src/lib.rs:6666",
+        "crates/driver-shp/src/lib.rs:6667",
+        "crates/driver-shp/src/lib.rs:6678",
+        "crates/driver-shp/src/lib.rs:6712",
+        "crates/driver-shp/src/lib.rs:6713",
+        "crates/driver-shp/src/lib.rs:6739",
+        "crates/driver-shp/src/lib.rs:6782",
+        "crates/driver-shp/src/lib.rs:6811",
+        "crates/driver-shp/src/lib.rs:6822",
+        "crates/driver-shp/src/lib.rs:6838",
+        "crates/driver-shp/src/lib.rs:6843",
+        "crates/driver-shp/src/lib.rs:6893",
+        "crates/driver-shp/src/lib.rs:6897",
+        "crates/driver-shp/src/lib.rs:6909",
+        "crates/driver-shp/src/lib.rs:6913",
+        "crates/driver-shp/src/lib.rs:6932",
+        "crates/driver-shp/src/lib.rs:6933",
+        "crates/driver-shp/src/lib.rs:6964",
+        "crates/driver-shp/src/lib.rs:6971",
+        "crates/driver-shp/src/lib.rs:6975",
+        "crates/driver-shp/src/lib.rs:6993",
+        "crates/driver-shp/src/lib.rs:7005",
+        "crates/driver-shp/src/lib.rs:7088",
+        "crates/driver-shp/src/lib.rs:7113",
+        "crates/driver-shp/src/lib.rs:7123",
+        "crates/driver-shp/src/lib.rs:7144",
+        "crates/driver-shp/src/lib.rs:7145",
+        "crates/driver-shp/src/lib.rs:7149",
+        "crates/driver-shp/src/lib.rs:7266",
+        "crates/driver-shp/src/lib.rs:7315",
+        "crates/driver-shp/src/lib.rs:7319",
+        "crates/driver-shp/src/lib.rs:7367",
+        "crates/driver-shp/src/lib.rs:7389",
+        "crates/driver-shp/src/lib.rs:7410",
+        "crates/driver-shp/src/lib.rs:7414",
+        "crates/driver-shp/src/lib.rs:7419",
+        "crates/driver-shp/src/lib.rs:7430",
+        "crates/driver-shp/src/lib.rs:7435",
+        "crates/driver-shp/src/lib.rs:7449",
+        "crates/driver-shp/src/lib.rs:7454",
+        "crates/driver-shp/src/lib.rs:7540",
+        "crates/driver-shp/src/lib.rs:7549",
+        "crates/driver-shp/src/lib.rs:7577",
+        "crates/driver-shp/src/lib.rs:7585",
+        "crates/driver-shp/src/lib.rs:7608",
+        "crates/driver-shp/src/lib.rs:7614",
+        "crates/driver-shp/src/lib.rs:7651",
+        "crates/driver-shp/src/lib.rs:7666",
+        "crates/driver-shp/src/lib.rs:7684",
+        "crates/driver-shp/src/lib.rs:7689",
+        "crates/driver-shp/src/lib.rs:7745",
+        "crates/driver-shp/src/lib.rs:7750",
+        "crates/driver-shp/src/lib.rs:7755",
+        "crates/driver-shp/src/lib.rs:7761",
+        "crates/driver-shp/src/lib.rs:7769",
+        "crates/driver-shp/src/lib.rs:7773",
+        "crates/driver-shp/src/lib.rs:7886",
+        "crates/driver-shp/src/lib.rs:7892",
+        "crates/driver-shp/src/lib.rs:7897",
+        "crates/driver-shp/src/lib.rs:7917",
+        "crates/driver-shp/src/lib.rs:7923",
+        "crates/driver-shp/src/lib.rs:7942",
+        "crates/driver-shp/src/lib.rs:7955",
+        "crates/driver-shp/src/lib.rs:7977",
+        "crates/driver-shp/src/lib.rs:7980",
+        "crates/driver-shp/src/lib.rs:7986",
+        "crates/driver-shp/src/lib.rs:7990",
+        "crates/driver-shp/src/lib.rs:8009",
+        "crates/driver-shp/src/lib.rs:8013",
+        "crates/driver-shp/src/lib.rs:8034",
+        "crates/driver-shp/src/lib.rs:8050"
+      ],
+      "ragione": "91.79% delle 1035 righe cambiate ed eseguibili fra la revisione dell'evidenza precedente e questa: sedici chiusure ASSURANCE-N1 in `driver-shp`, con le fixture che le accompagnano.",
+      "che_cosa_sono_le_scoperte": "85, e **nessuna e' codice di produzione**. Il confine e' verificato riga per riga e non stimato: i due `mod tests` cominciano a 1668 in `driver-xls/src/lib.rs` e a 3609 in `driver-shp/src/lib.rs`, non compare nessun altro file, e tutte e 85 stanno oltre. Sono messaggi di asserzione e rami di `panic!` dentro le sonde, che si eseguono **solo quando la sonda fallisce**: una copertura del 100% su quelle righe significherebbe che ogni sonda e' fallita almeno una volta, ed e' la categoria che le evidenze precedenti dichiarano non chiudibile."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": ".s9-checkpoint/dfa9fdafdb314ed61a5f477f275080828623bfa3-attempt-1",
+    "file": 75,
+    "digest_manifest": "9ee224a89c60c8d6c263fbc52429068d44d1c73805c63fe00e9fd5b88580d5c2",
+    "forma_del_manifest": "`percorso` NUL `sha256 del contenuto` LF, in ordine di percorso; nessun timestamp e nessun metadato di filesystem, cosi' il digest dipende solo da cio' che i file contengono.",
+    "risultato_della_corsa": "`risultato.json` fa parte del manifest, ed e' preteso: e' l'ultimo file che la corsa scrive, e un manifest senza di lui descriverebbe una corsa che non e' arrivata in fondo.",
+    "diagnostica_differenziale_nel_manifest": "`coverage_diff.log` fa parte del manifest e porta l'elenco completo delle 85 righe scoperte, non un campione: e' la condizione che `check_release` pretende per accettare un'evidenza.",
+    "manifest": {
+      "assurance_fallbacks.log": "8a8668bb71dc8a3abd033faf887bb6c98c2b8e41d786541c550720165c3454e3",
+      "assurance_n1_integrita.log": "149ec830d52e594bb1e527393052e4097063865f4cfc543332de58d9fe6315dc",
+      "assurance_n1_prove.log": "7c704eec8de00d6d0580b2a0d07cf6ba82324b7370175d94a2dece8247fad117",
+      "catalog.json": "d309bf54f14e702b28153b181b7d426217300fe1d5f1d3b1c4ac52fa456d199a",
+      "check_action_pins.log": "c125dc241c876a62a8598f74f6109651fda752f4ac6adeb82f5a6e0380d55545",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_categorie_di_perdita.log": "4ce9a44d800a19c5b8376fdeae922112e27d4d99e4073d51bc6768757a234f81",
+      "check_confine_v1.log": "542f332bd3b461c45bd09e83f962c34df98e38f6303358cbe499f17129c841b1",
+      "check_coverage_exclusions.log": "08eb09e1bbbb0ce13b2beaf6f1f131a8d71b19b18139bb2e591ab2c72211917e",
+      "check_dependency_pins.log": "3f472480b7f82381eed29cd34314d7c6dd5fed5ba268437a3df868b7415edb71",
+      "check_docset.log": "21fddca1298b159a7e3a280e32393e21faa2efd32f15a0b63379cbd8b349836f",
+      "check_dxf_fork.log": "aec602c5ee9d01f42f5ae0939436af4f921116b5f5620bbabbfbbff62e465dbe",
+      "check_errori_redatti.log": "b4600a323e1d6820b3df96a9b4bf4e3b56865ea3d5faf435dbb404f1f21e41b9",
+      "check_filegdb_catalog.log": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+      "check_gdal_fork.log": "e308ae8a812b3f76b8219308e03171db550ef436183a755baacb7b3ec0a984fe",
+      "check_identita.log": "500e17f9c44d878c5b73397f81288a54526daaf3966db05daa4f9391ea41366e",
+      "check_metadati_geoparquet.log": "ba4875feae70b56ae74989120da34d66ab91857430495510f756ed31ca7a335a",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "00aa721844850cca6c828a758bd0cff97b28368bf620654d9aecf2b8c362d71e",
+      "check_protocollo_v2.log": "6a73bdb67bfbd5b249ac798016db1a3ecd8c87c30c3e05358f7c6fb3deb15970",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "d019c328c0c19b67792ed350a5e816adbf0f72d651d69204367f6d56cccb5804",
+      "check_release.log": "0376c271c5a7c07f279946ee1c9e7cf633cd8399643227e06ecbd2895a76de3c",
+      "check_schemi_geoparquet.log": "d5c76e7deea8bd22226fe04bdc3fe4dfe1b42eeeb917d1f05f97fcf7b97bc4f4",
+      "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
+      "check_wkb_limits.log": "de6ccb091b4fb303845cda3b2f44c29233d0f5e7c669c6c7d1d11a49433adb4b",
+      "clippy.log": "5c6252d23e76cbe9ba37f60c014af38e3fdb90459efc8ab01a553650ebde9a63",
+      "clippy_default.log": "41d59ba51938ef41508ed58687297874f7faa18895012aabc5cfb12351f7d7cf",
+      "clippy_sicurezza.log": "76526cd248357eb58e2ac3b3db8684d936985183f00d625932d8f12048ca10f8",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "coverage_diff.log": "c35cb9ec978a36ee2183b1ab2220fc14ab6a2d24c3b31bafddde6f51638db4fb",
+      "coverage_export.log": "857cdc2388040ae6e97bafb6b9af2fa9e1934dbc047b7a1331537368cc29114f",
+      "coverage_misura.log": "ebed6f0ef222a1bfa461cf8a76e230cf8fdd606334facc55d6cefb4e6938a0c0",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "f0b0cabd11f5c0ac864c2d4ae3d1231e8c35244d42fbfba8a4e9034eb5c0a96d",
+      "coverage_soglia_dal_report.log": "f58e0cca84d07e892bd873babe8d600b0da966fad2f022134640a3dc43b35179",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz_replay.log": "18dee56d11581d11b2086d09a7e0519f945cfebf59959074856dd669e0cc458e",
+      "fuzz_smoke.log": "536d543117a4dd5838b8b3c44c017030854f26923a8c50c19d735cab32a6d747",
+      "lcov.info": "d0daf4f08b1c726d87678a7bdfdfc1c8815bbca35e8ab1b97a1cc8ca75e23463",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "ac77c9017a52ea0f2284cd1564d0afd0fdbeb58ef08ba0eddf0934305ebf7b58",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "sonde_action_pins.log": "4c3b3b2f85f7f81206f2731efca1a5c61f58b2f6c54d820b4003b988757b84ec",
+      "sonde_assurance_n1.log": "f44b0f1d4bb6d6a1d5a719a923b5e42c1a1b1d052a5fd407e7c86372ed876d51",
+      "sonde_assurance_n1_prove.log": "17debf7c0c0ce942705ba249a95ab2c49bc1ac8c428113ce8fe871c9018182d1",
+      "sonde_audit_ignores.log": "62cfbeb2911bb226088bfb0918eb4b05008ea70b20bce854ee2ca8a564bd37a5",
+      "sonde_capability_ostile.log": "8f91b636410e2d5b3126c96168875ae96190dd585ff4f89e63eb1735bbdc4ce3",
+      "sonde_categorie_di_perdita.log": "30ecd4d1305bf59672923299fda18319b2b5d03cb6a3618ee3d5e08eb1c5d299",
+      "sonde_checkpoint.log": "e94268b86733efaccab0d790800daf50081093160fb95d50fba995d3bce46cd3",
+      "sonde_confine_v1.log": "4c20ba2d14db4ba478b3ec9d4828e9691a9692f2736a3e64cc23c1b09de9d593",
+      "sonde_coverage_excl.log": "63c26a0935e6963bf26ba3b08b77510cd0c84019321243d8f24319f09d55d0c3",
+      "sonde_docset.log": "7ccf415019ec3669b7c36bca2ffa918c68591d999d6ec95e34c8ff41d2698719",
+      "sonde_errori_redatti.log": "20b00ee89cc42206207666463d20decc63c54742e688b700fc7017d081f3603d",
+      "sonde_fallback.log": "ca18ffc8e8fdc6b71e49e9b4fd64e04661daa3243fb767d57a64ce80ea2d7b63",
+      "sonde_filegdb.log": "d9853af017010fbcf76d87c8fe46b87ae058237da982d900a1181a4a916ad331",
+      "sonde_fork.log": "9d6cbfbb2d1402021c6331677bf3525e7ceadae71653674bcfd546a45076bbac",
+      "sonde_identita.log": "dcf0a7fc200cab9ab36e5d3037278eb791f53b95cc73af6040c74a0a911416bc",
+      "sonde_metadati_geoparquet.log": "7fc5f2f21d548c41100beac4e406a660cb9de1f9215153fa438389d418d8eb81",
+      "sonde_niente_leak.log": "591908f8ebbe623a3d3659dcfff3bb80ff781ef8db2ea993f6d24cd4581362b8",
+      "sonde_prevalidazione.log": "811eabda5dc298da232b3c7953fbe433089645edff6f53063d91016c4136c0a2",
+      "sonde_protocollo_v2.log": "35c1b54c3bceea3a83a47f9da8e40c6ae76ed9019e1a430a1e2073ba9fcd84a9",
+      "sonde_quarantena.log": "21c7e48d0b1ec908feef784bbce1fa55f2c9a7acf76382fa7578754a78bd1ed8",
+      "sonde_quartetto.log": "1b54e7bd3e4f0557cdf06d1076b6ef63ce21d6c17ecec62d2881ac93eafe1fed",
+      "sonde_release.log": "7168be053aab6dd934cec0852f30000778afb944af5e935a8d276beadbfa5c20",
+      "sonde_schemi_geoparquet.log": "513fb50b0c8196e5d2da815207bd413984d2609156cd7d385c88caeb292c0ede",
+      "sonde_semi_s12.log": "a8bd00c9cba87f09c3945cb02be0e8ca19feadde270e9fe9453a97e1c0a1c9e0",
+      "sonde_toolchain.log": "b565133ab43eb843485dd8441615b1c2f89b21ce2bae650170287548bd6b07bf",
+      "sonde_wkb_condiviso.log": "fe008aab760eb03ccac7578e2b84665b1b50b0d7f855b17a0c7a8d039435b658",
+      "sonde_wkb_limits.log": "31fee74ca91764ff428912a09870cbe01b998b86899b47ff32b2bbbf7fdc0d92",
+      "test.log": "855a58c3a54e593bc528e847ca2ec0e3189d103ca849acd246e2caa5299d3229",
+      "test_default.log": "b0836866da8cc2a97fc9c247bd1db87a63e1964b7b676493410529af01a213a6"
+    }
+  },
+  "cosa_chiude": {
+    "invarianti": [],
+    "invarianti_nota": "nessuno. Il debito ASSURANCE-N1 scende a due gruppi ma non a zero, quindi `copertura.rami-negativi` resta aperto.",
+    "assurance_n1": "il censimento passa da **19 gruppi aperti a 2**. Le sedici chiusure di questa tranche sono tutte in `driver-shp`: `native_coordinate`, `polygon_wkb`, `shape_to_wkb`, `shape_from_wkb`, `__fuzz_wkb_roundtrip`, `from_options`, `create`, `write`, `write_shape`, `finish`, `leggi_descrittori_dbf`, `read_dbf_layout`, `infer_geometry_info`, `infer_shp_schema`, `next_physical`, `finish_batch`, `open` -- diciassette voci per sedici gruppi, perche' `finish` copre due funzioni omonime. Restano `driver-shp::spawn_parser` e `plenora-io-cli::installa_gestore_dei_segnali`.",
+    "ipotesi_smentite_dalle_sonde": {
+      "che_cosa": "tre difese di `ShpWriter::write` e di `ShpDriver::create` che avevo classificato come raggiungibili non lo sono: `shapefile.invalid_geometry`, «colonna geometria non binaria» e il nome campo DBF oltre i dieci caratteri. A rifiutare arriva prima `plenora-io-core::with_write_validation` -- che decodifica il WKB e confronta il lotto con il contratto dichiarato -- o il capability-check, che conosce il tetto sui nomi dal descrittore.",
+      "perche_e_rilevante": "le sonde asseriscono **quale** causa arriva, non `is_err()`. Con la seconda forma tutte e tre le ipotesi sarebbero passate per vere, e il registro direbbe «coperto» di righe che nessun input esegue. E' la stessa classe di errore che il censimento esiste per escludere, trovata dentro il censimento stesso."
+    },
+    "residui_dichiarati": [
+      "driver-shp::read_dbf_layout: il confronto fra il conteggio di descrittori dell'header e quello dei nomi decodificati non e' ne' coperto ne' provato irraggiungibile. I due conteggi vengono dalla stessa aritmetica, e non e' stato possibile costruire un file in cui divergano -- nemmeno anticipando il terminatore fra i descrittori, che `dbase` attraversa senza fermarsi.",
+      "driver-shp::finish: l'overflow del conteggio dei byte dello staging richiederebbe piu' di `u64::MAX` byte su disco.",
+      "driver-shp::write: i due «troppe righe Shapefile» richiederebbero un lotto con piu' di `u64::MAX` righe."
+    ],
+    "corse_sostituite": [],
+    "bloccanti_residui": [
+      "copertura.rami-negativi",
+      "release.candidate-non-valida-per-head",
+      "sistema.qualifica-cross-component",
+      "distribuzione.artefatti-qualificati"
+    ],
+    "bloccanti_residui_nota": "nessuno chiuso da questa corsa. `copertura.rami-negativi` si e' ristretto da 19 a 2 gruppi ma resta aperto; `sistema.qualifica-cross-component` ha un owner esterno e questo repository non lo puo' chiudere; `release.candidate-non-valida-per-head` pretende una candidate nuova, e `v1.0.1` non e' riutilizzabile; `distribuzione.artefatti-qualificati` non e' stato ancora affrontato."
+  }
+}
