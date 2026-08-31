@@ -110,6 +110,16 @@ fn local_err_doc(
     )
 }
 
+/// Un errore d'avvio come busta, con il codice d'uscita degli errori d'uso.
+///
+/// Non passa da `usage_err` perche' non e' un uso sbagliato: l'invocazione e'
+/// corretta, ed e' l'ambiente a non permettere di onorarla. Il codice resta `2`
+/// -- il comando non ha prodotto niente, e chi lo script-a lo tratta come gli
+/// altri rifiuti che precedono il lavoro.
+fn errore_di_avvio(errore: &PlenoraIoError) -> (i32, Value) {
+    (2, err_doc("CLI_STARTUP", errore))
+}
+
 fn usage_err(message: &PublicMessage) -> (i32, Value) {
     (
         2,
@@ -1025,7 +1035,12 @@ fn run() -> CliResult {
     // Il gestore si installa **prima** del dispatch, non dentro il comando: un
     // Ctrl+C battuto mentre la sorgente si apre deve trovare il token gia'
     // armato.
-    let cancellazione = installa_gestore_dei_segnali();
+    //
+    // Se non si installa, il comando non parte: la ragione sta su
+    // `RIFIUTO_SEGNALI`, e in breve e' che un avviso testuale finirebbe davanti
+    // alla busta e romperebbe il contratto di `stderr`.
+    let cancellazione =
+        installa_gestore_dei_segnali().map_err(|errore| errore_di_avvio(&errore))?;
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => Ok(json!({
             "status": "ok",

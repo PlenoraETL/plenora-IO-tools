@@ -19,25 +19,44 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use plenora_io_model::CancellationToken;
+use plenora_io_model::{
+    CancellationToken, ErrorCategory, ErrorPhase, IoErrorCode, PlenoraIoError, PublicMessage,
+    RemoteEffect, RetryDisposition,
+};
 
 /// L'exit code di un'operazione annullata: `128 + SIGINT`, come la shell si
 /// aspetta. E' lo stesso che `map_err` assegna alla categoria `Cancelled`, e
 /// resta lo stesso quando a uscire e' il secondo segnale invece della pipeline.
 pub const EXIT_ANNULLATO: i32 = 130;
 
-/// L'avviso quando la cancellazione non si puo' armare.
+/// Il rifiuto quando la cancellazione non si puo' armare.
 ///
-/// Non e' un errore fatale, e la scelta merita una riga. Un gestore che non si
-/// installa non rende sbagliato nulla di cio' che il comando produce: toglie
-/// soltanto la possibilita' di fermarlo con grazia, e con essa la pulizia dello
-/// staging su Ctrl+C. Rifiutare di lavorare per questo renderebbe la CLI
-/// inutilizzabile dove i segnali non sono disponibili, che e' un danno certo
-/// contro un rischio che riguarda una directory temporanea. Tacere invece
-/// lascerebbe credere a una garanzia che non c'e'.
-pub const AVVISO_SEGNALI: &str =
-    "avviso: gestore dei segnali non installato; Ctrl+C termina il processo senza \
-     annullare l'operazione, e lo staging in corso resta sul disco.";
+/// # Perche' non e' piu' un avviso su `stderr`
+///
+/// Lo era, e il ragionamento scritto qui diceva: un gestore che non si installa
+/// non rende sbagliato nulla di cio' che il comando produce, toglie soltanto la
+/// possibilita' di fermarlo con grazia; rifiutare di lavorare per questo
+/// sarebbe un danno certo contro un rischio che riguarda una directory
+/// temporanea.
+///
+/// Il ragionamento pesava le due cose sbagliate. La scelta non era fra
+/// «avvisare» e «rifiutare»: era fra **rompere il contratto della busta** e
+/// rifiutare. `stderr` porta un solo documento JSON, e un avviso testuale
+/// stampato all'avvio finisce **davanti** alla busta quando il comando poi
+/// fallisce -- cioe' proprio nel caso in cui l'avviso conta di piu', perche' e'
+/// il caso in cui lo staging resta sul disco. Chi legge `stderr` con un parser
+/// trova due documenti dove il contratto ne promette uno, e non li trova mai in
+/// prova: il ramo non ha input, quindi nessuna sonda lo esercita.
+///
+/// Un errore tipizzato tiene un documento solo, e' leggibile da una macchina, e
+/// dice la stessa cosa che diceva l'avviso. Il costo -- la CLI si rifiuta di
+/// lavorare dove i segnali non si armano -- e' reale, e resta una decisione di
+/// prodotto: se un giorno esistesse una piattaforma supportata dove
+/// `set_handler` fallisce per davvero, la strada e' una diagnostica pubblica
+/// **versionata**, non il ritorno alla riga di testo.
+pub const RIFIUTO_SEGNALI: &str =
+    "gestore dei segnali non installabile: senza, Ctrl+C terminerebbe il processo senza \
+     annullare l'operazione e lo staging resterebbe sul disco";
 
 /// Arma il token del processo al primo segnale, esce al secondo.
 ///
@@ -63,7 +82,12 @@ pub const AVVISO_SEGNALI: &str =
 /// sta dicendo che non aspetta oltre. Il processo esce subito, e cio' che lo
 /// staging aveva in corso resta dov'e'. E' la stessa cosa che farebbe la
 /// disposizione predefinita di `SIGINT`, dichiarata invece che subita.
-pub fn installa_gestore_dei_segnali() -> CancellationToken {
+///
+/// # Errors
+///
+/// [`PlenoraIoError`] se il gestore non si installa. Vedi [`RIFIUTO_SEGNALI`]
+/// per la ragione per cui e' un rifiuto e non un avviso.
+pub fn installa_gestore_dei_segnali() -> Result<CancellationToken, PlenoraIoError> {
     let token = CancellationToken::new();
     let armato = token.clone();
     let gia_chiesto = std::sync::Arc::new(AtomicBool::new(false));
@@ -83,9 +107,16 @@ pub fn installa_gestore_dei_segnali() -> CancellationToken {
     })
     .is_err()
     {
-        eprintln!("{AVVISO_SEGNALI}");
+        return Err(PlenoraIoError::redatto(
+            IoErrorCode::Generic,
+            ErrorCategory::InvalidConfiguration,
+            ErrorPhase::Validate,
+            RemoteEffect::None,
+            RetryDisposition::Never,
+            &PublicMessage::Curated(RIFIUTO_SEGNALI),
+        ));
     }
-    token
+    Ok(token)
 }
 
 /// Che cosa fare quando arriva un segnale.

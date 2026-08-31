@@ -395,6 +395,11 @@
       "ResourceLimit/Validate/LimitExceeded/Never"
     ]
   },
+  "crates/plenora-io-cli/src/segnali.rs": {
+    "installa_gestore_dei_segnali": [
+      "esplicito/esplicito/Generic/esplicito"
+    ]
+  },
   "crates/plenora-io-core/src/capabilities.rs": {
     "validate_write": [
       "ResourceLimit/Validate/LimitExceeded/Never"

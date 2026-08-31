@@ -75,7 +75,8 @@ fn fixture_dei_segnali() {
     };
     let ack = PathBuf::from(ack);
 
-    let token = segnali::installa_gestore_dei_segnali();
+    let token =
+        segnali::installa_gestore_dei_segnali().expect("il primo gestore del processo si installa");
     // Il primo riscontro dice che il gestore e' installato: senza, un segnale
     // mandato troppo presto morirebbe sulla disposizione predefinita, e il
     // figlio se ne andrebbe senza passare dal gestore.
@@ -93,6 +94,27 @@ fn fixture_dei_segnali() {
     // proprio, il codice d'uscita non direbbe piu' niente.
     loop {
         std::thread::sleep(INTERVALLO);
+    }
+}
+
+/// Il figlio della sonda, che non sopravvive alla sonda.
+///
+/// Senza, un `panic!` prima del secondo segnale lascerebbe il figlio in attesa
+/// **per sempre**: aspetta apposta, e nessuno lo raccoglie. Un processo orfano
+/// per corsa e' poco; una suite che gira in ciclo ne lascia uno per fallimento,
+/// e il primo a rendersene conto sarebbe chi guarda la macchina, non chi legge
+/// il test.
+///
+/// `Drop` gira anche durante lo srotolamento di un panico, quindi la pulizia
+/// non dipende dal fatto che la sonda arrivi in fondo.
+struct FiglioSorvegliato(std::process::Child);
+
+impl Drop for FiglioSorvegliato {
+    fn drop(&mut self) {
+        // `kill` su un processo gia' morto e' un errore che qui non significa
+        // niente: la sonda normale lo ha gia' raccolto con `wait`.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 
@@ -138,22 +160,20 @@ fn il_secondo_segnale_fa_uscire_il_processo_con_centotrenta() {
     let dir = tempfile::tempdir().unwrap();
     let ack = dir.path().join("armato");
 
-    let mut figlio =
+    let mut sorvegliato = FiglioSorvegliato(
         Command::new(std::env::current_exe().expect("il binario di test ha un percorso"))
             .args(["--exact", "fixture_dei_segnali", "--nocapture"])
             .env(ACK, &ack)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
-            .expect("il figlio parte");
-
-    attendi(
-        &ack.with_extension("pronto"),
-        &mut figlio,
-        "gestore installato",
+            .expect("il figlio parte"),
     );
+    let figlio = &mut sorvegliato.0;
+
+    attendi(&ack.with_extension("pronto"), figlio, "gestore installato");
     segnala(figlio.id());
-    attendi(&ack, &mut figlio, "primo segnale trattato");
+    attendi(&ack, figlio, "primo segnale trattato");
 
     assert!(
         figlio.try_wait().expect("stato leggibile").is_none(),
@@ -167,5 +187,45 @@ fn il_secondo_segnale_fa_uscire_il_processo_con_centotrenta() {
         stato.code(),
         Some(segnali::EXIT_ANNULLATO),
         "il secondo segnale esce dal gestore con 128 + SIGINT"
+    );
+}
+
+/// Un secondo gestore non si installa, e il rifiuto e' **tipizzato**.
+///
+/// # La decisione che questa sonda fissa
+///
+/// Il ramo esisteva e stampava un avviso testuale su `stderr`. Non era
+/// raggiungibile da un uso normale -- la CLI installa il gestore una volta
+/// sola -- ma se lo fosse stato avrebbe messo una riga di testo **davanti alla
+/// busta**, rompendo il contratto per cui `stderr` porta un documento solo. E
+/// l'avrebbe fatto proprio nel caso in cui l'avviso conta di piu': quando il
+/// comando fallisce e lo staging resta sul disco.
+///
+/// Adesso e' un rifiuto tipizzato, leggibile da una macchina, e il comando non
+/// parte. Il costo e' dichiarato: dove i segnali non si armano, la CLI si
+/// rifiuta di lavorare.
+///
+/// La sonda raggiunge il ramo installando due volte: `ctrlc` ammette un gestore
+/// per processo, e il secondo tentativo e' l'unico modo di far fallire
+/// `set_handler` senza una piattaforma che non lo supporti.
+#[cfg(unix)]
+#[test]
+fn un_secondo_gestore_e_un_rifiuto_tipizzato_non_una_riga_di_testo() {
+    let primo = segnali::installa_gestore_dei_segnali();
+    assert!(primo.is_ok(), "il primo gestore del processo si installa");
+
+    let Err(errore) = segnali::installa_gestore_dei_segnali() else {
+        panic!("`ctrlc` ammette un gestore per processo: il secondo non si installa");
+    };
+    assert_eq!(errore.message, segnali::RIFIUTO_SEGNALI);
+    assert_eq!(
+        errore.category,
+        plenora_io_model::ErrorCategory::InvalidConfiguration,
+        "e' l'ambiente a non permettere l'invocazione, non l'invocazione a essere sbagliata"
+    );
+    assert_eq!(
+        errore.retry,
+        plenora_io_model::RetryDisposition::Never,
+        "riprovare non installa un gestore che il processo ha gia'"
     );
 }
