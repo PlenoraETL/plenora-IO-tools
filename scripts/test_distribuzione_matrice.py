@@ -318,6 +318,63 @@ class SondeMatrice(unittest.TestCase):
                         "deve dirlo."
                     )
 
+    def test_nessun_documento_promette_lo_stapling_su_zip(self) -> None:
+        """Una promessa che gli strumenti non possono mantenere.
+
+        Apple notarizza uno ZIP, ma `stapler` attacca la ricevuta solo ad app
+        bundle, DMG e PKG. Una precedente stesura di questi registri prometteva
+        lo stapling sul deliverable macOS, che e' uno ZIP: era una promessa
+        falsa, e le promesse false sulla firma si scoprono quando qualcuno
+        installa in un ambiente senza rete.
+
+        La sonda ammette la parola dove la riga dice che **non** si fa, o dove
+        parla del caso in cui il deliverable cambiasse forma."""
+        contenitore = self.matrice["contenitore"]["per_piattaforma"]["macos-aarch64"]
+        self.assertEqual(contenitore, "zip")
+        firma = self.matrice["firma"]
+        self.assertIn("niente_stapling_su_macos", firma)
+        self.assertIn("rete", firma["niente_stapling_su_macos"])
+        self.assertIn("se_l_offline_diventa_un_requisito", firma)
+
+        # Le negazioni possibili, con l'accento e senza: i registri usano `e'`
+        # e i documenti `e`, ed e' una differenza di stile, non di significato.
+        negazione = re.compile(
+            "niente|non lo |non si |non e|nessun|senza|solo ad|DMG|PKG|prometteva",
+            re.I,
+        )
+        # Si guarda la **frase**, non la riga: in Markdown il testo va a capo, e
+        # una sonda che leggesse una riga per volta chiederebbe di riscrivere la
+        # prosa per compiacerla invece di leggerla.
+        for documento in docset():
+            if not documento.exists():
+                continue
+            righe = documento.read_text(encoding="utf-8").splitlines()
+            for numero, riga in enumerate(righe, 1):
+                if "stapl" not in riga.lower():
+                    continue
+                intorno = " ".join(righe[max(0, numero - 2) : numero + 1])
+                self.assertTrue(
+                    negazione.search(intorno),
+                    f"{documento.name}:{numero} nomina lo stapling senza dire che sul "
+                    f"deliverable macOS non si puo' fare: «{intorno.strip()[:120]}»",
+                )
+
+    def test_l_ordine_delle_operazioni_e_lo_stesso_nei_due_posti(self) -> None:
+        """La matrice lo **dichiara**, `distribuzione.py` lo fa **applicare**.
+
+        Comparire in due posti e' inevitabile -- l'uno e' una promessa verso chi
+        legge, l'altro e' cio' che i programmi seguono -- e per questo vanno
+        confrontati."""
+        import importlib.util
+
+        percorso = RADICE / "scripts" / "distribuzione.py"
+        spec = importlib.util.spec_from_file_location("distribuzione", percorso)
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+
+        dal_codice = [f"{n}. {passo}: {perche}" for n, (passo, perche) in enumerate(modulo.ORDINE, 1)]
+        self.assertEqual(self.matrice["firma"]["ordine_delle_operazioni"], dal_codice)
+
     def test_lo_strumento_che_risolve_e_fissato(self) -> None:
         """Uno strumento che cambia da solo rende non riproducibile cio' che
         produce -- e cio' che produce e' proprio l'elenco che il lock fissa."""

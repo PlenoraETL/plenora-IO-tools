@@ -27,7 +27,8 @@
       "perche_non_si_deduce": "l'immagine di sviluppo e' Debian 12 (glibc 2.36), e dedurre da li' la soglia darebbe 2.36 -- cioe' escluderebbe Ubuntu 22.04 per un accidente dell'ambiente di lavoro, non per una proprieta' del prodotto. Il limite che la CI misura su 22.04 riguarda la **GDAL di sistema**, e il profilo distribuito porta la propria. Se la chiusura del lock pretendera' davvero una glibc successiva, a dimostrarlo sara' il controllo dei simboli, non un'immagine.",
       "estensione_archivio": "tar.gz",
       "stato": "da produrre",
-      "stato_costruzione": "costruita"
+      "stato_costruzione": "costruita",
+      "contenitore": "tar.gz"
     },
     {
       "id": "windows-x86_64",
@@ -44,7 +45,8 @@
       "che_cosa_dimostra_lo_smoke": "lo smoke gira su Windows Server 2022 e dimostra **quello**. Windows 10 e 11 sono dichiarati sulla compatibilita' dell'ABI Win32 e sull'assenza di API riservate al server, non su una prova eseguita: finche' non esiste un runner client, la dichiarazione e' un'affermazione di compatibilita' e va letta come tale.",
       "estensione_archivio": "zip",
       "stato": "da produrre",
-      "stato_costruzione": "non_ancora_costruita"
+      "stato_costruzione": "non_ancora_costruita",
+      "contenitore": "zip"
     },
     {
       "id": "macos-aarch64",
@@ -65,7 +67,9 @@
       "perche_solo_aarch64": "e' cio' che i runner macOS forniscono. Un artefatto x86_64 richiederebbe un runner dedicato e un secondo smoke, e offrirlo senza eseguirlo sarebbe peggio che non offrirlo. Se servira', e' una riga in piu' in questa matrice e un job in piu', non un cambio di forma.",
       "estensione_archivio": "tar.gz",
       "stato": "da produrre",
-      "stato_costruzione": "non_ancora_costruita"
+      "stato_costruzione": "non_ancora_costruita",
+      "contenitore": "zip",
+      "gatekeeper": "notarizzato senza stapling: la prima verifica richiede rete. Chi installa in un ambiente isolato deve saperlo prima, non scoprirlo al primo avvio."
     }
   ],
   "profili": [
@@ -294,10 +298,25 @@
     "artefatti_attesi": "tre piattaforme per due profili, cioe' sei"
   },
   "firma": {
-    "decisione": "artefatti di prova non firmati ammessi; candidate macOS firmata Developer ID, notarizzata e con lo stapling; candidate Windows firmata Authenticode; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",
-    "perche_ora": "perche' cambia l'ordine delle operazioni, e quindi i byte. Firmare **dopo** aver calcolato i checksum li invaliderebbe; uno smoke eseguito **prima** della firma proverebbe un file diverso da quello che si consegna -- su macOS un binario notarizzato con lo stapling e' un altro file, su Windows un PE firmato ha una sezione in piu'. L'ordine e' fissato adesso che il certificato non c'e': assembla, firma, checksum, smoke. Il giorno in cui arrivera' non cambiera' nulla di strutturale.",
+    "decisione": "artefatti di prova non firmati ammessi; candidate Windows firmata Authenticode; candidate macOS firmata Developer ID con hardened runtime e **notarizzata**; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",
+    "niente_stapling_su_macos": "Apple consente di notarizzare un archivio ZIP, ma `stapler` attacca la ricevuta solo ad **app bundle, DMG e PKG** -- non a uno ZIP ne' a un binario sciolto. Il deliverable macOS e' uno ZIP di una CLI rilocabile, quindi si notarizza e basta. La conseguenza va detta a chi installa invece che lasciata scoprire a lui: **la prima verifica di Gatekeeper richiedera' rete**, perche' andra' a chiedere la ricevuta al servizio. Una precedente stesura di questo registro prometteva lo stapling, ed era una promessa che gli strumenti non possono mantenere su questo deliverable.",
+    "se_l_offline_diventa_un_requisito": "il deliverable macOS deve cambiare forma -- DMG o PKG -- e a quel punto lo stapling e' possibile e la ricevuta viaggia con il file. E' una decisione **sul prodotto**, non sul confezionamento: cambia che cosa chi installa riceve e come lo apre.",
+    "lo_stato_si_misura": "`firma.stato` non viene da «il materiale c'era»: quello direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene da cio' che i verificatori nativi leggono sui **byte finali** -- presenza della firma, identita' del firmatario, timestamp, e su macOS hardened runtime e accettazione notarile. Gli stati sono quattro: `non_richiesta`, `non_misurata`, `assente`, `apposta`. `non_misurata` esiste perche' «non ho potuto guardare» non e' «va bene», e su una candidate e' rosso.",
+    "perche_il_timestamp": "senza, una firma smette di valere quando scade il certificato invece che quando scade il suo uso. E' fra le misure pretese, non un extra.",
+    "ordine_delle_operazioni": [
+      "1. payload: assemblare l'albero: binario, librerie, dati, licenze",
+      "2. firma: firmare i binari, prima di qualunque cosa li descriva",
+      "3. manifesto: generare MANIFEST.json dai byte **firmati**: un manifesto scritto prima elencherebbe file che non esistono piu'",
+      "4. archivio: creare il contenitore",
+      "5. notarizzazione: notarizzare, e fare stapling dove e' possibile -- su ZIP non lo e'",
+      "6. checksum: calcolare i checksum sui byte **finali**",
+      "7. smoke: eseguire lo smoke sull'oggetto finale, non su una sua versione precedente",
+      "8. provenance: produrre la provenance legata a quel checksum"
+    ],
+    "perche_quest_ordine": "ogni passo dipende dai byte prodotti dal precedente. Il manifesto viene **dopo** la firma: scritto prima descriverebbe file che non esistono piu'. I checksum vengono dopo l'archivio e la notarizzazione, perche' sono dei byte che si consegnano. Lo smoke viene dopo i checksum, perche' deve provare l'oggetto finale. La provenance viene per ultima, e lega **quel** checksum.",
+    "perche_ora": "perche' l'ordine cambia i byte, e inserirlo dopo cambierebbe manifesti, checksum e provenance. Il campo `firma` sta gia' nei manifesti degli artefatti di prova con stato `non_richiesta`: il giorno in cui arrivera' un certificato non cambiera' nulla di strutturale.",
     "dove_vive": "scripts/distribuzione.py, e il blocco `firma` nel manifesto di ogni artefatto",
-    "blocco_esterno": "certificati e segreti non ci sono, e restano un blocco fuori da questo repository. Il campo pero' esiste gia' nei manifesti degli artefatti di prova, con stato `non_richiesta`: aggiungerlo dopo avrebbe cambiato il manifesto e quindi il checksum dell'archivio che lo contiene."
+    "blocco_esterno": "certificati e segreti non ci sono, e restano un blocco fuori da questo repository."
   },
   "verificatori_nativi": {
     "linux": {
@@ -320,5 +339,13 @@
       "perche_ogni_macho": "il deployment target non e' una soglia da confrontare come `GLIBC_*`: e' un campo dichiarato in ciascun binario, e vale il piu' alto fra tutti quelli spediti. Un solo file compilato piu' in alto alza il requisito dell'intero artefatto senza che nulla lo dica."
     },
     "perche_separati": "`DT_NEEDED` e `GLIBC_*` non esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove. Un verificatore solo vorrebbe dire verificare il minimo comune ovunque, cioe' verificare meno dappertutto. Comune e' la **forma del risultato**, perche' il gate finale non puo' leggere sei formati."
+  },
+  "contenitore": {
+    "per_piattaforma": {
+      "linux-x86_64": "tar.gz",
+      "windows-x86_64": "zip",
+      "macos-aarch64": "zip"
+    },
+    "perche_zip_su_macos": "il servizio di notarizzazione accetta ZIP; un `tar.gz` non e' un formato che gli strumenti Apple sappiano ispezionare. Non e' una preferenza di stile: e' cio' che rende l'artefatto sottoponibile."
   }
 }

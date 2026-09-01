@@ -696,22 +696,60 @@ del risultato.
 | canale | Linux | Windows | macOS |
 | --- | --- | --- | --- |
 | `prova` | non richiesta | non richiesta | non richiesta |
-| `candidate` | non richiesta | Authenticode | Developer ID + notarizzazione + stapling |
+| `candidate` | non richiesta | Authenticode | Developer ID + hardened runtime + notarizzazione |
 
 Linux non ha una firma di piattaforma che il sistema verifichi all'esecuzione:
 restano checksum e provenance, che non la sostituiscono ma sono ciò che questa
 piattaforma offre. Dichiararlo invece di lasciarlo implicito è la differenza fra
 «non serve» e «ce ne siamo dimenticati».
 
-**L'ordine è fissato ora**, mentre il certificato non c'è: assembla, firma,
-calcola i checksum, esegui lo smoke. Firmare dopo il checksum lo invaliderebbe,
-e uno smoke eseguito prima della firma proverebbe un file diverso da quello che
-si consegna — su macOS un binario notarizzato con lo stapling è un altro file,
-su Windows un PE firmato ha una sezione in più. Il campo `firma` esiste già nei
-manifesti degli artefatti di prova con stato `non_richiesta`: aggiungerlo dopo
-avrebbe cambiato il manifesto, e quindi il checksum dell'archivio che lo
-contiene.
+**Niente stapling su macOS.** Apple consente di notarizzare un archivio ZIP, ma
+`stapler` attacca la ricevuta solo ad app bundle, DMG e PKG — non a uno ZIP né a
+un binario sciolto. Il deliverable macOS è uno ZIP di una CLI rilocabile, quindi
+si notarizza e basta, e **la prima verifica di Gatekeeper richiederà rete**:
+andrà a chiedere la ricevuta al servizio. Chi installa in un ambiente isolato
+deve saperlo prima, non scoprirlo al primo avvio.
 
+Se il funzionamento offline diventasse un requisito, il deliverable macOS
+dovrebbe cambiare forma — DMG o PKG — e a quel punto lo stapling sarebbe
+possibile. È una decisione sul prodotto, non sul confezionamento.
+
+**Lo stato della firma si misura.** Non viene da «il materiale c'era»: quello
+direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene
+da ciò che i verificatori nativi leggono sui byte finali — presenza della firma,
+identità del firmatario, timestamp, e su macOS hardened runtime e accettazione
+notarile. Gli stati sono quattro:
+
+| stato | significa |
+| --- | --- |
+| `non_richiesta` | il canale non la pretende su questa piattaforma |
+| `non_misurata` | la pretende, e nessuno ha guardato — **non è un sì** |
+| `assente` | si è guardato, e manca qualcosa di preteso |
+| `apposta` | si è guardato, e c'è tutto |
+
+Il timestamp è fra le misure pretese e non è un extra: senza, una firma smette
+di valere quando scade il certificato invece che quando scade il suo uso.
+
+#### L'ordine delle operazioni
+
+Otto passi, uguali su tutte e tre le piattaforme. Ognuno dipende dai byte
+prodotti dal precedente, e invertirne due produce un artefatto le cui verifiche
+parlano di un file diverso da quello che si consegna.
+
+1. **payload** — assemblare l'albero: binario, librerie, dati, licenze.
+2. **firma** — firmare i binari, prima di qualunque cosa li descriva.
+3. **manifesto** — generarlo dai byte *firmati*: scritto prima elencherebbe file
+   che non esistono più.
+4. **archivio** — creare il contenitore (`tar.gz` su Linux, `zip` altrove).
+5. **notarizzazione** — dove applicabile; stapling dove è possibile, e su ZIP
+   non lo è.
+6. **checksum** — sui byte *finali*.
+7. **smoke** — sull'oggetto finale, non su una sua versione precedente.
+8. **provenance** — legata a *quel* checksum.
+
+L'ordine è fissato adesso, mentre il certificato non c'è: il campo `firma` sta
+già nei manifesti degli artefatti di prova con stato `non_richiesta`, e il
+giorno in cui arriverà un certificato non cambierà nulla di strutturale.
 Certificati e segreti restano un blocco fuori da questo repository.
 
 #### Windows x86_64 — fissata, non ancora costruita

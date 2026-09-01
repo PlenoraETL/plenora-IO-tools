@@ -53,6 +53,28 @@ def esegui(comando: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(comando, check=True, **kwargs)
 
 
+def revisione_del_repository() -> str | None:
+    """La revisione da cui l'artefatto e' stato costruito.
+
+    `None` quando non si riesce a leggerla, e non una stringa di comodo: una
+    provenance che dichiarasse una revisione inventata sarebbe peggio di una che
+    ammette di non saperla.
+    """
+    # `git` puo' non esserci: l'immagine di costruzione porta cio' che serve a
+    # costruire, e git non serve a costruire. Anche in quel caso la risposta e'
+    # `None` -- «non la so» -- e non un'eccezione: la provenance e' un documento
+    # che accompagna l'artefatto, non una condizione per produrlo. Chi la legge
+    # deve poter distinguere una revisione assente da una sbagliata, e per
+    # questo non si inventa.
+    try:
+        esito = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=RADICE
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return esito.stdout.strip() if esito.returncode == 0 else None
+
+
 def sha256(percorso: pathlib.Path) -> str:
     digesto = hashlib.sha256()
     with percorso.open("rb") as f:
@@ -257,7 +279,17 @@ def main() -> int:
     for sotto in ("bin", "lib", "share", "LICENSES"):
         (albero / sotto).mkdir(parents=True, exist_ok=True)
 
-    # --- 1. il binario ----------------------------------------------------
+    # ====================================================================
+    # 1. IL PAYLOAD
+    #
+    # L'ordine complessivo e' dichiarato in `distribuzione.ORDINE` e vale per
+    # tutte e tre le piattaforme: payload, firma, manifesto, archivio,
+    # notarizzazione, checksum, smoke, provenance. Ogni passo dipende dai byte
+    # prodotti dal precedente, e invertirne due produce un artefatto le cui
+    # verifiche parlano di un file diverso da quello che si consegna.
+    # ====================================================================
+
+    # --- 1a. il binario ----------------------------------------------------
     #
     # L'RPATH e' `$ORIGIN/../lib` e non un percorso assoluto: e' cio' che rende
     # l'albero spostabile. `--disable-new-dtags` chiede un RPATH vero invece di
@@ -287,7 +319,7 @@ def main() -> int:
         ]
         if arg.profilo == "filegdb":
             comando += ["--features", "gdal-backend"]
-        print("1. compilazione", flush=True)
+        print("1a. compilazione", flush=True)
         esegui(comando, cwd=RADICE, env=ambiente)
     if not binario.is_file():
         raise SystemExit(f"{binario} non esiste")
@@ -307,12 +339,12 @@ def main() -> int:
         )
     shutil.copy2(binario, albero / "bin" / "plenora-io")
 
-    # --- 2. la chiusura, a partire dal binario vero -----------------------
+    # --- 1b. la chiusura, a partire dal binario vero -----------------------
     #
     # La radice e' `bin/plenora-io` e non `libgdal.so`: la domanda e' che cosa
     # serve **all'artefatto**, e non che cosa serve a GDAL. Sono due chiusure
     # diverse, e la seconda non contiene la prima.
-    print("2. chiusura DT_NEEDED dal binario", flush=True)
+    print("1b. chiusura DT_NEEDED dal binario", flush=True)
     # Il profilo `base` risolve contro il **nulla**, non contro il prefisso di
     # GDAL. Risolvendolo contro il prefisso, `libgcc_s.so.1` si trovava li'
     # dentro -- non perche' l'artefatto ne avesse bisogno, ma perche' il
@@ -334,7 +366,7 @@ def main() -> int:
             "e vuole un lock nuovo."
         )
 
-    # --- 3. i file spediti ------------------------------------------------
+    # --- 1c. i file spediti ------------------------------------------------
     # Si copia sotto il **SONAME**, non sotto il nome del file risolto.
     #
     # Nel prefisso `lib/libgdal.so.35` e' un symlink a `libgdal.so.35.3.9.3`, e
@@ -375,7 +407,7 @@ def main() -> int:
             destinazione.symlink_to(primo)
         spediti.append(destinazione)
 
-    # --- 3b. i DT_NEEDED assoluti ----------------------------------------
+    # --- 1d. i DT_NEEDED assoluti ----------------------------------------
     #
     # `libgdal.so.35` di conda-forge dichiara `libsqlite3.so` con un percorso
     # **assoluto**. Non e' cotto nel pacchetto: e' il placeholder del prefisso
@@ -411,7 +443,7 @@ def main() -> int:
                 {"file": f"lib/{elf.name}", "da": richiesto, "a": base}
             )
     if normalizzazioni:
-        print(f"3b. {len(normalizzazioni)} DT_NEEDED assoluti normalizzati", flush=True)
+        print(f"1d. {len(normalizzazioni)} DT_NEEDED assoluti normalizzati", flush=True)
 
     if arg.profilo == "filegdb":
         for origine, sotto in (
@@ -431,8 +463,8 @@ def main() -> int:
                 destinazione.mkdir(parents=True, exist_ok=True)
             spediti.extend(p for p in destinazione.rglob("*") if p.is_file())
 
-    # --- 4. licenze e SBOM, legati a cio' che si spedisce ------------------
-    print("4. licenze e SBOM sui file spediti", flush=True)
+    # --- 1e. licenze e SBOM, legati a cio' che si spedisce ------------------
+    print("1e. licenze e SBOM sui file spediti", flush=True)
     mappa = mappa_dei_pacchetti(prefisso)
     testi_esterni = lock["testi_di_licenza_esterni"]
     cache_licenze = uscita / ".testi-di-licenza"
@@ -529,15 +561,36 @@ def main() -> int:
         json.dumps(sbom, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
-    # --- 5. il manifesto --------------------------------------------------
+    # --- 2. la firma ------------------------------------------------------
+    #
+    # Prima del manifesto, e non dopo. Il manifesto elenca i file spediti e li
+    # descrive: scriverlo prima di firmarli lo farebbe parlare di byte che non
+    # esistono piu'. Su Linux non c'e' una firma di piattaforma e questo passo
+    # non tocca nulla -- ma la **posizione** e' cio' che va decisa adesso, e
+    # vale per tutte e tre le piattaforme.
+    #
+    # Lo stato non viene da «il materiale c'era»: viene da cio' che un
+    # verificatore nativo ha letto sui byte finali. Su Linux non c'e' niente da
+    # leggere perche' non c'e' niente da pretendere; su Windows e macOS la
+    # misura la fanno `check-windows-runtime.py` e `check-macos-runtime.py`, e
+    # senza misura lo stato e' `non_misurata` -- che non e' un si'.
+    firma = distribuzione.stato_della_firma("linux-x86_64", arg.canale)
+    print(f"2. firma: {firma['stato']}", flush=True)
+    if firma["stato"] in ("assente", "non_misurata"):
+        raise SystemExit(
+            f"il canale «{arg.canale}» pretende una firma {firma['meccanismo']} su "
+            f"linux-x86_64, e lo stato e' «{firma['stato']}». Un artefatto candidate non "
+            "firmato non e' una candidate meno buona: e' un artefatto che chi lo riceve non "
+            "puo' verificare."
+        )
+
+    # --- 3. il manifesto, dai byte firmati --------------------------------
     #
     # Il blocco della firma c'e' **gia' adesso**, con gli artefatti di prova.
     # Aggiungerlo dopo cambierebbe il manifesto, e quindi il checksum
     # dell'archivio che lo contiene: il campo deve esistere prima del
     # certificato, altrimenti il certificato cambia i byte.
-    firma = distribuzione.stato_della_firma(
-        "linux-x86_64", arg.canale, materiale_disponibile=False
-    )
+    print("3. manifesto", flush=True)
     manifesto = {
         "nome": nome,
         "versione": arg.versione,
@@ -584,41 +637,75 @@ def main() -> int:
         json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
-    # --- 5b. la firma -----------------------------------------------------
+    # --- 4. l'archivio ----------------------------------------------------
     #
-    # Su Linux non c'e' un meccanismo di firma della piattaforma, e questo
-    # passo non fa nulla. Esiste lo stesso, e in questa posizione, perche'
-    # l'ordine delle operazioni e' cio' che va deciso ora: firmare **dopo** i
-    # checksum li invaliderebbe, e uno smoke eseguito prima della firma
-    # proverebbe un file diverso da quello che si consegna -- su macOS un
-    # binario notarizzato con lo stapling e' un altro file, e su Windows un PE
-    # firmato ha una sezione in piu'.
-    #
-    # Il giorno in cui arrivera' un certificato, qui ci sara' una chiamata e
-    # nient'altro cambiera'.
-    print(f"5b. firma: {firma['stato']}", flush=True)
-    if firma["stato"] == "assente":
-        raise SystemExit(
-            f"il canale «{arg.canale}» pretende una firma {firma['meccanismo']} su "
-            f"{manifesto['piattaforma']}, e il materiale per apporla non c'e'. Un artefatto "
-            "candidate non firmato non e' una candidate meno buona: e' un artefatto che chi lo "
-            "riceve non puo' verificare."
-        )
-
-    # --- 6. archivio e checksum ------------------------------------------
-    #
-    # Dopo la firma, sempre: il checksum e' del file che si consegna.
-    print("6. archivio e checksum", flush=True)
-    archivio = uscita / f"{nome}.tar.gz"
+    # Il contenitore dipende dalla piattaforma: `tar.gz` su Linux, `zip` su
+    # Windows e su macOS -- dove non e' una preferenza di stile ma cio' che il
+    # servizio di notarizzazione sa ispezionare.
+    contenitore = distribuzione.contenitore("linux-x86_64")
+    print(f"4. archivio ({contenitore})", flush=True)
+    archivio = uscita / f"{nome}.{contenitore}"
     if archivio.exists():
         archivio.unlink()
     with tarfile.open(archivio, "w:gz") as t:
         t.add(albero, arcname=nome)
-    (uscita / f"{nome}.tar.gz.sha256").write_text(
-        f"{sha256(archivio)}  {archivio.name}\n", encoding="utf-8"
+
+    # --- 5. notarizzazione ------------------------------------------------
+    #
+    # Solo macOS. Sta qui perche' l'ordine e' uno per tutte e tre: e' la
+    # posizione a essere decisa, non il fatto che questa piattaforma la usi.
+    print("5. notarizzazione: non applicabile su Linux", flush=True)
+
+    # --- 6. i checksum, sui byte finali -----------------------------------
+    #
+    # Dopo la firma e dopo l'archivio: il checksum e' del file che si consegna,
+    # e calcolarlo prima descriverebbe un file che non esiste piu'.
+    print("6. checksum", flush=True)
+    digesto = sha256(archivio)
+    (uscita / f"{archivio.name}.sha256").write_text(
+        f"{digesto}  {archivio.name}\n", encoding="utf-8"
     )
     print(f"   {archivio}  ({archivio.stat().st_size} byte)", flush=True)
-    print(f"   sha256 {sha256(archivio)}", flush=True)
+    print(f"   sha256 {digesto}", flush=True)
+
+    # --- 7. lo smoke ------------------------------------------------------
+    #
+    # Non lo esegue il costruttore: lo esegue `smoke-profilo.py` sull'oggetto
+    # finale, ed e' giusto che sia un programma diverso -- chi costruisce e chi
+    # prova non devono essere lo stesso, o la prova erediterebbe le assunzioni
+    # della costruzione.
+    print("7. smoke: lo esegue scripts/smoke-profilo.py sull'artefatto", flush=True)
+
+    # --- 8. la provenance, legata a quel checksum -------------------------
+    #
+    # Legata al digesto **finale**, non all'albero: cio' che si consegna e'
+    # l'archivio, e una provenance che descrivesse l'albero parlerebbe di
+    # qualcosa che chi riceve non ha mai visto.
+    print("8. provenance", flush=True)
+    provenance = {
+        "schema": 1,
+        "artefatto": archivio.name,
+        "sha256": digesto,
+        "dimensione": archivio.stat().st_size,
+        "piattaforma": "linux-x86_64",
+        "profilo": arg.profilo,
+        "canale": arg.canale,
+        "non_release": arg.canale != "candidate",
+        "revisione": revisione_del_repository(),
+        "lock": sha256(LOCK),
+        "prefisso_di_costruzione": str(prefisso),
+        "firma": firma,
+        "ordine_delle_operazioni": firma["ordine_delle_operazioni"],
+        "che_cosa_lega": (
+            "questo documento lega un checksum a una revisione e a un lock. Non e' una firma "
+            "e non la sostituisce: dice che cosa e' stato costruito e da che cosa, e chi lo "
+            "riceve puo' rifare il conto. Su Linux e' quanto la piattaforma offre."
+        ),
+    }
+    (uscita / f"{archivio.name}.provenance.json").write_text(
+        json.dumps(provenance, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(f"   {archivio.name}.provenance.json", flush=True)
     return 0
 
 

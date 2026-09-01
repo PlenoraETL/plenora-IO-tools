@@ -167,59 +167,116 @@ class SondeDellaFirma(unittest.TestCase):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
+    def misura_completa(self, piattaforma: str) -> dict:
+        pretese = self.d.POLITICA_DI_FIRMA[piattaforma]["candidate"]["misure_pretese"]
+        return {p: f"valore per {p}" for p in pretese}
+
     def test_gli_artefatti_di_prova_non_sono_firmati(self) -> None:
         """Pretendere un certificato per costruire un artefatto di misura
         renderebbe impossibile lavorare senza segreti."""
         for piattaforma in ("linux-x86_64", "windows-x86_64", "macos-aarch64"):
             with self.subTest(piattaforma=piattaforma):
-                stato = self.d.stato_della_firma(piattaforma, "prova", False)
+                stato = self.d.stato_della_firma(piattaforma, "prova")
                 self.assertEqual(stato["stato"], "non_richiesta")
 
-    def test_le_candidate_windows_e_macos_pretendono_la_firma(self) -> None:
-        attesi = {
-            "windows-x86_64": "authenticode",
-            "macos-aarch64": "developer-id",
-        }
-        for piattaforma, meccanismo in attesi.items():
-            with self.subTest(piattaforma=piattaforma):
-                senza = self.d.stato_della_firma(piattaforma, "candidate", False)
-                con = self.d.stato_della_firma(piattaforma, "candidate", True)
-                self.assertEqual(senza["stato"], "assente")
-                self.assertEqual(con["stato"], "apposta")
-                self.assertEqual(senza["meccanismo"], meccanismo)
+    def test_senza_misura_lo_stato_non_e_un_si(self) -> None:
+        """La correzione che conta.
 
-    def test_macos_pretende_anche_notarizzazione_e_stapling(self) -> None:
-        """Senza, Gatekeeper rifiuta il binario e l'artefatto non si installa
-        affatto. Lo stapling attacca la ricevuta al file, cosi' che valga anche
-        senza rete."""
-        stato = self.d.stato_della_firma("macos-aarch64", "candidate", True)
+        Prima lo stato veniva da un booleano «il materiale c'era», che diceva
+        soltanto che il costruttore aveva avuto un certificato fra le mani. Ora
+        viene da cio' che i verificatori nativi hanno **letto sui byte
+        finali**, e non aver guardato ha uno stato proprio: `non_misurata` non
+        e' `assente` e non e' `apposta`."""
+        for piattaforma in ("windows-x86_64", "macos-aarch64"):
+            with self.subTest(piattaforma=piattaforma):
+                stato = self.d.stato_della_firma(piattaforma, "candidate", misura=None)
+                self.assertEqual(stato["stato"], "non_misurata")
+                self.assertTrue(stato["misure_pretese"])
+
+    def test_una_misura_incompleta_e_assente_non_apposta(self) -> None:
+        """Una firma senza timestamp smette di valere quando scade il
+        certificato, invece che quando scade il suo uso: manca qualcosa di
+        preteso, e lo stato lo dice."""
+        misura = self.misura_completa("windows-x86_64")
+        del misura["timestamp"]
+        stato = self.d.stato_della_firma("windows-x86_64", "candidate", misura=misura)
+        self.assertEqual(stato["stato"], "assente")
+        self.assertIn("timestamp", stato["mancanti"])
+
+    def test_una_misura_completa_e_apposta(self) -> None:
+        for piattaforma, meccanismo in (
+            ("windows-x86_64", "authenticode"),
+            ("macos-aarch64", "developer-id"),
+        ):
+            with self.subTest(piattaforma=piattaforma):
+                stato = self.d.stato_della_firma(
+                    piattaforma, "candidate", misura=self.misura_completa(piattaforma)
+                )
+                self.assertEqual(stato["stato"], "apposta")
+                self.assertEqual(stato["meccanismo"], meccanismo)
+                self.assertEqual(stato["mancanti"], [])
+
+    def test_macos_pretende_la_notarizzazione_e_non_lo_stapling(self) -> None:
+        """La correzione: Apple notarizza uno ZIP, ma `stapler` attacca la
+        ricevuta solo ad app bundle, DMG e PKG. Il deliverable e' uno ZIP di
+        una CLI rilocabile, quindi niente stapling -- e **la prima verifica di
+        Gatekeeper richiedera' rete**. Va detto a chi installa, invece che
+        lasciato scoprire a lui."""
+        stato = self.d.stato_della_firma(
+            "macos-aarch64", "candidate", misura=self.misura_completa("macos-aarch64")
+        )
         self.assertTrue(stato["notarizzazione"])
-        self.assertTrue(stato["stapling"])
-        self.assertEqual(stato["smoke_dopo"], "lo stapling")
+        self.assertFalse(stato["stapling"])
+        self.assertEqual(stato["smoke_dopo"], "la notarizzazione")
+        self.assertIn("rete", stato["perche_niente_stapling"])
+        self.assertIn("notarizzato", stato["misure_pretese"])
+
+    def test_il_contenitore_macos_e_uno_zip(self) -> None:
+        """La notarizzazione accetta ZIP; un tar.gz non e' un formato che gli
+        strumenti Apple sappiano ispezionare."""
+        self.assertEqual(self.d.contenitore("macos-aarch64"), "zip")
+        self.assertEqual(self.d.contenitore("linux-x86_64"), "tar.gz")
 
     def test_linux_dichiara_di_non_avere_un_meccanismo(self) -> None:
         """Dichiararlo invece di lasciarlo implicito e' la differenza fra «non
         serve» e «ce ne siamo dimenticati»."""
-        stato = self.d.stato_della_firma("linux-x86_64", "candidate", False)
+        stato = self.d.stato_della_firma("linux-x86_64", "candidate")
         self.assertEqual(stato["stato"], "non_richiesta")
         self.assertTrue(stato["perche"])
 
     def test_una_piattaforma_sconosciuta_non_passa_in_silenzio(self) -> None:
         with self.assertRaises(SystemExit):
-            self.d.stato_della_firma("solaris-sparc", "candidate", True)
+            self.d.stato_della_firma("solaris-sparc", "candidate")
 
-    def test_l_ordine_delle_operazioni_e_dichiarato(self) -> None:
-        """Firmare dopo il checksum lo invaliderebbe, e uno smoke prima della
-        firma proverebbe un file diverso da quello che si consegna."""
-        stato = self.d.stato_della_firma("windows-x86_64", "candidate", True)
-        ordine = stato["ordine_delle_operazioni"]
-        self.assertLess(ordine.index("firma"), ordine.index("checksum"))
-        self.assertLess(ordine.index("checksum"), ordine.index("smoke"))
+    def test_l_ordine_completo_e_dichiarato(self) -> None:
+        """Otto passi, e ognuno dipende dai byte del precedente.
+
+        Il manifesto viene **dopo** la firma: scritto prima elencherebbe file
+        che non esistono piu'. I checksum vengono dopo la notarizzazione, lo
+        smoke dopo i checksum, e la provenance lega quel checksum."""
+        passi = [p for p, _ in self.d.ORDINE]
+        self.assertEqual(
+            passi,
+            [
+                "payload",
+                "firma",
+                "manifesto",
+                "archivio",
+                "notarizzazione",
+                "checksum",
+                "smoke",
+                "provenance",
+            ],
+        )
 
     def test_una_candidate_senza_firma_fa_rosso_al_gate(self) -> None:
         for profilo in self.gate.PROFILI:
             for verifica in self.gate.attese_per(profilo):
-                misure = {"firma": {"stato": "assente"}} if verifica == "smoke-profilo" else {}
+                misure = (
+                    {"firma": self.d.stato_della_firma("windows-x86_64", "candidate")}
+                    if verifica == "smoke-profilo"
+                    else {}
+                )
                 if verifica == "smoke-profilo":
                     misure["filegdb_assente" if profilo == "base" else "schema_riletto"] = True
                 for obbligatoria in self.gate.VERIFICHE_ATTESE[verifica]["misure_obbligatorie"]:
@@ -250,7 +307,14 @@ class SondeDellaFirma(unittest.TestCase):
             for verifica in self.gate.attese_per(profilo):
                 misure = {}
                 if verifica == "smoke-profilo":
-                    misure["firma"] = {"stato": "apposta", "smoke_prima_della_firma": True}
+                    misure["firma"] = {
+                        **self.d.stato_della_firma(
+                            "macos-aarch64",
+                            "candidate",
+                            misura=self.misura_completa("macos-aarch64"),
+                        ),
+                        "smoke_prima_della_firma": True,
+                    }
                     misure["filegdb_assente" if profilo == "base" else "schema_riletto"] = True
                 for obbligatoria in self.gate.VERIFICHE_ATTESE[verifica]["misure_obbligatorie"]:
                     misure[obbligatoria] = 1

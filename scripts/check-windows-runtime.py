@@ -211,6 +211,70 @@ def chiusura(radice: pathlib.Path, albero: pathlib.Path) -> tuple[dict, set[str]
     return interne, esterne, ritardate
 
 
+def ha_tabella_dei_certificati(percorso: pathlib.Path) -> bool:
+    """La directory 4 di un PE: la Certificate Table, dove sta la firma.
+
+    Si legge dai byte, senza strumenti: e' la parte della misura che si puo'
+    fare ovunque, e che le sonde possono provare su un PE costruito a mano.
+    Dice se il file **e' firmato**, non da chi ne' quando -- quelle due domande
+    vogliono il PKCS#7, e per quelle si chiama Windows.
+    """
+    dati = percorso.read_bytes()
+    _, inizio_directory, _ = _sezioni(dati)
+    rva, dimensione = struct.unpack_from("<II", dati, inizio_directory + 4 * 8)
+    return bool(rva and dimensione)
+
+
+def misura_della_firma(percorso: pathlib.Path) -> dict:
+    """Firma, firmatario e timestamp, misurati sui byte finali.
+
+    La presenza si legge dal PE. L'identita' del firmatario e il timestamp
+    vogliono il parsing di un PKCS#7, e su Windows la risposta autorevole la da'
+    il sistema: si chiama PowerShell. Fuori da Windows quelle due domande
+    restano **non misurate**, che non e' «non firmato» e non e' «va bene»: e'
+    una domanda a cui non si e' potuto rispondere, e su una candidate resta
+    rossa.
+    """
+    misura = {
+        "firmato": ha_tabella_dei_certificati(percorso),
+        "firmatario": None,
+        "timestamp": None,
+        "come": "tabella dei certificati letta dal PE",
+    }
+    if sys.platform != "win32":
+        misura["non_misurabile_qui"] = (
+            "firmatario e timestamp vogliono il sistema che verifica la catena: "
+            f"questo controllo gira su {sys.platform}"
+        )
+        return misura
+
+    import subprocess
+
+    comando = (
+        "$f = Get-AuthenticodeSignature -LiteralPath '"
+        + str(percorso)
+        + "'; "
+        "[pscustomobject]@{ stato = [string]$f.Status; "
+        "firmatario = [string]$f.SignerCertificate.Subject; "
+        "timestamp = [string]$f.TimeStamperCertificate.Subject } | ConvertTo-Json -Compress"
+    )
+    esito = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", comando],
+        capture_output=True,
+        text=True,
+    )
+    if esito.returncode != 0:
+        misura["non_misurabile_qui"] = f"Get-AuthenticodeSignature ha fallito: {esito.stderr[:200]}"
+        return misura
+    letto = json.loads(esito.stdout or "{}")
+    misura["stato_authenticode"] = letto.get("stato")
+    misura["firmato"] = letto.get("stato") == "Valid"
+    misura["firmatario"] = letto.get("firmatario") or None
+    misura["timestamp"] = letto.get("timestamp") or None
+    misura["come"] = "Get-AuthenticodeSignature"
+    return misura
+
+
 def percorsi_assoluti(percorso: pathlib.Path, prefisso: str) -> set[str]:
     """Le stringhe che nominano il prefisso di costruzione.
 

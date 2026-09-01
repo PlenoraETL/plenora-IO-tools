@@ -1,31 +1,45 @@
 #!/usr/bin/env python3
-"""Cio' che le tre piattaforme hanno in comune: il referto e la firma.
+"""Cio' che le tre piattaforme hanno in comune: il referto, la firma, l'ordine.
 
 # Perche' un formato comune, con verificatori separati
 
 Un ELF, un PE e un Mach-O si interrogano con strumenti diversi e rispondono a
-domande diverse: `DT_NEEDED` e `GLIBC_*` non esistono su Windows, e un
+domande diverse: `DT_NEEDED` e `GLIBC_*` non esistono su Windows, un
 `LC_VERSION_MIN_MACOSX` non esiste altrove. Scrivere un verificatore solo
 significherebbe scrivere il minimo comune, cioe' verificare meno ovunque.
 
 Cio' che invece **deve** essere comune e' la forma del risultato. Un gate finale
 che debba ricontare sei artefatti non puo' leggere sei formati, e soprattutto
 non puo' accontentarsi di sapere che sei job sono verdi: un job verde e'
-un'affermazione, non un'evidenza. Il referto porta le **misure**, e chi
-riconta guarda quelle.
+un'affermazione, non un'evidenza. Il referto porta le **misure**, e chi riconta
+guarda quelle.
 
-# La firma
+# La firma si misura, non si dichiara
 
-La decisione e' qui, e non nei workflow, perche' cambia l'ordine delle
-operazioni e quindi i byte. Firmare **dopo** aver calcolato il checksum
-produrrebbe un archivio il cui checksum non corrisponde, e uno smoke eseguito
-prima della firma non direbbe nulla sull'artefatto che si consegna: su macOS un
-binario notarizzato e con lo stapling e' un file diverso, e su Windows un PE
-firmato ha una sezione in piu'.
+Uno stato che venisse da «il materiale c'era» direbbe soltanto che il
+costruttore ha avuto un certificato fra le mani. Non direbbe che la firma sia
+stata apposta, ne' da chi, ne' se porti un timestamp -- e senza timestamp una
+firma smette di valere alla scadenza del certificato invece che alla scadenza
+del suo uso.
 
-L'ordine e' quindi fissato ora, quando ancora non c'e' un certificato:
-**assembla, firma, poi calcola i checksum, poi esegui lo smoke.** Cosi' il
-giorno in cui il certificato arrivera' non cambiera' nulla di strutturale.
+Lo stato viene quindi da una **misura** fatta sui byte finali dai verificatori
+nativi: presenza della firma, identita' del firmatario, presenza del timestamp,
+e su macOS l'accettazione notarile. Una misura che non si e' potuta fare non e'
+un si': e' `non_misurata`, e su una candidate e' rossa.
+
+# Lo stapling non e' disponibile ovunque
+
+Apple consente di notarizzare un archivio ZIP, ma `stapler` attacca la ricevuta
+solo ad app bundle, DMG e PKG -- non a uno ZIP ne' a un binario sciolto. Il
+deliverable macOS e' oggi uno ZIP di una CLI rilocabile: si notarizza e **non**
+si fa stapling, e la conseguenza va detta a chi installa invece che scoperta da
+lui. La prima verifica di Gatekeeper richiedera' rete, perche' andra' a
+chiedere la ricevuta al servizio.
+
+Se il funzionamento offline diventasse un requisito, il deliverable dovrebbe
+cambiare forma -- DMG o PKG -- e a quel punto lo stapling sarebbe possibile.
+E' una decisione sul prodotto, non un dettaglio di confezionamento, e sta
+scritta nella matrice di distribuzione.
 """
 
 from __future__ import annotations
@@ -34,18 +48,47 @@ import hashlib
 import json
 import pathlib
 
-SCHEMA_REFERTO = 1
+SCHEMA_REFERTO = 2
+
+# Il contenitore, per piattaforma.
+#
+# macOS usa ZIP e non tar.gz: la notarizzazione accetta ZIP, e un tar.gz non e'
+# un formato che gli strumenti Apple sappiano ispezionare. Non e' una preferenza
+# di stile -- e' cio' che rende l'artefatto sottoponibile al servizio.
+CONTENITORE = {
+    "linux-x86_64": "tar.gz",
+    "windows-x86_64": "zip",
+    "macos-aarch64": "zip",
+}
+
+# L'ordine delle operazioni, uguale ovunque.
+#
+# Non e' una lista di buone intenzioni: ogni passo dipende dai byte prodotti dal
+# precedente, e invertirne due produce un artefatto le cui verifiche parlano di
+# un file diverso da quello che si consegna.
+ORDINE = (
+    ("payload", "assemblare l'albero: binario, librerie, dati, licenze"),
+    ("firma", "firmare i binari, prima di qualunque cosa li descriva"),
+    (
+        "manifesto",
+        "generare MANIFEST.json dai byte **firmati**: un manifesto scritto prima "
+        "elencherebbe file che non esistono piu'",
+    ),
+    ("archivio", "creare il contenitore"),
+    (
+        "notarizzazione",
+        "notarizzare, e fare stapling dove e' possibile -- su ZIP non lo e'",
+    ),
+    ("checksum", "calcolare i checksum sui byte **finali**"),
+    ("smoke", "eseguire lo smoke sull'oggetto finale, non su una sua versione precedente"),
+    ("provenance", "produrre la provenance legata a quel checksum"),
+)
 
 # Che cosa si pretende, per piattaforma e per canale.
 #
 # Il canale `prova` non pretende firma: quegli artefatti esistono per essere
 # misurati, non installati, e pretendere un certificato per costruirli
 # renderebbe impossibile lavorare senza segreti.
-#
-# Linux non compare perche' non ha un meccanismo di firma della piattaforma che
-# il sistema verifichi all'esecuzione. Restano i checksum e la provenance, che
-# valgono ovunque. Dichiararlo qui invece di lasciarlo implicito e' la
-# differenza fra «non serve» e «ce ne siamo dimenticati».
 POLITICA_DI_FIRMA = {
     "linux-x86_64": {
         "candidate": {
@@ -60,11 +103,13 @@ POLITICA_DI_FIRMA = {
     "windows-x86_64": {
         "candidate": {
             "meccanismo": "authenticode",
+            "misure_pretese": ("firmato", "firmatario", "timestamp"),
             "smoke_dopo": "la firma",
             "perche": (
                 "un PE non firmato fa comparire un avviso a chi lo esegue, e su alcune "
-                "configurazioni non si esegue affatto. Lo smoke va fatto **dopo**: un PE "
-                "firmato ha una sezione in piu', ed e' quel file che si consegna."
+                "configurazioni non si esegue affatto. Il timestamp e' parte della pretesa: "
+                "senza, la firma smette di valere quando scade il certificato invece che "
+                "quando scade il suo uso."
             ),
         }
     },
@@ -72,17 +117,32 @@ POLITICA_DI_FIRMA = {
         "candidate": {
             "meccanismo": "developer-id",
             "notarizzazione": True,
-            "stapling": True,
-            "smoke_dopo": "lo stapling",
+            "stapling": False,
+            "misure_pretese": ("firmato", "firmatario", "timestamp", "hardened_runtime", "notarizzato"),
+            "smoke_dopo": "la notarizzazione",
             "perche": (
                 "senza Developer ID e notarizzazione Gatekeeper rifiuta il binario, e "
-                "l'artefatto non si installa affatto. Lo stapling attacca la ricevuta al "
-                "file, cosi' che valga anche senza rete: lo smoke va fatto dopo, perche' "
-                "prima si starebbe provando un altro file."
+                "l'artefatto non si installa affatto. L'hardened runtime e' una condizione "
+                "della notarizzazione, non un extra."
+            ),
+            "perche_niente_stapling": (
+                "`stapler` attacca la ricevuta ad app bundle, DMG e PKG; non a uno ZIP ne' a "
+                "un binario sciolto. Il deliverable e' uno ZIP di una CLI rilocabile, quindi "
+                "si notarizza e basta -- e **la prima verifica di Gatekeeper richiedera' "
+                "rete**, perche' andra' a chiedere la ricevuta al servizio. Va detto a chi "
+                "installa invece che lasciato scoprire. Se l'uso offline diventasse un "
+                "requisito, il deliverable dovrebbe diventare un DMG o un PKG: e' una "
+                "decisione sul prodotto, non sul confezionamento."
             ),
         }
     },
 }
+
+
+def contenitore(piattaforma: str) -> str:
+    if piattaforma not in CONTENITORE:
+        raise SystemExit(f"piattaforma sconosciuta: {piattaforma}")
+    return CONTENITORE[piattaforma]
 
 
 def politica_di_firma(piattaforma: str, canale: str) -> dict:
@@ -106,32 +166,48 @@ def politica_di_firma(piattaforma: str, canale: str) -> dict:
     return {"richiesta": True, **regola}
 
 
-def stato_della_firma(piattaforma: str, canale: str, materiale_disponibile: bool) -> dict:
-    """Il blocco che finisce nel manifesto.
+def stato_della_firma(piattaforma: str, canale: str, misura: dict | None = None) -> dict:
+    """Il blocco che finisce nel manifesto, **da una misura**.
 
-    Sta nel manifesto **gia' adesso**, con gli artefatti di prova, perche'
-    aggiungerlo dopo cambierebbe il manifesto e quindi il checksum
-    dell'archivio. Il campo esiste prima del certificato.
+    `misura` e' cio' che un verificatore nativo ha letto sui byte finali:
+    `firmato`, `firmatario`, `timestamp`, e su macOS `hardened_runtime` e
+    `notarizzato`. Non e' «il costruttore aveva un certificato»: quello direbbe
+    soltanto che qualcuno ne ha avuto uno fra le mani.
+
+    Gli stati sono quattro e sono diversi apposta:
+
+    - `non_richiesta`: il canale non la pretende su questa piattaforma;
+    - `non_misurata`: la pretende, e nessuno ha guardato. Non e' un si';
+    - `assente`: si e' guardato, e manca qualcosa di preteso;
+    - `apposta`: si e' guardato, e c'e' tutto.
+
+    Il blocco sta nel manifesto **gia' adesso**, con gli artefatti di prova,
+    perche' aggiungerlo dopo cambierebbe il manifesto e quindi il checksum
+    dell'archivio che lo contiene.
     """
     politica = politica_di_firma(piattaforma, canale)
+    pretese = tuple(politica.get("misure_pretese", ()))
+
     if not politica["richiesta"]:
-        stato = "non_richiesta"
-    elif materiale_disponibile:
-        stato = "apposta"
+        stato, mancanti = "non_richiesta", ()
+    elif misura is None:
+        stato, mancanti = "non_misurata", pretese
     else:
-        stato = "assente"
+        mancanti = tuple(p for p in pretese if not misura.get(p))
+        stato = "assente" if mancanti else "apposta"
+
     return {
         "stato": stato,
         "meccanismo": politica.get("meccanismo"),
+        "misure_pretese": list(pretese),
+        "misura": misura,
+        "mancanti": list(mancanti),
         "notarizzazione": politica.get("notarizzazione", False),
         "stapling": politica.get("stapling", False),
+        "perche_niente_stapling": politica.get("perche_niente_stapling"),
         "smoke_dopo": politica.get("smoke_dopo"),
         "perche": politica.get("perche"),
-        "ordine_delle_operazioni": (
-            "assembla, firma, poi calcola i checksum, poi esegui lo smoke. Firmare dopo il "
-            "checksum lo invaliderebbe, e uno smoke prima della firma proverebbe un file "
-            "diverso da quello che si consegna."
-        ),
+        "ordine_delle_operazioni": [f"{n}. {passo}: {perche}" for n, (passo, perche) in enumerate(ORDINE, 1)],
     }
 
 

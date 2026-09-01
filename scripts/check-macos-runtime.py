@@ -144,6 +144,90 @@ def deployment_target(percorso: pathlib.Path) -> str | None:
     return None
 
 
+LC_CODE_SIGNATURE = 0x1D
+
+
+def ha_firma(percorso: pathlib.Path) -> bool:
+    """`LC_CODE_SIGNATURE`: il load command che porta la firma.
+
+    Si legge dai byte, senza strumenti, e le sonde possono provarlo su un Mach-O
+    costruito a mano. Dice che il file **e' firmato**, non da chi ne' se la
+    firma sia valida: quelle domande vogliono `codesign`, e quella
+    sull'accettazione notarile vuole `spctl`.
+    """
+    return any(tipo == LC_CODE_SIGNATURE for tipo, _ in _comandi(percorso.read_bytes()))
+
+
+def misura_della_firma(percorso: pathlib.Path, archivio: pathlib.Path | None = None) -> dict:
+    """Firma, firmatario, timestamp, hardened runtime e accettazione notarile.
+
+    La presenza si legge dal Mach-O. Il resto lo dicono gli strumenti Apple, e
+    fuori da macOS restano **non misurati** -- che non e' «non firmato» e non e'
+    «va bene»: e' una domanda a cui non si e' potuto rispondere, e su una
+    candidate resta rossa.
+
+    L'accettazione notarile si chiede sull'**archivio**, non sul singolo
+    binario: e' l'archivio che viene sottoposto al servizio. E non c'e' stapling
+    da verificare, perche' su uno ZIP non si puo' fare: la ricevuta resta al
+    servizio, e la prima verifica di Gatekeeper richiedera' rete.
+    """
+    misura = {
+        "firmato": ha_firma(percorso),
+        "firmatario": None,
+        "timestamp": None,
+        "hardened_runtime": None,
+        "notarizzato": None,
+        "come": "LC_CODE_SIGNATURE letto dal Mach-O",
+    }
+    if sys.platform != "darwin":
+        misura["non_misurabile_qui"] = (
+            "firmatario, timestamp, hardened runtime e accettazione notarile vogliono gli "
+            f"strumenti Apple: questo controllo gira su {sys.platform}"
+        )
+        return misura
+
+    import subprocess
+
+    dettaglio = subprocess.run(
+        ["codesign", "--display", "--verbose=4", str(percorso)],
+        capture_output=True,
+        text=True,
+    )
+    # `codesign --display` scrive su stderr anche quando riesce: e' il suo modo
+    # di parlare, non un errore.
+    testo = dettaglio.stderr + dettaglio.stdout
+    if dettaglio.returncode == 0:
+        for riga in testo.splitlines():
+            if riga.startswith("Authority=") and misura["firmatario"] is None:
+                misura["firmatario"] = riga.split("=", 1)[1]
+            if riga.startswith("Timestamp="):
+                misura["timestamp"] = riga.split("=", 1)[1]
+            if riga.startswith("CodeDirectory") and "flags=" in riga:
+                misura["hardened_runtime"] = "runtime" in riga
+        misura["come"] = "codesign --display"
+    else:
+        misura["non_misurabile_qui"] = f"codesign ha fallito: {testo[:200]}"
+
+    verifica = subprocess.run(
+        ["codesign", "--verify", "--strict", str(percorso)], capture_output=True, text=True
+    )
+    misura["firma_valida"] = verifica.returncode == 0
+
+    if archivio is not None:
+        # `spctl --assess` su un archivio notarizzato ma non stapled interroga
+        # il servizio: serve rete, ed e' esattamente la condizione che chi
+        # installa incontrera' la prima volta.
+        assess = subprocess.run(
+            ["spctl", "--assess", "--type", "install", "--context", "context:primary-signature",
+             "--verbose=4", str(archivio)],
+            capture_output=True,
+            text=True,
+        )
+        misura["notarizzato"] = assess.returncode == 0
+        misura["spctl"] = (assess.stderr + assess.stdout)[:300]
+    return misura
+
+
 def chiave(versione: str) -> tuple[int, ...]:
     return tuple(int(x) for x in versione.split("."))
 

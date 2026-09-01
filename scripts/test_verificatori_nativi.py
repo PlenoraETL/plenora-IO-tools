@@ -50,6 +50,7 @@ def costruisci_pe(
     macchina: int = 0x8664,
     importate: tuple[str, ...] = (),
     ritardate: tuple[str, ...] = (),
+    firmato: bool = False,
 ) -> None:
     """Il PE minimo che le funzioni sotto prova devono saper leggere.
 
@@ -101,6 +102,11 @@ def costruisci_pe(
     inizio_directory = inizio_opzionale + 112
     struct.pack_into("<II", dati, inizio_directory + 1 * 8, rva_import, dim_import)
     struct.pack_into("<II", dati, inizio_directory + 13 * 8, rva_delay, dim_delay)
+    if firmato:
+        # Directory 4: la Certificate Table. A differenza delle altre non porta
+        # un RVA ma un offset nel file -- e per la domanda «e' firmato?» conta
+        # che ci sia, non dove punti.
+        struct.pack_into("<II", dati, inizio_directory + 4 * 8, 0x2000, 0x400)
 
     inizio_sezioni = inizio_opzionale + dimensione_opzionale
     intestazione = bytearray(40)
@@ -121,6 +127,7 @@ def costruisci_macho(
     dipendenze: tuple[str, ...] = (),
     rpath: tuple[str, ...] = (),
     target: str | None = "15.0.0",
+    firmato: bool = False,
 ) -> None:
     """Il Mach-O minimo con i load command che le funzioni leggono."""
     comandi = bytearray()
@@ -155,6 +162,14 @@ def costruisci_macho(
         struct.pack_into("<II", blocco, 0, 0x32, 24)
         struct.pack_into("<I", blocco, 8, 1)  # platform: macOS
         struct.pack_into("<I", blocco, 12, (maggiore << 16) | (minore << 8) | patch)
+        comandi.extend(blocco)
+
+    if firmato:
+        # LC_CODE_SIGNATURE: `cmd`, `cmdsize`, offset e dimensione dei dati
+        # della firma. Per la domanda «e' firmato?» conta la presenza del
+        # comando; che la firma sia **valida** lo dice `codesign`, non i byte.
+        blocco = bytearray(16)
+        struct.pack_into("<IIII", blocco, 0, 0x1D, 16, 0x1000, 0x100)
         comandi.extend(blocco)
 
     intestazione = bytearray(32)
@@ -238,6 +253,53 @@ class SondeDelLettorePe(unittest.TestCase):
         self.assertEqual(esterne, {"kernel32.dll", "bcrypt.dll"})
         self.assertEqual(ritardate, {"bcrypt.dll"})
 
+    def test_riconosce_un_pe_firmato_e_uno_no(self) -> None:
+        """La parte della misura che si legge dai byte.
+
+        `firma.stato` non deve venire da «il costruttore aveva un certificato»:
+        quello direbbe soltanto che qualcuno ne ha avuto uno fra le mani. La
+        presenza della firma si misura qui; l'identita' del firmatario e il
+        timestamp li dice Windows, e fuori da Windows restano **non misurati**
+        -- che non e' «non firmato» e non e' «va bene»."""
+        senza = self.tmp / "senza.exe"
+        costruisci_pe(senza, importate=("kernel32.dll",))
+        self.assertFalse(self.pe.ha_tabella_dei_certificati(senza))
+
+        con = self.tmp / "con.exe"
+        costruisci_pe(con, importate=("kernel32.dll",), firmato=True)
+        self.assertTrue(self.pe.ha_tabella_dei_certificati(con))
+
+    def test_i_due_livelli_della_misura_non_si_confondono(self) -> None:
+        """La struttura dice una cosa, il sistema ne dice un'altra piu' forte.
+
+        `ha_tabella_dei_certificati` legge i byte: dice che una firma **c'e'**.
+        Su Windows `Get-AuthenticodeSignature` chiede al sistema se quella firma
+        sia **valida**, e su questo PE -- costruito qui, con una tabella che
+        punta a byte che non ci sono -- la risposta giusta e' no.
+
+        Le due risposte sono diverse apposta, e la seconda e' quella che conta:
+        un artefatto con una tabella dei certificati e una firma non valida non
+        e' un artefatto firmato. Fuori da Windows la seconda domanda resta
+        **non misurata**, che non e' «non firmato» e non e' «va bene»."""
+        f = self.tmp / "m.exe"
+        costruisci_pe(f, importate=("kernel32.dll",), firmato=True)
+        self.assertTrue(
+            self.pe.ha_tabella_dei_certificati(f), "la tabella c'e', e si legge dai byte"
+        )
+
+        misura = self.pe.misura_della_firma(f)
+        if self.pe.sys.platform == "win32":
+            self.assertFalse(
+                misura["firmato"],
+                "il sistema deve rifiutare una tabella che non porta una firma vera",
+            )
+            self.assertIn("stato_authenticode", misura)
+        else:
+            self.assertTrue(misura["firmato"], "senza il sistema resta la misura strutturale")
+            self.assertIsNone(misura["firmatario"])
+            self.assertIsNone(misura["timestamp"])
+            self.assertIn("non_misurabile_qui", misura)
+
     def test_i_percorsi_di_costruzione_si_trovano_in_ascii_e_utf16(self) -> None:
         """I binari Windows portano entrambe le codifiche: cercarne una sola e'
         un modo di trovarne meno di quante ce ne sono."""
@@ -305,6 +367,31 @@ class SondeDelLettoreMachO(unittest.TestCase):
         with self.assertRaises(self.mo.MachOMalformato) as contesto:
             self.mo.cpu_type(f)
         self.assertIn("universale", str(contesto.exception))
+
+    def test_riconosce_un_macho_firmato_e_uno_no(self) -> None:
+        """`LC_CODE_SIGNATURE` e' la parte della misura che si legge dai byte."""
+        senza = self.tmp / "senza.dylib"
+        costruisci_macho(senza)
+        self.assertFalse(self.mo.ha_firma(senza))
+
+        con = self.tmp / "con.dylib"
+        costruisci_macho(con, firmato=True)
+        self.assertTrue(self.mo.ha_firma(con))
+
+    def test_fuori_da_macos_la_notarizzazione_resta_non_misurata(self) -> None:
+        """L'accettazione notarile la dice `spctl`, e si chiede sull'archivio:
+        e' l'archivio che viene sottoposto al servizio. Non c'e' stapling da
+        verificare -- su uno ZIP non si puo' fare -- e la ricevuta resta al
+        servizio, il che significa che la prima verifica di Gatekeeper
+        richiedera' rete."""
+        f = self.tmp / "n.dylib"
+        costruisci_macho(f, firmato=True)
+        misura = self.mo.misura_della_firma(f)
+        self.assertTrue(misura["firmato"])
+        if self.mo.sys.platform != "darwin":
+            self.assertIsNone(misura["notarizzato"])
+            self.assertIsNone(misura["hardened_runtime"])
+            self.assertIn("non_misurabile_qui", misura)
 
     def test_un_file_che_non_e_un_macho_non_passa_in_silenzio(self) -> None:
         f = self.tmp / "no"

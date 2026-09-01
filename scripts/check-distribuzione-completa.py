@@ -163,7 +163,12 @@ def verifica(directory: pathlib.Path, canale: str, piattaforme: tuple[str, ...])
                             f"{misure.get(chiave_misura)!r}, atteso {atteso!r}. {perche}."
                         )
 
-    # La firma: se il canale la pretende su quella piattaforma, dev'esserci.
+    # La firma: se il canale la pretende, dev'essere stata **misurata**.
+    #
+    # Uno stato che venisse da «il materiale c'era» direbbe soltanto che il
+    # costruttore ha avuto un certificato fra le mani. Qui si pretende che i
+    # verificatori nativi abbiano letto i byte finali: firma presente, identita'
+    # del firmatario, timestamp, e su macOS l'accettazione notarile.
     for piattaforma in piattaforme:
         politica = distribuzione.politica_di_firma(piattaforma, canale)
         if not politica["richiesta"]:
@@ -173,19 +178,41 @@ def verifica(directory: pathlib.Path, canale: str, piattaforme: tuple[str, ...])
             if referto is None:
                 continue  # gia' segnalato sopra
             firma = (referto.get("misure") or {}).get("firma", {})
-            if firma.get("stato") != "apposta":
+            stato = firma.get("stato")
+            if stato == "non_misurata":
+                errori.append(
+                    f"{piattaforma}/{profilo}: la firma {politica['meccanismo']} e' pretesa e "
+                    "nessuno l'ha misurata. «Non ho potuto guardare» non e' «va bene»: sono "
+                    "esattamente le due cose che questo gate esiste per distinguere."
+                )
+            elif stato != "apposta":
                 errori.append(
                     f"{piattaforma}/{profilo}: il canale «{canale}» pretende una firma "
-                    f"{politica['meccanismo']} e il referto dice «{firma.get('stato')}». "
-                    "Un artefatto candidate non firmato non e' una candidate meno buona: "
-                    "e' un artefatto che chi lo riceve non puo' verificare."
+                    f"{politica['meccanismo']} e la misura dice «{stato}» "
+                    f"(mancanti: {firma.get('mancanti')}). Un artefatto candidate non firmato "
+                    "non e' una candidate meno buona: e' un artefatto che chi lo riceve non "
+                    "puo' verificare."
                 )
+            else:
+                # Anche `apposta` va riletto: lo stato e' una conclusione, e la
+                # conclusione si controlla contro le misure che la sostengono.
+                misura = firma.get("misura") or {}
+                senza_valore = [
+                    p for p in politica.get("misure_pretese", ()) if not misura.get(p)
+                ]
+                if senza_valore:
+                    errori.append(
+                        f"{piattaforma}/{profilo}: la firma e' dichiarata apposta e le misure "
+                        f"{senza_valore} sono vuote. Lo stato e' una conclusione: le misure "
+                        "sono cio' che la sostiene."
+                    )
             if firma.get("smoke_prima_della_firma"):
                 errori.append(
                     f"{piattaforma}/{profilo}: lo smoke e' stato eseguito prima della firma. "
-                    "Un binario firmato -- notarizzato e con lo stapling su macOS, con una "
-                    "sezione in piu' su Windows -- e' un altro file: lo smoke va rifatto."
+                    "Un binario firmato -- con una sezione in piu' su Windows, con "
+                    "`LC_CODE_SIGNATURE` su macOS -- e' un altro file: lo smoke va rifatto."
                 )
+
     return errori
 
 
