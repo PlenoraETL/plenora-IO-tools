@@ -229,7 +229,10 @@ def main() -> int:
     pacchetti: dict[str, dict] = {}
     con_testo_proprio = 0
     con_testo_canonico: list[dict] = []
-    testi_esterni = lock.get("testi_di_licenza_esterni", {"identificatori": {}})
+    senza_testo_fissato: list[tuple[str, int, list[str]]] = []
+    testi_esterni = json.loads(
+        (RADICE / "scripts" / "testi-di-licenza.json").read_text(encoding="utf-8")
+    )
     cache_licenze = uscita / ".testi-di-licenza"
 
     for documento in sorted(meta.glob("*.json")):
@@ -266,16 +269,21 @@ def main() -> int:
         destinazione = albero / "LICENSES" / nome_pacchetto
         destinazione.mkdir(parents=True, exist_ok=True)
         identificatori = identificatori_spdx(identita["licenza"])
+        mancanti_qui = [
+            i for i in identificatori if testi_esterni["identificatori"].get(i) is None
+        ]
+        if mancanti_qui:
+            senza_testo_fissato.append(
+                (nome_pacchetto, identita["file_spediti"], mancanti_qui)
+            )
+            continue
         for identificatore in identificatori:
-            fonte = testi_esterni["identificatori"].get(identificatore)
-            if fonte is None:
-                raise SystemExit(
-                    f"{nome_pacchetto} spedisce {identita['file_spediti']} file, dichiara "
-                    f"«{identita['licenza']}» e non porta il proprio testo; «{identificatore}» "
-                    "non e' fra i testi fissati nel lock."
-                )
             (destinazione / f"{identificatore}.txt").write_bytes(
-                procurati_testo(identificatore, fonte, cache_licenze)
+                procurati_testo(
+                    identificatore,
+                    testi_esterni["identificatori"][identificatore],
+                    cache_licenze,
+                )
             )
         con_testo_canonico.append(
             {
@@ -284,6 +292,18 @@ def main() -> int:
                 "identificatori": identificatori,
                 "file_spediti": identita["file_spediti"],
             }
+        )
+    if senza_testo_fissato:
+        righe = "\n  ".join(
+            f"{nome} ({quanti} file): {', '.join(mancanti)}"
+            for nome, quanti, mancanti in senza_testo_fissato
+        )
+        raise SystemExit(
+            "questi pacchetti spediscono byte, non portano il proprio testo di licenza, e "
+            "gli identificatori che dichiarano non sono fissati in "
+            f"`scripts/testi-di-licenza.json`:\n  {righe}\n"
+            "Sono elencati tutti insieme perche' scoprirli uno per giro costerebbe un giro "
+            "di costruzione ciascuno."
         )
     print(
         f"   licenze: {con_testo_proprio} con il proprio testo, "

@@ -44,6 +44,7 @@ import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
+TESTI_DI_LICENZA = RADICE / "scripts" / "testi-di-licenza.json"
 CHIUSURA = RADICE / "scripts" / "check-linux-gdal-runtime.py"
 
 
@@ -174,6 +175,7 @@ def testi_di_licenza(
     """
     con_testo_proprio = 0
     con_testo_canonico: list[dict] = []
+    senza_testo_fissato: list[tuple[str, int, list[str]]] = []
     for nome_pacchetto in sorted(pacchetti):
         identita = pacchetti[nome_pacchetto]
         quanti_file = len(per_pacchetto.get(nome_pacchetto, []))
@@ -195,19 +197,21 @@ def testi_di_licenza(
         destinazione = licenze / nome_pacchetto
         destinazione.mkdir(parents=True, exist_ok=True)
         identificatori = identificatori_spdx(identita["licenza"])
+        # Si raccolgono **tutti** gli identificatori mancanti prima di fermarsi.
+        # Fermarsi al primo costringe a un giro di costruzione per ciascuno, e
+        # dove ogni giro e' venti minuti di runner la differenza fra «uno alla
+        # volta» e «tutti insieme» e' un pomeriggio.
+        mancanti_qui = [
+            i for i in identificatori if testi_esterni["identificatori"].get(i) is None
+        ]
+        if mancanti_qui:
+            senza_testo_fissato.append((nome_pacchetto, quanti_file, mancanti_qui))
+            continue
         for identificatore in identificatori:
-            fonte = testi_esterni["identificatori"].get(identificatore)
-            if fonte is None:
-                raise SystemExit(
-                    f"{nome_pacchetto} spedisce {quanti_file} file, dichiara "
-                    f"«{identita['licenza']}» e non porta il proprio testo; "
-                    f"«{identificatore}» non e' fra i testi fissati nel lock sotto "
-                    "`testi_di_licenza_esterni`. Aggiungervelo, con URL, dimensione e "
-                    "sha256: un artefatto non si spedisce senza la licenza di cio' che "
-                    "contiene."
-                )
             (destinazione / f"{identificatore}.txt").write_bytes(
-                procurati_testo(identificatore, fonte, cache)
+                procurati_testo(
+                    identificatore, testi_esterni["identificatori"][identificatore], cache
+                )
             )
         con_testo_canonico.append(
             {
@@ -220,6 +224,19 @@ def testi_di_licenza(
                     "dell'identificatore SPDX che dichiara, fissato nel lock"
                 ),
             }
+        )
+    if senza_testo_fissato:
+        righe = "\n  ".join(
+            f"{nome} ({quanti} file): {', '.join(mancanti)}"
+            for nome, quanti, mancanti in senza_testo_fissato
+        )
+        raise SystemExit(
+            "questi pacchetti spediscono byte, non portano il proprio testo di licenza, e "
+            "gli identificatori che dichiarano non sono fissati in "
+            f"`scripts/testi-di-licenza.json`:\n  {righe}\n"
+            "Vanno aggiunti con URL, dimensione e sha256: un artefatto non si spedisce "
+            "senza la licenza di cio' che contiene. Sono elencati tutti insieme perche' "
+            "scoprirli uno per giro costerebbe un giro di costruzione ciascuno."
         )
     return con_testo_proprio, con_testo_canonico
 
@@ -472,7 +489,7 @@ def main() -> int:
     # --- 1e. licenze e SBOM, legati a cio' che si spedisce ------------------
     print("1e. licenze e SBOM sui file spediti", flush=True)
     mappa = mappa_dei_pacchetti(prefisso)
-    testi_esterni = lock["testi_di_licenza_esterni"]
+    testi_esterni = json.loads(TESTI_DI_LICENZA.read_text(encoding="utf-8"))
     cache_licenze = uscita / ".testi-di-licenza"
     pacchetti: dict[str, dict] = {}
     per_pacchetto: dict[str, list[str]] = {}

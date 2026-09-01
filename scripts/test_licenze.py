@@ -40,6 +40,7 @@ RADICE = pathlib.Path(__file__).resolve().parent.parent
 GATE = RADICE / "scripts" / "check-licenze-artefatto.py"
 COSTRUTTORE = RADICE / "scripts" / "costruisci-artefatto-linux.py"
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
+TESTI_DI_LICENZA = RADICE / "scripts" / "testi-di-licenza.json"
 
 
 def carica(percorso: pathlib.Path):
@@ -252,6 +253,42 @@ class SondeDelCostruttore(unittest.TestCase):
             (licenze / "libsuo" / "COPYING").read_text(encoding="utf-8"), "il suo testo" + chr(10)
         )
 
+    def test_i_testi_non_stanno_in_nessun_lock(self) -> None:
+        """Un digest in due posti e' una seconda verita', e i lock sono due."""
+        for nome in ("linux-gdal-lock.json", "windows-gdal-lock.json"):
+            percorso = RADICE / "scripts" / nome
+            if not percorso.exists():
+                continue
+            with self.subTest(lock=nome):
+                self.assertNotIn(
+                    "testi_di_licenza_esterni",
+                    json.loads(percorso.read_text(encoding="utf-8")),
+                )
+
+    def test_gli_identificatori_mancanti_si_elencano_tutti(self) -> None:
+        """Fermarsi al primo costringe a un giro di costruzione per ciascuno, e
+        dove ogni giro e' venti minuti di runner la differenza fra «uno alla
+        volta» e «tutti insieme» e' un pomeriggio."""
+        pacchetti = {
+            "primo": {"nome": "primo", "versione": "1", "build": "0",
+                      "licenza": "Licenza-A", "directory_estratta": ""},
+            "secondo": {"nome": "secondo", "versione": "1", "build": "0",
+                        "licenza": "Licenza-B WITH Eccezione-C", "directory_estratta": ""},
+        }
+        licenze = self.tmp / "LICENSES-molti"
+        licenze.mkdir()
+        with self.assertRaises(SystemExit) as contesto:
+            self.costruttore.testi_di_licenza(
+                pacchetti,
+                {"primo": ["a"], "secondo": ["b", "c"]},
+                {"identificatori": {}},
+                licenze,
+                self.tmp / "cache",
+            )
+        messaggio = str(contesto.exception)
+        for atteso in ("Licenza-A", "Licenza-B", "Eccezione-C", "primo", "secondo"):
+            self.assertIn(atteso, messaggio, "il rifiuto deve elencarli tutti")
+
     def test_un_testo_che_non_corrisponde_al_checksum_ferma_tutto(self) -> None:
         """La verifica e' la stessa che si fa sui pacchetti, e per la stessa
         ragione: un testo che cambia sotto un checksum fissato deve far fallire
@@ -264,9 +301,14 @@ class SondeDelCostruttore(unittest.TestCase):
             self.costruttore.procurati_testo("MIT", fonte, cache)
         self.assertIn("sha256", str(contesto.exception))
 
-    def test_ogni_identificatore_dichiarato_nel_lock_e_verificabile(self) -> None:
-        """Senza URL, dimensione e sha256 il costruttore dovrebbe fidarsi."""
-        testi = json.loads(LOCK.read_text(encoding="utf-8"))["testi_di_licenza_esterni"]
+    def test_ogni_identificatore_fissato_e_verificabile(self) -> None:
+        """Senza URL, dimensione e sha256 il costruttore dovrebbe fidarsi.
+
+        I testi stanno in un file **comune** e non nei lock: non dipendono dalla
+        piattaforma, e tenerne una copia per lock vorrebbe dire due digest per
+        lo stesso file. Il difetto si e' visto costruendo su Windows, dove il
+        lock non li aveva affatto."""
+        testi = json.loads(TESTI_DI_LICENZA.read_text(encoding="utf-8"))
         self.assertTrue(testi["identificatori"])
         for identificatore, fonte in testi["identificatori"].items():
             with self.subTest(identificatore=identificatore):
