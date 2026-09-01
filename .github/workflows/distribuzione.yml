@@ -209,6 +209,17 @@ jobs:
       # fallire e il rilievo deve essere conservato lo stesso. Senza, l'unica
       # cosa prodotta da questa corsa andrebbe persa proprio perche' ha fatto
       # cio' che doveva.
+      # Il manifesto dell'artefatto va conservato insieme al rilievo: chi
+      # rilegge la scoperta deve poter confrontare cio' che il rilievo misura
+      # con cio' che l'artefatto dichiara di se'. Sono due documenti diversi e
+      # servono insieme.
+      - name: Conserva il manifesto dell'artefatto
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/discovery"
+          cp "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-windows-x86_64-${{ matrix.profilo }}/MANIFEST.json"              "$RUNNER_TEMP/discovery/windows-${{ matrix.profilo }}-MANIFEST.json" 2>/dev/null ||              echo '{"errore":"manifesto non prodotto"}' > "$RUNNER_TEMP/discovery/windows-${{ matrix.profilo }}-MANIFEST.json"
+
       - name: Scoperta del runtime (non qualificante, termina rossa)
         id: scoperta
         continue-on-error: true
