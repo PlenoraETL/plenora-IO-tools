@@ -31,7 +31,7 @@ LOCK_PER_PIATTAFORMA = {
 }
 
 CHECKER = RADICE / "scripts" / "check-linux-gdal-runtime.py"
-RADICI_RS = RADICE / "crates" / "plenora-io-cli" / "src" / "radici.rs"
+RADICI_RS = RADICE / "crates" / "plenora-io-core" / "src" / "radici.rs"
 
 
 def carica(percorso: pathlib.Path) -> dict:
@@ -230,7 +230,9 @@ class SondeMatrice(unittest.TestCase):
         verita' che nessuno confronta."""
         rust = RADICI_RS.read_text(encoding="utf-8")
         impostate = set(re.findall(r'variabile: "([A-Z_]+)"', rust))
-        impostate |= set(re.findall(r'^const CATALOGO_XML: &str = "([A-Z_]+)"', rust, re.M))
+        impostate |= set(
+            re.findall(r'^pub const CATALOGO_XML: &str = "([A-Z_]+)"', rust, re.M)
+        )
         self.assertTrue(impostate, "nessuna variabile letta da radici.rs")
 
         dichiarate: set[str] = set()

@@ -8,6 +8,10 @@ pub mod descriptor;
 pub mod driver;
 pub mod loss;
 pub mod publish;
+// Le radici che l'artefatto porta con se': il **piano** sta qui, in un posto
+// solo, e ciascun consumatore lo applica con il meccanismo che sulla sua strada
+// funziona -- l'ambiente su Linux, le config option di GDAL su Windows.
+pub mod radici;
 pub mod registry;
 pub mod request;
 
