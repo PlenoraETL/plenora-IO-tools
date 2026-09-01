@@ -22,19 +22,23 @@ RADICE = pathlib.Path(__file__).resolve().parent.parent
 CHECKER = RADICE / "scripts" / "check-linux-gdal-runtime.py"
 
 
-def rilettura(percorso: pathlib.Path) -> int:
-    """Il FileGDB riletto porta schema, geometria e CRS.
+def rilettura(percorso: pathlib.Path, profilo: str = "filegdb") -> int:
+    """Cio' che e' stato riletto porta schema, geometria e -- dove serve -- CRS.
 
-    Non basta che il comando sia uscito con zero: un FileGDB vuoto, o senza
-    CRS, uscirebbe con zero. Il CRS in particolare e' cio' che dimostra che
-    PROJ ha trovato le proprie griglie -- ed e' l'unico modo di attraversare
-    `share/proj` in questo smoke.
+    Non basta che il comando sia uscito con zero: un dataset vuoto uscirebbe
+    con zero. Il CRS si pretende dal profilo `filegdb`, perche' li' e' cio' che
+    dimostra che PROJ ha trovato le proprie griglie; il profilo base non spedisce
+    PROJ, e pretenderlo da lui sarebbe chiedergli una capability che non ha mai
+    promesso.
     """
     testo = json.dumps(json.loads(percorso.read_text(encoding="utf-8")), ensure_ascii=False)
     mancanti = [atteso for atteso in ("nome", "geometry") if atteso not in testo]
     if mancanti:
         print(f"ROSSO: assenti dallo schema riletto: {mancanti}", file=sys.stderr)
         return 1
+    if profilo != "filegdb":
+        print("   riletto: schema e geometria presenti (profilo senza PROJ)")
+        return 0
     if "4326" not in testo:
         print(
             "ROSSO: il CRS non ha attraversato PROJ: EPSG:4326 non e' stato riletto",
@@ -124,7 +128,8 @@ def main() -> int:
         return 2
     comando = sys.argv[1]
     if comando == "rilettura":
-        return rilettura(pathlib.Path(sys.argv[2]))
+        profilo = sys.argv[3] if len(sys.argv) > 3 else "filegdb"
+        return rilettura(pathlib.Path(sys.argv[2]), profilo)
     if comando == "librerie":
         referto = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else None
         return librerie(pathlib.Path(sys.argv[2]), sys.argv[3], referto)

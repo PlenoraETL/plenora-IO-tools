@@ -183,6 +183,162 @@ def stato_della_firma(piattaforma: str, canale: str, misura: dict | None = None)
     }
 
 
+def identificatori_di(espressione: str) -> list[str]:
+    """Gli identificatori SPDX dentro un'espressione, in ordine.
+
+    `MIT OR Apache-2.0` sono due testi e non uno: un'espressione con `OR`
+    lascia a chi riceve la scelta, e per poter scegliere deve avere entrambi.
+    `WITH` e' l'altro caso -- `Apache-2.0 WITH LLVM-exception` -- dove il
+    secondo e' cio' che rende utilizzabile il primo.
+    """
+    operatori = {"WITH", "AND", "OR"}
+    grezza = espressione.replace("(", " ").replace(")", " ").replace("/", " ")
+    return [p for p in grezza.split() if p.upper() not in operatori]
+
+
+def componenti_rust(elenco: list[dict]) -> list[dict]:
+    """I crate di terzi, nella forma dei package SPDX.
+
+    I nostri crate non compaiono: non sono componenti di terzi, sono il
+    prodotto. Distinguere non e' un dettaglio -- un SBOM esiste per dire a chi
+    riceve che cosa **altro** ha sul disco.
+    """
+    return [
+        {
+            "SPDXID": f"SPDXRef-Crate-{p['nome']}-{p['versione']}".replace(".", "-"),
+            "name": p["nome"],
+            "versionInfo": p["versione"],
+            "downloadLocation": p["origine"],
+            "licenseConcluded": "NOASSERTION",
+            "licenseDeclared": p["licenza"] or "NOASSERTION",
+            "filesAnalyzed": False,
+            "comment": "crate Rust linkato staticamente nel binario",
+        }
+        for p in elenco
+        if not p["nostro"]
+    ]
+
+
+def documento_spdx(
+    nome: str, digesto_identita: str, componenti: list[dict], commento: str
+) -> dict:
+    """Il documento SPDX 2.3, con un namespace che distingue due build.
+
+    `documentNamespace` deve identificare **questo** documento e non «un
+    documento per questa versione»: due build della stessa versione producono
+    due SBOM diversi -- fosse anche solo per l'ordine dei crate risolti -- e un
+    namespace uguale li renderebbe indistinguibili. Vi entra quindi un digesto
+    che dipende dai contenuti.
+    """
+    return {
+        "spdxVersion": "SPDX-2.3",
+        "dataLicense": "CC0-1.0",
+        "SPDXID": "SPDXRef-DOCUMENT",
+        "name": nome,
+        "documentNamespace": f"https://plenora.invalid/sbom/{nome}/{digesto_identita}",
+        "creationInfo": {
+            "created": "1970-01-01T00:00:00Z",
+            "creators": ["Tool: plenora-io-distribuzione"],
+            "comment": (
+                "la data e' fissa di proposito: un SBOM che cambiasse a ogni costruzione per il "
+                "solo orologio non sarebbe confrontabile con quello della costruzione precedente, "
+                "e confrontarli e' il modo di accorgersi che qualcosa e' cambiato davvero."
+            ),
+        },
+        "comment": commento,
+        "packages": componenti,
+    }
+
+
+class SpdxNonValido(ValueError):
+    """L'SBOM non e' un documento SPDX 2.3.
+
+    E' un'eccezione e non un avviso perche' un SBOM malformato e' peggio di
+    nessun SBOM: chi lo riceve lo dara' in pasto a uno strumento, e uno
+    strumento che non lo legge produce un vuoto invece di un errore.
+    """
+
+
+# I campi che SPDX 2.3 pretende, e il perche' di ciascuno. Non e' lo schema
+# completo -- quello e' un documento di migliaia di righe -- ma le condizioni
+# senza le quali nessuno strumento riesce a leggere il file. Scriverle qui
+# invece di scaricare lo schema tiene la verifica **offline** e deterministica,
+# ed e' un compromesso dichiarato: valida la forma che serve, non ogni vincolo
+# della specifica.
+CAMPI_DEL_DOCUMENTO = {
+    "spdxVersion": "senza, nessuno strumento sa quale specifica applicare",
+    "dataLicense": "SPDX 2.3 pretende CC0-1.0, ed e' l'unico valore ammesso",
+    "SPDXID": "l'identificatore del documento, che dev'essere SPDXRef-DOCUMENT",
+    "name": "il nome del documento",
+    "documentNamespace": "l'identita' univoca: due documenti diversi non possono condividerla",
+    "creationInfo": "chi e quando, senza cui il documento non ha provenienza",
+    "packages": "i componenti, che sono la ragione per cui il documento esiste",
+}
+
+CAMPI_DEL_PACCHETTO = {
+    "SPDXID": "l'identificatore, che dev'essere unico nel documento",
+    "name": "il nome del componente",
+    "downloadLocation": "da dove viene, o NOASSERTION se non lo si sa",
+    "licenseConcluded": "la licenza conclusa, o NOASSERTION",
+    "licenseDeclared": "la licenza dichiarata dal componente, o NOASSERTION",
+    "filesAnalyzed": "se i file del componente sono stati analizzati",
+}
+
+
+def valida_spdx(documento: dict) -> None:
+    """Che il documento sia leggibile come SPDX 2.3.
+
+    Il difetto che questa funzione chiude: l'SBOM veniva scritto e nessuno
+    verificava che fosse SPDX. Un documento con un campo mancante o uno SPDXID
+    ripetuto passa per valido finche' non lo si da' a uno strumento, e a quel
+    punto e' gia' stato consegnato.
+    """
+    mancanti = [c for c in CAMPI_DEL_DOCUMENTO if c not in documento]
+    if mancanti:
+        raise SpdxNonValido(
+            "campi obbligatori assenti dal documento: "
+            + ", ".join(f"{c} ({CAMPI_DEL_DOCUMENTO[c]})" for c in mancanti)
+        )
+    if documento["spdxVersion"] != "SPDX-2.3":
+        raise SpdxNonValido(f"spdxVersion e' {documento['spdxVersion']!r}, atteso 'SPDX-2.3'")
+    if documento["dataLicense"] != "CC0-1.0":
+        raise SpdxNonValido(
+            f"dataLicense e' {documento['dataLicense']!r}: SPDX 2.3 ammette solo 'CC0-1.0'"
+        )
+    if documento["SPDXID"] != "SPDXRef-DOCUMENT":
+        raise SpdxNonValido(f"SPDXID del documento e' {documento['SPDXID']!r}")
+    if not str(documento["documentNamespace"]).startswith(("http://", "https://")):
+        raise SpdxNonValido(
+            f"documentNamespace {documento['documentNamespace']!r} non e' un URI assoluto"
+        )
+    if "creators" not in documento.get("creationInfo", {}):
+        raise SpdxNonValido("creationInfo senza `creators`")
+
+    if not documento["packages"]:
+        raise SpdxNonValido(
+            "nessun componente. Un SBOM vuoto e' peggio di nessun SBOM: dice che l'artefatto "
+            "non contiene niente di terzi, e non e' vero di nessun artefatto che spedisca "
+            "qualcosa."
+        )
+    visti: set[str] = set()
+    for componente in documento["packages"]:
+        assenti = [c for c in CAMPI_DEL_PACCHETTO if c not in componente]
+        if assenti:
+            raise SpdxNonValido(
+                f"{componente.get('name', '(senza nome)')}: campi assenti "
+                + ", ".join(f"{c} ({CAMPI_DEL_PACCHETTO[c]})" for c in assenti)
+            )
+        identita = componente["SPDXID"]
+        if not str(identita).startswith("SPDXRef-"):
+            raise SpdxNonValido(f"SPDXID {identita!r} non comincia per 'SPDXRef-'")
+        if identita in visti:
+            raise SpdxNonValido(
+                f"SPDXID ripetuto: {identita}. Due componenti con la stessa identita' rendono "
+                "il documento ambiguo proprio dove serve essere precisi."
+            )
+        visti.add(identita)
+
+
 def sha256(percorso: pathlib.Path) -> str:
     digesto = hashlib.sha256()
     with percorso.open("rb") as f:

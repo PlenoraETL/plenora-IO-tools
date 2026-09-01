@@ -51,18 +51,29 @@ def verifica(albero: pathlib.Path) -> list[str]:
     sbom = json.loads(sbom_percorso.read_text(encoding="utf-8"))
     provenienza = json.loads(provenienza_percorso.read_text(encoding="utf-8"))
 
-    nel_sbom = {p["name"] for p in sbom["packages"]}
+    # L'SBOM dev'essere leggibile come SPDX 2.3, e non solo esistere.
+    try:
+        distribuzione.valida_spdx(sbom)
+    except distribuzione.SpdxNonValido as e:
+        errori.append(f"SBOM non valido: {e}")
+
+    # --- i componenti nativi ---------------------------------------------
+    #
+    # Sono quelli che mettono **file** nell'albero, e portano il proprio testo
+    # in `LICENSES/<nome>/`.
+    nativi_nel_sbom = {
+        p["name"] for p in sbom["packages"] if "nativo" in (p.get("comment") or "")
+    }
     nella_provenienza = {p["nome"] for p in provenienza["pacchetti"]}
-    if nel_sbom != nella_provenienza:
+    if nativi_nel_sbom != nella_provenienza:
         errori.append(
-            "SBOM e PROVENIENZA non elencano gli stessi componenti. "
-            f"Solo nel SBOM: {sorted(nel_sbom - nella_provenienza)}. "
-            f"Solo nella provenienza: {sorted(nella_provenienza - nel_sbom)}. "
+            "SBOM e PROVENIENZA non elencano gli stessi componenti nativi. "
+            f"Solo nel SBOM: {sorted(nativi_nel_sbom - nella_provenienza)}. "
+            f"Solo nella provenienza: {sorted(nella_provenienza - nativi_nel_sbom)}. "
             "Sono due viste della stessa cosa, e divergono soltanto se una delle due mente."
         )
 
-    # Il cuore: ogni componente ha un testo, e il testo ha dentro qualcosa.
-    for nome in sorted(nel_sbom | nella_provenienza):
+    for nome in sorted(nativi_nel_sbom | nella_provenienza):
         directory = albero / "LICENSES" / nome
         if not directory.is_dir():
             errori.append(
@@ -81,6 +92,63 @@ def verifica(albero: pathlib.Path) -> list[str]:
                 "consegna niente."
             )
 
+    # --- i crate Rust -----------------------------------------------------
+    #
+    # Il difetto che questa parte chiude: l'SBOM elencava i soli componenti
+    # nativi, e il gate confrontava **due elenchi entrambi incompleti**. Restava
+    # verde perche' i due lati concordavano proprio in quanto sbagliavano
+    # insieme -- la forma piu' comoda di un falso verde.
+    #
+    # I crate non mettono file nell'albero: il compilatore li linka dentro il
+    # binario. Ma sono sul disco di chi installa, e un SBOM esiste per dirglielo.
+    crate_nel_sbom = {
+        p["name"] for p in sbom["packages"] if "crate" in (p.get("comment") or "")
+    }
+    elenco_crate = albero / "LICENSES" / "crate-rust" / "CRATE.json"
+    if not elenco_crate.is_file():
+        if crate_nel_sbom:
+            errori.append(
+                f"l'SBOM elenca {len(crate_nel_sbom)} crate Rust e "
+                "`LICENSES/crate-rust/CRATE.json` non c'e': i loro testi di licenza non sono "
+                "stati consegnati."
+            )
+        else:
+            errori.append(
+                "nessun crate Rust nell'SBOM. Un binario Rust ne linka dentro centinaia, e un "
+                "SBOM che non li nomina descrive un artefatto diverso da quello che si spedisce."
+            )
+    else:
+        dichiarati = json.loads(elenco_crate.read_text(encoding="utf-8"))
+        nomi_dichiarati = {c["nome"] for c in dichiarati["pacchetti"]}
+        if nomi_dichiarati != crate_nel_sbom:
+            errori.append(
+                "SBOM e CRATE.json non elencano gli stessi crate. "
+                f"Solo nel SBOM: {sorted(crate_nel_sbom - nomi_dichiarati)[:8]}. "
+                f"Solo in CRATE.json: {sorted(nomi_dichiarati - crate_nel_sbom)[:8]}."
+            )
+        # Ogni identificatore dichiarato ha il proprio testo, e il testo ha
+        # dentro qualcosa.
+        for identificatore in dichiarati["identificatori"]:
+            testo = albero / "LICENSES" / "crate-rust" / f"{identificatore}.txt"
+            if not testo.is_file():
+                errori.append(f"crate-rust: manca il testo di «{identificatore}»")
+            elif testo.stat().st_size == 0:
+                errori.append(f"crate-rust: il testo di «{identificatore}» e' vuoto")
+        # E ogni licenza dichiarata da un crate e' coperta da un identificatore
+        # consegnato: un crate `MIT OR Apache-2.0` vuole **entrambi** i testi,
+        # perche' e' chi riceve a scegliere.
+        coperti = set(dichiarati["identificatori"])
+        scoperti: dict[str, list[str]] = {}
+        for componente in dichiarati["pacchetti"]:
+            for identificatore in distribuzione.identificatori_di(componente["licenza"]):
+                if identificatore not in coperti:
+                    scoperti.setdefault(identificatore, []).append(componente["nome"])
+        if scoperti:
+            errori.append(
+                "identificatori dichiarati da un crate e non consegnati: "
+                + ", ".join(f"{i} ({', '.join(n[:3])})" for i, n in sorted(scoperti.items()))
+            )
+
     licenze = manifesto.get("licenze", {})
     if licenze.get("senza_testo", 0) != 0:
         errori.append(
@@ -88,15 +156,16 @@ def verifica(albero: pathlib.Path) -> list[str]:
             "Dichiararlo evita il silenzio, ma non consegna la licenza."
         )
 
-    # Il conto dichiarato e quello trovato devono coincidere: se il manifesto
-    # dicesse quaranta e in LICENSES/ ce ne fossero trenta, ognuna delle due
-    # verifiche sopra potrebbe restare verde su cio' che guarda.
-    dichiarati = licenze.get("con_testo_proprio", 0) + licenze.get("con_testo_canonico", 0)
-    trovati = len([d for d in (albero / "LICENSES").iterdir() if d.is_dir()])
-    if dichiarati != trovati:
+    dichiarati_nel_manifesto = licenze.get("con_testo_proprio", 0) + licenze.get(
+        "con_testo_canonico", 0
+    )
+    trovati = len(
+        [d for d in (albero / "LICENSES").iterdir() if d.is_dir() and d.name != "crate-rust"]
+    )
+    if dichiarati_nel_manifesto != trovati:
         errori.append(
-            f"il manifesto dichiara {dichiarati} componenti con testo e in LICENSES/ ce ne "
-            f"sono {trovati}."
+            f"il manifesto dichiara {dichiarati_nel_manifesto} componenti nativi con testo e in "
+            f"LICENSES/ ce ne sono {trovati}."
         )
 
     return errori
@@ -126,7 +195,19 @@ def main() -> int:
             profilo=manifesto["profilo"],
             canale=manifesto["canale"],
             esito="verde" if not errori else "rosso",
-            misure={"componenti_con_testo": componenti, **manifesto.get("licenze", {})},
+            misure={
+                "componenti_con_testo": componenti,
+                "crate_rust": len(
+                    [
+                        p
+                        for p in json.loads(
+                            (albero / "SBOM.spdx.json").read_text(encoding="utf-8")
+                        )["packages"]
+                        if "crate" in (p.get("comment") or "")
+                    ]
+                ),
+                **manifesto.get("licenze", {}),
+            },
             errori=errori,
         )
     if errori:

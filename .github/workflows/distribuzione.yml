@@ -120,8 +120,11 @@ jobs:
 
       # Il relocation smoke **cancella** la directory di costruzione: e' la sua
       # condizione centrale, e per questo l'archivio viene copiato altrove prima.
+      # Entrambi i profili: la premessa «il base non spedisce librerie» era
+      # falsa -- su Windows spedisce il runtime C -- e comunque che l'artefatto
+      # funzioni dove e' stato costruito non e' cio' che si promette a chi
+      # installa. Va estratto in una directory nuova e provato dall'archivio.
       - name: Relocation smoke
-        if: matrix.profilo == 'filegdb'
         run: |
           mkdir -p "$RUNNER_TEMP/archivi"
           cp "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}.tar.gz" \
@@ -131,6 +134,16 @@ jobs:
             "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}" \
             "$RUNNER_TEMP/relocation" \
             "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-relocation.json"
+
+      # I digest del manifesto, ricalcolati sull'albero **estratto**: fra il
+      # manifesto e chi riceve ci sono l'archiviazione e l'estrazione, e sono i
+      # passaggi in cui un file puo' cambiare senza che nessuno lo noti.
+      - name: Verifica i digest del manifesto sull'albero estratto
+        run: |
+          ESTRATTO="$RUNNER_TEMP/estratto-${{ matrix.profilo }}"
+          rm -rf "$ESTRATTO" && mkdir -p "$ESTRATTO"
+          tar -xzf "$RUNNER_TEMP/archivi/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}.tar.gz"               -C "$ESTRATTO"
+          python3 scripts/check-digest-manifesto.py             --albero "$ESTRATTO/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}"             --referto "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-digest-manifesto.json"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         if: always()

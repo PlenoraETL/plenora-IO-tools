@@ -637,6 +637,7 @@ passo sonde_distribuzione python3 -m unittest scripts.test_distribuzione_matrice
 passo sonde_licenze python3 -m unittest scripts.test_licenze
 passo sonde_dist_completa python3 -m unittest scripts.test_distribuzione_completa
 passo sonde_verificatori_nativi python3 -m unittest scripts.test_verificatori_nativi
+passo sonde_sbom python3 -m unittest scripts.test_sbom
 passo sonde_action_pins python3 -m unittest scripts.test_check_action_pins
 passo check_action_pins python3 scripts/check_action_pins.py
 passo sonde_toolchain python3 -m unittest scripts.test_check_toolchain_pins

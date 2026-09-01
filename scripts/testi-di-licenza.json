@@ -4,20 +4,81 @@
   "tag": "v3.27.0",
   "quando_si_applica": "soltanto ai pacchetti che spediscono almeno un file **e** non portano il proprio testo. Un pacchetto che porta `info/licenses` usa il proprio: e' piu' vicino a cio' che ha effettivamente spedito di qualunque testo canonico.",
   "identificatori": {
-    "GPL-3.0-only": {
-      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GPL-3.0-only.txt",
-      "dimensione": 34674,
-      "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0"
+    "0BSD": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/0BSD.txt",
+      "dimensione": 643,
+      "sha256": "e3f18c71e10d673590eb9856c1d79dd3b4b0d65404efb5e8584dbede7edd608b"
+    },
+    "Apache-2.0": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/Apache-2.0.txt",
+      "dimensione": 10280,
+      "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+    },
+    "BSD-2-Clause": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/BSD-2-Clause.txt",
+      "dimensione": 1267,
+      "sha256": "f32fb3b417a194167cfad068223fc975ba96c5960513a10f66a3c28720aec1df"
+    },
+    "BSD-3-Clause": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/BSD-3-Clause.txt",
+      "dimensione": 1460,
+      "sha256": "5a93d5831e1297ab10fe643e1a631e83be392896da14ee2951285a79012df69d"
+    },
+    "BSL-1.0": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/BSL-1.0.txt",
+      "dimensione": 1338,
+      "sha256": "84c6ef3ea9e3254a54d0acf5d3e0c61ae011b8fef7dd6940591cf060e6380a8f"
+    },
+    "CC0-1.0": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/CC0-1.0.txt",
+      "dimensione": 7048,
+      "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
     },
     "GCC-exception-3.1": {
       "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GCC-exception-3.1.txt",
       "dimensione": 3390,
       "sha256": "7103d4f7f7e2f8ce10d282a05e0689637f8d6d9ef7b399d808d1da313e69b960"
     },
+    "GPL-3.0-only": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GPL-3.0-only.txt",
+      "dimensione": 34674,
+      "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0"
+    },
+    "LLVM-exception": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/LLVM-exception.txt",
+      "dimensione": 919,
+      "sha256": "e34c58338bd89d43e709e226610d8f32b3e3c47f4ad9a99a8dc1d4ac7842488e"
+    },
+    "MIT": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt",
+      "dimensione": 1078,
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+    },
+    "MIT-0": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT-0.txt",
+      "dimensione": 915,
+      "sha256": "59746d6285ffa44bfc7ecada352aa5d6a20dc8eab418a60ce091cc739012c135"
+    },
+    "Unicode-3.0": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/Unicode-3.0.txt",
+      "dimensione": 1995,
+      "sha256": "f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1"
+    },
+    "Unlicense": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/Unlicense.txt",
+      "dimensione": 1211,
+      "sha256": "0bdebfeda07d45dada625ae1317c6f833186e798b171d0db640bcf32e92a8240"
+    },
+    "Zlib": {
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/Zlib.txt",
+      "dimensione": 838,
+      "sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d"
+    },
     "blessing": {
       "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/blessing.txt",
       "dimensione": 244,
       "sha256": "592db1199aab67aafe4515db9808b420db122083807c5329b2f061951e79acbe"
     }
-  }
+  },
+  "perche_anche_i_crate": "dodici di questi identificatori vengono dalle dipendenze **Rust**, non dai pacchetti conda. Un crate non porta il proprio testo di licenza in un posto che il compilatore conservi: dichiara un identificatore SPDX in `Cargo.toml`, e il testo e' quello che l'identificatore nomina. Sono gli stessi testi che servono ai pacchetti nativi, ed e' un'altra ragione per cui questo file non appartiene a un lock."
 }

@@ -35,6 +35,7 @@ import argparse
 import json
 import os
 import pathlib
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,7 @@ import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "windows-gdal-lock.json"
 VERIFICATORE = RADICE / "scripts" / "check-windows-runtime.py"
+DIPENDENZE_RUST = RADICE / "scripts" / "dipendenze-rust.py"
 
 
 def esegui(comando: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -68,6 +70,21 @@ def carica_costruttore_linux():
     modulo = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modulo)
     return modulo
+
+
+def crate_linkati(profilo: str) -> list[dict]:
+    """I crate Rust che finiscono dentro il binario.
+
+    Il compilatore li linka staticamente: non sono file sull'albero, e per
+    questo l'SBOM li ignorava -- nel profilo base dichiarava **un pacchetto
+    solo**, il runtime C, per un eseguibile che ne porta dentro duecento.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("dipendenze_rust", DIPENDENZE_RUST)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo.linkati(modulo.grafo(profilo))
 
 
 def carica_verificatore():
@@ -329,39 +346,91 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    (albero / "SBOM.spdx.json").write_text(
+    # --- le licenze dei crate Rust ---------------------------------------
+    print("1f. licenze dei crate Rust", flush=True)
+    crate = crate_linkati(arg.profilo)
+    di_terzi = [c for c in crate if not c["nostro"]]
+    identificatori_dei_crate: set[str] = set()
+    senza_licenza = []
+    for componente in di_terzi:
+        if not componente["licenza"]:
+            senza_licenza.append(f"{componente['nome']} {componente['versione']}")
+            continue
+        identificatori_dei_crate.update(distribuzione.identificatori_di(componente["licenza"]))
+    if senza_licenza:
+        raise SystemExit(
+            "questi crate sono linkati nel binario e non dichiarano una licenza: "
+            f"{senza_licenza}."
+        )
+    mancanti_crate = sorted(
+        i for i in identificatori_dei_crate if i not in testi_esterni["identificatori"]
+    )
+    if mancanti_crate:
+        raise SystemExit(
+            f"i crate linkati dichiarano identificatori non fissati: {mancanti_crate}. Vanno "
+            "aggiunti a `scripts/testi-di-licenza.json` con URL, dimensione e sha256."
+        )
+    crate_licenze = albero / "LICENSES" / "crate-rust"
+    crate_licenze.mkdir(parents=True, exist_ok=True)
+    for identificatore in sorted(identificatori_dei_crate):
+        (crate_licenze / f"{identificatore}.txt").write_bytes(
+            procurati_testo(
+                identificatore, testi_esterni["identificatori"][identificatore], cache_licenze
+            )
+        )
+    (crate_licenze / "CRATE.json").write_text(
         json.dumps(
             {
-                "spdxVersion": "SPDX-2.3",
-                "dataLicense": "CC0-1.0",
-                "SPDXID": "SPDXRef-DOCUMENT",
-                "name": nome,
-                "documentNamespace": f"https://plenora.invalid/{nome}",
-                "creationInfo": {"creators": ["Tool: costruisci-artefatto-windows.py"]},
-                "comment": (
-                    "elenca i pacchetti che hanno messo almeno un file in questo artefatto, non "
-                    "i pacchetti risolti dal lock: il lock ne risolve di piu', e cio' che non "
-                    "viene spedito non sta su nessun disco."
+                "nota": (
+                    "i crate Rust linkati staticamente nel binario, con la licenza che ciascuno "
+                    "dichiara. I testi stanno accanto, uno per identificatore."
                 ),
-                "packages": [
-                    {
-                        "SPDXID": f"SPDXRef-Package-{k}",
-                        "name": k,
-                        "versionInfo": pacchetti[k]["versione"],
-                        "downloadLocation": pacchetti[k]["canale"] or "NOASSERTION",
-                        "licenseConcluded": "NOASSERTION",
-                        "licenseDeclared": pacchetti[k]["licenza"] or "NOASSERTION",
-                        "filesAnalyzed": False,
-                        "comment": f"build {pacchetti[k]['build']}",
-                    }
-                    for k in sorted(pacchetti)
-                ],
+                "profilo": arg.profilo,
+                "linkati": len(crate),
+                "di_terzi": len(di_terzi),
+                "identificatori": sorted(identificatori_dei_crate),
+                "pacchetti": di_terzi,
             },
             ensure_ascii=False,
             indent=2,
         )
         + "\n",
         encoding="utf-8",
+    )
+    print(
+        f"   {len(di_terzi)} crate di terzi, {len(identificatori_dei_crate)} identificatori",
+        flush=True,
+    )
+
+    componenti = [
+        {
+            "SPDXID": f"SPDXRef-Package-{k}",
+            "name": k,
+            "versionInfo": pacchetti[k]["versione"],
+            "downloadLocation": pacchetti[k]["canale"] or "NOASSERTION",
+            "licenseConcluded": "NOASSERTION",
+            "licenseDeclared": pacchetti[k]["licenza"] or "NOASSERTION",
+            "filesAnalyzed": False,
+            "comment": f"pacchetto nativo, build {pacchetti[k]['build']}",
+        }
+        for k in sorted(pacchetti)
+    ]
+    componenti += distribuzione.componenti_rust(crate)
+
+    sbom = distribuzione.documento_spdx(
+        nome,
+        hashlib.sha256(
+            json.dumps(componenti, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest(),
+        componenti,
+        (
+            "elenca i pacchetti nativi che hanno messo almeno un file in questo artefatto e i "
+            "crate Rust linkati staticamente nel binario."
+        ),
+    )
+    distribuzione.valida_spdx(sbom)
+    (albero / "SBOM.spdx.json").write_text(
+        json.dumps(sbom, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
     # =====================================================================
@@ -388,7 +457,26 @@ def main() -> int:
         "profilo": arg.profilo,
         "canale": arg.canale,
         "non_release": arg.canale != "candidate",
-        "gdal": lock["gdal_version"],
+        # Il runtime nativo, dichiarato per **quello che e'**.
+        #
+        # Il campo diceva `"gdal": "3.9.3"` anche nel profilo base, che GDAL non
+        # lo contiene: un lettore ne concludeva che l'artefatto porti quella
+        # versione, ed e' falso. Una versione dichiarata da un artefatto che non
+        # la spedisce e' peggio di un campo assente, perche' sembra una risposta.
+        "runtime_nativo": (
+            {"presente": True, "gdal": lock["gdal_version"], "dal_lock": distribuzione.sha256(LOCK)}
+            if arg.profilo == "filegdb"
+            else {
+                "presente": False,
+                "perche": (
+                    "il profilo base non spedisce GDAL. Il lock resta la fonte da cui il "
+                    "runtime **verrebbe**, e per questo il suo digest c'e' lo stesso: dice "
+                    "con quale catena questo artefatto e' stato costruito, non che cosa "
+                    "contenga."
+                ),
+                "dal_lock": distribuzione.sha256(LOCK),
+            }
+        ),
         "lock": distribuzione.sha256(LOCK),
         "prefisso_di_costruzione": str(libreria),
         "revisione": revisione_del_repository(),

@@ -125,11 +125,22 @@ VERIFICHE_ATTESE = {
         "misure_obbligatorie": ("archivio_sha256", "revisione", "lock_sha256"),
         "perche": "che cosa e' stato costruito, da quale revisione, e con quale lock",
     },
+    # Nessun `solo_profilo`: era la premessa che su Windows il profilo base
+    # spedisce `vcruntime140.dll`, e quindi ha librerie da rilocare come
+    # l'altro. Anche dove non ne spedisce, l'artefatto va estratto in una
+    # directory nuova e provato **dall'archivio finale**: che funzioni dove e'
+    # stato costruito non e' cio' che si promette a chi installa.
     "relocation": {
         "misure_obbligatorie": ("librerie_dall_albero",),
-        "solo_profilo": "filegdb",
         "perche": "l'artefatto funziona dove non e' stato costruito",
-        "perche_solo_quel_profilo": "il profilo base non spedisce librerie da rilocare",
+    },
+    # I digest del manifesto, ricalcolati sull'albero **estratto**. Erano
+    # scritti e nessuno li rileggeva: un digest che nessuno verifica e' un
+    # numero, e per giunta una garanzia apparente -- chi legge il manifesto
+    # suppone che qualcuno l'abbia controllata.
+    "digest-manifesto": {
+        "misure_obbligatorie": ("file_dichiarati", "file_verificati", "digest_divergenti"),
+        "perche": "ogni file dichiarato c'e', e il suo digest corrisponde",
     },
 }
 

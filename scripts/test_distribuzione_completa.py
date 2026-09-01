@@ -50,7 +50,12 @@ class SondeDelGateFinale(unittest.TestCase):
                 "percorsi_assoluti_classificati": 29,
             },
             "licenze-artefatto": {"componenti_con_testo": 43},
-            "relocation": {"librerie_dall_albero": 57},
+            "relocation": {"librerie_dall_albero": 57 if profilo == "filegdb" else 1},
+            "digest-manifesto": {
+                "file_dichiarati": 145,
+                "file_verificati": 145,
+                "digest_divergenti": 0,
+            },
             "provenance": {
                 "archivio_sha256": "a" * 64,
                 "revisione": "b" * 40,

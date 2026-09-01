@@ -366,5 +366,22 @@
     "da_spedire_e_non_ammettere": {
       "vcruntime140.dll, vcruntime140_1.dll, msvcp140.dll": "runtime C e libreria standard C++ di Visual Studio: **ridistribuibili**, non componenti del sistema. Il controllo li rifiuta con un messaggio che dice di spedirli, invece di dire genericamente che non sono attesi."
     }
+  },
+  "sbom": {
+    "che_cosa_elenca": "i pacchetti nativi che mettono file nell'albero **e** i crate Rust linkati staticamente nel binario. I secondi mancavano: nel profilo base l'SBOM dichiarava un pacchetto solo, il runtime C, per un eseguibile che ne porta dentro duecento.",
+    "perche_non_da_cargo_lock": "`Cargo.lock` elenca tutto cio' che serve a **costruire**: dipendenze di sviluppo, di build, crate che servono solo ai test. Nel binario spedito non c'e' niente di tutto questo. Si cammina il grafo risolto da `cargo metadata --locked --filter-platform`, partendo dal binario e seguendo le sole dipendenze normali -- lo stesso principio per cui sul lato nativo si parte dalla chiusura invece che dall'elenco dei pacchetti.",
+    "il_falso_verde_che_chiude": "il gate confrontava l'SBOM con `PROVENIENZA.json`, e i due erano incompleti **allo stesso modo**: restava verde perche' concordavano proprio in quanto sbagliavano insieme. E' la forma piu' comoda di un falso verde, e non si vede confrontando: si vede chiedendo a ciascuno dei due da dove viene.",
+    "validazione": "l'SBOM viene validato come SPDX 2.3 prima di essere scritto, e di nuovo dal gate. Un documento con un campo mancante o uno `SPDXID` ripetuto passa per valido finche' non lo si da' a uno strumento, e a quel punto e' gia' stato consegnato. La validazione e' **offline**: verifica i campi che la specifica pretende, non ogni vincolo -- e lo dice, invece di far credere di aver applicato lo schema completo.",
+    "identita_del_documento": "`documentNamespace` include un digesto che dipende dai contenuti. Due build della stessa versione producono due SBOM, e un namespace costruito sul solo nome li renderebbe indistinguibili."
+  },
+  "digest_del_manifesto": {
+    "che_cosa": "il manifesto porta un digest per ogni file spedito, e un controllo li **ricalcola sull'albero estratto dall'archivio**.",
+    "perche_sull_estratto": "fra il manifesto e chi riceve ci sono l'archiviazione, il trasporto e l'estrazione: sono i passaggi in cui un file puo' cambiare o sparire senza che nessuno lo noti. Verificare l'albero di partenza direbbe soltanto che il costruttore sa calcolare uno sha256.",
+    "il_falso_verde_che_chiude": "i digest erano scritti e nessuno li rileggeva. Un digest che nessuno verifica e' un numero, e per giunta una garanzia apparente: chi legge il manifesto suppone che qualcuno l'abbia controllata. Il controllo ha subito trovato due difetti reali -- il profilo base dichiarava **zero** file, e il profilo pieno li elencava come nomi senza digest."
+  },
+  "relocation": {
+    "per_entrambi_i_profili": "la premessa «il profilo base non spedisce librerie» era falsa: su Windows spedisce il runtime C. E comunque che l'artefatto funzioni dove e' stato costruito non e' cio' che si promette a chi installa -- va estratto in una directory nuova e provato dall'archivio finale, quale che sia il profilo.",
+    "che_cosa_prova_ciascuno": "il profilo pieno scrive e rilegge un FileGDB con un CRS, che attraversa GDAL e PROJ; il base converte in GeoParquet, che e' cio' che sa fare. Pretendere il FileGDB dal base lo farebbe fallire per una capability che non ha mai promesso.",
+    "la_controprova_dove_ha_senso": "rinominare `share/gdal` e pretendere il fallimento vale per il profilo che quelle radici le usa. Il base non le legge, e la controprova sarebbe verde per una ragione che non ha a che vedere con cio' che dovrebbe provare -- che e' peggio di non farla."
   }
 }

@@ -46,6 +46,7 @@ RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 TESTI_DI_LICENZA = RADICE / "scripts" / "testi-di-licenza.json"
 CHIUSURA = RADICE / "scripts" / "check-linux-gdal-runtime.py"
+DIPENDENZE_RUST = RADICE / "scripts" / "dipendenze-rust.py"
 
 
 def esegui(comando: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -91,6 +92,23 @@ def sha256(percorso: pathlib.Path) -> str:
 # riscriverle qui non e' pigrizia: due implementazioni della stessa lettura
 # divergono, e divergerebbero proprio fra chi assembla e chi controlla -- cioe'
 # fra le due parti che devono essere d'accordo.
+
+
+def crate_linkati(profilo: str) -> list[dict]:
+    """I crate Rust che finiscono dentro il binario.
+
+    Il compilatore li linka staticamente: non sono file sull'albero, e per
+    questo l'SBOM li ignorava. Ma chi legge un SBOM lo legge per sapere che
+    cosa ha sul disco, e duecento crate dentro un eseguibile **sono** sul suo
+    disco: tacerli faceva dire all'SBOM del profilo base che l'artefatto
+    contiene un pacchetto solo.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("dipendenze_rust", DIPENDENZE_RUST)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo.linkati(modulo.grafo(profilo))
 
 
 def carica_lettore():
@@ -488,6 +506,7 @@ def main() -> int:
 
     # --- 1e. licenze e SBOM, legati a cio' che si spedisce ------------------
     print("1e. licenze e SBOM sui file spediti", flush=True)
+    crate = crate_linkati(arg.profilo)
     mappa = mappa_dei_pacchetti(prefisso)
     testi_esterni = json.loads(TESTI_DI_LICENZA.read_text(encoding="utf-8"))
     cache_licenze = uscita / ".testi-di-licenza"
@@ -523,6 +542,74 @@ def main() -> int:
         flush=True,
     )
 
+    # --- le licenze dei crate Rust ---------------------------------------
+    #
+    # Un crate non porta il proprio testo in un posto che il compilatore
+    # conservi: dichiara un identificatore SPDX in `Cargo.toml`, e il testo e'
+    # quello che l'identificatore nomina. Si prende dallo stesso file comune dei
+    # pacchetti nativi, ed e' un'altra ragione per cui quel file non appartiene
+    # a un lock.
+    #
+    # Un'espressione con `OR` -- `MIT OR Apache-2.0`, che e' la piu' diffusa fra
+    # i crate -- vuole **entrambi** i testi: e' chi riceve a scegliere, e per
+    # scegliere deve averli tutti e due.
+    print("1f. licenze dei crate Rust", flush=True)
+    di_terzi = [c for c in crate if not c["nostro"]]
+    identificatori_dei_crate: set[str] = set()
+    senza_licenza = []
+    for componente in di_terzi:
+        if not componente["licenza"]:
+            senza_licenza.append(f"{componente['nome']} {componente['versione']}")
+            continue
+        identificatori_dei_crate.update(distribuzione.identificatori_di(componente["licenza"]))
+    if senza_licenza:
+        raise SystemExit(
+            "questi crate sono linkati nel binario e non dichiarano una licenza: "
+            f"{senza_licenza}. Spedire codice senza sapere sotto quale licenza lo si spedisce "
+            "non e' una cosa che questo costruttore possa decidere."
+        )
+
+    mancanti = sorted(
+        i for i in identificatori_dei_crate if i not in testi_esterni["identificatori"]
+    )
+    if mancanti:
+        raise SystemExit(
+            f"i crate linkati dichiarano identificatori non fissati: {mancanti}. Vanno "
+            "aggiunti a `scripts/testi-di-licenza.json` con URL, dimensione e sha256."
+        )
+    crate_licenze = licenze / "crate-rust"
+    crate_licenze.mkdir(parents=True, exist_ok=True)
+    for identificatore in sorted(identificatori_dei_crate):
+        (crate_licenze / f"{identificatore}.txt").write_bytes(
+            procurati_testo(
+                identificatore, testi_esterni["identificatori"][identificatore], cache_licenze
+            )
+        )
+    (crate_licenze / "CRATE.json").write_text(
+        json.dumps(
+            {
+                "nota": (
+                    "i crate Rust linkati staticamente nel binario, con la licenza che ciascuno "
+                    "dichiara. I testi stanno accanto, uno per identificatore: un crate non "
+                    "porta il proprio, e il testo e' quello che l'identificatore nomina."
+                ),
+                "profilo": arg.profilo,
+                "linkati": len(crate),
+                "di_terzi": len(di_terzi),
+                "identificatori": sorted(identificatori_dei_crate),
+                "pacchetti": di_terzi,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"   {len(di_terzi)} crate di terzi, {len(identificatori_dei_crate)} identificatori",
+        flush=True,
+    )
+
     (licenze / "PROVENIENZA.json").write_text(
         json.dumps(
             {
@@ -553,33 +640,38 @@ def main() -> int:
 
     componenti = []
     for nome_pacchetto in sorted(pacchetti):
-        p = pacchetti[nome_pacchetto]
+        c = pacchetti[nome_pacchetto]
         componenti.append(
             {
                 "SPDXID": f"SPDXRef-Package-{nome_pacchetto}",
                 "name": nome_pacchetto,
-                "versionInfo": p["versione"],
-                "downloadLocation": p["canale"] or "NOASSERTION",
+                "versionInfo": c["versione"],
+                "downloadLocation": c["canale"] or "NOASSERTION",
                 "licenseConcluded": "NOASSERTION",
-                "licenseDeclared": p["licenza"] or "NOASSERTION",
+                "licenseDeclared": c["licenza"] or "NOASSERTION",
                 "filesAnalyzed": False,
-                "comment": f"build {p['build']}",
+                "comment": f"pacchetto nativo, build {c['build']}",
             }
         )
-    sbom = {
-        "spdxVersion": "SPDX-2.3",
-        "dataLicense": "CC0-1.0",
-        "SPDXID": "SPDXRef-DOCUMENT",
-        "name": nome,
-        "documentNamespace": f"https://plenora.invalid/{nome}",
-        "creationInfo": {"creators": ["Tool: costruisci-artefatto-linux.py"]},
-        "comment": (
-            "elenca i pacchetti che hanno messo almeno un file in questo artefatto, "
-            "non i pacchetti risolti dal lock: il lock ne risolve di piu', e cio' che "
-            "non viene spedito non sta su nessun disco."
+    componenti += distribuzione.componenti_rust(crate)
+
+    sbom = distribuzione.documento_spdx(
+        nome,
+        # L'identita' del documento dipende dai contenuti: due build della
+        # stessa versione producono due SBOM, e un namespace uguale li renderebbe
+        # indistinguibili.
+        hashlib.sha256(
+            json.dumps(componenti, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest(),
+        componenti,
+        (
+            "elenca i pacchetti nativi che hanno messo almeno un file in questo artefatto e i "
+            "crate Rust linkati staticamente nel binario. Non elenca i pacchetti risolti dal "
+            "lock ne' le dipendenze di sviluppo: il lock ne risolve di piu', e cio' che non "
+            "viene spedito non sta su nessun disco."
         ),
-        "packages": componenti,
-    }
+    )
+    distribuzione.valida_spdx(sbom)
     (albero / "SBOM.spdx.json").write_text(
         json.dumps(sbom, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -626,7 +718,26 @@ def main() -> int:
             "misurato, non installato. Non e' firmato, non e' pubblicato, e il gate "
             "di distribuzione lo rifiuta ovunque si pretenda una candidate."
         ),
-        "gdal": lock["gdal_version"],
+        # Il runtime nativo, dichiarato per **quello che e'**.
+        #
+        # Il campo diceva `"gdal": "3.9.3"` anche nel profilo base, che GDAL non
+        # lo contiene: un lettore ne concludeva che l'artefatto porti quella
+        # versione, ed e' falso. Una versione dichiarata da un artefatto che non
+        # la spedisce e' peggio di un campo assente, perche' sembra una risposta.
+        "runtime_nativo": (
+            {"presente": True, "gdal": lock["gdal_version"], "dal_lock": sha256(LOCK)}
+            if arg.profilo == "filegdb"
+            else {
+                "presente": False,
+                "perche": (
+                    "il profilo base non spedisce GDAL. Il lock resta la fonte da cui il "
+                    "runtime **verrebbe**, e per questo il suo digest c'e' lo stesso: dice "
+                    "con quale catena questo artefatto e' stato costruito, non che cosa "
+                    "contenga."
+                ),
+                "dal_lock": sha256(LOCK),
+            }
+        ),
         "lock": sha256(LOCK),
         # Il prefisso in cui il runtime e' stato materializzato, cioe' cio' che
         # i binari nominano dentro di se'. Sta qui perche' il controllo non
@@ -654,7 +765,24 @@ def main() -> int:
             "e' byte per byte quello del pacchetto, e chi verifica un checksum a monte deve "
             "sapere perche' non corrisponde."
         ),
-        "file": sorted(str(p.relative_to(albero)) for p in spediti),
+        # Tutto l'albero, e ciascun file con il proprio digest.
+        #
+        # Erano i soli file *spediti dal prefisso*, e con due conseguenze che il
+        # controllo sui digest ha portato alla luce: il profilo base ne
+        # dichiarava **zero** -- non spedisce librerie, e il suo binario non
+        # compariva -- e il profilo pieno li elencava come nomi. Un elenco di
+        # nomi dice che cosa c'era, un elenco di digest dice che cosa c'e', e
+        # chi riceve un archivio estratto puo' rifare il conto.
+        "file": [
+            {
+                "percorso": str(percorso.relative_to(albero)),
+                "sha256": sha256(percorso),
+                "byte": percorso.stat().st_size,
+            }
+            for percorso in sorted(
+                p for p in albero.rglob("*") if p.is_file() and p.name != "MANIFEST.json"
+            )
+        ],
     }
     (albero / "MANIFEST.json").write_text(
         json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

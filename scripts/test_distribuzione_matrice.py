@@ -467,7 +467,24 @@ class SondeMatrice(unittest.TestCase):
                     contratto,
                     "il contratto non dice da quale rilievo viene",
                 )
-                self.assertEqual(len(contratto["rilievo_di_origine"]["sha256"]), 64)
+                origine = contratto["rilievo_di_origine"]
+                # Un digest **per profilo**: `base` e `filegdb` sono due
+                # prodotti e hanno due rilievi, e un digest solo attribuirebbe
+                # a un artefatto una misura fatta su un altro.
+                self.assertEqual(
+                    set(origine["sha256"]),
+                    {"base", "filegdb"},
+                    "il rilievo di origine non e' diviso per profilo",
+                )
+                for profilo, digesto in sorted(origine["sha256"].items()):
+                    with self.subTest(profilo=profilo):
+                        self.assertEqual(len(digesto), 64)
+                self.assertNotEqual(
+                    origine["sha256"]["base"],
+                    origine["sha256"]["filegdb"],
+                    "due profili con lo stesso digest: uno dei due rilievi non e' il suo",
+                )
+                self.assertTrue(origine.get("sha_sorgente"))
 
     def test_la_guardia_dei_percorsi_e_legata_alla_condizione(self) -> None:
         """«Zero percorsi assoluti» e' sospetto solo se si spedisce qualcosa.

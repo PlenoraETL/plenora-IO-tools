@@ -425,5 +425,58 @@
       "dimensione": 387535,
       "sha256": "ca7daae4f218a11fab82cc2857f0ea518ec3f46acec60490485347a4c22c6b3e"
     }
-  ]
+  ],
+  "contratto_di_verifica": {
+    "nota": "Quello che `check-windows-runtime.py` pretende. Non ci sono numeri misurati qui: i numeri li produce il controllo. Gli insiemi invece **sono** una misura, ed e' per questo che portano il digest del rilievo da cui vengono: senza, sarebbero una lista di nomi senza provenienza, e chi la rilegge non potrebbe rifare il conto.",
+    "rilievo_di_origine": {
+      "come_e_stato_prodotto": "`check-windows-runtime.py --discovery` su `windows-2022`, canale prova, su entrambi i profili. La corsa e' terminata **rossa** di proposito: scopriva, non qualificava. Il rilievo e' stato riletto da una persona, ogni dipendenza classificata a mano, e questo contratto e' il risultato di quella rilettura -- non della corsa.",
+      "sha_sorgente": "7877e62eb105167e1d1973c59d33d1fda90873c5",
+      "runner": "windows-2022, immagine win22, Windows-2022Server-10.0.20348-SP0",
+      "sha256": {
+        "base": "753ac18c07fdeb33eddfb79f35f57ddecb651d122f8c2daecd10d853c08ff82b",
+        "filegdb": "ebe464861af005f646f9e3557531ba0f06eef7def714a85afcb9ff3858039feb"
+      },
+      "perche_due_digest": "`base` e `filegdb` sono due prodotti e hanno due rilievi. Un digest solo attribuirebbe a un artefatto una misura fatta su un altro."
+    },
+    "dll_di_sistema_attese": {
+      "base": [
+        "bcryptprimitives.dll",
+        "kernel32.dll",
+        "ntdll.dll"
+      ],
+      "filegdb": [
+        "advapi32.dll",
+        "bcrypt.dll",
+        "bcryptprimitives.dll",
+        "crypt32.dll",
+        "iphlpapi.dll",
+        "kernel32.dll",
+        "ntdll.dll",
+        "odbc32.dll",
+        "ole32.dll",
+        "secur32.dll",
+        "shell32.dll",
+        "user32.dll",
+        "wldap32.dll",
+        "ws2_32.dll",
+        "wsock32.dll"
+      ]
+    },
+    "dll_di_sistema_attese_nota": "l'insieme **esatto** per ciascun profilo. La politica ABI del controllo ne ammette di piu', e con la sola politica una DLL che smettesse di essere spedita, e venisse quindi presa dal sistema, resterebbe verde. Ogni variazione vuole una nuova scoperta e un nuovo digest, perche' e' un cambio di cio' che l'artefatto pretende dalla macchina che lo ospita.\n\nI due insiemi non sono uno il sottoinsieme dell'altro per caso: `base` chiede tre nomi, e tutti e tre compaiono anche in `filegdb`. `bcryptprimitives.dll` e' li' perche' la libreria standard di Rust la usa per i numeri casuali -- e' una dipendenza del **nostro** binario, non di GDAL, ed e' per questo che il profilo senza GDAL ce l'ha lo stesso.",
+    "chiusura": {
+      "interne_attese": {
+        "base": 1,
+        "filegdb": 40
+      },
+      "nota": "il numero di DLL spedite dentro l'albero. Non e' una soglia da rispettare: e' cio' che e' stato misurato, e una differenza significa che la chiusura e' cambiata. `base` ne spedisce **una**, `vcruntime140.dll`, e quella e' la correzione che questa scoperta ha prodotto: il runtime C ridistribuibile non e' un componente del sistema operativo, e un server pulito potrebbe non averlo."
+    },
+    "architettura_attesa": "x86-64 per ogni PE spedito",
+    "delay_import_attesi": {
+      "base": [],
+      "filegdb": [],
+      "nota": "nessuno, in entrambi i profili. Vale la pena registrarlo come **misura** e non come assenza: il giorno in cui una libreria arrivasse con un delay import, la differenza si vedrebbe qui invece di manifestarsi in esecuzione su una macchina che non ha quella DLL."
+    },
+    "percorsi_assoluti_ammessi": [],
+    "percorsi_assoluti_nota": "l'elenco e' **vuoto**, e la misura dice che nei PE spediti non c'e' nessun percorso del prefisso di costruzione. E' una differenza reale rispetto a Linux, dove la rilocazione di conda sostituisce il placeholder con il prefisso e ne lascia ventinove: su Windows i pacchetti conda-forge non portano quel meccanismo. Se un percorso comparisse, il controllo lo troverebbe non classificato e farebbe rosso -- che e' l'esito giusto, perche' vorrebbe dire che qualcosa e' cambiato in come i pacchetti sono costruiti."
+  }
 }

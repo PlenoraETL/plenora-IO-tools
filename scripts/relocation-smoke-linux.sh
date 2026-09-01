@@ -78,6 +78,12 @@ echo "== 3. estrazione in B"
 tar -xzf "${ARCHIVIO}" -C "${B}"
 RADICE="$(find "${B}" -mindepth 1 -maxdepth 1 -type d | head -1)"
 BINARIO="${RADICE}/bin/plenora-io"
+# Il profilo decide **che cosa** provare. Il relocation dimostra che l'artefatto
+# funziona spostato, e «funziona» significa cose diverse per i due profili:
+# scrivere un FileGDB e' la promessa del profilo pieno, e pretenderla dal base
+# lo farebbe fallire per una capability che non ha mai promesso.
+PROFILO="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['profilo'])" "${RADICE}/MANIFEST.json")"
+echo "   profilo: ${PROFILO}"
 [ -x "${BINARIO}" ] || { echo "ROSSO: ${BINARIO} non e' eseguibile" >&2; exit 1; }
 echo "   ${RADICE}"
 echo "   lunghezza A=${#A}  B=${#RADICE}"
@@ -103,12 +109,21 @@ ambiente() {
     "$@"
 }
 
-echo "== 7-8. scrittura e rilettura di un FileGDB con CRS, sotto strace"
+echo "== 7-8. conversione con CRS, sotto strace"
 cat > "${TERZA}/sorgente.csv" <<'CSV'
 codice,nome,geometry
 A-1,alfa,POINT(11.25 43.77)
 B-2,beta,POINT(12.49 41.90)
 CSV
+
+# La destinazione dipende dal profilo. Per `filegdb` e' un FileGDB, che
+# attraversa GDAL e PROJ; per `base` e' GeoParquet, che e' cio' che quel profilo
+# sa fare e attraversa comunque le tre radici che il binario imposta.
+if [ "${PROFILO}" = "filegdb" ]; then
+  DESTINAZIONE="${TERZA}/uscita.gdb"
+else
+  DESTINAZIONE="${TERZA}/uscita.parquet"
+fi
 
 TRACCIA="${LAVORO}/traccia.txt"
 : > "${TRACCIA}"
@@ -117,7 +132,7 @@ TRACCIA="${LAVORO}/traccia.txt"
 # la condizione 8, e serve a poterla interrogare per **quali** file sono stati
 # toccati -- non soltanto per sapere che il comando non e' fallito.
 ambiente strace -f -e trace=file -o "${TRACCIA}" \
-  "${BINARIO}" convert "${TERZA}/sorgente.csv" "${TERZA}/uscita.gdb" \
+  "${BINARIO}" convert "${TERZA}/sorgente.csv" "${DESTINAZIONE}" \
     --in-opt wkt_column=geometry \
     --assume-crs EPSG:4326 \
   > "${TERZA}/convert.json" 2> "${TERZA}/convert.err" || {
@@ -127,39 +142,43 @@ ambiente strace -f -e trace=file -o "${TRACCIA}" \
   }
 echo "   scritto: $(head -c 200 "${TERZA}/convert.json")"
 
-ambiente "${BINARIO}" inspect "${TERZA}/uscita.gdb" \
+ambiente "${BINARIO}" inspect "${DESTINAZIONE}" \
   > "${TERZA}/inspect.json" 2> "${TERZA}/inspect.err" || {
     echo "ROSSO: la rilettura e' fallita" >&2
     cat "${TERZA}/inspect.err" >&2
     exit 1
   }
 
-python3 "${VERIFICHE}" rilettura "${TERZA}/inspect.json"
+python3 "${VERIFICHE}" rilettura "${TERZA}/inspect.json" "${PROFILO}"
 
-# La controprova della condizione 6.
+# La controprova della condizione 6, dove ha senso.
 #
-# Che il comando riesca con le sentinelle attive prova che qualcosa le
-# scavalca, ma non prova che siano **letali**: se GDAL trovasse i propri dati
-# da solo, il verde di sopra sarebbe un verde che non ha misurato niente.
+# Che il comando riesca con le sentinelle attive prova che qualcosa le scavalca,
+# ma non prova che siano **letali**: se GDAL trovasse i propri dati da solo, il
+# verde di sopra sarebbe un verde che non ha misurato niente.
 #
-# Qui si toglie all'artefatto il proprio layout -- `share/gdal` rinominata -- in
-# una copia. `radici.rs` non riconosce piu' un artefatto, non imposta nulla, e
-# restano le sentinelle. Il comando **deve** fallire; se riuscisse, saprei che
-# la condizione 6 non misura cio' che dice.
-echo "== 6-bis. controprova: senza il layout, le sentinelle devono essere letali"
-CIECA="${LAVORO}/cieca"
-rm -rf "${CIECA}"
-cp -r "${RADICE}" "${CIECA}"
-mv "${CIECA}/share/gdal" "${CIECA}/share/gdal-nascosta"
-if ambiente "${CIECA}/bin/plenora-io" convert \
-     "${TERZA}/sorgente.csv" "${TERZA}/controprova.gdb" \
-     --in-opt wkt_column=geometry --assume-crs EPSG:4326 \
-     > "${TERZA}/controprova.json" 2> "${TERZA}/controprova.err"; then
-  echo "ROSSO: senza share/gdal e con le sentinelle attive la conversione e' riuscita." >&2
-  echo "La condizione 6 non sta misurando cio' che dice: qualcosa trova i dati altrove." >&2
-  exit 1
+# Vale per il profilo che usa quelle radici. Il profilo base non legge
+# `share/gdal`, e rinominarla non cambierebbe nulla: la controprova sarebbe
+# verde per una ragione che non ha a che vedere con cio' che dovrebbe provare,
+# ed e' peggio di non farla.
+if [ "${PROFILO}" = "filegdb" ]; then
+  echo "== 6-bis. controprova: senza il layout, le sentinelle devono essere letali"
+  CIECA="${LAVORO}/cieca"
+  rm -rf "${CIECA}"
+  cp -r "${RADICE}" "${CIECA}"
+  mv "${CIECA}/share/gdal" "${CIECA}/share/gdal-nascosta"
+  if ambiente "${CIECA}/bin/plenora-io" convert \
+       "${TERZA}/sorgente.csv" "${TERZA}/controprova.gdb" \
+       --in-opt wkt_column=geometry --assume-crs EPSG:4326 \
+       > "${TERZA}/controprova.json" 2> "${TERZA}/controprova.err"; then
+    echo "ROSSO: senza share/gdal e con le sentinelle attive la conversione e' riuscita." >&2
+    echo "La condizione 6 non sta misurando cio' che dice: qualcosa trova i dati altrove." >&2
+    exit 1
+  fi
+  echo "   senza il layout il comando fallisce: le sentinelle sono davvero letali"
+else
+  echo "== 6-bis. controprova non applicabile: il profilo base non legge share/gdal"
 fi
-echo "   senza il layout il comando fallisce: le sentinelle sono davvero letali"
 
 echo "== 8. nessun accesso ad A"
 if grep -F -- "${A}" "${TRACCIA}" > "${LAVORO}/accessi-ad-A.txt"; then

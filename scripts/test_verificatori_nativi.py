@@ -249,53 +249,6 @@ class SondeDelLettorePe(unittest.TestCase):
         self.assertTrue(any("lib" in t for t in trovati), trovati)
 
 
-class SondeSulPerimetro(unittest.TestCase):
-    """Che cosa i due verificatori pretendono di avere prima di dire qualcosa."""
-
-    def test_il_lock_windows_non_ha_ancora_un_contratto_di_verifica(self) -> None:
-        """E' un debito registrato, non una svista.
-
-        Il contratto di verifica dice le soglie -- quali DLL di sistema sono
-        attese, quale deployment target -- e non si scrive a tavolino: si
-        misura su un runner. Finche' non c'e', i due verificatori si fermano
-        invece di applicare una soglia inventata, e le due piattaforme restano
-        `non_ancora_costruita` con il proprio blocco."""
-        import json
-
-        for nome in ("windows-gdal-lock.json",):
-            percorso = RADICE / "scripts" / nome
-            if not percorso.exists():
-                continue
-            with self.subTest(lock=nome):
-                lock = json.loads(percorso.read_text(encoding="utf-8"))
-                matrice = json.loads(
-                    (RADICE / "assurance" / "registries" / "distribuzione-matrice.json")
-                    .read_text(encoding="utf-8")
-                )
-                piattaforma = lock["piattaforma"]
-                costruita = {
-                    p["id"]
-                    for p in matrice["piattaforme"]
-                    if p["stato_costruzione"] == "costruita"
-                }
-                if piattaforma in costruita:
-                    self.assertIn(
-                        "contratto_di_verifica",
-                        lock,
-                        f"{piattaforma} e' dichiarata costruita e il suo lock non porta le "
-                        "soglie che il verificatore applica",
-                    )
-                else:
-                    self.assertNotIn(
-                        "contratto_di_verifica",
-                        lock,
-                        f"{piattaforma} non e' costruita: un contratto di verifica scritto a "
-                        "tavolino sarebbe una soglia mai misurata, e passerebbe per misurata",
-                    )
-
-
-
-
 class SondeDellaScoperta(unittest.TestCase):
     """La prima corsa Windows scopre, e non qualifica.
 
@@ -463,11 +416,7 @@ class SondeDellaClassificazione(unittest.TestCase):
         ridistribuibile di Visual Studio. Il runner lo possiede perche' ci gira
         Visual Studio; una macchina di destinazione pulita potrebbe non averlo,
         e l'artefatto non partirebbe con un errore che parla di una DLL
-        mancante invece che di cio' che manca davvero.
-
-        Classificarlo guardando il runner sarebbe la forma piu' comoda di un
-        falso verde: l'artefatto parte dove e' stato costruito, e non dove
-        viene installato."""
+        mancante invece che di cio' che manca davvero."""
         for nome in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"):
             with self.subTest(nome=nome):
                 self.assertNotIn(nome, self.pe.POLITICA_ABI)
@@ -487,9 +436,8 @@ class SondeDellaClassificazione(unittest.TestCase):
 
     def test_la_politica_dichiara_il_proprio_limite(self) -> None:
         """Le voci sono classificate sulla documentazione dei componenti di
-        Windows, non su una misura fatta su un'installazione pulita. E' una
-        garanzia piu' debole, e va detto: un runner di GitHub non e' una
-        baseline."""
+        Windows, non su una misura fatta su un'installazione pulita: un runner
+        di GitHub non e' una baseline."""
         sorgente = (RADICE / "scripts" / "check-windows-runtime.py").read_text(encoding="utf-8")
         blocco = sorgente[: sorgente.index("POLITICA_ABI = {")]
         self.assertIn("baseline", blocco.lower())
@@ -500,6 +448,69 @@ class SondeDellaClassificazione(unittest.TestCase):
         nessuno ha deciso che cosa sia quella dipendenza."""
         self.assertEqual(self.pe.classifica_dipendenza("ignota.dll", {}, set()), "inattesa")
         self.assertIn("inattesa", self.pe.CATEGORIE)
+
+
+class SondeSulPerimetro(unittest.TestCase):
+    """Che cosa il verificatore pretende di avere prima di dire qualcosa."""
+
+    def setUp(self) -> None:
+        self.pe = carica("check-windows-runtime.py")
+
+    def test_un_contratto_esiste_solo_se_viene_da_un_rilievo(self) -> None:
+        """La pretesa giusta, che ho dovuto correggere.
+
+        La prima formulazione vietava un contratto di verifica finche' la
+        piattaforma non fosse **costruita**. Era una scorciatoia: cio' che va
+        vietato non e' un contratto su una piattaforma non ancora verificata --
+        e' un contratto **scritto a tavolino**, cioe' una soglia mai misurata
+        che passa per misurata.
+
+        Ora il contratto Windows esiste e viene da una corsa di scoperta reale,
+        con il digest del rilievo per ciascun profilo. La piattaforma resta non
+        costruita, perche' il contratto non e' ancora stato **applicato**: sono
+        due cose diverse, e la prima sonda le confondeva."""
+        import json
+
+        for nome in ("windows-gdal-lock.json",):
+            percorso = RADICE / "scripts" / nome
+            if not percorso.exists():
+                continue
+            with self.subTest(lock=nome):
+                lock = json.loads(percorso.read_text(encoding="utf-8"))
+                contratto = lock.get("contratto_di_verifica")
+                if contratto is None:
+                    continue  # non ancora misurato: e' il blocco registrato
+                origine = contratto.get("rilievo_di_origine")
+                self.assertIsNotNone(
+                    origine,
+                    "il contratto non dice da quale rilievo viene: sarebbe una soglia "
+                    "scritta a tavolino, e passerebbe per misurata",
+                )
+                self.assertTrue(origine.get("sha_sorgente"))
+                self.assertEqual(set(origine["sha256"]), {"base", "filegdb"})
+
+    def test_gli_insiemi_attesi_vengono_dalla_misura(self) -> None:
+        """Il contratto porta cio' che la scoperta ha visto, non cio' che
+        sarebbe ragionevole aspettarsi.
+
+        `base` chiede tre DLL e `filegdb` quindici; le tre del base compaiono
+        tutte fra le quindici, e non per caso -- `bcryptprimitives.dll` e' li'
+        perche' la libreria standard di Rust la usa, ed e' una dipendenza del
+        nostro binario e non di GDAL."""
+        import json
+
+        percorso = RADICE / "scripts" / "windows-gdal-lock.json"
+        contratto = json.loads(percorso.read_text(encoding="utf-8")).get("contratto_di_verifica")
+        if contratto is None:
+            self.skipTest("il contratto non e' ancora stato scritto")
+        attese = contratto["dll_di_sistema_attese"]
+        self.assertLessEqual(set(attese["base"]), set(attese["filegdb"]))
+        self.assertIn("bcryptprimitives.dll", attese["base"])
+        # E ogni attesa e' ammissibile: un insieme che ammettesse cio' che la
+        # politica non ammette sarebbe un'eccezione concessa a se stesso.
+        for profilo, nomi in sorted(attese.items()):
+            with self.subTest(profilo=profilo):
+                self.assertLessEqual(set(nomi), self.pe.POLITICA_ABI)
 
 
 if __name__ == "__main__":

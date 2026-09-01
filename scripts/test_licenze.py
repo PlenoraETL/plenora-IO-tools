@@ -64,8 +64,63 @@ def artefatto_finto(radice: pathlib.Path, componenti: dict[str, list[str]]) -> p
         directory.mkdir()
         for testo in testi:
             (directory / testo).write_text("testo della licenza\n", encoding="utf-8")
+    # L'SBOM finto e' un SPDX **valido**: il gate lo valida, ed e' giusto che
+    # lo faccia. Un artefatto di prova malformato renderebbe rossa la sonda per
+    # una ragione che non e' quella che sta provando.
     (albero / "SBOM.spdx.json").write_text(
-        json.dumps({"packages": [{"name": n} for n in componenti]}), encoding="utf-8"
+        json.dumps(
+            {
+                "spdxVersion": "SPDX-2.3",
+                "dataLicense": "CC0-1.0",
+                "SPDXID": "SPDXRef-DOCUMENT",
+                "name": "artefatto-di-prova",
+                "documentNamespace": "https://plenora.invalid/sbom/prova/" + "a" * 16,
+                "creationInfo": {"creators": ["Tool: sonde"]},
+                "packages": [
+                    {
+                        "SPDXID": f"SPDXRef-Package-{n}",
+                        "name": n,
+                        "versionInfo": "1.0",
+                        "downloadLocation": "NOASSERTION",
+                        "licenseConcluded": "NOASSERTION",
+                        "licenseDeclared": "MIT",
+                        "filesAnalyzed": False,
+                        "comment": "pacchetto nativo, build 0",
+                    }
+                    for n in componenti
+                ]
+                + [
+                    {
+                        "SPDXID": "SPDXRef-Crate-esempio-1-0",
+                        "name": "esempio",
+                        "versionInfo": "1.0",
+                        "downloadLocation": "registry+https://github.com/rust-lang/crates.io-index",
+                        "licenseConcluded": "NOASSERTION",
+                        "licenseDeclared": "MIT",
+                        "filesAnalyzed": False,
+                        "comment": "crate Rust linkato staticamente nel binario",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    crate = albero / "LICENSES" / "crate-rust"
+    crate.mkdir(parents=True, exist_ok=True)
+    (crate / "MIT.txt").write_text("testo MIT", encoding="utf-8")
+    (crate / "CRATE.json").write_text(
+        json.dumps(
+            {
+                "profilo": "base",
+                "linkati": 1,
+                "di_terzi": 1,
+                "identificatori": ["MIT"],
+                "pacchetti": [
+                    {"nome": "esempio", "versione": "1.0", "licenza": "MIT", "nostro": False}
+                ],
+            }
+        ),
+        encoding="utf-8",
     )
     (albero / "LICENSES" / "PROVENIENZA.json").write_text(
         json.dumps({"pacchetti": [{"nome": n} for n in componenti]}), encoding="utf-8"
