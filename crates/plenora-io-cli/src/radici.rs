@@ -89,6 +89,15 @@ const RADICI: &[Radice] = &[
         variabile: "PROJ_DATA",
         relativo: "share/proj",
     },
+    // `PROJ_LIB` e' il nome storico della stessa cosa: PROJ lo legge fino alla
+    // 9.0, e dalla 9.1 legge `PROJ_DATA`. Impostare entrambe non e' incertezza
+    // -- e' che il nome e' cambiato, e un artefatto non decide quale versione
+    // di PROJ si trovera' accanto: la nostra e' fissata, ma il valore vecchio
+    // costa una riga e toglie un modo di fallire.
+    Radice {
+        variabile: "PROJ_LIB",
+        relativo: "share/proj",
+    },
     Radice {
         variabile: "GDAL_DRIVER_PATH",
         relativo: "lib/gdalplugins",

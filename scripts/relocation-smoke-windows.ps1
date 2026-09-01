@@ -13,8 +13,10 @@
 #    all'eseguibile e poi nel `PATH`, e lasciarvi le directory del runner
 #    vorrebbe dire permettergli di trovare altrove cio' che l'artefatto deve
 #    portarsi dietro.
-# 6. `GDAL_DATA`, `PROJ_DATA` e `GDAL_DRIVER_PATH` preimpostate a sentinelle
-#    inesistenti: se il binario le lasciasse stare, fallirebbe.
+# 6. `GDAL_DATA`, `PROJ_DATA`, `PROJ_LIB` e `GDAL_DRIVER_PATH` preimpostate a
+#    sentinelle inesistenti: se il binario le lasciasse stare, fallirebbe.
+#    `PROJ_LIB` e' il nome storico di `PROJ_DATA` -- PROJ lo legge fino alla 9.0
+#    -- e avvelenarlo invece di azzerarlo chiude una via che resterebbe aperta.
 # 7. Si scrive e si rilegge un dataset -- un FileGDB con un CRS per il profilo
 #    pieno, un GeoParquet per il base -- verificando schema e geometria.
 #
@@ -92,15 +94,30 @@ try {
         "TMP"              = $Terza
         "GDAL_DATA"        = "$sentinella\gdal"
         "PROJ_DATA"        = "$sentinella\proj"
+        # Anche il nome storico: azzerarla invece che avvelenarla lascerebbe una
+        # via aperta, e la prova sarebbe piu' debole di quel che dichiara.
+        "PROJ_LIB"         = "$sentinella\proj-lib"
         "GDAL_DRIVER_PATH" = "$sentinella\plugins"
     }
     $precedenti = @{}
     foreach ($k in $ambiente.Keys) { $precedenti[$k] = [Environment]::GetEnvironmentVariable($k) }
-    foreach ($chiave in @("GDAL_HOME", "PROJ_LIB", "CONDA_PREFIX")) {
+    foreach ($chiave in @("GDAL_HOME", "CONDA_PREFIX")) {
         $precedenti[$chiave] = [Environment]::GetEnvironmentVariable($chiave)
         [Environment]::SetEnvironmentVariable($chiave, $null)
     }
     foreach ($k in $ambiente.Keys) { [Environment]::SetEnvironmentVariable($k, $ambiente[$k]) }
+
+    # Diagnostica prima della prova: quando questa fallisce, il messaggio parla
+    # di `proj.db` e non di cio' che manca davvero. Sapere che cosa c'e'
+    # nell'albero e che cosa il processo vede costa quattro righe, e le prime due
+    # corse le ho spese a indovinare.
+    Write-Host "   albero: $(Get-ChildItem -LiteralPath $radice -Name | Sort-Object)"
+    foreach ($atteso in @("share\gdal", "share\proj", "share\proj\proj.db")) {
+        $presente = Test-Path -LiteralPath (Join-Path $radice $atteso)
+        Write-Host "   $atteso : $presente"
+    }
+    Write-Host "   PROJ_DATA nell'ambiente: $([Environment]::GetEnvironmentVariable('PROJ_DATA'))"
+    Write-Host "   PROJ_LIB  nell'ambiente: $([Environment]::GetEnvironmentVariable('PROJ_LIB'))"
 
     Write-Host "== 7. conversione e rilettura"
     $csv = Join-Path $Terza "sorgente.csv"

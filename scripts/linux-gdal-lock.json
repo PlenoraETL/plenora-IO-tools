@@ -572,8 +572,8 @@
       {
         "schema": "/share/proj",
         "categoria": "coperto_da_variabile",
-        "variabile": "PROJ_DATA",
-        "ragione": "come sopra: senza, le trasformazioni di CRS degradano in silenzio"
+        "variabile": "PROJ_DATA, PROJ_LIB",
+        "ragione": "come sopra: senza, le trasformazioni di CRS degradano in silenzio. Sono due nomi per la stessa cosa -- PROJ legge `PROJ_LIB` fino alla 9.0 e `PROJ_DATA` dalla 9.1 -- e si impostano entrambe perche' il nome e' cambiato, non perche' ci sia incertezza."
       },
       {
         "schema": "/lib/gdalplugins",
