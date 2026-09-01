@@ -1,63 +1,69 @@
 {
-  "schema_version": 1,
-  "descrizione": "Provenienza del fork governato, registrata separatamente dal lock. Il gate confronta i due: una divergenza significa che qualcuno ha aggiornato il vendor senza aggiornare la provenienza, o viceversa.",
-  "package": "gdal",
-  "version": "0.17.1",
-  "crate_sha256": "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f",
-  "upstream_revision": "a324724c60dbf1e9bf0fb05203c4e0a1eefbf312",
-  "licenza_upstream": "MIT",
-  "file_licenza": "LICENSE.txt",
-  "risoluzione": "il workspace risolve gdal 0.17.1 esclusivamente da vendor/gdal via [patch.crates-io]",
-  "perimetro_vendorizzato": {
-    "conservati": [
-      "manifest",
-      "build.rs",
-      "src/",
-      "licenza",
-      "readme",
-      "metadato VCS"
-    ],
-    "esclusi": [
-      "fixture",
-      "workflow",
-      "script",
-      "esempi",
-      "test upstream non collegati dalla dipendenza"
-    ],
-    "ragione": "ridurre il perimetro governato; il sottoinsieme e' fissato dal tree hash nel lock"
-  },
-  "procedura_di_aggiornamento": [
-    "ripartire da una release upstream identificata da tag, commit e checksum",
-    "riapplicare e revisionare separatamente i delta dichiarati",
-    "eseguire la suite upstream, i test driver-dxf e il gate di provenienza",
-    "rieseguire il benchmark interlacciato contro la baseline precedente",
-    "aggiornare insieme questo registro e scripts/dxf-fork-lock.json"
+ "schema_version": 1,
+ "descrizione": "Provenienza del fork governato, registrata separatamente dal lock. Il gate confronta i due: una divergenza significa che qualcuno ha aggiornato il vendor senza aggiornare la provenienza, o viceversa.",
+ "package": "gdal",
+ "version": "0.17.1",
+ "crate_sha256": "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f",
+ "upstream_revision": "a324724c60dbf1e9bf0fb05203c4e0a1eefbf312",
+ "licenza_upstream": "MIT",
+ "file_licenza": "LICENSE.txt",
+ "risoluzione": "il workspace risolve gdal 0.17.1 esclusivamente da vendor/gdal via [patch.crates-io]",
+ "perimetro_vendorizzato": {
+  "conservati": [
+   "manifest",
+   "build.rs",
+   "src/",
+   "licenza",
+   "readme",
+   "metadato VCS"
   ],
-  "package_verification": {
-    "stato": "not_applicable",
-    "ragione": "il crate conserva `.cargo_vcs_info.json`, un nome che Cargo riserva: `cargo package` lo rifiuta come «invalid inclusion of reserved file name». Il metadato e' tenuto di proposito per l'attribuzione upstream. Verificato che il comportamento sia preesistente e non introdotto dalla migrazione dei registri, confrontando la baseline 2fe9b54 alle stesse condizioni.",
-    "non_e_un_verde": "un controllo non applicabile non e' un controllo superato. Il packaging non fa parte del ciclo di vita di questo crate, e al suo posto valgono le prove sotto — che sono pertinenti, non sostitutive di comodo.",
-    "prove_correnti": [
-      {
-        "afferma": "il crate e' risolto per path via [patch.crates-io], non da crates.io",
-        "verificata_da": "scripts/check_gdal_fork.py",
-        "come": "Cargo.lock deve risolvere un'unica dipendenza path senza `source` ne' `checksum`, e il Cargo.toml di workspace deve puntare esclusivamente al fork governato"
-      },
-      {
-        "afferma": "il crate non viene pubblicato",
-        "verificata_da": "scripts/check_gdal_fork.py",
-        "come": "una dipendenza risolta per path non ha una release su un registry: non esiste artefatto pubblicato di cui verificare il packaging"
-      },
-      {
-        "afferma": "il crate compila e passa i test nella matrice gdal-backend",
-        "verificata_da": "scripts/s9-checkpoint.sh",
-        "come": "i passi `clippy` e `test` girano con --all-features, che abilita gdal-backend; il passo `check_filegdb_catalog` esercita il driver reale"
-      },
-      {
-        "afferma": "identita', digest e revisione upstream coincidono fra registro, lock e pacchetto",
-        "verificata_da": "scripts/check_gdal_fork.py",
-        "come": "il gate confronta le tre fonti, incluso `.cargo_vcs_info.json` — lo stesso file che rende il packaging non applicabile"
-      }
-    ]
-  }
+  "esclusi": [
+   "fixture",
+   "workflow",
+   "script",
+   "esempi",
+   "test upstream non collegati dalla dipendenza"
+  ],
+  "ragione": "ridurre il perimetro governato; il sottoinsieme e' fissato dal tree hash nel lock"
+ },
+ "procedura_di_aggiornamento": [
+  "ripartire da una release upstream identificata da tag, commit e checksum",
+  "riapplicare e revisionare separatamente i delta dichiarati",
+  "eseguire la suite upstream, i test driver-dxf e il gate di provenienza",
+  "rieseguire il benchmark interlacciato contro la baseline precedente",
+  "aggiornare insieme questo registro e scripts/dxf-fork-lock.json"
+ ],
+ "package_verification": {
+  "stato": "not_applicable",
+  "ragione": "il crate conserva `.cargo_vcs_info.json`, un nome che Cargo riserva: `cargo package` lo rifiuta come «invalid inclusion of reserved file name». Il metadato e' tenuto di proposito per l'attribuzione upstream. Verificato che il comportamento sia preesistente e non introdotto dalla migrazione dei registri, confrontando la baseline 2fe9b54 alle stesse condizioni.",
+  "non_e_un_verde": "un controllo non applicabile non e' un controllo superato. Il packaging non fa parte del ciclo di vita di questo crate, e al suo posto valgono le prove sotto — che sono pertinenti, non sostitutive di comodo.",
+  "prove_correnti": [
+   {
+    "afferma": "il crate e' risolto per path via [patch.crates-io], non da crates.io",
+    "verificata_da": "scripts/check_gdal_fork.py",
+    "come": "Cargo.lock deve risolvere un'unica dipendenza path senza `source` ne' `checksum`, e il Cargo.toml di workspace deve puntare esclusivamente al fork governato"
+   },
+   {
+    "afferma": "il crate non viene pubblicato",
+    "verificata_da": "scripts/check_gdal_fork.py",
+    "come": "una dipendenza risolta per path non ha una release su un registry: non esiste artefatto pubblicato di cui verificare il packaging"
+   },
+   {
+    "afferma": "il crate compila e passa i test nella matrice gdal-backend",
+    "verificata_da": "scripts/s9-checkpoint.sh",
+    "come": "i passi `clippy` e `test` girano con --all-features, che abilita gdal-backend; il passo `check_filegdb_catalog` esercita il driver reale"
+   },
+   {
+    "afferma": "identita', digest e revisione upstream coincidono fra registro, lock e pacchetto",
+    "verificata_da": "scripts/check_gdal_fork.py",
+    "come": "il gate confronta le tre fonti, incluso `.cargo_vcs_info.json` — lo stesso file che rende il packaging non applicabile"
+   }
+  ]
+ },
+ "delta_funzionali": {
+  "nota": "I file in cui il fork diverge da upstream nel comportamento, non nell'imballaggio. L'elenco autoritativo e' `functional_delta_files` in scripts/gdal-fork-lock.json; qui c'e' il perche', che un elenco di nomi non porta.",
+  "src/vector/layer.rs": "delta preesistente.",
+  "src/spatial_ref/srs.rs": "aggiunge `set_proj_search_paths` e `get_proj_search_paths`, cioe' `OSRSetPROJSearchPaths` e `OSRGetPROJSearchPaths`, che upstream non espone. Servono perche' un artefatto rilocabile deve dire a PROJ dove sono i propri dati, e la config option `PROJ_DATA` di GDAL **non** arriva a PROJ: misurato con il default nascosto e l'ambiente avvelenato, e provato a ogni corsa da crates/driver-filegdb/tests/radici_di_proj.rs. Senza questa via l'artefatto Windows fallisce la prima conversione con un CRS.",
+  "src/spatial_ref/mod.rs": "esporta le due funzioni aggiunte in srs.rs."
+ }
 }

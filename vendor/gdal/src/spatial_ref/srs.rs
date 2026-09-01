@@ -1,5 +1,6 @@
-use crate::utils::{_last_null_pointer_err, _string};
+use crate::utils::{_last_null_pointer_err, _string, _string_array};
 use gdal_sys::{self, OGRErr, OSRAxisMappingStrategy};
+use libc::c_char;
 use std::ffi::{CStr, CString};
 use std::ptr::{self};
 use std::str::FromStr;
@@ -1008,4 +1009,40 @@ mod tests {
             expected_geog_cs.to_wkt()
         );
     }
+}
+
+/// Set the search path(s) PROJ uses to find its resource files.
+///
+/// This is `OSRSetPROJSearchPaths`, and it is *not* the same thing as setting
+/// the `PROJ_DATA` configuration option: GDAL does not forward that option to
+/// PROJ, so a relocatable distribution that only sets the option keeps reading
+/// whatever paths were compiled into PROJ at build time.
+///
+/// The paths replace any previously configured ones, including the ones taken
+/// from the environment.
+pub fn set_proj_search_paths(paths: &[&str]) -> Result<()> {
+    let owned = paths
+        .iter()
+        .map(|p| CString::new(p.as_bytes()))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut raw: Vec<*const c_char> = owned.iter().map(|s| s.as_ptr()).collect();
+    raw.push(ptr::null());
+    unsafe { gdal_sys::OSRSetPROJSearchPaths(raw.as_ptr()) };
+    Ok(())
+}
+
+/// The search path(s) PROJ currently uses, as GDAL sees them.
+///
+/// With nothing configured this reports the defaults PROJ was built with, which
+/// makes it the way to learn where the resource files actually live before
+/// overriding the paths.
+#[must_use]
+pub fn get_proj_search_paths() -> Vec<String> {
+    let list = unsafe { gdal_sys::OSRGetPROJSearchPaths() };
+    if list.is_null() {
+        return Vec::new();
+    }
+    let paths = _string_array(list);
+    unsafe { gdal_sys::CSLDestroy(list) };
+    paths
 }

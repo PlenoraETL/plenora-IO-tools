@@ -29,10 +29,35 @@
 //! nulla lo mostrava. Con le sentinelle al posto delle radici, l'artefatto
 //! falliva alla prima conversione con un CRS.
 //!
-//! La cura e' applicare il piano **anche** attraverso le config option di
-//! GDAL, che GDAL consulta prima dell'ambiente e inoltra a PROJ. Il piano sta
-//! quindi qui, in un posto solo, e ciascun consumatore lo applica con il
-//! meccanismo che sulla sua strada funziona.
+//! La cura e' applicare il piano **anche** dentro GDAL. Non pero' con un
+//! meccanismo solo: le config option bastano per cio' che legge GDAL, e non
+//! bastano per PROJ.
+//!
+//! # Che cosa e' stato misurato, invece che supposto
+//!
+//! Con il default nascosto e l'ambiente avvelenato, su GDAL 3.6 in container:
+//!
+//! - `GDAL_DATA` come config option: **funziona**, purche' impostata prima del
+//!   primo `CPLFindFile` -- GDAL inizializza il proprio finder una volta sola.
+//! - `PROJ_DATA` come config option: **non funziona**. Nemmeno `PROJ_LIB`.
+//!   GDAL non la inoltra a PROJ, e la ricerca resta quella cotta dentro PROJ.
+//! - `OSRSetPROJSearchPaths`: **funziona**. E' l'unica via, ed e' per questo
+//!   che il fork governato la espone.
+//!
+//! La prima stesura di questa cura applicava solo le config option, e
+//! sembrava ragionevole. Il relocation smoke Windows e' rimasto rosso con lo
+//! stesso identico messaggio, ed e' cosi' che si e' scoperto che GDAL e PROJ
+//! non condividono quella tabella.
+//!
+//! # `XML_CATALOG_FILES` su Windows resta scoperta
+//!
+//! libxml2 legge `getenv` e non ha ne' config option ne' un'API di percorso.
+//! Su Windows la variabile impostata da Rust non la vede, e il catalogo resta
+//! quello cotto nel prefisso di costruzione. Quel percorso su una macchina che
+//! installa non esiste, quindi l'entita' esterna **non** si risolve lo stesso:
+//! l'esito voluto arriva per assenza invece che per configurazione. E' piu'
+//! debole di come suonerebbe dire che la variabile e' impostata, e vale la pena
+//! scriverlo invece di lasciarlo credere.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -74,6 +99,27 @@ pub const RADICI: &[Radice] = &[
         relativo: "lib/gdalplugins",
     },
 ];
+
+/// La riga che non passa dalle config option.
+///
+/// PROJ non legge la tabella di GDAL: le sue risorse si indirizzano con
+/// `OSRSetPROJSearchPaths` e con nient'altro. Il nome sta qui, accanto alla
+/// tabella, perche' chi applica il piano deve poter riconoscere **questa**
+/// riga e trattarla a parte -- e perche' se la riga sparisse dalla tabella,
+/// questa costante resterebbe a indicare qualcosa che non c'e' piu', e la
+/// sonda che le confronta diventerebbe rossa.
+pub const RADICE_DI_PROJ: &str = "PROJ_DATA";
+
+/// La directory dei dati di PROJ dentro l'artefatto, se spedita.
+///
+/// Separata dal resto del piano perche' il suo destinatario e' un'altra API.
+#[must_use]
+pub fn proj_del_processo() -> Option<OsString> {
+    piano_del_processo()
+        .into_iter()
+        .find(|(variabile, _)| *variabile == RADICE_DI_PROJ)
+        .map(|(_, valore)| valore)
+}
 
 /// La variabile che si svuota invece di puntarla da qualche parte.
 ///
@@ -273,6 +319,24 @@ mod tests {
         std::fs::create_dir_all(binario.parent().unwrap()).unwrap();
         std::fs::write(&binario, b"").unwrap();
         assert!(radice_da(&binario).is_none());
+    }
+
+    /// `RADICE_DI_PROJ` nomina una riga che nella tabella c'e' davvero.
+    ///
+    /// E' la costante che chi applica il piano tratta a parte, perche' PROJ non
+    /// legge le config option di GDAL. Se la riga sparisse, l'applicazione
+    /// smetterebbe di indirizzare PROJ **in silenzio**: continuerebbe a
+    /// impostare tutto il resto, e il difetto tornerebbe a somigliare a un dato
+    /// rotto invece che a una configurazione mancante.
+    #[test]
+    fn la_radice_di_proj_e_una_riga_della_tabella() {
+        let dir = tempfile::tempdir().unwrap();
+        artefatto_completo(dir.path());
+        let p = mappa(piano(dir.path()));
+        let valore = p
+            .get(RADICE_DI_PROJ)
+            .expect("`RADICE_DI_PROJ` non nomina nessuna riga della tabella");
+        assert!(Path::new(valore).ends_with("proj"));
     }
 
     /// Un percorso senza nonno non fa panicare niente.

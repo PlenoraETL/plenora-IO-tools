@@ -366,40 +366,48 @@ pub fn runtime_available() -> bool {
     }
 }
 
+/// Le radici dell'artefatto, applicate **dentro GDAL** e non solo all'ambiente.
+///
+/// # Perche' non basta l'ambiente
+///
+/// La CLI le impone gia' con `std::env::set_var`, e su Linux e' abbastanza:
+/// `setenv` aggiorna `environ`, che e' quello che `getenv` legge anche dalle
+/// librerie native.
+///
+/// Su Windows no. `set_var` chiama `SetEnvironmentVariableW`, che aggiorna il
+/// blocco d'ambiente **del processo**; il runtime C ne mantiene una copia, e
+/// `getenv` legge quella. GDAL e PROJ chiamano `getenv`: la variabile impostata
+/// da Rust non la vedono affatto, e l'artefatto Windows falliva alla prima
+/// conversione con un CRS -- «Cannot find proj.db» -- pur avendo `share/proj`
+/// accanto a se'.
+///
+/// # Due meccanismi, perche' uno non copre l'altro
+///
+/// GDAL e PROJ non condividono la tabella delle config option. E' stato
+/// misurato, non supposto -- default nascosto e ambiente avvelenato, su GDAL
+/// 3.6:
+///
+/// - `GDAL_DATA` come config option arriva a GDAL;
+/// - `PROJ_DATA` come config option **non** arriva a PROJ, e nemmeno `PROJ_LIB`;
+/// - `OSRSetPROJSearchPaths` arriva.
+///
+/// La prima stesura applicava le sole config option. Il relocation smoke
+/// Windows e' rimasto rosso con lo stesso messaggio, ed e' cosi' che la
+/// differenza e' venuta fuori.
 #[cfg(feature = "gdal-backend")]
-mod radici {
-    //! Le radici dell'artefatto, applicate **a GDAL** e non solo all'ambiente.
-    //!
-    //! # Perche' non basta l'ambiente
-    //!
-    //! La CLI le impone gia' con `std::env::set_var`, e su Linux e' abbastanza:
-    //! `setenv` aggiorna `environ`, che e' quello che `getenv` legge anche dalle
-    //! librerie native.
-    //!
-    //! Su Windows no. `set_var` chiama `SetEnvironmentVariableW`, che aggiorna il
-    //! blocco d'ambiente **del processo**; il runtime C ne mantiene una copia, e
-    //! `getenv` legge quella. GDAL e PROJ chiamano `getenv`: la variabile
-    //! impostata da Rust non la vedono affatto, e l'artefatto Windows falliva
-    //! alla prima conversione con un CRS -- «Cannot find proj.db» -- pur avendo
-    //! `share/proj` accanto a se'.
-    //!
-    //! Le config option di GDAL non hanno quel problema: sono una tabella dentro
-    //! GDAL, che le consulta **prima** dell'ambiente, e per `PROJ_DATA` le
-    //! inoltra a PROJ. E' la via che funziona su entrambe le piattaforme.
-    //!
-    //! # Perche' restano tutte e due
-    //!
-    //! L'ambiente vale anche per le librerie che non passano da GDAL, e lo
-    //! erediterebbe un processo figlio; le config option valgono dentro questo
-    //! processo e solo per GDAL. Non si sostituiscono: si sovrappongono dove
-    //! serve.
-
+pub mod radici {
     use std::sync::Once;
 
     static UNA_VOLTA: Once = Once::new();
 
-    /// Applica le radici a GDAL, una volta per processo e prima della prima
-    /// apertura: i dati si leggono all'inizializzazione dei driver.
+    /// Applica le radici a GDAL e a PROJ, una volta per processo.
+    ///
+    /// Va chiamata **prima di qualunque uso di GDAL**: il finder dei dati si
+    /// inizializza al primo `CPLFindFile`, e una config option impostata dopo
+    /// non lo sposta piu'. E' il motivo per cui la chiama `main`, e non solo
+    /// l'apertura di un dataset: la risoluzione del CRS avviene in validazione,
+    /// prima che questo driver apra qualcosa, e applicare le radici li' dentro
+    /// arrivava troppo tardi.
     ///
     /// Un errore nell'impostare una config option non ferma il comando: GDAL
     /// continuerebbe con i propri default, e il rifiuto arriverebbe piu' avanti
@@ -411,6 +419,12 @@ mod radici {
             for (chiave, valore) in plenora_io_core::radici::piano_del_processo() {
                 if let Some(testo) = valore.to_str() {
                     let _ = gdal::config::set_config_option(chiave, testo);
+                }
+            }
+            // PROJ a parte: la sua ricerca non passa dalle config option.
+            if let Some(proj) = plenora_io_core::radici::proj_del_processo() {
+                if let Some(testo) = proj.to_str() {
+                    let _ = gdal::spatial_ref::set_proj_search_paths(&[testo]);
                 }
             }
         });
