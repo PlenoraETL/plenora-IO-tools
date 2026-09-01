@@ -564,23 +564,33 @@ deve poterlo leggere invece di scoprirlo eseguendo `catalog`.
 
 ### Il runtime è fissato
 
-GDAL **3.10.3** su tutte e tre le piattaforme. Non è una preferenza: oggi la
-CI misura FileGDB in scrittura *assente* su Ubuntu 22.04 e *presente* su
-24.04. È la distribuzione a decidere che cosa il prodotto sa fare, e un
-artefatto che eredita quella decisione non ha un'identità stabile.
+GDAL **3.9.3** su tutte e tre le piattaforme, da conda-forge. Non è una
+preferenza: oggi la CI misura FileGDB in scrittura *assente* su Ubuntu 22.04 e
+*presente* su 24.04. È la distribuzione a decidere che cosa il prodotto sa
+fare, e un artefatto che eredita quella decisione non ha un'identità stabile.
 
-Windows è già fissato così: `scripts/windows-gdal-lock.json` porta
-quarantanove pacchetti OSGeo4W, ciascuno con dimensione e SHA-256 da un base
-URL dichiarato. Linux e macOS prendono la stessa versione da conda-forge, che
-la pubblica per tutte e tre le architetture con la stessa forma verificabile.
+Perché 3.9 e non l'ultima: `gdal-sys 0.10.0` spedisce binding pre-costruiti
+soltanto fino a 3.9, e su 3.10 la build si ferma da sola. Le due uscite da quel
+vicolo sono peggiori. La feature `bindgen` genera i binding a build time e
+cambia `Cargo.lock`, che qui non è un dettaglio. Dichiarare a `gdal-sys` una
+versione diversa da quella spedita compila l'ABI di una serie contro la
+libreria di un'altra — ed è ciò che il progetto faceva su Windows, dove il lock
+dichiarava una libreria 3.10.3 con binding 3.6.0 e l'installatore forzava la
+versione per farla compilare. Nessun gate lo vedeva, perché la forzatura
+mascherava proprio la condizione che avrebbe fermato la build.
 
-Una versione uguale è la **precondizione** perché la capability sia uguale,
-non la prova. OSGeo4W e conda-forge possono compilare la stessa 3.10.3 con
-opzioni diverse, e opzioni diverse danno driver diversi. A dimostrarlo è lo
-smoke, che su ogni piattaforma **crea** un FileGDB vero con l'artefatto
+Una catena sola per tutte e tre. Windows veniva da OSGeo4W, con un formato di
+lock proprio; ora prende da conda-forge come le altre. Tre origini diverse per
+la stessa versione non danno la stessa identità, e la differenza si sarebbe
+vista solo a valle.
+
+Una versione uguale resta la **precondizione** perché la capability sia uguale,
+non la prova: la stessa versione compilata con opzioni diverse dà driver
+diversi, e build per piattaforme diverse restano build diverse. A dimostrarlo è
+lo smoke, che su ogni piattaforma **crea** un FileGDB vero con l'artefatto
 installato, lo **rilegge**, e verifica schema, numero di righe e geometria.
-`catalog` dichiara ciò che il driver crede di poter fare; fra la
-dichiarazione e il fatto c'è la GDAL spedita.
+`catalog` dichiara ciò che il driver crede di poter fare; fra la dichiarazione
+e il fatto c'è la GDAL spedita.
 
 ### Che cosa si promette sulla risoluzione delle dipendenze
 

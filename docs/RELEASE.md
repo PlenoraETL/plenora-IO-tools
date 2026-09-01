@@ -507,7 +507,7 @@ docker run --rm -v "$PWD":/work -v /percorso/lavoro:/A -w /work \
 Il lock si **rigenera** soltanto quando si cambia versione di GDAL:
 
 ```sh
-python3 scripts/genera-linux-gdal-lock.py --lavoro /A/nuovo --subdir linux-64
+python3 scripts/genera-gdal-lock.py --lavoro /A/nuovo --subdir linux-64
 ```
 
 Rigenerarlo invalida ogni misura fatta sul precedente. La versione e' 3.9 e non
@@ -585,7 +585,11 @@ classificazione strutturale, e non diventano provati perche' lo smoke e' verde.
 
 ##### Esito misurato
 
-Su GDAL 3.9.3, con l'artefatto costruito e verificato in locale:
+Su GDAL 3.9.3, con l'artefatto costruito e verificato in locale. Il prefisso di
+costruzione lo dichiara il manifesto dell'artefatto, cosi' che il controllo non
+debba farselo dire a mano: passarne uno sbagliato non trova nessun percorso
+assoluto, e senza la guardia che rende rosso lo zero sembrerebbe un artefatto
+pulito.
 
 | misura | valore |
 | --- | --- |
@@ -596,6 +600,8 @@ Su GDAL 3.9.3, con l'artefatto costruito e verificato in locale:
 | ELF con `DT_NEEDED` assoluti | 0 |
 | percorsi assoluti classificati | 29 su 29 |
 | RPATH radicati in `$ORIGIN` e interni | 56 su 56 |
+| licenze con il testo spedito | 40 pacchetti, 41 file, ~390 KB |
+| licenze con la sola dichiarazione | 3, nominati in `PROVENIENZA.json` |
 | relocation smoke | verde, con controprova |
 
 I numeri stanno qui come **referto di una corsa**, non come contratto: il
@@ -604,22 +610,31 @@ questa tabella a essere vecchia.
 
 ---
 
-#### Windows x86_64 — non ancora costruita
+#### Windows x86_64 — fissata, non ancora costruita
 
-Vedi `blocchi_aperti` in `assurance/registries/distribuzione-matrice.json`.
-In sintesi: il lock Windows dichiara GDAL 3.10.3 con `binding_version` 3.6.0, e
-`install-windows-gdal.ps1` forza `GDAL_VERSION=3.6.0`. Si compilano quindi
-binding di una ABI contro una libreria di un'altra. Il difetto e' emerso
-costruendo su Linux, dove nessuno forzava la versione e la build si e' fermata
-da sola.
+Il lock c'e' ed e' coerente: `scripts/windows-gdal-lock.json`, conda-forge,
+GDAL 3.9.3 con binding della stessa serie. La catena precedente era OSGeo4W e
+dichiarava una libreria 3.10.3 con binding 3.6.0, mentre
+`install-windows-gdal.ps1` forzava la versione per farla compilare: si
+compilava l'ABI di una serie contro la libreria di un'altra, e nessun gate lo
+vedeva perche' la forzatura mascherava proprio la condizione che avrebbe
+fermato la build. E' emersa costruendo su Linux, dove nessuno forzava niente.
 
-Va chiuso sul runner `windows-2022`, dove si puo' verificare.
+L'installatore e' stato riscritto sul nuovo formato e **non e' mai stato
+eseguito**: in questo lotto non c'e' un runner Windows, e uno script PowerShell
+che non ha girato e' una dichiarazione, non una verifica. Resta anche da
+scrivere il contratto di verifica del lock -- l'equivalente di quello Linux,
+che parla di ELF e di GLIBC e su Windows vuole altre domande.
 
-#### macOS aarch64 — non ancora costruita
+Si chiude su `windows-2022`, misurando.
 
-Non esiste ancora un costruttore ne' un lock per `osx-arm64`. Va fatto sul
-runner `macos-15`, con `MACOSX_DEPLOYMENT_TARGET=15.0` verificato in ogni
-Mach-O e lo smoke sul proprio runner.
+#### macOS aarch64 — fissata, non ancora costruita
+
+Il lock c'e': `scripts/macos-gdal-lock.json`, conda-forge, GDAL 3.9.3, risolto
+dichiarando `CONDA_OVERRIDE_OSX=15.0` — la soglia della piattaforma, non una
+comodita' del solver. Manca il costruttore, che va scritto su `macos-15` con
+`MACOSX_DEPLOYMENT_TARGET=15.0` verificato in ogni Mach-O e lo smoke sul
+proprio runner.
 
 ### 6. Decisione finale di rilascio
 

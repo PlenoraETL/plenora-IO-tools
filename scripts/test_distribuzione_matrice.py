@@ -23,12 +23,32 @@ RADICE = pathlib.Path(__file__).resolve().parent.parent
 MATRICE = RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
 LOCK_LINUX = RADICE / "scripts" / "linux-gdal-lock.json"
 LOCK_WINDOWS = RADICE / "scripts" / "windows-gdal-lock.json"
+LOCK_MACOS = RADICE / "scripts" / "macos-gdal-lock.json"
+LOCK_PER_PIATTAFORMA = {
+    "linux-x86_64": LOCK_LINUX,
+    "windows-x86_64": LOCK_WINDOWS,
+    "macos-aarch64": LOCK_MACOS,
+}
+
 CHECKER = RADICE / "scripts" / "check-linux-gdal-runtime.py"
 RADICI_RS = RADICE / "crates" / "plenora-io-cli" / "src" / "radici.rs"
 
 
 def carica(percorso: pathlib.Path) -> dict:
     return json.loads(percorso.read_text(encoding="utf-8"))
+
+
+def docset() -> list[pathlib.Path]:
+    """I documenti canonici, presi da chi li definisce.
+
+    Elencarli qui a mano sarebbe una copia del perimetro, e le copie divergono:
+    un documento nuovo resterebbe fuori da questa sonda senza che nessuno se ne
+    accorga. `check_docset.py` e' il posto dove il docset e' deciso, e da li'
+    si legge."""
+    sorgente = (RADICE / "scripts" / "check_docset.py").read_text(encoding="utf-8")
+    blocco = sorgente.split("CANONICI = [")[1].split("]")[0]
+    return [RADICE / relativo for relativo in re.findall(r'"([^"]+)"', blocco)]
+
 
 
 class SondeMatrice(unittest.TestCase):
@@ -49,21 +69,28 @@ class SondeMatrice(unittest.TestCase):
             if p["stato_costruzione"] == "costruita"
         }
 
-    def test_la_versione_gdal_e_una_sola_fra_le_piattaforme_costruite(self) -> None:
+    def test_la_versione_gdal_e_una_sola_in_ogni_lock(self) -> None:
         """E' la precondizione perche' la capability sia la stessa ovunque: se
         due artefatti dichiarassero versioni diverse, porterebbero prodotti
         diversi sotto lo stesso nome.
 
-        La pretesa vale fra artefatti **reali**. Una piattaforma non ancora
-        costruita non ha una capability di cui pretendere l'uguaglianza -- e
-        perche' lo stato non diventi un modo per far tacere questa sonda, ogni
-        piattaforma non costruita deve portare un blocco registrato."""
+        La pretesa vale su **ogni lock che esiste**, non solo su quelli gia'
+        costruiti. Un lock e' una dichiarazione di che cosa si scarichera', e
+        vale gia' prima che qualcuno lo materializzi: e' proprio nella finestra
+        fra «dichiarato» e «costruito» che la divergenza precedente e'
+        sopravvissuta, con Windows a 3.10.3 e Linux a 3.9.3.
+
+        Legarla alle sole piattaforme costruite era troppo debole, e lo era in
+        modo comodo: rendeva vera una sonda lasciando falso il repository."""
         dichiarata = self.matrice["contratto_gdal"]["versione"]
-        costruite = self.costruite()
-        self.assertIn("linux-x86_64", costruite, "il lotto Linux e' il primo: senza, non c'e' nulla")
-        self.assertEqual(self.lock["gdal_version"], dichiarata)
-        if "windows-x86_64" in costruite:
-            self.assertEqual(carica(LOCK_WINDOWS)["gdal_version"], dichiarata)
+        trovati = 0
+        for piattaforma, percorso in sorted(LOCK_PER_PIATTAFORMA.items()):
+            if not percorso.exists():
+                continue
+            trovati += 1
+            with self.subTest(piattaforma=piattaforma):
+                self.assertEqual(carica(percorso)["gdal_version"], dichiarata)
+        self.assertGreaterEqual(trovati, 1, "nessun lock trovato: la sonda non ha guardato niente")
 
     def test_ogni_piattaforma_non_costruita_porta_un_blocco(self) -> None:
         """La sonda che chiude la scappatoia.
@@ -95,12 +122,10 @@ class SondeMatrice(unittest.TestCase):
         quando smette non lo dice. Su Linux la build si e' fermata da sola --
         non esistono binding per 3.10 -- e per questo il difetto si e' visto.
 
-        La pretesa vale sui lock delle piattaforme costruite: dove non c'e'
-        ancora un artefatto, il disallineamento e' registrato come blocco."""
-        per_piattaforma = {"linux-x86_64": LOCK_LINUX, "windows-x86_64": LOCK_WINDOWS}
-        for piattaforma in sorted(self.costruite()):
-            percorso = per_piattaforma.get(piattaforma)
-            if percorso is None or not percorso.exists():
+        Vale su ogni lock: un binding disallineato e' un difetto della
+        dichiarazione, e non serve materializzarla per vederlo."""
+        for piattaforma, percorso in sorted(LOCK_PER_PIATTAFORMA.items()):
+            if not percorso.exists():
                 continue
             with self.subTest(piattaforma=piattaforma):
                 lock = carica(percorso)
@@ -239,6 +264,52 @@ class SondeMatrice(unittest.TestCase):
                     ),
                     f"«{relativo}» non ricade in nessuna voce del layout dichiarato: {dichiarate}",
                 )
+
+    def test_ogni_lock_dichiara_i_virtuali_con_cui_e_stato_risolto(self) -> None:
+        """Un lock risolto contro `__glibc >=2.35` non e' lo stesso risolto
+        contro `>=2.36`, e conda deduce quei valori da chi esegue il solver.
+
+        Senza dichiararli, lo stesso comando su due macchine puo' produrre due
+        chiusure diverse e il lock non direbbe quale delle due e' la sua --
+        cioe' proprio la cosa che un lock esiste per escludere."""
+        for piattaforma, percorso in sorted(LOCK_PER_PIATTAFORMA.items()):
+            if not percorso.exists():
+                continue
+            with self.subTest(piattaforma=piattaforma):
+                self.assertIn("virtuali_alla_risoluzione", carica(percorso))
+
+    def test_nessun_documento_nomina_una_versione_gdal_diversa(self) -> None:
+        """La sonda che avrebbe colto la contraddizione dove e' sopravvissuta.
+
+        I lock e la matrice erano gia' confrontati fra loro; a divergere in
+        silenzio sono stati i **documenti**, che continuavano a dire 3.10.3 e
+        binding 3.6.0 dopo che il contratto era cambiato. La prosa non si
+        riconcilia da sola, e una versione scritta a mano in un documento e'
+        una copia come tutte le altre.
+
+        Una versione diversa resta ammessa dove la riga dice che e' passata: un
+        documento deve poter raccontare che cosa c'era prima, purche' lo
+        dichiari invece di affermarlo al presente."""
+        contratto = self.matrice["contratto_gdal"]["versione"]
+        binding = self.matrice["contratto_gdal"]["binding_rust"]["binding_version_dichiarata"]
+        ammesse = {contratto, binding}
+        # Il lookahead esclude una cifra o un altro segmento di versione, non
+        # un punto qualunque: `(?![\w.])` lasciava sfuggire ogni versione a fine
+        # frase, dove il punto fermo segue subito. La controprova l'ha trovato.
+        schema = re.compile(r"(?<![\w.])3\.\d+\.\d+(?!\w|\.\d)")
+        storica = re.compile(r"\b(era|prima|precedent|non piu|storic|dichiarava|forzava|mascherava)", re.I)
+        for documento in docset():
+            if not documento.exists():
+                continue
+            for numero, riga in enumerate(documento.read_text(encoding="utf-8").splitlines(), 1):
+                for versione in schema.findall(riga):
+                    if versione in ammesse or storica.search(riga):
+                        continue
+                    self.fail(
+                        f"{documento.name}:{numero} nomina {versione} mentre il contratto e' "
+                        f"{contratto}: «{riga.strip()[:90]}». Se e' una versione storica, la riga "
+                        "deve dirlo."
+                    )
 
     def test_lo_strumento_che_risolve_e_fissato(self) -> None:
         """Uno strumento che cambia da solo rende non riproducibile cio' che

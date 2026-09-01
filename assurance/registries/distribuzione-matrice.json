@@ -137,29 +137,22 @@
   },
   "contratto_gdal": {
     "versione": "3.9.3",
-    "perche_questa": "e' gia' la versione fissata per Windows in `scripts/windows-gdal-lock.json`, ed e' disponibile per linux-64, linux-aarch64 e osx-arm64 dalla stessa origine. Una versione sola su tutte le piattaforme e' la **precondizione** perche' la capability sia la stessa ovunque -- non la prova: vedi `capability_non_segue_dalla_versione`.",
-    "capability_non_segue_dalla_versione": "OSGeo4W e conda-forge possono compilare la stessa 3.10.3 con opzioni diverse, e opzioni diverse danno driver diversi. La versione uguale non dimostra niente da sola: a dimostrarlo e' lo smoke, che scrive e rilegge un FileGDB vero su ogni piattaforma.",
+    "perche_questa": "e' l'ultima serie per cui `gdal-sys 0.10.0` spedisce binding pre-costruiti. Su 3.10 la build si ferma da sola con «No pre-built bindings available», e le due uscite da quel vicolo sono peggiori: la feature `bindgen` li genera a build time e cambia `Cargo.lock`, e dichiarare a `gdal-sys` una versione diversa da quella spedita compila l'ABI di una serie contro la libreria di un'altra. 3.9.3 e' risolvibile su tutte e tre le piattaforme dalla stessa origine -- misurato, non supposto: 56 pacchetti per linux-64, 44 per win-64, 48 per osx-arm64.",
+    "capability_non_segue_dalla_versione": "la stessa versione compilata con opzioni diverse da' driver diversi. Con una catena sola -- conda-forge su tutte e tre -- la superficie del dubbio si restringe, ma non sparisce: le build per piattaforme diverse restano build diverse. A dimostrare la capability e' lo smoke, che scrive e rilegge un FileGDB vero su ogni piattaforma.",
     "binding_rust": {
       "crate": "gdal",
       "versione": "=0.17.1",
       "fork": "vendor/gdal",
-      "binding_version_dichiarata": "3.6.0",
-      "nota": "il binding dichiara 3.6.0 come versione di riferimento e funziona con 3.10.3; il lock di Windows lo verifica gia' e i lock nuovi devono verificarlo allo stesso modo."
+      "binding_version_dichiarata": "3.9.0",
+      "nota": "la versione dichiarata a `gdal-sys` e' la serie della libreria **spedita**, e una sonda lo verifica su ogni lock. Prima non lo era: il lock Windows dichiarava 3.6.0 su una libgdal 3.10.3, e `install-windows-gdal.ps1` forzava `GDAL_VERSION=3.6.0` per farla compilare. La forzatura mascherava esattamente la condizione che avrebbe fermato la build, ed e' emersa costruendo su Linux, dove nessuno forzava niente."
     },
     "origini": [
-      {
-        "piattaforma": "windows-x86_64",
-        "origine": "OSGeo4W",
-        "lock": "scripts/windows-gdal-lock.json",
-        "stato": "gia' fissato: 49 pacchetti, ciascuno con dimensione e sha256, da un base URL dichiarato"
-      },
       {
         "piattaforma": "linux-x86_64",
         "origine": "conda-forge",
         "lock": "scripts/linux-gdal-lock.json",
-        "stato": "fissato e verificato",
-        "pacchetti": 58,
-        "risolto_con": "micromamba 2.9.0, fissato per sha256 e usato una volta sola",
+        "stato": "fissato, materializzato e verificato; artefatto costruito e smoke eseguito",
+        "risolto_con": "micromamba 2.9.0, fissato per sha256",
         "dove_stanno_i_numeri": "in `scripts/linux-gdal-lock.json` per cio' che il controllo **pretende**, e in `verifica-runtime.json` dentro il prefisso per cio' che ha **misurato**. Qui non ce ne sono: la prima stesura ne aveva copiati tre dello stesso fatto -- 55, 56 e 57 dipendenze -- di cui due sbagliati, e nessun gate se ne accorgeva perche' erano prosa.",
         "che_cosa_e_stato_verificato": [
           "la chiusura DT_NEEDED da una radice data, non l'elenco dei pacchetti",
@@ -171,10 +164,19 @@
         ]
       },
       {
+        "piattaforma": "windows-x86_64",
+        "origine": "conda-forge",
+        "lock": "scripts/windows-gdal-lock.json",
+        "stato": "fissato; mai materializzato, perche' in questo lotto non c'e' un runner Windows",
+        "risolto_con": "micromamba 2.9.0, fissato per sha256",
+        "era": "OSGeo4W, con un formato di lock proprio e GDAL 3.10.3. La catena e' stata unificata: tre origini diverse per la stessa versione non danno la stessa identita', e la differenza si sarebbe vista solo a valle."
+      },
+      {
         "piattaforma": "macos-aarch64",
         "origine": "conda-forge",
         "lock": "scripts/macos-gdal-lock.json",
-        "stato": "da produrre"
+        "stato": "fissato; mai materializzato, perche' in questo lotto non c'e' un runner macOS",
+        "risolto_con": "micromamba 2.9.0, fissato per sha256"
       }
     ],
     "perche_conda_forge_e_non_la_distribuzione": "la GDAL di distribuzione non e' fissabile: cambia con il sistema, e con essa cambia la capability. conda-forge pubblica la stessa versione per le tre piattaforme, ogni pacchetto con un sha256 verificabile e un URL stabile -- la stessa forma che OSGeo4W ha gia' su Windows. Costruire GDAL dai sorgenti darebbe piu' controllo e porterebbe con se' l'intera chiusura di PROJ, GEOS e sqlite da fissare a loro volta: e' la strada da prendere se conda-forge si rivelasse insufficiente, non prima.",
@@ -242,7 +244,8 @@
       "note_attese": "GDAL e' MIT/X11, PROJ e' MIT, e la chiusura ne porta altre -- fra cui LGPL, che impone di poter sostituire la libreria. Il layout con le librerie in `lib/` e il caricamento per percorso relativo lo permette, ed e' una delle ragioni per cui il contratto sulla risoluzione vale sull'artefatto **integro** invece di pretendere un fail-closed che renderebbe impossibile la sostituzione.",
       "verifica": "il gate rifiuta un artefatto in cui un file di `lib/` non abbia una licenza corrispondente in `LICENSES/`"
     },
-    "versione_nota": "la versione e' 3.9 e non l'ultima disponibile perche' `gdal-sys 0.10.0` spedisce binding pre-costruiti soltanto per 3.0-3.9. Le due alternative erano peggiori: la feature `bindgen` genera i binding a build time e cambia `Cargo.lock`, e dichiarare a `gdal-sys` una versione diversa da quella spedita compila binding di una ABI contro una libreria di un'altra."
+    "versione_nota": "la versione e' 3.9 e non l'ultima disponibile perche' `gdal-sys 0.10.0` spedisce binding pre-costruiti soltanto per 3.0-3.9. Le due alternative erano peggiori: la feature `bindgen` genera i binding a build time e cambia `Cargo.lock`, e dichiarare a `gdal-sys` una versione diversa da quella spedita compila binding di una ABI contro una libreria di un'altra.",
+    "risoluzione_riproducibile": "i pacchetti virtuali con cui si risolve sono **dichiarati** nel lock, non ereditati dalla macchina del solver. Conda deduce `__glibc`, `__osx` e `__win` da chi esegue la risoluzione: senza dichiararli, lo stesso comando su due macchine puo' dare due chiusure diverse e il lock non direbbe quale delle due e' la sua. I valori sono la soglia dichiarata della piattaforma."
   },
   "cosa_deve_rifiutare_il_gate": [
     "un archivio a cui manchi una delle voci dichiarate nel layout del suo profilo",
@@ -270,14 +273,14 @@
   "blocchi_aperti": [
     {
       "piattaforma": "windows-x86_64",
-      "blocco": "il lock Windows dichiara GDAL 3.10.3 e `binding_version` 3.6.0, e `install-windows-gdal.ps1` forza `GDAL_VERSION=3.6.0` perche' `gdal-sys 0.10.0` non ha binding pre-costruiti oltre 3.9. Si compilano quindi binding di una ABI contro una libreria di un'altra: funziona finche' funziona, e quando smette non lo dice.",
-      "come_e_emerso": "costruendo l'artefatto Linux. Su Linux nessuno forzava la versione, e la build si e' fermata da sola con «No pre-built bindings available for GDAL version 3.10». Su Windows la stessa condizione era mascherata dalla forzatura, e nessun gate la vedeva.",
-      "che_cosa_lo_chiude": "portare la catena Windows -- che non e' conda, ha un proprio canale e un proprio formato di lock -- a una GDAL della serie 3.9, e togliere la forzatura di `GDAL_VERSION`. Va fatto dove si puo' verificare, cioe' sul runner `windows-2022` del lotto multipiattaforma: cambiarlo qui produrrebbe un lock non eseguito.",
+      "blocco": "il lock e l'installatore sono coerenti -- conda-forge, GDAL 3.9.3, binding della stessa serie -- ma **non sono mai stati eseguiti**: in questo lotto non c'e' un runner Windows. Uno script che non ha girato e' una dichiarazione, non una verifica. Manca inoltre il contratto di verifica del lock: quello Linux parla di ELF, di DT_NEEDED e di GLIBC, e su Windows le domande sono altre.",
+      "come_e_emerso": "il difetto originale -- una libreria 3.10.3 con binding 3.6.0, e l'installatore che forzava la versione per farla compilare -- e' emerso costruendo l'artefatto Linux, dove nessuno forzava niente e la build si e' fermata da sola. La forzatura mascherava proprio la condizione che l'avrebbe fermata. Quel difetto ora e' chiuso nella dichiarazione; resta aperta l'esecuzione.",
+      "che_cosa_lo_chiude": "materializzare il lock su `windows-2022`, scrivere il contratto di verifica per i PE come esiste per gli ELF, e costruire l'artefatto con lo smoke sul proprio runner.",
       "nel_frattempo": "la piattaforma resta `non_ancora_costruita`, e le sonde che pretendono coerenza fra artefatti reali non la includono. Non e' un'esenzione: e' che non c'e' ancora un artefatto di cui pretendere coerenza."
     },
     {
       "piattaforma": "macos-aarch64",
-      "blocco": "non esiste ancora un costruttore per macOS, ne' un lock per `osx-arm64`.",
+      "blocco": "il lock c'e' -- `scripts/macos-gdal-lock.json`, conda-forge, GDAL 3.9.3 -- e manca il costruttore, insieme al contratto di verifica per i Mach-O.",
       "come_e_emerso": "per costruzione: il lotto Linux e' il primo, e macOS e' nel lotto multipiattaforma.",
       "che_cosa_lo_chiude": "il costruttore macOS sul runner `macos-15`, con `MACOSX_DEPLOYMENT_TARGET=15.0` verificato in ogni Mach-O e lo smoke sul proprio runner.",
       "nel_frattempo": "come sopra."

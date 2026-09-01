@@ -22,7 +22,7 @@ stessi byte, o vede subito che non lo sta facendo.
 
 # Uso
 
-    python3 scripts/genera-linux-gdal-lock.py --lavoro /tmp/lock-gdal
+    python3 scripts/genera-gdal-lock.py --lavoro /tmp/lock-gdal --subdir linux-64
 
 Servono `curl`, `tar`, `bzip2` e rete. Il file prodotto va riletto da un umano
 prima di essere committato: e' un contratto, non un output.
@@ -50,6 +50,29 @@ CANALE = "conda-forge"
 # l'estrazione falliva.
 SUBDIR_STRUMENTO = "linux-64"
 SUBDIR_PREDEFINITO = "linux-64"
+
+# I pacchetti virtuali con cui si risolve, dichiarati invece che ereditati.
+#
+# Conda deduce `__glibc`, `__osx` e `__win` dalla macchina su cui **gira il
+# solver**. Risolvere per `osx-arm64` da Linux fallisce per questo -- `__osx`
+# non c'e' -- ma il problema vero e' l'altro: risolvere per `linux-64` su una
+# macchina con glibc 2.36 puo' dare pacchetti diversi da una con 2.35, e il
+# lock non direbbe quale delle due l'ha prodotto. Un lock e' riproducibile
+# soltanto se la risoluzione non dipende da chi la esegue.
+#
+# I valori non sono comodi: sono la **soglia dichiarata** della piattaforma,
+# cioe' cio' che la macchina di destinazione deve avere. Cambiarli e' cambiare
+# la promessa, e finiscono nel lock perche' chi lo rilegge sappia contro che
+# cosa e' stato risolto.
+VIRTUALI_PER_SUBDIR = {
+    "linux-64": {
+        "CONDA_OVERRIDE_GLIBC": "2.35",
+    },
+    "win-64": {},
+    "osx-arm64": {
+        "CONDA_OVERRIDE_OSX": "15.0",
+    },
+}
 # GDAL 3.9, e non l'ultima disponibile, perche' `gdal-sys 0.10.0` spedisce
 # binding pre-costruiti soltanto per 3.0-3.9. Su 3.10 la build si ferma da sola
 # con «No pre-built bindings available», e le due uscite da quel vicolo sono
@@ -168,6 +191,10 @@ def main() -> int:
     }[subdir]
     uscita_lock = opzioni.uscita or f"{piattaforma.split('-')[0]}-gdal-lock.json"
 
+    virtuali = VIRTUALI_PER_SUBDIR[subdir]
+    if virtuali:
+        print(f"risoluzione con pacchetti virtuali dichiarati: {virtuali}")
+
     pin = pin_di_micromamba(lavoro)
     micromamba = procurati(pin, lavoro)
 
@@ -191,7 +218,11 @@ def main() -> int:
             ],
             check=True,
             stdout=uscita,
-            env={"MAMBA_ROOT_PREFIX": str(lavoro / "root"), "PATH": "/usr/bin:/bin"},
+            env={
+                "MAMBA_ROOT_PREFIX": str(lavoro / "root"),
+                "PATH": "/usr/bin:/bin",
+                **virtuali,
+            },
         )
 
     fetch = json.loads(risoluzione.read_text(encoding="utf-8"))["actions"]["FETCH"]
@@ -212,11 +243,11 @@ def main() -> int:
             }
         )
 
-    virtuali: dict[str, set[str]] = defaultdict(set)
+    requisiti: dict[str, set[str]] = defaultdict(set)
     for p in fetch:
         for dip in p.get("depends") or []:
             if dip.split()[0].startswith("__"):
-                virtuali[dip.split()[0]].add(dip.strip())
+                requisiti[dip.split()[0]].add(dip.strip())
 
     lock = {
         "schema_version": 1,
@@ -233,13 +264,21 @@ def main() -> int:
         "pacchetto_radice": PACCHETTO_RADICE,
         "binding_version": BINDING_VERSION,
         "risolto_con": pin,
+        "virtuali_alla_risoluzione": virtuali,
+        "virtuali_alla_risoluzione_nota": (
+            "i pacchetti virtuali con cui la risoluzione e' stata fatta, dichiarati invece che "
+            "ereditati dalla macchina del solver. Senza, lo stesso comando su due macchine "
+            "diverse puo' produrre due chiusure diverse, e il lock non direbbe quale delle due "
+            "e' la sua. I valori sono la soglia dichiarata della piattaforma: cambiarli e' "
+            "cambiare la promessa verso chi installa."
+        ),
         "requisiti_virtuali": [
             {
                 "nome": nome,
-                "vincoli": sorted(virtuali[nome]),
-                "minimo_richiesto": soglia(sorted(virtuali[nome])),
+                "vincoli": sorted(requisiti[nome]),
+                "minimo_richiesto": soglia(sorted(requisiti[nome])),
             }
-            for nome in sorted(virtuali)
+            for nome in sorted(requisiti)
         ],
         "requisiti_virtuali_nota": (
             "le dipendenze virtuali di Conda non sono pacchetti scaricabili: sono condizioni sul "

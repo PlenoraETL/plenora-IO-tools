@@ -262,11 +262,22 @@ def main() -> int:
     # Su un runtime appena materializzato coincidono, e per questo la confusione
     # non si vede; su un albero assemblato altrove no, e allora il controllo dei
     # percorsi assoluti non trova nulla e conclude che non ce ne sono.
-    prefisso_di_costruzione = (
-        opzioni.prefisso_di_costruzione.resolve()
-        if opzioni.prefisso_di_costruzione
-        else prefisso
-    )
+    # L'ordine e' voluto: cio' che si passa a mano vince, perche' serve a
+    # indagare; poi cio' che l'artefatto ha registrato di se'; poi il prefisso
+    # stesso, che e' il caso del runtime appena materializzato.
+    manifesto = prefisso / "MANIFEST.json"
+    dal_manifesto = None
+    if manifesto.is_file():
+        dal_manifesto = json.loads(manifesto.read_text(encoding="utf-8")).get(
+            "prefisso_di_costruzione"
+        )
+    if opzioni.prefisso_di_costruzione:
+        prefisso_di_costruzione = opzioni.prefisso_di_costruzione.resolve()
+    elif dal_manifesto:
+        prefisso_di_costruzione = pathlib.Path(dal_manifesto)
+        print(f"prefisso di costruzione, dal manifesto dell'artefatto: {prefisso_di_costruzione}")
+    else:
+        prefisso_di_costruzione = prefisso
     testo_prefisso = str(prefisso_di_costruzione)
     regole = contratto["percorsi_assoluti_ammessi"]
     non_classificati: dict[str, list[str]] = {}

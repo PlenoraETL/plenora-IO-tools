@@ -16,6 +16,10 @@
     "dimensione": 6988090,
     "nota": "fissato anch'esso: uno strumento che materializza l'ambiente e che cambia da solo renderebbe non riproducibile tutto cio' che ne esce. E' stato usato **una volta**, per produrre questo file; il costruttore non lo usa."
   },
+  "virtuali_alla_risoluzione": {
+    "CONDA_OVERRIDE_GLIBC": "2.35"
+  },
+  "virtuali_alla_risoluzione_nota": "i pacchetti virtuali con cui la risoluzione e' stata fatta, dichiarati invece che ereditati dalla macchina del solver. Senza, lo stesso comando su due macchine diverse puo' produrre due chiusure diverse, e il lock non direbbe quale delle due e' la sua. I valori sono la soglia dichiarata della piattaforma: cambiarli e' cambiare la promessa verso chi installa.",
   "requisiti_virtuali": [
     {
       "nome": "__glibc",

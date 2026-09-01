@@ -97,6 +97,10 @@ def mappa_dei_pacchetti(prefisso: pathlib.Path) -> dict[str, dict]:
             "canale": d.get("channel", ""),
             "licenza": d.get("license", ""),
             "licenza_famiglia": d.get("license_family", ""),
+            # Dove conda ha estratto il pacchetto. I testi delle licenze stanno
+            # li' sotto `info/licenses`, e non nel prefisso: conda vi linka i
+            # soli file del pacchetto, e `info/` non e' fra quelli.
+            "directory_estratta": d.get("extracted_package_dir", ""),
         }
         for f in d.get("files", []):
             mappa[f] = identita
@@ -298,24 +302,58 @@ def main() -> int:
             "e' incompleto proprio dove serve."
         )
 
-    # conda linka nel prefisso i soli file del pacchetto: il testo delle licenze
-    # resta dentro l'archivio `.conda`, sotto `info/licenses`, e nel prefisso
-    # non c'e'. Estrarlo di la' e' il passo che rende `LICENSES/` un contenuto e
-    # non un elenco, e sta nel lotto della distribuzione multipiattaforma
-    # insieme alla stessa domanda per Windows e macOS. Qui si spedisce cio' che
-    # si sa con certezza: quale pacchetto ha messo quale file, e con quale
-    # licenza dichiarata.
+    # I testi, non soltanto i nomi.
+    #
+    # conda linka nel prefisso i soli file del pacchetto: `info/licenses` resta
+    # nella directory in cui il pacchetto e' stato estratto, e `conda-meta` ne
+    # porta il percorso. Copiarli di la' e' cio' che rende `LICENSES/` un
+    # contenuto invece di un elenco -- e un elenco di licenze non e' cio' che
+    # una licenza obbliga a distribuire.
     licenze = albero / "LICENSES"
+    senza_testo: list[dict] = []
+    with_testo = 0
+    for nome_pacchetto in sorted(pacchetti):
+        identita = pacchetti[nome_pacchetto]
+        estratta = identita.get("directory_estratta") or ""
+        origine = pathlib.Path(estratta) / "info" / "licenses" if estratta else None
+        if origine is None or not origine.is_dir():
+            # Non si tace: un pacchetto senza testo va nominato, con la licenza
+            # che dichiara. Chi deve adempiere sa cosi' che cosa gli manca e
+            # dove cercarlo, invece di dedurlo dall'assenza.
+            if not identita["licenza"]:
+                raise SystemExit(
+                    f"{nome_pacchetto}: nessun testo di licenza e nessuna licenza dichiarata. "
+                    "Spedire un file senza sapere sotto quale licenza lo si spedisce non e' "
+                    "una cosa che questo costruttore possa decidere da solo."
+                )
+            senza_testo.append(
+                {"pacchetto": nome_pacchetto, "licenza_dichiarata": identita["licenza"]}
+            )
+            continue
+        shutil.copytree(origine, licenze / nome_pacchetto, dirs_exist_ok=True)
+        with_testo += 1
+    print(
+        f"   licenze: {with_testo} pacchetti con testo, {len(senza_testo)} con la sola "
+        "dichiarazione",
+        flush=True,
+    )
+
     (licenze / "PROVENIENZA.json").write_text(
         json.dumps(
             {
                 "nota": (
-                    "la licenza dichiarata da ciascun pacchetto che ha messo un file "
-                    "in questo artefatto. La fonte e' `conda-meta/` del prefisso, cioe' "
-                    "il registro che conda scrive al momento del link: non e' una "
-                    "ricostruzione a posteriori."
+                    "la licenza di ciascun pacchetto che ha messo un file in questo artefatto. "
+                    "La fonte e' `conda-meta/` del prefisso, cioe' il registro che conda scrive "
+                    "al momento del link: non e' una ricostruzione a posteriori. I testi stanno "
+                    "nelle directory accanto, una per pacchetto."
                 ),
                 "pacchetti": [pacchetti[k] for k in sorted(pacchetti)],
+                "senza_testo": senza_testo,
+                "senza_testo_nota": (
+                    "questi pacchetti non portano `info/licenses` nel proprio archivio. Resta la "
+                    "licenza che dichiarano, e resta scritto qui che il testo manca: un elenco "
+                    "silenzioso avrebbe lasciato credere che ci fosse tutto."
+                ),
             },
             ensure_ascii=False,
             indent=2,
@@ -372,6 +410,16 @@ def main() -> int:
         ),
         "gdal": lock["gdal_version"],
         "lock": sha256(LOCK),
+        # Il prefisso in cui il runtime e' stato materializzato, cioe' cio' che
+        # i binari nominano dentro di se'. Sta qui perche' il controllo non
+        # debba farselo dire a mano: passarne uno sbagliato non trova nessun
+        # percorso assoluto, e senza la guardia che rende rosso lo zero
+        # sembrerebbe un artefatto pulito. E' gia' successo.
+        "prefisso_di_costruzione": str(prefisso),
+        "licenze": {
+            "con_testo": with_testo,
+            "con_la_sola_dichiarazione": len(senza_testo),
+        },
         "normalizzazioni": normalizzazioni,
         "normalizzazioni_nota": (
             "i `DT_NEEDED` riscritti da `patchelf`. Erano percorsi assoluti al prefisso di "

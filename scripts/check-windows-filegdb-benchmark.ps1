@@ -156,17 +156,26 @@ if ($LASTEXITCODE -ne 0) {
     throw "Cannot resolve benchmark source revision"
 }
 
+# Le versioni si leggono dal lock, non si ricopiano qui: una versione scritta a
+# mano e' una seconda verita', ed e' cosi' che 3.10.3 e' sopravvissuta al cambio
+# di contratto in tre documenti diversi.
+$lock = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "windows-gdal-lock.json") | ConvertFrom-Json
+$serieBinding = (([string]$lock.binding_version) -split '\.')[0..1] -join '.'
+
 $result = [ordered]@{
     schema_version = 1
     source_revision = $revision
     platform = "windows-x86_64-msvc"
     runtime = @{
-        gdal = "3.10.3"
+        # Letta dal lock e non ricopiata: una versione scritta a mano qui e' una
+        # seconda verita', ed e' cosi' che 3.10.3 e' sopravvissuta al cambio di
+        # contratto in tre documenti diversi.
+        gdal = [string]$lock.gdal_version
         rust_gdal = "0.17.1"
         rust_gdal_source = "governed-path-fork"
         rust_gdal_upstream_checksum = "82ab834e8be6b54fee3d0141fce5e776ad405add1f9d0da054281926e0d35a9f"
         gdal_sys = "0.10.0"
-        bindings = "prebuilt-3.6"
+        bindings = "prebuilt-$serieBinding"
     }
     fixture = @{
         rows = $Rows
