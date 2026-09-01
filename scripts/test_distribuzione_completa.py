@@ -40,8 +40,12 @@ class SondeDelGateFinale(unittest.TestCase):
 
     def referto(self, piattaforma: str, profilo: str, verifica: str, **campi) -> None:
         misure = {
+            # Anche il profilo base ha un referto `runtime`: su Windows
+            # spedisce il runtime C, e su Linux dimostra con un conteggio che
+            # non spedisce niente. Era un'ipotesi ereditata da Linux, e la
+            # prima corsa di scoperta l'ha smentita.
             "runtime": {
-                "elf_spediti": 56,
+                "binari_spediti": 56 if profilo == "filegdb" else 1,
                 "dipendenze_esterne": ["libc.so.6"],
                 "percorsi_assoluti_classificati": 29,
             },
@@ -106,11 +110,11 @@ class SondeDelGateFinale(unittest.TestCase):
         self.serie_completa()
         percorso = self.tmp / "linux-x86_64-filegdb-runtime.json"
         d = json.loads(percorso.read_text(encoding="utf-8"))
-        del d["misure"]["elf_spediti"]
+        del d["misure"]["binari_spediti"]
         percorso.write_text(json.dumps(d), encoding="utf-8")
         errori = self.esegui()
         self.assertTrue(errori)
-        self.assertIn("elf_spediti", " ".join(errori))
+        self.assertIn("binari_spediti", " ".join(errori))
 
     def test_il_profilo_base_deve_dimostrare_filegdb_assente(self) -> None:
         """Non basta che il base non usi FileGDB: deve dimostrare che manca.

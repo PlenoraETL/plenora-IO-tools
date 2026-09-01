@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Il gate finale: sei artefatti, e i referti che li dimostrano.
+"""Il gate finale: quattro artefatti, e i referti che li dimostrano.
 
 # Perche' esiste
 
@@ -16,10 +16,15 @@ contratto promette.
 
 # La matrice
 
-Tre piattaforme per due profili sono sei artefatti, e ogni artefatto vuole le
-sue verifiche. Un referto mancante non e' un'omissione da tollerare: e' la
+Due piattaforme per due profili sono quattro artefatti, e ogni artefatto vuole
+le sue verifiche. Un referto mancante non e' un'omissione da tollerare: e' la
 differenza fra «verificato» e «non verificato», e sono le due cose che questo
 gate esiste per distinguere.
+
+Il perimetro non e' cablato qui: viene dalla matrice, dove macOS e' registrato
+come **fuori scope della v1**. Un artefatto in meno perche' qualcuno ha tolto un
+job e' un buco; un artefatto in meno perche' una piattaforma e' fuori scope e'
+una decisione.
 
 # Il profilo base non e' un artefatto minore
 
@@ -94,10 +99,19 @@ def perimetro() -> tuple[tuple[str, ...], dict[str, dict]]:
 # conclusione si puo' sbagliare in silenzio; una misura o c'e' e torna, o no.
 VERIFICHE_ATTESE = {
     "runtime": {
-        "misure_obbligatorie": ("elf_spediti", "dipendenze_esterne", "percorsi_assoluti_classificati"),
-        "solo_profilo": "filegdb",
+        # `binari_spediti` e non `elf_spediti`: su Windows sono PE, e un nome
+        # che nomina un formato in un contratto comune e' un'ipotesi travestita
+        # da campo.
+        "misure_obbligatorie": ("binari_spediti", "dipendenze_esterne"),
+        # Nessun `solo_profilo`: era un'ipotesi ereditata da Linux, dove il
+        # profilo base non spedisce librerie perche' `libgcc_s` e `libm` sono
+        # garantite dal sistema. La prima corsa di scoperta su Windows l'ha
+        # smentita: anche il base importa `vcruntime140.dll`, che **non** e' un
+        # componente del sistema operativo -- e' il runtime C ridistribuibile,
+        # e va spedito. Un profilo che spedisce qualcosa ha una chiusura da
+        # verificare, e chi non spedisce niente lo dimostra con un referto che
+        # dice zero.
         "perche": "la chiusura, le dipendenze fuori dall'albero e i percorsi cotti dentro",
-        "perche_solo_quel_profilo": "il profilo base non spedisce librerie: non c'e' una chiusura",
     },
     "licenze-artefatto": {
         "misure_obbligatorie": ("componenti_con_testo",),

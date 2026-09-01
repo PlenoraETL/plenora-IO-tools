@@ -649,10 +649,10 @@ questa tabella a essere vecchia.
 
 ---
 
-#### I due profili, e i sei artefatti
+#### I due profili, e i quattro artefatti
 
-Tre piattaforme per due profili sono **sei** artefatti, e i due profili sono due
-prodotti con due promesse opposte.
+Due piattaforme per due profili sono **quattro** artefatti, e i due profili sono
+due prodotti con due promesse opposte.
 
 `filegdb` promette che FileGDB funzioni, e lo si dimostra scrivendone uno e
 rileggendolo. `base` promette che FileGDB **manchi**, ed è la promessa che ci si

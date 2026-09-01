@@ -306,7 +306,18 @@ def main() -> int:
     print("percorsi assoluti cotti nei binari, per categoria:")
     for categoria, quanti in sorted(per_categoria.items()):
         print(f"  {categoria:22s} {quanti}")
-    if not per_categoria and not non_classificati:
+    # La guardia vale **se si e' spedito qualcosa dal prefisso**.
+    #
+    # Dopo la rilocazione di conda un percorso c'e' sempre nelle librerie che
+    # conda ha materializzato -- ed e' per questo che zero e' sospetto. Ma un
+    # binario Rust che non linka nulla di conda non ne contiene nessuno, e li'
+    # zero e' il valore giusto: pretendere il contrario renderebbe rosso il
+    # profilo base per una proprieta' che ha ragione di avere.
+    #
+    # La condizione e' quindi «ci sono librerie interne», non «e' il profilo
+    # filegdb»: lega la guardia a cio' che la rende sensata invece che a
+    # un'etichetta.
+    if interne and not per_categoria and not non_classificati:
         # Zero non e' un buon esito: e' il sintomo di aver cercato la stringa
         # sbagliata. La rilocazione di conda **sostituisce** il placeholder con
         # il prefisso, quindi qualche percorso c'e' sempre, e non trovarne
@@ -379,7 +390,8 @@ def main() -> int:
             canale=dichiarazione["canale"],
             esito="verde" if not errori else "rosso",
             misure={
-                "elf_spediti": len(spediti),
+                "binari_spediti": len(spediti),
+                "elf_spediti": len(spediti),  # storico: il gate legge il nome neutro
                 "dipendenze_interne": len(interne),
                 "dipendenze_esterne": sorted(esterne),
                 "glibc_massima": massima,

@@ -99,8 +99,9 @@ jobs:
       # L'ordine e' quello deciso: assembla, firma, checksum, smoke. Su Linux
       # non c'e' una firma di piattaforma e il costruttore lo dichiara nel
       # manifesto; lo smoke resta dopo, cosi' che l'ordine sia lo stesso ovunque.
+      # Anche il profilo base: dimostra con un conteggio che non spedisce
+      # librerie, invece di lasciarlo dedurre dall'assenza del referto.
       - name: Verifica il runtime
-        if: matrix.profilo == 'filegdb'
         run: python3 scripts/check-linux-gdal-runtime.py
           --prefisso "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}"
           --radice bin/plenora-io

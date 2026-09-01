@@ -469,6 +469,43 @@ class SondeMatrice(unittest.TestCase):
                 )
                 self.assertEqual(len(contratto["rilievo_di_origine"]["sha256"]), 64)
 
+    def test_la_guardia_dei_percorsi_e_legata_alla_condizione(self) -> None:
+        """«Zero percorsi assoluti» e' sospetto solo se si spedisce qualcosa.
+
+        Dopo la rilocazione di conda un percorso c'e' sempre nelle librerie
+        materializzate, ed e' per questo che zero fa rosso. Ma un binario Rust
+        che non linka nulla di conda non ne contiene nessuno, e li' zero e' il
+        valore giusto: legare la guardia al profilo l'avrebbe resa
+        un'etichetta, legarla a «ci sono librerie interne» la lega a cio' che
+        la rende sensata.
+
+        La sonda guarda la condizione nel sorgente perche' e' quella la
+        decisione: un `if` sul profilo tornerebbe a essere un'ipotesi."""
+        sorgente = CHECKER.read_text(encoding="utf-8")
+        self.assertIn("if interne and not per_categoria", sorgente)
+
+    def test_il_runtime_e_atteso_su_entrambi_i_profili(self) -> None:
+        """L'ipotesi che la prima corsa di scoperta ha smentito.
+
+        Su Linux il profilo base non spedisce librerie, perche' `libgcc_s` e
+        `libm` sono garantite dal sistema; su Windows importa
+        `vcruntime140.dll`, che **non** e' un componente del sistema operativo.
+        Pretendere il referto solo dal profilo pieno avrebbe lasciato passare
+        un artefatto base che dipende da un runtime che non spedisce."""
+        import importlib.util
+
+        percorso = RADICE / "scripts" / "check-distribuzione-completa.py"
+        spec = importlib.util.spec_from_file_location("gate", percorso)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        self.assertIn("runtime", gate.attese_per("base"))
+        self.assertIn("runtime", gate.attese_per("filegdb"))
+        self.assertNotIn(
+            "elf_spediti",
+            gate.VERIFICHE_ATTESE["runtime"]["misure_obbligatorie"],
+            "un nome che nomina un formato in un contratto comune e' un'ipotesi travestita",
+        )
+
     def test_lo_strumento_che_risolve_e_fissato(self) -> None:
         """Uno strumento che cambia da solo rende non riproducibile cio' che
         produce -- e cio' che produce e' proprio l'elenco che il lock fissa."""

@@ -456,6 +456,45 @@ class SondeDellaClassificazione(unittest.TestCase):
             "interna",
         )
 
+    def test_il_runtime_c_va_spedito_non_ammesso(self) -> None:
+        """La distinzione che la prima corsa di scoperta ha reso concreta.
+
+        `vcruntime140.dll` non e' un componente di Windows: e' il runtime C
+        ridistribuibile di Visual Studio. Il runner lo possiede perche' ci gira
+        Visual Studio; una macchina di destinazione pulita potrebbe non averlo,
+        e l'artefatto non partirebbe con un errore che parla di una DLL
+        mancante invece che di cio' che manca davvero.
+
+        Classificarlo guardando il runner sarebbe la forma piu' comoda di un
+        falso verde: l'artefatto parte dove e' stato costruito, e non dove
+        viene installato."""
+        for nome in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"):
+            with self.subTest(nome=nome):
+                self.assertNotIn(nome, self.pe.POLITICA_ABI)
+                self.assertIn(nome, self.pe.DA_SPEDIRE_NON_AMMETTERE)
+                self.assertEqual(
+                    self.pe.classifica_dipendenza(nome, {}, set()), "inattesa"
+                )
+
+    def test_le_tre_dll_di_sistema_sono_in_politica(self) -> None:
+        """Classificate come componenti del sistema operativo, non perche' il
+        runner le abbia: `bcryptprimitives` e' CNG dai tempi di Vista,
+        `odbc32` e' il Driver Manager ODBC, `wsock32` e' la Winsock 1.1 che
+        Windows conserva per compatibilita'."""
+        for nome in ("bcryptprimitives.dll", "odbc32.dll", "wsock32.dll"):
+            with self.subTest(nome=nome):
+                self.assertIn(nome, self.pe.POLITICA_ABI)
+
+    def test_la_politica_dichiara_il_proprio_limite(self) -> None:
+        """Le voci sono classificate sulla documentazione dei componenti di
+        Windows, non su una misura fatta su un'installazione pulita. E' una
+        garanzia piu' debole, e va detto: un runner di GitHub non e' una
+        baseline."""
+        sorgente = (RADICE / "scripts" / "check-windows-runtime.py").read_text(encoding="utf-8")
+        blocco = sorgente[: sorgente.index("POLITICA_ABI = {")]
+        self.assertIn("baseline", blocco.lower())
+        self.assertIn("installazione pulita", blocco)
+
     def test_inattesa_non_significa_probabilmente_va_bene(self) -> None:
         """E' la classe che resta, ed e' quella che blocca: significa che
         nessuno ha deciso che cosa sia quella dipendenza."""

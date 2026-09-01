@@ -66,33 +66,99 @@ LOCK = pathlib.Path(__file__).resolve().parent / "windows-gdal-lock.json"
 # I nomi sono minuscoli perche' Windows non distingue le maiuscole nei nomi di
 # file, e confrontare `KERNEL32.dll` con `kernel32.dll` come stringhe diverse
 # sarebbe un rosso che non significa niente.
+# La **politica**: che cosa e' ammissibile trovare fuori dall'albero, perche' il
+# sistema operativo lo garantisce. Non e' l'elenco atteso: quello sta nel lock,
+# per profilo, ed e' un sottoinsieme di questo.
+#
+# I nomi sono minuscoli perche' Windows non distingue le maiuscole nei nomi di
+# file, e confrontare `KERNEL32.dll` con `kernel32.dll` come stringhe diverse
+# sarebbe un rosso che non significa niente.
+#
+# # Che cosa autorizza una voce a stare qui
+#
+# Che sia un componente **del sistema operativo**, cioe' presente in
+# `%SystemRoot%\System32` di un'installazione pulita di ogni versione di
+# Windows che il prodotto dichiara di supportare. Non «il runner ce l'ha»: un
+# runner di GitHub ha Visual Studio, il .NET SDK e decine di altre cose che un
+# server pulito non ha, e classificare guardando il runner produrrebbe un
+# artefatto che parte in CI e non parte dove viene installato.
+#
+# La distinzione ha un caso concreto, ed e' quello che la prima corsa di
+# scoperta ha portato: `vcruntime140.dll` **non** e' qui. E' il runtime C
+# ridistribuibile di Visual Studio, non un componente di Windows, e il fatto che
+# il runner la possieda non dice nulla su una macchina di destinazione. Si
+# spedisce.
+#
+# # Il limite di questa classificazione
+#
+# Le voci qui sotto sono classificate sulla documentazione dei componenti di
+# Windows, non su una misura fatta su un'installazione pulita: un runner di
+# GitHub non e' una baseline, e da qui non ne ho una. Una misura su un'immagine
+# Server pulita sarebbe una garanzia piu' forte, e resta da fare. Fino ad
+# allora la garanzia e' quella che c'e', e questa nota impedisce di scambiarla
+# per un'altra.
 POLITICA_ABI = {
+    # Il nucleo Win32, presente in ogni installazione.
     "kernel32.dll",
+    "ntdll.dll",
     "advapi32.dll",
     "user32.dll",
     "gdi32.dll",
     "shell32.dll",
+    "shlwapi.dll",
     "ole32.dll",
     "oleaut32.dll",
+    "version.dll",
+    "psapi.dll",
+    "rpcrt4.dll",
+    "userenv.dll",
+    "setupapi.dll",
+    "cfgmgr32.dll",
+    "winmm.dll",
+    "dbghelp.dll",
+    # Rete.
     "ws2_32.dll",
+    "iphlpapi.dll",
+    "wldap32.dll",
+    # `wsock32.dll` e' la Winsock 1.1: un livello di compatibilita' che Windows
+    # conserva da NT e che ogni versione supportata porta ancora. Vi arriva
+    # `libcurl`, che la usa per le chiamate storiche invece che per quelle di
+    # `ws2_32`. Non e' un residuo del runner: e' un componente del sistema, e
+    # sparirebbe soltanto in una versione di Windows che rompesse quella
+    # compatibilita' -- che sarebbe una notizia, non un dettaglio.
+    "wsock32.dll",
+    # Crittografia.
     "crypt32.dll",
     "bcrypt.dll",
     "ncrypt.dll",
     "secur32.dll",
-    "shlwapi.dll",
-    "version.dll",
-    "winmm.dll",
-    "wldap32.dll",
-    "userenv.dll",
-    "iphlpapi.dll",
-    "dbghelp.dll",
-    "psapi.dll",
-    "rpcrt4.dll",
-    "setupapi.dll",
-    "cfgmgr32.dll",
-    "ntdll.dll",
+    # `bcryptprimitives.dll` e' l'implementazione dei primitivi CNG, introdotta
+    # con Vista e presente da allora in ogni versione. Vi arriva la libreria
+    # standard di Rust, che la usa per generare numeri casuali: e' quindi una
+    # dipendenza del **nostro** binario, non di GDAL, e compare infatti anche
+    # nel profilo base.
+    "bcryptprimitives.dll",
+    # `odbc32.dll` e' il Driver Manager ODBC, parte dei Windows Data Access
+    # Components: presente in ogni Windows da NT 4. Vi arriva GDAL, che offre un
+    # driver ODBC anche quando nessuno lo usa -- l'import c'e' perche' la
+    # libreria e' compilata con quel driver dentro, non perche' l'artefatto lo
+    # eserciti.
+    "odbc32.dll",
+    # Il runtime C **non** e' qui: `vcruntime140.dll`, `vcruntime140_1.dll` e
+    # `msvcp140.dll` sono il redistributable di Visual Studio, non componenti
+    # del sistema operativo. Vanno spediti, e il costruttore li spedisce.
     "msvcrt.dll",
-    "api-ms-win-crt-runtime-l1-1-0.dll",
+}
+
+# Le DLL che si e' tentati di ammettere e che invece vanno **spedite**.
+#
+# Sta scritto qui e non in un commento perche' il controllo lo verifica: se una
+# di queste comparisse fra le esterne, il rifiuto direbbe che va spedita invece
+# di dire genericamente che non e' attesa.
+DA_SPEDIRE_NON_AMMETTERE = {
+    "vcruntime140.dll": "runtime C ridistribuibile di Visual Studio, non un componente di Windows",
+    "vcruntime140_1.dll": "come sopra",
+    "msvcp140.dll": "libreria standard C++ di Visual Studio, ridistribuibile",
 }
 
 MACCHINA_X86_64 = 0x8664
@@ -522,9 +588,20 @@ def main() -> int:
     for classe in CATEGORIE:
         print(f"  {classe:14s} {len(classi[classe])}")
 
-    if classi["inattesa"]:
+    da_spedire = [n for n in classi["inattesa"] if n in DA_SPEDIRE_NON_AMMETTERE]
+    if da_spedire:
         errori.append(
-            f"dipendenze inattese: {classi['inattesa']}. Nessuna delle quattro classi le "
+            "dipendenze che vanno **spedite**, non ammesse: "
+            + ", ".join(f"{n} ({DA_SPEDIRE_NON_AMMETTERE[n]})" for n in da_spedire)
+            + ". Il runner le possiede perche' ci gira Visual Studio; una macchina di "
+            "destinazione pulita potrebbe non averle, e l'artefatto non partirebbe con un "
+            "errore che parla di una DLL mancante invece che di cio' che manca davvero."
+        )
+    if [n for n in classi["inattesa"] if n not in DA_SPEDIRE_NON_AMMETTERE]:
+        errori.append(
+            "dipendenze inattese: "
+            f"{[n for n in classi['inattesa'] if n not in DA_SPEDIRE_NON_AMMETTERE]}. "
+            "Nessuna delle quattro classi le "
             "accoglie, e «inattesa» non significa «probabilmente va bene»: significa che "
             "nessuno ha deciso che cosa siano. Vanno spedite dentro l'albero, oppure "
             "aggiunte all'insieme atteso di questo profilo con una ragione e con il digest "
@@ -602,7 +679,7 @@ def main() -> int:
                 "percorsi_assoluti_non_classificati": len(non_classificati),
                 # Il gate finale confronta i nomi con quelli di Linux: la forma
                 # e' comune, le misure sono native.
-                "elf_spediti": len(spediti),
+                "binari_spediti": len(spediti),
                 "dipendenze_esterne": sorted(esterne),
             },
             errori=errori,

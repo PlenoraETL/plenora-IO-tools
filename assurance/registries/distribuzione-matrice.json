@@ -153,7 +153,7 @@
         "era": "OSGeo4W, con un formato di lock proprio e GDAL 3.10.3. La catena e' stata unificata: tre origini diverse per la stessa versione non danno la stessa identita', e la differenza si sarebbe vista solo a valle."
       }
     ],
-    "perche_conda_forge_e_non_la_distribuzione": "la GDAL di distribuzione non e' fissabile: cambia con il sistema, e con essa cambia la capability. conda-forge pubblica la stessa versione per le tre piattaforme, ogni pacchetto con un sha256 verificabile e un URL stabile -- la stessa forma che OSGeo4W ha gia' su Windows. Costruire GDAL dai sorgenti darebbe piu' controllo e porterebbe con se' l'intera chiusura di PROJ, GEOS e sqlite da fissare a loro volta: e' la strada da prendere se conda-forge si rivelasse insufficiente, non prima.",
+    "perche_conda_forge_e_non_la_distribuzione": "la GDAL di distribuzione non e' fissabile: cambia con il sistema, e con essa cambia la capability. conda-forge pubblica la stessa versione per le due piattaforme del perimetro, ogni pacchetto con un sha256 verificabile e un URL stabile. Costruire GDAL dai sorgenti darebbe piu' controllo e porterebbe con se' l'intera chiusura di PROJ, GEOS e sqlite da fissare a loro volta: e' la strada da prendere se conda-forge si rivelasse insufficiente, non prima.",
     "driver_pretesi": [
       {
         "nome": "OpenFileGDB",
@@ -258,7 +258,7 @@
     "che_cosa_sono": "il formato comune che ogni verifica produce, su ogni piattaforma. I verificatori restano **nativi e separati** -- `DT_NEEDED` e `GLIBC_*` non esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove, e scriverne uno solo vorrebbe dire verificare il minimo comune ovunque -- ma la forma del risultato e' una sola.",
     "perche_non_basta_un_job_verde": "un job verde e' un'affermazione fatta da chi doveva essere verificato, e le affermazioni si sbagliano in silenzio: un passo saltato per una condizione mai vera, un `|| true` di troppo, uno smoke che non ha trovato l'artefatto e non ha guardato niente. Nessuna di queste cose fa rosso. Il referto porta le **misure**, e il gate finale riconta quelle.",
     "gate": "scripts/check-distribuzione-completa.py",
-    "artefatti_attesi": "tre piattaforme per due profili, cioe' sei"
+    "artefatti_attesi": "due piattaforme per due profili, cioe' quattro"
   },
   "firma": {
     "decisione": "artefatti di prova non firmati ammessi; candidate Windows firmata Authenticode con timestamp; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",
@@ -289,9 +289,10 @@
     "windows": {
       "script": "scripts/check-windows-runtime.py",
       "domande": "architettura x86-64, chiusura degli import **e dei delay-import**, DLL fuori dall'albero contro l'insieme atteso esatto, percorsi del prefisso di costruzione cercati sia in ASCII sia in UTF-16",
-      "stato": "mai eseguito su un artefatto: non c'e' un runner Windows in questo lotto",
-      "che_cosa_e_provato": "che sappia **leggere** un PE: le sonde ne costruiscono uno byte per byte, con una import table e una delay-import table, e verificano che le legga entrambe. Non e' la stessa cosa di «l'artefatto Windows e' conforme», e confonderle sarebbe il modo piu' facile di dichiarare verificato cio' che non lo e'.",
-      "perche_i_delay_import": "sono risolti alla prima chiamata invece che all'avvio: una DLL che comparisse solo li' sfuggirebbe a chi guardasse la sola import table, e si manifesterebbe molto dopo -- in esecuzione, su una macchina che non ce l'ha."
+      "stato": "eseguito in modo **scoperta** su `windows-2022`, su entrambi i profili. Non ancora eseguito in modo verifica: manca il contratto, che si scrive rileggendo il rilievo.",
+      "che_cosa_e_provato": "che sappia **leggere** un PE: le sonde ne costruiscono uno byte per byte, con una import table e una delay-import table, e verificano che le legga entrambe. La corsa di scoperta ha aggiunto che sa leggere un artefatto **vero**. Non e' ancora «l'artefatto Windows e' conforme»: quello lo dira' la seconda corsa, quando ci sara' un contratto da applicare.",
+      "perche_i_delay_import": "sono risolti alla prima chiamata invece che all'avvio: una DLL che comparisse solo li' sfuggirebbe a chi guardasse la sola import table, e si manifesterebbe molto dopo -- in esecuzione, su una macchina che non ce l'ha.",
+      "che_cosa_ha_trovato_la_prima_corsa": "che il profilo `base` importa `vcruntime140.dll` senza spedirla. Il runner la possiede perche' ci gira Visual Studio; una macchina di destinazione pulita potrebbe non averla. Era un'ipotesi ereditata da Linux -- li' il profilo base non spedisce librerie perche' `libgcc_s` e `libm` sono garantite dal sistema -- e su Windows non regge: il runtime C ridistribuibile non e' un componente del sistema operativo. Il contratto lo diceva gia', «il runtime C si affronta spedendo cio' che serve», e il codice non lo faceva."
     },
     "perche_separati": "`DT_NEEDED` e `GLIBC_*` non esistono su Windows, e un PE ha due tabelle di import invece di una lista di nomi. Un verificatore solo vorrebbe dire verificare il minimo comune ovunque, cioe' verificare meno dappertutto. Comune e' la **forma del risultato**, perche' il gate finale non puo' leggere quattro formati."
   },
@@ -353,5 +354,17 @@
     ],
     "artefatti_attesi": "due piattaforme per due profili, cioe' **quattro**",
     "come_si_legge": "il gate finale deriva il perimetro **da qui**, non dai job che esistono. Un artefatto in meno perche' qualcuno ha tolto un job e' un buco; un artefatto in meno perche' una piattaforma e' fuori scope e' una decisione. Le due cose si somigliano nel conteggio e non si somigliano per niente, e una sonda pretende che ogni piattaforma conosciuta stia in una delle due liste con una motivazione scritta."
+  },
+  "classificazione_delle_dipendenze_windows": {
+    "su_che_cosa_si_basa": "che una DLL sia un componente **del sistema operativo**, cioe' presente in `%SystemRoot%\\\\System32` di un'installazione pulita di ogni versione supportata. Non «il runner ce l'ha»: un runner di GitHub porta Visual Studio, il .NET SDK e decine di altre cose che un server pulito non ha, e classificare guardandolo produrrebbe un artefatto che parte in CI e non parte dove viene installato.",
+    "il_limite": "le voci sono classificate sulla **documentazione** dei componenti di Windows, non su una misura fatta su un'immagine Server pulita: da qui una baseline non c'e'. Una misura sarebbe una garanzia piu' forte e resta da fare. Dichiararlo impedisce di scambiare la garanzia che c'e' per un'altra.",
+    "ammesse_dalla_prima_corsa": {
+      "bcryptprimitives.dll": "implementazione dei primitivi CNG, introdotta con Vista e presente da allora. Vi arriva la libreria standard di Rust, che la usa per i numeri casuali: e' una dipendenza del **nostro** binario, non di GDAL, e compare infatti anche nel profilo base.",
+      "odbc32.dll": "Driver Manager ODBC, parte dei Windows Data Access Components, presente da NT 4. Vi arriva GDAL, che porta un driver ODBC compilato dentro anche quando nessuno lo usa: l'import c'e' per come la libreria e' costruita, non perche' l'artefatto lo eserciti.",
+      "wsock32.dll": "Winsock 1.1, livello di compatibilita' che Windows conserva da NT. Vi arriva `libcurl`. Sparirebbe soltanto in una versione che rompesse quella compatibilita', che sarebbe una notizia e non un dettaglio."
+    },
+    "da_spedire_e_non_ammettere": {
+      "vcruntime140.dll, vcruntime140_1.dll, msvcp140.dll": "runtime C e libreria standard C++ di Visual Studio: **ridistribuibili**, non componenti del sistema. Il controllo li rifiuta con un messaggio che dice di spedirli, invece di dire genericamente che non sono attesi."
+    }
   }
 }
