@@ -47,6 +47,11 @@ class SondeDelGateFinale(unittest.TestCase):
             },
             "licenze-artefatto": {"componenti_con_testo": 43},
             "relocation": {"librerie_dall_albero": 57},
+            "provenance": {
+                "archivio_sha256": "a" * 64,
+                "revisione": "b" * 40,
+                "lock_sha256": "c" * 64,
+            },
             "smoke-profilo": {
                 "filegdb_assente": True if profilo == "base" else None,
                 "schema_riletto": True if profilo == "filegdb" else None,
@@ -121,6 +126,31 @@ class SondeDelGateFinale(unittest.TestCase):
         errori = self.esegui()
         self.assertTrue(errori)
         self.assertIn("filegdb_assente", " ".join(errori))
+
+    def test_una_provenance_senza_revisione_passa_su_una_prova(self) -> None:
+        """Gli artefatti di prova esistono per essere misurati, e pretendere una
+        revisione da una macchina senza `git` renderebbe impossibile
+        costruirli. Resta **dichiarata**: `null` e' un valore, e chi legge sa
+        distinguere una revisione assente da una sbagliata."""
+        self.serie_completa()
+        percorso = self.tmp / "linux-x86_64-filegdb-provenance.json"
+        d = json.loads(percorso.read_text(encoding="utf-8"))
+        d["misure"]["revisione"] = None
+        percorso.write_text(json.dumps(d), encoding="utf-8")
+        self.assertEqual(self.esegui(canale="prova"), [])
+
+    def test_una_provenance_senza_revisione_fa_rosso_su_una_candidate(self) -> None:
+        """Una provenance che non sa da quale revisione viene non lega niente:
+        dice che esiste un archivio con un checksum, e quello lo dice gia' il
+        checksum."""
+        self.serie_completa(canale="candidate")
+        percorso = self.tmp / "linux-x86_64-filegdb-provenance.json"
+        d = json.loads(percorso.read_text(encoding="utf-8"))
+        d["misure"]["revisione"] = None
+        percorso.write_text(json.dumps(d), encoding="utf-8")
+        errori = self.esegui(canale="candidate")
+        self.assertTrue(errori)
+        self.assertIn("revisione", " ".join(errori))
 
     def test_un_referto_di_prova_non_qualifica_una_candidate(self) -> None:
         self.serie_completa(canale="prova")

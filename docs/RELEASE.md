@@ -754,21 +754,62 @@ Certificati e segreti restano un blocco fuori da questo repository.
 
 #### Windows x86_64 — fissata, non ancora costruita
 
-Il lock c'e' ed e' coerente: `scripts/windows-gdal-lock.json`, conda-forge,
-GDAL 3.9.3 con binding della stessa serie. La catena precedente era OSGeo4W e
-dichiarava una libreria 3.10.3 con binding 3.6.0, mentre
-`install-windows-gdal.ps1` forzava la versione per farla compilare: si
-compilava l'ABI di una serie contro la libreria di un'altra, e nessun gate lo
-vedeva perche' la forzatura mascherava proprio la condizione che avrebbe
-fermato la build. E' emersa costruendo su Linux, dove nessuno forzava niente.
+Il lock c'è ed è coerente: `scripts/windows-gdal-lock.json`, conda-forge, GDAL
+3.9.3 con binding della stessa serie. La catena precedente era OSGeo4W e
+dichiarava una libreria 3.10.3 con binding 3.6.0, mentre l'installatore forzava
+la versione per farla compilare — si compilava l'ABI di una serie contro la
+libreria di un'altra, e nessun gate lo vedeva perché la forzatura mascherava
+proprio la condizione che avrebbe fermato la build.
 
-L'installatore e' stato riscritto sul nuovo formato e **non e' mai stato
-eseguito**: in questo lotto non c'e' un runner Windows, e uno script PowerShell
-che non ha girato e' una dichiarazione, non una verifica. Resta anche da
-scrivere il contratto di verifica del lock -- l'equivalente di quello Linux,
-che parla di ELF e di GLIBC e su Windows vuole altre domande.
+Esistono il costruttore (`scripts/costruisci-artefatto-windows.py`) e il
+verificatore nativo (`scripts/check-windows-runtime.py`). Nessuno dei due ha
+mai visto un artefatto vero: sono provati su PE costruiti byte per byte dalle
+sonde, il che dimostra che sanno leggere un PE — non che l'artefatto sia
+conforme.
 
-Si chiude su `windows-2022`, misurando.
+##### Due corse, e la prima non qualifica
+
+Manca l'insieme delle DLL di sistema attese, e **non si scrive a tavolino**:
+dipende da come conda-forge ha compilato GDAL per win-64, e l'unico modo di
+saperlo è guardare un artefatto vero. Scriverlo a mente sarebbe inventare una
+soglia e poi verificarla.
+
+**Prima corsa — scoperta.** Costruisce, misura, scrive
+`windows-runtime-discovery.json`, lo carica come artefatto, e termina **rossa**.
+Non tocca il lock né il repository. Il rosso non è un difetto trovato: è
+l'assenza di una revisione umana. Una corsa di scoperta che potesse diventare
+verde da sola scriverebbe il proprio contratto, e un contratto scritto da ciò
+che deve verificare non verifica niente.
+
+Il rilievo registra, separatamente per `base` e per `filegdb`: import normali e
+ritardati, DLL interne, API-set, DLL esterne, percorsi del prefisso di
+costruzione incorporati, architettura di ogni PE — e da dove viene la misura:
+runner, sistema, SHA sorgente, digest del lock.
+
+**Fra le due corse.** Ogni dipendenza si classifica a mano in una delle quattro
+classi:
+
+| classe | significa |
+| --- | --- |
+| `interna` | spedita dentro l'artefatto |
+| `api_set` | nome virtuale che il caricatore risolve |
+| `abi_windows` | DLL che il sistema garantisce, nell'insieme atteso |
+| `inattesa` | nessuna delle tre — **blocca** |
+
+`inattesa` non significa «probabilmente va bene»: significa che nessuno ha
+deciso che cosa sia. Non si ammettono insiemi larghi — `C:\Windows\*`, il
+`PATH`, «qualunque DLL Microsoft» — perché un insieme largo non si accorge di
+ciò che smette di essere spedito e viene preso dal sistema, che è esattamente
+il difetto per cui l'insieme esatto esiste.
+
+Un **commit successivo**, e non la corsa, mette nel lock l'insieme esatto per
+profilo e il digest del rilievo da cui la decisione viene. Il digest è ciò che
+lega il contratto alla misura.
+
+**Seconda corsa.** Confronta il reale con l'atteso e può diventare verde.
+Aggiunge il relocation smoke Windows: costruzione in A, archivio, cancellazione
+di A, estrazione in B, directory corrente estranea, ambiente ostile, FileGDB
+scritto e riletto davvero.
 
 #### macOS aarch64 — fissata, non ancora costruita
 

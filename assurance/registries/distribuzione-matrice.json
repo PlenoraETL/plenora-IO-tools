@@ -279,8 +279,8 @@
       "piattaforma": "windows-x86_64",
       "blocco": "il lock e l'installatore sono coerenti -- conda-forge, GDAL 3.9.3, binding della stessa serie -- ma **non sono mai stati eseguiti**: in questo lotto non c'e' un runner Windows. Uno script che non ha girato e' una dichiarazione, non una verifica. Manca inoltre il contratto di verifica del lock: quello Linux parla di ELF, di DT_NEEDED e di GLIBC, e su Windows le domande sono altre.",
       "come_e_emerso": "il difetto originale -- una libreria 3.10.3 con binding 3.6.0, e l'installatore che forzava la versione per farla compilare -- e' emerso costruendo l'artefatto Linux, dove nessuno forzava niente e la build si e' fermata da sola. La forzatura mascherava proprio la condizione che l'avrebbe fermata. Quel difetto ora e' chiuso nella dichiarazione; resta aperta l'esecuzione.",
-      "che_cosa_lo_chiude": "materializzare il lock su `windows-2022`, scrivere il contratto di verifica per i PE come esiste per gli ELF, e costruire l'artefatto con lo smoke sul proprio runner.",
-      "nel_frattempo": "la piattaforma resta `non_ancora_costruita`, e le sonde che pretendono coerenza fra artefatti reali non la includono. Non e' un'esenzione: e' che non c'e' ancora un artefatto di cui pretendere coerenza."
+      "che_cosa_lo_chiude": "due corse. La prima **scopre**: materializza il lock su `windows-2022`, costruisce i due profili, misura e scrive il rilievo, e termina rossa perche' manca un contratto revisionato. Poi il rilievo si rilegge, ogni dipendenza si classifica in una delle quattro classi, e un commit mette nel lock l'insieme esatto per profilo con il digest del rilievo. La seconda corsa confronta, e aggiunge il relocation smoke Windows.",
+      "nel_frattempo": "il costruttore e i verificatori esistono e sono provati su PE costruiti byte per byte -- il che dimostra che sanno leggere un PE, non che l'artefatto sia conforme. La piattaforma resta `non_ancora_costruita`, e il job resta rosso di proposito."
     },
     {
       "piattaforma": "macos-aarch64",
@@ -347,5 +347,30 @@
       "macos-aarch64": "zip"
     },
     "perche_zip_su_macos": "il servizio di notarizzazione accetta ZIP; un `tar.gz` non e' un formato che gli strumenti Apple sappiano ispezionare. Non e' una preferenza di stile: e' cio' che rende l'artefatto sottoponibile."
+  },
+  "scoperta_prima_del_contratto": {
+    "perche": "l'insieme delle dipendenze di sistema attese non si scrive a tavolino. Dipende da come il canale ha compilato GDAL per quella piattaforma, e l'unico modo di saperlo e' guardare un artefatto vero. Scriverlo a mente sarebbe inventare una soglia e poi verificarla, che e' il modo piu' comodo di ottenere un verde privo di significato.",
+    "prima_corsa": {
+      "che_cosa_fa": "costruisce, misura, scrive `windows-runtime-discovery.json`, lo carica come artefatto e **termina rossa**",
+      "che_cosa_non_fa": "non tocca il lock e non tocca il repository",
+      "perche_rossa": "il rosso non e' un difetto trovato: e' l'assenza di una revisione umana. Una corsa di scoperta che potesse diventare verde da sola scriverebbe il proprio contratto, e un contratto scritto da cio' che deve verificare non verifica niente.",
+      "che_cosa_registra": [
+        "import normali e import ritardati, tenuti distinti",
+        "DLL interne all'artefatto",
+        "API-set virtuali, in una classe propria",
+        "DLL esterne",
+        "percorsi del prefisso di costruzione incorporati nei binari",
+        "architettura di ogni PE spedito",
+        "runner, sistema, SHA sorgente e digest del lock: da dove viene la misura"
+      ],
+      "per_profilo": "`base` e `filegdb` producono due rilievi distinti. Sono due prodotti, e usare la misura dell'uno per l'altro attribuirebbe a un artefatto una misura fatta su un altro."
+    },
+    "fra_le_due_corse": {
+      "classificazione": "ogni dipendenza va messa a mano in una delle quattro classi: **interna** all'artefatto, **api_set** fornita dal sistema, **abi_windows** attesa, oppure **inattesa** e quindi bloccante. Le quattro hanno quattro conseguenze diverse, e una categoria unica «esterna» le confonderebbe.",
+      "niente_insiemi_larghi": "non si ammettono `C:\\\\Windows\\\\*`, il `PATH`, ne' «qualunque DLL Microsoft». Un insieme largo non si accorge di cio' che smette di essere spedito e viene preso dal sistema -- che e' esattamente il difetto per cui l'insieme esatto esiste.",
+      "il_commit_che_chiude": "un commit successivo, e non la corsa, mette nel lock l'insieme esatto **per profilo** e il **digest del rilievo** da cui la decisione viene. Il digest e' cio' che lega il contratto alla misura: senza, il contratto sarebbe una lista di nomi senza provenienza."
+    },
+    "seconda_corsa": "confronta il reale con l'atteso e puo' diventare verde. Aggiunge inoltre il relocation smoke Windows: costruzione in A, archivio, cancellazione di A, estrazione in B, directory corrente estranea, ambiente ostile, FileGDB scritto e riletto davvero.",
+    "stato": "la prima corsa non e' ancora stata eseguita: non c'e' un runner Windows in questo lotto"
   }
 }

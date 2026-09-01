@@ -264,6 +264,12 @@ def main() -> int:
     a.add_argument("--versione", required=True)
     a.add_argument("--canale", default="prova", choices=["prova", "candidate"])
     a.add_argument("--profilo", default="filegdb", choices=["base", "filegdb"])
+    a.add_argument(
+        "--referti",
+        type=pathlib.Path,
+        default=None,
+        help="dove scrivere il referto della provenance, nel formato comune",
+    )
     a.add_argument("--salta-build", action="store_true",
                    help="riusa il binario gia' compilato, per iterare sull'assemblaggio")
     arg = a.parse_args()
@@ -706,6 +712,33 @@ def main() -> int:
         json.dumps(provenance, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(f"   {archivio.name}.provenance.json", flush=True)
+
+    # E il referto nel formato comune, perche' il gate finale riconta i referti.
+    # Il documento di provenance e' cio' che accompagna l'artefatto; questo e'
+    # cio' che permette di **verificare** che ci sia e che dica qualcosa. Sono
+    # due cose diverse e devono esistere entrambe: una provenance che nessuno
+    # riconta e' un file, non una garanzia.
+    if arg.referti:
+        distribuzione.scrivi_referto(
+            arg.referti / f"linux-{arg.profilo}-provenance.json",
+            verifica="provenance",
+            piattaforma="linux-x86_64",
+            profilo=arg.profilo,
+            canale=arg.canale,
+            esito="verde",
+            misure={
+                "archivio_sha256": digesto,
+                "revisione": provenance["revisione"],
+                "lock_sha256": provenance["lock"],
+                "dimensione": provenance["dimensione"],
+            },
+            errori=[],
+            note=(
+                "la revisione e' `null` quando `git` non e' disponibile dove si costruisce. "
+                "Su una candidate il gate lo rifiuta: una provenance che non sa da quale "
+                "revisione viene non lega niente."
+            ),
+        )
     return 0
 
 

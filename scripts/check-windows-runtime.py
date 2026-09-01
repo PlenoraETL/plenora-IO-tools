@@ -47,7 +47,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
+import platform
 import re
 import struct
 import sys
@@ -94,6 +96,31 @@ POLITICA_ABI = {
 }
 
 MACCHINA_X86_64 = 0x8664
+
+# Le API-set non sono DLL: sono nomi virtuali che il caricatore risolve verso
+# l'implementazione reale del sistema. `api-ms-win-crt-runtime-l1-1-0.dll` non
+# esiste come file, e cercarla in `bin/` o pretenderla in un elenco di DLL
+# sarebbe chiedere l'esistenza di qualcosa che per costruzione non esiste.
+#
+# Vanno quindi in una categoria propria. Metterle nell'allowlist ABI insieme a
+# `kernel32.dll` funzionerebbe e direbbe una cosa falsa: che sono file che il
+# sistema fornisce, invece che nomi che il sistema traduce.
+SCHEMA_API_SET = re.compile(r"^(api-ms-win-|ext-ms-win-)", re.I)
+
+
+def e_api_set(nome: str) -> bool:
+    return bool(SCHEMA_API_SET.match(nome))
+
+
+# Le quattro classi in cui ogni dipendenza deve cadere. Non e' una tassonomia
+# per ordine: e' che le quattro hanno quattro conseguenze diverse, e una
+# categoria unica «esterna» le confonderebbe.
+CATEGORIE = (
+    "interna",       # spedita dentro l'artefatto: la si trova in bin/
+    "api_set",       # nome virtuale che il caricatore risolve
+    "abi_windows",   # DLL che il sistema garantisce, nell'insieme atteso
+    "inattesa",      # nessuna delle tre: blocca
+)
 
 
 class PeMalformato(ValueError):
@@ -275,6 +302,24 @@ def misura_della_firma(percorso: pathlib.Path) -> dict:
     return misura
 
 
+def classifica_dipendenza(nome: str, interne: dict, attese: set[str]) -> str:
+    """In quale delle quattro classi cade una dipendenza.
+
+    L'ordine delle domande conta: una libreria spedita e' interna anche se
+    porta un nome che somiglia a una di sistema, e un'API-set e' un'API-set
+    anche se qualcuno l'avesse messa fra le attese. `inattesa` e' il caso che
+    resta, ed e' quello che blocca: non «probabilmente va bene», ma «nessuno ha
+    deciso che cosa sia».
+    """
+    if nome in interne:
+        return "interna"
+    if e_api_set(nome):
+        return "api_set"
+    if nome in attese:
+        return "abi_windows"
+    return "inattesa"
+
+
 def percorsi_assoluti(percorso: pathlib.Path, prefisso: str) -> set[str]:
     """Le stringhe che nominano il prefisso di costruzione.
 
@@ -304,6 +349,16 @@ def main() -> int:
     a.add_argument("--radice", default="bin/plenora-io.exe")
     a.add_argument("--prefisso-di-costruzione", default=None)
     a.add_argument("--referto", type=pathlib.Path, default=None)
+    a.add_argument(
+        "--discovery",
+        type=pathlib.Path,
+        default=None,
+        help=(
+            "modo scoperta: misura e scrive il rilievo, **non** legge il contratto e "
+            "termina rosso. Serve a produrre cio' su cui il contratto verra' scritto, e "
+            "un modo che potesse diventare verde da solo lo scriverebbe da se'"
+        ),
+    )
     arg = a.parse_args()
 
     albero = arg.albero.resolve()
@@ -313,11 +368,12 @@ def main() -> int:
     manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     contratto = lock.get("contratto_di_verifica")
-    if contratto is None:
+    if contratto is None and arg.discovery is None:
         sys.exit(
             "il lock di Windows non porta un `contratto_di_verifica`. Va scritto misurando su "
             "un runner Windows: quello di Linux parla di ELF, di DT_NEEDED e di GLIBC, e qui "
-            "le domande sono altre. Senza, questo controllo non ha una soglia da applicare."
+            "le domande sono altre. Senza, questo controllo non ha una soglia da applicare -- "
+            "e per produrre cio' su cui scriverlo c'e' `--discovery`."
         )
 
     radice = albero / arg.radice
@@ -329,6 +385,100 @@ def main() -> int:
     spediti = [radice, *sorted(set(interne.values()))]
     print(f"chiusura da {arg.radice}: {len(interne)} DLL interne, {len(spediti)} PE")
     print(f"import ritardati: {len(ritardate)}")
+
+    architetture = {}
+    for pe in spediti:
+        try:
+            architetture[pe.name] = f"{architettura(pe):#x}"
+        except PeMalformato as e:
+            architetture[pe.name] = f"illeggibile: {e}"
+
+    prefisso_dichiarato = arg.prefisso_di_costruzione or manifesto.get("prefisso_di_costruzione")
+    incorporati: dict[str, list[str]] = {}
+    if prefisso_dichiarato:
+        for pe in spediti:
+            for percorso in percorsi_assoluti(pe, prefisso_dichiarato):
+                incorporati.setdefault(
+                    percorso[len(prefisso_dichiarato) :] or "\\", []
+                ).append(pe.name)
+
+    # --- il modo scoperta -------------------------------------------------
+    #
+    # Misura e scrive. **Non** legge il contratto, e termina rosso: un modo che
+    # potesse diventare verde da solo scriverebbe il proprio contratto, e un
+    # contratto scritto da cio' che deve verificare non verifica niente.
+    #
+    # Il rosso non e' un difetto trovato: e' l'assenza di una revisione umana.
+    # Il referto va riletto, ogni dipendenza va classificata a mano, e solo un
+    # commit successivo mette nel lock l'insieme esatto **e il digest di questo
+    # referto**, cosi' che si sappia da quale misura viene.
+    if arg.discovery is not None:
+        rilievo = {
+            "schema_discovery": 1,
+            "non_qualificante": True,
+            "perche_rosso": (
+                "questa corsa scopre, non qualifica. Termina rossa perche' manca un contratto "
+                "revisionato da una persona: il referto va riletto, ogni dipendenza va "
+                "classificata, e solo un commit successivo mette nel lock l'insieme atteso e "
+                "il digest di questo documento. Una corsa di scoperta che potesse diventare "
+                "verde da sola scriverebbe il proprio contratto."
+            ),
+            "artefatto": {
+                "piattaforma": manifesto["piattaforma"],
+                "profilo": manifesto["profilo"],
+                "canale": manifesto["canale"],
+                "versione": manifesto.get("versione"),
+                "prefisso_di_costruzione": prefisso_dichiarato,
+            },
+            "provenienza_della_misura": {
+                "runner": os.environ.get("RUNNER_NAME") or platform.node(),
+                "immagine_runner": os.environ.get("ImageOS") or os.environ.get("ImageVersion"),
+                "sistema": platform.platform(),
+                "sha_sorgente": os.environ.get("GITHUB_SHA") or manifesto.get("revisione"),
+                "lock_sha256": distribuzione.sha256(LOCK),
+                "lock_gdal_version": lock.get("gdal_version"),
+            },
+            "misure": {
+                "radice": arg.radice,
+                "architetture": architetture,
+                "import_normali": sorted(
+                    {n for pe in spediti for n in importazioni(pe)[0]}
+                ),
+                "import_ritardati": sorted(ritardate),
+                "dll_interne": sorted(interne),
+                "api_set": sorted(n for n in esterne if e_api_set(n)),
+                "dll_esterne": sorted(n for n in esterne if not e_api_set(n)),
+                "percorsi_incorporati": {k: sorted(set(v)) for k, v in sorted(incorporati.items())},
+            },
+            "da_classificare": (
+                "ogni voce di `dll_esterne` va messa in una di queste classi: **interna** "
+                "all'artefatto, **api_set** fornita dal sistema, **abi_windows** attesa, "
+                "oppure **inattesa** e quindi bloccante. Non si ammettono insiemi larghi -- "
+                "`C:\\Windows\\*`, il `PATH`, «qualunque DLL Microsoft» -- perche' un insieme "
+                "largo non si accorge di cio' che smette di essere spedito e viene preso dal "
+                "sistema, che e' il difetto che l'insieme esatto esiste per cogliere."
+            ),
+            "contratti_distinti": (
+                "`base` e `filegdb` sono due prodotti e vogliono due insiemi attesi. Questo "
+                "rilievo riguarda **soltanto** il profilo «"
+                + manifesto["profilo"]
+                + "»: usarlo per l'altro sarebbe attribuire a un artefatto una misura fatta su "
+                "un altro."
+            ),
+        }
+        arg.discovery.parent.mkdir(parents=True, exist_ok=True)
+        arg.discovery.write_text(
+            json.dumps(rilievo, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        print(f"\nrilievo scritto: {arg.discovery}")
+        print(f"  DLL interne:   {len(rilievo['misure']['dll_interne'])}")
+        print(f"  API-set:       {len(rilievo['misure']['api_set'])}")
+        print(f"  DLL esterne:   {len(rilievo['misure']['dll_esterne'])}")
+        print(f"  import ritardati: {len(rilievo['misure']['import_ritardati'])}")
+        print(f"  percorsi incorporati: {len(rilievo['misure']['percorsi_incorporati'])}")
+        print("\n--- ROSSO, e volutamente ---")
+        print(f"  {rilievo['perche_rosso']}")
+        return 1
 
     # 1. architettura
     non_x64 = []
@@ -344,20 +494,61 @@ def main() -> int:
             "alcune macchine, e il nome non lo direbbe."
         )
 
-    # 2. le esterne coincidono **esattamente** con l'atteso
-    attese = {n.lower() for n in contratto["dll_di_sistema_attese"][manifesto["profilo"]]}
-    fuori_politica = sorted(esterne - POLITICA_ABI)
+    # 2. ogni dipendenza cade in una delle quattro classi
+    #
+    # `interna`, `api_set`, `abi_windows`, `inattesa`. Le quattro hanno quattro
+    # conseguenze diverse, e una categoria unica «esterna» le confonderebbe: una
+    # API-set non e' un file che il sistema fornisce ma un nome che traduce, e
+    # una DLL attesa non e' una DLL qualunque che sembri di sistema.
+    #
+    # L'insieme atteso e' **esatto**, e per profilo. Non ci sono insiemi larghi
+    # -- `C:\Windows\*`, il `PATH`, «qualunque DLL Microsoft» -- perche' un
+    # insieme largo non si accorge di cio' che smette di essere spedito e viene
+    # preso dal sistema, che e' il difetto per cui l'insieme esatto esiste.
+    per_profilo = contratto["dll_di_sistema_attese"]
+    if manifesto["profilo"] not in per_profilo:
+        errori.append(
+            f"il contratto non ha un insieme atteso per il profilo «{manifesto['profilo']}». "
+            "`base` e `filegdb` sono due prodotti: usare l'insieme dell'uno per l'altro "
+            "attribuirebbe a un artefatto una misura fatta su un altro."
+        )
+        per_profilo = {manifesto["profilo"]: []}
+    attese = {n.lower() for n in per_profilo[manifesto["profilo"]]}
+
+    classi: dict[str, list[str]] = {c: [] for c in CATEGORIE}
+    for nome in sorted(esterne | set(interne)):
+        classi[classifica_dipendenza(nome, interne, attese)].append(nome)
+    print("dipendenze per classe:")
+    for classe in CATEGORIE:
+        print(f"  {classe:14s} {len(classi[classe])}")
+
+    if classi["inattesa"]:
+        errori.append(
+            f"dipendenze inattese: {classi['inattesa']}. Nessuna delle quattro classi le "
+            "accoglie, e «inattesa» non significa «probabilmente va bene»: significa che "
+            "nessuno ha deciso che cosa siano. Vanno spedite dentro l'albero, oppure "
+            "aggiunte all'insieme atteso di questo profilo con una ragione e con il digest "
+            "del rilievo da cui la decisione viene."
+        )
+
+    # E l'insieme atteso dev'essere **esaurito**: una DLL attesa che non compare
+    # piu' significa che qualcosa e' cambiato in cio' che l'artefatto chiede, e
+    # un contratto che descrive una chiusura che non esiste piu' non verifica.
+    mai_viste = sorted(attese - esterne)
+    if mai_viste:
+        errori.append(
+            f"DLL attese e mai richieste: {mai_viste}. L'insieme atteso descrive una chiusura "
+            "che non e' piu' questa: va rifatto sul rilievo, non allargato."
+        )
+
+    # La politica resta, e serve a un'altra domanda: se una DLL attesa non fosse
+    # nemmeno ammissibile, il contratto avrebbe concesso a se stesso un'eccezione.
+    fuori_politica = sorted(n for n in classi["abi_windows"] if n not in POLITICA_ABI)
     if fuori_politica:
         errori.append(
-            f"DLL fuori dalla politica di sistema: {fuori_politica}. O sono spedite dentro "
-            "l'albero, o la politica va allargata con una ragione."
-        )
-    if esterne != attese:
-        errori.append(
-            f"le DLL di sistema non coincidono con quelle attese. In piu': "
-            f"{sorted(esterne - attese)}. In meno: {sorted(attese - esterne)}. Una DLL che "
-            "smette di essere spedita e viene presa dal sistema resta dentro la politica, e "
-            "solo l'insieme atteso se ne accorge."
+            f"DLL attese ma fuori dalla politica ABI: {fuori_politica}. L'insieme atteso non "
+            "puo' ammettere cio' che la politica non ammette: sarebbe un'eccezione che il "
+            "contratto concede a se stesso."
         )
 
     # 3. i percorsi di costruzione
@@ -403,7 +594,9 @@ def main() -> int:
             misure={
                 "pe_spediti": len(spediti),
                 "dll_interne": len(interne),
-                "dll_esterne": sorted(esterne),
+                "dll_esterne": sorted(n for n in esterne if not e_api_set(n)),
+                "api_set": sorted(n for n in esterne if e_api_set(n)),
+                "dipendenze_per_classe": {c: sorted(classi[c]) for c in CATEGORIE},
                 "import_ritardati": sorted(ritardate),
                 "percorsi_assoluti_classificati": sum(per_categoria.values()),
                 "percorsi_assoluti_non_classificati": len(non_classificati),

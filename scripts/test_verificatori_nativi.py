@@ -27,6 +27,7 @@ import importlib.util
 import pathlib
 import shutil
 import struct
+import sys
 import tempfile
 import unittest
 
@@ -443,6 +444,175 @@ class SondeSulPerimetro(unittest.TestCase):
                         f"{piattaforma} non e' costruita: un contratto di verifica scritto a "
                         "tavolino sarebbe una soglia mai misurata, e passerebbe per misurata",
                     )
+
+
+
+
+class SondeDellaScoperta(unittest.TestCase):
+    """La prima corsa Windows scopre, e non qualifica.
+
+    L'insieme delle DLL di sistema attese non si scrive a tavolino: dipende da
+    come conda-forge ha compilato GDAL per win-64, e l'unico modo di saperlo e'
+    guardare un artefatto vero. La corsa di scoperta lo misura e si ferma.
+
+    Che si **fermi** e' il punto. Una corsa che potesse diventare verde da sola
+    scriverebbe il proprio contratto, e un contratto scritto da cio' che deve
+    verificare non verifica niente.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.pe = carica("check-windows-runtime.py")
+
+    def artefatto(self, profilo: str) -> pathlib.Path:
+        import json
+
+        albero = self.tmp / f"plenora-io-0.0.0-prova-windows-x86_64-{profilo}"
+        (albero / "bin").mkdir(parents=True)
+        importate = ("kernel32.dll", "api-ms-win-crt-runtime-l1-1-0.dll")
+        if profilo == "filegdb":
+            costruisci_pe(
+                albero / "bin" / "gdal.dll",
+                importate=("kernel32.dll", "advapi32.dll"),
+                ritardate=("bcrypt.dll",),
+            )
+            importate = ("gdal.dll", *importate)
+        costruisci_pe(albero / "bin" / "plenora-io.exe", importate=importate)
+        with (albero / "bin" / "plenora-io.exe").open("ab") as f:
+            f.write(b"C:\\lavoro\\prefisso\\share\\gdal\x00")
+        (albero / "MANIFEST.json").write_text(
+            json.dumps(
+                {
+                    "piattaforma": "windows-x86_64",
+                    "profilo": profilo,
+                    "canale": "prova",
+                    "versione": "0.0.0-prova",
+                    "prefisso_di_costruzione": "C:\\lavoro\\prefisso",
+                }
+            ),
+            encoding="utf-8",
+        )
+        return albero
+
+    def scopri(self, profilo: str):
+        import json
+        import subprocess
+
+        albero = self.artefatto(profilo)
+        rilievo = self.tmp / "discovery" / f"windows-{profilo}.json"
+        esito = subprocess.run(
+            [
+                sys.executable,
+                str(RADICE / "scripts" / "check-windows-runtime.py"),
+                "--albero", str(albero),
+                "--discovery", str(rilievo),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return esito, json.loads(rilievo.read_text(encoding="utf-8"))
+
+    def test_la_scoperta_termina_rossa(self) -> None:
+        """Il rosso non e' un difetto trovato: e' l'assenza di una revisione
+        umana, e va distinto da un verde che non ha verificato niente."""
+        esito, rilievo = self.scopri("filegdb")
+        self.assertNotEqual(esito.returncode, 0, "la scoperta non deve poter passare")
+        self.assertTrue(rilievo["non_qualificante"])
+        self.assertIn("contratto", rilievo["perche_rosso"])
+
+    def test_la_scoperta_non_tocca_il_lock(self) -> None:
+        """Non modifica lock ne' repository: cio' che misura diventa un
+        contratto solo passando per una rilettura e per un commit."""
+        lock = RADICE / "scripts" / "windows-gdal-lock.json"
+        prima = lock.read_bytes()
+        self.scopri("base")
+        self.assertEqual(lock.read_bytes(), prima)
+
+    def test_registra_cio_che_serve_a_scrivere_il_contratto(self) -> None:
+        """Import, delay-import, DLL interne, API-set, DLL esterne, percorsi
+        incorporati, architettura -- e da dove viene la misura."""
+        _, rilievo = self.scopri("filegdb")
+        misure = rilievo["misure"]
+        for atteso in (
+            "import_normali",
+            "import_ritardati",
+            "dll_interne",
+            "api_set",
+            "dll_esterne",
+            "percorsi_incorporati",
+            "architetture",
+        ):
+            self.assertIn(atteso, misure, f"il rilievo non porta «{atteso}»")
+        provenienza = rilievo["provenienza_della_misura"]
+        for atteso in ("runner", "sistema", "sha_sorgente", "lock_sha256"):
+            self.assertIn(atteso, provenienza)
+        self.assertEqual(len(provenienza["lock_sha256"]), 64)
+
+    def test_i_due_profili_producono_due_rilievi_distinti(self) -> None:
+        """`base` e `filegdb` sono due prodotti: usare la misura dell'uno per
+        l'altro attribuirebbe a un artefatto una misura fatta su un altro."""
+        _, base = self.scopri("base")
+        _, filegdb = self.scopri("filegdb")
+        self.assertEqual(base["artefatto"]["profilo"], "base")
+        self.assertEqual(filegdb["artefatto"]["profilo"], "filegdb")
+        self.assertNotEqual(base["misure"]["dll_interne"], filegdb["misure"]["dll_interne"])
+        self.assertIn("gdal.dll", filegdb["misure"]["dll_interne"])
+        self.assertEqual(base["misure"]["dll_interne"], [])
+
+    def test_le_api_set_non_finiscono_fra_le_dll(self) -> None:
+        """Un'API-set e' un nome che il caricatore traduce, non un file che il
+        sistema fornisce. Metterla fra le DLL funzionerebbe e direbbe una cosa
+        falsa -- e farebbe cercare in `bin/` qualcosa che per costruzione non
+        esiste."""
+        _, rilievo = self.scopri("base")
+        self.assertIn("api-ms-win-crt-runtime-l1-1-0.dll", rilievo["misure"]["api_set"])
+        self.assertNotIn("api-ms-win-crt-runtime-l1-1-0.dll", rilievo["misure"]["dll_esterne"])
+
+    def test_i_delay_import_sono_registrati_a_parte(self) -> None:
+        """Una DLL che comparisse solo fra i delay import si manifesterebbe in
+        esecuzione, molto dopo. Il rilievo la porta in entrambi gli elenchi."""
+        _, rilievo = self.scopri("filegdb")
+        self.assertIn("bcrypt.dll", rilievo["misure"]["import_ritardati"])
+        self.assertIn("bcrypt.dll", rilievo["misure"]["dll_esterne"])
+
+
+class SondeDellaClassificazione(unittest.TestCase):
+    """Le quattro classi, e la sola che blocca."""
+
+    def setUp(self) -> None:
+        self.pe = carica("check-windows-runtime.py")
+
+    def test_le_quattro_classi(self) -> None:
+        interne = {"gdal.dll": pathlib.Path("bin/gdal.dll")}
+        attese = {"kernel32.dll"}
+        casi = {
+            "gdal.dll": "interna",
+            "api-ms-win-crt-runtime-l1-1-0.dll": "api_set",
+            "ext-ms-win-qualcosa-l1-1-0.dll": "api_set",
+            "kernel32.dll": "abi_windows",
+            "qualcosa-di-ignoto.dll": "inattesa",
+        }
+        for nome, atteso in casi.items():
+            with self.subTest(nome=nome):
+                self.assertEqual(
+                    self.pe.classifica_dipendenza(nome, interne, attese), atteso
+                )
+
+    def test_una_libreria_spedita_e_interna_anche_se_somiglia_a_una_di_sistema(self) -> None:
+        """L'ordine delle domande conta: cio' che si spedisce e' cio' che si
+        carica, e il nome non decide."""
+        interne = {"kernel32.dll": pathlib.Path("bin/kernel32.dll")}
+        self.assertEqual(
+            self.pe.classifica_dipendenza("kernel32.dll", interne, {"kernel32.dll"}),
+            "interna",
+        )
+
+    def test_inattesa_non_significa_probabilmente_va_bene(self) -> None:
+        """E' la classe che resta, ed e' quella che blocca: significa che
+        nessuno ha deciso che cosa sia quella dipendenza."""
+        self.assertEqual(self.pe.classifica_dipendenza("ignota.dll", {}, set()), "inattesa")
+        self.assertIn("inattesa", self.pe.CATEGORIE)
 
 
 if __name__ == "__main__":

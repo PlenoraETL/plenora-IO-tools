@@ -375,6 +375,78 @@ class SondeMatrice(unittest.TestCase):
         dal_codice = [f"{n}. {passo}: {perche}" for n, (passo, perche) in enumerate(modulo.ORDINE, 1)]
         self.assertEqual(self.matrice["firma"]["ordine_delle_operazioni"], dal_codice)
 
+    def test_nessun_insieme_atteso_e_largo(self) -> None:
+        """Un insieme largo non si accorge di cio' che smette di essere spedito
+        e viene preso dal sistema -- che e' il difetto per cui l'insieme esatto
+        esiste. Niente `C:\Windows\*`, niente `PATH`, niente jolly."""
+        larghi = re.compile(r"[*?]|windows\\|\$\{|%PATH%|qualunque", re.I)
+        for piattaforma, percorso in sorted(LOCK_PER_PIATTAFORMA.items()):
+            if not percorso.exists():
+                continue
+            contratto = carica(percorso).get("contratto_di_verifica")
+            if contratto is None:
+                continue
+            for chiave, valore in contratto.items():
+                if not chiave.startswith(("dipendenze_", "dll_")) or chiave.endswith("nota"):
+                    continue
+                per_profilo = valore if isinstance(valore, dict) else {"-": valore}
+                for profilo, nomi in per_profilo.items():
+                    for nome in nomi:
+                        with self.subTest(piattaforma=piattaforma, profilo=profilo, nome=nome):
+                            self.assertIsNone(
+                                larghi.search(nome),
+                                f"«{nome}» e' un insieme largo, non un nome",
+                            )
+
+    def test_ogni_contratto_ha_un_insieme_per_profilo(self) -> None:
+        """`base` e `filegdb` sono due prodotti: un insieme solo per entrambi
+        attribuirebbe a un artefatto una misura fatta su un altro."""
+        for piattaforma, percorso in sorted(LOCK_PER_PIATTAFORMA.items()):
+            if not percorso.exists():
+                continue
+            contratto = carica(percorso).get("contratto_di_verifica")
+            if contratto is None:
+                continue
+            with self.subTest(piattaforma=piattaforma):
+                per_profilo = next(
+                    (
+                        v
+                        for k, v in contratto.items()
+                        if k.startswith(("dipendenze_esterne_attese", "dll_di_sistema_attese"))
+                        and isinstance(v, dict)
+                    ),
+                    None,
+                )
+                self.assertIsNotNone(
+                    per_profilo, "l'insieme atteso non e' diviso per profilo"
+                )
+                self.assertEqual(set(per_profilo), {"base", "filegdb"})
+
+    def test_un_contratto_dichiara_da_quale_rilievo_viene(self) -> None:
+        """Il digest lega il contratto alla misura.
+
+        Senza, un insieme atteso sarebbe una lista di nomi senza provenienza:
+        chi la rilegge non saprebbe da quale artefatto, su quale runner, con
+        quale lock e' stata ricavata -- e non potrebbe rifare il conto.
+
+        La pretesa vale dove il contratto **non** e' stato scritto insieme al
+        primo lock: Linux e' stato misurato prima che questa regola esistesse,
+        e riscriverne la storia sarebbe peggio che dichiararlo."""
+        for piattaforma in ("windows-x86_64", "macos-aarch64"):
+            percorso = LOCK_PER_PIATTAFORMA[piattaforma]
+            if not percorso.exists():
+                continue
+            contratto = carica(percorso).get("contratto_di_verifica")
+            if contratto is None:
+                continue  # non ancora misurato: e' il blocco registrato
+            with self.subTest(piattaforma=piattaforma):
+                self.assertIn(
+                    "rilievo_di_origine",
+                    contratto,
+                    "il contratto non dice da quale rilievo viene",
+                )
+                self.assertEqual(len(contratto["rilievo_di_origine"]["sha256"]), 64)
+
     def test_lo_strumento_che_risolve_e_fissato(self) -> None:
         """Uno strumento che cambia da solo rende non riproducibile cio' che
         produce -- e cio' che produce e' proprio l'elenco che il lock fissa."""

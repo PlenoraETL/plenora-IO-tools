@@ -116,6 +116,24 @@ jobs:
   windows:
     # `windows-2022` e non `windows-latest`: la versione del runner e' parte di
     # cio' che si fissa, e «latest» cambia sotto i piedi.
+    #
+    # # Due fasi, e la prima non qualifica
+    #
+    # L'insieme delle DLL di sistema attese non esiste ancora, e non si scrive a
+    # tavolino: dipende da come conda-forge ha compilato GDAL per win-64, e
+    # l'unico modo di saperlo e' guardare un artefatto vero.
+    #
+    # La prima corsa **scopre**: costruisce, misura, scrive il rilievo, lo
+    # carica come artefatto, e termina **rossa**. Il rosso non e' un difetto
+    # trovato: e' l'assenza di una revisione umana. Una corsa di scoperta che
+    # potesse diventare verde da sola scriverebbe il proprio contratto, e un
+    # contratto scritto da cio' che deve verificare non verifica niente.
+    #
+    # Poi il rilievo si rilegge, ogni dipendenza si classifica -- interna,
+    # API-set, ABI Windows attesa, oppure inattesa e bloccante -- e **un commit
+    # successivo** mette nel lock l'insieme esatto, per profilo, insieme al
+    # digest del rilievo da cui viene. Solo allora la seconda corsa confronta il
+    # reale con l'atteso, e puo' diventare verde.
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -127,25 +145,100 @@ jobs:
         with:
           toolchain: "1.92.0"
 
-      # Il costruttore Windows non esiste ancora, e questo job si ferma qui con
-      # il risultato misurato invece di produrre un artefatto non verificato.
-      # Il blocco e' registrato in `distribuzione-matrice.json`: manca il
-      # contratto di verifica del lock, che non si scrive a tavolino -- le
-      # soglie si misurano su un runner, ed e' questo.
-      - name: Blocco dichiarato
+      - name: Materializza il runtime GDAL fissato
+        shell: pwsh
+        run: >-
+          ./scripts/install-windows-gdal.ps1
+          -Destination "$env:RUNNER_TEMP\runtime"
+          -CacheDirectory "$env:RUNNER_TEMP\cache"
+
+      - name: Costruisci l'artefatto
+        shell: bash
+        run: python scripts/costruisci-artefatto-windows.py
+          --prefisso "$RUNNER_TEMP/runtime" --uscita "$RUNNER_TEMP/uscita"
+          --versione "$VERSIONE" --profilo "${{ matrix.profilo }}" --canale "$CANALE"
+          --referti "$RUNNER_TEMP/referti"
+
+      # --- fase 1: la scoperta -----------------------------------------
+      #
+      # `continue-on-error` perche' il rosso e' **atteso**: il passo deve
+      # fallire e il rilievo deve essere conservato lo stesso. Senza, l'unica
+      # cosa prodotta da questa corsa andrebbe persa proprio perche' ha fatto
+      # cio' che doveva.
+      - name: Scoperta del runtime (non qualificante, termina rossa)
+        id: scoperta
+        continue-on-error: true
+        shell: bash
+        run: python scripts/check-windows-runtime.py
+          --albero "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-windows-x86_64-${{ matrix.profilo }}"
+          --discovery "$RUNNER_TEMP/discovery/windows-${{ matrix.profilo }}-discovery.json"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        if: always()
+        with:
+          name: discovery-windows-${{ matrix.profilo }}
+          path: ${{ runner.temp }}/discovery/
+
+      # --- fase 2: la verifica, quando il contratto esiste --------------
+      #
+      # Gira solo se il lock porta un `contratto_di_verifica`. Finche' non c'e',
+      # questo passo e' saltato e il job resta rosso per il passo di scoperta:
+      # e' l'esito giusto, e dice quale delle due fasi manca.
+      - name: Il lock porta gia un contratto di verifica?
+        id: contratto
         shell: bash
         run: |
-          python3 - <<'PY'
-          import json, pathlib, sys
-          matrice = json.loads(pathlib.Path(
-              "assurance/registries/distribuzione-matrice.json").read_text(encoding="utf-8"))
-          blocco = next(b for b in matrice["blocchi_aperti"]
-                        if b["piattaforma"] == "windows-x86_64")
-          print("BLOCCO APERTO:", blocco["blocco"])
-          print()
-          print("CHE COSA LO CHIUDE:", blocco["che_cosa_lo_chiude"])
-          sys.exit(1)
-          PY
+          if python -c "import json,sys; d=json.load(open('scripts/windows-gdal-lock.json')); sys.exit(0 if 'contratto_di_verifica' in d else 1)"; then
+            echo "presente=si" >> "$GITHUB_OUTPUT"
+          else
+            echo "presente=no" >> "$GITHUB_OUTPUT"
+            echo "Il lock non porta ancora un contratto di verifica: la scoperta e' la sola fase possibile."
+          fi
+
+      - name: Verifica il runtime
+        if: steps.contratto.outputs.presente == 'si'
+        shell: bash
+        run: python scripts/check-windows-runtime.py
+          --albero "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-windows-x86_64-${{ matrix.profilo }}"
+          --referto "$RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-runtime.json"
+
+      - name: Verifica le licenze
+        if: steps.contratto.outputs.presente == 'si'
+        shell: bash
+        run: python scripts/check-licenze-artefatto.py
+          --albero "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-windows-x86_64-${{ matrix.profilo }}"
+          --referto "$RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-licenze.json"
+
+      - name: Smoke del profilo, sull'artefatto installato
+        if: steps.contratto.outputs.presente == 'si'
+        shell: bash
+        run: python scripts/smoke-profilo.py
+          --albero "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-windows-x86_64-${{ matrix.profilo }}"
+          --lavoro "$RUNNER_TEMP/smoke"
+          --referto "$RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-smoke.json"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        if: always()
+        with:
+          name: referti-windows-${{ matrix.profilo }}
+          path: ${{ runner.temp }}/referti/
+
+      # Il job resta rosso finche' la scoperta e' la sola fase possibile. E'
+      # esplicito e non un effetto collaterale: dire «verde» a una corsa che non
+      # ha verificato niente sarebbe il difetto che tutto questo lotto esiste
+      # per evitare.
+      - name: Esito
+        shell: bash
+        run: |
+          if [ "${{ steps.contratto.outputs.presente }}" != "si" ]; then
+            echo "Corsa di scoperta: il rilievo e' stato prodotto e caricato, e il contratto"
+            echo "va ora scritto rileggendolo. Questo job resta rosso di proposito."
+            exit 1
+          fi
+          if [ "${{ steps.scoperta.outcome }}" = "failure" ] && [ "${{ steps.contratto.outputs.presente }}" = "si" ]; then
+            echo "Il contratto c'e' e la scoperta e' comunque fallita: e' un difetto, non l'attesa."
+            exit 1
+          fi
 
   macos:
     # `macos-15`, ARM64. Il deployment target e' 15.0 e va verificato in **ogni**

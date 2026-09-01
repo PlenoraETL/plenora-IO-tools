@@ -61,6 +61,10 @@ VERIFICHE_ATTESE = {
         "misure_obbligatorie": (),
         "perche": "che cosa l'artefatto **installato** sa fare, e che cosa deve non saper fare",
     },
+    "provenance": {
+        "misure_obbligatorie": ("archivio_sha256", "revisione", "lock_sha256"),
+        "perche": "che cosa e' stato costruito, da quale revisione, e con quale lock",
+    },
     "relocation": {
         "misure_obbligatorie": ("librerie_dall_albero",),
         "solo_profilo": "filegdb",
@@ -70,6 +74,17 @@ VERIFICHE_ATTESE = {
 }
 
 # La misura che deve dire una cosa precisa, e non solo esistere.
+# Le misure che su una **candidate** devono avere un valore vero. Su un
+# artefatto di prova possono restare dichiarate: quegli artefatti esistono per
+# essere misurati, e pretendere una revisione da una macchina senza `git` o una
+# firma senza certificato renderebbe impossibile costruirli.
+PRETESE_DELLA_CANDIDATE = {
+    ("provenance", "revisione"): (
+        "una provenance che non sa da quale revisione viene non lega niente: dice che esiste "
+        "un archivio con un checksum, e quello lo dice gia' il checksum"
+    ),
+}
+
 PRETESE_SULLE_MISURE = {
     ("smoke-profilo", "base"): (
         "filegdb_assente",
@@ -154,6 +169,13 @@ def verifica(directory: pathlib.Path, canale: str, piattaforme: tuple[str, ...])
                             f"{piattaforma}/{profilo}/{nome}: la misura «{misura}» non c'e'. "
                             "Un esito verde senza la misura che lo sostiene e' un'affermazione."
                         )
+                if canale == "candidate":
+                    for (v, misura), perche in PRETESE_DELLA_CANDIDATE.items():
+                        if v == nome and not misure.get(misura):
+                            errori.append(
+                                f"{piattaforma}/{profilo}/{nome}: «{misura}» vale "
+                                f"{misure.get(misura)!r} su una candidate. {perche}."
+                            )
                 pretesa = PRETESE_SULLE_MISURE.get((nome, profilo))
                 if pretesa:
                     chiave_misura, atteso, perche = pretesa
