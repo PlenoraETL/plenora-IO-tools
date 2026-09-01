@@ -14,12 +14,18 @@
 # Un artefatto che porta la stessa versione da tre catene diverse non ha la
 # stessa identita'; con una catena sola quella domanda non si pone.
 #
-# # Che cosa questo script **non** ha ancora
+# # Che cosa la prima esecuzione ha trovato
 #
-# Non e' mai stato eseguito. Non esiste in questo lotto un runner Windows su cui
-# provarlo, e uno script PowerShell che non ha girato e' una dichiarazione, non
-# una verifica. Il blocco corrispondente sta in `blocchi_aperti` nella matrice di
-# distribuzione, e va chiuso su `windows-2022` misurando -- non rileggendo.
+# Fino alla prima corsa questo script era una dichiarazione, non una verifica.
+# La prima corsa su `windows-2022` si e' fermata proprio qui: quarantacinque
+# minuti sul passo di materializzazione, senza mai arrivare alla costruzione.
+#
+# La causa era la barra di avanzamento di `Invoke-WebRequest`, che ridisegna la
+# console a ogni blocco: su decine di pacchetti il tempo passa da minuti a ore.
+# Ora si preferisce `curl.exe` -- presente su Windows dal 2018 e su ogni runner
+# -- e la barra e' spenta comunque, perche' `Invoke-WebRequest` resta il
+# ripiego. E il passo dice a che punto e', perche' un log che tace per minuti
+# non distingue il lavoro dal blocco.
 
 [CmdletBinding()]
 param(
@@ -29,6 +35,39 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# La barra di avanzamento di `Invoke-WebRequest` costa piu' del trasferimento.
+#
+# Non e' un dettaglio di stile: con la barra attiva IWR ridisegna la console a
+# ogni blocco, e su decine di pacchetti da qualche decina di megabyte il tempo
+# passa da minuti a ore. La prima corsa di scoperta si e' fermata proprio qui,
+# dopo quarantacinque minuti sul passo di materializzazione -- ed e' il genere
+# di cosa che si scopre soltanto eseguendo.
+$ProgressPreference = "SilentlyContinue"
+
+function Get-File {
+    <#
+        Scarica un file, preferendo `curl.exe` quando c'e'.
+
+        `curl.exe` e' presente su Windows dal 2018 e su ogni runner
+        `windows-2022`. E' molto piu' veloce di `Invoke-WebRequest` su file
+        grandi, e non ha la console di mezzo. `Invoke-WebRequest` resta come
+        ripiego, perche' un ambiente senza `curl.exe` deve poter comunque
+        materializzare il runtime -- lentamente, ma deve poterlo fare.
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$OutFile
+    )
+    $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curl) {
+        & $curl.Source --silent --show-error --fail --location --output $OutFile $Uri
+        if ($LASTEXITCODE -ne 0) { throw "Scaricamento fallito ($Uri): curl.exe $LASTEXITCODE" }
+    }
+    else {
+        Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
+    }
+}
 
 function Assert-Archive {
     param(
@@ -76,7 +115,7 @@ $cachePath = New-Item -ItemType Directory -Force -Path $CacheDirectory | Select-
 $pin = $manifest.risolto_con
 $micromambaArchive = Join-Path $cachePath "micromamba.tar.bz2"
 if (-not (Test-Path -LiteralPath $micromambaArchive)) {
-    Invoke-WebRequest -Uri $pin.url -OutFile $micromambaArchive -UseBasicParsing
+    Get-File -Uri $pin.url -OutFile $micromambaArchive
 }
 Assert-Archive -Path $micromambaArchive -ExpectedSize $pin.dimensione -ExpectedSha256 $pin.sha256
 $micromambaRoot = Join-Path $cachePath "micromamba"
@@ -98,10 +137,16 @@ if (-not (Test-Path -LiteralPath $micromamba)) {
 $explicit = Join-Path $cachePath "explicit.txt"
 $righe = New-Object System.Collections.Generic.List[string]
 $righe.Add("@EXPLICIT")
+$quanti = @($manifest.pacchetti).Count
+$n = 0
+# Un passo che tace per minuti non dice se stia lavorando o se sia fermo, e la
+# differenza conta quando lo si guarda da un log.
 foreach ($pacchetto in $manifest.pacchetti) {
+    $n += 1
+    Write-Host "[$n/$quanti] $($pacchetto.nome) $($pacchetto.versione)"
     $file = Join-Path $cachePath ([System.IO.Path]::GetFileName(([uri]$pacchetto.url).LocalPath))
     if (-not (Test-Path -LiteralPath $file)) {
-        Invoke-WebRequest -Uri $pacchetto.url -OutFile $file -UseBasicParsing
+        Get-File -Uri $pacchetto.url -OutFile $file
     }
     Assert-Archive -Path $file -ExpectedSize $pacchetto.dimensione -ExpectedSha256 $pacchetto.sha256
     $righe.Add("file:///$($file -replace '\\', '/')#$($pacchetto.sha256)")
