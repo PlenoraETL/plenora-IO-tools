@@ -224,6 +224,37 @@ Diario "materializzazione di $quanti pacchetti in $destinationPath"
 if ($LASTEXITCODE -ne 0) { Diario "materializzazione fallita: $LASTEXITCODE"; throw "Materializzazione fallita" }
 Diario "materializzazione conclusa"
 
+# --- il nome dell'import library ------------------------------------------
+#
+# `gdal-sys` su MSVC cerca **soltanto** `gdal_i.lib`, in `$GDAL_LIB_DIR` o in
+# `$GDAL_HOME\lib`. E' il nome che usa OSGeo4W; conda-forge chiama la stessa
+# import library `gdal.lib`, e il build script va in panico senza nemmeno dire
+# che cosa abbia trovato.
+#
+# E' il costo residuo del cambio di catena, ed e' emerso alla prima corsa che e'
+# arrivata a compilare. Si risolve con una **copia sotto l'altro nome**: non si
+# modifica nulla del contenuto, e la copia sta nel prefisso di lavoro, non
+# nell'artefatto. Copia e non rinomina: il nome originale resta, e chi guarda il
+# prefisso vede tutti e due.
+$libDir = Join-Path $destinationPath "Library\lib"
+$attesa = Join-Path $libDir "gdal_i.lib"
+if (Test-Path -LiteralPath $attesa) {
+    Diario "gdal_i.lib gia' presente"
+}
+else {
+    $candidata = Join-Path $libDir "gdal.lib"
+    if (Test-Path -LiteralPath $candidata) {
+        Copy-Item -LiteralPath $candidata -Destination $attesa
+        Diario "gdal_i.lib creata copiando gdal.lib (conda-forge la nomina diversamente da OSGeo4W)"
+    }
+    else {
+        $presenti = (Get-ChildItem -LiteralPath $libDir -Filter *.lib -ErrorAction SilentlyContinue |
+                     Select-Object -ExpandProperty Name) -join ", "
+        Diario "nessuna import library riconosciuta in $libDir. Presenti: $presenti"
+        throw "gdal_i.lib assente e gdal.lib non trovata. In $libDir ci sono: $presenti"
+    }
+}
+
 foreach ($relativePath in @("Library\bin\gdal.dll", "Library\share\gdal", "Library\share\proj")) {
     $requiredPath = Join-Path $destinationPath $relativePath
     if (-not (Test-Path -LiteralPath $requiredPath)) {
