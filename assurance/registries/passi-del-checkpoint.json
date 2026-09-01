@@ -170,6 +170,10 @@
       "log": true
     },
     {
+      "id": "sonde_verificatori_nativi",
+      "log": true
+    },
+    {
       "id": "sonde_action_pins",
       "log": true
     },

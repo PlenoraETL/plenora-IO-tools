@@ -1,0 +1,362 @@
+"""Sonde sui verificatori nativi PE e Mach-O.
+
+# Che cosa dimostrano, e che cosa no
+
+Dimostrano che i due verificatori **sanno leggere** il proprio formato: un PE
+costruito qui byte per byte, con una import table e una delay-import table, e un
+Mach-O con i suoi load command. Se sbagliassero uno scarto o un campo, queste
+sonde diventerebbero rosse.
+
+Non dimostrano che l'artefatto Windows o macOS sia conforme. Quello lo dira' il
+verificatore quando girera' su un artefatto vero, su un runner vero, e finche'
+non succede la piattaforma resta `non_ancora_costruita` con il suo blocco. Sono
+due affermazioni diverse, e confonderle sarebbe il modo piu' facile di
+dichiarare verificato cio' che non lo e'.
+
+# Perche' binari sintetici e non file di prova scaricati
+
+Perche' un file di prova sarebbe opaco: se una sonda diventasse rossa non si
+saprebbe se ha trovato un difetto nel verificatore o una stranezza del file.
+Costruendoli qui, ogni byte e' una decisione, e una sonda rossa nomina la
+decisione che l'ha resa tale.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import pathlib
+import shutil
+import struct
+import tempfile
+import unittest
+
+RADICE = pathlib.Path(__file__).resolve().parent.parent
+
+
+def carica(nome: str):
+    percorso = RADICE / "scripts" / nome
+    spec = importlib.util.spec_from_file_location(percorso.stem.replace("-", "_"), percorso)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+# --- un PE costruito a mano ------------------------------------------------
+
+
+def costruisci_pe(
+    percorso: pathlib.Path,
+    *,
+    macchina: int = 0x8664,
+    importate: tuple[str, ...] = (),
+    ritardate: tuple[str, ...] = (),
+) -> None:
+    """Il PE minimo che le funzioni sotto prova devono saper leggere.
+
+    Una sola sezione, che ospita sia le strutture delle directory sia i nomi. E'
+    il minimo che regge le domande vere -- architettura, import, delay import --
+    e non un byte di piu': cio' che non serve a una domanda non aiuta a
+    rispondere e nasconde dove sta il difetto.
+    """
+    inizio_pe = 0x80
+    rva_sezione = 0x1000
+    offset_sezione = 0x400
+
+    corpo = bytearray()
+    posizioni: dict[str, int] = {}
+
+    def deposita(testo: str) -> int:
+        if testo not in posizioni:
+            posizioni[testo] = len(corpo)
+            corpo.extend(testo.encode("ascii") + b"\0")
+        return rva_sezione + posizioni[testo]
+
+    # Le due tabelle: 20 byte per voce, terminate da una voce di zeri. Il campo
+    # «nome» sta a scarto 12 per gli import e a scarto 4 per i delay import, ed
+    # e' l'unica differenza che conta.
+    def tabella(nomi: tuple[str, ...], scarto_nome: int) -> tuple[int, int]:
+        if not nomi:
+            return 0, 0
+        rva_nomi = [deposita(n) for n in nomi]
+        inizio = len(corpo)
+        for rva in rva_nomi:
+            voce = bytearray(20)
+            struct.pack_into("<I", voce, scarto_nome, rva)
+            corpo.extend(voce)
+        corpo.extend(bytes(20))
+        return rva_sezione + inizio, (len(nomi) + 1) * 20
+
+    rva_import, dim_import = tabella(importate, 12)
+    rva_delay, dim_delay = tabella(ritardate, 4)
+
+    dati = bytearray(offset_sezione)
+    dati[0:2] = b"MZ"
+    struct.pack_into("<I", dati, 0x3C, inizio_pe)
+    dati[inizio_pe : inizio_pe + 4] = b"PE\0\0"
+    dimensione_opzionale = 112 + 16 * 8
+    struct.pack_into("<HH", dati, inizio_pe + 4, macchina, 1)
+    struct.pack_into("<H", dati, inizio_pe + 20, dimensione_opzionale)
+    inizio_opzionale = inizio_pe + 24
+    struct.pack_into("<H", dati, inizio_opzionale, 0x20B)  # PE32+
+    inizio_directory = inizio_opzionale + 112
+    struct.pack_into("<II", dati, inizio_directory + 1 * 8, rva_import, dim_import)
+    struct.pack_into("<II", dati, inizio_directory + 13 * 8, rva_delay, dim_delay)
+
+    inizio_sezioni = inizio_opzionale + dimensione_opzionale
+    intestazione = bytearray(40)
+    intestazione[0:5] = b".text"
+    struct.pack_into("<IIII", intestazione, 8, len(corpo), rva_sezione, len(corpo), offset_sezione)
+    dati[inizio_sezioni : inizio_sezioni + 40] = intestazione
+
+    percorso.write_bytes(bytes(dati) + bytes(corpo))
+
+
+# --- un Mach-O costruito a mano --------------------------------------------
+
+
+def costruisci_macho(
+    percorso: pathlib.Path,
+    *,
+    cpu: int = 0x0100000C,
+    dipendenze: tuple[str, ...] = (),
+    rpath: tuple[str, ...] = (),
+    target: str | None = "15.0.0",
+) -> None:
+    """Il Mach-O minimo con i load command che le funzioni leggono."""
+    comandi = bytearray()
+
+    def comando_con_stringa(tipo: int, testo: str, scarto: int = 12) -> None:
+        grezza = testo.encode("utf-8") + b"\0"
+        riempimento = (-(scarto + len(grezza))) % 8
+        dimensione = scarto + len(grezza) + riempimento
+        blocco = bytearray(dimensione)
+        struct.pack_into("<II", blocco, 0, tipo, dimensione)
+        struct.pack_into("<I", blocco, 8, scarto)
+        blocco[scarto : scarto + len(grezza)] = grezza
+        comandi.extend(blocco)
+
+    for nome in dipendenze:
+        # LC_LOAD_DYLIB: dopo `cmd` e `cmdsize` c'e' l'offset del nome, poi tre
+        # campi di versione. La stringa comincia a 24.
+        grezza = nome.encode("utf-8") + b"\0"
+        riempimento = (-(24 + len(grezza))) % 8
+        dimensione = 24 + len(grezza) + riempimento
+        blocco = bytearray(dimensione)
+        struct.pack_into("<III", blocco, 0, 0x0C, dimensione, 24)
+        blocco[24 : 24 + len(grezza)] = grezza
+        comandi.extend(blocco)
+
+    for voce in rpath:
+        comando_con_stringa(0x8000001C, voce, scarto=12)
+
+    if target is not None:
+        maggiore, minore, patch = (int(x) for x in target.split("."))
+        blocco = bytearray(24)
+        struct.pack_into("<II", blocco, 0, 0x32, 24)
+        struct.pack_into("<I", blocco, 8, 1)  # platform: macOS
+        struct.pack_into("<I", blocco, 12, (maggiore << 16) | (minore << 8) | patch)
+        comandi.extend(blocco)
+
+    intestazione = bytearray(32)
+    struct.pack_into("<IIIIIII", intestazione, 0, 0xFEEDFACF, cpu, 0, 2, 0, len(comandi), 0)
+    struct.pack_into("<I", intestazione, 16, sum(1 for _ in _conta(comandi)))
+    percorso.write_bytes(bytes(intestazione) + bytes(comandi))
+
+
+def _conta(comandi: bytes):
+    offset = 0
+    while offset + 8 <= len(comandi):
+        _, dimensione = struct.unpack_from("<II", comandi, offset)
+        if dimensione < 8:
+            return
+        yield offset
+        offset += dimensione
+
+
+class SondeDelLettorePe(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.pe = carica("check-windows-runtime.py")
+
+    def test_legge_l_architettura(self) -> None:
+        x64 = self.tmp / "x64.exe"
+        costruisci_pe(x64, macchina=0x8664)
+        self.assertEqual(self.pe.architettura(x64), self.pe.MACCHINA_X86_64)
+
+        x86 = self.tmp / "x86.exe"
+        costruisci_pe(x86, macchina=0x014C)
+        self.assertNotEqual(self.pe.architettura(x86), self.pe.MACCHINA_X86_64)
+
+    def test_legge_gli_import_normali(self) -> None:
+        f = self.tmp / "a.exe"
+        costruisci_pe(f, importate=("KERNEL32.dll", "gdal.dll"))
+        normali, ritardati = self.pe.importazioni(f)
+        self.assertEqual(normali, {"kernel32.dll", "gdal.dll"})
+        self.assertEqual(ritardati, set())
+
+    def test_legge_anche_i_delay_import(self) -> None:
+        """La ragione per cui questo verificatore esiste.
+
+        Una DLL che comparisse solo fra i delay import sfuggirebbe a chi
+        guardasse la sola import table, e si manifesterebbe molto dopo -- in
+        esecuzione, su una macchina che non ce l'ha."""
+        f = self.tmp / "b.exe"
+        costruisci_pe(f, importate=("kernel32.dll",), ritardate=("bcrypt.dll",))
+        normali, ritardati = self.pe.importazioni(f)
+        self.assertEqual(normali, {"kernel32.dll"})
+        self.assertEqual(ritardati, {"bcrypt.dll"}, "i delay import non sono stati letti")
+
+    def test_i_nomi_si_confrontano_senza_maiuscole(self) -> None:
+        """Windows non distingue le maiuscole: trattare `KERNEL32.dll` e
+        `kernel32.dll` come diversi sarebbe un rosso che non significa niente."""
+        f = self.tmp / "c.exe"
+        costruisci_pe(f, importate=("KeRnEl32.DLL",))
+        normali, _ = self.pe.importazioni(f)
+        self.assertEqual(normali, {"kernel32.dll"})
+        self.assertLessEqual(normali, self.pe.POLITICA_ABI)
+
+    def test_un_file_che_non_e_un_pe_non_passa_in_silenzio(self) -> None:
+        f = self.tmp / "no.exe"
+        f.write_bytes(b"non sono un PE")
+        with self.assertRaises(self.pe.PeMalformato):
+            self.pe.architettura(f)
+
+    def test_la_chiusura_separa_interne_ed_esterne(self) -> None:
+        albero = self.tmp / "albero"
+        (albero / "bin").mkdir(parents=True)
+        costruisci_pe(albero / "bin" / "gdal.dll", importate=("kernel32.dll",))
+        costruisci_pe(
+            albero / "bin" / "plenora-io.exe",
+            importate=("gdal.dll",),
+            ritardate=("bcrypt.dll",),
+        )
+        interne, esterne, ritardate = self.pe.chiusura(
+            albero / "bin" / "plenora-io.exe", albero
+        )
+        self.assertEqual(set(interne), {"gdal.dll"})
+        self.assertEqual(esterne, {"kernel32.dll", "bcrypt.dll"})
+        self.assertEqual(ritardate, {"bcrypt.dll"})
+
+    def test_i_percorsi_di_costruzione_si_trovano_in_ascii_e_utf16(self) -> None:
+        """I binari Windows portano entrambe le codifiche: cercarne una sola e'
+        un modo di trovarne meno di quante ce ne sono."""
+        f = self.tmp / "d.bin"
+        prefisso = "C:\\lavoro\\prefisso"
+        f.write_bytes(
+            b"..." + f"{prefisso}\\share\\gdal".encode("ascii")
+            + b"\0\0" + f"{prefisso}\\lib\\x".encode("utf-16-le")
+        )
+        trovati = self.pe.percorsi_assoluti(f, prefisso)
+        self.assertTrue(any("share" in t for t in trovati), trovati)
+        self.assertTrue(any("lib" in t for t in trovati), trovati)
+
+
+class SondeDelLettoreMachO(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.mo = carica("check-macos-runtime.py")
+
+    def test_legge_architettura_e_dipendenze(self) -> None:
+        f = self.tmp / "a.dylib"
+        costruisci_macho(
+            f, dipendenze=("@rpath/libgdal.35.dylib", "/usr/lib/libSystem.B.dylib")
+        )
+        self.assertEqual(self.mo.cpu_type(f), self.mo.CPU_TYPE_ARM64)
+        self.assertEqual(
+            self.mo.dipendenze(f),
+            ["@rpath/libgdal.35.dylib", "/usr/lib/libSystem.B.dylib"],
+        )
+
+    def test_legge_il_deployment_target(self) -> None:
+        f = self.tmp / "b.dylib"
+        costruisci_macho(f, target="15.0.0")
+        self.assertEqual(self.mo.deployment_target(f), "15.0.0")
+
+    def test_un_target_piu_alto_si_vede(self) -> None:
+        """Un solo binario compilato piu' in alto alza il requisito
+        dell'intero artefatto, e nulla nel nome lo direbbe."""
+        f = self.tmp / "c.dylib"
+        costruisci_macho(f, target="15.4.0")
+        self.assertGreater(
+            self.mo.chiave(self.mo.deployment_target(f)), self.mo.chiave("15.0.0")
+        )
+
+    def test_un_macho_senza_target_lo_dichiara_assente(self) -> None:
+        f = self.tmp / "d.dylib"
+        costruisci_macho(f, target=None)
+        self.assertIsNone(self.mo.deployment_target(f))
+
+    def test_legge_l_rpath(self) -> None:
+        f = self.tmp / "e.dylib"
+        costruisci_macho(f, rpath=("@loader_path/../lib",))
+        self.assertEqual(self.mo.rpath(f), ["@loader_path/../lib"])
+
+    def test_un_rpath_che_esce_dall_albero_si_riconosce(self) -> None:
+        self.assertFalse(self.mo.rpath_esce_dall_albero("@loader_path/../lib", 1))
+        self.assertTrue(self.mo.rpath_esce_dall_albero("@loader_path/../../lib", 1))
+
+    def test_un_binario_universale_e_rifiutato(self) -> None:
+        """L'artefatto e' ARM64 soltanto: un fat binary porterebbe
+        un'architettura che il contratto non dichiara."""
+        f = self.tmp / "fat"
+        f.write_bytes(struct.pack(">I", 0xCAFEBABE) + bytes(60))
+        with self.assertRaises(self.mo.MachOMalformato) as contesto:
+            self.mo.cpu_type(f)
+        self.assertIn("universale", str(contesto.exception))
+
+    def test_un_file_che_non_e_un_macho_non_passa_in_silenzio(self) -> None:
+        f = self.tmp / "no"
+        f.write_bytes(b"non sono un Mach-O, ma sono abbastanza lungo per provarci sul serio")
+        with self.assertRaises(self.mo.MachOMalformato):
+            self.mo.cpu_type(f)
+
+
+class SondeSulPerimetro(unittest.TestCase):
+    """Che cosa i due verificatori pretendono di avere prima di dire qualcosa."""
+
+    def test_nessuno_dei_due_lock_ha_ancora_un_contratto_di_verifica(self) -> None:
+        """E' un debito registrato, non una svista.
+
+        Il contratto di verifica dice le soglie -- quali DLL di sistema sono
+        attese, quale deployment target -- e non si scrive a tavolino: si
+        misura su un runner. Finche' non c'e', i due verificatori si fermano
+        invece di applicare una soglia inventata, e le due piattaforme restano
+        `non_ancora_costruita` con il proprio blocco."""
+        import json
+
+        for nome in ("windows-gdal-lock.json", "macos-gdal-lock.json"):
+            percorso = RADICE / "scripts" / nome
+            if not percorso.exists():
+                continue
+            with self.subTest(lock=nome):
+                lock = json.loads(percorso.read_text(encoding="utf-8"))
+                matrice = json.loads(
+                    (RADICE / "assurance" / "registries" / "distribuzione-matrice.json")
+                    .read_text(encoding="utf-8")
+                )
+                piattaforma = lock["piattaforma"]
+                costruita = {
+                    p["id"]
+                    for p in matrice["piattaforme"]
+                    if p["stato_costruzione"] == "costruita"
+                }
+                if piattaforma in costruita:
+                    self.assertIn(
+                        "contratto_di_verifica",
+                        lock,
+                        f"{piattaforma} e' dichiarata costruita e il suo lock non porta le "
+                        "soglie che il verificatore applica",
+                    )
+                else:
+                    self.assertNotIn(
+                        "contratto_di_verifica",
+                        lock,
+                        f"{piattaforma} non e' costruita: un contratto di verifica scritto a "
+                        "tavolino sarebbe una soglia mai misurata, e passerebbe per misurata",
+                    )
+
+
+if __name__ == "__main__":
+    unittest.main()

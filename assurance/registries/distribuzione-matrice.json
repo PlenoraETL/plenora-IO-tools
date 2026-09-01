@@ -298,5 +298,27 @@
     "perche_ora": "perche' cambia l'ordine delle operazioni, e quindi i byte. Firmare **dopo** aver calcolato i checksum li invaliderebbe; uno smoke eseguito **prima** della firma proverebbe un file diverso da quello che si consegna -- su macOS un binario notarizzato con lo stapling e' un altro file, su Windows un PE firmato ha una sezione in piu'. L'ordine e' fissato adesso che il certificato non c'e': assembla, firma, checksum, smoke. Il giorno in cui arrivera' non cambiera' nulla di strutturale.",
     "dove_vive": "scripts/distribuzione.py, e il blocco `firma` nel manifesto di ogni artefatto",
     "blocco_esterno": "certificati e segreti non ci sono, e restano un blocco fuori da questo repository. Il campo pero' esiste gia' nei manifesti degli artefatti di prova, con stato `non_richiesta`: aggiungerlo dopo avrebbe cambiato il manifesto e quindi il checksum dell'archivio che lo contiene."
+  },
+  "verificatori_nativi": {
+    "linux": {
+      "script": "scripts/check-linux-gdal-runtime.py",
+      "domande": "chiusura DT_NEEDED, DT_NEEDED assoluti, soglia GLIBC, percorsi cotti, RPATH radicato in $ORIGIN",
+      "stato": "eseguito su artefatti veri"
+    },
+    "windows": {
+      "script": "scripts/check-windows-runtime.py",
+      "domande": "architettura x86-64, chiusura degli import **e dei delay-import**, DLL fuori dall'albero contro l'insieme atteso esatto, percorsi del prefisso di costruzione cercati sia in ASCII sia in UTF-16",
+      "stato": "mai eseguito su un artefatto: non c'e' un runner Windows in questo lotto",
+      "che_cosa_e_provato": "che sappia **leggere** un PE: le sonde ne costruiscono uno byte per byte, con una import table e una delay-import table, e verificano che le legga entrambe. Non e' la stessa cosa di «l'artefatto Windows e' conforme», e confonderle sarebbe il modo piu' facile di dichiarare verificato cio' che non lo e'.",
+      "perche_i_delay_import": "sono risolti alla prima chiamata invece che all'avvio: una DLL che comparisse solo li' sfuggirebbe a chi guardasse la sola import table, e si manifesterebbe molto dopo -- in esecuzione, su una macchina che non ce l'ha."
+    },
+    "macos": {
+      "script": "scripts/check-macos-runtime.py",
+      "domande": "ARM64 e nessun binario universale, deployment target 15.0 in **ogni** Mach-O, install name per `@rpath` e non assoluti, `LC_RPATH` radicato in `@loader_path` e interno all'albero, dipendenze fuori dall'albero limitate a `/usr/lib` e ai framework di sistema",
+      "stato": "mai eseguito su un artefatto: non c'e' un runner macOS in questo lotto",
+      "che_cosa_e_provato": "che sappia leggere un Mach-O, sulle stesse basi di quello Windows",
+      "perche_ogni_macho": "il deployment target non e' una soglia da confrontare come `GLIBC_*`: e' un campo dichiarato in ciascun binario, e vale il piu' alto fra tutti quelli spediti. Un solo file compilato piu' in alto alza il requisito dell'intero artefatto senza che nulla lo dica."
+    },
+    "perche_separati": "`DT_NEEDED` e `GLIBC_*` non esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove. Un verificatore solo vorrebbe dire verificare il minimo comune ovunque, cioe' verificare meno dappertutto. Comune e' la **forma del risultato**, perche' il gate finale non puo' leggere sei formati."
   }
 }

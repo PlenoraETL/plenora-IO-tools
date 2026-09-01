@@ -1,0 +1,195 @@
+# I sei artefatti, costruiti e verificati ciascuno sulla propria piattaforma.
+#
+# # Perche' job nativi e non una cross-compilazione
+#
+# Perche' cio' che si verifica non e' il binario ma l'**artefatto**: la chiusura
+# delle sue dipendenze, i percorsi che porta cotti dentro, e se funziona una
+# volta spostato. Un artefatto macOS costruito su Linux non si puo' eseguire, e
+# uno smoke che non si esegue non dice niente.
+#
+# Ogni job produce dei **referti**, che il gate finale riconta. Non basta che i
+# job siano verdi: un job verde e' un'affermazione fatta da chi doveva essere
+# verificato, e le affermazioni si sbagliano in silenzio -- un passo saltato per
+# una condizione mai vera, un `|| true` di troppo, uno smoke che non ha trovato
+# l'artefatto e non ha guardato niente. Nessuna di queste cose fa rosso.
+#
+# # Il canale
+#
+# Di norma `prova`: artefatti costruiti per essere misurati, non installati, e
+# non firmati. Il canale `candidate` si chiede a mano, e pretende le firme --
+# Authenticode su Windows, Developer ID con notarizzazione e stapling su macOS
+# -- che oggi non ci sono. Il gate finale lo rifiuta, ed e' l'esito giusto:
+# certificati e segreti sono un blocco esterno a questo repository.
+
+name: Distribuzione
+
+on:
+  workflow_dispatch:
+    inputs:
+      canale:
+        description: "prova (predefinito) oppure candidate"
+        type: choice
+        options: [prova, candidate]
+        default: prova
+      versione:
+        description: "la versione nel nome dell'artefatto"
+        type: string
+        default: "0.0.0-prova"
+
+permissions:
+  contents: read
+
+env:
+  CANALE: ${{ inputs.canale || 'prova' }}
+  VERSIONE: ${{ inputs.versione || '0.0.0-prova' }}
+
+jobs:
+  linux:
+    # Ubuntu 22.04, che porta glibc 2.35: e' la soglia dichiarata nella matrice.
+    # Costruire su una base piu' recente darebbe un artefatto che non gira sulla
+    # soglia promessa, per un accidente dell'ambiente invece che per una
+    # proprieta' del prodotto.
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        profilo: [base, filegdb]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: "1.92.0"
+      - name: Strumenti nativi
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          pkg-config zstd binutils patchelf strace file
+
+      - name: Materializza il runtime GDAL fissato
+        run: python3 scripts/install-linux-gdal.py
+          --prefisso "$RUNNER_TEMP/runtime" --lavoro "$RUNNER_TEMP/cache"
+
+      - name: Costruisci l'artefatto
+        run: python3 scripts/costruisci-artefatto-linux.py
+          --prefisso "$RUNNER_TEMP/runtime" --uscita "$RUNNER_TEMP/uscita"
+          --versione "$VERSIONE" --profilo "${{ matrix.profilo }}" --canale "$CANALE"
+
+      # L'ordine e' quello deciso: assembla, firma, checksum, smoke. Su Linux
+      # non c'e' una firma di piattaforma e il costruttore lo dichiara nel
+      # manifesto; lo smoke resta dopo, cosi' che l'ordine sia lo stesso ovunque.
+      - name: Verifica il runtime
+        if: matrix.profilo == 'filegdb'
+        run: python3 scripts/check-linux-gdal-runtime.py
+          --prefisso "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}"
+          --radice bin/plenora-io
+          --referto "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-runtime.json"
+
+      - name: Verifica le licenze
+        run: python3 scripts/check-licenze-artefatto.py
+          --albero "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}"
+          --referto "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-licenze.json"
+
+      - name: Smoke del profilo, sull'artefatto installato
+        run: python3 scripts/smoke-profilo.py
+          --albero "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}"
+          --lavoro "$RUNNER_TEMP/smoke"
+          --referto "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-smoke.json"
+
+      # Il relocation smoke **cancella** la directory di costruzione: e' la sua
+      # condizione centrale, e per questo l'archivio viene copiato altrove prima.
+      - name: Relocation smoke
+        if: matrix.profilo == 'filegdb'
+        run: |
+          mkdir -p "$RUNNER_TEMP/archivi"
+          cp "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}.tar.gz" \
+             "$RUNNER_TEMP/archivi/"
+          bash scripts/relocation-smoke-linux.sh \
+            "$RUNNER_TEMP/archivi/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}.tar.gz" \
+            "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-linux-x86_64-${{ matrix.profilo }}" \
+            "$RUNNER_TEMP/relocation" \
+            "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-relocation.json"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        if: always()
+        with:
+          name: referti-linux-${{ matrix.profilo }}
+          path: ${{ runner.temp }}/referti/
+
+  windows:
+    # `windows-2022` e non `windows-latest`: la versione del runner e' parte di
+    # cio' che si fissa, e «latest» cambia sotto i piedi.
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        profilo: [base, filegdb]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: "1.92.0"
+
+      # Il costruttore Windows non esiste ancora, e questo job si ferma qui con
+      # il risultato misurato invece di produrre un artefatto non verificato.
+      # Il blocco e' registrato in `distribuzione-matrice.json`: manca il
+      # contratto di verifica del lock, che non si scrive a tavolino -- le
+      # soglie si misurano su un runner, ed e' questo.
+      - name: Blocco dichiarato
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys
+          matrice = json.loads(pathlib.Path(
+              "assurance/registries/distribuzione-matrice.json").read_text(encoding="utf-8"))
+          blocco = next(b for b in matrice["blocchi_aperti"]
+                        if b["piattaforma"] == "windows-x86_64")
+          print("BLOCCO APERTO:", blocco["blocco"])
+          print()
+          print("CHE COSA LO CHIUDE:", blocco["che_cosa_lo_chiude"])
+          sys.exit(1)
+          PY
+
+  macos:
+    # `macos-15`, ARM64. Il deployment target e' 15.0 e va verificato in **ogni**
+    # Mach-O spedito: un solo binario compilato piu' in alto alzerebbe il
+    # requisito dell'intero artefatto senza che nulla lo dica.
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        profilo: [base, filegdb]
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: "1.92.0"
+
+      - name: Blocco dichiarato
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, sys
+          matrice = json.loads(pathlib.Path(
+              "assurance/registries/distribuzione-matrice.json").read_text(encoding="utf-8"))
+          blocco = next(b for b in matrice["blocchi_aperti"]
+                        if b["piattaforma"] == "macos-aarch64")
+          print("BLOCCO APERTO:", blocco["blocco"])
+          print()
+          print("CHE COSA LO CHIUDE:", blocco["che_cosa_lo_chiude"])
+          sys.exit(1)
+          PY
+
+  gate:
+    # Gira **sempre**, anche quando i job sopra falliscono: e' il suo mestiere.
+    # Un gate che girasse solo a valle del verde direbbe soltanto cio' che i job
+    # hanno gia' detto, e non servirebbe a niente.
+    needs: [linux, windows, macos]
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: referti
+      - name: Riconta i referti
+        run: python3 scripts/check-distribuzione-completa.py
+          --referti referti --canale "$CANALE"
