@@ -115,6 +115,9 @@ def main() -> int:
     if not arg.salta_build:
         ambiente = dict(os.environ)
         ambiente["GDAL_HOME"] = str(libreria)
+        # Esplicito, invece di lasciarlo dedurre da `GDAL_HOME\lib`: e' li' che
+        # `gdal-sys` cerca `gdal_i.lib`, e dirlo costa una riga.
+        ambiente["GDAL_LIB_DIR"] = str(libreria / "lib")
         ambiente["GDAL_VERSION"] = lock["gdal_version"]
         ambiente["CARGO_TARGET_DIR"] = str(target)
         comando = ["cargo", "build", "--release", "--locked", "-p", "plenora-io-cli"]
