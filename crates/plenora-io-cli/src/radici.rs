@@ -57,6 +57,11 @@
 //! modulo non fa **niente**, e l'ambiente resta l'unica fonte. Il
 //! riconoscimento vuole il layout completo: una forma parziale non e' un
 //! artefatto, e pescare dati da un albero a meta' e' peggio che non pescarne.
+//!
+//! «Completo» sono `share/gdal` e `share/proj` accanto a `bin/`, e non la
+//! directory delle librerie: quella la mette ciascuna piattaforma dove il
+//! proprio caricatore guarda -- `lib/` su Linux, dentro `bin/` su Windows.
+//! Pretenderla era un criterio scritto guardando una piattaforma sola.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -103,13 +108,23 @@ const CATALOGO_XML: &str = "XML_CATALOG_FILES";
 /// La radice dell'artefatto, se il binario ne fa parte.
 ///
 /// Non basta che esista una directory con il nome giusto: si pretende il layout
-/// dichiarato -- il binario in `bin/`, e accanto `lib/`, `share/gdal`,
-/// `share/proj`.
+/// dichiarato -- il binario in `bin/`, e accanto `share/gdal` e `share/proj`.
 fn radice_da(binario: &Path) -> Option<PathBuf> {
     let radice = binario.parent()?.parent()?;
-    let completo = radice.join("lib").is_dir()
-        && radice.join("share").join("gdal").is_dir()
-        && radice.join("share").join("proj").is_dir();
+    // Il riconoscimento sta su `share/gdal` e `share/proj`, che sono cio' che
+    // serve. La directory delle librerie **non** entra nel criterio, e non e'
+    // una svista: la mette ciascuna piattaforma dove il proprio caricatore
+    // guarda -- `lib/` accanto al binario su Linux, dentro `bin/` su Windows,
+    // che li cerca accanto all'eseguibile.
+    //
+    // Pretendere `lib/` era un criterio scritto guardando Linux. Su Windows
+    // quella directory non c'e', il layout non veniva riconosciuto, e il
+    // binario non impostava nulla: PROJ restava senza `proj.db` e la prima
+    // conversione con un CRS falliva. Lo smoke ordinario non lo vedeva --
+    // l'ambiente aveva ancora i dati del prefisso -- e l'ha trovato il
+    // relocation, che e' l'unico a togliere tutto.
+    let completo =
+        radice.join("share").join("gdal").is_dir() && radice.join("share").join("proj").is_dir();
     completo.then(|| radice.to_path_buf())
 }
 
@@ -239,9 +254,13 @@ mod tests {
     /// Senza questa pretesa GDAL troverebbe una `share/gdal` e non una
     /// `share/proj`, e il difetto si manifesterebbe sulle sole trasformazioni
     /// di CRS -- lontano dalla causa.
+    ///
+    /// `lib/` non e' fra le condizioni: la directory delle librerie la mette
+    /// ciascuna piattaforma dove il proprio caricatore guarda, e pretenderla
+    /// rendeva irriconoscibile il layout di Windows.
     #[test]
     fn un_layout_incompleto_non_e_un_artefatto() {
-        for mancante in ["lib", "share/gdal", "share/proj"] {
+        for mancante in ["share/gdal", "share/proj"] {
             let dir = tempfile::tempdir().unwrap();
             for percorso in ["bin", "lib", "share/gdal", "share/proj"] {
                 if percorso != mancante {
@@ -255,6 +274,32 @@ mod tests {
                 "senza «{mancante}» non e' un artefatto"
             );
         }
+    }
+
+    /// Il layout di Windows: le DLL stanno in `bin/`, e `lib/` non c'e'.
+    ///
+    /// E' il difetto che il relocation smoke ha trovato. Il criterio pretendeva
+    /// `lib/`, l'artefatto Windows non l'aveva, e il binario non riconosceva il
+    /// proprio layout: PROJ restava senza `proj.db` e la prima conversione con
+    /// un CRS falliva. Lo smoke ordinario non lo vedeva, perche' l'ambiente
+    /// aveva ancora i dati del prefisso di costruzione.
+    #[test]
+    fn il_layout_di_windows_e_riconosciuto() {
+        let dir = tempfile::tempdir().unwrap();
+        let radice = dir.path();
+        for percorso in ["bin", "share/gdal", "share/proj"] {
+            std::fs::create_dir_all(radice.join(percorso)).unwrap();
+        }
+        // Le DLL accanto all'eseguibile, com'e' su Windows.
+        std::fs::write(radice.join("bin").join("gdal.dll"), b"").unwrap();
+        let binario = radice.join("bin").join("plenora-io.exe");
+        std::fs::write(&binario, b"").unwrap();
+
+        assert_eq!(
+            radice_da(&binario).as_deref(),
+            Some(radice),
+            "senza `lib/` il layout resta quello di un artefatto"
+        );
     }
 
     /// L'albero di sviluppo: `target/debug/plenora-io` ha un nonno, ma non ha
