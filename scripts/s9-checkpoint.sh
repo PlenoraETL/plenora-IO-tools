@@ -633,6 +633,8 @@ passo sonde_identita python3 -m unittest scripts.test_check_public_identity
 passo check_identita python3 scripts/check_public_identity.py
 passo sonde_release python3 -m unittest scripts.test_check_release_contract
 passo check_release python3 scripts/check_release_contract.py
+passo sonde_distribuzione python3 -m unittest scripts.test_distribuzione_matrice
+passo sonde_licenze python3 -m unittest scripts.test_licenze
 passo sonde_action_pins python3 -m unittest scripts.test_check_action_pins
 passo check_action_pins python3 scripts/check_action_pins.py
 passo sonde_toolchain python3 -m unittest scripts.test_check_toolchain_pins

@@ -76,6 +76,129 @@ def carica_lettore():
     return modulo
 
 
+def identificatori_spdx(espressione: str) -> list[str]:
+    """Gli identificatori dentro un'espressione SPDX, in ordine.
+
+    `GPL-3.0-only WITH GCC-exception-3.1` sono **due** testi, non uno: la
+    seconda e' cio' che rende distribuibile un binario linkato alla prima, e
+    consegnare solo la GPL sarebbe consegnare meta' della ragione per cui
+    l'artefatto puo' esistere.
+
+    Le parentesi e gli operatori si tolgono; cio' che resta sono i nomi. Non e'
+    un parser SPDX completo, e non deve esserlo: se un giorno arrivasse
+    un'espressione che questo non sa leggere, l'identificatore non si
+    troverebbe nel lock e il costruttore si fermerebbe -- che e' l'esito
+    giusto.
+    """
+    operatori = {"WITH", "AND", "OR"}
+    parole = espressione.replace("(", " ").replace(")", " ").split()
+    return [parola for parola in parole if parola.upper() not in operatori]
+
+
+def procurati_testo(
+    identificatore: str, fonte: dict, cache: pathlib.Path
+) -> bytes:
+    """Il testo fissato, verificato prima dell'uso.
+
+    La verifica e' la stessa che si fa sui pacchetti, e per la stessa ragione:
+    un testo che cambia sotto un checksum fissato deve far fallire il
+    checksum, non entrare nell'artefatto perche' l'URL rispondeva.
+    """
+    cache.mkdir(parents=True, exist_ok=True)
+    percorso = cache / f"{identificatore}.txt"
+    if not percorso.is_file():
+        esegui(["curl", "-sSL", "--fail", "-o", str(percorso), fonte["url"]])
+    contenuto = percorso.read_bytes()
+    if len(contenuto) != fonte["dimensione"]:
+        raise SystemExit(
+            f"{identificatore}: {len(contenuto)} byte, attesi {fonte['dimensione']}"
+        )
+    digesto = hashlib.sha256(contenuto).hexdigest()
+    if digesto != fonte["sha256"]:
+        raise SystemExit(
+            f"{identificatore}: sha256 {digesto}, atteso {fonte['sha256']}. "
+            "Il testo alla sorgente e' cambiato: va rifissato nel lock, non ignorato."
+        )
+    return contenuto
+
+
+def testi_di_licenza(
+    pacchetti: dict[str, dict],
+    per_pacchetto: dict[str, list[str]],
+    testi_esterni: dict,
+    licenze: pathlib.Path,
+    cache: pathlib.Path,
+) -> tuple[int, list[dict]]:
+    """Scrive in `licenze/` il testo della licenza di ogni componente.
+
+    conda linka nel prefisso i soli file del pacchetto: `info/licenses` resta
+    nella directory in cui il pacchetto e' stato estratto, e `conda-meta` ne
+    porta il percorso. Copiarli di la' e' cio' che rende `LICENSES/` un
+    contenuto invece di un elenco -- e un elenco di licenze non e' cio' che una
+    licenza obbliga a distribuire.
+
+    Alcuni pacchetti spediscono byte senza portare il proprio testo. Per quelli
+    il testo si prende dall'autorita' dell'identificatore SPDX che dichiarano,
+    fissato nel lock per URL, dimensione e sha256 come tutto il resto. Se non si
+    riesce a procurarlo, si **ferma**: nominarlo in un elenco eviterebbe il
+    silenzio senza consegnare la licenza, e questo costruttore ha gia' fatto
+    quell'errore.
+
+    Torna quanti hanno usato il proprio testo e l'elenco di quelli per cui e'
+    stato preso quello canonico.
+    """
+    con_testo_proprio = 0
+    con_testo_canonico: list[dict] = []
+    for nome_pacchetto in sorted(pacchetti):
+        identita = pacchetti[nome_pacchetto]
+        quanti_file = len(per_pacchetto.get(nome_pacchetto, []))
+        estratta = identita.get("directory_estratta") or ""
+        origine = pathlib.Path(estratta) / "info" / "licenses" if estratta else None
+        if origine is not None and origine.is_dir():
+            # Il testo che il pacchetto porta con se' vince su quello canonico:
+            # e' piu' vicino a cio' che ha effettivamente spedito.
+            shutil.copytree(origine, licenze / nome_pacchetto, dirs_exist_ok=True)
+            con_testo_proprio += 1
+            continue
+
+        if not identita["licenza"]:
+            raise SystemExit(
+                f"{nome_pacchetto}: nessun testo di licenza e nessuna licenza dichiarata, "
+                f"e spedisce {quanti_file} file. Sotto quale licenza li si spedisca non e' "
+                "una cosa che questo costruttore possa decidere."
+            )
+        destinazione = licenze / nome_pacchetto
+        destinazione.mkdir(parents=True, exist_ok=True)
+        identificatori = identificatori_spdx(identita["licenza"])
+        for identificatore in identificatori:
+            fonte = testi_esterni["identificatori"].get(identificatore)
+            if fonte is None:
+                raise SystemExit(
+                    f"{nome_pacchetto} spedisce {quanti_file} file, dichiara "
+                    f"«{identita['licenza']}» e non porta il proprio testo; "
+                    f"«{identificatore}» non e' fra i testi fissati nel lock sotto "
+                    "`testi_di_licenza_esterni`. Aggiungervelo, con URL, dimensione e "
+                    "sha256: un artefatto non si spedisce senza la licenza di cio' che "
+                    "contiene."
+                )
+            (destinazione / f"{identificatore}.txt").write_bytes(
+                procurati_testo(identificatore, fonte, cache)
+            )
+        con_testo_canonico.append(
+            {
+                "pacchetto": nome_pacchetto,
+                "licenza_dichiarata": identita["licenza"],
+                "identificatori": identificatori,
+                "file_spediti": quanti_file,
+                "perche": (
+                    "il pacchetto non porta `info/licenses`; il testo viene dall'autorita' "
+                    "dell'identificatore SPDX che dichiara, fissato nel lock"
+                ),
+            }
+        )
+    return con_testo_proprio, con_testo_canonico
+
+
 # --- la mappa file-a-pacchetto -------------------------------------------
 
 
@@ -282,7 +405,10 @@ def main() -> int:
     # --- 4. licenze e SBOM, legati a cio' che si spedisce ------------------
     print("4. licenze e SBOM sui file spediti", flush=True)
     mappa = mappa_dei_pacchetti(prefisso)
+    testi_esterni = lock["testi_di_licenza_esterni"]
+    cache_licenze = uscita / ".testi-di-licenza"
     pacchetti: dict[str, dict] = {}
+    per_pacchetto: dict[str, list[str]] = {}
     non_attribuiti: list[str] = []
     for f in spediti:
         relativo = str(f.relative_to(albero))
@@ -293,6 +419,7 @@ def main() -> int:
             non_attribuiti.append(relativo)
             continue
         pacchetti.setdefault(identita["nome"], identita)
+        per_pacchetto.setdefault(identita["nome"], []).append(relativo)
 
     if non_attribuiti:
         raise SystemExit(
@@ -302,39 +429,13 @@ def main() -> int:
             "e' incompleto proprio dove serve."
         )
 
-    # I testi, non soltanto i nomi.
-    #
-    # conda linka nel prefisso i soli file del pacchetto: `info/licenses` resta
-    # nella directory in cui il pacchetto e' stato estratto, e `conda-meta` ne
-    # porta il percorso. Copiarli di la' e' cio' che rende `LICENSES/` un
-    # contenuto invece di un elenco -- e un elenco di licenze non e' cio' che
-    # una licenza obbliga a distribuire.
     licenze = albero / "LICENSES"
-    senza_testo: list[dict] = []
-    with_testo = 0
-    for nome_pacchetto in sorted(pacchetti):
-        identita = pacchetti[nome_pacchetto]
-        estratta = identita.get("directory_estratta") or ""
-        origine = pathlib.Path(estratta) / "info" / "licenses" if estratta else None
-        if origine is None or not origine.is_dir():
-            # Non si tace: un pacchetto senza testo va nominato, con la licenza
-            # che dichiara. Chi deve adempiere sa cosi' che cosa gli manca e
-            # dove cercarlo, invece di dedurlo dall'assenza.
-            if not identita["licenza"]:
-                raise SystemExit(
-                    f"{nome_pacchetto}: nessun testo di licenza e nessuna licenza dichiarata. "
-                    "Spedire un file senza sapere sotto quale licenza lo si spedisce non e' "
-                    "una cosa che questo costruttore possa decidere da solo."
-                )
-            senza_testo.append(
-                {"pacchetto": nome_pacchetto, "licenza_dichiarata": identita["licenza"]}
-            )
-            continue
-        shutil.copytree(origine, licenze / nome_pacchetto, dirs_exist_ok=True)
-        with_testo += 1
+    con_testo_proprio, con_testo_canonico = testi_di_licenza(
+        pacchetti, per_pacchetto, testi_esterni, licenze, cache_licenze
+    )
     print(
-        f"   licenze: {with_testo} pacchetti con testo, {len(senza_testo)} con la sola "
-        "dichiarazione",
+        f"   licenze: {con_testo_proprio} pacchetti con il proprio testo, "
+        f"{len(con_testo_canonico)} con il testo canonico dell'identificatore dichiarato",
         flush=True,
     )
 
@@ -348,11 +449,15 @@ def main() -> int:
                     "nelle directory accanto, una per pacchetto."
                 ),
                 "pacchetti": [pacchetti[k] for k in sorted(pacchetti)],
-                "senza_testo": senza_testo,
-                "senza_testo_nota": (
-                    "questi pacchetti non portano `info/licenses` nel proprio archivio. Resta la "
-                    "licenza che dichiarano, e resta scritto qui che il testo manca: un elenco "
-                    "silenzioso avrebbe lasciato credere che ci fosse tutto."
+                "con_testo_canonico": con_testo_canonico,
+                "con_testo_canonico_nota": (
+                    "questi pacchetti non portano `info/licenses` nel proprio archivio, e "
+                    "spediscono comunque byte. Il testo accanto viene dall'autorita' "
+                    "dell'identificatore SPDX che dichiarano, fissata nel lock per URL, "
+                    "dimensione e sha256. Non e' il testo che il progetto ha spedito con i "
+                    "propri sorgenti: e' il testo della licenza che dichiara, ed e' quanto di "
+                    "piu' vicino si possa consegnare senza scaricare il tarball di GCC per "
+                    "estrarne un file."
                 ),
             },
             ensure_ascii=False,
@@ -417,8 +522,14 @@ def main() -> int:
         # sembrerebbe un artefatto pulito. E' gia' successo.
         "prefisso_di_costruzione": str(prefisso),
         "licenze": {
-            "con_testo": with_testo,
-            "con_la_sola_dichiarazione": len(senza_testo),
+            "con_testo_proprio": con_testo_proprio,
+            "con_testo_canonico": len(con_testo_canonico),
+            "senza_testo": 0,
+            "senza_testo_nota": (
+                "e' sempre zero, e non per fortuna: un pacchetto che spedisce byte senza un "
+                "testo ferma il costruttore. Prima erano tre, nominati in un elenco -- il che "
+                "evitava il silenzio ma non consegnava la licenza."
+            ),
         },
         "normalizzazioni": normalizzazioni,
         "normalizzazioni_nota": (

@@ -571,8 +571,13 @@ fare, e un artefatto che eredita quella decisione non ha un'identità stabile.
 
 Perché 3.9 e non l'ultima: `gdal-sys 0.10.0` spedisce binding pre-costruiti
 soltanto fino a 3.9, e su 3.10 la build si ferma da sola. Le due uscite da quel
-vicolo sono peggiori. La feature `bindgen` genera i binding a build time e
-cambia `Cargo.lock`, che qui non è un dettaglio. Dichiarare a `gdal-sys` una
+vicolo sono peggiori. La feature `bindgen` genera i binding a build time, e
+`bindgen` non è una libreria in più: è un **generatore di codice** che va
+fissato e qualificato insieme a ciò che gli serve — `libclang`, gli header di
+GDAL, e la versione di clang che li interpreta. Sono tre nuovi input di
+costruzione, ciascuno capace di cambiare i binding senza che nessuna riga del
+repository cambi. I binding pre-generati tolgono quel problema alla radice:
+sono byte nel crate, già dentro il perimetro fissato. Dichiarare a `gdal-sys` una
 versione diversa da quella spedita compila l'ABI di una serie contro la
 libreria di un'altra — ed è ciò che il progetto faceva su Windows, dove il lock
 dichiarava una libreria 3.10.3 con binding 3.6.0 e l'installatore forzava la

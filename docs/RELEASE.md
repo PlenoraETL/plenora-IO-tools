@@ -510,12 +510,21 @@ Il lock si **rigenera** soltanto quando si cambia versione di GDAL:
 python3 scripts/genera-gdal-lock.py --lavoro /A/nuovo --subdir linux-64
 ```
 
-Rigenerarlo invalida ogni misura fatta sul precedente. La versione e' 3.9 e non
+Rigenerarlo invalida ogni misura fatta sul precedente. La versione è 3.9 e non
 l'ultima disponibile: `gdal-sys 0.10.0` spedisce binding pre-costruiti soltanto
-fino a 3.9, e le due alternative sono peggiori — la feature `bindgen` genera i
-binding a build time e cambia `Cargo.lock`, e dichiarare a `gdal-sys` una
-versione diversa da quella spedita compila l'ABI di una serie contro la
-libreria di un'altra.
+fino a 3.9, e le due alternative sono peggiori.
+
+La feature `bindgen` genera i binding a build time, e `bindgen` non è una
+libreria in più: è un **generatore di codice** che va fissato e qualificato
+insieme a ciò che gli serve — `libclang`, gli header di GDAL, e la versione di
+clang che li interpreta. Sono tre nuovi input di costruzione, ciascuno capace
+di cambiare i binding senza che nessuna riga del repository cambi. I binding
+pre-generati tolgono quel problema alla radice: sono byte nel crate, già dentro
+il perimetro fissato.
+
+Dichiarare a `gdal-sys` una versione diversa da quella spedita compila invece
+l'ABI di una serie contro la libreria di un'altra: funziona finché funziona, e
+quando smette non lo dice.
 
 ##### La costruzione
 
@@ -562,6 +571,30 @@ capitato: `--prefisso` e' dove i file stanno adesso, `--prefisso-di-costruzione`
 e' cio' che i binari nominano dentro di se'. Se non se ne trova nessuno, il
 controllo diventa rosso invece di dichiarare che non ce ne sono.
 
+**Licenze.**
+
+```sh
+python3 scripts/check-licenze-artefatto.py --albero /A/uscita/plenora-io-<versione>-linux-x86_64-filegdb
+```
+
+Pretende che ogni componente che mette **byte** nell'artefatto abbia accanto il
+testo della propria licenza — non il nome, non l'identificatore: il testo. Un
+elenco di licenze non è ciò che una licenza obbliga a distribuire.
+
+Tre pacchetti spediscono byte senza portare il proprio testo: `libgcc`
+(`libgcc_s.so.1`), `libstdcxx` (`libstdc++.so.6`) e `libsqlite`
+(`libsqlite3.so`). Per quelli il testo viene dall'autorità dell'identificatore
+SPDX che dichiarano, fissato nel lock per URL, dimensione e SHA-256 come tutto
+il resto. Per `GPL-3.0-only WITH GCC-exception-3.1` sono **due** testi: la
+seconda è ciò che rende distribuibile un binario linkato alla prima.
+
+Un componente che spedisce file e non riesce a procurarsi un testo **ferma la
+costruzione**. Prima veniva nominato in `PROVENIENZA.json`, il che evitava il
+silenzio e non consegnava la licenza. Un pacchetto che non mette file
+nell'albero non è un componente e non gli si chiede nulla; che la distinzione
+resti il criterio — «ha messo un file qui» — e non diventi un'esenzione lo
+verifica una sonda.
+
 **Relocation smoke.**
 
 ```sh
@@ -600,8 +633,10 @@ pulito.
 | ELF con `DT_NEEDED` assoluti | 0 |
 | percorsi assoluti classificati | 29 su 29 |
 | RPATH radicati in `$ORIGIN` e interni | 56 su 56 |
-| licenze con il testo spedito | 40 pacchetti, 41 file, ~390 KB |
-| licenze con la sola dichiarazione | 3, nominati in `PROVENIENZA.json` |
+| componenti con il testo di licenza | 43 su 43 |
+| di cui con il proprio testo | 40 |
+| di cui con il testo canonico dell'identificatore | 3 |
+| componenti con la sola dichiarazione | 0, ed e' fatale |
 | relocation smoke | verde, con controprova |
 
 I numeri stanno qui come **referto di una corsa**, non come contratto: il

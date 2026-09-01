@@ -78,10 +78,13 @@ VIRTUALI_PER_SUBDIR = {
 # con «No pre-built bindings available», e le due uscite da quel vicolo sono
 # entrambe peggiori di scendere di una minore.
 #
-# Abilitare la feature `bindgen` genererebbe i binding a build time: aggiunge
-# `bindgen` e `clang` alla catena, e soprattutto cambia `Cargo.lock` -- che qui
-# non e' un dettaglio, perche' una dipendenza in piu' invalida le misure che ci
-# stanno sopra.
+# Abilitare la feature `bindgen` genererebbe i binding a build time, e non e'
+# una libreria in piu': e' un **generatore di codice** che va fissato e
+# qualificato insieme a cio' che gli serve -- `libclang`, gli header di GDAL, e
+# la versione di clang che li interpreta. Sono tre nuovi input di costruzione,
+# ciascuno capace di cambiare i binding senza che nessuna riga del repository
+# cambi. I binding pre-generati tolgono quel problema alla radice: sono byte nel
+# crate, gia' dentro il perimetro fissato.
 #
 # Dichiarare a `gdal-sys` una versione diversa da quella spedita -- che e' cio'
 # che `install-windows-gdal.ps1` faceva, forzando `GDAL_VERSION=3.6.0` su una

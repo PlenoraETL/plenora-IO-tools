@@ -158,6 +158,14 @@
       "log": true
     },
     {
+      "id": "sonde_distribuzione",
+      "log": true
+    },
+    {
+      "id": "sonde_licenze",
+      "log": true
+    },
+    {
       "id": "sonde_action_pins",
       "log": true
     },

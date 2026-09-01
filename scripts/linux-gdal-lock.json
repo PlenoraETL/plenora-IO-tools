@@ -630,5 +630,28 @@
     "che_cosa_non_dimostra_lo_smoke": "il relocation smoke esercita alcuni di questi percorsi e non altri. Quelli non attraversati -- TLS, XML, terminfo, Kerberos -- restano governati dalla classificazione qui sopra, e uno smoke verde non li promuove a «provati».",
     "variabili_e_guardie": "Le due categorie non sono intercambiabili. `coperto_da_variabile` dice che il percorso cotto dentro viene sostituito a runtime, e obbliga l'artefatto a **spedire** cio' che la variabile nomina; `non_raggiungibile_dall_uso` dice che quel codice non si esegue, e vuole una **guardia** verificabile invece di un file. La seconda e' la garanzia piu' forte quando regge, ed e' anche la piu' fragile nel tempo: per questo ogni riga porta scritto che cosa la riaprirebbe. Le variabili della prima categoria sono esattamente quelle che `crates/plenora-io-cli/src/radici.rs` imposta, e una sonda diventa rossa se i due elenchi divergono.",
     "normalizzazione_dei_dt_needed": "L'artefatto non e' byte per byte cio' che i pacchetti contengono: `libgdal.so.35` viene riscritta per togliere una dipendenza dichiarata per percorso assoluto. E' una modifica a un binario di terze parti, sta scritta nel manifesto sotto `normalizzazioni`, e senza di essa l'artefatto non sarebbe spostabile -- il che e' l'unica ragione per cui esiste."
+  },
+  "testi_di_licenza_esterni": {
+    "nota": "Tre pacchetti spediscono byte e non portano `info/licenses` nel proprio archivio: `libgcc` (lib/libgcc_s.so.1), `libstdcxx` (lib/libstdc++.so.6) e `libsqlite` (lib/libsqlite3.so e .so.0). Nominarli in un elenco evitava il silenzio ma non consegnava la licenza, e cio' che una licenza obbliga a distribuire e' il **testo**.",
+    "perche_spdx": "ciascuno di quei pacchetti dichiara un identificatore SPDX, e SPDX e' l'autorita' del testo che quell'identificatore nomina. La sorgente upstream sarebbe l'alternativa, ma per GCC vorrebbe dire scaricare il tarball intero per estrarne `COPYING3`, e per SQLite una pagina HTML da cui ricavare il testo. Il tag e' fissato: `license-list-data` cambia nel tempo, e un testo che cambia sotto un checksum fissato e' un checksum che fallisce, non un testo diverso che passa.",
+    "tag": "v3.27.0",
+    "quando_si_applica": "soltanto ai pacchetti che spediscono almeno un file **e** non portano il proprio testo. Un pacchetto che porta `info/licenses` usa il proprio: e' piu' vicino a cio' che ha effettivamente spedito di qualunque testo canonico.",
+    "identificatori": {
+      "GPL-3.0-only": {
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GPL-3.0-only.txt",
+        "dimensione": 34674,
+        "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0"
+      },
+      "GCC-exception-3.1": {
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/GCC-exception-3.1.txt",
+        "dimensione": 3390,
+        "sha256": "7103d4f7f7e2f8ce10d282a05e0689637f8d6d9ef7b399d808d1da313e69b960"
+      },
+      "blessing": {
+        "url": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/blessing.txt",
+        "dimensione": 244,
+        "sha256": "592db1199aab67aafe4515db9808b420db122083807c5329b2f061951e79acbe"
+      }
+    }
   }
 }
