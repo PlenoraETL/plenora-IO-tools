@@ -174,7 +174,12 @@ jobs:
         with:
           toolchain: "1.92.0"
 
+      # Il timeout sta sul **passo** e non solo sul job: quando scade il job,
+      # scadono anche i passi `if: always()`, e il diario -- l'unica cosa che
+      # dice dove si e' fermato -- non viene raccolto. Con il tetto sul passo,
+      # il passo fallisce e i successivi girano.
       - name: Materializza il runtime GDAL fissato
+        timeout-minutes: 20
         shell: pwsh
         run: >-
           ./scripts/install-windows-gdal.ps1
