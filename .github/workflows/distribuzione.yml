@@ -181,6 +181,16 @@ jobs:
           -Destination "$env:RUNNER_TEMP\runtime"
           -CacheDirectory "$env:RUNNER_TEMP\cache"
 
+      # Il diario dell'installatore va raccolto **sempre**: l'output di un passo
+      # in corso si perde quando il job scade, e senza diario non si diagnostica
+      # nulla. Le prime due corse di scoperta si sono fermate proprio li'.
+      - name: Raccogli il diario dell'installatore
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/discovery"
+          cp "${TMP:-$TEMP}/install-windows-gdal.log"              "$RUNNER_TEMP/discovery/install-windows-gdal-${{ matrix.profilo }}.log" 2>/dev/null ||              echo "nessun diario prodotto" > "$RUNNER_TEMP/discovery/install-windows-gdal-${{ matrix.profilo }}.log"
+
       - name: Costruisci l'artefatto
         shell: bash
         run: python scripts/costruisci-artefatto-windows.py

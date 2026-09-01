@@ -99,8 +99,20 @@ BINDING_VERSION = ".".join(GDAL_VERSION.split(".")[:2]) + ".0"
 MICROMAMBA_VERSIONE = "2.9.0"
 
 
-def pin_di_micromamba(lavoro: pathlib.Path) -> dict:
-    """URL, dimensione e sha256 della versione dichiarata, dal canale."""
+def pin_di_micromamba(lavoro: pathlib.Path, subdir: str = SUBDIR_STRUMENTO) -> dict:
+    """URL, dimensione e sha256 della versione dichiarata, dal canale.
+
+    `subdir` e' la piattaforma su cui quel micromamba dovra' **girare**, e non
+    sempre e' questa. Ne servono due, per due mestieri diversi:
+
+    - il micromamba che **risolve** gira dove si risolve, cioe' qui;
+    - il micromamba che **materializza** gira dove si costruisce, e finisce nel
+      lock perche' e' il lock a portarselo dietro.
+
+    Su Linux coincidono, ed e' per questo che la differenza non si vedeva: il
+    lock di Windows fissava un micromamba per Linux, e la prima corsa di
+    scoperta su `windows-2022` provava a eseguire un ELF.
+    """
     api = lavoro / "micromamba-api.json"
     subprocess.run(
         [
@@ -120,13 +132,13 @@ def pin_di_micromamba(lavoro: pathlib.Path) -> dict:
     candidati = [
         f
         for f in dati["files"]
-        if f["attrs"].get("subdir") == SUBDIR_STRUMENTO
+        if f["attrs"].get("subdir") == subdir
         and f["version"] == MICROMAMBA_VERSIONE
         and f["basename"].endswith(".tar.bz2")
     ]
     if len(candidati) != 1:
         sys.exit(
-            f"micromamba {MICROMAMBA_VERSIONE}: attesa una build per {SUBDIR_STRUMENTO}, "
+            f"micromamba {MICROMAMBA_VERSIONE}: attesa una build per {subdir}, "
             f"trovate {len(candidati)}"
         )
     scelto = candidati[0]
@@ -198,8 +210,17 @@ def main() -> int:
     if virtuali:
         print(f"risoluzione con pacchetti virtuali dichiarati: {virtuali}")
 
-    pin = pin_di_micromamba(lavoro)
-    micromamba = procurati(pin, lavoro)
+    # Due pin, per due mestieri. Quello che risolve gira qui; quello che
+    # finisce nel lock girera' sulla piattaforma di destinazione.
+    pin_locale = pin_di_micromamba(lavoro, SUBDIR_STRUMENTO)
+    micromamba = procurati(pin_locale, lavoro)
+    pin = (
+        pin_locale
+        if subdir == SUBDIR_STRUMENTO
+        else pin_di_micromamba(lavoro, subdir)
+    )
+    if pin is not pin_locale:
+        print(f"micromamba per il lock: {subdir}; per risolvere: {SUBDIR_STRUMENTO}")
 
     risoluzione = lavoro / "risoluzione.json"
     with risoluzione.open("w", encoding="utf-8") as uscita:

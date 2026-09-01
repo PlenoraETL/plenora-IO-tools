@@ -36,6 +36,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Un diario su file, oltre alla console.
+#
+# L'output di un passo **in corso** si perde quando il job viene cancellato o
+# scade: le prime corse di scoperta si sono fermate qui e il log non conteneva
+# una sola riga di questo script. Un file lo si puo' caricare come artefatto
+# anche quando il passo non e' arrivato in fondo.
+$diarioPath = Join-Path ([System.IO.Path]::GetTempPath()) "install-windows-gdal.log"
+function Diario {
+    param([Parameter(Mandatory = $true)][string]$Testo)
+    $riga = "[{0:HH:mm:ss}] {1}" -f (Get-Date), $Testo
+    Write-Host $riga
+    Add-Content -LiteralPath $diarioPath -Value $riga -Encoding utf8
+}
+Set-Content -LiteralPath $diarioPath -Value "" -Encoding utf8
+Diario "avvio su $([System.Environment]::OSVersion.VersionString)"
+
 # La barra di avanzamento di `Invoke-WebRequest` costa piu' del trasferimento.
 #
 # Non e' un dettaglio di stile: con la barra attiva IWR ridisegna la console a
@@ -113,10 +129,12 @@ $cachePath = New-Item -ItemType Directory -Force -Path $CacheDirectory | Select-
 # che cambia da solo rende non riproducibile cio' che produce, e cio' che
 # produce e' esattamente l'albero che poi si spedisce.
 $pin = $manifest.risolto_con
+Diario "micromamba dal lock: $($pin.url)"
 $micromambaArchive = Join-Path $cachePath "micromamba.tar.bz2"
 if (-not (Test-Path -LiteralPath $micromambaArchive)) {
     Get-File -Uri $pin.url -OutFile $micromambaArchive
 }
+Diario "micromamba scaricato, verifico"
 Assert-Archive -Path $micromambaArchive -ExpectedSize $pin.dimensione -ExpectedSha256 $pin.sha256
 $micromambaRoot = Join-Path $cachePath "micromamba"
 New-Item -ItemType Directory -Force -Path $micromambaRoot | Out-Null
@@ -127,8 +145,11 @@ if (-not (Test-Path -LiteralPath $micromamba)) {
     $micromamba = Join-Path $micromambaRoot "bin\micromamba.exe"
 }
 if (-not (Test-Path -LiteralPath $micromamba)) {
-    throw "micromamba non trovato dopo l'estrazione"
+    $trovati = (Get-ChildItem -Recurse -LiteralPath $micromambaRoot | Select-Object -First 20 -ExpandProperty FullName) -join "; "
+    Diario "micromamba non trovato. Estratto: $trovati"
+    throw "micromamba non trovato dopo l'estrazione. Estratto: $trovati"
 }
+Diario "micromamba: $micromamba"
 
 # --- i pacchetti, verificati prima che micromamba li veda ------------------
 #
@@ -143,7 +164,7 @@ $n = 0
 # differenza conta quando lo si guarda da un log.
 foreach ($pacchetto in $manifest.pacchetti) {
     $n += 1
-    Write-Host "[$n/$quanti] $($pacchetto.nome) $($pacchetto.versione)"
+    Diario "[$n/$quanti] $($pacchetto.nome) $($pacchetto.versione)"
     $file = Join-Path $cachePath ([System.IO.Path]::GetFileName(([uri]$pacchetto.url).LocalPath))
     if (-not (Test-Path -LiteralPath $file)) {
         Get-File -Uri $pacchetto.url -OutFile $file
@@ -167,9 +188,10 @@ New-Item -ItemType Directory -Force -Path $env:MAMBA_ROOT_PREFIX | Out-Null
 # In modalita' esplicita non c'e' solver, non c'e' interrogazione del canale e
 # non c'e' metadata mobile -- e in cambio si hanno le rilocazioni di conda,
 # l'ordine di link e la gestione delle collisioni.
-Write-Host "materializzazione di $quanti pacchetti in $destinationPath"
+Diario "materializzazione di $quanti pacchetti in $destinationPath"
 & $micromamba create --yes --prefix $destinationPath --offline --file $explicit
-if ($LASTEXITCODE -ne 0) { throw "Materializzazione fallita" }
+if ($LASTEXITCODE -ne 0) { Diario "materializzazione fallita: $LASTEXITCODE"; throw "Materializzazione fallita" }
+Diario "materializzazione conclusa"
 
 foreach ($relativePath in @("Library\bin\gdal.dll", "Library\share\gdal", "Library\share\proj")) {
     $requiredPath = Join-Path $destinationPath $relativePath

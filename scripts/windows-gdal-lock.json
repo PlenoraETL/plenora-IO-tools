@@ -11,9 +11,9 @@
     "strumento": "micromamba",
     "versione": "2.9.0",
     "build": "0",
-    "url": "https://conda.anaconda.org/conda-forge/linux-64/micromamba-2.9.0-0.tar.bz2",
-    "sha256": "8761c382127e6363bd9e0a2451aa3ef90d071a79133f736e2f759a3bf13040dd",
-    "dimensione": 6988090,
+    "url": "https://conda.anaconda.org/conda-forge/win-64/micromamba-2.9.0-0.tar.bz2",
+    "sha256": "97a336f4ab794bd96a6a4da5e6ed63e75a1d31830414a182419b23d3b36f3fe0",
+    "dimensione": 4572807,
     "nota": "fissato anch'esso: uno strumento che materializza l'ambiente e che cambia da solo renderebbe non riproducibile tutto cio' che ne esce. E' stato usato **una volta**, per produrre questo file; il costruttore non lo usa."
   },
   "virtuali_alla_risoluzione": {},
