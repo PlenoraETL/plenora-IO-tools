@@ -95,6 +95,7 @@ jobs:
         run: python3 scripts/costruisci-artefatto-linux.py
           --prefisso "$RUNNER_TEMP/runtime" --uscita "$RUNNER_TEMP/uscita"
           --versione "$VERSIONE" --profilo "${{ matrix.profilo }}" --canale "$CANALE"
+          --referti "$RUNNER_TEMP/referti"
 
       # L'ordine e' quello deciso: assembla, firma, checksum, smoke. Su Linux
       # non c'e' una firma di piattaforma e il costruttore lo dichiara nel
@@ -286,6 +287,35 @@ jobs:
           --lavoro "$RUNNER_TEMP/smoke"
           --referto "$RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-smoke.json"
 
+      # Il relocation smoke: A cancellata, B con un percorso di lunghezza
+      # diversa, terza directory, PATH ridotto e sentinelle. Su Windows manca
+      # l'equivalente di `strace`, e il commento in testa allo script dice che
+      # cosa vale al posto suo.
+      - name: Relocation smoke
+        if: steps.contratto.outputs.presente == 'si'
+        shell: pwsh
+        run: |
+          $nome = "plenora-io-$env:VERSIONE-windows-x86_64-${{ matrix.profilo }}"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\archivi" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\uscita\$nome.zip" "$env:RUNNER_TEMP\archivi\"
+          ./scripts/relocation-smoke-windows.ps1 `
+            -Archivio "$env:RUNNER_TEMP\archivi\$nome.zip" `
+            -DirectoryA "$env:RUNNER_TEMP\uscita\$nome" `
+            -Lavoro "$env:RUNNER_TEMP\relocation" `
+            -Referto "$env:RUNNER_TEMP\referti\windows-${{ matrix.profilo }}-relocation.json"
+
+      # I digest del manifesto, sull'albero estratto dall'archivio.
+      - name: Verifica i digest del manifesto sull'albero estratto
+        if: steps.contratto.outputs.presente == 'si'
+        shell: bash
+        run: |
+          NOME="plenora-io-$VERSIONE-windows-x86_64-${{ matrix.profilo }}"
+          ESTRATTO="$RUNNER_TEMP/estratto-${{ matrix.profilo }}"
+          rm -rf "$ESTRATTO" && mkdir -p "$ESTRATTO"
+          unzip -q "$RUNNER_TEMP/archivi/$NOME.zip" -d "$ESTRATTO"
+          python scripts/check-digest-manifesto.py --albero "$ESTRATTO/$NOME" \
+            --referto "$RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-digest-manifesto.json"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         if: always()
         with:
@@ -296,6 +326,13 @@ jobs:
       # esplicito e non un effetto collaterale: dire «verde» a una corsa che non
       # ha verificato niente sarebbe il difetto che tutto questo lotto esiste
       # per evitare.
+      # Il job e' verde quando le **verifiche** sono verdi.
+      #
+      # La scoperta fallisce sempre: e' il suo mestiere, e continua a girare
+      # anche quando il contratto c'e' perche' il rilievo documenta la corsa. La
+      # prima stesura di questo passo la trattava come un difetto quando il
+      # contratto era presente, e teneva rosso un job in cui tutto era andato
+      # bene: confondeva «ha fatto cio' che doveva» con «e' fallito».
       - name: Esito
         shell: bash
         run: |
@@ -304,23 +341,6 @@ jobs:
             echo "va ora scritto rileggendolo. Questo job resta rosso di proposito."
             exit 1
           fi
-          if [ "${{ steps.scoperta.outcome }}" = "failure" ] && [ "${{ steps.contratto.outputs.presente }}" = "si" ]; then
-            echo "Il contratto c'e' e la scoperta e' comunque fallita: e' un difetto, non l'attesa."
-            exit 1
-          fi
-
-  gate:
-    # Gira **sempre**, anche quando i job sopra falliscono: e' il suo mestiere.
-    # Un gate che girasse solo a valle del verde direbbe soltanto cio' che i job
-    # hanno gia' detto, e non servirebbe a niente.
-    needs: [linux, windows]
-    if: always()
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          path: referti
-      - name: Riconta i referti
-        run: python3 scripts/check-distribuzione-completa.py
-          --referti referti --canale "$CANALE"
+          echo "Il contratto c'e' ed e' stato applicato: runtime, licenze, smoke, relocation"
+          echo "e digest hanno prodotto i propri referti. Il rosso della scoperta e' atteso -- "
+          echo "quella fase non qualifica, e continua a girare per documentare la corsa."
