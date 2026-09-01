@@ -41,6 +41,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 
@@ -164,6 +167,7 @@ def chiusura(
 def main() -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--prefisso", required=True, type=pathlib.Path)
+    argomenti.add_argument("--referto", type=pathlib.Path, default=None)
     argomenti.add_argument(
         "--prefisso-di-costruzione",
         default=None,
@@ -186,6 +190,8 @@ def main() -> int:
     contratto = lock["contratto_di_verifica"]
     errori: list[str] = []
 
+    manifesto = prefisso / "MANIFEST.json"
+
     radice = (prefisso / opzioni.radice).resolve()
     if not radice.exists():
         sys.exit(f"radice della chiusura assente: {radice}")
@@ -196,7 +202,14 @@ def main() -> int:
     print(f"chiusura da {opzioni.radice}: {len(interne)} dipendenze interne, {len(spediti)} ELF")
 
     # --- 2. esterne: politica **e** atteso ---------------------------------
-    attese = set(contratto["dipendenze_esterne_attese"])
+    # Le attese sono per profilo, perche' i due profili sono due prodotti. Il
+    # profilo lo dichiara l'artefatto; su un runtime appena materializzato --
+    # dove non c'e' un manifesto -- la domanda e' quella del profilo completo.
+    profilo = "filegdb"
+    if manifesto.is_file():
+        profilo = json.loads(manifesto.read_text(encoding="utf-8")).get("profilo", "filegdb")
+    attese = set(contratto["dipendenze_esterne_attese"][profilo])
+    print(f"profilo verificato: {profilo}")
     fuori_politica = sorted(esterne - POLITICA_ABI)
     if fuori_politica:
         errori.append(
@@ -265,7 +278,6 @@ def main() -> int:
     # L'ordine e' voluto: cio' che si passa a mano vince, perche' serve a
     # indagare; poi cio' che l'artefatto ha registrato di se'; poi il prefisso
     # stesso, che e' il caso del runtime appena materializzato.
-    manifesto = prefisso / "MANIFEST.json"
     dal_manifesto = None
     if manifesto.is_file():
         dal_manifesto = json.loads(manifesto.read_text(encoding="utf-8")).get(
@@ -351,6 +363,33 @@ def main() -> int:
         + "\n",
         encoding="utf-8",
     )
+
+    # Il referto nel formato comune, che il gate finale riconta. E' un documento
+    # diverso da `verifica-runtime.json`: quello resta accanto al prefisso ed e'
+    # il **dettaglio** della misura -- ogni ELF, ogni versione GLIBC -- mentre
+    # questo porta i pochi numeri che il gate confronta, nella forma che le tre
+    # piattaforme hanno in comune.
+    if opzioni.referto and manifesto.is_file():
+        dichiarazione = json.loads(manifesto.read_text(encoding="utf-8"))
+        distribuzione.scrivi_referto(
+            opzioni.referto,
+            verifica="runtime",
+            piattaforma=dichiarazione["piattaforma"],
+            profilo=dichiarazione["profilo"],
+            canale=dichiarazione["canale"],
+            esito="verde" if not errori else "rosso",
+            misure={
+                "elf_spediti": len(spediti),
+                "dipendenze_interne": len(interne),
+                "dipendenze_esterne": sorted(esterne),
+                "glibc_massima": massima,
+                "percorsi_assoluti_classificati": sum(per_categoria.values()),
+                "percorsi_assoluti_non_classificati": len(non_classificati),
+                "elf_con_dt_needed_assoluti": len(con_assoluti),
+                "rpath_conformi": len(spediti) - len(difettosi),
+            },
+            errori=errori,
+        )
 
     if errori:
         print("\n--- ROSSO ---")

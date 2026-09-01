@@ -33,6 +33,9 @@ import json
 import pathlib
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
+
 
 def verifica(albero: pathlib.Path) -> list[str]:
     errori: list[str] = []
@@ -102,6 +105,7 @@ def verifica(albero: pathlib.Path) -> list[str]:
 def main() -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument("--albero", required=True, type=pathlib.Path)
+    argomenti.add_argument("--referto", type=pathlib.Path, default=None)
     opzioni = argomenti.parse_args()
     albero = opzioni.albero.resolve()
     if not albero.is_dir():
@@ -112,6 +116,19 @@ def main() -> int:
         [d for d in (albero / "LICENSES").iterdir() if d.is_dir()]
     ) if (albero / "LICENSES").is_dir() else 0
     print(f"componenti con testo di licenza: {componenti}")
+
+    if opzioni.referto:
+        manifesto = json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
+        distribuzione.scrivi_referto(
+            opzioni.referto,
+            verifica="licenze-artefatto",
+            piattaforma=manifesto["piattaforma"],
+            profilo=manifesto["profilo"],
+            canale=manifesto["canale"],
+            esito="verde" if not errori else "rosso",
+            misure={"componenti_con_testo": componenti, **manifesto.get("licenze", {})},
+            errori=errori,
+        )
     if errori:
         print("\n--- ROSSO ---")
         for errore in errori:

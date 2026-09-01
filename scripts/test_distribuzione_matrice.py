@@ -171,12 +171,19 @@ class SondeMatrice(unittest.TestCase):
         politica = set(
             re.findall(r'"([^"]+\.so[^"]*)"', CHECKER.read_text(encoding="utf-8").split("POLITICA_ABI = {")[1].split("}")[0])
         )
-        attese = set(self.lock["contratto_di_verifica"]["dipendenze_esterne_attese"])
-        self.assertTrue(attese, "l'insieme atteso non puo' essere vuoto")
-        self.assertTrue(
-            attese <= politica,
-            f"attese fuori dalla politica ABI: {sorted(attese - politica)}",
+        per_profilo = self.lock["contratto_di_verifica"]["dipendenze_esterne_attese"]
+        self.assertIsInstance(
+            per_profilo, dict, "le attese sono per profilo: i due profili sono due prodotti"
         )
+        self.assertEqual(set(per_profilo), {"base", "filegdb"})
+        for profilo, attese in sorted(per_profilo.items()):
+            with self.subTest(profilo=profilo):
+                attese = set(attese)
+                self.assertTrue(attese, "l'insieme atteso non puo' essere vuoto")
+                self.assertTrue(
+                    attese <= politica,
+                    f"attese fuori dalla politica ABI: {sorted(attese - politica)}",
+                )
 
     def test_la_matrice_non_ricopia_numeri_misurati(self) -> None:
         """La regola che il difetto ha prodotto.

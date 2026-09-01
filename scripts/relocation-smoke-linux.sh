@@ -45,6 +45,8 @@ set -euo pipefail
 ARCHIVIO="${1:?uso: relocation-smoke-linux.sh <archivio.tar.gz> <directory-A> [radice-di-lavoro]}"
 A="${2:?la directory di costruzione, che viene cancellata}"
 LAVORO="${3:-/smoke}"
+# Dove scrivere il referto nel formato comune; vuoto significa nessun referto.
+REFERTO="${4:-}"
 
 # Le verifiche si invocano con un percorso assoluto: piu' avanti si entra
 # nella terza directory, e un percorso relativo li' non trova nulla.
@@ -174,7 +176,7 @@ ambiente env LD_DEBUG=libs LD_DEBUG_OUTPUT="${LAVORO}/lddebug" \
   "${BINARIO}" catalog > /dev/null 2>&1 || true
 cat "${LAVORO}"/lddebug.* 2>/dev/null | grep -E "calling init|generating link map" > "${MAPPA}" || true
 
-python3 "${VERIFICHE}" librerie "${MAPPA}" "${RADICE}"
+python3 "${VERIFICHE}" librerie "${MAPPA}" "${RADICE}" "${REFERTO:-}"
 
 echo
 echo "RELOCATION SMOKE VERDE"

@@ -15,6 +15,9 @@ import pathlib
 import re
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 CHECKER = RADICE / "scripts" / "check-linux-gdal-runtime.py"
 
@@ -54,7 +57,7 @@ def politica_abi() -> set[str]:
     return set(re.findall(r'"([^"]+)"', blocco))
 
 
-def librerie(mappa: pathlib.Path, albero: str) -> int:
+def librerie(mappa: pathlib.Path, albero: str, referto: pathlib.Path | None = None) -> int:
     """Ogni libreria fuori dall'allowlist ABI e' stata caricata da B."""
     testo = mappa.read_text(errors="replace")
     # I percorsi che il loader stampa passano per l'RPATH cosi' com'e':
@@ -79,14 +82,38 @@ def librerie(mappa: pathlib.Path, albero: str) -> int:
         for percorso in sorted(caricate)
         if percorso.rsplit("/", 1)[-1] not in politica and not percorso.startswith(albero)
     ]
+    dall_albero = [p for p in sorted(caricate) if p.startswith(albero)]
+    if referto is not None:
+        manifesto = json.loads(
+            (pathlib.Path(albero) / "MANIFEST.json").read_text(encoding="utf-8")
+        )
+        distribuzione.scrivi_referto(
+            referto,
+            verifica="relocation",
+            piattaforma=manifesto["piattaforma"],
+            profilo=manifesto["profilo"],
+            canale=manifesto["canale"],
+            esito="verde" if not fuori else "rosso",
+            misure={
+                "librerie_tracciate": len(caricate),
+                "librerie_dall_albero": len(dall_albero),
+                "librerie_fuori_dall_albero": fuori,
+            },
+            errori=[f"caricata fuori dall'albero: {f}" for f in fuori],
+            note=(
+                "dimostra i percorsi **effettivamente attraversati**. I percorsi TLS, XML, "
+                "terminfo e Kerberos che lo smoke non esercita restano governati dalla loro "
+                "classificazione strutturale: questo verde non li promuove."
+            ),
+        )
     if fuori:
         print("ROSSO: librerie non di sistema caricate fuori dall'artefatto:", file=sys.stderr)
         for f in fuori:
             print(f"   {f}", file=sys.stderr)
         return 1
     print(
-        f"   {len(caricate)} librerie tracciate; nessuna fuori dall'albero "
-        "oltre l'allowlist ABI"
+        f"   {len(caricate)} librerie tracciate, {len(dall_albero)} dall'albero; nessuna "
+        "fuori oltre l'allowlist ABI"
     )
     return 0
 
@@ -99,7 +126,8 @@ def main() -> int:
     if comando == "rilettura":
         return rilettura(pathlib.Path(sys.argv[2]))
     if comando == "librerie":
-        return librerie(pathlib.Path(sys.argv[2]), sys.argv[3])
+        referto = pathlib.Path(sys.argv[4]) if len(sys.argv) > 4 else None
+        return librerie(pathlib.Path(sys.argv[2]), sys.argv[3], referto)
     print(f"comando sconosciuto: {comando}", file=sys.stderr)
     return 2
 

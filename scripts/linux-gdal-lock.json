@@ -546,15 +546,22 @@
   "contratto_di_verifica": {
     "nota": "Quello che `check-linux-gdal-runtime.py` pretende. Non ci sono numeri misurati qui: i numeri li produce il controllo. Una copia di un numero in un secondo posto e' una seconda verita', e in questo lock ce n'erano tre dello stesso fatto -- 55, 56 e 57 -- di cui due sbagliate.",
     "glibc_massima_ammessa": "2.35",
-    "dipendenze_esterne_attese": [
-      "ld-linux-x86-64.so.2",
-      "libc.so.6",
-      "libdl.so.2",
-      "libm.so.6",
-      "libpthread.so.0",
-      "libresolv.so.2"
-    ],
-    "dipendenze_esterne_attese_nota": "l'insieme **esatto**, non un tetto. La politica ABI del controllo ne ammette di piu' -- `libstdc++` fra le altre -- e con la sola politica una libreria che smettesse di essere spedita, e venisse quindi presa dal sistema, resterebbe verde. Ogni variazione di questo insieme vuole un lock nuovo, perche' e' un cambio di cio' che l'artefatto porta con se'.",
+    "dipendenze_esterne_attese": {
+      "base": [
+        "libc.so.6",
+        "libgcc_s.so.1",
+        "libm.so.6"
+      ],
+      "filegdb": [
+        "ld-linux-x86-64.so.2",
+        "libc.so.6",
+        "libdl.so.2",
+        "libm.so.6",
+        "libpthread.so.0",
+        "libresolv.so.2"
+      ]
+    },
+    "dipendenze_esterne_attese_nota": "l'insieme **esatto** per ciascun profilo, non un tetto. La politica ABI del controllo ne ammette di piu' -- `libstdc++` fra le altre -- e con la sola politica una libreria che smettesse di essere spedita, e venisse quindi presa dal sistema, resterebbe verde. Ogni variazione di questi insiemi vuole un lock nuovo, perche' e' un cambio di cio' che l'artefatto porta con se'.\n\nSono due insiemi e non uno perche' i due profili sono due prodotti. Il profilo `base` non spedisce librerie: `libgcc_s.so.1` e' una dipendenza di sistema come `libc`, ed e' nella politica ABI. Il profilo `filegdb` la spedisce insieme al resto della chiusura di GDAL.\n\n`ld-linux-x86-64.so.2` compare fra le attese di `filegdb` e non di `base`, e non e' una svista: l'interprete e' un `PT_INTERP`, non un `DT_NEEDED`, e il controllo guarda i `DT_NEEDED`. Nel profilo pieno vi compare perche' qualche libreria della chiusura lo elenca esplicitamente. Gli insiemi sono misurati, non dedotti, ed e' questa la ragione per cui vanno misurati.",
     "percorsi_assoluti_ammessi": [
       {
         "schema": "/share/gdal",
@@ -629,7 +636,8 @@
     "percorsi_assoluti_nota": "Dopo la rilocazione di conda il placeholder sparisce e al suo posto resta il prefisso d'installazione. Non e' una stringa inerte: in `libgdal` copre `share/gdal` e `lib/gdalplugins`, cioe' dati e plugin. Ritenerli innocui perche' l'RPATH e' relativo era un falso verde -- l'RPATH riguarda la risoluzione delle **librerie**. Ogni percorso va quindi classificato, e cio' che non rientra in una di queste regole fa rosso.",
     "che_cosa_non_dimostra_lo_smoke": "il relocation smoke esercita alcuni di questi percorsi e non altri. Quelli non attraversati -- TLS, XML, terminfo, Kerberos -- restano governati dalla classificazione qui sopra, e uno smoke verde non li promuove a «provati».",
     "variabili_e_guardie": "Le due categorie non sono intercambiabili. `coperto_da_variabile` dice che il percorso cotto dentro viene sostituito a runtime, e obbliga l'artefatto a **spedire** cio' che la variabile nomina; `non_raggiungibile_dall_uso` dice che quel codice non si esegue, e vuole una **guardia** verificabile invece di un file. La seconda e' la garanzia piu' forte quando regge, ed e' anche la piu' fragile nel tempo: per questo ogni riga porta scritto che cosa la riaprirebbe. Le variabili della prima categoria sono esattamente quelle che `crates/plenora-io-cli/src/radici.rs` imposta, e una sonda diventa rossa se i due elenchi divergono.",
-    "normalizzazione_dei_dt_needed": "L'artefatto non e' byte per byte cio' che i pacchetti contengono: `libgdal.so.35` viene riscritta per togliere una dipendenza dichiarata per percorso assoluto. E' una modifica a un binario di terze parti, sta scritta nel manifesto sotto `normalizzazioni`, e senza di essa l'artefatto non sarebbe spostabile -- il che e' l'unica ragione per cui esiste."
+    "normalizzazione_dei_dt_needed": "L'artefatto non e' byte per byte cio' che i pacchetti contengono: `libgdal.so.35` viene riscritta per togliere una dipendenza dichiarata per percorso assoluto. E' una modifica a un binario di terze parti, sta scritta nel manifesto sotto `normalizzazioni`, e senza di essa l'artefatto non sarebbe spostabile -- il che e' l'unica ragione per cui esiste.",
+    "il_profilo_base_non_guarda_il_prefisso": "Assemblando `base` contro il prefisso di GDAL, `libgcc_s.so.1` si risolveva **dentro** il prefisso -- non perche' l'artefatto ne avesse bisogno, ma perche' il prefisso era li'. Il contenuto dell'artefatto sarebbe dipeso da un ambiente che non gli appartiene: su una macchina senza quel prefisso avrebbe usato la libgcc di sistema, e sarebbe stato un altro artefatto con lo stesso nome. Il profilo `base` risolve quindi contro il nulla: tutto cio' che chiede e' esterno per costruzione, e deve stare nella politica ABI."
   },
   "testi_di_licenza_esterni": {
     "nota": "Tre pacchetti spediscono byte e non portano `info/licenses` nel proprio archivio: `libgcc` (lib/libgcc_s.so.1), `libstdcxx` (lib/libstdc++.so.6) e `libsqlite` (lib/libsqlite3.so e .so.0). Nominarli in un elenco evitava il silenzio ma non consegnava la licenza, e cio' che una licenza obbliga a distribuire e' il **testo**.",

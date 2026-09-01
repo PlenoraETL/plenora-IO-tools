@@ -645,6 +645,75 @@ questa tabella a essere vecchia.
 
 ---
 
+#### I due profili, e i sei artefatti
+
+Tre piattaforme per due profili sono **sei** artefatti, e i due profili sono due
+prodotti con due promesse opposte.
+
+`filegdb` promette che FileGDB funzioni, e lo si dimostra scrivendone uno e
+rileggendolo. `base` promette che FileGDB **manchi**, ed è la promessa che ci si
+dimentica di verificare: un base costruito per sbaglio con la feature attiva
+sarebbe più grande di sessanta megabyte, porterebbe un runtime GDAL che il suo
+contratto non prevede — con una superficie e una licenza che chi lo installa non
+ha accettato — e nulla nel nome lo direbbe.
+
+```sh
+python3 scripts/smoke-profilo.py --albero <albero> --lavoro <tmp> --referto <referto.json>
+```
+
+Lo smoke legge il profilo dal manifesto e pretende l'esito giusto: per `base`,
+che aprire un FileGDB sia rifiutato con categoria `unsupported` e un messaggio
+che nomini il tier mancante — un rifiuto per la ragione sbagliata passerebbe un
+controllo che guardasse solo il codice d'uscita — e che la conversione senza
+GDAL funzioni comunque.
+
+Esito misurato su Linux: il profilo base pesa 8,5 MB contro i 64 del profilo
+pieno, e dimostra FileGDB assente.
+
+#### Il gate finale
+
+```sh
+python3 scripts/check-distribuzione-completa.py --referti <dir> --canale candidate
+```
+
+Riconta. Non chiede a nessuno com'è andata: legge i referti e pretende che ci
+siano tutti quelli che devono esserci, che ciascuno porti le misure che quella
+verifica deve produrre, e che le misure dicano ciò che il contratto promette.
+
+Serve perché «il job è verde» non è un'evidenza verificabile. Un job verde è
+un'affermazione fatta da chi doveva essere verificato, e le affermazioni si
+sbagliano in silenzio: un passo saltato per una condizione mai vera, un `||
+true` di troppo, uno smoke che non ha trovato l'artefatto e non ha guardato
+niente. Nessuna di queste cose fa rosso.
+
+I verificatori restano **nativi e separati** — `DT_NEEDED` e `GLIBC_*` non
+esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove, e scriverne
+uno solo vorrebbe dire verificare il minimo comune ovunque. Comune è la forma
+del risultato.
+
+#### La firma
+
+| canale | Linux | Windows | macOS |
+| --- | --- | --- | --- |
+| `prova` | non richiesta | non richiesta | non richiesta |
+| `candidate` | non richiesta | Authenticode | Developer ID + notarizzazione + stapling |
+
+Linux non ha una firma di piattaforma che il sistema verifichi all'esecuzione:
+restano checksum e provenance, che non la sostituiscono ma sono ciò che questa
+piattaforma offre. Dichiararlo invece di lasciarlo implicito è la differenza fra
+«non serve» e «ce ne siamo dimenticati».
+
+**L'ordine è fissato ora**, mentre il certificato non c'è: assembla, firma,
+calcola i checksum, esegui lo smoke. Firmare dopo il checksum lo invaliderebbe,
+e uno smoke eseguito prima della firma proverebbe un file diverso da quello che
+si consegna — su macOS un binario notarizzato con lo stapling è un altro file,
+su Windows un PE firmato ha una sezione in più. Il campo `firma` esiste già nei
+manifesti degli artefatti di prova con stato `non_richiesta`: aggiungerlo dopo
+avrebbe cambiato il manifesto, e quindi il checksum dell'archivio che lo
+contiene.
+
+Certificati e segreti restano un blocco fuori da questo repository.
+
 #### Windows x86_64 — fissata, non ancora costruita
 
 Il lock c'e' ed e' coerente: `scripts/windows-gdal-lock.json`, conda-forge,

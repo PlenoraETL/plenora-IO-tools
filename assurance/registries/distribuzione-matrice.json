@@ -285,5 +285,18 @@
       "che_cosa_lo_chiude": "il costruttore macOS sul runner `macos-15`, con `MACOSX_DEPLOYMENT_TARGET=15.0` verificato in ogni Mach-O e lo smoke sul proprio runner.",
       "nel_frattempo": "come sopra."
     }
-  ]
+  ],
+  "due_profili_due_promesse": "`filegdb` promette che FileGDB **funzioni**, e si dimostra scrivendone uno e rileggendolo. `base` promette che FileGDB **manchi**, ed e' la promessa che ci si dimentica di verificare: un base costruito per sbaglio con la feature attiva sarebbe piu' grande di sessanta megabyte, porterebbe un runtime GDAL che il suo contratto non prevede -- con una superficie e una licenza che chi lo installa non ha accettato -- e nulla nel nome lo direbbe. Si dimostra chiedendogli di aprire un FileGDB e pretendendo il rifiuto **giusto**: categoria `unsupported` e un messaggio che nomina il tier mancante. Un rifiuto per la ragione sbagliata passerebbe un controllo che guardasse solo il codice d'uscita.",
+  "referti": {
+    "che_cosa_sono": "il formato comune che ogni verifica produce, su ogni piattaforma. I verificatori restano **nativi e separati** -- `DT_NEEDED` e `GLIBC_*` non esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove, e scriverne uno solo vorrebbe dire verificare il minimo comune ovunque -- ma la forma del risultato e' una sola.",
+    "perche_non_basta_un_job_verde": "un job verde e' un'affermazione fatta da chi doveva essere verificato, e le affermazioni si sbagliano in silenzio: un passo saltato per una condizione mai vera, un `|| true` di troppo, uno smoke che non ha trovato l'artefatto e non ha guardato niente. Nessuna di queste cose fa rosso. Il referto porta le **misure**, e il gate finale riconta quelle.",
+    "gate": "scripts/check-distribuzione-completa.py",
+    "artefatti_attesi": "tre piattaforme per due profili, cioe' sei"
+  },
+  "firma": {
+    "decisione": "artefatti di prova non firmati ammessi; candidate macOS firmata Developer ID, notarizzata e con lo stapling; candidate Windows firmata Authenticode; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",
+    "perche_ora": "perche' cambia l'ordine delle operazioni, e quindi i byte. Firmare **dopo** aver calcolato i checksum li invaliderebbe; uno smoke eseguito **prima** della firma proverebbe un file diverso da quello che si consegna -- su macOS un binario notarizzato con lo stapling e' un altro file, su Windows un PE firmato ha una sezione in piu'. L'ordine e' fissato adesso che il certificato non c'e': assembla, firma, checksum, smoke. Il giorno in cui arrivera' non cambiera' nulla di strutturale.",
+    "dove_vive": "scripts/distribuzione.py, e il blocco `firma` nel manifesto di ogni artefatto",
+    "blocco_esterno": "certificati e segreti non ci sono, e restano un blocco fuori da questo repository. Il campo pero' esiste gia' nei manifesti degli artefatti di prova, con stato `non_richiesta`: aggiungerlo dopo avrebbe cambiato il manifesto e quindi il checksum dell'archivio che lo contiene."
+  }
 }

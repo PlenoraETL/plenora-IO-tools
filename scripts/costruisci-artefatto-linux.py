@@ -39,6 +39,9 @@ import subprocess
 import sys
 import tarfile
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
+
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "linux-gdal-lock.json"
 CHIUSURA = RADICE / "scripts" / "check-linux-gdal-runtime.py"
@@ -262,7 +265,12 @@ def main() -> int:
     # dato che ogni libreria del runtime porta gia' il proprio. Lo si chiede lo
     # stesso: la transitivita' e' una proprieta' che non vogliamo dipenda da
     # come conda ha costruito i suoi .so.
-    target = RADICE / "target" / "artefatto"
+    # Una directory di build **per profilo**. Condividendola, `--salta-build`
+    # riusava il binario dell'altro profilo: si otteneva un artefatto che
+    # dichiarava `filegdb` e conteneva il `base`, o viceversa. E' lo stesso
+    # difetto che lo smoke del profilo base esiste per cogliere, preso dal lato
+    # di chi costruisce.
+    target = RADICE / "target" / f"artefatto-{arg.profilo}"
     binario = target / "release" / "plenora-io"
     if not arg.salta_build:
         ambiente = dict(os.environ)
@@ -283,6 +291,20 @@ def main() -> int:
         esegui(comando, cwd=RADICE, env=ambiente)
     if not binario.is_file():
         raise SystemExit(f"{binario} non esiste")
+
+    # Il binario dice da se' quale profilo e': `filegdb` linka GDAL, `base` no.
+    # Verificarlo qui costa una lettura e chiude la classe di difetti in cui il
+    # nome dell'archivio e il suo contenuto divergono -- che e' la classe
+    # peggiore, perche' il nome e' cio' che chi installa legge.
+    lettore = carica_lettore()
+    linka_gdal = any(n.startswith("libgdal") for n in lettore.dt_needed(binario))
+    if linka_gdal != (arg.profilo == "filegdb"):
+        raise SystemExit(
+            f"il binario compilato {'linka' if linka_gdal else 'non linka'} GDAL, e il profilo "
+            f"richiesto e' «{arg.profilo}». Un artefatto che dichiara un profilo e ne contiene "
+            "un altro e' peggio di un artefatto che non si costruisce: il nome e' cio' che chi "
+            "installa legge."
+        )
     shutil.copy2(binario, albero / "bin" / "plenora-io")
 
     # --- 2. la chiusura, a partire dal binario vero -----------------------
@@ -291,11 +313,18 @@ def main() -> int:
     # serve **all'artefatto**, e non che cosa serve a GDAL. Sono due chiusure
     # diverse, e la seconda non contiene la prima.
     print("2. chiusura DT_NEEDED dal binario", flush=True)
-    lettore = carica_lettore()
-    interne, esterne = lettore.chiusura(albero / "bin" / "plenora-io", prefisso)
+    # Il profilo `base` risolve contro il **nulla**, non contro il prefisso di
+    # GDAL. Risolvendolo contro il prefisso, `libgcc_s.so.1` si trovava li'
+    # dentro -- non perche' l'artefatto ne avesse bisogno, ma perche' il
+    # prefisso era li' -- e il contenuto dell'artefatto sarebbe dipeso da un
+    # ambiente che non gli appartiene: su una macchina senza quel prefisso
+    # sarebbe stato un altro artefatto con lo stesso nome.
+    dove_risolvere = prefisso if arg.profilo == "filegdb" else uscita / ".nessun-prefisso"
+    dove_risolvere.mkdir(parents=True, exist_ok=True)
+    interne, esterne = lettore.chiusura(albero / "bin" / "plenora-io", dove_risolvere)
     print(f"   interne {len(interne)}, esterne {len(esterne)}", flush=True)
 
-    attese = set(lock["contratto_di_verifica"]["dipendenze_esterne_attese"])
+    attese = set(lock["contratto_di_verifica"]["dipendenze_esterne_attese"][arg.profilo])
     if esterne != attese:
         raise SystemExit(
             "le dipendenze esterne non sono quelle attese dal lock.\n"
@@ -501,6 +530,14 @@ def main() -> int:
     )
 
     # --- 5. il manifesto --------------------------------------------------
+    #
+    # Il blocco della firma c'e' **gia' adesso**, con gli artefatti di prova.
+    # Aggiungerlo dopo cambierebbe il manifesto, e quindi il checksum
+    # dell'archivio che lo contiene: il campo deve esistere prima del
+    # certificato, altrimenti il certificato cambia i byte.
+    firma = distribuzione.stato_della_firma(
+        "linux-x86_64", arg.canale, materiale_disponibile=False
+    )
     manifesto = {
         "nome": nome,
         "versione": arg.versione,
@@ -531,6 +568,7 @@ def main() -> int:
                 "evitava il silenzio ma non consegnava la licenza."
             ),
         },
+        "firma": firma,
         "normalizzazioni": normalizzazioni,
         "normalizzazioni_nota": (
             "i `DT_NEEDED` riscritti da `patchelf`. Erano percorsi assoluti al prefisso di "
@@ -546,7 +584,30 @@ def main() -> int:
         json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
 
+    # --- 5b. la firma -----------------------------------------------------
+    #
+    # Su Linux non c'e' un meccanismo di firma della piattaforma, e questo
+    # passo non fa nulla. Esiste lo stesso, e in questa posizione, perche'
+    # l'ordine delle operazioni e' cio' che va deciso ora: firmare **dopo** i
+    # checksum li invaliderebbe, e uno smoke eseguito prima della firma
+    # proverebbe un file diverso da quello che si consegna -- su macOS un
+    # binario notarizzato con lo stapling e' un altro file, e su Windows un PE
+    # firmato ha una sezione in piu'.
+    #
+    # Il giorno in cui arrivera' un certificato, qui ci sara' una chiamata e
+    # nient'altro cambiera'.
+    print(f"5b. firma: {firma['stato']}", flush=True)
+    if firma["stato"] == "assente":
+        raise SystemExit(
+            f"il canale «{arg.canale}» pretende una firma {firma['meccanismo']} su "
+            f"{manifesto['piattaforma']}, e il materiale per apporla non c'e'. Un artefatto "
+            "candidate non firmato non e' una candidate meno buona: e' un artefatto che chi lo "
+            "riceve non puo' verificare."
+        )
+
     # --- 6. archivio e checksum ------------------------------------------
+    #
+    # Dopo la firma, sempre: il checksum e' del file che si consegna.
     print("6. archivio e checksum", flush=True)
     archivio = uscita / f"{nome}.tar.gz"
     if archivio.exists():

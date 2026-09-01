@@ -166,6 +166,10 @@
       "log": true
     },
     {
+      "id": "sonde_dist_completa",
+      "log": true
+    },
+    {
       "id": "sonde_action_pins",
       "log": true
     },
