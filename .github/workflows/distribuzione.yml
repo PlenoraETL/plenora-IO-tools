@@ -21,14 +21,32 @@
 # # Il canale
 #
 # Di norma `prova`: artefatti costruiti per essere misurati, non installati, e
-# non firmati. Il canale `candidate` si chiede a mano, e pretende le firme --
-# Authenticode su Windows, Developer ID con notarizzazione e stapling su macOS
-# -- che oggi non ci sono. Il gate finale lo rifiuta, ed e' l'esito giusto:
-# certificati e segreti sono un blocco esterno a questo repository.
+# non firmati. Il canale `candidate` si chiede a mano, e pretende la firma
+# Authenticode su Windows, che oggi non c'e'. Il gate finale lo rifiuta, ed e'
+# l'esito giusto: certificati e segreti sono un blocco esterno a questo
+# repository.
+#
+# # Il trigger su push, e perche' e' temporaneo
+#
+# `workflow_dispatch` non puo' avviare un workflow che non esiste ancora sul
+# branch predefinito: e' una condizione di GitHub, non una scelta. Per la
+# **prima corsa di scoperta** su Windows serve quindi un trigger `push`
+# limitato esattamente al branch di lavoro.
+#
+# E' un'impalcatura, non parte del disegno. Va **rimossa prima del
+# congelamento**: un workflow che parte a ogni push su un branch consuma runner
+# per corse che nessuno ha chiesto, e sopravvive alla ragione per cui e' nato.
+# Il canale resta `prova` -- con `push` non c'e' nessun input, e la costruzione
+# di una candidate resta una cosa che si chiede a mano.
 
 name: Distribuzione
 
 on:
+  # Temporaneo: serve alla prima corsa di scoperta Windows, e va tolto prima
+  # del congelamento. Vedi il commento in testa.
+  push:
+    branches:
+      - assurance/wire-loss-report
   workflow_dispatch:
     inputs:
       canale:
