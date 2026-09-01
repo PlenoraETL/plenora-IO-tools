@@ -47,29 +47,6 @@
       "stato": "da produrre",
       "stato_costruzione": "non_ancora_costruita",
       "contenitore": "zip"
-    },
-    {
-      "id": "macos-aarch64",
-      "sistema": "macos",
-      "architettura": "aarch64",
-      "runner_di_costruzione": "macos-15",
-      "perche_non_macos_latest": "e' un alias, e oggi punta a macOS 26 ARM64. Migra fra versioni del sistema, quindi legare il contratto a `macos-latest` significa non legarlo a niente.",
-      "deployment_target": "15.0",
-      "sistemi_utente_dichiarati": [
-        "macOS 15 e successive, Apple Silicon"
-      ],
-      "come_si_dimostra": [
-        "`MACOSX_DEPLOYMENT_TARGET=15.0` alla costruzione",
-        "verifica del deployment target in **ogni** Mach-O spedito, binario e librerie",
-        "smoke dell'artefatto installato sul runner `macos-15`"
-      ],
-      "perche_non_si_promette_macos_14": "prometterlo richiederebbe uno smoke che gira davvero su macOS 14, e un piano per quando quel runner sara' rimosso. Nessuna delle due cose esiste oggi.",
-      "perche_solo_aarch64": "e' cio' che i runner macOS forniscono. Un artefatto x86_64 richiederebbe un runner dedicato e un secondo smoke, e offrirlo senza eseguirlo sarebbe peggio che non offrirlo. Se servira', e' una riga in piu' in questa matrice e un job in piu', non un cambio di forma.",
-      "estensione_archivio": "tar.gz",
-      "stato": "da produrre",
-      "stato_costruzione": "non_ancora_costruita",
-      "contenitore": "zip",
-      "gatekeeper": "notarizzato senza stapling: la prima verifica richiede rete. Chi installa in un ambiente isolato deve saperlo prima, non scoprirlo al primo avvio."
     }
   ],
   "profili": [
@@ -174,13 +151,6 @@
         "stato": "fissato; mai materializzato, perche' in questo lotto non c'e' un runner Windows",
         "risolto_con": "micromamba 2.9.0, fissato per sha256",
         "era": "OSGeo4W, con un formato di lock proprio e GDAL 3.10.3. La catena e' stata unificata: tre origini diverse per la stessa versione non danno la stessa identita', e la differenza si sarebbe vista solo a valle."
-      },
-      {
-        "piattaforma": "macos-aarch64",
-        "origine": "conda-forge",
-        "lock": "scripts/macos-gdal-lock.json",
-        "stato": "fissato; mai materializzato, perche' in questo lotto non c'e' un runner macOS",
-        "risolto_con": "micromamba 2.9.0, fissato per sha256"
       }
     ],
     "perche_conda_forge_e_non_la_distribuzione": "la GDAL di distribuzione non e' fissabile: cambia con il sistema, e con essa cambia la capability. conda-forge pubblica la stessa versione per le tre piattaforme, ogni pacchetto con un sha256 verificabile e un URL stabile -- la stessa forma che OSGeo4W ha gia' su Windows. Costruire GDAL dai sorgenti darebbe piu' controllo e porterebbe con se' l'intera chiusura di PROJ, GEOS e sqlite da fissare a loro volta: e' la strada da prendere se conda-forge si rivelasse insufficiente, non prima.",
@@ -281,13 +251,6 @@
       "come_e_emerso": "il difetto originale -- una libreria 3.10.3 con binding 3.6.0, e l'installatore che forzava la versione per farla compilare -- e' emerso costruendo l'artefatto Linux, dove nessuno forzava niente e la build si e' fermata da sola. La forzatura mascherava proprio la condizione che l'avrebbe fermata. Quel difetto ora e' chiuso nella dichiarazione; resta aperta l'esecuzione.",
       "che_cosa_lo_chiude": "due corse. La prima **scopre**: materializza il lock su `windows-2022`, costruisce i due profili, misura e scrive il rilievo, e termina rossa perche' manca un contratto revisionato. Poi il rilievo si rilegge, ogni dipendenza si classifica in una delle quattro classi, e un commit mette nel lock l'insieme esatto per profilo con il digest del rilievo. La seconda corsa confronta, e aggiunge il relocation smoke Windows.",
       "nel_frattempo": "il costruttore e i verificatori esistono e sono provati su PE costruiti byte per byte -- il che dimostra che sanno leggere un PE, non che l'artefatto sia conforme. La piattaforma resta `non_ancora_costruita`, e il job resta rosso di proposito."
-    },
-    {
-      "piattaforma": "macos-aarch64",
-      "blocco": "il lock c'e' -- `scripts/macos-gdal-lock.json`, conda-forge, GDAL 3.9.3 -- e manca il costruttore, insieme al contratto di verifica per i Mach-O.",
-      "come_e_emerso": "per costruzione: il lotto Linux e' il primo, e macOS e' nel lotto multipiattaforma.",
-      "che_cosa_lo_chiude": "il costruttore macOS sul runner `macos-15`, con `MACOSX_DEPLOYMENT_TARGET=15.0` verificato in ogni Mach-O e lo smoke sul proprio runner.",
-      "nel_frattempo": "come sopra."
     }
   ],
   "due_profili_due_promesse": "`filegdb` promette che FileGDB **funzioni**, e si dimostra scrivendone uno e rileggendolo. `base` promette che FileGDB **manchi**, ed e' la promessa che ci si dimentica di verificare: un base costruito per sbaglio con la feature attiva sarebbe piu' grande di sessanta megabyte, porterebbe un runtime GDAL che il suo contratto non prevede -- con una superficie e una licenza che chi lo installa non ha accettato -- e nulla nel nome lo direbbe. Si dimostra chiedendogli di aprire un FileGDB e pretendendo il rifiuto **giusto**: categoria `unsupported` e un messaggio che nomina il tier mancante. Un rifiuto per la ragione sbagliata passerebbe un controllo che guardasse solo il codice d'uscita.",
@@ -298,9 +261,7 @@
     "artefatti_attesi": "tre piattaforme per due profili, cioe' sei"
   },
   "firma": {
-    "decisione": "artefatti di prova non firmati ammessi; candidate Windows firmata Authenticode; candidate macOS firmata Developer ID con hardened runtime e **notarizzata**; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",
-    "niente_stapling_su_macos": "Apple consente di notarizzare un archivio ZIP, ma `stapler` attacca la ricevuta solo ad **app bundle, DMG e PKG** -- non a uno ZIP ne' a un binario sciolto. Il deliverable macOS e' uno ZIP di una CLI rilocabile, quindi si notarizza e basta. La conseguenza va detta a chi installa invece che lasciata scoprire a lui: **la prima verifica di Gatekeeper richiedera' rete**, perche' andra' a chiedere la ricevuta al servizio. Una precedente stesura di questo registro prometteva lo stapling, ed era una promessa che gli strumenti non possono mantenere su questo deliverable.",
-    "se_l_offline_diventa_un_requisito": "il deliverable macOS deve cambiare forma -- DMG o PKG -- e a quel punto lo stapling e' possibile e la ricevuta viaggia con il file. E' una decisione **sul prodotto**, non sul confezionamento: cambia che cosa chi installa riceve e come lo apre.",
+    "decisione": "artefatti di prova non firmati ammessi; candidate Windows firmata Authenticode con timestamp; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",
     "lo_stato_si_misura": "`firma.stato` non viene da «il materiale c'era»: quello direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene da cio' che i verificatori nativi leggono sui **byte finali** -- presenza della firma, identita' del firmatario, timestamp, e su macOS hardened runtime e accettazione notarile. Gli stati sono quattro: `non_richiesta`, `non_misurata`, `assente`, `apposta`. `non_misurata` esiste perche' «non ho potuto guardare» non e' «va bene», e su una candidate e' rosso.",
     "perche_il_timestamp": "senza, una firma smette di valere quando scade il certificato invece che quando scade il suo uso. E' fra le misure pretese, non un extra.",
     "ordine_delle_operazioni": [
@@ -308,7 +269,7 @@
       "2. firma: firmare i binari, prima di qualunque cosa li descriva",
       "3. manifesto: generare MANIFEST.json dai byte **firmati**: un manifesto scritto prima elencherebbe file che non esistono piu'",
       "4. archivio: creare il contenitore",
-      "5. notarizzazione: notarizzare, e fare stapling dove e' possibile -- su ZIP non lo e'",
+      "5. notarizzazione: nessuna piattaforma del perimetro la richiede; il passo resta perche' l'ordine e' uno solo, e la posizione e' cio' che va fissata",
       "6. checksum: calcolare i checksum sui byte **finali**",
       "7. smoke: eseguire lo smoke sull'oggetto finale, non su una sua versione precedente",
       "8. provenance: produrre la provenance legata a quel checksum"
@@ -316,7 +277,8 @@
     "perche_quest_ordine": "ogni passo dipende dai byte prodotti dal precedente. Il manifesto viene **dopo** la firma: scritto prima descriverebbe file che non esistono piu'. I checksum vengono dopo l'archivio e la notarizzazione, perche' sono dei byte che si consegnano. Lo smoke viene dopo i checksum, perche' deve provare l'oggetto finale. La provenance viene per ultima, e lega **quel** checksum.",
     "perche_ora": "perche' l'ordine cambia i byte, e inserirlo dopo cambierebbe manifesti, checksum e provenance. Il campo `firma` sta gia' nei manifesti degli artefatti di prova con stato `non_richiesta`: il giorno in cui arrivera' un certificato non cambiera' nulla di strutturale.",
     "dove_vive": "scripts/distribuzione.py, e il blocco `firma` nel manifesto di ogni artefatto",
-    "blocco_esterno": "certificati e segreti non ci sono, e restano un blocco fuori da questo repository."
+    "blocco_esterno": "certificati e segreti non ci sono, e restano un blocco fuori da questo repository.",
+    "developer_id_e_notarizzazione": "usciti dal perimetro insieme a macOS. Erano il pezzo piu' costoso della catena di firma -- un certificato Apple, un servizio esterno da interrogare, e una ricevuta che sul nostro deliverable non si poteva nemmeno attaccare al file -- e con macOS fuori scope non c'e' piu' nulla da decidere li'."
   },
   "verificatori_nativi": {
     "linux": {
@@ -331,22 +293,14 @@
       "che_cosa_e_provato": "che sappia **leggere** un PE: le sonde ne costruiscono uno byte per byte, con una import table e una delay-import table, e verificano che le legga entrambe. Non e' la stessa cosa di «l'artefatto Windows e' conforme», e confonderle sarebbe il modo piu' facile di dichiarare verificato cio' che non lo e'.",
       "perche_i_delay_import": "sono risolti alla prima chiamata invece che all'avvio: una DLL che comparisse solo li' sfuggirebbe a chi guardasse la sola import table, e si manifesterebbe molto dopo -- in esecuzione, su una macchina che non ce l'ha."
     },
-    "macos": {
-      "script": "scripts/check-macos-runtime.py",
-      "domande": "ARM64 e nessun binario universale, deployment target 15.0 in **ogni** Mach-O, install name per `@rpath` e non assoluti, `LC_RPATH` radicato in `@loader_path` e interno all'albero, dipendenze fuori dall'albero limitate a `/usr/lib` e ai framework di sistema",
-      "stato": "mai eseguito su un artefatto: non c'e' un runner macOS in questo lotto",
-      "che_cosa_e_provato": "che sappia leggere un Mach-O, sulle stesse basi di quello Windows",
-      "perche_ogni_macho": "il deployment target non e' una soglia da confrontare come `GLIBC_*`: e' un campo dichiarato in ciascun binario, e vale il piu' alto fra tutti quelli spediti. Un solo file compilato piu' in alto alza il requisito dell'intero artefatto senza che nulla lo dica."
-    },
-    "perche_separati": "`DT_NEEDED` e `GLIBC_*` non esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove. Un verificatore solo vorrebbe dire verificare il minimo comune ovunque, cioe' verificare meno dappertutto. Comune e' la **forma del risultato**, perche' il gate finale non puo' leggere sei formati."
+    "perche_separati": "`DT_NEEDED` e `GLIBC_*` non esistono su Windows, e un PE ha due tabelle di import invece di una lista di nomi. Un verificatore solo vorrebbe dire verificare il minimo comune ovunque, cioe' verificare meno dappertutto. Comune e' la **forma del risultato**, perche' il gate finale non puo' leggere quattro formati."
   },
   "contenitore": {
     "per_piattaforma": {
       "linux-x86_64": "tar.gz",
-      "windows-x86_64": "zip",
-      "macos-aarch64": "zip"
+      "windows-x86_64": "zip"
     },
-    "perche_zip_su_macos": "il servizio di notarizzazione accetta ZIP; un `tar.gz` non e' un formato che gli strumenti Apple sappiano ispezionare. Non e' una preferenza di stile: e' cio' che rende l'artefatto sottoponibile."
+    "perche_zip_su_windows": "un `tar.gz` non e' un formato che gli strumenti Windows aprano senza aiuto, e chi installa non deve procurarsi uno strumento per leggere un artefatto."
   },
   "scoperta_prima_del_contratto": {
     "perche": "l'insieme delle dipendenze di sistema attese non si scrive a tavolino. Dipende da come il canale ha compilato GDAL per quella piattaforma, e l'unico modo di saperlo e' guardare un artefatto vero. Scriverlo a mente sarebbe inventare una soglia e poi verificarla, che e' il modo piu' comodo di ottenere un verde privo di significato.",
@@ -372,5 +326,32 @@
     },
     "seconda_corsa": "confronta il reale con l'atteso e puo' diventare verde. Aggiunge inoltre il relocation smoke Windows: costruzione in A, archivio, cancellazione di A, estrazione in B, directory corrente estranea, ambiente ostile, FileGDB scritto e riletto davvero.",
     "stato": "la prima corsa non e' ancora stata eseguita: non c'e' un runner Windows in questo lotto"
+  },
+  "piattaforme_non_distribuite": [
+    {
+      "id": "macos-aarch64",
+      "decisione": "fuori dallo scope dei deployment server della v1",
+      "che_cosa_significa": "non si promettono artefatti, installazione, supporto operativo ne' qualifica. Il codice puo' continuare a compilare e a essere provato su macOS -- nessuno lo impedisce -- ma cio' non e' una promessa verso chi installa, ed e' la differenza che questa voce esiste per fissare.",
+      "perche": "il prodotto e' destinato a deployment server, e la v1 copre le due piattaforme su cui quei deployment stanno. Non e' un'affermazione sul mondo -- esistono server macOS -- ma sullo scope di questa release.",
+      "che_cosa_e_stato_tolto": [
+        "il job `macos` da `.github/workflows/distribuzione.yml`",
+        "`scripts/macos-gdal-lock.json`",
+        "`scripts/check-macos-runtime.py` e le sonde sul lettore Mach-O",
+        "la politica di firma Developer ID, la notarizzazione e la questione dello stapling"
+      ],
+      "perche_tolto_e_non_sospeso": "un verificatore che non verifica niente invecchia senza che nessuno se ne accorga: quando servisse, gli strumenti Apple, il formato e la GDAL saranno cambiati, e quel codice darebbe l'impressione di un punto di partenza che non e'. La storia git lo conserva -- l'ultimo commit che lo contiene e' quello che introduce questa decisione -- e ripartire di li' e' piu' onesto che tenere in vita qualcosa che non e' esercitato da nulla.",
+      "che_cosa_la_ribalterebbe": "una decisione di prodotto che porti macOS nel perimetro. Non un runner che si libera, non un pomeriggio disponibile: le piattaforme distribuite sono una promessa verso chi installa, e si aggiungono decidendo."
+    }
+  ],
+  "perimetro": {
+    "distribuite": [
+      "linux-x86_64",
+      "windows-x86_64"
+    ],
+    "non_distribuite": [
+      "macos-aarch64"
+    ],
+    "artefatti_attesi": "due piattaforme per due profili, cioe' **quattro**",
+    "come_si_legge": "il gate finale deriva il perimetro **da qui**, non dai job che esistono. Un artefatto in meno perche' qualcuno ha tolto un job e' un buco; un artefatto in meno perche' una piattaforma e' fuori scope e' una decisione. Le due cose si somigliano nel conteggio e non si somigliano per niente, e una sonda pretende che ogni piattaforma conosciuta stia in una delle due liste con una motivazione scritta."
   }
 }

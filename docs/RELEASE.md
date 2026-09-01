@@ -451,10 +451,14 @@ ignoti perche' dipendono da runner che qui non ci sono.
 
 **Stato al 31 agosto 2026.** Linux e' costruita e verificata in locale, con
 artefatti di **prova** -- `non_release: true` nel manifesto, non candidate.
-Windows e macOS non sono ancora costruite, e i loro blocchi stanno in
+Windows non è ancora costruita, e il suo blocco sta in
 `assurance/registries/distribuzione-matrice.json` sotto `blocchi_aperti`; una
 sonda verifica che ogni piattaforma non costruita ne porti uno, cosi' che lo
 stato non diventi un modo per far tacere le pretese.
+
+**macOS è fuori dal perimetro della v1.** Non è una piattaforma non ancora
+costruita: è una decisione di prodotto, registrata sotto
+`piattaforme_non_distribuite`. Vedi «Il perimetro» qui sotto.
 
 Quel che segue e' il runbook: descrive **cio' che e' stato eseguito**, e i
 numeri sono il referto di una corsa, non un contratto. Il contratto sta nel
@@ -691,34 +695,59 @@ esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove, e scriverne
 uno solo vorrebbe dire verificare il minimo comune ovunque. Comune è la forma
 del risultato.
 
+#### Il perimetro
+
+La v1 distribuisce **due** piattaforme:
+
+- Linux x86-64
+- Windows x86-64
+
+**macOS, ARM64 incluso, è fuori dal perimetro di distribuzione supportato.** Il
+codice può continuare a compilare ed essere provato su macOS — nessuno lo
+impedisce — ma non si promettono artefatti, installazione, supporto operativo né
+qualifica. È una decisione sullo scope di questa release, non un'affermazione
+sul mondo: server macOS esistono, e il prodotto è destinato ai deployment server
+su cui la v1 si concentra.
+
+Due piattaforme per due profili fanno **quattro** artefatti.
+
+Il gate finale deriva il perimetro dalla decisione registrata, non dai job che
+esistono: un artefatto in meno perché qualcuno ha tolto un job è un buco, un
+artefatto in meno perché una piattaforma è fuori scope è una scelta. Nel
+conteggio si somigliano e per il resto non si somigliano per niente, e una sonda
+pretende che ogni piattaforma conosciuta stia in una delle due liste con una
+motivazione scritta. Toglierne una senza dichiararlo ferma il gate.
+
+Con macOS escono anche `scripts/macos-gdal-lock.json`, il verificatore Mach-O e
+le sue sonde. Un verificatore che nessun artefatto esercita invecchia senza che
+nessuno se ne accorga: quando servisse, gli strumenti Apple e il formato saranno
+cambiati, e darebbe l'impressione di un punto di partenza che non è. La storia
+git lo conserva.
+
+Riportare macOS nel perimetro è una decisione di prodotto — non un runner che si
+libera.
+
 #### La firma
 
-| canale | Linux | Windows | macOS |
-| --- | --- | --- | --- |
-| `prova` | non richiesta | non richiesta | non richiesta |
-| `candidate` | non richiesta | Authenticode | Developer ID + hardened runtime + notarizzazione |
+| canale | Linux | Windows |
+| --- | --- | --- |
+| `prova` | non richiesta | non richiesta |
+| `candidate` | non richiesta | Authenticode con timestamp |
 
 Linux non ha una firma di piattaforma che il sistema verifichi all'esecuzione:
 restano checksum e provenance, che non la sostituiscono ma sono ciò che questa
 piattaforma offre. Dichiararlo invece di lasciarlo implicito è la differenza fra
 «non serve» e «ce ne siamo dimenticati».
 
-**Niente stapling su macOS.** Apple consente di notarizzare un archivio ZIP, ma
-`stapler` attacca la ricevuta solo ad app bundle, DMG e PKG — non a uno ZIP né a
-un binario sciolto. Il deliverable macOS è uno ZIP di una CLI rilocabile, quindi
-si notarizza e basta, e **la prima verifica di Gatekeeper richiederà rete**:
-andrà a chiedere la ricevuta al servizio. Chi installa in un ambiente isolato
-deve saperlo prima, non scoprirlo al primo avvio.
-
-Se il funzionamento offline diventasse un requisito, il deliverable macOS
-dovrebbe cambiare forma — DMG o PKG — e a quel punto lo stapling sarebbe
-possibile. È una decisione sul prodotto, non sul confezionamento.
+Developer ID, notarizzazione e la questione dello stapling sono usciti insieme a
+macOS. Erano il pezzo più costoso della catena — un certificato Apple, un
+servizio esterno da interrogare, e una ricevuta che sul nostro deliverable non
+si poteva nemmeno attaccare al file.
 
 **Lo stato della firma si misura.** Non viene da «il materiale c'era»: quello
 direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene
-da ciò che i verificatori nativi leggono sui byte finali — presenza della firma,
-identità del firmatario, timestamp, e su macOS hardened runtime e accettazione
-notarile. Gli stati sono quattro:
+da ciò che il verificatore nativo legge sui byte finali — presenza della firma,
+identità del firmatario, timestamp. Gli stati sono quattro:
 
 | stato | significa |
 | --- | --- |
@@ -741,8 +770,8 @@ parlano di un file diverso da quello che si consegna.
 3. **manifesto** — generarlo dai byte *firmati*: scritto prima elencherebbe file
    che non esistono più.
 4. **archivio** — creare il contenitore (`tar.gz` su Linux, `zip` altrove).
-5. **notarizzazione** — dove applicabile; stapling dove è possibile, e su ZIP
-   non lo è.
+5. **notarizzazione** — nessuna piattaforma del perimetro la richiede; il passo
+   resta perché l'ordine è uno solo e la posizione è ciò che va fissata.
 6. **checksum** — sui byte *finali*.
 7. **smoke** — sull'oggetto finale, non su una sua versione precedente.
 8. **provenance** — legata a *quel* checksum.
@@ -810,14 +839,6 @@ lega il contratto alla misura.
 Aggiunge il relocation smoke Windows: costruzione in A, archivio, cancellazione
 di A, estrazione in B, directory corrente estranea, ambiente ostile, FileGDB
 scritto e riletto davvero.
-
-#### macOS aarch64 — fissata, non ancora costruita
-
-Il lock c'e': `scripts/macos-gdal-lock.json`, conda-forge, GDAL 3.9.3, risolto
-dichiarando `CONDA_OVERRIDE_OSX=15.0` — la soglia della piattaforma, non una
-comodita' del solver. Manca il costruttore, che va scritto su `macos-15` con
-`MACOSX_DEPLOYMENT_TARGET=15.0` verificato in ogni Mach-O e lo smoke sul
-proprio runner.
 
 ### 6. Decisione finale di rilascio
 

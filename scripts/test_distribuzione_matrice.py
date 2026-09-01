@@ -318,46 +318,68 @@ class SondeMatrice(unittest.TestCase):
                         "deve dirlo."
                     )
 
-    def test_nessun_documento_promette_lo_stapling_su_zip(self) -> None:
-        """Una promessa che gli strumenti non possono mantenere.
+    def test_nessun_documento_promette_una_piattaforma_fuori_perimetro(self) -> None:
+        """Una promessa verso chi installa non si ritira dai registri e si
+        lascia nei documenti.
 
-        Apple notarizza uno ZIP, ma `stapler` attacca la ricevuta solo ad app
-        bundle, DMG e PKG. Una precedente stesura di questi registri prometteva
-        lo stapling sul deliverable macOS, che e' uno ZIP: era una promessa
-        falsa, e le promesse false sulla firma si scoprono quando qualcuno
-        installa in un ambiente senza rete.
+        macOS e' uscito dal perimetro della v1 come **decisione di prodotto**.
+        Un documento che continuasse a promettere artefatti, installazione o
+        qualifica per macOS direbbe a chi legge una cosa che il progetto non
+        mantiene -- ed e' peggio di non averla mai detta, perche' ha l'aria di
+        un impegno.
 
-        La sonda ammette la parola dove la riga dice che **non** si fa, o dove
-        parla del caso in cui il deliverable cambiasse forma."""
-        contenitore = self.matrice["contenitore"]["per_piattaforma"]["macos-aarch64"]
-        self.assertEqual(contenitore, "zip")
-        firma = self.matrice["firma"]
-        self.assertIn("niente_stapling_su_macos", firma)
-        self.assertIn("rete", firma["niente_stapling_su_macos"])
-        self.assertIn("se_l_offline_diventa_un_requisito", firma)
+        La sonda ammette il nome dove la riga dice che e' fuori, o dove parla
+        di cio' che **non** si promette: il perimetro va spiegato, non taciuto."""
+        fuori = {p["id"] for p in self.matrice["piattaforme_non_distribuite"]}
+        self.assertIn("macos-aarch64", fuori)
 
-        # Le negazioni possibili, con l'accento e senza: i registri usano `e'`
-        # e i documenti `e`, ed e' una differenza di stile, non di significato.
-        negazione = re.compile(
-            "niente|non lo |non si |non e|nessun|senza|solo ad|DMG|PKG|prometteva",
+        promessa = re.compile(
+            r"\b(si distribuisce|artefatt|installazion|qualific|supporto)", re.I
+        )
+        esclusione = re.compile(
+            r"(fuori|non si promett|non e' |non è |escluso|esce|uscit|"
+            r"non distribuit|perimetro|decision|scope|storia git|conserva)",
             re.I,
         )
-        # Si guarda la **frase**, non la riga: in Markdown il testo va a capo, e
-        # una sonda che leggesse una riga per volta chiederebbe di riscrivere la
-        # prosa per compiacerla invece di leggerla.
         for documento in docset():
             if not documento.exists():
                 continue
             righe = documento.read_text(encoding="utf-8").splitlines()
             for numero, riga in enumerate(righe, 1):
-                if "stapl" not in riga.lower():
+                if "macos" not in riga.lower() and "mac os" not in riga.lower():
                     continue
-                intorno = " ".join(righe[max(0, numero - 2) : numero + 1])
+                if not promessa.search(riga):
+                    continue
+                intorno = " ".join(righe[max(0, numero - 3) : numero + 2])
                 self.assertTrue(
-                    negazione.search(intorno),
-                    f"{documento.name}:{numero} nomina lo stapling senza dire che sul "
-                    f"deliverable macOS non si puo' fare: «{intorno.strip()[:120]}»",
+                    esclusione.search(intorno),
+                    f"{documento.name}:{numero} sembra promettere qualcosa per macOS, che e' "
+                    f"fuori dal perimetro: «{riga.strip()[:100]}»",
                 )
+
+    def test_la_firma_non_pretende_piu_developer_id(self) -> None:
+        """Developer ID, notarizzazione e stapling sono usciti con macOS.
+
+        Erano il pezzo piu' costoso della catena -- un certificato Apple, un
+        servizio esterno da interrogare, e una ricevuta che sul deliverable non
+        si poteva nemmeno attaccare al file -- e con macOS fuori scope non
+        c'e' piu' nulla da decidere li'."""
+        import importlib.util
+
+        percorso = RADICE / "scripts" / "distribuzione.py"
+        spec = importlib.util.spec_from_file_location("distribuzione", percorso)
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+
+        distribuite = {p["id"] for p in self.matrice["piattaforme"]}
+        for piattaforma in modulo.POLITICA_DI_FIRMA:
+            if piattaforma not in distribuite:
+                continue
+            regola = modulo.POLITICA_DI_FIRMA[piattaforma].get("candidate", {})
+            with self.subTest(piattaforma=piattaforma):
+                self.assertNotEqual(regola.get("meccanismo"), "developer-id")
+                self.assertFalse(regola.get("notarizzazione"))
+                self.assertFalse(regola.get("stapling"))
 
     def test_l_ordine_delle_operazioni_e_lo_stesso_nei_due_posti(self) -> None:
         """La matrice lo **dichiara**, `distribuzione.py` lo fa **applicare**.

@@ -204,7 +204,7 @@ class SondeDellaFirma(unittest.TestCase):
     def test_gli_artefatti_di_prova_non_sono_firmati(self) -> None:
         """Pretendere un certificato per costruire un artefatto di misura
         renderebbe impossibile lavorare senza segreti."""
-        for piattaforma in ("linux-x86_64", "windows-x86_64", "macos-aarch64"):
+        for piattaforma in ("linux-x86_64", "windows-x86_64"):
             with self.subTest(piattaforma=piattaforma):
                 stato = self.d.stato_della_firma(piattaforma, "prova")
                 self.assertEqual(stato["stato"], "non_richiesta")
@@ -217,7 +217,7 @@ class SondeDellaFirma(unittest.TestCase):
         viene da cio' che i verificatori nativi hanno **letto sui byte
         finali**, e non aver guardato ha uno stato proprio: `non_misurata` non
         e' `assente` e non e' `apposta`."""
-        for piattaforma in ("windows-x86_64", "macos-aarch64"):
+        for piattaforma in ("windows-x86_64",):
             with self.subTest(piattaforma=piattaforma):
                 stato = self.d.stato_della_firma(piattaforma, "candidate", misura=None)
                 self.assertEqual(stato["stato"], "non_misurata")
@@ -236,7 +236,6 @@ class SondeDellaFirma(unittest.TestCase):
     def test_una_misura_completa_e_apposta(self) -> None:
         for piattaforma, meccanismo in (
             ("windows-x86_64", "authenticode"),
-            ("macos-aarch64", "developer-id"),
         ):
             with self.subTest(piattaforma=piattaforma):
                 stato = self.d.stato_della_firma(
@@ -246,26 +245,18 @@ class SondeDellaFirma(unittest.TestCase):
                 self.assertEqual(stato["meccanismo"], meccanismo)
                 self.assertEqual(stato["mancanti"], [])
 
-    def test_macos_pretende_la_notarizzazione_e_non_lo_stapling(self) -> None:
-        """La correzione: Apple notarizza uno ZIP, ma `stapler` attacca la
-        ricevuta solo ad app bundle, DMG e PKG. Il deliverable e' uno ZIP di
-        una CLI rilocabile, quindi niente stapling -- e **la prima verifica di
-        Gatekeeper richiedera' rete**. Va detto a chi installa, invece che
-        lasciato scoprire a lui."""
-        stato = self.d.stato_della_firma(
-            "macos-aarch64", "candidate", misura=self.misura_completa("macos-aarch64")
-        )
-        self.assertTrue(stato["notarizzazione"])
-        self.assertFalse(stato["stapling"])
-        self.assertEqual(stato["smoke_dopo"], "la notarizzazione")
-        self.assertIn("rete", stato["perche_niente_stapling"])
-        self.assertIn("notarizzato", stato["misure_pretese"])
-
-    def test_il_contenitore_macos_e_uno_zip(self) -> None:
-        """La notarizzazione accetta ZIP; un tar.gz non e' un formato che gli
-        strumenti Apple sappiano ispezionare."""
-        self.assertEqual(self.d.contenitore("macos-aarch64"), "zip")
+    def test_il_contenitore_e_quello_della_piattaforma(self) -> None:
+        """`tar.gz` su Linux, `zip` su Windows: un tar.gz non e' un formato che
+        gli strumenti Windows aprano senza aiuto, e chi installa non deve
+        procurarsi uno strumento per leggere un artefatto."""
         self.assertEqual(self.d.contenitore("linux-x86_64"), "tar.gz")
+        self.assertEqual(self.d.contenitore("windows-x86_64"), "zip")
+
+    def test_una_piattaforma_fuori_perimetro_non_ha_un_contenitore(self) -> None:
+        """macOS e' fuori scope: chiedere il suo contenitore e' chiedere di un
+        artefatto che la v1 non produce."""
+        with self.assertRaises(SystemExit):
+            self.d.contenitore("macos-aarch64")
 
     def test_linux_dichiara_di_non_avere_un_meccanismo(self) -> None:
         """Dichiararlo invece di lasciarlo implicito e' la differenza fra «non
@@ -339,9 +330,9 @@ class SondeDellaFirma(unittest.TestCase):
                 if verifica == "smoke-profilo":
                     misure["firma"] = {
                         **self.d.stato_della_firma(
-                            "macos-aarch64",
+                            "windows-x86_64",
                             "candidate",
-                            misura=self.misura_completa("macos-aarch64"),
+                            misura=self.misura_completa("windows-x86_64"),
                         ),
                         "smoke_prima_della_firma": True,
                     }
@@ -353,7 +344,7 @@ class SondeDellaFirma(unittest.TestCase):
                         {
                             "schema_referto": self.d.SCHEMA_REFERTO,
                             "verifica": verifica,
-                            "piattaforma": "macos-aarch64",
+                            "piattaforma": "windows-x86_64",
                             "profilo": profilo,
                             "canale": "candidate",
                             "esito": "verde",
@@ -363,9 +354,89 @@ class SondeDellaFirma(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-        errori = self.gate.verifica(self.tmp, "candidate", ("macos-aarch64",))
+        errori = self.gate.verifica(self.tmp, "candidate", ("windows-x86_64",))
         self.assertTrue(errori)
         self.assertIn("prima della firma", " ".join(errori))
+
+
+class SondeDelPerimetro(unittest.TestCase):
+    """Il perimetro viene da una decisione, non dall'assenza di un job.
+
+    La riduzione da sei artefatti a quattro e' la conseguenza di una scelta --
+    macOS e' fuori dallo scope dei deployment server della v1 -- e non di un
+    job che qualcuno ha tolto. Nel conteggio le due cose si somigliano; per il
+    resto non si somigliano per niente, e queste sonde esistono per non farle
+    confondere.
+    """
+
+    def setUp(self) -> None:
+        self.gate = carica(GATE)
+        self.matrice_percorso = (
+            RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
+        )
+        self.originale = self.matrice_percorso.read_bytes()
+        self.addCleanup(self.matrice_percorso.write_bytes, self.originale)
+
+    def scrivi(self, matrice: dict) -> None:
+        self.matrice_percorso.write_bytes(
+            json.dumps(matrice, ensure_ascii=False, indent=2).encode("utf-8")
+        )
+
+    def test_il_perimetro_e_due_piattaforme_e_una_fuori(self) -> None:
+        distribuite, fuori = self.gate.perimetro()
+        self.assertEqual(set(distribuite), {"linux-x86_64", "windows-x86_64"})
+        self.assertEqual(set(fuori), {"macos-aarch64"})
+
+    def test_ogni_piattaforma_nota_sta_in_una_delle_due_liste(self) -> None:
+        """Se una uscisse da entrambe, sarebbe uscita dal perimetro senza che
+        nessuno lo dicesse -- ed e' esattamente il caso che il gate non deve
+        lasciar passare."""
+        distribuite, fuori = self.gate.perimetro()
+        self.assertEqual(
+            set(self.gate.PIATTAFORME_NOTE),
+            set(distribuite) | set(fuori),
+        )
+
+    def test_una_piattaforma_sparita_ferma_il_gate(self) -> None:
+        """La sonda che il committente ha chiesto.
+
+        Togliere macOS dalle distribuite **senza** dichiararla fuori scope
+        ridurrebbe gli artefatti attesi esattamente come la decisione, e il
+        conteggio tornerebbe. Non deve tornare: il gate si ferma e dice che
+        manca una decisione."""
+        matrice = json.loads(self.originale)
+        del matrice["piattaforme_non_distribuite"]
+        self.scrivi(matrice)
+        with self.assertRaises(SystemExit) as contesto:
+            self.gate.perimetro()
+        self.assertIn("senza decisione", str(contesto.exception))
+        self.assertIn("macos-aarch64", str(contesto.exception))
+
+    def test_una_decisione_senza_motivazione_non_e_una_decisione(self) -> None:
+        """Dichiararlo costa dire perche'. Un campo vuoto sarebbe un modo di
+        non prendere la decisione facendo finta di averla presa."""
+        for campo in ("decisione", "perche", "che_cosa_la_ribalterebbe"):
+            with self.subTest(campo=campo):
+                matrice = json.loads(self.originale)
+                matrice["piattaforme_non_distribuite"][0][campo] = ""
+                self.scrivi(matrice)
+                with self.assertRaises(SystemExit) as contesto:
+                    self.gate.perimetro()
+                self.assertIn(campo, str(contesto.exception))
+
+    def test_non_si_puo_pretendere_una_piattaforma_fuori_perimetro(self) -> None:
+        """Chiedere referti a macOS ora sarebbe chiedere una promessa che la v1
+        non fa."""
+        distribuite, _ = self.gate.perimetro()
+        self.assertNotIn("macos-aarch64", distribuite)
+
+    def test_gli_artefatti_attesi_sono_quattro(self) -> None:
+        """Due piattaforme per due profili. E' il numero che la matrice
+        dichiara, e viene dalla stessa fonte da cui il gate lo calcola."""
+        distribuite, _ = self.gate.perimetro()
+        self.assertEqual(len(distribuite) * len(self.gate.PROFILI), 4)
+        matrice = json.loads(self.originale)
+        self.assertIn("quattro", matrice["perimetro"]["artefatti_attesi"])
 
 
 if __name__ == "__main__":

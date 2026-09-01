@@ -618,7 +618,7 @@ sostituibili, e un artefatto che rifiutasse una sostituzione legittima
 violerebbe la licenza che sta rispettando.
 
 I meccanismi restano quelli: `$ORIGIN/../lib` su Linux,
-`@loader_path/../lib` su macOS, DLL accanto al binario su Windows.
+DLL accanto al binario su Windows, che è dove il caricatore guarda.
 `GDAL_DATA` e `PROJ_DATA` si risolvono dal percorso del binario e non
 dall'ambiente — un artefatto che dipendesse da variabili impostate a mano
 funzionerebbe sulla macchina di chi lo ha costruito e altrove no.
@@ -627,7 +627,7 @@ alcuno.
 
 ### Le baseline non sono alias
 
-`windows-2022` e `macos-15`, non `windows-latest` e `macos-latest`: un alias
+`windows-2022`, non `windows-latest`: un alias
 migra fra versioni del sistema, e con lui migrerebbe la base di costruzione
 senza che nessuno lo decida. Un artefatto la cui baseline cambia da sola non
 ha una provenienza.
@@ -642,9 +642,9 @@ dell'artefatto installato su Ubuntu 22.04, e controllando le versioni
 `GLIBC_*` richieste dal binario e da ogni libreria spedita. Se la chiusura del
 lock pretenderà davvero una glibc successiva, a dirlo sarà quel controllo.
 
-Su macOS il deployment target è `15.0`, verificato in **ogni** Mach-O
-spedito. Promettere macOS 14 richiederebbe uno smoke che gira davvero su
-macOS 14, e un piano per quando quel runner sarà rimosso.
+macOS è fuori dal perimetro di distribuzione della v1: vedi «Il perimetro»
+in `RELEASE.md`. Il codice può compilare e essere provato lì, ma non si
+promettono artefatti né qualifica.
 
 Su Windows lo smoke gira su Windows Server 2022 e dimostra quello. Windows 10
 22H2 e Windows 11 sono dichiarati sulla compatibilità dell'ABI Win32 e

@@ -652,7 +652,7 @@
     },
     {
       "id": "distribuzione.artefatti-qualificati",
-      "superficie": "cio' che si consegna: binari per Linux, Windows e macOS, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
+      "superficie": "cio' che si consegna: binari per Linux e Windows -- macOS e' fuori dal perimetro della v1, la variante con `gdal-backend` e il proprio runtime GDAL, e i documenti che li accompagnano -- checksum, SBOM, provenance, runbook",
       "invariante": "un artefatto di distribuzione e' **qualificato**: e' prodotto da una revisione nominata, la sua identita' e' verificabile da chi lo riceve senza fidarsi di chi lo ha prodotto, e cio' che contiene e' dichiarato. In concreto: per ogni piattaforma supportata esiste un artefatto costruito dalla revisione qualificata; un checksum lo lega a quei byte; un SBOM ne dichiara le dipendenze con le loro licenze; una provenance lega artefatto, revisione e costruzione; uno smoke test gira sull'artefatto **installato** e non sull'albero di build; e un runbook dice come si installa, si aggiorna, si torna indietro e si recupera.",
       "prova": null,
       "stato": "release_blocking",

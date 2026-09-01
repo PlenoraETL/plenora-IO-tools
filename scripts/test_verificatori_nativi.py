@@ -1,17 +1,22 @@
-"""Sonde sui verificatori nativi PE e Mach-O.
+"""Sonde sul verificatore nativo PE.
 
 # Che cosa dimostrano, e che cosa no
 
-Dimostrano che i due verificatori **sanno leggere** il proprio formato: un PE
-costruito qui byte per byte, con una import table e una delay-import table, e un
-Mach-O con i suoi load command. Se sbagliassero uno scarto o un campo, queste
-sonde diventerebbero rosse.
+Dimostrano che il verificatore **sa leggere** un PE: uno costruito qui byte per
+byte, con una import table e una delay-import table. Se sbagliasse uno scarto o
+un campo, queste sonde diventerebbero rosse.
 
-Non dimostrano che l'artefatto Windows o macOS sia conforme. Quello lo dira' il
+Non dimostrano che l'artefatto Windows sia conforme. Quello lo dira' il
 verificatore quando girera' su un artefatto vero, su un runner vero, e finche'
 non succede la piattaforma resta `non_ancora_costruita` con il suo blocco. Sono
 due affermazioni diverse, e confonderle sarebbe il modo piu' facile di
 dichiarare verificato cio' che non lo e'.
+
+# Il lettore Mach-O non c'e' piu'
+
+E' uscito con macOS dal perimetro della v1. Un lettore che nessun artefatto
+esercita invecchia senza che nessuno se ne accorga -- e quando servisse, gli
+strumenti Apple e il formato saranno cambiati. La storia git lo conserva.
 
 # Perche' binari sintetici e non file di prova scaricati
 
@@ -116,77 +121,6 @@ def costruisci_pe(
     dati[inizio_sezioni : inizio_sezioni + 40] = intestazione
 
     percorso.write_bytes(bytes(dati) + bytes(corpo))
-
-
-# --- un Mach-O costruito a mano --------------------------------------------
-
-
-def costruisci_macho(
-    percorso: pathlib.Path,
-    *,
-    cpu: int = 0x0100000C,
-    dipendenze: tuple[str, ...] = (),
-    rpath: tuple[str, ...] = (),
-    target: str | None = "15.0.0",
-    firmato: bool = False,
-) -> None:
-    """Il Mach-O minimo con i load command che le funzioni leggono."""
-    comandi = bytearray()
-
-    def comando_con_stringa(tipo: int, testo: str, scarto: int = 12) -> None:
-        grezza = testo.encode("utf-8") + b"\0"
-        riempimento = (-(scarto + len(grezza))) % 8
-        dimensione = scarto + len(grezza) + riempimento
-        blocco = bytearray(dimensione)
-        struct.pack_into("<II", blocco, 0, tipo, dimensione)
-        struct.pack_into("<I", blocco, 8, scarto)
-        blocco[scarto : scarto + len(grezza)] = grezza
-        comandi.extend(blocco)
-
-    for nome in dipendenze:
-        # LC_LOAD_DYLIB: dopo `cmd` e `cmdsize` c'e' l'offset del nome, poi tre
-        # campi di versione. La stringa comincia a 24.
-        grezza = nome.encode("utf-8") + b"\0"
-        riempimento = (-(24 + len(grezza))) % 8
-        dimensione = 24 + len(grezza) + riempimento
-        blocco = bytearray(dimensione)
-        struct.pack_into("<III", blocco, 0, 0x0C, dimensione, 24)
-        blocco[24 : 24 + len(grezza)] = grezza
-        comandi.extend(blocco)
-
-    for voce in rpath:
-        comando_con_stringa(0x8000001C, voce, scarto=12)
-
-    if target is not None:
-        maggiore, minore, patch = (int(x) for x in target.split("."))
-        blocco = bytearray(24)
-        struct.pack_into("<II", blocco, 0, 0x32, 24)
-        struct.pack_into("<I", blocco, 8, 1)  # platform: macOS
-        struct.pack_into("<I", blocco, 12, (maggiore << 16) | (minore << 8) | patch)
-        comandi.extend(blocco)
-
-    if firmato:
-        # LC_CODE_SIGNATURE: `cmd`, `cmdsize`, offset e dimensione dei dati
-        # della firma. Per la domanda «e' firmato?» conta la presenza del
-        # comando; che la firma sia **valida** lo dice `codesign`, non i byte.
-        blocco = bytearray(16)
-        struct.pack_into("<IIII", blocco, 0, 0x1D, 16, 0x1000, 0x100)
-        comandi.extend(blocco)
-
-    intestazione = bytearray(32)
-    struct.pack_into("<IIIIIII", intestazione, 0, 0xFEEDFACF, cpu, 0, 2, 0, len(comandi), 0)
-    struct.pack_into("<I", intestazione, 16, sum(1 for _ in _conta(comandi)))
-    percorso.write_bytes(bytes(intestazione) + bytes(comandi))
-
-
-def _conta(comandi: bytes):
-    offset = 0
-    while offset + 8 <= len(comandi):
-        _, dimensione = struct.unpack_from("<II", comandi, offset)
-        if dimensione < 8:
-            return
-        yield offset
-        offset += dimensione
 
 
 class SondeDelLettorePe(unittest.TestCase):
@@ -315,96 +249,10 @@ class SondeDelLettorePe(unittest.TestCase):
         self.assertTrue(any("lib" in t for t in trovati), trovati)
 
 
-class SondeDelLettoreMachO(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tmp = pathlib.Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.mo = carica("check-macos-runtime.py")
-
-    def test_legge_architettura_e_dipendenze(self) -> None:
-        f = self.tmp / "a.dylib"
-        costruisci_macho(
-            f, dipendenze=("@rpath/libgdal.35.dylib", "/usr/lib/libSystem.B.dylib")
-        )
-        self.assertEqual(self.mo.cpu_type(f), self.mo.CPU_TYPE_ARM64)
-        self.assertEqual(
-            self.mo.dipendenze(f),
-            ["@rpath/libgdal.35.dylib", "/usr/lib/libSystem.B.dylib"],
-        )
-
-    def test_legge_il_deployment_target(self) -> None:
-        f = self.tmp / "b.dylib"
-        costruisci_macho(f, target="15.0.0")
-        self.assertEqual(self.mo.deployment_target(f), "15.0.0")
-
-    def test_un_target_piu_alto_si_vede(self) -> None:
-        """Un solo binario compilato piu' in alto alza il requisito
-        dell'intero artefatto, e nulla nel nome lo direbbe."""
-        f = self.tmp / "c.dylib"
-        costruisci_macho(f, target="15.4.0")
-        self.assertGreater(
-            self.mo.chiave(self.mo.deployment_target(f)), self.mo.chiave("15.0.0")
-        )
-
-    def test_un_macho_senza_target_lo_dichiara_assente(self) -> None:
-        f = self.tmp / "d.dylib"
-        costruisci_macho(f, target=None)
-        self.assertIsNone(self.mo.deployment_target(f))
-
-    def test_legge_l_rpath(self) -> None:
-        f = self.tmp / "e.dylib"
-        costruisci_macho(f, rpath=("@loader_path/../lib",))
-        self.assertEqual(self.mo.rpath(f), ["@loader_path/../lib"])
-
-    def test_un_rpath_che_esce_dall_albero_si_riconosce(self) -> None:
-        self.assertFalse(self.mo.rpath_esce_dall_albero("@loader_path/../lib", 1))
-        self.assertTrue(self.mo.rpath_esce_dall_albero("@loader_path/../../lib", 1))
-
-    def test_un_binario_universale_e_rifiutato(self) -> None:
-        """L'artefatto e' ARM64 soltanto: un fat binary porterebbe
-        un'architettura che il contratto non dichiara."""
-        f = self.tmp / "fat"
-        f.write_bytes(struct.pack(">I", 0xCAFEBABE) + bytes(60))
-        with self.assertRaises(self.mo.MachOMalformato) as contesto:
-            self.mo.cpu_type(f)
-        self.assertIn("universale", str(contesto.exception))
-
-    def test_riconosce_un_macho_firmato_e_uno_no(self) -> None:
-        """`LC_CODE_SIGNATURE` e' la parte della misura che si legge dai byte."""
-        senza = self.tmp / "senza.dylib"
-        costruisci_macho(senza)
-        self.assertFalse(self.mo.ha_firma(senza))
-
-        con = self.tmp / "con.dylib"
-        costruisci_macho(con, firmato=True)
-        self.assertTrue(self.mo.ha_firma(con))
-
-    def test_fuori_da_macos_la_notarizzazione_resta_non_misurata(self) -> None:
-        """L'accettazione notarile la dice `spctl`, e si chiede sull'archivio:
-        e' l'archivio che viene sottoposto al servizio. Non c'e' stapling da
-        verificare -- su uno ZIP non si puo' fare -- e la ricevuta resta al
-        servizio, il che significa che la prima verifica di Gatekeeper
-        richiedera' rete."""
-        f = self.tmp / "n.dylib"
-        costruisci_macho(f, firmato=True)
-        misura = self.mo.misura_della_firma(f)
-        self.assertTrue(misura["firmato"])
-        if self.mo.sys.platform != "darwin":
-            self.assertIsNone(misura["notarizzato"])
-            self.assertIsNone(misura["hardened_runtime"])
-            self.assertIn("non_misurabile_qui", misura)
-
-    def test_un_file_che_non_e_un_macho_non_passa_in_silenzio(self) -> None:
-        f = self.tmp / "no"
-        f.write_bytes(b"non sono un Mach-O, ma sono abbastanza lungo per provarci sul serio")
-        with self.assertRaises(self.mo.MachOMalformato):
-            self.mo.cpu_type(f)
-
-
 class SondeSulPerimetro(unittest.TestCase):
     """Che cosa i due verificatori pretendono di avere prima di dire qualcosa."""
 
-    def test_nessuno_dei_due_lock_ha_ancora_un_contratto_di_verifica(self) -> None:
+    def test_il_lock_windows_non_ha_ancora_un_contratto_di_verifica(self) -> None:
         """E' un debito registrato, non una svista.
 
         Il contratto di verifica dice le soglie -- quali DLL di sistema sono
@@ -414,7 +262,7 @@ class SondeSulPerimetro(unittest.TestCase):
         `non_ancora_costruita` con il proprio blocco."""
         import json
 
-        for nome in ("windows-gdal-lock.json", "macos-gdal-lock.json"):
+        for nome in ("windows-gdal-lock.json",):
             percorso = RADICE / "scripts" / nome
             if not percorso.exists():
                 continue

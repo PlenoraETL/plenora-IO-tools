@@ -40,8 +40,54 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
-PIATTAFORME = ("linux-x86_64", "windows-x86_64", "macos-aarch64")
+MATRICE = (
+    pathlib.Path(__file__).resolve().parent.parent
+    / "assurance"
+    / "registries"
+    / "distribuzione-matrice.json"
+)
+
+# Tutte le piattaforme che questo progetto conosce. Non e' l'elenco di cio' che
+# si distribuisce: e' l'elenco di cio' su cui **una decisione va presa**, e
+# serve perche' una piattaforma non possa uscire dal perimetro sparendo.
+PIATTAFORME_NOTE = ("linux-x86_64", "windows-x86_64", "macos-aarch64")
 PROFILI = ("base", "filegdb")
+
+
+def perimetro() -> tuple[tuple[str, ...], dict[str, dict]]:
+    """Le piattaforme distribuite, **dalla decisione** e non dai job che esistono.
+
+    Un artefatto in meno perche' qualcuno ha tolto un job e' un buco; un
+    artefatto in meno perche' una piattaforma e' fuori scope e' una decisione.
+    Nel conteggio si somigliano, e per il resto non si somigliano per niente:
+    derivare il perimetro dalla matrice invece che da una costante e' cio' che
+    tiene le due cose distinte.
+
+    Ogni piattaforma nota deve stare in una delle due liste con una motivazione
+    scritta. Una che non stia in nessuna delle due ferma il gate: significa che
+    e' uscita senza che nessuno lo dicesse.
+    """
+    matrice = json.loads(MATRICE.read_text(encoding="utf-8"))
+    distribuite = tuple(p["id"] for p in matrice["piattaforme"])
+    fuori = {p["id"]: p for p in matrice.get("piattaforme_non_distribuite", [])}
+
+    senza_decisione = sorted(set(PIATTAFORME_NOTE) - set(distribuite) - set(fuori))
+    if senza_decisione:
+        raise SystemExit(
+            f"piattaforme senza decisione: {senza_decisione}. Una piattaforma non esce dal "
+            "perimetro sparendo: o e' distribuita, o e' dichiarata fuori scope con una "
+            "motivazione. Il conteggio degli artefatti attesi deve venire da una scelta, non "
+            "dall'assenza di un job."
+        )
+    for identita, voce in sorted(fuori.items()):
+        for campo in ("decisione", "perche", "che_cosa_la_ribalterebbe"):
+            if not voce.get(campo):
+                raise SystemExit(
+                    f"{identita} e' dichiarata fuori dal perimetro e «{campo}» e' vuoto. "
+                    "Dichiararlo costa dire perche', altrimenti la decisione e' un modo di non "
+                    "prenderla."
+                )
+    return distribuite, fuori
 
 # Le verifiche che ogni artefatto deve portare, e la misura che ciascuna deve
 # produrre. La misura conta piu' dell'esito: l'esito e' una conclusione, e una
@@ -244,22 +290,37 @@ def main() -> int:
     a.add_argument("--canale", default="candidate", choices=["prova", "candidate"])
     a.add_argument(
         "--piattaforme",
-        default=",".join(PIATTAFORME),
-        help="le piattaforme da pretendere; restringerlo e' una decisione da dichiarare",
+        default=None,
+        help=(
+            "le piattaforme da pretendere. Senza, sono quelle **distribuite** secondo la "
+            "matrice: restringerle a mano serve a verificare una corsa parziale, e non "
+            "cambia il perimetro"
+        ),
     )
     arg = a.parse_args()
 
     directory = arg.referti.resolve()
     if not directory.is_dir():
         sys.exit(f"{directory} non e' una directory")
-    piattaforme = tuple(p.strip() for p in arg.piattaforme.split(",") if p.strip())
-    sconosciute = set(piattaforme) - set(PIATTAFORME)
-    if sconosciute:
-        sys.exit(f"piattaforme sconosciute: {sorted(sconosciute)}")
+    distribuite, fuori = perimetro()
+    if arg.piattaforme:
+        piattaforme = tuple(p.strip() for p in arg.piattaforme.split(",") if p.strip())
+        sconosciute = set(piattaforme) - set(distribuite)
+        if sconosciute:
+            sys.exit(
+                f"piattaforme non distribuite o sconosciute: {sorted(sconosciute)}. "
+                f"Distribuite: {sorted(distribuite)}."
+            )
+    else:
+        piattaforme = distribuite
 
     attesi = sum(len(attese_per(profilo)) for profilo in PROFILI) * len(piattaforme)
     print(f"canale: {arg.canale}")
-    print(f"piattaforme: {', '.join(piattaforme)}")
+    print(f"piattaforme distribuite: {', '.join(distribuite)}")
+    for identita, voce in sorted(fuori.items()):
+        print(f"fuori dal perimetro: {identita} -- {voce['decisione']}")
+    if piattaforme != distribuite:
+        print(f"verifica ristretta a: {', '.join(piattaforme)}")
     print(f"referti attesi: {attesi}")
 
     errori = verifica(directory, arg.canale, piattaforme)

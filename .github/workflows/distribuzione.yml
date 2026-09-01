@@ -1,4 +1,9 @@
-# I sei artefatti, costruiti e verificati ciascuno sulla propria piattaforma.
+# I quattro artefatti, costruiti e verificati ciascuno sulla propria piattaforma.
+#
+# Due piattaforme per due profili. macOS e' **fuori dal perimetro** della v1 --
+# una decisione di prodotto registrata in `distribuzione-matrice.json` sotto
+# `piattaforme_non_distribuite`, non un job che manca -- e il gate finale
+# deriva il perimetro da li'.
 #
 # # Perche' job nativi e non una cross-compilazione
 #
@@ -240,42 +245,11 @@ jobs:
             exit 1
           fi
 
-  macos:
-    # `macos-15`, ARM64. Il deployment target e' 15.0 e va verificato in **ogni**
-    # Mach-O spedito: un solo binario compilato piu' in alto alzerebbe il
-    # requisito dell'intero artefatto senza che nulla lo dica.
-    runs-on: macos-15
-    strategy:
-      fail-fast: false
-      matrix:
-        profilo: [base, filegdb]
-    env:
-      MACOSX_DEPLOYMENT_TARGET: "15.0"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          toolchain: "1.92.0"
-
-      - name: Blocco dichiarato
-        run: |
-          python3 - <<'PY'
-          import json, pathlib, sys
-          matrice = json.loads(pathlib.Path(
-              "assurance/registries/distribuzione-matrice.json").read_text(encoding="utf-8"))
-          blocco = next(b for b in matrice["blocchi_aperti"]
-                        if b["piattaforma"] == "macos-aarch64")
-          print("BLOCCO APERTO:", blocco["blocco"])
-          print()
-          print("CHE COSA LO CHIUDE:", blocco["che_cosa_lo_chiude"])
-          sys.exit(1)
-          PY
-
   gate:
     # Gira **sempre**, anche quando i job sopra falliscono: e' il suo mestiere.
     # Un gate che girasse solo a valle del verde direbbe soltanto cio' che i job
     # hanno gia' detto, e non servirebbe a niente.
-    needs: [linux, windows, macos]
+    needs: [linux, windows]
     if: always()
     runs-on: ubuntu-22.04
     steps:
