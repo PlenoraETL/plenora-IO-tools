@@ -347,6 +347,19 @@ jobs:
         run: cargo install cargo-fuzz --locked --version 0.13.2
       - name: Verify locked fuzz dependency graph
         run: cargo metadata --manifest-path fuzz/Cargo.toml --locked --format-version 1 > /dev/null
+      # `fuzz-smoke.sh` costruisce **tutti** i target, e fra questi c'e'
+      # `filegdb_reader`, che passa da GDAL. Senza `gdal.pc` il job moriva in
+      # `build.rs` di `gdal-sys` -- «Package gdal was not found in the
+      # pkg-config search path» -- e il rosso era permanente anche su main:
+      # nessun target veniva costruito e nessuno veniva eseguito, quindi la
+      # smoke non copriva piu' niente da quando il target FileGDB esiste.
+      #
+      # E' la GDAL della distribuzione, non quella fissata per gli artefatti:
+      # qui si misura che i target reggano gli input, non quale libreria
+      # spediamo. La versione entra comunque nel perimetro della misura di
+      # profondita' attraverso `fuzz/Cargo.lock`, che fissa `gdal-sys`.
+      - name: Install distribution GDAL for the FileGDB target
+        run: sudo apt-get update && sudo apt-get install --yes libgdal-dev
       # Costruisce TUTTI i target strumentati ed esegue quelli senza finding
       # aperti. I target elencati in fuzz/quarantine.txt restano compilati ma
       # non eseguiti: lo script li stampa a ogni run, così il debito resta

@@ -1,36 +1,56 @@
-//! PROJ non legge le config option di GDAL, e questa prova lo dimostra.
+//! Un artefatto rilocato deve poter dire a PROJ dove sono i propri dati.
 //!
-//! # Perche' esiste
+//! # Che cosa prova
 //!
-//! La prima cura al difetto del relocation smoke Windows applicava le radici
-//! dell'artefatto come **config option** di GDAL, per tutte e quattro. Sembrava
-//! ragionevole: GDAL le consulta prima dell'ambiente. Per `GDAL_DATA` e' vero.
-//! Per PROJ no -- GDAL non gli inoltra quella tabella -- e la corsa e' tornata
-//! rossa con lo stesso identico messaggio, «Cannot find proj.db».
+//! Che `OSRSetPROJSearchPaths` decide davvero dove PROJ cerca: con un percorso
+//! inesistente il CRS **non** si risolve, e con quelli veri torna a risolversi.
+//! E' il meccanismo su cui la distribuzione conta, ed e' l'unico che si comporti
+//! allo stesso modo su ogni piattaforma e ogni GDAL che spediamo.
 //!
-//! Senza questa prova, la stessa regressione non si vedrebbe: nel container e
-//! sul runner i dati di PROJ si trovano lo stesso, dal percorso cotto dentro la
-//! libreria, e ogni conversione con un CRS resterebbe verde. Il difetto si
-//! manifesta **solo** dove quel percorso non c'e' -- cioe' sulla macchina di chi
-//! installa, che e' esattamente dove non lo vogliamo scoprire.
+//! # Perche' prova questo e non altro
+//!
+//! Due formulazioni piu' dirette sono state provate e sono cadute, ciascuna
+//! insegnando qualcosa che vale la pena tenere scritto.
+//!
+//! **Avvelenare l'ambiente e vedere se il CRS si rompe.** Su Linux funziona; su
+//! Windows no, e non per un difetto della prova: `std::env::set_var` chiama
+//! `SetEnvironmentVariableW`, il runtime C tiene una copia propria e `getenv`
+//! legge quella. E' esattamente il difetto che tutto questo lavoro cura, e una
+//! prova che ci si appoggia sopra e' rossa sulla piattaforma che le interessa.
+//!
+//! **Asserire che la config option `PROJ_DATA` non arriva a PROJ.** Su GDAL 3.9
+//! di conda non ci arriva -- ed e' il motivo per cui la prima cura non ha
+//! chiuso il difetto -- ne' sul GDAL 3.6 del container. Sul runner della CI
+//! ordinaria, con un GDAL diverso, ci arriva. E' un comportamento che dipende
+//! dalla versione: fissarlo in una prova non misura un invariante nostro, e la
+//! prova diventa rossa affermando qualcosa di falso su quella macchina. Resta
+//! come ragione storica per cui il codice non ci conta sopra.
+//!
+//! # Il momento conta, e questa prova ne dipende
+//!
+//! I percorsi si cambiano finche' PROJ non ha aperto il proprio database:
+//! dopo, la connessione resta aperta e spostarli non ha piu' effetto. E' la
+//! ragione per cui `radici::applica` sta in `main` e non dentro l'apertura di
+//! un dataset, ed e' anche il motivo per cui il primo passo qui sotto e' quello
+//! che rompe: da un contesto gia' caldo non si dimostrerebbe niente.
 //!
 //! # Perche' un binario di test tutto suo
 //!
-//! Avvelena l'ambiente del processo, che e' globale. Dentro il binario di test
-//! della crate correrebbe insieme a tutto il resto, e la prova si porterebbe
-//! dietro gli altri. Qui l'unico `#[test]` del file e' questo.
+//! I percorsi di ricerca sono stato globale di GDAL. Nella finestra in cui sono
+//! rotti, qualunque altra prova che tocchi un CRS fallirebbe. Qui l'unico
+//! `#[test]` del file e' questo.
 
 #![cfg(feature = "gdal-backend")]
 
 use gdal::spatial_ref::{get_proj_search_paths, set_proj_search_paths, SpatialRef};
 
-/// Avvelenare l'ambiente rompe PROJ, e `OSRSetPROJSearchPaths` lo ripara --
-/// mentre la config option non lo ripara affatto.
+/// I percorsi di ricerca decidono se PROJ trova i propri dati.
 #[test]
-fn la_config_option_non_arriva_a_proj_e_l_api_dei_percorsi_si() {
+fn l_api_dei_percorsi_decide_dove_proj_cerca() {
     // I percorsi effettivi **prima** di toccare qualunque cosa: con nulla di
     // configurato GDAL riporta quelli con cui PROJ e' stato costruito, ed e' il
-    // modo di sapere dove stanno i dati senza scriverne uno a mano.
+    // modo di sapere dove stanno i dati senza scriverne uno a mano -- che
+    // renderebbe la prova valida su una macchina sola.
     let veri = get_proj_search_paths();
     assert!(
         !veri.is_empty(),
@@ -38,29 +58,19 @@ fn la_config_option_non_arriva_a_proj_e_l_api_dei_percorsi_si() {
          prova non saprebbe dove sono i dati e non proverebbe niente"
     );
 
-    // L'ambiente avvelenato: su Linux `PROJ_DATA` **sostituisce** il default, e
-    // il CRS smette di risolversi. E' la condizione che il relocation smoke crea
-    // su Windows, riprodotta qui dove si puo' provare a ogni commit.
-    let inesistente = "/percorso/che/non/esiste/mai/proj";
-    std::env::set_var("PROJ_DATA", inesistente);
-    std::env::set_var("PROJ_LIB", inesistente);
-
+    // Rompere per primo, a freddo. E' la condizione di un artefatto rilocato che
+    // non sa dire dove ha messo i propri dati.
+    set_proj_search_paths(&["/percorso/che/non/esiste/mai/proj"]).unwrap();
     assert!(
         SpatialRef::from_definition("EPSG:4326").is_err(),
-        "con `PROJ_DATA` avvelenata il CRS si risolve lo stesso: la prova non \
-         sta misurando quello che dice, e va rivista prima di fidarsene"
+        "con i percorsi di ricerca rotti il CRS si risolve lo stesso: o PROJ \
+         aveva gia' aperto il proprio database, e allora questa prova non parte \
+         a freddo, oppure `OSRSetPROJSearchPaths` non decide piu' -- e la cura \
+         della distribuzione poggia su un meccanismo che non regge"
     );
 
-    // La via che non funziona, provata perche' e' quella che ci ha ingannati.
-    gdal::config::set_config_option("PROJ_DATA", &veri[veri.len() - 1]).unwrap();
-    gdal::config::set_config_option("PROJ_LIB", &veri[veri.len() - 1]).unwrap();
-    assert!(
-        SpatialRef::from_definition("EPSG:4326").is_err(),
-        "la config option `PROJ_DATA` ora arriva a PROJ: se GDAL ha cambiato \
-         comportamento la cura si semplifica, ma va deciso -- non ereditato"
-    );
-
-    // La via che funziona.
+    // E riportarli: e' cio' che `radici::applica` fa all'avvio quando il binario
+    // gira dentro un artefatto.
     let percorsi: Vec<&str> = veri.iter().map(String::as_str).collect();
     set_proj_search_paths(&percorsi).unwrap();
     let srs = SpatialRef::from_definition("EPSG:4326")
