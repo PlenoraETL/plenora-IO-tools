@@ -73,6 +73,7 @@ jobs:
     # soglia promessa, per un accidente dell'ambiente invece che per una
     # proprieta' del prodotto.
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -158,6 +159,11 @@ jobs:
     # digest del rilievo da cui viene. Solo allora la seconda corsa confronta il
     # reale con l'atteso, e puo' diventare verde.
     runs-on: windows-2022
+    # Un passo che si blocca deve fallire presto. Il default di GitHub e' sei
+    # ore: due corse di scoperta si sono appese su un comando in attesa di
+    # input, e senza un tetto avrebbero consumato runner per un pomeriggio
+    # ciascuna senza dire niente di piu' di quanto dicano in venti minuti.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

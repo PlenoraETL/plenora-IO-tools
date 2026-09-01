@@ -153,9 +153,21 @@ foreach ($pacchetto in $manifest.pacchetti) {
 }
 Set-Content -LiteralPath $explicit -Value $righe -Encoding utf8
 
+# `MAMBA_ROOT_PREFIX` va impostata, e non e' una comodita'.
+#
+# Senza, micromamba non sa dove tenere la propria radice e **chiede**: su un
+# runner senza console interattiva quella domanda non riceve mai risposta, e il
+# passo resta appeso finche' il job non scade. E' cio' che ha bloccato la
+# seconda corsa di scoperta -- quindici minuti su un comando che non stava
+# lavorando. L'installatore Linux la impostava gia'; questo no, ed era l'unica
+# differenza fra i due.
+$env:MAMBA_ROOT_PREFIX = Join-Path $cachePath "root"
+New-Item -ItemType Directory -Force -Path $env:MAMBA_ROOT_PREFIX | Out-Null
+
 # In modalita' esplicita non c'e' solver, non c'e' interrogazione del canale e
 # non c'e' metadata mobile -- e in cambio si hanno le rilocazioni di conda,
 # l'ordine di link e la gestione delle collisioni.
+Write-Host "materializzazione di $quanti pacchetti in $destinationPath"
 & $micromamba create --yes --prefix $destinationPath --offline --file $explicit
 if ($LASTEXITCODE -ne 0) { throw "Materializzazione fallita" }
 
