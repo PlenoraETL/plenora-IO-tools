@@ -136,10 +136,41 @@ if (-not (Test-Path -LiteralPath $micromambaArchive)) {
 }
 Diario "micromamba scaricato, verifico"
 Assert-Archive -Path $micromambaArchive -ExpectedSize $pin.dimensione -ExpectedSha256 $pin.sha256
+Diario "verifica superata; estraggo"
 $micromambaRoot = Join-Path $cachePath "micromamba"
 New-Item -ItemType Directory -Force -Path $micromambaRoot | Out-Null
-& tar -xf $micromambaArchive -C $micromambaRoot
-if ($LASTEXITCODE -ne 0) { throw "Estrazione di micromamba fallita" }
+
+# L'estrazione di un `.tar.bz2` su Windows, con un ripiego.
+#
+# La quarta corsa di scoperta si e' fermata **qui**, fra la verifica e la riga
+# successiva: `tar` non tornava. Non so dire se attendesse o se fosse solo
+# lentissimo, e la differenza non cambia la cura -- un passo che non torna e'
+# un passo che non si puo' usare.
+#
+# Si prova prima `7z`, che sui runner c'e' ed e' esplicito sui due strati
+# (bz2, poi tar); si ripiega su `tar`. In entrambi i casi l'uscita finisce nel
+# diario, cosi' che la prossima volta si sappia che cosa ha detto invece di
+# doverlo dedurre dal silenzio.
+$estratto = $false
+$sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+if ($sevenZip) {
+    Diario "estrazione con 7z"
+    $uscita = & $sevenZip.Source x $micromambaArchive "-o$cachePath" -y 2>&1 | Out-String
+    Diario ("  7z (bz2): " + ($uscita -split "`n" | Select-Object -Last 3 | Out-String).Trim())
+    $tarInterno = Join-Path $cachePath "micromamba.tar"
+    if (Test-Path -LiteralPath $tarInterno) {
+        $uscita = & $sevenZip.Source x $tarInterno "-o$micromambaRoot" -y 2>&1 | Out-String
+        Diario ("  7z (tar): " + ($uscita -split "`n" | Select-Object -Last 3 | Out-String).Trim())
+        $estratto = $true
+    }
+}
+if (-not $estratto) {
+    Diario "estrazione con tar"
+    $uscita = & tar -xf $micromambaArchive -C $micromambaRoot 2>&1 | Out-String
+    Diario ("  tar: uscita=$LASTEXITCODE " + $uscita.Trim())
+    if ($LASTEXITCODE -ne 0) { throw "Estrazione di micromamba fallita" }
+}
+Diario "estrazione conclusa"
 $micromamba = Join-Path $micromambaRoot "Library\bin\micromamba.exe"
 if (-not (Test-Path -LiteralPath $micromamba)) {
     $micromamba = Join-Path $micromambaRoot "bin\micromamba.exe"
