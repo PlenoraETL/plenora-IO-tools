@@ -322,10 +322,6 @@ jobs:
           name: referti-windows-${{ matrix.profilo }}
           path: ${{ runner.temp }}/referti/
 
-      # Il job resta rosso finche' la scoperta e' la sola fase possibile. E'
-      # esplicito e non un effetto collaterale: dire «verde» a una corsa che non
-      # ha verificato niente sarebbe il difetto che tutto questo lotto esiste
-      # per evitare.
       # Il job e' verde quando le **verifiche** sono verdi.
       #
       # La scoperta fallisce sempre: e' il suo mestiere, e continua a girare
@@ -344,3 +340,47 @@ jobs:
           echo "Il contratto c'e' ed e' stato applicato: runtime, licenze, smoke, relocation"
           echo "e digest hanno prodotto i propri referti. Il rosso della scoperta e' atteso -- "
           echo "quella fase non qualifica, e continua a girare per documentare la corsa."
+
+  # Il gate finale: **ricontare**.
+  #
+  # Senza di lui quattro job verdi si leggevano come «la distribuzione e'
+  # completa», e non era la stessa affermazione: ogni job sa di se stesso, e
+  # nessuno sapeva se i quattro artefatti attesi esistessero tutti, con tutte le
+  # verifiche previste e con le misure obbligatorie dentro. Un referto mancante
+  # non rende rosso nessun job -- semplicemente non c'e' -- ed e' la forma di
+  # falso verde piu' facile da non vedere, perche' si manifesta come assenza.
+  #
+  # Ricalcola il perimetro dalla matrice, non da cio' che ha ricevuto: quattro
+  # artefatti devono discendere dalla decisione esplicita di distribuire due
+  # piattaforme, non dal fatto che due job siano stati scritti.
+  gate:
+    needs: [linux, windows]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      # `needs` con `if: always()` fa girare questo job anche quando un
+      # costruttore fallisce, ed e' voluto: il gate deve poter dire **che cosa**
+      # manca. Ma un costruttore rosso non puo' diventare una distribuzione
+      # verde per il fatto che il gate ha girato, quindi il suo esito si legge
+      # per primo.
+      - name: I costruttori sono verdi?
+        run: |
+          echo "linux:   ${{ needs.linux.result }}"
+          echo "windows: ${{ needs.windows.result }}"
+          if [ "${{ needs.linux.result }}" != "success" ] || [ "${{ needs.windows.result }}" != "success" ]; then
+            echo "Un costruttore non e' verde: il conteggio dei referti qui sotto dira' che"
+            echo "cosa manca, ma questa corsa non distribuisce niente."
+            exit 1
+          fi
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, Node 24
+        with:
+          pattern: referti-*
+          path: referti
+      - name: Riconta i referti contro la matrice
+        run: python3 scripts/check-distribuzione-completa.py --referti referti --canale "$CANALE"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        if: always()
+        with:
+          name: referti-di-tutta-la-distribuzione
+          path: referti/

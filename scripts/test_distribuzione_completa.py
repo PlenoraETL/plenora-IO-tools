@@ -448,5 +448,53 @@ class SondeDelPerimetro(unittest.TestCase):
         self.assertIn("quattro", matrice["perimetro"]["artefatti_attesi"])
 
 
+class SondeDelGateNelWorkflow(unittest.TestCase):
+    """Che il gate finale **giri**, e non soltanto esista.
+
+    E' il difetto che c'e' stato: il gate era scritto, aveva le proprie sonde,
+    e nel workflow non c'era nessun job che lo eseguisse. Quattro job verdi si
+    leggevano come «la distribuzione e' completa», che e' un'altra
+    affermazione: ogni job sa di se stesso, e nessuno contava se i quattro
+    artefatti attesi ci fossero tutti con tutte le loro verifiche.
+
+    Un referto mancante non rende rosso nessun job -- semplicemente non c'e' --
+    ed e' la forma di falso verde piu' facile da non vedere, perche' si
+    manifesta come assenza. Uno strumento che nessuno esegue e' la stessa cosa,
+    un gradino piu' in su.
+    """
+
+    def setUp(self) -> None:
+        self.testo = (RADICE / ".github" / "workflows" / "distribuzione.yml").read_text(
+            encoding="utf-8"
+        )
+
+    def test_esiste_un_job_che_esegue_il_gate(self) -> None:
+        self.assertRegex(self.testo, r"(?m)^  gate:$", "nessun job `gate` nel workflow")
+        self.assertIn(
+            "scripts/check-distribuzione-completa.py --referti",
+            self.testo,
+            "il job `gate` non esegue il gate finale",
+        )
+
+    def test_il_gate_aspetta_entrambi_i_costruttori(self) -> None:
+        """Un gate che girasse prima conterebbe i referti di una corsa a
+        meta', e li troverebbe mancanti per la ragione sbagliata."""
+        self.assertIn("needs: [linux, windows]", self.testo)
+
+    def test_un_costruttore_rosso_non_diventa_una_distribuzione_verde(self) -> None:
+        """`if: always()` serve a far parlare il gate anche quando qualcosa e'
+        fallito. Senza leggere l'esito dei costruttori, pero', trasformerebbe
+        un costruttore rosso in una corsa verde -- che e' il contrario di cio'
+        per cui esiste."""
+        self.assertIn("needs.linux.result", self.testo)
+        self.assertIn("needs.windows.result", self.testo)
+
+    def test_i_referti_arrivano_tutti_al_gate(self) -> None:
+        """Il pattern deve prendere ogni artefatto di referti: prenderne una
+        parte darebbe un conteggio incompleto che il gate leggerebbe come
+        assenza."""
+        self.assertIn("pattern: referti-*", self.testo)
+
+
 if __name__ == "__main__":
     unittest.main()
