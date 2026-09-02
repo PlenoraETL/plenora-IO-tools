@@ -75,10 +75,11 @@
     }
   ],
   "nomi_degli_archivi": {
-    "forma": "plenora-io-<versione>-<profilo>-<piattaforma>.<estensione>",
-    "esempio": "plenora-io-<versione>-filegdb-linux-x86_64.tar.gz",
+    "forma": "plenora-io-<versione>-<piattaforma>-<profilo>.<estensione>",
+    "esempio": "plenora-io-<versione>-linux-x86_64-filegdb.tar.gz",
     "perche_nessuna_versione_nell_esempio": "il workspace e' a `2.0.0` e nessun artefatto di quella versione e' ancora stato qualificato: scrivere un numero in un esempio lo farebbe copiare in un nome che non descrive niente. La versione la mette il costruttore, che la legge da `Cargo.toml`.",
-    "perche_il_profilo_nel_nome": "due archivi della stessa versione e piattaforma differiscono per una capability, non per un dettaglio di build. Chi scarica deve poterlo leggere dal nome invece di scoprirlo eseguendo `catalog`."
+    "perche_il_profilo_nel_nome": "due archivi della stessa versione e piattaforma differiscono per una capability, non per un dettaglio di build. Chi scarica deve poterlo leggere dal nome invece di scoprirlo eseguendo `catalog`.",
+    "perche_piattaforma_prima_del_profilo": "chi cerca raggruppa per macchina prima che per capability, e due archivi della stessa piattaforma stanno vicini. Qui era scritto il contrario -- `<versione>-<profilo>-<piattaforma>` -- mentre i costruttori producevano gia' questa forma: due scritture indipendenti, nessuna che confrontasse l'altra, e il nome e' la prima cosa che legge chi scarica. Ora la forma la produce `distribuzione.nome_archivio`, e una sonda la confronta con questa riga."
   },
   "layout_installato": {
     "radice": "la directory in cui l'archivio e' estratto; nessun percorso assoluto e' incorporato",

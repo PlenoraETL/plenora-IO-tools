@@ -581,6 +581,35 @@ class SondeDelRuntimeNativo(unittest.TestCase):
             '"vcruntime140.dll":', sorgente, "l'elenco e' tornato a essere una copia"
         )
 
+    def test_il_nome_dichiarato_e_quello_prodotto(self) -> None:
+        """La matrice diceva `<versione>-<profilo>-<piattaforma>`, i costruttori
+        producevano `<versione>-<piattaforma>-<profilo>`, e nessuno confrontava.
+
+        Il nome e' la prima cosa che legge chi scarica, ed era descritto da un
+        registro che descriveva un altro nome. Non fa rosso da nessuna parte:
+        l'artefatto si costruisce, il gate lo trova, e solo una persona che
+        legga il registro e poi la directory si accorge dello scarto."""
+        matrice = json.loads(
+            (
+                RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
+            ).read_text(encoding="utf-8")
+        )
+        atteso = self.d.nome_archivio("<versione>", "<piattaforma>", "<profilo>")
+        self.assertEqual(matrice["nomi_degli_archivi"]["forma"], atteso + ".<estensione>")
+        self.assertEqual(
+            matrice["nomi_degli_archivi"]["esempio"],
+            self.d.nome_archivio("<versione>", "linux-x86_64", "filegdb") + ".tar.gz",
+        )
+
+    def test_i_costruttori_non_riscrivono_il_nome(self) -> None:
+        """Due `f"plenora-io-..."` scritti a mano sono due nomi che coincidono
+        finche' qualcuno non ne tocca uno."""
+        for nome in ("costruisci-artefatto-linux.py", "costruisci-artefatto-windows.py"):
+            with self.subTest(costruttore=nome):
+                sorgente = (RADICE / "scripts" / nome).read_text(encoding="utf-8")
+                self.assertIn("distribuzione.nome_archivio(", sorgente)
+                self.assertNotIn('f"plenora-io-{arg.versione}', sorgente)
+
     def test_la_matrice_non_torna_a_un_booleano(self) -> None:
         """La matrice portava `contiene_runtime_nativo`, con lo stesso difetto
         del manifesto e nello stesso verso."""

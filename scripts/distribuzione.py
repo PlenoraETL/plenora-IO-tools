@@ -366,6 +366,21 @@ RUNTIME_C_RIDISTRIBUIBILE = {
 }
 
 
+def nome_archivio(versione: str, piattaforma: str, profilo: str) -> str:
+    """Il nome dell'artefatto, senza estensione.
+
+    Sta qui perche' lo dichiara anche la matrice, e le due scritture erano
+    indipendenti: la matrice diceva `<versione>-<profilo>-<piattaforma>`, i due
+    costruttori producevano `<versione>-<piattaforma>-<profilo>`, e nessuno le
+    confrontava. Il nome e' la prima cosa che legge chi scarica, ed era
+    descritto da un registro che descriveva un altro nome.
+
+    L'ordine e' piattaforma poi profilo: chi cerca raggruppa per macchina prima
+    che per capability, e due archivi della stessa piattaforma stanno vicini.
+    """
+    return f"plenora-io-{versione}-{piattaforma}-{profilo}"
+
+
 def runtime_nativo(
     piattaforma: str, file_spediti: list[dict], gdal: dict | None
 ) -> dict:

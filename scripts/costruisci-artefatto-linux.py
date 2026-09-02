@@ -312,7 +312,7 @@ def main() -> int:
     lock = json.loads(LOCK.read_text(encoding="utf-8"))
     prefisso = arg.prefisso.resolve()
     uscita = arg.uscita.resolve()
-    nome = f"plenora-io-{arg.versione}-linux-x86_64-{arg.profilo}"
+    nome = distribuzione.nome_archivio(arg.versione, "linux-x86_64", arg.profilo)
     albero = uscita / nome
 
     if albero.exists():

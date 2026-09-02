@@ -130,7 +130,7 @@ def main() -> int:
     procurati_testo = linux.procurati_testo
     prefisso = arg.prefisso.resolve()
     uscita = arg.uscita.resolve()
-    nome = f"plenora-io-{arg.versione}-windows-x86_64-{arg.profilo}"
+    nome = distribuzione.nome_archivio(arg.versione, "windows-x86_64", arg.profilo)
     albero = uscita / nome
 
     if albero.exists():
