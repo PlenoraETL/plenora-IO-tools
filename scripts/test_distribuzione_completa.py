@@ -509,6 +509,12 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
             self.assertIn(suffisso, self.testo)
         # Un percorso sbagliato non deve degradare in un artifact vuoto verde.
         self.assertGreaterEqual(self.testo.count("if-no-files-found: error"), 2)
+        self.assertIn("pattern: deliverable-*", self.testo)
+        self.assertIn("merge-multiple: true", self.testo)
+        self.assertIn("scripts/check-deliverable.py", self.testo)
+        # Ricalcolare sul runner produttore non verifica il trasporto: il gate
+        # deve legare i byte riscaricati allo SHA del checkout.
+        self.assertIn('--revisione "$GITHUB_SHA"', self.testo)
 
     def test_il_pfx_vive_solo_nel_passo_che_lo_importa(self) -> None:
         self.assertIn("if: env.CANALE == 'candidate'", self.testo)

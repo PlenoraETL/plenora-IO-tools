@@ -256,7 +256,8 @@
     "che_cosa_sono": "il formato comune che ogni verifica produce, su ogni piattaforma distribuita. I verificatori restano **nativi e separati** -- `DT_NEEDED` e `GLIBC_*` non esistono su Windows, e import e delay-import PE non esistono su Linux; scriverne uno solo vorrebbe dire verificare il minimo comune ovunque -- ma la forma del risultato e' una sola.",
     "perche_non_basta_un_job_verde": "un job verde e' un'affermazione fatta da chi doveva essere verificato, e le affermazioni si sbagliano in silenzio: un passo saltato per una condizione mai vera, un `|| true` di troppo, uno smoke che non ha trovato l'artefatto e non ha guardato niente. Nessuna di queste cose fa rosso. Il referto porta le **misure**, e il gate finale riconta quelle.",
     "gate": "scripts/check-distribuzione-completa.py",
-    "artefatti_attesi": "due piattaforme per due profili, cioe' quattro"
+    "artefatti_attesi": "due piattaforme per due profili, cioe' quattro",
+    "verifica_post_upload": "il gate riscarica dal servizio artifact i quattro deliverable -- ciascuno come archivio, sidecar sha256 e provenance -- e ricalcola sui byte ricevuti checksum, dimensione, revisione, lock, piattaforma, profilo e canale. Verificare soltanto prima dell'upload dimostrerebbe i byte sul runner produttore, non quelli consegnati."
   },
   "firma": {
     "decisione": "artefatti di prova non firmati ammessi; candidate Windows firmata Authenticode con timestamp; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",

@@ -905,7 +905,11 @@ rilegge davvero un FileGDB.
 Ogni job carica separatamente due cose: i referti che qualificano l'oggetto e il
 deliverable vero — archivio, sidecar `.sha256` e provenance. I referti non sono
 un sostituto dell'oggetto: prima di questa separazione gli archivi restavano in
-`RUNNER_TEMP` e sparivano insieme al runner.
+`RUNNER_TEMP` e sparivano insieme al runner. Il job finale riscarica i quattro
+deliverable dal servizio artifact e ricalcola i checksum su quei byte, poi li
+confronta con sidecar e provenance insieme a revisione, lock, piattaforma,
+profilo e canale. Verificare prima dell'upload dimostrerebbe un oggetto diverso
+da quello che chi scarica riceve.
 
 #### Installazione, aggiornamento, rollback e recovery
 
