@@ -47,7 +47,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | S9, qualificato su | `c96ffac` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
-| candidate, versione del workspace | `1.0.1` |
+| candidate, versione del workspace | `2.0.0` |
 | candidate, qualifica di HEAD | no |
 | candidate, tag previsto | `v1.0.1` |
 | candidate, tag creato | sì |
@@ -342,8 +342,25 @@ vengono riletti da `Cargo.toml` e da git a ogni corsa del contratto.
 
 **Quel manifesto non qualifica il codice corrente**, e aggiornarne lo SHA
 fingendo che lo faccia sarebbe una qualifica fabbricata. Serve una candidate
-nuova, ratificata su versione e tag correnti, oppure la dichiarazione esplicita
-che la 1.0.1 è superata.
+nuova, ratificata su versione e tag correnti.
+
+**Il workspace è ora a `2.0.0`, e la 1.0.1 è superata.** Il major non è una
+formalità: l'insieme dei file accettati si è ristretto. Un `.dbf` con una data
+malformata in una riga cancellata veniva letto saltando quella riga e ora è
+rifiutato; un `.dxf` con un `BLOCK` che non arriva a `ENDBLK` teneva il lettore
+occupato senza fine e ora è rifiutato. Lo schema delle sei buste non cambia — chi
+riceve legge lo stesso JSON — ma chi aveva una pipeline che passava uno di quei
+file vede una busta d'errore dove prima ne vedeva una di successo, e questo si
+dichiara con un numero invece che con una nota che qualcuno deve leggere.
+
+L'alternativa precedente non era «leggere di più»: nel primo caso era un panico,
+nel secondo un processo che non termina. Il verso in cui si è cambiato è quello
+in cui si sbaglia meglio, e resta un cambiamento osservabile.
+
+Il divario fra `versione_manifesto` — ancora `1.0.1`, la candidate pendente — e
+`versione_workspace` è visibile nel blocco generato. Non è un'incoerenza da
+appianare allineando i campi: **è il blocco**, scritto in due numeri, e lo chiude
+una candidate nuova sullo SHA congelato.
 
 ### Le condizioni sono congiunte
 

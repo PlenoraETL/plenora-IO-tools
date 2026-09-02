@@ -77,7 +77,7 @@
   "nomi_degli_archivi": {
     "forma": "plenora-io-<versione>-<profilo>-<piattaforma>.<estensione>",
     "esempio": "plenora-io-<versione>-filegdb-linux-x86_64.tar.gz",
-    "perche_nessuna_versione_nell_esempio": "l'unica versione che il workspace porta oggi e' `1.0.1`, che il contratto di release vieta di riusare. Scriverla in un esempio la farebbe copiare.",
+    "perche_nessuna_versione_nell_esempio": "il workspace e' a `2.0.0` e nessun artefatto di quella versione e' ancora stato qualificato: scrivere un numero in un esempio lo farebbe copiare in un nome che non descrive niente. La versione la mette il costruttore, che la legge da `Cargo.toml`.",
     "perche_il_profilo_nel_nome": "due archivi della stessa versione e piattaforma differiscono per una capability, non per un dettaglio di build. Chi scarica deve poterlo leggere dal nome invece di scoprirlo eseguendo `catalog`."
   },
   "layout_installato": {
