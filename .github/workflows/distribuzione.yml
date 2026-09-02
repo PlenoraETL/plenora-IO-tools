@@ -26,27 +26,24 @@
 # l'esito giusto: certificati e segreti sono un blocco esterno a questo
 # repository.
 #
-# # Il trigger su push, e perche' e' temporaneo
+# # Come si avvia, e l'impalcatura che non c'e' piu'
 #
+# Solo a mano, con `workflow_dispatch`. Non c'e' nessun trigger automatico, ed
+# e' voluto: costruire e verificare quattro artefatti nativi e' una cosa che si
+# chiede, non che capita a ogni push.
+#
+# C'e' stato un trigger `push` limitato a un branch, per una ragione precisa:
 # `workflow_dispatch` non puo' avviare un workflow che non esiste ancora sul
-# branch predefinito: e' una condizione di GitHub, non una scelta. Per la
-# **prima corsa di scoperta** su Windows serve quindi un trigger `push`
-# limitato esattamente al branch di lavoro.
-#
-# E' un'impalcatura, non parte del disegno. Va **rimossa prima del
-# congelamento**: un workflow che parte a ogni push su un branch consuma runner
-# per corse che nessuno ha chiesto, e sopravvive alla ragione per cui e' nato.
-# Il canale resta `prova` -- con `push` non c'e' nessun input, e la costruzione
-# di una candidate resta una cosa che si chiede a mano.
+# branch predefinito -- una condizione di GitHub, non una scelta -- e la prima
+# corsa di scoperta su Windows non aveva altro modo di partire. Era
+# un'impalcatura, ha fatto il proprio lavoro, ed e' stata tolta: le corse
+# Windows sono verdi, il contratto runtime PE e' scritto dai rilievi che quelle
+# corse hanno prodotto, e un trigger che sopravvive alla ragione per cui e'
+# nato consuma runner per corse che nessuno ha chiesto.
 
 name: Distribuzione
 
 on:
-  # Temporaneo: serve alla prima corsa di scoperta Windows, e va tolto prima
-  # del congelamento. Vedi il commento in testa.
-  push:
-    branches:
-      - assurance/wire-loss-report
   workflow_dispatch:
     inputs:
       canale:
