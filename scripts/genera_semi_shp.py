@@ -186,11 +186,14 @@ def shp_di_multipunto(gruppi: list[list[tuple[float, float]]]):
 def dbf_con_record_cancellato(tabella: bytes) -> bytes:
     """Marca cancellato il primo record, lasciandone intatto il contenuto.
 
-    Serve a una prova accoppiata: lo **stesso** valore ostile deve fermare la
-    lettura quando la riga e' attiva ed essere ignorato quando e' cancellata.
-    `dbase` salta i byte di una riga cancellata senza decodificarne un campo, e
-    il lettore fisico del driver fa lo stesso: una verifica che li guardasse
-    sarebbe piu' severa del codice che protegge.
+    Serve a una prova accoppiata: lo **stesso** valore ostile, con e senza il
+    marcatore, deve dare lo stesso esito.
+
+    Qui c'era scritto il contrario -- «`dbase` salta i byte di una riga
+    cancellata senza decodificarne un campo» -- e su quella frase poggiava
+    l'esenzione della prevalidazione. Non li salta. La fuzz smoke ha trovato una
+    riga cancellata il cui campo `D` fa panicare `Date::from_str` attraversando
+    l'apertura del driver, e la frase e' caduta insieme all'esenzione.
     """
     grezzo = bytearray(tabella)
     (inizio,) = struct.unpack("<H", bytes(grezzo[8:10]))
@@ -465,14 +468,27 @@ def semi() -> dict[str, bytes]:
         # Il valore di un campo data, che e' l'unico tipo il cui **contenuto**
         # -- non il descrittore -- puo' far panicare il lettore.
         "dbf-data-multibyte.bundle": bundle(linee, indice_linee, data_ostile),
-        # Lo **stesso** valore, in una riga cancellata: `dbase` non lo legge, e
-        # nemmeno il driver. La coppia e' la prova che la prevalidazione non e'
-        # piu' severa del codice che protegge.
+        # Lo **stesso** valore, in una riga cancellata: l'esito dev'essere lo
+        # stesso. La coppia era li' a dimostrare il contrario, e dimostrava una
+        # premessa falsa.
         "dbf-data-multibyte-cancellata.bundle": bundle(
             linee, indice_linee, dbf_con_record_cancellato(data_ostile)
         ),
         "dbf-data-corta.bundle": bundle(
             linee, indice_linee, dbf_con_data_ostile(una_data, b"2026    ")
+        ),
+        # Il seme che la fuzz smoke ha ridotto: una data di quattro cifre utili
+        # in una riga cancellata. `Date::from_str` affetta `s[4..6]` su una
+        # stringa lunga uno e panica -- «end byte index 4 is out of bounds for
+        # string of length 1» -- e il marcatore non lo impediva affatto.
+        #
+        # Differisce da `dbf-data-corta.bundle` per **un byte**, e cosi' dice
+        # quale proprieta' misura: non «una data corta e' rifiutata», che si sa
+        # gia', ma «il marcatore di cancellazione non compra l'esenzione».
+        "dbf-data-corta-in-riga-cancellata.bundle": bundle(
+            linee,
+            indice_linee,
+            dbf_con_record_cancellato(dbf_con_data_ostile(una_data, b"2026    ")),
         ),
         # Un record che dichiara una polilinea e porta solo il tag: i conteggi
         # non stanno dentro il record, e il decoder li legge dai byte che

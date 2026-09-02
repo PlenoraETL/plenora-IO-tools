@@ -2272,15 +2272,26 @@ fn valida_i_valori_temporali(
             // verifica trasformarlo in un rifiuto diverso.
             return Ok(());
         }
-        if record[0] == DBF_RECORD_CANCELLATO {
-            // Un record cancellato non viene **letto**: `dbase` salta i suoi
-            // byte senza decodificarne un solo campo, e il lettore fisico del
-            // driver fa lo stesso. Validarlo qui renderebbe questa verifica piu'
-            // severa del codice che protegge, e un dataset con una vecchia data
-            // malformata in una riga cancellata -- che oggi si legge -- comincerebbe
-            // a fallire per intero.
-            continue;
-        }
+        // I record cancellati **non** si saltano.
+        //
+        // Qui c'era un `continue`, e sopra il perche': «un record cancellato non
+        // viene letto, `dbase` salta i suoi byte senza decodificarne un solo
+        // campo». Non e' vero, e non era mai stato verificato. La fuzz smoke ha
+        // trovato un `.dbf` il cui unico record e' marcato `*` e il cui campo `D`
+        // fa panicare `Date::from_str` -- `end byte index 4 is out of bounds for
+        // string of length 1` -- attraversando l'apertura del driver e il
+        // drenaggio, cioe' la strada vera e non un ramo del fuzzing.
+        //
+        // Il resto di quel commento cadeva con la premessa: temeva che validare
+        // i cancellati facesse fallire un dataset «che oggi si legge». Un
+        // dataset con una data malformata in una riga cancellata oggi non si
+        // legge -- panica -- e un rifiuto tipizzato al posto di un panico e' cio'
+        // che questa funzione esiste per dare.
+        //
+        // Resta vero che il lettore fisico del driver riconosce il marcatore e
+        // non consegna la riga. Riconoscerlo **dopo** averne decodificato i campi
+        // e' un'altra cosa dal non leggerli, ed e' la distinzione che il commento
+        // precedente aveva perso.
         for temporale in campi
             .iter()
             .filter(|campo| matches!(campo.tipo, b'D' | b'T'))
@@ -3748,39 +3759,47 @@ mod tests {
         assert!(matches!(conteggi_attesi(1), ConteggiDelRecord::Nessuno));
     }
 
-    /// Un valore ostile in una riga **cancellata** non ferma la lettura.
+    /// Un valore ostile ferma la lettura **anche** in una riga cancellata.
     ///
-    /// `dbase` salta i byte di una riga cancellata senza decodificarne un
-    /// campo, e il lettore fisico del driver fa lo stesso. Una prevalidazione
-    /// che li guardasse sarebbe piu' severa del codice che protegge: un dataset
-    /// con una vecchia data malformata in una riga cancellata -- che si legge
-    /// oggi -- comincerebbe a fallire per intero.
+    /// Questa prova diceva il contrario, e la coppia di semi serviva a
+    /// dimostrarlo: stesso valore, un solo byte di differenza -- il marcatore --
+    /// ed esiti opposti. Reggeva su una premessa scritta e mai verificata,
+    /// «`dbase` salta i byte di una riga cancellata senza decodificarne un
+    /// campo». Non li salta: la fuzz smoke ha trovato una riga cancellata il cui
+    /// campo `D` fa panicare `Date::from_str`, attraversando l'apertura del
+    /// driver.
     ///
-    /// La coppia e' la prova: stesso valore, stessi byte, un solo byte di
-    /// differenza -- il marcatore.
+    /// # Perche' uniforme, e che cosa costa
+    ///
+    /// Panica il taglio fuori dai confini -- meno di otto byte utili -- e panica
+    /// un confine di carattere che cade dentro un multibyte. Il secondo dipende
+    /// da **dove** cade, e dove cada dipende da come `dbase` decodifica i byte
+    /// in stringa, cioe' da una scelta di codifica che non e' nostra. Il seme
+    /// multibyte qui sotto oggi non panica; un altro con l'accento spostato di
+    /// un byte lo farebbe.
+    ///
+    /// Una regola giusta solo per le posizioni che abbiamo campionato non e' una
+    /// regola. La prevalidazione rifiuta quindi allo stesso modo nelle due
+    /// righe, e il costo va detto: un dataset con una data malformata in una
+    /// riga cancellata -- che prima veniva letto saltandola -- ora viene
+    /// rifiutato. E' il verso in cui si sbaglia meglio, perche' l'altro verso
+    /// non e' «leggere di piu'», e' un panico.
     #[test]
-    fn una_data_ostile_ferma_la_lettura_solo_se_la_riga_e_attiva() {
-        let errore = __fuzz_leggi_bundle(
-            &seme("dbf-data-multibyte.bundle"),
-            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
-        )
-        .expect_err("la riga e' attiva: il valore va letto, e non e' leggibile");
-        assert_eq!(
-            errore.message,
-            "campo data DBF che il lettore non puo' interpretare"
-        );
-
-        let righe = __fuzz_leggi_bundle(
-            &seme("dbf-data-multibyte-cancellata.bundle"),
-            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
-        )
-        .expect("la riga e' cancellata: nessuno ne legge i campi");
-        assert_eq!(
-            righe, 0,
-            "la sola riga del dataset e' cancellata, quindi il drenaggio ne \
-             produce zero: se ne producesse una, il marcatore non sarebbe stato \
-             onorato"
-        );
+    fn una_data_ostile_ferma_la_lettura_anche_se_la_riga_e_cancellata() {
+        for nome in [
+            "dbf-data-multibyte.bundle",
+            "dbf-data-multibyte-cancellata.bundle",
+        ] {
+            let errore = __fuzz_leggi_bundle(
+                &seme(nome),
+                opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+            )
+            .expect_err("il marcatore di cancellazione non esenta il campo");
+            assert_eq!(
+                errore.message, "campo data DBF che il lettore non puo' interpretare",
+                "{nome}"
+            );
+        }
     }
 
     #[test]
@@ -4143,6 +4162,31 @@ mod tests {
                 "{nome}"
             );
         }
+    }
+
+    /// Una riga **cancellata** porta gli stessi panici di una viva.
+    ///
+    /// La prevalidazione le saltava, sulla premessa scritta che «un record
+    /// cancellato non viene letto: `dbase` salta i suoi byte senza decodificarne
+    /// un solo campo». La premessa era falsa e non era mai stata verificata: la
+    /// fuzz smoke ha trovato un `.dbf` il cui unico record e' marcato `*`, e il
+    /// panico arriva lo stesso attraversando l'apertura del driver.
+    ///
+    /// Il seme differisce da `dbf-data-corta.bundle` per **un byte** -- lo
+    /// spazio iniziale del record diventa `*` -- e cosi' la prova dice quale
+    /// proprieta' sta misurando: non «una data corta e' rifiutata», che si sa
+    /// gia', ma «il marcatore di cancellazione non compra l'esenzione».
+    #[test]
+    fn una_data_malformata_in_una_riga_cancellata_e_un_errore_non_un_panico() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("dbf-data-corta-in-riga-cancellata.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("una riga cancellata non esenta il campo dal panico");
+        assert_eq!(
+            errore.message,
+            "campo data DBF che il lettore non puo' interpretare"
+        );
     }
 
     /// Il rovescio: le date valide restano valide, e un campo tutto spazi e'
