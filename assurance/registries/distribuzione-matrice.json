@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stato": "macchina di qualifica eseguita in canale prova; qualifica finale assente",
-  "descrizione": "La matrice di distribuzione e il contratto del runtime GDAL. I costruttori nativi, i verificatori e il gate sono stati eseguiti sui quattro artefatti del perimetro; l'ultima distribuzione verde e' `d2b6bb8`.",
+  "descrizione": "La matrice di distribuzione e il contratto del runtime GDAL. I costruttori nativi, i verificatori e il gate sono stati eseguiti sui quattro artefatti del perimetro; l'ultima distribuzione verde e' `d9bc47d`.",
   "non_significa": "la corsa verde era in canale prova, con `non_release: true`, e non e' sullo SHA corrente. Dimostra la macchina di qualifica, non qualifica una candidate 2.0.0.",
   "versione_del_prodotto": {
     "sorgente": "Cargo.toml del workspace",
@@ -260,11 +260,11 @@
   },
   "firma": {
     "decisione": "artefatti di prova non firmati ammessi; candidate Windows firmata Authenticode con timestamp; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",
-    "lo_stato_si_misura": "`firma.stato` non viene da «il materiale c'era»: quello direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene da cio' che il verificatore nativo legge sui **byte finali** -- presenza della firma, identita' del firmatario e timestamp. Gli stati sono quattro: `non_richiesta`, `non_misurata`, `assente`, `apposta`. `non_misurata` esiste perche' «non ho potuto guardare» non e' «va bene», e su una candidate e' rosso.",
+    "lo_stato_si_misura": "`firma.stato` non viene da «il materiale c'era»: quello direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene da cio' che il verificatore nativo legge sui **byte finali** -- presenza della firma, identita' e impronta del firmatario, timestamp. L'impronta deve coincidere con il certificato selezionato per la costruzione. Gli stati sono quattro: `non_richiesta`, `non_misurata`, `assente`, `apposta`. `non_misurata` esiste perche' «non ho potuto guardare» non e' «va bene», e su una candidate e' rosso.",
     "perche_il_timestamp": "senza, una firma smette di valere quando scade il certificato invece che quando scade il suo uso. E' fra le misure pretese, non un extra.",
     "ordine_delle_operazioni": [
       "1. payload: assemblare l'albero: binario, librerie, dati, licenze",
-      "2. firma: firmare i binari, prima di qualunque cosa li descriva",
+      "2. firma: firmare l'entrypoint dove la piattaforma lo richiede, prima di qualunque cosa ne descriva i byte",
       "3. manifesto: generare MANIFEST.json dai byte **firmati**: un manifesto scritto prima elencherebbe file che non esistono piu'",
       "4. archivio: creare il contenitore",
       "5. notarizzazione: nessuna piattaforma del perimetro la richiede; il passo resta perche' l'ordine e' uno solo, e la posizione e' cio' che va fissata",
@@ -273,9 +273,9 @@
       "8. provenance: produrre la provenance legata a quel checksum"
     ],
     "perche_quest_ordine": "ogni passo dipende dai byte prodotti dal precedente. Il manifesto viene **dopo** la firma: scritto prima descriverebbe file che non esistono piu'. I checksum vengono dopo l'archivio e la notarizzazione, perche' sono dei byte che si consegnano. Lo smoke viene dopo i checksum, perche' deve provare l'oggetto finale. La provenance viene per ultima, e lega **quel** checksum.",
-    "perche_ora": "perche' l'ordine cambia i byte, e inserirlo dopo cambierebbe manifesti, checksum e provenance. Il campo `firma` sta gia' nei manifesti degli artefatti di prova con stato `non_richiesta`: il giorno in cui arrivera' un certificato non cambiera' nulla di strutturale.",
-    "dove_vive": "scripts/distribuzione.py, e il blocco `firma` nel manifesto di ogni artefatto",
-    "blocco_esterno": "certificati e segreti non ci sono, e restano un blocco fuori da questo repository.",
+    "perche_ora": "perche' l'ordine cambia i byte, e inserirlo dopo cambierebbe manifesti, checksum e provenance. Il campo `firma` sta gia' nei manifesti degli artefatti di prova con stato `non_richiesta`; la candidate usa la stessa forma dopo aver firmato e misurato i byte finali.",
+    "dove_vive": "scripts/distribuzione.py per la politica, scripts/firma_windows.py per applicazione e verifica, e il blocco `firma` nel manifesto di ogni artefatto",
+    "materiale_esterno": "il workflow importa un solo certificato Code Signing dal PFX, firma soltanto `bin/plenora-io.exe`, verifica Authenticode, impronta e timestamp, poi ripulisce certificate store e PFX anche sugli errori. Mancano il certificato reale e i secret `PLENORA_WINDOWS_SIGNING_PFX_BASE64` e `PLENORA_WINDOWS_SIGNING_PFX_PASSWORD`: senza, una candidate fallisce chiusa; il canale `prova` non li consulta.",
     "developer_id_e_notarizzazione": "usciti dal perimetro insieme a macOS. Erano il pezzo piu' costoso della catena di firma -- un certificato Apple, un servizio esterno da interrogare, e una ricevuta che sul nostro deliverable non si poteva nemmeno attaccare al file -- e con macOS fuori scope non c'e' piu' nulla da decidere li'."
   },
   "verificatori_nativi": {
@@ -287,7 +287,7 @@
     "windows": {
       "script": "scripts/check-windows-runtime.py",
       "domande": "architettura x86-64, chiusura degli import **e dei delay-import**, DLL fuori dall'albero contro l'insieme atteso esatto, percorsi del prefisso di costruzione cercati sia in ASCII sia in UTF-16",
-      "stato": "eseguito in modo verifica su `windows-2022`, su entrambi i profili; ultima distribuzione verde `d2b6bb8`",
+      "stato": "eseguito in modo verifica su `windows-2022`, su entrambi i profili; ultima distribuzione verde `d9bc47d`",
       "che_cosa_e_provato": "le sonde dimostrano che il verificatore legge import e delay-import di un PE; le corse native hanno inoltre confrontato gli artefatti veri con il contratto derivato dalla discovery e hanno eseguito il relocation smoke.",
       "perche_i_delay_import": "sono risolti alla prima chiamata invece che all'avvio: una DLL che comparisse solo li' sfuggirebbe a chi guardasse la sola import table, e si manifesterebbe molto dopo -- in esecuzione, su una macchina che non ce l'ha.",
       "che_cosa_ha_trovato_la_prima_corsa": "che il profilo `base` importa `vcruntime140.dll` senza spedirla. Il runner la possiede perche' ci gira Visual Studio; una macchina di destinazione pulita potrebbe non averla. Era un'ipotesi ereditata da Linux -- li' il profilo base non spedisce librerie perche' `libgcc_s` e `libm` sono garantite dal sistema -- e su Windows non regge: il runtime C ridistribuibile non e' un componente del sistema operativo. Il contratto lo diceva gia', «il runtime C si affronta spedendo cio' che serve», e il codice non lo faceva."
@@ -382,11 +382,11 @@
     "che_cosa_prova_ciascuno": "il profilo pieno scrive e rilegge un FileGDB con un CRS, che attraversa GDAL e PROJ; il base converte in GeoParquet, che e' cio' che sa fare. Pretendere il FileGDB dal base lo farebbe fallire per una capability che non ha mai promesso.",
     "la_controprova_dove_ha_senso": "rinominare `share/gdal` e pretendere il fallimento vale per il profilo che quelle radici le usa. Il base non le legge, e la controprova sarebbe verde per una ragione che non ha a che vedere con cio' che dovrebbe provare -- che e' peggio di non farla."
   },
-  "blocchi_aperti_nota": "vuoto non significa «niente da fare»: significa che nessuna piattaforma del perimetro e' **non costruita**. Cio' che resta aperto sulla distribuzione non e' una piattaforma mancante ma la qualifica finale -- corsa sullo SHA congelato e firma Authenticode -- e vive dove deve, nel bloccante `distribuzione.artefatti-qualificati` del contratto di release. Tenerne una copia qui creerebbe la seconda verita' che questo registro esiste per impedire.",
+  "blocchi_aperti_nota": "vuoto non significa «niente da fare»: significa che nessuna piattaforma del perimetro e' **non costruita**. Cio' che resta aperto sulla distribuzione non e' una piattaforma mancante ma la qualifica finale -- corsa sullo SHA congelato con materiale Authenticode reale -- e vive dove deve, nel bloccante `distribuzione.artefatti-qualificati` del contratto di release. Tenerne una copia qui creerebbe la seconda verita' che questo registro esiste per impedire.",
   "stato_della_costruzione": {
     "al": "2026-09-02",
     "che_cosa_e_stato_costruito": "quattro artefatti -- due piattaforme per due profili -- in canale `prova`, ciascuno con sei referti: runtime, licenze, smoke sull'artefatto installato, relocation, digest del manifesto sull'albero estratto, provenance. Il job `gate` li riconta contro questa matrice e ne pretende ventiquattro.",
-    "ultima_corsa_verde": "d2b6bb8",
-    "che_cosa_non_dimostra": "che l'artefatto che si consegnera' sia qualificato. Nessuna di quelle corse e' girata sullo SHA che verra' congelato, e manca la firma Authenticode. «La macchina funziona» e «l'artefatto e' qualificato» si somigliano abbastanza da essere scambiate, e solo la seconda e' cio' che il contratto pretende."
+    "ultima_corsa_verde": "d9bc47d",
+    "che_cosa_non_dimostra": "che l'artefatto che si consegnera' sia qualificato. La corsa su d9bc47d era sul canale `prova`, non aveva firma Authenticode e conservava i referti ma non i deliverable; upload e macchina di firma sono stati aggiunti dopo e non sono ancora stati esercitati su una candidate. «La macchina funziona» e «l'artefatto e' qualificato» si somigliano abbastanza da essere scambiate, e solo la seconda e' cio' che il contratto pretende."
   }
 }

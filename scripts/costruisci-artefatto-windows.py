@@ -13,12 +13,13 @@ Il contenitore e' uno ZIP: `tar.gz` non e' un formato che gli strumenti Windows
 sappiano aprire senza aiuto, e chi installa non deve procurarsi uno strumento
 per leggere un artefatto.
 
-# Che cosa **non** fa ancora
+# La firma
 
-Non firma. Il passo c'e' e sta nella sua posizione -- prima del manifesto, che
-descrive i byte firmati -- ma senza certificato non appone nulla, e lo stato
-resta `non_richiesta` sul canale di prova e `non_misurata` su una candidate.
-Quest'ultimo e' rosso al gate, ed e' l'esito giusto.
+Il canale di prova non la pretende. Una candidate firma soltanto l'entrypoint
+con Authenticode e timestamp, poi misura sui byte finali firma, identita' e
+timestamp prima di scrivere il manifesto. Il PFX e la sua password non entrano
+in questo processo: il workflow importa la chiave nel certificate store e
+passa soltanto l'impronta pubblica.
 
 # La prima corsa non qualifica
 
@@ -43,6 +44,7 @@ import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
+import firma_windows  # noqa: E402 -- dopo sys.path, che e' il punto
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "windows-gdal-lock.json"
@@ -436,15 +438,12 @@ def main() -> int:
     # =====================================================================
     # 2. LA FIRMA -- prima del manifesto, che descrive i byte firmati
     # =====================================================================
-    firma = distribuzione.stato_della_firma("windows-x86_64", arg.canale)
+    firma = firma_windows.applica(
+        albero / "bin" / "plenora-io.exe",
+        arg.canale,
+        verificatore.misura_della_firma,
+    )
     print(f"2. firma: {firma['stato']}", flush=True)
-    if firma["stato"] in ("assente", "non_misurata"):
-        raise SystemExit(
-            f"il canale «{arg.canale}» pretende una firma {firma['meccanismo']}, e lo stato e' "
-            f"«{firma['stato']}». Senza certificato non si costruisce una candidate: un "
-            "artefatto candidate non firmato e' un artefatto che chi lo riceve non puo' "
-            "verificare."
-        )
 
     # =====================================================================
     # 3. IL MANIFESTO, dai byte firmati

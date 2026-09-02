@@ -495,6 +495,40 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
         assenza."""
         self.assertIn("pattern: referti-*", self.testo)
 
+    def test_i_deliverable_non_muoiono_con_il_runner(self) -> None:
+        """I referti qualificano l'oggetto, ma non sono l'oggetto.
+
+        Prima venivano caricati soltanto i referti: archivi, checksum e
+        provenance restavano sotto RUNNER_TEMP e sparivano a fine job.
+        """
+        self.assertIn("name: deliverable-linux-${{ matrix.profilo }}", self.testo)
+        self.assertIn("name: deliverable-windows-${{ matrix.profilo }}", self.testo)
+        for suffisso in (".tar.gz.sha256", ".tar.gz.provenance.json"):
+            self.assertIn(suffisso, self.testo)
+        for suffisso in (".zip.sha256", ".zip.provenance.json"):
+            self.assertIn(suffisso, self.testo)
+        # Un percorso sbagliato non deve degradare in un artifact vuoto verde.
+        self.assertGreaterEqual(self.testo.count("if-no-files-found: error"), 2)
+
+    def test_il_pfx_vive_solo_nel_passo_che_lo_importa(self) -> None:
+        self.assertIn("if: env.CANALE == 'candidate'", self.testo)
+        self.assertIn("secrets.PLENORA_WINDOWS_SIGNING_PFX_BASE64", self.testo)
+        self.assertIn("secrets.PLENORA_WINDOWS_SIGNING_PFX_PASSWORD", self.testo)
+        self.assertIn("Import-PfxCertificate", self.testo)
+        self.assertIn("Cert:\\CurrentUser\\My", self.testo)
+        self.assertIn("finally {", self.testo)
+        self.assertIn("Remove-Item -LiteralPath $pfx", self.testo)
+
+        costruttore = (
+            RADICE / "scripts" / "costruisci-artefatto-windows.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("PFX_BASE64", costruttore)
+        self.assertNotIn("PFX_PASSWORD", costruttore)
+
+    def test_il_certificate_store_viene_ripulito_anche_dopo_un_errore(self) -> None:
+        self.assertIn("if: always() && env.PLENORA_WINDOWS_IMPORTED_CERTS != ''", self.testo)
+        self.assertIn('Cert:\\CurrentUser\\My\\$impronta', self.testo)
+
 
 class SondeDelRuntimeNativo(unittest.TestCase):
     """Che il campo dica quello che il suo nome promette.

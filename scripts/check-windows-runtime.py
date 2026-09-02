@@ -319,7 +319,7 @@ def ha_tabella_dei_certificati(percorso: pathlib.Path) -> bool:
 def misura_della_firma(percorso: pathlib.Path) -> dict:
     """Firma, firmatario e timestamp, misurati sui byte finali.
 
-    La presenza si legge dal PE. L'identita' del firmatario e il timestamp
+    La presenza si legge dal PE. L'identita', la sua impronta e il timestamp
     vogliono il parsing di un PKCS#7, e su Windows la risposta autorevole la da'
     il sistema: si chiama PowerShell. Fuori da Windows quelle due domande
     restano **non misurate**, che non e' «non firmato» e non e' «va bene»: e'
@@ -329,6 +329,7 @@ def misura_della_firma(percorso: pathlib.Path) -> dict:
     misura = {
         "firmato": ha_tabella_dei_certificati(percorso),
         "firmatario": None,
+        "impronta_firmatario": None,
         "timestamp": None,
         "come": "tabella dei certificati letta dal PE",
     }
@@ -342,17 +343,21 @@ def misura_della_firma(percorso: pathlib.Path) -> dict:
     import subprocess
 
     comando = (
-        "$f = Get-AuthenticodeSignature -LiteralPath '"
-        + str(percorso)
-        + "'; "
+        "$f = Get-AuthenticodeSignature -LiteralPath $env:PLENORA_FIRMA_TARGET; "
         "[pscustomobject]@{ stato = [string]$f.Status; "
         "firmatario = [string]$f.SignerCertificate.Subject; "
+        "impronta_firmatario = [string]$f.SignerCertificate.Thumbprint; "
         "timestamp = [string]$f.TimeStamperCertificate.Subject } | ConvertTo-Json -Compress"
     )
+    ambiente = dict(os.environ)
+    # Il percorso non viene interpolato nel programma PowerShell: un apostrofo
+    # nel nome di una directory non deve poter cambiare il comando verificato.
+    ambiente["PLENORA_FIRMA_TARGET"] = str(percorso)
     esito = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", comando],
         capture_output=True,
         text=True,
+        env=ambiente,
     )
     if esito.returncode != 0:
         misura["non_misurabile_qui"] = f"Get-AuthenticodeSignature ha fallito: {esito.stderr[:200]}"
@@ -361,6 +366,7 @@ def misura_della_firma(percorso: pathlib.Path) -> dict:
     misura["stato_authenticode"] = letto.get("stato")
     misura["firmato"] = letto.get("stato") == "Valid"
     misura["firmatario"] = letto.get("firmatario") or None
+    misura["impronta_firmatario"] = letto.get("impronta_firmatario") or None
     misura["timestamp"] = letto.get("timestamp") or None
     misura["come"] = "Get-AuthenticodeSignature"
     return misura

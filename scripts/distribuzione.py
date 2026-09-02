@@ -23,7 +23,8 @@ firma smette di valere alla scadenza del certificato invece che alla scadenza
 del suo uso.
 
 Lo stato viene quindi da una **misura** fatta sui byte finali dal verificatore
-nativo: presenza della firma, identita' del firmatario, presenza del timestamp.
+nativo: presenza della firma, identita' e impronta del firmatario, presenza del
+timestamp.
 Una misura che non si e' potuta fare non e' un si': e' `non_misurata`, e su una
 candidate e' rossa.
 
@@ -60,7 +61,11 @@ CONTENITORE = {
 # un file diverso da quello che si consegna.
 ORDINE = (
     ("payload", "assemblare l'albero: binario, librerie, dati, licenze"),
-    ("firma", "firmare i binari, prima di qualunque cosa li descriva"),
+    (
+        "firma",
+        "firmare l'entrypoint dove la piattaforma lo richiede, prima di qualunque "
+        "cosa ne descriva i byte",
+    ),
     (
         "manifesto",
         "generare MANIFEST.json dai byte **firmati**: un manifesto scritto prima "
@@ -96,7 +101,12 @@ POLITICA_DI_FIRMA = {
     "windows-x86_64": {
         "candidate": {
             "meccanismo": "authenticode",
-            "misure_pretese": ("firmato", "firmatario", "timestamp"),
+            "misure_pretese": (
+                "firmato",
+                "firmatario",
+                "impronta_firmatario",
+                "timestamp",
+            ),
             "smoke_dopo": "la firma",
             "perche": (
                 "un PE non firmato fa comparire un avviso a chi lo esegue, e su alcune "
@@ -140,7 +150,7 @@ def stato_della_firma(piattaforma: str, canale: str, misura: dict | None = None)
     """Il blocco che finisce nel manifesto, **da una misura**.
 
     `misura` e' cio' che il verificatore nativo ha letto sui byte finali:
-    `firmato`, `firmatario`, `timestamp`. Non e' «il costruttore aveva un
+    `firmato`, `firmatario`, `impronta_firmatario`, `timestamp`. Non e' «il costruttore aveva un
     certificato»: quello direbbe soltanto che qualcuno ne ha avuto uno fra le
     mani.
 

@@ -396,7 +396,9 @@ class SondeMatrice(unittest.TestCase):
             "nessuno smoke e' stato eseguito",
         ):
             self.assertNotIn(frase_stantia, testata)
-        self.assertIn("d2b6bb8", testata)
+        self.assertIn(
+            self.matrice["stato_della_costruzione"]["ultima_corsa_verde"], testata
+        )
         self.assertIn("qualifica", testata)
 
         windows = next(

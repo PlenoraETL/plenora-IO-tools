@@ -469,9 +469,9 @@ avere niente da rilasciare**.
 
 **Costo.** Non più ignoto. Ciò che la CI produceva era codice provato e nessun
 oggetto installabile; ora i costruttori esistono per tutte e due le piattaforme,
-gli oggetti esistono e sono stati misurati. Ciò che resta ignoto non è un costo
-di costruzione ma un'attesa: il certificato Authenticode e il gate di sistema
-hanno owner esterni.
+gli oggetti esistono e sono stati misurati. La catena Authenticode esiste nel
+repository; ciò che resta esterno è il materiale di firma. Il certificato e il
+gate di sistema hanno owner esterni.
 
 **Stato al 2 settembre 2026: la macchina è pronta e provata, la qualifica
 finale non c'è.** Sono due cose diverse e vanno lette separatamente.
@@ -480,7 +480,7 @@ Ciò che esiste ed è stato eseguito: entrambe le piattaforme costruiscono
 entrambi i profili — quattro artefatti — in un workflow che gira su runner
 nativi; ciascun job produce referti strutturati; un job `gate` li riconta contro
 la matrice e pretende ventiquattro referti, che è il numero che la matrice
-implica e non quello che si è ricevuto. L'ultima corsa verde è `d2b6bb8`:
+implica e non quello che si è ricevuto. L'ultima corsa verde è `d9bc47d`:
 runtime, licenze, smoke sull'artefatto installato, relocation da una directory
 diversa da quella di costruzione, digest del manifesto ricalcolati sull'albero
 estratto, provenance. Gli artefatti sono di **prova** — `non_release: true` nel
@@ -490,8 +490,11 @@ Ciò che manca, ed è il motivo per cui il blocco resta: nessuna di quelle corse
 è girata sullo SHA che verrà congelato. Un artefatto qualificato è prodotto
 **dalla revisione qualificata**, e finché quella revisione non esiste la catena
 dimostra di funzionare senza dimostrare nulla su ciò che si consegnerà. Manca
-inoltre la firma Authenticode, che dipende da un certificato esterno a questo
-repository.
+inoltre una **corsa** con la firma Authenticode: il workflow sa importare il PFX,
+firmare e verificare i byte finali, ma il certificato e i due secret non sono
+nel repository. La corsa di prova su `d9bc47d` ha inoltre conservato i referti
+ma non i deliverable: l'upload esplicito di archivio, checksum e provenance è
+stato aggiunto dopo quel rilievo e deve ancora essere esercitato.
 
 **Perché la distinzione conta.** «La macchina funziona» e «l'artefatto è
 qualificato» si somigliano abbastanza da essere scambiate, e la seconda è
@@ -801,6 +804,21 @@ identità del firmatario, timestamp. Gli stati sono quattro:
 Il timestamp è fra le misure pretese e non è un extra: senza, una firma smette
 di valere quando scade il certificato invece che quando scade il suo uso.
 
+Su Windows il PFX e la password vivono soltanto nel passo CI che importa il
+certificato in `Cert:\CurrentUser\My`. Il costruttore riceve la sola impronta
+pubblica, firma `bin/plenora-io.exe` con SHA-256 e timestamp RFC 3161, esegue la
+verifica Authenticode nativa e confronta l'impronta letta dai byte con quella
+selezionata. Il PFX viene cancellato nello stesso passo e i certificati importati
+vengono rimossi anche dopo un errore. Se manca uno dei secret
+`PLENORA_WINDOWS_SIGNING_PFX_BASE64` e
+`PLENORA_WINDOWS_SIGNING_PFX_PASSWORD`, la candidate fallisce prima di essere
+costruita; il canale `prova` non consulta né secret né certificate store.
+
+Le DLL di terzi non vengono rifirmate come Plenora: conservano la propria
+identità. Attribuire al progetto byte soltanto ridistribuiti sarebbe una
+dichiarazione falsa. L'entrypoint è il file che l'utente avvia e quello a cui
+Windows applica Authenticode e SmartScreen.
+
 #### L'ordine delle operazioni
 
 Otto passi, uguali su entrambe le piattaforme distribuite. Ognuno dipende dai byte
@@ -808,7 +826,8 @@ prodotti dal precedente, e invertirne due produce un artefatto le cui verifiche
 parlano di un file diverso da quello che si consegna.
 
 1. **payload** — assemblare l'albero: binario, librerie, dati, licenze.
-2. **firma** — firmare i binari, prima di qualunque cosa li descriva.
+2. **firma** — firmare l'entrypoint dove la piattaforma lo richiede, prima di
+   qualunque cosa ne descriva i byte.
 3. **manifesto** — generarlo dai byte *firmati*: scritto prima elencherebbe file
    che non esistono più.
 4. **archivio** — creare il contenitore (`tar.gz` su Linux, `zip` altrove).
@@ -818,10 +837,10 @@ parlano di un file diverso da quello che si consegna.
 7. **smoke** — sull'oggetto finale, non su una sua versione precedente.
 8. **provenance** — legata a *quel* checksum.
 
-L'ordine è fissato adesso, mentre il certificato non c'è: il campo `firma` sta
-già nei manifesti degli artefatti di prova con stato `non_richiesta`, e il
-giorno in cui arriverà un certificato non cambierà nulla di strutturale.
-Certificati e segreti restano un blocco fuori da questo repository.
+L'ordine e la macchina di firma sono fissati adesso, mentre il certificato non
+c'è: il campo `firma` sta già nei manifesti degli artefatti di prova con stato
+`non_richiesta`. Certificati e segreti restano un blocco fuori da questo
+repository; la loro assenza rende rossa una candidate, non il canale di prova.
 
 #### Windows x86_64 — fissata e verificata in canale prova
 
@@ -834,7 +853,7 @@ proprio la condizione che avrebbe fermato la build.
 
 Il costruttore (`scripts/costruisci-artefatto-windows.py`) e il verificatore
 nativo (`scripts/check-windows-runtime.py`) sono stati eseguiti su entrambi i
-profili. L'ultima distribuzione verde, su `d2b6bb8`, ha costruito gli archivi,
+profili. L'ultima distribuzione verde, su `d9bc47d`, ha costruito gli archivi,
 ricalcolato i digest sull'albero estratto, verificato import e delay-import,
 eseguito lo smoke e il relocation smoke e consegnato al gate tutti i referti
 attesi. Erano artefatti di prova e non qualificano la revisione corrente.
@@ -883,6 +902,11 @@ Il relocation smoke Windows costruisce in A, archivia, cancella A, estrae in B,
 usa una directory corrente estranea e un ambiente ostile, quindi scrive e
 rilegge davvero un FileGDB.
 
+Ogni job carica separatamente due cose: i referti che qualificano l'oggetto e il
+deliverable vero — archivio, sidecar `.sha256` e provenance. I referti non sono
+un sostituto dell'oggetto: prima di questa separazione gli archivi restavano in
+`RUNNER_TEMP` e sparivano insieme al runner.
+
 #### Installazione, aggiornamento, rollback e recovery
 
 Gli archivi sono installazioni **affiancate**, non aggiornamenti in-place. La
@@ -906,6 +930,13 @@ per una candidate usare inoltre i referti dello smoke prodotto dal workflow,
 non sostituirli con una prova nell'albero sorgente. Solo dopo queste verifiche
 rinominare la directory temporanea col nome definitivo. Non estrarre mai sopra
 una versione già presente.
+
+Su Windows, per una candidate, verificare inoltre
+`Get-AuthenticodeSignature <directory-estratta>\bin\plenora-io.exe`: `Status`
+deve essere `Valid`, `SignerCertificate.Subject` e
+`SignerCertificate.Thumbprint` devono coincidere con il blocco `firma.misura`
+del manifesto e `TimeStamperCertificate` non deve essere nullo. Il checksum
+prova i byte scaricati; Authenticode prova anche l'identità che li ha firmati.
 
 **Attivazione e aggiornamento.** Il programma non installa un servizio e non
 gestisce un collegamento `current`: il supervisore del deployment deve puntare
