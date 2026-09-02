@@ -211,6 +211,11 @@
       "Unsupported/Validate/Unsupported/Never"
     ]
   },
+  "crates/driver-geoparquet/src/livelli.rs": {
+    "errore": [
+      "DataMapping/Read/Format/Never"
+    ]
+  },
   "crates/driver-geoparquet/src/metadati.rs": {
     "non_conforme": [
       "DataMapping/Read/Format/Never"

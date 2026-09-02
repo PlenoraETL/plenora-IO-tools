@@ -105,6 +105,7 @@ use plenora_io_model::{
 mod metadati;
 mod schema_ufficiale;
 use metadati::MetadatiGeo;
+mod livelli;
 mod pagine;
 
 const MAX_BYTE_CHUNK_ISPEZIONATO: i64 = 1 << 30;
@@ -187,9 +188,25 @@ fn valida_bit_width_dizionario(
             if !maschera.leaf_included(foglia) {
                 continue;
             }
-            // Filtro dai metadati: senza codifica a dizionario non c'e' bit
-            // width da leggere, e nessuna pagina viene toccata.
-            if !chunk.encodings().any(e_a_dizionario) {
+            let descrittore = chunk.column_descr();
+            let (max_rep, max_def) = (descrittore.max_rep_level(), descrittore.max_def_level());
+            // Filtro dai metadati: si apre un chunk solo se c'e' qualcosa da
+            // guardarci dentro.
+            //
+            // Erano i soli chunk a dizionario, e con la sola domanda sul bit
+            // width degli indici era il filtro giusto. Ora ce n'e' una seconda:
+            // i livelli, che stanno in ogni data page di una colonna annidata o
+            // nullable, a dizionario o no. Un chunk piatto e obbligatorio --
+            // livelli massimi entrambi a zero -- non ha ne' indici ne' livelli,
+            // e continua a non pagare niente.
+            //
+            // Il costo cambia, e va detto: un file di sole colonne nullable
+            // senza dizionario prima non faceva aprire una pagina, ora le legge
+            // tutte. E' il prezzo della domanda, non un'inefficienza: la domanda
+            // non si puo' rispondere dai metadati, perche' il difetto sta nei
+            // byte della sezione.
+            let ha_livelli = max_rep > 0 || max_def > 0;
+            if !chunk.encodings().any(e_a_dizionario) && !ha_livelli {
                 continue;
             }
             // Tetto prima dell'allocazione: la decompressione avviene dentro
@@ -198,8 +215,6 @@ fn valida_bit_width_dizionario(
             if !(0..=MAX_BYTE_CHUNK_ISPEZIONATO).contains(&non_compressi) {
                 return Err(fmt_err(&PublicMessage::Curated(MSG_CHUNK_OLTRE_TETTO)));
             }
-            let descrittore = chunk.column_descr();
-            let (max_rep, max_def) = (descrittore.max_rep_level(), descrittore.max_def_level());
             let righe = usize::try_from(blocco.num_rows()).map_err(|_| {
                 fmt_err(&PublicMessage::Curated(
                     "numero di righe del row group Parquet negativo",
@@ -238,7 +253,7 @@ fn valida_bit_width_dizionario(
                 .get_next_page()
                 .map_err(|_| fmt_err(&PublicMessage::Curated(MSG_PAGINE_NON_LEGGIBILI)))?
             {
-                valida_pagina_a_dizionario(&pagina, max_rep, max_def)?;
+                valida_pagina(&pagina, max_rep, max_def)?;
             }
         }
     }
@@ -409,18 +424,29 @@ const fn e_a_dizionario(codifica: parquet::basic::Encoding) -> bool {
     )
 }
 
-/// Verifica il bit width di una singola pagina, se e' una data page a
+/// Verifica una singola pagina: i livelli sempre, il bit width se e' a
 /// dizionario.
-fn valida_pagina_a_dizionario(
-    pagina: &parquet::column::page::Page,
-    max_rep: i16,
-    max_def: i16,
-) -> Result<()> {
+///
+/// # Perche' le due cose stanno insieme
+///
+/// Perche' condividono l'attraversamento. Il bit width degli indici e' il primo
+/// byte **dopo** le sezioni dei livelli, quindi per trovarlo bisogna gia'
+/// averle percorse; e percorrerle e' esattamente cio' che serve a verificarle.
+/// Due funzioni farebbero due volte lo stesso lavoro sullo stesso buffer, con
+/// due copie della stessa aritmetica.
+///
+/// La verifica dei livelli **non** e' condizionata alla codifica a dizionario.
+/// La stesura precedente usciva subito su una pagina non a dizionario, ed era
+/// giusto finche' l'unica domanda era sul bit width degli indici: una pagina
+/// senza indici non ne ha. I livelli invece ci sono in ogni data page di una
+/// colonna annidata o nullable, qualunque sia la codifica dei valori.
+fn valida_pagina(pagina: &parquet::column::page::Page, max_rep: i16, max_def: i16) -> Result<()> {
     use parquet::column::page::Page;
 
-    let (buffer, inizio_valori) = match pagina {
-        // La pagina di dizionario porta i **valori**, non gli indici: il suo
-        // primo byte non e' un bit width e guardarlo sarebbe un errore.
+    let (buffer, inizio_valori, codifica) = match pagina {
+        // La pagina di dizionario porta i **valori**, non gli indici, e non ha
+        // livelli: il suo primo byte non e' un bit width e guardarlo sarebbe un
+        // errore.
         Page::DictionaryPage { .. } => return Ok(()),
         Page::DataPage {
             buf,
@@ -430,9 +456,6 @@ fn valida_pagina_a_dizionario(
             rep_level_encoding,
             ..
         } => {
-            if !e_a_dizionario(*encoding) {
-                return Ok(());
-            }
             let inizio = inizio_valori_v1(
                 buf,
                 *num_values,
@@ -441,27 +464,31 @@ fn valida_pagina_a_dizionario(
                 *rep_level_encoding,
                 *def_level_encoding,
             )?;
-            (buf, inizio)
+            (buf, inizio, *encoding)
         }
         Page::DataPageV2 {
             buf,
+            num_values,
             encoding,
             def_levels_byte_len,
             rep_levels_byte_len,
             ..
         } => {
-            if !e_a_dizionario(*encoding) {
-                return Ok(());
-            }
-            // In V2 le due lunghezze sono dichiarate nell'header: non c'e'
-            // niente da dedurre.
-            let inizio = (*rep_levels_byte_len as usize)
-                .checked_add(*def_levels_byte_len as usize)
-                .ok_or_else(|| fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE)))?;
-            (buf, inizio)
+            let inizio = valida_livelli_v2(
+                buf,
+                *rep_levels_byte_len,
+                *def_levels_byte_len,
+                *num_values,
+                max_rep,
+                max_def,
+            )?;
+            (buf, inizio, *encoding)
         }
     };
 
+    if !e_a_dizionario(codifica) {
+        return Ok(());
+    }
     let bit_width = buffer
         .get(inizio_valori)
         .ok_or_else(|| fmt_err(&PublicMessage::Curated(MSG_SEZIONE_VALORI_ASSENTE)))?;
@@ -473,7 +500,7 @@ fn valida_pagina_a_dizionario(
     Ok(())
 }
 
-/// Dove cominciano i valori in una data page V1.
+/// Dove cominciano i valori in una data page V1, **validando i livelli**.
 ///
 /// Prima dei valori stanno le sezioni dei livelli, presenti solo se il livello
 /// massimo della colonna e' maggiore di zero. `RLE` porta un prefisso di
@@ -483,6 +510,23 @@ fn valida_pagina_a_dizionario(
 ///
 /// Una codifica diversa da queste due ferma la lettura invece di far tirare a
 /// indovinare l'offset.
+///
+/// # Perche' calcola e verifica insieme
+///
+/// Perche' il posto in cui si calcola dove finisce una sezione e' lo stesso in
+/// cui si sa quanti byte quella sezione ha davvero. Separare le due cose vuol
+/// dire scrivere due volte lo stesso attraversamento, e due attraversamenti
+/// dello stesso formato divergono: uno avanza di quattro byte e l'altro no, uno
+/// tratta `BIT_PACKED` e l'altro l'ha dimenticata, e la divergenza non fa rosso
+/// da nessuna parte perche' ciascuno e' coerente con se'.
+///
+/// Due cose si verificano qui e non stavano prima:
+///
+/// * la sezione dichiarata sta **dentro** il buffer della pagina -- il prefisso
+///   di quattro byte poteva dichiarare piu' byte di quanti la pagina ne portasse,
+///   e l'unico controllo era l'assenza di overflow aritmetico;
+/// * il flusso ibrido **dentro** la sezione e' ben formato, che e' il difetto di
+///   questo lotto. Vedi [`livelli`].
 #[allow(deprecated)]
 fn inizio_valori_v1(
     buffer: &[u8],
@@ -512,9 +556,18 @@ fn inizio_valori_v1(
                 let lunghezza =
                     u32::from_le_bytes([prefisso[0], prefisso[1], prefisso[2], prefisso[3]])
                         as usize;
-                dopo_prefisso.checked_add(lunghezza).ok_or_else(|| {
+                let fine = dopo_prefisso.checked_add(lunghezza).ok_or_else(|| {
                     fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE))
-                })?
+                })?;
+                // La sezione dichiarata deve stare dentro la pagina. Senza
+                // questo, un prefisso che dichiara piu' byte di quanti ce ne
+                // siano passava: l'unico controllo era che la somma non
+                // traboccasse.
+                let sezione = buffer
+                    .get(dopo_prefisso..fine)
+                    .ok_or_else(|| fmt_err(&PublicMessage::Curated(MSG_LIVELLI_TRONCATI)))?;
+                livelli::valida_sezione(sezione, bit_dei_livelli(livello_massimo)?, num_values)?;
+                fine
             }
             Encoding::BIT_PACKED => {
                 let livello = u64::try_from(livello_massimo).map_err(|_| {
@@ -525,9 +578,19 @@ fn inizio_valori_v1(
                     .ok_or_else(|| {
                         fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE))
                     })?;
-                inizio.checked_add(bit_totali.div_ceil(8)).ok_or_else(|| {
+                let fine = inizio.checked_add(bit_totali.div_ceil(8)).ok_or_else(|| {
                     fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE))
-                })?
+                })?;
+                // `BIT_PACKED` non e' il flusso ibrido: e' un impacchettamento
+                // piatto, senza run e senza intestazioni, e non ha niente da
+                // attraversare. Cio' che va verificato e' che i byte che la sua
+                // dimensione implica ci siano: se la pagina finisce prima, il
+                // decoder legge oltre il buffer per la stessa ragione, per
+                // un'altra strada.
+                if fine > buffer.len() {
+                    return Err(fmt_err(&PublicMessage::Curated(MSG_LIVELLI_TRONCATI)));
+                }
+                fine
             }
             _ => {
                 return Err(fmt_err(&PublicMessage::Curated(
@@ -542,6 +605,67 @@ fn inizio_valori_v1(
 /// Bit necessari a rappresentare un valore, come fa `parquet` per i livelli.
 const fn bit_necessari(valore: u64) -> u32 {
     u64::BITS - valore.leading_zeros()
+}
+
+/// Il bit width con cui i livelli di una colonna sono codificati.
+///
+/// E' quello del **livello massimo dichiarato dallo schema**, non un valore
+/// letto dalla pagina: `parquet` codifica e decodifica i livelli con questa
+/// larghezza, e prenderla da altrove significherebbe verificare un flusso
+/// diverso da quello che il decoder leggera'.
+///
+/// # Errors
+///
+/// [`PlenoraIoError`] se il livello massimo e' negativo — non lo e' in uno
+/// schema valido — o se non sta in `u8`, che per un livello di annidamento
+/// significa uno schema che non descrive un documento.
+fn bit_dei_livelli(livello_massimo: i16) -> Result<u8> {
+    let livello = u64::try_from(livello_massimo)
+        .map_err(|_| fmt_err(&PublicMessage::Curated("livello massimo Parquet negativo")))?;
+    u8::try_from(bit_necessari(livello))
+        .map_err(|_| fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE)))
+}
+
+/// Le due sezioni dei livelli di una data page V2, verificate.
+///
+/// In V2 le lunghezze non si deducono: stanno nell'header, e i livelli sono
+/// **sempre** `RLE` senza prefisso — la lunghezza e' gia' quella dichiarata.
+/// Restituisce dove cominciano i valori, che e' la somma delle due.
+///
+/// # Errors
+///
+/// [`PlenoraIoError`] se le lunghezze non sono rappresentabili o non stanno
+/// dentro il buffer della pagina, o se uno dei due flussi ibridi e' malformato.
+fn valida_livelli_v2(
+    buffer: &[u8],
+    rep_levels_byte_len: u32,
+    def_levels_byte_len: u32,
+    num_values: u32,
+    max_rep: i16,
+    max_def: i16,
+) -> Result<usize> {
+    let mut inizio = 0usize;
+    for (livello_massimo, lunghezza) in [
+        (max_rep, rep_levels_byte_len),
+        (max_def, def_levels_byte_len),
+    ] {
+        let fine = inizio
+            .checked_add(lunghezza as usize)
+            .ok_or_else(|| fmt_err(&PublicMessage::Curated(MSG_SEZIONE_NON_RAPPRESENTABILE)))?;
+        let sezione = buffer
+            .get(inizio..fine)
+            .ok_or_else(|| fmt_err(&PublicMessage::Curated(MSG_LIVELLI_TRONCATI)))?;
+        // Il salto si fa comunque, anche con livello massimo zero: la lunghezza
+        // e' dichiarata dall'header e i valori cominciano dopo di essa. Il
+        // flusso invece si verifica solo dove esiste — con livello massimo zero
+        // il decoder non lo legge affatto, e pretendere che copra `num_values`
+        // rifiuterebbe una pagina corretta.
+        if livello_massimo > 0 {
+            livelli::valida_sezione(sezione, bit_dei_livelli(livello_massimo)?, num_values)?;
+        }
+        inizio = fine;
+    }
+    Ok(inizio)
 }
 
 /// Verifica offset, lunghezze e somme dichiarati dai metadati Thrift.
@@ -4088,6 +4212,72 @@ mod tests {
         assert!(
             errore.message.contains("bit width"),
             "l'errore deve dire cosa non va: {errore}"
+        );
+    }
+
+    /// Il seme che faceva panicare arrow sui livelli di definizione viene ora
+    /// rifiutato **prima** del decoder.
+    ///
+    /// # Che cosa faceva
+    ///
+    /// Un run bit-packed dei livelli di definizione dichiarava piu' gruppi di
+    /// quanti byte la propria sezione ne portasse. Con `max_def_level` uguale a
+    /// uno `parquet` non passa da un decoder generico: usa `PackedDecoder`, che
+    /// consegna una fetta a `BooleanBufferBuilder::append_packed_range`, e
+    /// l'intervallo usciva dal buffer — `offset + len out of bounds`,
+    /// `arrow-buffer 59.1.0`, `util/bit_chunk_iterator.rs:224`.
+    ///
+    /// # Perche' la prevalidazione che c'era non lo prendeva
+    ///
+    /// Guardava le dimensioni delle pagine e il bit width degli indici di
+    /// dizionario, e questa pagina e' coerente in tutti e due: le sue dimensioni
+    /// tornano, e il run malformato sta **dentro** la sezione dei livelli, dove
+    /// nessuna delle due domande arrivava.
+    ///
+    /// # Che cosa verifica
+    ///
+    /// Non «non va in panico»: che la lettura si fermi con un errore tipizzato,
+    /// che il messaggio venga dalla prevalidazione e non dalla barriera — se
+    /// venisse dalla barriera il decoder sarebbe stato raggiunto lo stesso — e
+    /// che non porti fuori un byte del payload.
+    #[test]
+    fn un_run_dei_livelli_oltre_la_sezione_e_rifiutato_prima_del_decoder() {
+        let seme = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fuzz/seeds/geoparquet_reader/livelli-run-oltre-la-sezione.parquet");
+        assert!(seme.is_file(), "seme assente: {}", seme.display());
+
+        let dataset = GeoParquetDriver
+            .open(Source::Path(seme), opzioni_lettura_legacy())
+            .expect("l'apertura legge i soli metadati e riesce");
+        let richiesta = ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        };
+
+        let errore = match dataset.open_layer_reader(&richiesta) {
+            Err(errore) => errore,
+            Ok(mut lettore) => match lettore.next_batch() {
+                Err(errore) => errore,
+                Ok(_) => panic!("il file doveva essere rifiutato"),
+            },
+        };
+
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+        assert!(
+            !errore.message.contains("in panico"),
+            "il rifiuto deve precedere il decoder: {errore}"
+        );
+        assert_eq!(
+            errore.message,
+            livelli::MSG_RUN_OLTRE_LA_SEZIONE,
+            "il rifiuto deve venire dalla difesa che riguarda questo difetto"
         );
     }
 
