@@ -113,6 +113,25 @@ class SondeMatrice(unittest.TestCase):
                 for campo in ("blocco", "che_cosa_lo_chiude", "nel_frattempo"):
                     self.assertTrue(blocco.get(campo), f"«{campo}» vuoto")
 
+    def test_nessun_blocco_sopravvive_alla_propria_piattaforma(self) -> None:
+        """Il verso opposto, che la sonda sopra non copre.
+
+        Quella pretende un blocco per ogni piattaforma non costruita. Con tutte
+        le piattaforme costruite passa senza guardare niente, e un blocco
+        rimasto in piedi dopo che il suo lotto e' finito continuerebbe a
+        raccontare un debito che non c'e' -- «lo script non ha mai girato»
+        quando ha girato. Un registro piu' pessimista del reale sembra il verso
+        innocuo e non lo e': chi lo legge smette di credergli."""
+        costruite = self.costruite()
+        residui = [
+            b["piattaforma"]
+            for b in self.matrice["blocchi_aperti"]
+            if b["piattaforma"] in costruite
+        ]
+        self.assertEqual(
+            residui, [], f"blocchi di piattaforme ormai costruite: {residui}"
+        )
+
     def test_i_binding_sono_della_serie_della_libreria_spedita(self) -> None:
         """Il difetto che la costruzione Linux ha fatto emergere.
 

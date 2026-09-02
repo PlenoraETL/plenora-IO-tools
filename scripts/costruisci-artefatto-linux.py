@@ -706,6 +706,39 @@ def main() -> int:
     # dell'archivio che lo contiene: il campo deve esistere prima del
     # certificato, altrimenti il certificato cambia i byte.
     print("3. manifesto", flush=True)
+    # I file **prima** del manifesto: il campo del runtime nativo si misura da
+    # loro, e un campo dedotto dal profilo direbbe che cosa volevamo costruire
+    # invece di che cosa abbiamo costruito.
+    file_spediti = [
+        {
+            "percorso": str(percorso.relative_to(albero)),
+            "sha256": sha256(percorso),
+            "byte": percorso.stat().st_size,
+        }
+        for percorso in sorted(
+            p for p in albero.rglob("*") if p.is_file() and p.name != "MANIFEST.json"
+        )
+    ]
+    # Il runtime GDAL, dichiarato per **quello che e'**.
+    #
+    # Il campo diceva `"gdal": "3.9.3"` anche nel profilo base, che GDAL non lo
+    # contiene: un lettore ne concludeva che l'artefatto porti quella versione,
+    # ed e' falso. Una versione dichiarata da un artefatto che non la spedisce e'
+    # peggio di un campo assente, perche' sembra una risposta.
+    gdal = (
+        {"presente": True, "versione": lock["gdal_version"], "dal_lock": sha256(LOCK)}
+        if arg.profilo == "filegdb"
+        else {
+            "presente": False,
+            "perche": (
+                "il profilo base non spedisce GDAL. Il lock resta la fonte da cui il "
+                "runtime **verrebbe**, e per questo il suo digest c'e' lo stesso: dice "
+                "con quale catena questo artefatto e' stato costruito, non che cosa "
+                "contenga."
+            ),
+            "dal_lock": sha256(LOCK),
+        }
+    )
     manifesto = {
         "nome": nome,
         "versione": arg.versione,
@@ -718,25 +751,14 @@ def main() -> int:
             "misurato, non installato. Non e' firmato, non e' pubblicato, e il gate "
             "di distribuzione lo rifiuta ovunque si pretenda una candidate."
         ),
-        # Il runtime nativo, dichiarato per **quello che e'**.
-        #
-        # Il campo diceva `"gdal": "3.9.3"` anche nel profilo base, che GDAL non
-        # lo contiene: un lettore ne concludeva che l'artefatto porti quella
-        # versione, ed e' falso. Una versione dichiarata da un artefatto che non
-        # la spedisce e' peggio di un campo assente, perche' sembra una risposta.
-        "runtime_nativo": (
-            {"presente": True, "gdal": lock["gdal_version"], "dal_lock": sha256(LOCK)}
-            if arg.profilo == "filegdb"
-            else {
-                "presente": False,
-                "perche": (
-                    "il profilo base non spedisce GDAL. Il lock resta la fonte da cui il "
-                    "runtime **verrebbe**, e per questo il suo digest c'e' lo stesso: dice "
-                    "con quale catena questo artefatto e' stato costruito, non che cosa "
-                    "contenga."
-                ),
-                "dal_lock": sha256(LOCK),
-            }
+        # Due componenti, non uno. `runtime_nativo` era un booleano che voleva
+        # dire «spedisce GDAL» e diceva «spedisce un runtime nativo». Su Linux
+        # le due cose coincidono -- non c'e' niente di ridistribuibile da
+        # spedire -- ma il campo ha la stessa forma su tutte e due le
+        # piattaforme: un formato che cambia con la piattaforma costringe chi
+        # legge a sapere dove sta guardando.
+        "runtime_nativo": distribuzione.runtime_nativo(
+            "linux-x86_64", file_spediti, gdal
         ),
         "lock": sha256(LOCK),
         # Il prefisso in cui il runtime e' stato materializzato, cioe' cio' che
@@ -773,16 +795,7 @@ def main() -> int:
         # compariva -- e il profilo pieno li elencava come nomi. Un elenco di
         # nomi dice che cosa c'era, un elenco di digest dice che cosa c'e', e
         # chi riceve un archivio estratto puo' rifare il conto.
-        "file": [
-            {
-                "percorso": str(percorso.relative_to(albero)),
-                "sha256": sha256(percorso),
-                "byte": percorso.stat().st_size,
-            }
-            for percorso in sorted(
-                p for p in albero.rglob("*") if p.is_file() and p.name != "MANIFEST.json"
-            )
-        ],
+        "file": file_spediti,
     }
     (albero / "MANIFEST.json").write_text(
         json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

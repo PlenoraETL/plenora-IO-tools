@@ -339,6 +339,78 @@ def valida_spdx(documento: dict) -> None:
         visti.add(identita)
 
 
+#: Il runtime C/C++ ridistribuibile, per piattaforma.
+#:
+#: Non e' un componente del sistema operativo: e' software di terzi che
+#: l'artefatto **spedisce**, e che su una macchina senza gli strumenti di
+#: sviluppo non ci sarebbe. Il runner di CI lo possiede perche' ci gira Visual
+#: Studio, ed e' esattamente il motivo per cui una prova fatta li' non basta a
+#: dichiararlo assente.
+#:
+#: L'elenco vive qui e non dentro il verificatore PE perche' lo leggono in tre:
+#: il verificatore per rifiutare chi lo prende dal sistema, i due costruttori
+#: per dichiarare che cosa spediscono, e la sonda che confronta le due cose. Tre
+#: copie a mano divergerebbero, e la divergenza non farebbe rosso da nessuna
+#: parte -- direbbe solo due verita' diverse in due file.
+RUNTIME_C_RIDISTRIBUIBILE = {
+    "windows-x86_64": {
+        "vcruntime140.dll": "runtime C ridistribuibile di Visual Studio, non un componente di Windows",
+        "vcruntime140_1.dll": "come sopra",
+        "msvcp140.dll": "libreria standard C++ di Visual Studio, ridistribuibile",
+    },
+    # Su Linux `libc`, `libgcc_s` e `libm` appartengono al sistema e la soglia
+    # GLIBC dichiara quale. Non c'e' niente di ridistribuibile da spedire, e un
+    # insieme vuoto lo dice meglio di una piattaforma assente dalla tabella --
+    # che si leggerebbe come «non ci ho pensato».
+    "linux-x86_64": {},
+}
+
+
+def runtime_nativo(
+    piattaforma: str, file_spediti: list[dict], gdal: dict | None
+) -> dict:
+    """Che cosa l'artefatto porta di nativo, **misurato** dai file spediti.
+
+    # Perche' non un booleano
+
+    Il campo era `{"presente": false}` sul profilo base, e voleva dire «non
+    spedisce GDAL». Diceva pero' «non spedisce runtime nativo», che sul base
+    Windows e' falso: `vcruntime140.dll` e' spedita, e la discovery l'ha
+    trovata proprio perche' non spedirla era un difetto. Un campo il cui nome
+    promette piu' di quanto misura e' peggio di un campo assente: chi lo legge
+    conclude qualcosa, e la conclusione e' sbagliata.
+
+    Sono due componenti indipendenti. GDAL c'e' solo nel profilo pieno; il
+    runtime C ridistribuibile c'e' su Windows in **tutti e due** i profili,
+    perche' il binario Rust stesso lo importa.
+
+    # Perche' dai file e non dal profilo
+
+    Perche' cosi' e' una misura. `arg.profilo == "filegdb"` e' cio' che
+    volevamo costruire; l'elenco dei file e' cio' che abbiamo costruito, ed e'
+    l'unico dei due che si accorge di un passo saltato.
+    """
+    nomi = {pathlib.PurePosixPath(f["percorso"]).name.lower() for f in file_spediti}
+    ridistribuibili = RUNTIME_C_RIDISTRIBUIBILE.get(piattaforma, {})
+    spediti = sorted(nome for nome in ridistribuibili if nome in nomi)
+    return {
+        "gdal": gdal,
+        "c_ridistribuibile": {
+            "presente": bool(spediti),
+            "file": spediti,
+            "perche": (
+                "il binario importa il runtime C di Visual Studio, che non e' un componente "
+                "di Windows: va spedito, in tutti e due i profili. Su una macchina senza "
+                "strumenti di sviluppo non ci sarebbe."
+                if spediti
+                else "nessun runtime C ridistribuibile fra i file spediti: su questa "
+                "piattaforma la libreria C appartiene al sistema, e la soglia dichiarata "
+                "dice quale."
+            ),
+        },
+    }
+
+
 def sha256(percorso: pathlib.Path) -> str:
     digesto = hashlib.sha256()
     with percorso.open("rb") as f:

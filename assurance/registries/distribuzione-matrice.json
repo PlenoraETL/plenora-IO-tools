@@ -26,7 +26,7 @@
       ],
       "perche_non_si_deduce": "l'immagine di sviluppo e' Debian 12 (glibc 2.36), e dedurre da li' la soglia darebbe 2.36 -- cioe' escluderebbe Ubuntu 22.04 per un accidente dell'ambiente di lavoro, non per una proprieta' del prodotto. Il limite che la CI misura su 22.04 riguarda la **GDAL di sistema**, e il profilo distribuito porta la propria. Se la chiusura del lock pretendera' davvero una glibc successiva, a dimostrarlo sara' il controllo dei simboli, non un'immagine.",
       "estensione_archivio": "tar.gz",
-      "stato": "da produrre",
+      "stato": "costruita e verificata in canale prova",
       "stato_costruzione": "costruita",
       "contenitore": "tar.gz"
     },
@@ -44,8 +44,8 @@
       ],
       "che_cosa_dimostra_lo_smoke": "lo smoke gira su Windows Server 2022 e dimostra **quello**. Windows 10 e 11 sono dichiarati sulla compatibilita' dell'ABI Win32 e sull'assenza di API riservate al server, non su una prova eseguita: finche' non esiste un runner client, la dichiarazione e' un'affermazione di compatibilita' e va letta come tale.",
       "estensione_archivio": "zip",
-      "stato": "da produrre",
-      "stato_costruzione": "non_ancora_costruita",
+      "stato": "costruita e verificata in canale prova",
+      "stato_costruzione": "costruita",
       "contenitore": "zip"
     }
   ],
@@ -53,18 +53,25 @@
     {
       "id": "base",
       "feature_cargo": [],
-      "contiene_runtime_nativo": false,
-      "descrizione": "il binario, il manifesto, l'SBOM e le licenze: cio' che **non** contiene e' un runtime nativo. Senza `gdal-backend` il workspace e' Rust puro, e `driver-filegdb` degrada a uno stub che rifiuta la capability invece di fingerla.",
-      "capability_filegdb": "assente, e dichiarata assente dal catalogo"
+      "descrizione": "il binario, il manifesto, l'SBOM e le licenze. Senza `gdal-backend` il workspace e' Rust puro, e `driver-filegdb` degrada a uno stub che rifiuta la capability invece di fingerla. Non contiene GDAL; su Windows contiene comunque il runtime C ridistribuibile, che ogni binario MSVC pretende.",
+      "capability_filegdb": "assente, e dichiarata assente dal catalogo",
+      "runtime_nativo": {
+        "gdal": "assente",
+        "c_ridistribuibile": "presente su Windows -- `vcruntime140.dll` -- e assente su Linux, dove la libreria C appartiene al sistema e la soglia GLIBC dichiara quale.",
+        "perche_non_un_booleano": "qui c'era `contiene_runtime_nativo: false`, che voleva dire «non spedisce GDAL» e diceva «non spedisce niente di nativo». Sul base Windows e' falso: il binario Rust importa il runtime C di Visual Studio, che non e' un componente del sistema operativo, e la prima corsa di scoperta l'ha trovato proprio perche' non spedirlo era un difetto."
+      }
     },
     {
       "id": "filegdb",
       "feature_cargo": [
         "gdal-backend"
       ],
-      "contiene_runtime_nativo": true,
       "descrizione": "quanto sopra, piu' il runtime GDAL fissato e i suoi dati.",
-      "capability_filegdb": "presente, e la sua presenza e' dimostrata da uno smoke che scrive e rilegge un FileGDB vero"
+      "capability_filegdb": "presente, e la sua presenza e' dimostrata da uno smoke che scrive e rilegge un FileGDB vero",
+      "runtime_nativo": {
+        "gdal": "presente, alla versione fissata dal lock della piattaforma",
+        "c_ridistribuibile": "come il profilo base: presente su Windows, assente su Linux"
+      }
     }
   ],
   "nomi_degli_archivi": {
@@ -244,15 +251,7 @@
     "come": "`MANIFEST.json` porta `canale: \"prova\"` e la provenance dichiara `non_release: true`. Un artefatto di prova non entra in nessuna evidenza qualificata, e il gate lo rifiuta come candidate."
   },
   "stato_costruzione_nota": "«costruita» significa che esiste un costruttore che produce l'artefatto e che l'artefatto e' stato prodotto e misurato. Non significa che sia una candidate: il canale sta nel manifesto. Le pretese che valgono solo fra artefatti reali -- per prima la versione unica di GDAL -- si applicano alle piattaforme costruite, e una piattaforma **non** costruita deve portare un blocco registrato che dice che cosa la costruirebbe. Senza quel blocco lo stato sarebbe una scappatoia per far tacere una sonda, e una sonda lo verifica.",
-  "blocchi_aperti": [
-    {
-      "piattaforma": "windows-x86_64",
-      "blocco": "il lock e l'installatore sono coerenti -- conda-forge, GDAL 3.9.3, binding della stessa serie -- ma **non sono mai stati eseguiti**: in questo lotto non c'e' un runner Windows. Uno script che non ha girato e' una dichiarazione, non una verifica. Manca inoltre il contratto di verifica del lock: quello Linux parla di ELF, di DT_NEEDED e di GLIBC, e su Windows le domande sono altre.",
-      "come_e_emerso": "il difetto originale -- una libreria 3.10.3 con binding 3.6.0, e l'installatore che forzava la versione per farla compilare -- e' emerso costruendo l'artefatto Linux, dove nessuno forzava niente e la build si e' fermata da sola. La forzatura mascherava proprio la condizione che l'avrebbe fermata. Quel difetto ora e' chiuso nella dichiarazione; resta aperta l'esecuzione.",
-      "che_cosa_lo_chiude": "due corse. La prima **scopre**: materializza il lock su `windows-2022`, costruisce i due profili, misura e scrive il rilievo, e termina rossa perche' manca un contratto revisionato. Poi il rilievo si rilegge, ogni dipendenza si classifica in una delle quattro classi, e un commit mette nel lock l'insieme esatto per profilo con il digest del rilievo. La seconda corsa confronta, e aggiunge il relocation smoke Windows.",
-      "nel_frattempo": "il costruttore e i verificatori esistono e sono provati su PE costruiti byte per byte -- il che dimostra che sanno leggere un PE, non che l'artefatto sia conforme. La piattaforma resta `non_ancora_costruita`, e il job resta rosso di proposito."
-    }
-  ],
+  "blocchi_aperti": [],
   "due_profili_due_promesse": "`filegdb` promette che FileGDB **funzioni**, e si dimostra scrivendone uno e rileggendolo. `base` promette che FileGDB **manchi**, ed e' la promessa che ci si dimentica di verificare: un base costruito per sbaglio con la feature attiva sarebbe piu' grande di sessanta megabyte, porterebbe un runtime GDAL che il suo contratto non prevede -- con una superficie e una licenza che chi lo installa non ha accettato -- e nulla nel nome lo direbbe. Si dimostra chiedendogli di aprire un FileGDB e pretendendo il rifiuto **giusto**: categoria `unsupported` e un messaggio che nomina il tier mancante. Un rifiuto per la ragione sbagliata passerebbe un controllo che guardasse solo il codice d'uscita.",
   "referti": {
     "che_cosa_sono": "il formato comune che ogni verifica produce, su ogni piattaforma. I verificatori restano **nativi e separati** -- `DT_NEEDED` e `GLIBC_*` non esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove, e scriverne uno solo vorrebbe dire verificare il minimo comune ovunque -- ma la forma del risultato e' una sola.",
@@ -383,5 +382,12 @@
     "per_entrambi_i_profili": "la premessa «il profilo base non spedisce librerie» era falsa: su Windows spedisce il runtime C. E comunque che l'artefatto funzioni dove e' stato costruito non e' cio' che si promette a chi installa -- va estratto in una directory nuova e provato dall'archivio finale, quale che sia il profilo.",
     "che_cosa_prova_ciascuno": "il profilo pieno scrive e rilegge un FileGDB con un CRS, che attraversa GDAL e PROJ; il base converte in GeoParquet, che e' cio' che sa fare. Pretendere il FileGDB dal base lo farebbe fallire per una capability che non ha mai promesso.",
     "la_controprova_dove_ha_senso": "rinominare `share/gdal` e pretendere il fallimento vale per il profilo che quelle radici le usa. Il base non le legge, e la controprova sarebbe verde per una ragione che non ha a che vedere con cio' che dovrebbe provare -- che e' peggio di non farla."
+  },
+  "blocchi_aperti_nota": "vuoto non significa «niente da fare»: significa che nessuna piattaforma del perimetro e' **non costruita**. Cio' che resta aperto sulla distribuzione non e' una piattaforma mancante ma la qualifica finale -- corsa sullo SHA congelato e firma Authenticode -- e vive dove deve, nel bloccante `distribuzione.artefatti-qualificati` del contratto di release. Tenerne una copia qui creerebbe la seconda verita' che questo registro esiste per impedire.",
+  "stato_della_costruzione": {
+    "al": "2026-09-02",
+    "che_cosa_e_stato_costruito": "quattro artefatti -- due piattaforme per due profili -- in canale `prova`, ciascuno con sei referti: runtime, licenze, smoke sull'artefatto installato, relocation, digest del manifesto sull'albero estratto, provenance. Il job `gate` li riconta contro questa matrice e ne pretende ventiquattro.",
+    "ultima_corsa_verde": "d2b6bb8",
+    "che_cosa_non_dimostra": "che l'artefatto che si consegnera' sia qualificato. Nessuna di quelle corse e' girata sullo SHA che verra' congelato, e manca la firma Authenticode. «La macchina funziona» e «l'artefatto e' qualificato» si somigliano abbastanza da essere scambiate, e solo la seconda e' cio' che il contratto pretende."
   }
 }

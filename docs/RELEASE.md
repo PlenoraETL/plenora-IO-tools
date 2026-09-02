@@ -64,7 +64,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 |---|---|
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
 | `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
-| `distribuzione.artefatti-qualificati` | artefatti di distribuzione non prodotti ne' qualificati |
+| `distribuzione.artefatti-qualificati` | artefatti prodotti e verificati in prova; qualifica sullo SHA congelato assente |
 
 <!-- generato da assurance/current-state.json: fine -->
 
@@ -363,7 +363,13 @@ automatica di caselle verdi.
 ## Roadmap
 
 L'ordine è quello di lavoro, non di importanza. Ogni punto dichiara che cosa
-serve per uscirne e quale blocco rimuove.
+serve per uscirne e quale blocco rimuove **quando sarà chiuso**. Un punto chiuso
+lo dice nel proprio titolo; per tutti gli altri il blocco è ancora in piedi.
+
+Il campo si chiamava «Blocco rimosso», e al participio passato si legge come
+fatto: una revisione l'ha letto così sul punto 5 e ne ha concluso che il blocco
+della distribuzione fosse chiuso, mentre il registro lo teneva — correttamente —
+aperto. Due letture possibili della stessa riga sono una riga da riscrivere.
 
 Nessuna stima temporale è presentata come impegno. Ciò che si sa del costo è
 scritto dove è stato misurato.
@@ -374,7 +380,7 @@ scritto dove è stato misurato.
 un **test eseguito**, oppure `irraggiungibile` con le righe scoperte e la
 guardia che rifiuta per prima. `check_assurance_n1.py --release` diventa verde.
 
-**Blocco rimosso.** I rami d'errore negativi smettono di essere non verificati.
+**Blocco che rimuove.** I rami d'errore negativi smettono di essere non verificati.
 
 **Costo.** Il costo dominante non è scrivere i test ma **determinare quali rami
 siano raggiungibili**: in un gruppo su tre affrontati finora, un solo ramo su
@@ -392,7 +398,7 @@ La superficie era già sul wire, quindi la scelta è stata un cambio di contratt
 e ha richiesto una versione nuova: il **protocollo 2**, con il v1 congelato e
 selezionabile solo da un'opzione che dice nel nome che cosa si sceglie.
 
-**Blocco rimosso.** L'ultima superficie pubblica senza contratto ratificato ne
+**Blocco che rimuove.** L'ultima superficie pubblica senza contratto ratificato ne
 ha uno, e `wire.loss-report` è `verified` nel registro. Vedi [PRODUCT.md § LossReport](PRODUCT.md#lossreport--ratificato-con-il-protocollo-2).
 
 ### 3. S10, S11, S12
@@ -406,7 +412,7 @@ ha uno, e `wire.loss-report` è `verified` nel registro. Vedi [PRODUCT.md § Los
 **Criterio di uscita.** Ciascun lotto chiuso con il proprio checkpoint di
 livello 2 e la propria evidenza.
 
-**Blocco rimosso.** Il perimetro del componente è completo. S12 in particolare
+**Blocco che rimuove.** Il perimetro del componente è completo. S12 in particolare
 rimuove l'ultima asimmetria fra i formati: oggi WKT e GeoJSON hanno tetti, ma
 non una capability dichiarata che li renda verificabili dall'esterno.
 
@@ -420,7 +426,7 @@ Il perimetro e l'harness sono di **proprietà esterna**: questo repository non
 contiene né esegue test che compilino gli altri due componenti. La definizione
 è in [`release/system-rc-gate.json`](../release/system-rc-gate.json).
 
-**Blocco rimosso.** La readiness di sistema smette di essere non verificata.
+**Blocco che rimuove.** La readiness di sistema smette di essere non verificata.
 Resta distinta dalla readiness del componente: nessuna delle due implica
 l'altra.
 
@@ -436,7 +442,7 @@ sull'artefatto **installato**, perché un test che gira nell'albero di build non
 prova che il pacchetto funzioni; un runbook di installazione, aggiornamento,
 rollback e recovery.
 
-**Blocco rimosso.** `distribuzione.artefatti-qualificati`.
+**Blocco che rimuove.** `distribuzione.artefatti-qualificati`.
 
 **Perché è un blocco e non un desiderio.** Era previsto e non contrattuale: la
 prosa lo nominava, il registro no. Un obbligo che vive solo nella prosa non
@@ -444,17 +450,36 @@ ferma nessuno, e sarebbe stato possibile azzerare il debito di copertura
 negativa, chiudere la candidate e trovarsi autorizzati a rilasciare **senza
 avere niente da rilasciare**.
 
-**Costo.** Non piu' ignoto per Linux. Ciò che la CI produceva era codice provato
-e nessun oggetto installabile; ora il costruttore esiste, l'oggetto esiste, ed e'
-stato misurato. Windows e macOS restano da fare, e i loro costi sono ancora
-ignoti perche' dipendono da runner che qui non ci sono.
+**Costo.** Non più ignoto. Ciò che la CI produceva era codice provato e nessun
+oggetto installabile; ora i costruttori esistono per tutte e due le piattaforme,
+gli oggetti esistono e sono stati misurati. Ciò che resta ignoto non è un costo
+di costruzione ma un'attesa: il certificato Authenticode e il gate di sistema
+hanno owner esterni.
 
-**Stato al 31 agosto 2026.** Linux e' costruita e verificata in locale, con
-artefatti di **prova** -- `non_release: true` nel manifesto, non candidate.
-Windows non è ancora costruita, e il suo blocco sta in
-`assurance/registries/distribuzione-matrice.json` sotto `blocchi_aperti`; una
-sonda verifica che ogni piattaforma non costruita ne porti uno, cosi' che lo
-stato non diventi un modo per far tacere le pretese.
+**Stato al 2 settembre 2026: la macchina è pronta e provata, la qualifica
+finale non c'è.** Sono due cose diverse e vanno lette separatamente.
+
+Ciò che esiste ed è stato eseguito: entrambe le piattaforme costruiscono
+entrambi i profili — quattro artefatti — in un workflow che gira su runner
+nativi; ciascun job produce referti strutturati; un job `gate` li riconta contro
+la matrice e pretende ventiquattro referti, che è il numero che la matrice
+implica e non quello che si è ricevuto. L'ultima corsa verde è `d2b6bb8`:
+runtime, licenze, smoke sull'artefatto installato, relocation da una directory
+diversa da quella di costruzione, digest del manifesto ricalcolati sull'albero
+estratto, provenance. Gli artefatti sono di **prova** — `non_release: true` nel
+manifesto — e il gate rifiuta ovunque si pretenda una candidate.
+
+Ciò che manca, ed è il motivo per cui il blocco resta: nessuna di quelle corse
+è girata sullo SHA che verrà congelato. Un artefatto qualificato è prodotto
+**dalla revisione qualificata**, e finché quella revisione non esiste la catena
+dimostra di funzionare senza dimostrare nulla su ciò che si consegnerà. Manca
+inoltre la firma Authenticode, che dipende da un certificato esterno a questo
+repository.
+
+**Perché la distinzione conta.** «La macchina funziona» e «l'artefatto è
+qualificato» si somigliano abbastanza da essere scambiate, e la seconda è
+l'unica che il contratto pretende. Il registro tiene il blocco aperto proprio
+qui.
 
 **macOS è fuori dal perimetro della v1.** Non è una piattaforma non ancora
 costruita: è una decisione di prodotto, registrata sotto
@@ -845,7 +870,22 @@ scritto e riletto davvero.
 **Criterio di uscita.** Tutti i punti precedenti chiusi;
 `check_release_contract.py --release` verde, cioè nessun invariante
 `release_blocking`; un checkpoint di livello 2 su un albero pulito, con SHA e
-impronta invariati; l'evidenza in un commit separato.
+impronta invariati; un **soak mirato** su `dxf_reader` e `shp_reader`, oltre alla
+smoke ordinaria; l'evidenza in un commit separato.
+
+**Perché un soak mirato, e perché su quei due.** La smoke esiste da sempre, ma
+per un periodo ha costruito zero target: il job installava la toolchain e non
+GDAL, e `filegdb_reader` faceva morire la costruzione prima che il primo target
+esistesse. Rimessa in funzione, in due corse consecutive ha trovato due difetti
+seri e di famiglie diverse — un ciclo che non termina in `dxf_reader`, un panico
+raggiungibile in `shp_reader` — con sessanta secondi per target.
+
+Due su due non è una statistica, ma è abbastanza per non trattare quei due
+lettori come esplorati. Un soak più lungo sui soli due dice se la resa era il
+recupero di un arretrato o un ritmo: se non trova più niente, l'arretrato era
+finito; se trova, l'avremmo saputo dopo il rilascio invece che prima. Va eseguito
+**sullo SHA congelato**, insieme al resto della campagna, perché è di quello che
+si vuole sapere.
 
 Solo allora `release_authorized` può diventare `true`, e sarà una decisione
 scritta — non la conseguenza automatica di sei caselle verdi.

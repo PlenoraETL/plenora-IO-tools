@@ -496,5 +496,105 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
         self.assertIn("pattern: referti-*", self.testo)
 
 
+class SondeDelRuntimeNativo(unittest.TestCase):
+    """Che il campo dica quello che il suo nome promette.
+
+    `runtime_nativo` era `{"presente": false}` sul profilo base e voleva dire
+    «non spedisce GDAL». Diceva pero' «non spedisce runtime nativo», che sul
+    base Windows e' falso: `vcruntime140.dll` la spedisce, e la prima corsa di
+    scoperta l'ha trovata proprio perche' non spedirla era un difetto.
+
+    Un campo il cui nome promette piu' di quanto misura non fa rosso da nessuna
+    parte: chi lo legge conclude qualcosa, la conclusione e' sbagliata, e
+    nessun controllo se ne accorge perche' il campo *e'* coerente con se stesso.
+    """
+
+    def setUp(self) -> None:
+        self.d = carica(RADICE / "scripts" / "distribuzione.py")
+
+    def file(self, *nomi: str) -> list[dict]:
+        return [{"percorso": f"bin/{n}", "sha256": "0" * 64, "byte": 1} for n in nomi]
+
+    def test_il_base_windows_dichiara_il_runtime_c_che_spedisce(self) -> None:
+        gdal = {"presente": False, "perche": "profilo base"}
+        r = self.d.runtime_nativo(
+            "windows-x86_64", self.file("plenora-io.exe", "vcruntime140.dll"), gdal
+        )
+        self.assertFalse(r["gdal"]["presente"])
+        self.assertTrue(
+            r["c_ridistribuibile"]["presente"],
+            "il base Windows spedisce vcruntime140.dll: dichiararlo assente e' falso",
+        )
+        self.assertEqual(r["c_ridistribuibile"]["file"], ["vcruntime140.dll"])
+
+    def test_il_base_linux_non_ne_dichiara_nessuno(self) -> None:
+        """Il rovescio: dove non si spedisce niente, il campo dice zero e non
+        sparisce. Una piattaforma assente dalla tabella si leggerebbe come «non
+        ci ho pensato»."""
+        r = self.d.runtime_nativo(
+            "linux-x86_64", self.file("plenora-io"), {"presente": False}
+        )
+        self.assertFalse(r["c_ridistribuibile"]["presente"])
+        self.assertEqual(r["c_ridistribuibile"]["file"], [])
+
+    def test_i_due_componenti_sono_indipendenti(self) -> None:
+        """GDAL c'e' solo nel profilo pieno; il runtime C c'e' su Windows in
+        tutti e due. Un campo solo non puo' dire due cose diverse."""
+        gdal = {"presente": True, "versione": "3.9.3"}
+        r = self.d.runtime_nativo(
+            "windows-x86_64",
+            self.file("plenora-io.exe", "gdal.dll", "vcruntime140.dll", "msvcp140.dll"),
+            gdal,
+        )
+        self.assertTrue(r["gdal"]["presente"])
+        self.assertEqual(
+            r["c_ridistribuibile"]["file"], ["msvcp140.dll", "vcruntime140.dll"]
+        )
+
+    def test_si_misura_dai_file_e_non_dal_profilo(self) -> None:
+        """Il profilo e' cio' che volevamo costruire; l'elenco dei file e' cio'
+        che abbiamo costruito, ed e' l'unico dei due che si accorge di un passo
+        saltato. Se il runtime C sparisse dal payload, il campo lo direbbe."""
+        r = self.d.runtime_nativo(
+            "windows-x86_64", self.file("plenora-io.exe"), {"presente": True}
+        )
+        self.assertFalse(r["c_ridistribuibile"]["presente"])
+
+    def test_il_verificatore_pe_legge_la_stessa_tabella(self) -> None:
+        """Tre copie a mano divergerebbero, e la divergenza non farebbe rosso:
+        il verificatore rifiuterebbe una DLL che il manifesto non nomina, o il
+        contrario, e ciascuno dei due sarebbe internamente coerente."""
+        verificatore = carica(RADICE / "scripts" / "check-windows-runtime.py")
+        self.assertEqual(
+            verificatore.DA_SPEDIRE_NON_AMMETTERE,
+            self.d.RUNTIME_C_RIDISTRIBUIBILE["windows-x86_64"],
+        )
+        # L'uguaglianza da sola non basta: due copie a mano sono uguali finche'
+        # qualcuno non tocca una delle due. Si pretende che **derivi**.
+        sorgente = (RADICE / "scripts" / "check-windows-runtime.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'distribuzione.RUNTIME_C_RIDISTRIBUIBILE["windows-x86_64"]', sorgente
+        )
+        self.assertNotIn(
+            '"vcruntime140.dll":', sorgente, "l'elenco e' tornato a essere una copia"
+        )
+
+    def test_la_matrice_non_torna_a_un_booleano(self) -> None:
+        """La matrice portava `contiene_runtime_nativo`, con lo stesso difetto
+        del manifesto e nello stesso verso."""
+        matrice = json.loads(
+            (
+                RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
+            ).read_text(encoding="utf-8")
+        )
+        for profilo in matrice["profili"]:
+            with self.subTest(profilo=profilo["id"]):
+                self.assertNotIn("contiene_runtime_nativo", profilo)
+                self.assertIn("gdal", profilo["runtime_nativo"])
+                self.assertIn("c_ridistribuibile", profilo["runtime_nativo"])
+
+
 if __name__ == "__main__":
     unittest.main()

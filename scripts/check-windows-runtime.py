@@ -152,14 +152,12 @@ POLITICA_ABI = {
 
 # Le DLL che si e' tentati di ammettere e che invece vanno **spedite**.
 #
-# Sta scritto qui e non in un commento perche' il controllo lo verifica: se una
-# di queste comparisse fra le esterne, il rifiuto direbbe che va spedita invece
-# di dire genericamente che non e' attesa.
-DA_SPEDIRE_NON_AMMETTERE = {
-    "vcruntime140.dll": "runtime C ridistribuibile di Visual Studio, non un componente di Windows",
-    "vcruntime140_1.dll": "come sopra",
-    "msvcp140.dll": "libreria standard C++ di Visual Studio, ridistribuibile",
-}
+# L'elenco viene da `distribuzione`, dove lo leggono anche i due costruttori per
+# dichiarare che cosa spediscono. Una copia qui direbbe la stessa cosa fino al
+# giorno in cui non la dice piu', e la divergenza non farebbe rosso da nessuna
+# parte: il verificatore rifiuterebbe una DLL che il manifesto non nomina, o il
+# contrario, e ciascuno dei due sarebbe internamente coerente.
+DA_SPEDIRE_NON_AMMETTERE = distribuzione.RUNTIME_C_RIDISTRIBUIBILE["windows-x86_64"]
 
 MACCHINA_X86_64 = 0x8664
 
