@@ -1,44 +1,51 @@
 {
-  "schema_version": 1,
-  "descrizione": "Provenienza del fork governato, registrata separatamente dal lock. Il gate confronta i due: una divergenza significa che qualcuno ha aggiornato il vendor senza aggiornare la provenienza, o viceversa.",
-  "package": "dxf",
-  "version": "0.6.1",
-  "crate_sha256": "6bb070bbb077a936e2bdf95d4b39aa83e865b38c3a7054f71d704e0796da1821",
-  "upstream_tag": "v0.6.1",
-  "upstream_tag_object": "c965cc8ef139b191131780ccdcf134c220642b16",
-  "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
-  "licenza_upstream": "MIT",
-  "file_licenza": "LICENSE.txt",
-  "risoluzione": "il workspace risolve dxf 0.6.1 esclusivamente da vendor/dxf via [patch.crates-io]",
-  "delta_funzionale": [
-    {
-      "file": "src/code_pair_iter.rs",
-      "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input"
-    },
-    {
-      "file": "src/drawing.rs",
-      "cambiamento": "DrawingEntityReader, reader fallibile pull-based che conserva metadata e blocchi ma emette una entita' logica alla volta; raggruppa POLYLINE/VERTEX, attributi di INSERT e MTEXT come il loader upstream"
-    },
-    {
-      "file": "src/lib.rs",
-      "cambiamento": "esportazione pubblica di DrawingEntityReader"
-    }
-  ],
-  "invarianti_del_fork": [
-    "non cambia la scrittura DXF",
-    "non cambia i tipi pubblici esistenti",
-    "il percorso progressivo rifiuta DXB; DXF ASCII e binary DXF restano supportati"
-  ],
-  "procedura_di_aggiornamento": [
-    "ripartire da una release upstream identificata da tag, commit e checksum",
-    "riapplicare e revisionare separatamente i delta dichiarati",
-    "eseguire la suite upstream, i test driver-dxf e il gate di provenienza",
-    "rieseguire il benchmark interlacciato contro la baseline precedente",
-    "aggiornare insieme questo registro e scripts/dxf-fork-lock.json"
-  ],
-  "package_verification": {
-    "stato": "applicable",
-    "comando": "cargo package --manifest-path vendor/dxf/Cargo.toml --target-dir <fuori dal fork>",
-    "nota": "il target deve stare fuori dall'albero vendorizzato: cargo scriverebbe altrimenti in vendor/dxf/target/, e l'operazione di verifica sporcherebbe cio' che verifica. `scripts/fork_comune.comando_package` lo impone."
+ "schema_version": 1,
+ "descrizione": "Provenienza del fork governato, registrata separatamente dal lock. Il gate confronta i due: una divergenza significa che qualcuno ha aggiornato il vendor senza aggiornare la provenienza, o viceversa.",
+ "package": "dxf",
+ "version": "0.6.1",
+ "crate_sha256": "6bb070bbb077a936e2bdf95d4b39aa83e865b38c3a7054f71d704e0796da1821",
+ "upstream_tag": "v0.6.1",
+ "upstream_tag_object": "c965cc8ef139b191131780ccdcf134c220642b16",
+ "upstream_revision": "f1bca30b9d753ee53e66212b329972a3dfd46641",
+ "licenza_upstream": "MIT",
+ "file_licenza": "LICENSE.txt",
+ "risoluzione": "il workspace risolve dxf 0.6.1 esclusivamente da vendor/dxf via [patch.crates-io]",
+ "delta_funzionale": [
+  {
+   "file": "src/code_pair_iter.rs",
+   "cambiamento": "iteratore di code pair su reader posseduto senza read_to_end; le righe ASCII usano BufRead::read_until con buffer da 1 KiB, preservando BOM, CRLF ed encoding senza anticipare l'intero input"
+  },
+  {
+   "file": "src/drawing.rs",
+   "cambiamento": "DrawingEntityReader, reader fallibile pull-based che conserva metadata e blocchi ma emette una entita' logica alla volta; raggruppa POLYLINE/VERTEX, attributi di INSERT e MTEXT come il loader upstream"
+  },
+  {
+   "file": "src/lib.rs",
+   "cambiamento": "esportazione pubblica di DrawingEntityReader"
+  },
+  {
+   "file": "src/block.rs",
+   "cambiamento": "`read_block` pretende che ogni giro del proprio ciclo abbia progredito. `Entity::read` restituisce `Ok(None)` senza consumare niente quando trova `0/ENDSEC` -- cioe' quando la sezione BLOCKS finisce e il BLOCK corrente non ha mai visto il proprio ENDBLK -- e il ciclo riprendeva la stessa coppia all'infinito, allocando a ogni giro. Undici righe di DXF tenevano il lettore occupato senza fine.",
+   "trovato_da": "la fuzz smoke su `dxf_reader`, il 2026-09-02, con un input di 213 byte. Riprodotto in locale per novanta secondi senza mai arrivare in fondo, e ridotto a un seme di undici righe che sul codice non corretto scade e su quello corretto esce in 0,089 s.",
+   "provato_da": "`fuzz/seeds/dxf_reader/block-senza-endblk.dxf`, versionato, e `driver_dxf::tests::un_blocco_senza_endblk_non_gira_a_vuoto`. Il seme conta perche' un test non puo' asserire su una funzione che non ritorna: il tetto di libFuzzer trasforma l'attesa in un rosso, il test invece resterebbe appeso.",
+   "perche_non_un_caso_speciale": "la guardia non nomina `ENDSEC`. Nominare la sola coppia che oggi si comporta cosi' lascerebbe la porta aperta alla prossima, e questo ciclo non ha modo di accorgersene da solo."
   }
+ ],
+ "invarianti_del_fork": [
+  "non cambia la scrittura DXF",
+  "non cambia i tipi pubblici esistenti",
+  "il percorso progressivo rifiuta DXB; DXF ASCII e binary DXF restano supportati"
+ ],
+ "procedura_di_aggiornamento": [
+  "ripartire da una release upstream identificata da tag, commit e checksum",
+  "riapplicare e revisionare separatamente i delta dichiarati",
+  "eseguire la suite upstream, i test driver-dxf e il gate di provenienza",
+  "rieseguire il benchmark interlacciato contro la baseline precedente",
+  "aggiornare insieme questo registro e scripts/dxf-fork-lock.json"
+ ],
+ "package_verification": {
+  "stato": "applicable",
+  "comando": "cargo package --manifest-path vendor/dxf/Cargo.toml --target-dir <fuori dal fork>",
+  "nota": "il target deve stare fuori dall'albero vendorizzato: cargo scriverebbe altrimenti in vendor/dxf/target/, e l'operazione di verifica sporcherebbe cio' che verifica. `scripts/fork_comune.comando_package` lo impone."
+ }
 }

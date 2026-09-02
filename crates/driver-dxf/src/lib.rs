@@ -2533,6 +2533,31 @@ mod tests {
         assert_eq!(__fuzz_read_dxf(dxf).unwrap(), 1);
     }
 
+    /// Un `BLOCK` che non arriva mai a `ENDBLK` finisce, invece di non finire.
+    ///
+    /// Undici righe tenevano il lettore occupato per sempre. `Entity::read`
+    /// restituisce `Ok(None)` senza consumare niente quando trova `0/ENDSEC`,
+    /// e il ciclo di `read_block` riprendeva la stessa coppia all'infinito,
+    /// allocando a ogni giro: non lentezza, lavoro senza fine, su un ingresso
+    /// che chiunque puo' fabbricare.
+    ///
+    /// L'ha trovato la fuzz smoke -- e l'ha trovato solo dopo che il job ha
+    /// ricominciato a costruire tutti i target. Qui la stessa cosa e' una prova
+    /// che costa millisecondi e non dipende da quale input il fuzzer peschi.
+    ///
+    /// La prova e' che **ritorni**: `assert` sull'esito verrebbe dopo, e se il
+    /// difetto tornasse questa prova non fallirebbe -- resterebbe appesa. E' il
+    /// motivo per cui il seme versionato in `fuzz/seeds/dxf_reader/` le sta
+    /// accanto: li' il tetto di libFuzzer trasforma l'attesa in un rosso.
+    #[test]
+    fn un_blocco_senza_endblk_non_gira_a_vuoto() {
+        let dxf = b"0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nsenza-endblk\n0\nENDSEC\n0\nEOF\n";
+        assert!(
+            __fuzz_read_dxf(dxf).is_err(),
+            "un BLOCK non terminato non e' un documento leggibile"
+        );
+    }
+
     #[test]
     fn row_level_dxf_failure_reports_the_top_level_entity_index() {
         let directory = tempfile::tempdir().unwrap();

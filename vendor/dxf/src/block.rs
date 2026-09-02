@@ -156,9 +156,52 @@ impl Block {
                         }
                         CodePair { code: 0, .. } => {
                             // should be an entity
+                            //
+                            // `Entity::read` restituisce `Ok(None)` **senza consumare
+                            // niente** quando trova `0/ENDSEC`, che qui significa «la
+                            // sezione BLOCKS e' finita e questo BLOCK non ha mai visto
+                            // il proprio ENDBLK». Il ciclo esterno riprendeva allora
+                            // la stessa coppia e il giro ricominciava identico: 213
+                            // byte di DXF tenevano il lettore occupato senza fine,
+                            // allocando a ogni giro. Trovato dalla fuzz smoke,
+                            // riprodotto per novanta secondi senza mai arrivare in
+                            // fondo.
+                            //
+                            // La guardia non nomina `ENDSEC`: pretende che il giro
+                            // abbia **progredito**. Nominare la sola coppia che oggi
+                            // si comporta cosi' lascerebbe la porta aperta alla
+                            // prossima, e questo ciclo non ha modo di accorgersene da
+                            // solo.
+                            let atteso = pair.assert_string()?;
+                            let quante = current.entities.len();
                             iter.put_back(Ok(pair));
-                            let mut iter = EntityIter { iter };
-                            iter.read_entities_into_vec(&mut current.entities)?;
+                            {
+                                let mut entities = EntityIter { iter };
+                                entities.read_entities_into_vec(&mut current.entities)?;
+                            }
+                            if current.entities.len() == quante {
+                                match iter.next() {
+                                    Some(Ok(ferma)) => {
+                                        let e_la_stessa = ferma.code == 0
+                                            && match ferma.value {
+                                                CodePairValue::Str(ref s) => *s == atteso,
+                                                _ => false,
+                                            };
+                                        if e_la_stessa {
+                                            return Err(DxfError::UnexpectedCodePair(
+                                                ferma,
+                                                String::from(
+                                                    "un BLOCK che non arriva a ENDBLK: la \
+                                                     lettura non avanza",
+                                                ),
+                                            ));
+                                        }
+                                        iter.put_back(Ok(ferma));
+                                    }
+                                    Some(Err(e)) => return Err(e),
+                                    None => return Err(DxfError::UnexpectedEndOfInput),
+                                }
+                            }
                         }
                         _ => {
                             // specific to the BLOCK
