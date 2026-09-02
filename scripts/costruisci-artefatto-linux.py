@@ -324,7 +324,7 @@ def main() -> int:
     # 1. IL PAYLOAD
     #
     # L'ordine complessivo e' dichiarato in `distribuzione.ORDINE` e vale per
-    # tutte e tre le piattaforme: payload, firma, manifesto, archivio,
+    # entrambe le piattaforme distribuite: payload, firma, manifesto, archivio,
     # notarizzazione, checksum, smoke, provenance. Ogni passo dipende dai byte
     # prodotti dal precedente, e invertirne due produce un artefatto le cui
     # verifiche parlano di un file diverso da quello che si consegna.
@@ -682,13 +682,13 @@ def main() -> int:
     # descrive: scriverlo prima di firmarli lo farebbe parlare di byte che non
     # esistono piu'. Su Linux non c'e' una firma di piattaforma e questo passo
     # non tocca nulla -- ma la **posizione** e' cio' che va decisa adesso, e
-    # vale per tutte e tre le piattaforme.
+    # vale per entrambe le piattaforme distribuite.
     #
     # Lo stato non viene da «il materiale c'era»: viene da cio' che un
     # verificatore nativo ha letto sui byte finali. Su Linux non c'e' niente da
-    # leggere perche' non c'e' niente da pretendere; su Windows e macOS la
-    # misura la fanno `check-windows-runtime.py` e `check-macos-runtime.py`, e
-    # senza misura lo stato e' `non_misurata` -- che non e' un si'.
+    # leggere perche' non c'e' niente da pretendere; su Windows la misura la
+    # fa `check-windows-runtime.py`, e senza misura lo stato e'
+    # `non_misurata` -- che non e' un si'.
     firma = distribuzione.stato_della_firma("linux-x86_64", arg.canale)
     print(f"2. firma: {firma['stato']}", flush=True)
     if firma["stato"] in ("assente", "non_misurata"):
@@ -803,9 +803,8 @@ def main() -> int:
 
     # --- 4. l'archivio ----------------------------------------------------
     #
-    # Il contenitore dipende dalla piattaforma: `tar.gz` su Linux, `zip` su
-    # Windows e su macOS -- dove non e' una preferenza di stile ma cio' che il
-    # servizio di notarizzazione sa ispezionare.
+    # Il contenitore dipende dalla piattaforma: `tar.gz` su Linux e `zip` su
+    # Windows.
     contenitore = distribuzione.contenitore("linux-x86_64")
     print(f"4. archivio ({contenitore})", flush=True)
     archivio = uscita / f"{nome}.{contenitore}"
@@ -816,8 +815,8 @@ def main() -> int:
 
     # --- 5. notarizzazione ------------------------------------------------
     #
-    # Solo macOS. Sta qui perche' l'ordine e' uno per tutte e tre: e' la
-    # posizione a essere decisa, non il fatto che questa piattaforma la usi.
+    # Nessuna piattaforma del perimetro la usa. Il passo resta perche' la
+    # posizione nell'ordine e' una decisione esplicita e stabile.
     print("5. notarizzazione: non applicabile su Linux", flush=True)
 
     # --- 6. i checksum, sui byte finali -----------------------------------

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "stato": "contratto dichiarato, nessun artefatto prodotto",
-  "descrizione": "La matrice di distribuzione e il contratto del runtime GDAL, decisi **prima** del packaging. Il gate che li verifica non esiste ancora, e la ragione e' scritta nell'invariante `distribuzione.artefatti-qualificati`: finche' non esiste un artefatto, un gate che lo verifichi ritornerebbe verde su niente.",
-  "non_significa": "nessun artefatto e' stato prodotto, nessuno smoke e' stato eseguito, e questo file non qualifica niente. E' la decisione che rende scrivibile il packaging, non il packaging.",
+  "stato": "macchina di qualifica eseguita in canale prova; qualifica finale assente",
+  "descrizione": "La matrice di distribuzione e il contratto del runtime GDAL. I costruttori nativi, i verificatori e il gate sono stati eseguiti sui quattro artefatti del perimetro; l'ultima distribuzione verde e' `d2b6bb8`.",
+  "non_significa": "la corsa verde era in canale prova, con `non_release: true`, e non e' sullo SHA corrente. Dimostra la macchina di qualifica, non qualifica una candidate 2.0.0.",
   "versione_del_prodotto": {
     "sorgente": "Cargo.toml del workspace",
     "nota": "la versione non e' ricopiata qui: due copie divergono. Il costruttore la legge da Cargo.toml e la scrive nel manifesto dell'artefatto."
@@ -126,8 +126,8 @@
   },
   "contratto_gdal": {
     "versione": "3.9.3",
-    "perche_questa": "e' l'ultima serie per cui `gdal-sys 0.10.0` spedisce binding pre-costruiti. Su 3.10 la build si ferma da sola con «No pre-built bindings available», e le due uscite da quel vicolo sono peggiori. Abilitare `bindgen`: `bindgen` non e' una libreria in piu': e' un **generatore di codice** che va fissato e qualificato insieme a cio' che gli serve -- `libclang`, gli header di GDAL, e la versione di clang che li interpreta. Sono tre nuovi input di costruzione, ciascuno capace di cambiare i binding senza che nessuna riga del repository cambi, e ciascuno da fissare come si e' fissato il runtime. I binding pre-generati tolgono quel problema alla radice: sono byte nel crate, gia' dentro il perimetro fissato. Dichiarare a `gdal-sys` una versione diversa da quella spedita: compila l'ABI di una serie contro la libreria di un'altra, che funziona finche' funziona e quando smette non lo dice. 3.9.3 e' risolvibile su tutte e tre le piattaforme dalla stessa origine -- misurato, non supposto: 56 pacchetti per linux-64, 44 per win-64, 48 per osx-arm64.",
-    "capability_non_segue_dalla_versione": "la stessa versione compilata con opzioni diverse da' driver diversi. Con una catena sola -- conda-forge su tutte e tre -- la superficie del dubbio si restringe, ma non sparisce: le build per piattaforme diverse restano build diverse. A dimostrare la capability e' lo smoke, che scrive e rilegge un FileGDB vero su ogni piattaforma.",
+    "perche_questa": "e' l'ultima serie per cui `gdal-sys 0.10.0` spedisce binding pre-costruiti. Su 3.10 la build si ferma da sola con «No pre-built bindings available», e le due uscite da quel vicolo sono peggiori. Abilitare `bindgen`: `bindgen` non e' una libreria in piu': e' un **generatore di codice** che va fissato e qualificato insieme a cio' che gli serve -- `libclang`, gli header di GDAL, e la versione di clang che li interpreta. Sono tre nuovi input di costruzione, ciascuno capace di cambiare i binding senza che nessuna riga del repository cambi, e ciascuno da fissare come si e' fissato il runtime. I binding pre-generati tolgono quel problema alla radice: sono byte nel crate, gia' dentro il perimetro fissato. Dichiarare a `gdal-sys` una versione diversa da quella spedita: compila l'ABI di una serie contro la libreria di un'altra, che funziona finche' funziona e quando smette non lo dice. 3.9.3 e' risolvibile sulle due piattaforme distribuite dalla stessa origine -- misurato, non supposto: 56 pacchetti per linux-64 e 44 per win-64.",
+    "capability_non_segue_dalla_versione": "la stessa versione compilata con opzioni diverse da' driver diversi. Con una catena sola -- conda-forge su entrambe -- la superficie del dubbio si restringe, ma non sparisce: le build per piattaforme diverse restano build diverse. A dimostrare la capability e' lo smoke, che scrive e rilegge un FileGDB vero su ogni piattaforma distribuita.",
     "binding_rust": {
       "crate": "gdal",
       "versione": "=0.17.1",
@@ -156,9 +156,9 @@
         "piattaforma": "windows-x86_64",
         "origine": "conda-forge",
         "lock": "scripts/windows-gdal-lock.json",
-        "stato": "fissato; mai materializzato, perche' in questo lotto non c'e' un runner Windows",
+        "stato": "fissato, materializzato e verificato su windows-2022; artefatti dei due profili costruiti e smoke eseguiti",
         "risolto_con": "micromamba 2.9.0, fissato per sha256",
-        "era": "OSGeo4W, con un formato di lock proprio e GDAL 3.10.3. La catena e' stata unificata: tre origini diverse per la stessa versione non danno la stessa identita', e la differenza si sarebbe vista solo a valle."
+        "era": "OSGeo4W, con un formato di lock proprio e GDAL 3.10.3. La catena e' stata unificata: origini diverse per la stessa versione non danno la stessa identita', e la differenza si sarebbe vista solo a valle."
       }
     ],
     "perche_conda_forge_e_non_la_distribuzione": "la GDAL di distribuzione non e' fissabile: cambia con il sistema, e con essa cambia la capability. conda-forge pubblica la stessa versione per le due piattaforme del perimetro, ogni pacchetto con un sha256 verificabile e un URL stabile. Costruire GDAL dai sorgenti darebbe piu' controllo e porterebbe con se' l'intera chiusura di PROJ, GEOS e sqlite da fissare a loro volta: e' la strada da prendere se conda-forge si rivelasse insufficiente, non prima.",
@@ -196,7 +196,6 @@
       },
       "meccanismi_per_piattaforma": {
         "linux": "RPATH `$ORIGIN/../lib` sul binario e sulle librerie spedite",
-        "macos": "`@loader_path/../lib` negli install name di binario e librerie, riscritti dopo la copia",
         "windows": "le DLL in `bin/`, accanto al binario"
       },
       "dati": "`GDAL_DATA` e `PROJ_DATA` risolti a partire dal percorso del binario, non dall'ambiente: un artefatto che dipendesse da variabili impostate a mano funzionerebbe sulla macchina di chi lo ha costruito e altrove no",
@@ -234,7 +233,6 @@
     "un profilo `filegdb` il cui runtime non corrisponda al lock, per versione o per sha256",
     "un artefatto integro in cui una dipendenza fuori dall'allowlist ABI si risolva fuori dall'albero installato",
     "un binario o una libreria che pretenda una `GLIBC_*` oltre la soglia dichiarata per la piattaforma",
-    "un Mach-O il cui deployment target non sia quello dichiarato",
     "un checksum che non torni con il file che nomina",
     "un SBOM o una provenance assenti, o che nominino una revisione diversa da quella dell'artefatto",
     "uno smoke non eseguito, eseguito su qualcosa che non sia l'artefatto **installato**, o che non abbia scritto e riletto un FileGDB sul profilo che lo dichiara",
@@ -244,8 +242,8 @@
     "1. questo contratto (fatto)",
     "2. il lock di Linux, e il costruttore che lo verifica (fatto)",
     "3. Linux da zero a fine: build sulla base fissata, archivio, installazione in directory vuota, checksum, SBOM, provenance locale **non-release**, smoke sull'installato -- FileGDB scritto e riletto, simboli GLIBC controllati -- e prima sezione del runbook",
-    "4. l'impianto comune estratto da Linux, e i job nativi su `windows-2022` e `macos-15` con gli smoke sui rispettivi runner",
-    "5. il gate che rifiuta cio' che e' elencato sopra"
+    "4. l'impianto comune estratto da Linux e il job nativo su `windows-2022` con gli smoke sul runner (fatto)",
+    "5. il gate che rifiuta cio' che e' elencato sopra (fatto)"
   ],
   "artefatti_di_prova": {
     "regola": "durante lo sviluppo si producono soltanto artefatti di prova, e si vede dal nome",
@@ -255,14 +253,14 @@
   "blocchi_aperti": [],
   "due_profili_due_promesse": "`filegdb` promette che FileGDB **funzioni**, e si dimostra scrivendone uno e rileggendolo. `base` promette che FileGDB **manchi**, ed e' la promessa che ci si dimentica di verificare: un base costruito per sbaglio con la feature attiva sarebbe piu' grande di sessanta megabyte, porterebbe un runtime GDAL che il suo contratto non prevede -- con una superficie e una licenza che chi lo installa non ha accettato -- e nulla nel nome lo direbbe. Si dimostra chiedendogli di aprire un FileGDB e pretendendo il rifiuto **giusto**: categoria `unsupported` e un messaggio che nomina il tier mancante. Un rifiuto per la ragione sbagliata passerebbe un controllo che guardasse solo il codice d'uscita.",
   "referti": {
-    "che_cosa_sono": "il formato comune che ogni verifica produce, su ogni piattaforma. I verificatori restano **nativi e separati** -- `DT_NEEDED` e `GLIBC_*` non esistono su Windows, un `LC_VERSION_MIN_MACOSX` non esiste altrove, e scriverne uno solo vorrebbe dire verificare il minimo comune ovunque -- ma la forma del risultato e' una sola.",
+    "che_cosa_sono": "il formato comune che ogni verifica produce, su ogni piattaforma distribuita. I verificatori restano **nativi e separati** -- `DT_NEEDED` e `GLIBC_*` non esistono su Windows, e import e delay-import PE non esistono su Linux; scriverne uno solo vorrebbe dire verificare il minimo comune ovunque -- ma la forma del risultato e' una sola.",
     "perche_non_basta_un_job_verde": "un job verde e' un'affermazione fatta da chi doveva essere verificato, e le affermazioni si sbagliano in silenzio: un passo saltato per una condizione mai vera, un `|| true` di troppo, uno smoke che non ha trovato l'artefatto e non ha guardato niente. Nessuna di queste cose fa rosso. Il referto porta le **misure**, e il gate finale riconta quelle.",
     "gate": "scripts/check-distribuzione-completa.py",
     "artefatti_attesi": "due piattaforme per due profili, cioe' quattro"
   },
   "firma": {
     "decisione": "artefatti di prova non firmati ammessi; candidate Windows firmata Authenticode con timestamp; candidate Linux senza firma di piattaforma, perche' Linux non ne ha una che il sistema verifichi all'esecuzione -- restano checksum e provenance, che non la sostituiscono ma sono cio' che questa piattaforma offre.",
-    "lo_stato_si_misura": "`firma.stato` non viene da «il materiale c'era»: quello direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene da cio' che i verificatori nativi leggono sui **byte finali** -- presenza della firma, identita' del firmatario, timestamp, e su macOS hardened runtime e accettazione notarile. Gli stati sono quattro: `non_richiesta`, `non_misurata`, `assente`, `apposta`. `non_misurata` esiste perche' «non ho potuto guardare» non e' «va bene», e su una candidate e' rosso.",
+    "lo_stato_si_misura": "`firma.stato` non viene da «il materiale c'era»: quello direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene da cio' che il verificatore nativo legge sui **byte finali** -- presenza della firma, identita' del firmatario e timestamp. Gli stati sono quattro: `non_richiesta`, `non_misurata`, `assente`, `apposta`. `non_misurata` esiste perche' «non ho potuto guardare» non e' «va bene», e su una candidate e' rosso.",
     "perche_il_timestamp": "senza, una firma smette di valere quando scade il certificato invece che quando scade il suo uso. E' fra le misure pretese, non un extra.",
     "ordine_delle_operazioni": [
       "1. payload: assemblare l'albero: binario, librerie, dati, licenze",
@@ -289,8 +287,8 @@
     "windows": {
       "script": "scripts/check-windows-runtime.py",
       "domande": "architettura x86-64, chiusura degli import **e dei delay-import**, DLL fuori dall'albero contro l'insieme atteso esatto, percorsi del prefisso di costruzione cercati sia in ASCII sia in UTF-16",
-      "stato": "eseguito in modo **scoperta** su `windows-2022`, su entrambi i profili. Non ancora eseguito in modo verifica: manca il contratto, che si scrive rileggendo il rilievo.",
-      "che_cosa_e_provato": "che sappia **leggere** un PE: le sonde ne costruiscono uno byte per byte, con una import table e una delay-import table, e verificano che le legga entrambe. La corsa di scoperta ha aggiunto che sa leggere un artefatto **vero**. Non e' ancora «l'artefatto Windows e' conforme»: quello lo dira' la seconda corsa, quando ci sara' un contratto da applicare.",
+      "stato": "eseguito in modo verifica su `windows-2022`, su entrambi i profili; ultima distribuzione verde `d2b6bb8`",
+      "che_cosa_e_provato": "le sonde dimostrano che il verificatore legge import e delay-import di un PE; le corse native hanno inoltre confrontato gli artefatti veri con il contratto derivato dalla discovery e hanno eseguito il relocation smoke.",
       "perche_i_delay_import": "sono risolti alla prima chiamata invece che all'avvio: una DLL che comparisse solo li' sfuggirebbe a chi guardasse la sola import table, e si manifesterebbe molto dopo -- in esecuzione, su una macchina che non ce l'ha.",
       "che_cosa_ha_trovato_la_prima_corsa": "che il profilo `base` importa `vcruntime140.dll` senza spedirla. Il runner la possiede perche' ci gira Visual Studio; una macchina di destinazione pulita potrebbe non averla. Era un'ipotesi ereditata da Linux -- li' il profilo base non spedisce librerie perche' `libgcc_s` e `libm` sono garantite dal sistema -- e su Windows non regge: il runtime C ridistribuibile non e' un componente del sistema operativo. Il contratto lo diceva gia', «il runtime C si affronta spedendo cio' che serve», e il codice non lo faceva."
     },
@@ -325,8 +323,8 @@
       "niente_insiemi_larghi": "non si ammettono `C:\\\\Windows\\\\*`, il `PATH`, ne' «qualunque DLL Microsoft». Un insieme largo non si accorge di cio' che smette di essere spedito e viene preso dal sistema -- che e' esattamente il difetto per cui l'insieme esatto esiste.",
       "il_commit_che_chiude": "un commit successivo, e non la corsa, mette nel lock l'insieme esatto **per profilo** e il **digest del rilievo** da cui la decisione viene. Il digest e' cio' che lega il contratto alla misura: senza, il contratto sarebbe una lista di nomi senza provenienza."
     },
-    "seconda_corsa": "confronta il reale con l'atteso e puo' diventare verde. Aggiunge inoltre il relocation smoke Windows: costruzione in A, archivio, cancellazione di A, estrazione in B, directory corrente estranea, ambiente ostile, FileGDB scritto e riletto davvero.",
-    "stato": "la prima corsa non e' ancora stata eseguita: non c'e' un runner Windows in questo lotto"
+    "seconda_corsa": "ha confrontato il reale con l'atteso ed e' diventata verde. Ha aggiunto il relocation smoke Windows: costruzione in A, archivio, cancellazione di A, estrazione in B, directory corrente estranea, ambiente ostile, FileGDB scritto e riletto davvero.",
+    "stato": "discovery riletta e trasformata in contratto; verifica nativa verde in canale prova"
   },
   "piattaforme_non_distribuite": [
     {

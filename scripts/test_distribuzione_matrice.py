@@ -378,6 +378,35 @@ class SondeMatrice(unittest.TestCase):
                     f"fuori dal perimetro: «{riga.strip()[:100]}»",
                 )
 
+    def test_lo_stato_non_precede_più_la_macchina_di_qualifica(self) -> None:
+        """Un registro storico non deve descrivere come futura una prova già eseguita.
+
+        Costruttori, verificatori e gate sono diventati verdi senza che la
+        testata della matrice e il paragrafo Windows venissero aggiornati. È il
+        verso pessimista dello stale state: non autorizza troppo, ma rende il
+        registro inaffidabile e nasconde il blocco vero, che è la qualifica
+        finale sullo SHA congelato."""
+        testata = " ".join(
+            str(self.matrice[campo])
+            for campo in ("stato", "descrizione", "non_significa")
+        ).lower()
+        for frase_stantia in (
+            "nessun artefatto prodotto",
+            "gate che li verifica non esiste",
+            "nessuno smoke e' stato eseguito",
+        ):
+            self.assertNotIn(frase_stantia, testata)
+        self.assertIn("d2b6bb8", testata)
+        self.assertIn("qualifica", testata)
+
+        windows = next(
+            origine
+            for origine in self.matrice["contratto_gdal"]["origini"]
+            if origine["piattaforma"] == "windows-x86_64"
+        )
+        self.assertIn("verificat", windows["stato"])
+        self.assertNotIn("mai materializzato", windows["stato"])
+
     def test_la_firma_non_pretende_piu_developer_id(self) -> None:
         """Developer ID, notarizzazione e stapling sono usciti con macOS.
 

@@ -296,6 +296,42 @@ def stato_coerente() -> list[str]:
     return []
 
 
+def runbook_operativo() -> list[str]:
+    """Il runbook copre l'intero ciclo, non soltanto la costruzione.
+
+    Il criterio di uscita nomina installazione, aggiornamento, rollback e
+    recovery. Queste parole da sole non bastano: la procedura deve anche
+    verificare prima di attivare e vietare l'estrazione sopra una versione
+    esistente.
+    """
+    percorso = ROOT / "docs" / "RELEASE.md"
+    testo = percorso.read_text(encoding="utf-8")
+    apertura = "#### Installazione, aggiornamento, rollback e recovery"
+    chiusura = "### 6. Decisione finale di rilascio"
+    if apertura not in testo or chiusura not in testo:
+        return ["docs/RELEASE.md: sezione operativa del runbook assente"]
+    inizio = testo.index(apertura)
+    fine = testo.index(chiusura, inizio)
+    runbook = testo[inizio:fine].lower()
+    errori: list[str] = []
+    richiesti = (
+        "**installazione.**",
+        "**attivazione e aggiornamento.**",
+        "**rollback.**",
+        "**recovery dei dati.**",
+        "check-digest-manifesto.py",
+        "affiancate",
+        "non estrarre mai sopra",
+    )
+    for richiesto in richiesti:
+        if richiesto not in runbook:
+            errori.append(f"docs/RELEASE.md: runbook senza «{richiesto}»")
+    if "verificare il checksum" in runbook and "rinominare la directory" in runbook:
+        if runbook.index("verificare il checksum") > runbook.index("rinominare la directory"):
+            errori.append("docs/RELEASE.md: il runbook attiva prima di verificare")
+    return errori
+
+
 def riscrivi_stato() -> int:
     """Propaga la fonte strutturata nel documento.
 
@@ -357,6 +393,7 @@ CONTROLLI = (
     ("collegamenti relativi", collegamenti),
     ("raggiungibilita' da README", raggiungibili),
     ("RELEASE.md coerente con lo stato", stato_coerente),
+    ("runbook operativo completo", runbook_operativo),
     ("nessuna cronaca residua", cronaca_residua),
 )
 

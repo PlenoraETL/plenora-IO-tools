@@ -534,8 +534,8 @@ def main() -> int:
             if percorso.is_file():
                 z.write(percorso, f"{nome}/{percorso.relative_to(albero)}")
 
-    # 5. notarizzazione: non esiste su Windows. Il passo resta perche' l'ordine
-    # e' uno per tutte e tre le piattaforme.
+    # 5. notarizzazione: non esiste su Windows. Il passo resta perche' la sua
+    # posizione nell'ordine e' una decisione esplicita e stabile.
     print("5. notarizzazione: non applicabile su Windows", flush=True)
 
     # =====================================================================

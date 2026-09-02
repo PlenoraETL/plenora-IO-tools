@@ -158,6 +158,33 @@ class SondeControlli(unittest.TestCase):
             with self.subTest(controllo=nome):
                 self.assertEqual(controllo(), [], nome)
 
+    def test_un_runbook_senza_rollback_e_rosso(self) -> None:
+        """Costruire un archivio non dice come tornare alla versione prima."""
+        sorgente = (gate.ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
+        mutato = sorgente.replace("**Rollback.**", "**Ritorno.**", 1)
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            (radice / "docs").mkdir()
+            (radice / "docs" / "RELEASE.md").write_text(mutato, encoding="utf-8")
+            with mock.patch.object(gate, "ROOT", radice):
+                errori = gate.runbook_operativo()
+        self.assertTrue(any("**rollback.**" in errore for errore in errori), errori)
+
+    def test_un_runbook_che_attiva_prima_di_verificare_e_rosso(self) -> None:
+        sorgente = (gate.ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
+        mutato = sorgente.replace(
+            "verificare il checksum",
+            "rinominare la directory e poi verificare il checksum",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as temporanea:
+            radice = pathlib.Path(temporanea)
+            (radice / "docs").mkdir()
+            (radice / "docs" / "RELEASE.md").write_text(mutato, encoding="utf-8")
+            with mock.patch.object(gate, "ROOT", radice):
+                errori = gate.runbook_operativo()
+        self.assertTrue(any("prima di verificare" in errore for errore in errori), errori)
+
 
 class SondeStatoGenerato(unittest.TestCase):
     """Il blocco di stato e' reso dalla fonte, non riscritto a mano."""

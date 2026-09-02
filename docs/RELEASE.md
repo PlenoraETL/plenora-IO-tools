@@ -803,7 +803,7 @@ di valere quando scade il certificato invece che quando scade il suo uso.
 
 #### L'ordine delle operazioni
 
-Otto passi, uguali su tutte e tre le piattaforme. Ognuno dipende dai byte
+Otto passi, uguali su entrambe le piattaforme distribuite. Ognuno dipende dai byte
 prodotti dal precedente, e invertirne due produce un artefatto le cui verifiche
 parlano di un file diverso da quello che si consegna.
 
@@ -823,7 +823,7 @@ già nei manifesti degli artefatti di prova con stato `non_richiesta`, e il
 giorno in cui arriverà un certificato non cambierà nulla di strutturale.
 Certificati e segreti restano un blocco fuori da questo repository.
 
-#### Windows x86_64 — fissata, non ancora costruita
+#### Windows x86_64 — fissata e verificata in canale prova
 
 Il lock c'è ed è coerente: `scripts/windows-gdal-lock.json`, conda-forge, GDAL
 3.9.3 con binding della stessa serie. La catena precedente era OSGeo4W e
@@ -832,21 +832,22 @@ la versione per farla compilare — si compilava l'ABI di una serie contro la
 libreria di un'altra, e nessun gate lo vedeva perché la forzatura mascherava
 proprio la condizione che avrebbe fermato la build.
 
-Esistono il costruttore (`scripts/costruisci-artefatto-windows.py`) e il
-verificatore nativo (`scripts/check-windows-runtime.py`). Nessuno dei due ha
-mai visto un artefatto vero: sono provati su PE costruiti byte per byte dalle
-sonde, il che dimostra che sanno leggere un PE — non che l'artefatto sia
-conforme.
+Il costruttore (`scripts/costruisci-artefatto-windows.py`) e il verificatore
+nativo (`scripts/check-windows-runtime.py`) sono stati eseguiti su entrambi i
+profili. L'ultima distribuzione verde, su `d2b6bb8`, ha costruito gli archivi,
+ricalcolato i digest sull'albero estratto, verificato import e delay-import,
+eseguito lo smoke e il relocation smoke e consegnato al gate tutti i referti
+attesi. Erano artefatti di prova e non qualificano la revisione corrente.
 
-##### Due corse, e la prima non qualifica
+##### Come è stato derivato il contratto Windows
 
-Manca l'insieme delle DLL di sistema attese, e **non si scrive a tavolino**:
+L'insieme delle DLL di sistema attese **non è stato scritto a tavolino**:
 dipende da come conda-forge ha compilato GDAL per win-64, e l'unico modo di
-saperlo è guardare un artefatto vero. Scriverlo a mente sarebbe inventare una
-soglia e poi verificarla.
+saperlo era guardare un artefatto vero. Scriverlo a mente avrebbe significato
+inventare una soglia e poi verificarla.
 
-**Prima corsa — scoperta.** Costruisce, misura, scrive
-`windows-runtime-discovery.json`, lo carica come artefatto, e termina **rossa**.
+**Prima corsa — scoperta.** Ha costruito, misurato e scritto
+`windows-runtime-discovery.json`, lo ha caricato come artefatto ed è terminata **rossa**.
 Non tocca il lock né il repository. Il rosso non è un difetto trovato: è
 l'assenza di una revisione umana. Una corsa di scoperta che potesse diventare
 verde da sola scriverebbe il proprio contratto, e un contratto scritto da ciò
@@ -857,7 +858,7 @@ ritardati, DLL interne, API-set, DLL esterne, percorsi del prefisso di
 costruzione incorporati, architettura di ogni PE — e da dove viene la misura:
 runner, sistema, SHA sorgente, digest del lock.
 
-**Fra le due corse.** Ogni dipendenza si classifica a mano in una delle quattro
+**Fra le due corse.** Ogni dipendenza è stata classificata in una delle quattro
 classi:
 
 | classe | significa |
@@ -873,14 +874,62 @@ deciso che cosa sia. Non si ammettono insiemi larghi — `C:\Windows\*`, il
 ciò che smette di essere spedito e viene preso dal sistema, che è esattamente
 il difetto per cui l'insieme esatto esiste.
 
-Un **commit successivo**, e non la corsa, mette nel lock l'insieme esatto per
+Un **commit successivo**, e non la corsa, ha messo nel lock l'insieme esatto per
 profilo e il digest del rilievo da cui la decisione viene. Il digest è ciò che
 lega il contratto alla misura.
 
-**Seconda corsa.** Confronta il reale con l'atteso e può diventare verde.
-Aggiunge il relocation smoke Windows: costruzione in A, archivio, cancellazione
-di A, estrazione in B, directory corrente estranea, ambiente ostile, FileGDB
-scritto e riletto davvero.
+**Seconda corsa.** Ha confrontato il reale con l'atteso ed è diventata verde.
+Il relocation smoke Windows costruisce in A, archivia, cancella A, estrae in B,
+usa una directory corrente estranea e un ambiente ostile, quindi scrive e
+rilegge davvero un FileGDB.
+
+#### Installazione, aggiornamento, rollback e recovery
+
+Gli archivi sono installazioni **affiancate**, non aggiornamenti in-place. La
+directory estratta è immutabile: modificarne un file invalida manifesto,
+checksum e qualifica.
+
+**Installazione.** Scaricare insieme archivio, file `.sha256` e provenance;
+verificare il checksum prima di estrarre. Su Linux, dalla directory che contiene
+entrambi, usare `sha256sum -c <file>.sha256`. Su Windows confrontare il valore
+nel sidecar con `(Get-FileHash -Algorithm SHA256 <file>).Hash.ToLowerInvariant()`:
+stampare l'hash senza confrontarlo non è una verifica. Estrarre in una directory
+temporanea sullo stesso filesystem della destinazione e verificare i digest:
+
+```sh
+python3 scripts/check-digest-manifesto.py --albero <directory-estratta>
+```
+
+Controllare che `MANIFEST.json` riporti versione, piattaforma, profilo e canale
+attesi. Eseguire `<directory-estratta>/bin/plenora-io[.exe] --version` e `catalog`;
+per una candidate usare inoltre i referti dello smoke prodotto dal workflow,
+non sostituirli con una prova nell'albero sorgente. Solo dopo queste verifiche
+rinominare la directory temporanea col nome definitivo. Non estrarre mai sopra
+una versione già presente.
+
+**Attivazione e aggiornamento.** Il programma non installa un servizio e non
+gestisce un collegamento `current`: il supervisore del deployment deve puntare
+al percorso assoluto del binario scelto. Per aggiornare, installare la nuova
+versione affiancata, verificarla, fermare le nuove invocazioni, cambiare quel
+solo percorso e riavviare. Conservare la directory precedente fino alla fine
+della finestra di osservazione. Profilo e versione sono parte dell'identità:
+passare da `base` a `filegdb` non è una sostituzione trasparente.
+
+**Rollback.** Fermare le nuove invocazioni, ripristinare nel supervisore il
+percorso assoluto della directory precedente, riavviare e ripetere `--version`
+e `catalog`. Non copiare file dalla nuova installazione nella vecchia e non
+riusare il runtime GDAL di un'altra versione. La CLI è stateless: il rollback
+del binario non migra né ripara gli output già pubblicati.
+
+**Recovery dei dati.** Una busta con `remote_effect: none` non ha lasciato una
+destinazione visibile e il comando può essere ripetuto dopo aver corretto la
+causa. Con `remote_effect: partial` e `retry: requires_recovery` non rilanciare
+alla cieca: isolare la destinazione, inventariare i companion già visibili e
+applicare la procedura Shapefile di `docs/PRODUCT.md` prima di ritentare. Dopo
+un kill forzato vale la stessa cautela, perché non esiste una busta che possa
+certificare lo stato. Gli spool non richiedono pulizia: sono file senza nome;
+lo staging ordinario viene rimosso al rientro cooperativo, ma non va assunto
+dopo la terminazione forzata.
 
 ### 6. Decisione finale di rilascio
 

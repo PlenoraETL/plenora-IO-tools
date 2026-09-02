@@ -564,7 +564,7 @@ deve poterlo leggere invece di scoprirlo eseguendo `catalog`.
 
 ### Il runtime è fissato
 
-GDAL **3.9.3** su tutte e tre le piattaforme, da conda-forge. Non è una
+GDAL **3.9.3** su entrambe le piattaforme distribuite, da conda-forge. Non è una
 preferenza: oggi la CI misura FileGDB in scrittura *assente* su Ubuntu 22.04 e
 *presente* su 24.04. È la distribuzione a decidere che cosa il prodotto sa
 fare, e un artefatto che eredita quella decisione non ha un'identità stabile.
@@ -584,10 +584,10 @@ dichiarava una libreria 3.10.3 con binding 3.6.0 e l'installatore forzava la
 versione per farla compilare. Nessun gate lo vedeva, perché la forzatura
 mascherava proprio la condizione che avrebbe fermato la build.
 
-Una catena sola per tutte e tre. Windows veniva da OSGeo4W, con un formato di
-lock proprio; ora prende da conda-forge come le altre. Tre origini diverse per
-la stessa versione non danno la stessa identità, e la differenza si sarebbe
-vista solo a valle.
+Una catena sola per entrambe. Windows veniva da OSGeo4W, con un formato di
+lock proprio; ora prende da conda-forge come Linux. Origini diverse per la
+stessa versione non danno la stessa identità, e la differenza si sarebbe vista
+solo a valle.
 
 Una versione uguale resta la **precondizione** perché la capability sia uguale,
 non la prova: la stessa versione compilata con opzioni diverse dà driver
