@@ -45,6 +45,11 @@ const RIGHE: usize = 40_000;
 /// potrebbe far finire il figlio prima che il padre lo segnali: la sonda
 /// diventerebbe rossa per un motivo che non c'entra con cio' che prova. Dieci
 /// volte piu' righe portano la finestra a qualche secondo.
+///
+/// `cfg(unix)` come il modulo che la usa: su Windows i segnali POSIX non ci
+/// sono, il modulo `segnale` non viene compilato, e una costante che nessuno
+/// legge e' un errore -- il workspace compila i test con `-D warnings`.
+#[cfg(unix)]
 const RIGHE_SEGNALE: usize = 400_000;
 
 const RIEMPIMENTO: usize = 320;
@@ -56,6 +61,9 @@ const OPZIONE_WKT: &str = "wkt_column=geom";
 const EXIT_LIMITE: i32 = 7;
 
 /// `128 + SIGINT`, l'exit code della categoria `Cancelled`.
+///
+/// La convenzione e' POSIX, e con lei il modulo che la usa.
+#[cfg(unix)]
 const EXIT_ANNULLATO: i32 = 130;
 
 const fn binario() -> &'static str {

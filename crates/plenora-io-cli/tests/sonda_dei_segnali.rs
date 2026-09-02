@@ -27,6 +27,14 @@
 //! copia. Una copia sarebbe potuta divergere, e questa sonda avrebbe continuato
 //! a provare un gestore che non esiste piu'.
 
+// Tutto questo file parla di segnali POSIX: la barriera, il secondo segnale, il
+// codice d'uscita `128 + SIGINT`. Su Windows non c'e' l'equivalente di cio' che
+// prova -- non un modo diverso di provarlo, proprio un'altra cosa -- e
+// compilarne meta' lascerebbe costanti e funzioni che nessuno legge, che con
+// `-D warnings` sono errori. Che il gestore compili su Windows lo dice gia'
+// `main.rs`, che include lo stesso file.
+#![cfg(unix)]
+
 #[path = "../src/segnali.rs"]
 mod segnali;
 
@@ -154,7 +162,6 @@ fn segnala(pid: u32) {
 ///
 /// La sonda verifica esplicitamente che il figlio sia vivo fra i due segnali:
 /// e' l'affermazione che rende il risultato una proprieta' invece di una corsa.
-#[cfg(unix)]
 #[test]
 fn il_secondo_segnale_fa_uscire_il_processo_con_centotrenta() {
     let dir = tempfile::tempdir().unwrap();
@@ -208,7 +215,6 @@ fn il_secondo_segnale_fa_uscire_il_processo_con_centotrenta() {
 /// La sonda raggiunge il ramo installando due volte: `ctrlc` ammette un gestore
 /// per processo, e il secondo tentativo e' l'unico modo di far fallire
 /// `set_handler` senza una piattaforma che non lo supporti.
-#[cfg(unix)]
 #[test]
 fn un_secondo_gestore_e_un_rifiuto_tipizzato_non_una_riga_di_testo() {
     let primo = segnali::installa_gestore_dei_segnali();
