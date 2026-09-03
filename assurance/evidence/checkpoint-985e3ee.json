@@ -1,0 +1,770 @@
+{
+  "schema_version": 1,
+  "descrizione": "Evidenza della qualifica tecnica di 985e3ee. Registra misure gia' concluse: nessuna campagna e' stata rieseguita per scriverla.",
+  "esito": "S9 checkpoint level 2 passed",
+  "non_significa": "che la release sia autorizzabile, che la candidate 2.0.0 sia aperta, o che non esistano altri difetti. Dice che nel **budget misurato** -- e i budget sono scritti qui sotto, uno per campagna -- non e' emerso alcun finding. Un budget e' un limite, non una dimostrazione di assenza: leggere «zero finding» come «nessun difetto» sarebbe la stessa sostituzione che questo repository ha gia' incontrato fra «la macchina funziona» e «l'artefatto e' qualificato».",
+  "release_authorized": false,
+  "corsa": {
+    "revisione_iniziale": "985e3ee8edafa4cfaac6138650a8011edf9d58c5",
+    "revisione_finale": "985e3ee8edafa4cfaac6138650a8011edf9d58c5",
+    "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
+    "nota": "revisione e impronta finali sono **rilette** a fine corsa, non ristampate da cio' che la testa aveva acquisito: una tautografia non e' una misura.",
+    "albero_all_avvio": "pulito, 0 file non committati",
+    "base_diagnostica": "17875e7",
+    "perche_questa_base": "e' il commit da cui `985e3ee` discende: il differenziale misura esattamente le righe che questa revisione ha introdotto, cioe' la difesa GeoParquet e la sua regressione. Una corsa precedente aveva lasciato la diagnostica a `n/d` per una base non impostata, ed e' stata rifatta: un'evidenza di congelamento con `n/d` proprio sulla correzione che la motiva sarebbe formalmente debole.",
+    "registro_dei_passi": "il registro contro cui questa evidenza si verifica e' `assurance/registries/passi-del-checkpoint.json`.",
+    "percorso_dei_log": "`.s9-checkpoint/985e3ee8edafa4cfaac6138650a8011edf9d58c5-attempt-2`, sul bind mount dell'host e ignorata da git. I log sono copiati fuori dalla directory temporanea della corsa **prima** di calcolarne il manifest.",
+    "una_directory_per_tentativo": "`<sha>-attempt-<n>`, nuova e vuota a ogni corsa: log di una corsa precedente riusati verrebbero attribuiti a quella nuova, o entrerebbero nel suo manifest."
+  },
+  "riconciliazione": {
+    "identificatori_distinti": 80,
+    "eseguiti": 80,
+    "verdi": 80,
+    "omessi": 0,
+    "falliti": 0,
+    "duplicati": 0,
+    "metodo": "i conteggi sono **derivati** dall'elenco dei passi che la corsa registra, non accettati dal sommario dello strumento.",
+    "insieme_dichiarato": "assurance/registries/passi-del-checkpoint.json",
+    "passi": [
+      {
+        "id": "sonde_checkpoint",
+        "esito": "verde",
+        "log": "sonde_checkpoint.log"
+      },
+      {
+        "id": "fmt",
+        "esito": "verde",
+        "log": "fmt.log"
+      },
+      {
+        "id": "clippy",
+        "esito": "verde",
+        "log": "clippy.log"
+      },
+      {
+        "id": "clippy_sicurezza",
+        "esito": "verde",
+        "log": "clippy_sicurezza.log"
+      },
+      {
+        "id": "clippy_default",
+        "esito": "verde",
+        "log": "clippy_default.log"
+      },
+      {
+        "id": "test",
+        "esito": "verde",
+        "log": "test.log"
+      },
+      {
+        "id": "test_default",
+        "esito": "verde",
+        "log": "test_default.log"
+      },
+      {
+        "id": "sonde_quartetto",
+        "esito": "verde",
+        "log": "sonde_quartetto.log"
+      },
+      {
+        "id": "check_quartetto",
+        "esito": "verde",
+        "log": "check_quartetto.log"
+      },
+      {
+        "id": "sonde_errori_redatti",
+        "esito": "verde",
+        "log": "sonde_errori_redatti.log"
+      },
+      {
+        "id": "check_errori_redatti",
+        "esito": "verde",
+        "log": "check_errori_redatti.log"
+      },
+      {
+        "id": "sonde_niente_leak",
+        "esito": "verde",
+        "log": "sonde_niente_leak.log"
+      },
+      {
+        "id": "check_niente_leak",
+        "esito": "verde",
+        "log": "check_niente_leak.log"
+      },
+      {
+        "id": "sonde_wkb_limits",
+        "esito": "verde",
+        "log": "sonde_wkb_limits.log"
+      },
+      {
+        "id": "check_wkb_limits",
+        "esito": "verde",
+        "log": "check_wkb_limits.log"
+      },
+      {
+        "id": "sonde_capability_ostile",
+        "esito": "verde",
+        "log": "sonde_capability_ostile.log"
+      },
+      {
+        "id": "check_capability_ostile",
+        "esito": "verde",
+        "log": "check_capability_ostile.log"
+      },
+      {
+        "id": "prove_di_confine",
+        "esito": "verde",
+        "log": "prove_di_confine.log"
+      },
+      {
+        "id": "sonde_semi_s12",
+        "esito": "verde",
+        "log": "sonde_semi_s12.log"
+      },
+      {
+        "id": "semi_s12",
+        "esito": "verde",
+        "log": "semi_s12.log"
+      },
+      {
+        "id": "sonde_metadati_geoparquet",
+        "esito": "verde",
+        "log": "sonde_metadati_geoparquet.log"
+      },
+      {
+        "id": "check_metadati_geoparquet",
+        "esito": "verde",
+        "log": "check_metadati_geoparquet.log"
+      },
+      {
+        "id": "sonde_schemi_geoparquet",
+        "esito": "verde",
+        "log": "sonde_schemi_geoparquet.log"
+      },
+      {
+        "id": "check_schemi_geoparquet",
+        "esito": "verde",
+        "log": "check_schemi_geoparquet.log"
+      },
+      {
+        "id": "sonde_categorie_di_perdita",
+        "esito": "verde",
+        "log": "sonde_categorie_di_perdita.log"
+      },
+      {
+        "id": "check_categorie_di_perdita",
+        "esito": "verde",
+        "log": "check_categorie_di_perdita.log"
+      },
+      {
+        "id": "sonde_protocollo_v2",
+        "esito": "verde",
+        "log": "sonde_protocollo_v2.log"
+      },
+      {
+        "id": "check_protocollo_v2",
+        "esito": "verde",
+        "log": "check_protocollo_v2.log"
+      },
+      {
+        "id": "sonde_confine_v1",
+        "esito": "verde",
+        "log": "sonde_confine_v1.log"
+      },
+      {
+        "id": "check_confine_v1",
+        "esito": "verde",
+        "log": "check_confine_v1.log"
+      },
+      {
+        "id": "sonde_quarantena",
+        "esito": "verde",
+        "log": "sonde_quarantena.log"
+      },
+      {
+        "id": "check_quarantena",
+        "esito": "verde",
+        "log": "check_quarantena.log"
+      },
+      {
+        "id": "sonde_prevalidazione",
+        "esito": "verde",
+        "log": "sonde_prevalidazione.log"
+      },
+      {
+        "id": "check_prevalidazione",
+        "esito": "verde",
+        "log": "check_prevalidazione.log"
+      },
+      {
+        "id": "sonde_identita",
+        "esito": "verde",
+        "log": "sonde_identita.log"
+      },
+      {
+        "id": "check_identita",
+        "esito": "verde",
+        "log": "check_identita.log"
+      },
+      {
+        "id": "sonde_release",
+        "esito": "verde",
+        "log": "sonde_release.log"
+      },
+      {
+        "id": "check_release",
+        "esito": "verde",
+        "log": "check_release.log"
+      },
+      {
+        "id": "sonde_distribuzione",
+        "esito": "verde",
+        "log": "sonde_distribuzione.log"
+      },
+      {
+        "id": "sonde_licenze",
+        "esito": "verde",
+        "log": "sonde_licenze.log"
+      },
+      {
+        "id": "sonde_dist_completa",
+        "esito": "verde",
+        "log": "sonde_dist_completa.log"
+      },
+      {
+        "id": "sonde_verificatori_nativi",
+        "esito": "verde",
+        "log": "sonde_verificatori_nativi.log"
+      },
+      {
+        "id": "sonde_sbom",
+        "esito": "verde",
+        "log": "sonde_sbom.log"
+      },
+      {
+        "id": "sonde_action_pins",
+        "esito": "verde",
+        "log": "sonde_action_pins.log"
+      },
+      {
+        "id": "check_action_pins",
+        "esito": "verde",
+        "log": "check_action_pins.log"
+      },
+      {
+        "id": "sonde_toolchain",
+        "esito": "verde",
+        "log": "sonde_toolchain.log"
+      },
+      {
+        "id": "check_toolchain",
+        "esito": "verde",
+        "log": "check_toolchain.log"
+      },
+      {
+        "id": "sonde_coverage_excl",
+        "esito": "verde",
+        "log": "sonde_coverage_excl.log"
+      },
+      {
+        "id": "sonde_filegdb",
+        "esito": "verde",
+        "log": "sonde_filegdb.log"
+      },
+      {
+        "id": "sonde_wkb_condiviso",
+        "esito": "verde",
+        "log": "sonde_wkb_condiviso.log"
+      },
+      {
+        "id": "corpus_condiviso",
+        "esito": "verde",
+        "log": "corpus_condiviso.log"
+      },
+      {
+        "id": "sonde_audit_ignores",
+        "esito": "verde",
+        "log": "sonde_audit_ignores.log"
+      },
+      {
+        "id": "check_dependency_pins",
+        "esito": "verde",
+        "log": "check_dependency_pins.log"
+      },
+      {
+        "id": "check_gdal_fork",
+        "esito": "verde",
+        "log": "check_gdal_fork.log"
+      },
+      {
+        "id": "sonde_fork",
+        "esito": "verde",
+        "log": "sonde_fork.log"
+      },
+      {
+        "id": "check_dxf_fork",
+        "esito": "verde",
+        "log": "check_dxf_fork.log"
+      },
+      {
+        "id": "check_no_legacy_budget",
+        "esito": "verde",
+        "log": "check_no_legacy_budget.log"
+      },
+      {
+        "id": "check_permit_boundary",
+        "esito": "verde",
+        "log": "check_permit_boundary.log"
+      },
+      {
+        "id": "sonde_fallback",
+        "esito": "verde",
+        "log": "sonde_fallback.log"
+      },
+      {
+        "id": "assurance_fallbacks",
+        "esito": "verde",
+        "log": "assurance_fallbacks.log"
+      },
+      {
+        "id": "sonde_docset",
+        "esito": "verde",
+        "log": "sonde_docset.log"
+      },
+      {
+        "id": "check_docset",
+        "esito": "verde",
+        "log": "check_docset.log"
+      },
+      {
+        "id": "sonde_assurance_n1",
+        "esito": "verde",
+        "log": "sonde_assurance_n1.log"
+      },
+      {
+        "id": "assurance_n1_integrita",
+        "esito": "verde",
+        "log": "assurance_n1_integrita.log"
+      },
+      {
+        "id": "sonde_assurance_n1_prove",
+        "esito": "verde",
+        "log": "sonde_assurance_n1_prove.log"
+      },
+      {
+        "id": "assurance_n1_prove",
+        "esito": "verde",
+        "log": "assurance_n1_prove.log"
+      },
+      {
+        "id": "check_filegdb_catalog",
+        "esito": "verde",
+        "log": "check_filegdb_catalog.log"
+      },
+      {
+        "id": "fuzz_replay",
+        "esito": "verde",
+        "log": "fuzz_replay.log"
+      },
+      {
+        "id": "fuzz_smoke",
+        "esito": "verde",
+        "log": "fuzz_smoke.log"
+      },
+      {
+        "id": "coverage_pulizia",
+        "esito": "verde",
+        "log": "coverage_pulizia.log"
+      },
+      {
+        "id": "coverage_misura",
+        "esito": "verde",
+        "log": "coverage_misura.log"
+      },
+      {
+        "id": "coverage_export",
+        "esito": "verde",
+        "log": "coverage_export.log"
+      },
+      {
+        "id": "coverage_report_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_non_vuoto.log"
+      },
+      {
+        "id": "check_coverage_exclusions",
+        "esito": "verde",
+        "log": "check_coverage_exclusions.log"
+      },
+      {
+        "id": "coverage_export_cli",
+        "esito": "verde",
+        "log": "coverage_export_cli.log"
+      },
+      {
+        "id": "coverage_report_cli_non_vuoto",
+        "esito": "verde",
+        "log": "coverage_report_cli_non_vuoto.log"
+      },
+      {
+        "id": "coverage_soglia_dal_report",
+        "esito": "verde",
+        "log": "coverage_soglia_dal_report.log"
+      },
+      {
+        "id": "coverage_soglia_controprova",
+        "esito": "verde",
+        "log": "coverage_soglia_controprova.log"
+      },
+      {
+        "id": "revisione_invariata",
+        "esito": "verde",
+        "log": null
+      },
+      {
+        "id": "albero_invariato",
+        "esito": "verde",
+        "log": null
+      }
+    ]
+  },
+  "misure": {
+    "fuzz_replay": {
+      "input": 77231,
+      "target": 15,
+      "target_totali": 15,
+      "crash": 0,
+      "quando": "dentro il checkpoint, passo `fuzz_replay`"
+    },
+    "fuzz_smoke": {
+      "target_eseguiti": 15,
+      "target_totali": 15,
+      "finding": 0,
+      "quarantena": 0
+    },
+    "copertura": {
+      "lcov_percentuale": 88.91,
+      "lcov_righe_coperte": 37808,
+      "lcov_righe_strumentate": 42524,
+      "cargo_lines_percentuale": 87.42,
+      "soglia": 80.0,
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-io-cli`, `plenora-bench` e `plenora-fuzz`, ed e' lo stesso della diagnostica differenziale: due misure con perimetri diversi porterebbero lo stesso nome su insiemi diversi.",
+      "perche_due_numeri": "88,91% viene dal report lcov, 87,42% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
+    },
+    "diagnostica_differenziale": {
+      "base": "17875e7",
+      "esito": "78.64%",
+      "righe_cambiate_eseguibili": 220,
+      "coperte": 173,
+      "scoperte": 47,
+      "cambiate_non_eseguibili": 329,
+      "righe_scoperte": [
+        "crates/driver-geoparquet/src/lib.rs:471",
+        "crates/driver-geoparquet/src/lib.rs:477",
+        "crates/driver-geoparquet/src/lib.rs:478",
+        "crates/driver-geoparquet/src/lib.rs:479",
+        "crates/driver-geoparquet/src/lib.rs:480",
+        "crates/driver-geoparquet/src/lib.rs:481",
+        "crates/driver-geoparquet/src/lib.rs:482",
+        "crates/driver-geoparquet/src/lib.rs:483",
+        "crates/driver-geoparquet/src/lib.rs:484",
+        "crates/driver-geoparquet/src/lib.rs:485",
+        "crates/driver-geoparquet/src/lib.rs:561",
+        "crates/driver-geoparquet/src/lib.rs:581",
+        "crates/driver-geoparquet/src/lib.rs:583",
+        "crates/driver-geoparquet/src/lib.rs:590",
+        "crates/driver-geoparquet/src/lib.rs:591",
+        "crates/driver-geoparquet/src/lib.rs:592",
+        "crates/driver-geoparquet/src/lib.rs:593",
+        "crates/driver-geoparquet/src/lib.rs:639",
+        "crates/driver-geoparquet/src/lib.rs:640",
+        "crates/driver-geoparquet/src/lib.rs:641",
+        "crates/driver-geoparquet/src/lib.rs:642",
+        "crates/driver-geoparquet/src/lib.rs:643",
+        "crates/driver-geoparquet/src/lib.rs:644",
+        "crates/driver-geoparquet/src/lib.rs:645",
+        "crates/driver-geoparquet/src/lib.rs:646",
+        "crates/driver-geoparquet/src/lib.rs:647",
+        "crates/driver-geoparquet/src/lib.rs:648",
+        "crates/driver-geoparquet/src/lib.rs:649",
+        "crates/driver-geoparquet/src/lib.rs:650",
+        "crates/driver-geoparquet/src/lib.rs:652",
+        "crates/driver-geoparquet/src/lib.rs:653",
+        "crates/driver-geoparquet/src/lib.rs:654",
+        "crates/driver-geoparquet/src/lib.rs:655",
+        "crates/driver-geoparquet/src/lib.rs:656",
+        "crates/driver-geoparquet/src/lib.rs:657",
+        "crates/driver-geoparquet/src/lib.rs:663",
+        "crates/driver-geoparquet/src/lib.rs:664",
+        "crates/driver-geoparquet/src/lib.rs:665",
+        "crates/driver-geoparquet/src/lib.rs:666",
+        "crates/driver-geoparquet/src/lib.rs:668",
+        "crates/driver-geoparquet/src/lib.rs:669",
+        "crates/driver-geoparquet/src/lib.rs:4265",
+        "crates/driver-geoparquet/src/lib.rs:4266",
+        "crates/driver-geoparquet/src/lib.rs:4267",
+        "crates/driver-geoparquet/src/lib.rs:4275",
+        "crates/driver-geoparquet/src/lib.rs:4280",
+        "crates/driver-geoparquet/src/livelli.rs:266"
+      ],
+      "ragione": "misurata: 220 righe cambiate ed eseguibili fra `17875e7` e `985e3ee`, 173 coperte e 47 no. Le 329 non eseguibili sono commenti e dichiarazioni, fuori misura per costruzione.",
+      "che_cosa_sono_le_scoperte": "quarantasette righe, tutte in `driver-geoparquet`. La meta' piu' grossa -- da `lib.rs:639` a `lib.rs:669` -- e' `valida_livelli_v2`: **il ramo V2 della difesa nuova non e' esercitato da nessun test**. Nessuno dei semi versionati porta una `DataPageV2`, quindi quel codice e' scritto, compilato e mai percorso. Le altre riguardano rami di `inizio_valori_v1` -- fra cui `BIT_PACKED` -- e asserzioni di test che il percorso preso non raggiunge. Non e' un blocco e non e' un difetto noto: e' una superficie dichiarata e non provata, ed e' esattamente cio' che questa diagnostica esiste per rendere visibile. Chiuderla vuol dire un seme con una data page V2, che oggi non esiste.",
+      "perche_non_e_un_gate": "la diagnostica non ferma la corsa. Il suo silenzio pero' non va letto come un verde: qui non e' silenziosa, e dice una cosa precisa."
+    }
+  },
+  "qualifica_esterna": {
+    "nota": "corse su GitHub, sulla stessa revisione. Non fanno parte del checkpoint e sono registrate qui perche' qualificano lo stesso albero su macchine che non sono questa.",
+    "ci": {
+      "corsa": 33653205211,
+      "revisione": "985e3ee8edafa4cfaac6138650a8011edf9d58c5",
+      "job_verdi": 7,
+      "job_totali": 7,
+      "job": [
+        "rust",
+        "windows",
+        "fuzz",
+        "coverage",
+        "gdal-linux-matrix (ubuntu-22.04, false)",
+        "gdal-linux-matrix (ubuntu-24.04, true)",
+        "macos-publish"
+      ]
+    },
+    "distribuzione": {
+      "corsa": 33660533335,
+      "revisione": "985e3ee8edafa4cfaac6138650a8011edf9d58c5",
+      "canale": "prova",
+      "versione": "0.0.0-prova",
+      "avvio": "workflow_dispatch",
+      "referti_attesi": 24,
+      "referti_trovati": 24,
+      "verifiche_per_artefatto": {
+        "linux-base": {
+          "digest-manifesto": "verde",
+          "licenze-artefatto": "verde",
+          "provenance": "verde",
+          "relocation": "verde",
+          "runtime": "verde",
+          "smoke-profilo": "verde"
+        },
+        "linux-filegdb": {
+          "digest-manifesto": "verde",
+          "licenze-artefatto": "verde",
+          "provenance": "verde",
+          "relocation": "verde",
+          "runtime": "verde",
+          "smoke-profilo": "verde"
+        },
+        "windows-base": {
+          "digest-manifesto": "verde",
+          "licenze-artefatto": "verde",
+          "provenance": "verde",
+          "relocation": "verde",
+          "runtime": "verde",
+          "smoke-profilo": "verde"
+        },
+        "windows-filegdb": {
+          "digest-manifesto": "verde",
+          "licenze-artefatto": "verde",
+          "provenance": "verde",
+          "relocation": "verde",
+          "runtime": "verde",
+          "smoke-profilo": "verde"
+        }
+      },
+      "artefatti": [
+        {
+          "piattaforma": "linux-x86_64",
+          "profilo": "base",
+          "archivio_sha256": "0120f973d4cabf27e1799a1fd1b1689fdbb5867c4a3dc67addef5e612314910e",
+          "byte": 8579061,
+          "revisione": "985e3ee8edafa4cfaac6138650a8011edf9d58c5"
+        },
+        {
+          "piattaforma": "linux-x86_64",
+          "profilo": "filegdb",
+          "archivio_sha256": "cebf376e459e368562255d1090b1b268dce1dde63d1b5c57dc5283640e1b27cc",
+          "byte": 64428113,
+          "revisione": "985e3ee8edafa4cfaac6138650a8011edf9d58c5"
+        },
+        {
+          "piattaforma": "windows-x86_64",
+          "profilo": "base",
+          "archivio_sha256": "75f8765791def9e15902bb8e106fa3e60c34cf90032f3eb164c7099b7825b1e9",
+          "byte": 8715552,
+          "revisione": "985e3ee8edafa4cfaac6138650a8011edf9d58c5"
+        },
+        {
+          "piattaforma": "windows-x86_64",
+          "profilo": "filegdb",
+          "archivio_sha256": "c74d94bb26bfd93e2bfee95554f1d7d06657316426be0f5115fbc9628fb3f252",
+          "byte": 47787870,
+          "revisione": "985e3ee8edafa4cfaac6138650a8011edf9d58c5"
+        }
+      ],
+      "perche_versione_di_prova": "gli artefatti portano `non_release: true` e il gate li rifiuta ovunque si pretenda una candidate. Chiamarli `2.0.0` li avrebbe resi confondibili con quelli che si consegneranno, che avranno checksum propri perche' saranno firmati."
+    }
+  },
+  "campagne_mirate": {
+    "soak": {
+      "perche": "criterio di uscita del punto 6 di `docs/RELEASE.md`: la smoke riattivata aveva trovato due difetti di famiglie diverse in due corse consecutive, e due su due non e' una statistica ma basta a non trattare quei due lettori come esplorati.",
+      "bersagli": {
+        "dxf_reader": {
+          "durata_secondi": 3602,
+          "esecuzioni": 1317651,
+          "finding": 0
+        },
+        "shp_reader": {
+          "durata_secondi": 3601,
+          "esecuzioni": 2760106,
+          "finding": 0
+        }
+      },
+      "reperti_totali": 0,
+      "parametri": "gli stessi della campagna: tetto RSS derivato dalla memoria disponibile, `-max_len=65536`, `-timeout=15`, semi versionati caricati nel corpus.",
+      "che_cosa_dice": "che nel budget di un'ora per bersaglio -- sessanta volte lo smoke ordinario, oltre quattro milioni di esecuzioni complessive -- non e' emerso alcun finding. E' una risposta alla domanda se la resa precedente fosse un arretrato o un ritmo, e depone per l'arretrato. Non dice che non ci siano altri difetti: dice che questo budget non ne ha trovati.",
+      "comando_preparatorio_non_valido": "lo script di soak invocava `cargo fuzz build dxf_reader shp_reader`, sintassi che quel sottocomando non accetta: cargo ha risposto con l'uso e un `--help`, visibile nel log. E' rimasto senza effetto sulla copertura del soak, perche' **ogni** `cargo fuzz run` costruisce il proprio target prima di eseguirlo, e le durate piene -- 3602 e 3601 secondi -- con i contatori di esecuzione lo mostrano. E' registrato qui invece di essere corretto in silenzio: un log con dentro un errore che nessuno nomina invita a dubitare del resto."
+    },
+    "replay_dopo_il_soak": {
+      "input": 76984,
+      "target": 15,
+      "crash": 0,
+      "perche_dopo": "il soak fa crescere il corpus locale. Il replay dentro il checkpoint ne ha rieseguiti 72262; questo, girato dopo, copre anche gli input che il soak ha prodotto.",
+      "determinismo": "`-runs=0`: nessuna mutazione, quindi due esecuzioni sulla stessa revisione danno lo stesso esito. E' cio' che ne fa un confronto prima/dopo, che una campagna -- che esplora -- non puo' essere."
+    }
+  },
+  "artefatti": {
+    "percorso_di_corsa": ".s9-checkpoint/985e3ee8edafa4cfaac6138650a8011edf9d58c5-attempt-1",
+    "file": 84,
+    "digest_manifest": "6f65059d47f08676994150fb11f92cb310b7299c87438974f91ede5b58cb0c6e",
+    "forma_del_manifest": "percorsi relativi ordinati, `percorso` NUL `sha256` LF, e sha256 dell'insieme. La forma e' fissata dal gate che lo ricalcola: un digest che nessuno puo' rifare e' una stringa.",
+    "risultato_della_corsa": "risultato.json",
+    "diagnostica_differenziale_nel_manifest": "`coverage_diff.log` e `coverage_diff_cli.log`, prodotti dal ramo che pretende `S9_CHECKPOINT_BASE`. Il gate li attende perche' l'evidenza dichiara una base, e li rifiuterebbe se non la dichiarasse.",
+    "manifest": {
+      "assurance_fallbacks.log": "8a8668bb71dc8a3abd033faf887bb6c98c2b8e41d786541c550720165c3454e3",
+      "assurance_n1_integrita.log": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
+      "assurance_n1_prove.log": "cc40a4307d568dceb9a897e456058870a9c78c142ec15f86ca99d1a31a0cbe14",
+      "catalog.json": "d309bf54f14e702b28153b181b7d426217300fe1d5f1d3b1c4ac52fa456d199a",
+      "check_action_pins.log": "29b3481a447b438d2ce42a336632978f5edbd8dee142d4c531c229566ecd297e",
+      "check_capability_ostile.log": "7fc1807b9dd03f681f5129090a626d0fad33fc13264a9988a55dfae5403b9d34",
+      "check_categorie_di_perdita.log": "4ce9a44d800a19c5b8376fdeae922112e27d4d99e4073d51bc6768757a234f81",
+      "check_confine_v1.log": "542f332bd3b461c45bd09e83f962c34df98e38f6303358cbe499f17129c841b1",
+      "check_coverage_exclusions.log": "ce86e077f00cd2f1f954ba0e99ac274a4575d51f8e8bb53d30e15061b1a5e96f",
+      "check_dependency_pins.log": "3f472480b7f82381eed29cd34314d7c6dd5fed5ba268437a3df868b7415edb71",
+      "check_docset.log": "21fddca1298b159a7e3a280e32393e21faa2efd32f15a0b63379cbd8b349836f",
+      "check_dxf_fork.log": "2bdcefd6e25d75e69d693e8d85baa101d6b04fbdea75e23ed6bf0cc763c1bf84",
+      "check_errori_redatti.log": "b4600a323e1d6820b3df96a9b4bf4e3b56865ea3d5faf435dbb404f1f21e41b9",
+      "check_filegdb_catalog.log": "48734bc0b3f577658b80445e60d070149f4f1655cb4105fa2dda4d6552a35b10",
+      "check_gdal_fork.log": "3b5270d0f9bfa21b84eab0510f163de8f71281fbbbef1a7e6b185ed29dc73d2a",
+      "check_identita.log": "275288b73c3baf22b00a013d921d574060a9112d5e89d7d38060d2bb026aa405",
+      "check_metadati_geoparquet.log": "ba4875feae70b56ae74989120da34d66ab91857430495510f756ed31ca7a335a",
+      "check_niente_leak.log": "0be5cf08693152c3b7c8644c3c89d10f0ff74c54d5cab13313dacdff44e11dae",
+      "check_no_legacy_budget.log": "c1ae5980ff49d62559f6e9fd6ed93cb6d7790ce160209ef328ecb6712ff2b447",
+      "check_permit_boundary.log": "727ffdcc7cc91e422d38d5e91811ffa1dc2b56b914e3e99c91c1ca4ed97c846f",
+      "check_prevalidazione.log": "00aa721844850cca6c828a758bd0cff97b28368bf620654d9aecf2b8c362d71e",
+      "check_protocollo_v2.log": "6a73bdb67bfbd5b249ac798016db1a3ecd8c87c30c3e05358f7c6fb3deb15970",
+      "check_quarantena.log": "625468389385490627ba011d3c87d7bcb048626e5a7ed8b0c47d0afb7a10a4d9",
+      "check_quartetto.log": "78e0c7f12b724428b48448233d03695bbebb25015d873308f04584e7c296c348",
+      "check_release.log": "e5a9c545d1d9447192bed8fc9bd3c4f2999c12f255ae630638f6b2b6abd18d40",
+      "check_schemi_geoparquet.log": "d5c76e7deea8bd22226fe04bdc3fe4dfe1b42eeeb917d1f05f97fcf7b97bc4f4",
+      "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
+      "check_wkb_limits.log": "2bf0334c47092d29bf84cf9331dd3b9cba75253dded84fdee2ab7454267b30ba",
+      "clippy.log": "06e26589e92199bbd8ffcc93f4016110aefd403ff4f5bceb7227fab6979d5bde",
+      "clippy_default.log": "6fe466edcd75645b817ab3d27083c4d76869c12f86f5bbbce23f8248c2b9b19d",
+      "clippy_sicurezza.log": "fa744e3ca7c71904305b2138cd9a4efba1eb659dc1ea3de2f3b9907737cb19ef",
+      "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
+      "coverage_diff.log": "ce6d160a55284855be6c9ff0ab2a47be38b89759917a24955ccbfc9da7a4cae4",
+      "coverage_diff_cli.log": "4b9d05fd880a435573bd944396c733d51c288f0f1bc0d07ae8c452ec21916693",
+      "coverage_export.log": "96ffb4a4f2232021eb638000370ea933a8d0073e6114873a776e6f59ed72d00a",
+      "coverage_export_cli.log": "48a6051b988036db03900fe855f1a21ba2ddd38539a9ddbe41db83977dce5831",
+      "coverage_misura.log": "f4e7ab5e781c940dc5f18a40e9fe5c67109cc93c6ae6b4a0a68a05a4c47e0891",
+      "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_cli_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "coverage_soglia_controprova.log": "3b8a0c54d2d46b2978c9d4badad7a23d7c4aa2deb3c4f443248ab1f6940cbf3a",
+      "coverage_soglia_dal_report.log": "00e78da6be0d8010c0c30aed8d68d8464dcda8625a90ced5bf42c7ee493eb124",
+      "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fuzz_replay.log": "6e1120c90f6fb1fb4061d6ad8c53b8e436f7fd48e7f0091da215e23e33f8315e",
+      "fuzz_smoke.log": "11c175c4d6564830c9a780017791fd2cfb2b29d08fab796a24259d9e695bccd3",
+      "lcov-completo.info": "bd3b37be77273a082946c80598ee8c11adedabf2658cdcdf3d7035c96f48edd1",
+      "lcov.info": "126dcee3d194de47980e80a55cc8f9545985b7de7af663662658fe5dd6cf1dd6",
+      "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
+      "risultato.json": "d7e15c7e952cb44f99128ca520eed58286f48db02a196d2a5f4efbc107fc574c",
+      "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
+      "sonde_action_pins.log": "591908f8ebbe623a3d3659dcfff3bb80ff781ef8db2ea993f6d24cd4581362b8",
+      "sonde_assurance_n1.log": "faab5ec2a0ebc586d22544f566d077541ad249b2f5baa75fe76a16940beca505",
+      "sonde_assurance_n1_prove.log": "e3084c00deb56403e872c8ffad495a83608c8b370c5620baeb9c7ed2603dcf50",
+      "sonde_audit_ignores.log": "65378dcad145da2497120819bebfc3c46534dce9714ce064b3d809a56654aca2",
+      "sonde_capability_ostile.log": "31d907088a6a999349a36b9995294fa8ad73f55b9160fedaf81eea9c0ca429b3",
+      "sonde_categorie_di_perdita.log": "a838dfa6c2e2f5ad04f8179a01dc289cf28e8eb5689b479b96b91b3f8b88da8a",
+      "sonde_checkpoint.log": "05364ce20d04a656d17a5d305dc134d1dbf9be5c5b0c94ab08f1fba1ce960664",
+      "sonde_confine_v1.log": "619c6a8aae5c39f275cd2b9f4f1e995795e2fa2456577ef55819471d28202978",
+      "sonde_coverage_excl.log": "7123a9236296d9e54dcf377fa276e70c6ae064a044dd9d9e6d9dc433789d34b1",
+      "sonde_dist_completa.log": "f9aae07dff9e6409538851f553448ba82ca2c09b98ae236599afdbad24efce43",
+      "sonde_distribuzione.log": "32aa25edd54a1b05b6e9e3c8ddbb6da32fabe2a44cf53c8ca4c376277a10f370",
+      "sonde_docset.log": "df057575c602a38256d4bac64bccca230f3b9f5cc1a60ba4533ff1a13ebda6b6",
+      "sonde_errori_redatti.log": "801524188e3685c494b3302dea7d76f2ce5465f79ea7636b33023966f00965f1",
+      "sonde_fallback.log": "3a1c4cd02a1576f2aafd89a805ce14566da40f26587c010179bb2611fcfbc795",
+      "sonde_filegdb.log": "87f1ae458e6d1d46a428078a154fbbcad6bac4f7263c5eff0ec3464055fbb84c",
+      "sonde_fork.log": "0696f1766b25566671c73418d1ae8ca5167261c6d45b948541b72a84ddb58baa",
+      "sonde_identita.log": "e73c3805f810fdcf3d0167ced7085c48306c9482a952ffb710551d230cdb3e51",
+      "sonde_licenze.log": "ffc13e44bfa873c9be950d25b97846497549088ea011fbcb829095baacfa5748",
+      "sonde_metadati_geoparquet.log": "a8c3e86dc7fb1d45c441d7cdb650f7aca0cdc116aac5801cbecb921258a66e46",
+      "sonde_niente_leak.log": "7066c0f75a6c6d848b6aa413102ffc77f94f706234a0c9e1e9c65a3d929e3152",
+      "sonde_prevalidazione.log": "811eabda5dc298da232b3c7953fbe433089645edff6f53063d91016c4136c0a2",
+      "sonde_protocollo_v2.log": "5668578c8e5b720fa45ae281b819022dc37530ddc23c44b4e6bef73faf8c931f",
+      "sonde_quarantena.log": "21c7e48d0b1ec908feef784bbce1fa55f2c9a7acf76382fa7578754a78bd1ed8",
+      "sonde_quartetto.log": "fc924f6e1fea3cec579bda3420051891bdf01c960fe5ca7e49fdfc8005bd9c0c",
+      "sonde_release.log": "7ef8a3fd2472f130809eb9a686db5ba68d4c0f95ed1a24c3c32f2f73716d79fa",
+      "sonde_sbom.log": "65a7554f318ad424ce212994127da70be2d51b8f29eb3757eec1f9c8350b9b1b",
+      "sonde_schemi_geoparquet.log": "91f13ce28125e918bc94ea6c6aba592dde0d5e272f22151247017f7fedf890bc",
+      "sonde_semi_s12.log": "a4dfc6ba8d8ee7f993f00a450146247a1360e5c1204cf97b042c9525cb23198e",
+      "sonde_toolchain.log": "ecd7ba5b75a44f1c6152f17499e61460ce25d58c558dcfaeb286981eaddf0335",
+      "sonde_verificatori_nativi.log": "f4dcd71922528e8edb9c7cc874857cecf22ff89fca0d77cb3ff8e92a2223b902",
+      "sonde_wkb_condiviso.log": "fe008aab760eb03ccac7578e2b84665b1b50b0d7f855b17a0c7a8d039435b658",
+      "sonde_wkb_limits.log": "eab4281419f49474c6773f172eab4705e82da9e9196e5418e92a366609bcb99e",
+      "test.log": "ed97e956e8996a61d9977eb633c81bad7242d6a2b67d9a4459487622948f7ec2",
+      "test_default.log": "507d49af13b293b3d92441158efb6f12555a10f37d7fe48fa95faaa88f88303e"
+    }
+  },
+  "cosa_chiude": {
+    "invarianti": [],
+    "invarianti_nota": "**nessuno**. Questa corsa qualifica tecnicamente una revisione; non chiude alcun invariante del contratto di release. I tre bloccanti restano quelli di prima, e due di essi non si chiudono da questo repository.",
+    "assurance_n1": "zero gruppi aperti su cinquanta, invariato.",
+    "regressione_trovata_dalla_revisione": {
+      "dove": "crates/driver-geoparquet",
+      "che_cosa": "un run bit-packed dei livelli di definizione piu' lungo della propria sezione faceva costruire ad arrow un intervallo fuori dal buffer -- `offset + len out of bounds`.",
+      "trovata_da": "il job `fuzz` della CI sulla revisione 5dedb9e",
+      "chiusa_da": "`livelli::valida_sezione`, con il seme versionato `fuzz/seeds/geoparquet_reader/livelli-run-oltre-la-sezione.parquet` e la controprova che rende rossa la regressione disattivando la sola difesa nuova."
+    },
+    "corse_sostituite": [
+      "assurance/evidence/checkpoint-c96ffac.json"
+    ],
+    "bloccanti_residui": [
+      "release.candidate-non-valida-per-head",
+      "sistema.qualifica-cross-component",
+      "distribuzione.artefatti-qualificati"
+    ],
+    "bloccanti_residui_nota": "`release.candidate-non-valida-per-head`: il workspace e' a 2.0.0 e la candidate pendente e' 1.0.1; il divario **e'** il blocco, e lo chiude una candidate nuova, non un allineamento di campi. `sistema.qualifica-cross-component`: `release/system-rc-gate.json` e' `not_satisfied`, l'harness non e' in questo repository e le tre revisioni dei componenti sono ancora nulle. `distribuzione.artefatti-qualificati`: la macchina e' provata -- quattro artefatti, ventiquattro referti, gate che riconta -- e mancano la firma Authenticode e una corsa in canale candidate."
+  },
+  "resta_aperto": {
+    "provisioning_dei_secret_authenticode": {
+      "stato": "non iniziato",
+      "misurato_con": "`gh secret list` sul repository: esce 0 con elenco vuoto, quindi l'assenza e' misurata e non dedotta dal silenzio.",
+      "segreti_pretesi": [
+        "PLENORA_WINDOWS_SIGNING_PFX_BASE64",
+        "PLENORA_WINDOWS_SIGNING_PFX_PASSWORD"
+      ],
+      "chi_lo_chiude": "esterno a questo repository"
+    },
+    "sistema_qualifica_cross_component": {
+      "stato": "not_satisfied",
+      "artefatto": "release/system-rc-gate.json",
+      "owner": "plenora-contracts/conformance",
+      "harness_in_questo_repository": "not_present",
+      "revisioni_dei_componenti": null,
+      "come_si_monitora": "rileggendo `release/system-rc-gate.json`: il repository dell'owner non e' raggiungibile da questo account, quindi non c'e' un modo di interrogarlo da qui."
+    },
+    "candidate_2_0_0": "si apre **solo** dopo la chiusura di entrambi. Allora si producono artefatti firmati, con checksum nuovi -- la firma cambia i byte -- e lo smoke gira dopo la firma, sull'oggetto finale."
+  }
+}

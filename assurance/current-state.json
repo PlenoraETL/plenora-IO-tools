@@ -8,22 +8,22 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "c96ffac",
+      "sha": "985e3ee",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "c96ffac",
+    "sha": "985e3ee",
     "checkpoint": {
-      "passi_eseguiti": 73,
-      "passi_verdi": 73,
+      "passi_eseguiti": 80,
+      "passi_verdi": 80,
       "passi_omessi": 0,
       "passi_falliti": 0,
-      "riconciliazione": "73 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento"
+      "riconciliazione": "80 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 70675,
+      "replay_input": 77231,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.93,
-      "lcov_righe_coperte": 37516,
-      "lcov_righe_strumentate": 42186,
-      "cargo_lines_percentuale": 87.44,
+      "lcov_percentuale": 88.91,
+      "lcov_righe_coperte": 37808,
+      "lcov_righe_strumentate": 42524,
+      "cargo_lines_percentuale": 87.42,
       "soglia": 80.0,
-      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-io-cli`, `plenora-bench` e `plenora-fuzz`, ed e' lo stesso della diagnostica differenziale: due misure con perimetri diversi parlerebbero di insiemi diversi con lo stesso nome.",
-      "nota": "due proiezioni dello stesso profdata, non intercambiabili: contano insiemi diversi di righe strumentate. Entrambe sono richieste e nessuna sostituisce l'altra."
+      "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-io-cli`, `plenora-bench` e `plenora-fuzz`, ed e' lo stesso della diagnostica differenziale: due misure con perimetri diversi porterebbero lo stesso nome su insiemi diversi.",
+      "nota": "88,91% viene dal report lcov, 87,42% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
     },
     "diagnostica_differenziale": {
-      "baseline": "7549f22",
-      "esito": "n/d",
-      "righe_cambiate_eseguibili": 0,
-      "coperte": 0,
-      "scoperte": 0,
-      "cambiate_non_eseguibili": 0,
-      "ragione": "**zero righe misurate, e non perche' non sia cambiato niente.** Tutto cio' che questa tranche ha toccato nel prodotto sta in `plenora-io-cli`, che il perimetro della diagnostica **esclude** -- lo stesso perimetro della soglia, per non avere due misure con lo stesso nome su insiemi diversi. La diagnostica quindi non conferma e non smentisce nulla su questo cambio: e' silenziosa per costruzione, e leggere il suo zero come «tutto coperto» sarebbe la terza verita' falsa della stessa famiglia che questa tranche ha gia' incontrato due volte.",
-      "che_cosa_sono_le_scoperte": "nessuna, e il numero non significa copertura piena: significa che il perimetro non guarda il crate che e' cambiato. Cio' che copre questo cambio sono le prove nominate, eseguite dai passi `test` e `test_default` della stessa corsa: la sonda del doppio segnale con la sua controprova, la regressione sul contratto della busta, e i 133 test della suite di `plenora-io-cli` che continuano a passare dopo l'estrazione di `src/segnali.rs`."
+      "baseline": "17875e7",
+      "esito": "78.64%",
+      "righe_cambiate_eseguibili": 220,
+      "coperte": 173,
+      "scoperte": 47,
+      "cambiate_non_eseguibili": 329,
+      "ragione": "misurata: 220 righe cambiate ed eseguibili fra `17875e7` e `985e3ee`, 173 coperte e 47 no. Le 329 non eseguibili sono commenti e dichiarazioni, fuori misura per costruzione.",
+      "che_cosa_sono_le_scoperte": "quarantasette righe, tutte in `driver-geoparquet`. La meta' piu' grossa -- da `lib.rs:639` a `lib.rs:669` -- e' `valida_livelli_v2`: **il ramo V2 della difesa nuova non e' esercitato da nessun test**. Nessuno dei semi versionati porta una `DataPageV2`, quindi quel codice e' scritto, compilato e mai percorso. Le altre riguardano rami di `inizio_valori_v1` -- fra cui `BIT_PACKED` -- e asserzioni di test che il percorso preso non raggiunge. Non e' un blocco e non e' un difetto noto: e' una superficie dichiarata e non provata, ed e' esattamente cio' che questa diagnostica esiste per rendere visibile. Chiuderla vuol dire un seme con una data page V2, che oggi non esiste."
     },
-    "evidenza": "assurance/evidence/checkpoint-c96ffac.json"
+    "evidenza": "assurance/evidence/checkpoint-985e3ee.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "c96ffac"
+      "qualificato_su": "985e3ee"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",

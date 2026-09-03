@@ -1725,14 +1725,23 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         errori = self.errori_con(senza_artefatto)
         self.assertTrue(any("mancano" in m for m in errori), errori)
 
-        # `coverage_export_cli` **non** c'e' in questa corsa, quindi
-        # `lcov-completo.info` non e' atteso: portarlo lo stesso e' rosso
-        # dall'altro verso. E' il caso che una costante fissa non distingue.
-        def artefatto_orfano(evidenza):
-            evidenza["artefatti"]["manifest"]["lcov-completo.info"] = "1" * 64
-            self._sigilla(evidenza)
-
-        errori = self.errori_con(artefatto_orfano)
+        # Il verso opposto -- l'artefatto senza il proprio passo -- si prova
+        # sulla funzione, con ingressi costruiti: quali passi l'evidenza
+        # corrente contenga dipende da quale corsa l'ha prodotta, e una sonda
+        # che ci si appoggiasse smetterebbe di mordere quando quella cambia.
+        passo, artefatto = next(iter(gate.ARTEFATTO_DEL_PASSO.items()))
+        passi = [{"id": "altro", "esito": "verde", "log": "altro.log"}]
+        evidenza = {
+            "riconciliazione": {"passi": passi},
+            "misure": {"diagnostica_differenziale": {"base": None}},
+            "artefatti": {
+                "manifest": {
+                    n: "0" * 64
+                    for n in (gate.RISULTATO_DELLA_CORSA, "altro.log", artefatto)
+                }
+            },
+        }
+        errori = gate._manifest_legato_ai_passi(evidenza, passi)
         self.assertTrue(any("non appartengono" in m for m in errori), errori)
 
     def test_i_log_della_diagnostica_sono_pretesi_quando_c_e_una_base(self) -> None:
@@ -1751,17 +1760,53 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         errori = self.errori_con(senza_il_log)
         self.assertTrue(any("mancano" in m for m in errori), errori)
 
-        # Il secondo log segue il passo della copertura CLI, che questa corsa
-        # non ha: portarlo e' rosso. E' la meta' che la stesura precedente non
-        # nominava affatto, e che con la diagnostica eseguita rifiutava come
-        # estranea una corsa corretta.
-        def secondo_log_orfano(evidenza):
+        # Anche il secondo, dove il passo che lo giustifica c'e'.
+        def senza_il_secondo_log(evidenza):
             for log in gate.LOG_DIAGNOSTICA_DEL_PASSO.values():
-                evidenza["artefatti"]["manifest"][log] = "0" * 64
+                evidenza["artefatti"]["manifest"].pop(log, None)
             self._sigilla(evidenza)
 
-        errori = self.errori_con(secondo_log_orfano)
+        errori = self.errori_con(senza_il_secondo_log)
+        self.assertTrue(any("mancano" in m for m in errori), errori)
+
+    def test_il_secondo_log_segue_il_proprio_passo(self) -> None:
+        """Il secondo log e' preteso solo dove esiste la copertura della CLI.
+
+        Si prova sulla funzione, con ingressi costruiti, invece che sull'evidenza
+        corrente: quale passi essa contenga dipende da quale corsa l'ha
+        prodotta, e una sonda che ci si appoggiasse smetterebbe di mordere il
+        giorno in cui quella corsa cambia -- restando verde e non provando piu'
+        niente. E' successo, a questa stessa sonda, alla prima evidenza nuova.
+        """
+        secondo = next(iter(gate.LOG_DIAGNOSTICA_DEL_PASSO.values()))
+        passo = next(iter(gate.LOG_DIAGNOSTICA_DEL_PASSO))
+
+        def evidenza_con(passi: list[dict], manifest: set[str]) -> dict:
+            return {
+                "riconciliazione": {"passi": passi},
+                "misure": {"diagnostica_differenziale": {"base": "HEAD"}},
+                "artefatti": {"manifest": {n: "0" * 64 for n in manifest}},
+            }
+
+        comuni = {gate.RISULTATO_DELLA_CORSA, gate.LOG_DELLA_DIAGNOSTICA}
+        senza_passo = [{"id": "altro", "esito": "verde", "log": "altro.log"}]
+        con_passo = senza_passo + [
+            {"id": passo, "esito": "verde", "log": f"{passo}.log"}
+        ]
+        artefatto = gate.ARTEFATTO_DEL_PASSO[passo]
+
+        # Senza il passo, il secondo log e' un orfano.
+        errori = gate._manifest_legato_ai_passi(
+            evidenza_con(senza_passo, comuni | {"altro.log", secondo}), senza_passo
+        )
         self.assertTrue(any("non appartengono" in m for m in errori), errori)
+
+        # Con il passo, e' preteso.
+        errori = gate._manifest_legato_ai_passi(
+            evidenza_con(con_passo, comuni | {"altro.log", f"{passo}.log", artefatto}),
+            con_passo,
+        )
+        self.assertTrue(any("mancano" in m for m in errori), errori)
 
     def test_i_log_della_diagnostica_sono_vietati_senza_base(self) -> None:
         """Il verso opposto, che e' quello che si sbaglia piu' facilmente.
@@ -1789,10 +1834,23 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         aveva righe da misurare -- il cambio stava fuori dal suo perimetro.
         Legare i log all'esito avrebbe reso irregistrabile una corsa corretta.
         """
-        def muta(evidenza):
-            evidenza["misure"]["diagnostica_differenziale"]["esito"] = "n/d"
-
-        self.assertEqual(self.errori_con(muta), [])
+        evidenza = self.evidenza()
+        # `n/d` e' legittimo solo con zero righe da misurare -- un'altra regola,
+        # gia' in vigore. La forma completa e' quella di `c96ffac`: base
+        # impostata, diagnostica eseguita, niente da contare.
+        evidenza["misure"]["diagnostica_differenziale"].update(
+            esito="n/d",
+            righe_cambiate_eseguibili=0,
+            coperte=0,
+            scoperte=0,
+            cambiate_non_eseguibili=0,
+            righe_scoperte=[],
+        )
+        # Si interroga l'evidenza **contro se stessa**: passare da
+        # `validate_stato_corrente` farebbe scattare il legame con lo stato, che
+        # e' un'altra regola e direbbe un'altra cosa.
+        sha = gate.revisione_risolta(evidenza["corsa"]["revisione_finale"])
+        self.assertEqual(gate.evidenza_coerente(evidenza, sha), [])
 
     def test_senza_elenco_dei_passi_e_rosso(self) -> None:
         errori = self.errori_con(lambda e: e["riconciliazione"].pop("passi"))
@@ -2173,10 +2231,10 @@ class SondeEvidenzaCoerente(unittest.TestCase):
         evidenza = self.evidenza()
         passi, errori = gate._passi_dichiarati(evidenza)
         self.assertEqual(errori, [], errori)
-        self.assertEqual(len(passi), 73)
+        self.assertEqual(len(passi), 80)
         self.assertEqual(gate._manifest_legato_ai_passi(evidenza, passi), [])
         con_log = {v["log"] for v in passi if v["log"]}
-        self.assertEqual(len(con_log), 71)
+        self.assertEqual(len(con_log), 78)
         # L'insieme atteso si **deriva**: il risultato della corsa, gli
         # artefatti dei passi che ci sono, e i log della diagnostica se la base
         # c'era. Ripeterlo qui come costante rifarebbe l'errore che ha reso il
