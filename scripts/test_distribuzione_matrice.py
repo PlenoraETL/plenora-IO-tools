@@ -433,6 +433,31 @@ class SondeMatrice(unittest.TestCase):
                 self.assertFalse(regola.get("notarizzazione"))
                 self.assertFalse(regola.get("stapling"))
 
+    def test_la_release_non_pretende_firma_su_nessuna_piattaforma(self) -> None:
+        """Unsigned e' una decisione del perimetro, non l'assenza dei secret."""
+        import importlib.util
+
+        percorso = RADICE / "scripts" / "distribuzione.py"
+        spec = importlib.util.spec_from_file_location("distribuzione_unsigned", percorso)
+        modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modulo)
+
+        distribuite = {p["id"] for p in self.matrice["piattaforme"]}
+        self.assertEqual(distribuite, set(modulo.POLITICA_DI_FIRMA))
+        for piattaforma in distribuite:
+            with self.subTest(piattaforma=piattaforma):
+                regola = modulo.POLITICA_DI_FIRMA[piattaforma]["candidate"]
+                self.assertIsNone(regola.get("meccanismo"))
+                self.assertEqual(
+                    modulo.stato_della_firma(piattaforma, "candidate")["stato"],
+                    "non_richiesta",
+                )
+
+        decisione = self.matrice["firma"]
+        self.assertIn("non richiede", decisione["decisione"])
+        self.assertIn("editore sconosciuto", decisione["conseguenze_windows"])
+        self.assertEqual(decisione["materiale_esterno"].split(":", 1)[0], "nessuno")
+
     def test_l_ordine_delle_operazioni_e_lo_stesso_nei_due_posti(self) -> None:
         """La matrice lo **dichiara**, `distribuzione.py` lo fa **applicare**.
 

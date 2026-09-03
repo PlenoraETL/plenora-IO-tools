@@ -118,7 +118,9 @@ VERIFICHE_ATTESE = {
         "perche": "ogni componente che spedisce byte porta il testo della propria licenza",
     },
     "smoke-profilo": {
-        "misure_obbligatorie": (),
+        # Anche `non_richiesta` e' una misura: distingue la decisione unsigned
+        # da un costruttore che ha dimenticato l'intero blocco.
+        "misure_obbligatorie": ("firma",),
         "perche": "che cosa l'artefatto **installato** sa fare, e che cosa deve non saper fare",
     },
     "provenance": {
@@ -147,8 +149,8 @@ VERIFICHE_ATTESE = {
 # La misura che deve dire una cosa precisa, e non solo esistere.
 # Le misure che su una **candidate** devono avere un valore vero. Su un
 # artefatto di prova possono restare dichiarate: quegli artefatti esistono per
-# essere misurati, e pretendere una revisione da una macchina senza `git` o una
-# firma senza certificato renderebbe impossibile costruirli.
+# essere misurati, e pretendere una revisione da una macchina senza `git`
+# renderebbe impossibile costruirli.
 PRETESE_DELLA_CANDIDATE = {
     ("provenance", "revisione"): (
         "una provenance che non sa da quale revisione viene non lega niente: dice che esiste "
@@ -256,10 +258,13 @@ def verifica(directory: pathlib.Path, canale: str, piattaforme: tuple[str, ...])
                             f"{misure.get(chiave_misura)!r}, atteso {atteso!r}. {perche}."
                         )
 
-    # La firma: se il canale la pretende, dev'essere stata **misurata**.
+    # La firma: se una futura politica la pretendesse, dovrebbe essere stata
+    # **misurata**. La 2.0.0 non entra in questo ramo su nessuna piattaforma;
+    # mantenerlo generico impedisce che una futura richiesta diventi un solo
+    # booleano dichiarato dal costruttore.
     #
     # Uno stato che venisse da «il materiale c'era» direbbe soltanto che il
-    # costruttore ha avuto un certificato fra le mani. Qui si pretende che i
+    # costruttore ha avuto un certificato fra le mani. In quel caso si pretende che i
     # verificatori nativi abbiano letto i byte finali: firma presente, identita'
     # del firmatario, timestamp, e su macOS l'accettazione notarile.
     for piattaforma in piattaforme:

@@ -469,9 +469,9 @@ avere niente da rilasciare**.
 
 **Costo.** Non più ignoto. Ciò che la CI produceva era codice provato e nessun
 oggetto installabile; ora i costruttori esistono per tutte e due le piattaforme,
-gli oggetti esistono e sono stati misurati. La catena Authenticode esiste nel
-repository; ciò che resta esterno è il materiale di firma. Il certificato e il
-gate di sistema hanno owner esterni.
+gli oggetti esistono e sono stati misurati. La release 2.0.0 non richiede una
+firma di piattaforma: non esiste quindi materiale di firma esterno da ottenere.
+Il gate di sistema resta di proprietà esterna.
 
 **Stato al 2 settembre 2026: la macchina è pronta e provata, la qualifica
 finale non c'è.** Sono due cose diverse e vanno lette separatamente.
@@ -489,12 +489,10 @@ manifesto — e il gate rifiuta ovunque si pretenda una candidate.
 Ciò che manca, ed è il motivo per cui il blocco resta: nessuna di quelle corse
 è girata sullo SHA che verrà congelato. Un artefatto qualificato è prodotto
 **dalla revisione qualificata**, e finché quella revisione non esiste la catena
-dimostra di funzionare senza dimostrare nulla su ciò che si consegnerà. Manca
-inoltre una **corsa** con la firma Authenticode: il workflow sa importare il PFX,
-firmare e verificare i byte finali, ma il certificato e i due secret non sono
-nel repository. La corsa di prova su `d9bc47d` ha inoltre conservato i referti
-ma non i deliverable: l'upload esplicito di archivio, checksum e provenance è
-stato aggiunto dopo quel rilievo e deve ancora essere esercitato.
+dimostra di funzionare senza dimostrare nulla su ciò che si consegnerà. La
+candidate Windows sarà intenzionalmente unsigned e lo dichiarerà nel manifesto;
+restano obbligatori upload, checksum, provenance e verifica post-upload dei
+deliverable sullo SHA finale.
 
 **Perché la distinzione conta.** «La macchina funziona» e «l'artefatto è
 qualificato» si somigliano abbastanza da essere scambiate, e la seconda è
@@ -777,47 +775,25 @@ libera.
 | canale | Linux | Windows |
 | --- | --- | --- |
 | `prova` | non richiesta | non richiesta |
-| `candidate` | non richiesta | Authenticode con timestamp |
+| `candidate` | non richiesta | non richiesta |
 
-Linux non ha una firma di piattaforma che il sistema verifichi all'esecuzione:
-restano checksum e provenance, che non la sostituiscono ma sono ciò che questa
-piattaforma offre. Dichiararlo invece di lasciarlo implicito è la differenza fra
-«non serve» e «ce ne siamo dimenticati».
+La release 2.0.0 non richiede una firma di piattaforma. Su Linux non esiste un
+meccanismo equivalente che il sistema verifichi normalmente all'esecuzione; su
+Windows la scelta è deliberata: il PE viene distribuito senza Authenticode.
+Windows può quindi mostrare «editore sconosciuto» e una policy aziendale può
+impedirne l'esecuzione. SHA-256, digest del manifesto e provenance restano
+obbligatori e verificano byte e origine della costruzione, ma non attribuiscono
+al binario un editore riconosciuto da Windows.
+
+Il manifesto conserva il blocco `firma` con stato `non_richiesta` su entrambe le
+piattaforme e in entrambi i canali. Il campo esplicito distingue questa decisione
+da una firma dimenticata. Il workflow non legge PFX, certificati o secret di
+firma.
 
 Developer ID, notarizzazione e la questione dello stapling sono usciti insieme a
 macOS. Erano il pezzo più costoso della catena — un certificato Apple, un
 servizio esterno da interrogare, e una ricevuta che sul nostro deliverable non
 si poteva nemmeno attaccare al file.
-
-**Lo stato della firma si misura.** Non viene da «il materiale c'era»: quello
-direbbe soltanto che il costruttore ha avuto un certificato fra le mani. Viene
-da ciò che il verificatore nativo legge sui byte finali — presenza della firma,
-identità del firmatario, timestamp. Gli stati sono quattro:
-
-| stato | significa |
-| --- | --- |
-| `non_richiesta` | il canale non la pretende su questa piattaforma |
-| `non_misurata` | la pretende, e nessuno ha guardato — **non è un sì** |
-| `assente` | si è guardato, e manca qualcosa di preteso |
-| `apposta` | si è guardato, e c'è tutto |
-
-Il timestamp è fra le misure pretese e non è un extra: senza, una firma smette
-di valere quando scade il certificato invece che quando scade il suo uso.
-
-Su Windows il PFX e la password vivono soltanto nel passo CI che importa il
-certificato in `Cert:\CurrentUser\My`. Il costruttore riceve la sola impronta
-pubblica, firma `bin/plenora-io.exe` con SHA-256 e timestamp RFC 3161, esegue la
-verifica Authenticode nativa e confronta l'impronta letta dai byte con quella
-selezionata. Il PFX viene cancellato nello stesso passo e i certificati importati
-vengono rimossi anche dopo un errore. Se manca uno dei secret
-`PLENORA_WINDOWS_SIGNING_PFX_BASE64` e
-`PLENORA_WINDOWS_SIGNING_PFX_PASSWORD`, la candidate fallisce prima di essere
-costruita; il canale `prova` non consulta né secret né certificate store.
-
-Le DLL di terzi non vengono rifirmate come Plenora: conservano la propria
-identità. Attribuire al progetto byte soltanto ridistribuiti sarebbe una
-dichiarazione falsa. L'entrypoint è il file che l'utente avvia e quello a cui
-Windows applica Authenticode e SmartScreen.
 
 #### L'ordine delle operazioni
 
@@ -826,10 +802,9 @@ prodotti dal precedente, e invertirne due produce un artefatto le cui verifiche
 parlano di un file diverso da quello che si consegna.
 
 1. **payload** — assemblare l'albero: binario, librerie, dati, licenze.
-2. **firma** — firmare l'entrypoint dove la piattaforma lo richiede, prima di
-   qualunque cosa ne descriva i byte.
-3. **manifesto** — generarlo dai byte *firmati*: scritto prima elencherebbe file
-   che non esistono più.
+2. **firma** — dichiarare esplicitamente che la release non richiede una firma
+   di piattaforma; il passo non modifica i byte.
+3. **manifesto** — generarlo dai byte finali del payload.
 4. **archivio** — creare il contenitore (`tar.gz` su Linux, `zip` altrove).
 5. **notarizzazione** — nessuna piattaforma del perimetro la richiede; il passo
    resta perché l'ordine è uno solo e la posizione è ciò che va fissata.
@@ -837,10 +812,8 @@ parlano di un file diverso da quello che si consegna.
 7. **smoke** — sull'oggetto finale, non su una sua versione precedente.
 8. **provenance** — legata a *quel* checksum.
 
-L'ordine e la macchina di firma sono fissati adesso, mentre il certificato non
-c'è: il campo `firma` sta già nei manifesti degli artefatti di prova con stato
-`non_richiesta`. Certificati e segreti restano un blocco fuori da questo
-repository; la loro assenza rende rossa una candidate, non il canale di prova.
+Il campo `firma` resta nei manifesti con stato `non_richiesta`. Nessun
+certificato o secret è richiesto per costruire una candidate.
 
 #### Windows x86_64 — fissata e verificata in canale prova
 
@@ -935,12 +908,10 @@ non sostituirli con una prova nell'albero sorgente. Solo dopo queste verifiche
 rinominare la directory temporanea col nome definitivo. Non estrarre mai sopra
 una versione già presente.
 
-Su Windows, per una candidate, verificare inoltre
-`Get-AuthenticodeSignature <directory-estratta>\bin\plenora-io.exe`: `Status`
-deve essere `Valid`, `SignerCertificate.Subject` e
-`SignerCertificate.Thumbprint` devono coincidere con il blocco `firma.misura`
-del manifesto e `TimeStamperCertificate` non deve essere nullo. Il checksum
-prova i byte scaricati; Authenticode prova anche l'identità che li ha firmati.
+Su Windows controllare che `MANIFEST.json` dichiari
+`firma.stato: non_richiesta`. L'assenza di Authenticode è intenzionale; chi
+opera sotto una policy che ammette soltanto editori firmati deve distribuire il
+binario attraverso un canale aziendale approvato oppure non installarlo.
 
 **Attivazione e aggiornamento.** Il programma non installa un servizio e non
 gestisce un collegamento `current`: il supervisore del deployment deve puntare

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cio' che le due piattaforme hanno in comune: il referto, la firma, l'ordine.
+"""Cio' che le due piattaforme hanno in comune: il referto e l'ordine.
 
 # Perche' un formato comune, con verificatori separati
 
@@ -14,19 +14,15 @@ soprattutto non puo' accontentarsi di sapere che i job sono verdi: un job verde
 e' un'affermazione, non un'evidenza. Il referto porta le **misure**, e chi
 riconta guarda quelle.
 
-# La firma si misura, non si dichiara
+# La firma e' una scelta esplicita, anche quando non e' richiesta
 
-Uno stato che venisse da «il materiale c'era» direbbe soltanto che il
-costruttore ha avuto un certificato fra le mani. Non direbbe che la firma sia
-stata apposta, ne' da chi, ne' se porti un timestamp -- e senza timestamp una
-firma smette di valere alla scadenza del certificato invece che alla scadenza
-del suo uso.
-
-Lo stato viene quindi da una **misura** fatta sui byte finali dal verificatore
-nativo: presenza della firma, identita' e impronta del firmatario, presenza del
-timestamp.
-Una misura che non si e' potuta fare non e' un si': e' `non_misurata`, e su una
-candidate e' rossa.
+La release 2.0.0 distribuisce intenzionalmente artefatti senza firma di
+piattaforma sia su Linux sia su Windows. Non e' un'omissione dedotta
+dall'assenza di un certificato: la politica lo dichiara, il manifesto lo porta
+come `non_richiesta`, e checksum e provenance restano obbligatori. Su Windows
+questo puo' produrre l'avviso «editore sconosciuto» o un blocco imposto da una
+policy aziendale; e' un limite della distribuzione dichiarata, non qualcosa che
+il gate deve nascondere.
 
 # Il perimetro della v1
 
@@ -63,13 +59,11 @@ ORDINE = (
     ("payload", "assemblare l'albero: binario, librerie, dati, licenze"),
     (
         "firma",
-        "firmare l'entrypoint dove la piattaforma lo richiede, prima di qualunque "
-        "cosa ne descriva i byte",
+        "dichiarare esplicitamente che la release non richiede una firma di piattaforma",
     ),
     (
         "manifesto",
-        "generare MANIFEST.json dai byte **firmati**: un manifesto scritto prima "
-        "elencherebbe file che non esistono piu'",
+        "generare MANIFEST.json dai byte finali del payload",
     ),
     ("archivio", "creare il contenitore"),
     (
@@ -84,9 +78,9 @@ ORDINE = (
 
 # Che cosa si pretende, per piattaforma e per canale.
 #
-# Il canale `prova` non pretende firma: quegli artefatti esistono per essere
-# misurati, non installati, e pretendere un certificato per costruirli
-# renderebbe impossibile lavorare senza segreti.
+# Nessun canale della 2.0.0 pretende una firma di piattaforma. Il blocco resta
+# esplicito nel manifesto: un campo assente potrebbe significare dimenticanza,
+# `non_richiesta` significa decisione.
 POLITICA_DI_FIRMA = {
     "linux-x86_64": {
         "candidate": {
@@ -100,19 +94,12 @@ POLITICA_DI_FIRMA = {
     },
     "windows-x86_64": {
         "candidate": {
-            "meccanismo": "authenticode",
-            "misure_pretese": (
-                "firmato",
-                "firmatario",
-                "impronta_firmatario",
-                "timestamp",
-            ),
-            "smoke_dopo": "la firma",
+            "meccanismo": None,
             "perche": (
-                "un PE non firmato fa comparire un avviso a chi lo esegue, e su alcune "
-                "configurazioni non si esegue affatto. Il timestamp e' parte della pretesa: "
-                "senza, la firma smette di valere quando scade il certificato invece che "
-                "quando scade il suo uso."
+                "la release 2.0.0 distribuisce intenzionalmente il PE senza Authenticode. "
+                "Windows puo' mostrare «editore sconosciuto» e una policy aziendale puo' "
+                "bloccarlo; integrita' e provenienza si verificano con SHA-256, manifesto "
+                "e provenance pubblicati accanto all'archivio."
             ),
         }
     },

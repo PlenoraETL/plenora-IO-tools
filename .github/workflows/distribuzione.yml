@@ -20,12 +20,10 @@
 #
 # # Il canale
 #
-# Di norma `prova`: artefatti costruiti per essere misurati, non installati, e
-# non firmati. Il canale `candidate` si chiede a mano, e pretende la firma
-# Authenticode su Windows. La macchina importa il PFX solo nel certificate
-# store effimero del runner, passa al costruttore la sola impronta pubblica e
-# verifica firma, identita' e timestamp sui byte finali. Certificato e segreti
-# restano un blocco esterno: se mancano, la candidate fallisce chiusa.
+# Di norma `prova`: artefatti costruiti per essere misurati, non installati.
+# Il canale `candidate` si chiede a mano. La 2.0.0 non richiede una firma di
+# piattaforma ne' su Linux ne' su Windows: i manifesti lo dichiarano, mentre
+# checksum, provenance e tutte le verifiche dell'artefatto restano obbligatori.
 #
 # # Come si avvia, e l'impalcatura che non c'e' piu'
 #
@@ -95,9 +93,9 @@ jobs:
           --versione "$VERSIONE" --profilo "${{ matrix.profilo }}" --canale "$CANALE"
           --referti "$RUNNER_TEMP/referti"
 
-      # L'ordine e' quello deciso: assembla, firma, checksum, smoke. Su Linux
-      # non c'e' una firma di piattaforma e il costruttore lo dichiara nel
-      # manifesto; lo smoke resta dopo, cosi' che l'ordine sia lo stesso ovunque.
+      # L'ordine e' quello deciso: assembla, dichiara la politica di firma,
+      # checksum, smoke. Nessuna piattaforma della 2.0.0 richiede una firma; il
+      # manifesto lo rende esplicito invece di lasciarlo dedurre.
       # Anche il profilo base: dimostra con un conteggio che non spedisce
       # librerie, invece di lasciarlo dedurre dall'assenza del referto.
       - name: Verifica il runtime
@@ -221,66 +219,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/discovery"
           cp "${TMP:-$TEMP}/install-windows-gdal.log"              "$RUNNER_TEMP/discovery/install-windows-gdal-${{ matrix.profilo }}.log" 2>/dev/null ||              echo "nessun diario prodotto" > "$RUNNER_TEMP/discovery/install-windows-gdal-${{ matrix.profilo }}.log"
 
-      # Il PFX e la password vivono soltanto in questo passo. Il costruttore
-      # riceve l'impronta pubblica e trova la chiave nel certificate store:
-      # nessun segreto finisce nella sua command line o nei suoi log.
-      - name: Prepara il firmatario Authenticode
-        if: env.CANALE == 'candidate'
-        shell: pwsh
-        env:
-          PLENORA_WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.PLENORA_WINDOWS_SIGNING_PFX_BASE64 }}
-          PLENORA_WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.PLENORA_WINDOWS_SIGNING_PFX_PASSWORD }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:PLENORA_WINDOWS_SIGNING_PFX_BASE64)) {
-            throw "manca il secret PLENORA_WINDOWS_SIGNING_PFX_BASE64"
-          }
-          if ([string]::IsNullOrWhiteSpace($env:PLENORA_WINDOWS_SIGNING_PFX_PASSWORD)) {
-            throw "manca il secret PLENORA_WINDOWS_SIGNING_PFX_PASSWORD"
-          }
-          $pfx = Join-Path $env:RUNNER_TEMP "plenora-signing.pfx"
-          $importati = @()
-          try {
-            [IO.File]::WriteAllBytes(
-              $pfx,
-              [Convert]::FromBase64String($env:PLENORA_WINDOWS_SIGNING_PFX_BASE64)
-            )
-            $password = ConvertTo-SecureString `
-              $env:PLENORA_WINDOWS_SIGNING_PFX_PASSWORD -AsPlainText -Force
-            $importati = @(
-              Import-PfxCertificate -FilePath $pfx `
-                -CertStoreLocation Cert:\CurrentUser\My -Password $password
-            )
-            $firmatari = @(
-              $importati | Where-Object {
-                $_.HasPrivateKey -and
-                ($_.EnhancedKeyUsageList.ObjectId.Value -contains "1.3.6.1.5.5.7.3.3")
-              }
-            )
-            if ($firmatari.Count -ne 1) {
-              throw "il PFX deve contenere un solo certificato Code Signing con chiave privata"
-            }
-            $signTool = Get-ChildItem `
-              -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" `
-              -File | Sort-Object FullName -Descending | Select-Object -First 1
-            if ($null -eq $signTool) {
-              throw "signtool.exe x64 non trovato nel Windows SDK del runner"
-            }
-            "PLENORA_WINDOWS_SIGNTOOL=$($signTool.FullName)" | Out-File `
-              -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "PLENORA_WINDOWS_SIGNING_CERT_SHA1=$($firmatari[0].Thumbprint)" | Out-File `
-              -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "PLENORA_WINDOWS_IMPORTED_CERTS=$(($importati.Thumbprint -join ','))" | Out-File `
-              -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } catch {
-            foreach ($certificato in $importati) {
-              Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificato.Thumbprint)" `
-                -Force -ErrorAction SilentlyContinue
-            }
-            throw
-          } finally {
-            Remove-Item -LiteralPath $pfx -Force -ErrorAction SilentlyContinue
-          }
-
       - name: Costruisci l'artefatto
         shell: bash
         run: python scripts/costruisci-artefatto-windows.py
@@ -400,17 +338,6 @@ jobs:
         with:
           name: referti-windows-${{ matrix.profilo }}
           path: ${{ runner.temp }}/referti/
-
-      - name: Rimuovi il materiale Authenticode dal runner
-        if: always() && env.PLENORA_WINDOWS_IMPORTED_CERTS != ''
-        shell: pwsh
-        run: |
-          foreach ($impronta in ($env:PLENORA_WINDOWS_IMPORTED_CERTS -split ',')) {
-            if (-not [string]::IsNullOrWhiteSpace($impronta)) {
-              Remove-Item -LiteralPath "Cert:\CurrentUser\My\$impronta" `
-                -Force -ErrorAction SilentlyContinue
-            }
-          }
 
       # Il job e' verde quando le **verifiche** sono verdi.
       #

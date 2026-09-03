@@ -678,17 +678,9 @@ def main() -> int:
 
     # --- 2. la firma ------------------------------------------------------
     #
-    # Prima del manifesto, e non dopo. Il manifesto elenca i file spediti e li
-    # descrive: scriverlo prima di firmarli lo farebbe parlare di byte che non
-    # esistono piu'. Su Linux non c'e' una firma di piattaforma e questo passo
-    # non tocca nulla -- ma la **posizione** e' cio' che va decisa adesso, e
-    # vale per entrambe le piattaforme distribuite.
-    #
-    # Lo stato non viene da «il materiale c'era»: viene da cio' che un
-    # verificatore nativo ha letto sui byte finali. Su Linux non c'e' niente da
-    # leggere perche' non c'e' niente da pretendere; su Windows la misura la
-    # fa `check-windows-runtime.py`, e senza misura lo stato e'
-    # `non_misurata` -- che non e' un si'.
+    # La release non pretende una firma di piattaforma su nessuna delle due
+    # piattaforme distribuite. Il passo non tocca i byte, ma il manifesto porta
+    # comunque `non_richiesta`: decisione esplicita, non omissione.
     firma = distribuzione.stato_della_firma("linux-x86_64", arg.canale)
     print(f"2. firma: {firma['stato']}", flush=True)
     if firma["stato"] in ("assente", "non_misurata"):
@@ -699,12 +691,10 @@ def main() -> int:
             "puo' verificare."
         )
 
-    # --- 3. il manifesto, dai byte firmati --------------------------------
+    # --- 3. il manifesto, dai byte finali del payload ----------------------
     #
-    # Il blocco della firma c'e' **gia' adesso**, con gli artefatti di prova.
-    # Aggiungerlo dopo cambierebbe il manifesto, e quindi il checksum
-    # dell'archivio che lo contiene: il campo deve esistere prima del
-    # certificato, altrimenti il certificato cambia i byte.
+    # Il blocco della firma resta anche se non e' richiesta: distingue una
+    # decisione di prodotto da un campo dimenticato.
     print("3. manifesto", flush=True)
     # I file **prima** del manifesto: il campo del runtime nativo si misura da
     # loro, e un campo dedotto dal profilo direbbe che cosa volevamo costruire

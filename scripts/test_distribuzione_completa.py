@@ -193,12 +193,7 @@ class SondeDelGateFinale(unittest.TestCase):
 
 
 class SondeDellaFirma(unittest.TestCase):
-    """La decisione che doveva essere presa prima dei workflow.
-
-    Inserirla dopo avrebbe cambiato byte, checksum, manifesti e provenance: il
-    campo deve esistere prima del certificato, e l'ordine delle operazioni --
-    assembla, firma, checksum, smoke -- deve essere gia' quello giusto.
-    """
+    """La scelta unsigned deve essere esplicita, non un buco del workflow."""
 
     def setUp(self) -> None:
         self.d = carica(RADICE / "scripts" / "distribuzione.py")
@@ -206,100 +201,31 @@ class SondeDellaFirma(unittest.TestCase):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
 
-    def misura_completa(self, piattaforma: str) -> dict:
-        pretese = self.d.POLITICA_DI_FIRMA[piattaforma]["candidate"]["misure_pretese"]
-        return {p: f"valore per {p}" for p in pretese}
+    def test_nessun_canale_pretende_una_firma(self) -> None:
+        """Prova e candidate condividono la decisione della 2.0.0."""
+        for canale in ("prova", "candidate"):
+            for piattaforma in ("linux-x86_64", "windows-x86_64"):
+                with self.subTest(canale=canale, piattaforma=piattaforma):
+                    stato = self.d.stato_della_firma(piattaforma, canale)
+                    self.assertEqual(stato["stato"], "non_richiesta")
+                    self.assertIsNone(stato["meccanismo"])
+                    self.assertTrue(stato["perche"])
 
-    def test_gli_artefatti_di_prova_non_sono_firmati(self) -> None:
-        """Pretendere un certificato per costruire un artefatto di misura
-        renderebbe impossibile lavorare senza segreti."""
-        for piattaforma in ("linux-x86_64", "windows-x86_64"):
-            with self.subTest(piattaforma=piattaforma):
-                stato = self.d.stato_della_firma(piattaforma, "prova")
-                self.assertEqual(stato["stato"], "non_richiesta")
+    def test_windows_dichiara_le_conseguenze_della_scelta_unsigned(self) -> None:
+        stato = self.d.stato_della_firma("windows-x86_64", "candidate")
+        descrizione = stato["perche"].lower()
+        self.assertIn("senza authenticode", descrizione)
+        self.assertIn("editore sconosciuto", descrizione)
+        self.assertIn("policy aziendale", descrizione)
+        self.assertIn("sha-256", descrizione)
+        self.assertIn("provenance", descrizione)
 
-    def test_senza_misura_lo_stato_non_e_un_si(self) -> None:
-        """La correzione che conta.
+    def test_una_candidate_unsigned_passa_il_gate_della_distribuzione(self) -> None:
+        """Togliere il certificato significa togliere il blocco, non il campo.
 
-        Prima lo stato veniva da un booleano «il materiale c'era», che diceva
-        soltanto che il costruttore aveva avuto un certificato fra le mani. Ora
-        viene da cio' che i verificatori nativi hanno **letto sui byte
-        finali**, e non aver guardato ha uno stato proprio: `non_misurata` non
-        e' `assente` e non e' `apposta`."""
-        for piattaforma in ("windows-x86_64",):
-            with self.subTest(piattaforma=piattaforma):
-                stato = self.d.stato_della_firma(piattaforma, "candidate", misura=None)
-                self.assertEqual(stato["stato"], "non_misurata")
-                self.assertTrue(stato["misure_pretese"])
-
-    def test_una_misura_incompleta_e_assente_non_apposta(self) -> None:
-        """Una firma senza timestamp smette di valere quando scade il
-        certificato, invece che quando scade il suo uso: manca qualcosa di
-        preteso, e lo stato lo dice."""
-        misura = self.misura_completa("windows-x86_64")
-        del misura["timestamp"]
-        stato = self.d.stato_della_firma("windows-x86_64", "candidate", misura=misura)
-        self.assertEqual(stato["stato"], "assente")
-        self.assertIn("timestamp", stato["mancanti"])
-
-    def test_una_misura_completa_e_apposta(self) -> None:
-        for piattaforma, meccanismo in (
-            ("windows-x86_64", "authenticode"),
-        ):
-            with self.subTest(piattaforma=piattaforma):
-                stato = self.d.stato_della_firma(
-                    piattaforma, "candidate", misura=self.misura_completa(piattaforma)
-                )
-                self.assertEqual(stato["stato"], "apposta")
-                self.assertEqual(stato["meccanismo"], meccanismo)
-                self.assertEqual(stato["mancanti"], [])
-
-    def test_il_contenitore_e_quello_della_piattaforma(self) -> None:
-        """`tar.gz` su Linux, `zip` su Windows: un tar.gz non e' un formato che
-        gli strumenti Windows aprano senza aiuto, e chi installa non deve
-        procurarsi uno strumento per leggere un artefatto."""
-        self.assertEqual(self.d.contenitore("linux-x86_64"), "tar.gz")
-        self.assertEqual(self.d.contenitore("windows-x86_64"), "zip")
-
-    def test_una_piattaforma_fuori_perimetro_non_ha_un_contenitore(self) -> None:
-        """macOS e' fuori scope: chiedere il suo contenitore e' chiedere di un
-        artefatto che la v1 non produce."""
-        with self.assertRaises(SystemExit):
-            self.d.contenitore("macos-aarch64")
-
-    def test_linux_dichiara_di_non_avere_un_meccanismo(self) -> None:
-        """Dichiararlo invece di lasciarlo implicito e' la differenza fra «non
-        serve» e «ce ne siamo dimenticati»."""
-        stato = self.d.stato_della_firma("linux-x86_64", "candidate")
-        self.assertEqual(stato["stato"], "non_richiesta")
-        self.assertTrue(stato["perche"])
-
-    def test_una_piattaforma_sconosciuta_non_passa_in_silenzio(self) -> None:
-        with self.assertRaises(SystemExit):
-            self.d.stato_della_firma("solaris-sparc", "candidate")
-
-    def test_l_ordine_completo_e_dichiarato(self) -> None:
-        """Otto passi, e ognuno dipende dai byte del precedente.
-
-        Il manifesto viene **dopo** la firma: scritto prima elencherebbe file
-        che non esistono piu'. I checksum vengono dopo la notarizzazione, lo
-        smoke dopo i checksum, e la provenance lega quel checksum."""
-        passi = [p for p, _ in self.d.ORDINE]
-        self.assertEqual(
-            passi,
-            [
-                "payload",
-                "firma",
-                "manifesto",
-                "archivio",
-                "notarizzazione",
-                "checksum",
-                "smoke",
-                "provenance",
-            ],
-        )
-
-    def test_una_candidate_senza_firma_fa_rosso_al_gate(self) -> None:
+        La candidate continua a portare `firma.stato=non_richiesta`; runtime,
+        licenze, smoke, relocation, digest e provenance restano tutti pretesi.
+        """
         for profilo in self.gate.PROFILI:
             for verifica in self.gate.attese_per(profilo):
                 misure = (
@@ -326,47 +252,57 @@ class SondeDellaFirma(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-        errori = self.gate.verifica(self.tmp, "candidate", ("windows-x86_64",))
-        self.assertTrue(errori)
-        self.assertIn("authenticode", " ".join(errori))
+        self.assertEqual(
+            self.gate.verifica(self.tmp, "candidate", ("windows-x86_64",)), []
+        )
 
-    def test_uno_smoke_prima_della_firma_fa_rosso(self) -> None:
-        """Un binario firmato e' un altro file: su macOS notarizzato e con lo
-        stapling, su Windows con una sezione in piu'. Lo smoke va rifatto."""
-        for profilo in self.gate.PROFILI:
-            for verifica in self.gate.attese_per(profilo):
-                misure = {}
-                if verifica == "smoke-profilo":
-                    misure["firma"] = {
-                        **self.d.stato_della_firma(
-                            "windows-x86_64",
-                            "candidate",
-                            misura=self.misura_completa("windows-x86_64"),
-                        ),
-                        "smoke_prima_della_firma": True,
-                    }
-                    misure["filegdb_assente" if profilo == "base" else "schema_riletto"] = True
-                for obbligatoria in self.gate.VERIFICHE_ATTESE[verifica]["misure_obbligatorie"]:
-                    misure[obbligatoria] = 1
-                (self.tmp / f"{profilo}-{verifica}.json").write_text(
-                    json.dumps(
-                        {
-                            "schema_referto": self.d.SCHEMA_REFERTO,
-                            "verifica": verifica,
-                            "piattaforma": "windows-x86_64",
-                            "profilo": profilo,
-                            "canale": "candidate",
-                            "esito": "verde",
-                            "misure": misure,
-                            "errori": [],
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-        errori = self.gate.verifica(self.tmp, "candidate", ("windows-x86_64",))
-        self.assertTrue(errori)
-        self.assertIn("prima della firma", " ".join(errori))
+    def test_il_manifesto_non_puo_omettere_la_decisione(self) -> None:
+        """Il gate continua a pretendere `firma` nel referto dello smoke."""
+        self.assertIn(
+            "firma",
+            self.gate.VERIFICHE_ATTESE["smoke-profilo"]["misure_obbligatorie"],
+        )
 
+    def test_le_politiche_correnti_non_portano_misure_di_firma(self) -> None:
+        for piattaforma in ("linux-x86_64", "windows-x86_64"):
+            with self.subTest(piattaforma=piattaforma):
+                regola = self.d.POLITICA_DI_FIRMA[piattaforma]["candidate"]
+                self.assertIsNone(regola["meccanismo"])
+                self.assertNotIn("misure_pretese", regola)
+
+    def test_il_contenitore_e_quello_della_piattaforma(self) -> None:
+        """`tar.gz` su Linux, `zip` su Windows: un tar.gz non e' un formato che
+        gli strumenti Windows aprano senza aiuto, e chi installa non deve
+        procurarsi uno strumento per leggere un artefatto."""
+        self.assertEqual(self.d.contenitore("linux-x86_64"), "tar.gz")
+        self.assertEqual(self.d.contenitore("windows-x86_64"), "zip")
+
+    def test_una_piattaforma_fuori_perimetro_non_ha_un_contenitore(self) -> None:
+        """macOS e' fuori scope: chiedere il suo contenitore e' chiedere di un
+        artefatto che la v1 non produce."""
+        with self.assertRaises(SystemExit):
+            self.d.contenitore("macos-aarch64")
+
+    def test_una_piattaforma_sconosciuta_non_passa_in_silenzio(self) -> None:
+        with self.assertRaises(SystemExit):
+            self.d.stato_della_firma("solaris-sparc", "candidate")
+
+    def test_l_ordine_completo_e_dichiarato(self) -> None:
+        """La decisione unsigned precede il manifesto che la registra."""
+        passi = [p for p, _ in self.d.ORDINE]
+        self.assertEqual(
+            passi,
+            [
+                "payload",
+                "firma",
+                "manifesto",
+                "archivio",
+                "notarizzazione",
+                "checksum",
+                "smoke",
+                "provenance",
+            ],
+        )
 
 class SondeDelPerimetro(unittest.TestCase):
     """Il perimetro viene da una decisione, non dall'assenza di un job.
@@ -516,24 +452,14 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
         # deve legare i byte riscaricati allo SHA del checkout.
         self.assertIn('--revisione "$GITHUB_SHA"', self.testo)
 
-    def test_il_pfx_vive_solo_nel_passo_che_lo_importa(self) -> None:
-        self.assertIn("if: env.CANALE == 'candidate'", self.testo)
-        self.assertIn("secrets.PLENORA_WINDOWS_SIGNING_PFX_BASE64", self.testo)
-        self.assertIn("secrets.PLENORA_WINDOWS_SIGNING_PFX_PASSWORD", self.testo)
-        self.assertIn("Import-PfxCertificate", self.testo)
-        self.assertIn("Cert:\\CurrentUser\\My", self.testo)
-        self.assertIn("finally {", self.testo)
-        self.assertIn("Remove-Item -LiteralPath $pfx", self.testo)
-
-        costruttore = (
-            RADICE / "scripts" / "costruisci-artefatto-windows.py"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("PFX_BASE64", costruttore)
-        self.assertNotIn("PFX_PASSWORD", costruttore)
-
-    def test_il_certificate_store_viene_ripulito_anche_dopo_un_errore(self) -> None:
-        self.assertIn("if: always() && env.PLENORA_WINDOWS_IMPORTED_CERTS != ''", self.testo)
-        self.assertIn('Cert:\\CurrentUser\\My\\$impronta', self.testo)
+    def test_il_workflow_non_chiede_materiale_di_firma(self) -> None:
+        for token in (
+            "PLENORA_WINDOWS_SIGNING_PFX_BASE64",
+            "PLENORA_WINDOWS_SIGNING_PFX_PASSWORD",
+            "Import-PfxCertificate",
+            "PLENORA_WINDOWS_SIGNTOOL",
+        ):
+            self.assertNotIn(token, self.testo)
 
 
 class SondeDelRuntimeNativo(unittest.TestCase):

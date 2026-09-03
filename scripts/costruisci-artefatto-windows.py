@@ -15,11 +15,10 @@ per leggere un artefatto.
 
 # La firma
 
-Il canale di prova non la pretende. Una candidate firma soltanto l'entrypoint
-con Authenticode e timestamp, poi misura sui byte finali firma, identita' e
-timestamp prima di scrivere il manifesto. Il PFX e la sua password non entrano
-in questo processo: il workflow importa la chiave nel certificate store e
-passa soltanto l'impronta pubblica.
+La release 2.0.0 non pretende Authenticode. Il manifesto lo dichiara come
+`non_richiesta`: non e' un campo dimenticato. Checksum, digest del manifesto e
+provenance restano obbligatori, mentre Windows puo' mostrare «editore
+sconosciuto» o applicare una policy aziendale che blocchi il binario.
 
 # La prima corsa non qualifica
 
@@ -44,7 +43,6 @@ import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
-import firma_windows  # noqa: E402 -- dopo sys.path, che e' il punto
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 LOCK = RADICE / "scripts" / "windows-gdal-lock.json"
@@ -436,17 +434,13 @@ def main() -> int:
     )
 
     # =====================================================================
-    # 2. LA FIRMA -- prima del manifesto, che descrive i byte firmati
+    # 2. LA FIRMA -- decisione esplicita: non richiesta nella 2.0.0
     # =====================================================================
-    firma = firma_windows.applica(
-        albero / "bin" / "plenora-io.exe",
-        arg.canale,
-        verificatore.misura_della_firma,
-    )
+    firma = distribuzione.stato_della_firma("windows-x86_64", arg.canale)
     print(f"2. firma: {firma['stato']}", flush=True)
 
     # =====================================================================
-    # 3. IL MANIFESTO, dai byte firmati
+    # 3. IL MANIFESTO, dai byte finali del payload
     # =====================================================================
     print("3. manifesto", flush=True)
     # I file **prima** del manifesto: il campo del runtime nativo si misura da
