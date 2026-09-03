@@ -4281,6 +4281,222 @@ mod tests {
         );
     }
 
+    // --- i livelli, pagina per pagina ------------------------------------
+    //
+    // La diagnostica differenziale del checkpoint su `985e3ee` ha misurato 47
+    // righe cambiate e mai eseguite, e la meta' piu' grossa era
+    // `valida_livelli_v2`: il ramo V2 della barriera era scritto, compilato e
+    // mai percorso. Nessun seme versionato porta una `DataPageV2`, e nessuno
+    // arriva li' passando da un file.
+    //
+    // Una barriera contro un panico che nessun test attraversa e' una garanzia
+    // dichiarata, non una garanzia. Queste sonde la percorrono chiamando
+    // `valida_pagina` direttamente: e' la prevalidazione, cioe' il codice che
+    // gira **prima** del decoder, e provarla li' e' provarla dove agisce.
+
+    /// Un run bit-packed del flusso ibrido: intestazione piu' i propri byte.
+    ///
+    /// `gruppi` gruppi da otto valori, `bit_width` byte ciascuno. Costruirlo qui
+    /// invece di scrivere le costanti a mano rende leggibile che cosa ogni sonda
+    /// sta rompendo: quasi tutte differiscono per un byte.
+    fn run_bit_packed(gruppi: u8, bit_width: usize) -> Vec<u8> {
+        let mut flusso = vec![(gruppi << 1) | 1];
+        flusso.extend(std::iter::repeat_n(0xAA, usize::from(gruppi) * bit_width));
+        flusso
+    }
+
+    /// Una `DataPageV2` con le due sezioni dei livelli e un byte di valori.
+    fn pagina_v2(rep: &[u8], def: &[u8], num_values: u32) -> parquet::column::page::Page {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(rep);
+        buf.extend_from_slice(def);
+        buf.push(0x00); // i valori: `PLAIN`, e nessuno li guarda qui
+        parquet::column::page::Page::DataPageV2 {
+            buf: buf.into(),
+            num_values,
+            encoding: parquet::basic::Encoding::PLAIN,
+            num_nulls: 0,
+            num_rows: num_values,
+            def_levels_byte_len: u32::try_from(def.len()).unwrap(),
+            rep_levels_byte_len: u32::try_from(rep.len()).unwrap(),
+            is_compressed: false,
+            statistics: None,
+        }
+    }
+
+    /// L'errore di una prevalidazione: tipizzato, statico, senza payload.
+    fn rifiuto_statico(errore: &plenora_io_model::PlenoraIoError, atteso: &str) {
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(errore.driver.as_deref(), Some("geoparquet"));
+        assert_eq!(errore.message, atteso);
+        // Il messaggio non porta fuori un byte del file: nessuna cifra
+        // dell'intestazione del run, nessuna lunghezza letta.
+        assert!(
+            !errore.message.chars().any(|c| c.is_ascii_digit()),
+            "il messaggio porta un numero derivato dal payload: {errore}"
+        );
+    }
+
+    /// Una `DataPageV2` ben formata attraversa la prevalidazione.
+    ///
+    /// E' la meta' positiva, e senza di lei le altre non direbbero niente: un
+    /// rifiuto che arriva sempre non distingue una pagina rotta da una sana.
+    #[test]
+    fn una_data_page_v2_ben_formata_passa_la_prevalidazione() {
+        let livelli = run_bit_packed(1, 1); // otto valori a bit width uno
+        valida_pagina(&pagina_v2(&livelli, &livelli, 8), 1, 1)
+            .expect("le due sezioni coprono gli otto valori dichiarati");
+    }
+
+    /// Una sezione V2 che dichiara piu' byte di quanti la pagina ne porti.
+    ///
+    /// E' il controllo che in V1 esisteva a meta' -- il prefisso poteva
+    /// dichiarare oltre la fine e l'unico limite era l'overflow -- e in V2 non
+    /// esisteva affatto: le lunghezze venivano dall'header e nessuno le
+    /// confrontava con il buffer.
+    #[test]
+    fn una_sezione_v2_troncata_e_rifiutata() {
+        let livelli = run_bit_packed(1, 1);
+        let parquet::column::page::Page::DataPageV2 { buf, .. } = pagina_v2(&livelli, &livelli, 8)
+        else {
+            unreachable!("costruita come V2")
+        };
+        // La sezione dei livelli di definizione dichiara dieci byte, e dopo
+        // quelli di ripetizione ne restano tre.
+        let pagina = parquet::column::page::Page::DataPageV2 {
+            buf,
+            num_values: 8,
+            encoding: parquet::basic::Encoding::PLAIN,
+            num_nulls: 0,
+            num_rows: 8,
+            def_levels_byte_len: 10,
+            rep_levels_byte_len: u32::try_from(livelli.len()).unwrap(),
+            is_compressed: false,
+            statistics: None,
+        };
+        let errore = valida_pagina(&pagina, 1, 1).expect_err("la sezione esce dalla pagina");
+        rifiuto_statico(&errore, MSG_LIVELLI_TRONCATI);
+    }
+
+    /// Un run V2 che promette piu' byte di quanti la propria sezione ne porti.
+    ///
+    /// E' il difetto originale, sull'altra versione di pagina: l'intestazione
+    /// dichiara un gruppo, il byte del gruppo non c'e', e `PackedDecoder`
+    /// costruirebbe l'intervallo che esce dal buffer di arrow.
+    #[test]
+    fn un_run_v2_oltre_la_propria_sezione_e_rifiutato() {
+        let sana = run_bit_packed(1, 1);
+        let rotta = vec![sana[0]]; // l'intestazione senza il proprio byte
+        let errore = valida_pagina(&pagina_v2(&sana, &rotta, 8), 1, 1)
+            .expect_err("il run promette un byte che la sezione non ha");
+        rifiuto_statico(&errore, livelli::MSG_RUN_OLTRE_LA_SEZIONE);
+    }
+
+    /// Anche la sezione di **ripetizione**, non solo quella di definizione.
+    ///
+    /// Sono due sezioni e due iterazioni: una prevalidazione che guardasse solo
+    /// la seconda lascerebbe passare una pagina rotta nella prima, e il difetto
+    /// tornerebbe per l'altra meta' del formato. La sonda tiene la definizione
+    /// **sana** apposta, cosi' l'unico modo di essere rossa e' aver percorso il
+    /// ramo della ripetizione.
+    #[test]
+    fn anche_la_sezione_di_ripetizione_v2_e_verificata() {
+        let sana = run_bit_packed(1, 1);
+        let rotta = vec![sana[0]];
+        let errore = valida_pagina(&pagina_v2(&rotta, &sana, 8), 1, 1)
+            .expect_err("il run di ripetizione promette un byte che non c'e'");
+        rifiuto_statico(&errore, livelli::MSG_RUN_OLTRE_LA_SEZIONE);
+    }
+
+    /// Una sezione V2 vuota per una pagina che dichiara valori.
+    ///
+    /// Il flusso finisce prima di coprirli: il decoder proseguirebbe leggendo i
+    /// byte dei valori come se fossero livelli.
+    #[test]
+    fn una_sezione_v2_che_non_copre_i_valori_e_rifiutata() {
+        let sana = run_bit_packed(1, 1);
+        let errore = valida_pagina(&pagina_v2(&sana, &[], 8), 1, 1)
+            .expect_err("nessun livello per otto valori");
+        rifiuto_statico(&errore, livelli::MSG_LIVELLI_INSUFFICIENTI);
+    }
+
+    /// La forma piu' comune: colonna piatta e nullable, quindi senza livelli di
+    /// ripetizione.
+    ///
+    /// `max_rep_level` a zero significa che quella sezione non si verifica --
+    /// il decoder non la legge -- ma il salto si fa comunque, perche' la
+    /// lunghezza e' dichiarata nell'header e i valori cominciano dopo di essa.
+    /// E' il ramo che le altre sonde non toccano, ed e' quello che quasi tutti i
+    /// file percorrono.
+    #[test]
+    fn una_data_page_v2_senza_ripetizione_passa() {
+        let def = run_bit_packed(1, 1);
+        valida_pagina(&pagina_v2(&[], &def, 8), 0, 1)
+            .expect("una colonna piatta e nullable non ha livelli di ripetizione");
+    }
+
+    /// Una codifica dei livelli che non e' ne' `RLE` ne' `BIT_PACKED`.
+    ///
+    /// Ferma la lettura invece di far tirare a indovinare l'offset dei valori:
+    /// senza sapere quanto e' lunga la sezione, ogni byte successivo e'
+    /// interpretato a partire da un punto sbagliato.
+    #[test]
+    fn una_codifica_dei_livelli_ignota_ferma_la_prevalidazione() {
+        let pagina = parquet::column::page::Page::DataPage {
+            buf: vec![0xAA, 0x00].into(),
+            num_values: 8,
+            encoding: parquet::basic::Encoding::PLAIN,
+            def_level_encoding: parquet::basic::Encoding::DELTA_BINARY_PACKED,
+            rep_level_encoding: parquet::basic::Encoding::RLE,
+            statistics: None,
+        };
+        let errore = valida_pagina(&pagina, 0, 1).expect_err("la codifica non e' riconosciuta");
+        rifiuto_statico(&errore, MSG_CODIFICA_LIVELLI_IGNOTA);
+    }
+
+    /// Il ramo `BIT_PACKED` di V1: valido.
+    ///
+    /// Deprecata dallo spec e ammessa, non e' il flusso ibrido -- e' un
+    /// impacchettamento piatto -- e la sua dimensione si calcola da
+    /// `num_values`. Era l'altro ramo che nessun test attraversava.
+    #[allow(deprecated)]
+    #[test]
+    fn il_ramo_bit_packed_di_v1_con_i_propri_byte_passa() {
+        // Otto valori a bit width uno: un byte di livelli, poi i valori.
+        let pagina = parquet::column::page::Page::DataPage {
+            buf: vec![0xAA, 0x00].into(),
+            num_values: 8,
+            encoding: parquet::basic::Encoding::PLAIN,
+            def_level_encoding: parquet::basic::Encoding::BIT_PACKED,
+            rep_level_encoding: parquet::basic::Encoding::BIT_PACKED,
+            statistics: None,
+        };
+        valida_pagina(&pagina, 0, 1).expect("un byte copre otto livelli a bit width uno");
+    }
+
+    /// Il ramo `BIT_PACKED` di V1: troncato.
+    ///
+    /// La dimensione implicita dai valori dichiarati esce dalla pagina. Non c'e'
+    /// un run da attraversare -- non e' il flusso ibrido -- e cio' che va
+    /// verificato e' che quei byte ci siano: se la pagina finisce prima, il
+    /// decoder legge oltre il buffer per un'altra strada.
+    #[allow(deprecated)]
+    #[test]
+    fn il_ramo_bit_packed_di_v1_troncato_e_rifiutato() {
+        // Sessantaquattro valori pretendono otto byte; la pagina ne ha due.
+        let pagina = parquet::column::page::Page::DataPage {
+            buf: vec![0xAA, 0x00].into(),
+            num_values: 64,
+            encoding: parquet::basic::Encoding::PLAIN,
+            def_level_encoding: parquet::basic::Encoding::BIT_PACKED,
+            rep_level_encoding: parquet::basic::Encoding::BIT_PACKED,
+            statistics: None,
+        };
+        let errore = valida_pagina(&pagina, 0, 1).expect_err("otto byte di livelli non ci sono");
+        rifiuto_statico(&errore, MSG_LIVELLI_TRONCATI);
+    }
+
     /// I file che facevano panicare arrow decodificando lo schema devono
     /// uscire come errore del driver, non abbattere il processo. Un `.parquet`
     /// ci arriva perche' il footer puo' portare `ARROW:schema`, che viene
