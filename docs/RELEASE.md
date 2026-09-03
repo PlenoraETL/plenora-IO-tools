@@ -1082,15 +1082,29 @@ riferimento esterno che rende la differenza visibile, e li confronta
 
 1. si congela lo SHA e lo si scrive in `revisione_candidate`;
 2. si esegue **Distribuzione** in canale `candidate` su quello SHA;
-3. si fissano in `candidate_release.artefatti` i quattro nomi con digest,
+3. si esegue il livello 2 sullo stesso SHA;
+4. si fissano in `candidate_release.artefatti` i quattro nomi con digest,
    dimensione e revisione, presi dalla provenance della corsa;
-4. si crea `v<versione>` **sulla revisione congelata**;
-5. si esegue il livello 2 e si registra l'evidenza; si scrive
-   `release_authorized`. Questi commit sono l'assurance, e toccano solo
-   l'allowlist qui sopra;
-6. si pubblicano nel canale di release **gli artefatti di quella corsa**, non
-   una ricostruzione;
-7. si **riscaricano** dal canale e si esegue:
+5. si prepara una **draft release** associata a `v<versione>` e vi si caricano
+   esattamente quegli archivi, senza ricostruirli. Una draft non materializza
+   il tag: GitHub lo crea solo alla pubblicazione;
+6. si **riscaricano** dalla draft gli stessi byte e si verificano (comando qui
+   sotto);
+7. si registrano evidenza del livello 2 e qualifica della distribuzione, nei
+   soli file ammessi dopo il congelamento. `release_authorized` resta `false`;
+8. si crea `v<versione>` **sulla revisione congelata** e si pubblica la draft
+   **senza cambiare gli artefatti**;
+9. **solo allora** si scrive `release_authorized: true`.
+
+**Perché l'autorizzazione è ultima.** Una versione precedente di questa
+sequenza la metteva al passo 5, prima della pubblicazione e della verifica dei
+byte. Autorizzare prima di aver verificato che i byte pubblicati siano quelli
+qualificati rende la verifica una formalità: se il confronto fallisse, la
+release sarebbe già autorizzata, e l'unica mossa rimasta sarebbe ritirarla.
+L'autorizzazione è la decisione che nessun gate deriva, e va presa quando non
+resta niente da scoprire.
+
+Il comando del passo 6:
 
 ```
 python3 scripts/check-deliverable.py \
@@ -1099,9 +1113,11 @@ python3 scripts/check-deliverable.py \
   --contro-la-candidate assurance/current-state.json
 ```
 
-Il passo 7 è ciò che chiude la promessa: verifica che i byte pubblicati abbiano
-esattamente i digest congelati al passo 3. Senza, «gli stessi artefatti» resta
-una parola.
+Il passo 6 è ciò che chiude la promessa: verifica che i byte scaricati abbiano
+esattamente i digest congelati al passo 4. Senza, «gli stessi artefatti» resta
+una parola. Si ripete al passo 8, sui byte della release pubblicata: la draft
+dice che si è caricato ciò che si è misurato, la release pubblicata che si è
+pubblicato ciò che si era caricato.
 
 ### 6. Decisione finale di rilascio
 

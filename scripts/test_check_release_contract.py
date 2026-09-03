@@ -847,30 +847,37 @@ class SondeCondizioni(unittest.TestCase):
         self.assertTrue(any("decisione scritta" in m for m in motivi), motivi)
 
     def test_la_candidate_corrente_non_e_coerente(self) -> None:
-        """La candidate pendente e' `1.0.1`, e il workspace e' a `2.0.0`.
+        """La condizione non e' soddisfatta, e la sonda non dice **perche'**.
 
-        Il motivo che questa sonda cercava -- «non qualifica il codice
-        corrente» -- apparteneva al modello a una revisione sola, dove la
-        candidate doveva **essere** HEAD. Non c'e' piu': HEAD ora puo' e deve
-        andare avanti rispetto alla candidate. Cio' che resta rosso e' il
-        divario di versione, che e' il bloccante vero.
+        Le due stesure precedenti di questa sonda cercavano il motivo
+        specifico del momento -- prima «non qualifica il codice corrente», poi
+        il divario di versione -- e sono diventate rosse quando quel motivo e'
+        stato chiuso, pur restando la condizione insoddisfatta. Una sonda che
+        segue lo stato transitorio del repository misura il calendario, non il
+        gate: i motivi puntuali si provano qui sotto costruendoli, e qui resta
+        la sola cosa che deve valere finche' la release non e' fatta.
         """
-        motivi = gate.condizione_candidate_coerente(self.registro())
-        self.assertTrue(
-            any("il workspace e' a «2.0.0»" in m for m in motivi), motivi
-        )
+        self.assertTrue(gate.condizione_candidate_coerente(self.registro()))
 
     def test_il_congelamento_rotto_nega_la_condizione(self) -> None:
-        """La quarta condizione, letta sulla candidate pendente.
+        """La quarta condizione, costruita invece che osservata.
 
-        Fra `966005d6` e HEAD e' cambiato mezzo repository -- sorgenti, lock,
-        workflow -- quindi quella candidate non e' congelata rispetto a questo
-        albero, e la condizione deve dirlo nominando i file.
+        Serviva una candidate congelata su una revisione da cui l'albero si e'
+        mosso toccando cio' che l'assurance non produce. Prendere la radice
+        della storia come revisione congelata la ottiene per costruzione, e
+        continuera' a ottenerla domani -- mentre appoggiarsi alla candidate
+        pendente del giorno funzionava solo finche' quella candidate era
+        vecchia.
         """
-        motivi = gate.condizione_candidate_coerente(self.registro())
-        self.assertTrue(
-            any("l'assurance non produce" in m for m in motivi), motivi
+        radice = gate._git("rev-list", "--max-parents=0", "HEAD")
+        self.assertTrue(radice, "la storia deve avere una radice")
+        stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        stato["aperto"]["candidate_release"]["revisione_candidate"] = (
+            radice.splitlines()[0].strip()
         )
+        with mock.patch.object(gate, "_stato_corrente", return_value=(stato, [])):
+            motivi = gate.condizione_candidate_coerente(self.registro())
+        self.assertTrue(any("l'assurance non produce" in m for m in motivi), motivi)
 
     def test_una_candidate_legata_al_nulla_non_soddisfa_la_condizione(self) -> None:
         """La condizione di `--release` usava lo stesso confronto per prefisso.
@@ -1710,10 +1717,20 @@ class SondeFontiLegate(unittest.TestCase):
 
     # --- candidate ---------------------------------------------------------
 
-    def test_un_tag_dichiarato_inesistente_e_rosso(self) -> None:
-        """Il difetto che questo legame ha trovato: `v1.0.1` esisteva."""
+    def test_un_tag_dichiarato_diversamente_da_git_e_rosso(self) -> None:
+        """Il difetto che questo legame ha trovato: `v1.0.1` esisteva.
+
+        Lo stato diceva `tag_creato: false` mentre git trovava il tag. La sonda
+        chiedeva la stessa cosa negando il campo, e cio' funzionava finche' il
+        tag della candidate **esisteva**: quello della 2.0.0 non esiste ancora,
+        quindi negare il campo produceva l'unica combinazione vera. Si nega ora
+        cio' che git dice, qualunque cosa dica.
+        """
         stato = self.stato()
-        stato["aperto"]["candidate_release"]["tag_creato"] = False
+        candidate = stato["aperto"]["candidate_release"]
+        atteso = f"v{candidate['versione_manifesto']}"
+        esiste = gate.revisione_risolta(atteso) is not None
+        candidate["tag_creato"] = not esiste
         errori = gate.validate_stato_corrente(stato)
         self.assertTrue(any("tag_creato" in e for e in errori), errori)
 
