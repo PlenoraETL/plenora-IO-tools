@@ -47,7 +47,7 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | capacità differite | 1 |
 | S9, qualificato su | `ba1e94e` |
 | candidate, versione del manifesto | `2.0.0` |
-| candidate, revisione congelata | `ba1e94eec96ff5281b412801d00f89543ba6134f` |
+| candidate, revisione congelata | `852f0c2e250b62f606d09300dafc3dbb8a10703d` |
 | candidate, versione del workspace | `2.0.0` |
 | candidate, artefatti congelati | 4 |
 | candidate, tag previsto | `v2.0.0` |
@@ -64,7 +64,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | candidate congelata su `ba1e94e`; il tag `v2.0.0` non esiste ancora |
+| `release.candidate-non-valida-per-head` | candidate congelata su `852f0c2`; il tag `v2.0.0` non esiste ancora |
 | `distribuzione.artefatti-qualificati` | artefatti costruiti e qualificati sulla revisione congelata; manca la pubblicazione nel canale di release |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
@@ -1064,6 +1064,27 @@ stato misurato da nessuno.
 Il registro del contratto **è** ammesso, ed è la voce che merita una ragione:
 ammetterlo non apre nulla, perché le sue affermazioni non si autocertificano —
 le riesegue `check_release_contract.py`, che sta in `scripts/` ed è congelato.
+
+**Superare una candidate va dichiarato nello stesso commit.** È uno spigolo
+trovato pagandolo. `assurance_entro_l_allowlist` è **derivato**: vale vero
+quando HEAD è la revisione congelata, o la contiene senza aver toccato altro che
+l'allowlist. Un commit che corregge il codice dopo un congelamento rende quindi
+quel campo falso — tocca `scripts/` — e se lo eredita `true` dal commit
+precedente il contratto va rosso, correttamente, e il livello 2 su quella
+revisione non passa.
+
+La cura non è ricordarsi di aggiornare il campo: è che **il commit che supera
+una candidate porti `assurance_entro_l_allowlist: false`**. Quel valore si può
+calcolare mentre lo si scrive, perché la diff è contro il congelamento
+**vecchio**, che è noto. Solo il congelamento **nuovo** non si può scrivere da
+dentro il commit che lo produce — è la stessa impossibilità di
+`revisione_assurance` — e per questo lo fissa il commit seguente, che tocca solo
+l'allowlist.
+
+Ne segue che il livello 2 misura la **revisione di assurance**, non sempre la
+candidate: fra le due può starci il solo `assurance/current-state.json`, che è
+nell'allowlist proprio perché non può influire sugli artefatti. L'evidenza
+registra entrambe le revisioni, e il tag va sulla candidate.
 
 **Gli stessi byte, non una ricostruzione.** `check-deliverable.py` confronta
 ogni archivio con i **propri** sidecar: un insieme ricostruito da capo è
