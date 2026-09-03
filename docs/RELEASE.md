@@ -21,13 +21,13 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `ba1e94e` |
-| revisione misurata | `ba1e94e` |
+| ultima qualificata | `8fe5120` |
+| revisione misurata | `8fe5120` |
 | passi del checkpoint | 80 |
 | passi verdi | 80 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 77 888 |
+| input di replay | 78 654 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
@@ -39,15 +39,15 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | righe strumentate LCOV | 42 638 |
 | copertura cargo | 87,56% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `985e3ee` |
-| esito differenziale | 98.25% |
+| baseline differenziale | `ba1e94e` |
+| esito differenziale | n/d |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 2 |
 | capacità differite | 1 |
-| S9, qualificato su | `ba1e94e` |
+| S9, qualificato su | `8fe5120` |
 | candidate, versione del manifesto | `2.0.0` |
-| candidate, revisione congelata | `852f0c2e250b62f606d09300dafc3dbb8a10703d` |
+| candidate, revisione congelata | `8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac` |
 | candidate, versione del workspace | `2.0.0` |
 | candidate, artefatti congelati | 4 |
 | candidate, tag previsto | `v2.0.0` |
@@ -64,7 +64,7 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | candidate congelata su `852f0c2`; il tag `v2.0.0` non esiste ancora |
+| `release.candidate-non-valida-per-head` | candidate congelata su `8fe5120`; il tag `v2.0.0` non esiste ancora |
 | `distribuzione.artefatti-qualificati` | artefatti costruiti e qualificati sulla revisione congelata; manca la pubblicazione nel canale di release |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste

@@ -1,22 +1,23 @@
 {
   "schema_version": 1,
-  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione congelata della candidate 2.0.0. I numeri vengono dai log della corsa, non dal sommario che la corsa stampa: il conteggio dei passi e' ricostruito dall'elenco che il risultato registra, e il manifest impronta gli ottantaquattro artefatti della corsa uno per uno.",
+  "descrizione": "Evidenza del checkpoint S9 di livello 2 sulla revisione congelata della candidate 2.0.0. I numeri vengono dai log della corsa, non dal sommario che la corsa stampa; il manifest impronta gli ottantaquattro artefatti della corsa uno per uno.",
   "esito": "S9 checkpoint level 2 passed",
-  "non_significa": "non autorizza una release, non promuove la readiness del componente ne' quella del sistema, e non chiude alcun invariante del contratto. Qualifica **tecnicamente una revisione**: dice che su quell'albero ottanta passi sono verdi. La decisione di rilascio e' `release_authorized`, che nessun gate deriva.",
+  "non_significa": "non autorizza una release, non promuove la readiness del componente ne' quella del sistema, e non chiude alcun invariante. Qualifica **tecnicamente una revisione**. La decisione di rilascio e' `release_authorized`, che nessun gate deriva.",
   "release_authorized": false,
   "corsa": {
-    "revisione_iniziale": "ba1e94eec96ff5281b412801d00f89543ba6134f",
-    "revisione_finale": "ba1e94eec96ff5281b412801d00f89543ba6134f",
+    "revisione_iniziale": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac",
+    "revisione_finale": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac",
     "impronta_iniziale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
     "impronta_finale": "3ef0f10e2187fe1b3c7c91224f4abb3fefe51dbf442ad7f67918f74118e91bbd",
     "nota": "revisione e impronta coincidono fra inizio e fine: HEAD non si e' mosso e nessun passo ha scritto nell'albero che stava verificando.",
-    "albero_all_avvio": "pulito: 0 file sporchi. Il livello 2 lo pretende, perche' una misura su un albero sporco descrive qualcosa che non e' in nessun commit.",
-    "impronta_su_albero_pulito": "l'impronta misura lo **scostamento** del working tree dalla propria revisione -- diff staged, unstaged e file non tracciati -- non il contenuto dell'albero. Su un albero pulito vale percio' la stessa costante per qualunque revisione, ed e' `revisione_finale` a dire quale albero sia stato misurato. Le due cose insieme lo identificano; nessuna delle due da sola.",
-    "base_diagnostica": "985e3ee",
-    "perche_questa_base": "e' la revisione dell'ultimo checkpoint **superato**, non l'ultimo commit: fra un checkpoint e il successivo ci sono anche commit di infrastruttura e di documentazione, e sono parte del delta da qualificare.",
+    "albero_all_avvio": "pulito: 0 file sporchi.",
+    "candidate_e_assurance_coincidono": "questa corsa misura la revisione che e' **anche** la candidate: `8fe5120` porta il livello 2 verde, la CI verde e i quattro artefatti. Non era cosi' al primo tentativo, e la differenza e' istruttiva -- vedi `perche_la_candidate_e_cambiata`.",
+    "impronta_su_albero_pulito": "l'impronta misura lo **scostamento** del working tree dalla propria revisione, non il contenuto dell'albero: su un albero pulito vale la stessa costante per qualunque revisione, ed e' `revisione_finale` a dire quale albero sia stato misurato.",
+    "base_diagnostica": "ba1e94e",
+    "perche_questa_base": "e' la revisione dell'ultimo checkpoint **superato**, non l'ultimo commit: fra un checkpoint e il successivo ci sono anche commit di infrastruttura e di documentazione, e sono parte del delta.",
     "registro_dei_passi": "assurance/registries/passi-del-checkpoint.json",
     "percorso_dei_log": "/tmp/s9-checkpoint",
-    "una_directory_per_tentativo": "i log di questa corsa stanno tutti sotto un solo percorso, scritto dalla corsa stessa; il risultato e' l'ultimo file prodotto, e il manifest lo elenca."
+    "una_directory_per_tentativo": "i log di questa corsa stanno sotto un solo percorso; il risultato e' l'ultimo file prodotto, e il manifest lo elenca."
   },
   "riconciliazione": {
     "identificatori_distinti": 80,
@@ -432,7 +433,7 @@
   },
   "misure": {
     "fuzz_replay": {
-      "input": 77888,
+      "input": 78654,
       "target": 15,
       "target_totali": 15,
       "crash": 0,
@@ -454,25 +455,22 @@
       "perche_due_numeri": "89,05% viene dal report lcov, 87,56% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
     },
     "diagnostica_differenziale": {
-      "base": "985e3ee",
-      "esito": "98.25%",
-      "righe_cambiate_eseguibili": 114,
-      "coperte": 112,
-      "scoperte": 2,
-      "cambiate_non_eseguibili": 102,
-      "righe_scoperte": [
-        "crates/driver-geoparquet/src/lib.rs:4337",
-        "crates/driver-geoparquet/src/lib.rs:4363"
-      ],
-      "ragione": "misurata: 114 righe cambiate ed eseguibili fra `985e3ee` e `ba1e94e`, 112 coperte e 2 no. Le 102 non eseguibili sono commenti e dichiarazioni, fuori misura per costruzione.",
-      "che_cosa_sono_le_scoperte": "due righe, entrambe dentro `mod tests` di `driver-geoparquet`: sono asserzioni di un percorso di test che l'esecuzione non raggiunge, non codice di produzione. La diagnostica le mostra perche' misura le righe cambiate senza sapere a che cosa servano, ed e' giusto che non lo sappia: distinguere da sola test e produzione le farebbe tacere sulla famiglia sbagliata."
+      "base": "ba1e94e",
+      "esito": "n/d",
+      "righe_cambiate_eseguibili": 0,
+      "coperte": 0,
+      "scoperte": 0,
+      "cambiate_non_eseguibili": 0,
+      "righe_scoperte": [],
+      "ragione": "misurata: **zero** righe cambiate ed eseguibili fra `ba1e94e` e `8fe5120` nel perimetro di libreria. La percentuale e' `n/d` e non `100%`: su un denominatore nullo il 100% sarebbe un numero che non misura niente, e si leggerebbe come copertura perfetta.",
+      "che_cosa_sono_le_scoperte": "nessuna, e non perche' siano state coperte: perche' non ci sono righe di libreria cambiate. Le modifiche di questo intervallo stanno nei costruttori e nei verificatori -- `scripts/` -- che sono fuori dal perimetro di questa misura e hanno le proprie sonde, e negli artefatti dell'assurance."
     }
   },
   "qualifica_esterna": {
     "nota": "corse su GitHub, sulla stessa revisione. Non fanno parte del checkpoint e sono registrate qui perche' qualificano lo stesso albero su macchine che non sono questa.",
     "ci": {
-      "corsa": 33757361045,
-      "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f",
+      "corsa": 33780818014,
+      "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac",
       "job_verdi": 7,
       "job_totali": 7,
       "job": [
@@ -486,14 +484,14 @@
       ]
     },
     "distribuzione": {
-      "corsa": 33757371652,
-      "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f",
+      "corsa": 33784424183,
+      "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac",
       "canale": "candidate",
       "versione": "2.0.0",
       "avvio": "workflow_dispatch",
       "referti_attesi": 24,
       "referti_trovati": 24,
-      "firma": "`non_richiesta` su tutte e quattro le piattaforme-profilo. La 2.0.0 distribuisce il PE Windows senza Authenticode: il manifesto lo dichiara, Windows puo' mostrare «editore sconosciuto» e una policy aziendale puo' bloccarlo, mentre SHA-256, manifesto e provenance restano obbligatori.",
+      "firma": "`non_richiesta` su tutte e quattro le piattaforme-profilo. La 2.0.0 distribuisce il PE Windows senza Authenticode: Windows puo' mostrare «editore sconosciuto» e una policy aziendale puo' bloccarlo, mentre SHA-256, manifesto e provenance restano obbligatori.",
       "verifiche_per_artefatto": {
         "linux-base": {
           "digest-manifesto": "verde",
@@ -533,80 +531,66 @@
           "piattaforma": "linux-x86_64",
           "profilo": "base",
           "archivio": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
-          "archivio_sha256": "8104945d936823160657cadd31baf5f72f7e5a6641a6657a3f6e773639608d73",
-          "byte": 8579087,
-          "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f"
+          "archivio_sha256": "8f11e18c28c8743d0d665d1dea272061edc61b8c21e252928a74dd093d5c75b5",
+          "byte": 8579244,
+          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
         },
         {
           "piattaforma": "linux-x86_64",
           "profilo": "filegdb",
           "archivio": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
-          "archivio_sha256": "a6a8cc7c11b1382a5e97d0548c2508a91534f4578e0291102cb97d28cfe39d31",
-          "byte": 64427793,
-          "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f"
+          "archivio_sha256": "2dd5bfcc261c2d5b754901f3b19028ce38d2a97adae58ee31d378953af02b988",
+          "byte": 64427938,
+          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
         },
         {
           "piattaforma": "windows-x86_64",
           "profilo": "base",
           "archivio": "plenora-io-2.0.0-windows-x86_64-base.zip",
-          "archivio_sha256": "e380131212c201cb8d42fcb0898fccdc737ac8ea32b7b13f0054a78ccfd231a4",
-          "byte": 8715380,
-          "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f"
+          "archivio_sha256": "6c514f8c83cac8cc29a7d5e021de7edca42f4292f267bf782ca412221da2aaad",
+          "byte": 8715536,
+          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
         },
         {
           "piattaforma": "windows-x86_64",
           "profilo": "filegdb",
           "archivio": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
-          "archivio_sha256": "1dd620b064c073206ee9057f330861c72ebc73864ec3a3926203b1168a2d5837",
-          "byte": 47785601,
-          "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f"
+          "archivio_sha256": "76a549a4170c00f5711043ba3f02c07a6451b17cdd6d6a215fae403961772e89",
+          "byte": 47785800,
+          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
         }
       ],
-      "artefatti_nota": "i digest sono ricalcolati sui byte scaricati dalla corsa, non copiati dai sommari della corsa. Sono gli stessi congelati in `aperto.candidate_release.artefatti`, ed e' quel confronto -- non l'uguaglianza di ciascun archivio con il proprio sidecar -- a distinguere gli artefatti qualificati da una ricostruzione equivalente.",
-      "draft_release": {
-        "url": "https://github.com/PlenoraETL/plenora-IO-tools/releases/tag/untagged-d1edb5933df61d466505",
-        "tag_dichiarato": "v2.0.0",
-        "target": "ba1e94eec96ff5281b412801d00f89543ba6134f",
-        "pubblicata": false,
-        "asset": 12,
-        "asset_nota": "i quattro archivi piu' i loro sidecar -- `.sha256` e `.provenance.json` -- caricati **cosi' come scaricati** dalla corsa 33757371652. Nessun archivio e' stato ricostruito.",
-        "il_tag_non_e_materializzato": "una draft release dichiara il proprio `tag_name` senza creare il tag: GitHub lo crea alla pubblicazione. Verificato sul remoto -- sedici tag prima e sedici dopo, nessun `v2.0.0` -- e l'URL della bozza e' infatti `untagged-...`. La verifica e' stata fatta prima su una draft usa e getta, poi cancellata, per non scoprire il vincolo su `v2.0.0`."
-      },
-      "verifica_dei_byte_riscaricati": {
-        "da": "la draft release, riscaricando i dodici asset",
-        "comando": "python3 scripts/check-deliverable.py --directory <scaricati> --versione 2.0.0 --canale candidate --revisione ba1e94eec96ff5281b412801d00f89543ba6134f --contro-la-candidate assurance/current-state.json",
-        "esito": "verde",
-        "che_cosa_ha_verificato": [
-          "quattro archivi, quattro checksum, quattro provenance presenti e coerenti fra loro",
-          "il digest di ogni archivio riscaricato coincide con quello congelato in `aperto.candidate_release.artefatti`",
-          "la dimensione di ogni archivio coincide con quella congelata",
-          "la revisione di ogni provenance e' quella congelata"
-        ],
-        "perche_non_basta_il_confronto_coi_sidecar": "un insieme ricostruito da capo e' internamente coerente e passerebbe: ogni checksum descrive fedelmente l'archivio che gli sta accanto. Il confronto con i digest congelati e' l'unico che distingue gli artefatti qualificati da una ricostruzione equivalente. Che non sia teorico lo mostrano le due corse precedenti su altre revisioni, i cui archivi hanno digest diversi da questi pur venendo dalla stessa macchina.",
-        "sbom_e_profilo_dentro_gli_archivi": "verificati a parte, aprendo i byte riscaricati: SBOM `SPDX-2.3` in tutti e quattro -- 207, 251, 208 e 242 pacchetti -- `firma.stato` `non_richiesta`, e il profilo del manifesto coincide con quello della provenance e con il nome dell'archivio."
-      }
+      "artefatti_nota": "i digest sono ricalcolati sui byte scaricati dalla corsa, non copiati dai suoi sommari, e sono gli stessi congelati in `aperto.candidate_release.artefatti`.",
+      "i_due_rilievi_chiusi": "tutti e quattro i manifesti portano ora `revisione`, uguale a quella della provenance, e `canale_nota` e' quella del canale `candidate`. Nella candidate precedente il manifesto Linux non nominava la revisione, e la nota descriveva un artefatto di prova dentro una candidate. Verificato aprendo i byte riscaricati, non leggendo i log."
     }
   },
   "campagne_mirate": {
     "soak": {
       "eseguito": false,
-      "perche_no": "il soak da un'ora per bersaglio si ripete quando cambia il codice di **prodotto** o quando compare un finding nuovo. Fra `985e3ee` -- la revisione dell'ultimo soak -- e questa, l'unico file di `crates/` toccato e' `driver-geoparquet/src/lib.rs`, con 216 righe aggiunte **tutte dentro `mod tests`**: nessuna riga di produzione e' cambiata, e nessun finding nuovo e' comparso.",
-      "e_i_numeri_di_prima": "non sono riportati qui. Quel soak ha misurato un'altra corsa su un'altra revisione, e ricopiarne i numeri in questa evidenza li farebbe leggere come misure di **questa** corsa. Stanno in git, nell'evidenza di `985e3ee`, dove sono stati prodotti."
+      "perche_no": "il soak da un'ora per bersaglio si ripete quando cambia il codice di **prodotto** o quando compare un finding nuovo. Fra `985e3ee` -- la revisione dell'ultimo soak -- e questa, l'unico file di `crates/` toccato e' `driver-geoparquet/src/lib.rs`, con 216 righe aggiunte **tutte dentro `mod tests`**. Le modifiche successive stanno in `scripts/`. Nessuna riga di produzione, nessun finding nuovo.",
+      "e_i_numeri_di_prima": "non sono riportati qui. Quel soak ha misurato un'altra corsa su un'altra revisione, e ricopiarne i numeri li farebbe leggere come misure di **questa**. Stanno in git."
     }
+  },
+  "perche_la_candidate_e_cambiata": {
+    "nota": "tre congelamenti sono stati annullati prima di questo. Sono registrati perche' ciascuno e' stato annullato da una regola che funzionava, e una regola che ferma qualcosa merita di essere trovata nell'evidenza invece che in un log.",
+    "b6a79ea": "il commit che la congelava toccava anche `scripts/test_check_release_contract.py`, fuori dall'allowlist ammessa dopo il congelamento. La via comoda era allargare l'allowlist a `scripts/test_*.py`; il congelamento e' stato rifatto.",
+    "ba1e94e": "aprendo i byte riscaricati dalla sua draft sono emersi due difetti dei manifesti: quello Linux non nominava la revisione, e `canale_nota` -- emesso sempre, col testo del canale `prova` -- descriveva come artefatto di prova una candidate. Il secondo era una dichiarazione falsa spedita dentro il deliverable. Correggerli tocca `scripts/`, quindi invalida il congelamento per costruzione.",
+    "852f0c2": "il commit che correggeva i costruttori ha ereditato `assurance_entro_l_allowlist: true` dal commit precedente, mentre toccando `scripts/` lo rendeva falso: CI e livello 2 su quella revisione sono andati rossi, per quel campo e per nessun altro motivo. Un rilascio non deve avere una candidate con la CI rossa, quindi gli artefatti sono stati ricostruiti dalla revisione successiva, dove candidate, CI e livello 2 coincidono.",
+    "la_regola_che_ne_segue": "un commit che **supera** una candidate deve dichiararlo nello stesso commit, portando `assurance_entro_l_allowlist` a `false`: quel valore si puo' calcolare mentre lo si scrive, perche' la diff e' contro il congelamento vecchio, che e' noto. Solo il congelamento nuovo non si puo' scrivere da dentro il commit che lo produce, e per questo lo fissa il commit seguente."
   },
   "cosa_chiude": {
     "invarianti": [],
-    "invarianti_nota": "**nessuno**. Questa corsa qualifica tecnicamente una revisione e non chiude alcun invariante del contratto. I due bloccanti restano, e restano per ragioni che questa corsa non poteva togliere: manca il tag sullo SHA congelato, e manca la pubblicazione degli artefatti nel canale di release.",
+    "invarianti_nota": "**nessuno**. Questa corsa qualifica tecnicamente una revisione. I due bloccanti restano, per ragioni che questa corsa non poteva togliere: manca il tag sullo SHA congelato, e manca la pubblicazione degli artefatti nel canale di release.",
     "assurance_n1": "zero gruppi aperti su cinquanta, invariato.",
-    "candidate": "congelata su `ba1e94e`. I quattro archivi, i loro SBOM e le loro provenance escono dalla corsa 33757371652 in canale `candidate`, e i loro digest sono fissati nello stato.",
+    "candidate": "congelata su `8fe5120`, che e' anche la revisione misurata da questa corsa.",
     "corse_sostituite": [
-      "checkpoint-985e3ee.json: l'albero conserva la sola evidenza corrente, e la precedente resta in git."
+      "checkpoint-ba1e94e.json: l'albero conserva la sola evidenza corrente, e la precedente resta in git."
     ],
     "bloccanti_residui": [
       "release.candidate-non-valida-per-head",
       "distribuzione.artefatti-qualificati"
     ],
-    "bloccanti_residui_nota": "`release.candidate-non-valida-per-head`: la candidate e' congelata su `ba1e94e` e gli artefatti sono fissati, ma il tag `v2.0.0` non esiste. Lo chiude la creazione del tag **sulla revisione congelata**, non su HEAD, che nel frattempo porta questa evidenza. `distribuzione.artefatti-qualificati`: l'invariante pretende il checksum pubblicato nel canale di release, e una draft release non e' pubblicata -- i byte esistono nel canale e nessuno fuori di qui li puo' verificare. Lo chiude la pubblicazione della draft **senza ricostruire gli artefatti**."
+    "bloccanti_residui_nota": "il tag `v2.0.0` non esiste, e va creato **su `8fe5120`**. Gli artefatti non sono pubblicati: una draft release non e' pubblicata, e l'invariante pretende il checksum pubblicato nel canale."
   },
   "resta_aperto": {
     "sistema_qualifica_cross_component": {
@@ -615,15 +599,15 @@
       "artefatto": "release/system-rc-gate.json",
       "artefatto_stato": "not_satisfied / not_run, invariato"
     },
-    "tag_e_autorizzazione": "il tag `v2.0.0` non esiste e `release_authorized` e' `false`. Sono le due decisioni che questa corsa non prende e che nessun gate deriva."
+    "tag_e_autorizzazione": "il tag non esiste e `release_authorized` e' `false`. Sono le due decisioni che questa corsa non prende e che nessun gate deriva."
   },
   "artefatti": {
     "percorso_di_corsa": "/tmp/s9-checkpoint",
     "file": 84,
-    "digest_manifest": "36fcb942e7ed6ce498bf2ed968cdd372fb73fc223e4ad3bb4cb4c8ce997e7c40",
-    "forma_del_manifest": "percorso relativo alla directory di corsa, NUL, sha256 del contenuto, LF; le voci in ordine di percorso. La forma e' dichiarata perche' un digest che nessuno puo' ricalcolare e' una stringa, non un'impronta.",
+    "digest_manifest": "cd66c93fcb1eb280d9c3ef4fc69b5f3047ac0c13918d4ac3f7e8cfa72b6dac29",
+    "forma_del_manifest": "percorso relativo alla directory di corsa, NUL, sha256 del contenuto, LF; le voci in ordine di percorso. La forma e' dichiarata perche' un digest che nessuno puo' ricalcolare e' una stringa.",
     "risultato_della_corsa": "risultato.json",
-    "diagnostica_differenziale_nel_manifest": "`coverage_diff.log` e `coverage_diff_cli.log` sono nel manifest: i numeri della diagnostica hanno il proprio artefatto, e non solo la riga di sommario.",
+    "diagnostica_differenziale_nel_manifest": "`coverage_diff.log` e `coverage_diff_cli.log` sono nel manifest: i numeri della diagnostica hanno il proprio artefatto.",
     "manifest": {
       "assurance_fallbacks.log": "8a8668bb71dc8a3abd033faf887bb6c98c2b8e41d786541c550720165c3454e3",
       "assurance_n1_integrita.log": "38a2c5bc508cb3ab3189eaaf9145f317b8edbba191ef96110e2986ddffff8fce",
@@ -653,78 +637,62 @@
       "check_schemi_geoparquet.log": "d5c76e7deea8bd22226fe04bdc3fe4dfe1b42eeeb917d1f05f97fcf7b97bc4f4",
       "check_toolchain.log": "6faaa74fc996a2706d71ccb1dcefd5fcdf949b297229c0a106e343b89bac00f3",
       "check_wkb_limits.log": "2bf0334c47092d29bf84cf9331dd3b9cba75253dded84fdee2ab7454267b30ba",
-      "clippy.log": "1abb67ae831a95f2c6611e5222fcaf13cae29bbc66f8cab35908cd2df93da857",
-      "clippy_default.log": "c1987c2d99d3c8daa418dbcc1c32693c0b3e1be6a0835d2699b847a99e7533be",
-      "clippy_sicurezza.log": "e4d3b4e4cdfdb2f93e96ef7d6c1418248f89458b3d3e1f83d5bdc358f23b5bf3",
+      "clippy.log": "d8d0c74a96fa1813ea5b24eda333a3ab0207e84b4a73ce382920651025c51742",
+      "clippy_default.log": "5847bea518c363d76170c6d88aabab10897ba300d5dab74ee246f8db0655aba3",
+      "clippy_sicurezza.log": "138c0ab337185d5a38a266eff742ddac6356647fbcdee39239ae4b11848ee735",
       "corpus_condiviso.log": "4b5a030a25e38be08662283c99d3fafe40bc48e4401f24f9861a8be47b153c13",
-      "coverage_diff.log": "4bca5465161d47bff54e45ebc656b8fe2e4a681b7928fbb07aad035f4a1e6fd1",
-      "coverage_diff_cli.log": "05ee996936f8e2845dd5e994fc13a7e7746b4b4af88dfc44f006b4abca2ba46d",
+      "coverage_diff.log": "aa78fd5fd84a837edff0af6185bc3401472d876944d961dfd261540de0c8aef0",
+      "coverage_diff_cli.log": "0d66a5faaf70067342a17b06dcf567b65a8bfc3a3bdfe528a0f1d5a6af51106a",
       "coverage_export.log": "e99a0e91ab088fa37889cbfb79888a9f34bfd3b81561602202c689a886867742",
       "coverage_export_cli.log": "f9a6cab8dcaa074740457e14d8fd6e81682de0ca8dee41a53cba89636faca3e4",
-      "coverage_misura.log": "f10f65da078c4568789abc997336b769e928218003d2526d3bb61745328ce43f",
+      "coverage_misura.log": "cc9b248ae6380896fcd56b5aa80625c98bf56155880e6186a06a3ff9e9d41c99",
       "coverage_pulizia.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "coverage_report_cli_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "coverage_report_non_vuoto.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "coverage_soglia_controprova.log": "9061a6e431acfbb12f1ff94ded162dd8f50f5d68dfa86782e9b08c40ac2b0a35",
+      "coverage_soglia_controprova.log": "7d96620934283750695e234d01f8d0112e3c5992b45efaf9a16b41f788758b59",
       "coverage_soglia_dal_report.log": "f1cecf273f156c768d0ea693f759c9ace9ba50c0533b8107686a6555d32162f4",
       "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "fuzz_replay.log": "42b5edee59818d4b395e855ddea7ec840eb0f9b02eae95072cd17979dbc29720",
-      "fuzz_smoke.log": "d645ef1c43975afe8e3f41e207d0225da6d05ac6a222d7b6b086050ecaf6905f",
-      "lcov-completo.info": "f7e3122a672d59b870dc88da961e07fe429c517762f4bc2aab45406e029da087",
-      "lcov.info": "a3dca4c35abf44fcf183064037e8a7f60058a53a5ea3fecad02463cd2eab411d",
+      "fuzz_replay.log": "4fa1d554243f50f49243a3e508c18f398eaa4c448f354a5ab6e15c179f29cba4",
+      "fuzz_smoke.log": "a36ad77e81be1729a3bdffc43c42053c527fedd334aeb533fe287faa7495b4b3",
+      "lcov-completo.info": "20da87d631e0bfb7c1c59f383dd613bf6a2051967e8872b4369ec51282e36053",
+      "lcov.info": "6fa864757b2b21f0decb49d9bcd55b73fab5588ed2a4a84668c44b3c9e8cfd93",
       "prove_di_confine.log": "c5940c13705c898c82789e260d4f53ebf0d2a303c64a620307e4b2dbbe2160c8",
-      "risultato.json": "66734443db159aa76f983ad759265e7a3b23bafccd9429196f02c31f650a07b0",
+      "risultato.json": "212e4794ab740ee8ed469d3be0dceb89aa509c531b917e9298a1a23ad8963db6",
       "semi_s12.log": "8d9c6ecbbcd5cb0251408811adda76ad9a8c52720c08a9ed4c2c89c25680ebfb",
-      "sonde_action_pins.log": "f633ad8e738512bb7562a43fab273ab65cdc5a224925052dd0e38b5bd4931a80",
-      "sonde_assurance_n1.log": "9026a9943998034e5efba67fc71363f36e9e0e9b6acdf7f67777fe0bce85cd3c",
+      "sonde_action_pins.log": "a36435e8b0acbdb4ba4a34ca6401451332e28c6854e3ee41093717379b597bdc",
+      "sonde_assurance_n1.log": "e30800dbb76746da11bf9a9cc3933994947d65d9b5fe98f244ada9ce3caa8131",
       "sonde_assurance_n1_prove.log": "7b7dc7b80a1526f8fbd83449d2a67622138309015a7ab0ae6c04e5a3b61eb1a8",
-      "sonde_audit_ignores.log": "065c7d15facfd20f14fb9182747be315f3349fa1d5e1a0e966047509f4bfa9b1",
-      "sonde_capability_ostile.log": "77cd36bab1b04ca1cfe6f80d98bb2d2243925b965756aa108d4749e85dd39039",
-      "sonde_categorie_di_perdita.log": "9427e149f4fe85c54fffe124678c2a92e02b089153193eb14049ad21826c8f6c",
+      "sonde_audit_ignores.log": "65378dcad145da2497120819bebfc3c46534dce9714ce064b3d809a56654aca2",
+      "sonde_capability_ostile.log": "8236c6e2ea4b8c8feaaa7c3bb7a7fe66a0b6857292a390314816fa0e520423be",
+      "sonde_categorie_di_perdita.log": "c83b00510adab24467612903f3096253309d4c06a51da32ff5511ed00327219d",
       "sonde_checkpoint.log": "05364ce20d04a656d17a5d305dc134d1dbf9be5c5b0c94ab08f1fba1ce960664",
-      "sonde_confine_v1.log": "a79a8fe0df550360af7b67e7e721d954f9fe0d2c3319f4266867e326ab3ab012",
-      "sonde_coverage_excl.log": "7123a9236296d9e54dcf377fa276e70c6ae064a044dd9d9e6d9dc433789d34b1",
-      "sonde_dist_completa.log": "8d0efca57e4a9f85e9c67578c5f67516738d1fd618e6452988a00402f8d55398",
-      "sonde_distribuzione.log": "e476fbd24c1107b7502134d953c648d0e92944ba97c5163e5bcd39de5c1a06c9",
-      "sonde_docset.log": "50e8591d34d45b058b4186a9f15a6771ed35bb626b5057c677370e1e44a6a9ff",
-      "sonde_errori_redatti.log": "7552bd12ae276340729a65d44a110f392bc7234a9105e01401a941279fa79dfd",
-      "sonde_fallback.log": "5684d13977a1f6829bcd5f644c72b35ab6f8d42951d571a5f230c4cc35a359f3",
-      "sonde_filegdb.log": "87f1ae458e6d1d46a428078a154fbbcad6bac4f7263c5eff0ec3464055fbb84c",
-      "sonde_fork.log": "b5f4ae75453cb6e6ba7e878e26e2e9d7ab4d6bbd3bf0ba9d792b3cdd4f0f6895",
-      "sonde_identita.log": "e73c3805f810fdcf3d0167ced7085c48306c9482a952ffb710551d230cdb3e51",
+      "sonde_confine_v1.log": "39359bfaa281a7534e9a5ead5d5b3fc75c9548531907a7333734cd2075fc675d",
+      "sonde_coverage_excl.log": "cb5c229e0eeab5aae27f7b372e4b013c3d761210577bf3ba6d2f30ac781a3bd7",
+      "sonde_dist_completa.log": "a325e91f284fca1a039d9e29da7319fba46dec38e6b7f355b99c10fafef3615e",
+      "sonde_distribuzione.log": "8413be828bf18dfb6c20444c0a5d471f83069a966d49d3bfb32144cd786aa5ea",
+      "sonde_docset.log": "a42ab339a6845cbf42e22ce664652ff74e31a047da5c9d3684a212bcd4ac306c",
+      "sonde_errori_redatti.log": "100dffcea5e9922aae4402f092ad0d33e6735c7a4302c143fb53ad8942e8619d",
+      "sonde_fallback.log": "7c758af7411e05fc2e6c4fb89045f7a03d9a5957d5305092903a23a66373d034",
+      "sonde_filegdb.log": "f21cf8f81dbfe5d72a7e0bee6069a3c3fc0e651e4938e2d690e9e9ff41748af0",
+      "sonde_fork.log": "311bdedad7138e591b71539cfe44d41dfc5109dbdc83d15e946f788c74257329",
+      "sonde_identita.log": "af55efa5c3ceb122f8184c380aa405d3f3b4e7e0c1e892773d0eff31d0645c8a",
       "sonde_licenze.log": "f70c7fcfaa9e327dcb440fdbfbbf825fad8557621597b2f9e79b2123c6c1107c",
-      "sonde_metadati_geoparquet.log": "dc38ec330fd491582ed41e10b62759fbe3cb18ec0e0ba65df4c7570215e0a420",
-      "sonde_niente_leak.log": "591908f8ebbe623a3d3659dcfff3bb80ff781ef8db2ea993f6d24cd4581362b8",
-      "sonde_prevalidazione.log": "d5c42298542e8087193ca809f6dfcba308030c868c5e717efbc32ab0ad47b9de",
-      "sonde_protocollo_v2.log": "8f76d5e4f688dbf695930ff0fafa4fbbb90bd48d3596f18abb6d94a410b35085",
-      "sonde_quarantena.log": "670a39115e7523a8984e4842e16547cb2094b03fad392b037b4b9dc8b2656e62",
+      "sonde_metadati_geoparquet.log": "b88294b8d138fbc271cecda9651730cdfd8d54c22df35cd450afce2dcd4cb8e6",
+      "sonde_niente_leak.log": "2688e3aac5879831defab5e5f231a6f331e395be82e99f6caef62e863a873ffe",
+      "sonde_prevalidazione.log": "b16c2d37f8720077a281358023a1ae49c385415ecb8a4149a4a55f0a91241625",
+      "sonde_protocollo_v2.log": "ccb5866f38cb0fc19b4aec97ce2e2aedb0596afc361dc85b63e46f6b898527e3",
+      "sonde_quarantena.log": "74c03fc16fde9a2dfeff03db0ec8f472a5a8dfed04e9e982a912b4b7f64faee3",
       "sonde_quartetto.log": "26e4fc70ea6b6384bf46375bf00ad2ce38024aabcad5482770bd95e72ba6bbc6",
-      "sonde_release.log": "5964bc7fb49a21a897572fa6ec696120a44ef468763158498b208f517a4c5cf0",
-      "sonde_sbom.log": "5cce876fde49c766e584f628fa4c7165c4861450f6178fb5d94286a1b504c4b0",
-      "sonde_schemi_geoparquet.log": "c4ff3b62a3b4296951e0ce13368c5500062eb0e4ca7c84adfe5ed9b8b9363458",
-      "sonde_semi_s12.log": "a4dfc6ba8d8ee7f993f00a450146247a1360e5c1204cf97b042c9525cb23198e",
-      "sonde_toolchain.log": "83ad79a1e26467e2445a1816751b66d64a11dbbbac25b9002f6e48960864f468",
-      "sonde_verificatori_nativi.log": "147d16bf65e293df6fea93a8217ed12c2bcf92c02d4739ce313297187ae0dc20",
+      "sonde_release.log": "5e52563eddda50079c2b99db1407a6850f54c526bd54ca111af5fa51807ad09f",
+      "sonde_sbom.log": "0247ce1a4122b546c80673e362d68a047ba3d01063104988c3c936bc10636111",
+      "sonde_schemi_geoparquet.log": "f8effbd9f118462ad5fa792670ba45ed7db18965e838a9eb76e1e5becef15b6e",
+      "sonde_semi_s12.log": "dd818658e9c8008cb354da9371485cb574dabd3d7c356cdfa1c694608942fdca",
+      "sonde_toolchain.log": "c7de476d1b78f867b2bbe4e9d11b5587cebe9384a2c3f2a5dc48ff78e0c49d6d",
+      "sonde_verificatori_nativi.log": "c84021898a264db05c44418c495de6c7fed2976092a002519137f1622e5cc032",
       "sonde_wkb_condiviso.log": "a6707d4eff38012da33ddc34bc6dc076a3b17151cfc9aef223c8790cbe64c3da",
-      "sonde_wkb_limits.log": "ca18ffc8e8fdc6b71e49e9b4fd64e04661daa3243fb767d57a64ce80ea2d7b63",
-      "test.log": "e0b676330531411a04916baaeb753e682801112d0887d7129c16bebf6ee2f7e6",
-      "test_default.log": "0463deae4133ccab8750b3b04c1690b939a19836953f06dcf3a9204b07685384"
-    }
-  },
-  "rilievi": {
-    "nota": "trovati aprendo i byte riscaricati, cioe' guardando il deliverable e non il proprio log. Nessuno dei due viola un invariante del contratto e nessuno e' stato corretto qui: stanno in `scripts/costruisci-artefatto-linux.py`, che e' **congelato**, e correggerli invalida la candidate. La decisione di rifare il congelamento non e' di questo passaggio.",
-    "canale_nota_descrive_prova_dentro_una_candidate": {
-      "dove": "scripts/costruisci-artefatto-linux.py, MANIFEST.json degli artefatti Linux",
-      "che_cosa": "il campo `canale_nota` e' emesso **sempre**, e il suo testo parla di «prova»: dice che l'artefatto non e' pubblicato e che «il gate di distribuzione lo rifiuta ovunque si pretenda una candidate». Nei due archivi Linux della candidate quel testo sta accanto a `canale: candidate`, e afferma il contrario di cio' che l'artefatto e'.",
-      "gravita": "e' un'affermazione falsa **spedita dentro il deliverable**, dove la legge chi installa. Non e' un difetto del gate -- nessun referto la guarda -- ed e' il tipo di testo che nessun controllo trova perche' e' coerente con se stesso: parla di un canale, e un canale esiste.",
-      "gli_artefatti_windows": "non portano il campo, quindi non ne sono affetti.",
-      "come_si_chiude": "emettere la nota solo quando `canale` e' `prova`, oppure scriverne una che dipenda dal canale. E' una riga, ed e' in `scripts/`."
-    },
-    "il_manifesto_linux_non_nomina_la_revisione": {
-      "dove": "scripts/costruisci-artefatto-linux.py, MANIFEST.json degli artefatti Linux",
-      "che_cosa": "il manifesto Windows porta `revisione`; quello Linux no. La revisione dell'artefatto Linux vive solo nella provenance, che e' un file **accanto** all'archivio.",
-      "gravita": "non viola l'invariante: `distribuzione.artefatti-qualificati` pretende che una provenance registri artefatto, revisione e costruzione, e la provenance lo fa su tutte e quattro. Resta un'asimmetria con una conseguenza concreta: chi ha soltanto l'albero installato -- senza i sidecar -- puo' leggere da quale revisione viene un'installazione Windows e non una Linux.",
-      "come_si_chiude": "aggiungere `revisione` al manifesto Linux, come fa quello Windows. E' in `scripts/`."
+      "sonde_wkb_limits.log": "7c758af7411e05fc2e6c4fb89045f7a03d9a5957d5305092903a23a66373d034",
+      "test.log": "96425be8f34900b7784f3f9903f63ef02dc347a7478a4c49dbb16e6dc6952a3f",
+      "test_default.log": "3840d9bcf745779ae7db4b009b525370a85f157483cd12d13956d1d0a620b9c9"
     }
   }
 }

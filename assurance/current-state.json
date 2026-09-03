@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "ba1e94e",
+      "sha": "8fe5120",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "ba1e94e",
+    "sha": "8fe5120",
     "checkpoint": {
       "passi_eseguiti": 80,
       "passi_verdi": 80,
@@ -23,7 +23,7 @@
       "riconciliazione": "80 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 77888,
+      "replay_input": 78654,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -41,23 +41,23 @@
       "nota": "89,05% viene dal report lcov, 87,56% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
     },
     "diagnostica_differenziale": {
-      "baseline": "985e3ee",
-      "esito": "98.25%",
-      "righe_cambiate_eseguibili": 114,
-      "coperte": 112,
-      "scoperte": 2,
-      "cambiate_non_eseguibili": 102,
-      "ragione": "misurata: 114 righe cambiate ed eseguibili fra `985e3ee` e `ba1e94e`, 112 coperte e 2 no. Le 102 non eseguibili sono commenti e dichiarazioni, fuori misura per costruzione.",
-      "che_cosa_sono_le_scoperte": "due righe, entrambe dentro `mod tests` di `driver-geoparquet`: sono asserzioni di un percorso di test che l'esecuzione non raggiunge, non codice di produzione. La diagnostica le mostra perche' misura le righe cambiate senza sapere a che cosa servano, ed e' giusto che non lo sappia: distinguere da sola test e produzione le farebbe tacere sulla famiglia sbagliata."
+      "baseline": "ba1e94e",
+      "esito": "n/d",
+      "righe_cambiate_eseguibili": 0,
+      "coperte": 0,
+      "scoperte": 0,
+      "cambiate_non_eseguibili": 0,
+      "ragione": "misurata: **zero** righe cambiate ed eseguibili fra `ba1e94e` e `8fe5120` nel perimetro di libreria. La percentuale e' `n/d` e non `100%`: su un denominatore nullo il 100% sarebbe un numero che non misura niente, e si leggerebbe come copertura perfetta.",
+      "che_cosa_sono_le_scoperte": "nessuna, e non perche' siano state coperte: perche' non ci sono righe di libreria cambiate. Le modifiche di questo intervallo stanno nei costruttori e nei verificatori -- `scripts/` -- che sono fuori dal perimetro di questa misura e hanno le proprie sonde, e negli artefatti dell'assurance."
     },
-    "evidenza": "assurance/evidence/checkpoint-ba1e94e.json"
+    "evidenza": "assurance/evidence/checkpoint-8fe5120.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "ba1e94e"
+      "qualificato_su": "8fe5120"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -108,7 +108,7 @@
     },
     "candidate_release": {
       "versione_manifesto": "2.0.0",
-      "revisione_candidate": "852f0c2e250b62f606d09300dafc3dbb8a10703d",
+      "revisione_candidate": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac",
       "versione_workspace": "2.0.0",
       "tag_previsto": "v2.0.0",
       "tag_creato": false,
@@ -118,32 +118,32 @@
       "artefatti": [
         {
           "nome": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
-          "sha256": "92b538fb73cc4e6d2089672f85d5d78239e949789192a3f4a535d53b124dcfa3",
-          "dimensione": 8579216,
-          "revisione": "852f0c2e250b62f606d09300dafc3dbb8a10703d"
+          "sha256": "8f11e18c28c8743d0d665d1dea272061edc61b8c21e252928a74dd093d5c75b5",
+          "dimensione": 8579244,
+          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
         },
         {
           "nome": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
-          "sha256": "da1cda71ac02dd12a45e84b5cbb9aa5deb749b57f1004099526470a659148c6d",
-          "dimensione": 64428247,
-          "revisione": "852f0c2e250b62f606d09300dafc3dbb8a10703d"
+          "sha256": "2dd5bfcc261c2d5b754901f3b19028ce38d2a97adae58ee31d378953af02b988",
+          "dimensione": 64427938,
+          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
         },
         {
           "nome": "plenora-io-2.0.0-windows-x86_64-base.zip",
-          "sha256": "2b204b814a4f2703056f9a211fb142f5259d5d0c9abc7100529f7907410e4be5",
-          "dimensione": 8715533,
-          "revisione": "852f0c2e250b62f606d09300dafc3dbb8a10703d"
+          "sha256": "6c514f8c83cac8cc29a7d5e021de7edca42f4292f267bf782ca412221da2aaad",
+          "dimensione": 8715536,
+          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
         },
         {
           "nome": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
-          "sha256": "553edb85a1f2ddcf1366053c1eaaae7283911d3f198a8134ddc942c3af86a45b",
+          "sha256": "76a549a4170c00f5711043ba3f02c07a6451b17cdd6d6a215fae403961772e89",
           "dimensione": 47785800,
-          "revisione": "852f0c2e250b62f606d09300dafc3dbb8a10703d"
+          "revisione": "8fe5120ab515c6f5ae554d1d7c1c94a7ec6bbdac"
         }
       ],
       "release_action_allowed": true,
       "release_blocking": true,
-      "nota": "La candidate 2.0.0 e' congelata su `852f0c2`. Da quella revisione escono i quattro archivi, i loro SBOM e le loro provenance, nella corsa `Distribuzione` 33776421685 in canale `candidate`; i digest qui sotto sono ricalcolati sui byte scaricati da quella corsa, non copiati dai suoi sommari.\n\nLe revisioni sono **due**. `revisione_candidate` e' lo SHA congelato: da li' si costruisce, e li' puntera' il tag. `revisione_assurance` e' il commit che registra evidenza e decisione, ed e' **HEAD**: non si scrive, si deriva. Un campo che dovesse contenere lo SHA del commit che lo contiene non e' compilabile quando lo si scrive.\n\n# Le due candidate superate, e perche'\n\n`b6a79ea` e' stata annullata perche' il commit che la congelava toccava anche `scripts/test_check_release_contract.py`, fuori dall'allowlist.\n\n`ba1e94e` e' stata superata da `852f0c2`, che corregge due difetti trovati aprendo i byte riscaricati dalla sua draft: il manifesto Linux non nominava la revisione, e `canale_nota` -- emesso sempre, con il testo del canale `prova` -- descriveva come artefatto di prova una candidate. Il secondo era una dichiarazione falsa spedita dentro il deliverable. Sono stati corretti invece che documentati come limiti, e correggerli tocca `scripts/`: quindi invalida il congelamento, per costruzione.\n\nL'evidenza di `ba1e94e` non e' riscritta: resta in git, dove e' stata prodotta. La sua draft `untagged-d1edb593` va rimossa **dopo** che la nuova e' stata verificata, non prima.\n\n# Uno spigolo del modello, trovato qui\n\n`assurance_entro_l_allowlist` e' **derivato**: e' vero quando HEAD e' la revisione congelata, o la contiene senza aver toccato altro che l'allowlist. Il commit che ha corretto i costruttori ha percio' reso quel campo falso -- tocca `scripts/` -- e lo ha ereditato `true` dal commit precedente: il contratto e' andato rosso, e ha avuto ragione.\n\nLa lezione non e' «ricordarsi di aggiornare il campo». E' che **un commit che supera una candidate deve dichiararlo nello stesso commit**, portando `assurance_entro_l_allowlist` a `false`. Quel valore si puo' calcolare quando si scrive, perche' la diff e' contro il congelamento **vecchio**, che e' noto. Solo il congelamento nuovo non si puo' scrivere da dentro il commito che lo produce, e per questo lo fissa il commit seguente.\n\n# Il perimetro qualificato\n\nIl livello 2 misura la revisione di assurance, non `852f0c2`: fra le due c'e' esattamente questo file, che sta nell'allowlist proprio perche' non puo' influire sugli artefatti. Gli artefatti vengono da `852f0c2`, e il tag andra' su `852f0c2`.\n\n`tag_creato` e' falso perche' e' falso, e `release_action_allowed` dice che la candidate permette all'azione di rilascio di procedere -- non che sia autorizzata. L'autorizzazione e' `release_authorized`, e resta `false`."
+      "nota": "La candidate 2.0.0 e' congelata su `8fe5120`. Da quella revisione escono i quattro archivi, i loro SBOM e le loro provenance, nella corsa `Distribuzione` 33784424183 in canale `candidate`; i digest qui sotto sono ricalcolati sui byte scaricati da quella corsa, non copiati dai suoi sommari.\n\nLe revisioni sono **due**. `revisione_candidate` e' lo SHA congelato: da li' si costruisce, e li' puntera' il tag. `revisione_assurance` e' il commit che registra evidenza e decisione, ed e' **HEAD**: non si scrive, si deriva. Un campo che dovesse contenere lo SHA del commit che lo contiene non e' compilabile quando lo si scrive.\n\n# Le due candidate superate, e perche'\n\n`b6a79ea` e' stata annullata perche' il commit che la congelava toccava anche `scripts/test_check_release_contract.py`, fuori dall'allowlist.\n\n`ba1e94e` e' stata superata da `8fe5120`, che corregge due difetti trovati aprendo i byte riscaricati dalla sua draft: il manifesto Linux non nominava la revisione, e `canale_nota` -- emesso sempre, con il testo del canale `prova` -- descriveva come artefatto di prova una candidate. Il secondo era una dichiarazione falsa spedita dentro il deliverable. Sono stati corretti invece che documentati come limiti, e correggerli tocca `scripts/`: quindi invalida il congelamento, per costruzione.\n\nL'evidenza di `ba1e94e` non e' riscritta: resta in git, dove e' stata prodotta. La sua draft `untagged-d1edb593` va rimossa **dopo** che la nuova e' stata verificata, non prima.\n\n# Uno spigolo del modello, trovato qui\n\n`assurance_entro_l_allowlist` e' **derivato**: e' vero quando HEAD e' la revisione congelata, o la contiene senza aver toccato altro che l'allowlist. Il commit che ha corretto i costruttori ha percio' reso quel campo falso -- tocca `scripts/` -- e lo ha ereditato `true` dal commit precedente: il contratto e' andato rosso, e ha avuto ragione.\n\nLa lezione non e' «ricordarsi di aggiornare il campo». E' che **un commit che supera una candidate deve dichiararlo nello stesso commit**, portando `assurance_entro_l_allowlist` a `false`. Quel valore si puo' calcolare quando si scrive, perche' la diff e' contro il congelamento **vecchio**, che e' noto. Solo il congelamento nuovo non si puo' scrivere da dentro il commito che lo produce, e per questo lo fissa il commit seguente.\n\n# Il perimetro qualificato\n\nIl livello 2 misura la revisione di assurance, non `8fe5120`: fra le due c'e' esattamente questo file, che sta nell'allowlist proprio perche' non puo' influire sugli artefatti. Gli artefatti vengono da `8fe5120`, e il tag andra' su `8fe5120`.\n\n`tag_creato` e' falso perche' e' falso, e `release_action_allowed` dice che la candidate permette all'azione di rilascio di procedere -- non che sia autorizzata. L'autorizzazione e' `release_authorized`, e resta `false`."
     }
   },
   "docset": {
