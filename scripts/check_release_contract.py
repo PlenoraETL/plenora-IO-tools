@@ -130,8 +130,27 @@ ROOT = Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "release-contract-current.json"
 CLI_PROTOCOL_V1 = ROOT / "release" / "cli-protocol-v1.json"
 
-STATI = {"verified", "release_blocking"}
+# Tre stati, e il terzo non e' una scorciatoia per il primo. `differita` dice
+# che la capacita' **non e' richiesta da questa release** e **non e'
+# verificata**: toglie il blocco senza produrre una verifica, ed e' per questo
+# lo stato piu' pericoloso del registro. Le sonde che lo circondano esistono
+# perche' la distanza fra «non richiesta qui» e «vera» e' una riga di JSON.
+STATI = {"verified", "release_blocking", "differita"}
 CAMPI = {"id", "superficie", "invariante", "prova", "stato"}
+
+# Chi puo' essere differita, e nessun altro. Se lo stato fosse applicabile a
+# qualunque voce, la via piu' breve al verde sarebbe differire il bloccante che
+# non passa: l'elenco chiuso rende quella mossa un rosso invece che una scelta.
+DIFFERIBILI = frozenset({"sistema.qualifica-cross-component"})
+
+# Che cosa deve dire una voce differita. Non bastano una parola e un rinvio:
+# servono chi ha deciso, che cosa la release **non promette** per effetto del
+# rinvio, e che cosa lo farebbe tornare bloccante. Senza il non-promette un
+# rinvio si legge come un dettaglio interno, mentre e' una capacita' in meno
+# nelle mani di chi installa.
+CAMPI_DELLA_DIFFERITA = frozenset(
+    {"decisione", "non_promette", "condizione_di_ripristino"}
+)
 
 TIPI = {"test", "gate", "interna", "esterna"}
 CAMPI_PER_TIPO = {
@@ -397,29 +416,48 @@ BLOCCANTI_DELLO_STATO = {
     ): "release.candidate-non-valida-per-head",
 }
 
-# Le stesse voci dette a parole: `percorso -> (invariante, parola se blocca,
-# parola se non blocca)`. Il vocabolario non e' uniforme — un lotto e' «aperto»
-# e una qualifica e' «aperta» — e indovinarlo dal nome sarebbe la scorciatoia
-# che rende il legame falso su un caso solo.
+# Le stesse voci dette a parole: `percorso -> (invariante, {stato: parola})`.
+# Il vocabolario non e' uniforme — un lotto e' «aperto» e una qualifica e'
+# «aperta» — e indovinarlo dal nome sarebbe la scorciatoia che rende il legame
+# falso su un caso solo.
+#
+# La parola e' indicizzata per **stato**, non per «blocca o no». Con due sole
+# parole, `differita` avrebbe dovuto prendere in prestito quella di uno degli
+# altri due stati: «chiusa» avrebbe detto che la qualifica c'e', «aperta» che e'
+# ancora pretesa, e nessuna delle due e' vera. Uno stato senza una parola sua e'
+# rosso, e lo e' anche uno stato aggiunto domani.
 ETICHETTE_DELLO_STATO = {
-    ("aperto", "lotti", "s10"): ("lotto.s10", "aperto", "chiuso"),
-    ("aperto", "lotti", "s11"): ("lotto.s11", "aperto", "chiuso"),
-    ("aperto", "lotti", "s12"): ("lotto.s12", "aperto", "chiuso"),
+    ("aperto", "lotti", "s10"): (
+        "lotto.s10",
+        {"release_blocking": "aperto", "verified": "chiuso"},
+    ),
+    ("aperto", "lotti", "s11"): (
+        "lotto.s11",
+        {"release_blocking": "aperto", "verified": "chiuso"},
+    ),
+    ("aperto", "lotti", "s12"): (
+        "lotto.s12",
+        {"release_blocking": "aperto", "verified": "chiuso"},
+    ),
     ("aperto", "lotti", "qualifica_cross_component"): (
         "sistema.qualifica-cross-component",
-        "aperta",
-        "chiusa",
+        {
+            "release_blocking": "aperta",
+            "verified": "chiusa",
+            "differita": "differita",
+        },
     ),
     ("chiuso", "fuzz_reader_shapefile", "stato"): (
         "fuzz.reader-shapefile",
-        "aperto",
-        "chiuso",
+        {"release_blocking": "aperto", "verified": "chiuso"},
     ),
-    ("chiuso", "fuzz_filegdb", "stato"): ("fuzz.filegdb", "aperto", "chiuso"),
+    ("chiuso", "fuzz_filegdb", "stato"): (
+        "fuzz.filegdb",
+        {"release_blocking": "aperto", "verified": "chiuso"},
+    ),
     ("aperto", "loss_report", "stato"): (
         "wire.loss-report",
-        "non_ratificato",
-        "ratificato",
+        {"release_blocking": "non_ratificato", "verified": "ratificato"},
     ),
 }
 
@@ -661,6 +699,10 @@ def struttura(documento: dict[str, Any]) -> list[str]:
                 )
             continue
 
+        if stato == "differita":
+            errori.extend(f"{identita}: {m}" for m in _differita_ben_dichiarata(voce))
+            continue
+
         if not prova:
             errori.append(
                 f"{identita}: `verified` senza prova. Un invariante senza "
@@ -705,6 +747,80 @@ def struttura(documento: dict[str, Any]) -> list[str]:
                 errori.append(f"{identita}: artefatto «{relativo}» assente")
 
     errori.extend(_prove_esterne(documento))
+    return errori
+
+
+def _differita_ben_dichiarata(voce: dict[str, Any]) -> list[str]:
+    """Le sonde che impediscono a «non richiesta» di diventare «verificata».
+
+    Uno stato che toglie un blocco senza verificare niente e' una leva, e una
+    leva senza sorveglianza si usa. Qui se ne sorvegliano tre lati.
+
+    * **Chi**: solo gli identificatori di `DIFFERIBILI`. Altrimenti la via piu'
+      corta al verde sarebbe differire il bloccante che non passa.
+    * **Che cosa si smette di promettere**: il rinvio deve dirlo per esteso, e
+      la riga finisce nella tabella generata di `docs/RELEASE.md`. Un rinvio che
+      non nomina la promessa che ritira si legge come un dettaglio interno.
+    * **Che non stia coprendo un'evidenza**: se l'artefatto dell'owner dicesse
+      `passed`, la voce sarebbe verificata e non differita, e tenerla differita
+      nasconderebbe una qualifica riuscita esattamente come il caso opposto ne
+      inventerebbe una.
+
+    L'ultimo lato e' quello che chiude il passaggio da «non richiesta per questa
+    release» a «verificata». Non si attraversa cambiando una parola: `verified`
+    continua a pretendere l'artefatto `passed` -- lo impone `struttura` sul tipo
+    `esterna` -- e `differita` lo vieta. Fra i due stati non esiste un valore
+    dell'artefatto che li renda entrambi ammissibili, quindi non esiste una
+    scrittura che promuova la voce senza toccare l'evidenza.
+    """
+    identita = voce.get("id")
+    errori: list[str] = []
+    if identita not in DIFFERIBILI:
+        errori.append(
+            f"stato `differita` non ammesso; le sole voci differibili sono "
+            f"{sorted(DIFFERIBILI)}. Differire e' togliere un blocco senza "
+            "verificare niente: aperto a chiunque, sarebbe la via piu' breve "
+            "al verde."
+        )
+    if not voce.get("sintesi"):
+        errori.append(
+            "`differita` senza campo `sintesi`. La tabella delle capacita' "
+            "differite ha bisogno di una riga, e una capacita' rinviata che non "
+            "compare da nessuna parte e' una capacita' rinviata in silenzio."
+        )
+    dichiarazione = voce.get("differita")
+    if not isinstance(dichiarazione, dict):
+        errori.append(
+            "`differita` senza il blocco `differita`. Servono la decisione, "
+            "cio' che la release non promette, e la condizione di ripristino."
+        )
+        return errori
+    for campo in sorted(CAMPI_DELLA_DIFFERITA - set(dichiarazione)):
+        errori.append(f"blocco `differita` senza `{campo}`")
+    for campo in sorted(CAMPI_DELLA_DIFFERITA & set(dichiarazione)):
+        valore = dichiarazione[campo]
+        if not isinstance(valore, str) or not valore.strip():
+            errori.append(
+                f"blocco `differita`: `{campo}` non e' prosa non vuota. Un "
+                "campo vuoto soddisfa la forma e non dice niente."
+            )
+    prova = voce.get("prova")
+    if not isinstance(prova, dict):
+        errori.append(
+            "`differita` senza prova. Il rinvio deve dire **da dove** "
+            "arriverebbe l'evidenza: senza, non c'e' nulla da ripristinare e "
+            "la condizione di ripristino non e' verificabile da nessuno."
+        )
+        return errori
+    if prova.get("tipo") == "esterna":
+        for relativo in _percorsi(prova.get("artefatto")):
+            derivato, _ = stato_esterno_osservato(relativo)
+            if derivato == STATO_ESTERNO_VALIDO:
+                errori.append(
+                    f"«{relativo}» dice «{STATO_ESTERNO_VALIDO}»: l'evidenza "
+                    "esiste, e allora la voce e' `verified`, non `differita`. "
+                    "Restare differita nasconderebbe una qualifica riuscita."
+                )
     return errori
 
 
@@ -1080,7 +1196,27 @@ def condizione_candidate_coerente(documento: dict[str, Any]) -> list[str]:
 
 
 def condizione_qualifica_cross_component(documento: dict[str, Any]) -> list[str]:
-    """L'esito della catena, letto **dall'artefatto dell'owner esterno**.
+    """La catena e' **superata**, oppure **dichiaratamente differita**.
+
+    La condizione non e' stata tolta quando la 2.0.0 ha smesso di pretendere la
+    qualifica di sistema. Toglierla avrebbe accorciato di uno l'insieme chiuso
+    delle condizioni e lasciato il rinvio senza nessuno che lo guardasse, che e'
+    la forma di verde piu' comoda: la condizione che non passa sparisce, e il
+    documento resta a dire che le condizioni sono cinque. Cambia invece **cio'
+    che verifica**.
+
+    Restano due sole vie, e la seconda non e' piu' economica della prima.
+
+    * `verified` — l'artefatto dell'owner dice `passed`. L'esito si legge di
+      la', non dal campo con cui la voce si descrive.
+    * `differita` — la voce e' fra le differibili, porta il proprio
+      non-promette, e l'artefatto **non** dice `passed`. Costa una
+      dichiarazione esplicita di cio' che la release smette di promettere, e
+      quella dichiarazione finisce nella tabella generata di `docs/RELEASE.md`:
+      non e' un campo che si possa mettere e dimenticare.
+
+    `release_blocking` non soddisfa la condizione, ed e' il caso in cui la
+    qualifica e' ancora pretesa e non c'e'.
 
     L'artefatto non e' nominato qui: si prende dalla prova dell'invariante che
     lo governa, cosi' un cambio di percorso non lascia questa condizione a
@@ -1096,6 +1232,11 @@ def condizione_qualifica_cross_component(documento: dict[str, Any]) -> list[str]
     )
     if voce is None:
         return ["`sistema.qualifica-cross-component` assente dal registro"]
+    if voce.get("stato") == "differita":
+        return [
+            f"`sistema.qualifica-cross-component`: {m}"
+            for m in _differita_ben_dichiarata(voce)
+        ]
     percorsi = _percorsi((voce.get("prova") or {}).get("artefatto"))
     if not percorsi:
         return [
@@ -2297,9 +2438,9 @@ def _registro_legato(stato: dict[str, Any]) -> list[str]:
     """
     errori: list[str] = []
     registro = json.loads(REGISTRO.read_text(encoding="utf-8"))
+    stato_di = {v.get("id"): v.get("stato") for v in registro.get("invarianti", [])}
     blocca = {
-        v.get("id"): v.get("stato") == "release_blocking"
-        for v in registro.get("invarianti", [])
+        identita: valore == "release_blocking" for identita, valore in stato_di.items()
     }
 
     for percorso, identita in BLOCCANTI_DELLO_STATO.items():
@@ -2313,11 +2454,19 @@ def _registro_legato(stato: dict[str, Any]) -> list[str]:
                 f"{'bloccante' if blocca[identita] else 'non bloccante'}"
             )
 
-    for percorso, (identita, se_blocca, se_no) in ETICHETTE_DELLO_STATO.items():
-        if identita not in blocca:
+    for percorso, (identita, parole) in ETICHETTE_DELLO_STATO.items():
+        if identita not in stato_di:
             errori.append(f"`{'.'.join(percorso)}`: «{identita}» non e' nel registro")
             continue
-        atteso = se_blocca if blocca[identita] else se_no
+        atteso = parole.get(stato_di[identita])
+        if atteso is None:
+            errori.append(
+                f"`{'.'.join(percorso)}`: il registro dichiara «{identita}» in "
+                f"stato «{stato_di[identita]}», e questa etichetta non ha una "
+                "parola per quello stato. Prenderla in prestito da un altro "
+                "stato direbbe una cosa diversa da quella che il registro dice."
+            )
+            continue
         if _dentro(stato, percorso) != atteso:
             errori.append(
                 f"`{'.'.join(percorso)}` vale «{_dentro(stato, percorso)}», dal "
@@ -2899,20 +3048,45 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
+        differite = [
+            v for v in documento["invarianti"] if v.get("stato") == "differita"
+        ]
         print(
             f"release autorizzabile: {totali} invarianti, nessun blocco, "
             f"{len(documento['autorizzazione_di_release']['condizioni'])} "
             "condizioni verificate."
         )
+        # Autorizzare non e' verificare tutto: le differite restano non
+        # verificate, e la riga che dice «autorizzabile» e' l'ultima in cui
+        # convenga tacerlo.
+        for voce in differite:
+            print(
+                f"  DIFFERITO {voce['id']}: NON verificato. "
+                f"{voce['differita']['non_promette']}"
+            )
         return 0
 
+    # I verificati si **contano**, non si ricavano per differenza. Finche' gli
+    # stati erano due, `totali - bloccanti` era esatto; con il terzo, la stessa
+    # sottrazione ha riportato la voce differita fra i verificati -- cioe' ha
+    # detto «verificata» proprio della sola voce che il registro dichiara non
+    # verificata. Una riga di sommario e' dove si guarda per sapere come sta il
+    # contratto, ed e' il posto peggiore in cui tenere quella confusione.
+    verificati = [v for v in documento["invarianti"] if v.get("stato") == "verified"]
+    differite = [v for v in documento["invarianti"] if v.get("stato") == "differita"]
     print(
         f"contratto corrente coerente: {totali} invarianti, "
-        f"{totali - len(bloccanti)} verificati, {len(bloccanti)} bloccanti."
+        f"{len(verificati)} verificati, {len(bloccanti)} bloccanti, "
+        f"{len(differite)} differiti."
     )
     print("  Le prove dei verificati sono state ESEGUITE: gate con exit 0,")
     print("  test elencati dal harness una volta sola e passati. Non dice")
     print("  che la release sia autorizzabile: per quello serve --release.")
+    for voce in differite:
+        print(
+            f"  DIFFERITO {voce['id']}: non richiesto da questa release e NON "
+            f"verificato. {voce['differita']['non_promette']}"
+        )
     return 0
 
 

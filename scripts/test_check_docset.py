@@ -289,6 +289,69 @@ class SondeStatoGenerato(unittest.TestCase):
             stato_release.campi(self.stato(), registro)["blocchi"], "2"
         )
 
+    def test_l_elenco_delle_differite_e_quello_del_registro(self) -> None:
+        righe, errori = stato_release.differite(self.registro())
+        self.assertEqual(errori, [], errori)
+        self.assertEqual(
+            [identita for identita, _, _ in righe],
+            [
+                v["id"]
+                for v in self.registro()["invarianti"]
+                if v["stato"] == "differita"
+            ],
+        )
+
+    def test_una_differita_non_e_contata_fra_i_blocchi(self) -> None:
+        """Le due tabelle contano insiemi disgiunti.
+
+        Se una capacita' differita finisse fra i blocchi, il conteggio direbbe
+        che la release e' piu' lontana di quanto sia; se una bloccante finisse
+        fra le differite, direbbe che una verifica mancante e' una scelta di
+        perimetro. Sono i due errori opposti, e nessuno dei due si vede a
+        occhio in una tabella generata.
+        """
+        registro = self.registro()
+        identita_differite = {
+            v["id"] for v in registro["invarianti"] if v["stato"] == "differita"
+        }
+        self.assertTrue(identita_differite, "il registro non ha differite da provare")
+        righe, _ = stato_release.blocchi(registro)
+        self.assertFalse(identita_differite & {identita for identita, _ in righe})
+
+    def test_il_conteggio_delle_differite_segue_il_registro(self) -> None:
+        registro = self.registro()
+        registro["invarianti"] = [
+            v for v in registro["invarianti"] if v["stato"] == "differita"
+        ]
+        self.assertEqual(
+            stato_release.campi(self.stato(), registro)["capacità differite"],
+            str(len(registro["invarianti"])),
+        )
+
+    def test_una_differita_senza_non_promette_e_rossa(self) -> None:
+        """Il campo che paga il rinvio deve arrivare fino al documento.
+
+        Senza, la tabella delle differite direbbe soltanto che qualcosa e'
+        stato rinviato, e «rinviato» senza «non promette» si legge come un
+        dettaglio di pianificazione invece che come una capacita' in meno.
+        """
+        registro = self.registro()
+        for voce in registro["invarianti"]:
+            if voce["stato"] == "differita":
+                voce["differita"].pop("non_promette", None)
+                break
+        _, errori = stato_release.differite(registro)
+        self.assertTrue(any("non_promette" in e for e in errori), errori)
+
+    def test_il_non_promette_del_registro_e_reso_nel_documento(self) -> None:
+        """La prosa non e' riassunta: e' resa, e il confronto e' carattere per
+        carattere. Cambiarla nel registro senza rigenerare il documento e'
+        rosso, e cambiarla nel documento senza toccare il registro pure."""
+        righe, _ = stato_release.differite(self.registro())
+        self.assertTrue(righe, "il registro non ha differite da provare")
+        for _, _, non_promette in righe:
+            self.assertIn(non_promette, self.documento())
+
     def test_un_bloccante_senza_sintesi_e_rosso(self) -> None:
         registro = self.registro()
         for voce in registro["invarianti"]:

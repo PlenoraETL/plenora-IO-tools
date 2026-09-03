@@ -88,6 +88,7 @@ CAMPI_RICHIESTI = (
     "gruppi ASSURANCE-N1",
     "gruppi ASSURANCE-N1 aperti",
     "blocchi",
+    "capacità differite",
     "S9, qualificato su",
     "candidate, versione del manifesto",
     "candidate, revisione del manifesto",
@@ -165,6 +166,7 @@ def campi(stato: dict, registro: dict) -> dict[str, str]:
         "gruppi ASSURANCE-N1": _intero(n1["gruppi_totali"]),
         "gruppi ASSURANCE-N1 aperti": _intero(n1["gruppi_aperti"]),
         "blocchi": _intero(len(_bloccanti(registro))),
+        "capacità differite": _intero(len(_differite(registro))),
         "S9, qualificato su": f"`{s9['qualificato_su']}`",
         "candidate, versione del manifesto": f"`{candidate['versione_manifesto']}`",
         "candidate, revisione del manifesto": f"`{candidate['revisione_manifesto']}`",
@@ -185,6 +187,48 @@ def _bloccanti(registro: dict) -> list[dict]:
     return [
         v for v in registro.get("invarianti", []) if v.get("stato") == "release_blocking"
     ]
+
+
+def _differite(registro: dict) -> list[dict]:
+    return [v for v in registro.get("invarianti", []) if v.get("stato") == "differita"]
+
+
+def differite(registro: dict) -> tuple[list[tuple[str, str, str]], list[str]]:
+    """`[(id, sintesi, non_promette)]` delle capacità differite, più gli errori.
+
+    Una capacità differita è una capacità **rimossa dai requisiti senza essere
+    stata verificata**. Il conteggio da solo la renderebbe indistinguibile da un
+    blocco chiuso: quello che la distingue è la promessa che la release ritira,
+    e quella promessa va **resa**, non riassunta. Perciò la colonna esiste, ed è
+    la stessa prosa che il registro obbliga a scrivere.
+
+    Renderla qui la lega al confronto carattere per carattere di
+    `check_docset.py`: cambiare il non-promette nel registro senza rigenerare il
+    documento è rosso, e cambiarlo nel documento senza toccare il registro lo è
+    altrettanto.
+    """
+    errori: list[str] = []
+    righe: list[tuple[str, str, str]] = []
+    for voce in _differite(registro):
+        sintesi = voce.get("sintesi")
+        if not sintesi:
+            errori.append(
+                f"{voce['id']}: differita senza `sintesi`. Una capacità "
+                "rinviata che non compare in tabella è una capacità rinviata "
+                "in silenzio."
+            )
+            sintesi = "—"
+        non_promette = (voce.get("differita") or {}).get("non_promette")
+        if not non_promette:
+            errori.append(
+                f"{voce['id']}: differita senza `differita.non_promette`. È il "
+                "campo che impedisce a «non richiesta qui» di leggersi come "
+                "«funziona», ed è l'unica ragione per cui questa tabella è "
+                "separata da quella dei blocchi."
+            )
+            non_promette = "—"
+        righe.append((voce["id"], sintesi, non_promette))
+    return righe, errori
 
 
 def blocchi(registro: dict) -> tuple[list[tuple[str, str]], list[str]]:
@@ -251,6 +295,23 @@ def blocco(stato: dict, registro: dict) -> tuple[str, list[str]]:
         "|---|---|",
     ]
     parti += [f"| `{identita}` | {sintesi} |" for identita, sintesi in righe_blocchi]
+
+    righe_differite, errori_differite = differite(registro)
+    errori.extend(errori_differite)
+    if righe_differite:
+        parti += [
+            "",
+            "Le capacità **differite** non sono blocchi chiusi: non sono richieste",
+            "da questa release e **non sono verificate**. Ciascuna dichiara che cosa",
+            "la release non promette, ed è la sola lettura autorizzata del rinvio:",
+            "",
+            "| Capacità | Sintesi | La release non promette |",
+            "|---|---|---|",
+        ]
+        parti += [
+            f"| `{identita}` | {sintesi} | {non_promette} |"
+            for identita, sintesi, non_promette in righe_differite
+        ]
     parti += ["", CHIUSURA]
     return "\n".join(parti), errori
 

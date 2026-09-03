@@ -3,7 +3,8 @@
   "descrizione": "Invarianti che governano il comportamento **corrente**. Non e' una trascrizione della cronaca: una voce esiste solo se un test o un gate la verifica oggi. Un'affermazione senza verifica corrente e' `release_blocking`, non una verita' importata.",
   "stati": {
     "verified": "un test o un gate corrente lo verifica",
-    "release_blocking": "manca la verifica, o l'invariante non e' ancora ratificato"
+    "release_blocking": "manca la verifica, o l'invariante non e' ancora ratificato",
+    "differita": "la capacita' non e' richiesta da questa release e non e' verificata. Non e' una verifica riuscita ne' un blocco: e' un perimetro dichiarato, e deve dire che cosa la release smette di promettere"
   },
   "invarianti": [
     {
@@ -646,9 +647,13 @@
         "artefatto": "release/system-rc-gate.json",
         "stato": "not_run"
       },
-      "stato": "release_blocking",
-      "manca": "gate di sistema non superato. Perimetro e harness sono di **proprieta' esterna**: questo repository non contiene ne' esegue test che compilino gli altri due componenti, quindi la chiusura non e' raggiungibile da qui. La definizione e' in release/system-rc-gate.json.",
-      "sintesi": "gate di sistema non superato, di proprietà esterna"
+      "stato": "differita",
+      "sintesi": "differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette",
+      "differita": {
+        "decisione": "la 2.0.0 rilascia plenora-IO-tools come componente autonomo. Il perimetro della release e' il confine sui file di questo componente -- lettura, scrittura, protocollo della CLI, artefatti di distribuzione -- e non la catena di sistema. Il rinvio e' una scelta di perimetro, non un giudizio sull'esito: la qualifica non e' stata tentata e fallita, non e' stata eseguita.",
+        "non_promette": "la 2.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio.",
+        "condizione_di_ripristino": "l'owner esterno consegna harness e fixture e la corsa produce evidenza. Allora `release/system-rc-gate.json` passa a `status: satisfied`, `evidence.status: passed`, `open_blockers: []` e le tre revisioni fissate, e la voce torna `verified` per derivazione dall'artefatto -- mai per riscrittura di questo campo. Finche' l'artefatto non dice `passed`, `verified` e' rosso; quando lo dira', `differita` sara' rosso a sua volta. Gli input esatti da consegnare sono elencati in docs/RELEASE.md, sezione «Qualifica cross-component»."
+      }
     },
     {
       "id": "distribuzione.artefatti-qualificati",
@@ -711,7 +716,7 @@
       },
       {
         "id": "qualifica-cross-component",
-        "descrizione": "qualifica cross-component superata, con evidenza dell'owner esterno derivata dall'artefatto e non dichiarata qui",
+        "descrizione": "qualifica cross-component superata **oppure** dichiaratamente differita: se superata, con evidenza dell'owner esterno derivata dall'artefatto e non dichiarata qui; se differita, fra le voci differibili, con il proprio non-promette scritto e con l'artefatto che **non** dice `passed`. La condizione non e' stata tolta quando la 2.0.0 ha smesso di pretendere la qualifica: e' cambiato cio' che verifica, perche' un rinvio senza nessuno che lo guardi e' il verde piu' comodo di tutti",
         "verifica": {
           "tipo": "interna",
           "funzione": "condizione_qualifica_cross_component"
@@ -728,5 +733,10 @@
   "campi_del_bloccante": {
     "manca": "la condizione di chiusura, per esteso: senza, nessuno sa che cosa servirebbe per togliere il blocco",
     "sintesi": "la riga con cui il blocco compare nella tabella di docs/RELEASE.md; scriverla nel documento creerebbe una seconda verita'"
+  },
+  "campi_della_differita": {
+    "decisione": "chi ha deciso il rinvio e per quale perimetro di release",
+    "non_promette": "cio' che la release smette di promettere per effetto del rinvio. E' il campo che impedisce a «non richiesta qui» di leggersi come «funziona»; compare nella tabella delle capacita' differite di docs/RELEASE.md",
+    "condizione_di_ripristino": "che cosa riporta la voce a essere pretesa, e in quale release"
   }
 }

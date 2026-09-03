@@ -43,7 +43,8 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | esito differenziale | 78.64% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
-| blocchi | 3 |
+| blocchi | 2 |
+| capacità differite | 1 |
 | S9, qualificato su | `985e3ee` |
 | candidate, versione del manifesto | `1.0.1` |
 | candidate, revisione del manifesto | `966005d6` |
@@ -63,8 +64,15 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 | Blocco | Sintesi |
 |---|---|
 | `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
-| `sistema.qualifica-cross-component` | gate di sistema non superato, di proprietà esterna |
 | `distribuzione.artefatti-qualificati` | artefatti prodotti e verificati in prova; qualifica sullo SHA congelato assente |
+
+Le capacità **differite** non sono blocchi chiusi: non sono richieste
+da questa release e **non sono verificate**. Ciascuna dichiara che cosa
+la release non promette, ed è la sola lettura autorizzata del rinvio:
+
+| Capacità | Sintesi | La release non promette |
+|---|---|---|
+| `sistema.qualifica-cross-component` | differita: la catena a tre componenti non e' qualificata, e la 2.0.0 non la promette | la 2.0.0 NON promette interoperabilita' end-to-end certificata con plenora-data-tools e plenora-database-tools. La catena IO-tools -> data-tools -> database-tools non e' qualificata in nessuna delle due direzioni, su nessuna piattaforma; nessuna delle quindici proprieta' del contratto di sistema -- fra cui srid, crs_resolution, axis_order e native_metadata -- e' verificata attraverso i tre componenti; e la direzione database -> data -> IO non e' mai stata eseguita. Chi compone i tre componenti in produzione lo fa senza evidenza di conservazione dei metadati ai confini, e deve verificarla per conto proprio. |
 
 <!-- generato da assurance/current-state.json: fine -->
 
@@ -383,6 +391,13 @@ L'ordine è quello di lavoro, non di importanza. Ogni punto dichiara che cosa
 serve per uscirne e quale blocco rimuove **quando sarà chiuso**. Un punto chiuso
 lo dice nel proprio titolo; per tutti gli altri il blocco è ancora in piedi.
 
+Un punto può anche essere **differito**, e lo dice nel titolo come gli altri.
+Differito non è chiuso: la capacità non è richiesta da questa release e **non è
+verificata**, e il punto deve dichiarare che cosa la release smette di
+promettere. È lo stesso participio del campo qui sotto, e la stessa cautela:
+«differito» letto come «risolto» sarebbe l'errore che questo paragrafo esiste
+per impedire.
+
 Il campo si chiamava «Blocco rimosso», e al participio passato si legge come
 fatto: una revisione l'ha letto così sul punto 5 e ne ha concluso che il blocco
 della distribuzione fosse chiuso, mentre il registro lo teneva — correttamente —
@@ -433,19 +448,69 @@ livello 2 e la propria evidenza.
 rimuove l'ultima asimmetria fra i formati: oggi WKT e GeoJSON hanno tetti, ma
 non una capability dichiarata che li renda verificabili dall'esterno.
 
-### 4. Qualifica cross-component
+### 4. Qualifica cross-component — **differita nella 2.0.0**
 
-**Criterio di uscita.** La catena `IO-tools → data-tools → database-tools` è
-qualificata in **entrambe le direzioni**, su fixture con revisioni, piattaforma,
-comandi ed esiti registrati.
+La 2.0.0 rilascia `plenora-IO-tools` come **componente autonomo**. Il perimetro
+della release è il confine sui file di questo componente — lettura, scrittura,
+protocollo della CLI, artefatti di distribuzione — e non la catena di sistema.
 
-Il perimetro e l'harness sono di **proprietà esterna**: questo repository non
-contiene né esegue test che compilino gli altri due componenti. La definizione
-è in [`release/system-rc-gate.json`](../release/system-rc-gate.json).
+**Che cosa la release non promette.** La 2.0.0 **non** promette
+interoperabilità end-to-end certificata con `plenora-data-tools` e
+`plenora-database-tools`. La catena `IO-tools → data-tools → database-tools`
+non è qualificata in nessuna delle due direzioni, su nessuna piattaforma;
+nessuna delle quindici proprietà del contratto di sistema — fra cui `srid`,
+`crs_resolution`, `axis_order` e `native_metadata` — è verificata attraverso i
+tre componenti; e la direzione `database → data → IO` non è mai stata eseguita.
+Chi compone i tre componenti in produzione lo fa **senza evidenza** di
+conservazione dei metadati ai confini, e deve verificarla per conto proprio.
 
-**Blocco che rimuove.** La readiness di sistema smette di essere non verificata.
-Resta distinta dalla readiness del componente: nessuna delle due implica
-l'altra.
+Il rinvio è una scelta di perimetro, non un giudizio sull'esito: la qualifica
+non è stata tentata e fallita, **non è stata eseguita**.
+
+**Perché è differita e non chiusa.** Il perimetro e l'harness sono di
+**proprietà esterna**: questo repository non contiene né esegue test che
+compilino gli altri due componenti, e alla data del rinvio l'harness non
+esisteva da nessuna parte — `plenora-contracts/conformance` è una specifica,
+nessuna delle quattordici fixture richieste esiste, e la revisione dell'ICD
+dichiarata nel gate non risolve. Bloccare un componente già verificato in attesa
+di una macchina di prova che non esiste avrebbe fermato il rilascio senza
+aggiungere una sola verifica.
+
+**Che cosa non cambia.** [`release/system-rc-gate.json`](../release/system-rc-gate.json)
+resta `status: not_satisfied` ed `evidence.status: not_run`. Il rinvio non tocca
+l'artefatto dell'owner: toglie il blocco, non fabbrica l'evidenza. Il registro
+del contratto porta la voce in stato `differita`, che non è `verified` e non lo
+diventa cambiando una parola — `verified` continua a pretendere che l'artefatto
+dica `passed`, e `differita` esige che **non** lo dica.
+
+**Che cosa la riporta a essere pretesa.** L'owner esterno consegna harness e
+fixture, la corsa produce evidenza, e allora `release/system-rc-gate.json` passa
+a `status: satisfied`, `evidence.status: passed`, `open_blockers: []` e le tre
+revisioni fissate. A quel punto la voce torna `verified` **per derivazione
+dall'artefatto**, e la sonda che oggi la tiene onesta diventa quella che
+impedisce di lasciarla differita mentre l'evidenza esiste.
+
+**Gli input esatti da consegnare.**
+
+| Input | Stato |
+|---|---|
+| revisione di `plenora-IO-tools` | lo SHA congelato della 2.0.0 |
+| revisione di `plenora-data-tools` | da fissare dall'owner alla corsa |
+| revisione di `plenora-database-tools` | da fissare dall'owner alla corsa |
+| revisione dell'ICD | da ri-fissare: `v2.0-rc14` non esiste in `plenora-contracts` |
+| harness eseguibile della catena | da consegnare |
+| 14 fixture × 2 varianti × 2 direzioni × 2 piattaforme | da consegnare |
+| bundle di evidenza: comandi, ambiente, hash delle fixture, esiti | da consegnare |
+
+I tre blocchi che l'owner dichiara ancora aperti sono nel gate: la direzione
+`database → data → IO` mai eseguita, l'esecuzione nativa Windows della catena
+non coperta, e il runner esterno che non consuma `read_loss` e lascia la
+dichiarazione R4.6.1 come obbligo non verificato.
+
+**Blocco che rimuove.** Nessuno, finché resta differita. La readiness di sistema
+resta **non verificata**, e resta distinta dalla readiness del componente:
+nessuna delle due implica l'altra, ed è esattamente per questo che rilasciare
+la seconda senza la prima è possibile — purché lo si dica.
 
 ### 5. Artefatti di distribuzione
 
@@ -939,11 +1004,17 @@ dopo la terminazione forzata.
 
 ### 6. Decisione finale di rilascio
 
-**Criterio di uscita.** Tutti i punti precedenti chiusi;
-`check_release_contract.py --release` verde, cioè nessun invariante
-`release_blocking`; un checkpoint di livello 2 su un albero pulito, con SHA e
-impronta invariati; un **soak mirato** su `dxf_reader` e `shp_reader`, oltre alla
-smoke ordinaria; l'evidenza in un commit separato.
+**Criterio di uscita.** Tutti i punti precedenti chiusi **o dichiaratamente
+differiti** — il punto 4 è differito, e la release non promette ciò che quel
+rinvio ritira; `check_release_contract.py --release` verde, cioè nessun
+invariante `release_blocking` e ogni rinvio ben dichiarato; un checkpoint di
+livello 2 su un albero pulito, con SHA e impronta invariati; un **soak mirato**
+su `dxf_reader` e `shp_reader`, oltre alla smoke ordinaria; l'evidenza in un
+commit separato.
+
+Un punto differito non alleggerisce questo criterio: lo sposta. Ciò che non è
+verificato resta non verificato dopo l'autorizzazione esattamente come prima, e
+la riga che `--release` stampa lo ripete a ogni corsa.
 
 **Perché un soak mirato, e perché su quei due.** La smoke esiste da sempre, ma
 per un periodo ha costruito zero target: il job installava la toolchain e non

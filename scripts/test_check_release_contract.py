@@ -503,6 +503,212 @@ class SondeProvaEsterna(unittest.TestCase):
         self.assertTrue(any("non_derivabile" in e for e in errori), errori)
 
 
+class SondeDifferita(unittest.TestCase):
+    """Lo stato che toglie un blocco **senza verificare niente**.
+
+    E' la leva piu' pericolosa del registro: `differita` non pretende una prova,
+    e la distanza fra «non richiesta da questa release» e «vera» e' una riga di
+    JSON. Queste sonde sorvegliano quella riga da tutti i lati da cui la si puo'
+    attraversare.
+    """
+
+    ARTEFATTO = "release/system-rc-gate.json"
+
+    def differita(self, **modifiche):
+        dichiarazione = {
+            "decisione": "la 2.0.0 rilascia il componente da solo",
+            "non_promette": "nessuna interoperabilita' end-to-end certificata",
+            "condizione_di_ripristino": "l'owner consegna harness e fixture",
+        }
+        base = {
+            "id": "sistema.qualifica-cross-component",
+            "stato": "differita",
+            "sintesi": "differita: la catena non e' qualificata",
+            "differita": dichiarazione,
+            "prova": {
+                "tipo": "esterna",
+                "owner": "plenora-contracts/conformance",
+                "artefatto": self.ARTEFATTO,
+                "stato": "not_run",
+            },
+        }
+        base.update(modifiche)
+        return voce(**base)
+
+    def test_un_rinvio_ben_dichiarato_passa(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        self.assertEqual(gate.struttura(documento(self.differita())), [])
+
+    def test_differire_una_voce_non_differibile_e_rosso(self) -> None:
+        """Il lato per cui il rinvio sarebbe la via piu' breve al verde.
+
+        Senza l'elenco chiuso, il bloccante che non passa si toglierebbe
+        scrivendogli accanto `differita`, ed e' la stessa mossa che
+        `INVARIANTI_OBBLIGATORI` impedisce nella forma della cancellazione.
+        """
+        errori = gate.struttura(documento(self.differita(id="wire.error-v1.chiavi")))
+        self.assertTrue(any("differibili" in e for e in errori), errori)
+
+    def test_un_rinvio_senza_sintesi_e_rosso(self) -> None:
+        """Una capacita' rinviata che non compare in tabella e' rinviata in silenzio."""
+        errori = gate.struttura(documento(self.differita(sintesi="")))
+        self.assertTrue(any("`sintesi`" in e for e in errori), errori)
+
+    def test_un_rinvio_senza_il_proprio_blocco_e_rosso(self) -> None:
+        voce_senza = self.differita()
+        del voce_senza["differita"]
+        errori = gate.struttura(documento(voce_senza))
+        self.assertTrue(any("blocco `differita`" in e for e in errori), errori)
+
+    def test_un_rinvio_che_non_dice_cosa_smette_di_promettere_e_rosso(self) -> None:
+        """Il campo che impedisce a «non richiesta qui» di leggersi come «funziona».
+
+        E' il solo che paghi il rinvio: senza, `differita` sarebbe piu'
+        economico di qualunque verifica, e la scelta si farebbe da sola.
+        """
+        for valore in ("", "   "):
+            with self.subTest(valore=valore):
+                voce_muta = self.differita()
+                voce_muta["differita"]["non_promette"] = valore
+                errori = gate.struttura(documento(voce_muta))
+                self.assertTrue(any("non_promette" in e for e in errori), errori)
+
+    def test_un_rinvio_senza_condizione_di_ripristino_e_rosso(self) -> None:
+        voce_muta = self.differita()
+        del voce_muta["differita"]["condizione_di_ripristino"]
+        errori = gate.struttura(documento(voce_muta))
+        self.assertTrue(any("condizione_di_ripristino" in e for e in errori), errori)
+
+    def test_un_rinvio_senza_prova_e_rosso(self) -> None:
+        """Il rinvio deve dire da dove arriverebbe l'evidenza.
+
+        Senza, la condizione di ripristino non e' verificabile da nessuno: si
+        promette un ritorno che nessun artefatto puo' innescare.
+        """
+        errori = gate.struttura(documento(self.differita(prova=None)))
+        self.assertTrue(any("senza prova" in e for e in errori), errori)
+
+    def test_restare_differita_con_l_evidenza_riuscita_e_rosso(self) -> None:
+        """Il lato che chiude il passaggio da «non richiesta» a «verificata».
+
+        Se l'artefatto dell'owner dicesse `passed`, la voce sarebbe `verified`.
+        Tenerla `differita` nasconderebbe una qualifica **riuscita**, che e' la
+        stessa falsificazione del caso opposto letta al contrario: li' si
+        inventa un'evidenza che non c'e', qui si nega quella che c'e'.
+
+        Insieme alla regola su `verified` -- che pretende `passed` -- questo
+        chiude il varco: non esiste un valore dell'artefatto per cui entrambi
+        gli stati siano ammissibili, quindi non esiste una scrittura che
+        promuova la voce senza toccare l'evidenza.
+        """
+        with mock.patch.object(
+            gate, "stato_esterno_osservato", return_value=("passed", [])
+        ):
+            errori = gate.struttura(documento(self.differita()))
+        self.assertTrue(any("non `differita`" in e for e in errori), errori)
+
+    def test_verified_senza_evidenza_resta_rosso(self) -> None:
+        """L'altra meta' della stessa tenaglia, ed e' la meta' preesistente.
+
+        Va provata qui perche' e' cio' che rende sufficiente la sonda di sopra:
+        se `verified` si potesse dichiarare senza `passed`, chiudere il varco su
+        `differita` non servirebbe a niente.
+        """
+        errori = gate.struttura(
+            documento(
+                self.differita(
+                    stato="verified",
+                    invariante="la catena e' qualificata nelle due direzioni",
+                )
+            )
+        )
+        self.assertTrue(any("bloccante, non vero" in e for e in errori), errori)
+
+    def test_una_voce_differita_non_e_un_bloccante(self) -> None:
+        """Il rinvio toglie il blocco: e' cio' per cui lo stato esiste."""
+        self.assertEqual(gate.debito(documento(self.differita())), [])
+
+    def test_una_voce_differita_non_e_una_prova_da_eseguire(self) -> None:
+        """`esegui` non deve toccarla.
+
+        Se il rinvio finisse fra le prove da eseguire, l'esito della sua
+        esecuzione diventerebbe l'esito della capacita', e una prova che passa
+        su una capacita' non verificata e' esattamente il falso verde che lo
+        stato `differita` esiste per rendere impossibile.
+        """
+        self.assertEqual(gate.esegui(documento(self.differita())), [])
+
+    def test_uno_stato_ha_una_parola_sua_nell_etichetta(self) -> None:
+        """Le parole dello stato sono per **stato**, non per «blocca o no».
+
+        Con due sole parole, `differita` avrebbe preso in prestito quella di un
+        altro stato: «chiusa» avrebbe detto che la qualifica c'e', «aperta» che
+        e' ancora pretesa. Nessuna delle due e' vera, e nessuno se ne sarebbe
+        accorto.
+        """
+        percorso = ("aperto", "lotti", "qualifica_cross_component")
+        identita, parole = gate.ETICHETTE_DELLO_STATO[percorso]
+        self.assertEqual(identita, "sistema.qualifica-cross-component")
+        self.assertEqual(parole.get("differita"), "differita")
+        self.assertNotIn(
+            parole.get("differita"),
+            (parole.get("verified"), parole.get("release_blocking")),
+        )
+
+    def test_una_differibile_resta_obbligatoria_nel_registro(self) -> None:
+        """Differire non deve poter diventare far sparire.
+
+        Le due liste chiuse sorvegliano mosse diverse: `INVARIANTI_OBBLIGATORI`
+        impedisce che una voce esca dal registro, `DIFFERIBILI` che una voce
+        qualunque si dichiari rinviata. Se una differibile non fosse anche
+        obbligatoria, le due si annullerebbero: si porta la voce a `differita`,
+        poi la si cancella, e con lei sparisce il non-promette -- cioe' l'unica
+        riga che dice a chi installa che cosa la release non garantisce. Il
+        documento resterebbe piu' verde di prima senza che nulla sia cambiato.
+        """
+        self.assertEqual(gate.DIFFERIBILI - gate.INVARIANTI_OBBLIGATORI, set())
+
+    def test_il_sommario_non_conta_una_differita_fra_i_verificati(self) -> None:
+        """La riga che si legge per sapere come sta il contratto.
+
+        I verificati erano ricavati per **differenza** -- totali meno bloccanti
+        -- e con due soli stati la sottrazione era esatta. Il terzo stato l'ha
+        resa falsa proprio sulla voce che il registro dichiara non verificata:
+        il sommario diceva «33 verificati» su 32, e il trentatreesimo era il
+        rinvio. Nessun gate diventava verde per questo, ed e' il punto: la
+        confusione stava nell'unica riga che qualcuno legge davvero.
+        """
+        with mock.patch.object(gate, "esegui", return_value=[]):
+            with contextlib.redirect_stdout(io.StringIO()) as riportato:
+                esito = gate.main([])
+        self.assertEqual(esito, 0)
+        righe = riportato.getvalue()
+        registro = json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+        verificati = sum(
+            1 for v in registro["invarianti"] if v["stato"] == "verified"
+        )
+        differite = [v for v in registro["invarianti"] if v["stato"] == "differita"]
+        self.assertIn(f"{verificati} verificati", righe)
+        self.assertIn(f"{len(differite)} differiti", righe)
+        for voce in differite:
+            self.assertIn(f"DIFFERITO {voce['id']}", righe)
+            self.assertIn(voce["differita"]["non_promette"], righe)
+
+    def test_uno_stato_senza_parola_e_rosso(self) -> None:
+        """Uno stato aggiunto domani non eredita la parola di un altro."""
+        percorso = ("aperto", "lotti", "qualifica_cross_component")
+        identita, parole = gate.ETICHETTE_DELLO_STATO[percorso]
+        etichette = dict(gate.ETICHETTE_DELLO_STATO)
+        senza = {s: p for s, p in parole.items() if s != "differita"}
+        etichette[percorso] = (identita, senza)
+        stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+        with mock.patch.object(gate, "ETICHETTE_DELLO_STATO", etichette):
+            errori = gate.validate_stato_corrente(stato)
+        self.assertTrue(
+            any("non ha una parola per quello stato" in e for e in errori), errori
+        )
+
+
 class SondeCompletezza(unittest.TestCase):
     """Il registro nel suo insieme.
 
@@ -661,10 +867,44 @@ class SondeCondizioni(unittest.TestCase):
             any("non risolve a un commit" in m for m in motivi), motivi
         )
 
-    def test_la_qualifica_cross_component_non_e_superata(self) -> None:
-        """L'esito viene dall'artefatto, non dal campo che la voce dichiara."""
-        motivi = gate.condizione_qualifica_cross_component(self.registro())
+    def test_la_qualifica_cross_component_differita_soddisfa_la_condizione(self) -> None:
+        """La 2.0.0 rilascia il componente da solo: il rinvio e' dichiarato.
+
+        La condizione non e' sparita insieme al requisito. Verifica ora che il
+        rinvio sia **ben dichiarato**, e questa sonda e' la controprova
+        positiva: sul registro reale la condizione e' soddisfatta perche' la
+        voce e' fra le differibili, porta il proprio non-promette, e l'artefatto
+        dell'owner non dice `passed`.
+        """
+        self.assertEqual(gate.condizione_qualifica_cross_component(self.registro()), [])
+
+    def test_una_qualifica_ancora_pretesa_e_non_superata_nega_la_condizione(self) -> None:
+        """Il terzo caso, che il rinvio non ha tolto.
+
+        `release_blocking` significa che la qualifica e' ancora pretesa e non
+        c'e': la condizione deve continuare a leggerne l'esito dall'artefatto.
+        """
+        registro = self.registro()
+        voce = next(
+            v
+            for v in registro["invarianti"]
+            if v["id"] == "sistema.qualifica-cross-component"
+        )
+        voce["stato"] = "release_blocking"
+        motivi = gate.condizione_qualifica_cross_component(registro)
         self.assertTrue(any("evidence.status" in m for m in motivi), motivi)
+
+    def test_un_rinvio_mal_dichiarato_nega_la_condizione(self) -> None:
+        """Differire non e' gratis: senza il non-promette, la condizione cade."""
+        registro = self.registro()
+        voce = next(
+            v
+            for v in registro["invarianti"]
+            if v["id"] == "sistema.qualifica-cross-component"
+        )
+        del voce["differita"]["non_promette"]
+        motivi = gate.condizione_qualifica_cross_component(registro)
+        self.assertTrue(any("non_promette" in m for m in motivi), motivi)
 
     def test_una_condizione_gate_esegue_davvero(self) -> None:
         rosso = {
@@ -693,7 +933,7 @@ class SondeCondizioni(unittest.TestCase):
     # contratto ne ammette zero -- ed e' tornata quando la barriera e' stata
     # rifatta su un canale privato. Il viavai e' voluto: qui ci sta cio' che e'
     # vero adesso, non cio' che si spera.
-    SODDISFATTE = frozenset({"debito-n1-a-zero"})
+    SODDISFATTE = frozenset({"debito-n1-a-zero", "qualifica-cross-component"})
 
     def test_release_e_rossa_sul_registro_corrente(self) -> None:
         """La controprova d'insieme: oggi la release non e' autorizzabile.
@@ -1001,15 +1241,20 @@ class SondeFontiLegate(unittest.TestCase):
         )
 
     def test_un_lotto_dichiarato_chiuso_e_rosso(self) -> None:
-        """Un lotto che il registro tiene bloccante non puo' dirsi chiuso.
+        """Una voce che il registro non tiene chiusa non puo' dirsi chiusa.
 
         Si appoggiava a S10, e con la chiusura di S10 e' diventata rossa -- che
         e' cio' che la sua vecchia prosa prometteva: «sara' il gate a dirlo».
-        Ora si appoggia alla qualifica cross-component, che resta bloccante e
-        che questo repository non puo' chiudere da solo, perche' perimetro e
-        harness sono di proprieta' esterna. Quando chiudera' anche quella,
-        questa sonda tornera' rossa e vorra' dire che non c'e' piu' un
-        bloccante: sara' il momento di guardare la release, non la sonda."""
+        Si appoggia ora alla qualifica cross-component, che la 2.0.0 ha portata
+        a `differita`: «chiusa» non e' la sua parola, e non lo e' per una
+        ragione diversa da prima. Quando era bloccante, dirla chiusa avrebbe
+        promesso una verifica che mancava; ora che e' differita, la promette
+        **e** cancella il rinvio, cioe' la sola cosa che dice a chi installa che
+        cosa la release non garantisce.
+
+        Se un giorno l'owner esterno consegnera' l'evidenza e la voce tornera'
+        `verified`, questa sonda diventera' rossa: sara' il momento di guardare
+        la release, non la sonda."""
         stato = self.stato()
         stato["aperto"]["lotti"]["qualifica_cross_component"] = "chiusa"
         errori = gate.validate_stato_corrente(stato)
