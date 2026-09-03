@@ -21,41 +21,41 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | Campo | Valore |
 |---|---|
 | baseline documentale | `2fe9b54` |
-| ultima qualificata | `985e3ee` |
-| revisione misurata | `985e3ee` |
+| ultima qualificata | `ba1e94e` |
+| revisione misurata | `ba1e94e` |
 | passi del checkpoint | 80 |
 | passi verdi | 80 |
 | passi omessi | 0 |
 | passi falliti | 0 |
-| input di replay | 77 231 |
+| input di replay | 77 888 |
 | target di replay | 15 |
 | crash di replay | 0 |
 | target di smoke eseguiti | 15 |
 | target di smoke totali | 15 |
 | finding di smoke | 0 |
 | target in quarantena | 0 |
-| copertura LCOV | 88,91% |
-| righe coperte LCOV | 37 808 |
-| righe strumentate LCOV | 42 524 |
-| copertura cargo | 87,42% |
+| copertura LCOV | 89,05% |
+| righe coperte LCOV | 37 970 |
+| righe strumentate LCOV | 42 638 |
+| copertura cargo | 87,56% |
 | soglia di copertura | 80,00% |
-| baseline differenziale | `17875e7` |
-| esito differenziale | 78.64% |
+| baseline differenziale | `985e3ee` |
+| esito differenziale | 98.25% |
 | gruppi ASSURANCE-N1 | 50 |
 | gruppi ASSURANCE-N1 aperti | 0 |
 | blocchi | 2 |
 | capacità differite | 1 |
-| S9, qualificato su | `985e3ee` |
-| candidate, versione del manifesto | `1.0.1` |
-| candidate, revisione congelata | `966005d6` |
+| S9, qualificato su | `ba1e94e` |
+| candidate, versione del manifesto | `2.0.0` |
+| candidate, revisione congelata | `ba1e94eec96ff5281b412801d00f89543ba6134f` |
 | candidate, versione del workspace | `2.0.0` |
-| candidate, artefatti congelati | 0 |
-| candidate, tag previsto | `v1.0.1` |
-| candidate, tag creato | sì |
-| candidate, revisione del tag | `c490f82` |
+| candidate, artefatti congelati | 4 |
+| candidate, tag previsto | `v2.0.0` |
+| candidate, tag creato | no |
+| candidate, revisione del tag | `None` |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | no |
-| candidate, release_action consentita | no |
+| candidate, assurance entro l'allowlist | sì |
+| candidate, release_action consentita | sì |
 | release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -64,8 +64,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | la candidate pendente non descrive HEAD |
-| `distribuzione.artefatti-qualificati` | artefatti prodotti e verificati in prova; qualifica sullo SHA congelato assente |
+| `release.candidate-non-valida-per-head` | candidate congelata su `ba1e94e`; il tag `v2.0.0` non esiste ancora |
+| `distribuzione.artefatti-qualificati` | artefatti costruiti e qualificati sulla revisione congelata; manca la pubblicazione nel canale di release |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa

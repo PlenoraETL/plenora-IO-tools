@@ -8,13 +8,13 @@
       "significato": "revisione da cui parte il reset documentale"
     },
     "ultima_qualificata": {
-      "sha": "985e3ee",
+      "sha": "ba1e94e",
       "significato": "ultimo SHA passato da un checkpoint di livello 2",
       "nota": "il commit che pubblica l'evidenza di una misura ha uno SHA diverso e non eredita la misura"
     }
   },
   "ultima_misura": {
-    "sha": "985e3ee",
+    "sha": "ba1e94e",
     "checkpoint": {
       "passi_eseguiti": 80,
       "passi_verdi": 80,
@@ -23,7 +23,7 @@
       "riconciliazione": "80 identificatori distinti, nessun duplicato; il conteggio e' ricostruito dall'elenco che la corsa registra e non accettato dal sommario dello strumento."
     },
     "fuzz": {
-      "replay_input": 77231,
+      "replay_input": 77888,
       "replay_target": 15,
       "replay_crash": 0,
       "smoke_target_eseguiti": 15,
@@ -32,32 +32,32 @@
       "quarantena": 0
     },
     "copertura": {
-      "lcov_percentuale": 88.91,
-      "lcov_righe_coperte": 37808,
-      "lcov_righe_strumentate": 42524,
-      "cargo_lines_percentuale": 87.42,
+      "lcov_percentuale": 89.05,
+      "lcov_righe_coperte": 37970,
+      "lcov_righe_strumentate": 42638,
+      "cargo_lines_percentuale": 87.56,
       "soglia": 80.0,
       "misurata_con": "`cargo llvm-cov --workspace --all-targets --all-features --locked`. Il perimetro esclude `plenora-io-cli`, `plenora-bench` e `plenora-fuzz`, ed e' lo stesso della diagnostica differenziale: due misure con perimetri diversi porterebbero lo stesso nome su insiemi diversi.",
-      "nota": "88,91% viene dal report lcov, 87,42% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
+      "nota": "89,05% viene dal report lcov, 87,56% dal sommario di riga di `cargo llvm-cov`. Non sono in disaccordo: contano insiemi di righe leggermente diversi. Sono registrati tutti e due perche' tenerne uno solo lascerebbe scegliere il piu' comodo."
     },
     "diagnostica_differenziale": {
-      "baseline": "17875e7",
-      "esito": "78.64%",
-      "righe_cambiate_eseguibili": 220,
-      "coperte": 173,
-      "scoperte": 47,
-      "cambiate_non_eseguibili": 329,
-      "ragione": "misurata: 220 righe cambiate ed eseguibili fra `17875e7` e `985e3ee`, 173 coperte e 47 no. Le 329 non eseguibili sono commenti e dichiarazioni, fuori misura per costruzione.",
-      "che_cosa_sono_le_scoperte": "quarantasette righe, tutte in `driver-geoparquet`. La meta' piu' grossa -- da `lib.rs:639` a `lib.rs:669` -- e' `valida_livelli_v2`: **il ramo V2 della difesa nuova non e' esercitato da nessun test**. Nessuno dei semi versionati porta una `DataPageV2`, quindi quel codice e' scritto, compilato e mai percorso. Le altre riguardano rami di `inizio_valori_v1` -- fra cui `BIT_PACKED` -- e asserzioni di test che il percorso preso non raggiunge. Non e' un blocco e non e' un difetto noto: e' una superficie dichiarata e non provata, ed e' esattamente cio' che questa diagnostica esiste per rendere visibile. Chiuderla vuol dire un seme con una data page V2, che oggi non esiste."
+      "baseline": "985e3ee",
+      "esito": "98.25%",
+      "righe_cambiate_eseguibili": 114,
+      "coperte": 112,
+      "scoperte": 2,
+      "cambiate_non_eseguibili": 102,
+      "ragione": "misurata: 114 righe cambiate ed eseguibili fra `985e3ee` e `ba1e94e`, 112 coperte e 2 no. Le 102 non eseguibili sono commenti e dichiarazioni, fuori misura per costruzione.",
+      "che_cosa_sono_le_scoperte": "due righe, entrambe dentro `mod tests` di `driver-geoparquet`: sono asserzioni di un percorso di test che l'esecuzione non raggiunge, non codice di produzione. La diagnostica le mostra perche' misura le righe cambiate senza sapere a che cosa servano, ed e' giusto che non lo sappia: distinguere da sola test e produzione le farebbe tacere sulla famiglia sbagliata."
     },
-    "evidenza": "assurance/evidence/checkpoint-985e3ee.json"
+    "evidenza": "assurance/evidence/checkpoint-ba1e94e.json"
   },
   "chiuso": {
     "s9_errori_strutturati": {
       "stato": "chiuso",
       "censimento_costruttori_legacy": 0,
       "componenti_a_zero": 14,
-      "qualificato_su": "985e3ee"
+      "qualificato_su": "ba1e94e"
     },
     "fuzz_reader_shapefile": {
       "stato": "chiuso",
@@ -107,18 +107,43 @@
       }
     },
     "candidate_release": {
-      "versione_manifesto": "1.0.1",
-      "revisione_candidate": "966005d6",
+      "versione_manifesto": "2.0.0",
+      "revisione_candidate": "ba1e94eec96ff5281b412801d00f89543ba6134f",
       "versione_workspace": "2.0.0",
-      "tag_previsto": "v1.0.1",
-      "tag_creato": true,
-      "tag_revisione": "c490f82",
+      "tag_previsto": "v2.0.0",
+      "tag_creato": false,
+      "tag_revisione": null,
       "tag_sulla_candidate": false,
-      "assurance_entro_l_allowlist": false,
-      "artefatti": [],
-      "release_action_allowed": false,
+      "assurance_entro_l_allowlist": true,
+      "artefatti": [
+        {
+          "nome": "plenora-io-2.0.0-linux-x86_64-base.tar.gz",
+          "sha256": "8104945d936823160657cadd31baf5f72f7e5a6641a6657a3f6e773639608d73",
+          "dimensione": 8579087,
+          "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f"
+        },
+        {
+          "nome": "plenora-io-2.0.0-linux-x86_64-filegdb.tar.gz",
+          "sha256": "a6a8cc7c11b1382a5e97d0548c2508a91534f4578e0291102cb97d28cfe39d31",
+          "dimensione": 64427793,
+          "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f"
+        },
+        {
+          "nome": "plenora-io-2.0.0-windows-x86_64-base.zip",
+          "sha256": "e380131212c201cb8d42fcb0898fccdc737ac8ea32b7b13f0054a78ccfd231a4",
+          "dimensione": 8715380,
+          "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f"
+        },
+        {
+          "nome": "plenora-io-2.0.0-windows-x86_64-filegdb.zip",
+          "sha256": "1dd620b064c073206ee9057f330861c72ebc73864ec3a3926203b1168a2d5837",
+          "dimensione": 47785601,
+          "revisione": "ba1e94eec96ff5281b412801d00f89543ba6134f"
+        }
+      ],
+      "release_action_allowed": true,
       "release_blocking": true,
-      "nota": "il manifesto non descrive la revisione che si sta rilasciando; aggiornarne lo SHA sarebbe una qualifica fabbricata. Il tag `v1.0.1` esiste — puntava e punta a `c490f82` — e lo stato dichiarava che non fosse stato creato: una copia scritta a mano che nessuno confrontava con git. Versione del workspace, esistenza e bersaglio del tag sono riletti da Cargo.toml e da git a ogni corsa del contratto.\n\nIl workspace e' passato a `2.0.0`. `versione_manifesto` resta `1.0.1` perche' quella e' la candidate **pendente**, e il divario fra le due non e' un'incoerenza da appianare: e' il bloccante, scritto in due numeri. Lo si chiude congelando una candidate nuova, non allineando i campi.\n\nLe revisioni sono **due**, e il campo che qui non c'e' e' quello che spiega il modello. `revisione_candidate` e' lo SHA congelato: da li' escono binari, SBOM e provenance, e li' punta il tag. `revisione_assurance` e' il commit che registra evidenza e decisione, ed e' **HEAD**: non si scrive, si deriva. Un campo che dovesse contenere lo SHA del commit che lo contiene non e' compilabile quando lo si scrive, e l'unico modo di riempirlo sarebbe una cifra inventata.\n\nPrima le revisioni erano una sola, e il contratto pretendeva che il tag puntasse a HEAD. Siccome registrare l'evidenza sposta HEAD, quella pretesa e `decisione-scritta` non potevano essere vere insieme: non un blocco da chiudere, ma una condizione che nessuna release poteva soddisfare.\n\n`artefatti` e' vuoto perche' nessuna candidate 2.0.0 e' stata congelata. La corsa `33740944974` ha costruito e verificato i quattro archivi sullo SHA `40abb27` ed e' stata una prova completa della catena, non la candidate: il gate che la qualifica e' cambiato dopo, quindi quegli archivi vengono da un albero che non e' quello che si rilascera'."
+      "nota": "La candidate 2.0.0 e' **congelata** su `ba1e94e`. Da quella revisione escono i quattro archivi, i loro SBOM e le loro provenance, nella corsa `Distribuzione` 33757371652 in canale `candidate`; i digest qui sotto sono ricalcolati sui byte scaricati da quella corsa, non copiati dai suoi sommari.\n\nLe revisioni sono **due**. `revisione_candidate` e' lo SHA congelato: da li' si costruisce, e li' puntera' il tag. `revisione_assurance` e' il commit che registra evidenza e decisione, ed e' **HEAD**: non si scrive, si deriva. Un campo che dovesse contenere lo SHA del commit che lo contiene non e' compilabile quando lo si scrive, e l'unico modo di riempirlo sarebbe una cifra inventata.\n\nUn primo congelamento su `b6a79ea` e' stato **annullato**: il commit che lo scriveva toccava anche `scripts/test_check_release_contract.py`, che sta fuori dall'allowlist ammessa dopo il congelamento. La via comoda sarebbe stata allargare l'allowlist a `scripts/test_*.py`; il congelamento e' stato invece rifatto su una revisione che contiene gia' quelle sonde, con Distribuzione e livello 2 rieseguiti. Un difetto del codice trovato dopo il congelamento invalida il congelamento, ed e' precisamente cio' per cui l'allowlist esiste.\n\n`tag_creato` e' falso perche' e' falso: `v2.0.0` non esiste, e finche' manca `candidate-coerente` resta rossa -- correttamente, perche' nessun tag nomina ancora gli artefatti congelati.\n\n`release_action_allowed` dice una cosa piu' piccola di quanto il nome suggerisca: che la **candidate** permette all'azione di rilascio di procedere, perche' gli artefatti esistono, sono qualificati e non verranno ricostruiti. Non e' l'autorizzazione, che e' `release_authorized` e resta `false`.\n\nI digest congelati servono alla promessa piu' difficile della release: che i byte pubblicati siano **questi**, non una ricostruzione equivalente. Che non sia teorica lo mostrano le due corse precedenti su altre revisioni, i cui archivi hanno digest diversi da questi pur venendo dalla stessa macchina. Lo verifica `check-deliverable.py --contro-la-candidate` sui byte riscaricati dal canale."
     }
   },
   "docset": {
