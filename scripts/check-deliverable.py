@@ -105,19 +105,109 @@ def verifica(
     return errori
 
 
+def verifica_contro_la_candidate(
+    directory: pathlib.Path,
+    artefatti: list[dict],
+    revisione_candidate: str,
+) -> list[str]:
+    """I byte **pubblicati** sono quelli congelati, non una ricostruzione.
+
+    `verifica` qui sopra confronta ogni archivio con i **propri** sidecar: un
+    insieme ricostruito da capo e' internamente coerente e passa, perche' ogni
+    checksum descrive fedelmente l'archivio che gli sta accanto. La domanda a
+    cui non risponde e' se quegli archivi siano gli **stessi** su cui e' girata
+    la qualifica.
+
+    Non e' una distinzione teorica. Due costruzioni della stessa revisione
+    possono differire di un byte -- un timestamp dentro l'archivio basta -- e
+    allora cio' che si e' misurato e cio' che si consegna sono due insiemi
+    diversi, «equivalenti» nel senso che nessuno ha verificato. Il digest
+    congelato al momento della candidate e' l'unico riferimento esterno che
+    rende la differenza visibile.
+
+    Si esegue **dopo** la pubblicazione, sui byte riscaricati dal canale di
+    release: prima non c'e' niente da confrontare.
+    """
+    if not artefatti:
+        return [
+            "nessun artefatto congelato con cui confrontare: un elenco vuoto "
+            "non produce nessun confronto, e nessun confronto non e' un "
+            "confronto riuscito."
+        ]
+
+    errori: list[str] = []
+    for congelato in artefatti:
+        nome = congelato.get("nome")
+        if not isinstance(nome, str) or not nome:
+            errori.append(f"artefatto congelato senza nome: {congelato!r}")
+            continue
+        if congelato.get("revisione") != revisione_candidate:
+            errori.append(
+                f"{nome}: congelato sulla revisione "
+                f"«{str(congelato.get('revisione'))[:12]}», la candidate e' "
+                f"«{revisione_candidate[:12]}»"
+            )
+        percorso = directory / nome
+        if not percorso.is_file():
+            errori.append(f"{nome}: assente fra i byte pubblicati")
+            continue
+        reale = distribuzione.sha256(percorso)
+        if reale != congelato.get("sha256"):
+            errori.append(
+                f"{nome}: i byte pubblicati hanno digest {reale}, il congelato "
+                f"e' {congelato.get('sha256')}. Un archivio ricostruito non e' "
+                "l'archivio qualificato, per quanto equivalente."
+            )
+        dimensione = percorso.stat().st_size
+        if dimensione != congelato.get("dimensione"):
+            errori.append(
+                f"{nome}: dimensione pubblicata {dimensione}, congelata "
+                f"{congelato.get('dimensione')}"
+            )
+    return errori
+
+
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--directory", required=True, type=pathlib.Path)
     a.add_argument("--versione", required=True)
     a.add_argument("--canale", required=True, choices=("prova", "candidate"))
     a.add_argument("--revisione", required=True)
+    # Il confronto con i digest congelati e' un passo **successivo alla
+    # pubblicazione**, e ha percio' una sua opzione invece di stare sempre
+    # acceso: nel canale `prova` non esiste una candidate congelata con cui
+    # confrontarsi, e pretenderla renderebbe rosso cio' che non ha nulla da
+    # verificare.
+    a.add_argument(
+        "--contro-la-candidate",
+        type=pathlib.Path,
+        metavar="STATO",
+        help="assurance/current-state.json: verifica che questi byte siano "
+        "quelli congelati dalla candidate, non una ricostruzione equivalente",
+    )
     arg = a.parse_args()
     errori = verifica(arg.directory, arg.versione, arg.canale, arg.revisione)
+    congelati = 0
+    if arg.contro_la_candidate is not None:
+        stato = json.loads(arg.contro_la_candidate.read_text(encoding="utf-8"))
+        candidate = stato.get("aperto", {}).get("candidate_release", {})
+        artefatti = candidate.get("artefatti") or []
+        congelati = len(artefatti)
+        errori.extend(
+            verifica_contro_la_candidate(
+                arg.directory, artefatti, candidate.get("revisione_candidate")
+            )
+        )
     if errori:
         for ciascuno in errori:
             print(f"ERRORE: {ciascuno}", file=sys.stderr)
         return 1
     print("deliverable verificati: 4 archivi, 4 checksum, 4 provenance")
+    if arg.contro_la_candidate is not None:
+        print(
+            f"byte pubblicati identici ai {congelati} artefatti congelati "
+            "dalla candidate"
+        )
     return 0
 
 

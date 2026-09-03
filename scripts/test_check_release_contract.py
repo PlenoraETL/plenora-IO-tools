@@ -847,9 +847,29 @@ class SondeCondizioni(unittest.TestCase):
         self.assertTrue(any("decisione scritta" in m for m in motivi), motivi)
 
     def test_la_candidate_corrente_non_e_coerente(self) -> None:
+        """La candidate pendente e' `1.0.1`, e il workspace e' a `2.0.0`.
+
+        Il motivo che questa sonda cercava -- «non qualifica il codice
+        corrente» -- apparteneva al modello a una revisione sola, dove la
+        candidate doveva **essere** HEAD. Non c'e' piu': HEAD ora puo' e deve
+        andare avanti rispetto alla candidate. Cio' che resta rosso e' il
+        divario di versione, che e' il bloccante vero.
+        """
         motivi = gate.condizione_candidate_coerente(self.registro())
         self.assertTrue(
-            any("non qualifica il codice corrente" in m for m in motivi), motivi
+            any("il workspace e' a «2.0.0»" in m for m in motivi), motivi
+        )
+
+    def test_il_congelamento_rotto_nega_la_condizione(self) -> None:
+        """La quarta condizione, letta sulla candidate pendente.
+
+        Fra `966005d6` e HEAD e' cambiato mezzo repository -- sorgenti, lock,
+        workflow -- quindi quella candidate non e' congelata rispetto a questo
+        albero, e la condizione deve dirlo nominando i file.
+        """
+        motivi = gate.condizione_candidate_coerente(self.registro())
+        self.assertTrue(
+            any("l'assurance non produce" in m for m in motivi), motivi
         )
 
     def test_una_candidate_legata_al_nulla_non_soddisfa_la_condizione(self) -> None:
@@ -860,7 +880,7 @@ class SondeCondizioni(unittest.TestCase):
         risultava coerente con la revisione corrente.
         """
         stato = json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
-        stato["aperto"]["candidate_release"]["revisione_manifesto"] = ""
+        stato["aperto"]["candidate_release"]["revisione_candidate"] = ""
         with mock.patch.object(gate, "_stato_corrente", return_value=(stato, [])):
             motivi = gate.condizione_candidate_coerente(self.registro())
         self.assertTrue(
@@ -956,6 +976,262 @@ class SondeCondizioni(unittest.TestCase):
                 f"«{identita}» e' soddisfatta: se ricompare fra i motivi, "
                 "e' una regressione e va detta come tale",
             )
+
+
+class SondeCongelamento(unittest.TestCase):
+    """Le due revisioni, e la circolarita' che avevano quando erano una sola.
+
+    Il modello pretendeva che il tag della release puntasse a **HEAD**. La
+    decisione di rilascio, pero', e' `release_authorized: true` dentro un file
+    versionato: scriverla crea un commit, quel commit sposta HEAD, e il tag
+    smette di puntarci. Le due condizioni non potevano essere vere insieme --
+    non era un blocco da chiudere, era un modello che nessuna release poteva
+    soddisfare, e lo si sarebbe scoperto all'ultimo passo, con il tag gia' fatto.
+
+    Le revisioni sono ora due: `revisione_candidate`, congelata, e' quella da
+    cui si costruisce e a cui punta il tag; `revisione_assurance` e' HEAD, il
+    commit che registra evidenza e decisione. Fra le due si puo' cambiare solo
+    cio' che l'assurance produce.
+    """
+
+    CONGELATA = "1" * 40
+    ASSURANCE = "2" * 40
+
+    def stato(self) -> dict:
+        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+
+    def registro(self) -> dict:
+        return json.loads(gate.REGISTRO.read_text(encoding="utf-8"))
+
+    def candidate_finta(self, **modifiche) -> dict:
+        attesi = gate.artefatti_attesi("2.0.0")
+        candidate = {
+            "versione_manifesto": "2.0.0",
+            "revisione_candidate": self.CONGELATA,
+            "artefatti": [
+                {
+                    "nome": nome,
+                    "sha256": f"{indice:064x}",
+                    "dimensione": 100 + indice,
+                    "revisione": self.CONGELATA,
+                }
+                for indice, nome in enumerate(attesi)
+            ],
+        }
+        candidate.update(modifiche)
+        return candidate
+
+    # --- 2 e 3: cio' che si puo' cambiare dopo il congelamento --------------
+
+    def _con_diff(self, percorsi):
+        """`cambiamenti_dopo_il_congelamento` su una diff finta."""
+        uscita = "\n".join(percorsi)
+
+        def finto(*argomenti):
+            if argomenti[:2] == ("diff", "--name-only"):
+                return uscita
+            return self.ASSURANCE
+
+        gate._uscita_della_diff.cache_clear()
+        self.addCleanup(gate._uscita_della_diff.cache_clear)
+        with mock.patch.object(gate, "_git", side_effect=finto):
+            return gate.cambiamenti_dopo_il_congelamento(self.CONGELATA)
+
+    def test_un_assurance_che_tocca_solo_l_allowlist_passa(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        fuori, errori = self._con_diff(
+            [
+                "assurance/current-state.json",
+                "assurance/evidence/checkpoint-abc1234.json",
+                "assurance/registries/release-contract-current.json",
+                "docs/RELEASE.md",
+            ]
+        )
+        self.assertEqual(fuori, [], fuori)
+        self.assertEqual(errori, [], errori)
+
+    def test_ogni_famiglia_vietata_dopo_il_congelamento_e_rossa(self) -> None:
+        """Le famiglie che il congelamento esiste per fissare.
+
+        Sono elencate una per una invece che riassunte in «tutto il resto»:
+        un'allowlist che si allargasse per sbaglio a una di queste non
+        produrrebbe nessun rosso, e il primo ad accorgersene sarebbe chi
+        installa un artefatto costruito da un albero diverso da quello
+        qualificato.
+        """
+        famiglie = {
+            "sorgente Rust": "crates/plenora-io-model/src/lib.rs",
+            "lock": "Cargo.lock",
+            "manifesto del workspace": "Cargo.toml",
+            "workflow": ".github/workflows/distribuzione.yml",
+            "costruttore": "scripts/costruisci-artefatto-linux.py",
+            "verificatore": "scripts/check-windows-runtime.py",
+            "gate del contratto": "scripts/check_release_contract.py",
+            "contratto di distribuzione": (
+                "assurance/registries/distribuzione-matrice.json"
+            ),
+            "contratto del protocollo": "release/cli-protocol-v1.json",
+            "fork vendorizzato": "vendor/gdal/lock.json",
+        }
+        for famiglia, percorso in famiglie.items():
+            with self.subTest(famiglia=famiglia):
+                fuori, _ = self._con_diff([percorso])
+                self.assertEqual(fuori, [percorso])
+
+    def test_un_assurance_misto_nomina_solo_cio_che_non_e_ammesso(self) -> None:
+        """Il messaggio deve dire quale file ha rotto il congelamento."""
+        fuori, _ = self._con_diff(
+            ["assurance/current-state.json", "Cargo.lock", "docs/RELEASE.md"]
+        )
+        self.assertEqual(fuori, ["Cargo.lock"])
+
+    def test_un_percorso_che_somiglia_a_un_ammesso_non_passa(self) -> None:
+        """`assurance/evidence` e' un prefisso di **directory**, non di stringa.
+
+        Senza la barra, `assurance/evidence-falsa/x.json` sarebbe passato per
+        somiglianza del nome, che e' il modo in cui un'allowlist per prefisso si
+        allarga senza che nessuno lo decida.
+        """
+        for percorso in (
+            "assurance/evidence-falsa/x.json",
+            "assurance/current-state.json.bak",
+            "docs/RELEASE.md.orig",
+        ):
+            with self.subTest(percorso=percorso):
+                fuori, _ = self._con_diff([percorso])
+                self.assertEqual(fuori, [percorso])
+
+    def test_una_diff_che_git_non_produce_e_rossa(self) -> None:
+        """Se il confronto non si puo' fare, non e' passato: e' rosso.
+
+        Un `git diff` che fallisce -- revisione assente dopo un fetch parziale,
+        per dire -- restituiva `None`, e una lista vuota di percorsi fuori
+        allowlist si legge come «niente e' cambiato». E' il verde per assenza di
+        domanda, sul confronto che regge tutto il congelamento.
+        """
+        gate._uscita_della_diff.cache_clear()
+        self.addCleanup(gate._uscita_della_diff.cache_clear)
+        with mock.patch.object(gate, "_git", return_value=None):
+            fuori, errori = gate.cambiamenti_dopo_il_congelamento(self.CONGELATA)
+        self.assertEqual(fuori, [])
+        self.assertTrue(errori)
+
+    # --- la circolarita' -----------------------------------------------------
+
+    def test_registrare_la_decisione_non_rompe_la_candidate(self) -> None:
+        """La sonda di regressione del difetto che questo modello corregge.
+
+        HEAD **diverso** dalla revisione congelata, con una diff che tocca solo
+        cio' che l'assurance produce, deve essere ammesso. Con una revisione
+        sola era impossibile: il tag puntava alla candidate e HEAD era il commit
+        dell'evidenza, quindi la condizione non poteva essere soddisfatta da
+        nessuna release, mai.
+        """
+        fuori, errori = self._con_diff(
+            ["assurance/current-state.json", "assurance/evidence/checkpoint-x.json"]
+        )
+        self.assertEqual((fuori, errori), ([], []))
+
+    # --- 1 e 4: il tag e gli artefatti guardano la candidate ----------------
+
+    def test_il_tag_deve_puntare_alla_candidate_non_a_head(self) -> None:
+        """Un tag su HEAD qualificherebbe un albero che contiene se stesso."""
+        risolte = {
+            "HEAD": self.ASSURANCE,
+            self.CONGELATA: self.CONGELATA,
+            "v2.0.0": self.ASSURANCE,
+        }
+        motivi = gate._tag_sulla_candidate(
+            self.candidate_finta(), self.CONGELATA, "2.0.0",
+            risolvi=lambda r: risolte.get(r),
+        )
+        self.assertTrue(any("congelata" in m for m in motivi), motivi)
+
+    def test_un_tag_sulla_candidate_passa(self) -> None:
+        risolte = {
+            "HEAD": self.ASSURANCE,
+            self.CONGELATA: self.CONGELATA,
+            "v2.0.0": self.CONGELATA,
+        }
+        self.assertEqual(
+            gate._tag_sulla_candidate(
+                self.candidate_finta(), self.CONGELATA, "2.0.0",
+                risolvi=lambda r: risolte.get(r),
+            ),
+            [],
+        )
+
+    def test_un_tag_assente_e_rosso(self) -> None:
+        motivi = gate._tag_sulla_candidate(
+            self.candidate_finta(), self.CONGELATA, "2.0.0",
+            risolvi=lambda r: None if r == "v2.0.0" else self.CONGELATA,
+        )
+        self.assertTrue(any("non esiste" in m for m in motivi), motivi)
+
+    def test_un_artefatto_fissato_su_un_altra_revisione_e_rosso(self) -> None:
+        """Una provenance con uno SHA diverso non qualifica la candidate."""
+        candidate = self.candidate_finta()
+        candidate["artefatti"][0]["revisione"] = self.ASSURANCE
+        motivi = gate._artefatti_fissati(candidate, self.CONGELATA, "2.0.0")
+        self.assertTrue(any("revisione" in m for m in motivi), motivi)
+
+    def test_gli_artefatti_fissati_bene_passano(self) -> None:
+        self.assertEqual(
+            gate._artefatti_fissati(self.candidate_finta(), self.CONGELATA, "2.0.0"),
+            [],
+        )
+
+    def test_un_artefatto_mancante_dal_perimetro_e_rosso(self) -> None:
+        """Quattro: due piattaforme per due profili, derivati dalla matrice."""
+        attesi = gate.artefatti_attesi("2.0.0")
+        self.assertEqual(len(attesi), 4, attesi)
+        candidate = self.candidate_finta()
+        mancante = candidate["artefatti"].pop()["nome"]
+        motivi = gate._artefatti_fissati(candidate, self.CONGELATA, "2.0.0")
+        self.assertTrue(any(mancante in m for m in motivi), motivi)
+
+    def test_un_artefatto_fuori_perimetro_e_rosso(self) -> None:
+        candidate = self.candidate_finta()
+        candidate["artefatti"][0]["nome"] = "plenora-io-2.0.0-macos-aarch64-base.tar.gz"
+        motivi = gate._artefatti_fissati(candidate, self.CONGELATA, "2.0.0")
+        self.assertTrue(motivi)
+
+    def test_due_artefatti_con_lo_stesso_digest_sono_rossi(self) -> None:
+        """Quattro nomi e un digest solo significa un archivio copiato."""
+        candidate = self.candidate_finta()
+        for voce in candidate["artefatti"]:
+            voce["sha256"] = "a" * 64
+        motivi = gate._artefatti_fissati(candidate, self.CONGELATA, "2.0.0")
+        self.assertTrue(any("digest" in m for m in motivi), motivi)
+
+    def test_un_digest_che_non_e_uno_sha256_e_rosso(self) -> None:
+        candidate = self.candidate_finta()
+        candidate["artefatti"][0]["sha256"] = "non-un-digest"
+        motivi = gate._artefatti_fissati(candidate, self.CONGELATA, "2.0.0")
+        self.assertTrue(motivi)
+
+    def test_una_candidate_senza_artefatti_fissati_e_rossa(self) -> None:
+        """Oggi e' il caso reale: nessun artefatto 2.0.0 e' stato congelato."""
+        candidate = self.candidate_finta(artefatti=[])
+        motivi = gate._artefatti_fissati(candidate, self.CONGELATA, "2.0.0")
+        self.assertTrue(motivi)
+
+    def test_la_condizione_corrente_non_e_soddisfatta(self) -> None:
+        """La candidate pendente e' 1.0.1 e il workspace e' 2.0.0."""
+        self.assertTrue(gate.condizione_candidate_coerente(self.registro()))
+
+    # --- il campo che non si scrive ------------------------------------------
+
+    def test_lo_stato_non_scrive_la_revisione_di_assurance(self) -> None:
+        """`revisione_assurance` e' HEAD, e non si scrive.
+
+        Un campo che dovesse contenere lo SHA del commit che lo contiene non e'
+        compilabile nel momento in cui lo si scrive: l'unico modo di riempirlo
+        sarebbe una cifra inventata, e una cifra inventata accanto a una
+        qualifica e' esattamente cio' che il registro esiste per impedire.
+        """
+        candidate = self.stato()["aperto"]["candidate_release"]
+        self.assertNotIn("revisione_assurance", candidate)
 
 
 class SondeStatoEsterno(unittest.TestCase):

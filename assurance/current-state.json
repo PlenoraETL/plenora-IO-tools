@@ -108,16 +108,17 @@
     },
     "candidate_release": {
       "versione_manifesto": "1.0.1",
-      "revisione_manifesto": "966005d6",
+      "revisione_candidate": "966005d6",
       "versione_workspace": "2.0.0",
       "tag_previsto": "v1.0.1",
       "tag_creato": true,
       "tag_revisione": "c490f82",
-      "tag_su_head": false,
-      "qualifica_head": false,
+      "tag_sulla_candidate": false,
+      "assurance_entro_l_allowlist": false,
+      "artefatti": [],
       "release_action_allowed": false,
       "release_blocking": true,
-      "nota": "il manifesto non descrive HEAD; aggiornarne lo SHA sarebbe una qualifica fabbricata. Il tag `v1.0.1` esiste — puntava e punta a `c490f82` — e lo stato dichiarava che non fosse stato creato: una copia scritta a mano che nessuno confrontava con git. Versione del workspace, esistenza e bersaglio del tag sono ora riletti da Cargo.toml e da git a ogni corsa del contratto.\n\nIl workspace e' passato a `2.0.0`. `versione_manifesto` resta `1.0.1` perche' quella e' la candidate **pendente**, e il divario fra le due non e' un'incoerenza da appianare: e' il bloccante, scritto in due numeri. Lo si chiude producendo una candidate nuova sullo SHA congelato, non allineando i campi."
+      "nota": "il manifesto non descrive la revisione che si sta rilasciando; aggiornarne lo SHA sarebbe una qualifica fabbricata. Il tag `v1.0.1` esiste — puntava e punta a `c490f82` — e lo stato dichiarava che non fosse stato creato: una copia scritta a mano che nessuno confrontava con git. Versione del workspace, esistenza e bersaglio del tag sono riletti da Cargo.toml e da git a ogni corsa del contratto.\n\nIl workspace e' passato a `2.0.0`. `versione_manifesto` resta `1.0.1` perche' quella e' la candidate **pendente**, e il divario fra le due non e' un'incoerenza da appianare: e' il bloccante, scritto in due numeri. Lo si chiude congelando una candidate nuova, non allineando i campi.\n\nLe revisioni sono **due**, e il campo che qui non c'e' e' quello che spiega il modello. `revisione_candidate` e' lo SHA congelato: da li' escono binari, SBOM e provenance, e li' punta il tag. `revisione_assurance` e' il commit che registra evidenza e decisione, ed e' **HEAD**: non si scrive, si deriva. Un campo che dovesse contenere lo SHA del commit che lo contiene non e' compilabile quando lo si scrive, e l'unico modo di riempirlo sarebbe una cifra inventata.\n\nPrima le revisioni erano una sola, e il contratto pretendeva che il tag puntasse a HEAD. Siccome registrare l'evidenza sposta HEAD, quella pretesa e `decisione-scritta` non potevano essere vere insieme: non un blocco da chiudere, ma una condizione che nessuna release poteva soddisfare.\n\n`artefatti` e' vuoto perche' nessuna candidate 2.0.0 e' stata congelata. La corsa `33740944974` ha costruito e verificato i quattro archivi sullo SHA `40abb27` ed e' stata una prova completa della catena, non la candidate: il gate che la qualifica e' cambiato dopo, quindi quegli archivi vengono da un albero che non e' quello che si rilascera'."
     }
   },
   "docset": {

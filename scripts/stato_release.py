@@ -91,13 +91,14 @@ CAMPI_RICHIESTI = (
     "capacità differite",
     "S9, qualificato su",
     "candidate, versione del manifesto",
-    "candidate, revisione del manifesto",
+    "candidate, revisione congelata",
     "candidate, versione del workspace",
-    "candidate, qualifica di HEAD",
+    "candidate, artefatti congelati",
     "candidate, tag previsto",
     "candidate, tag creato",
     "candidate, revisione del tag",
-    "candidate, tag su HEAD",
+    "candidate, tag sulla candidate",
+    "candidate, assurance entro l'allowlist",
     "candidate, release_action consentita",
     "release_authorized",
 )
@@ -169,13 +170,18 @@ def campi(stato: dict, registro: dict) -> dict[str, str]:
         "capacità differite": _intero(len(_differite(registro))),
         "S9, qualificato su": f"`{s9['qualificato_su']}`",
         "candidate, versione del manifesto": f"`{candidate['versione_manifesto']}`",
-        "candidate, revisione del manifesto": f"`{candidate['revisione_manifesto']}`",
+        "candidate, revisione congelata": f"`{candidate['revisione_candidate']}`",
         "candidate, versione del workspace": f"`{candidate['versione_workspace']}`",
-        "candidate, qualifica di HEAD": _booleano(candidate["qualifica_head"]),
+        "candidate, artefatti congelati": _intero(len(candidate["artefatti"])),
         "candidate, tag previsto": f"`{candidate['tag_previsto']}`",
         "candidate, tag creato": _booleano(candidate["tag_creato"]),
         "candidate, revisione del tag": f"`{candidate['tag_revisione']}`",
-        "candidate, tag su HEAD": _booleano(candidate["tag_su_head"]),
+        "candidate, tag sulla candidate": _booleano(
+            candidate["tag_sulla_candidate"]
+        ),
+        "candidate, assurance entro l'allowlist": _booleano(
+            candidate["assurance_entro_l_allowlist"]
+        ),
         "candidate, release_action consentita": _booleano(
             candidate["release_action_allowed"]
         ),

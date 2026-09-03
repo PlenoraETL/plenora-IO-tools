@@ -126,6 +126,12 @@ from check_errori_redatti import (  # noqa: E402
     verifica as censimento_errori,
 )
 
+# I nomi degli archivi si leggono da dove li scrive il costruttore. Ricavarli
+# qui con una formula darebbe una seconda regola di denominazione, e le due
+# divergerebbero al primo cambio di forma -- con il gate che continua a
+# pretendere quattro nomi che nessuno produce piu'.
+import distribuzione  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRO = ROOT / "assurance" / "registries" / "release-contract-current.json"
 CLI_PROTOCOL_V1 = ROOT / "release" / "cli-protocol-v1.json"
@@ -247,6 +253,57 @@ CONDIZIONI_OBBLIGATORIE = frozenset(
 
 STATO_CORRENTE = ROOT / "assurance" / "current-state.json"
 
+# --- il congelamento, e le due revisioni ------------------------------------
+#
+# Il modello aveva un ciclo, e non era un blocco da chiudere: era una condizione
+# che nessuna release poteva soddisfare.
+#
+# `condizione_candidate_coerente` pretendeva che il tag della release puntasse a
+# **HEAD**. La decisione di rilascio, pero', e' `release_authorized: true` dentro
+# un file versionato, e l'evidenza del livello 2 e' un altro file versionato:
+# registrarle crea un commit, quel commit sposta HEAD, e il tag smette di
+# puntarci. Soddisfare la prima condizione rompeva la seconda e viceversa. Il
+# difetto non si sarebbe visto fino all'ultimo passo -- con il tag gia' creato --
+# e la via d'uscita piu' comoda sarebbe stata spostare il tag sul commit
+# dell'evidenza, cioe' far puntare la release a un albero che contiene
+# l'attestazione di se stesso.
+#
+# Le revisioni sono percio' due, e fanno cose diverse.
+#
+# * `revisione_candidate` -- lo SHA **congelato**. Da li' sono costruiti binari,
+#   SBOM e provenance, e li' punta il tag. Si scrive nello stato una volta, al
+#   congelamento, ed e' un fatto: non si deriva da niente.
+# * `revisione_assurance` -- il commit che registra evidenza e decisione. E'
+#   **HEAD**, e non si scrive da nessuna parte. Un campo che dovesse contenere
+#   lo SHA del commit che lo contiene non e' compilabile nel momento in cui lo
+#   si scrive: l'unico modo di riempirlo sarebbe una cifra inventata, e una
+#   cifra inventata accanto a una qualifica e' cio' che questo registro esiste
+#   per impedire. Si deriva da git, a ogni corsa.
+#
+# Fra le due si puo' cambiare **solo** cio' che l'assurance produce. L'elenco e'
+# un'allowlist -- default nega -- perche' una denylist dimentica la famiglia che
+# nasce domani, e la dimenticherebbe in silenzio.
+#
+# Che cosa vi manca, e perche': `scripts/`, `.github/workflows/`, `crates/`,
+# `Cargo.toml`, `Cargo.lock`, `vendor/`, `release/` e
+# `assurance/registries/distribuzione-matrice.json`. Cioe' il codice, il lock,
+# la macchina che costruisce, quella che verifica e il contratto di
+# distribuzione: se cambiassero dopo il congelamento, l'albero qualificato e
+# quello da cui gli artefatti sono stati costruiti sarebbero due, e il secondo
+# non sarebbe stato misurato da nessuno.
+#
+# `release-contract-current.json` invece **e'** ammesso, ed e' la voce che
+# merita una ragione: e' li' che gli invarianti passano a `verified` quando
+# l'evidenza arriva, cioe' e' il prodotto dell'assurance. Ammetterlo non apre
+# nulla, perche' le sue affermazioni non si autocertificano -- le riesegue
+# `check_release_contract.py`, che sta in `scripts/` ed e' congelato.
+ALLOWLIST_DOPO_IL_CONGELAMENTO = (
+    "assurance/current-state.json",
+    "assurance/evidence/",
+    "assurance/registries/release-contract-current.json",
+    "docs/RELEASE.md",
+)
+
 # --- che cosa lo stato copia dall'evidenza ---------------------------------
 #
 # `assurance/current-state.json` riporta i numeri di una corsa che vive in
@@ -321,8 +378,8 @@ FOGLIE_LEGATE = frozenset(
         "aperto.candidate_release.tag_previsto",
         "aperto.candidate_release.tag_creato",
         "aperto.candidate_release.tag_revisione",
-        "aperto.candidate_release.tag_su_head",
-        "aperto.candidate_release.qualifica_head",
+        "aperto.candidate_release.tag_sulla_candidate",
+        "aperto.candidate_release.assurance_entro_l_allowlist",
         # il registro del contratto corrente
         "aperto.assurance_n1.release_blocking",
 
@@ -389,8 +446,18 @@ FOGLIE_DICHIARATE = {
         "fatto del manifesto della candidate, che non e' piu' nel repository: "
         "resta in git, e non c'e' una fonte viva che lo riscriva"
     ),
-    "aperto.candidate_release.revisione_manifesto": (
-        "fatto del manifesto della candidate; vedi `versione_manifesto`"
+    "aperto.candidate_release.revisione_candidate": (
+        "lo SHA **congelato** della candidate. E' una decisione -- si congela --"
+        " e non si deriva da nessuna fonte viva: git puo' dire che esiste, non "
+        "che sia quello scelto"
+    ),
+    "aperto.candidate_release.artefatti": (
+        "i quattro archivi congelati, con nome, digest, dimensione e revisione. "
+        "Vengono dalla corsa che li ha costruiti, non da un file del "
+        "repository: la loro coerenza interna la verifica "
+        "`_artefatti_fissati`, e che i byte pubblicati siano **questi** lo "
+        "verifica `check-deliverable.py --contro-la-candidate` dopo la "
+        "pubblicazione"
     ),
     "aperto.candidate_release.release_action_allowed": (
         "fatto del manifesto della candidate; vedi `versione_manifesto`"
@@ -1113,6 +1180,196 @@ def stato_esterno_osservato(relativo: str) -> tuple[str, list[str]]:
     return STATO_ESTERNO_VALIDO, []
 
 
+def _ammesso_dopo_il_congelamento(percorso: str) -> bool:
+    """Un percorso della diff e' fra quelli che l'assurance puo' produrre.
+
+    Le voci che finiscono con `/` sono prefissi di **directory**, e il confronto
+    tiene la barra: senza, `assurance/evidence-falsa/x.json` sarebbe passato per
+    somiglianza del nome. E' il modo in cui un'allowlist per prefisso si allarga
+    senza che nessuno lo decida.
+    """
+    for voce in ALLOWLIST_DOPO_IL_CONGELAMENTO:
+        if voce.endswith("/"):
+            if percorso.startswith(voce):
+                return True
+        elif percorso == voce:
+            return True
+    return False
+
+
+@functools.lru_cache(maxsize=None)
+def _discende_da(antenato: str, discendente: str) -> bool:
+    """L'ascendenza fra due revisioni, chiesta una volta per coppia.
+
+    Come la diff qui sotto: dipende dall'albero, non dal documento, e la stessa
+    domanda serve alla condizione di release e al legame dello stato.
+    """
+    return _git_riesce("merge-base", "--is-ancestor", antenato, discendente)
+
+
+@functools.lru_cache(maxsize=None)
+def _uscita_della_diff(congelata: str, fino_a: str) -> str | None:
+    """La diff fra due revisioni, misurata una volta per processo.
+
+    Dipende dall'albero e non dal documento, ed e' cara: fra una candidate e
+    l'assurance ci possono essere centinaia di file, e la stessa diff serve alla
+    condizione di release **e** al legame dello stato alle proprie fonti.
+    Rifarla per ogni campo che ne deriva ripeterebbe lo stesso confronto senza
+    cambiarne l'esito -- che e' la ragione per cui anche `_censimento` e
+    `_revisione_risolta` sono memorizzate.
+
+    Le sonde che sostituiscono `_git` devono svuotarla: una risposta finta
+    memorizzata sopravviverebbe al `mock.patch` che l'ha prodotta.
+    """
+    return _git("diff", "--name-only", f"{congelata}..{fino_a}")
+
+
+def cambiamenti_dopo_il_congelamento(
+    congelata: str, fino_a: str = "HEAD"
+) -> tuple[list[str], list[str]]:
+    """`(percorsi fuori allowlist, errori)` fra la candidate e l'assurance.
+
+    Un `git diff` che non acquisisce non e' una diff vuota. Restituire una lista
+    vuota di percorsi fuori allowlist si leggerebbe come «niente e' cambiato», e
+    sarebbe un verde per assenza di domanda proprio sul confronto che regge
+    tutto il congelamento: gli errori tornano separati dai percorsi perche' i
+    due casi non si somigliano.
+    """
+    uscita = _uscita_della_diff(congelata, fino_a)
+    if uscita is None:
+        return [], [
+            f"git non produce la diff fra «{congelata[:7]}» e «{fino_a}»: senza "
+            "quel confronto non si sa che cosa sia cambiato dopo il "
+            "congelamento, e non saperlo non e' averlo verificato."
+        ]
+    percorsi = [riga.strip() for riga in uscita.splitlines() if riga.strip()]
+    return [p for p in percorsi if not _ammesso_dopo_il_congelamento(p)], []
+
+
+def artefatti_attesi(versione: str) -> list[str]:
+    """I nomi degli archivi del perimetro, derivati dalla matrice.
+
+    Il perimetro viene da `perimetro.distribuite`, non dai job che esistono: un
+    artefatto in meno perche' qualcuno ha tolto un job e' un buco, uno in meno
+    perche' la piattaforma e' fuori scope e' una decisione, e nel conteggio si
+    somigliano.
+    """
+    matrice = json.loads(
+        (ROOT / "assurance" / "registries" / "distribuzione-matrice.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    piattaforme = matrice["perimetro"]["distribuite"]
+    profili = [p["id"] for p in matrice["profili"]]
+    return sorted(
+        f"{distribuzione.nome_archivio(versione, piattaforma, profilo)}"
+        f".{distribuzione.contenitore(piattaforma)}"
+        for piattaforma in piattaforme
+        for profilo in profili
+    )
+
+
+def _tag_sulla_candidate(
+    candidate: dict[str, Any],
+    congelata: str,
+    versione: str,
+    risolvi=None,
+) -> list[str]:
+    """Il tag della release punta alla **candidate**, non a HEAD.
+
+    E' la meta' della correzione che si vede da fuori. Prima si pretendeva HEAD,
+    e HEAD dopo l'assurance e' il commit che porta l'evidenza: un tag li' sopra
+    qualificherebbe un albero diverso da quello da cui gli artefatti sono usciti.
+    """
+    risolvi = risolvi or revisione_risolta
+    atteso = f"v{versione}"
+    puntato = risolvi(atteso)
+    if puntato is None:
+        return [f"il tag «{atteso}» non esiste"]
+    if puntato != congelata:
+        return [
+            f"il tag «{atteso}» punta a «{puntato[:7]}», non alla revisione "
+            f"congelata «{congelata[:7]}». Il tag nomina cio' da cui si e' "
+            "costruito, non cio' che lo attesta."
+        ]
+    return []
+
+
+def _artefatti_fissati(
+    candidate: dict[str, Any], congelata: str, versione: str
+) -> list[str]:
+    """I quattro archivi congelati: nomi del perimetro, digest, revisione.
+
+    Fissare i digest e' cio' che rende verificabile la promessa piu' difficile
+    della release -- che i byte pubblicati siano **quelli** misurati, non una
+    ricostruzione equivalente. Due costruzioni della stessa revisione possono
+    differire di un byte, e checksum e provenance del secondo archivio sarebbero
+    coerenti fra loro: nessun gate del canale se ne accorgerebbe. Il confronto
+    con il digest congelato e' l'unico posto in cui la differenza diventa
+    visibile invece che opinabile.
+    """
+    fissati = candidate.get("artefatti")
+    attesi = artefatti_attesi(versione)
+    if not isinstance(fissati, list) or not fissati:
+        return [
+            "la candidate non fissa nessun artefatto. Un elenco vuoto non e' "
+            f"una qualifica: sono attesi {len(attesi)} archivi, con il proprio "
+            "digest e la revisione da cui escono."
+        ]
+
+    errori: list[str] = []
+    per_nome: dict[str, dict[str, Any]] = {}
+    for voce in fissati:
+        if not isinstance(voce, dict) or not isinstance(voce.get("nome"), str):
+            errori.append(f"artefatto senza nome leggibile: {voce!r}")
+            continue
+        if voce["nome"] in per_nome:
+            errori.append(f"artefatto «{voce['nome']}» dichiarato due volte")
+        per_nome[voce["nome"]] = voce
+
+    for nome in attesi:
+        if nome not in per_nome:
+            errori.append(
+                f"«{nome}» non e' fra gli artefatti congelati. Il perimetro "
+                "viene dalla matrice, e un archivio che manca e' un artefatto "
+                "che nessuno ha qualificato."
+            )
+    for nome in sorted(set(per_nome) - set(attesi)):
+        errori.append(
+            f"«{nome}» non e' nel perimetro della matrice: un artefatto in piu' "
+            "non e' un artefatto qualificato in piu'."
+        )
+
+    for nome in sorted(set(per_nome) & set(attesi)):
+        voce = per_nome[nome]
+        digesto = voce.get("sha256")
+        if not isinstance(digesto, str) or not IMPRONTA.match(digesto):
+            errori.append(f"«{nome}»: `sha256` non e' un digest sha256")
+        dimensione = voce.get("dimensione")
+        if not isinstance(dimensione, int) or isinstance(dimensione, bool) or dimensione <= 0:
+            errori.append(f"«{nome}»: `dimensione` non e' un intero positivo")
+        if voce.get("revisione") != congelata:
+            errori.append(
+                f"«{nome}»: `revisione` vale «{str(voce.get('revisione'))[:7]}», "
+                f"la candidate e' congelata su «{congelata[:7]}». Un artefatto "
+                "costruito da un'altra revisione non qualifica questa."
+            )
+
+    digesti = [
+        voce.get("sha256")
+        for nome, voce in per_nome.items()
+        if nome in attesi and isinstance(voce.get("sha256"), str)
+    ]
+    ripetuti = sorted({d for d in digesti if digesti.count(d) > 1})
+    if ripetuti:
+        errori.append(
+            f"digest ripetuto fra artefatti diversi: {[d[:12] for d in ripetuti]}. "
+            "Due archivi con gli stessi byte sono lo stesso archivio con due "
+            "nomi, e uno dei due non e' stato costruito."
+        )
+    return errori
+
+
 def condizione_nessun_bloccante(documento: dict[str, Any]) -> list[str]:
     bloccanti = debito(documento)
     if not bloccanti:
@@ -1142,11 +1399,30 @@ def condizione_decisione_scritta(documento: dict[str, Any]) -> list[str]:
 
 
 def condizione_candidate_coerente(documento: dict[str, Any]) -> list[str]:
-    """Il manifesto della candidate descrive **la revisione corrente**.
+    """La candidate congelata, il tag che la nomina, e cio' che le e' successo dopo.
 
-    Versione del workspace, SHA di HEAD e tag non si leggono dallo stato: si
-    leggono da `Cargo.toml` e da git. Uno stato che dichiarasse la coerenza
-    senza averla renderebbe la condizione una copia di se stessa.
+    Versione, revisione congelata, tag e artefatti non si leggono dallo stato
+    come dichiarazioni: si confrontano con `Cargo.toml`, con git e con la
+    matrice di distribuzione. Uno stato che dichiarasse la coerenza senza averla
+    renderebbe la condizione una copia di se stessa.
+
+    Le cinque cose che verifica, e perche' sono cinque e non una:
+
+    1. la versione del manifesto e' quella del workspace;
+    2. il tag `v<versione>` punta alla **revisione congelata**, non a HEAD;
+    3. i quattro artefatti del perimetro sono fissati con digest e revisione, e
+       la revisione e' quella congelata;
+    4. fra la revisione congelata e HEAD e' cambiato **solo** cio' che
+       l'assurance produce;
+    5. `release_action.allowed` e' consentita.
+
+    La quarta e' la correzione. Prima si pretendeva `tag == HEAD`, e siccome
+    registrare evidenza e decisione sposta HEAD, quella pretesa e la condizione
+    `decisione-scritta` non potevano essere vere insieme. Ora HEAD puo' andare
+    avanti rispetto alla candidate -- **deve** andare avanti, perche' l'evidenza
+    va scritta da qualche parte -- purche' porti solo evidenza, stato e
+    documentazione generata. Ogni altra cosa che cambi dopo il congelamento
+    rimette in discussione gli artefatti, che sono gia' stati costruiti.
     """
     stato, errori = _stato_corrente()
     if errori:
@@ -1165,34 +1441,49 @@ def condizione_candidate_coerente(documento: dict[str, Any]) -> list[str]:
             f"il workspace e' a «{versione}»"
         )
 
-    head = revisione_risolta("HEAD")
-    revisione = candidate.get("revisione_manifesto")
-    risolta = revisione_risolta(revisione)
-    if head is None:
+    dichiarata = candidate.get("revisione_candidate")
+    congelata = revisione_risolta(dichiarata)
+    if congelata is None:
+        motivi.append(
+            f"la candidate e' congelata su «{dichiarata}», che git non risolve "
+            "a un commit: quel manifesto non qualifica alcuna revisione"
+        )
+        return motivi + _coda_della_candidate(candidate)
+
+    if versione is not None:
+        motivi.extend(_tag_sulla_candidate(candidate, congelata, versione))
+        motivi.extend(_artefatti_fissati(candidate, congelata, versione))
+
+    # HEAD e' `revisione_assurance`: si deriva, non si scrive.
+    testa = revisione_risolta("HEAD")
+    if testa is None:
         motivi.append("git: HEAD non si risolve a un commit")
-    elif risolta is None:
-        motivi.append(
-            f"la candidate e' legata a «{revisione}», che git non risolve a un "
-            "commit: quel manifesto non qualifica alcuna revisione"
-        )
-    elif risolta != head:
-        motivi.append(
-            f"la candidate e' legata a «{revisione}», HEAD e' «{head[:7]}»: "
-            "quel manifesto non qualifica il codice corrente"
-        )
+    elif testa != congelata:
+        if not _discende_da(congelata, testa):
+            motivi.append(
+                f"HEAD «{testa[:7]}» non discende dalla revisione congelata "
+                f"«{congelata[:7]}». L'assurance viene **dopo** la candidate: "
+                "un HEAD che non la contiene attesta un altro albero."
+            )
+        else:
+            fuori, guasti = cambiamenti_dopo_il_congelamento(congelata)
+            motivi.extend(guasti)
+            if fuori:
+                motivi.append(
+                    f"dopo il congelamento «{congelata[:7]}» sono cambiati file "
+                    f"che l'assurance non produce: {fuori}. Gli artefatti sono "
+                    "gia' stati costruiti da quella revisione, e cio' che li "
+                    "produce o li verifica non puo' muoversi dopo."
+                )
 
-    atteso = f"v{versione}" if versione else None
-    puntato = revisione_risolta(atteso) if atteso else None
-    if atteso is None:
-        pass
-    elif puntato is None:
-        motivi.append(f"il tag «{atteso}» non esiste")
-    elif head is not None and puntato != head:
-        motivi.append(f"il tag «{atteso}» punta a «{puntato[:7]}», non a HEAD")
-
-    if candidate.get("release_action_allowed") is not True:
-        motivi.append("`release_action.allowed` non e' consentita")
+    motivi.extend(_coda_della_candidate(candidate))
     return motivi
+
+
+def _coda_della_candidate(candidate: dict[str, Any]) -> list[str]:
+    if candidate.get("release_action_allowed") is not True:
+        return ["`release_action.allowed` non e' consentita"]
+    return []
 
 
 def condizione_qualifica_cross_component(documento: dict[str, Any]) -> list[str]:
@@ -2363,6 +2654,12 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
 
     Lo stato dichiarava `tag_creato: false` mentre `v1.0.1` esisteva e puntava
     a `c490f82`: una copia scritta a mano che nessuno confrontava con git.
+
+    Le due domande sul tag e sull'assurance sono cambiate con il modello a due
+    revisioni. Non si chiede piu' se il tag stia su HEAD -- pretenderlo rendeva
+    la release impossibile -- ma se stia sulla **revisione congelata**; e non si
+    chiede se HEAD sia la candidate, ma se cio' che le e' successo dopo stia
+    dentro l'allowlist dell'assurance.
     """
     candidate = _dentro(stato, ("aperto", "candidate_release"))
     if not isinstance(candidate, dict):
@@ -2377,21 +2674,13 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
         )
 
     head = revisione_risolta("HEAD")
-    revisione = candidate.get("revisione_manifesto")
-    risolta = revisione_risolta(revisione)
-    if risolta is None:
+    dichiarata = candidate.get("revisione_candidate")
+    congelata = revisione_risolta(dichiarata)
+    if congelata is None:
         errori.append(
-            f"`candidate_release.revisione_manifesto` vale «{revisione}», che "
-            "git non risolve a un commit. Una candidate legata a una revisione "
-            "che non esiste non qualifica niente, e con `qualifica_head: true` "
-            "sarebbe una qualifica fabbricata."
-        )
-    su_head = risolta is not None and head is not None and risolta == head
-    if candidate.get("qualifica_head") is not su_head:
-        errori.append(
-            f"`candidate_release.qualifica_head` vale "
-            f"«{candidate.get('qualifica_head')}»: HEAD e' «{(head or '')[:7]}» e "
-            f"il manifesto e' legato a «{revisione}»"
+            f"`candidate_release.revisione_candidate` vale «{dichiarata}», che "
+            "git non risolve a un commit. Una candidate congelata su una "
+            "revisione che non esiste non qualifica niente."
         )
 
     atteso = f"v{candidate.get('versione_manifesto')}"
@@ -2420,11 +2709,36 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
             f"`candidate_release.tag_revisione` vale «{dichiarato}», il tag "
             f"«{atteso}» punta a «{puntato[:7]}»"
         )
-    if candidate.get("tag_su_head") is not (puntato is not None and puntato == head):
+
+    sulla_candidate = (
+        puntato is not None and congelata is not None and puntato == congelata
+    )
+    if candidate.get("tag_sulla_candidate") is not sulla_candidate:
         errori.append(
-            f"`candidate_release.tag_su_head` vale "
-            f"«{candidate.get('tag_su_head')}» ma il tag punta a "
-            f"«{(puntato or 'nessun commit')[:7]}» e HEAD e' «{(head or '')[:7]}»"
+            f"`candidate_release.tag_sulla_candidate` vale "
+            f"«{candidate.get('tag_sulla_candidate')}» ma il tag punta a "
+            f"«{(puntato or 'nessun commit')[:7]}» e la candidate e' congelata "
+            f"su «{(congelata or 'nessun commit')[:7]}»"
+        )
+
+    # `assurance_entro_l_allowlist` e' la forma leggibile della quarta
+    # condizione: HEAD e' la candidate stessa, oppure la contiene e non ha
+    # toccato altro che cio' che l'assurance produce.
+    entro = False
+    if congelata is not None and head is not None:
+        if head == congelata:
+            entro = True
+        elif _discende_da(congelata, head):
+            fuori, guasti = cambiamenti_dopo_il_congelamento(congelata)
+            entro = not fuori and not guasti
+    if candidate.get("assurance_entro_l_allowlist") is not entro:
+        errori.append(
+            f"`candidate_release.assurance_entro_l_allowlist` vale "
+            f"«{candidate.get('assurance_entro_l_allowlist')}»: HEAD e' "
+            f"«{(head or '')[:7]}», la candidate e' congelata su "
+            f"«{(congelata or '')[:7]}», e la diff fra le due "
+            f"{'sta' if entro else 'non sta'} dentro l'allowlist "
+            "dell'assurance"
         )
     return errori
 

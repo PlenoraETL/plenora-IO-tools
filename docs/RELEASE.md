@@ -47,13 +47,14 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | capacità differite | 1 |
 | S9, qualificato su | `985e3ee` |
 | candidate, versione del manifesto | `1.0.1` |
-| candidate, revisione del manifesto | `966005d6` |
+| candidate, revisione congelata | `966005d6` |
 | candidate, versione del workspace | `2.0.0` |
-| candidate, qualifica di HEAD | no |
+| candidate, artefatti congelati | 0 |
 | candidate, tag previsto | `v1.0.1` |
 | candidate, tag creato | sì |
 | candidate, revisione del tag | `c490f82` |
-| candidate, tag su HEAD | no |
+| candidate, tag sulla candidate | no |
+| candidate, assurance entro l'allowlist | no |
 | candidate, release_action consentita | no |
 | release_authorized | `false` |
 
@@ -1001,6 +1002,106 @@ un kill forzato vale la stessa cautela, perché non esiste una busta che possa
 certificare lo stato. Gli spool non richiedono pulizia: sono file senza nome;
 lo staging ordinario viene rimosso al rientro cooperativo, ma non va assunto
 dopo la terminazione forzata.
+
+### 5-bis. Il congelamento, e le due revisioni
+
+**Perché esiste questa sezione.** Il modello ne aveva una sola, e con una sola
+era **impossibile**. Il contratto pretendeva che `v<versione>` puntasse a HEAD;
+la decisione di rilascio è `release_authorized: true` dentro un file versionato,
+e l'evidenza del livello 2 è un altro file versionato. Registrarle crea un
+commit, quel commit sposta HEAD, e il tag smette di puntarci: soddisfare
+`decisione-scritta` rompeva `candidate-coerente`, e viceversa.
+
+Non era un blocco da chiudere — era una condizione che nessuna release poteva
+soddisfare. Si sarebbe visto all'ultimo passo, con il tag già creato, e la via
+d'uscita più comoda sarebbe stata spostare il tag sul commit dell'evidenza: cioè
+far puntare la release a un albero che contiene l'attestazione di se stesso.
+
+**Le due revisioni.**
+
+| | Che cos'è | Come si ottiene |
+|---|---|---|
+| `revisione_candidate` | lo SHA **congelato**: da lì escono binari, SBOM e provenance, e lì punta `v<versione>` | si **scrive** nello stato, una volta, al congelamento |
+| `revisione_assurance` | il commit che registra evidenza e decisione | è **HEAD**: si **deriva**, e non si scrive da nessuna parte |
+
+La seconda non si scrive per una ragione che non è di stile. Un campo che
+dovesse contenere lo SHA del commit che lo contiene non è compilabile nel
+momento in cui lo si scrive: l'unico modo di riempirlo sarebbe una cifra
+inventata, e una cifra inventata accanto a una qualifica è ciò che questo
+registro esiste per impedire. Una sonda pretende che quel campo **non** compaia
+nello stato.
+
+**Che cosa verifica il gate.** Cinque cose, congiunte:
+
+1. la versione del manifesto è quella del workspace;
+2. `v<versione>` punta alla **revisione congelata**, non a HEAD;
+3. i quattro artefatti del perimetro sono fissati con nome, digest, dimensione e
+   revisione — e la revisione è quella congelata;
+4. fra la revisione congelata e HEAD è cambiato **solo** ciò che l'assurance
+   produce;
+5. `release_action.allowed` è consentita.
+
+**L'allowlist dopo il congelamento.** Quattro voci, e nient'altro. È
+un'allowlist e non una denylist perché una denylist dimentica la famiglia che
+nasce domani, e la dimentica in silenzio.
+
+| Percorso ammesso | Perché |
+|---|---|
+| `assurance/current-state.json` | lo stato e la decisione: è il prodotto dell'assurance |
+| `assurance/evidence/` | l'evidenza della corsa di livello 2 |
+| `assurance/registries/release-contract-current.json` | è lì che gli invarianti passano a `verified` quando l'evidenza arriva |
+| `docs/RELEASE.md` | il blocco generato, che segue lo stato |
+
+Ciò che **non** vi è, e che quindi rende tutto rosso se cambia dopo il
+congelamento: `crates/`, `Cargo.toml`, `Cargo.lock`, `.github/workflows/`,
+`scripts/` — costruttori, verificatori e il gate stesso —, `vendor/`,
+`release/`, e `assurance/registries/distribuzione-matrice.json`. Cioè il codice,
+il lock, la macchina che costruisce, quella che verifica e il contratto di
+distribuzione. Se si muovessero dopo il congelamento, l'albero qualificato e
+quello da cui gli artefatti sono usciti sarebbero due, e il secondo non sarebbe
+stato misurato da nessuno.
+
+Il registro del contratto **è** ammesso, ed è la voce che merita una ragione:
+ammetterlo non apre nulla, perché le sue affermazioni non si autocertificano —
+le riesegue `check_release_contract.py`, che sta in `scripts/` ed è congelato.
+
+**Gli stessi byte, non una ricostruzione.** `check-deliverable.py` confronta
+ogni archivio con i **propri** sidecar: un insieme ricostruito da capo è
+internamente coerente e passa, perché ogni checksum descrive fedelmente
+l'archivio che gli sta accanto. La domanda a cui non risponde è se quegli
+archivi siano gli **stessi** su cui è girata la qualifica.
+
+Non è una distinzione teorica: due costruzioni della stessa revisione possono
+differire di un byte — un timestamp dentro l'archivio basta — e allora ciò che
+si è misurato e ciò che si consegna sono due insiemi diversi, «equivalenti» nel
+senso che nessuno ha verificato. I digest fissati al congelamento sono l'unico
+riferimento esterno che rende la differenza visibile, e li confronta
+`check-deliverable.py --contro-la-candidate`.
+
+**La sequenza di pubblicazione.** In quest'ordine, e l'ordine è il punto:
+
+1. si congela lo SHA e lo si scrive in `revisione_candidate`;
+2. si esegue **Distribuzione** in canale `candidate` su quello SHA;
+3. si fissano in `candidate_release.artefatti` i quattro nomi con digest,
+   dimensione e revisione, presi dalla provenance della corsa;
+4. si crea `v<versione>` **sulla revisione congelata**;
+5. si esegue il livello 2 e si registra l'evidenza; si scrive
+   `release_authorized`. Questi commit sono l'assurance, e toccano solo
+   l'allowlist qui sopra;
+6. si pubblicano nel canale di release **gli artefatti di quella corsa**, non
+   una ricostruzione;
+7. si **riscaricano** dal canale e si esegue:
+
+```
+python3 scripts/check-deliverable.py \
+  --directory <scaricati> --versione <versione> --canale candidate \
+  --revisione <revisione_candidate> \
+  --contro-la-candidate assurance/current-state.json
+```
+
+Il passo 7 è ciò che chiude la promessa: verifica che i byte pubblicati abbiano
+esattamente i digest congelati al passo 3. Senza, «gli stessi artefatti» resta
+una parola.
 
 ### 6. Decisione finale di rilascio
 

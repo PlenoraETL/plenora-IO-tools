@@ -89,6 +89,86 @@ class SondeDeliverable(unittest.TestCase):
         next(self.tmp.glob("*.sha256")).unlink()
         self.assertIn("file mancanti", " ".join(self.errori()))
 
+    # --- i byte pubblicati sono quelli qualificati --------------------------
+    #
+    # La qualifica misura degli archivi. La release ne pubblica altri, e finche'
+    # nessuno confronta i due insiemi, «gli stessi» e' una parola. Due
+    # costruzioni della stessa revisione possono differire di un byte -- basta
+    # un timestamp nell'archivio -- e allora cio' che si e' misurato non e' cio'
+    # che si consegna, pur essendo "equivalente".
+
+    def artefatti_congelati(self) -> list[dict]:
+        """Cio' che lo stato fissa al congelamento, preso dai file veri."""
+        fissati = []
+        for archivio in sorted(self.tmp.glob("*.tar.gz")) + sorted(
+            self.tmp.glob("*.zip")
+        ):
+            fissati.append(
+                {
+                    "nome": archivio.name,
+                    "sha256": self.d.sha256(archivio),
+                    "dimensione": archivio.stat().st_size,
+                    "revisione": self.REVISIONE,
+                }
+            )
+        return fissati
+
+    def test_i_byte_pubblicati_che_coincidono_passano(self) -> None:
+        """La controprova positiva."""
+        self.assertEqual(
+            self.gate.verifica_contro_la_candidate(
+                self.tmp, self.artefatti_congelati(), self.REVISIONE
+            ),
+            [],
+        )
+
+    def test_un_artefatto_ricostruito_e_rosso(self) -> None:
+        """Il caso che la proprieta' esiste per cogliere.
+
+        Stessa revisione, stesso nome, byte diversi: una ricostruzione
+        equivalente. Il gate del canale non se ne accorgerebbe -- checksum e
+        provenance del **nuovo** archivio sono coerenti fra loro -- e nessuno
+        vedrebbe che gli artefatti qualificati e quelli pubblicati sono due
+        insiemi diversi.
+        """
+        congelati = self.artefatti_congelati()
+        archivio = next(self.tmp.glob("*.tar.gz"))
+        archivio.write_bytes(archivio.read_bytes() + b"ricostruito")
+        motivi = self.gate.verifica_contro_la_candidate(
+            self.tmp, congelati, self.REVISIONE
+        )
+        self.assertTrue(any(archivio.name in m for m in motivi), motivi)
+        self.assertIn("congelato", " ".join(motivi))
+
+    def test_un_artefatto_pubblicato_che_manca_e_rosso(self) -> None:
+        congelati = self.artefatti_congelati()
+        mancante = congelati[0]["nome"]
+        (self.tmp / mancante).unlink()
+        motivi = self.gate.verifica_contro_la_candidate(
+            self.tmp, congelati, self.REVISIONE
+        )
+        self.assertTrue(any(mancante in m for m in motivi), motivi)
+
+    def test_una_dimensione_diversa_e_rossa(self) -> None:
+        """Il digest basterebbe; la dimensione dice **come** differiscono."""
+        congelati = self.artefatti_congelati()
+        congelati[0]["dimensione"] = congelati[0]["dimensione"] + 1
+        motivi = self.gate.verifica_contro_la_candidate(
+            self.tmp, congelati, self.REVISIONE
+        )
+        self.assertTrue(any("dimensione" in m for m in motivi), motivi)
+
+    def test_una_revisione_diversa_dalla_candidate_e_rossa(self) -> None:
+        motivi = self.gate.verifica_contro_la_candidate(
+            self.tmp, self.artefatti_congelati(), "c" * 40
+        )
+        self.assertTrue(any("revisione" in m for m in motivi), motivi)
+
+    def test_senza_artefatti_congelati_non_e_una_verifica(self) -> None:
+        """Un elenco vuoto non deve dare un verde per assenza di domanda."""
+        motivi = self.gate.verifica_contro_la_candidate(self.tmp, [], self.REVISIONE)
+        self.assertTrue(motivi)
+
     def test_un_file_extra_non_si_nasconde_nell_artifact(self) -> None:
         (self.tmp / "non-dichiarato.txt").write_text("x", encoding="utf-8")
         self.assertIn("file non dichiarati", " ".join(self.errori()))
