@@ -1522,9 +1522,52 @@ def registro_della_revisione(
 # **obbligatoria** per un'evidenza di livello 2: un livello 2 lanciato senza
 # `S9_CHECKPOINT_BASE` salta quel passo e non puo' qualificare. Un'evidenza
 # descrive una corsa completa.
-ARTEFATTI_NON_DI_PASSO = frozenset(
-    {"catalog.json", "coverage_diff.log", "lcov.info", RISULTATO_DELLA_CORSA}
-)
+# Gli artefatti che non sono il log di un passo, e **chi li scrive**.
+#
+# Erano un insieme piatto, e l'insieme e' andato alla deriva: `4e9d3d3` ha
+# aggiunto la misura di copertura dedicata alla CLI, con essa i file
+# `lcov-completo.info` e `coverage_diff_cli.log`, e questa costante e' rimasta
+# ferma. Nessuno se ne e' accorto perche' nessuna evidenza di livello 2 e' stata
+# scritta da allora: il difetto stava su una strada che non veniva percorsa, e
+# si e' manifestato al primo uso -- come un rosso, non come un verde falso, che
+# e' il verso fortunato.
+#
+# Ora l'attesa si **deriva**. Un artefatto e' atteso se il passo che lo scrive
+# compare fra i passi della corsa: cosi' un'evidenza prodotta prima che quel
+# passo esistesse resta valida, e un passo aggiunto domani porta con se' il
+# proprio artefatto senza che nessuno debba ricordarsi di questa riga.
+ARTEFATTO_DEL_PASSO = {
+    "check_filegdb_catalog": "catalog.json",
+    "coverage_export": "lcov.info",
+    "coverage_export_cli": "lcov-completo.info",
+}
+
+# I log della diagnostica differenziale, scritti **solo** quando la diagnostica
+# gira: `s9-checkpoint.sh` li produce dentro il ramo che pretende
+# `S9_CHECKPOINT_BASE`.
+#
+# Sono condizionali in tutte e due le direzioni. Pretenderli sempre rendeva
+# irregistrabile una corsa senza base; ammetterli sempre lascerebbe passare
+# un'evidenza che porta i log di una misura che dichiara di non aver fatto.
+#
+# # Il discriminante e' la base, **non** l'esito
+#
+# La prima stesura di questa correzione usava `esito != "n/d"`, e i dati l'hanno
+# smentita subito: l'evidenza `c96ffac` dichiara `n/d` e porta `coverage_diff.log`.
+# Non e' una contraddizione, sono due cose diverse che `n/d` non distingue --
+# «la diagnostica non e' stata eseguita» e «e' stata eseguita e non aveva righe
+# da misurare, perche' il cambio stava fuori dal suo perimetro». Il secondo caso
+# produce i log e non produce una percentuale.
+#
+# Cio' che decide se i file esistono e' `S9_CHECKPOINT_BASE`, che l'evidenza
+# registra come `diagnostica_differenziale.base`.
+LOG_DELLA_DIAGNOSTICA = "coverage_diff.log"
+
+# Il secondo log della diagnostica esiste solo dove esiste la misura di
+# copertura della CLI: lo scrive lo stesso ramo, sullo stesso `lcov-completo.info`
+# che `coverage_export_cli` produce. Un'evidenza anteriore a quel passo ha la
+# base impostata e **un** log solo, ed e' corretta cosi'.
+LOG_DIAGNOSTICA_DEL_PASSO = {"coverage_export_cli": "coverage_diff_cli.log"}
 
 CAMPI_DI_PASSO = {"id", "esito", "log"}
 ESITO_DI_PASSO_SUPERATO = "verde"
@@ -1640,14 +1683,36 @@ def _passi_dichiarati(evidenza: dict[str, Any]) -> tuple[list[dict[str, Any]], l
 def _manifest_legato_ai_passi(
     evidenza: dict[str, Any], passi: list[dict[str, Any]]
 ) -> list[str]:
-    """Il manifest e' **esattamente** i log dei passi piu' gli artefatti noti."""
+    """Il manifest e' **esattamente** cio' che la corsa dichiarata ha scritto.
+
+    Non «i log dei passi piu' un elenco fisso»: l'elenco fisso e' andato alla
+    deriva una volta e lo rifarebbe. L'attesa si deriva da due cose che
+    l'evidenza gia' porta -- quali passi sono stati eseguiti, e se la
+    diagnostica differenziale ha misurato -- e da nient'altro.
+    """
     manifest = _dentro(evidenza, ("artefatti", "manifest"))
     if not isinstance(manifest, dict):
         return []
 
-    attesi = {voce["log"] for voce in passi if voce.get("log")} | set(
-        ARTEFATTI_NON_DI_PASSO
+    identita = {voce["id"] for voce in passi}
+    attesi = {voce["log"] for voce in passi if voce.get("log")}
+    attesi.add(RISULTATO_DELLA_CORSA)
+    attesi.update(
+        artefatto
+        for passo, artefatto in ARTEFATTO_DEL_PASSO.items()
+        if passo in identita
     )
+    # I log della diagnostica: presenti se la base c'era, assenti se no. Non si
+    # legge il campo per sapere se «tollerarli»: si legge per sapere quali file
+    # quella corsa **deve** avere prodotto.
+    if _dentro(evidenza, ("misure", "diagnostica_differenziale", "base")):
+        attesi.add(LOG_DELLA_DIAGNOSTICA)
+        attesi.update(
+            log
+            for passo, log in LOG_DIAGNOSTICA_DEL_PASSO.items()
+            if passo in identita
+        )
+
     presenti = set(manifest)
     mancanti = sorted(attesi - presenti)
     estranei = sorted(presenti - attesi)
@@ -1661,10 +1726,32 @@ def _manifest_legato_ai_passi(
             "traccia."
         )
     if estranei:
-        errori.append(
-            f"`artefatti.manifest`: {len(estranei)} artefatti non appartengono "
-            f"ad alcun passo ne' all'elenco chiuso, fra cui {estranei[:3]}"
+        # Il messaggio distingue il caso che si sbaglia piu' facilmente: i log
+        # della diagnostica dentro un'evidenza che non dichiara una base. Dire
+        # genericamente «estranei» manderebbe a cercare un file di troppo,
+        # mentre il difetto sta nel campo che dichiara la base.
+        # Solo quando la base **manca davvero**: con la base impostata un log
+        # della diagnostica in piu' e' un orfano come gli altri -- segue il
+        # proprio passo, non la base -- e accusare il campo sbagliato manderebbe
+        # a cercare dove non c'e' niente.
+        tutti_i_log = {LOG_DELLA_DIAGNOSTICA} | set(LOG_DIAGNOSTICA_DEL_PASSO.values())
+        senza_base = not _dentro(
+            evidenza, ("misure", "diagnostica_differenziale", "base")
         )
+        della_diagnostica = sorted(set(estranei) & tutti_i_log) if senza_base else []
+        if della_diagnostica:
+            errori.append(
+                f"`artefatti.manifest`: porta {della_diagnostica}, ma "
+                "`diagnostica_differenziale.base` e' vuota. Una corsa che non "
+                "dichiara una base non ha eseguito la diagnostica e non puo' "
+                "portarne i log: uno dei due campi mente, e non si sa quale."
+            )
+        altri = sorted(set(estranei) - set(della_diagnostica))
+        if altri:
+            errori.append(
+                f"`artefatti.manifest`: {len(altri)} artefatti non appartengono "
+                f"ad alcun passo della corsa, fra cui {altri[:3]}"
+            )
     return errori
 
 
