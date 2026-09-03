@@ -17,7 +17,11 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import sys
 import unittest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import distribuzione  # noqa: E402 -- dopo sys.path, che e' il punto
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
 MATRICE = RADICE / "assurance" / "registries" / "distribuzione-matrice.json"
@@ -611,3 +615,164 @@ class SondeMatrice(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SondeDelManifestoComune(unittest.TestCase):
+    """I due manifesti dicono le stesse cose con gli stessi nomi.
+
+    I due costruttori scrivevano ciascuno il proprio dizionario, e le
+    divergenze si scoprivano aprendo il deliverable: il manifesto Windows
+    portava `revisione` e quello Linux no, e `canale_nota` -- presente solo su
+    Linux -- descriveva il canale `prova` **dentro una candidate**, cioe'
+    affermava il contrario di cio' che l'artefatto era.
+
+    Nessun controllo lo trovava, e non per distrazione: un campo di prosa e'
+    coerente con se stesso, e un campo assente non fallisce da nessuna parte.
+    Il manifesto si costruisce percio' da un punto solo, che pretende i campi
+    comuni e rifiuta di produrre un documento senza di essi.
+    """
+
+    def comuni(self, **modifiche):
+        base = {
+            "nome": "plenora-io-2.0.0-linux-x86_64-base",
+            "versione": "2.0.0",
+            "piattaforma": "linux-x86_64",
+            "profilo": "base",
+            "canale": "candidate",
+            "canale_nota": distribuzione.nota_del_canale("candidate"),
+            "non_release": False,
+            "revisione": "a" * 40,
+            "runtime_nativo": {"presente": False, "gdal": False},
+            "lock": "b" * 64,
+            "prefisso_di_costruzione": "/tmp/runtime",
+            "firma": {"stato": "non_richiesta"},
+            "licenze": {"senza_testo": 0},
+            "file": [{"percorso": "bin/x", "sha256": "c" * 64, "byte": 1}],
+        }
+        base.update(modifiche)
+        return base
+
+    def test_un_manifesto_completo_passa(self) -> None:
+        """La controprova positiva: senza, «sempre rosso» sarebbe una difesa."""
+        m = distribuzione.manifesto(self.comuni(), {"layout": "prosa"})
+        self.assertEqual(m["revisione"], "a" * 40)
+        self.assertEqual(m["layout"], "prosa")
+
+    def test_un_manifesto_senza_revisione_e_rosso(self) -> None:
+        """Il rilievo trovato aprendo il deliverable Linux.
+
+        La revisione viveva solo nella provenance, che e' un file **accanto**
+        all'archivio: chi ha soltanto l'albero installato non poteva dire da
+        quale revisione venisse un'installazione Linux, mentre per una Windows
+        poteva.
+        """
+        senza = self.comuni()
+        del senza["revisione"]
+        with self.assertRaises(ValueError) as e:
+            distribuzione.manifesto(senza, {})
+        self.assertIn("revisione", str(e.exception))
+
+    def test_ogni_campo_comune_mancante_e_rosso(self) -> None:
+        """Uno per uno, non «tutti insieme».
+
+        Un controllo che guardasse l'insieme intero passerebbe togliendone uno
+        solo se l'insieme restasse non vuoto, ed e' esattamente il modo in cui
+        un campo sparisce senza che nessuno lo decida.
+        """
+        for campo in sorted(distribuzione.CAMPI_COMUNI_DEL_MANIFESTO):
+            with self.subTest(campo=campo):
+                senza = self.comuni()
+                del senza[campo]
+                with self.assertRaises(ValueError):
+                    distribuzione.manifesto(senza, {})
+
+    def test_una_candidate_con_revisione_nulla_e_rossa(self) -> None:
+        """`None` e' onesto nel canale `prova` e non lo e' in una candidate.
+
+        Il costruttore restituisce `None` quando `git` non c'e', e non una
+        stringa di comodo: e' giusto. Ma una **candidate** senza revisione non
+        e' un documento onesto, e' un artefatto che nessuno puo' legare a un
+        albero -- e il contratto pretende che ogni artefatto qualificato venga
+        da una revisione nominata.
+        """
+        with self.assertRaises(ValueError) as e:
+            distribuzione.manifesto(self.comuni(revisione=None), {})
+        self.assertIn("revisione", str(e.exception))
+        # Nel canale `prova`, invece, passa.
+        distribuzione.manifesto(
+            self.comuni(
+                canale="prova",
+                canale_nota=distribuzione.nota_del_canale("prova"),
+                non_release=True,
+                revisione=None,
+            ),
+            {},
+        )
+
+    def test_una_candidate_col_testo_del_canale_prova_e_rossa(self) -> None:
+        """Il rilievo piu' grave: prosa falsa **dentro** il deliverable.
+
+        `canale_nota` era emesso sempre, con il testo del canale `prova`: nei
+        due archivi Linux della candidate diceva che l'artefatto non e'
+        pubblicato e che «il gate di distribuzione lo rifiuta ovunque si
+        pretenda una candidate», accanto a `canale: candidate`.
+
+        Il confronto e' **esatto** e non per sottostringa: una nota che
+        contenesse la frase giusta insieme a quella sbagliata passerebbe un
+        controllo di contenimento, e sarebbe ancora un documento che si
+        contraddice.
+        """
+        with self.assertRaises(ValueError) as e:
+            distribuzione.manifesto(
+                self.comuni(canale_nota=distribuzione.nota_del_canale("prova")), {}
+            )
+        self.assertIn("canale_nota", str(e.exception))
+
+    def test_nessuna_nota_nomina_il_canale_che_non_e_il_proprio(self) -> None:
+        """La regola che rende impossibile il rilievo, non solo il suo caso.
+
+        Una nota che parla di due canali si legge male da entrambi i lati, e la
+        via piu' comoda per «correggere» il difetto sarebbe stata aggiungere
+        alla nota una frase sull'altro canale invece di derivarla.
+        """
+        for canale, altro in (("prova", "candidate"), ("candidate", "prova")):
+            with self.subTest(canale=canale):
+                nota = distribuzione.nota_del_canale(canale)
+                self.assertIn(canale, nota)
+                self.assertNotIn(altro, nota)
+
+    def test_un_canale_sconosciuto_non_ha_una_nota(self) -> None:
+        with self.assertRaises(KeyError):
+            distribuzione.nota_del_canale("collaudo")
+
+    def test_non_release_segue_il_canale(self) -> None:
+        with self.assertRaises(ValueError) as e:
+            distribuzione.manifesto(self.comuni(non_release=True), {})
+        self.assertIn("non_release", str(e.exception))
+
+    def test_un_extra_non_puo_sovrascrivere_un_campo_comune(self) -> None:
+        """Altrimenti la piattaforma potrebbe ridefinire un significato comune,
+        che e' la divergenza di prima con un passaggio in piu'."""
+        with self.assertRaises(ValueError) as e:
+            distribuzione.manifesto(self.comuni(), {"revisione": "z" * 40})
+        self.assertIn("revisione", str(e.exception))
+
+    def test_entrambi_i_costruttori_passano_dal_punto_solo(self) -> None:
+        """Due dizionari scritti a mano sono due manifesti che coincidono
+        finche' qualcuno non ne tocca uno. La sonda guarda il sorgente perche'
+        eseguire un costruttore pretende un runtime GDAL materializzato."""
+        for nome in ("costruisci-artefatto-linux.py", "costruisci-artefatto-windows.py"):
+            with self.subTest(costruttore=nome):
+                sorgente = (RADICE / "scripts" / nome).read_text(encoding="utf-8")
+                self.assertIn("distribuzione.manifesto(", sorgente)
+                self.assertIn("distribuzione.nota_del_canale(", sorgente)
+                self.assertIn("distribuzione.revisione_del_repository(", sorgente)
+
+    def test_la_revisione_e_definita_una_volta_sola(self) -> None:
+        """Era duplicata nei due costruttori, con due docstring diverse e la
+        stessa logica: due definizioni della stessa cosa divergono, e divergono
+        in silenzio."""
+        for nome in ("costruisci-artefatto-linux.py", "costruisci-artefatto-windows.py"):
+            with self.subTest(costruttore=nome):
+                sorgente = (RADICE / "scripts" / nome).read_text(encoding="utf-8")
+                self.assertNotIn("def revisione_del_repository", sorgente)

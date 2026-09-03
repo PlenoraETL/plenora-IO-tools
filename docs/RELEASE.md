@@ -1092,17 +1092,33 @@ riferimento esterno che rende la differenza visibile, e li confronta
    sotto);
 7. si registrano evidenza del livello 2 e qualifica della distribuzione, nei
    soli file ammessi dopo il congelamento. `release_authorized` resta `false`;
-8. si crea `v<versione>` **sulla revisione congelata** e si pubblica la draft
-   **senza cambiare gli artefatti**;
-9. **solo allora** si scrive `release_authorized: true`.
+8. **autorizzazione esplicita**: la decisione, presa da chi rilascia;
+9. si crea `v<versione>` **sulla revisione congelata**;
+10. si aggiorna l'assurance con `release_authorized: true`;
+11. si esegue il **gate finale** — `check_release_contract.py --release` —, che
+    ora ha tag, artefatti e decisione da confrontare;
+12. si pubblica la draft **immutata**;
+13. si riscaricano i byte dalla release pubblicata e si ripete la verifica.
 
-**Perché l'autorizzazione è ultima.** Una versione precedente di questa
-sequenza la metteva al passo 5, prima della pubblicazione e della verifica dei
-byte. Autorizzare prima di aver verificato che i byte pubblicati siano quelli
-qualificati rende la verifica una formalità: se il confronto fallisse, la
-release sarebbe già autorizzata, e l'unica mossa rimasta sarebbe ritirarla.
-L'autorizzazione è la decisione che nessun gate deriva, e va presa quando non
-resta niente da scoprire.
+**Perché l'autorizzazione precede la pubblicazione, e non la segue.** Due
+versioni precedenti di questa sequenza sbagliavano, in due modi opposti.
+
+La prima metteva `release_authorized` al passo 5, prima della pubblicazione e
+prima della verifica dei byte: autorizzare senza aver verificato che i byte
+pubblicati siano quelli qualificati rende la verifica una formalità — se il
+confronto fallisse, la release sarebbe già autorizzata, e l'unica mossa rimasta
+sarebbe ritirarla.
+
+La seconda la metteva **dopo** la pubblicazione, e sbagliava di più: rendere
+pubblica una release prima di averla autorizzata significa che il pubblico la
+vede prima che qualcuno abbia deciso di rilasciarla. Un ritiro, a quel punto,
+non è una correzione ma una smentita.
+
+L'ordine giusto ha l'autorizzazione **fra** la verifica e la pubblicazione: si
+verifica tutto ciò che si può verificare su una bozza, si decide, si fissa la
+decisione, il gate la ricontrolla, e solo allora la release diventa pubblica.
+La verifica dopo la pubblicazione resta, ed è l'ultima: dice che pubblicare non
+ha cambiato i byte.
 
 Il comando del passo 6:
 
@@ -1115,7 +1131,7 @@ python3 scripts/check-deliverable.py \
 
 Il passo 6 è ciò che chiude la promessa: verifica che i byte scaricati abbiano
 esattamente i digest congelati al passo 4. Senza, «gli stessi artefatti» resta
-una parola. Si ripete al passo 8, sui byte della release pubblicata: la draft
+una parola. Si ripete al passo 13, sui byte della release pubblicata: la draft
 dice che si è caricato ciò che si è misurato, la release pubblicata che si è
 pubblicato ciò che si era caricato.
 

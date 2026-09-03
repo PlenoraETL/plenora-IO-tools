@@ -7,6 +7,8 @@ import argparse
 import json
 import pathlib
 import sys
+import tarfile
+import zipfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distribuzione  # noqa: E402
@@ -31,6 +33,43 @@ def _sidecar(percorso: pathlib.Path, archivio: pathlib.Path) -> str:
     if len(digesto) != 64 or any(c not in "0123456789abcdef" for c in digesto):
         raise ValueError("il digest non e' uno SHA-256 minuscolo")
     return digesto
+
+
+def revisione_del_manifesto(
+    archivio: pathlib.Path, nome: str
+) -> tuple[object, str | None]:
+    """La revisione dichiarata dal `MANIFEST.json` **dentro** l'archivio.
+
+    Restituisce `(revisione, guasto)`: il guasto e' una stringa quando il
+    manifesto non si legge, e in quel caso la revisione non va confrontata --
+    un archivio che non si apre non deve leggersi come «va bene».
+
+    Il manifesto viaggia dentro l'archivio, la provenance accanto. Se le due
+    nominano revisioni diverse, chi legge l'albero installato e chi verifica il
+    sidecar concludono cose diverse sulla stessa installazione, e nessuno dei
+    due sbaglia a leggere. Finche' nessuno le confrontava, la divergenza non era
+    osservabile da nessuna parte.
+    """
+    percorso = f"{nome}/MANIFEST.json"
+    try:
+        if archivio.suffix == ".zip":
+            with zipfile.ZipFile(archivio) as z:
+                crudo = z.read(percorso)
+        else:
+            with tarfile.open(archivio) as tar:
+                estratto = tar.extractfile(percorso)
+                if estratto is None:
+                    return None, f"{percorso} non e' un file dentro l'archivio"
+                crudo = estratto.read()
+    except (KeyError, OSError, tarfile.TarError, zipfile.BadZipFile) as errore:
+        return None, f"MANIFEST.json non leggibile dentro l'archivio: {errore}"
+    try:
+        manifesto = json.loads(crudo.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as errore:
+        return None, f"MANIFEST.json non e' JSON leggibile: {errore}"
+    if "revisione" not in manifesto:
+        return None, "il MANIFEST.json dell'archivio non porta `revisione`"
+    return manifesto["revisione"], None
 
 
 def verifica(
@@ -76,6 +115,18 @@ def verifica(
             except (OSError, UnicodeError, json.JSONDecodeError) as exc:
                 errori.append(f"{prefisso}: provenance non leggibile: {exc}")
                 continue
+            nel_manifesto, guasto = revisione_del_manifesto(archivio, nome)
+            if guasto is not None:
+                errori.append(f"{prefisso}: {archivio.name}: {guasto}")
+            elif nel_manifesto != prova.get("revisione"):
+                errori.append(
+                    f"{prefisso}: {archivio.name} porta la revisione "
+                    f"{nel_manifesto!r} nel manifesto e "
+                    f"{prova.get('revisione')!r} nella provenance. Il manifesto "
+                    "viaggia dentro l'archivio e la provenance accanto: se "
+                    "divergono, chi legge l'albero installato e chi verifica il "
+                    "sidecar concludono cose diverse sulla stessa installazione."
+                )
             pretese = {
                 "artefatto": archivio.name,
                 "sha256": reale,

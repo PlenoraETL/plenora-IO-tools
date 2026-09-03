@@ -96,22 +96,6 @@ def carica_verificatore():
     return modulo
 
 
-def revisione_del_repository() -> str | None:
-    """`None` quando non si riesce a leggerla, e non una stringa di comodo.
-
-    Una provenance che dichiarasse una revisione inventata sarebbe peggio di una
-    che ammette di non saperla: chi la legge deve poter distinguere una
-    revisione assente da una sbagliata.
-    """
-    try:
-        esito = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=RADICE
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return esito.stdout.strip() if esito.returncode == 0 else None
-
-
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--prefisso", required=True, type=pathlib.Path,
@@ -476,40 +460,49 @@ def main() -> int:
             "dal_lock": distribuzione.sha256(LOCK),
         }
     )
-    manifesto = {
-        "nome": nome,
-        "versione": arg.versione,
-        "piattaforma": "windows-x86_64",
-        "profilo": arg.profilo,
-        "canale": arg.canale,
-        "non_release": arg.canale != "candidate",
+    # Lo stesso punto solo del costruttore Linux: i campi comuni sono un
+    # insieme chiuso, e un documento che non li porta tutti non si produce.
+    manifesto = distribuzione.manifesto(
+        {
+            "nome": nome,
+            "versione": arg.versione,
+            "piattaforma": "windows-x86_64",
+            "profilo": arg.profilo,
+            "canale": arg.canale,
+            "non_release": arg.canale != "candidate",
+            # C'era solo nel manifesto Linux, e li' era sbagliata. Qui non
+            # c'era affatto: due assenze diverse dello stesso campo comune.
+            "canale_nota": distribuzione.nota_del_canale(arg.canale),
         # Due componenti, non uno. `runtime_nativo` era un booleano che voleva
         # dire «spedisce GDAL» e diceva «spedisce un runtime nativo»: sul base
         # Windows e' falso, perche' `vcruntime140.dll` la spedisce. Un campo il
         # cui nome promette piu' di quanto misura e' peggio di un campo assente.
-        "runtime_nativo": distribuzione.runtime_nativo(
-            "windows-x86_64", file_spediti, gdal
-        ),
-        "lock": distribuzione.sha256(LOCK),
-        "prefisso_di_costruzione": str(libreria),
-        "revisione": revisione_del_repository(),
-        "firma": firma,
-        "licenze": {
-            "con_testo_proprio": con_testo_proprio,
-            "con_testo_canonico": len(con_testo_canonico),
-            "senza_testo": 0,
+            "runtime_nativo": distribuzione.runtime_nativo(
+                "windows-x86_64", file_spediti, gdal
+            ),
+            "lock": distribuzione.sha256(LOCK),
+            "prefisso_di_costruzione": str(libreria),
+            "revisione": distribuzione.revisione_del_repository(),
+            "firma": firma,
+            "licenze": {
+                "con_testo_proprio": con_testo_proprio,
+                "con_testo_canonico": len(con_testo_canonico),
+                "senza_testo": 0,
+            },
+            # I file **dopo** le licenze, e ciascuno con il proprio digest: un
+            # elenco di nomi dice che cosa c'era, un elenco di digest dice che cosa
+            # c'e'. Chi verifica un artefatto estratto puo' rifare il conto senza
+            # fidarsi del nome.
+            "file": file_spediti,
         },
-        "layout": (
-            "le DLL stanno in `bin/` accanto all'eseguibile, perche' e' li' che il caricatore "
-            "di Windows guarda. Non c'e' una `lib/` e non c'e' un RPATH: metterle altrove "
-            "vorrebbe dire dire al caricatore dove guardare, cioe' dipendere dall'ambiente."
-        ),
-        # I file **dopo** le licenze, e ciascuno con il proprio digest: un
-        # elenco di nomi dice che cosa c'era, un elenco di digest dice che cosa
-        # c'e'. Chi verifica un artefatto estratto puo' rifare il conto senza
-        # fidarsi del nome.
-        "file": file_spediti,
-    }
+        {
+            "layout": (
+                "le DLL stanno in `bin/` accanto all'eseguibile, perche' e' li' che il caricatore "
+                "di Windows guarda. Non c'e' una `lib/` e non c'e' un RPATH: metterle altrove "
+                "vorrebbe dire dire al caricatore dove guardare, cioe' dipendere dall'ambiente."
+            ),
+        },
+    )
     (albero / "MANIFEST.json").write_text(
         json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -548,7 +541,7 @@ def main() -> int:
     # 8. LA PROVENANCE, legata a quel checksum
     # =====================================================================
     print("8. provenance", flush=True)
-    revisione = revisione_del_repository()
+    revisione = distribuzione.revisione_del_repository()
     provenance = {
         "schema": 1,
         "artefatto": archivio.name,

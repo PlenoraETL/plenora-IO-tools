@@ -128,6 +128,7 @@ class SondeDeiDigest(unittest.TestCase):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.gate = carica("check-digest-manifesto.py")
+        self.d = __import__("distribuzione")
 
     def albero(self, con_digest: bool = True, file: int = 2) -> pathlib.Path:
         albero = self.tmp / "artefatto"
@@ -146,12 +147,26 @@ class SondeDeiDigest(unittest.TestCase):
                 if con_digest
                 else relativo
             )
+        # Il manifesto porta **tutti** i campi comuni. Ne portava quattro, e
+        # bastava finche' `verifica` guardava soltanto i digest: da quando
+        # verifica anche cio' che il manifesto dice, una fixture incompleta
+        # misurerebbe il proprio difetto invece del comportamento del gate.
         (albero / "MANIFEST.json").write_text(
             json.dumps(
                 {
+                    "nome": "plenora-io-2.0.0-linux-x86_64-base",
+                    "versione": "2.0.0",
                     "piattaforma": "linux-x86_64",
                     "profilo": "base",
                     "canale": "prova",
+                    "canale_nota": self.d.nota_del_canale("prova"),
+                    "non_release": True,
+                    "revisione": None,
+                    "runtime_nativo": {"presente": False, "gdal": False},
+                    "lock": "b" * 64,
+                    "prefisso_di_costruzione": "/tmp/runtime",
+                    "firma": {"stato": "non_richiesta"},
+                    "licenze": {"senza_testo": 0},
                     "file": voci,
                 }
             ),
@@ -189,6 +204,109 @@ class SondeDeiDigest(unittest.TestCase):
         errori, misure = self.gate.verifica(albero)
         self.assertTrue(errori)
         self.assertEqual(misure["file_non_dichiarati"], 1)
+
+    # --- il contratto del manifesto, non solo i suoi digest ---------------
+    #
+    # `verifica` ricalcolava i digest e non guardava cio' che il manifesto
+    # **dice**. Due difetti sono passati da questo buco fino a dentro un
+    # deliverable: un manifesto Linux senza `revisione`, e un `canale_nota` che
+    # descriveva il canale `prova` accanto a `canale: candidate`.
+
+    def albero_candidate(self, **modifiche) -> pathlib.Path:
+        """Un albero di canale `candidate`, con i campi comuni al completo."""
+        albero = self.albero()
+        manifesto = json.loads((albero / "MANIFEST.json").read_text(encoding="utf-8"))
+        manifesto.update(
+            {
+                "nome": "plenora-io-2.0.0-linux-x86_64-base",
+                "versione": "2.0.0",
+                "canale": "candidate",
+                "canale_nota": self.d.nota_del_canale("candidate"),
+                "non_release": False,
+                "revisione": "a" * 40,
+                "runtime_nativo": {"presente": False, "gdal": False},
+                "lock": "b" * 64,
+                "prefisso_di_costruzione": "/tmp/runtime",
+                "firma": {"stato": "non_richiesta"},
+                "licenze": {"senza_testo": 0},
+            }
+        )
+        manifesto.update(modifiche)
+        for campo, valore in list(modifiche.items()):
+            if valore is self.ASSENTE:
+                del manifesto[campo]
+        (albero / "MANIFEST.json").write_text(
+            json.dumps(manifesto), encoding="utf-8"
+        )
+        return albero
+
+    ASSENTE = object()
+
+    def test_una_candidate_completa_passa(self) -> None:
+        errori, _ = self.gate.verifica(self.albero_candidate())
+        self.assertEqual(errori, [], errori)
+
+    def test_una_candidate_col_testo_del_canale_prova_e_rossa(self) -> None:
+        """Il rilievo piu' grave: prosa falsa dentro il deliverable.
+
+        Diceva che l'artefatto non e' pubblicato e che «il gate di
+        distribuzione lo rifiuta ovunque si pretenda una candidate» -- dentro
+        la candidate. Nessun referto lo guardava, perche' un campo di prosa e'
+        coerente con se stesso.
+        """
+        albero = self.albero_candidate(canale_nota=self.d.nota_del_canale("prova"))
+        errori, _ = self.gate.verifica(albero)
+        self.assertTrue(any("canale_nota" in e for e in errori), errori)
+
+    def test_un_manifesto_senza_revisione_e_rosso(self) -> None:
+        """La revisione viveva solo nella provenance, cioe' in un file accanto:
+        chi ha soltanto l'albero installato non poteva dire da dove venisse."""
+        albero = self.albero_candidate(revisione=self.ASSENTE)
+        errori, _ = self.gate.verifica(albero)
+        self.assertTrue(any("revisione" in e for e in errori), errori)
+
+    def test_una_candidate_con_revisione_nulla_e_rossa(self) -> None:
+        albero = self.albero_candidate(revisione=None)
+        errori, _ = self.gate.verifica(albero)
+        self.assertTrue(any("revisione" in e for e in errori), errori)
+
+    def test_una_revisione_che_non_e_uno_sha_e_rossa(self) -> None:
+        for valore in ("HEAD", "a" * 39, "z" * 40, 40 * "A"):
+            with self.subTest(valore=valore):
+                albero = self.albero_candidate(revisione=valore)
+                errori, _ = self.gate.verifica(albero)
+                self.assertTrue(any("revisione" in e for e in errori), errori)
+
+    def test_ogni_campo_comune_mancante_e_rosso(self) -> None:
+        for campo in sorted(self.d.CAMPI_COMUNI_DEL_MANIFESTO):
+            if campo == "file":
+                continue  # ha la propria sonda, e la sua assenza e' un altro errore
+            with self.subTest(campo=campo):
+                albero = self.albero_candidate(**{campo: self.ASSENTE})
+                errori, _ = self.gate.verifica(albero)
+                self.assertTrue(any(campo in e for e in errori), errori)
+
+    def test_non_release_incoerente_col_canale_e_rosso(self) -> None:
+        albero = self.albero_candidate(non_release=True)
+        errori, _ = self.gate.verifica(albero)
+        self.assertTrue(any("non_release" in e for e in errori), errori)
+
+    def test_un_canale_sconosciuto_e_rosso(self) -> None:
+        albero = self.albero_candidate(canale="collaudo")
+        errori, _ = self.gate.verifica(albero)
+        self.assertTrue(any("canale" in e for e in errori), errori)
+
+    def test_la_revisione_puo_essere_nulla_nel_canale_prova(self) -> None:
+        """`None` e' onesto dove non si pretende un artefatto installabile: il
+        costruttore non inventa una revisione quando `git` non c'e'."""
+        albero = self.albero_candidate(
+            canale="prova",
+            canale_nota=self.d.nota_del_canale("prova"),
+            non_release=True,
+            revisione=None,
+        )
+        errori, _ = self.gate.verifica(albero)
+        self.assertEqual(errori, [], errori)
 
     def test_un_elenco_vuoto_non_passa_in_silenzio(self) -> None:
         """Zero file superano ogni confronto senza guardare niente, ed e' il

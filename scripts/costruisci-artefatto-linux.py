@@ -55,28 +55,6 @@ def esegui(comando: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(comando, check=True, **kwargs)
 
 
-def revisione_del_repository() -> str | None:
-    """La revisione da cui l'artefatto e' stato costruito.
-
-    `None` quando non si riesce a leggerla, e non una stringa di comodo: una
-    provenance che dichiarasse una revisione inventata sarebbe peggio di una che
-    ammette di non saperla.
-    """
-    # `git` puo' non esserci: l'immagine di costruzione porta cio' che serve a
-    # costruire, e git non serve a costruire. Anche in quel caso la risposta e'
-    # `None` -- «non la so» -- e non un'eccezione: la provenance e' un documento
-    # che accompagna l'artefatto, non una condizione per produrlo. Chi la legge
-    # deve poter distinguere una revisione assente da una sbagliata, e per
-    # questo non si inventa.
-    try:
-        esito = subprocess.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=RADICE
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return esito.stdout.strip() if esito.returncode == 0 else None
-
-
 def sha256(percorso: pathlib.Path) -> str:
     digesto = hashlib.sha256()
     with percorso.open("rb") as f:
@@ -729,64 +707,76 @@ def main() -> int:
             "dal_lock": sha256(LOCK),
         }
     )
-    manifesto = {
-        "nome": nome,
-        "versione": arg.versione,
-        "piattaforma": "linux-x86_64",
-        "profilo": arg.profilo,
-        "canale": arg.canale,
-        "non_release": arg.canale != "candidate",
-        "canale_nota": (
-            "«prova» significa che questo artefatto e' stato costruito per essere "
-            "misurato, non installato. Non e' firmato, non e' pubblicato, e il gate "
-            "di distribuzione lo rifiuta ovunque si pretenda una candidate."
-        ),
+    # Il manifesto passa da `distribuzione.manifesto`, che pretende i campi
+    # comuni e rifiuta un documento incompleto. I due costruttori scrivevano
+    # ciascuno il proprio dizionario, e le divergenze si scoprivano aprendo il
+    # deliverable: qui mancava `revisione`, e `canale_nota` -- emesso sempre --
+    # descriveva il canale `prova` dentro una candidate.
+    manifesto = distribuzione.manifesto(
+        {
+            "nome": nome,
+            "versione": arg.versione,
+            "piattaforma": "linux-x86_64",
+            "profilo": arg.profilo,
+            "canale": arg.canale,
+            "non_release": arg.canale != "candidate",
+            # Derivata dal canale **reale**: scritta a parte ha detto il
+            # contrario di cio' che l'artefatto era, e nessun referto se n'e'
+            # accorto -- un campo di prosa e' coerente con se stesso.
+            "canale_nota": distribuzione.nota_del_canale(arg.canale),
+            # La revisione da cui questo albero viene. Viveva soltanto nella
+            # provenance, che e' un file **accanto** all'archivio: chi ha solo
+            # l'albero installato non poteva dire da dove venisse.
+            "revisione": distribuzione.revisione_del_repository(),
         # Due componenti, non uno. `runtime_nativo` era un booleano che voleva
         # dire «spedisce GDAL» e diceva «spedisce un runtime nativo». Su Linux
         # le due cose coincidono -- non c'e' niente di ridistribuibile da
         # spedire -- ma il campo ha la stessa forma su tutte e due le
         # piattaforme: un formato che cambia con la piattaforma costringe chi
         # legge a sapere dove sta guardando.
-        "runtime_nativo": distribuzione.runtime_nativo(
-            "linux-x86_64", file_spediti, gdal
-        ),
-        "lock": sha256(LOCK),
-        # Il prefisso in cui il runtime e' stato materializzato, cioe' cio' che
-        # i binari nominano dentro di se'. Sta qui perche' il controllo non
-        # debba farselo dire a mano: passarne uno sbagliato non trova nessun
-        # percorso assoluto, e senza la guardia che rende rosso lo zero
-        # sembrerebbe un artefatto pulito. E' gia' successo.
-        "prefisso_di_costruzione": str(prefisso),
-        "licenze": {
-            "con_testo_proprio": con_testo_proprio,
-            "con_testo_canonico": len(con_testo_canonico),
-            "senza_testo": 0,
-            "senza_testo_nota": (
-                "e' sempre zero, e non per fortuna: un pacchetto che spedisce byte senza un "
-                "testo ferma il costruttore. Prima erano tre, nominati in un elenco -- il che "
-                "evitava il silenzio ma non consegnava la licenza."
+            "runtime_nativo": distribuzione.runtime_nativo(
+                "linux-x86_64", file_spediti, gdal
+            ),
+            "lock": sha256(LOCK),
+            # Il prefisso in cui il runtime e' stato materializzato, cioe' cio' che
+            # i binari nominano dentro di se'. Sta qui perche' il controllo non
+            # debba farselo dire a mano: passarne uno sbagliato non trova nessun
+            # percorso assoluto, e senza la guardia che rende rosso lo zero
+            # sembrerebbe un artefatto pulito. E' gia' successo.
+            "prefisso_di_costruzione": str(prefisso),
+            "licenze": {
+                "con_testo_proprio": con_testo_proprio,
+                "con_testo_canonico": len(con_testo_canonico),
+                "senza_testo": 0,
+                "senza_testo_nota": (
+                    "e' sempre zero, e non per fortuna: un pacchetto che spedisce byte senza un "
+                    "testo ferma il costruttore. Prima erano tre, nominati in un elenco -- il che "
+                    "evitava il silenzio ma non consegnava la licenza."
+                ),
+            },
+            "firma": firma,
+            # Tutto l'albero, e ciascun file con il proprio digest.
+            #
+            # Erano i soli file *spediti dal prefisso*, e con due conseguenze che il
+            # controllo sui digest ha portato alla luce: il profilo base ne
+            # dichiarava **zero** -- non spedisce librerie, e il suo binario non
+            # compariva -- e il profilo pieno li elencava come nomi. Un elenco di
+            # nomi dice che cosa c'era, un elenco di digest dice che cosa c'e', e
+            # chi riceve un archivio estratto puo' rifare il conto.
+            "file": file_spediti,
+        },
+        {
+            "normalizzazioni": normalizzazioni,
+            "normalizzazioni_nota": (
+                "i `DT_NEEDED` riscritti da `patchelf`. Erano percorsi assoluti al prefisso di "
+                "materializzazione -- il placeholder di conda sostituito al link -- e un artefatto "
+                "che li conservasse smetterebbe di caricarsi appena quel prefisso non esiste. Sono "
+                "elencati perche' modificare un binario di terze parti va detto: il file spedito non "
+                "e' byte per byte quello del pacchetto, e chi verifica un checksum a monte deve "
+                "sapere perche' non corrisponde."
             ),
         },
-        "firma": firma,
-        "normalizzazioni": normalizzazioni,
-        "normalizzazioni_nota": (
-            "i `DT_NEEDED` riscritti da `patchelf`. Erano percorsi assoluti al prefisso di "
-            "materializzazione -- il placeholder di conda sostituito al link -- e un artefatto "
-            "che li conservasse smetterebbe di caricarsi appena quel prefisso non esiste. Sono "
-            "elencati perche' modificare un binario di terze parti va detto: il file spedito non "
-            "e' byte per byte quello del pacchetto, e chi verifica un checksum a monte deve "
-            "sapere perche' non corrisponde."
-        ),
-        # Tutto l'albero, e ciascun file con il proprio digest.
-        #
-        # Erano i soli file *spediti dal prefisso*, e con due conseguenze che il
-        # controllo sui digest ha portato alla luce: il profilo base ne
-        # dichiarava **zero** -- non spedisce librerie, e il suo binario non
-        # compariva -- e il profilo pieno li elencava come nomi. Un elenco di
-        # nomi dice che cosa c'era, un elenco di digest dice che cosa c'e', e
-        # chi riceve un archivio estratto puo' rifare il conto.
-        "file": file_spediti,
-    }
+    )
     (albero / "MANIFEST.json").write_text(
         json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
@@ -844,7 +834,7 @@ def main() -> int:
         "profilo": arg.profilo,
         "canale": arg.canale,
         "non_release": arg.canale != "candidate",
-        "revisione": revisione_del_repository(),
+        "revisione": distribuzione.revisione_del_repository(),
         "lock": sha256(LOCK),
         "prefisso_di_costruzione": str(prefisso),
         "firma": firma,

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import pathlib
 import shutil
 import sys
+import tarfile
 import tempfile
 import unittest
+import zipfile
 
 
 RADICE = pathlib.Path(__file__).resolve().parent.parent
@@ -33,12 +36,101 @@ class SondeDeliverable(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.crea_serie()
 
+    def manifesto_di(self, nome: str, piattaforma: str, profilo: str) -> dict:
+        """Il manifesto che l'archivio porta dentro.
+
+        La fixture scriveva byte arbitrari al posto di un archivio. Bastava
+        finche' il controllo guardava soltanto i sidecar; da quando confronta la
+        revisione del manifesto con quella della provenance, un archivio che non
+        si apre non e' una fixture ma un caso limite -- e sarebbe passato per il
+        ramo che tratta l'errore di apertura, cioe' per il posto sbagliato.
+        """
+        return {
+            "nome": nome,
+            "versione": self.VERSIONE,
+            "piattaforma": piattaforma,
+            "profilo": profilo,
+            "canale": "prova",
+            "canale_nota": self.d.nota_del_canale("prova"),
+            "non_release": True,
+            "revisione": self.REVISIONE,
+            "runtime_nativo": {"presente": False, "gdal": False},
+            "lock": self.d.sha256(self.gate.LOCK[piattaforma]),
+            "prefisso_di_costruzione": "/tmp/runtime",
+            "firma": {"stato": "non_richiesta"},
+            "licenze": {"senza_testo": 0},
+            "file": [],
+        }
+
+    def scrivi_archivio(
+        self, archivio: pathlib.Path, nome: str, manifesto: dict
+    ) -> None:
+        """Un archivio vero, con la radice e il manifesto che il gate cerca."""
+        crudo = json.dumps(manifesto).encode("utf-8")
+        if archivio.suffix == ".zip":
+            with zipfile.ZipFile(archivio, "w") as z:
+                z.writestr(f"{nome}/MANIFEST.json", crudo)
+        else:
+            with tarfile.open(archivio, "w:gz") as tar:
+                voce = tarfile.TarInfo(f"{nome}/MANIFEST.json")
+                voce.size = len(crudo)
+                tar.addfile(voce, io.BytesIO(crudo))
+
+    def _radice_e_manifesto(self, archivio: pathlib.Path) -> tuple[str, dict]:
+        nome = archivio.name
+        for estensione in (".tar.gz", ".zip"):
+            if nome.endswith(estensione):
+                return nome[: -len(estensione)], {}
+        raise AssertionError(nome)
+
+    def riscrivi_manifesto(self, archivio: pathlib.Path, **modifiche) -> None:
+        """Riscrive l'archivio con un manifesto modificato, e riallinea i
+        sidecar: cio' che si vuole provare e' la divergenza fra manifesto e
+        provenance, non un checksum che non torna."""
+        nome, _ = self._radice_e_manifesto(archivio)
+        piattaforma = "windows-x86_64" if archivio.suffix == ".zip" else "linux-x86_64"
+        profilo = "filegdb" if "filegdb" in nome else "base"
+        manifesto = self.manifesto_di(nome, piattaforma, profilo)
+        manifesto.update(modifiche)
+        self.scrivi_archivio(archivio, nome, manifesto)
+        self.riallinea(archivio, piattaforma, profilo)
+
+    def svuota_archivio(self, archivio: pathlib.Path) -> None:
+        """Un archivio senza manifesto: valido come contenitore, muto dentro."""
+        nome, _ = self._radice_e_manifesto(archivio)
+        piattaforma = "windows-x86_64" if archivio.suffix == ".zip" else "linux-x86_64"
+        profilo = "filegdb" if "filegdb" in nome else "base"
+        if archivio.suffix == ".zip":
+            with zipfile.ZipFile(archivio, "w") as z:
+                z.writestr(f"{nome}/vuoto", b"")
+        else:
+            with tarfile.open(archivio, "w:gz") as tar:
+                voce = tarfile.TarInfo(f"{nome}/vuoto")
+                voce.size = 0
+                tar.addfile(voce, io.BytesIO(b""))
+        self.riallinea(archivio, piattaforma, profilo)
+
+    def riallinea(
+        self, archivio: pathlib.Path, piattaforma: str, profilo: str
+    ) -> None:
+        digesto = self.d.sha256(archivio)
+        (self.tmp / f"{archivio.name}.sha256").write_text(
+            f"{digesto}  {archivio.name}\n", encoding="utf-8"
+        )
+        percorso = self.tmp / f"{archivio.name}.provenance.json"
+        prova = json.loads(percorso.read_text(encoding="utf-8"))
+        prova["sha256"] = digesto
+        prova["dimensione"] = archivio.stat().st_size
+        percorso.write_text(json.dumps(prova), encoding="utf-8")
+
     def crea_serie(self) -> None:
         for piattaforma in ("linux-x86_64", "windows-x86_64"):
             for profilo in ("base", "filegdb"):
                 nome = self.d.nome_archivio(self.VERSIONE, piattaforma, profilo)
                 archivio = self.tmp / f"{nome}.{self.d.contenitore(piattaforma)}"
-                archivio.write_bytes(f"{piattaforma}/{profilo}".encode())
+                self.scrivi_archivio(
+                    archivio, nome, self.manifesto_di(nome, piattaforma, profilo)
+                )
                 digesto = self.d.sha256(archivio)
                 (self.tmp / f"{archivio.name}.sha256").write_text(
                     f"{digesto}  {archivio.name}\n", encoding="utf-8"
@@ -88,6 +180,31 @@ class SondeDeliverable(unittest.TestCase):
     def test_un_sidecar_mancante_e_rosso(self) -> None:
         next(self.tmp.glob("*.sha256")).unlink()
         self.assertIn("file mancanti", " ".join(self.errori()))
+
+    def test_la_revisione_del_manifesto_deve_seguire_la_provenance(self) -> None:
+        """Due documenti dello stesso artefatto non possono nominare due alberi.
+
+        La provenance sta **accanto** all'archivio, il manifesto **dentro**. Se
+        divergono, chi verifica il sidecar e chi legge l'albero installato
+        concludono cose diverse sulla stessa installazione, e nessuno dei due
+        sbaglia a leggere.
+        """
+        archivio = next(self.tmp.glob("*.tar.gz"))
+        self.riscrivi_manifesto(archivio, revisione="d" * 40)
+        motivi = self.errori()
+        self.assertTrue(any("revisione" in m for m in motivi), motivi)
+        self.assertTrue(any(archivio.name in m for m in motivi), motivi)
+
+    def test_un_archivio_senza_manifesto_e_rosso(self) -> None:
+        """Un archivio che non porta il proprio manifesto non si puo' verificare
+        dall'interno, e un errore di apertura non deve leggersi come «va bene»."""
+        archivio = next(self.tmp.glob("*.tar.gz"))
+        self.svuota_archivio(archivio)
+        motivi = self.errori()
+        self.assertTrue(any("MANIFEST" in m for m in motivi), motivi)
+
+    def test_manifesto_e_provenance_concordi_passano(self) -> None:
+        self.assertEqual(self.errori(), [], self.errori())
 
     # --- i byte pubblicati sono quelli qualificati --------------------------
     #

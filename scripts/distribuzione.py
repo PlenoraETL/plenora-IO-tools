@@ -37,6 +37,8 @@ from __future__ import annotations
 import hashlib
 import json
 import pathlib
+import re
+import subprocess
 
 SCHEMA_REFERTO = 2
 
@@ -104,6 +106,179 @@ POLITICA_DI_FIRMA = {
         }
     },
 }
+
+
+
+# --- il manifesto, e perche' si costruisce da un punto solo ------------------
+#
+# I due costruttori scrivevano ciascuno il proprio dizionario. Le divergenze si
+# scoprivano aprendo il deliverable, e due sono arrivate dentro una candidate.
+#
+# * Il manifesto Windows portava `revisione`, quello Linux no: chi aveva
+#   soltanto l'albero installato poteva dire da quale revisione venisse
+#   un'installazione Windows e non una Linux.
+# * `canale_nota` esisteva solo su Linux, era emesso **sempre**, e il suo testo
+#   parlava del canale `prova`. Nei due archivi Linux della candidate diceva che
+#   l'artefatto non e' pubblicato e che il gate lo rifiuta dove si pretenda un
+#   artefatto di rilascio -- accanto a `canale: candidate`. Era una dichiarazione
+#   falsa spedita dentro il deliverable.
+#
+# Nessun controllo li trovava, e non per distrazione: un campo di prosa e'
+# coerente con se stesso, e un campo assente non fallisce da nessuna parte. La
+# cura non e' rileggere meglio i due dizionari: e' che ci sia un punto solo che
+# li costruisce, e che rifiuti di produrre un documento incompleto.
+
+# Il testo del canale, **derivato** dal canale. Nessuna delle due note nomina
+# l'altro canale: una nota che parlasse di entrambi si leggerebbe male da tutti
+# e due i lati, e sarebbe la via comoda per «correggere» il difetto -- aggiungere
+# una frase invece di derivare il testo.
+NOTA_DEL_CANALE = {
+    "prova": (
+        "«prova» significa che questo artefatto e' stato costruito per essere "
+        "misurato, non installato: non e' pubblicato, e il gate di distribuzione "
+        "lo rifiuta dove si pretenda un artefatto di rilascio."
+    ),
+    "candidate": (
+        "«candidate» significa che questo artefatto e' quello che si consegna: "
+        "viene da una revisione congelata, che il campo `revisione` nomina, e la "
+        "sua integrita' si verifica con lo sha256, il manifesto e la provenance "
+        "pubblicati accanto. La 2.0.0 non richiede una firma di piattaforma: su "
+        "Windows il PE non porta Authenticode, quindi il sistema puo' mostrare "
+        "«editore sconosciuto» e una policy aziendale puo' impedirne "
+        "l'esecuzione."
+    ),
+}
+
+# I campi che **entrambi** i manifesti portano, con lo stesso significato. E' un
+# insieme chiuso: un campo che sparisce da un costruttore non sparisce in
+# silenzio, e uno che compare su una piattaforma sola non e' un campo comune.
+CAMPI_COMUNI_DEL_MANIFESTO = frozenset(
+    {
+        "nome",
+        "versione",
+        "piattaforma",
+        "profilo",
+        "canale",
+        "canale_nota",
+        "non_release",
+        "revisione",
+        "runtime_nativo",
+        "lock",
+        "prefisso_di_costruzione",
+        "firma",
+        "licenze",
+        "file",
+    }
+)
+
+REVISIONE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def nota_del_canale(canale: str) -> str:
+    """Il testo del canale, o `KeyError` se il canale non e' fra quelli noti.
+
+    Solleva invece di restituire un testo di ripiego: una nota generica accanto
+    a un canale sconosciuto e' esattamente il documento che si contraddice, con
+    un passaggio in meno per accorgersene.
+    """
+    return NOTA_DEL_CANALE[canale]
+
+
+def revisione_del_repository() -> str | None:
+    """La revisione da cui l'artefatto e' stato costruito, o `None`.
+
+    `None` quando non si riesce a leggerla, e non una stringa di comodo: un
+    documento che dichiarasse una revisione inventata sarebbe peggio di uno che
+    ammette di non saperla, perche' chi legge deve poter distinguere una
+    revisione assente da una sbagliata.
+
+    `git` puo' non esserci: l'immagine di costruzione porta cio' che serve a
+    costruire, e git non serve a costruire. Anche in quel caso la risposta e'
+    «non la so» e non un'eccezione -- il manifesto accompagna l'artefatto, non
+    e' una condizione per produrlo. Nel canale `candidate`, pero', `manifesto`
+    la pretende: li' un artefatto che nessuno puo' legare a un albero non e' un
+    documento onesto, e' un artefatto non qualificabile.
+
+    Stava scritta due volte, una per costruttore, con due docstring diverse e la
+    stessa logica. Due definizioni della stessa cosa divergono, e divergono in
+    silenzio.
+    """
+    radice = pathlib.Path(__file__).resolve().parent.parent
+    try:
+        esito = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=radice
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return esito.stdout.strip() if esito.returncode == 0 else None
+
+
+def manifesto(comuni: dict, extra: dict) -> dict:
+    """Il manifesto: i campi comuni, piu' quelli che la piattaforma aggiunge.
+
+    Rifiuta di produrre un documento che non si possa leggere allo stesso modo
+    su tutte e due le piattaforme. Le quattro cose che pretende:
+
+    1. ogni campo di `CAMPI_COMUNI_DEL_MANIFESTO` c'e';
+    2. `canale_nota` e' **esattamente** la nota del proprio canale. Il confronto
+       non e' per contenimento: una nota che porti la frase giusta insieme a
+       quella sbagliata passerebbe un controllo di sottostringa, e sarebbe
+       ancora un documento che si contraddice;
+    3. `non_release` segue il canale, invece di essere scritto a parte;
+    4. una `candidate` nomina la propria revisione.
+
+    `extra` non puo' ridefinire un campo comune: sarebbe la divergenza di prima
+    con un passaggio in piu'.
+    """
+    mancanti = CAMPI_COMUNI_DEL_MANIFESTO - set(comuni)
+    if mancanti:
+        raise ValueError(
+            f"manifesto senza i campi comuni {sorted(mancanti)}. Sono l'insieme "
+            "che i due costruttori devono dire allo stesso modo: uno che manca "
+            "su una piattaforma sola e' la divergenza che si scopre aprendo il "
+            "deliverable."
+        )
+    sovrapposti = CAMPI_COMUNI_DEL_MANIFESTO & set(extra)
+    if sovrapposti:
+        raise ValueError(
+            f"la piattaforma ridefinisce i campi comuni {sorted(sovrapposti)}: "
+            "un significato comune riscritto da un lato solo e' una divergenza."
+        )
+
+    canale = comuni["canale"]
+    if canale not in NOTA_DEL_CANALE:
+        raise ValueError(
+            f"canale «{canale}» non fra {sorted(NOTA_DEL_CANALE)}: un artefatto "
+            "di un canale che non esiste non ha una politica da dichiarare."
+        )
+    if comuni["canale_nota"] != NOTA_DEL_CANALE[canale]:
+        raise ValueError(
+            f"`canale_nota` non e' la nota del canale «{canale}». La nota si "
+            "deriva dal canale reale: scritta a parte, ha descritto un artefatto "
+            "di prova dentro una candidate, e nessun controllo se n'e' accorto."
+        )
+    if comuni["non_release"] is not (canale != "candidate"):
+        raise ValueError(
+            f"`non_release` vale {comuni['non_release']!r} nel canale «{canale}»: "
+            "segue il canale, e scritto a parte puo' contraddirlo."
+        )
+
+    revisione = comuni["revisione"]
+    if canale == "candidate":
+        if not isinstance(revisione, str) or not REVISIONE.match(revisione):
+            raise ValueError(
+                f"`revisione` vale {revisione!r} in una candidate. `None` e' "
+                "onesto dove non si pretende un artefatto installabile; qui e' "
+                "un artefatto che nessuno puo' legare a un albero, e il "
+                "contratto pretende che ogni artefatto qualificato venga da una "
+                "revisione nominata."
+            )
+    elif revisione is not None and (
+        not isinstance(revisione, str) or not REVISIONE.match(revisione)
+    ):
+        raise ValueError(f"`revisione` vale {revisione!r}, che non e' uno sha")
+
+    return {**comuni, **extra}
 
 
 def contenitore(piattaforma: str) -> str:

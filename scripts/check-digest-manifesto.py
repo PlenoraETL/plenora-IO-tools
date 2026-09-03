@@ -43,6 +43,75 @@ def sha256(percorso: pathlib.Path) -> str:
     return digesto.hexdigest()
 
 
+def _contratto_del_manifesto(manifesto: dict) -> list[str]:
+    """Cio' che il manifesto **dice**, non solo i digest che porta.
+
+    `verifica` ricalcolava i digest e non guardava il resto. Due difetti sono
+    passati da questo buco fino dentro un deliverable:
+
+    * il manifesto Linux non portava `revisione`, mentre quello Windows si': chi
+      aveva soltanto l'albero installato poteva dire da quale revisione venisse
+      un'installazione Windows e non una Linux;
+    * `canale_nota` descriveva il canale `prova` accanto a `canale: candidate`,
+      cioe' affermava il contrario di cio' che l'artefatto era.
+
+    Nessuno dei due faceva rosso, e non per distrazione: un campo assente non
+    fallisce da nessuna parte, e un campo di prosa e' coerente con se stesso. Il
+    costruttore li rende ora impossibili da **produrre**; questo li rende
+    impossibili da **spedire**, che non e' la stessa cosa: fra il costruttore e
+    chi riceve ci sono l'archiviazione, il trasporto e l'estrazione.
+    """
+    errori: list[str] = []
+    for campo in sorted(distribuzione.CAMPI_COMUNI_DEL_MANIFESTO - set(manifesto)):
+        errori.append(
+            f"il manifesto non porta `{campo}`, che e' fra i campi comuni: i due "
+            "manifesti devono dire le stesse cose con gli stessi nomi, e un "
+            "campo presente su una piattaforma sola e' una divergenza che si "
+            "scopre aprendo il deliverable."
+        )
+
+    canale = manifesto.get("canale")
+    if canale not in distribuzione.NOTA_DEL_CANALE:
+        errori.append(
+            f"`canale` vale «{canale}», e non e' fra "
+            f"{sorted(distribuzione.NOTA_DEL_CANALE)}"
+        )
+        return errori
+
+    if "canale_nota" in manifesto and manifesto["canale_nota"] != (
+        distribuzione.nota_del_canale(canale)
+    ):
+        errori.append(
+            f"`canale_nota` non e' la nota del canale «{canale}». Il confronto "
+            "e' esatto e non per sottostringa: una nota che portasse la frase "
+            "giusta insieme a quella sbagliata passerebbe un controllo di "
+            "contenimento, e sarebbe ancora un documento che si contraddice."
+        )
+
+    if "non_release" in manifesto and manifesto["non_release"] is not (
+        canale != "candidate"
+    ):
+        errori.append(
+            f"`non_release` vale {manifesto['non_release']!r} nel canale "
+            f"«{canale}»: segue il canale, e scritto a parte puo' contraddirlo."
+        )
+
+    if "revisione" in manifesto:
+        revisione = manifesto["revisione"]
+        valida = isinstance(revisione, str) and bool(
+            distribuzione.REVISIONE.match(revisione)
+        )
+        if canale == "candidate" and not valida:
+            errori.append(
+                f"`revisione` vale {revisione!r} in una candidate. `None` e' "
+                "onesto dove non si pretende un artefatto installabile; qui e' "
+                "un artefatto che nessuno puo' legare a un albero."
+            )
+        elif canale != "candidate" and revisione is not None and not valida:
+            errori.append(f"`revisione` vale {revisione!r}, che non e' uno sha")
+    return errori
+
+
 def verifica(albero: pathlib.Path) -> tuple[list[str], dict]:
     manifesto_percorso = albero / "MANIFEST.json"
     if not manifesto_percorso.is_file():
@@ -50,7 +119,7 @@ def verifica(albero: pathlib.Path) -> tuple[list[str], dict]:
     manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
 
     dichiarati = manifesto.get("file") or []
-    errori: list[str] = []
+    errori: list[str] = list(_contratto_del_manifesto(manifesto))
     if not dichiarati:
         return (
             [
