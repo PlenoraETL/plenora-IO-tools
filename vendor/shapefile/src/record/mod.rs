@@ -233,7 +233,34 @@ impl ReadableShape for Shape {
             ShapeType::Multipatch => {
                 Shape::Multipatch(Multipatch::read_shape_content(&mut source, record_size)?)
             }
-            ShapeType::NullShape => Shape::NullShape,
+            // Changed by the plenora fork: a null record must be exactly its
+            // tag.
+            //
+            // Every other arm above consumes the declared content. This one
+            // used to ignore `record_size` entirely and return, leaving the
+            // rest of the record in the stream. The iterator then read the
+            // next record header from the middle of this record's content, and
+            // eight arbitrary bytes became a `record_size` -- which is how a
+            // file of two well-formed records reached the multiplication in
+            // `read_one_shape_as` with a nonsense length.
+            //
+            // The specification is unambiguous: a null record's content is its
+            // four-byte shape type and nothing else. Anything more is not
+            // padding to be skipped but a record that disagrees with its own
+            // header, so it is rejected rather than tolerated -- skipping the
+            // remainder would keep the stream aligned while accepting a file
+            // whose shape count and shape contents cannot both be true.
+            //
+            // `record_size` has already had the four bytes of the tag
+            // subtracted, so the exact residual of a conforming record is
+            // zero. A record declaring fewer than four bytes leaves it
+            // negative, and is rejected by the same test.
+            ShapeType::NullShape => {
+                if record_size != 0 {
+                    return Err(Error::InvalidShapeRecordSize);
+                }
+                Shape::NullShape
+            }
         };
         Ok(shape)
     }

@@ -3931,6 +3931,328 @@ mod tests {
         );
     }
 
+    // --- il record nullo sovradimensionato, e il raddoppio non controllato ---
+    //
+    // Due difetti nello stesso reperto, e conviene tenerli distinti perche' si
+    // riparano in due punti diversi del fork.
+    //
+    // Il **primo** e' la desincronizzazione. `Shape::read_from` consumava, per
+    // un record di tipo `NullShape`, i soli quattro byte del tag e tornava
+    // ignorando `record_size`: ogni altro ramo consuma il contenuto dichiarato,
+    // quello no. Un record nullo che ne dichiari di piu' lasciava il resto
+    // nello stream, e l'iteratore leggeva la testa del record successivo da
+    // dentro il contenuto di questo.
+    //
+    // Il **secondo** e' che otto byte qualunque, letti come una testa, danno un
+    // `record_size` che `read_one_shape_as` raddoppiava dentro un `i32` senza
+    // controllo. Sotto `overflow-checks` e' il panico che la campagna ha
+    // archiviato; senza, e' un avvolgimento silenzioso e la lettura prosegue su
+    // una lunghezza che nessuno ha scritto -- il caso peggiore dei due.
+    //
+    // Il primo difetto e' cio' che **produce** l'input del secondo, ma il
+    // secondo esiste anche da solo: un file puo' dichiarare una lunghezza
+    // enorme in una testa di record perfettamente allineata. Per questo le
+    // prove sono separate, e una arriva alla moltiplicazione senza passare da
+    // un record nullo.
+
+    /// Uno `.shp` costruito a mano, con l'intestazione da cento byte.
+    ///
+    /// I record arrivano gia' formati perche' le sonde qui sotto hanno bisogno
+    /// di scriverne alcuni che nessun writer produrrebbe.
+    fn shp_con_record(tipo_dichiarato: i32, record: &[u8]) -> Vec<u8> {
+        let mut file = vec![0_u8; SHP_HEADER_SIZE];
+        file[0..4].copy_from_slice(&9994_i32.to_be_bytes());
+        // Byte prima, parole poi: la divisione converte un'unita' nell'altra,
+        // e scriverla su una somma la farebbe sembrare una media.
+        let byte = SHP_HEADER_SIZE + record.len();
+        let parole = i32::try_from(byte / 2).expect("il file di una sonda sta in un i32");
+        file[24..28].copy_from_slice(&parole.to_be_bytes());
+        file[28..32].copy_from_slice(&1000_i32.to_le_bytes());
+        file[32..36].copy_from_slice(&tipo_dichiarato.to_le_bytes());
+        for (indice, valore) in [0.0_f64, 0.0, 10.0, 10.0].into_iter().enumerate() {
+            let inizio = 36 + indice * 8;
+            file[inizio..inizio + 8].copy_from_slice(&valore.to_le_bytes());
+        }
+        file.extend_from_slice(record);
+        file
+    }
+
+    /// Una testa di record: numero e lunghezza del contenuto, in parole.
+    fn testa_di_record(numero: i32, parole: i32) -> Vec<u8> {
+        let mut testa = numero.to_be_bytes().to_vec();
+        testa.extend_from_slice(&parole.to_be_bytes());
+        testa
+    }
+
+    /// Il contenuto di un punto: il tag e due coordinate.
+    fn contenuto_di_punto(x: f64, y: f64) -> Vec<u8> {
+        let mut contenuto = 1_i32.to_le_bytes().to_vec();
+        contenuto.extend_from_slice(&x.to_le_bytes());
+        contenuto.extend_from_slice(&y.to_le_bytes());
+        contenuto
+    }
+
+    fn forme_del_fork(shp: &[u8]) -> std::result::Result<Vec<Shape>, shapefile::Error> {
+        shapefile::ShapeReader::new(std::io::Cursor::new(shp.to_vec()))?.read()
+    }
+
+    /// L'errore, o il fallimento della sonda.
+    ///
+    /// `expect_err` non si puo' usare: `Vec<Shape>` non implementa `Debug`, e
+    /// il `Ok` va comunque nominato -- una lettura riuscita e' **il** difetto
+    /// che queste sonde cercano, non un caso da lasciar passare in silenzio.
+    fn errore_del_fork(shp: &[u8], perche: &str) -> shapefile::Error {
+        match forme_del_fork(shp) {
+            Err(errore) => errore,
+            Ok(forme) => panic!("{perche}: invece ne sono uscite {} forme", forme.len()),
+        }
+    }
+
+    /// Il fork rifiuta un record nullo che dichiari piu' del proprio tag.
+    ///
+    /// E' la correzione alla radice, verificata **sul fork** e non attraverso
+    /// il driver: la difesa deve valere per ogni chiamante del reader, non solo
+    /// per quello che passa dal nostro validatore.
+    /// Il residuo di un record nullo che, letto come una testa, e' **valido**.
+    ///
+    /// Serve a separare le due difese. Sul reperto della campagna il residuo
+    /// da' una lunghezza che non regge il raddoppio, quindi il controllo sulla
+    /// moltiplicazione lo ferma **anche** senza quello sul record nullo: le
+    /// due difese si coprono a vicenda, e una sonda costruita su quei byte
+    /// resta verde con la seconda rimossa: non proverebbe cio' che dice di
+    /// provare, e l'ho misurato disattivando la verifica.
+    ///
+    /// Qui il residuo e' una testa ben formata seguita dal tag nullo che quella
+    /// testa promette, e il file finisce li'. Con la verifica e' un rifiuto;
+    /// senza, la lettura termina con **`Ok`** — che e' il difetto nella sua
+    /// forma piu' pericolosa: non un panico, ma un file letto per meta' e
+    /// consegnato come intero.
+    fn record_nullo_col_residuo_che_finge_una_testa() -> Vec<u8> {
+        // Otto parole dichiarate, sedici byte di contenuto.
+        let mut record = testa_di_record(1, 8);
+        record.extend_from_slice(&0_i32.to_le_bytes());
+        record.extend_from_slice(&testa_di_record(2, 2));
+        record.extend_from_slice(&0_i32.to_le_bytes());
+        record
+    }
+
+    #[test]
+    fn il_fork_rifiuta_un_record_nullo_sovradimensionato() {
+        let errore = errore_del_fork(
+            &shp_con_record(1, &record_nullo_col_residuo_che_finge_una_testa()),
+            "un record nullo di sedici byte non e' un record nullo",
+        );
+        assert!(
+            matches!(errore, shapefile::Error::InvalidShapeRecordSize),
+            "il rifiuto deve nominare la lunghezza del record, non un altro \
+             difetto raggiunto per caso: {errore:?}"
+        );
+    }
+
+    /// Un record nullo conforme non sposta quello dopo di se'.
+    ///
+    /// E' la meta' che rende la correzione una riparazione invece che una
+    /// chiusura: senza, «rifiuta il nullo sovradimensionato» sarebbe vero anche
+    /// di un reader che avesse smesso di leggere i record nulli.
+    #[test]
+    fn un_record_nullo_conforme_non_disallinea_quello_dopo() {
+        let mut record = testa_di_record(1, 2);
+        record.extend_from_slice(&0_i32.to_le_bytes());
+        record.extend_from_slice(&testa_di_record(2, 10));
+        record.extend_from_slice(&contenuto_di_punto(3.0, 4.0));
+
+        let forme = forme_del_fork(&shp_con_record(1, &record))
+            .expect("un nullo di quattro byte seguito da un punto e' leggibile");
+        let tipi: Vec<_> = forme.iter().map(Shape::shapetype).collect();
+        assert_eq!(forme.len(), 2, "due record, due forme: {tipi:?}");
+        assert!(
+            matches!(forme[0], Shape::NullShape),
+            "il primo record e' nullo, e va letto come tale: {}",
+            forme[0].shapetype()
+        );
+        let Shape::Point(punto) = &forme[1] else {
+            panic!(
+                "il secondo record e' un punto, e va letto come tale: {}",
+                forme[1].shapetype()
+            );
+        };
+        // Le coordinate, e non il solo tipo: un disallineamento di sedici byte
+        // puo' produrre un punto **valido** con dentro i byte sbagliati, ed e'
+        // esattamente cio' che questa sonda deve poter distinguere.
+        assert!(
+            (punto.x - 3.0).abs() < f64::EPSILON && (punto.y - 4.0).abs() < f64::EPSILON,
+            "il punto deve arrivare intero: {punto:?}"
+        );
+    }
+
+    /// La moltiplicazione, coperta senza passare da un record nullo.
+    ///
+    /// `i32::MAX` parole non traboccherebbero se il raddoppio avvenisse in
+    /// `i64`; traboccano in `i32`, che e' il tipo in cui il reader lavora. La
+    /// sonda non passa dal validatore del prodotto -- costruisce lo `.shp` e lo
+    /// da' al fork -- perche' la difesa deve stare nel reader anche quando a
+    /// chiamarlo e' qualcun altro.
+    #[test]
+    fn il_fork_rifiuta_una_lunghezza_di_record_che_non_regge_il_raddoppio() {
+        for parole in [i32::MAX, i32::MAX / 2 + 1, -1] {
+            let mut record = testa_di_record(1, parole);
+            record.extend_from_slice(&contenuto_di_punto(1.0, 2.0));
+
+            let errore = errore_del_fork(
+                &shp_con_record(1, &record),
+                "una lunghezza fuori intervallo non e' un record",
+            );
+            assert!(
+                matches!(errore, shapefile::Error::InvalidShapeRecordSize),
+                "la lunghezza va rifiutata prima del raddoppio: parole={parole}, errore={errore:?}"
+            );
+        }
+    }
+
+    /// La controprova della verifica sul record nullo, sul suo terreno.
+    ///
+    /// La sonda qui sopra dice che il file e' rifiutato. Questa dice **da che
+    /// cosa**, e conviene guardare i due contatori che il reader tiene, perche'
+    /// e' dove il difetto vive.
+    ///
+    /// `ShapeIterator` avanza `current_pos` della lunghezza **dichiarata** dal
+    /// record, mentre lo stream avanza di quanto il ramo ha davvero consumato.
+    /// Con la semantica vecchia i due divergono: il record dichiara sedici byte
+    /// di contenuto, il ramo nullo ne consumava quattro, e restano dodici byte
+    /// di scarto. Qui il file finisce li', quindi `current_pos` raggiunge la
+    /// fine e la lettura termina con **`Ok`** e una forma — misurato
+    /// disattivando la verifica: la crate ritorna un file letto per meta'
+    /// dichiarandolo intero. Nel reperto della campagna, dove un secondo record
+    /// segue, lo stesso scarto porta la lettura dentro il contenuto, ed e'
+    /// l'altra controprova.
+    ///
+    /// E' anche la ragione per cui la verifica non poteva limitarsi a saltare
+    /// il residuo. Saltarlo avrebbe riallineato i due contatori accettando un
+    /// file il cui contenuto e la cui lunghezza dichiarata non possono essere
+    /// veri insieme.
+    #[test]
+    fn senza_la_verifica_il_reader_accetta_un_record_nullo_che_non_ha_letto() {
+        let shp = shp_con_record(1, &record_nullo_col_residuo_che_finge_una_testa());
+
+        let dichiarate = i32::from_be_bytes([shp[24], shp[25], shp[26], shp[27]]);
+        let byte_dichiarati =
+            usize::try_from(dichiarate).expect("la lunghezza di una sonda e' positiva") * 2;
+        let testa = &shp[SHP_HEADER_SIZE..SHP_HEADER_SIZE + 8];
+        let byte_del_record =
+            usize::try_from(i32::from_be_bytes([testa[4], testa[5], testa[6], testa[7]]))
+                .expect("la lunghezza di una sonda e' positiva")
+                * 2;
+
+        // Il tag e nient'altro: quanto il vecchio ramo consumava.
+        let consumati = std::mem::size_of::<i32>();
+        assert_eq!(
+            byte_del_record - consumati,
+            12,
+            "lo scarto fra dichiarato e consumato e' il difetto, e senza di \
+             esso questa sonda non prova niente"
+        );
+        assert_eq!(
+            SHP_HEADER_SIZE + 8 + byte_del_record,
+            byte_dichiarati,
+            "il file finisce col primo record: e' cio' che fa terminare la \
+             lettura con Ok invece che dentro il contenuto"
+        );
+
+        // E lo stesso file, dato al fork corretto, e' un rifiuto.
+        let errore = errore_del_fork(&shp, "il file non e' leggibile");
+        assert!(
+            matches!(errore, shapefile::Error::InvalidShapeRecordSize),
+            "{errore:?}"
+        );
+    }
+
+    /// La controprova dell'altra verifica: senza il raddoppio controllato, il
+    /// reperto della campagna trabocca.
+    ///
+    /// Le due sonde qui sopra dicono che il reader **oggi** rifiuta. Non
+    /// dicono che a rifiutare sia la verifica aggiunta: lo direbbero anche se
+    /// l'input fosse fermato prima, da un'altra difesa, e la riga nuova fosse
+    /// morta.
+    ///
+    /// Questa sonda ripercorre i byte del reperto con la semantica **vecchia**
+    /// del ramo nullo -- consuma il tag e basta -- e mostra dove finisce: la
+    /// testa successiva viene letta sedici byte troppo presto, e la lunghezza
+    /// che ne esce non regge il raddoppio in `i32`. E' il difetto, riprodotto
+    /// dagli stessi byte che il fork corretto rifiuta.
+    #[test]
+    fn senza_la_verifica_il_record_nullo_disallinea_e_il_raddoppio_trabocca() {
+        let bundle = seme("shp-nullo-sovradimensionato.bundle");
+        let parti = __fuzz_dividi_bundle(&bundle).expect("il reperto e' un bundle");
+        let shp = parti.shp;
+
+        // La catena, letta come la leggeva il ramo nullo: quattro byte di tag,
+        // e avanti.
+        let mut posizione = SHP_HEADER_SIZE;
+        let testa = &shp[posizione..posizione + 8];
+        let parole = i32::from_be_bytes([testa[4], testa[5], testa[6], testa[7]]);
+        let tipo = i32::from_le_bytes([
+            shp[posizione + 8],
+            shp[posizione + 9],
+            shp[posizione + 10],
+            shp[posizione + 11],
+        ]);
+        assert_eq!(tipo, 0, "il primo record del reperto e' un nullo");
+        assert!(
+            parole * 2 > 4,
+            "e dichiara piu' del proprio tag: e' la condizione del difetto"
+        );
+
+        // Il vecchio ramo consumava il tag e tornava: l'iteratore avanzava di
+        // otto byte di testa piu' i quattro consumati, non di quanto il record
+        // dichiarava.
+        posizione += 8 + 4;
+        let testa = &shp[posizione..posizione + 8];
+        let parole_lette = i32::from_be_bytes([testa[4], testa[5], testa[6], testa[7]]);
+        assert!(
+            parole_lette.checked_mul(2).is_none(),
+            "letta da dentro il contenuto, la testa successiva deve dare una \
+             lunghezza che non regge il raddoppio -- e' il panico che la \
+             campagna ha archiviato. Se questa asserzione cade, il reperto non \
+             riproduce piu' il difetto e la sonda non lo sta piu' provando: \
+             parole_lette={parole_lette}"
+        );
+
+        // E lo stesso reperto, dato al fork corretto, e' un rifiuto tipizzato.
+        let errore = errore_del_fork(shp, "il reperto non e' leggibile");
+        assert!(
+            matches!(errore, shapefile::Error::InvalidShapeRecordSize),
+            "{errore:?}"
+        );
+    }
+
+    /// Il reperto della campagna, fino in fondo al driver.
+    ///
+    /// Le sonde sul fork provano la difesa dove sta; questa prova che il
+    /// prodotto la **raggiunge** e la traduce, invece di cadere prima o di
+    /// consegnare righe. E' lo stesso entry point del target `shp_reader`, sugli
+    /// stessi byte che la campagna ha archiviato.
+    #[test]
+    fn il_reperto_del_nullo_sovradimensionato_e_un_rifiuto_tipizzato() {
+        let errore = __fuzz_leggi_bundle(
+            &seme("shp-nullo-sovradimensionato.bundle"),
+            opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+        )
+        .expect_err("un record nullo che dichiara venti byte non e' leggibile");
+        // Codice, categoria e fase invece del testo: un messaggio si riscrive
+        // senza accorgersene, e una sonda che lo insegue smette di dire che il
+        // rifiuto e' **quello** e comincia a dire com'e' scritto.
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping,
+            "{errore:?}"
+        );
+        assert_eq!(
+            errore.phase,
+            plenora_io_model::ErrorPhase::Read,
+            "{errore:?}"
+        );
+    }
+
     #[test]
     fn un_record_che_dichiara_piu_punti_di_quanti_ne_contenga_e_un_errore() {
         for nome in ["shp-punti-assurdi.bundle", "shp-punti-negativi.bundle"] {

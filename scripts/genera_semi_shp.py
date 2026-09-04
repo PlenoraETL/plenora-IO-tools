@@ -52,6 +52,9 @@ CODICE_FILE = 9994
 VERSIONE = 1000
 
 # I tipi di forma usati dai semi.
+# Il tipo di una forma assente. Nell'intestazione dice che il file non ha un
+# tipo; in un record dice che quella riga non ha geometria.
+NULLO = 0
 PUNTO = 1
 POLILINEA = 3
 MULTIPUNTO = 8
@@ -148,6 +151,43 @@ def shp_di_polilinee(linee: list[list[tuple[float, float]]]):
         max(y for _, y in tutti),
     )
     return _assembla(POLILINEA, contenuti, riquadro)
+
+
+def shp_col_nullo_sovradimensionato():
+    """Un record nullo che dichiara piu' del proprio tag, e un punto dopo di lui.
+
+    Riproduce il reperto che la campagna ha archiviato il 2026-09-04
+    (`crash-5d29754857...` del target `shp_reader`), nella struttura invece che
+    nei byte: quelli del fuzzer erano casuali dove non contano, e un seme
+    versionato dev'essere riproducibile da qui, non un binario che nessuno sa
+    rileggere.
+
+    Il meccanismo, che e' cio' che il seme deve conservare:
+
+    1. il contenuto del primo record e' venti byte, di cui quattro sono il tag
+       nullo. La specifica ne vuole quattro e basta;
+    2. il ramo `NullShape` del reader consumava il tag e tornava, lasciando i
+       sedici byte di residuo nello stream, mentre `ShapeIterator` avanzava il
+       proprio contatore della lunghezza **dichiarata**;
+    3. la testa del record successivo veniva quindi letta sedici byte troppo
+       presto, cioe' da dentro il residuo. Qui il residuo comincia con una
+       lunghezza scelta apposta -- `0x7FFFFFFF` parole -- perche' il raddoppio
+       che ne segue non regga un `i32`.
+
+    Nel reperto originale quella lunghezza era un valore casuale che per caso
+    non reggeva il raddoppio. Sceglierla rende il seme deterministico senza
+    cambiare la strada che percorre, e la sonda di controprova in `driver-shp`
+    verifica proprio che la testa letta in anticipo non regga il raddoppio: se
+    un giorno questo seme smettesse di riprodurre il difetto, cadrebbe.
+
+    Il `.shx` resta fuori dal bundle: il difetto vive sulla catena sequenziale,
+    e con un indice il lettore cercherebbe l'inizio di ogni record invece di
+    fidarsi della propria posizione.
+    """
+    residuo = struct.pack(">ii", 1, 0x7FFF_FFFF) + b"\x00" * 8
+    nullo = struct.pack("<i", NULLO) + residuo
+    punto = struct.pack("<i2d", PUNTO, 11.25, 43.77)
+    return _assembla(PUNTO, [nullo, punto], (11.25, 43.77, 11.25, 43.77))
 
 
 def shp_di_multipunto(gruppi: list[list[tuple[float, float]]]):
@@ -424,6 +464,9 @@ def semi() -> dict[str, bytes]:
     # entrambi.
     disallineato = dbf([("NOME", "C", 8)], [["SOLO_UNA"]])
 
+    nullo_sovradimensionato, _ = shp_col_nullo_sovradimensionato()
+    due_righe = dbf([("NOME", "C", 8)], [["SENZA"], ["FIRENZE"]])
+
     return {
         "punti-con-attributi.bundle": bundle(punti, indice_punti, attributi),
         "punti-con-prj.bundle": bundle(punti, indice_punti, attributi, PRJ_WGS84),
@@ -433,6 +476,15 @@ def semi() -> dict[str, bytes]:
         "multipunto.bundle": bundle(multipunto, indice_multipunto, una_riga),
         "disallineati-con-indice.bundle": bundle(punti, indice_punti, disallineato),
         "disallineati-senza-indice.bundle": bundle(punti, b"", disallineato),
+        # Il reperto della campagna del 2026-09-04, nella sua struttura: un
+        # record nullo che dichiara venti byte dove la specifica ne vuole
+        # quattro. Il ramo `NullShape` del reader consumava il solo tag e
+        # lasciava il resto nello stream, cosi' la testa del record successivo
+        # veniva letta da dentro il contenuto di questo. Resta un seme ora che
+        # e' chiuso: e' la strada, non il panico, a dover restare percorsa.
+        "shp-nullo-sovradimensionato.bundle": bundle(
+            nullo_sovradimensionato, b"", due_righe
+        ),
         # I tre punti di arresto di `dbase::File::open`, uno per ramo. Restano semi anche
         # ora che sono chiusi: un seme di regressione vale quanto uno che apre
         # una strada, e il replay e' il posto dove una correzione si dimostra.

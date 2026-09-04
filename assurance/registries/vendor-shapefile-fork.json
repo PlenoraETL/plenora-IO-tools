@@ -18,6 +18,20 @@
       "cosa_non_tocca": "il bounding box, che una geometria nulla non muove; il tipo dichiarato nell'intestazione, che resta quello dei record non nulli; e il conteggio dei record, che avanza come per ogni altro record perche' nello `.shx` la voce c'e'."
     },
     {
+      "file": "src/reader.rs",
+      "cambiamento": "`read_one_shape_as` non raddoppia piu' `record_size` a occhi chiusi: rifiuta una lunghezza negativa e usa `checked_mul(2)`, restituendo `Error::InvalidShapeRecordSize` -- una variante che esiste gia' a monte -- invece di traboccare.",
+      "perche": "`record_size` e' una lunghezza in parole da sedici bit letta dal file: vale quello che il file dice, valori negativi compresi. Raddoppiarla in un `i32` trabocca sopra `i32::MAX / 2`. Dove i controlli di traboccamento sono attivi e' un panico -- e' il reperto che la campagna ha archiviato il 2026-09-04 -- e dove non lo sono e' un avvolgimento silenzioso, con la lettura che prosegue su una lunghezza che nessuno ha scritto. Il secondo caso e' il peggiore dei due.",
+      "perche_il_negativo_prima": "`-1 * 2` non trabocca, e passerebbe oltre come un `-2` dall'aspetto legittimo. Il segno va escluso prima della moltiplicazione, non dopo.",
+      "cosa_protegge_oltre_se_stesso": "`ShapeIterator::next` avanza `current_pos` di `hdr.record_size as usize * 2`, e quel cast trasforma una lunghezza negativa in una posizione enorme. Viene eseguito solo dopo che questa funzione ha restituito `Ok`, quindi il controllo qui e' cio' che lo rende sicuro."
+    },
+    {
+      "file": "src/record/mod.rs",
+      "cambiamento": "nel ramo `ShapeType::NullShape` di `Shape::read_from`, la dimensione residua del record deve essere esattamente zero dopo il tag; altrimenti e' `Error::InvalidShapeRecordSize`.",
+      "perche": "era l'unico ramo dei tredici a ignorare `record_size`: leggeva i quattro byte del tag e tornava, lasciando il resto del record nello stream. `ShapeIterator` intanto avanza `current_pos` della lunghezza **dichiarata**, cosi' i due contatori divergono. Se il file finisce li', la lettura termina con `Ok` su un record letto a meta'; se un altro record segue, la testa successiva viene letta da dentro il contenuto di questo, e otto byte qualunque diventano una lunghezza. E' cosi' che il reperto della campagna -- due record ben formati -- raggiungeva la moltiplicazione con un valore assurdo.",
+      "perche_non_saltare_il_residuo": "saltarlo avrebbe riallineato i contatori accettando un file il cui contenuto e la cui lunghezza dichiarata non possono essere veri insieme. La specifica non lascia margine: il contenuto di un record nullo e' il suo tipo di quattro byte e nient'altro. Un record che ne dichiara di piu' non ha padding da tollerare, ha una testa che smentisce il proprio contenuto.",
+      "compatibilita_col_delta_di_scrittura": "`write_null_shape` dichiara due parole, cioe' quattro byte, quindi il residuo di cio' che il fork stesso scrive e' zero. La lettura e la scrittura del record nullo restano l'una l'inversa dell'altra."
+    },
+    {
       "file": "src/lib.rs",
       "natura": "compatibilita', non funzionale: non cambia un solo comportamento",
       "cambiamento": "`#![allow(deprecated)]` al radice del crate.",

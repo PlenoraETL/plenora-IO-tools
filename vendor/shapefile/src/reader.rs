@@ -104,7 +104,31 @@ fn read_one_shape_as<T: Read, S: ReadableShape>(
     mut source: &mut T,
 ) -> Result<(record::RecordHeader, S), Error> {
     let hdr = record::RecordHeader::read_from(&mut source)?;
-    let record_size = hdr.record_size * 2;
+    // Changed by the plenora fork: the doubling is checked.
+    //
+    // `record_size` is a length in 16-bit words read straight from the file,
+    // so its value is whatever the file says: an i32, negative values
+    // included. Doubling it to get bytes overflows for anything above
+    // `i32::MAX / 2`, which panics where overflow checks are on and silently
+    // wraps to a wrong -- possibly negative -- length where they are not. The
+    // second is worse than the first: the read continues on a length nobody
+    // wrote.
+    //
+    // A negative length is rejected before the multiplication rather than
+    // after it, because `-1 * 2` does not overflow and would flow on as a
+    // valid-looking `-2`.
+    //
+    // This also guards `ShapeIterator::next`, which advances `current_pos` by
+    // `hdr.record_size as usize * 2` -- a cast that turns a negative length
+    // into an enormous position. It runs only once this function has returned
+    // `Ok`, so the check here is the one that makes it safe.
+    if hdr.record_size < 0 {
+        return Err(Error::InvalidShapeRecordSize);
+    }
+    let record_size = hdr
+        .record_size
+        .checked_mul(2)
+        .ok_or(Error::InvalidShapeRecordSize)?;
     let shape = S::read_from(&mut source, record_size)?;
     Ok((hdr, shape))
 }
