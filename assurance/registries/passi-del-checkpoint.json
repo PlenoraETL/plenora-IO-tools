@@ -138,6 +138,14 @@
       "log": true
     },
     {
+      "id": "sonde_buste_v2",
+      "log": true
+    },
+    {
+      "id": "check_buste_v2",
+      "log": true
+    },
+    {
       "id": "sonde_confine_v1",
       "log": true
     },

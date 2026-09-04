@@ -649,6 +649,23 @@ passo check_categorie_di_perdita python3 scripts/check_categorie_di_perdita.py
 # ciascuno coerente con se stesso.
 passo sonde_protocollo_v2 python3 -m unittest scripts.test_check_protocollo_v2
 passo check_protocollo_v2 python3 scripts/check_protocollo_v2.py
+# Le **buste**, confrontate con il binario che le emette.
+#
+# Il passo qui sopra confronta i numeri del manifesto con le costanti del
+# codice: due dichiarazioni, entrambe lette dal sorgente. Questo esegue la CLI
+# su fixture versionate e guarda che cosa esce davvero dai due flussi.
+#
+# Serviva perche' il manifesto descriveva il **primo livello** di ciascuna
+# busta e sotto quelle chiavi taceva: la ratifica del 2026-09-04 ha trovato
+# quattro campi diagnostici non elencati, una clausola che affermava sei chiavi
+# dove ce ne sono sette, e una busta -- quella di `--version` -- che nessuno
+# censiva. Nessuna sonda poteva vederli, perche' verificano che i campi
+# dichiarati ci siano, non che non ce ne siano altri.
+#
+# Costruisce il binario da se': un gate che verifica cio' che il binario emette
+# non puo' dipendere da chi lo ha costruito e quando.
+passo sonde_buste_v2 python3 -m unittest scripts.test_check_buste_v2
+passo check_buste_v2 python3 scripts/check_buste_v2.py
 # Il confine del v1: `detail_v1()` restituisce i nomi presi dal file, e li
 # pubblica **un solo** adattatore. La visibilita' di Rust non sa dire «questo
 # modulo e nessun altro», e un accessore pubblico e' pubblico: senza questo

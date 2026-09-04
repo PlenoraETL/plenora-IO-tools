@@ -162,7 +162,461 @@
           "verificata_da": "scripts/check_metadati_geoparquet.py"
         }
       },
-      "nota": "identica alla v1 salvo il nome del contratto: il catalogo non porta diagnostica di perdita, e i suoi campi restano quelli. Cambia soltanto perche' il protocollo e' uno e la versione la dichiarano tutte le buste allo stesso modo."
+      "nota": "identica alla v1 salvo il nome del contratto: il catalogo non porta diagnostica di perdita, e i suoi campi restano quelli. Cambia soltanto perche' il protocollo e' uno e la versione la dichiarano tutte le buste allo stesso modo.",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura": {
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".determinism": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".drivers[].available": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".drivers[].buffering": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].crs_handling": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].descriptor_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".drivers[].direction": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].driver_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".drivers[].effective_delivery": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].fidelity_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].default": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].description": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].key": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].phase": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].value": {
+          "tipi": [
+            "object",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].value.enum": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].value.enum[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].value.integer": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].value.integer.max": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".drivers[].format_options[].value.integer.min": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".drivers[].hostile_input_hardened": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".drivers[].id": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].multi_file": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".drivers[].multi_layer": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".drivers[].native_read_mode": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].predicate_pruning_support": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].projection_support": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].read_determinism": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].read_mode": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].reader_concurrency": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].required_feature": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].runtime": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].semantic_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".drivers[].spatial_pruning_support": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].spec_version_supported": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.allowed_types": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.allowed_types[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.attributes": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.crs": {
+          "tipi": [
+            "object",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.crs.fixed": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.crs_representations": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.crs_representations.crs_definition": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.crs_representations.crs_id": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.crs_representations.srid": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.field_names": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.field_names.case_sensitive": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.field_names.encoding": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.field_names.max_bytes": {
+          "tipi": [
+            "integer",
+            "null"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.field_names.max_chars": {
+          "tipi": [
+            "integer",
+            "null"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.field_names.normalization": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.field_names.reserved_names": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.dimensions": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.dimensions[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.encodings": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.encodings[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.geometry_types": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.geometry_types[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.mixed_types": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.spatial_semantics": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.spatial_semantics[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.geometry.supported": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.multi_layer": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.nullability": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_capabilities.type_coercion": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_determinism": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".drivers[].write_mode": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      }
     },
     "inspect": {
       "contract": "plenora-io-inspect-v2",
@@ -173,7 +627,642 @@
         "format",
         "fidelity",
         "layers"
-      ]
+      ],
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura": {
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".format.buffering": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.crs_handling": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.descriptor_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".format.direction": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.driver_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".format.effective_delivery": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.fidelity_class": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.format_options": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".format.format_options[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].default": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].description": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].key": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].phase": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].value": {
+          "tipi": [
+            "object",
+            "string"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].value.enum": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].value.enum[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].value.integer": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].value.integer.max": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".format.format_options[].value.integer.min": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".format.hostile_input_hardened": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format.id": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.multi_file": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format.multi_layer": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format.native_read_mode": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.predicate_pruning_support": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.projection_support": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.read_determinism": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.read_mode": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.reader_concurrency": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.runtime": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.semantic_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".format.spatial_pruning_support": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.spec_version_supported": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.allowed_types": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.allowed_types[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.attributes": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.crs": {
+          "tipi": [
+            "object",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.crs.fixed": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".format.write_capabilities.crs_representations": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.crs_representations.crs_definition": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.crs_representations.crs_id": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.crs_representations.srid": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.field_names": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.field_names.case_sensitive": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.field_names.encoding": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.field_names.max_bytes": {
+          "tipi": [
+            "integer",
+            "null"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.field_names.max_chars": {
+          "tipi": [
+            "integer",
+            "null"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.field_names.normalization": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.field_names.reserved_names": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.dimensions": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.dimensions[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.encodings": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.encodings[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.geometry_types": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.geometry_types[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.mixed_types": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.spatial_semantics": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.spatial_semantics[]": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.geometry.supported": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.multi_layer": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.nullability": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_capabilities.type_coercion": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_determinism": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".format.write_mode": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".layers[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layers[].fields": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".layers[].fields[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layers[].fields[].geometry": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".layers[].fields[].name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].fields[].nullable": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".layers[].fields[].type": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.crs": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.crs_resolution": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.crs_resolution.axis_order": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.crs_resolution.definition": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.crs_resolution.definition_format": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.crs_resolution.id": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.crs_resolution.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.crs_resolution.status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry.name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].id": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".layers[].name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      }
     },
     "layers": {
       "contract": "plenora-io-layers-v2",
@@ -184,7 +1273,148 @@
         "format",
         "fidelity",
         "layers"
-      ]
+      ],
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura": {
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".layers[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layers[].field_count": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".layers[].geometry_crs": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].id": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".layers[].name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      }
     },
     "read": {
       "contract": "plenora-io-read-v2",
@@ -198,7 +1428,252 @@
         "rows_read",
         "batches",
         "truncated"
-      ]
+      ],
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura": {
+        ".batches": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": false
+        },
+        ".fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": false
+        },
+        ".fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".format": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layer.fields": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".layer.fields[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layer.fields[].geometry": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".layer.fields[].name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.fields[].nullable": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".layer.fields[].type": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.crs": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.crs_resolution": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.crs_resolution.axis_order": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.crs_resolution.definition": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.crs_resolution.definition_format": {
+          "tipi": [
+            "null",
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.crs_resolution.id": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.crs_resolution.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.crs_resolution.status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.kind": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.geometry.name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layer.id": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".layer.name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".rows_read": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".truncated": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        }
+      }
     },
     "convert": {
       "contract": "plenora-io-convert-v2",
@@ -220,30 +1695,593 @@
       ],
       "forbidden_legacy_fields": [
         "loss"
-      ]
+      ],
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura": {
+        ".bytes_written": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".contract": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".conversion_fidelity.reasons[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".conversion_fidelity.reasons[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".conversion_fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".from": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".layers[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".layers[].batches": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".layers[].name": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".layers[].rows": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".protocol_version": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".publish_outcome": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".read_fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".read_loss": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".read_loss.counts": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".read_loss.esempi": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".read_loss.lossless": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".read_loss.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".read_loss.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".read_loss.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".read_loss.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".read_loss.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".read_loss.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".read_loss.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".to": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".total_rows": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.level": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.reasons": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.reasons[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.reasons[].code": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.reasons[].detail": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".write_fidelity.reasons[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".write_fidelity.reasons[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": false
+        },
+        ".write_fidelity.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".write_loss": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".write_loss.counts": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".write_loss.counts[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".write_loss.counts[].categoria": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".write_loss.counts[].conteggio": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_loss.esempi": {
+          "tipi": [
+            "array"
+          ],
+          "sempre": true
+        },
+        ".write_loss.esempi[]": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".write_loss.esempi[].category": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".write_loss.esempi[].context": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".write_loss.esempi[].field_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_loss.esempi[].layer_index": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_loss.lossless": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".write_loss.omesse": {
+          "tipi": [
+            "object"
+          ],
+          "sempre": true
+        },
+        ".write_loss.omesse.categorie_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_loss.omesse.esempi_omessi": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_loss.omesse.omesse_per_byte": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_loss.omesse.ragioni_omesse": {
+          "tipi": [
+            "integer"
+          ],
+          "sempre": true
+        },
+        ".write_loss.omesse_esatte": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        },
+        ".write_loss.troncato": {
+          "tipi": [
+            "boolean"
+          ],
+          "sempre": true
+        }
+      }
     }
   },
   "sezioni_diagnostiche": {
+    "nota": "l'elenco dei campi di ciascuna sezione. Fino alla ratifica del 2026-09-04 ne mancavano quattro -- `omesse_esatte` in entrambe, `esempi` nella perdita, `field_index` e `layer_index` in una ragione -- e il manifesto ne parlava altrove senza elencarli fra i campi: chi si fosse dimensionato su questa sezione avrebbe letto meno di cio' che esce. La forma completa, percorso per percorso, sta nella `struttura` di ciascuna busta.",
     "fidelity": {
       "campi": [
         "level",
         "reasons",
         "troncato",
-        "omesse"
+        "omesse",
+        "omesse_esatte"
       ],
-      "reasons": [
-        "code",
-        "detail"
+      "reasons": {
+        "sempre": [
+          "code",
+          "detail"
+        ],
+        "quando_la_ragione_e_localizzata": [
+          "field_index",
+          "layer_index"
+        ],
+        "nota": "i due indici sono piatti e vengono insieme: una ragione che nomina un campo nomina anche il layer in cui sta. Le ragioni che riguardano il formato nel suo insieme non ne hanno."
+      },
+      "omesse": [
+        "categorie_omesse",
+        "ragioni_omesse",
+        "esempi_omessi",
+        "omesse_per_byte"
+      ],
+      "dove_compare": [
+        "inspect.fidelity",
+        "layers.fidelity",
+        "read.fidelity",
+        "convert.read_fidelity",
+        "convert.write_fidelity",
+        "convert.conversion_fidelity"
       ]
     },
     "loss": {
       "campi": [
         "lossless",
         "counts",
+        "esempi",
         "troncato",
-        "omesse"
+        "omesse",
+        "omesse_esatte"
       ],
-      "counts": "un **elenco** di `{categoria, conteggio}`, non una mappa: l'elenco ha un ordine dichiarato e una lunghezza dichiarata, la mappa aveva l'uno e l'altra impliciti. E' il cambiamento di tipo che rende necessario il v2."
+      "counts": "un **elenco** di `{categoria, conteggio}`, non una mappa: l'elenco ha un ordine dichiarato e una lunghezza dichiarata, la mappa aveva l'uno e l'altra impliciti. E' il cambiamento di tipo che rende necessario il v2.",
+      "esempi": {
+        "campi": [
+          "category",
+          "context",
+          "field_index",
+          "layer_index"
+        ],
+        "nota": "`category` dal vocabolario chiuso di `assurance/registries/categorie-di-perdita.json`; `context` e' il dettaglio curato, gia' redatto. Gli esempi mancano quando la sezione non ha perdite, e allora `counts` e' vuoto insieme a loro: sono i due campi che rendono `lossless` una scorciatoia e non l'unica informazione."
+      },
+      "omesse": [
+        "categorie_omesse",
+        "ragioni_omesse",
+        "esempi_omessi",
+        "omesse_per_byte"
+      ],
+      "dove_compare": [
+        "convert.read_loss",
+        "convert.write_loss"
+      ]
     }
   },
   "busta_degli_errori": {
@@ -251,7 +2289,181 @@
     "stato": "contratto separato, riutilizzato dal v2 senza modifiche",
     "perche_non_si_versiona": "non e' una decisione lasciata aperta: e' su stderr, non contiene diagnostica di perdita, e ne' la sua struttura ne' il suo significato cambiano con il v2. Creare un `plenora-io-error-v2` identico moltiplicherebbe i nomi senza aggiungere un'affermazione, e un consumatore dovrebbe imparare due contratti per leggere lo stesso documento.",
     "come_leggerlo": "una busta d'errore dichiara `protocol_version: 1` e `contract: plenora-io-error-v1` qualunque sia il protocollo scelto per stdout. Non e' un'incoerenza: sono due superfici, e la versione che il v2 governa e' quella delle buste JSON su stdout.",
-    "verificata_da": "le sonde di forma in `plenora-io-cli`, che pretendono esattamente sei chiavi e nessuna in piu'."
+    "verificata_da": "`scripts/check_buste_v2.py`, che esegue il binario, piu' le sonde di forma in `plenora-io-cli`.",
+    "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+    "struttura": {
+      ".contract": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      },
+      ".error": {
+        "tipi": [
+          "object"
+        ],
+        "sempre": true
+      },
+      ".error.category": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      },
+      ".error.code": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      },
+      ".error.message": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      },
+      ".error.phase": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      },
+      ".error.remote_effect": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      },
+      ".error.retry": {
+        "tipi": [
+          "object"
+        ],
+        "sempre": true
+      },
+      ".error.retry.kind": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      },
+      ".error.row_diagnostics": {
+        "tipi": [
+          "object"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.completeness": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.contract": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.counts": {
+        "tipi": [
+          "object"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.counts{}": {
+        "tipi": [
+          "integer"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.examples": {
+        "tipi": [
+          "array"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.examples[]": {
+        "tipi": [
+          "object"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.examples[].cause": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.examples[].column": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.examples[].source_index": {
+        "tipi": [
+          "integer"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.examples_limit": {
+        "tipi": [
+          "integer"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.examples_truncated": {
+        "tipi": [
+          "boolean"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.index_basis": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.knowledge_limits": {
+        "tipi": [
+          "array"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.knowledge_limits[]": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.observed_total": {
+        "tipi": [
+          "integer"
+        ],
+        "sempre": false
+      },
+      ".error.row_diagnostics.scope": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": false
+      },
+      ".protocol_version": {
+        "tipi": [
+          "integer"
+        ],
+        "sempre": true
+      },
+      ".status": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      }
+    },
+    "quante_chiavi": "**sei o sette**. Le sei di `required_error_fields` -- `category`, `phase`, `remote_effect`, `retry`, `code`, `message` -- ci sono sempre; `row_diagnostics` e' la settima, e c'e' quando l'errore porta la diagnostica row-scoped. Fino alla ratifica del 2026-09-04 questo campo diceva «esattamente sei chiavi e nessuna in piu'»: era falso, e il v1 -- che la dichiara in `optional_error_fields` -- era piu' preciso del v2. Le sonde che contano sei chiavi esistono e sono corrette: guardano errori che quella diagnostica non la portano, e nessuna di loro afferma il caso in cui c'e'. Il gate delle buste raggiunge entrambi.",
+    "row_diagnostics": "porta un contratto proprio, `plenora-row-diagnostics-v1`, con la struttura che il v1 descrive in `envelopes.error.row_diagnostics_semantics`. Il v2 non la ridefinisce: la censisce nella propria `struttura` perche' esce dalla CLI, e per il significato rimanda al v1.",
+    "retry": "un oggetto, non una stringa: `{kind}` sempre, piu' `delay_ms` quando `kind` e' `after`. La forma con il ritardo la prova una sonda della CLI; la matrice del gate delle buste non la raggiunge, perche' nessun percorso della CLI produce oggi un errore ritentabile con ritardo, e la `struttura` dichiara cio' che la matrice osserva."
   },
   "sonde_che_lo_provano": [
     "anche_gli_esempi_respinti_sono_limitati",
@@ -327,5 +2539,44 @@
       "impatto_sui_consumatori": "nessuna rottura: il campo si aggiunge, non sostituisce e non cambia significato ad altri. Un consumatore che non lo conosce lo ignora; uno che lo legge ottiene un'affermazione in piu' -- e ne ottiene una che prima doveva indovinare. La regola `add_optional_field` del contratto lo consente proprio a questa condizione, e questo record e' cio' che la regola chiede.",
       "perche_ora": "il lotto S10 valida i metadati GeoParquet per intero e fissa il perimetro a 1.0.0 e 1.1.0. Un perimetro che il codice applica e il catalogo non dichiara e' un perimetro che il consumatore scopre quando un file gli viene rifiutato."
     }
-  ]
+  ],
+  "buste_senza_contratto": {
+    "--version": {
+      "stato": "censita, non ratificata",
+      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+      "struttura": {
+        ".status": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        },
+        ".version": {
+          "tipi": [
+            "string"
+          ],
+          "sempre": true
+        }
+      },
+      "che_cos_e": "`plenora-io --version` scrive su stdout `{status, version}` ed esce con zero. E' JSON sullo stesso flusso delle altre buste, quindi cade dentro `compatibility_scope: cli_json_only`.",
+      "il_difetto": "non dichiara ne' `contract` ne' `protocol_version`. E' l'unica busta della CLI che non dica di che cosa e', e un consumatore non ha modo di versionarla: se un giorno cambiasse forma, nessun campo del documento glielo direbbe. Trovato censendo le buste il 2026-09-04.",
+      "perche_non_e_stato_corretto_qui": "aggiungere i due campi cambierebbe il wire, e la ratifica esiste per **descrivere** il wire, non per adattarlo al documento. Chi oggi legge `--version` legge due chiavi, e una terza le romperebbe il parser tanto quanto una in meno. La correzione e' una decisione di prodotto, e va presa sapendo che cambia una superficie pubblica."
+    }
+  },
+  "ratifica_delle_buste": {
+    "data": "2026-09-04",
+    "che_cosa_e_cambiato": "il manifesto descriveva il **primo livello** di ciascuna busta -- per `read`, nove chiavi -- e sotto quelle chiavi non diceva niente. Ora ciascuna dichiara ogni percorso che emette, il tipo e se ci sia sempre.",
+    "chi_lo_confronta": "scripts/check_buste_v2.py",
+    "perche_esegue_il_binario": "le sonde della CLI costruiscono le buste in-process: verificano che una funzione produca un documento, non che il comando che un utente digita lo consegni. Fra le due c'e' il dispatch, la scelta del protocollo, la scelta del flusso e il codice d'uscita.",
+    "nei_due_versi": "un percorso emesso e non dichiarato e' un campo che il prodotto consegna senza prometterlo; uno dichiarato e non emesso e' una promessa che nessuna esecuzione onora. Il secondo verso e' cio' che rende onesta la matrice dei casi.",
+    "che_cosa_non_afferma": "che la matrice basti. Che ogni busta possibile sia rappresentata non e' dimostrabile: si dimostra che cio' che la matrice raggiunge e cio' che il manifesto dichiara coincidono.",
+    "divergenze_trovate": [
+      "`sezioni_diagnostiche.fidelity.campi` non elencava `omesse_esatte`.",
+      "`sezioni_diagnostiche.fidelity.reasons` non elencava `field_index` ne' `layer_index`.",
+      "`sezioni_diagnostiche.loss.campi` non elencava `esempi` ne' `omesse_esatte`.",
+      "`busta_degli_errori` affermava sei chiavi «e nessuna in piu'»: `row_diagnostics` e' la settima, e il v1 la dichiarava gia' come opzionale.",
+      "nessuna busta dichiarava la propria struttura annidata.",
+      "`--version` emette una busta JSON su stdout che il manifesto non nominava, e che non dichiara ne' contratto ne' versione di protocollo."
+    ]
+  }
 }
