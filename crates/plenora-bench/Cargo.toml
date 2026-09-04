@@ -17,6 +17,15 @@ path = "src/main.rs"
 name = "plenora-bench-spool-ab"
 path = "src/bin/spool_ab.rs"
 
+# Le fixture canoniche Parquet e Arrow della matrice cross-format. Sta qui e non
+# fra i test perche' non deve girare in CI: una fixture rigenerata a ogni corsa
+# renderebbe l'atteso una funzione dello strumento del giorno. Sta in questo
+# crate perche' e' l'unico non spedito che possa dipendere da `parquet` e
+# `arrow-ipc` senza portarli nel perimetro del prodotto.
+[[bin]]
+name = "genera-fixture-arrow"
+path = "src/bin/genera_fixture_arrow.rs"
+
 # Unica deroga al `forbid(unsafe_code)` di workspace: questo harness misura
 # allocazioni e rusage e richiede un `GlobalAlloc` contatore e `getrusage`.
 # Non e' codice di libreria, non entra nel perimetro spedito e resta escluso
@@ -44,6 +53,10 @@ driver-shp = { path = "../driver-shp" }
 driver-xls = { path = "../driver-xls" }
 arrow-array.workspace = true
 arrow-schema.workspace = true
+# Solo per `genera-fixture-arrow`: le fixture canoniche vanno prodotte dai crate
+# upstream, non dai driver che devono poi rileggerle.
+arrow-ipc.workspace = true
+parquet.workspace = true
 geo-types.workspace = true
 serde_json.workspace = true
 libc.workspace = true

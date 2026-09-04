@@ -609,6 +609,14 @@ passo check_schemi_geoparquet python3 scripts/check_schemi_geoparquet.py
 # fuori dal codice, e con una sola via dinamica ammessa -- quella di DXF, che
 # il lotto wire.loss-report chiude. Una seconda via renderebbe la cardinalita'
 # della busta CLI una decisione di chi fornisce il file.
+# I byte delle fixture canoniche della matrice cross-format. Il generatore non
+# gira in CI -- una fixture rigenerata a ogni corsa renderebbe l'atteso una
+# funzione dello strumento del giorno -- quindi a rispondere dei byte
+# committati e' questo gate, che confronta insiemi e digest uno per uno. La
+# directory vuota e' rossa per costruzione: li' ogni digest sarebbe soddisfatto
+# per assenza di confronti.
+passo sonde_fixture_canoniche python3 -m unittest scripts.test_check_fixture_canoniche
+passo check_fixture_canoniche python3 scripts/check-fixture-canoniche.py
 passo sonde_categorie_di_perdita python3 -m unittest scripts.test_check_categorie_di_perdita
 passo check_categorie_di_perdita python3 scripts/check_categorie_di_perdita.py
 # I numeri del protocollo v2, confrontati col codice che li applica. Il

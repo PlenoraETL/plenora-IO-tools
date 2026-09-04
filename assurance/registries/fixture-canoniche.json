@@ -1,0 +1,430 @@
+{
+  "schema_version": 1,
+  "descrizione": "I byte delle fixture canoniche su cui converte la matrice cross-format, dichiarati uno per uno. Le fixture non nascono da plenora-io: le produce `scripts/genera-fixture-canoniche.py` con strumenti indipendenti dal prodotto, e il gate `scripts/check-fixture-canoniche.py` confronta i byte committati con questi digest.",
+  "perche_i_byte_e_non_la_rigenerazione": "rigenerare in CI renderebbe l'atteso una funzione della versione di OGR installata quel giorno, e un atteso che si aggiorna da solo non e' un atteso. Aggiornare una fixture e' quindi manuale in due passi -- si rigenera, si aggiorna questo registro -- e sono visibili entrambi in review. Se il secondo passo manca il gate diventa rosso.",
+  "perche_ogni_file_e_non_la_directory": "il FileGDB e' trentatre' file dentro `canonico.gdb/`. Un digest solo sulla directory direbbe «qualcosa e' cambiato» invece di quale membro, e un conteggio solo sui nomi sarebbe verde su un albero che ha perso quarantacinque file e ne mostra cinque, perche' `git status` comprime una directory non tracciata in una voce sola.",
+  "che_cosa_non_dice": "che le fixture siano giuste. Un digest e' una firma, non una semantica: a dire che il contenuto rappresenta il dataset canonico saranno le conversioni che lo attraversano, che non esistono ancora. Finche' non esistono, di queste fixture e' verificata l'identita' e non il significato, ed e' bene che il registro lo dica invece di lasciarlo intendere.",
+  "provenienza": {
+    "generatore": "scripts/genera-fixture-canoniche.py",
+    "non_gira_in_ci": "lo si lancia a mano quando una fixture cambia; la CI verifica i byte committati contro questo registro.",
+    "strumenti": {
+      "testo": "CSV, GeoJSON, KML e DXF sono scritti a mano dal generatore: dove il formato e' testo, dipendere da una libreria aggiungerebbe una versione da fissare senza aggiungere indipendenza.",
+      "xlsx": "`zipfile` della libreria standard di Python",
+      "binari_spaziali": "OGR 3.6.2 (`ogr2ogr`), per shp, gpkg e FileGDB",
+      "parquet_e_arrow": "crates/plenora-bench/src/bin/genera_fixture_arrow.rs, che usa i crate upstream `arrow` e `parquet` direttamente, senza attraversare `driver-geoparquet`."
+    },
+    "crs_proiettato": {
+      "identificatore": "EPSG:3003",
+      "nome": "Monte Mario / Italy zone 1",
+      "perche_congelato": "GeoParquet pretende un documento PROJJSON, non un identificatore: il driver rifiuta una scrittura che porti solo `EPSG:3003`. Il documento e' calcolato una volta sola e registrato qui, e il generatore Parquet lo legge da questo registro. Ricalcolarlo a ogni generazione legherebbe la fixture alla versione di PROJ installata quel giorno, che e' lo stesso motivo per cui le coordinate geografiche sono congelate.",
+      "strumento": "GDAL 3.6.2 con PROJ 9.1.1",
+      "comando": "gdalsrsinfo -o PROJJSON EPSG:3003",
+      "schema": "https://proj.org/schemas/v0.5/projjson.schema.json",
+      "projjson": {
+        "$schema": "https://proj.org/schemas/v0.5/projjson.schema.json",
+        "type": "ProjectedCRS",
+        "name": "Monte Mario / Italy zone 1",
+        "base_crs": {
+          "name": "Monte Mario",
+          "datum": {
+            "type": "GeodeticReferenceFrame",
+            "name": "Monte Mario",
+            "ellipsoid": {
+              "name": "International 1924",
+              "semi_major_axis": 6378388,
+              "inverse_flattening": 297
+            }
+          },
+          "coordinate_system": {
+            "subtype": "ellipsoidal",
+            "axis": [
+              {
+                "name": "Geodetic latitude",
+                "abbreviation": "Lat",
+                "direction": "north",
+                "unit": "degree"
+              },
+              {
+                "name": "Geodetic longitude",
+                "abbreviation": "Lon",
+                "direction": "east",
+                "unit": "degree"
+              }
+            ]
+          },
+          "id": {
+            "authority": "EPSG",
+            "code": 4265
+          }
+        },
+        "conversion": {
+          "name": "Italy zone 1",
+          "method": {
+            "name": "Transverse Mercator",
+            "id": {
+              "authority": "EPSG",
+              "code": 9807
+            }
+          },
+          "parameters": [
+            {
+              "name": "Latitude of natural origin",
+              "value": 0,
+              "unit": "degree",
+              "id": {
+                "authority": "EPSG",
+                "code": 8801
+              }
+            },
+            {
+              "name": "Longitude of natural origin",
+              "value": 9,
+              "unit": "degree",
+              "id": {
+                "authority": "EPSG",
+                "code": 8802
+              }
+            },
+            {
+              "name": "Scale factor at natural origin",
+              "value": 0.9996,
+              "unit": "unity",
+              "id": {
+                "authority": "EPSG",
+                "code": 8805
+              }
+            },
+            {
+              "name": "False easting",
+              "value": 1500000,
+              "unit": "metre",
+              "id": {
+                "authority": "EPSG",
+                "code": 8806
+              }
+            },
+            {
+              "name": "False northing",
+              "value": 0,
+              "unit": "metre",
+              "id": {
+                "authority": "EPSG",
+                "code": 8807
+              }
+            }
+          ]
+        },
+        "coordinate_system": {
+          "subtype": "Cartesian",
+          "axis": [
+            {
+              "name": "Easting",
+              "abbreviation": "X",
+              "direction": "east",
+              "unit": "metre"
+            },
+            {
+              "name": "Northing",
+              "abbreviation": "Y",
+              "direction": "north",
+              "unit": "metre"
+            }
+          ]
+        },
+        "scope": "Engineering survey, topographic mapping.",
+        "area": "Italy - onshore and offshore - west of 12°E.",
+        "bbox": {
+          "south_latitude": 36.53,
+          "west_longitude": 5.93,
+          "north_latitude": 47.04,
+          "east_longitude": 12
+        },
+        "id": {
+          "authority": "EPSG",
+          "code": 3003
+        }
+      }
+    },
+    "coordinate_geografiche": {
+      "perche_congelate": "la variante geografica non viene riproiettata a ogni generazione: legherebbe le fixture alla versione di PROJ installata quel giorno. I valori sono calcolati una volta sola e registrati qui; il generatore li ricopia da questo registro.",
+      "strumento": "GDAL 3.6.2 con PROJ 9.1.1",
+      "ordine_assi": "lon, lat",
+      "da": "EPSG:3003",
+      "a": "EPSG:4326",
+      "comando": "ogr2ogr -f GeoJSON -s_srs EPSG:3003 -t_srs EPSG:4326 -lco COORDINATE_PRECISION=9 uscita.geojson ingresso.csv",
+      "valori": {
+        "POINT": "POINT (10.863909301 43.787719185)",
+        "LINESTRING": "LINESTRING (10.863909301 43.787719185, 10.865179468 43.788598806)",
+        "POLYGON": "POLYGON ((10.876612647 43.796514729, 10.877855 43.79649432, 10.877883186 43.797394202, 10.876640815 43.797414612, 10.876612647 43.796514729))",
+        "POINT_Z": "POINT Z (10.889319718 43.805308781 125.5)"
+      }
+    }
+  },
+  "totale": {
+    "file": 52,
+    "byte": 238562,
+    "perche_anche_qui": "e' la cifra che si legge a colpo d'occhio in review. Non e' cio' che il gate verifica -- quello confronta gli insiemi e i digest -- e non va tenuta allineata a mano: il gate la ricalcola e la stampa."
+  },
+  "fixture": [
+    {
+      "percorso": "canonico.arrow",
+      "byte": 8682,
+      "sha256": "c1e65b12efcedc69d4761b1820af7a12a6c3432ecfc0bce8336c5e232b5ef345"
+    },
+    {
+      "percorso": "canonico.csv",
+      "byte": 538,
+      "sha256": "3a18429a0438dfed6a06f6d7f1877299f8b9ba3a797d25e5b6b7b403ed672518"
+    },
+    {
+      "percorso": "canonico.dxf",
+      "byte": 338,
+      "sha256": "431b781940ed744e82ace775f6bf746e32292717e50c69bb2a8a8349f4f8fe4d"
+    },
+    {
+      "percorso": "canonico.gdb/a00000001.gdbtable",
+      "byte": 400,
+      "sha256": "42876ab0cfa7d5641d1363da9ae77ec812ed79b68a5a162fcb54b1a1bdb2f9ea"
+    },
+    {
+      "percorso": "canonico.gdb/a00000001.gdbtablx",
+      "byte": 4128,
+      "sha256": "868b346736d5afdd9f211c8bcb80d829615a8a8864cc728a576e6a87f0ec3aa0"
+    },
+    {
+      "percorso": "canonico.gdb/a00000002.gdbtable",
+      "byte": 2073,
+      "sha256": "4f02c7b1a1f9a14dfbf79ddec4c414a73857737e846dfe8da2c5e9320dbcaf49"
+    },
+    {
+      "percorso": "canonico.gdb/a00000002.gdbtablx",
+      "byte": 4128,
+      "sha256": "113e09497139b3b8906aa6032f5a9d09079b1e78df846711e886d865ee9968c8"
+    },
+    {
+      "percorso": "canonico.gdb/a00000003.gdbtable",
+      "byte": 1038,
+      "sha256": "933ebd9989851b26306966428992da8eb9f4c5cfc3d5fc4454ef5a4b613dcab3"
+    },
+    {
+      "percorso": "canonico.gdb/a00000003.gdbtablx",
+      "byte": 4128,
+      "sha256": "1763cda58e1be19f62cb6b638fb855ca0c326ea78ecd6356664723bd268803dc"
+    },
+    {
+      "percorso": "canonico.gdb/a00000004.gdbtable",
+      "byte": 24929,
+      "sha256": "7998e4fafe11b323deb5f20d79a132b00b833da5ebce8b8290695da884a832a8"
+    },
+    {
+      "percorso": "canonico.gdb/a00000004.gdbtablx",
+      "byte": 4128,
+      "sha256": "7ffccb8f9b19339d361c9ff77b0e86ea31c2c5f18e9edf883e7163a42ad746a1"
+    },
+    {
+      "percorso": "canonico.gdb/a00000005.gdbtable",
+      "byte": 1723,
+      "sha256": "7d6aa6c169a182c601b2e009a3d9bd2960087d68426fbb59c2b1011983328a44"
+    },
+    {
+      "percorso": "canonico.gdb/a00000005.gdbtablx",
+      "byte": 4128,
+      "sha256": "f2bbae96c9bd995bec6d25910bde173d28b538a61ce1696f5665fb02898e23f3"
+    },
+    {
+      "percorso": "canonico.gdb/a00000006.gdbtable",
+      "byte": 573,
+      "sha256": "0ab4cb397a7968d68c62eb7730a0e9c4bbdf594788c3a7e0b8722c3d169103ee"
+    },
+    {
+      "percorso": "canonico.gdb/a00000006.gdbtablx",
+      "byte": 4128,
+      "sha256": "e1f1497a530377a291a814812e11037b53702b6d67d887c07e1644c8e7518b11"
+    },
+    {
+      "percorso": "canonico.gdb/a00000007.gdbtable",
+      "byte": 2281,
+      "sha256": "9a56bd81b7ac629776916095f6c6c0882042143145e563e5ceb64d4f99eaabb9"
+    },
+    {
+      "percorso": "canonico.gdb/a00000007.gdbtablx",
+      "byte": 4128,
+      "sha256": "25a63f2ba2d4b6604582617835f7be80c123156896a4f17ad9a230ad332ee206"
+    },
+    {
+      "percorso": "canonico.gdb/a00000009.gdbindexes",
+      "byte": 116,
+      "sha256": "c12bbe6b47cd58d64a4d9b93ce7a015938308b01a7483f5b8680064ca552eeef"
+    },
+    {
+      "percorso": "canonico.gdb/a00000009.gdbtable",
+      "byte": 1381,
+      "sha256": "6ca761e0a9112bcf0998096868e2477a99899665ff78624d63ca280e5a821014"
+    },
+    {
+      "percorso": "canonico.gdb/a00000009.gdbtablx",
+      "byte": 5152,
+      "sha256": "506b955b8f710c9cbd20ed56237b6c3f094a69faf7e1af56f1b6c97cdbbead02"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000a.gdbindexes",
+      "byte": 116,
+      "sha256": "c12bbe6b47cd58d64a4d9b93ce7a015938308b01a7483f5b8680064ca552eeef"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000a.gdbtable",
+      "byte": 1396,
+      "sha256": "00832f03c8f32fdb106fb9ecd9435d8078d06ac07aa720266692f2d5ae5480ff"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000a.gdbtablx",
+      "byte": 5152,
+      "sha256": "6c211b9ec637f78027cf90d2972483b8af9ffbb6595e6c3db6fef7b97914f80c"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000b.gdbindexes",
+      "byte": 116,
+      "sha256": "c12bbe6b47cd58d64a4d9b93ce7a015938308b01a7483f5b8680064ca552eeef"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000b.gdbtable",
+      "byte": 1337,
+      "sha256": "b30e5918ebe478ac36fc61571fd039cf782529b0e36bde6147228c798d9cf7d0"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000b.gdbtablx",
+      "byte": 5152,
+      "sha256": "84859ba0afacaa644f5b523d8f8dd423cb822902f9bed55d319b347e4f7583aa"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000b.spx",
+      "byte": 4118,
+      "sha256": "4ed3092dcd618c740123aff31eb6a07d19d4a95be0f30fe307425fcdea4a0df6"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000c.gdbindexes",
+      "byte": 116,
+      "sha256": "c12bbe6b47cd58d64a4d9b93ce7a015938308b01a7483f5b8680064ca552eeef"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000c.gdbtable",
+      "byte": 1328,
+      "sha256": "1231342f125079c2226eb7a71efa6a492a034894a99aa1490aedcd134bda0fb0"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000c.gdbtablx",
+      "byte": 5152,
+      "sha256": "84859ba0afacaa644f5b523d8f8dd423cb822902f9bed55d319b347e4f7583aa"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000c.spx",
+      "byte": 4118,
+      "sha256": "9c2fe5c4a1680d2c77a0383862f6b0ab5c271c6bf74bd2eedb6f5b65458797d2"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000d.gdbindexes",
+      "byte": 66,
+      "sha256": "f783c7cdca04f92be11d622f5ed3e7be6dc871316a6d7932b7ea4add7540845b"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000d.gdbtable",
+      "byte": 176,
+      "sha256": "6f70bb578360e7f618febba6a4ce250bb5226770999899b4ed16c04b64c29456"
+    },
+    {
+      "percorso": "canonico.gdb/a0000000d.gdbtablx",
+      "byte": 5152,
+      "sha256": "144fa6933eab79741d413b1d9b1e3383979d878c531ba108b830ee7d00c587a3"
+    },
+    {
+      "percorso": "canonico.gdb/gdb",
+      "byte": 8,
+      "sha256": "9575375fd7c43cd160884c4c81473b90690c71c5fe988392c647f90ae135e5da"
+    },
+    {
+      "percorso": "canonico.gdb/timestamps",
+      "byte": 400,
+      "sha256": "c323c96b39b5155a4788a606c6fc05571befd551e693af4ec6b7f369cc42a834"
+    },
+    {
+      "percorso": "canonico.geojson",
+      "byte": 2071,
+      "sha256": "5da7258cb758a3910104d6d0a3dbdbc8798b9dd2bffd26285ff3cbb050e7fdc4"
+    },
+    {
+      "percorso": "canonico.gpkg",
+      "byte": 102400,
+      "sha256": "00ef3adca5d8251fb2b511f1be7c67263430d0293c1a09b74b0cb850b1669782"
+    },
+    {
+      "percorso": "canonico.kml",
+      "byte": 2995,
+      "sha256": "d2247c620dd92e31f25dbd2564a635ea433846029e7697047806123b6d80d308"
+    },
+    {
+      "percorso": "canonico.parquet",
+      "byte": 8369,
+      "sha256": "e85a86c8766e83d0625e33d5d7e1b9185068f1d2611edd9770b0ef5ee6a779cc"
+    },
+    {
+      "percorso": "canonico.xlsx",
+      "byte": 5537,
+      "sha256": "372119489a5ac722fd812ce7ecd371796afd35a8f58905ea9288e30fe48b5611"
+    },
+    {
+      "percorso": "canonico_punti.cpg",
+      "byte": 5,
+      "sha256": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824"
+    },
+    {
+      "percorso": "canonico_punti.dbf",
+      "byte": 1572,
+      "sha256": "6529c107afbf9bc56395aed42cf8034d8724a1bb18be3c202829280fa328ee82"
+    },
+    {
+      "percorso": "canonico_punti.geojson",
+      "byte": 679,
+      "sha256": "82b4c384d0da1ab1662c4c5e7e5a4bab1a4862e8c6a3a30690c53191394a80ec"
+    },
+    {
+      "percorso": "canonico_punti.prj",
+      "byte": 407,
+      "sha256": "b15a8013aa977a900e18148413575d53f507ad4c135097c681e6c01cec761241"
+    },
+    {
+      "percorso": "canonico_punti.shp",
+      "byte": 140,
+      "sha256": "6075ae12ac8692da827160809e5a154f0bb9ab259fd97607a207da76dc4c217a"
+    },
+    {
+      "percorso": "canonico_punti.shx",
+      "byte": 116,
+      "sha256": "c80bf5c4f8e9040cf256acf6fc341aea3c2f7e7ea4854e051ec924c1871a0bc4"
+    },
+    {
+      "percorso": "canonico_punti_z.cpg",
+      "byte": 5,
+      "sha256": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824"
+    },
+    {
+      "percorso": "canonico_punti_z.dbf",
+      "byte": 1572,
+      "sha256": "bb4970551d6de4b0ade061d624469b3f225876a3eec880b164dc392157c618c2"
+    },
+    {
+      "percorso": "canonico_punti_z.prj",
+      "byte": 407,
+      "sha256": "b15a8013aa977a900e18148413575d53f507ad4c135097c681e6c01cec761241"
+    },
+    {
+      "percorso": "canonico_punti_z.shp",
+      "byte": 148,
+      "sha256": "9b5e561a0bf25d8127856e862eda6a90ea55076784b2540f882f81fbdf0ff4fb"
+    },
+    {
+      "percorso": "canonico_punti_z.shx",
+      "byte": 116,
+      "sha256": "cd4ea381067ab693721db4d7cf5ad31374a04039c16a7da70b9805e32342799d"
+    }
+  ]
+}

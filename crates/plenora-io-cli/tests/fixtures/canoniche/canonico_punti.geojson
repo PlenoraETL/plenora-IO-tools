@@ -1,0 +1,39 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "r1",
+    "codice": "A-1",
+    "etichetta": "città",
+    "intero_largo": 9007199254740993,
+    "conteggio": 7,
+    "misura": 1.5,
+    "attivo": true,
+    "istante": "2026-01-15"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     10.863909301,
+     43.787719185
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "r5",
+    "codice": "E-5",
+    "etichetta": "senza geometria",
+    "intero_largo": 9007199254740992,
+    "conteggio": 42,
+    "misura": 0.0,
+    "attivo": false,
+    "istante": "2026-06-30"
+   },
+   "geometry": null
+  }
+ ]
+}

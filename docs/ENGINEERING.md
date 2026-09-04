@@ -542,9 +542,9 @@ produce un artefatto misurato a ogni corsa.
 
 ## Distribuzione
 
-Non esiste ancora un artefatto. Esiste il contratto che lo governa, deciso
-prima del packaging perché tre workflow scritti su assunzioni non provate
-sarebbero tre volte lo stesso errore.
+Il contratto è stato deciso **prima** del packaging, perché tre workflow
+scritti su assunzioni non provate sarebbero tre volte lo stesso errore. Gli
+artefatti ora esistono: quattro per corsa, due piattaforme per due profili.
 
 La matrice sta in `assurance/registries/distribuzione-matrice.json`: sistemi,
 architetture, nomi degli archivi, layout installato, i due profili e il

@@ -1,0 +1,126 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "r1",
+    "codice": "A-1",
+    "etichetta": "città",
+    "intero_largo": 9007199254740993,
+    "conteggio": 7,
+    "misura": 1.5,
+    "attivo": true,
+    "istante": "2026-01-15"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     10.863909301,
+     43.787719185
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "r2",
+    "codice": "B-2",
+    "etichetta": null,
+    "intero_largo": -9007199254740993,
+    "conteggio": null,
+    "misura": -0.125,
+    "attivo": false,
+    "istante": "2026-02-28"
+   },
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      10.863909301,
+      43.787719185
+     ],
+     [
+      10.865179468,
+      43.788598806
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "r3",
+    "codice": "Ç-3",
+    "etichetta": "naïve",
+    "intero_largo": 0,
+    "conteggio": 0,
+    "misura": null,
+    "attivo": null,
+    "istante": "2026-03-01"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       10.876612647,
+       43.796514729
+      ],
+      [
+       10.877855,
+       43.79649432
+      ],
+      [
+       10.877883186,
+       43.797394202
+      ],
+      [
+       10.876640815,
+       43.797414612
+      ],
+      [
+       10.876612647,
+       43.796514729
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "r4",
+    "codice": "D-4",
+    "etichetta": "",
+    "intero_largo": 1,
+    "conteggio": -3,
+    "misura": 3.141592653589793,
+    "attivo": true,
+    "istante": "2026-12-31"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     10.889319718,
+     43.805308781,
+     125.5
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "r5",
+    "codice": "E-5",
+    "etichetta": "senza geometria",
+    "intero_largo": 9007199254740992,
+    "conteggio": 42,
+    "misura": 0.0,
+    "attivo": false,
+    "istante": "2026-06-30"
+   },
+   "geometry": null
+  }
+ ]
+}

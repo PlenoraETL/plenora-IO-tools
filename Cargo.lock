@@ -1648,6 +1648,7 @@ name = "plenora-bench"
 version = "2.0.0"
 dependencies = [
  "arrow-array",
+ "arrow-ipc",
  "arrow-schema",
  "driver-common",
  "driver-csv",
@@ -1660,6 +1661,7 @@ dependencies = [
  "driver-xls",
  "geo-types",
  "libc",
+ "parquet",
  "plenora-io-core",
  "plenora-io-model",
  "serde_json",
