@@ -429,6 +429,51 @@ def raggruppa(osservazioni: list[dict[str, Any]]) -> tuple[dict[str, dict], list
     return per_busta, problemi
 
 
+def _schema_esatto(bootstrap: dict[str, Any], stato: dict | None) -> list[str]:
+    """La busta di bootstrap ha quei campi e nessun altro.
+
+    Il confronto generale gia' pretende che dichiarato e osservato coincidano,
+    e questo controllo non lo duplica: fissa lo schema in un **elenco chiuso**
+    dentro il manifesto, invece di lasciarlo alla struttura censita.
+    La differenza conta perche' la struttura si rigenera dal binario, e
+    rigenerandola un campo aggiunto entrerebbe nel contratto insieme al codice
+    che lo ha introdotto. Qui no: `schema_esatto` e' scritto a mano, e un campo
+    in piu' e' rosso finche' qualcuno non decide di aggiungerlo li'.
+    E' la difesa che una busta letta prima della negoziazione richiede: chi la
+    consuma non sa ancora con che cosa sta parlando, e non ha una versione su
+    cui appoggiarsi per capire che cosa sia cambiato.
+    """
+    atteso = set(bootstrap["schema_esatto"])
+    problemi: list[str] = []
+
+    dichiarati = set(bootstrap["struttura"])
+    if dichiarati != atteso:
+        problemi.append(
+            "busta di bootstrap: `schema_esatto` dice "
+            f"{sorted(atteso)} e la struttura dichiara {sorted(dichiarati)}"
+        )
+    for percorso, voce in bootstrap["struttura"].items():
+        if voce["tipi"] != ["string"] or not voce["sempre"]:
+            problemi.append(
+                f"busta di bootstrap: «{percorso}» dev'essere una stringa "
+                f"sempre presente, ed e' {voce['tipi']} sempre={voce['sempre']}"
+            )
+
+    if stato is None:
+        problemi.append(
+            "busta di bootstrap: nessun caso della matrice la produce, quindi "
+            "lo schema esatto non e' verificato su niente"
+        )
+        return problemi
+    osservati = set(stato["osservati"])
+    if osservati != atteso:
+        problemi.append(
+            f"busta di bootstrap: il binario emette {sorted(osservati)} e lo "
+            f"schema esatto dice {sorted(atteso)}"
+        )
+    return problemi
+
+
 def confronta(nome: str, dichiarata: dict[str, dict], stato: dict) -> list[str]:
     """I due versi, e la colonna `sempre`."""
     problemi: list[str] = []
@@ -519,8 +564,12 @@ def main(argv: list[str] | None = None) -> int:
     errore = manifesto.get("busta_degli_errori")
     if errore and "contract" in errore:
         dichiarate[errore["contract"]] = errore
-    for nome_riservato, voce in manifesto.get("buste_senza_contratto", {}).items():
-        dichiarate[f"senza-contratto:{nome_riservato}"] = voce
+    # La busta di bootstrap: `--version`, che non porta un contratto perche' si
+    # legge **prima** di sapere con quale protocollo si sta parlando.
+    bootstrap = manifesto.get("busta_di_bootstrap")
+    if bootstrap:
+        dichiarate["senza-contratto:--version"] = bootstrap
+        problemi.extend(_schema_esatto(bootstrap, per_busta.get("senza-contratto:--version")))
 
     for nome in sorted(set(per_busta) - set(dichiarate)):
         problemi.append(

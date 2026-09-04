@@ -207,10 +207,7 @@ class SondeDellaMatrice(unittest.TestCase):
             voce["contract"] for voce in manifesto["envelopes"].values()
         }
         dichiarate.add(manifesto["busta_degli_errori"]["contract"])
-        dichiarate |= {
-            f"senza-contratto:{nome}"
-            for nome in manifesto.get("buste_senza_contratto", {})
-        }
+        dichiarate.add("senza-contratto:--version")
         for caso in gate.MATRICE:
             with self.subTest(caso=caso["nome"]):
                 self.assertIn(caso["busta"], dichiarate)
@@ -220,10 +217,7 @@ class SondeDellaMatrice(unittest.TestCase):
         manifesto = json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
         dichiarate = {voce["contract"] for voce in manifesto["envelopes"].values()}
         dichiarate.add(manifesto["busta_degli_errori"]["contract"])
-        dichiarate |= {
-            f"senza-contratto:{nome}"
-            for nome in manifesto.get("buste_senza_contratto", {})
-        }
+        dichiarate.add("senza-contratto:--version")
         prodotte = {caso["busta"] for caso in gate.MATRICE}
         self.assertEqual(dichiarate - prodotte, set())
 
@@ -234,8 +228,7 @@ class SondeDelManifesto(unittest.TestCase):
         for nome, voce in manifesto["envelopes"].items():
             yield nome, voce["struttura"]
         yield "busta_degli_errori", manifesto["busta_degli_errori"]["struttura"]
-        for nome, voce in manifesto["buste_senza_contratto"].items():
-            yield nome, voce["struttura"]
+        yield "busta_di_bootstrap", manifesto["busta_di_bootstrap"]["struttura"]
 
     def test_ogni_busta_ha_una_struttura(self) -> None:
         nomi = [nome for nome, _ in self.strutture()]
@@ -279,6 +272,84 @@ class SondeDelManifesto(unittest.TestCase):
                     self.assertTrue(voce["tipi"], f"{percorso} senza tipi")
                     self.assertEqual(set(voce["tipi"]) - ammessi, set())
                     self.assertIsInstance(voce["sempre"], bool)
+
+
+class SondeDelBootstrap(unittest.TestCase):
+    """`--version` si legge **prima** di sapere con che cosa si sta parlando.
+
+    Per questo il suo schema e' chiuso e scritto a mano invece che censito dal
+    binario: la struttura si rigenera, e rigenerandola un campo aggiunto
+    entrerebbe nel contratto insieme al codice che lo ha introdotto. Chi
+    consuma questa busta non ha una versione su cui appoggiarsi per capire che
+    cosa sia cambiato, quindi un campo in piu' gli rompe il parser tanto quanto
+    uno in meno.
+    """
+
+    def bootstrap(self, **modifiche):
+        voce = {
+            "schema_esatto": [".status", ".version"],
+            "struttura": {
+                ".status": {"tipi": ["string"], "sempre": True},
+                ".version": {"tipi": ["string"], "sempre": True},
+            },
+        }
+        voce.update(modifiche)
+        return voce
+
+    def stato(self, percorsi):
+        return {"osservati": {p: {"string"} for p in percorsi}, "in_tutte": set(percorsi)}
+
+    def test_lo_schema_reale_e_coerente(self) -> None:
+        """La controprova positiva, sul manifesto vero."""
+        manifesto = json.loads(gate.CONTRATTO.read_text(encoding="utf-8"))
+        voce = manifesto["busta_di_bootstrap"]
+        self.assertEqual(
+            gate._schema_esatto(voce, self.stato(voce["schema_esatto"])), []
+        )
+
+    def test_un_campo_in_piu_sul_binario_e_rosso(self) -> None:
+        problemi = gate._schema_esatto(
+            self.bootstrap(), self.stato([".status", ".version", ".contract"])
+        )
+        self.assertEqual(len(problemi), 1)
+        self.assertIn(".contract", problemi[0])
+
+    def test_un_campo_in_meno_sul_binario_e_rosso(self) -> None:
+        problemi = gate._schema_esatto(self.bootstrap(), self.stato([".status"]))
+        self.assertEqual(len(problemi), 1)
+        self.assertIn(".version", problemi[0])
+
+    def test_una_struttura_che_non_segue_lo_schema_e_rossa(self) -> None:
+        """I due elenchi vivono nello stesso file e possono divergere.
+
+        `schema_esatto` e' scritto a mano, `struttura` si rigenera: se il
+        secondo prendesse un campo che il primo non ha, il contratto direbbe
+        due cose diverse nella stessa pagina.
+        """
+        voce = self.bootstrap()
+        voce["struttura"][".contract"] = {"tipi": ["string"], "sempre": True}
+        problemi = gate._schema_esatto(
+            voce, self.stato([".status", ".version", ".contract"])
+        )
+        self.assertTrue(any("schema_esatto" in p for p in problemi), problemi)
+
+    def test_un_campo_condizionale_o_non_stringa_e_rosso(self) -> None:
+        """Una busta letta prima della negoziazione non puo' avere campi che
+        a volte ci sono."""
+        for guasto in ({"tipi": ["string"], "sempre": False}, {"tipi": ["string", "null"], "sempre": True}):
+            with self.subTest(guasto=guasto):
+                voce = self.bootstrap()
+                voce["struttura"][".version"] = guasto
+                problemi = gate._schema_esatto(
+                    voce, self.stato([".status", ".version"])
+                )
+                self.assertTrue(any(".version" in p for p in problemi), problemi)
+
+    def test_una_busta_mai_prodotta_dalla_matrice_e_rossa(self) -> None:
+        """Uno schema esatto verificato su niente non e' verificato."""
+        problemi = gate._schema_esatto(self.bootstrap(), None)
+        self.assertEqual(len(problemi), 1)
+        self.assertIn("nessun caso della matrice", problemi[0])
 
 
 if __name__ == "__main__":

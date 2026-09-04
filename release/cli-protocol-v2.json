@@ -2,7 +2,7 @@
   "manifest_version": 1,
   "component": "plenora-IO-tools",
   "protocol_version": 2,
-  "status": "in_qualifica",
+  "status": "ratificato",
   "compatibility_scope": "cli_json_only",
   "perche_una_versione_nuova": "il v1 e' congelato (`status: frozen_for_1_0`) e le sue regole dicono che cambiare il tipo o il significato di un campo obbligatorio richiede una versione nuova. Il v2 fa esattamente questo su `counts` e su `reasons[].detail`: il primo acquista un tetto e una forma diversa, il secondo perde gli identificatori che vengono dal file. Chiamarlo v1 con qualche correzione avrebbe prodotto un protocollo che si presenta come v1 e ne cambia il significato, cioe' la rottura che l'ICD esiste per impedire.",
   "che_cosa_risolve": "nel v1 la cardinalita' e la dimensione della diagnostica le decide chi fornisce il file: `counts` non ha tetto, nessuna stringa ha un limite in byte, e `reasons[].detail` porta nomi di layer e di attributo piu' la forma `Debug` di tipi di una dipendenza -- che puo' cambiare sotto di noi senza che nessuno tocchi il protocollo.",
@@ -108,6 +108,33 @@
     "tipi_di_dipendenza": "il tipo di un attributo passa da un vocabolario **nostro** chiuso, mai dalla forma `Debug` di un tipo di dipendenza. Nel v2 quella forma non e' piu' sul filo: `type_class` porta una classe del nostro vocabolario chiuso, e un aggiornamento della dipendenza non puo' piu' cambiare la busta senza che nessuno tocchi il protocollo. Nel v1 resta, perche' il v1 e' congelato e i suoi `detail` sono conservati alla lettera: e' uno dei difetti che si sceglie esplicitamente selezionandolo.",
     "autorita": "il codice strutturato e' autorevole. L'eventuale testo e' descrittivo e stabile, e non e' un campo su cui costruire un parser.",
     "come_convive_col_v1": "il v1 e' congelato e i suoi `detail` restano quelli che erano, **alla lettera**: la frase non si ricostruisce dai pezzi, si conserva. Vive in un campo privato e `#[serde(skip)]` di `FidelityReason`, popolato solo nelle sessantaquattro copie che il v1 pubblica e mai in quelle che il v2 trattiene -- quella stringa porta nomi presi dal file, quindi la sua lunghezza la decide chi fornisce il file, e la struttura che serve il v2 non la contiene affatto. A leggerla e' il solo `mod legacy_v1`, e `check_confine_v1.py` pretende che i lettori restino quelli. E' lo stesso disegno della chiave dinamica di DXF."
+  },
+  "busta_di_bootstrap": {
+    "comando": "--version",
+    "stato": "ratificata",
+    "fuori_dal_protocollo_v2": "non e' una busta v2 e non ne porta la versione. La scoperta della versione **precede** la negoziazione del protocollo: un consumatore che non sa ancora con quale versione sta parlando non puo' pretendere che la prima risposta sia gia' scritta nella grammatica di una di esse. Percio' `--version` non dichiara `contract` ne' `protocol_version`, e non e' una mancanza: e' cio' che le permette di restare stabile mentre le buste v2 evolvono.",
+    "chi_dice_il_resto": "`catalog` porta `contract` e `protocol_version`, e il manifesto dell'artefatto distribuito porta gli stessi due dati fuori dal processo. Un consumatore che ha bisogno di negoziare li prende da li'; `--version` gli dice soltanto che binario ha in mano, che e' esattamente cio' che serve prima di chiedere altro.",
+    "schema_esatto": [
+      ".status",
+      ".version"
+    ],
+    "regola": "**esattamente** questi due campi, entrambi stringhe, entrambi sempre presenti. Ne' uno in meno ne' uno in piu': una busta che deve poter essere letta prima di sapere con che cosa si sta parlando non puo' permettersi campi condizionali, e un campo aggiunto romperebbe un parser posizionale tanto quanto uno tolto. Il gate delle buste la esercita sul binario reale e confronta l'insieme, non un minimo.",
+    "storia": "fino al 2026-09-04 questa busta non era censita da nessuna parte: e' JSON su stdout come le altre, e il manifesto non la nominava. Il censimento delle buste l'ha trovata, e la sua assenza di `contract` e' stata riportata come un difetto da decidere. La decisione e' stata di **non** cambiare il wire e di dichiararla per quello che e': una busta di bootstrap separata dal protocollo, non una busta v2 a cui manchino due campi.",
+    "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
+    "struttura": {
+      ".status": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      },
+      ".version": {
+        "tipi": [
+          "string"
+        ],
+        "sempre": true
+      }
+    }
   },
   "envelopes": {
     "catalog": {
@@ -2540,29 +2567,6 @@
       "perche_ora": "il lotto S10 valida i metadati GeoParquet per intero e fissa il perimetro a 1.0.0 e 1.1.0. Un perimetro che il codice applica e il catalogo non dichiara e' un perimetro che il consumatore scopre quando un file gli viene rifiutato."
     }
   ],
-  "buste_senza_contratto": {
-    "--version": {
-      "stato": "censita, non ratificata",
-      "struttura_nota": "ogni percorso che la busta emette, con i tipi JSON osservati e se compaia in **ogni** busta di questo contratto. `[]` sta per l'elemento di un array: il contratto parla del tipo dell'elemento, non della sua posizione. Confrontata col binario da `scripts/check_buste_v2.py`, che esegue la CLI e legge cio' che esce dai due flussi.",
-      "struttura": {
-        ".status": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        },
-        ".version": {
-          "tipi": [
-            "string"
-          ],
-          "sempre": true
-        }
-      },
-      "che_cos_e": "`plenora-io --version` scrive su stdout `{status, version}` ed esce con zero. E' JSON sullo stesso flusso delle altre buste, quindi cade dentro `compatibility_scope: cli_json_only`.",
-      "il_difetto": "non dichiara ne' `contract` ne' `protocol_version`. E' l'unica busta della CLI che non dica di che cosa e', e un consumatore non ha modo di versionarla: se un giorno cambiasse forma, nessun campo del documento glielo direbbe. Trovato censendo le buste il 2026-09-04.",
-      "perche_non_e_stato_corretto_qui": "aggiungere i due campi cambierebbe il wire, e la ratifica esiste per **descrivere** il wire, non per adattarlo al documento. Chi oggi legge `--version` legge due chiavi, e una terza le romperebbe il parser tanto quanto una in meno. La correzione e' una decisione di prodotto, e va presa sapendo che cambia una superficie pubblica."
-    }
-  },
   "ratifica_delle_buste": {
     "data": "2026-09-04",
     "che_cosa_e_cambiato": "il manifesto descriveva il **primo livello** di ciascuna busta -- per `read`, nove chiavi -- e sotto quelle chiavi non diceva niente. Ora ciascuna dichiara ogni percorso che emette, il tipo e se ci sia sempre.",
@@ -2578,5 +2582,23 @@
       "nessuna busta dichiarava la propria struttura annidata.",
       "`--version` emette una busta JSON su stdout che il manifesto non nominava, e che non dichiara ne' contratto ne' versione di protocollo."
     ]
+  },
+  "stato_del_manifesto": {
+    "vocabolario": [
+      "in_qualifica",
+      "ratificato"
+    ],
+    "in_qualifica": "il protocollo e' implementato e descritto, e parte di cio' che il manifesto afferma e' ancora **prosa**: vera forse, e non confrontata con niente.",
+    "ratificato": "ogni affermazione del manifesto sul comportamento e' confrontata con il codice o con il binario da un gate, e non ne resta nessuna che si regga sulla sola rilettura. E' un'affermazione **locale**, e lo dice il campo qui sotto.",
+    "condizioni": [
+      "gli undici limiti della diagnostica hanno una costante nel codice, e nessuna costante del budget resta taciuta -- `scripts/check_protocollo_v2.py`;",
+      "le tre clausole di comportamento sono ricavate dal codice e confrontate, non ripetute -- lo stesso gate;",
+      "ogni sonda nominata dal manifesto esiste, e nessuna esiste senza essere nominata -- lo stesso gate;",
+      "ogni busta dichiara la propria struttura completa, confrontata con cio' che il binario emette, nei due versi -- `scripts/check_buste_v2.py`;",
+      "la busta di bootstrap e' dichiarata e il suo schema esatto e' verificato -- lo stesso gate."
+    ],
+    "cosa_non_afferma": "l'accettazione **esterna**. `qualifica.esterna` resta quella che era: plenora-contracts/conformance non ha accettato questo protocollo, e il bloccante `sistema.qualifica-cross-component` e' ancora aperto con un owner fuori da questo repository. «Ratificato» dice che il manifesto non contiene piu' affermazioni che nessuno confronta -- non che qualcun altro lo abbia approvato.",
+    "come_si_torna_indietro": "aggiungendo al manifesto un'affermazione di comportamento che nessun gate confronta. Non e' un'operazione da fare in silenzio: lo stato torna `in_qualifica`, e la clausola nuova dice che cosa manca.",
+    "il_v1_non_e_toccato": "`release/cli-protocol-v1.json` resta `frozen_for_1_0` e byte per byte quello che era. La ratifica riguarda il v2; il v1 e' congelato, e restare congelato e' la sua sola promessa."
   }
 }

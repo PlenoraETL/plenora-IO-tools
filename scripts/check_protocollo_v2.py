@@ -122,6 +122,95 @@ IDENTITA = {
     "compatibility_scope": "cli_json_only",
 }
 
+#: I due stati che il manifesto puo' dichiarare, e nient'altro.
+#:
+#: `frozen_for_1_0` e' del v1 ed e' rifiutato a parte, con la propria ragione:
+#: e' l'errore che si fa copiando l'intestazione dell'altro documento.
+STATI = ("in_qualifica", "ratificato")
+
+
+def stato_del_manifesto(manifesto: dict[str, Any]) -> list[str]:
+    """`ratificato` e' un'affermazione, e ha delle condizioni.
+
+    # Perche' non basta cambiare la stringa
+
+    Prima di questo controllo `status` non lo guardava nessuno: era una parola
+    che chiunque poteva riscrivere, e «ratificato» avrebbe voluto dire quel che
+    voleva dire chi l'aveva scritta.
+
+    Cio' che qui si pretende sono le condizioni **strutturali** che rendono
+    significativi i gate, non i gate stessi: che ogni busta abbia una struttura
+    da confrontare, che la busta di bootstrap abbia il proprio schema chiuso,
+    che le condizioni siano scritte e non sottintese. Che quei confronti siano
+    poi verdi lo dicono `check_protocollo_v2` e `check_buste_v2` eseguendoli, e
+    il contratto di rilascio li esegue entrambi.
+
+    La divisione e' voluta: questo dice che c'e' qualcosa da confrontare,
+    quelli che il confronto torna. Metterle insieme darebbe all'una il credito
+    dell'altra.
+
+    # E che cosa `ratificato` **non** dice
+
+    L'accettazione esterna. Il manifesto deve continuare a dichiarare che non la
+    afferma: un documento che si dicesse ratificato senza quella riga si
+    leggerebbe come approvato da qualcuno, e nessuno lo ha approvato.
+    """
+    errori: list[str] = []
+    stato = manifesto.get("status")
+    if stato not in STATI:
+        if stato != "frozen_for_1_0":
+            errori.append(
+                f"cli-protocol-v2: `status` e' {stato!r}, fuori da {list(STATI)}."
+            )
+        return errori
+    if stato != "ratificato":
+        return errori
+
+    dichiarazione = manifesto.get("stato_del_manifesto")
+    if not isinstance(dichiarazione, dict):
+        return errori + [
+            "cli-protocol-v2: `status: ratificato` senza `stato_del_manifesto`: "
+            "la ratifica e' un'affermazione, e le sue condizioni vanno scritte."
+        ]
+    if list(dichiarazione.get("vocabolario", [])) != list(STATI):
+        errori.append(
+            "cli-protocol-v2: `stato_del_manifesto.vocabolario` diverso dagli "
+            f"stati che il gate conosce ({list(STATI)})."
+        )
+    if not dichiarazione.get("condizioni"):
+        errori.append(
+            "cli-protocol-v2: una ratifica senza condizioni scritte non si "
+            "puo' revocare, perche' nessuno sa che cosa dovrebbe venire meno."
+        )
+    if not str(dichiarazione.get("cosa_non_afferma", "")).strip():
+        errori.append(
+            "cli-protocol-v2: `ratificato` deve dire che **non** afferma "
+            "l'accettazione esterna. Senza quella riga si legge come approvato "
+            "da qualcuno, e nessuno lo ha approvato."
+        )
+
+    bootstrap = manifesto.get("busta_di_bootstrap")
+    if not isinstance(bootstrap, dict) or not bootstrap.get("schema_esatto"):
+        errori.append(
+            "cli-protocol-v2: `ratificato` senza una busta di bootstrap con "
+            "schema esatto. `--version` esce su stdout come le altre, e una "
+            "busta non censita e' cio' che la ratifica esiste per escludere."
+        )
+    for nome, voce in (manifesto.get("envelopes") or {}).items():
+        if not voce.get("struttura"):
+            errori.append(
+                f"cli-protocol-v2: `ratificato` e la busta «{nome}» non "
+                "dichiara la propria struttura: il primo livello da solo non "
+                "descrive cio' che un consumatore deve leggere."
+            )
+    if not (manifesto.get("busta_degli_errori") or {}).get("struttura"):
+        errori.append(
+            "cli-protocol-v2: `ratificato` e la busta d'errore non dichiara la "
+            "propria struttura."
+        )
+    return errori
+
+
 CONST_USIZE = re.compile(r"^pub const ([A-Z][A-Z0-9_]*): usize = ([^;]+);", re.M)
 SONDA = re.compile(r"#\[test\]\s*\n\s*fn ([a-z_][a-z0-9_]*)\s*\(")
 
@@ -1152,6 +1241,7 @@ def verifica(
             "cli-protocol-v2: `status` congelato come il v1. Il v2 e' in qualifica, e "
             "dichiararlo congelato prometterebbe una stabilita' che nessuno ha ratificato."
         )
+    errori.extend(stato_del_manifesto(manifesto))
 
     limiti = manifesto.get("limiti_della_diagnostica")
     if not isinstance(limiti, dict):

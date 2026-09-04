@@ -292,6 +292,146 @@ class LIdentitaDelManifesto(unittest.TestCase):
         self.assertTrue(any("status" in e for e in esito(manifesto)))
 
 
+
+class LoStatoDelManifesto(unittest.TestCase):
+    """`ratificato` e' un'affermazione, e ha delle condizioni.
+
+    Prima di questa tranche `status` non lo guardava nessuno: era una parola che
+    chiunque poteva riscrivere, e «ratificato» avrebbe voluto dire quel che
+    voleva dire chi l'aveva scritta.
+    """
+
+    def ratificato(self, **modifiche):
+        """Un manifesto sano che si dichiara ratificato, e regge."""
+        manifesto = copy.deepcopy(MANIFESTO_SANO)
+        manifesto["status"] = "ratificato"
+        manifesto["stato_del_manifesto"] = {
+            "vocabolario": list(gate.STATI),
+            "condizioni": ["una condizione scritta"],
+            "cosa_non_afferma": "l'accettazione esterna",
+        }
+        manifesto["busta_di_bootstrap"] = {"schema_esatto": [".status", ".version"]}
+        manifesto["envelopes"] = {"read": {"struttura": {".status": {}}}}
+        manifesto["busta_degli_errori"] = {"struttura": {".status": {}}}
+        manifesto.update(modifiche)
+        return manifesto
+
+    # --- le due controprove positive --------------------------------------
+
+    def test_una_ratifica_completa_e_verde(self):
+        """Senza, «sempre rosso» sarebbe una difesa."""
+        self.assertEqual(gate.stato_del_manifesto(self.ratificato()), [])
+
+    def test_in_qualifica_non_pretende_niente_di_tutto_questo(self):
+        """Le condizioni sono della ratifica, non del manifesto in generale.
+
+        Un manifesto in qualifica **puo'** non avere ancora la struttura delle
+        buste: e' la condizione da cui la ratifica lo fa uscire, e pretenderla
+        prima renderebbe impossibile lo stato che descrive il lavoro in corso.
+        """
+        self.assertEqual(gate.stato_del_manifesto(MANIFESTO_SANO), [])
+
+    # --- i modi di dichiararsi ratificato senza esserlo --------------------
+
+    def test_uno_stato_fuori_vocabolario_e_rosso(self):
+        manifesto = copy.deepcopy(MANIFESTO_SANO)
+        manifesto["status"] = "quasi-ratificato"
+        errori = gate.stato_del_manifesto(manifesto)
+        self.assertTrue(any("fuori da" in e for e in errori), errori)
+
+    def test_congelato_resta_il_rosso_che_era(self):
+        """`frozen_for_1_0` ha gia' la propria ragione, e non dev'essere
+        assorbito nel rosso generico del vocabolario: e' l'errore che si fa
+        copiando l'intestazione del v1, e il messaggio deve dirlo."""
+        manifesto = copy.deepcopy(MANIFESTO_SANO)
+        manifesto["status"] = "frozen_for_1_0"
+        self.assertEqual(gate.stato_del_manifesto(manifesto), [])
+        self.assertTrue(any("congelato" in e for e in esito(manifesto)))
+
+    def test_una_ratifica_senza_condizioni_scritte_e_rossa(self):
+        """Una ratifica senza condizioni non si puo' revocare: nessuno sa che
+        cosa dovrebbe venire meno."""
+        for vuoto in ({}, {"condizioni": []}):
+            with self.subTest(caso=vuoto):
+                dichiarazione = {
+                    "vocabolario": list(gate.STATI),
+                    "condizioni": ["c"],
+                    "cosa_non_afferma": "x",
+                }
+                dichiarazione.update(vuoto)
+                errori = gate.stato_del_manifesto(
+                    self.ratificato(stato_del_manifesto=dichiarazione)
+                )
+                if vuoto:
+                    self.assertTrue(any("condizioni" in e for e in errori), errori)
+
+    def test_una_ratifica_senza_la_dichiarazione_e_rossa(self):
+        manifesto = self.ratificato()
+        del manifesto["stato_del_manifesto"]
+        errori = gate.stato_del_manifesto(manifesto)
+        self.assertTrue(any("stato_del_manifesto" in e for e in errori), errori)
+
+    def test_una_ratifica_che_tace_sull_accettazione_esterna_e_rossa(self):
+        """Il caso che conta piu' degli altri.
+
+        Un documento che si dicesse ratificato senza quella riga si leggerebbe
+        come approvato da qualcuno, e nessuno lo ha approvato: il bloccante
+        cross-component e' aperto e ha un owner fuori da questo repository.
+        """
+        for vuoto in ("", "   "):
+            with self.subTest(valore=vuoto):
+                errori = gate.stato_del_manifesto(
+                    self.ratificato(
+                        stato_del_manifesto={
+                            "vocabolario": list(gate.STATI),
+                            "condizioni": ["c"],
+                            "cosa_non_afferma": vuoto,
+                        }
+                    )
+                )
+                self.assertTrue(any("esterna" in e for e in errori), errori)
+
+    def test_un_vocabolario_diverso_da_quello_del_gate_e_rosso(self):
+        """Il manifesto non puo' inventare uno stato che il gate non conosce:
+        lo dichiarerebbe legittimo senza che nessuno ne verifichi le
+        condizioni."""
+        errori = gate.stato_del_manifesto(
+            self.ratificato(
+                stato_del_manifesto={
+                    "vocabolario": ["in_qualifica", "ratificato", "provvisorio"],
+                    "condizioni": ["c"],
+                    "cosa_non_afferma": "x",
+                }
+            )
+        )
+        self.assertTrue(any("vocabolario" in e for e in errori), errori)
+
+    def test_una_ratifica_senza_busta_di_bootstrap_e_rossa(self):
+        """`--version` esce su stdout come le altre, e una busta non censita e'
+        cio' che la ratifica esiste per escludere."""
+        manifesto = self.ratificato()
+        del manifesto["busta_di_bootstrap"]
+        errori = gate.stato_del_manifesto(manifesto)
+        self.assertTrue(any("bootstrap" in e for e in errori), errori)
+
+    def test_una_busta_senza_struttura_impedisce_la_ratifica(self):
+        errori = gate.stato_del_manifesto(
+            self.ratificato(envelopes={"read": {"required_top_level": ["status"]}})
+        )
+        self.assertTrue(any("read" in e and "struttura" in e for e in errori), errori)
+
+    def test_la_busta_degli_errori_senza_struttura_impedisce_la_ratifica(self):
+        errori = gate.stato_del_manifesto(
+            self.ratificato(busta_degli_errori={"contract": "plenora-io-error-v1"})
+        )
+        self.assertTrue(any("errore" in e for e in errori), errori)
+
+    # --- e il manifesto vero ----------------------------------------------
+
+    def test_il_manifesto_reale_regge_la_propria_ratifica(self):
+        self.assertEqual(gate.stato_del_manifesto(gate.contratto()), [])
+
+
 class IlRegistroDelleCategorie(unittest.TestCase):
     def test_un_tetto_divergente_dalla_costante_e_rosso(self):
         registro = {"limite_di_lunghezza_byte": NOTE_SANE["MAX_BYTE_ID_CATEGORIA"] + 1}
