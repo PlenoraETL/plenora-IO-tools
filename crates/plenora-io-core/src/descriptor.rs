@@ -260,18 +260,87 @@ pub enum CrsWriteSupport {
     None,
 }
 
+/// Da **che cosa** una rappresentazione CRS si ricava, quando si ricava.
+///
+/// # Perche' non basta dire «`Derived`»
+///
+/// Il censimento dei dieci driver, fatto il 2026-09-04, trova quattro origini
+/// diverse dietro la stessa parola:
+///
+/// | driver | rappresentazione ricavata | da |
+/// |---|---|---|
+/// | `shp`, `dxf` | `crs_id` | la definizione emessa nel file |
+/// | `geojson`, `kml` | `crs_id` | il CRS **fisso** del formato |
+/// | `gpkg` | `srid`, `crs_definition` | l'identificatore conservato |
+/// | `filegdb` | `crs_id`, `crs_definition` | il runtime GDAL |
+///
+/// Distinguerle non e' un abbellimento: una regola scritta sul solo `Derived`
+/// -- «se il writer non emette nulla di `Preserved`, ogni `Derived` decade ad
+/// `Absent`» -- e' **falsa**, perche' `geojson`, `kml` e `filegdb` hanno
+/// `Derived` senza alcun `Preserved` e la loro derivazione regge lo stesso.
+/// Applicarla inventerebbe una perdita di CRS su tre driver per correggerne
+/// uno.
+///
+/// # Che cosa non c'e', e perche'
+///
+/// Non c'e' una variante `FromSrid`: nessun driver del catalogo ricava una
+/// rappresentazione dall'SRID, e una provenienza che nessuno produce sarebbe
+/// una promessa senza emittente. Il giorno che un driver la usa, e' una riga.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrsDerivation {
+    /// Si ricava dalla **definizione** che il writer emette.
+    ///
+    /// Regge solo se una definizione viene davvero emessa per quel piano.
+    /// `synthesized_for` elenca gli identificatori per cui il writer la
+    /// produce comunque, anche quando il piano non ne porta una: e' il caso
+    /// «sintetizzata per un insieme chiuso di identificatori», e sta qui
+    /// invece che come variante sorella perche' non e' una provenienza a se' —
+    /// e' cio' che rende vera `FromDefinition` quando il WKT non arriva da
+    /// fuori.
+    FromDefinition {
+        synthesized_for: &'static [&'static str],
+    },
+    /// Si ricava dall'**identificatore** conservato nel file.
+    FromIdentifier,
+    /// La fissa il formato: e' disponibile per costruzione, sempre.
+    FixedByFormat,
+    /// La ricava il runtime che scrive il file, non il nostro codice.
+    RuntimeResolved,
+}
+
 /// Esito di una rappresentazione CRS presente nel contratto quando attraversa
 /// un writer.
 ///
 /// Solo `Preserved` conserva il valore sorgente in modo indipendente;
 /// `Derived` indica che il formato o il driver ricostruisce il valore da
-/// un'altra rappresentazione.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+/// un'altra rappresentazione, e **dice da quale**.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CrsRepresentationState {
     Preserved,
     Absent,
-    Derived,
+    Derived(CrsDerivation),
+}
+
+/// La serializzazione **non** porta la provenienza, ed e' una scelta.
+///
+/// Il catalogo emesso dalla CLI descrive la capability **statica** del
+/// formato: `crs_id: "derived"` per lo Shapefile resta vero: l'identificatore
+/// si ricava dal `.prj` che quel driver scrive. Cio' che la provenienza
+/// raffina e' il verdetto **per piano**, e quello vive nel `LossReport`, che
+/// ha gia' il proprio vocabolario chiuso.
+///
+/// Aggiungere qui una chiave nuova sarebbe una modifica del filo presa mentre
+/// il protocollo v2 sta per essere ratificato, cioe' nel momento peggiore:
+/// congelerebbe una classificazione che stiamo ancora correggendo. Se la
+/// provenienza deve diventare pubblica, e' una decisione a se', dopo.
+impl Serialize for CrsRepresentationState {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(match self {
+            Self::Preserved => "preserved",
+            Self::Absent => "absent",
+            Self::Derived(_) => "derived",
+        })
+    }
 }
 
 /// Capability generale del writer per le tre rappresentazioni CRS del
@@ -711,6 +780,13 @@ impl FormatDescriptor {
     /// cambiando un campo solo. L'alternativa sarebbe riesporre il campo —
     /// cioe' togliere l'invariante per comodita' di un test, che e' il modo in
     /// cui un'invariante smette di valere.
+    /// `FormatWriteCapabilities` ha passato i 256 byte da quando le
+    /// rappresentazioni del CRS portano la propria provenienza. Il tipo e'
+    /// `Copy` e questo costruttore esiste solo dentro `cfg(test)`: la copia
+    /// avviene una volta per test, mentre passarlo per riferimento
+    /// obbligherebbe a un `&Option<_>` -- che e' il rilievo successivo, non
+    /// un miglioramento.
+    #[allow(clippy::large_types_passed_by_value)]
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn con_write_capabilities(

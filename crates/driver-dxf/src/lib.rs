@@ -42,7 +42,7 @@ use plenora_io_core::publish::{create_staged_file, publish_file_atomic_limited};
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, read_row_error, validate_write,
-    with_write_validation, write_row_rejection, AttributeWriteSupport,
+    with_write_validation, write_row_rejection, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
@@ -157,6 +157,12 @@ fn resolve_dxf_crs(drawing: &Drawing, options: &ReadOptions) -> Result<ResolvedC
     Ok(ResolvedCrs::new(Some(id), kind, Some(definition)))
 }
 
+/// Gli identificatori per cui il writer sintetizza la definizione.
+///
+/// Una lista sola, usata da `definition_for_write`, che la scrive nel
+/// `GEODATA`, e dalla capability `crs_id`, che la dichiara.
+pub const CRS_CON_DEFINIZIONE_SINTETIZZATA: &[&str] = &["EPSG:4326", "OGC:CRS84"];
+
 fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
     let resolved = geometry.resolved_crs().ok_or_else(|| {
         PlenoraIoError::crs_redatto(&PublicMessage::Curated(
@@ -169,7 +175,7 @@ fn definition_for_write(geometry: &GeometryColumnContract) -> Result<String> {
         }
     }
     match resolved.id.as_deref() {
-        Some("EPSG:4326" | "OGC:CRS84") => Ok(WGS84_ESRI_WKT.to_owned()),
+        Some(id) if CRS_CON_DEFINIZIONE_SINTETIZZATA.contains(&id) => Ok(WGS84_ESRI_WKT.to_owned()),
         // L'identificativo non esce: viene dal contratto, che chi legge
         // l'errore ha gia'.
         Some(_) => Err(PlenoraIoError::crs_redatto(&PublicMessage::Curated(
@@ -229,7 +235,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         geometry: WKB_XY_XYZ_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
-            CrsRepresentationState::Derived,
+            // L'identificatore si rilegge dal GEODATA incorporato. A
+            // differenza dello Shapefile, un piano che non porta ne' WKT ne'
+            // un identificatore sintetizzabile viene **rifiutato** invece che
+            // scritto senza: quando la scrittura avviene, la definizione c'e'.
+            CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
+                synthesized_for: CRS_CON_DEFINIZIONE_SINTETIZZATA,
+            }),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Preserved,
         ),

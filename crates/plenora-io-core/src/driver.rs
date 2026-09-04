@@ -29,7 +29,7 @@ use plenora_io_model::{
 use plenora_io_model::{ContractIdentifier, IoErrorCode, NumeroStrutturale, PublicMessage};
 
 use crate::descriptor::{
-    ArrowTypeClass, AttributeWriteSupport, CrsRepresentationState, FormatDescriptor,
+    ArrowTypeClass, AttributeWriteSupport, CrsDerivation, CrsRepresentationState, FormatDescriptor,
     GeometryWriteSupport, NullabilitySupport, TypeCoercionPolicy,
 };
 use crate::loss::{FidelityAssessment, FidelityReasonCode, LossExample, LossReport, Posizione};
@@ -972,6 +972,13 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                 }
                 CrsResolution::Missing => (None, None),
             };
+            // Le capability dicono da dove ogni rappresentazione si ricava;
+            // il piano dice se quella fonte c'e'. Il verdetto e' l'incrocio
+            // dei due, e si calcola una volta sola per layer.
+            let fonti = FontiDelPiano {
+                crs_id,
+                crs_definition,
+            };
             record_crs_representation_loss(
                 &mut loss,
                 Posizione {
@@ -981,7 +988,7 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                 },
                 RappresentazioneDelCrs::CrsId,
                 crs_id.map(str::len),
-                capabilities.crs_representations.crs_id,
+                stato_per_il_piano(capabilities.crs_representations.crs_id, &fonti),
             );
             record_crs_representation_loss(
                 &mut loss,
@@ -992,7 +999,7 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                 },
                 RappresentazioneDelCrs::Srid,
                 geometry.srid.map(|srid| srid.to_string().len()),
-                capabilities.crs_representations.srid,
+                stato_per_il_piano(capabilities.crs_representations.srid, &fonti),
             );
             record_crs_representation_loss(
                 &mut loss,
@@ -1003,7 +1010,7 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
                 },
                 RappresentazioneDelCrs::CrsDefinition,
                 crs_definition.map(str::len),
-                capabilities.crs_representations.crs_definition,
+                stato_per_il_piano(capabilities.crs_representations.crs_definition, &fonti),
             );
         }
 
@@ -1045,6 +1052,55 @@ fn planned_write_loss(descriptor: &FormatDescriptor, plan: &WritePlan) -> LossRe
     loss
 }
 
+/// Le fonti che il **piano** mette a disposizione della derivazione.
+///
+/// Non e' il CRS: e' la risposta alle due domande che una provenienza pone --
+/// «c'e' una definizione da emettere?» e «c'e' un identificatore da cui
+/// ricavare?». L'SRID non entra perche' nessun driver deriva da lui.
+struct FontiDelPiano<'a> {
+    crs_id: Option<&'a str>,
+    crs_definition: Option<&'a str>,
+}
+
+/// Il writer produce comunque una definizione per questo identificatore.
+fn definizione_sintetizzabile(id: Option<&str>, ammessi: &[&str]) -> bool {
+    id.is_some_and(|id| ammessi.contains(&id))
+}
+
+/// Lo stato di una rappresentazione **per questo piano**.
+///
+/// `Derived` e' una promessa condizionata, non un fatto: dice che la
+/// rappresentazione si ricava da un'altra cosa, e regge solo se quella cosa
+/// c'e'. Quando non c'e', la rappresentazione non e' ricavabile e lo stato
+/// onesto e' `Absent` -- che produce una categoria di perdita **diversa**, e
+/// piu' severa, di quella derivata: chi legge `..._derived` va a cercare nel
+/// file un valore che nessuno ha scritto.
+///
+/// Il raffinamento e' per provenienza, mai per driver: `FixedByFormat` e
+/// `RuntimeResolved` non dipendono dal piano e non decadono mai, ed e' per
+/// questo che `geojson`, `kml` e `filegdb` non si muovono.
+fn stato_per_il_piano(
+    stato: CrsRepresentationState,
+    fonti: &FontiDelPiano,
+) -> CrsRepresentationState {
+    let CrsRepresentationState::Derived(derivazione) = stato else {
+        return stato;
+    };
+    let disponibile = match derivazione {
+        CrsDerivation::FromDefinition { synthesized_for } => {
+            fonti.crs_definition.is_some()
+                || definizione_sintetizzabile(fonti.crs_id, synthesized_for)
+        }
+        CrsDerivation::FromIdentifier => fonti.crs_id.is_some(),
+        CrsDerivation::FixedByFormat | CrsDerivation::RuntimeResolved => true,
+    };
+    if disponibile {
+        stato
+    } else {
+        CrsRepresentationState::Absent
+    }
+}
+
 /// Quale delle tre rappresentazioni del CRS non e' stata preservata.
 ///
 /// Un tipo e non una stringa: la categoria di perdita che ne esce e' una
@@ -1074,13 +1130,13 @@ impl RappresentazioneDelCrs {
         match (self, stato) {
             (_, CrsRepresentationState::Preserved) => None,
             (Self::CrsId, CrsRepresentationState::Absent) => Some(CRS_ID_NOT_PRESERVED_ABSENT),
-            (Self::CrsId, CrsRepresentationState::Derived) => Some(CRS_ID_NOT_PRESERVED_DERIVED),
+            (Self::CrsId, CrsRepresentationState::Derived(_)) => Some(CRS_ID_NOT_PRESERVED_DERIVED),
             (Self::Srid, CrsRepresentationState::Absent) => Some(SRID_NOT_PRESERVED_ABSENT),
-            (Self::Srid, CrsRepresentationState::Derived) => Some(SRID_NOT_PRESERVED_DERIVED),
+            (Self::Srid, CrsRepresentationState::Derived(_)) => Some(SRID_NOT_PRESERVED_DERIVED),
             (Self::CrsDefinition, CrsRepresentationState::Absent) => {
                 Some(CRS_DEFINITION_NOT_PRESERVED_ABSENT)
             }
-            (Self::CrsDefinition, CrsRepresentationState::Derived) => {
+            (Self::CrsDefinition, CrsRepresentationState::Derived(_)) => {
                 Some(CRS_DEFINITION_NOT_PRESERVED_DERIVED)
             }
         }
@@ -2856,6 +2912,83 @@ mod tests {
         assert!(reader.loss_report().is_empty());
     }
 
+    /// Una derivazione decade **solo** quando manca la fonte che la nomina.
+    ///
+    /// Le quattro provenienze si comportano in modo diverso davanti allo
+    /// stesso piano, ed e' l'unica cosa che le distingue: chi non dipende dal
+    /// piano -- il CRS fisso del formato, il runtime che scrive -- non decade
+    /// mai. Provarlo qui, sulla regola nuda, chiude anche gli angoli che
+    /// nessuna conversione della CLI raggiunge: `gpkg` con un piano che porta
+    /// un SRID e non l'identificatore da cui `gpkg` lo ricaverebbe.
+    #[test]
+    fn una_derivazione_decade_solo_quando_le_manca_la_fonte() {
+        const SINTETIZZABILI: &[&str] = &["EPSG:4326"];
+        let da_definizione = CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
+            synthesized_for: SINTETIZZABILI,
+        });
+        let da_identificatore = CrsRepresentationState::Derived(CrsDerivation::FromIdentifier);
+        let dal_formato = CrsRepresentationState::Derived(CrsDerivation::FixedByFormat);
+        let dal_runtime = CrsRepresentationState::Derived(CrsDerivation::RuntimeResolved);
+
+        let nudo = FontiDelPiano {
+            crs_id: Some("EPSG:3003"),
+            crs_definition: None,
+        };
+        let con_definizione = FontiDelPiano {
+            crs_id: Some("EPSG:3003"),
+            crs_definition: Some("PROJCS[...]"),
+        };
+        let sintetizzabile = FontiDelPiano {
+            crs_id: Some("EPSG:4326"),
+            crs_definition: None,
+        };
+        let senza_niente = FontiDelPiano {
+            crs_id: None,
+            crs_definition: None,
+        };
+
+        // Dalla definizione: il caso dello Shapefile, in tutte e tre le forme.
+        assert_eq!(
+            stato_per_il_piano(da_definizione, &nudo),
+            CrsRepresentationState::Absent,
+            "senza definizione da emettere non c'e' niente da cui derivare"
+        );
+        assert_eq!(
+            stato_per_il_piano(da_definizione, &con_definizione),
+            da_definizione
+        );
+        assert_eq!(
+            stato_per_il_piano(da_definizione, &sintetizzabile),
+            da_definizione
+        );
+
+        // Dall'identificatore: il caso del GeoPackage, compreso l'angolo in cui
+        // il piano porta l'SRID e non l'identificatore.
+        assert_eq!(
+            stato_per_il_piano(da_identificatore, &nudo),
+            da_identificatore
+        );
+        assert_eq!(
+            stato_per_il_piano(da_identificatore, &senza_niente),
+            CrsRepresentationState::Absent
+        );
+
+        // I due che non dipendono dal piano: i controesempi alla regola
+        // sbagliata, e non si muovono nemmeno davanti a un piano vuoto.
+        for stato in [dal_formato, dal_runtime] {
+            assert_eq!(stato_per_il_piano(stato, &senza_niente), stato);
+            assert_eq!(stato_per_il_piano(stato, &nudo), stato);
+        }
+
+        // Gli stati che non sono derivazioni non li tocca nessuno.
+        for stato in [
+            CrsRepresentationState::Preserved,
+            CrsRepresentationState::Absent,
+        ] {
+            assert_eq!(stato_per_il_piano(stato, &senza_niente), stato);
+        }
+    }
+
     #[test]
     fn write_loss_names_each_non_preserved_crs_representation_and_state() {
         let mut loss = LossReport::default();
@@ -2868,7 +3001,7 @@ mod tests {
             },
             RappresentazioneDelCrs::CrsId,
             Some(9),
-            CrsRepresentationState::Derived,
+            CrsRepresentationState::Derived(CrsDerivation::FixedByFormat),
         );
         record_crs_representation_loss(
             &mut loss,

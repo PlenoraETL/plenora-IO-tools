@@ -40,7 +40,7 @@ use plenora_io_core::loss::LossReport;
 use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::{Bbox, ProjectionMode, ReadRequest};
 use plenora_io_core::{
-    validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport,
+    validate_write, with_write_validation, ArrowTypeClass, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
     WKB_PASSTHROUGH_GEOMETRY,
@@ -209,8 +209,11 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Preserved,
-            CrsRepresentationState::Derived,
-            CrsRepresentationState::Derived,
+            // Il verso opposto agli altri: qui e' l'identificatore a essere
+            // conservato, e sono le altre due a ricavarsi da lui attraverso
+            // `gpkg_spatial_ref_sys`.
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,

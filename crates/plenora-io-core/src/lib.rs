@@ -17,7 +17,7 @@ pub mod request;
 
 pub use capabilities::{arrow_type_class, validate_write};
 pub use descriptor::{
-    ArrowTypeClass, AttributeWriteSupport, BufferingStrategy, CrsHandling,
+    ArrowTypeClass, AttributeWriteSupport, BufferingStrategy, CrsDerivation, CrsHandling,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport, DeliverySemantics,
     DeterminismLevel, Direction, Fidelity, FieldNamePolicy, FormatDescriptor,
     FormatWriteCapabilities, GeometryWriteSupport, NameNormalization, NativeReadMode,

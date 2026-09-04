@@ -489,7 +489,16 @@ fn combined_crs_propagates_to_ipc_and_fails_closed_for_shapefile() {
 
 #[test]
 fn every_writer_declares_the_reviewed_crs_representation_matrix() {
+    use plenora_io_core::CrsDerivation;
     use CrsRepresentationState::{Absent, Derived, Preserved};
+
+    // La matrice non dichiara piu' soltanto **se** una rappresentazione si
+    // ricava, ma **da che cosa**: e' la parte che `Derived` da sola nascondeva,
+    // e sono le liste dei driver a dire per quali identificatori la
+    // definizione viene sintetizzata -- non una copia scritta qui, che
+    // divergerebbe in silenzio.
+    let da_definizione =
+        |synthesized_for| Derived(CrsDerivation::FromDefinition { synthesized_for });
 
     let expected = HashMap::from([
         (
@@ -502,27 +511,51 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
         ),
         (
             "gpkg",
-            CrsRepresentationCapabilities::new(Preserved, Derived, Derived),
+            CrsRepresentationCapabilities::new(
+                Preserved,
+                Derived(CrsDerivation::FromIdentifier),
+                Derived(CrsDerivation::FromIdentifier),
+            ),
         ),
         (
             "shp",
-            CrsRepresentationCapabilities::new(Derived, Absent, Preserved),
+            CrsRepresentationCapabilities::new(
+                da_definizione(driver_shp::CRS_CON_DEFINIZIONE_SINTETIZZATA),
+                Absent,
+                Preserved,
+            ),
         ),
         (
             "dxf",
-            CrsRepresentationCapabilities::new(Derived, Absent, Preserved),
+            CrsRepresentationCapabilities::new(
+                da_definizione(driver_dxf::CRS_CON_DEFINIZIONE_SINTETIZZATA),
+                Absent,
+                Preserved,
+            ),
         ),
         (
             "filegdb",
-            CrsRepresentationCapabilities::new(Derived, Absent, Derived),
+            CrsRepresentationCapabilities::new(
+                Derived(CrsDerivation::RuntimeResolved),
+                Absent,
+                Derived(CrsDerivation::RuntimeResolved),
+            ),
         ),
         (
             "geojson",
-            CrsRepresentationCapabilities::new(Derived, Absent, Absent),
+            CrsRepresentationCapabilities::new(
+                Derived(CrsDerivation::FixedByFormat),
+                Absent,
+                Absent,
+            ),
         ),
         (
             "kml",
-            CrsRepresentationCapabilities::new(Derived, Absent, Absent),
+            CrsRepresentationCapabilities::new(
+                Derived(CrsDerivation::FixedByFormat),
+                Absent,
+                Absent,
+            ),
         ),
         (
             "csv",

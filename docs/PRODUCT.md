@@ -189,6 +189,29 @@ configurazione, non un valore ignorato.
 Nessun driver riproietta. Il CRS viene letto, scritto o dichiarato — mai
 trasformato.
 
+#### `--assume-crs` dichiara, non risolve
+
+`--assume-crs EPSG:3003` dice **quale** CRS hanno i dati. Non è un resolver
+EPSG→WKT: il prodotto non porta un database di definizioni e non ne inventa
+una. Per i formati che scrivono una definizione — lo Shapefile nel `.prj`, il
+DXF nel `GEODATA` — l'identificatore da solo basta soltanto per WGS84, l'unico
+per cui il writer sintetizza il WKT.
+
+Fuori da quel caso i due formati si comportano in modo diverso, ed entrambi i
+comportamenti sono voluti:
+
+| | |
+|---|---|
+| **DXF** | **rifiuta**: senza definizione non scrive un file monco |
+| **Shapefile** | **scrive** i dati senza `.prj`, e lo **dichiara** nel `LossReport` |
+
+Ciò che lo Shapefile dichiara è `crs_id_not_preserved_absent` — e
+`srid_not_preserved_absent` se la sorgente portava un SRID. Non
+`..._derived`: *derivata* significa che il valore si rilegge dal file
+attraverso un'altra rappresentazione, e senza `.prj` non c'è niente da cui
+rileggerlo. La distinzione conta per chi automatizza: `absent` dice che il CRS
+va riportato **fuori** dal file, `derived` direbbe che basta rileggerlo.
+
 ---
 
 ## Contratti pubblici

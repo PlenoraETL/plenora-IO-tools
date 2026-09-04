@@ -484,8 +484,9 @@ mod tests {
 
     use super::*;
     use crate::descriptor::{
-        CrsRepresentationCapabilities, Direction, Fidelity, FormatWriteCapabilities, ReadMode,
-        ReaderConcurrency, Runtime, WriteMode, DBF_FIELD_NAMES, SCALAR_TYPES, WKB_XY_GEOMETRY,
+        CrsDerivation, CrsRepresentationCapabilities, Direction, Fidelity, FormatWriteCapabilities,
+        ReadMode, ReaderConcurrency, Runtime, WriteMode, DBF_FIELD_NAMES, SCALAR_TYPES,
+        WKB_XY_GEOMETRY,
     };
     use crate::request::WriteLayer;
 
@@ -721,7 +722,8 @@ mod tests {
 
         let selecting = descriptor(CrsWriteSupport::Embedded);
         let mut capabilities = selecting.write_capabilities().unwrap();
-        capabilities.crs_representations.srid = CrsRepresentationState::Derived;
+        capabilities.crs_representations.srid =
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier);
         let selecting = selecting.con_write_capabilities(Some(capabilities));
         let error =
             validate_write(&selecting, &p, colonne_predefinite(), &senza_opzioni()).unwrap_err();
@@ -763,7 +765,8 @@ mod tests {
 
         let selecting = descriptor(CrsWriteSupport::Embedded);
         let mut capabilities = selecting.write_capabilities().unwrap();
-        capabilities.crs_representations.crs_definition = CrsRepresentationState::Derived;
+        capabilities.crs_representations.crs_definition =
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier);
         let selecting = selecting.con_write_capabilities(Some(capabilities));
         let error =
             validate_write(&selecting, &p, colonne_predefinite(), &senza_opzioni()).unwrap_err();

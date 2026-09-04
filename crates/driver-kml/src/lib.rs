@@ -32,7 +32,7 @@ use plenora_io_core::publish::StagedFile;
 use plenora_io_core::request::ReadRequest;
 use plenora_io_core::{
     check_cancelled, check_cancelled_periodically, read_row_error, validate_write,
-    with_write_validation, write_row_rejection, AttributeWriteSupport,
+    with_write_validation, write_row_rejection, AttributeWriteSupport, CrsDerivation,
     CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, SingleReaderGate, TypeCoercionPolicy, WritePlan,
     SCALAR_TYPES, UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
@@ -267,7 +267,10 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         geometry: WKB_XY_XYZ_GEOMETRY,
         crs: CrsWriteSupport::Fixed("OGC:CRS84"),
         crs_representations: CrsRepresentationCapabilities::new(
-            CrsRepresentationState::Derived,
+            // Nessuna rappresentazione conservata, e l'identificatore e'
+            // ricavabile lo stesso: il formato fissa il proprio CRS, quindi
+            // chi rilegge il file sa qual e' senza che noi lo scriviamo.
+            CrsRepresentationState::Derived(CrsDerivation::FixedByFormat),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Absent,
         ),

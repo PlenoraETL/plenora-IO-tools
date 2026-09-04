@@ -49,7 +49,7 @@ use plenora_io_core::publish::{
 use plenora_io_core::request::{BatchTarget, ProjectionMode, ReadRequest, ReadScope};
 use plenora_io_core::{
     validate_write, with_write_validation, write_row_rejection, AttributeWriteSupport,
-    CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
+    CrsDerivation, CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
     FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, DBF_FIELD_NAMES,
     SCALAR_TYPES, WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
 };
@@ -127,6 +127,15 @@ const POLYGON_WITHOUT_OUTER_CAUSE: &str = "shapefile.polygon_without_outer";
 const UNCLOSED_RING_CAUSE: &str = "shapefile.unclosed_ring";
 const DEGENERATE_RING_CAUSE: &str = "shapefile.degenerate_ring";
 const ATTRIBUTE_NUMERIC_INVALID_CAUSE: &str = "shapefile.attribute_numeric_invalid";
+
+/// Gli identificatori per cui il writer **sintetizza** una definizione, e
+/// quindi scrive il `.prj` anche senza WKT in ingresso.
+///
+/// La lista e' una sola, e la usano due posti: `wkt_for_id`, che scrive, e la
+/// capability `crs_id`, che dichiara. Tenerne due copie vorrebbe dire che il
+/// giorno in cui una cresce l'altra mente, e mentirebbe proprio sulla domanda
+/// «l'identificatore e' ricavabile dal file?».
+pub const CRS_CON_DEFINIZIONE_SINTETIZZATA: &[&str] = &["EPSG:4326", "OGC:CRS84"];
 
 /// WKT standard per WGS84 (accettato da GDAL), usato per il `.prj` quando la
 /// sorgente dà solo il codice autorità e non una definizione WKT.
@@ -596,7 +605,13 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         geometry: WKB_SINGLE_TYPE_ALL_DIMENSIONS_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
-            CrsRepresentationState::Derived,
+            // L'identificatore si rilegge dal `.prj`, e il `.prj` c'e' se la
+            // sorgente porta un WKT oppure se l'identificatore e' uno di
+            // quelli che il writer sa sintetizzare. Fuori da questi due casi
+            // non viene scritto niente da cui ricavarlo.
+            CrsRepresentationState::Derived(CrsDerivation::FromDefinition {
+                synthesized_for: CRS_CON_DEFINIZIONE_SINTETIZZATA,
+            }),
             CrsRepresentationState::Absent,
             CrsRepresentationState::Preserved,
         ),
@@ -1436,10 +1451,8 @@ fn cell_to_field(array: &ArrayRef, row: usize, kind: DbfKind) -> Result<FieldVal
 }
 
 fn wkt_for_id(id: Option<&str>) -> Option<String> {
-    match id {
-        Some("EPSG:4326" | "OGC:CRS84") => Some(WGS84_WKT.to_owned()),
-        _ => None,
-    }
+    id.filter(|id| CRS_CON_DEFINIZIONE_SINTETIZZATA.contains(id))
+        .map(|_| WGS84_WKT.to_owned())
 }
 
 fn resolve_prj(

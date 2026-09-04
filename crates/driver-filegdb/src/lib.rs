@@ -12,9 +12,9 @@ use plenora_io_core::driver::{
     FormatDriver, FormatWriter, OpenDatasetHandle, ReadOptions, Sink, Source, WriteOptions,
 };
 use plenora_io_core::{
-    validate_write, AttributeWriteSupport, CrsRepresentationCapabilities, CrsRepresentationState,
-    CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan,
-    UTF8_FIELD_NAMES,
+    validate_write, AttributeWriteSupport, CrsDerivation, CrsRepresentationCapabilities,
+    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
+    TypeCoercionPolicy, WritePlan, UTF8_FIELD_NAMES,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, GeometryEncoding, GeometryType, SpatialSemantics,
@@ -82,9 +82,12 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         geometry: FILEGDB_GEOMETRY,
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
-            CrsRepresentationState::Derived,
+            // Il secondo caso di `Derived` senza alcun `Preserved`: a
+            // ricavarle non e' il nostro codice ma GDAL, che risolve il CRS
+            // quando scrive il dataset.
+            CrsRepresentationState::Derived(CrsDerivation::RuntimeResolved),
             CrsRepresentationState::Absent,
-            CrsRepresentationState::Derived,
+            CrsRepresentationState::Derived(CrsDerivation::RuntimeResolved),
         ),
         nullability: NullabilitySupport::FormatDefined,
         multi_layer: true,
