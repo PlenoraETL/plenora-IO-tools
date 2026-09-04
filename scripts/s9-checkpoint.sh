@@ -615,6 +615,12 @@ passo check_schemi_geoparquet python3 scripts/check_schemi_geoparquet.py
 # committati e' questo gate, che confronta insiemi e digest uno per uno. La
 # directory vuota e' rossa per costruzione: li' ogni digest sarebbe soddisfatto
 # per assenza di confronti.
+# La matrice cross-format: quali conversioni il prodotto promette davvero, e
+# se l'insieme copre le classi che contano. La copertura non e' scritta nel
+# registro -- si deriva dai descrittori -- e un rifiuto non copre l'estremo:
+# prova che il driver non e' stato attraversato.
+passo sonde_conversioni python3 -m unittest scripts.test_check_conversioni
+passo check_conversioni python3 scripts/check-conversioni.py
 passo sonde_fixture_canoniche python3 -m unittest scripts.test_check_fixture_canoniche
 passo check_fixture_canoniche python3 scripts/check-fixture-canoniche.py
 passo sonde_categorie_di_perdita python3 -m unittest scripts.test_check_categorie_di_perdita

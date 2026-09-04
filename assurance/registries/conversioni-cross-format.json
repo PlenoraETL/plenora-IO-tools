@@ -1,0 +1,396 @@
+{
+  "schema_version": 2,
+  "descrizione": "Le conversioni cross-format che il prodotto promette davvero, nominate una per una. Dieci driver R/W non fanno cento conversioni equivalenti: profilo, classe di CRS dell'origine, classe di fedelta' del bersaglio e multi-layer rompono l'equivalenza, e le classi che ne risultano sono molte meno delle coppie.",
+  "perche_non_cento": "una matrice dieci per dieci tratterebbe `geoparquet -> ipc` e `geoparquet -> dxf` come lo stesso esercizio. La prima e' lossless in entrambi i versi; la seconda approssima per costruzione -- tassella archi, esplode multipart, rende il testo come punto -- e cio' che va provato non e' che il comando esca con zero, ma che la perdita sia **dichiarata**. Provare cento coppie con la stessa asserzione costerebbe cento volte e proverebbe una cosa sola.",
+  "che_cosa_prova_ogni_caso": "non il successo del comando. Ogni caso rilegge l'uscita, confronta i dati normalizzati -- valori, tipi, CRS, nullita' -- contro il dataset canonico, e asserisce il `LossReport` per intero: le categorie presenti, quelle assenti, i conteggi. Un caso che passasse con un `LossReport` diverso da quello atteso e' rosso quanto uno che fallisce.",
+  "perche_i_casi_non_si_contano": "il numero delle conversioni non e' un obiettivo e non e' dichiarato da nessuna parte. Un registro che promettesse «sedici» inviterebbe a tenerlo fermo: a un caso che si rivela irrealizzabile se ne sostituirebbe uno qualunque per non muovere la cifra, e la copertura diventerebbe un conteggio invece che una proprieta'. Qui i casi sono quanti servono, e a dire se bastano e' `scripts/check-conversioni.py`, che deriva la copertura dai descrittori.",
+  "dataset_canonico": {
+    "dove": "crates/plenora-io-cli/tests/conversioni/canonico.rs",
+    "perche_uno_solo": "il confronto e' sempre contro **lo stesso** dataset, non contro l'uscita di un'altra conversione. Confrontare due conversioni fra loro proverebbe che sbagliano allo stesso modo.",
+    "che_cosa_contiene": [
+      "una colonna di testo con caratteri non ASCII",
+      "un intero oltre 2^53, che deve restare esatto",
+      "un intero piccolo, un float e un booleano",
+      "una colonna temporale",
+      "null in ogni colonna nullable, e in geometria",
+      "punti, polilinee e poligoni, con e senza Z",
+      "un CRS proiettato non WGS84, per i formati che lo incorporano"
+    ]
+  },
+  "fixture": "ogni caso nomina la propria fixture, e il gate verifica che sia dichiarata in `fixture-canoniche.json`. Un caso che nominasse una fixture inesistente sarebbe un caso che nessuno puo' eseguire, e il registro lo direbbe comunque coperto.",
+  "driver": {
+    "csv": {
+      "direction": "Bidirectional",
+      "crs_handling": "None",
+      "fidelity_class": "Conditional",
+      "multi_layer": false,
+      "runtime": "PureRust"
+    },
+    "geojson": {
+      "direction": "Bidirectional",
+      "crs_handling": "FixedWgs",
+      "fidelity_class": "Conditional",
+      "multi_layer": false,
+      "runtime": "PureRust"
+    },
+    "kml": {
+      "direction": "Bidirectional",
+      "crs_handling": "FixedWgs",
+      "fidelity_class": "Conditional",
+      "multi_layer": false,
+      "runtime": "PureRust"
+    },
+    "shp": {
+      "direction": "Bidirectional",
+      "crs_handling": "Embedded",
+      "fidelity_class": "Conditional",
+      "multi_layer": false,
+      "runtime": "PureRust"
+    },
+    "gpkg": {
+      "direction": "Bidirectional",
+      "crs_handling": "Embedded",
+      "fidelity_class": "Conditional",
+      "multi_layer": true,
+      "runtime": "PureRust"
+    },
+    "geoparquet": {
+      "direction": "Bidirectional",
+      "crs_handling": "Embedded",
+      "fidelity_class": "Lossless",
+      "multi_layer": false,
+      "runtime": "PureRust"
+    },
+    "ipc": {
+      "direction": "Bidirectional",
+      "crs_handling": "Embedded",
+      "fidelity_class": "Lossless",
+      "multi_layer": false,
+      "runtime": "PureRust"
+    },
+    "xls": {
+      "direction": "Bidirectional",
+      "crs_handling": "None",
+      "fidelity_class": "Conditional",
+      "multi_layer": false,
+      "runtime": "PureRust"
+    },
+    "dxf": {
+      "direction": "Bidirectional",
+      "crs_handling": "Embedded",
+      "fidelity_class": "Approximating",
+      "multi_layer": false,
+      "runtime": "PureRust"
+    },
+    "filegdb": {
+      "direction": "Bidirectional",
+      "crs_handling": "Embedded",
+      "fidelity_class": "Conditional",
+      "multi_layer": true,
+      "runtime": "Gdal"
+    }
+  },
+  "driver_nota": "questi campi sono una **copia** dei `FormatDescriptor`, e una copia che nessuno confronta e' una copia che diverge. Li confronta il test Rust `conversioni::il_registro_descrive_i_driver_come_i_descrittori`, che ha i descrittori veri in mano: se un driver cambia classe di fedelta' o smette di essere multi-layer, il registro diventa rosso invece di restare indietro in silenzio. La copia esiste perche' il catalogo emesso dalla CLI **non** porta questi tre campi, e un gate in Python non ha altro modo di derivarne la copertura.",
+  "conversioni": [
+    {
+      "id": "geoparquet-a-ipc",
+      "sorgente": "geoparquet",
+      "destinazione": "ipc",
+      "fixture": "canonico.parquet",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::geoparquet_a_ipc_conserva_tutto_e_non_dichiara_perdita",
+      "prova": "i due formati lossless nel verso in cui il Parquet e' la sorgente: ogni valore, il CRS per intero e la nullita' arrivano identici, e il `LossReport` e' **vuoto**. Un caso che passasse dichiarando una perdita qualunque sarebbe rosso quanto uno che fallisce."
+    },
+    {
+      "id": "ipc-a-geoparquet",
+      "sorgente": "ipc",
+      "destinazione": "geoparquet",
+      "fixture": "canonico.arrow",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::ipc_a_geoparquet_conserva_tutto_nel_verso_opposto",
+      "prova": "il verso opposto, e non e' lo stesso esercizio: qui e' GeoParquet a dover scrivere il PROJJSON che l'IPC porta. Fino a f95d7b4 questo caso dichiarava `crs_definition_not_preserved_absent` su una conversione che non perdeva niente, e la capability sbagliata rendeva lossy un formato lossless."
+    },
+    {
+      "id": "gpkg-a-ipc",
+      "sorgente": "gpkg",
+      "destinazione": "ipc",
+      "fixture": "canonico.gpkg",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::gpkg_multi_layer_a_ipc_dichiara_i_layer_non_scelti",
+      "prova": "l'unica sorgente multi-layer del catalogo verso un bersaglio single-layer: il layer si sceglie, e i layer **non scelti** vanno dichiarati invece di sparire. Il bersaglio e' l'IPC e non GeoParquet perche' il CRS del GeoPackage e' un WKT, e GeoParquet pretende un PROJJSON: quel rifiuto ha il proprio caso, e qui mescolarlo renderebbe il multi-layer non provato."
+    },
+    {
+      "id": "geojson-a-geoparquet",
+      "sorgente": "geojson",
+      "destinazione": "geoparquet",
+      "fixture": "canonico.geojson",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::geojson_a_geoparquet_e_il_percorso_conforme_verso_il_parquet",
+      "prova": "l'unica via conforme che porta a GeoParquet un CRS che la sorgente non descrive con un PROJJSON: GeoJSON fissa `OGC:CRS84`, e la specifica GeoParquet ammette di ometterlo, dichiarando cosi' proprio quel CRS. E' il caso che tiene GeoParquet coperto come **destinazione** senza inventare un resolver."
+    },
+    {
+      "id": "shp-a-gpkg",
+      "sorgente": "shp",
+      "destinazione": "gpkg",
+      "fixture": "canonico_punti.shp",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003"
+      ],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::shp_a_gpkg_conserva_geometria_crs_e_tipi",
+      "prova": "geometria, tipi e CRS attraverso due formati binari che li portano entrambi. `--assume-crs` non e' decorativo: il `.prj` dello Shapefile porta un WKT senza codice d'autorita', e il GeoPackage l'autorita' la pretende. La definizione non si conserva verbatim -- il GeoPackage la riscrive dal proprio `gpkg_spatial_ref_sys` -- ed e' `crs_definition_not_preserved_derived` a dirlo."
+    },
+    {
+      "id": "geojson-dbf-a-shp",
+      "sorgente": "geojson",
+      "destinazione": "shp",
+      "fixture": "canonico_punti_dbf.geojson",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::geojson_a_shp_conserva_anche_la_riga_senza_geometria",
+      "prova": "la meta' riuscita della coppia sui nomi di campo, e insieme la prova che la riga **senza geometria** attraversa lo Shapefile. Il file esce con un record di shape type 0 e il proprio record DBF: `.shp` e `.dbf` restano paralleli, e la riletta ha le stesse righe nello stesso ordine."
+    },
+    {
+      "id": "xls-a-csv",
+      "sorgente": "xls",
+      "destinazione": "csv",
+      "fixture": "canonico.xlsx",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003",
+        "--in-opt",
+        "wkt_column=geometry"
+      ],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::xls_a_csv_conserva_null_e_interi_larghi",
+      "prova": "due formati testuali che il CRS non lo portano: la conversione riesce e dichiara di non conservarlo. Cio' che deve arrivare intatto e' l'intero oltre 2^53, che l'XLSX porta **come testo** perche' una cella numerica e' un double, e la cella vuota, che non e' la stringa vuota."
+    },
+    {
+      "id": "kml-a-xls",
+      "sorgente": "kml",
+      "destinazione": "xls",
+      "fixture": "canonico.kml",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::kml_a_xls_dichiara_geometria_e_crs_perduti",
+      "prova": "da un formato spaziale a uno che spaziale non e'. La geometria non si perde in silenzio: la fedelta' scende ad approssimante con la propria ragione, e il CRS e' dichiarato assente. E' il caso in cui il `LossReport` e le ragioni di fedelta' dicono due meta' della stessa cosa."
+    },
+    {
+      "id": "geoparquet-a-csv",
+      "sorgente": "geoparquet",
+      "destinazione": "csv",
+      "fixture": "canonico.parquet",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::geoparquet_a_csv_dichiara_la_perdita_del_crs",
+      "prova": "tutte e tre le rappresentazioni del CRS si perdono, e tutte e tre sono dichiarate: `crs_id`, `srid` e `crs_definition`, ciascuna come `absent`. La colonna temporale arriva come testo ISO, che e' cio' che `ExplicitText` promette: fino al 2026-09-04 questa conversione era rifiutata, e la capability prometteva il contrario."
+    },
+    {
+      "id": "geojson-a-kml",
+      "sorgente": "geojson",
+      "destinazione": "kml",
+      "fixture": "canonico.geojson",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::geojson_a_kml_fra_due_crs_fissi_riesce",
+      "prova": "due formati che fissano lo **stesso** CRS: la conversione riesce, e il CRS non e' un problema. E' il controllo positivo del rifiuto `gpkg-a-kml`, senza il quale «KML rifiuta» sarebbe vero anche di un driver che rifiuta sempre. Gli attributi non testuali diventano testo, e la coercizione e' dichiarata."
+    },
+    {
+      "id": "geoparquet-a-dxf",
+      "sorgente": "geoparquet",
+      "destinazione": "dxf",
+      "fixture": "canonico_pieno.parquet",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::geoparquet_a_dxf_dichiara_ogni_approssimazione",
+      "prova": "verso l'unico formato di classe approssimante. Le geometrie arrivano; gli attributi no, e ciascuno e' dichiarato **per nome** -- il DXF non ha un modello di attributi. La fixture e' quella senza la riga priva di geometria: quel rifiuto ha il proprio caso, e tenerlo qui avrebbe reso non provato tutto il resto."
+    },
+    {
+      "id": "dxf-a-geojson",
+      "sorgente": "dxf",
+      "destinazione": "geojson",
+      "fixture": "canonico_geografico.dxf",
+      "opzioni": [
+        "--assume-crs",
+        "OGC:CRS84"
+      ],
+      "profilo": "base",
+      "esito_atteso": "successo",
+      "test": "conversioni::dxf_a_geojson_restituisce_solo_cio_che_il_dxf_aveva_conservato",
+      "prova": "il verso di ritorno da un formato approssimante: cio' che esce e' la geometria, perche' e' tutto cio' che il DXF aveva. La fixture e' la variante **geografica**: GeoJSON impone `OGC:CRS84` e nessun driver riproietta, quindi partire da quella proiettata non sarebbe una conversione da provare ma una riproiezione da pretendere."
+    },
+    {
+      "id": "filegdb-a-gpkg",
+      "sorgente": "filegdb",
+      "destinazione": "gpkg",
+      "fixture": "canonico.gdb",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003",
+        "--layer",
+        "0"
+      ],
+      "profilo": "filegdb",
+      "esito_atteso": "successo",
+      "test": "conversioni::filegdb_a_gpkg_attraversa_gdal_senza_alterare_i_valori",
+      "prova": "l'unico percorso che passa da GDAL: i valori attraversano il confine FFI e tornano identici. Il bersaglio e' il GeoPackage e non GeoParquet perche' il CRS arriva come WKT, e GeoParquet pretende un PROJJSON -- un terzo rifiuto identico agli altri due non avrebbe aggiunto niente, mentre questo caso prova GDAL, i valori, il CRS e la selezione del layer."
+    },
+    {
+      "id": "filegdb-tabella-a-csv",
+      "sorgente": "filegdb",
+      "destinazione": "csv",
+      "fixture": "canonico.gdb",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003",
+        "--layer",
+        "4"
+      ],
+      "profilo": "filegdb",
+      "esito_atteso": "successo",
+      "test": "conversioni::filegdb_tabella_non_spaziale_diventa_un_csv_di_attributi",
+      "prova": "una tabella non spaziale, che in una GDB reale sta accanto alle feature class. Fino al 2026-09-04 la sua sola presenza rendeva illeggibile l'intero dataset, e il CSV -- il bersaglio piu' adatto a riceverla -- pretendeva comunque una colonna geometrica. Il CSV che ne esce ha gli attributi e nient'altro: nessuna colonna `geometry` sempre vuota."
+    },
+    {
+      "id": "csv-a-filegdb",
+      "sorgente": "csv",
+      "destinazione": "filegdb",
+      "fixture": "canonico_filegdb.csv",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003",
+        "--in-opt",
+        "wkt_column=geometry"
+      ],
+      "profilo": "filegdb",
+      "esito_atteso": "successo",
+      "test": "conversioni::csv_a_filegdb_con_i_tipi_che_il_formato_rappresenta",
+      "prova": "il verso di scrittura verso GDAL, con la fixture ristretta ai tipi che FileGDB round-trippa: testo, `Float64` e punti. Le tre restrizioni vengono da capability dichiarate, non da comodita', e ciascuna ha il proprio rifiuto altrove."
+    },
+    {
+      "id": "gpkg-a-geoparquet",
+      "sorgente": "gpkg",
+      "destinazione": "geoparquet",
+      "fixture": "canonico.gpkg",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "rifiuto_crs",
+      "test": "conversioni::gpkg_con_definizione_wkt_a_geoparquet_rifiuta_il_crs",
+      "prova": "GeoParquet pretende un documento PROJJSON e non ha un modo conforme di scrivere un WKT. Il GeoPackage porta proprio un WKT: il rifiuto e' deterministico, in fase di validazione, e **nessuna destinazione viene pubblicata**. Non si aggiunge un resolver: convertire un CRS sarebbe una trasformazione, e questo prodotto non trasforma."
+    },
+    {
+      "id": "csv-a-geoparquet",
+      "sorgente": "csv",
+      "destinazione": "geoparquet",
+      "fixture": "canonico.csv",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003",
+        "--in-opt",
+        "wkt_column=geometry"
+      ],
+      "profilo": "base",
+      "esito_atteso": "rifiuto_crs",
+      "test": "conversioni::csv_con_solo_identificatore_a_geoparquet_rifiuta_il_crs",
+      "prova": "lo stesso rifiuto dall'altro estremo: qui il CRS e' noto **solo per identificatore**, perche' `--assume-crs` dichiara e non risolve. I due casi non sono un doppione: uno prova che un WKT non basta, l'altro che un identificatore non basta, e sono le due sole forme in cui un CRS arriva a GeoParquet dai nostri reader."
+    },
+    {
+      "id": "geojson-a-shp",
+      "sorgente": "geojson",
+      "destinazione": "shp",
+      "fixture": "canonico_punti.geojson",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "rifiuto_capability",
+      "test": "conversioni::geojson_con_nome_lungo_a_shp_rifiuta_invece_di_troncare",
+      "prova": "un nome di campo oltre i dieci caratteri del DBF. Lo Shapefile **non tronca in silenzio**: un nome che non entra e' una richiesta che il formato non puo' soddisfare, non una perdita da dichiarare -- due colonne troncate allo stesso prefisso collidono, e la collisione sarebbe silenziosa. La meta' riuscita e' `geojson-dbf-a-shp`."
+    },
+    {
+      "id": "geoparquet-nullo-a-dxf",
+      "sorgente": "geoparquet",
+      "destinazione": "dxf",
+      "fixture": "canonico.parquet",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "rifiuto_riga",
+      "test": "conversioni::geoparquet_con_riga_senza_geometria_a_dxf_rifiuta_la_riga",
+      "prova": "la riga senza geometria verso un formato di disegno, dove un'entita' senza geometria non esiste. Il rifiuto e' **di riga** e porta la propria diagnostica: causa, colonna e indice della riga sorgente. Non si elimina la riga in silenzio, che sarebbe l'unico modo di far riuscire questa conversione."
+    },
+    {
+      "id": "csv-bool-a-filegdb",
+      "sorgente": "csv",
+      "destinazione": "filegdb",
+      "fixture": "canonico.csv",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003",
+        "--in-opt",
+        "wkt_column=geometry"
+      ],
+      "profilo": "filegdb",
+      "esito_atteso": "rifiuto_capability",
+      "test": "conversioni::csv_con_booleano_a_filegdb_rifiuta_il_tipo",
+      "prova": "il booleano, che FileGDB non round-trippa. Il rifiuto e' corretto e resta: `TypeCoercionPolicy::Reject` e' dichiarato, e inventare `bool -> intero` sostituirebbe una decisione di rappresentazione a un rifiuto onesto. La meta' riuscita e' `csv-a-filegdb`."
+    },
+    {
+      "id": "gpkg-a-kml",
+      "sorgente": "gpkg",
+      "destinazione": "kml",
+      "fixture": "canonico.gpkg",
+      "opzioni": [],
+      "profilo": "base",
+      "esito_atteso": "rifiuto_crs",
+      "test": "conversioni::gpkg_proiettato_a_kml_rifiuta_il_crs",
+      "prova": "un CRS proiettato verso un formato che ne **impone** uno fisso. Nessun driver riproietta, quindi il rifiuto e' l'unica risposta onesta. Fino al 2026-09-04 questa conversione si fermava prima, su un contratto geometrico incompleto: arrivava un rifiuto giusto per la ragione sbagliata, ed e' peggio di un rifiuto sbagliato perche' non si distingue da quello giusto."
+    },
+    {
+      "id": "tabella-a-geoparquet",
+      "sorgente": "filegdb",
+      "destinazione": "geoparquet",
+      "fixture": "canonico.gdb",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003",
+        "--layer",
+        "4"
+      ],
+      "profilo": "filegdb",
+      "esito_atteso": "rifiuto_capability",
+      "test": "conversioni::tabella_non_spaziale_a_geoparquet_rifiuta_per_capability_del_bersaglio",
+      "prova": "la tabella non spaziale verso un formato che una geometria la pretende. Il rifiuto e' una **capability del bersaglio**, in fase di validazione: prima del 2026-09-04 arrivava come errore di formato in fase di lettura, cioe' nominando la fase sbagliata e senza dire che era la destinazione a non poter rappresentare quel layer."
+    },
+    {
+      "id": "filegdb-su-base-rifiuta",
+      "sorgente": "filegdb",
+      "destinazione": "gpkg",
+      "fixture": "canonico.gdb",
+      "opzioni": [
+        "--assume-crs",
+        "EPSG:3003",
+        "--layer",
+        "0"
+      ],
+      "profilo": "base",
+      "esito_atteso": "rifiuto_capability",
+      "test": "conversioni::filegdb_su_profilo_base_rifiuta_con_la_ragione_giusta",
+      "prova": "lo stesso comando che riesce nel profilo `filegdb` deve fallire in quello `base`, e con la ragione giusta: la feature `gdal-backend` non c'e'. Un rifiuto qualunque non basterebbe -- direbbe che il profilo base rifiuta, non **perche'**."
+    }
+  ],
+  "copertura": "non e' scritta qui. La deriva `scripts/check-conversioni.py` dal registro, e pretende che ogni driver bidirezionale compaia almeno una volta come sorgente **e** una come destinazione in una conversione **riuscita**. I soli rifiuti non bastano, ed e' il punto: un rifiuto prova che il driver non e' stato attraversato, e contarlo come copertura direbbe che un formato e' stato convertito proprio dove la conversione non e' avvenuta. Pretende inoltre tutte le classi di `crs_handling` fra le sorgenti riuscite, tutte le classi di `fidelity_class` fra le destinazioni riuscite, almeno un'origine multi-layer, entrambi i profili e ciascuna forma di rifiuto."
+}
