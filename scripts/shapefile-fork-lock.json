@@ -7,7 +7,7 @@
   "upstream_revision": "4605a13849c78f7393b75252aa6bdf28bd861ce9",
   "vendor_path": "vendor/shapefile",
   "file_count": 25,
-  "tree_sha256": "431a29dab2f7df037ded5310570a2f3612813464442eb923e8567d7aa83ab116",
+  "tree_sha256": "dcb12d9a858640214db2323843c2da2edba4a9856e72d139132455f1177d0b16",
   "functional_delta_files": [
     "src/reader.rs",
     "src/record/mod.rs",

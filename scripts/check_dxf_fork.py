@@ -10,7 +10,7 @@ import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fork_comune import artefatti_estranei, impronta  # noqa: E402
+from fork_comune import artefatti_estranei, fini_riga_divergenti, impronta  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +65,21 @@ def main() -> None:
             "versionato, ma un albero governato contiene cio' che dichiara e "
             "nient'altro: `cargo package` va eseguito con --target-dir fuori "
             "dal fork."
+        )
+
+    # Prima dell'impronta, perche' e' la ragione di uno dei modi in cui
+    # l'impronta non torna, e detta dopo sarebbe un indizio invece di una
+    # spiegazione.
+    divergenti = fini_riga_divergenti(vendor)
+    if divergenti:
+        fail(
+            "file i cui byte sul disco non sono quelli che git registrerebbe: "
+            + ", ".join(divergenti[:5])
+            + (" e altri" if len(divergenti) > 5 else "")
+            + ". `.gitattributes` normalizza i fine riga, quindi l'impronta "
+            "calcolata qui non sarebbe riproducibile su un checkout pulito. "
+            "Rinormalizza i file (su Windows: un editor li ha riscritti con "
+            "CRLF) e ricalcola il lock."
         )
 
     count, digest = impronta(vendor)

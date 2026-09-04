@@ -98,6 +98,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from fork_comune import fini_riga_divergenti_fra  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRI = ROOT / "assurance" / "registries"
 
@@ -442,6 +446,24 @@ def impronta_del_perimetro(percorsi: list[str]) -> tuple[str, list[str]]:
         return "", [
             "il perimetro non seleziona nessun file: un'impronta di niente "
             "coincide sempre con se stessa"
+        ]
+
+    # Se i byte sul disco non sono quelli che git registrerebbe, l'impronta
+    # e' dipendente dalla piattaforma: quella calcolata su un albero con CRLF
+    # non e' riproducibile in CI, che lavora su un checkout con LF. La misura
+    # risulterebbe scaduta li' e valida qui, e il rosso direbbe «il codice che
+    # il target attraversa e' cambiato» -- che e' falso, e manda a cercare nel
+    # posto sbagliato. E' successo il 2026-09-04, il giorno in cui il perimetro
+    # ha cominciato a comprendere un fork vendorizzato.
+    divergenti = fini_riga_divergenti_fra([ROOT / r for r in relativi], ROOT)
+    if divergenti:
+        return "", [
+            "file del perimetro i cui byte sul disco non sono quelli che git "
+            f"registrerebbe: {divergenti[:5]}"
+            + (" e altri" if len(divergenti) > 5 else "")
+            + ". `.gitattributes` normalizza i fine riga, quindi questa "
+            "impronta non sarebbe riproducibile su un checkout pulito: "
+            "rinormalizza i file prima di misurare."
         ]
 
     accumulatore = hashlib.sha256()

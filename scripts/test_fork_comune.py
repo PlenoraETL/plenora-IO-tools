@@ -84,6 +84,70 @@ class SondeArtefatto(unittest.TestCase):
         self.assertIn("artefatti estranei", esito.stderr + esito.stdout)
 
 
+class SondeFiniRiga(unittest.TestCase):
+    """L'impronta legge il disco, e il disco puo' non essere cio' che git tiene.
+
+    `.gitattributes` normalizza i fine riga dei sorgenti a LF. Un editor che
+    riscrive un file intero con CRLF non cambia cio' che verra' committato, ma
+    cambia l'impronta calcolata qui: il lock finisce per registrare un digest
+    riproducibile solo sulla macchina che l'ha scritto, e in CI il gate e' rosso
+    dicendo «albero diverso dal lock» -- che e' vero e non e' la ragione.
+    """
+
+    def test_i_tre_fork_sono_gia_normalizzati(self) -> None:
+        """La controprova positiva: senza, «nessun divergente» sarebbe una
+        difesa che non ha mai visto niente."""
+        for nome in ("dxf", "gdal", "shapefile"):
+            with self.subTest(fork=nome):
+                self.assertEqual(
+                    calcolo.fini_riga_divergenti(calcolo.ROOT / "vendor" / nome), []
+                )
+
+    def test_un_file_riscritto_con_crlf_e_nominato(self) -> None:
+        bersaglio = next(
+            percorso
+            for percorso in calcolo.insieme_versionato(VENDOR)
+            if percorso.suffix == ".rs"
+        )
+        originale = bersaglio.read_bytes()
+        self.assertNotIn(b"\r\n", originale, "il file di partenza dev'essere LF")
+        try:
+            bersaglio.write_bytes(originale.replace(b"\n", b"\r\n"))
+            divergenti = calcolo.fini_riga_divergenti(VENDOR)
+            self.assertIn(bersaglio.relative_to(VENDOR).as_posix(), divergenti)
+        finally:
+            bersaglio.write_bytes(originale)
+        self.assertEqual(calcolo.fini_riga_divergenti(VENDOR), [])
+
+    def test_il_gate_nomina_la_ragione_invece_dell_impronta(self) -> None:
+        """Il valore della difesa non e' che diventi rossa: e' **che cosa dice**.
+
+        Senza, il rosso e' quello dell'impronta, e manda a cercare una modifica
+        del contenuto che non c'e' stata.
+        """
+        bersaglio = next(
+            percorso
+            for percorso in calcolo.insieme_versionato(VENDOR)
+            if percorso.suffix == ".rs"
+        )
+        originale = bersaglio.read_bytes()
+        try:
+            bersaglio.write_bytes(originale.replace(b"\n", b"\r\n"))
+            esito = subprocess.run(
+                ["python3", str(calcolo.ROOT / "scripts" / "check_dxf_fork.py")],
+                cwd=calcolo.ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        finally:
+            bersaglio.write_bytes(originale)
+        self.assertNotEqual(esito.returncode, 0)
+        detto = esito.stdout + esito.stderr
+        self.assertIn("git registrerebbe", detto)
+        self.assertNotIn("diverso dal lock", detto)
+
+
 class SondeComandoPackage(unittest.TestCase):
     def test_il_target_e_fuori_dall_albero_vendorizzato(self) -> None:
         """Non e' un consiglio: senza, l'operazione di verifica sporca cio'
