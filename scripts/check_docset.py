@@ -64,6 +64,12 @@ OPERATIVI = {
     "vendor/shapefile/CHANGELOG.md": "cronaca upstream ridistribuita; contenuto di terzi",
     "vendor/shapefile/LICENSE.md": "licenza MIT upstream ridistribuita; contenuto di terzi",
     ".github/pull_request_template.md": "GitHub lo legge per convenzione di percorso",
+    "sdk/python/README.md": (
+        "`pyproject.toml` lo dichiara `readme`, e finisce nei metadati del "
+        "pacchetto: e' la stessa convenzione di percorso dei fork Cargo. Non "
+        "e' documentazione del prodotto -- quella sta in `docs/` -- ma la "
+        "pagina che chi installa l'SDK vede dal proprio gestore di pacchetti."
+    ),
 }
 
 AMMESSI = set(CANONICI) | set(OPERATIVI)
@@ -106,7 +112,17 @@ def _nomi_eliminati() -> list[str]:
         check=True,
     )
     spariti = [r for r in uscita.stdout.splitlines() if r and r not in AMMESSI]
-    nomi = {Path(r).name for r in spariti}
+    # Un nome base e' al bando solo se **nessun** documento ammesso lo porta
+    # ancora. `README.md` era sparito da una sottodirectory ed e' vivo alla
+    # radice, in `vendor/dxf/` e in `sdk/python/`: metterlo al bando rendeva
+    # rosso ogni `readme = "README.md"` fuori da `vendor/`, che e' il modo in
+    # cui un manifesto Python o Cargo dichiara il proprio.
+    #
+    # E' lo stesso riguardo che le cartelle avevano gia' -- contano solo se non
+    # esistono piu' -- e che ai nomi non era stato dato: l'elenco confronta
+    # nomi base con percorsi ammessi, e i due non si incontrano mai.
+    vivi = {Path(r).name for r in AMMESSI}
+    nomi = {Path(r).name for r in spariti} - vivi
     # Le directory contano solo se **non esistono piu'**: `docs/` e
     # `vendor/dxf/` contenevano documenti eliminati ma sono vive, e vietarne il
     # nome renderebbe rosso ogni riferimento legittimo. La prima stesura lo

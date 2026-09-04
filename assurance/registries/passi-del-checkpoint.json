@@ -146,6 +146,14 @@
       "log": true
     },
     {
+      "id": "sonde_sdk_python",
+      "log": true
+    },
+    {
+      "id": "check_sdk_python",
+      "log": true
+    },
+    {
       "id": "sonde_confine_v1",
       "log": true
     },

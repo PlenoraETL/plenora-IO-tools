@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plenora-io"
+version = "0.1.0"
+description = "Wrapper Python puro sopra la CLI plenora-io e il suo protocollo v2"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+# Nessuna dipendenza, ed e' una scelta.
+#
+# Un SDK che si appoggia a una CLI ha bisogno di `subprocess`, `json` e
+# `pathlib`, che stanno nella libreria standard. Ogni dipendenza in piu' sarebbe
+# una superficie che chi installa questo pacchetto deve fidarsi, per un lavoro
+# che il linguaggio fa gia'.
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/PlenoraETL/plenora-IO-tools"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+plenora_io = ["py.typed"]

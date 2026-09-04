@@ -24,6 +24,7 @@ import json
 import pathlib
 import subprocess
 import tempfile
+import re
 import unittest
 from unittest import mock
 
@@ -62,17 +63,42 @@ class RepositoryFinto:
 
 
 class SondePerimetro(unittest.TestCase):
-    def test_l_allowlist_ha_dieci_voci(self) -> None:
+    def test_l_allowlist_ha_undici_voci(self) -> None:
         """Il conteggio e' la difesa: l'allowlist si allarga per decisione.
 
-        Quattro canonici e sei operativi. I sei sono cresciuti il 2026-09-04 con
-        il terzo fork governato, che ridistribuisce anche un CHANGELOG e la
-        propria licenza in Markdown: sono contenuto di terzi, e la loro
-        integrita' la verifica il gate del fork sull'albero intero, non questo.
+        Quattro canonici e sette operativi. Sono cresciuti due volte il
+        2026-09-04: con il terzo fork governato, che ridistribuisce anche un
+        CHANGELOG e la propria licenza in Markdown -- contenuto di terzi, la cui
+        integrita' la verifica il gate del fork sull'albero intero e non questo
+        -- e con il README dell'SDK Python, che `pyproject.toml` dichiara
+        `readme` e che finisce nei metadati del pacchetto: la stessa convenzione
+        di percorso dei manifesti Cargo.
         """
-        self.assertEqual(len(gate.AMMESSI), 10)
+        self.assertEqual(len(gate.AMMESSI), 11)
         self.assertEqual(len(gate.CANONICI), 4)
-        self.assertEqual(len(gate.OPERATIVI), 6)
+        self.assertEqual(len(gate.OPERATIVI), 7)
+
+    def test_un_nome_vivo_altrove_non_va_al_bando(self) -> None:
+        """Il falso positivo che l'SDK ha rivelato.
+
+        `_nomi_eliminati` confronta **nomi base** con **percorsi** ammessi, e i
+        due non si incontrano mai: un `README.md` sparito da una sottodirectory
+        metteva al bando il nome, e con esso ogni `readme = "README.md"` fuori
+        da `vendor/` -- cioe' il modo in cui un manifesto Python o Cargo
+        dichiara il proprio. E' lo stesso riguardo che le cartelle avevano gia'
+        e ai nomi non era stato dato.
+        """
+        eliminati = gate._nomi_eliminati()
+        for vivo in {"README.md", "CHANGELOG.md", "LICENSE.md"}:
+            with self.subTest(nome=vivo):
+                self.assertNotIn(re.escape(vivo), eliminati)
+
+    def test_i_nomi_davvero_spariti_restano_al_bando(self) -> None:
+        """La controprova: senza, «nessun falso positivo» sarebbe vero anche di
+        un elenco vuoto."""
+        eliminati = gate._nomi_eliminati()
+        self.assertIn(re.escape("TRACEABILITY.md"), eliminati)
+        self.assertIn(re.escape("IMPLEMENTATION_STATUS.md"), eliminati)
 
     def test_ogni_file_operativo_dichiara_la_propria_ragione(self) -> None:
         """Un'eccezione senza ragione e' un'eccezione permanente senza dirlo."""

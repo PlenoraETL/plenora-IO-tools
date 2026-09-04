@@ -666,6 +666,19 @@ passo check_protocollo_v2 python3 scripts/check_protocollo_v2.py
 # non puo' dipendere da chi lo ha costruito e quando.
 passo sonde_buste_v2 python3 -m unittest scripts.test_check_buste_v2
 passo check_buste_v2 python3 scripts/check_buste_v2.py
+# L'SDK Python, e i suoi modelli confrontati col protocollo.
+#
+# Le dataclass dell'SDK sono una **seconda scrittura** del contratto: i campi
+# stanno nel manifesto e stanno di nuovo in `models.py`. Un campo che il
+# protocollo dichiara e il modello non ha e' un pezzo di busta che l'SDK butta
+# via in silenzio; uno che il modello ha e il protocollo non dichiara fa fallire
+# l'SDK sulla prima busta valida che non lo porta.
+#
+# Le sonde girano con `PYTHONPATH` sul sorgente invece che su un pacchetto
+# installato: il checkpoint verifica l'albero, non cio' che qualcuno ha messo
+# nell'ambiente.
+passo sonde_sdk_python env PYTHONPATH=sdk/python/src python3 -m unittest discover -s sdk/python/tests -p "test_*.py"
+passo check_sdk_python python3 scripts/check_sdk_python.py
 # Il confine del v1: `detail_v1()` restituisce i nomi presi dal file, e li
 # pubblica **un solo** adattatore. La visibilita' di Rust non sa dire «questo
 # modulo e nessun altro», e un accessore pubblico e' pubblico: senza questo
