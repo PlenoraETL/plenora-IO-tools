@@ -365,6 +365,23 @@ def dbf_con_data_ostile(tabella: bytes, valore: bytes) -> bytes:
     return bytes(grezzo)
 
 
+def dbf_con_un_record_oltre_il_dichiarato(tabella: bytes, coda: bytes) -> bytes:
+    """Appende byte che `dbase` legge come un record in piu' di quelli dichiarati.
+
+    L'intestazione dice quanti record ci sono, e `dbase` ne legge comunque uno
+    in piu' se il file e' abbastanza lungo. Il reperto del 2026-09-04 dichiarava
+    un record e ne portava due, e a panicare era il **secondo**: il primo si
+    limitava ad attraversare la difesa.
+
+    La coda si scrive prima del terminatore di file, dov'era nel reperto. Un
+    campo data che si tronca al primo NUL arriva a `Date::from_str` come stringa
+    di tre caratteri, e la fetta `s[4..6]` esce dall'intervallo.
+    """
+    if not tabella.endswith(bytes([FINE_FILE_DBF])):
+        raise ValueError("la tabella deve finire col terminatore di file")
+    return tabella[:-1] + coda + bytes([FINE_FILE_DBF])
+
+
 def dbf_ostile(
     tabella: bytes,
     *,
@@ -541,6 +558,51 @@ def semi() -> dict[str, bytes]:
             linee,
             indice_linee,
             dbf_con_record_cancellato(dbf_con_data_ostile(una_data, b"2026    ")),
+        ),
+        # Le due controprove positive, e non sono di lusso: senza, «il campo
+        # data e' rifiutato» sarebbe vero anche di un driver che rifiuta ogni
+        # DBF con un campo `D`, e nessun seme ostile se ne accorgerebbe --
+        # sono tutti costruiti per essere rifiutati.
+        #
+        # Una data ben formata si legge, e un campo in bianco -- la
+        # rappresentazione canonica dell'assenza -- si legge come data assente.
+        # Sono le due strade che la difesa non deve chiudere.
+        "dbf-data-valida.bundle": bundle(linee, indice_linee, una_data),
+        "dbf-data-assente.bundle": bundle(
+            linee, indice_linee, dbf_con_data_ostile(una_data, b"        ")
+        ),
+        # Otto byte ASCII che non sono cifre. Dice una cosa che
+        # `dbf-data-corta` non dice: quelli hanno meno di otto byte utili, e una
+        # difesa che contasse la lunghezza li fermerebbe -- e li fermava.
+        # Questo ne ha esattamente otto, tutti ASCII, e passava.
+        #
+        # Fra i byte del campo e la stringa che `Date::from_str` affetta c'e'
+        # una **decodifica**, e la decodifica restituisce meno caratteri dei
+        # byte che riceve. E' la ragione per cui la difesa pretende **cifre** e
+        # non solo byte ASCII: le cifre sono l'unica classe che nessuna codifica
+        # sposta.
+        "dbf-data-di-controllo.bundle": bundle(
+            linee, indice_linee, dbf_con_data_ostile(una_data, b"2\x15\x15\x15\x15\x15\x15\x15")
+        ),
+        # Il reperto della campagna del 2026-09-04, nella sua struttura.
+        #
+        # Due cose insieme, e ci vogliono entrambe. Il primo record e'
+        # cancellato e porta il campo di controllo: e' quello che la difesa deve
+        # fermare, e il marcatore non compra l'esenzione. Il secondo record non
+        # e' dichiarato dall'intestazione -- che ne conta uno -- e `dbase` lo
+        # legge lo stesso: e' quello che **panica**, perche' il suo campo si
+        # tronca al primo NUL e diventa una stringa di tre caratteri.
+        #
+        # Senza la coda il seme non riprodurrebbe il difetto: `dbase` sul solo
+        # primo record restituisce un `Err` e non panica, e la controprova
+        # direbbe di provare una cosa che non prova.
+        "dbf-data-di-controllo-cancellata.bundle": bundle(
+            linee,
+            indice_linee,
+            dbf_con_un_record_oltre_il_dichiarato(
+                dbf_con_record_cancellato(dbf_con_data_ostile(una_data, b"2\x15\x15\x15\x15\x15\x15\x15")),
+                b"\x15\x15\x15\x01\x00\x00\x00\x00\x00",
+            ),
         ),
         # Un record che dichiara una polilinea e porta solo il tag: i conteggi
         # non stanno dentro il record, e il decoder li legge dai byte che

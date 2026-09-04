@@ -2103,18 +2103,52 @@ fn parte_utile_del_campo(byte: &[u8]) -> &[u8] {
 
 /// Un campo `D` che `dbase` non riesce a interpretare **senza panicare**.
 ///
+/// # Che cosa fa `dbase`, e perche' non basta guardare la lunghezza
+///
 /// `Date::from_str` affetta la stringa a byte -- `s[0..4]`, `s[4..6]`,
 /// `s[6..8]` -- senza guardare ne' la lunghezza ne' i confini di carattere. Un
 /// campo che porta meno di otto byte utili esce dall'intervallo; uno che porta
 /// un carattere multibyte cade dentro di esso. Entrambi sono panici, e nessuno
 /// dei due e' un errore di parsing che la crate restituirebbe.
+///
+/// La prima stesura di questa difesa pretendeva otto byte ASCII e si fermava
+/// li'. Non bastava, e la campagna del 2026-09-04 l'ha attraversata: fra questi
+/// byte e la stringa che `dbase` affetta c'e' una **decodifica**, e la
+/// decodifica puo' restituire meno caratteri dei byte che ha ricevuto -- fino a
+/// nessuno. Otto byte di controllo passavano la lunghezza e arrivavano a
+/// `from_str` come stringa vuota, dove `s[0..4]` e' fuori dai limiti.
+///
+/// # La condizione, ora
+///
+/// Ogni byte dev'essere una **cifra ASCII**. Non e' una stretta arbitraria: e'
+/// la forma che il formato prescrive per un campo `D` -- `YYYYMMDD` -- e ha la
+/// proprieta' che serve, che nessuna decodifica sposta. Le cifre ASCII sono
+/// invarianti in ogni codifica che un `.dbf` possa dichiarare, quindi otto
+/// cifre restano otto caratteri qualunque strada prendano, e la fetta che
+/// `dbase` fa e' dentro i limiti per costruzione.
+///
+/// # Perche' non si prova a replicare la decodifica
+///
+/// Perche' sarebbero due parser della stessa cosa, e due parser divergono. Qui
+/// si verifica una proprieta' che **sopravvive** alla decodifica invece di
+/// prevederne il risultato: e' un'affermazione piu' debole, e regge senza
+/// sapere quale codifica il file dichiari.
+///
+/// # L'assenza resta una sola
+///
+/// Il campo in bianco -- la rappresentazione canonica del DBF -- che `dbase`
+/// riconosce **prima** di decodificare, guardando i byte. Una stringa vuota
+/// ottenuta da byte di controllo non e' un'assenza: e' un valore malformato, e
+/// per questa funzione lo era gia' -- byte non vuoti che non sono cifre.
 fn data_non_interpretabile(byte: &[u8]) -> bool {
     let utile = parte_utile_del_campo(byte);
     if utile.is_empty() {
-        // Tutto spazi: `dbase` la legge come data assente.
+        // Tutto spazi, o niente prima del NUL: `dbase` la legge come data
+        // assente senza mai arrivare al parsing. E' il solo caso in cui un
+        // campo `D` che non porta una data e' un file valido.
         return false;
     }
-    !utile.is_ascii() || utile.len() < 8
+    utile.len() != 8 || !utile.iter().all(u8::is_ascii_digit)
 }
 
 /// Il giorno giuliano piu' grande che `dbase` sa convertire senza traboccare.
@@ -4548,6 +4582,117 @@ mod tests {
         );
     }
 
+    /// Il reperto della campagna, fino in fondo al driver, vivo e cancellato.
+    ///
+    /// Le sonde sulla condizione dicono che la difesa rifiuta quei byte; questa
+    /// dice che il prodotto la **raggiunge** e la traduce, invece di panicare
+    /// prima. E' lo stesso entry point del target `shp_reader`, sugli stessi
+    /// byte che la campagna ha archiviato.
+    ///
+    /// I due semi stanno insieme perche' misurano due proprieta' diverse: che
+    /// il campo sia rifiutato, e che il marcatore di cancellazione non compri
+    /// l'esenzione. Con un seme solo non si vedrebbe da quale delle due
+    /// dipenda il rifiuto.
+    #[test]
+    fn un_campo_data_di_soli_byte_di_controllo_e_un_rifiuto_tipizzato() {
+        for nome in [
+            "dbf-data-di-controllo.bundle",
+            "dbf-data-di-controllo-cancellata.bundle",
+        ] {
+            let errore = __fuzz_leggi_bundle(
+                &seme(nome),
+                opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+            )
+            .expect_err("un campo di soli byte di controllo non e' una data");
+            assert_eq!(
+                errore.message, "campo data DBF che il lettore non puo' interpretare",
+                "il seme «{nome}» deve fermarsi sulla difesa del campo data"
+            );
+            assert_eq!(
+                errore.category,
+                plenora_io_model::ErrorCategory::DataMapping
+            );
+            assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        }
+    }
+
+    /// La controprova: senza la difesa, quei byte fanno panicare `dbase`.
+    ///
+    /// Le sonde qui sopra dicono che il prodotto **oggi** rifiuta. Non dicono
+    /// che senza la difesa panicherebbe: lo direbbero anche se `dbase` avesse
+    /// imparato a restituire un errore, e la nostra riga fosse diventata
+    /// inutile.
+    ///
+    /// Qui il DBF del seme viene dato **direttamente** alla crate, saltando il
+    /// driver, dentro un `catch_unwind`. E' il difetto nella sua forma nuda: un
+    /// panico, non un `Err`, in una libreria che sta fra noi e il file.
+    ///
+    /// Il seme e' quello **cancellato**, e la ragione e' misurata: il solo
+    /// primo record non basta a far panicare `dbase`, che su di esso
+    /// restituisce un `Err(InvalidDigit)`. A panicare e' il secondo record --
+    /// quello che l'intestazione non dichiara e che la crate legge lo stesso --
+    /// il cui campo si tronca al primo NUL. La difesa lo ferma prima, sul
+    /// primo record, ed e' questa catena che la controprova tiene insieme.
+    ///
+    /// L'hook di panico resta quello di default: sopprimerlo qui zittirebbe
+    /// anche il panico di un altro test in parallelo, e un messaggio in piu'
+    /// nel log costa meno di un fallimento altrui reso muto.
+    #[test]
+    fn senza_la_difesa_il_campo_di_controllo_fa_panicare_dbase() {
+        let bundle = seme("dbf-data-di-controllo-cancellata.bundle");
+        let parti = __fuzz_dividi_bundle(&bundle).expect("il seme e' un bundle");
+        let dbf = parti.dbf.to_vec();
+
+        let temporanea = tempfile::tempdir().expect("directory temporanea");
+        let percorso = temporanea.path().join("solo.dbf");
+        std::fs::write(&percorso, &dbf).expect("il DBF si scrive");
+
+        let esito = std::panic::catch_unwind(|| {
+            let mut lettore =
+                shapefile::dbase::Reader::from_path(&percorso).expect("il DBF si apre");
+            lettore.read()
+        });
+        assert!(
+            esito.is_err(),
+            "senza la difesa del driver questi byte devono far panicare `dbase`: \
+             se un giorno restituisse un `Err`, questa controprova cade e la \
+             difesa va riconsiderata invece che tenuta per abitudine"
+        );
+
+        // E lo stesso file, attraverso il driver, e' un rifiuto: la difesa sta
+        // fra i due, ed e' cio' che fa la differenza.
+        let errore =
+            __fuzz_leggi_bundle(&bundle, opzioni_di_campagna().with_assume_crs("EPSG:4326"))
+                .expect_err("il driver rifiuta cio' che farebbe panicare la crate");
+        assert_eq!(
+            errore.message,
+            "campo data DBF che il lettore non puo' interpretare"
+        );
+    }
+
+    /// Le due strade che la difesa non deve chiudere, dal binario in giu'.
+    ///
+    /// Le sonde sulla condizione lo dicono sui byte; questa lo dice sul file.
+    /// Senza, «il campo data e' rifiutato» sarebbe vero anche di un driver che
+    /// rifiuta **ogni** DBF con un campo `D`, e nessun seme ostile se ne
+    /// accorgerebbe: sono tutti costruiti per essere rifiutati.
+    #[test]
+    fn una_data_valida_e_una_assente_attraversano_il_driver() {
+        for nome in ["dbf-data-valida.bundle", "dbf-data-assente.bundle"] {
+            // `match` e non `unwrap_or_else`: qui non c'e' nessun ripiego, e
+            // il registro dei fallback conta le forme `unwrap_or*` per come
+            // sono scritte, non per quel che fanno.
+            let righe = match __fuzz_leggi_bundle(
+                &seme(nome),
+                opzioni_di_campagna().with_assume_crs("EPSG:4326"),
+            ) {
+                Ok(righe) => righe,
+                Err(errore) => panic!("il seme «{nome}» deve leggersi: {errore:?}"),
+            };
+            assert_eq!(righe, 1, "una polilinea e un record: {nome}");
+        }
+    }
+
     /// Il rovescio: le date valide restano valide, e un campo tutto spazi e'
     /// una data assente, non un rifiuto. E' la meta' che una prevalidazione
     /// sbaglia piu' spesso, e che nessun seme ostile mostrerebbe.
@@ -4562,6 +4707,68 @@ mod tests {
         // Una `e` accentata in UTF-8: due byte, e il taglio a `s[4..6]` cade
         // dentro il secondo.
         assert!(data_non_interpretabile("2026\u{e8}01".as_bytes()));
+    }
+
+    /// Otto byte ASCII che non sono cifre, e che la lunghezza non ferma.
+    ///
+    /// E' il buco che la campagna del 2026-09-04 ha attraversato. La difesa
+    /// pretendeva otto byte ASCII e li aveva: fra i byte del campo e la stringa
+    /// che `Date::from_str` affetta c'e' pero' una **decodifica**, che
+    /// restituisce meno caratteri dei byte ricevuti -- qui nessuno -- e
+    /// `s[0..4]` cade fuori da una stringa vuota.
+    ///
+    /// Le cifre sono l'unica classe che nessuna codifica sposta: otto cifre
+    /// restano otto caratteri, e la fetta e' dentro i limiti per costruzione.
+    #[test]
+    fn un_campo_ascii_che_non_e_fatto_di_cifre_e_rifiutato() {
+        // La forma esatta del reperto: una cifra e sette NAK.
+        assert!(data_non_interpretabile(b"2\x15\x15\x15\x15\x15\x15\x15"));
+        // Otto byte di controllo, senza nemmeno una cifra.
+        assert!(data_non_interpretabile(&[0x15; 8]));
+        // ASCII stampabile e non numerico: la vecchia condizione lo accettava
+        // per gli stessi motivi.
+        assert!(data_non_interpretabile(b"abcdefgh"));
+        assert!(data_non_interpretabile(b"2026-01-"));
+        // Il segno che `parse::<u32>` accetterebbe e il formato no.
+        assert!(data_non_interpretabile(b"+2026101"));
+    }
+
+    /// La vecchia condizione accettava cio' che la nuova rifiuta.
+    ///
+    /// Senza, «il campo di controllo e' rifiutato» sarebbe vero anche di una
+    /// difesa che lo fermava gia' prima, e questa tranche non avrebbe cambiato
+    /// niente. Qui la condizione precedente e' riscritta in una riga -- otto
+    /// byte ASCII, com'era -- e si guarda che i due verdetti **divergano** su
+    /// quell'input e coincidano su tutti gli altri.
+    #[test]
+    fn la_condizione_precedente_lasciava_passare_il_reperto() {
+        let vecchia = |byte: &[u8]| {
+            let utile = parte_utile_del_campo(byte);
+            !utile.is_empty() && (!utile.is_ascii() || utile.len() < 8)
+        };
+
+        let reperto = b"2\x15\x15\x15\x15\x15\x15\x15";
+        assert!(!vecchia(reperto), "la vecchia condizione lo accettava");
+        assert!(
+            data_non_interpretabile(reperto),
+            "e la nuova lo rifiuta: e' la differenza che questa tranche porta"
+        );
+
+        // E su tutto il resto le due coincidono: la stretta e' mirata, non un
+        // giro di vite che rifiuta anche cio' che andava bene.
+        for caso in [
+            &b"20260101"[..],
+            b"        ",
+            b" 20260101 ",
+            b"2026    ",
+            "2026\u{e8}01".as_bytes(),
+        ] {
+            assert_eq!(
+                vecchia(caso),
+                data_non_interpretabile(caso),
+                "i due verdetti divergono su {caso:?}, e non dovrebbero"
+            );
+        }
     }
 
     /// La prevalidazione vale per **tutte e tre** le versioni che `dbase`
