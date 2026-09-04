@@ -462,6 +462,58 @@ pub fn validate_write(
             }
         }
     }
+    // La geometria richiesta dal bersaglio si guarda in una passata a se',
+    // **dopo** i controlli strutturali del ciclo principale: un piano con due
+    // layer omonimi deve sentirsi dire che i nomi collidono, non che al primo
+    // manca la geometria. La precedenza fra i rifiuti e' parte di cio' che il
+    // chiamante legge.
+    for layer in &plan.layers {
+        // Un bersaglio che **incorpora o fissa** un CRS e' un formato spaziale:
+        // il CRS sta su una geometria, e senza geometria non c'e' niente a cui
+        // attaccarlo. GeoParquet vuole una `primary_column` nel proprio
+        // metadato `geo`, lo Shapefile una geometria per record, KML un
+        // `Placemark`: un layer di soli attributi non e' un dataset di quei
+        // formati.
+        //
+        // Il rifiuto sta **qui** e non nel writer perche' e' una capability del
+        // bersaglio, e va pronunciata in validazione con la propria ragione:
+        // scoprirlo mentre si scrive lo faceva arrivare come errore di formato
+        // in fase di lettura, cioe' nominando la fase sbagliata e senza dire
+        // che era il bersaglio a non poterlo rappresentare.
+        //
+        // `EmbeddedOptional` e `None` restano fuori, ed e' voluto: Arrow IPC,
+        // CSV e XLSX portano tabelle senza geometria e non hanno un CRS da
+        // attaccare a nulla.
+        // «Senza geometria» si decide come lo decide il writer: contratto
+        // geometrico assente **e** nessuna colonna `geoarrow.wkb` nello schema.
+        // Guardare il solo contratto non basterebbe -- un piano puo' portare la
+        // geometria nel solo schema Arrow, ed e' li' che il writer la cerca --
+        // e rifiutarlo sarebbe rifiutare un dataset spaziale scambiandolo per
+        // una tabella.
+        let senza_geometria = layer.contract.geometry.is_none()
+            && !layer
+                .contract
+                .schema
+                .fields()
+                .iter()
+                .any(|field| plenora_io_model::geometry::is_geometry_field(field));
+        if senza_geometria
+            && matches!(
+                caps.crs,
+                CrsWriteSupport::Embedded | CrsWriteSupport::Fixed(_)
+            )
+        {
+            return Err(violation(
+                driver,
+                None,
+                CapabilityReason::GeometryNotSupported,
+                &PublicMessage::Curated(
+                    "il formato di destinazione richiede una colonna geometrica, e il layer non ne ha",
+                ),
+            ));
+        }
+    }
+
     Ok(())
 }
 

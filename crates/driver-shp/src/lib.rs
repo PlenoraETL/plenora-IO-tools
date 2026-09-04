@@ -7809,9 +7809,20 @@ mod tests {
         ) else {
             panic!("uno shapefile senza colonna geometria non e' uno shapefile");
         };
+        // Il rifiuto **non** e' piu' quello di `create`: dal 2026-09-04 arriva
+        // prima dal capability-check, che sa dal descrittore quali bersagli
+        // incorporano o fissano un CRS e quindi pretendono una geometria. E' la
+        // stessa forma del tetto sui nomi di campo qui sotto -- una capability
+        // del bersaglio, pronunciata in validazione con la propria ragione,
+        // invece di un errore di formato scoperto mentre si scrive.
         assert_eq!(
             errore.message,
-            "il contratto non ha una colonna geometria geoarrow.wkb"
+            "il formato di destinazione richiede una colonna geometrica, e il layer non ne ha"
+        );
+        assert_eq!(
+            errore.capability_reason,
+            Some(plenora_io_model::CapabilityReason::GeometryNotSupported),
+            "l'asse rifiutato e' la geometria, e la ragione lo dice"
         );
 
         // Nome campo oltre i dieci caratteri che il DBF porta: il rifiuto

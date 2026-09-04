@@ -1438,24 +1438,50 @@ mod backend {
         let mut layers = Vec::new();
         let mut metas = Vec::new();
         for (i, layer) in ds.layers().enumerate() {
-            let crs = resolve_layer_crs(layer.spatial_ref(), assume_crs)?;
-            let crs_label = crs
-                .id
-                .as_deref()
-                .or(crs.definition.as_deref())
-                .ok_or_else(|| {
-                    PlenoraIoError::crs_redatto(&PublicMessage::Curated(
-                        "CRS FileGDB risolto senza identificativo né definizione",
-                    ))
-                })?
-                .to_owned();
+            // Il campo geometrico si cerca **per primo**, e la sua assenza non
+            // e' un errore.
+            //
+            // Un FileGDB e' fatto di feature class **e** di tabelle: le seconde
+            // non hanno geometria, il formato le ammette, ed e' cosi' che sono
+            // fatte le GDB reali. Il driver le trattava come un layer rotto e
+            // rifiutava l'intero dataset, in fase di apertura: quattro feature
+            // class valide diventavano inaccessibili perche' accanto a loro
+            // c'era una tabella, e nessun `--layer` poteva aggirarlo, perche'
+            // il rifiuto precedeva la scelta.
+            //
+            // Una tabella viene percio' **enumerata**, con `geometry: None`.
+            // Non saltata: saltarla sposterebbe gli indici di layer sotto i
+            // piedi di chi li ha letti dal catalogo, e `--layer 1`
+            // significherebbe due cose diverse a seconda di che cosa il driver
+            // ha deciso di nascondere.
             let ogr_geometry_type = layer
                 .defn()
                 .geom_fields()
                 .next()
-                .map(|field| field.field_type())
-                .ok_or_else(|| err(&PublicMessage::Curated("layer senza campo geometrico")))?;
-            let geometry = geometry_contract_from_ogr(ogr_geometry_type, crs);
+                .map(|field| field.field_type());
+            // Il CRS si risolve solo per chi ha una geometria: pretenderlo da
+            // una tabella significava chiedere un `--assume-crs` per dei dati
+            // che non sono spaziali, con un messaggio che parlava di geometria.
+            let crs_e_geometria = match ogr_geometry_type {
+                Some(ogr_geometry_type) => {
+                    let crs = resolve_layer_crs(layer.spatial_ref(), assume_crs)?;
+                    let crs_label = crs
+                        .id
+                        .as_deref()
+                        .or(crs.definition.as_deref())
+                        .ok_or_else(|| {
+                            PlenoraIoError::crs_redatto(&PublicMessage::Curated(
+                                "CRS FileGDB risolto senza identificativo né definizione",
+                            ))
+                        })?
+                        .to_owned();
+                    Some((
+                        crs_label,
+                        geometry_contract_from_ogr(ogr_geometry_type, crs),
+                    ))
+                }
+                None => None,
+            };
             let native_fields: Vec<(LayerFieldMeta, Field)> = layer
                 .defn()
                 .fields()
@@ -1486,12 +1512,24 @@ mod backend {
                 .collect::<Result<Vec<_>>>()?;
             let (fields, attribute_arrow_fields): (Vec<_>, Vec<_>) =
                 native_fields.into_iter().unzip();
-            let geometry_arrow_field =
-                with_geometry_contract_metadata(&geometry_field(GEOMETRY, &crs_label), &geometry);
-            let mut arrow_fields = vec![geometry_arrow_field];
-            arrow_fields.extend(attribute_arrow_fields);
+            let (arrow_fields, geometry) = match crs_e_geometria {
+                Some((crs_label, geometry)) => {
+                    let geometry_arrow_field = with_geometry_contract_metadata(
+                        &geometry_field(GEOMETRY, &crs_label),
+                        &geometry,
+                    );
+                    let mut campi = vec![geometry_arrow_field];
+                    campi.extend(attribute_arrow_fields);
+                    (campi, Some(geometry))
+                }
+                // Una tabella: gli attributi e basta, senza una colonna
+                // geometrica davanti. E' anche cio' che sposta gli indici, e il
+                // reader lo rilegge da `ha_geometria`.
+                None => (attribute_arrow_fields, None),
+            };
             let schema: SchemaRef = Arc::new(Schema::new(arrow_fields));
-            let contract = DataContract::new(schema.clone(), Some(geometry));
+            let ha_geometria = geometry.is_some();
+            let contract = DataContract::new(schema.clone(), geometry);
             // Indice di layer di un FileGDB: il formato ne ammette al piu'
             // qualche migliaio, il cast a u32 non puo' troncare.
             #[allow(clippy::cast_possible_truncation)]
@@ -1504,6 +1542,7 @@ mod backend {
             metas.push(LayerMeta {
                 gdal_idx: i,
                 fields,
+                ha_geometria,
             });
         }
         Ok(Box::new(GdbDataset {
@@ -1551,9 +1590,29 @@ mod backend {
         ogr_type: gdal::vector::OGRFieldType::Type,
     }
 
+    /// Che cosa il reader deve sapere della geometria di **questo** layer.
+    ///
+    /// Due booleani distinti e non uno: `presente` dice se il layer ha una
+    /// colonna geometrica -- una tabella non ne ha -- e `inclusa` se la
+    /// projection l'ha chiesta. Confonderli farebbe ignorare `OGR_GEOMETRY` su
+    /// un layer che quel campo non ha.
+    #[derive(Clone, Copy)]
+    struct GeometriaDelLayer {
+        presente: bool,
+        inclusa: bool,
+    }
+
     struct LayerMeta {
         gdal_idx: usize,
         fields: Vec<LayerFieldMeta>,
+        /// Il layer porta una colonna geometrica.
+        ///
+        /// Non e' una comodita': decide **lo scostamento** fra indice Arrow e
+        /// indice OGR. In una feature class la geometria sta in posizione zero
+        /// e gli attributi cominciano da uno; in una tabella cominciano da
+        /// zero. Il reader sottraeva sempre uno, e su una tabella avrebbe
+        /// letto il campo sbagliato -- o nessuno.
+        ha_geometria: bool,
     }
 
     struct GdbDataset {
@@ -1588,10 +1647,14 @@ mod backend {
             let m = &self.metas[idx];
             let (indices, layer_contract) =
                 plenora_io_core::project_layer_contract(&self.layers[idx], request)?;
-            let include_geometry = indices.binary_search(&0).is_ok();
+            // In una feature class l'indice Arrow zero e' la geometria e gli
+            // attributi sono spostati di uno; in una tabella non c'e' niente
+            // davanti e lo scostamento e' zero.
+            let scostamento = usize::from(m.ha_geometria);
+            let include_geometry = m.ha_geometria && indices.binary_search(&0).is_ok();
             let mut fields = Vec::with_capacity(indices.len());
             for &index in &indices {
-                let Some(field_index) = index.checked_sub(1) else {
+                let Some(field_index) = index.checked_sub(scostamento) else {
                     continue;
                 };
                 let field = m.fields.get(field_index).ok_or_else(|| {
@@ -1623,7 +1686,10 @@ mod backend {
                     m.gdal_idx,
                     layer_contract.contract.schema.clone(),
                     fields,
-                    include_geometry,
+                    GeometriaDelLayer {
+                        presente: m.ha_geometria,
+                        inclusa: include_geometry,
+                    },
                     batch_sizer,
                     layer_contract,
                 )
@@ -1672,7 +1738,7 @@ mod backend {
         gdal_idx: usize,
         schema: SchemaRef,
         fields: Vec<ProjectedField>,
-        include_geometry: bool,
+        geometria: GeometriaDelLayer,
         mut batch_sizer: plenora_io_core::AdaptiveBatchSizer,
         contract: LayerContract,
     ) -> Result<Box<dyn LayerReader>> {
@@ -1711,7 +1777,10 @@ mod backend {
                     .filter(|(index, _)| !selected_fields.contains(index))
                     .map(|(_, (name, _))| name.as_str())
                     .collect::<Vec<_>>();
-                if !include_geometry {
+                // `OGR_GEOMETRY` si ignora solo dove esiste: su una tabella
+                // non c'e' campo geometrico da nominare, e nominarlo sarebbe
+                // una projection su un campo che il layer non ha.
+                if geometria.presente && !geometria.inclusa {
                     ignored_fields.push("OGR_GEOMETRY");
                 }
                 layer.set_ignored_fields(&ignored_fields).map_err(|_| {
@@ -1719,7 +1788,7 @@ mod backend {
                         "projection fisica FileGDB non applicabile",
                     ))
                 })?;
-                let mut geom = include_geometry.then(BinaryBuilder::new);
+                let mut geom = geometria.inclusa.then(BinaryBuilder::new);
                 let mut builders: Vec<ReadCol> = fields
                     .iter()
                     .map(|field| ReadCol::new(&field.data_type))
@@ -3198,6 +3267,185 @@ mod backend {
                         == Some(CapabilityReason::TypeNotRepresentable)
             ));
             assert!(!path.exists());
+        }
+
+        // --- una tabella non spaziale non chiude il dataset -----------------
+
+        /// Un `FileGDB` con una feature class **e** una tabella non spaziale.
+        ///
+        /// E' come sono fatte le GDB vere: accanto alle feature class stanno le
+        /// tabelle, che il formato ammette e che ESRI usa di continuo. La
+        /// fixture si costruisce con OGR e non con il writer del driver, che
+        /// scrive soltanto layer spaziali e quindi non saprebbe produrre il
+        /// caso.
+        fn gdb_con_tabella(percorso: &std::path::Path) {
+            use gdal::vector::{FieldDefn, LayerOptions, OGRFieldType, OGRwkbGeometryType};
+
+            let driver = DriverManager::get_driver_by_name("OpenFileGDB")
+                .expect("driver OpenFileGDB disponibile");
+            let mut ds = driver
+                .create_vector_only(percorso)
+                .expect("FileGDB creabile");
+            let srs = gdal::spatial_ref::SpatialRef::from_epsg(3857).expect("EPSG:3857");
+
+            let spaziale = ds
+                .create_layer(LayerOptions {
+                    name: "punti",
+                    srs: Some(&srs),
+                    ty: OGRwkbGeometryType::wkbPoint,
+                    options: None,
+                })
+                .expect("feature class creabile");
+            let campo = FieldDefn::new("nome", OGRFieldType::OFTString).expect("campo");
+            campo.add_to_layer(&spaziale).expect("campo aggiunto");
+
+            // Nessun SRS e nessuna geometria: e' una tabella.
+            let tabella = ds
+                .create_layer(LayerOptions {
+                    name: "tabella",
+                    srs: None,
+                    ty: OGRwkbGeometryType::wkbNone,
+                    options: None,
+                })
+                .expect("tabella creabile");
+            let campo = FieldDefn::new("nota", OGRFieldType::OFTString).expect("campo");
+            campo.add_to_layer(&tabella).expect("campo aggiunto");
+            let campo = FieldDefn::new("peso", OGRFieldType::OFTInteger).expect("campo");
+            campo.add_to_layer(&tabella).expect("campo aggiunto");
+        }
+
+        /// Una tabella non spaziale non deve rendere illeggibile la GDB.
+        ///
+        /// Il driver rifiutava l'**intero dataset** -- «layer senza campo
+        /// geometrico» -- appena incontrava un layer senza geometria, e lo
+        /// faceva enumerando: quattro feature class valide diventavano
+        /// inaccessibili per la presenza di una tabella accanto a loro. Il
+        /// rifiuto arrivava per giunta in fase di apertura, prima di qualunque
+        /// `--layer`, quindi non c'era modo di aggirarlo scegliendo.
+        ///
+        /// La tabella va **enumerata**, non saltata: saltarla cambierebbe gli
+        /// indici di layer sotto i piedi di chi li ha letti dal catalogo, e un
+        /// `--layer 1` significherebbe due cose diverse a seconda di quali
+        /// layer il driver ha deciso di nascondere.
+        #[test]
+        fn una_tabella_non_spaziale_non_impedisce_di_aprire_la_gdb() {
+            let dir = tempfile::tempdir().unwrap();
+            let percorso = dir.path().join("con_tabella.gdb");
+            gdb_con_tabella(&percorso);
+
+            let dataset = open(&percorso, None)
+                .expect("una tabella accanto a una feature class non chiude il dataset");
+            let layers = dataset.layers();
+            assert_eq!(layers.len(), 2, "entrambi i layer vanno enumerati");
+
+            let spaziale = layers
+                .iter()
+                .find(|l| l.name == "punti")
+                .expect("la feature class e' enumerata");
+            assert!(
+                spaziale.contract.geometry.is_some(),
+                "la feature class porta il proprio contratto geometrico"
+            );
+
+            let tabella = layers
+                .iter()
+                .find(|l| l.name == "tabella")
+                .expect("la tabella e' enumerata");
+            assert!(
+                tabella.contract.geometry.is_none(),
+                "una tabella non ha geometria, e il contratto lo dice invece di inventarne una"
+            );
+            assert_eq!(
+                tabella
+                    .contract
+                    .schema
+                    .fields()
+                    .iter()
+                    .map(|f| f.name().as_str())
+                    .collect::<Vec<_>>(),
+                vec!["nota", "peso"],
+                "gli attributi della tabella ci sono tutti, e senza una colonna \
+                 geometrica davanti"
+            );
+        }
+
+        /// La tabella si legge, e i suoi attributi non scivolano di una
+        /// colonna.
+        ///
+        /// E' la controprova che l'enumerazione non basta: lo schema Arrow di
+        /// una feature class ha la geometria in posizione zero e gli attributi
+        /// spostati di uno, e il reader traduceva l'indice Arrow in indice OGR
+        /// sottraendo sempre quell'uno. Su una tabella, dove lo scostamento non
+        /// c'e', la stessa sottrazione avrebbe letto il campo sbagliato -- o
+        /// nessuno.
+        #[test]
+        fn la_tabella_si_legge_e_gli_attributi_non_scivolano() {
+            let dir = tempfile::tempdir().unwrap();
+            let percorso = dir.path().join("lettura.gdb");
+            gdb_con_tabella(&percorso);
+
+            let dataset = open(&percorso, None).expect("dataset aperto");
+            let indice = dataset
+                .layers()
+                .iter()
+                .position(|l| l.name == "tabella")
+                .expect("la tabella e' enumerata");
+            // Indice di layer: due layer, il cast non puo' troncare.
+            #[allow(clippy::cast_possible_truncation)]
+            let id = LayerId(indice as u32);
+            let mut lettore = dataset
+                .open_layer_reader(&ReadRequest {
+                    layer: id,
+                    ..read_request()
+                })
+                .expect("una tabella si apre in lettura");
+            let mut righe = 0usize;
+            while let Some(batch) = lettore.next_batch().expect("lettura della tabella") {
+                assert_eq!(
+                    batch
+                        .schema()
+                        .fields()
+                        .iter()
+                        .map(|f| f.name().as_str())
+                        .collect::<Vec<_>>(),
+                    vec!["nota", "peso"],
+                    "il batch porta gli attributi della tabella, nell'ordine dello schema"
+                );
+                righe += batch.num_rows();
+            }
+            assert_eq!(righe, 0, "la tabella della fixture e' vuota");
+        }
+
+        /// La feature class resta leggibile **accanto** alla tabella.
+        ///
+        /// Senza questa, «il dataset si apre» sarebbe vero anche di un driver
+        /// che ha smesso di leggere le geometrie: e' la meta' che il difetto
+        /// rendeva irraggiungibile, ed e' quella che conta.
+        #[test]
+        fn la_feature_class_resta_leggibile_accanto_alla_tabella() {
+            let dir = tempfile::tempdir().unwrap();
+            let percorso = dir.path().join("accanto.gdb");
+            gdb_con_tabella(&percorso);
+
+            let dataset = open(&percorso, None).expect("dataset aperto");
+            let indice = dataset
+                .layers()
+                .iter()
+                .position(|l| l.name == "punti")
+                .expect("la feature class e' enumerata");
+            #[allow(clippy::cast_possible_truncation)]
+            let id = LayerId(indice as u32);
+            let mut lettore = dataset
+                .open_layer_reader(&ReadRequest {
+                    layer: id,
+                    ..read_request()
+                })
+                .expect("la feature class si apre in lettura");
+            while lettore
+                .next_batch()
+                .expect("lettura della feature class")
+                .is_some()
+            {}
         }
     }
 }
