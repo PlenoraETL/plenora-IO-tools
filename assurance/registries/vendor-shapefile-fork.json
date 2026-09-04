@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "descrizione": "Provenienza del fork governato, registrata separatamente dal lock. Il gate confronta i due: una divergenza significa che qualcuno ha aggiornato il vendor senza aggiornare la provenienza, o viceversa.",
+  "package": "shapefile",
+  "version": "0.6.0",
+  "crate_sha256": "79d5472e932503059d02779ad2c1b96258980940c6923e49f427fbe80eb3053c",
+  "upstream_revision": "4605a13849c78f7393b75252aa6bdf28bd861ce9",
+  "provenienza_della_revisione": "`.cargo_vcs_info.json` della release crates.io 0.6.0, che registra lo sha1 del commit da cui `cargo package` e' stato eseguito. Il file non entra nell'albero vendorizzato: e' un artefatto di packaging, non contenuto del crate, e lasciarlo dentro avrebbe messo nell'impronta un dato che descrive l'impronta.",
+  "licenza_upstream": "MIT",
+  "file_licenza": "vendor/shapefile/LICENSE.md",
+  "risoluzione": "il workspace risolve shapefile 0.6.0 esclusivamente da vendor/shapefile via [patch.crates-io]",
+  "perche_il_fork": "la specifica Shapefile ammette un record con shape type 0 -- `NullShape` -- dentro un file la cui intestazione ne dichiara un altro: e' cosi' che si scrive una feature senza geometria, ed e' cio' che ogni altra implementazione produce. La nostra fixture canonica ne contiene una, scritta da OGR, e il nostro reader la legge.\n\nL'API upstream non sa esprimerla. `Shape::NullShape` e' una variante senza valore e non implementa ne' `WritableShape` ne' `EsriShape`; `ShapeWriter::write_shape` pretende `S: EsriShape` e i campi del `Writer` sono privati. Non c'era quindi modo di riscrivere un file che sapevamo leggere, e il writer rifiutava la riga: un round trip che deve conservare i dati si fermava sulla riga che non ne aveva.",
+  "delta_funzionale": [
+    {
+      "file": "src/writer.rs",
+      "cambiamento": "`ShapeWriter::write_null_shape` scrive un record di shape type 0 conservando il tipo dichiarato nell'intestazione, e `Writer::write_null_shape_and_record` lo accompagna con il proprio record DBF. La riserva dell'intestazione e' estratta in `reserve_header` e agganciata a `rec_num` invece che al sentinella del tipo: un file il cui primo record e' nullo deve riservare l'intestazione senza adottare un tipo, e con la condizione precedente l'avrebbe scritta due volte.",
+      "perche_non_generico": "non e' un punto d'ingresso per scrivere un record qualunque. Scrive una sola forma -- quella nulla -- con la dimensione che il formato le fissa: quattro byte di contenuto, due parole da sedici bit nell'intestazione del record. Un'API per record grezzi avrebbe dato al chiamante il modo di disallineare `.shp`, `.shx` e `.dbf`, che e' esattamente cio' che questo delta esiste per rendere impossibile.",
+      "cosa_non_tocca": "il bounding box, che una geometria nulla non muove; il tipo dichiarato nell'intestazione, che resta quello dei record non nulli; e il conteggio dei record, che avanza come per ogni altro record perche' nello `.shx` la voce c'e'."
+    }
+  ],
+  "invarianti_del_fork": [
+    "l'albero vendorizzato contiene il crate pubblicato e nient'altro: `.cargo_vcs_info.json`, che `cargo package` aggiunge, e' tolto perche' e' metadato del pacchetto e non codice",
+    "il delta e' in un file solo, e il gate lo dichiara: ogni altro file dell'albero e' upstream byte per byte",
+    "`.shp`, `.shx` e `.dbf` restano paralleli: ogni record scritto ha la propria voce d'indice e il proprio record di attributi"
+  ],
+  "procedura_di_aggiornamento": "si riscarica il `.crate` della versione nuova, se ne verifica il `crate_sha256`, si riapplica il delta funzionale, si ricalcola l'impronta con `scripts/fork_comune.py` e si aggiornano lock e registro nello stesso commit. Il gate `scripts/check_shapefile_fork.py` diventa rosso se uno dei due resta indietro.",
+  "package_verification": "`cargo package --target-dir` fuori dall'albero governato: un artefatto di build dentro `vendor/` non altera l'impronta -- calcolata sul solo insieme versionato -- ma viene nominato come estraneo, ed e' un albero governato che deve contenere cio' che dichiara."
+}

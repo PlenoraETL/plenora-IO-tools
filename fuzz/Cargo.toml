@@ -35,9 +35,13 @@ tempfile = "=3.27.0"
 
 [patch.crates-io]
 # Il workspace fuzz è intenzionalmente detached e non eredita le patch del
-# workspace principale. Usa quindi lo stesso fork governato del driver DXF.
+# workspace principale: ogni fork governato va ripetuto qui. Un fork che
+# mancasse in questo elenco non darebbe un errore di risoluzione ma un target
+# costruito su **un altro codice** — e la profondità misurata sarebbe quella di
+# un binario che non spediamo.
 dxf = { path = "../vendor/dxf" }
 gdal = { path = "../vendor/gdal" }
+shapefile = { path = "../vendor/shapefile" }
 
 [[bin]]
 name = "from_wkb"

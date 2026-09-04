@@ -805,13 +805,24 @@ struct CsvWriter {
 impl FormatWriter for CsvWriter {
     fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         let schema = batch.schema();
-        let geom_idx = geometry_index(&schema)
-            .ok_or_else(|| err(&PublicMessage::Curated("nessuna colonna geometria")))?;
-        let geom_col = batch
-            .column(geom_idx)
-            .as_any()
-            .downcast_ref::<BinaryArray>()
-            .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?;
+        // La geometria e' **facoltativa**: `DataContract::geometry` lo e', e un
+        // CSV di soli attributi e' un CSV. Pretenderla rendeva inconvertibile
+        // una tabella -- quelle che stanno accanto alle feature class in un
+        // FileGDB, per esempio -- verso il formato che di tutti e' il piu'
+        // adatto a riceverla. Il descrittore lo diceva gia': `csv` dichiara
+        // `CrsWriteSupport::None`, cioe' che un CRS non lo porta, e un CRS si
+        // porta su una geometria.
+        let geom_idx = geometry_index(&schema);
+        let geom_col = match geom_idx {
+            Some(indice) => Some(
+                batch
+                    .column(indice)
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .ok_or_else(|| err(&PublicMessage::Curated("colonna geometria non binaria")))?,
+            ),
+            None => None,
+        };
         let limits = self.wkb_limits;
         let xy = self.xy;
         let w = self
@@ -822,15 +833,20 @@ impl FormatWriter for CsvWriter {
         if !self.header_written {
             let mut header: Vec<&str> = Vec::new();
             for (i, f) in schema.fields().iter().enumerate() {
-                if i != geom_idx {
+                if Some(i) != geom_idx {
                     header.push(f.name());
                 }
             }
-            if xy {
-                header.push("x");
-                header.push("y");
-            } else {
-                header.push("geometry");
+            // Le colonne della geometria si aggiungono solo se una geometria
+            // c'e': un'intestazione con `geometry` sopra una colonna sempre
+            // vuota direbbe che il dato e' andato perso, invece che assente.
+            if geom_idx.is_some() {
+                if xy {
+                    header.push("x");
+                    header.push("y");
+                } else {
+                    header.push("geometry");
+                }
             }
             w.write_record(&header).map_err(|_| {
                 err(&PublicMessage::Curated(
@@ -845,47 +861,55 @@ impl FormatWriter for CsvWriter {
         let mut fbuf = String::new();
         for row in 0..batch.num_rows() {
             for (i, _) in schema.fields().iter().enumerate() {
-                if i != geom_idx {
+                if Some(i) != geom_idx {
                     write_cell(w, batch.column(i), row, &mut fbuf)?;
                 }
             }
-            if geom_col.is_null(row) {
-                w.write_field("").map_err(|_| {
-                    err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
-                })?;
-                if xy {
+            if let Some(geom_col) = geom_col {
+                if geom_col.is_null(row) {
                     w.write_field("").map_err(|_| {
                         err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
                     })?;
-                }
-            } else {
-                let geom = decode_wkb(geom_col.value(row), &limits)?;
-                if xy {
-                    match geom.value {
-                        WkbValue::Point(point) if geom.dimensions == CoordinateDimensions::Xy => {
-                            fbuf.clear();
-                            let _ = write!(fbuf, "{}", point.x);
-                            w.write_field(&fbuf).map_err(|_| {
-                                err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
-                            })?;
-                            fbuf.clear();
-                            let _ = write!(fbuf, "{}", point.y);
-                            w.write_field(&fbuf).map_err(|_| {
-                                err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
-                            })?;
-                        }
-                        _ => {
-                            return Err(err(&PublicMessage::Curated(
-                                "encoding xy richiede geometrie Point strettamente XY",
-                            )))
-                        }
+                    if xy {
+                        w.write_field("").map_err(|_| {
+                            err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
+                        })?;
                     }
                 } else {
-                    fbuf.clear();
-                    format_wkt_into(&geom, &mut fbuf)?;
-                    w.write_field(&fbuf).map_err(|_| {
-                        err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
-                    })?;
+                    let geom = decode_wkb(geom_col.value(row), &limits)?;
+                    if xy {
+                        match geom.value {
+                            WkbValue::Point(point)
+                                if geom.dimensions == CoordinateDimensions::Xy =>
+                            {
+                                fbuf.clear();
+                                let _ = write!(fbuf, "{}", point.x);
+                                w.write_field(&fbuf).map_err(|_| {
+                                    err(&PublicMessage::Curated(
+                                        "scrittura di un campo CSV fallita",
+                                    ))
+                                })?;
+                                fbuf.clear();
+                                let _ = write!(fbuf, "{}", point.y);
+                                w.write_field(&fbuf).map_err(|_| {
+                                    err(&PublicMessage::Curated(
+                                        "scrittura di un campo CSV fallita",
+                                    ))
+                                })?;
+                            }
+                            _ => {
+                                return Err(err(&PublicMessage::Curated(
+                                    "encoding xy richiede geometrie Point strettamente XY",
+                                )))
+                            }
+                        }
+                    } else {
+                        fbuf.clear();
+                        format_wkt_into(&geom, &mut fbuf)?;
+                        w.write_field(&fbuf).map_err(|_| {
+                            err(&PublicMessage::Curated("scrittura di un campo CSV fallita"))
+                        })?;
+                    }
                 }
             }
             // Termina il record (dopo i write_field).
@@ -1410,6 +1434,127 @@ mod tests {
             },
             cancellation: CancellationToken::default(),
         }
+    }
+
+    /// Un CSV di soli attributi e' un CSV, e il writer lo scrive.
+    ///
+    /// # Il difetto che chiude
+    ///
+    /// `DataContract::geometry` e' un `Option`, e il writer pretendeva
+    /// comunque una colonna geometrica: rifiutava con «nessuna colonna
+    /// geometria» un piano che il contratto ammette. Il costo si e' visto
+    /// quando il `FileGDB` ha smesso di rifiutare le tabelle non spaziali --
+    /// quelle che stanno accanto alle feature class in ogni GDB reale --
+    /// perche' il formato piu' adatto a riceverle era proprio quello che non
+    /// sapeva scriverle.
+    ///
+    /// Il descrittore lo diceva gia': `csv` dichiara `CrsWriteSupport::None`,
+    /// cioe' che un CRS non lo porta. Un CRS si porta su una geometria, e un
+    /// formato che non ne ha uno non puo' pretenderla.
+    ///
+    /// # La controprova
+    ///
+    /// Nella stessa sonda, perche' e' il confronto a renderla leggibile: con
+    /// una geometria l'intestazione la porta e i valori pure. Senza,
+    /// «l'intestazione non ha `geometry`» sarebbe vero anche di un writer che
+    /// ha smesso di scrivere le geometrie.
+    /// Un punto XY in WKB, per la controprova con geometria.
+    fn punto_wkb() -> Vec<u8> {
+        let mut byte = Vec::new();
+        plenora_io_model::wkb::encode_wkb_into(
+            &WkbGeometry {
+                value: WkbValue::Point(WkbCoordinate {
+                    x: 1.0,
+                    y: 2.0,
+                    z: None,
+                    m: None,
+                }),
+                dimensions: plenora_io_model::contract::CoordinateDimensions::Xy,
+                srid: None,
+            },
+            WkbFlavor::Iso,
+            &mut byte,
+        )
+        .expect("un punto si codifica");
+        byte
+    }
+
+    #[test]
+    fn n1_una_tabella_senza_geometria_diventa_un_csv_di_soli_attributi() {
+        let dir = tempfile::tempdir().unwrap();
+        let driver = CsvDriver;
+
+        let schema_tabella: SchemaRef = Arc::new(Schema::new(vec![
+            Field::new("nota", arrow_schema::DataType::Utf8, true),
+            Field::new("peso", arrow_schema::DataType::Int64, true),
+        ]));
+        let lotto = RecordBatch::try_new(
+            Arc::clone(&schema_tabella),
+            vec![
+                Arc::new(StringArray::from(vec!["primo", "secondo"])),
+                Arc::new(arrow_array::Int64Array::from(vec![10_i64, 20])),
+            ],
+        )
+        .unwrap();
+        let piano = WritePlan {
+            layers: vec![WriteLayer {
+                name: "tabella".to_owned(),
+                contract: DataContract {
+                    schema: schema_tabella,
+                    geometry: None,
+                },
+            }],
+        };
+        let uscita = dir.path().join("tabella.csv");
+        let mut writer = driver
+            .create(Sink::Path(uscita.clone()), &piano, &opzioni_scrittura())
+            .expect("un piano senza geometria e' un piano valido per il CSV");
+        writer.write(&lotto).expect("la tabella si scrive");
+        writer.finish().expect("il CSV si pubblica");
+
+        let testo = std::fs::read_to_string(&uscita).unwrap();
+        assert_eq!(
+            testo, "nota,peso\nprimo,10\nsecondo,20\n",
+            "gli attributi, tutti, e nessuna colonna geometrica inventata"
+        );
+
+        // La controprova: con una geometria, l'intestazione la porta.
+        let schema_spaziale: SchemaRef = Arc::new(Schema::new(vec![
+            geometry_field("geometry", "EPSG:4326"),
+            Field::new("nota", arrow_schema::DataType::Utf8, true),
+        ]));
+        let lotto = RecordBatch::try_new(
+            Arc::clone(&schema_spaziale),
+            vec![
+                Arc::new(arrow_array::BinaryArray::from(vec![Some(
+                    punto_wkb().as_slice(),
+                )])),
+                Arc::new(StringArray::from(vec!["primo"])),
+            ],
+        )
+        .unwrap();
+        let piano = WritePlan {
+            layers: vec![WriteLayer {
+                name: "spaziale".to_owned(),
+                contract: DataContract {
+                    schema: schema_spaziale,
+                    geometry: None,
+                },
+            }],
+        };
+        let uscita = dir.path().join("spaziale.csv");
+        let mut writer = driver
+            .create(Sink::Path(uscita.clone()), &piano, &opzioni_scrittura())
+            .expect("il piano spaziale resta valido");
+        writer.write(&lotto).expect("la riga si scrive");
+        writer.finish().expect("il CSV si pubblica");
+
+        let testo = std::fs::read_to_string(&uscita).unwrap();
+        assert!(
+            testo.starts_with("nota,geometry\n"),
+            "con una geometria l'intestazione la porta, arrivata «{testo}»"
+        );
+        assert!(testo.contains("POINT"), "e il valore ci arriva: «{testo}»");
     }
 
     #[test]

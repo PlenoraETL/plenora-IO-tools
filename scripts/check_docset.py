@@ -54,6 +54,15 @@ CANONICI = [
 OPERATIVI = {
     "vendor/dxf/README.md": "Cargo.toml del fork dichiara `readme`; contenuto di terzi",
     "vendor/gdal/README.md": "Cargo.toml del fork dichiara `readme`; contenuto di terzi",
+    # Il terzo fork ridistribuisce anche un CHANGELOG e la propria licenza in
+    # Markdown. Non entrano in `vendor_intatti`, e non per dimenticanza:
+    # l'integrita' dell'albero `vendor/shapefile` e' verificata per intero --
+    # venticinque file, un digest solo -- da `scripts/check_shapefile_fork.py`
+    # contro il lock del fork, che e' una difesa piu' forte del confronto di un
+    # file con una baseline.
+    "vendor/shapefile/README.md": "Cargo.toml del fork dichiara `readme`; contenuto di terzi",
+    "vendor/shapefile/CHANGELOG.md": "cronaca upstream ridistribuita; contenuto di terzi",
+    "vendor/shapefile/LICENSE.md": "licenza MIT upstream ridistribuita; contenuto di terzi",
     ".github/pull_request_template.md": "GitHub lo legge per convenzione di percorso",
 }
 

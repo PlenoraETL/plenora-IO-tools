@@ -333,23 +333,38 @@ fn schema(projjson: &str) -> Schema {
 }
 
 fn batch(schema: &Arc<Schema>) -> RecordBatch {
-    let geometrie: Vec<Option<Vec<u8>>> = RIGHE
+    batch_da(schema, &RIGHE.iter().collect::<Vec<_>>())
+}
+
+/// Le sole righe che portano una geometria.
+///
+/// Serve alla conversione verso DXF, che la riga senza geometria **rifiuta**,
+/// e giustamente: un'entita' di disegno senza geometria non esiste. Il rifiuto
+/// resta un caso a se'; questa variante permette di provare l'altra meta' --
+/// che le geometrie, gli attributi e le approssimazioni dichiarate arrivino --
+/// senza scartare in silenzio la riga che il rifiuto riguarda.
+fn righe_con_geometria() -> Vec<&'static Riga> {
+    RIGHE.iter().filter(|r| r.geometria.is_some()).collect()
+}
+
+fn batch_da(schema: &Arc<Schema>, righe: &[&Riga]) -> RecordBatch {
+    let geometrie: Vec<Option<Vec<u8>>> = righe
         .iter()
         .map(|r| r.geometria.as_ref().map(wkb))
         .collect();
     let colonne: Vec<ArrayRef> = vec![
-        Arc::new(StringArray::from_iter_values(RIGHE.iter().map(|r| r.id))),
+        Arc::new(StringArray::from_iter_values(righe.iter().map(|r| r.id))),
         Arc::new(StringArray::from_iter_values(
-            RIGHE.iter().map(|r| r.codice),
+            righe.iter().map(|r| r.codice),
         )),
-        Arc::new(RIGHE.iter().map(|r| r.etichetta).collect::<StringArray>()),
+        Arc::new(righe.iter().map(|r| r.etichetta).collect::<StringArray>()),
         Arc::new(Int64Array::from_iter_values(
-            RIGHE.iter().map(|r| r.intero_largo),
+            righe.iter().map(|r| r.intero_largo),
         )),
-        Arc::new(RIGHE.iter().map(|r| r.conteggio).collect::<Int32Array>()),
-        Arc::new(RIGHE.iter().map(|r| r.misura).collect::<Float64Array>()),
-        Arc::new(RIGHE.iter().map(|r| r.attivo).collect::<BooleanArray>()),
-        Arc::new(Date32Array::from_iter_values(RIGHE.iter().map(|r| {
+        Arc::new(righe.iter().map(|r| r.conteggio).collect::<Int32Array>()),
+        Arc::new(righe.iter().map(|r| r.misura).collect::<Float64Array>()),
+        Arc::new(righe.iter().map(|r| r.attivo).collect::<BooleanArray>()),
+        Arc::new(Date32Array::from_iter_values(righe.iter().map(|r| {
             let (anno, mese, giorno) = r.istante;
             giorni_dall_epoca(anno, mese, giorno)
         }))),
@@ -481,8 +496,17 @@ fn main() {
     let parquet = destinazione.join("canonico.parquet");
     scrivi_parquet(&parquet, &schema, &batch, metadato_geo(&crs));
 
+    // La variante senza la riga priva di geometria, per i bersagli che una
+    // feature senza geometria la rifiutano -- il DXF, dove un'entita' di
+    // disegno senza geometria non esiste. Il rifiuto resta un caso a se': qui
+    // si prova l'altra meta', cioe' che tutto il resto arrivi.
+    let pieno = destinazione.join("canonico_pieno.parquet");
+    let batch_pieno = batch_da(&schema, &righe_con_geometria());
+    scrivi_parquet(&pieno, &schema, &batch_pieno, metadato_geo(&crs));
+
     println!("  canonico.arrow");
     println!("  canonico.parquet");
-    println!("2 fixture generate in {}", destinazione.display());
+    println!("  canonico_pieno.parquet");
+    println!("3 fixture generate in {}", destinazione.display());
     println!("Ora aggiorna il registro: scripts/check-fixture-canoniche.py --mostra-manifesto");
 }

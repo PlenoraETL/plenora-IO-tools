@@ -932,8 +932,30 @@ impl FormatWriter for ShpWriter {
         let mut prepared = Vec::with_capacity(batch.num_rows());
         let mut rejections = Vec::new();
         for row in 0..batch.num_rows() {
+            // La geometria assente **si conserva**. La specifica ESRI ammette un
+            // record con shape type 0 dentro un file che ne dichiara un altro:
+            // e' cosi' che si scrive una feature senza geometria, ed e' cio'
+            // che ogni altra implementazione fa -- la nostra fixture canonica
+            // ne contiene una, scritta da OGR, e il nostro reader la legge.
+            // Rifiutarla rendeva impossibile riscrivere un file che sapevamo
+            // leggere; scartare la riga avrebbe disallineato `.shp` e `.dbf`.
             if geom_col.is_null(row) {
-                rejections.push((row, "shapefile.null_geometry_unsupported", GEOMETRY));
+                let mut rec = Record::default();
+                let mut valid_record = true;
+                for (col, name, kind) in &self.attrs {
+                    let Ok(value) = cell_to_field(batch.column(*col), row, *kind) else {
+                        rejections.push((row, "shapefile.cell_not_representable", name.as_str()));
+                        valid_record = false;
+                        break;
+                    };
+                    rec.insert(name.clone(), value);
+                }
+                if valid_record {
+                    // `NullShape` non decide il tipo del file: `shape_tag` gli
+                    // assegna la stringa vuota apposta, e un file di sole
+                    // geometrie nulle resta senza un tipo da dichiarare.
+                    prepared.push((Shape::NullShape, rec));
+                }
                 continue;
             }
             let Ok(geometry) = decode_wkb(geom_col.value(row), &limits) else {
@@ -1428,9 +1450,11 @@ fn write_shape(w: &mut Writer<BufWriter<File>>, shape: Shape, rec: &Record) -> R
         Shape::Multipoint(s) => w.write_shape_and_record(&s, rec).map_err(me),
         Shape::MultipointM(s) => w.write_shape_and_record(&s, rec).map_err(me),
         Shape::MultipointZ(s) => w.write_shape_and_record(&s, rec).map_err(me),
-        Shape::NullShape => Err(err(&PublicMessage::Curated(
-            "geometria nulla non supportata in scrittura Shapefile",
-        ))),
+        // Il record nullo passa dal proprio metodo del fork governato: il
+        // `Shape::NullShape` di upstream non porta un valore e non implementa
+        // `EsriShape`, quindi non c'e' niente da consegnare a
+        // `write_shape_and_record`.
+        Shape::NullShape => w.write_null_shape_and_record(rec).map_err(me),
         Shape::Multipatch(_) => Err(err(&PublicMessage::Curated(
             "Multipatch non supportato in scrittura Shapefile",
         ))),
@@ -7757,6 +7781,146 @@ mod tests {
         }
     }
 
+    /// La geometria assente attraversa lo Shapefile e torna indietro identica.
+    ///
+    /// # Il difetto che chiude
+    ///
+    /// La specifica ESRI ammette un record con shape type 0 dentro un file che
+    /// ne dichiara un altro: e' cosi' che si scrive una feature senza
+    /// geometria. Il nostro **reader** la legge -- la fixture canonica ne
+    /// contiene una, scritta da OGR -- e il writer la rifiutava: non sapevamo
+    /// riscrivere un file che sapevamo leggere, e un round trip che deve
+    /// conservare i dati si fermava sulla riga che non ne aveva.
+    ///
+    /// Scartare la riga sarebbe stato peggio del rifiuto: `.shp` e `.dbf` sono
+    /// due file paralleli, e togliere un record da uno solo li disallinea per
+    /// tutte le righe successive. Ogni attributo si troverebbe accanto alla
+    /// geometria di un'altra feature, e nessun errore lo direbbe.
+    ///
+    /// # Le quattro posizioni
+    ///
+    /// Prima, in mezzo, ultima e unica. Non sono lo stesso caso: la prima
+    /// riserva l'intestazione senza poter dichiarare un tipo, l'ultima chiude
+    /// il file dopo un record che non muove il bounding box, e quella sola
+    /// produce un file che un tipo non ce l'ha affatto.
+    #[test]
+    fn n1_la_geometria_assente_attraversa_lo_shapefile() {
+        let punto = to_wkb(&geo_types::Geometry::Point(geo_types::Point::new(1.0, 2.0))).unwrap();
+        let campo = || Field::new("ETICHETTA", arrow_schema::DataType::Utf8, true);
+
+        for (caso, geometrie) in [
+            (
+                "prima",
+                vec![None, Some(punto.as_slice()), Some(punto.as_slice())],
+            ),
+            (
+                "intermedia",
+                vec![Some(punto.as_slice()), None, Some(punto.as_slice())],
+            ),
+            (
+                "ultima",
+                vec![Some(punto.as_slice()), Some(punto.as_slice()), None],
+            ),
+            ("unica", vec![None]),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let destinazione = dir.path().join("nulla.shp");
+            // Le etichette distinguono le righe: e' con loro che si vede se il
+            // DBF e' scivolato rispetto allo `.shp`.
+            let etichette: Vec<String> = (0..geometrie.len()).map(|i| format!("r{i}")).collect();
+            let schema: SchemaRef = Arc::new(Schema::new(vec![
+                geometry_field(GEOMETRY, "EPSG:4326"),
+                campo(),
+            ]));
+            let lotto = RecordBatch::try_new(
+                schema,
+                vec![
+                    Arc::new(BinaryArray::from(geometrie.clone())),
+                    Arc::new(arrow_array::StringArray::from(
+                        etichette.iter().map(String::as_str).collect::<Vec<_>>(),
+                    )),
+                ],
+            )
+            .unwrap();
+
+            let mut writer = ShpDriver
+                .create(
+                    Sink::Path(destinazione.clone()),
+                    &piano_di_scrittura(vec![campo()]),
+                    &opzioni_scrittura_loose(),
+                )
+                .expect("la destinazione e' libera");
+            writer
+                .declare_input_total(LayerId(0), geometrie.len() as u64)
+                .unwrap();
+            // `assert!` e non `unwrap_or_else(|e| panic!(...))`: il nome del
+            // caso deve comparire nel fallimento -- i quattro casi si
+            // somigliano -- ma qui non c'e' nessun valore di ripiego, e la
+            // forma `unwrap_or*` e' quella che il registro dei fallback conta.
+            let esito = writer.write(&lotto);
+            assert!(
+                esito.is_ok(),
+                "{caso}: la scrittura deve riuscire: {esito:?}"
+            );
+            // `Published` non e' `Debug`: si nomina il solo errore, che lo e'.
+            let esito = writer.finish().err();
+            assert!(
+                esito.is_none(),
+                "{caso}: la pubblicazione deve riuscire: {esito:?}"
+            );
+
+            // `.shx` porta una voce per record, come lo `.shp`: e' l'indice, e
+            // un record scritto senza la propria voce lo renderebbe illeggibile
+            // per posizione. Cento byte di intestazione, otto per voce.
+            let shx = std::fs::metadata(destinazione.with_extension("shx"))
+                .expect("lo .shx esiste")
+                .len();
+            assert_eq!(
+                shx,
+                100 + 8 * geometrie.len() as u64,
+                "{caso}: lo .shx deve avere una voce per record"
+            );
+
+            // La rilettura: righe, geometrie e attributi, nell'ordine.
+            let riletto = ShpDriver.open(Source::Path(destinazione), opzioni_lettura());
+            // Come sopra: l'handle non e' `Debug`, l'errore si'.
+            let motivo = riletto.as_ref().err();
+            assert!(motivo.is_none(), "{caso}: il file si rilegge: {motivo:?}");
+            let dataset = riletto.expect("gia' verificato subito sopra");
+            let mut lettore = dataset.open_layer_reader(&req()).expect("il layer si apre");
+            let mut lette = Vec::new();
+            while let Some(batch) = lettore.next_batch().expect("lettura") {
+                let geometrie = batch
+                    .column(geometry_index(&batch.schema()).expect("colonna geometria"))
+                    .as_any()
+                    .downcast_ref::<BinaryArray>()
+                    .expect("geometria binaria")
+                    .clone();
+                let etichette = batch
+                    .column_by_name("ETICHETTA")
+                    .expect("l'attributo torna indietro")
+                    .as_any()
+                    .downcast_ref::<arrow_array::StringArray>()
+                    .expect("attributo testuale")
+                    .clone();
+                for riga in 0..batch.num_rows() {
+                    lette.push((geometrie.is_null(riga), etichette.value(riga).to_owned()));
+                }
+            }
+
+            let atteso: Vec<(bool, String)> = geometrie
+                .iter()
+                .zip(&etichette)
+                .map(|(g, e)| (g.is_none(), e.clone()))
+                .collect();
+            assert_eq!(
+                lette, atteso,
+                "{caso}: ogni riga deve tornare con la propria geometria e la \
+                 propria etichetta, e nessuna deve scivolare"
+            );
+        }
+    }
+
     /// `create` rifiuta il contratto senza geometria, il nome campo che il DBF
     /// non sa portare, e la destinazione gia' occupata in entrambe le forme.
     ///
@@ -7941,11 +8105,6 @@ mod tests {
         };
 
         for (caso, geometrie, causa) in [
-            (
-                "geometria assente",
-                vec![None],
-                "shapefile.null_geometry_unsupported",
-            ),
             // Il rifiuto **non** e' quello del driver. `with_write_validation`
             // decodifica il WKB prima di consegnare il lotto, e i byte che non
             // sono WKB non arrivano mai a `ShpWriter::write`: la sua causa
@@ -8074,20 +8233,18 @@ mod tests {
             .expect("un punto XY e' scrivibile");
     }
 
-    /// `write_shape` rifiuta `NullShape` e Multipatch, e `write` non ce li
-    /// manda mai.
+    /// `write_shape` scrive `NullShape` e rifiuta Multipatch, e `write` non
+    /// gli manda mai il secondo.
     ///
-    /// Le due righe esistono perche' `Shape` e' un enum totale e il `match` lo
-    /// deve essere: sono difese di tipo, non rifiuti raggiungibili. La strada
-    /// per arrivarci e' chiusa due volte da `ShpWriter::write`, che rifiuta la
-    /// geometria assente come `shapefile.null_geometry_unsupported` prima di
-    /// costruire qualunque shape, e il Multipatch come
-    /// `shapefile.geometry_type_unsupported` guardando `shape_tag`. In mezzo
-    /// c'e' una terza chiusura: `shape_from_wkb` non produce mai `NullShape`,
-    /// come la sonda del suo gruppo verifica su tutte le coppie costruibili.
+    /// Il Multipatch e' una difesa di tipo, non un rifiuto raggiungibile:
+    /// `ShpWriter::write` lo ferma prima come
+    /// `shapefile.geometry_type_unsupported` guardando `shape_tag`, e
+    /// `shape_from_wkb` non lo produce comunque -- come la sonda del suo gruppo
+    /// verifica su tutte le coppie costruibili.
     ///
-    /// La sonda esegue entrambe le meta': i due rifiuti chiamati direttamente,
-    /// e le due cause con cui `write` li ferma prima.
+    /// `NullShape` invece **e'** raggiungibile, ed e' voluto: lo costruisce
+    /// `ShpWriter::write` quando la colonna geometrica e' nulla, e finisce nel
+    /// file come record di shape type 0.
     #[test]
     fn n1_write_shape_rifiuta_nullshape_e_multipatch_ma_write_non_ce_li_manda() {
         let dir = tempfile::tempdir().unwrap();
@@ -8096,13 +8253,14 @@ mod tests {
         let mut writer = Writer::from_path(&percorso, tabella).expect("il writer si apre");
         let record = Record::default();
 
-        let Err(errore) = write_shape(&mut writer, Shape::NullShape, &record) else {
-            panic!("una geometria nulla non si scrive in uno Shapefile");
-        };
-        assert_eq!(
-            errore.message,
-            "geometria nulla non supportata in scrittura Shapefile"
-        );
+        // `NullShape` **si scrive**, dal fork governato in poi: e' un record
+        // che la specifica ammette, e la sonda che ne pretendeva il rifiuto
+        // scriveva nel test il difetto invece del contratto. La strada per
+        // arrivarci resta chiusa a `shape_from_wkb`, che non lo produce mai:
+        // a costruirlo e' `ShpWriter::write`, quando la colonna geometrica e'
+        // nulla, e la prova di quel percorso sta nel proprio gruppo.
+        write_shape(&mut writer, Shape::NullShape, &record)
+            .expect("un record con geometria nulla si scrive");
 
         let multipatch = Shape::Multipatch(shapefile::Multipatch::new(
             shapefile::Patch::TriangleStrip(vec![

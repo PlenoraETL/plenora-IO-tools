@@ -161,8 +161,8 @@
     }
   },
   "totale": {
-    "file": 54,
-    "byte": 239609,
+    "file": 56,
+    "byte": 248041,
     "perche_anche_qui": "e' la cifra che si legge a colpo d'occhio in review. Non e' cio' che il gate verifica -- quello confronta gli insiemi e i digest -- e non va tenuta allineata a mano: il gate la ricalcola e la stampa."
   },
   "fixture": [
@@ -372,9 +372,19 @@
       "sha256": "372119489a5ac722fd812ce7ecd371796afd35a8f58905ea9288e30fe48b5611"
     },
     {
+      "percorso": "canonico_filegdb.csv",
+      "byte": 144,
+      "sha256": "5414e46d457be9a62d7addcba668d75bdd17d77c413e42a8a120a0ab09ff419a"
+    },
+    {
       "percorso": "canonico_geografico.dxf",
       "byte": 382,
       "sha256": "4809e641b2a075b9eb3b5d20644113f5d722cbe8e8486456fd8072074a72cf23"
+    },
+    {
+      "percorso": "canonico_pieno.parquet",
+      "byte": 8288,
+      "sha256": "5b263798dcf77f88b9ac2dfa72892919c30ce00b3fa0a1e840202e51e3cd2f81"
     },
     {
       "percorso": "canonico_punti.cpg",

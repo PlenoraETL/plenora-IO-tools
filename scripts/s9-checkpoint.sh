@@ -659,6 +659,11 @@ passo check_dependency_pins python3 scripts/check_dependency_pins.py
 passo check_gdal_fork python3 scripts/check_gdal_fork.py
 passo sonde_fork python3 -m unittest scripts.test_fork_comune
 passo check_dxf_fork python3 scripts/check_dxf_fork.py
+# Il terzo fork governato: il delta espone la scrittura di un record con
+# geometria nulla, che la specifica ammette e che l'API upstream non sa
+# esprimere. Senza, il prodotto non sapeva riscrivere un file che sapeva
+# leggere.
+passo check_shapefile_fork python3 scripts/check_shapefile_fork.py
 passo check_no_legacy_budget python3 scripts/check_no_legacy_budget.py
 passo check_permit_boundary python3 scripts/check_permit_boundary.py
 passo sonde_fallback python3 -m unittest scripts.test_check_assurance_fallbacks

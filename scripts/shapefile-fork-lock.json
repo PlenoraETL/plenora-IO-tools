@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "package": "shapefile",
+  "version": "0.6.0",
+  "source": "crates.io",
+  "crate_sha256": "79d5472e932503059d02779ad2c1b96258980940c6923e49f427fbe80eb3053c",
+  "upstream_revision": "4605a13849c78f7393b75252aa6bdf28bd861ce9",
+  "vendor_path": "vendor/shapefile",
+  "file_count": 25,
+  "tree_sha256": "38263e7dcda13c827dfe43ce348d5363c458005d08b936c9bb687835b7ed056e",
+  "functional_delta_files": [
+    "src/writer.rs"
+  ],
+  "packaging_delta_files": []
+}

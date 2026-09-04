@@ -1,0 +1,3 @@
+id,codice,etichetta,misura,istante,geometry
+r1,A-1,"città",1.5,2026-01-15,"POINT (1650000 4850000)"
+r5,E-5,"senza geometria",0.0,2026-06-30,""

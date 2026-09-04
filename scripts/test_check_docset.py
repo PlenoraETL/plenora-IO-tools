@@ -62,10 +62,17 @@ class RepositoryFinto:
 
 
 class SondePerimetro(unittest.TestCase):
-    def test_l_allowlist_ha_sette_voci(self) -> None:
-        self.assertEqual(len(gate.AMMESSI), 7)
+    def test_l_allowlist_ha_dieci_voci(self) -> None:
+        """Il conteggio e' la difesa: l'allowlist si allarga per decisione.
+
+        Quattro canonici e sei operativi. I sei sono cresciuti il 2026-09-04 con
+        il terzo fork governato, che ridistribuisce anche un CHANGELOG e la
+        propria licenza in Markdown: sono contenuto di terzi, e la loro
+        integrita' la verifica il gate del fork sull'albero intero, non questo.
+        """
+        self.assertEqual(len(gate.AMMESSI), 10)
         self.assertEqual(len(gate.CANONICI), 4)
-        self.assertEqual(len(gate.OPERATIVI), 3)
+        self.assertEqual(len(gate.OPERATIVI), 6)
 
     def test_ogni_file_operativo_dichiara_la_propria_ragione(self) -> None:
         """Un'eccezione senza ragione e' un'eccezione permanente senza dirlo."""

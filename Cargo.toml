@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
-exclude = ["vendor/dxf", "vendor/gdal"]
+exclude = ["vendor/dxf", "vendor/gdal", "vendor/shapefile"]
 
 [workspace.package]
 version = "2.0.0"
@@ -96,6 +96,11 @@ overflow-checks = true
 # OGR_L_SetIgnoredFields dietro un metodo safe; provenienza e manutenzione sono
 # registrate in assurance/registries/vendor-gdal-fork.json.
 gdal = { path = "vendor/gdal" }
+# Fork governato della sorgente crates.io shapefile 0.6.0. Il delta espone la
+# scrittura di un record con geometria nulla, che la specifica ammette e che
+# l'API upstream non sa esprimere; provenienza e manutenzione sono registrate in
+# assurance/registries/vendor-shapefile-fork.json.
+shapefile = { path = "vendor/shapefile" }
 # Fork governato della sorgente upstream dxf 0.6.1. Il delta evita il
 # read-to-end e rende pubblico un reader fallibile di entità logiche;
 # provenienza e manutenzione sono registrate in

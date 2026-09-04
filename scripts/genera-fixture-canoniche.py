@@ -248,6 +248,57 @@ def scrivi_csv(percorso: pathlib.Path) -> None:
     percorso.write_text("\n".join(righe) + "\n", encoding="utf-8")
 
 
+def scrivi_csv_filegdb(percorso: pathlib.Path) -> None:
+    """Il CSV che FileGDB sa ricevere per intero.
+
+    FileGDB round-trippa esattamente `Int32`, `Float64` e `Utf8`: il booleano
+    di `attivo` viene **rifiutato**, ed e' corretto -- il driver dichiara
+    `TypeCoercionPolicy::Reject`, e inventare `bool -> intero` sostituirebbe una
+    decisione di rappresentazione a un rifiuto onesto.
+
+    Il rifiuto pero' non prova che la conversione riesca quando i tipi ci
+    stanno, e una coppia in cui l'unico caso e' il rifiuto lascerebbe non
+    provato tutto il resto del percorso: geometria, CRS, valori. Questa fixture
+    chiude quella meta'. Porta gli stessi cinque record e le stesse geometrie,
+    con le sole colonne che il formato **scrive**: testo, `Float64` e la
+    geometria.
+
+    Tre restrizioni, e ciascuna viene da una capability dichiarata, non da una
+    comodita':
+
+    * niente `intero_largo`: FileGDB **legge** un `Int64` -- OGR ha
+      `OFTInteger64` -- ma in scrittura round-trippa esattamente `Int32`,
+      `Float64` e `Utf8`;
+    * niente `attivo`: il booleano e' il rifiuto che il caso gemello prova, e
+      qui non deve entrarci;
+    * soli punti: `mixed_types` e' `false` e i tipi ammessi sono `Point`,
+      `MultiPoint`, `MultiLineString` e `MultiPolygon` -- non `LineString` ne'
+      `Polygon`. Con la linea e il poligono dentro, la conversione si
+      fermerebbe sul tipo geometrico; con il punto Z accanto al punto XY si
+      fermerebbe sulla dimensionalita', che diventa `unknown` quando le
+      geometrie non concordano.
+
+    Restano `r1` e `r5`: un punto e la riga senza geometria, che un database
+    spaziale sa portare. E' la stessa restrizione di `canonico_punti`, per la
+    stessa ragione -- il modello del formato, non la comodita' della prova.
+    """
+    righe = ["id,codice,etichetta,misura,istante,geometry"]
+    for r in _righe("canonico_punti"):
+        righe.append(
+            ",".join(
+                [
+                    r["id"],
+                    r["codice"],
+                    "" if r["etichetta"] is None else f'"{r["etichetta"]}"',
+                    "" if r["misura"] is None else repr(r["misura"]),
+                    r["istante"],
+                    f'"{_wkt(r, GEOMETRIE_PROIETTATE)}"',
+                ]
+            )
+        )
+    percorso.write_text("\n".join(righe) + "\n", encoding="utf-8")
+
+
 def scrivi_geojson(percorso: pathlib.Path) -> None:
     """Scritto a mano, in WGS84: GeoJSON fissa il CRS per specifica."""
     import json
@@ -757,6 +808,8 @@ def main() -> int:
     fatte: list[str] = []
     if "csv" in arg.solo:
         scrivi_csv(DESTINAZIONE / "canonico.csv"); fatte.append("canonico.csv")
+        scrivi_csv_filegdb(DESTINAZIONE / "canonico_filegdb.csv")
+        fatte.append("canonico_filegdb.csv")
     if "geojson" in arg.solo:
         scrivi_geojson(DESTINAZIONE / "canonico.geojson"); fatte.append("canonico.geojson")
     if "kml" in arg.solo:

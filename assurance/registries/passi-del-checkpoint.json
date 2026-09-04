@@ -238,6 +238,10 @@
       "log": true
     },
     {
+      "id": "check_shapefile_fork",
+      "log": true
+    },
+    {
       "id": "check_no_legacy_budget",
       "log": true
     },
