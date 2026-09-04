@@ -54,8 +54,8 @@ Si rigenera con `python3 scripts/check_docset.py --riscrivi-stato`.
 | candidate, tag creato | no |
 | candidate, revisione del tag | `None` |
 | candidate, tag sulla candidate | no |
-| candidate, assurance entro l'allowlist | sì |
-| candidate, release_action consentita | sì |
+| candidate, assurance entro l'allowlist | no |
+| candidate, release_action consentita | no |
 | release_authorized | `false` |
 
 I blocchi sono l'elenco esatto dei `release_blocking` del
@@ -64,8 +64,8 @@ I blocchi sono l'elenco esatto dei `release_blocking` del
 
 | Blocco | Sintesi |
 |---|---|
-| `release.candidate-non-valida-per-head` | candidate congelata su `8fe5120`; il tag `v2.0.0` non esiste ancora |
-| `distribuzione.artefatti-qualificati` | artefatti costruiti e qualificati sulla revisione congelata; manca la pubblicazione nel canale di release |
+| `release.candidate-non-valida-per-head` | candidate `8fe5120` ritirata: la 2.0.0 deve includere l'SDK Python; nessuna candidate attiva |
+| `distribuzione.artefatti-qualificati` | artefatti costruiti e qualificati su `8fe5120`, la cui candidate e' ora ritirata: vanno ricostruiti dalla revisione che comprendera' l'SDK |
 
 Le capacità **differite** non sono blocchi chiusi: non sono richieste
 da questa release e **non sono verificate**. Ciascuna dichiara che cosa

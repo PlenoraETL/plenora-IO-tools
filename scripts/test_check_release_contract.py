@@ -1255,6 +1255,113 @@ class SondeStatoEsterno(unittest.TestCase):
         self.assertTrue(motivi)
 
 
+class SondeCandidateRitirata(unittest.TestCase):
+    """Il ritiro di una candidate e' una decisione dichiarata, non un vuoto.
+
+    Fra un rilascio e il successivo non c'e' una candidate, ed e' legittimo: il
+    gate ordinario deve accettarlo, altrimenti sarebbe rosso ogni giorno in cui
+    non si sta rilasciando. Cio' che non e' legittimo e' **dedurlo** da campi
+    svuotati: un blocco svuotato somiglia a uno mai scritto, e la storia di una
+    qualificazione avvenuta sparirebbe insieme al permesso che le era annesso.
+
+    Queste sonde muovono i modi in cui un ritiro potrebbe essere dichiarato
+    senza portarne le conseguenze -- che e' il modo in cui una candidate
+    ritirata continuerebbe ad autorizzare qualcosa.
+    """
+
+    def stato(self) -> dict:
+        return json.loads(gate.STATO_CORRENTE.read_text(encoding="utf-8"))
+
+    def candidate(self, stato: dict) -> dict:
+        return stato["aperto"]["candidate_release"]
+
+    # --- la controprova positiva ------------------------------------------
+
+    def test_lo_stato_reale_dichiara_un_ritiro_coerente(self) -> None:
+        """Senza, «sempre rosso» sarebbe una difesa."""
+        self.assertEqual(gate._stato_del_manifesto(self.candidate(self.stato())), [])
+
+    def test_una_candidate_attiva_e_accettata(self) -> None:
+        """Il ritiro e' uno dei due stati, non l'unico ammesso."""
+        candidate = self.candidate(self.stato())
+        candidate["stato"] = "attiva"
+        candidate.pop("motivo_del_ritiro", None)
+        self.assertEqual(gate._stato_del_manifesto(candidate), [])
+
+    # --- i modi di dichiarare un ritiro senza portarne le conseguenze ------
+
+    def test_una_ritirata_che_permette_ancora_di_procedere_e_rossa(self) -> None:
+        """E' la conseguenza che il ritiro **toglie**, e la sola che conti.
+
+        `release_action_allowed` e' cio' che `condizione_candidate_coerente`
+        pretende vero: lasciarlo vero su una candidate ritirata terrebbe aperta
+        la strada al rilascio di una revisione che il perimetro ha superato.
+        """
+        candidate = self.candidate(self.stato())
+        candidate["release_action_allowed"] = True
+        errori = gate._stato_del_manifesto(candidate)
+        self.assertTrue(
+            any("release_action_allowed" in errore for errore in errori), errori
+        )
+
+    def test_un_ritiro_senza_ragione_e_rosso(self) -> None:
+        """Un ritiro senza motivo non si distingue da un campo dimenticato."""
+        for vuoto in (None, "", "   "):
+            with self.subTest(motivo=vuoto):
+                candidate = self.candidate(self.stato())
+                if vuoto is None:
+                    candidate.pop("motivo_del_ritiro", None)
+                else:
+                    candidate["motivo_del_ritiro"] = vuoto
+                errori = gate._stato_del_manifesto(candidate)
+                self.assertTrue(
+                    any("motivo_del_ritiro" in errore for errore in errori), errori
+                )
+
+    def test_una_ritirata_con_un_tag_creato_e_rossa(self) -> None:
+        """Un tag esiste fuori da questo file, e ritirarla qui non lo revoca."""
+        candidate = self.candidate(self.stato())
+        candidate["tag_creato"] = True
+        errori = gate._stato_del_manifesto(candidate)
+        self.assertTrue(any("tag_creato" in errore for errore in errori), errori)
+
+    def test_una_attiva_con_un_motivo_di_ritiro_e_rossa(self) -> None:
+        """O e' ritirata, o non c'e' un ritiro da motivare.
+
+        Il caso non e' teorico: e' la forma che prenderebbe un ritiro
+        **annullato** a meta', con la ragione rimasta e lo stato tornato
+        indietro.
+        """
+        candidate = self.candidate(self.stato())
+        candidate["stato"] = "attiva"
+        candidate["motivo_del_ritiro"] = "una ragione rimasta li'"
+        errori = gate._stato_del_manifesto(candidate)
+        self.assertTrue(
+            any("motivo_del_ritiro" in errore for errore in errori), errori
+        )
+
+    def test_uno_stato_fuori_vocabolario_e_rosso(self) -> None:
+        candidate = self.candidate(self.stato())
+        candidate["stato"] = "quasi-ritirata"
+        errori = gate._stato_del_manifesto(candidate)
+        self.assertTrue(any("fuori da" in errore for errore in errori), errori)
+
+    # --- e il rilascio continua a rifiutare --------------------------------
+
+    def test_il_gate_di_rilascio_rifiuta_senza_una_candidate(self) -> None:
+        """Il gate ordinario accetta l'assenza, quello di rilascio no.
+
+        E' la meta' che rende il ritiro sicuro: senza, dichiarare ritirata una
+        candidate sarebbe il modo di far tacere il contratto invece di dirgli
+        la verita'.
+        """
+        motivi = gate.condizione_candidate_coerente({})
+        self.assertTrue(
+            any("release_action" in motivo for motivo in motivi),
+            f"il rilascio deve rifiutare, e nominare il permesso mancante: {motivi}",
+        )
+
+
 class SondeFontiLegate(unittest.TestCase):
     """`current-state.json` non e' una fonte: e' una **giunzione**.
 

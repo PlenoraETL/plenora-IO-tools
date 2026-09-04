@@ -45,7 +45,31 @@
     },
     "driver-xls": {
       "conteggio": 3,
-      "ragione": "dimensioni geometriche eterogenee → `Unknown`; celle sparse e coordinate assenti sono gestite da rami espliciti, senza fallback; cornice degenere quando la scansione dei limiti non osserva nemmeno una cella. E' un ripiego vero e sta qui per questo: un foglio senza `<dimension>` e senza celle non ha limiti da ricavare, e la cornice di una cella sola e' cio' che lascia pronunciare il rifiuto «nemmeno una cella» a `infer_layout`, che resta l'unico punto a dirlo. L'alternativa era un secondo sito che ripete lo stesso rifiuto"
+      "ragione": "cella non interpretabile; nome diagnostico; cornice degenere quando la scansione dei limiti non osserva nemmeno una cella",
+      "revisione_h01": {
+        "occorrenza": "`limiti_osservati` in `crates/driver-xls/src/lib.rs`: quando la scansione non osserva nemmeno una cella restituisce la cornice degenere `(0,0)-(0,0)`.",
+        "esito": "ratificata il 2026-09-04",
+        "perche_ammissibile": "serve soltanto a instradare un foglio senza celle verso un rifiuto deterministico. Non inventa dati, non amplia cio' che viene accettato e non produce output: il ripiego attraversa `infer_layout`, che conta le celle osservate e rifiuta.",
+        "perche_non_e_mascherata": "l'occorrenza resta nella forma `unwrap_or*` che il registro conta. Riscriverla come `match` o come `let ... else` avrebbe tolto un'unita' dal contatore senza cambiare un solo comportamento, ed e' l'elusione che l'intestazione del gate denuncia.",
+        "condizioni_provate": [
+          {
+            "condizione": "zero celle osservate produce un rifiuto tipizzato",
+            "prova": "driver_xls::tests::h01_un_foglio_senza_celle_e_senza_dimension_viene_rifiutato, che asserisce codice, categoria, fase e driver invece del testo del messaggio"
+          },
+          {
+            "condizione": "una vera cella `A1` non viene scambiata per foglio vuoto",
+            "prova": "driver_xls::tests::h01_una_cella_vera_non_viene_scambiata_per_foglio_vuoto. E' il confine che rende la deroga ammissibile: `calamine` non distingue «`<dimension>` assente» da «`A1:A1`», e a distinguere i due casi non e' la cornice ma il conteggio delle celle"
+          },
+          {
+            "condizione": "dalla cornice sintetica non nasce ne' schema ne' batch",
+            "prova": "driver_xls::tests::h01_dalla_cornice_sintetica_non_nasce_ne_schema_ne_batch: `open` non restituisce un handle, e senza handle non esiste un contratto da cui ricavare uno schema ne' un reader da cui ottenere un batch"
+          },
+          {
+            "condizione": "dalla cornice sintetica non nasce output",
+            "prova": "plenora-io-cli/tests/foglio_vuoto.rs, che esegue il binario e verifica che la destinazione non venga creata. Il controllo positivo sta nella stessa sonda: lo stesso comando su un foglio con celle produce il file"
+          }
+        ]
+      }
     },
     "plenora-bench": {
       "conteggio": 24,

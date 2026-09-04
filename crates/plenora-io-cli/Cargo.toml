@@ -34,6 +34,10 @@ gdal-backend = ["driver-filegdb/gdal-backend"]
 
 [dev-dependencies]
 arrow-array.workspace = true
+# Solo per `tests/foglio_vuoto.rs`, che costruisce a mano un XLSX senza
+# `<dimension>`: l'elemento e' opzionale in ECMA-376, e una libreria che non sa
+# ometterlo non puo' produrre il caso.
+zip.workspace = true
 arrow-ipc.workspace = true
 arrow-schema.workspace = true
 tempfile.workspace = true

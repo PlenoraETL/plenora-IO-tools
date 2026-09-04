@@ -5088,6 +5088,163 @@ mod tests {
         Ok((righe, colonne))
     }
 
+    // --- H-01: che cosa la cornice degenere puo' e non puo' fare ------------
+
+    /// Un XLSX minimo con le celle date, e **senza** `<dimension>`.
+    ///
+    /// Le tre sonde di H-01 variano una cosa sola -- quante celle il foglio
+    /// contiene -- perche' la revisione riguarda esattamente quella: la cornice
+    /// che `limiti_osservati` restituisce quando non ne osserva nessuna.
+    fn xlsx_senza_dimension_con(celle: &str) -> Vec<u8> {
+        let foglio = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\
+             <sheetData>{celle}</sheetData></worksheet>"
+        );
+        let tipi = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
+             <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
+             <Default Extension=\"xml\" ContentType=\"application/xml\"/>\
+             <Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>\
+             <Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>\
+             </Types>";
+        let rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+             <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>\
+             </Relationships>";
+        let workbook = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">\
+             <sheets><sheet name=\"foglio\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>";
+        let workbook_rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+             <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>\
+             </Relationships>";
+
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut scrittore = zip::ZipWriter::new(&mut buffer);
+            let opzioni: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            for (nome, testo) in [
+                ("[Content_Types].xml", tipi),
+                ("_rels/.rels", rels),
+                ("xl/workbook.xml", workbook),
+                ("xl/_rels/workbook.xml.rels", workbook_rels),
+                ("xl/worksheets/sheet1.xml", foglio.as_str()),
+            ] {
+                scrittore.start_file(nome, opzioni).unwrap();
+                std::io::Write::write_all(&mut scrittore, testo.as_bytes()).unwrap();
+            }
+            scrittore.finish().unwrap();
+        }
+        buffer.into_inner()
+    }
+
+    /// H-01, prima condizione: **zero celle osservate → rifiuto tipizzato**.
+    ///
+    /// La cornice degenere che `limiti_osservati` restituisce quando non osserva
+    /// nemmeno una cella e' il ripiego che la revisione H-01 ammette, e questa
+    /// sonda ne fissa il solo scopo: instradare il foglio verso un rifiuto
+    /// **deterministico e tipizzato**, non verso un'accettazione.
+    ///
+    /// Il rifiuto si asserisce per codice, categoria e fase, non per testo: un
+    /// messaggio si riscrive senza accorgersene, e cio' che il chiamante
+    /// programma sono i primi tre.
+    #[test]
+    fn h01_un_foglio_senza_celle_e_senza_dimension_viene_rifiutato() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("vuoto.xlsx");
+        std::fs::write(&percorso, xlsx_senza_dimension_con("")).unwrap();
+
+        let Err(errore) = XlsDriver.open(Source::Path(percorso), opzioni_lettura_wkt()) else {
+            panic!(
+                "un foglio senza celle non ha un layout da inferire: la cornice \
+                 degenere deve portare al rifiuto, non all'accettazione"
+            );
+        };
+        assert_eq!(errore.code, plenora_io_model::IoErrorCode::Format);
+        assert_eq!(
+            errore.category,
+            plenora_io_model::ErrorCategory::DataMapping
+        );
+        assert_eq!(errore.phase, plenora_io_model::ErrorPhase::Read);
+        assert_eq!(
+            errore.driver.as_deref(),
+            Some("xls"),
+            "il rifiuto viene dal driver, e lo dice"
+        );
+    }
+
+    /// H-01, seconda condizione: **una vera cella `A1` non e' un foglio vuoto**.
+    ///
+    /// E' il confine che rende la deroga ammissibile invece che comoda.
+    /// `calamine` non distingue «`<dimension>` assente» da «`A1:A1`»: in
+    /// entrambi i casi restituisce la cornice di una cella sola, ed e' la
+    /// stessa cornice che la scansione produce quando le celle sono zero.
+    ///
+    /// A distinguerli non e' la cornice ma il **conteggio delle celle**, ed e'
+    /// per questo che il ripiego non allarga cio' che viene accettato: un
+    /// foglio con una cella la porta, e passa oltre.
+    #[test]
+    fn h01_una_cella_vera_non_viene_scambiata_per_foglio_vuoto() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("una_cella.xlsx");
+        std::fs::write(
+            &percorso,
+            xlsx_senza_dimension_con(
+                "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>geometry</t></is></c></row>",
+            ),
+        )
+        .unwrap();
+
+        // Il foglio ha la sola intestazione e nessuna riga di dati: e' un
+        // dataset vuoto, non un file illeggibile. Il rifiuto, se arriva, non
+        // dev'essere quello del foglio senza celle.
+        match XlsDriver.open(Source::Path(percorso), opzioni_lettura_wkt()) {
+            Ok(dataset) => {
+                assert_eq!(
+                    dataset.layers().len(),
+                    1,
+                    "una cella vera produce un layer, non il nulla"
+                );
+            }
+            Err(errore) => {
+                assert_ne!(
+                    errore.message, "foglio vuoto",
+                    "la cella c'e' ed e' stata osservata: il rifiuto del foglio \
+                     vuoto qui sarebbe la cornice degenere scambiata per assenza"
+                );
+            }
+        }
+    }
+
+    /// H-01, terza condizione: **dalla cornice sintetica non nasce niente**.
+    ///
+    /// Il ripiego non deve produrre uno schema, un batch o un file: se lo
+    /// facesse, un foglio senza celle diventerebbe un dataset di una colonna e
+    /// una riga inventate, ed e' esattamente la degradazione silenziosa che il
+    /// registro dei fallback esiste per rendere visibile.
+    ///
+    /// Qui si verificano le due meta' che il driver puo' mostrare: `open` non
+    /// restituisce un handle, e senza handle non esiste un contratto da cui
+    /// ricavare uno schema ne' un reader da cui ottenere un batch -- non e'
+    /// un'asserzione sul comportamento, e' la firma di `open` a non lasciare
+    /// altra strada. La terza meta', che nessuna **uscita** nasca, si osserva
+    /// dove una destinazione esiste: `plenora-io-cli/tests/foglio_vuoto.rs`.
+    #[test]
+    fn h01_dalla_cornice_sintetica_non_nasce_ne_schema_ne_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("vuoto.xlsx");
+        std::fs::write(&percorso, xlsx_senza_dimension_con("")).unwrap();
+
+        let esito = XlsDriver.open(Source::Path(percorso), opzioni_lettura_wkt());
+        let motivo = esito.as_ref().err();
+        assert!(
+            motivo.is_some(),
+            "il foglio senza celle non produce un dataset, e senza dataset non              c'e' schema da leggere ne' batch da consegnare"
+        );
+    }
+
     /// Il foglio senza `<dimension>` si legge, e legge **tutto**.
     ///
     /// L'elemento e' opzionale in ECMA-376: chi lo omette produce un file

@@ -462,6 +462,17 @@ FOGLIE_DICHIARATE = {
     "aperto.candidate_release.release_action_allowed": (
         "fatto del manifesto della candidate; vedi `versione_manifesto`"
     ),
+    "aperto.candidate_release.stato": (
+        "la decisione sul manifesto: `attiva` finche' e' quella su cui si "
+        "rilascia, `ritirata` quando il perimetro della versione l'ha superata. "
+        "E' una decisione e non si deriva: git puo' dire che una revisione "
+        "esiste, non che qualcuno abbia smesso di rilasciarla"
+    ),
+    "aperto.candidate_release.motivo_del_ritiro": (
+        "prosa: perche' la candidate e' stata superata. Obbligatoria quando lo "
+        "stato e' `ritirata` -- un ritiro senza ragione e' un campo svuotato -- "
+        "e assente altrimenti"
+    ),
     "aperto.candidate_release.nota": "prosa",
     "blocchi.nota": "prosa",
 }
@@ -2649,6 +2660,74 @@ def _conteggi_n1_legati_al_registro(stato: dict[str, Any]) -> list[str]:
     ]
 
 
+#: Gli stati che il manifesto di una candidate puo' avere.
+#:
+#: `attiva` e' quella su cui si rilascia. `ritirata` e' una candidate che c'e'
+#: stata e non e' piu' quella: la revisione, gli artefatti e l'evidenza restano
+#: leggibili, e cio' che cade e' il permesso di procedere.
+#:
+#: Il terzo caso -- nessuna candidate -- resta rappresentato dall'assenza del
+#: blocco, e non da uno stato: un blocco svuotato somiglia a uno mai scritto, e
+#: i due vanno distinti.
+STATI_DELLA_CANDIDATE = ("attiva", "ritirata")
+
+
+def _stato_del_manifesto(candidate: dict[str, Any]) -> list[str]:
+    """Il ritiro e' una decisione dichiarata, con le proprie conseguenze.
+
+    Il gate **ordinario** accetta che non ci sia una candidate attiva: e' una
+    condizione legittima fra un rilascio e il successivo, e pretendere il
+    contrario renderebbe rosso ogni giorno in cui non si sta rilasciando. Cio'
+    che pretende e' che il ritiro sia dichiarato invece che dedotto da campi
+    svuotati, e che porti con se' le proprie conseguenze:
+
+    * una ragione scritta -- un ritiro senza motivo e' indistinguibile da una
+      dimenticanza;
+    * `release_action_allowed` falso -- una candidate ritirata non permette a
+      niente di procedere;
+    * nessun tag creato -- se un tag esistesse, il ritiro andrebbe revocato
+      fuori da qui, e dirlo soltanto nello stato sarebbe falso.
+
+    Il gate **di rilascio** non e' toccato: `condizione_candidate_coerente`
+    pretende `release_action_allowed` vero, e con una candidate ritirata resta
+    rosso finche' non ne esiste una nuova e coerente.
+    """
+    stato = candidate.get("stato")
+    if stato not in STATI_DELLA_CANDIDATE:
+        return [
+            f"`candidate_release.stato` vale «{stato}», fuori da "
+            f"{list(STATI_DELLA_CANDIDATE)}"
+        ]
+    motivo = candidate.get("motivo_del_ritiro")
+    if stato == "attiva":
+        if motivo is not None:
+            return [
+                "`candidate_release.motivo_del_ritiro` e' presente su una "
+                "candidate attiva: o e' ritirata, o non c'e' un ritiro da "
+                "motivare"
+            ]
+        return []
+
+    errori: list[str] = []
+    if not isinstance(motivo, str) or not motivo.strip():
+        errori.append(
+            "`candidate_release.motivo_del_ritiro` assente o vuoto: un ritiro "
+            "senza ragione non si distingue da un campo dimenticato"
+        )
+    if candidate.get("release_action_allowed") is not False:
+        errori.append(
+            "`candidate_release.release_action_allowed` deve essere falso su "
+            "una candidate ritirata: e' l'unica cosa che il ritiro toglie, ed "
+            "e' cio' che tiene il gate di rilascio a rifiutare"
+        )
+    if candidate.get("tag_creato") is not False:
+        errori.append(
+            "`candidate_release.tag_creato` e' vero su una candidate ritirata: "
+            "un tag esiste fuori da questo file, e ritirarla qui non lo revoca"
+        )
+    return errori
+
+
 def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
     """La candidate si confronta con Cargo.toml e con git, non con se stessa.
 
@@ -2666,6 +2745,7 @@ def _candidate_legata_alle_fonti(stato: dict[str, Any]) -> list[str]:
         return ["`aperto.candidate_release` assente"]
 
     errori: list[str] = []
+    errori.extend(_stato_del_manifesto(candidate))
     versione = versione_workspace()
     if candidate.get("versione_workspace") != versione:
         errori.append(
