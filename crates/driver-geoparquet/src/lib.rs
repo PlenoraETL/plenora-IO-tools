@@ -37,9 +37,10 @@ use plenora_io_core::request::{
     Bbox, ProjectionMode, PruningComparison, PruningPredicate, PruningScalar, ReadRequest,
 };
 use plenora_io_core::{
-    validate_write, with_write_validation, AttributeWriteSupport, CrsRepresentationCapabilities,
-    CrsRepresentationState, CrsWriteSupport, FormatWriteCapabilities, NullabilitySupport,
-    TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES, UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
+    validate_write, with_write_validation, AttributeWriteSupport, CrsDerivation,
+    CrsRepresentationCapabilities, CrsRepresentationState, CrsWriteSupport,
+    FormatWriteCapabilities, NullabilitySupport, TypeCoercionPolicy, WritePlan, ALL_ARROW_TYPES,
+    UTF8_FIELD_NAMES, WKB_PASSTHROUGH_GEOMETRY,
 };
 use plenora_io_model::contract::{
     CoordinateDimensions, DataContract, FieldId, GeometryColumnContract, GeometryType,
@@ -912,8 +913,20 @@ static DESCRIPTOR: FormatDescriptor = FormatDescriptor::const_new(
         crs: CrsWriteSupport::Embedded,
         crs_representations: CrsRepresentationCapabilities::new(
             CrsRepresentationState::Preserved,
-            CrsRepresentationState::Absent,
-            CrsRepresentationState::Absent,
+            // L'SRID non viene scritto: il metadato `geo` non ha un posto dove
+            // metterlo. E' pero' **ricavabile**, perche' l'identificatore c'e'
+            // e il lettore ne toglie il prefisso `EPSG:`. E' la stessa forma
+            // del GeoPackage, e la categoria giusta e' quella derivata:
+            // `absent` direbbe a chi automatizza che l'SRID va riportato da
+            // fuori, e non e' vero.
+            CrsRepresentationState::Derived(CrsDerivation::FromIdentifier),
+            // La definizione **si conserva**. Il writer scrive nel metadato
+            // `geo` il PROJJSON che il contratto porta, verbatim: una
+            // definizione che non sia PROJJSON viene rifiutata e non degradata,
+            // e un CRS noto per solo identificatore ferma la scrittura invece
+            // di produrre un file senza CRS. Quindi ogni scrittura che riesce
+            // ha scritto la definizione che le e' arrivata.
+            CrsRepresentationState::Preserved,
         ),
         nullability: NullabilitySupport::Preserve,
         multi_layer: false,

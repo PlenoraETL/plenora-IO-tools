@@ -212,6 +212,15 @@ attraverso un'altra rappresentazione, e senza `.prj` non c'è niente da cui
 rileggerlo. La distinzione conta per chi automatizza: `absent` dice che il CRS
 va riportato **fuori** dal file, `derived` direbbe che basta rileggerlo.
 
+**GeoParquet è il caso più stretto**: la specifica vuole un documento PROJJSON,
+e il driver non ne sintetizza uno da un identificatore. Una scrittura il cui
+CRS è noto solo come `EPSG:3003` viene quindi **rifiutata**, non degradata — e
+lo è anche quando la sorgente porta un WKT, che GeoParquet non ha un modo
+conforme di scrivere. In compenso, quando la scrittura riesce la definizione è
+scritta per intero e si rilegge: GeoParquet **conserva** la definizione, e
+dell'SRID — che il metadato `geo` non ha dove mettere — dichiara la sola
+derivazione dall'identificatore.
+
 ---
 
 ## Contratti pubblici

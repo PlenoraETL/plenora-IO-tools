@@ -507,7 +507,11 @@ fn every_writer_declares_the_reviewed_crs_representation_matrix() {
         ),
         (
             "geoparquet",
-            CrsRepresentationCapabilities::new(Preserved, Absent, Absent),
+            CrsRepresentationCapabilities::new(
+                Preserved,
+                Derived(CrsDerivation::FromIdentifier),
+                Preserved,
+            ),
         ),
         (
             "gpkg",

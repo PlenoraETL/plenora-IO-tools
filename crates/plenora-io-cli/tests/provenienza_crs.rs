@@ -386,3 +386,186 @@ fn filegdb_deriva_le_rappresentazioni_dal_runtime_gdal() {
         &[("crs_id_not_preserved_derived", 1)],
     );
 }
+
+// --- geoparquet: la definizione la scrive, e diceva di perderla -------------
+//
+// Le altre prove di questo file partono da un CSV, che porta il solo
+// identificatore. GeoParquet pretende un documento PROJJSON, quindi per
+// interrogarlo serve una sorgente che ne porti uno, e l'unico formato che lo
+// trasporta per intero e' l'Arrow IPC. Viene costruito qui, riga per riga:
+// dipendere da una fixture significherebbe legare questa caratterizzazione al
+// ciclo delle conversioni, che e' un altro lavoro.
+
+/// Il PROJJSON di WGS84, congelato.
+///
+/// Prodotto una volta con `gdalsrsinfo -o PROJJSON EPSG:4326` su GDAL 3.6.2 con
+/// PROJ 9.1.1, e scritto qui invece che ricalcolato: `GeoParquet` valida il
+/// documento contro gli schemi ufficiali, e un CRS che cambia con la versione
+/// di PROJ installata renderebbe questa prova un termometro della macchina.
+const PROJJSON_WGS84: &str = r#"{"$schema":"https://proj.org/schemas/v0.5/projjson.schema.json","type":"GeographicCRS","name":"WGS 84","datum_ensemble":{"name":"World Geodetic System 1984 ensemble","members":[{"name":"World Geodetic System 1984 (Transit)","id":{"authority":"EPSG","code":1166}},{"name":"World Geodetic System 1984 (G730)","id":{"authority":"EPSG","code":1152}},{"name":"World Geodetic System 1984 (G873)","id":{"authority":"EPSG","code":1153}},{"name":"World Geodetic System 1984 (G1150)","id":{"authority":"EPSG","code":1154}},{"name":"World Geodetic System 1984 (G1674)","id":{"authority":"EPSG","code":1155}},{"name":"World Geodetic System 1984 (G1762)","id":{"authority":"EPSG","code":1156}},{"name":"World Geodetic System 1984 (G2139)","id":{"authority":"EPSG","code":1309}}],"ellipsoid":{"name":"WGS 84","semi_major_axis":6378137,"inverse_flattening":298.257223563},"accuracy":"2.0","id":{"authority":"EPSG","code":6326}},"coordinate_system":{"subtype":"ellipsoidal","axis":[{"name":"Geodetic latitude","abbreviation":"Lat","direction":"north","unit":"degree"},{"name":"Geodetic longitude","abbreviation":"Lon","direction":"east","unit":"degree"}]},"scope":"Horizontal component of 3D system.","area":"World.","bbox":{"south_latitude":-90,"west_longitude":-180,"north_latitude":90,"east_longitude":180},"id":{"authority":"EPSG","code":4326}}"#;
+
+/// Un punto in WKB ISO little-endian, scritto a mano.
+fn punto_wkb(x: f64, y: f64) -> Vec<u8> {
+    let mut byte = vec![1_u8];
+    byte.extend_from_slice(&1_u32.to_le_bytes());
+    byte.extend_from_slice(&x.to_le_bytes());
+    byte.extend_from_slice(&y.to_le_bytes());
+    byte
+}
+
+/// Una sorgente Arrow IPC di una riga, con il contratto geometrico per intero.
+///
+/// `srid` e' opzionale perche' e' proprio la variabile della seconda prova: la
+/// perdita di una rappresentazione viene registrata solo quando la sorgente
+/// quella rappresentazione ce l'ha.
+fn scrivi_arrow(percorso: &Path, srid: Option<&str>) {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use arrow_array::{ArrayRef, BinaryArray, RecordBatch, StringArray};
+    use arrow_schema::{DataType, Field, Schema};
+
+    let mut geometria = HashMap::from([
+        ("ARROW:extension:name".to_owned(), "geoarrow.wkb".to_owned()),
+        ("crs".to_owned(), SINTETIZZABILE.to_owned()),
+        ("plenora.field_id".to_owned(), "1".to_owned()),
+        ("plenora.geometry.encoding".to_owned(), "wkb".to_owned()),
+        ("plenora.geometry.dimensions".to_owned(), "xy".to_owned()),
+        (
+            "plenora.geometry.spatial_semantics".to_owned(),
+            "geometry".to_owned(),
+        ),
+        (
+            "plenora.geometry.precision".to_owned(),
+            "float64".to_owned(),
+        ),
+        (
+            "plenora.geometry.types_declaration".to_owned(),
+            "exact".to_owned(),
+        ),
+        ("plenora.geometry.types".to_owned(), "point".to_owned()),
+        (
+            "plenora.geometry.crs_resolution".to_owned(),
+            "resolved".to_owned(),
+        ),
+        (
+            "plenora.geometry.crs_id".to_owned(),
+            SINTETIZZABILE.to_owned(),
+        ),
+        (
+            "plenora.geometry.axis_order".to_owned(),
+            "lon_lat".to_owned(),
+        ),
+        (
+            "plenora.geometry.crs_definition".to_owned(),
+            PROJJSON_WGS84.to_owned(),
+        ),
+        (
+            "plenora.geometry.crs_definition_format".to_owned(),
+            "projjson".to_owned(),
+        ),
+    ]);
+    if let Some(srid) = srid {
+        geometria.insert("plenora.geometry.srid".to_owned(), srid.to_owned());
+    }
+
+    let schema = Arc::new(Schema::new_with_metadata(
+        vec![
+            Field::new("nome", DataType::Utf8, false),
+            Field::new("geometry", DataType::Binary, true).with_metadata(geometria),
+        ],
+        HashMap::from([("plenora.contract.version".to_owned(), "1".to_owned())]),
+    ));
+    let colonna_wkb = [Some(punto_wkb(9.19, 45.46))];
+    let colonne: Vec<ArrayRef> = vec![
+        Arc::new(StringArray::from(vec!["alfa"])),
+        Arc::new(
+            colonna_wkb
+                .iter()
+                .map(std::option::Option::as_deref)
+                .collect::<BinaryArray>(),
+        ),
+    ];
+    let batch = RecordBatch::try_new(Arc::clone(&schema), colonne).expect("batch costruito");
+
+    let file = std::fs::File::create(percorso).expect("sorgente Arrow creata");
+    let mut scrittore =
+        arrow_ipc::writer::FileWriter::try_new(file, &schema).expect("writer IPC costruito");
+    scrittore.write(&batch).expect("batch scritto");
+    scrittore.finish().expect("sorgente Arrow completata");
+}
+
+/// La definizione **sopravvive**, e il rapporto di perdita lo dice.
+///
+/// `driver-geoparquet` scrive nel metadato `geo` il PROJJSON che il contratto
+/// porta, verbatim: una definizione che non sia PROJJSON viene **rifiutata**,
+/// non degradata, quindi ogni scrittura che riesce ha scritto la definizione
+/// che le e' arrivata. Fino al 2026-09-04 la capability diceva `Absent` e il
+/// prodotto dichiarava `crs_definition_not_preserved_absent` su una
+/// conversione che non perdeva niente -- per giunta verso uno dei due formati
+/// di classe **lossless**, dove `write_loss.lossless` diventava falso.
+#[test]
+fn geoparquet_conserva_la_definizione_projjson_che_scrive() {
+    let dir = directory();
+    let sorgente = dir.path().join("sorgente.arrow");
+    scrivi_arrow(&sorgente, None);
+    let uscita = dir.path().join("uscita.parquet");
+    let esito = converti(&sorgente, &uscita, None);
+    caratterizza("geoparquet <- definizione PROJJSON", &esito, &[]);
+    assert!(
+        esito.documento()["write_loss"]["lossless"]
+            .as_bool()
+            .expect("il documento dichiara `lossless`"),
+        "una conversione verso un formato lossless che non perde niente non puo' \
+         dichiararsi lossy"
+    );
+}
+
+/// La prova che giustifica `Preserved`: la definizione torna indietro.
+///
+/// Una capability e' un'affermazione sul file scritto, non sul rapporto: se il
+/// PROJJSON non si rileggesse, `Preserved` sarebbe falsa quanto lo era
+/// `Absent`, e questa prova sarebbe l'unica ad accorgersene.
+#[test]
+fn la_definizione_scritta_da_geoparquet_si_rilegge() {
+    let dir = directory();
+    let sorgente = dir.path().join("sorgente.arrow");
+    scrivi_arrow(&sorgente, None);
+    let parquet = dir.path().join("intermedio.parquet");
+    let primo = converti(&sorgente, &parquet, None);
+    assert!(primo.riuscita, "primo passo: {}", primo.stderr);
+
+    let ritorno = dir.path().join("ritorno.arrow");
+    let esito = converti(&parquet, &ritorno, None);
+    assert!(esito.riuscita, "ritorno: {}", esito.stderr);
+    let byte = std::fs::read(&ritorno).expect("l'Arrow di ritorno si legge");
+    let testo = String::from_utf8_lossy(&byte);
+    assert!(
+        testo.contains("plenora.geometry.crs_definition"),
+        "il round trip deve riportare la definizione, non solo l'identificatore"
+    );
+    assert!(
+        testo.contains("\"code\":4326"),
+        "e deve riportare **quella** definizione, non una sintetizzata"
+    );
+}
+
+/// L'SRID non e' scritto, ed e' **ricavabile**: e' la stessa forma di `gpkg`.
+///
+/// `GeoParquet` conserva l'identificatore; il lettore ne ricava l'SRID
+/// spogliandolo del prefisso `EPSG:`. La categoria giusta e' percio' quella
+/// derivata, non quella assente: `absent` direbbe a chi automatizza che l'SRID
+/// va riportato da fuori, e non e' vero.
+#[test]
+fn geoparquet_ricava_l_srid_dall_identificatore_conservato() {
+    let dir = directory();
+    let sorgente = dir.path().join("sorgente.arrow");
+    scrivi_arrow(&sorgente, Some("4326"));
+    let uscita = dir.path().join("uscita.parquet");
+    let esito = converti(&sorgente, &uscita, None);
+    caratterizza(
+        "geoparquet <- sorgente con SRID",
+        &esito,
+        &[("srid_not_preserved_derived", 1)],
+    );
+}
