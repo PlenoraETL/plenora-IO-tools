@@ -59,7 +59,7 @@ use plenora_io_core::{
     UTF8_FIELD_NAMES, WKB_XY_XYZ_GEOMETRY,
 };
 use plenora_io_model::contract::{
-    DataContract, FieldId, GeometryColumnContract, LayerContract, LayerId,
+    DataContract, FieldId, GeometryColumnContract, GeometryType, LayerContract, LayerId,
 };
 use plenora_io_model::crs::ResolvedCrs;
 #[cfg(test)]
@@ -148,16 +148,23 @@ impl FormatDriver for GeoJsonDriver {
         let path = plenora_io_core::preflight_source(self.descriptor(), source, &mut opts)?;
         // Pass 1: inferenza schema in streaming (RAM O(1)).
         let quote = QuoteInferenza::from_read_options(&opts);
-        let (schema, cols) = infer_schema(&path, quote)?;
-        let contract = DataContract::new(
-            schema,
-            Some(GeometryColumnContract::wkb_passthrough(
-                FieldId(0),
-                GEOMETRY,
-                ResolvedCrs::wgs84(),
-                true,
-            )),
+        let (schema, cols, tipi) = infer_schema(&path, quote)?;
+        let mut geometria = GeometryColumnContract::wkb_passthrough(
+            FieldId(0),
+            GEOMETRY,
+            ResolvedCrs::wgs84(),
+            true,
         );
+        // I tipi visti dalla passata di inferenza, dichiarati esatti. GeoJSON
+        // non ha un posto dove scriverli -- non e' un formato che dichiara uno
+        // schema -- quindi l'unico modo di saperli e' guardare le feature, ed
+        // e' quello che la passata fa gia'. Senza questa riga il contratto
+        // arriva al writer senza tipi, e i formati che li pretendono in
+        // anticipo rifiutano una conversione che il file puo' fare.
+        if !tipi.is_empty() {
+            geometria.set_exact_geometry_types(tipi);
+        }
+        let contract = DataContract::new(schema, Some(geometria));
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -312,7 +319,11 @@ impl QuoteInferenza {
     }
 }
 
-fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<(SchemaRef, Vec<(String, ColType)>)> {
+/// Cio' che la passata di inferenza sa dire del file: lo schema, le colonne
+/// con il tipo accumulato, e i tipi geometrici visti.
+type SchemaInferito = (SchemaRef, Vec<(String, ColType)>, Vec<GeometryType>);
+
+fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<SchemaInferito> {
     let file = File::open(path)?;
     let mut accs = SchemaAccumulators {
         max_feature: quote.feature,
@@ -337,6 +348,7 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<(SchemaRef, Vec<(S
             error
         });
     }
+    let tipi: Vec<GeometryType> = accs.tipi_geometrici.iter().copied().collect();
     let cols = accs
         .into_columns()
         .map_err(|motivo| err(&PublicMessage::Curated(motivo)))?;
@@ -344,7 +356,7 @@ fn infer_schema(path: &Path, quote: QuoteInferenza) -> Result<(SchemaRef, Vec<(S
     for (k, ct) in &cols {
         fields.push(Field::new(k, ct.arrow_data_type(), true));
     }
-    Ok((Arc::new(Schema::new(fields)), cols))
+    Ok((Arc::new(Schema::new(fields)), cols, tipi))
 }
 
 // --- pass-1: visitor serde streaming (chiavi + tipo, zero valori) ----------
@@ -365,6 +377,14 @@ struct SchemaAccumulators {
     /// significa perderne il codice, la categoria e la fase, e lasciare al
     /// chiamante un testo da rileggere per indovinarli.
     errore: Option<PlenoraIoError>,
+    /// I tipi geometrici visti, per dichiararli esatti nel contratto.
+    ///
+    /// La passata di inferenza non tronca: superato `max_feature` **rifiuta**,
+    /// quindi se arriva in fondo ha visto ogni feature e questo insieme e'
+    /// completo. E' la condizione che rende onesto chiamarli «esatti»: un
+    /// insieme raccolto da una passata troncata sarebbe un elenco parziale
+    /// dichiarato come totale.
+    tipi_geometrici: std::collections::BTreeSet<GeometryType>,
 }
 
 impl SchemaAccumulators {
@@ -622,7 +642,8 @@ impl<'de> Visitor<'de> for FeatureVisitor<'_> {
                     }
                     type_observed = Some(value);
                 }
-                FeatKey::Geom | FeatKey::Other => {
+                FeatKey::Geom => map.next_value_seed(TipoGeometricoSeed { accs: self.accs })?,
+                FeatKey::Other => {
                     map.next_value::<IgnoredAny>()?;
                 }
             }
@@ -1137,6 +1158,63 @@ impl Visitor<'_> for FeatKeySeed {
             "type" => FeatKey::Type,
             _ => FeatKey::Other,
         })
+    }
+}
+
+/// Dal membro `geometry` legge **il solo `type`**, e ignora il resto.
+///
+/// Le coordinate restano `IgnoredAny`: la passata di inferenza e' O(1) in
+/// memoria ed e' bene che resti tale. Il nome del tipo e' una parola sola per
+/// feature, e non viene trattenuto -- entra in un insieme di al piu' sette
+/// varianti.
+///
+/// `geometry` puo' essere `null`, ed e' un caso normale: una feature senza
+/// geometria non aggiunge tipi e non e' un errore.
+struct TipoGeometricoSeed<'a> {
+    accs: &'a mut SchemaAccumulators,
+}
+
+impl<'de> DeserializeSeed<'de> for TipoGeometricoSeed<'_> {
+    type Value = ();
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_any(self)
+    }
+}
+
+impl<'de> Visitor<'de> for TipoGeometricoSeed<'_> {
+    type Value = ();
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("una geometria GeoJSON, oppure null")
+    }
+
+    fn visit_unit<E>(self) -> std::result::Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_none<E>(self) -> std::result::Result<(), E> {
+        Ok(())
+    }
+
+    fn visit_some<D: Deserializer<'de>>(self, d: D) -> std::result::Result<(), D::Error> {
+        d.deserialize_any(self)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<(), A::Error> {
+        while let Some(chiave) = map.next_key::<String>()? {
+            if chiave == "type" {
+                let nome: String = map.next_value()?;
+                // Un nome che non e' un tipo GeoJSON non entra: questa e' una
+                // scansione descrittiva, e a rifiutarlo e' la lettura vera con
+                // la propria diagnostica di riga.
+                if let Some(tipo) = GeometryType::from_canonical_name(&nome.to_ascii_lowercase()) {
+                    self.accs.tipi_geometrici.insert(tipo);
+                }
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -2085,8 +2163,8 @@ mod tests {
         )
         .unwrap();
 
-        let (za_schema, za_columns) = infer_schema(&za, quote_di_prova()).unwrap();
-        let (az_schema, az_columns) = infer_schema(&az, quote_di_prova()).unwrap();
+        let (za_schema, za_columns, _) = infer_schema(&za, quote_di_prova()).unwrap();
+        let (az_schema, az_columns, _) = infer_schema(&az, quote_di_prova()).unwrap();
         assert_eq!(za_schema, az_schema);
         assert_eq!(za_columns, az_columns);
         assert_eq!(

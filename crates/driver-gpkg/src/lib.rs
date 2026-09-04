@@ -259,6 +259,19 @@ impl FormatDriver for GpkgDriver {
             geometry.srid = i32::try_from(table_meta.srs_id).ok();
             if let Some(geometry_type) = gpkg_geometry_type(&table_meta.geometry_type_name) {
                 geometry.set_exact_geometry_types(vec![geometry_type]);
+            } else {
+                // Il tipo dichiarato e' generico: quali tipi ci siano lo dicono
+                // le geometrie, non l'intestazione della tabella.
+                let osservati = tipi_geometrici_osservati(
+                    &conn,
+                    &table_meta.table,
+                    &table_meta.geom_col,
+                    opts.max_rows(),
+                    &opts.wkb_limits(),
+                )?;
+                if !osservati.is_empty() {
+                    geometry.set_exact_geometry_types(osservati);
+                }
             }
             geometry.native_metadata.insert(
                 "gpkg.geometry_type_name".to_owned(),
@@ -1286,6 +1299,62 @@ const fn gpkg_dimensions(z: i64, m: i64) -> CoordinateDimensions {
         // deliberatamente Unknown invece di inventare XYZ/XYZM.
         _ => CoordinateDimensions::Unknown,
     }
+}
+
+/// I tipi geometrici **effettivamente presenti** nella colonna, scanditi.
+///
+/// # Perche' serve
+///
+/// `gpkg_geometry_columns.geometry_type_name` puo' valere `GEOMETRY`, che e' il
+/// tipo generico: dice che la colonna ne accetta piu' d'uno, non quali. Un
+/// contratto che si fermasse li' arriverebbe al writer senza tipi dichiarati, e
+/// i formati che li pretendono in anticipo -- `GeoParquet`, che li scrive nel
+/// proprio metadato `geo`, e KML -- rifiuterebbero una conversione che il file
+/// puo' fare. Il rifiuto sarebbe corretto e la causa starebbe qui: non e' il
+/// writer a dover essere allentato, e' il reader a dover dire che cosa ha.
+///
+/// # Perche' e' bounded, e in che senso
+///
+/// Scorre le geometrie una volta, in tempo O(righe) e memoria O(tipi distinti),
+/// sotto **due** quote gia' esistenti: `max_rows`, che ferma la scansione di
+/// una tabella piu' lunga di quanto la lettura accetterebbe comunque, e i
+/// limiti WKB per cella, che `inspect_wkb` applica al singolo blob. Non
+/// decodifica le coordinate: ispeziona l'intestazione della geometria.
+///
+/// # Che cosa fa con le geometrie illeggibili
+///
+/// Le salta. Questa e' una scansione **descrittiva**, non una validazione: a
+/// rifiutare un blob corrotto e' la lettura vera, con la propria diagnostica di
+/// riga. Fermarsi qui trasformerebbe l'inferenza del contratto nel primo posto
+/// che pronuncia un rifiuto di dati, e sposterebbe l'errore da dove si capisce
+/// a dove capita.
+fn tipi_geometrici_osservati(
+    conn: &Connection,
+    tabella: &str,
+    colonna: &str,
+    max_righe: usize,
+    limiti: &plenora_io_model::limits::WkbLimits,
+) -> Result<Vec<GeometryType>> {
+    let sql = format!(
+        "SELECT \"{}\" FROM \"{}\" WHERE \"{}\" IS NOT NULL LIMIT {}",
+        colonna.replace('"', "\"\""),
+        tabella.replace('"', "\"\""),
+        colonna.replace('"', "\"\""),
+        max_righe,
+    );
+    let mut statement = conn.prepare(&sql).map_err(sql_err)?;
+    let mut righe = statement.query([]).map_err(sql_err)?;
+    let mut visti = BTreeSet::new();
+    while let Some(riga) = righe.next().map_err(sql_err)? {
+        let blob: Vec<u8> = riga.get(0).map_err(sql_err)?;
+        let Ok(payload) = strip_gpkg_header(&blob) else {
+            continue;
+        };
+        if let Ok(ispezione) = plenora_io_model::wkb::inspect_wkb(payload, limiti) {
+            visti.insert(ispezione.geometry_type);
+        }
+    }
+    Ok(visti.into_iter().collect())
 }
 
 fn gpkg_geometry_type(name: &str) -> Option<GeometryType> {

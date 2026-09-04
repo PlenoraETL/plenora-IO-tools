@@ -16,10 +16,13 @@ use std::sync::Arc;
 
 use arrow_array::builder::{BooleanBuilder, Float64Builder, Int64Builder, StringBuilder};
 use arrow_array::{
-    Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
-    Int8Array, StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    Array, ArrayRef, BooleanArray, Date32Array, Date64Array, Float32Array, Float64Array,
+    Int16Array, Int32Array, Int64Array, Int8Array, StringArray, Time32MillisecondArray,
+    Time32SecondArray, Time64MicrosecondArray, Time64NanosecondArray, TimestampMicrosecondArray,
+    TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt16Array,
+    UInt32Array, UInt64Array, UInt8Array,
 };
-use arrow_schema::{DataType, Field, Schema};
+use arrow_schema::{DataType, Field, Schema, TimeUnit};
 use serde_json::{Number, Value as JsonValue};
 
 use plenora_io_model::geometry::{
@@ -562,6 +565,173 @@ pub fn geometry_index(schema: &Schema) -> Option<usize> {
         .position(|field| is_geometry_field(field))
 }
 
+// --- i temporali, resi come testo -------------------------------------------
+//
+// # Perche' esistono queste righe
+//
+// `SCALAR_TYPES` ammette `ArrowTypeClass::Temporal`, e i formati testuali che
+// lo dichiarano promettono `TypeCoercionPolicy::ExplicitText`: una
+// serializzazione testuale deterministica. Il renderer pero' non sapeva
+// scrivere un temporale e rifiutava, quindi la capability prometteva una cosa
+// e il codice ne faceva un'altra -- e a scoprirlo era chi convertiva, a meta'
+// di una conversione dichiarata possibile.
+//
+// # Che cosa la rappresentazione promette
+//
+// Di essere **deterministica** e di non dipendere dalla macchina: nessun fuso
+// locale, nessuna localizzazione, nessuna cifra che compare o sparisce col
+// valore. La frazione di secondo si scrive sempre con le cifre dell'unita'
+// dichiarata dal tipo -- tre per i millisecondi, sei per i microsecondi, nove
+// per i nanosecondi, nessuna per i secondi -- cosi' due valori dello stesso
+// tipo hanno sempre la stessa forma.
+//
+// | tipo Arrow | testo |
+// |---|---|
+// | `Date32`, `Date64` | `AAAA-MM-GG` |
+// | `Time32`, `Time64` | `HH:MM:SS[.fff...]` |
+// | `Timestamp` senza fuso | `AAAA-MM-GGTHH:MM:SS[.fff...]` |
+// | `Timestamp` con fuso | lo stesso, piu' `Z` |
+//
+// Il `Z` non e' decorativo e non e' una conversione: Arrow conserva un
+// timestamp con fuso come istante **UTC**, e il fuso e' metadato di
+// presentazione. Scriverlo senza `Z` direbbe «ora locale di chissa' dove»;
+// riproiettarlo nel fuso dichiarato sarebbe una trasformazione, e questo
+// prodotto non trasforma.
+//
+// # Che cosa resta fuori, e non per dimenticanza
+//
+// `Duration` e `Interval` stanno nella stessa classe `Temporal` e **non**
+// vengono scritti. Non sono istanti: sono quantita', e la loro forma testuale
+// -- una durata ISO 8601, oppure la tripla mesi/giorni/nanosecondi di
+// `Interval` -- e' una scelta di rappresentazione a se', che nessuna
+// conversione del catalogo chiede oggi. Restano il rifiuto che erano, e il
+// rifiuto nomina la classe.
+
+/// La scala dell'unita': quante frazioni entrano in un secondo, e con quante
+/// cifre si scrivono.
+const fn scala(unita: TimeUnit) -> (i64, usize) {
+    match unita {
+        TimeUnit::Second => (1, 0),
+        TimeUnit::Millisecond => (1_000, 3),
+        TimeUnit::Microsecond => (1_000_000, 6),
+        TimeUnit::Nanosecond => (1_000_000_000, 9),
+    }
+}
+
+/// Anno, mese e giorno dai giorni dall'epoca Unix.
+///
+/// E' `civil_from_days` di Howard Hinnant, calendario proletticamente
+/// gregoriano. Scritto qui invece di prendere una libreria di date: sarebbe una
+/// dipendenza in piu' nel perimetro spedito, e in `Cargo.lock`, per quindici
+/// righe di aritmetica che non hanno versioni.
+const fn data_civile(dall_epoca: i64) -> (i64, i64, i64) {
+    let spostati = dall_epoca + 719_468;
+    let era = if spostati >= 0 {
+        spostati
+    } else {
+        spostati - 146_096
+    } / 146_097;
+    let dall_era = spostati - era * 146_097;
+    let anni_interi = (dall_era - dall_era / 1460 + dall_era / 36_524 - dall_era / 146_096) / 365;
+    let anno = anni_interi + era * 400;
+    let dall_anno = dall_era - (365 * anni_interi + anni_interi / 4 - anni_interi / 100);
+    let indice = (5 * dall_anno + 2) / 153;
+    let giorno = dall_anno - (153 * indice + 2) / 5 + 1;
+    let mese = if indice < 10 { indice + 3 } else { indice - 9 };
+    (if mese <= 2 { anno + 1 } else { anno }, mese, giorno)
+}
+
+fn testo_data(dall_epoca: i64) -> String {
+    let (anno, mese, giorno) = data_civile(dall_epoca);
+    format!("{anno:04}-{mese:02}-{giorno:02}")
+}
+
+/// L'orario, dalle frazioni trascorse dalla mezzanotte.
+fn testo_orario(frazioni: i64, per_secondo: i64, cifre: usize) -> String {
+    let interi = frazioni.div_euclid(per_secondo);
+    let resto = frazioni.rem_euclid(per_secondo);
+    let (ore, minuti, secondi) = (interi / 3600, (interi / 60) % 60, interi % 60);
+    let base = format!("{ore:02}:{minuti:02}:{secondi:02}");
+    if cifre == 0 {
+        base
+    } else {
+        format!("{base}.{resto:0cifre$}")
+    }
+}
+
+/// Un istante, dalle frazioni dall'epoca.
+fn testo_istante(valore: i64, per_secondo: i64, cifre: usize, utc: bool) -> String {
+    let per_giorno = per_secondo * 86_400;
+    let giorni = valore.div_euclid(per_giorno);
+    let nel_giorno = valore.rem_euclid(per_giorno);
+    let zulu = if utc { "Z" } else { "" };
+    format!(
+        "{}T{}{zulu}",
+        testo_data(giorni),
+        testo_orario(nel_giorno, per_secondo, cifre)
+    )
+}
+
+/// Il testo di una cella temporale, o `None` se il tipo non e' un istante.
+fn testo_temporale(array: &ArrayRef, row: usize) -> Option<String> {
+    let a = array.as_any();
+    match array.data_type() {
+        DataType::Date32 => a
+            .downcast_ref::<Date32Array>()
+            .map(|x| testo_data(i64::from(x.value(row)))),
+        // `Date64` sono millisecondi, e la specifica Arrow li vuole multipli
+        // di un giorno: si scrive la data, non l'istante.
+        DataType::Date64 => a
+            .downcast_ref::<Date64Array>()
+            .map(|x| testo_data(x.value(row).div_euclid(86_400_000))),
+        DataType::Time32(unita) => {
+            let (per_secondo, cifre) = scala(*unita);
+            match unita {
+                TimeUnit::Second => a
+                    .downcast_ref::<Time32SecondArray>()
+                    .map(|x| testo_orario(i64::from(x.value(row)), per_secondo, cifre)),
+                TimeUnit::Millisecond => a
+                    .downcast_ref::<Time32MillisecondArray>()
+                    .map(|x| testo_orario(i64::from(x.value(row)), per_secondo, cifre)),
+                // `Time32` porta solo secondi e millisecondi: le altre due
+                // unita' non sono costruibili con questo tipo.
+                TimeUnit::Microsecond | TimeUnit::Nanosecond => None,
+            }
+        }
+        DataType::Time64(unita) => {
+            let (per_secondo, cifre) = scala(*unita);
+            match unita {
+                TimeUnit::Microsecond => a
+                    .downcast_ref::<Time64MicrosecondArray>()
+                    .map(|x| testo_orario(x.value(row), per_secondo, cifre)),
+                TimeUnit::Nanosecond => a
+                    .downcast_ref::<Time64NanosecondArray>()
+                    .map(|x| testo_orario(x.value(row), per_secondo, cifre)),
+                TimeUnit::Second | TimeUnit::Millisecond => None,
+            }
+        }
+        DataType::Timestamp(unita, fuso) => {
+            let (per_secondo, cifre) = scala(*unita);
+            let utc = fuso.is_some();
+            match unita {
+                TimeUnit::Second => a
+                    .downcast_ref::<TimestampSecondArray>()
+                    .map(|x| testo_istante(x.value(row), per_secondo, cifre, utc)),
+                TimeUnit::Millisecond => a
+                    .downcast_ref::<TimestampMillisecondArray>()
+                    .map(|x| testo_istante(x.value(row), per_secondo, cifre, utc)),
+                TimeUnit::Microsecond => a
+                    .downcast_ref::<TimestampMicrosecondArray>()
+                    .map(|x| testo_istante(x.value(row), per_secondo, cifre, utc)),
+                TimeUnit::Nanosecond => a
+                    .downcast_ref::<TimestampNanosecondArray>()
+                    .map(|x| testo_istante(x.value(row), per_secondo, cifre, utc)),
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Valore JSON di una cella Arrow (per la scrittura verso formati testuali).
 ///
 /// # Errors
@@ -610,6 +780,9 @@ pub fn json_from_array(array: &ArrayRef, row: usize) -> Result<JsonValue> {
     }
     if let Some(x) = a.downcast_ref::<StringArray>() {
         return Ok(JsonValue::String(x.value(row).to_owned()));
+    }
+    if let Some(testo) = testo_temporale(array, row) {
+        return Ok(JsonValue::String(testo));
     }
     // Il `Debug` di `DataType` e' testo di una dipendenza: puo' contenere
     // nomi di campo e metadati letti dal file, e non e' un formato che arrow
@@ -886,5 +1059,102 @@ mod tests {
         let schema = Schema::new(vec![Field::new("geometry", DataType::Binary, true)]);
 
         assert_eq!(geometry_index(&schema), None);
+    }
+
+    // --- la rappresentazione testuale dei temporali ------------------------
+
+    fn testo<A: Array + 'static>(colonna: A) -> String {
+        let array: ArrayRef = Arc::new(colonna);
+        match json_from_array(&array, 0).expect("la cella temporale si scrive") {
+            JsonValue::String(testo) => testo,
+            altro => panic!("atteso testo, arrivato {altro:?}"),
+        }
+    }
+
+    /// Le date, compresa una **prima** dell'epoca.
+    ///
+    /// Il giorno negativo non e' un caso di scuola: `div_euclid` e il
+    /// calendario di Hinnant esistono per lui, e un'implementazione che
+    /// dividesse per difetto sbagliata darebbe una data plausibile e falsa --
+    /// il modo peggiore di sbagliare, perche' nessuno la guarda due volte.
+    #[test]
+    fn le_date_si_scrivono_in_iso_anche_prima_dell_epoca() {
+        assert_eq!(testo(Date32Array::from(vec![0])), "1970-01-01");
+        assert_eq!(testo(Date32Array::from(vec![20_468])), "2026-01-15");
+        assert_eq!(testo(Date32Array::from(vec![-1])), "1969-12-31");
+        assert_eq!(testo(Date32Array::from(vec![-719_162])), "0001-01-01");
+        // Un anno bisestile secolare: il 2000 lo e', il 1900 no, ed e' li' che
+        // le implementazioni approssimate si dividono.
+        assert_eq!(testo(Date32Array::from(vec![11_016])), "2000-02-29");
+        // `Date64` sono millisecondi, e si scrive la data.
+        assert_eq!(
+            testo(Date64Array::from(vec![1_768_435_200_000])),
+            "2026-01-15"
+        );
+    }
+
+    /// Le cifre della frazione vengono dall'**unita' dichiarata**, non dal
+    /// valore.
+    ///
+    /// E' la parte che rende la rappresentazione deterministica: se le cifre
+    /// dipendessero dal valore, `12:00:00` e `12:00:00.500` sarebbero due forme
+    /// della stessa colonna, e due file identici nel contenuto avrebbero
+    /// larghezze diverse.
+    #[test]
+    fn le_cifre_della_frazione_vengono_dall_unita_e_non_dal_valore() {
+        assert_eq!(testo(Time32SecondArray::from(vec![45_296])), "12:34:56");
+        assert_eq!(
+            testo(Time32MillisecondArray::from(vec![45_296_000])),
+            "12:34:56.000"
+        );
+        assert_eq!(
+            testo(Time32MillisecondArray::from(vec![45_296_500])),
+            "12:34:56.500"
+        );
+        assert_eq!(
+            testo(Time64MicrosecondArray::from(vec![45_296_000_007])),
+            "12:34:56.000007"
+        );
+        assert_eq!(
+            testo(Time64NanosecondArray::from(vec![45_296_000_000_009])),
+            "12:34:56.000000009"
+        );
+    }
+
+    /// Il fuso non riproietta: aggiunge la `Z`.
+    ///
+    /// Arrow conserva un timestamp con fuso come istante UTC, e il fuso e'
+    /// metadato di presentazione. Riproiettarlo sarebbe una trasformazione, e
+    /// questo prodotto non trasforma; ometterlo direbbe «ora locale di chissa'
+    /// dove». Le due colonne portano lo **stesso** istante, e si distinguono
+    /// per la sola `Z`.
+    #[test]
+    fn il_timestamp_con_fuso_si_scrive_in_utc_e_lo_dichiara() {
+        let senza = TimestampSecondArray::from(vec![1_768_480_496]);
+        let con: TimestampSecondArray =
+            TimestampSecondArray::from(vec![1_768_480_496]).with_timezone("Europe/Rome");
+        assert_eq!(testo(senza), "2026-01-15T12:34:56");
+        assert_eq!(testo(con), "2026-01-15T12:34:56Z");
+    }
+
+    /// `Duration` e `Interval` restano un rifiuto, e il rifiuto nomina la
+    /// classe.
+    ///
+    /// Sono nella stessa classe `Temporal` degli istanti e **non** sono
+    /// istanti: la loro forma testuale e' una scelta di rappresentazione a se'.
+    /// La sonda esiste perche' il confine sia dichiarato invece che scoperto:
+    /// il giorno in cui una conversione la chiede, e' questa prova a doversi
+    /// muovere.
+    #[test]
+    fn le_durate_non_sono_istanti_e_restano_un_rifiuto() {
+        let durata: ArrayRef = Arc::new(arrow_array::DurationSecondArray::from(vec![90]));
+        let Err(errore) = json_from_array(&durata, 0) else {
+            panic!("una durata non ha una forma testuale decisa: deve essere rifiutata");
+        };
+        assert!(
+            errore.message.contains("temporal"),
+            "il rifiuto deve nominare la classe, arrivato «{}»",
+            errore.message
+        );
     }
 }

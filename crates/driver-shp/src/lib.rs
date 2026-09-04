@@ -8007,22 +8007,39 @@ mod tests {
         );
 
         // Una cella che il DBF non sa portare: il tipo Arrow non ha una resa
-        // senza perdita, e la riga viene rifiutata con la propria causa.
+        // testuale decisa, e la riga viene rifiutata con la propria causa.
+        //
+        // Il tipo e' una **durata**, non piu' una data. Lo Shapefile dichiara
+        // `TypeCoercionPolicy::ExplicitText` e ammette la classe `Temporal`:
+        // dal 2026-09-04 una data diventa il proprio testo ISO, come su ogni
+        // altro formato testuale, e pretendere qui il rifiuto vorrebbe dire
+        // scrivere nella prova la contraddizione che la capability aveva.
+        // Una durata invece resta senza resa: non e' un istante, e la sua
+        // forma testuale e' una scelta di rappresentazione che nessuno ha
+        // preso.
         let schema_data: SchemaRef = Arc::new(Schema::new(vec![
             geometry_field(GEOMETRY, "EPSG:4326"),
-            Field::new("QUANDO", arrow_schema::DataType::Date32, true),
+            Field::new(
+                "QUANDO",
+                arrow_schema::DataType::Duration(arrow_schema::TimeUnit::Second),
+                true,
+            ),
         ]));
         let con_data = RecordBatch::try_new(
             schema_data,
             vec![
                 Arc::new(BinaryArray::from(vec![Some(punto.as_slice())])),
-                Arc::new(arrow_array::Date32Array::from(vec![Some(1_i32)])),
+                Arc::new(arrow_array::DurationSecondArray::from(vec![Some(90_i64)])),
             ],
         )
         .unwrap();
         let mut writer = scrittore(
             "cella.shp",
-            vec![Field::new("QUANDO", arrow_schema::DataType::Date32, true)],
+            vec![Field::new(
+                "QUANDO",
+                arrow_schema::DataType::Duration(arrow_schema::TimeUnit::Second),
+                true,
+            )],
         );
         writer.declare_input_total(LayerId(0), 1).unwrap();
         let Err(errore) = writer.write(&con_data) else {

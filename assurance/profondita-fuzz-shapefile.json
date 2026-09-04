@@ -5,7 +5,7 @@
   "corpus": {
     "input": 25
   },
-  "impronta_perimetro": "29ddf8e2e0b879149c4334a054b0861ea1afab20a6f5151d420b175db76ac3a8",
+  "impronta_perimetro": "4c5085c2b65f1cfff45a4e2c8f633579c05f7b06f8be4285cb3465ce76f79c7a",
   "nota_sulla_revisione": "la misura non nomina una revisione, e non e' una dimenticanza. Il campo `revisione_di_misura` c'e' stato, dichiarato informativo, e diceva lo SHA di HEAD al momento della corsa: uno SHA locale riscritto prima di entrare in storia lo rendeva irrisolvibile, e un identificatore che non risolve piu' e' peggio di nessun identificatore. A legare la misura all'albero e' l'impronta del perimetro, che invecchia quando il codice attraversato cambia.",
   "nota_sul_raggiungimento": "ogni requisito dice `raggiunto`, non quante volte. Lo schema 1 registrava il `conteggio` delle esecuzioni e il gate ne pretendeva il segno: il numero pero' alternava fra due stati a parita' di albero -- otto requisiti su trentacinque, su quattro corse di cui due bit-identiche -- e ogni rimisura scriveva quel rumore in un file versionato, indistinguibile da un fatto. `raggiunto` e' la stessa affermazione senza la parte instabile: lo deriva questo generatore da `conteggio > 0`, e il gate lo pretende booleano e vero.",
   "requisiti": [

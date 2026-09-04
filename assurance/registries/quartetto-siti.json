@@ -365,6 +365,10 @@
       "ResourceLimit/Validate/LimitExceeded/Never",
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],
+    "limiti_osservati": [
+      "ResourceLimit/Validate/LimitExceeded/Never",
+      "ResourceLimit/Validate/LimitExceeded/Never"
+    ],
     "lunghezza_dello_spool": [
       "ResourceLimit/Validate/LimitExceeded/Never"
     ],

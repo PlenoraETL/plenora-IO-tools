@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "descrizione": "Ogni degradazione a un valore di ripiego, con la sua ragione. Il conteggio e' verificato da scripts/check_assurance_fallbacks.sh, che confronta il codice con questo registro: muovere il numero senza scrivere la ragione e' cio' che il gate esiste per impedire.",
-  "totale": 130,
+  "totale": 131,
   "per_crate": {
     "driver-common": {
       "conteggio": 9,
@@ -44,8 +44,8 @@
       "ragione": "nome diagnostico; stringa vuota usata solo dalla classificazione di una definizione opzionale, non come CRS operativo; dal 2026-08-24 anche `unwrap_or_else(|errore| panic!(...))` nel lettore dei semi di `shp_reader`, che e' il modo in cui quel modulo di test dice «questo seme doveva esserci», e due `position(...).unwrap_or(len)` in `parte_utile_del_campo`, dove l'assenza del carattere cercato **e'** la risposta: nessun NUL vuol dire che il campo arriva in fondo, nessun byte diverso da spazio vuol dire che e' vuoto. Nessuna delle tre e' una degradazione a un default"
     },
     "driver-xls": {
-      "conteggio": 2,
-      "ragione": "dimensioni geometriche eterogenee → `Unknown`; celle sparse e coordinate assenti sono gestite da rami espliciti, senza fallback"
+      "conteggio": 3,
+      "ragione": "dimensioni geometriche eterogenee → `Unknown`; celle sparse e coordinate assenti sono gestite da rami espliciti, senza fallback; cornice degenere quando la scansione dei limiti non osserva nemmeno una cella. E' un ripiego vero e sta qui per questo: un foglio senza `<dimension>` e senza celle non ha limiti da ricavare, e la cornice di una cella sola e' cio' che lascia pronunciare il rifiuto «nemmeno una cella» a `infer_layout`, che resta l'unico punto a dirlo. L'alternativa era un secondo sito che ripete lo stesso rifiuto"
     },
     "plenora-bench": {
       "conteggio": 24,

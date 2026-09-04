@@ -949,6 +949,86 @@ const fn classify_data(data: &Data) -> ObservedValueClass {
     }
 }
 
+/// Il foglio **non** dichiara le proprie dimensioni.
+///
+/// `<dimension>` e' opzionale in ECMA-376, e `calamine` non distingue fra
+/// «assente» e «presente e pari a `A1:A1`»: in entrambi i casi restituisce la
+/// cornice di una cella sola. La distinzione richiederebbe di portare il nome
+/// dell'elemento attraverso il pre-filtro XML, il cui confine e' dichiarato
+/// come una decisione e non come una correzione.
+///
+/// Non la si paga: nel caso ambiguo -- un foglio che dichiara `A1:A1` e scrive
+/// altrove -- ricavare i limiti dalle celle e' cio' che la specifica prescrive
+/// comunque, perche' l'elemento e' un suggerimento. La severita' resta dove
+/// serve: una cornice dichiarata **non degenere** e contraddetta dalle celle
+/// e' un file che si contraddice, e viene rifiutata come prima.
+const fn cornice_non_dichiarata(bounds: SheetBounds) -> bool {
+    bounds.start.0 == bounds.end.0
+        && bounds.start.1 == bounds.end.1
+        && bounds.start.0 == 0
+        && bounds.start.1 == 0
+}
+
+/// I limiti **ricavati dalle celle**, sotto le quote di lettura.
+///
+/// La scansione e' O(celle) in tempo e O(1) in memoria, e le quote si applicano
+/// mentre scorre e non dopo: un foglio che omette `<dimension>` non ha un
+/// numero di colonne da leggere prima di aprirlo, e senza questo tetto
+/// omettere l'elemento sarebbe il modo di farsi allocare una riga larga a
+/// piacere.
+fn limiti_osservati<RS>(
+    reader: &mut LettoreCelleSorvegliato<'_, RS>,
+    quote: XlsxQuote,
+    cancellation: &CancellationToken,
+) -> Result<SheetBounds>
+where
+    RS: Read + Seek,
+{
+    let mut estremi: Option<SheetBounds> = None;
+    let mut celle = 0usize;
+    while let Some((riga, colonna, _)) = reader.prossima_cella()? {
+        celle = celle.saturating_add(1);
+        check_cancelled_periodically(cancellation, ErrorPhase::Read, celle)?;
+        let cornice = estremi.get_or_insert(SheetBounds {
+            start: (riga, colonna),
+            end: (riga, colonna),
+        });
+        cornice.start.0 = cornice.start.0.min(riga);
+        cornice.start.1 = cornice.start.1.min(colonna);
+        cornice.end.0 = cornice.end.0.max(riga);
+        cornice.end.1 = cornice.end.1.max(colonna);
+        let larghezza = data_row_width(*cornice)?;
+        if larghezza > quote.colonne {
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "XLSX:",
+                    NumeroStrutturale::Conteggio(driver_common::saturating_u64(larghezza)),
+                    "colonne oltre il limite di",
+                    NumeroStrutturale::Limite(driver_common::saturating_u64(quote.colonne)),
+                ),
+            ));
+        }
+        let righe = data_row_count(*cornice)?;
+        if righe > quote.righe {
+            return Err(PlenoraIoError::limite_redatto(
+                &PublicMessage::CuratedBetween(
+                    "XLSX:",
+                    NumeroStrutturale::Conteggio(driver_common::saturating_u64(righe)),
+                    "righe oltre il limite di",
+                    NumeroStrutturale::Limite(driver_common::saturating_u64(quote.righe)),
+                ),
+            ));
+        }
+    }
+    // Nessuna cella: si restituisce la cornice degenere, e a dire che il foglio
+    // e' vuoto resta il conteggio delle celle di `infer_layout`. Deciderlo qui
+    // vorrebbe dire due punti che pronunciano lo stesso rifiuto.
+    Ok(estremi.unwrap_or(SheetBounds {
+        start: (0, 0),
+        end: (0, 0),
+    }))
+}
+
 fn data_row_width(bounds: SheetBounds) -> Result<usize> {
     bounds
         .end
@@ -1352,8 +1432,21 @@ where
     RS: Read + Seek,
 {
     check_cancelled(cancellation, ErrorPhase::Read)?;
+    // Tre aperture del lettore di celle, e non una: la cornice dichiarata, la
+    // scansione che la ricava quando non c'e', e la passata vera. Il costo e'
+    // una rilettura delle celle **solo** nel foglio che omette `<dimension>`;
+    // quello che la dichiara apre due volte e scorre una volta sola.
+    let dichiarate = {
+        let mut sonda = LettoreCelleSorvegliato::nuovo(workbook, sheet)?;
+        sonda.dimensioni()?
+    };
+    let bounds = if cornice_non_dichiarata(dichiarate) {
+        let mut scansione = LettoreCelleSorvegliato::nuovo(workbook, sheet)?;
+        limiti_osservati(&mut scansione, quote, cancellation)?
+    } else {
+        dichiarate
+    };
     let mut reader = LettoreCelleSorvegliato::nuovo(workbook, sheet)?;
-    let bounds = reader.dimensioni()?;
     let width = data_row_width(bounds)?;
     let row_count = data_row_count(bounds)?;
     if width > quote.colonne {
@@ -3553,8 +3646,15 @@ mod tests {
 
         // La propagazione da `json_from_array`: un tipo Arrow che non ha una
         // resa JSON senza perdita non diventa una cella approssimata.
+        //
+        // Il tipo e' una **durata** e non piu' una data: dal 2026-09-04 i
+        // temporali che sono istanti hanno una resa testuale deterministica, e
+        // pretendere qui il rifiuto di una data scriverebbe nella prova la
+        // contraddizione che la capability aveva -- `SCALAR_TYPES` ammette
+        // `Temporal`, e il renderer lo rifiutava. Una durata non e' un istante
+        // e resta senza resa decisa.
         let non_convertibile: ArrayRef =
-            Arc::new(arrow_array::Date32Array::from(vec![Some(1_i32)]));
+            Arc::new(arrow_array::DurationSecondArray::from(vec![Some(90_i64)]));
         let Err(errore) = write_cell(foglio, 1, 0, &non_convertibile, 0) else {
             panic!("un tipo non convertibile non puo' diventare una cella");
         };
@@ -4890,5 +4990,183 @@ mod tests {
         )
         .unwrap();
         assert_eq!(actual, expected);
+    }
+
+    // --- `<dimension>` e' opzionale, e il foglio si legge lo stesso ---------
+
+    /// Un XLSX minimo, con o senza l'elemento `<dimension>`.
+    ///
+    /// Scritto a mano invece che con `rust_xlsxwriter`, che `<dimension>` lo
+    /// emette sempre: la variabile di queste sonde e' proprio la sua assenza, e
+    /// una libreria che non sa ometterlo non puo' produrre il caso.
+    ///
+    /// `dichiarata` porta il `ref` da scrivere, e i tre valori che le sonde
+    /// usano sono: `None` -- nessun elemento, il caso della specifica; il `ref`
+    /// giusto; e un `ref` piu' stretto delle celle, che resta un rifiuto.
+    fn xlsx_con_dimension(dichiarata: Option<&str>) -> Vec<u8> {
+        let dimensione = dichiarata.map_or_else(String::new, |riferimento| {
+            format!("<dimension ref=\"{riferimento}\"/>")
+        });
+        let foglio = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">\
+             {dimensione}<sheetData>\
+             <row r=\"1\">\
+             <c r=\"A1\" t=\"inlineStr\"><is><t>geometry</t></is></c>\
+             <c r=\"B1\" t=\"inlineStr\"><is><t>nome</t></is></c>\
+             </row>\
+             <row r=\"2\">\
+             <c r=\"A2\" t=\"inlineStr\"><is><t>POINT (1 2)</t></is></c>\
+             <c r=\"B2\" t=\"inlineStr\"><is><t>alfa</t></is></c>\
+             </row>\
+             <row r=\"3\">\
+             <c r=\"A3\" t=\"inlineStr\"><is><t>POINT (3 4)</t></is></c>\
+             <c r=\"B3\" t=\"inlineStr\"><is><t>beta</t></is></c>\
+             </row>\
+             </sheetData></worksheet>"
+        );
+        let tipi = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
+             <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
+             <Default Extension=\"xml\" ContentType=\"application/xml\"/>\
+             <Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>\
+             <Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>\
+             </Types>";
+        let rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+             <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>\
+             </Relationships>";
+        let workbook = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">\
+             <sheets><sheet name=\"foglio\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>";
+        let workbook_rels = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\
+             <Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+             <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>\
+             </Relationships>";
+
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut scrittore = zip::ZipWriter::new(&mut buffer);
+            let opzioni: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            for (nome, testo) in [
+                ("[Content_Types].xml", tipi),
+                ("_rels/.rels", rels),
+                ("xl/workbook.xml", workbook),
+                ("xl/_rels/workbook.xml.rels", workbook_rels),
+                ("xl/worksheets/sheet1.xml", foglio.as_str()),
+            ] {
+                scrittore.start_file(nome, opzioni).unwrap();
+                std::io::Write::write_all(&mut scrittore, testo.as_bytes()).unwrap();
+            }
+            scrittore.finish().unwrap();
+        }
+        buffer.into_inner()
+    }
+
+    /// Apre il foglio e restituisce `(righe, colonne)` del contratto.
+    fn apri_e_conta(byte: &[u8], nome: &str) -> Result<(usize, usize)> {
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join(nome);
+        std::fs::write(&percorso, byte).unwrap();
+        let dataset = XlsDriver.open(Source::Path(percorso), opzioni_lettura_wkt())?;
+        let colonne = dataset.layers()[0].contract.schema.fields().len();
+        let mut lettore = dataset.open_layer_reader(&ReadRequest {
+            layer: LayerId(0),
+            projected_fields: None,
+            projection_mode: ProjectionMode::BestEffort,
+            pruning_predicate: None,
+            spatial_pruning_hint: None,
+            scope: ReadScope::default(),
+            batch_target: BatchTarget::default(),
+            cancellation: CancellationToken::default(),
+        })?;
+        let mut righe = 0usize;
+        while let Some(batch) = lettore.next_batch()? {
+            righe += batch.num_rows();
+        }
+        Ok((righe, colonne))
+    }
+
+    /// Il foglio senza `<dimension>` si legge, e legge **tutto**.
+    ///
+    /// L'elemento e' opzionale in ECMA-376: chi lo omette produce un file
+    /// valido, e Excel stesso lo tratta come un suggerimento. Il driver
+    /// pretendeva invece che ci fosse, e sul file conforme rifiutava con «cella
+    /// XLSX fuori dalle dimensioni dichiarate» -- un rifiuto che nomina
+    /// dimensioni che nessuno ha dichiarato.
+    ///
+    /// La controprova positiva sta nella stessa sonda: lo stesso contenuto con
+    /// il `ref` giusto dev'essere letto **identico**. Senza, «legge due righe»
+    /// sarebbe vero anche di un lettore che si e' inventato i limiti.
+    #[test]
+    fn n1_il_foglio_senza_dimension_si_legge_come_quello_che_la_dichiara() {
+        let (righe_dichiarate, colonne_dichiarate) =
+            apri_e_conta(&xlsx_con_dimension(Some("A1:B3")), "dichiarata.xlsx")
+                .expect("il foglio che dichiara le proprie dimensioni si legge");
+        assert_eq!(
+            (righe_dichiarate, colonne_dichiarate),
+            (2, 2),
+            "due righe di dati e due colonne"
+        );
+
+        let (righe, colonne) = apri_e_conta(&xlsx_con_dimension(None), "senza.xlsx")
+            .expect("`<dimension>` e' opzionale: il foglio che la omette e' conforme");
+        assert_eq!(
+            (righe, colonne),
+            (righe_dichiarate, colonne_dichiarate),
+            "lo stesso contenuto, letto uguale: i limiti si ricavano dalle celle"
+        );
+    }
+
+    /// Una `<dimension>` **dichiarata** e piu' stretta delle celle resta un
+    /// rifiuto.
+    ///
+    /// E' il confine della correzione, e va provato perche' e' il modo in cui
+    /// si sarebbe potuta allargare troppo: ricavare i limiti quando mancano non
+    /// e' ignorarli quando ci sono. Un file che dichiara `A1:A3` e scrive in
+    /// `B1` si contraddice, e il driver resta fail-closed.
+    #[test]
+    fn n1_una_dimension_dichiarata_e_violata_resta_un_rifiuto() {
+        let Err(errore) = apri_e_conta(&xlsx_con_dimension(Some("A1:A3")), "stretta.xlsx") else {
+            panic!(
+                "una `<dimension>` dichiarata e contraddetta dalle celle deve fermare la \
+                 lettura: ricavare i limiti assenti non e' ignorare quelli dichiarati"
+            );
+        };
+        assert!(
+            errore
+                .message
+                .contains("cella XLSX fuori dalle dimensioni dichiarate"),
+            "atteso il rifiuto sulle dimensioni dichiarate, arrivato «{}»",
+            errore.message
+        );
+    }
+
+    /// Le quote valgono anche sui limiti **ricavati**.
+    ///
+    /// Il foglio senza `<dimension>` non ha un numero di colonne da leggere
+    /// prima di aprirlo: se la scansione che li ricava non fosse soggetta alle
+    /// stesse quote, un file ostile potrebbe farsi allocare una riga larga
+    /// quanto vuole proprio omettendo l'elemento che il driver pretendeva.
+    #[test]
+    fn n1_le_quote_valgono_anche_sui_limiti_ricavati() {
+        let byte = xlsx_con_dimension(None);
+        let dir = tempfile::tempdir().unwrap();
+        let percorso = dir.path().join("quota.xlsx");
+        std::fs::write(&percorso, &byte).unwrap();
+        let Err(errore) = XlsDriver.open(
+            Source::Path(percorso),
+            opzioni_lettura_wkt_con(
+                plenora_io_model::budget::PipelineLimits::default().with_max_columns(1),
+            ),
+        ) else {
+            panic!("due colonne ricavate oltre una quota di una devono essere rifiutate");
+        };
+        assert!(
+            errore.message.contains("colonne oltre il limite"),
+            "atteso il rifiuto sulla larghezza ricavata, arrivato «{}»",
+            errore.message
+        );
     }
 }

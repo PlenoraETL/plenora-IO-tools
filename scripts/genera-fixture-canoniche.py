@@ -345,27 +345,68 @@ def scrivi_kml(percorso: pathlib.Path) -> None:
     percorso.write_text("\n".join(parti) + "\n", encoding="utf-8")
 
 
-def scrivi_dxf(percorso: pathlib.Path) -> None:
+def _coordinate_dxf(geometrie: dict) -> list[str]:
+    """Le quattro entita', nelle coordinate della variante scelta.
+
+    Il DXF di queste fixture non incorpora un CRS -- non c'e' GEODATA -- quindi
+    la variante **e'** la scelta delle coordinate: lo stesso file letto con un
+    `--assume-crs` diverso direbbe una cosa falsa sui dati, non una cosa
+    diversa.
+    """
+
+    def reale(valore: str) -> str:
+        """I codici 10/20/30 sono reali, e si scrivono con la virgola decimale.
+
+        Il WKT porta gli interi senza: scriverli tali quali cambierebbe i byte
+        della fixture proiettata senza che sia cambiato niente del contenuto.
+        """
+        return valore if "." in valore else f"{valore}.0"
+
+    def punto(wkt: str) -> tuple[str, str, str]:
+        dentro = wkt[wkt.index("(") + 1 : wkt.rindex(")")].split()
+        return (
+            reale(dentro[0]),
+            reale(dentro[1]),
+            reale(dentro[2]) if len(dentro) > 2 else "0.0",
+        )
+
+    def vertici(wkt: str) -> list[tuple[str, str]]:
+        dentro = wkt[wkt.index("(") + 1 : wkt.rindex(")")].strip("() ")
+        return [tuple(reale(c) for c in v.split()[:2]) for v in dentro.split(",")]
+
+    x, y, _z = punto(geometrie["POINT"])
+    parti = ["0", "POINT", "8", "0", "10", x, "20", y, "30", "0.0"]
+
+    linea = vertici(geometrie["LINESTRING"])
+    parti += ["0", "LWPOLYLINE", "8", "0", "90", str(len(linea)), "70", "0"]
+    for vx, vy in linea:
+        parti += ["10", vx, "20", vy]
+
+    # L'anello si chiude con il flag `70=1`, non ripetendo il primo vertice:
+    # ripeterlo darebbe una polilinea con un vertice in piu' di quelli che ha.
+    anello = vertici(geometrie["POLYGON"])[:-1]
+    parti += ["0", "LWPOLYLINE", "8", "0", "90", str(len(anello)), "70", "1"]
+    for vx, vy in anello:
+        parti += ["10", vx, "20", vy]
+
+    zx, zy, zz = punto(geometrie["POINT_Z"])
+    parti += ["0", "POINT", "8", "0", "10", zx, "20", zy, "30", zz]
+    return parti
+
+
+def scrivi_dxf(percorso: pathlib.Path, geometrie: dict | None = None) -> None:
     """Scritto a mano: il DXF e' testo, a coppie codice/valore.
 
     Porta solo la geometria: il DXF non ha un modello di attributi, ed e' una
     delle ragioni per cui la sua classe di fedelta' e' `Approximating`.
+
+    Due varianti, e la seconda non e' un doppione. I formati che **impongono**
+    WGS84 -- GeoJSON e KML -- rifiutano un contratto proiettato, e nessun driver
+    riproietta. Senza una variante geografica, `dxf -> geojson` non sarebbe una
+    conversione da provare: sarebbe una riproiezione implicita da pretendere.
     """
     parti = ["0", "SECTION", "2", "ENTITIES"]
-    parti += ["0", "POINT", "8", "0", "10", "1650000.0", "20", "4850000.0", "30", "0.0"]
-    parti += [
-        "0", "LWPOLYLINE", "8", "0", "90", "2", "70", "0",
-        "10", "1650000.0", "20", "4850000.0",
-        "10", "1650100.0", "20", "4850100.0",
-    ]
-    parti += [
-        "0", "LWPOLYLINE", "8", "0", "90", "4", "70", "1",
-        "10", "1651000.0", "20", "4851000.0",
-        "10", "1651100.0", "20", "4851000.0",
-        "10", "1651100.0", "20", "4851100.0",
-        "10", "1651000.0", "20", "4851100.0",
-    ]
-    parti += ["0", "POINT", "8", "0", "10", "1652000.0", "20", "4852000.0", "30", "125.5"]
+    parti += _coordinate_dxf(geometrie or GEOMETRIE_PROIETTATE)
     parti += ["0", "ENDSEC", "0", "EOF"]
     percorso.write_text("\n".join(parti) + "\n", encoding="ascii")
 
@@ -585,6 +626,50 @@ def scrivi_geojson_omogeneo(percorso: pathlib.Path) -> None:
     )
 
 
+def scrivi_geojson_dbf(percorso: pathlib.Path) -> None:
+    """Lo stesso GeoJSON di punti, con nomi che il DBF rappresenta.
+
+    Serve alla **seconda meta'** del caso `geojson -> shp`. La prima e'
+    `canonico_punti.geojson`, che porta `intero_largo` -- dodici caratteri -- e
+    dev'essere **rifiutata**: lo Shapefile non tronca in silenzio, e un nome che
+    non entra nel DBF e' una richiesta che il formato non puo' soddisfare, non
+    una perdita da dichiarare.
+
+    Un rifiuto pero' non prova che la conversione riesca quando deve, e una
+    coppia in cui l'unico caso e' il rifiuto lascerebbe non provato tutto il
+    resto del percorso -- geometria, attributi, CRS. Questa fixture chiude
+    quella meta': stessi record, stesso CRS, e un solo nome accorciato.
+    """
+    import json
+
+    caratteristiche = []
+    for r in _righe("canonico_punti"):
+        geometria = (
+            {"type": "Point", "coordinates": [10.863909301, 43.787719185]}
+            if r["geometria"]
+            else None
+        )
+        caratteristiche.append({
+            "type": "Feature",
+            "properties": {
+                "id": r["id"], "codice": r["codice"], "etichetta": r["etichetta"],
+                # L'unico nome oltre i dieci caratteri del DBF, accorciato qui e
+                # non altrove: e' la sola differenza fra le due fixture, cosi'
+                # la coppia isola il troncamento invece di variare due cose.
+                "largo": r["intero_largo"], "conteggio": r["conteggio"],
+                "misura": r["misura"], "attivo": r["attivo"], "istante": r["istante"],
+            },
+            "geometry": geometria,
+        })
+    percorso.write_text(
+        json.dumps(
+            {"type": "FeatureCollection", "features": caratteristiche},
+            ensure_ascii=False, indent=1,
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+
 def scrivi_gpkg(percorso: pathlib.Path, lavoro: pathlib.Path) -> None:
     """Multi-layer: `principale` con le cinque righe, `secondario` con altro schema.
 
@@ -678,11 +763,15 @@ def main() -> int:
         scrivi_kml(DESTINAZIONE / "canonico.kml"); fatte.append("canonico.kml")
     if "dxf" in arg.solo:
         scrivi_dxf(DESTINAZIONE / "canonico.dxf"); fatte.append("canonico.dxf")
+        scrivi_dxf(DESTINAZIONE / "canonico_geografico.dxf", GEOMETRIE_GEOGRAFICHE)
+        fatte.append("canonico_geografico.dxf")
     if "xlsx" in arg.solo:
         scrivi_xlsx(DESTINAZIONE / "canonico.xlsx"); fatte.append("canonico.xlsx")
     if "geojson" in arg.solo:
         scrivi_geojson_omogeneo(DESTINAZIONE / "canonico_punti.geojson")
         fatte.append("canonico_punti.geojson")
+        scrivi_geojson_dbf(DESTINAZIONE / "canonico_punti_dbf.geojson")
+        fatte.append("canonico_punti_dbf.geojson")
     if "shp" in arg.solo:
         fatte.extend(scrivi_shp(DESTINAZIONE / "canonico.shp", arg.lavoro))
     if "gpkg" in arg.solo:
