@@ -7,9 +7,11 @@
   "upstream_revision": "4605a13849c78f7393b75252aa6bdf28bd861ce9",
   "vendor_path": "vendor/shapefile",
   "file_count": 25,
-  "tree_sha256": "38263e7dcda13c827dfe43ce348d5363c458005d08b936c9bb687835b7ed056e",
+  "tree_sha256": "df07951b3bdec4f7c416f1359d856882ad68f6722d42c9b832eb4de24807dbb5",
   "functional_delta_files": [
     "src/writer.rs"
   ],
-  "packaging_delta_files": []
+  "packaging_delta_files": [
+    "src/lib.rs"
+  ]
 }

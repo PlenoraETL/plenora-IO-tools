@@ -18,6 +18,10 @@
       "log": true
     },
     {
+      "id": "clippy_vendor",
+      "log": true
+    },
+    {
       "id": "clippy_sicurezza",
       "log": true
     },

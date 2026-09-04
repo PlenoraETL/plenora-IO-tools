@@ -1,3 +1,18 @@
+// Compatibility delta added by the plenora fork.
+//
+// This snapshot is shapefile 0.6.0, which spells the geo-types coordinate as
+// `geo_types::Coordinate`. The workspace pins geo-types 0.7.19, where that name
+// is a deprecated alias of `Coord`, and CI compiles every crate -- path
+// dependencies included -- with `-D warnings`: thirty-two deprecation warnings
+// become thirty-two errors, and the fork does not build.
+//
+// The fork exists to add a write path for null shapes, not to modernize
+// upstream. Renaming the alias in five files would make a future re-vendor
+// redo a cosmetic edit; this line states the same fact once, and the frozen
+// `tree_sha256` in `scripts/shapefile-fork-lock.json` keeps the snapshot from
+// drifting behind it.
+#![allow(deprecated)]
+
 //! Read & Write [Shapefile](http://downloads.esri.com/support/whitepapers/mo_/shapefile.pdf) in Rust
 //!
 //! A _shapefile_ is in reality a collection of 3 mandatory files:

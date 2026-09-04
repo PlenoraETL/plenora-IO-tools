@@ -16,6 +16,15 @@
       "cambiamento": "`ShapeWriter::write_null_shape` scrive un record di shape type 0 conservando il tipo dichiarato nell'intestazione, e `Writer::write_null_shape_and_record` lo accompagna con il proprio record DBF. La riserva dell'intestazione e' estratta in `reserve_header` e agganciata a `rec_num` invece che al sentinella del tipo: un file il cui primo record e' nullo deve riservare l'intestazione senza adottare un tipo, e con la condizione precedente l'avrebbe scritta due volte.",
       "perche_non_generico": "non e' un punto d'ingresso per scrivere un record qualunque. Scrive una sola forma -- quella nulla -- con la dimensione che il formato le fissa: quattro byte di contenuto, due parole da sedici bit nell'intestazione del record. Un'API per record grezzi avrebbe dato al chiamante il modo di disallineare `.shp`, `.shx` e `.dbf`, che e' esattamente cio' che questo delta esiste per rendere impossibile.",
       "cosa_non_tocca": "il bounding box, che una geometria nulla non muove; il tipo dichiarato nell'intestazione, che resta quello dei record non nulli; e il conteggio dei record, che avanza come per ogni altro record perche' nello `.shx` la voce c'e'."
+    },
+    {
+      "file": "src/lib.rs",
+      "natura": "compatibilita', non funzionale: non cambia un solo comportamento",
+      "cambiamento": "`#![allow(deprecated)]` al radice del crate.",
+      "perche": "questo snapshot e' shapefile 0.6.0, che scrive la coordinata di geo-types come `geo_types::Coordinate`. Il workspace fissa geo-types 0.7.19, dove quel nome e' un alias **deprecato** di `Coord`, e la CI compila ogni crate -- dipendenze path comprese -- con `-D warnings`: trentadue avvisi di deprecazione diventano trentadue errori, e il fork non compila.",
+      "perche_non_il_rinominio": "il fork esiste per aggiungere la scrittura del record nullo, non per modernizzare upstream. Rinominare l'alias in cinque file farebbe rifare a ogni ri-vendorizzazione una modifica cosmetica; questa riga dice lo stesso fatto una volta sola.",
+      "perche_e_sicuro": "`Coordinate` **e'** `Coord`: e' un alias, non un tipo diverso, e nessun comportamento dipende da quale nome si usi. L'`allow` copre l'intero crate vendorizzato, e cio' che lo tiene onesto e' che l'albero e' congelato: `tree_sha256` nel lock impedisce che sotto quell'`allow` entri codice nuovo senza che il gate lo veda.",
+      "trovato_da": "la CI sulla revisione 6785506, il 2026-09-04. In locale non si vedeva: `cargo clippy --workspace` non tocca `vendor/`, che il workspace esclude, e il `-D warnings` della CI viene da `setup-rust-toolchain`, che lo esporta in `RUSTFLAGS`. Il passo `clippy_vendor` del checkpoint chiude la differenza."
     }
   ],
   "invarianti_del_fork": [

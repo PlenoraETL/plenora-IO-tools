@@ -546,6 +546,23 @@ echo "--- 1. compilazione e test -----------------------------------"
 passo sonde_checkpoint bash scripts/test_s9_checkpoint.sh
 passo fmt cargo fmt --all -- --check
 passo clippy cargo clippy --workspace --all-targets --all-features -- -D warnings
+# I tre fork governati, con lo stesso `-D warnings` che la CI impone.
+#
+# `--workspace` non li tocca: `vendor/` e' escluso, ed e' giusto che lo sia --
+# non sono codice nostro. La CI pero' compila **ogni** crate del grafo con
+# `-D warnings`, perche' `setup-rust-toolchain` lo esporta in `RUSTFLAGS`: un
+# avviso dentro un fork e' un errore li' e non qui.
+#
+# Il 2026-09-04 la differenza ha lasciato passare un fork che in locale
+# compilava e in CI no -- trentadue deprecazioni di `geo_types::Coordinate` --
+# e il livello 1 diceva 74/74 su un albero che la pipeline rifiutava. Questo
+# passo esiste perche' quella differenza non torni.
+#
+# La forma e' quella della CI, e non un `-p` per ciascun fork: `--all-features`
+# non si puo' dare a un pacchetto fuori dal workspace, e senza feature `gdal`
+# non e' nemmeno nel grafo. `RUSTFLAGS` invece raggiunge ogni crate che si
+# compila, che e' esattamente cio' che la pipeline fa.
+passo clippy_vendor env RUSTFLAGS=-Dwarnings cargo check --workspace --all-features --all-targets
 # I lint di sicurezza, nella forma **esatta** in cui CI li impone.
 #
 # Mancavano, e il 2026-08-26 hanno lasciato passare un `unreachable!` in codice
