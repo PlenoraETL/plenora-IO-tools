@@ -13,11 +13,22 @@
 # `pyproject.toml` e decide da se' che cosa impacchettare -- ed e' li' che un
 # `package-data` dimenticato si vede, non nella wheel che l'ha scritto a mano.
 #
-# # Perche' `--no-build-isolation`
+# # L'isolamento: quando si puo' evitare, e quando no
 #
-# Perche' l'isolamento scaricherebbe setuptools dalla rete. Questo pacchetto
-# promette di non averne bisogno, e uno smoke che ne usasse una proverebbe
-# qualcos'altro: che il pacchetto si costruisce **avendo** una rete.
+# Costruire dalla sdist richiede il backend che `build-system.requires`
+# dichiara. Se l'ambiente ce l'ha gia', lo smoke usa `--no-build-isolation` e
+# dimostra qualcosa in piu': che la costruzione non ha bisogno di rete. Se non
+# ce l'ha, lascia che pip lo procuri -- e' la strada standard, ed e' quella che
+# chi riceve la sdist percorrera'.
+#
+# La differenza non e' teorica: da Python 3.12 `setuptools` non e' piu'
+# preinstallato, e uno smoke che desse per scontato di trovarlo passava su 3.11
+# e falliva sulle altre due. L'abbiamo scoperto dalla matrice della CI, che
+# esiste per questo.
+#
+# Cio' che il pacchetto promette di non scaricare e' un'altra cosa: il
+# **binario**, a runtime. Quella promessa la verifica lo smoke installato, che
+# guarda dentro il pacchetto e non trova eseguibili.
 set -euo pipefail
 
 RADICE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -90,12 +101,18 @@ FINE
 
 # --- 3. la sdist: si ricostruisce e si installa ----------------------------
 echo "=== 3. ricostruzione e installazione dalla sdist"
+# `--system-site-packages` per un motivo solo: rendere visibile il backend di
+# build, se l'ambiente ce l'ha. Il pacchetto in prova si installa comunque
+# **dentro** il venv, e la sonda qui sotto verifica che venga da li'.
 python3 -m venv --system-site-packages "$LAVORO/da-sdist"
-# `--system-site-packages` per un motivo solo: `setuptools` e `wheel`, che il
-# `build-system.requires` dichiara e che senza rete non si possono scaricare.
-# Il pacchetto in prova si installa comunque **dentro** il venv, e la sonda
-# verifica che venga da li'.
-"$LAVORO/da-sdist/bin/pip" install --quiet --no-index --no-build-isolation "$SDIST"
+
+if "$LAVORO/da-sdist/bin/python" -c "import setuptools, wheel" 2>/dev/null; then
+  echo "   backend gia' presente: costruzione senza rete"
+  "$LAVORO/da-sdist/bin/pip" install --quiet --no-index --no-build-isolation "$SDIST"
+else
+  echo "   backend assente: pip lo procura, come fara' chi riceve la sdist"
+  "$LAVORO/da-sdist/bin/pip" install --quiet "$SDIST"
+fi
 ricostruita="$("$LAVORO/da-sdist/bin/python" -c 'import plenora_io; print(plenora_io.__version__)')"
 dove="$("$LAVORO/da-sdist/bin/python" -c 'import plenora_io, pathlib; print(pathlib.Path(plenora_io.__file__).parent)')"
 case "$dove" in
