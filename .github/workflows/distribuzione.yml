@@ -441,9 +441,14 @@ jobs:
       # e l'altra darebbe archivi diversi da quelli descritti dai referti --
       # identici quasi sempre, che e' precisamente il motivo per cui la
       # differenza passerebbe inosservata.
+      # `--canale` non e' un dettaglio: entra nel manifesto del pacchetto, nei
+      # tre referti di ciascun formato e nel campo `non_release`. Senza, il
+      # costruttore usa il proprio default `prova`, e il gate rifiuta -- come ha
+      # fatto -- perche' un artefatto di prova non qualifica una candidate.
       - name: Costruisci wheel e sdist
         run: python3 scripts/costruisci-pacchetto-python.py
           --uscita "$RUNNER_TEMP/pacchetto" --referti "$RUNNER_TEMP/referti"
+          --canale "$CANALE"
 
       - name: La costruzione e' riproducibile
         run: bash scripts/verifica-riproducibilita-python.sh
