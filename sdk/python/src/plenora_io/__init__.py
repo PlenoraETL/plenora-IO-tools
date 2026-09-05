@@ -9,8 +9,8 @@ progetto promette.
 # Che cosa c'e' oggi
 
 La scoperta del binario, il manifesto dell'artefatto, il controllo del profilo,
-e i comandi `--version`, `catalog`, `inspect`, `layers` e `validate`.
-`convert` non c'e' ancora.
+e i cinque comandi: `--version`, `catalog`, `inspect`, `layers`, `validate`
+e `convert`.
 
 # Gli errori si distinguono per **categoria**, non per messaggio
 
@@ -53,6 +53,8 @@ from .errors import (
 from .limits import Limits
 from .models import (
     Catalog,
+    ConvertedLayer,
+    ConvertResult,
     CrsResolution,
     Driver,
     Fidelity,
@@ -64,6 +66,9 @@ from .models import (
     Layer,
     Layers,
     LayerSummary,
+    LossCount,
+    LossExample,
+    LossReport,
     Omissions,
     Validation,
     Version,
@@ -76,7 +81,7 @@ from .process import Runner
 #: proprio senza che il prodotto cambi, e un binario nuovo puo' funzionare con
 #: un SDK vecchio finche' il protocollo regge. Chi vuole la versione del
 #: prodotto la chiede a `Client.version()`, che la prende dal binario.
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
 #: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e
@@ -92,6 +97,8 @@ __all__ = [
     "Client",
     "CommandFailed",
     "ConflictError",
+    "ConvertResult",
+    "ConvertedLayer",
     "CrsError",
     "CrsResolution",
     "DataMappingError",
@@ -112,6 +119,9 @@ __all__ = [
     "LayerSummary",
     "Layers",
     "Limits",
+    "LossCount",
+    "LossExample",
+    "LossReport",
     "Manifest",
     "ManifestError",
     "NotFoundError",

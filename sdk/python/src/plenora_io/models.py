@@ -682,3 +682,246 @@ class Validation:
         `if not esito.truncated`, che si legge male e si nega peggio.
         """
         return not self.truncated
+
+
+# --- la perdita, che e' un'altra cosa dalla fedelta' ------------------------
+#
+# `Fidelity` dice **se** e perche' una conversione perde qualcosa, e lo dice
+# prima di farla: e' una proprieta' della coppia formato-contratto. `LossReport`
+# dice che cosa e' andato perso **davvero**, contando le occorrenze e portandone
+# esempi. Un file che il descrittore dichiara `conditional` puo' non perdere
+# niente, se i dati non toccano i limiti che la condizione nomina.
+
+
+@dataclass(frozen=True, kw_only=True)
+class LossCount:
+    """Quante volte una categoria di perdita si e' verificata."""
+
+    categoria: str
+    conteggio: int
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("categoria", "conteggio")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LossCount":
+        _pretendi(documento, cls.OBBLIGATORI, "loss.counts[]")
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class LossExample:
+    """Un caso concreto di perdita: dove, e con che contesto.
+
+    Gli indici sono **piatti**: la posizione del campo nello schema e quella del
+    layer nel file, non un percorso. Il contesto e' gia' redatto -- non porta
+    valori del file -- e questo lo rende registrabile senza pensarci.
+    """
+
+    category: str
+    context: str
+    field_index: int
+    layer_index: int
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("category", "context", "field_index", "layer_index")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LossExample":
+        _pretendi(documento, cls.OBBLIGATORI, "loss.esempi[]")
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class LossReport:
+    """Che cosa una conversione ha perso, con i conteggi e gli esempi.
+
+    `counts` e' un **elenco** e non una mappa: ha un ordine dichiarato e una
+    lunghezza dichiarata, dove la mappa aveva l'uno e l'altra impliciti. E' il
+    cambiamento di tipo che ha reso necessario il protocollo v2.
+
+    `lossless` e' una scorciatoia, non l'unica informazione: quando e' falso,
+    `counts` dice **quanto** e `esempi` dice **dove**. Un consumatore che si
+    fermasse al booleano saprebbe che qualcosa e' andato perso e non che cosa.
+    """
+
+    lossless: bool
+    counts: list[LossCount]
+    esempi: list[LossExample]
+    troncato: bool
+    omesse: Omissions
+    omesse_esatte: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("lossless", "counts", "esempi", "troncato", "omesse", "omesse_esatte")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LossReport":
+        _pretendi(documento, cls.OBBLIGATORI, "loss")
+        for campo in ("counts", "esempi"):
+            if not isinstance(documento[campo], list):
+                raise ProtocolError(
+                    f"loss.{campo} e' {type(documento[campo]).__name__} e non "
+                    "un elenco."
+                )
+        return cls(
+            lossless=documento["lossless"],
+            counts=[LossCount.from_json(v) for v in documento["counts"]],
+            esempi=[LossExample.from_json(v) for v in documento["esempi"]],
+            troncato=documento["troncato"],
+            omesse=Omissions.from_json(documento["omesse"]),
+            omesse_esatte=documento["omesse_esatte"],
+            raw=dict(documento),
+        )
+
+    def count(self, categoria: str) -> int:
+        """Quante volte quella categoria compare, o zero.
+
+        Zero e non `KeyError`: una categoria che non c'e' vuol dire che quella
+        perdita non si e' verificata, ed e' una risposta -- diversamente da un
+        nome di layer o di campo, dove l'assenza e' quasi sempre un refuso.
+        """
+        for voce in self.counts:
+            if voce.categoria == categoria:
+                return voce.conteggio
+        return 0
+
+    @property
+    def categories(self) -> list[str]:
+        return [voce.categoria for voce in self.counts]
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConvertedLayer:
+    """Quanto e' passato per un layer: righe e batch."""
+
+    name: str
+    rows: int
+    batches: int
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("name", "rows", "batches")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "ConvertedLayer":
+        _pretendi(documento, cls.OBBLIGATORI, "convert.layers[]")
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class ConvertResult:
+    """L'esito di `convert()`.
+
+    # I nomi e una parola riservata
+
+    `from` e' una parola chiave di Python e non puo' essere il nome di un
+    attributo. E' l'unico campo del wire che questo SDK rinomina, e la
+    convenzione e' quella di PEP 8: un trattino basso in coda, `from_`. Il nome
+    del wire resta leggibile in `raw["from"]`, e il gate dei modelli conosce la
+    deviazione perche' e' **dichiarata**, non dedotta.
+
+    # Tre fedelta' e due perdite
+
+    `read_fidelity` e `write_fidelity` dicono che cosa i due formati promettono
+    da soli; `conversion_fidelity` che cosa promette la coppia, che e' meno di
+    entrambe. `read_loss` e `write_loss` dicono che cosa e' andato perso
+    davvero, dai due lati.
+
+    Sono cinque sezioni e non una perche' rispondono a domande diverse, e chi le
+    fondesse non saprebbe piu' se una perdita e' colpa del formato d'origine o
+    di quello di destinazione -- che e' l'unica cosa da sapere per evitarla.
+    """
+
+    status: str
+    protocol_version: int
+    contract: str
+    from_: str
+    to: str
+    layers: list[ConvertedLayer]
+    total_rows: int
+    bytes_written: int
+    publish_outcome: str
+    read_fidelity: Fidelity
+    write_fidelity: Fidelity
+    conversion_fidelity: Fidelity
+    read_loss: LossReport
+    write_loss: LossReport
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = (
+        "status",
+        "protocol_version",
+        "contract",
+        "from",
+        "to",
+        "layers",
+        "total_rows",
+        "bytes_written",
+        "publish_outcome",
+        "read_fidelity",
+        "write_fidelity",
+        "conversion_fidelity",
+        "read_loss",
+        "write_loss",
+    )
+
+    #: I campi del wire che in Python prendono un altro nome, e perche'.
+    #: Il gate legge questa mappa invece di indovinare la deviazione.
+    RINOMINATI = {"from": "from_"}
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "ConvertResult":
+        _pretendi(documento, cls.OBBLIGATORI, "convert")
+        elenco = documento["layers"]
+        if not isinstance(elenco, list):
+            raise ProtocolError(
+                f"convert.layers e' {type(elenco).__name__} e non un elenco."
+            )
+        return cls(
+            status=documento["status"],
+            protocol_version=documento["protocol_version"],
+            contract=documento["contract"],
+            from_=documento["from"],
+            to=documento["to"],
+            layers=[ConvertedLayer.from_json(v) for v in elenco],
+            total_rows=documento["total_rows"],
+            bytes_written=documento["bytes_written"],
+            publish_outcome=documento["publish_outcome"],
+            read_fidelity=Fidelity.from_json(documento["read_fidelity"]),
+            write_fidelity=Fidelity.from_json(documento["write_fidelity"]),
+            conversion_fidelity=Fidelity.from_json(documento["conversion_fidelity"]),
+            read_loss=LossReport.from_json(documento["read_loss"]),
+            write_loss=LossReport.from_json(documento["write_loss"]),
+            raw=dict(documento),
+        )
+
+    @property
+    def published(self) -> bool:
+        """La destinazione e' stata pubblicata.
+
+        Non e' un sinonimo di «riuscito»: una conversione puo' riuscire e non
+        pubblicare -- e' `publish_outcome` a dirlo, con il proprio vocabolario --
+        e leggere il successo dal solo codice d'uscita perderebbe la differenza.
+        """
+        return self.publish_outcome == "published"
+
+    @property
+    def lossless(self) -> bool:
+        """Niente e' andato perso, ne' leggendo ne' scrivendo."""
+        return self.read_loss.lossless and self.write_loss.lossless
+
+    def layer(self, name: str) -> ConvertedLayer:
+        for strato in self.layers:
+            if strato.name == name:
+                return strato
+        noti = ", ".join(strato.name for strato in self.layers)
+        raise KeyError(f"nessun layer «{name}» nella conversione; ci sono: {noti}")

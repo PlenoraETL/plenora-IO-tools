@@ -22,10 +22,34 @@ questi comandi fanno: leggono e scrivono file, e il costo sta li'.
 * la scoperta del binario, **fail-closed**;
 * la lettura del `MANIFEST.json` dell'artefatto distribuito, quando c'e';
 * il controllo del profilo, prima di eseguire invece che dopo;
-* `--version`, `catalog`, `inspect`, `layers` e `validate`, con i modelli
-  tipizzati e i tetti in `Limits`.
+* i cinque comandi -- `--version`, `catalog`, `inspect`, `layers`, `validate`,
+  `convert` -- con i modelli tipizzati e i tetti in `Limits`.
 
-`convert` **non** c'e' ancora.
+Manca il packaging: il pacchetto non e' pubblicato da nessuna parte, e si
+installa dal repository.
+
+## `convert()` e le tre famiglie di opzioni
+
+`read_options` va al driver che legge, `write_options` a quello che scrive,
+`options` a entrambi. La stessa chiave puo' esistere per tutti e due con
+significati diversi -- `delimiter` fra due CSV -- e un unico dizionario
+costringerebbe a indovinare a chi vada.
+
+Il ritorno non e' una pubblicazione: `publish_outcome` lo dice con il proprio
+vocabolario, e `ConvertResult.published` lo legge. `LossReport` dice che cosa e'
+andato perso davvero, con i conteggi e gli esempi: `lossless` e' una
+scorciatoia, non l'unica informazione.
+
+## Un Ctrl-C ferma la conversione con grazia
+
+Il segnale viene **inoltrato** al prodotto, che al primo arma un token
+cooperativo: la pipeline lo osserva ai propri punti di verifica e torna un
+`CancelledError` con la destinazione ripulita. Al secondo, il processo esce.
+
+Il gestore vive per la durata della singola esecuzione e viene rimesso com'era:
+una libreria non e' padrona del gestore dei segnali di chi la ospita. Fuori dal
+thread principale, e su Windows, l'inoltro non si arma e il comando funziona lo
+stesso -- `Client.cancellable` lo dice.
 
 ## `validate()` conta, non consegna
 

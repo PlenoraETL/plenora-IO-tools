@@ -88,6 +88,15 @@ POSTI: dict[str, tuple[str, str]] = {
     "Layers": ("layers", ""),
     "LayerSummary": ("layers", ".layers[]"),
     "Validation": ("read", ""),
+    "ConvertResult": ("convert", ""),
+    "ConvertedLayer": ("convert", ".layers[]"),
+    # La perdita si confronta con `write_loss`: e' l'unica delle due che la
+    # matrice del gate delle buste raggiunge non vuota, e su `read_loss` i
+    # percorsi interni di `counts` ed `esempi` non compaiono affatto. Il tipo e'
+    # lo stesso -- e' il caso che cambia.
+    "LossReport": ("convert", ".write_loss"),
+    "LossCount": ("convert", ".write_loss.counts[]"),
+    "LossExample": ("convert", ".write_loss.esempi[]"),
     "Fidelity": ("layers", ".fidelity"),
     "Omissions": ("layers", ".fidelity.omesse"),
     # Le ragioni si confrontano con quelle di `convert`, non con quelle di
@@ -298,6 +307,32 @@ def tetti_dell_sdk() -> set[str]:
     raise SystemExit("`Limits` non si trova in limits.py.")
 
 
+def rinominati(nome: str) -> dict[str, str]:
+    """`<Classe>.RINOMINATI`: i campi del wire che in Python prendono altro nome.
+
+    `from` e' una parola chiave e non puo' essere un attributo. La deviazione
+    e' **dichiarata** invece che dedotta: un gate che indovinasse quale campo
+    corrisponde a quale attributo accetterebbe anche i refusi.
+    """
+    albero = ast.parse(MODELLI.read_text(encoding="utf-8"), filename=str(MODELLI))
+    for nodo in ast.walk(albero):
+        if not isinstance(nodo, ast.ClassDef) or nodo.name != nome:
+            continue
+        for corpo in nodo.body:
+            if not isinstance(corpo, ast.Assign):
+                continue
+            if "RINOMINATI" not in [t.id for t in corpo.targets if isinstance(t, ast.Name)]:
+                continue
+            if not isinstance(corpo.value, ast.Dict):
+                raise SystemExit(f"{nome}.RINOMINATI non e' un dizionario letterale.")
+            return {
+                chiave.value: valore.value
+                for chiave, valore in zip(corpo.value.keys, corpo.value.values)
+                if isinstance(chiave, ast.Constant) and isinstance(valore, ast.Constant)
+            }
+    return {}
+
+
 def main() -> int:
     manifesto = json.loads(CONTRATTO.read_text(encoding="utf-8"))
     obbligatori = tuple_dichiarate(MODELLI, "OBBLIGATORI")
@@ -323,6 +358,23 @@ def main() -> int:
                 prefisso or busta,
             )
         )
+
+    # I campi rinominati esistono davvero come attributi: una mappa che
+    # nominasse un attributo assente direbbe di aver deviato un campo che
+    # nessuno legge.
+    sorgente_modelli = MODELLI.read_text(encoding="utf-8")
+    for nome in POSTI:
+        for del_wire, in_python in rinominati(nome).items():
+            if f"    {in_python}: " not in sorgente_modelli:
+                problemi.append(
+                    f"{nome}: `{del_wire}` e' dichiarato rinominato in "
+                    f"«{in_python}», che non e' un attributo della dataclass."
+                )
+            if f'"{del_wire}"' not in sorgente_modelli:
+                problemi.append(
+                    f"{nome}: il campo del wire «{del_wire}» non compare in "
+                    "`models.py`: se e' rinominato, va comunque letto da li'."
+                )
 
     # La busta di bootstrap ha uno schema **chiuso**, e il modello lo rifiuta
     # anche per eccesso: il confronto qui e' con `schema_esatto`.

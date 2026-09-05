@@ -29,7 +29,14 @@ from pathlib import Path
 
 from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
 from .limits import Limits
-from .models import Catalog, Inspect, Layers, Validation, Version
+from .models import (
+    Catalog,
+    ConvertResult,
+    Inspect,
+    Layers,
+    Validation,
+    Version,
+)
 from .process import Runner
 
 
@@ -180,6 +187,83 @@ class Client:
         if limits is not None:
             argomenti += limits.to_argv()
         return Validation.from_json(self._runner.run(argomenti))
+
+
+    def convert(
+        self,
+        source: str | os.PathLike[str],
+        target: str | os.PathLike[str],
+        *,
+        layer: int | None = None,
+        assume_crs: str | None = None,
+        read_options: dict[str, str] | None = None,
+        write_options: dict[str, str] | None = None,
+        options: dict[str, str] | None = None,
+        durable: bool = False,
+        limits: Limits | None = None,
+    ) -> ConvertResult:
+        """Converte un file in un altro formato, e dice che cosa e' costato.
+
+        # Le opzioni sono tre, e la distinzione non e' formale
+
+        `read_options` va al driver che **legge** (`--in-opt`), `write_options`
+        a quello che **scrive** (`--out-opt`), `options` a entrambi (`--opt`).
+        La stessa chiave puo' esistere per tutti e due con significati diversi
+        -- `delimiter` fra due CSV -- e un unico dizionario costringerebbe a
+        indovinare a chi vada, o a passarla a chi non la vuole.
+
+        # `durable`
+
+        Chiede che la pubblicazione sia durevole prima che il comando torni:
+        i dati sono sul dispositivo, non solo nella cache del sistema. Costa in
+        tempo, e la scelta e' di chi sa se un'interruzione dopo il ritorno sia
+        un problema.
+
+        # La cancellazione
+
+        Un Ctrl-C durante la conversione viene **inoltrato** al prodotto, che al
+        primo segnale arma un token cooperativo: la pipeline lo osserva ai propri
+        punti di verifica e torna un `CancelledError` con la destinazione
+        ripulita. Al secondo segnale il processo esce.
+
+        Fra due punti di verifica passa il tempo che passa, ed e' la ragione per
+        cui `Client(timeout=...)` resta una difesa diversa: quello uccide, e
+        quel che resta non e' descritto.
+
+        # Il successo non e' la pubblicazione
+
+        Il metodo torna anche quando `publish_outcome` non e' `published`: e' il
+        campo a dirlo, con il proprio vocabolario, e trattare ogni ritorno come
+        una pubblicazione perderebbe la differenza. `ConvertResult.published` la
+        legge.
+        """
+        argomenti = ["convert", os.fspath(source), os.fspath(target)]
+        if assume_crs is not None:
+            argomenti += ["--assume-crs", assume_crs]
+        if layer is not None:
+            argomenti += ["--layer", str(layer)]
+        if durable:
+            argomenti.append("--durable")
+        for bandiera, coppie in (
+            ("--opt", options),
+            ("--in-opt", read_options),
+            ("--out-opt", write_options),
+        ):
+            for chiave, valore in (coppie or {}).items():
+                argomenti += [bandiera, f"{chiave}={valore}"]
+        if limits is not None:
+            argomenti += limits.to_argv()
+        return ConvertResult.from_json(self._runner.run(argomenti))
+
+    @property
+    def cancellable(self) -> bool:
+        """Un Ctrl-C durante un comando arriva al prodotto.
+
+        Falso da un thread che non sia il principale e su Windows. Il comando
+        funziona lo stesso: cambia solo che non lo si puo' fermare con grazia,
+        e chi ha bisogno di saperlo lo chiede qui invece di scoprirlo.
+        """
+        return self._runner.sigint_forwarding_available
 
     # --- la riga di argomenti ---------------------------------------------
 

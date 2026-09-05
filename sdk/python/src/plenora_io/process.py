@@ -45,17 +45,87 @@ diverso si sceglie, non si indovina dal fatto che qualcosa e' comparso su
 e' contenuto. Un confine che ammettesse gli spazi lascerebbe passare una
 scrittura accidentale vuota, che e' la forma in cui una violazione arriva senza
 che nessuno l'abbia voluta.
+
+# Il primo SIGINT si inoltra, e la cancellazione la fa il prodotto
+
+Un Ctrl-C durante una conversione lunga deve fermarla **con grazia**: il
+prodotto arma al primo segnale un token che la pipeline osserva ai propri punti
+di verifica, e da li' torna un errore `CANCELLED` con la destinazione ripulita.
+Al secondo segnale esce con 130.
+
+Senza inoltro, il Ctrl-C arriverebbe soltanto al processo Python: la CLI
+resterebbe viva a scrivere, o morirebbe di colpo lasciando uno staging sul
+disco. L'esecutore installa percio' un gestore **per la durata della singola
+esecuzione**, e lo rimette com'era subito dopo: una libreria che si
+approprriasse del gestore del processo cambierebbe il comportamento di codice
+che non l'ha chiamata.
+
+Il gestore si puo' installare solo dal thread principale -- e' Python a
+imporlo -- e fuori di li' l'esecuzione procede senza inoltro. Non e' un
+fallimento chiuso e non deve esserlo: chiamare `convert()` da un thread e' un
+uso legittimo, e rifiutarlo romperebbe programmi che funzionano per una
+comodita' che non riguarda la correttezza di cio' che esce.
+`Runner.sigint_forwarding_available` lo dice, per chi ha bisogno di saperlo
+invece di scoprirlo.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+import signal
 import subprocess
+import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .errors import ProtocolError, failure_from_envelope
+
+
+
+@contextlib.contextmanager
+def _inoltra_sigint(processo: "subprocess.Popen[str]"):
+    """Inoltra SIGINT al figlio, per la durata di questo blocco.
+
+    Il gestore precedente viene ripristinato all'uscita, sempre: una libreria
+    non e' padrona del gestore dei segnali del processo che la ospita.
+
+    Su Windows `SIGINT` a un processo figlio non si manda: `os.kill` con quel
+    segnale uccide il processo invece di consegnarglielo, e
+    `CTRL_C_EVENT` va all'intero gruppo -- compreso chi ci ospita. Li' l'inoltro
+    non si arma, e la cancellazione con grazia non e' disponibile.
+    """
+    if not sigint_inoltrabile():
+        yield
+        return
+
+    def inoltra(numero, frame):  # noqa: ARG001 - la firma la impone `signal`
+        # Non si solleva `KeyboardInterrupt` qui: il figlio deve ricevere il
+        # segnale e chiudere da se', e un'eccezione sollevata adesso
+        # abbandonerebbe la `communicate` lasciando il processo vivo.
+        with contextlib.suppress(ProcessLookupError, OSError):
+            processo.send_signal(signal.SIGINT)
+
+    precedente = signal.signal(signal.SIGINT, inoltra)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, precedente)
+
+
+def sigint_inoltrabile() -> bool:
+    """L'inoltro del segnale e' possibile in questo contesto.
+
+    Due condizioni, ed e' Python a imporle entrambe: il gestore si installa solo
+    dal thread principale, e su Windows non c'e' modo di consegnare un `SIGINT`
+    a un figlio senza colpire chi lo ospita.
+    """
+    return (
+        sys.platform != "win32"
+        and threading.current_thread() is threading.main_thread()
+    )
 
 
 @dataclass(frozen=True)
@@ -98,31 +168,56 @@ class Runner:
 
     # --- l'esecuzione -----------------------------------------------------
 
+    @property
+    def sigint_forwarding_available(self) -> bool:
+        """Un Ctrl-C durante un comando arriva al prodotto.
+
+        Falso da un thread che non sia il principale e su Windows, e in
+        entrambi i casi il comando funziona lo stesso: cambia solo che non lo si
+        puo' fermare con grazia.
+        """
+        return sigint_inoltrabile()
+
     def _execute(self, argv: list[str]) -> Completed:
+        # `Popen` e non `run`: senza il pid non c'e' niente a cui inoltrare il
+        # segnale, e l'inoltro e' il modo in cui un Ctrl-C diventa una
+        # cancellazione cooperativa invece di un file mezzo scritto.
         try:
-            esito = subprocess.run(
+            processo = subprocess.Popen(  # noqa: S603 - argv e' costruito qui
                 [str(self._binary), *argv],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
-                timeout=self._timeout,
-                check=False,
             )
-        except subprocess.TimeoutExpired as errore:
-            raise ProtocolError(
-                f"`plenora-io {' '.join(argv)}` non ha risposto entro "
-                f"{self._timeout}s. Il timeout lo sceglie chi chiama, e questo "
-                "errore non dice che il comando sia fallito: dice che non si sa."
-            ) from errore
         except OSError as errore:
             raise ProtocolError(
                 f"`{self._binary}` non si e' potuto eseguire: {errore}"
             ) from errore
+
+        with processo:
+            try:
+                with _inoltra_sigint(processo):
+                    stdout, stderr = processo.communicate(timeout=self._timeout)
+            except subprocess.TimeoutExpired as errore:
+                # Il processo va chiuso prima di sollevare: lasciarlo vivo
+                # significherebbe restituire il controllo a chi chiama con un
+                # binario che continua a scrivere sulla destinazione.
+                processo.kill()
+                processo.communicate()
+                raise ProtocolError(
+                    f"`plenora-io {' '.join(argv)}` non ha risposto entro "
+                    f"{self._timeout}s ed e' stato terminato. Il timeout lo "
+                    "sceglie chi chiama, e questo errore non dice che il "
+                    "comando sia fallito: dice che non si sa, e che una "
+                    "destinazione parziale puo' essere rimasta."
+                ) from errore
+
         return Completed(
             argv=list(argv),
-            exit_code=esito.returncode,
-            stdout=esito.stdout,
-            stderr=esito.stderr,
+            exit_code=processo.returncode,
+            stdout=stdout,
+            stderr=stderr,
         )
 
     # --- i due flussi, ciascuno al proprio posto ---------------------------
