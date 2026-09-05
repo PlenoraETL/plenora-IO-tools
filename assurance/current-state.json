@@ -149,7 +149,7 @@
     }
   },
   "docset": {
-    "markdown_canonici": 4,
+    "markdown_canonici": 5,
     "markdown_operativi": 7,
     "verificato_da": "scripts/check_docset.py"
   },

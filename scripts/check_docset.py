@@ -47,6 +47,13 @@ CANONICI = [
     "docs/PRODUCT.md",
     "docs/ENGINEERING.md",
     "docs/RELEASE.md",
+    # Il quinto ha un destinatario che gli altri quattro non hanno: chi
+    # **riceve** il prodotto. PRODUCT dice che cosa promette, ENGINEERING come
+    # e' fatto, RELEASE dove siamo -- tutte domande di chi ci lavora. «Che cosa
+    # scarico, come verifico che sia arrivato intero, che cosa riscrivo nel mio
+    # codice» e' un'altra cosa, e infilarla in uno dei quattro l'avrebbe resa
+    # una sezione che chi la cerca non trova.
+    "docs/INSTALL.md",
 ]
 
 # Letti da una piattaforma o da Cargo per convenzione di percorso. Non sono

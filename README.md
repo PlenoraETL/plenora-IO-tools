@@ -174,6 +174,7 @@ Il **recovery** di un publish Shapefile interrotto è in
 | [docs/PRODUCT.md](docs/PRODUCT.md) | che cosa offre e che cosa promette: driver, opzioni, contratti pubblici, limiti |
 | [docs/ENGINEERING.md](docs/ENGINEERING.md) | come funziona e come viene verificato: architettura, pipeline, checkpoint, fuzzing |
 | [docs/RELEASE.md](docs/RELEASE.md) | dove siamo e dove andiamo: stato misurato, blocchi aperti, ordine di lavoro |
+| [docs/INSTALL.md](docs/INSTALL.md) | installare e migrare: artefatti, profili, scoperta del binario, 1.x → 2.0.0 |
 
 Lo stato in forma strutturata è
 [`assurance/current-state.json`](assurance/current-state.json); `docs/RELEASE.md`
@@ -181,8 +182,9 @@ ne riporta i numeri e un gate verifica che coincidano.
 
 ## Licenza
 
-I due crate vendorizzati sotto `vendor/` conservano la propria licenza upstream
-(MIT) e il proprio `LICENSE.txt`. La provenienza dei fork è registrata in
-`assurance/registries/vendor-dxf-fork.json` e
-`assurance/registries/vendor-gdal-fork.json`, e un gate la confronta con il
-lockfile.
+I tre crate vendorizzati sotto `vendor/` — `gdal`, `dxf` e `shapefile` —
+conservano la propria licenza upstream (MIT) e il proprio file di licenza. La
+provenienza di ciascuno è registrata in `assurance/registries/vendor-<nome>-fork.json`,
+un gate la confronta con il lockfile, e `scripts/audit-fork.py` verifica che il
+testo della licenza sia quello pubblicato da chi l'ha scritta — non che lo
+diciamo noi.
