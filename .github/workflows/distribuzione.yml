@@ -115,16 +115,6 @@ jobs:
           --lavoro "$RUNNER_TEMP/smoke"
           --referto "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-smoke.json"
 
-      - name: L'SDK installato, contro questo artefatto
-        run: |
-          python3 scripts/costruisci-pacchetto-python.py --uscita "$RUNNER_TEMP/pacchetto"
-          python3 scripts/smoke-sdk-installato.py \
-            --albero "$RUNNER_TEMP/uscita/$(ls "$RUNNER_TEMP/uscita")" \
-            --wheel "$(ls "$RUNNER_TEMP"/pacchetto/*.whl)" \
-            --profilo "${{ matrix.profilo }}" \
-            --piattaforma linux-x86_64 --canale "$CANALE" \
-            --referto "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-smoke-sdk.json"
-
       # Il relocation smoke **cancella** la directory di costruzione: e' la sua
       # condizione centrale, e per questo l'archivio viene copiato altrove prima.
       # Entrambi i profili: la premessa «il base non spedisce librerie» era
@@ -305,17 +295,24 @@ jobs:
           --lavoro "$RUNNER_TEMP/smoke"
           --referto "$RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-smoke.json"
 
-      - name: L'SDK installato, contro questo artefatto
+      # La scoperta del binario su Windows, che nessun altro job esercita.
+      #
+      # Senza referto, ed e' voluto: le coordinate di `smoke-installato` sono
+      # `any/<formato>`, una coppia sola per tutta la corsa, e un secondo
+      # referto da qui collinderebbe con quello del job `python`. La prova
+      # continua a fare il proprio mestiere -- se l'SDK non trovasse il binario,
+      # o ne leggesse male il manifesto, questo job diventerebbe rosso -- e
+      # quello che entra nel conteggio resta uno.
+      - name: L'SDK installato trova il binario anche su Windows
         shell: pwsh
         run: |
           python scripts/costruisci-pacchetto-python.py --uscita "$env:RUNNER_TEMP/pacchetto"
           $albero = (Get-ChildItem "$env:RUNNER_TEMP/uscita" -Directory)[0].FullName
           $wheel = (Get-ChildItem "$env:RUNNER_TEMP/pacchetto/*.whl")[0].FullName
           python scripts/smoke-sdk-installato.py `
-            --albero "$albero" --wheel "$wheel" `
-            --profilo "${{ matrix.profilo }}" `
-            --piattaforma windows-x86_64 --canale "$env:CANALE" `
-            --referto "$env:RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-smoke-sdk.json"
+            --albero "$albero" --pacchetto "$wheel" --formato wheel `
+            --profilo-dell-albero "${{ matrix.profilo }}" `
+            --piattaforma-dell-albero windows-x86_64 --canale "$env:CANALE"
 
       # Il relocation smoke: A cancellata, B con un percorso di lunghezza
       # diversa, terza directory, PATH ridotto e sentinelle. Su Windows manca
@@ -380,20 +377,116 @@ jobs:
           echo "e digest hanno prodotto i propri referti. Il rosso della scoperta e' atteso -- "
           echo "quella fase non qualifica, e continua a girare per documentare la corsa."
 
+  # I due artefatti Python, che non hanno una piattaforma.
+  #
+  # # Perche' un job e non due passi dentro `linux`
+  #
+  # Perche' le coordinate di questi referti sono `any/wheel` e `any/sdist`: una
+  # coppia sola, mentre `linux` gira due volte -- una per profilo -- e
+  # produrrebbe due referti sulle stesse coordinate. Il gate li conterebbe come
+  # un duplicato, e avrebbe ragione: un artefatto che non ha piattaforma non si
+  # qualifica una volta per piattaforma.
+  #
+  # # Perche' dipende da `linux`
+  #
+  # Perche' cio' che va dimostrato non e' che il pacchetto si installi -- quello
+  # lo prova `smoke-pacchetto-python.sh` in venv puliti -- ma che l'SDK
+  # **trovi** un binario vero, ne legga il manifesto e ne riconosca il profilo.
+  # Il binario non sta dentro il pacchetto, ed e' una scelta: questo job e' il
+  # modo in cui quella scelta si paga.
+  #
+  # La wheel si prova contro l'albero `filegdb` e la sdist contro il `base`.
+  # Provarle entrambe contro lo stesso albero avrebbe lasciato un profilo mai
+  # esercitato da questo lato, e sono i due che si comportano diversamente:
+  # `require_profile("filegdb")` deve passare sull'uno e sollevare sull'altro.
+  python:
+    needs: linux
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, Node 24
+        with:
+          pattern: deliverable-linux-*
+          path: nativi
+          merge-multiple: true
+
+      - name: Estrai i due alberi nativi
+        run: |
+          mkdir -p "$RUNNER_TEMP/alberi"
+          for profilo in base filegdb; do
+            tar -xzf "nativi/plenora-io-$VERSIONE-linux-x86_64-$profilo.tar.gz" \
+              -C "$RUNNER_TEMP/alberi"
+          done
+          ls "$RUNNER_TEMP/alberi"
+
+      # Gli stessi byte per tutto il resto del job: si costruisce una volta, e
+      # cio' che si prova e' cio' che si consegna. Ricostruire fra una verifica
+      # e l'altra darebbe archivi diversi da quelli descritti dai referti --
+      # identici quasi sempre, che e' precisamente il motivo per cui la
+      # differenza passerebbe inosservata.
+      - name: Costruisci wheel e sdist
+        run: python3 scripts/costruisci-pacchetto-python.py
+          --uscita "$RUNNER_TEMP/pacchetto" --referti "$RUNNER_TEMP/referti"
+
+      - name: La costruzione e' riproducibile
+        run: bash scripts/verifica-riproducibilita-python.sh
+
+      - name: Smoke del pacchetto in ambienti puliti
+        run: bash scripts/smoke-pacchetto-python.sh "$RUNNER_TEMP/pacchetto"
+
+      - name: La wheel installata, contro l'artefatto filegdb
+        run: python3 scripts/smoke-sdk-installato.py
+          --albero "$RUNNER_TEMP/alberi/plenora-io-$VERSIONE-linux-x86_64-filegdb"
+          --pacchetto "$(ls "$RUNNER_TEMP"/pacchetto/*.whl)"
+          --formato wheel --profilo-dell-albero filegdb
+          --piattaforma-dell-albero linux-x86_64 --canale "$CANALE"
+          --referto "$RUNNER_TEMP/referti/python-wheel-smoke-installato.json"
+
+      - name: La sdist installata, contro l'artefatto base
+        run: python3 scripts/smoke-sdk-installato.py
+          --albero "$RUNNER_TEMP/alberi/plenora-io-$VERSIONE-linux-x86_64-base"
+          --pacchetto "$(ls "$RUNNER_TEMP"/pacchetto/*.tar.gz)"
+          --formato sdist --profilo-dell-albero base
+          --piattaforma-dell-albero linux-x86_64 --canale "$CANALE"
+          --referto "$RUNNER_TEMP/referti/python-sdist-smoke-installato.json"
+
+      - name: Il canale resta privato
+        run: python3 scripts/check_canale_privato.py
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        with:
+          name: deliverable-python-${{ env.VERSIONE }}
+          path: |
+            ${{ runner.temp }}/pacchetto/*.whl
+            ${{ runner.temp }}/pacchetto/*.tar.gz
+            ${{ runner.temp }}/pacchetto/*.sha256
+            ${{ runner.temp }}/pacchetto/MANIFEST.json
+            ${{ runner.temp }}/pacchetto/provenance.json
+            ${{ runner.temp }}/pacchetto/sbom.json
+            ${{ runner.temp }}/pacchetto/licenze.json
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        if: always()
+        with:
+          name: referti-python
+          path: ${{ runner.temp }}/referti/
+
   # Il gate finale: **ricontare**.
   #
-  # Senza di lui quattro job verdi si leggevano come «la distribuzione e'
-  # completa», e non era la stessa affermazione: ogni job sa di se stesso, e
-  # nessuno sapeva se i quattro artefatti attesi esistessero tutti, con tutte le
-  # verifiche previste e con le misure obbligatorie dentro. Un referto mancante
-  # non rende rosso nessun job -- semplicemente non c'e' -- ed e' la forma di
-  # falso verde piu' facile da non vedere, perche' si manifesta come assenza.
+  # Senza di lui i job verdi si leggevano come «la distribuzione e' completa», e
+  # non era la stessa affermazione: ogni job sa di se stesso, e nessuno sapeva
+  # se tutti gli artefatti attesi esistessero, con tutte le verifiche previste e
+  # con le misure obbligatorie dentro. Un referto mancante non rende rosso
+  # nessun job -- semplicemente non c'e' -- ed e' la forma di falso verde piu'
+  # facile da non vedere, perche' si manifesta come assenza.
   #
-  # Ricalcola il perimetro dalla matrice, non da cio' che ha ricevuto: quattro
-  # artefatti devono discendere dalla decisione esplicita di distribuire due
-  # piattaforme, non dal fatto che due job siano stati scritti.
+  # Ricalcola il perimetro dalla matrice, non da cio' che ha ricevuto: il numero
+  # degli artefatti discende dalle classi dichiarate -- quattro nativi, due
+  # Python -- non dal fatto che tre job siano stati scritti.
   gate:
-    needs: [linux, windows]
+    needs: [linux, windows, python]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -407,7 +500,8 @@ jobs:
         run: |
           echo "linux:   ${{ needs.linux.result }}"
           echo "windows: ${{ needs.windows.result }}"
-          if [ "${{ needs.linux.result }}" != "success" ] || [ "${{ needs.windows.result }}" != "success" ]; then
+          echo "python:  ${{ needs.python.result }}"
+          if [ "${{ needs.linux.result }}" != "success" ] || [ "${{ needs.windows.result }}" != "success" ] || [ "${{ needs.python.result }}" != "success" ]; then
             echo "Un costruttore non e' verde: il conteggio dei referti qui sotto dira' che"
             echo "cosa manca, ma questa corsa non distribuisce niente."
             exit 1

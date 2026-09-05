@@ -129,10 +129,37 @@ print(json.dumps({"misure": misure, "errori": errori}))
 
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
-    argomenti.add_argument("--albero", required=True, type=pathlib.Path)
-    argomenti.add_argument("--wheel", required=True, type=pathlib.Path)
-    argomenti.add_argument("--profilo", required=True, choices=("base", "filegdb"))
-    argomenti.add_argument("--piattaforma", required=True)
+    argomenti.add_argument(
+        "--albero",
+        required=True,
+        type=pathlib.Path,
+        help="l'albero nativo estratto contro cui l'SDK viene provato",
+    )
+    argomenti.add_argument(
+        "--pacchetto",
+        required=True,
+        type=pathlib.Path,
+        help="il pacchetto Python da installare: una wheel o una sdist",
+    )
+    argomenti.add_argument(
+        "--formato",
+        required=True,
+        choices=("wheel", "sdist"),
+        help="che cosa si sta provando; sono le coordinate del referto",
+    )
+    argomenti.add_argument(
+        "--profilo-dell-albero",
+        required=True,
+        choices=("base", "filegdb"),
+        dest="profilo_dell_albero",
+        help="il profilo dell'artefatto nativo, che la sonda pretende dal manifesto",
+    )
+    argomenti.add_argument(
+        "--piattaforma-dell-albero",
+        required=True,
+        dest="piattaforma_dell_albero",
+        help="la piattaforma dell'artefatto nativo; entra fra le misure",
+    )
     argomenti.add_argument("--canale", default="prova")
     argomenti.add_argument("--referto", type=pathlib.Path, default=None)
     opzioni = argomenti.parse_args(argv)
@@ -142,14 +169,31 @@ def main(argv: list[str] | None = None) -> int:
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
         python = venv / ("Scripts" if sys.platform == "win32" else "bin") / "python"
         subprocess.run(
-            [str(python), "-m", "pip", "install", "--quiet", "--no-index", str(opzioni.wheel)],
+            # `--no-index` anche per la sdist: il pacchetto non ha dipendenze,
+            # e cio' che si vuole provare e' che si installi **senza rete**.
+            # Se la ricostruzione avesse bisogno di scaricare un backend,
+            # questo passo fallirebbe, ed e' l'informazione che serve.
+            [
+                str(python),
+                "-m",
+                "pip",
+                "install",
+                "--quiet",
+                "--no-index",
+                str(opzioni.pacchetto),
+            ],
             check=True,
         )
 
         programma = pathlib.Path(lavoro) / "sonda.py"
         programma.write_text(SONDA, encoding="utf-8")
         esito = subprocess.run(
-            [str(python), str(programma), str(opzioni.albero), opzioni.profilo],
+            [
+                str(python),
+                str(programma),
+                str(opzioni.albero),
+                opzioni.profilo_dell_albero,
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -177,16 +221,31 @@ def main(argv: list[str] | None = None) -> int:
         distribuzione.scrivi_referto(
             opzioni.referto,
             verifica="smoke-installato",
-            piattaforma=opzioni.piattaforma,
-            profilo="wheel",
+            # Le coordinate sono quelle dell'artefatto **Python**: `any` perche'
+            # `py3-none-any` non ha piattaforme, e il formato al posto del
+            # profilo. Erano quelle dell'albero nativo -- `linux-x86_64/wheel`
+            # -- e il gate, che deriva gli attesi dalla matrice, cercava
+            # `any/wheel` e non lo trovava.
+            #
+            # Contro quale artefatto nativo la prova sia stata fatta non si
+            # perde: sta fra le misure, dove e' un dato invece che una
+            # coordinata.
+            piattaforma="any",
+            profilo=opzioni.formato,
             canale=opzioni.canale,
             esito="ok" if not errori else "fallito",
-            misure=misure,
+            misure={
+                **misure,
+                "provato_contro": (
+                    f"{opzioni.piattaforma_dell_albero}/{opzioni.profilo_dell_albero}"
+                ),
+            },
             errori=errori,
             note=(
-                f"l'SDK installato dalla wheel, contro l'artefatto «{opzioni.profilo}» "
-                f"di {opzioni.piattaforma}. Il binario **non** sta nella wheel: "
-                "questa e' la prova che la separazione funziona."
+                f"l'SDK installato dalla {opzioni.formato}, contro l'artefatto "
+                f"«{opzioni.profilo_dell_albero}» di "
+                f"{opzioni.piattaforma_dell_albero}. Il binario **non** sta nel "
+                "pacchetto: questa e' la prova che la separazione funziona."
             ),
         )
 

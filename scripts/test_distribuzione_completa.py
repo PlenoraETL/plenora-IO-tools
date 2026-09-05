@@ -524,7 +524,7 @@ class SondeDelGateNelWorkflow(unittest.TestCase):
     def test_il_gate_aspetta_entrambi_i_costruttori(self) -> None:
         """Un gate che girasse prima conterebbe i referti di una corsa a
         meta', e li troverebbe mancanti per la ragione sbagliata."""
-        self.assertIn("needs: [linux, windows]", self.testo)
+        self.assertIn("needs: [linux, windows, python]", self.testo)
 
     def test_un_costruttore_rosso_non_diventa_una_distribuzione_verde(self) -> None:
         """`if: always()` serve a far parlare il gate anche quando qualcosa e'

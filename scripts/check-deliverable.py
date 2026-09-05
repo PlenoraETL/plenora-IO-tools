@@ -72,6 +72,125 @@ def revisione_del_manifesto(
     return manifesto["revisione"], None
 
 
+def verifica_python(
+    directory: pathlib.Path, canale: str, revisione: str
+) -> tuple[list[str], set[str]]:
+    """I due artefatti Python: `(errori, nomi attesi)`.
+
+    # Perche' non passano dal ciclo delle piattaforme
+
+    Perche' non ne hanno una, e nemmeno un profilo: `py3-none-any` vuol dire
+    che ne servono zero. E soprattutto perche' **la loro versione e' un'altra**:
+    il nome degli archivi nativi lo compone la versione passata alla corsa, il
+    pacchetto Python porta la propria -- quella di `plenora_io.__version__` --
+    e derivarne il nome dalla prima darebbe un file che non esiste.
+
+    Il nome lo dice il manifesto del pacchetto, che viaggia accanto agli
+    archivi. E' la stessa disciplina del lato nativo, dove il manifesto sta
+    dentro l'archivio: si legge cio' che il costruttore ha dichiarato, e lo si
+    ricalcola sui byte arrivati.
+
+    # I sidecar, e il documento che ne fa le veci
+
+    Ogni archivio ha il proprio `.sha256`. La provenance invece e' **una** per
+    entrambi -- `provenance.json` con un elenco `file` -- perche' i due sono la
+    stessa costruzione in due formati: separarle avrebbe creato due documenti
+    che dicono la stessa revisione e lo stesso lock, destinati a divergere per
+    una modifica fatta a meta'.
+    """
+    errori: list[str] = []
+    attesi: set[str] = set()
+
+    manifesto_percorso = directory / "MANIFEST.json"
+    provenance_percorso = directory / "provenance.json"
+    for documento in (manifesto_percorso, provenance_percorso):
+        if not documento.is_file():
+            errori.append(f"python: {documento.name} assente fra i deliverable")
+    if errori:
+        return errori, attesi
+
+    attesi.update({"MANIFEST.json", "provenance.json", "sbom.json", "licenze.json"})
+    try:
+        manifesto = json.loads(manifesto_percorso.read_text(encoding="utf-8"))
+        provenance = json.loads(provenance_percorso.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return [f"python: documento non leggibile: {exc}"], attesi
+
+    for campo, atteso in (
+        ("revisione", revisione),
+        ("canale", canale),
+        ("non_release", canale != "candidate"),
+        ("classe", "python-puro"),
+        ("piattaforma", "any"),
+    ):
+        if manifesto.get(campo) != atteso:
+            errori.append(
+                f"python: MANIFEST.{campo} vale {manifesto.get(campo)!r}, "
+                f"atteso {atteso!r}"
+            )
+    if provenance.get("revisione") != revisione:
+        errori.append(
+            f"python: la provenance dichiara la revisione "
+            f"{provenance.get('revisione')!r}, la corsa e' su {revisione!r}"
+        )
+
+    dichiarati = manifesto.get("file") or []
+    if len(dichiarati) != 2:
+        errori.append(
+            f"python: il manifesto dichiara {len(dichiarati)} file, e i formati "
+            "distribuiti sono due -- wheel e sdist"
+        )
+    per_nome = {
+        voce.get("nome"): voce.get("archivio_sha256")
+        for voce in (provenance.get("file") or [])
+    }
+
+    for voce in dichiarati:
+        nome = voce.get("nome")
+        if not nome:
+            errori.append("python: una voce del manifesto non ha nome")
+            continue
+        archivio = directory / nome
+        checksum = directory / f"{nome}.sha256"
+        attesi.update((nome, checksum.name))
+        mancanti = [q.name for q in (archivio, checksum) if not q.is_file()]
+        if mancanti:
+            errori.append(f"python/{nome}: file mancanti: {mancanti}")
+            continue
+
+        reale = distribuzione.sha256(archivio)
+        if voce.get("sha256") != reale:
+            errori.append(
+                f"python/{nome}: il manifesto dichiara {voce.get('sha256')}, "
+                f"i byte scaricati danno {reale}"
+            )
+        if voce.get("byte") != archivio.stat().st_size:
+            errori.append(
+                f"python/{nome}: il manifesto dichiara {voce.get('byte')} byte, "
+                f"il file ne ha {archivio.stat().st_size}"
+            )
+        try:
+            dichiarato = _sidecar(checksum, archivio)
+        except (OSError, UnicodeError, ValueError) as exc:
+            errori.append(f"python/{nome}: sidecar non valido: {exc}")
+        else:
+            if dichiarato != reale:
+                errori.append(
+                    f"python/{nome}: il sidecar dice {dichiarato}, i byte "
+                    f"scaricati danno {reale}"
+                )
+        # La provenance e il manifesto descrivono gli stessi byte, e a dirlo
+        # deve essere il **calcolo**: due documenti coerenti fra loro e sbagliati
+        # allo stesso modo passerebbero un confronto reciproco.
+        if per_nome.get(nome) != reale:
+            errori.append(
+                f"python/{nome}: la provenance dice {per_nome.get(nome)}, i byte "
+                f"scaricati danno {reale}"
+            )
+
+    return errori, attesi
+
+
 def verifica(
     directory: pathlib.Path,
     versione: str,
@@ -144,6 +263,10 @@ def verifica(
                         f"{prefisso}: provenance.{campo} vale {prova.get(campo)!r}, "
                         f"atteso {atteso!r}"
                     )
+
+    errori_python, attesi_python = verifica_python(directory, canale, revisione)
+    errori.extend(errori_python)
+    attesi.update(attesi_python)
 
     presenti = {
         str(p.relative_to(directory)).replace("\\", "/")
