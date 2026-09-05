@@ -50,7 +50,7 @@ def _pretendi(documento: dict[str, Any], campi: tuple[str, ...], dove: str) -> N
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Version:
     """La busta di bootstrap: `plenora-io --version`.
 
@@ -81,19 +81,24 @@ class Version:
         return cls(status=documento["status"], version=documento["version"], raw=dict(documento))
 
 
-@dataclass(frozen=True)
-class Driver:
-    """Un elemento di `catalog.drivers`: il descrittore, piu' due campi suoi.
+@dataclass(frozen=True, kw_only=True)
+class FormatDescriptor:
+    """Il descrittore di un formato: che cosa il driver sa fare, e come.
 
-    `available` e `required_feature` non stanno nel descrittore che `inspect`
-    restituisce: sono del catalogo, e dicono se **questo** binario possa usare
-    quel driver. Un descrittore descrive un formato; il catalogo descrive
-    un'installazione.
+    E' lo **stesso** tipo che `catalog` mette dentro ogni elemento di `drivers`
+    e che `inspect` mette sotto `format`. Non e' una somiglianza: il gate delle
+    buste ha misurato che i percorsi del secondo sono un sottoinsieme esatto dei
+    primi, e i due campi in piu' del catalogo sono quelli che `Driver` aggiunge.
+
+    Scriverlo una volta sola e' cio' che impedisce alle due copie di divergere
+    senza che nessuno se ne accorga.
+
+    `kw_only` non e' un vezzo: `Driver` eredita da qui e aggiunge campi
+    obbligatori dopo `raw`, che ha un valore predefinito. Senza, la dataclass
+    non si costruirebbe.
     """
 
     id: str
-    available: bool
-    required_feature: str | None
     direction: str
     runtime: str
     fidelity_class: str
@@ -120,13 +125,9 @@ class Driver:
     write_capabilities: dict[str, Any]
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
-    #: I campi che il protocollo dichiara `sempre: true` sotto `.drivers[]`.
-    #: Il gate `scripts/check_sdk_python.py` confronta questa tupla con la
-    #: struttura del manifesto, cosi' le due non divergono in silenzio.
+    #: I campi che il protocollo dichiara `sempre: true` sotto `.format`.
     OBBLIGATORI = (
         "id",
-        "available",
-        "required_feature",
         "direction",
         "runtime",
         "fidelity_class",
@@ -154,8 +155,8 @@ class Driver:
     )
 
     @classmethod
-    def from_json(cls, documento: dict[str, Any]) -> "Driver":
-        _pretendi(documento, cls.OBBLIGATORI, "catalog.drivers[]")
+    def from_json(cls, documento: dict[str, Any]) -> "FormatDescriptor":
+        _pretendi(documento, cls.OBBLIGATORI, "format")
         return cls(
             **{campo: documento[campo] for campo in cls.OBBLIGATORI},
             raw=dict(documento),
@@ -163,11 +164,11 @@ class Driver:
 
     @property
     def writable(self) -> bool:
-        """Il driver dichiara di saper scrivere.
+        """Il formato dichiara di saper scrivere.
 
-        Derivato da `direction`, che il descrittore porta: `bidirectional` o
-        `write_only`. E' una comodita' e non un'affermazione nuova -- la fonte
-        resta il campo, e chi vuole il resto lo legge da li'.
+        Derivato da `direction`, che il descrittore porta. E' una comodita' e
+        non un'affermazione nuova -- la fonte resta il campo, e chi vuole il
+        resto lo legge da li'.
         """
         return self.direction in ("bidirectional", "write_only")
 
@@ -176,7 +177,34 @@ class Driver:
         return self.direction in ("bidirectional", "read_only")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
+class Driver(FormatDescriptor):
+    """Un elemento di `catalog.drivers`: il descrittore, piu' due campi suoi.
+
+    `available` e `required_feature` non stanno nel descrittore che `inspect`
+    restituisce: sono del catalogo, e dicono se **questo** binario possa usare
+    quel driver. Un descrittore descrive un formato; il catalogo descrive
+    un'installazione.
+    """
+
+    available: bool
+    required_feature: str | None
+
+    #: I due campi che il catalogo aggiunge. Il gate li somma a quelli del
+    #: descrittore e confronta il totale con `.drivers[]`.
+    PROPRI = ("available", "required_feature")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Driver":
+        campi = FormatDescriptor.OBBLIGATORI + cls.PROPRI
+        _pretendi(documento, campi, "catalog.drivers[]")
+        return cls(
+            **{campo: documento[campo] for campo in campi},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
 class Catalog:
     """La busta di `plenora-io catalog`.
 
@@ -228,3 +256,356 @@ class Catalog:
     def available(self) -> list[Driver]:
         """I driver che **questo** binario puo' usare davvero."""
         return [driver for driver in self.drivers if driver.available]
+
+
+# --- la sezione di fedelta', che tre buste su cinque portano ----------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class Omissions:
+    """Quante voci la diagnostica ha lasciato fuori, e per quale delle quattro
+    cause.
+
+    Restano separate perche' portano a decisioni diverse: chi ha perso
+    *categorie* sa di non conoscere tutti i tipi di perdita, chi ha perso
+    *esempi* li conosce e non ne ha campioni. Sommarle in un numero solo direbbe
+    che qualcosa manca senza dire che cosa.
+    """
+
+    categorie_omesse: int
+    ragioni_omesse: int
+    esempi_omessi: int
+    omesse_per_byte: int
+
+    OBBLIGATORI = (
+        "categorie_omesse",
+        "ragioni_omesse",
+        "esempi_omessi",
+        "omesse_per_byte",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Omissions":
+        _pretendi(documento, cls.OBBLIGATORI, "fidelity.omesse")
+        return cls(**{campo: documento[campo] for campo in cls.OBBLIGATORI})
+
+    @property
+    def any(self) -> bool:
+        """Qualcosa e' stato lasciato fuori, di qualunque delle quattro cause."""
+        return any(getattr(self, campo) for campo in self.OBBLIGATORI)
+
+
+@dataclass(frozen=True, kw_only=True)
+class FidelityReason:
+    """Una ragione per cui la fedelta' non e' esatta.
+
+    `field_index` e `layer_index` vengono **insieme** o non vengono: una ragione
+    che nomina un campo nomina anche il layer in cui sta. Quelle che riguardano
+    il formato nel suo insieme non ne hanno, ed e' perche' sono opzionali qui.
+    """
+
+    code: str
+    detail: str
+    field_index: int | None = None
+    layer_index: int | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("code", "detail")
+    OPZIONALI = ("field_index", "layer_index")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "FidelityReason":
+        _pretendi(documento, cls.OBBLIGATORI, "fidelity.reasons[]")
+        return cls(
+            code=documento["code"],
+            detail=documento["detail"],
+            field_index=documento.get("field_index"),
+            layer_index=documento.get("layer_index"),
+            raw=dict(documento),
+        )
+
+    @property
+    def localized(self) -> bool:
+        """La ragione nomina un campo preciso invece del formato intero."""
+        return self.field_index is not None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Fidelity:
+    """La sezione di fedelta': quanto si perde, e perche'.
+
+    `troncato` non e' un dettaglio da ignorare: dice che l'elenco che si sta
+    leggendo **non e' tutto**, e un consumatore che lo trascurasse concluderebbe
+    dall'assenza di una ragione che quella perdita non c'e'.
+    """
+
+    level: str
+    reasons: list[FidelityReason]
+    troncato: bool
+    omesse: Omissions
+    omesse_esatte: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("level", "reasons", "troncato", "omesse", "omesse_esatte")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Fidelity":
+        _pretendi(documento, cls.OBBLIGATORI, "fidelity")
+        ragioni = documento["reasons"]
+        if not isinstance(ragioni, list):
+            raise ProtocolError(
+                f"fidelity.reasons e' {type(ragioni).__name__} e non un elenco."
+            )
+        return cls(
+            level=documento["level"],
+            reasons=[FidelityReason.from_json(voce) for voce in ragioni],
+            troncato=documento["troncato"],
+            omesse=Omissions.from_json(documento["omesse"]),
+            omesse_esatte=documento["omesse_esatte"],
+            raw=dict(documento),
+        )
+
+    @property
+    def exact(self) -> bool:
+        """La lettura non perde niente.
+
+        `level == "exact"` **e** nessun troncamento: una sezione troncata non
+        puo' dirsi esatta, perche' le ragioni che mancano non si sono viste.
+        """
+        return self.level == "exact" and not self.troncato
+
+
+# --- il layer, e cio' che lo descrive ---------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class Field:
+    """Una colonna: il nome, il tipo Arrow, se ammetta nulli, se sia geometria."""
+
+    name: str
+    type: str
+    nullable: bool
+    geometry: bool
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("name", "type", "nullable", "geometry")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Field":
+        _pretendi(documento, cls.OBBLIGATORI, "layer.fields[]")
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CrsResolution:
+    """Come il CRS e' stato risolto, e da dove viene.
+
+    `status` e' l'informazione che conta: un identificatore risolto e uno
+    assunto dal chiamante hanno lo stesso aspetto in `id`, e solo questo campo
+    li distingue. Un consumatore che li confondesse attribuirebbe al file una
+    coordinata che gli e' stata suggerita da fuori.
+    """
+
+    id: str
+    kind: str
+    status: str
+    axis_order: str
+    definition: str | None
+    definition_format: str | None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("id", "kind", "status", "axis_order", "definition", "definition_format")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "CrsResolution":
+        _pretendi(documento, cls.OBBLIGATORI, "layer.geometry.crs_resolution")
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class Geometry:
+    """La colonna geometrica di un layer, col suo sistema di riferimento."""
+
+    name: str
+    kind: str
+    crs: str
+    crs_resolution: CrsResolution
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("name", "kind", "crs", "crs_resolution")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Geometry":
+        _pretendi(documento, cls.OBBLIGATORI, "layer.geometry")
+        return cls(
+            name=documento["name"],
+            kind=documento["kind"],
+            crs=documento["crs"],
+            crs_resolution=CrsResolution.from_json(documento["crs_resolution"]),
+            raw=dict(documento),
+        )
+
+
+@dataclass(frozen=True, kw_only=True)
+class Layer:
+    """Un layer con il suo schema, come `inspect` lo descrive."""
+
+    id: int
+    name: str
+    fields: list[Field]
+    geometry: Geometry
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("id", "name", "fields", "geometry")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Layer":
+        _pretendi(documento, cls.OBBLIGATORI, "inspect.layers[]")
+        colonne = documento["fields"]
+        if not isinstance(colonne, list):
+            raise ProtocolError(
+                f"layers[].fields e' {type(colonne).__name__} e non un elenco."
+            )
+        return cls(
+            id=documento["id"],
+            name=documento["name"],
+            fields=[Field.from_json(voce) for voce in colonne],
+            geometry=Geometry.from_json(documento["geometry"]),
+            raw=dict(documento),
+        )
+
+    def field(self, name: str) -> Field:
+        """La colonna con quel nome, o `KeyError` che elenca quelle che ci sono."""
+        for colonna in self.fields:
+            if colonna.name == name:
+                return colonna
+        noti = ", ".join(colonna.name for colonna in self.fields)
+        raise KeyError(f"nessun campo «{name}» nel layer «{self.name}»; ci sono: {noti}")
+
+    @property
+    def attributes(self) -> list[Field]:
+        """Le colonne che non sono la geometria."""
+        return [colonna for colonna in self.fields if not colonna.geometry]
+
+
+@dataclass(frozen=True, kw_only=True)
+class LayerSummary:
+    """Un layer come `layers` lo riassume: senza lo schema.
+
+    Non e' un `Layer` incompleto ed e' un tipo a parte: `layers` esiste per
+    rispondere «che cosa c'e' qui dentro» senza pagare l'inferenza dello schema,
+    e un modello che promettesse `fields` vuoti farebbe credere a un layer senza
+    colonne.
+    """
+
+    id: int
+    name: str
+    field_count: int
+    geometry_crs: str
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("id", "name", "field_count", "geometry_crs")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "LayerSummary":
+        _pretendi(documento, cls.OBBLIGATORI, "layers.layers[]")
+        return cls(
+            **{campo: documento[campo] for campo in cls.OBBLIGATORI},
+            raw=dict(documento),
+        )
+
+
+# --- le due buste di questo ciclo -------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class Inspect:
+    """La busta di `plenora-io inspect`: il descrittore e i layer con lo schema."""
+
+    status: str
+    protocol_version: int
+    contract: str
+    format: FormatDescriptor
+    fidelity: Fidelity
+    layers: list[Layer]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("status", "protocol_version", "contract", "format", "fidelity", "layers")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Inspect":
+        _pretendi(documento, cls.OBBLIGATORI, "inspect")
+        elenco = documento["layers"]
+        if not isinstance(elenco, list):
+            raise ProtocolError(
+                f"inspect.layers e' {type(elenco).__name__} e non un elenco."
+            )
+        return cls(
+            status=documento["status"],
+            protocol_version=documento["protocol_version"],
+            contract=documento["contract"],
+            format=FormatDescriptor.from_json(documento["format"]),
+            fidelity=Fidelity.from_json(documento["fidelity"]),
+            layers=[Layer.from_json(voce) for voce in elenco],
+            raw=dict(documento),
+        )
+
+    def layer(self, name: str) -> Layer:
+        """Il layer con quel nome, o `KeyError` che elenca quelli che ci sono."""
+        for strato in self.layers:
+            if strato.name == name:
+                return strato
+        noti = ", ".join(strato.name for strato in self.layers)
+        raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Layers:
+    """La busta di `plenora-io layers`: i layer riassunti.
+
+    `format` qui e' una **stringa** -- l'identificatore del driver -- e non il
+    descrittore che `inspect` restituisce. I due campi hanno lo stesso nome e
+    tipi diversi, ed e' il wire a volerlo: modellarli uguali avrebbe richiesto
+    di inventare un descrittore che questa busta non porta.
+    """
+
+    status: str
+    protocol_version: int
+    contract: str
+    format: str
+    fidelity: Fidelity
+    layers: list[LayerSummary]
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = ("status", "protocol_version", "contract", "format", "fidelity", "layers")
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Layers":
+        _pretendi(documento, cls.OBBLIGATORI, "layers")
+        elenco = documento["layers"]
+        if not isinstance(elenco, list):
+            raise ProtocolError(
+                f"layers.layers e' {type(elenco).__name__} e non un elenco."
+            )
+        return cls(
+            status=documento["status"],
+            protocol_version=documento["protocol_version"],
+            contract=documento["contract"],
+            format=documento["format"],
+            fidelity=Fidelity.from_json(documento["fidelity"]),
+            layers=[LayerSummary.from_json(voce) for voce in elenco],
+            raw=dict(documento),
+        )
+
+    def layer(self, name: str) -> LayerSummary:
+        for strato in self.layers:
+            if strato.name == name:
+                return strato
+        noti = ", ".join(strato.name for strato in self.layers)
+        raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")

@@ -17,16 +17,45 @@ Python. Un wrapper si appoggia alla sola cosa che il progetto promette.
 Il prezzo e' un processo per chiamata, ed e' accettabile per il lavoro che
 questi comandi fanno: leggono e scrivono file, e il costo sta li'.
 
-## Che cosa questo primo ciclo contiene
+## Che cosa c'e' oggi
 
 * la scoperta del binario, **fail-closed**;
 * la lettura del `MANIFEST.json` dell'artefatto distribuito, quando c'e';
 * il controllo del profilo, prima di eseguire invece che dopo;
-* i modelli tipizzati di `--version` e di `catalog`.
+* `--version`, `catalog`, `inspect` e `layers`, con i modelli tipizzati.
 
-`inspect`, `layers` e `convert` **non** ci sono ancora. Il nucleo piu' piccolo
-che si possa verificare arriva fin qui, e allargarlo prima che questo regga
-avrebbe spostato il collaudo in avanti.
+`convert` e `validate` **non** ci sono ancora.
+
+## Gli errori si distinguono per categoria, non per messaggio
+
+```python
+try:
+    client.inspect("dati.shp")
+except NotFoundError:
+    ...
+except CrsError:
+    ...
+```
+
+La categoria e' un vocabolario chiuso del contratto, e le diciotto sottoclassi
+di `CommandFailed` le corrispondono una a una -- `scripts/check_sdk_python.py`
+lo verifica. Il messaggio invece e' curato per chi legge e ci riserviamo di
+riscriverlo: un SDK che invitasse a `if "non trovato" in str(errore)` inviterebbe
+a dipendere da una stringa che cambia senza preavviso.
+
+L'errore porta i quattro assi interi. `retryable` e `retry_after_ms` dicono se e
+quanto aspettare; `remote_committed` e' vero anche per `unknown`, perche' chi non
+sa deve comportarsi come chi sa di si'.
+
+## `inspect()` costa piu' di `layers()`
+
+Per dire di che tipo e' ogni colonna il driver deve inferire lo schema, e su un
+formato che non lo dichiara -- CSV, GeoJSON -- vuol dire leggere righe. Chi ha
+bisogno solo dei nomi dei layer chieda `layers()`, che non paga quell'inferenza.
+
+`assume_crs` non e' una preferenza: alcuni file dichiarano un CRS che non si
+risolve, e il driver rifiuta chiuso invece di indovinare. Passarlo e' dire «lo so
+io», e resta distinguibile -- `crs_resolution.status` dice da dove il CRS viene.
 
 ## Niente download impliciti
 
@@ -64,6 +93,12 @@ catalog = client.catalog()
 for driver in catalog.drivers:
     if driver.available:
         print(driver.id, driver.fidelity_class)
+
+info = client.inspect("dati.gpkg")
+for layer in info.layers:
+    print(layer.name, layer.geometry.crs)
+    for campo in layer.attributes:
+        print("  ", campo.name, campo.type)
 ```
 
 Il binario si indica esplicitamente quando non sta dove l'SDK guarda:

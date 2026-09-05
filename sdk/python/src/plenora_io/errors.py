@@ -26,7 +26,7 @@ riscrivere.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -139,24 +139,30 @@ class ErrorEnvelope:
         )
 
 
-@dataclass
 class CommandFailed(PlenoraError):
     """Il comando e' stato eseguito e ha risposto con una busta d'errore.
 
     Non e' un guasto dell'SDK: e' il prodotto che rifiuta, e il rifiuto e'
     un'informazione. `exit_code` sta accanto alla busta perche' la CLI lo usa
     per distinguere famiglie di rifiuti che la busta descrive in prosa.
+
+    Non si costruisce a mano: `failure_from_envelope` sceglie la sottoclasse
+    dalla **categoria**, che e' un vocabolario chiuso del contratto.
     """
 
-    envelope: ErrorEnvelope
-    exit_code: int
-    argv: list[str] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        envelope: "ErrorEnvelope",
+        exit_code: int,
+        argv: list[str] | None = None,
+    ) -> None:
+        self.envelope = envelope
+        self.exit_code = exit_code
+        self.argv = list(argv or [])
         super().__init__(
-            f"`plenora-io {' '.join(self.argv)}` e' uscito con {self.exit_code}: "
-            f"[{self.envelope.category}/{self.envelope.phase}] "
-            f"{self.envelope.code}: {self.envelope.message}"
+            f"`plenora-io {' '.join(self.argv)}` e' uscito con {exit_code}: "
+            f"[{envelope.category}/{envelope.phase}] "
+            f"{envelope.code}: {envelope.message}"
         )
 
     @property
@@ -167,3 +173,175 @@ class CommandFailed(PlenoraError):
         `envelope.retry`, che porta `delay_ms` quando il tipo e' `after`.
         """
         return self.envelope.retry.get("kind") != "never"
+
+    @property
+    def retry_after_ms(self) -> int | None:
+        """I millisecondi da attendere, quando la busta li dichiara.
+
+        `None` non vuol dire «riprova subito»: vuol dire che il prodotto non ha
+        detto quanto aspettare, e chi riprova sceglie da se'.
+        """
+        retry = self.envelope.retry
+        return retry.get("delay_ms") if retry.get("kind") == "after" else None
+
+    @property
+    def remote_committed(self) -> bool:
+        """Il lavoro remoto potrebbe essere andato a buon fine.
+
+        Vero per `committed` **e** per `unknown`: chi non sa deve comportarsi
+        come chi sa di si', perche' l'alternativa e' rifare un lavoro gia'
+        fatto. Trattare `unknown` come `none` e' l'errore che questa proprieta'
+        esiste per non far commettere.
+        """
+        return self.envelope.remote_effect in ("committed", "unknown")
+
+
+# --- una classe per categoria, e la ragione per cui sono tante --------------
+#
+# La categoria e' un **vocabolario chiuso** del contratto, e chi usa l'SDK
+# reagisce a quella: `except NotFoundError` e' cio' che si vuole scrivere, non
+# un `if errore.envelope.category == "not_found"`. Le due forme dicono la stessa
+# cosa; la prima la dice al lettore e la seconda al debugger.
+#
+# Il testo del messaggio, invece, non e' un asse su cui reagire: e' curato per
+# chi legge, e ci riserviamo di riscriverlo. Un SDK che offrisse
+# `if "non trovato" in str(errore)` inviterebbe a dipendere da una stringa che
+# cambia senza preavviso, ed e' il motivo per cui questa gerarchia esiste.
+#
+# `scripts/check_sdk_python.py` confronta questo elenco con `ErrorCategory` del
+# contratto: una categoria nuova senza classe, o una classe senza categoria,
+# sono entrambe rosse.
+
+
+class InvalidPlanError(CommandFailed):
+    """`invalid_plan`: il piano di scrittura non e' coerente."""
+
+
+class InvalidConfigurationError(CommandFailed):
+    """`invalid_configuration`: opzioni, argomenti o percorsi non ammessi."""
+
+
+class SchemaError(CommandFailed):
+    """`schema`: lo schema dei dati non regge il contratto."""
+
+
+class DataMappingError(CommandFailed):
+    """`data_mapping`: un valore non si puo' rappresentare nel formato."""
+
+
+class CrsError(CommandFailed):
+    """`crs`: il sistema di riferimento manca, non si risolve o non si scrive."""
+
+
+class UnsupportedError(CommandFailed):
+    """`unsupported`: il prodotto non fa questa cosa, e il file va bene.
+
+    Distinta da `SchemaError` per una ragione che costa: il primo dice che il
+    file e' corretto e noi no, il secondo che il file e' sbagliato. Mandare chi
+    legge a correggere un file corretto e' il danno che la distinzione evita.
+    """
+
+
+class NotFoundError(CommandFailed):
+    """`not_found`: la sorgente, il layer o il campo non esistono."""
+
+
+class ConflictError(CommandFailed):
+    """`conflict`: la destinazione esiste, o una risorsa e' occupata."""
+
+
+class AuthenticationError(CommandFailed):
+    """`authentication`: le credenziali mancano o non valgono."""
+
+
+class AuthorizationError(CommandFailed):
+    """`authorization`: le credenziali valgono e non bastano."""
+
+
+class TimeoutError(CommandFailed):  # noqa: A001 - il nome del contratto vince
+    """`timeout`: il tempo e' scaduto.
+
+    Ombreggia il `TimeoutError` incorporato dentro questo modulo, ed e'
+    voluto: il nome viene dal vocabolario del contratto, e rinominarlo
+    costringerebbe chi legge il contratto a tenere due parole per una cosa.
+    Chi ha bisogno di quello di Python lo prende da `builtins`.
+    """
+
+
+class CancelledError(CommandFailed):
+    """`cancelled`: qualcuno ha chiesto di fermarsi."""
+
+
+class ResourceLimitError(CommandFailed):
+    """`resource_limit`: un tetto dichiarato e' stato raggiunto.
+
+    Non e' un guasto: e' una difesa che ha funzionato. Chi la incontra alza il
+    tetto o riduce il lavoro, e in entrambi i casi decide -- che e' la ragione
+    per cui questa categoria non sta con `execution`.
+    """
+
+
+class IoError(CommandFailed):
+    """`io`: il filesystem o la rete hanno detto di no."""
+
+
+class ProtocolViolationError(CommandFailed):
+    """`protocol`: un contratto fra componenti e' stato violato.
+
+    Il nome non e' `ProtocolError` perche' quello e' gia' preso, e le due cose
+    sono diverse: `ProtocolError` e' dell'SDK -- la risposta non e' quella che
+    il protocollo promette -- mentre questa e' del **prodotto**, che ha
+    riconosciuto una violazione e l'ha riportata in una busta regolare.
+    """
+
+
+class TransientError(CommandFailed):
+    """`transient`: e' andata male e potrebbe andare bene."""
+
+
+class ExecutionError(CommandFailed):
+    """`execution`: il lavoro e' fallito mentre lo si faceva."""
+
+
+class InternalError(CommandFailed):
+    """`internal`: un invariante nostro non ha retto. E' un difetto."""
+
+
+#: Dalla categoria del wire alla classe. Le chiavi sono `ErrorCategory`
+#: serializzata in snake_case, che e' come arriva nella busta.
+CATEGORIE: dict[str, type[CommandFailed]] = {
+    "invalid_plan": InvalidPlanError,
+    "invalid_configuration": InvalidConfigurationError,
+    "schema": SchemaError,
+    "data_mapping": DataMappingError,
+    "crs": CrsError,
+    "unsupported": UnsupportedError,
+    "not_found": NotFoundError,
+    "conflict": ConflictError,
+    "authentication": AuthenticationError,
+    "authorization": AuthorizationError,
+    "timeout": TimeoutError,
+    "cancelled": CancelledError,
+    "resource_limit": ResourceLimitError,
+    "io": IoError,
+    "protocol": ProtocolViolationError,
+    "transient": TransientError,
+    "execution": ExecutionError,
+    "internal": InternalError,
+}
+
+
+def failure_from_envelope(
+    documento: dict[str, Any], exit_code: int, argv: list[str]
+) -> CommandFailed:
+    """La busta d'errore, come eccezione della classe che le compete.
+
+    Una categoria **sconosciuta** non e' un errore dell'SDK: le regole di
+    compatibilita' del protocollo consentono di estendere un vocabolario
+    chiuso, e un SDK che si rifiutasse di leggere la busta trasformerebbe
+    un'estensione in un guasto. Si ripiega su `CommandFailed`, che porta la
+    categoria intatta: chi la conosce la legge da `envelope.category`.
+    """
+    envelope = ErrorEnvelope.from_json(documento)
+    classe = CATEGORIE.get(envelope.category, CommandFailed)
+    return classe(envelope, exit_code, argv)

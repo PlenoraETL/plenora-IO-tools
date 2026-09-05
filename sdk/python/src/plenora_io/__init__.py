@@ -6,24 +6,67 @@ download. Il confine pubblico di questo prodotto e' la busta JSON -- che
 dichiarata `internal_unstable`. L'SDK si appoggia alla sola cosa che il
 progetto promette.
 
-Questo primo ciclo copre la scoperta del binario, il manifesto dell'artefatto,
-il controllo del profilo e le due buste `--version` e `catalog`. `inspect`,
-`layers` e `convert` non ci sono ancora.
+# Che cosa c'e' oggi
+
+La scoperta del binario, il manifesto dell'artefatto, il controllo del profilo,
+e i comandi `--version`, `catalog`, `inspect`, `layers`. `convert` e `validate`
+non ci sono ancora.
+
+# Gli errori si distinguono per **categoria**, non per messaggio
+
+`except NotFoundError` e non `if "non trovato" in str(errore)`. La categoria e'
+un vocabolario chiuso del contratto; il messaggio e' curato per chi legge e ci
+riserviamo di riscriverlo. Le diciotto sottoclassi di `CommandFailed`
+corrispondono una a una alle categorie, e un gate lo verifica.
 """
 
 from .client import Client
 from .discovery import PROFILI as PROFILES
 from .discovery import Manifest
 from .errors import (
+    AuthenticationError,
+    AuthorizationError,
     BinaryNotFound,
+    CancelledError,
     CommandFailed,
+    ConflictError,
+    CrsError,
+    DataMappingError,
     ErrorEnvelope,
+    ExecutionError,
+    InternalError,
+    InvalidConfigurationError,
+    InvalidPlanError,
+    IoError,
     ManifestError,
+    NotFoundError,
     PlenoraError,
     ProfileError,
     ProtocolError,
+    ProtocolViolationError,
+    ResourceLimitError,
+    SchemaError,
+    TimeoutError,
+    TransientError,
+    UnsupportedError,
 )
-from .models import Catalog, Driver, Version
+from .models import (
+    Catalog,
+    CrsResolution,
+    Driver,
+    Fidelity,
+    FidelityReason,
+    Field,
+    FormatDescriptor,
+    Geometry,
+    Inspect,
+    Layer,
+    Layers,
+    LayerSummary,
+    Omissions,
+    Version,
+)
+from .process import Runner
 
 #: La versione dell'SDK, che **non** e' quella del binario.
 #:
@@ -31,7 +74,7 @@ from .models import Catalog, Driver, Version
 #: proprio senza che il prodotto cambi, e un binario nuovo puo' funzionare con
 #: un SDK vecchio finche' il protocollo regge. Chi vuole la versione del
 #: prodotto la chiede a `Client.version()`, che la prende dal binario.
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
 #: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e
@@ -39,19 +82,49 @@ __version__ = "0.1.0"
 PROTOCOL_VERSION = 2
 
 __all__ = [
+    "AuthenticationError",
+    "AuthorizationError",
     "BinaryNotFound",
+    "CancelledError",
     "Catalog",
     "Client",
     "CommandFailed",
+    "ConflictError",
+    "CrsError",
+    "CrsResolution",
+    "DataMappingError",
     "Driver",
     "ErrorEnvelope",
+    "ExecutionError",
+    "Fidelity",
+    "FidelityReason",
+    "Field",
+    "FormatDescriptor",
+    "Geometry",
+    "Inspect",
+    "InternalError",
+    "InvalidConfigurationError",
+    "InvalidPlanError",
+    "IoError",
+    "Layer",
+    "LayerSummary",
+    "Layers",
     "Manifest",
     "ManifestError",
+    "NotFoundError",
+    "Omissions",
     "PROFILES",
     "PROTOCOL_VERSION",
     "PlenoraError",
     "ProfileError",
     "ProtocolError",
+    "ProtocolViolationError",
+    "ResourceLimitError",
+    "Runner",
+    "SchemaError",
+    "TimeoutError",
+    "TransientError",
+    "UnsupportedError",
     "Version",
     "__version__",
 ]

@@ -1,11 +1,11 @@
-"""Il client: trova il binario, lo esegue, decodifica la busta.
+"""Il client: la scoperta, il profilo, e i comandi che questo ciclo copre.
 
-# Perche' la busta si cerca su stdout **e poi** stderr
+# Che cosa sta qui e che cosa sta altrove
 
-Il protocollo le colloca cosi': il successo su stdout, l'errore su stderr. Il
-client legge nell'ordine che il protocollo dichiara invece di indovinare dal
-codice d'uscita, perche' il codice d'uscita distingue famiglie di rifiuti e non
-dice quale flusso porti il documento.
+Qui c'e' un metodo per comando, e ciascuno fa due cose: costruire la riga di
+argomenti e dire quale tipo si aspetta. L'esecuzione, la scelta del flusso e la
+decodifica stanno in `process.py`, perche' sono le stesse per tutti e cinque i
+comandi -- e perche' un difetto in quella catena si ripara in un posto solo.
 
 # Perche' nessun comando ha un timeout predefinito
 
@@ -24,15 +24,12 @@ funzionano, per una difesa che l'SDK non e' il posto giusto per fare.
 
 from __future__ import annotations
 
-import json
 import os
-import subprocess
 from pathlib import Path
-from typing import Any
 
 from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
-from .errors import CommandFailed, ErrorEnvelope, ProtocolError
-from .models import Catalog, Version
+from .models import Catalog, Inspect, Layers, Version
+from .process import Runner
 
 
 class Client:
@@ -49,13 +46,13 @@ class Client:
         *,
         timeout: float | None = None,
     ) -> None:
-        self._binary = trova_binario(binary)
-        self._timeout = timeout
-        self._manifest = leggi_manifesto(self._binary)
+        percorso = trova_binario(binary)
+        self._runner = Runner(percorso, timeout=timeout)
+        self._manifest = leggi_manifesto(percorso)
 
     @property
     def binary(self) -> Path:
-        return self._binary
+        return self._runner.binary
 
     @property
     def manifest(self) -> Manifest | None:
@@ -78,7 +75,7 @@ class Client:
         """
         verifica_profilo(self._manifest, profile)
 
-    # --- le due buste di questo ciclo -------------------------------------
+    # --- le buste che l'SDK copre -----------------------------------------
 
     def version(self) -> Version:
         """La busta di bootstrap.
@@ -86,64 +83,71 @@ class Client:
         E' la prima chiamata che ha senso fare: dice che binario si ha in mano,
         e lo dice senza pretendere di conoscere il protocollo.
         """
-        return Version.from_json(self._esegui(["--version"]))
+        return Version.from_json(self._runner.run(["--version"]))
 
     def catalog(self) -> Catalog:
         """Il catalogo dei driver di **questa** installazione."""
-        return Catalog.from_json(self._esegui(["catalog"]))
+        return Catalog.from_json(self._runner.run(["catalog"]))
 
-    # --- l'esecuzione ------------------------------------------------------
+    def inspect(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+    ) -> Inspect:
+        """Il descrittore del formato e i layer con il loro schema.
 
-    def _esegui(self, argomenti: list[str]) -> dict[str, Any]:
-        try:
-            esito = subprocess.run(
-                [str(self._binary), *argomenti],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=self._timeout,
-                check=False,
-            )
-        except OSError as errore:
-            raise ProtocolError(
-                f"`{self._binary}` non si e' potuto eseguire: {errore}"
-            ) from errore
+        Costa piu' di `layers()`: per dire di che tipo e' ogni colonna il driver
+        deve inferire lo schema, e su un formato senza schema dichiarato -- CSV,
+        GeoJSON -- vuol dire leggere righe. Chi ha bisogno solo dei nomi dei
+        layer chieda `layers()`, che non paga quell'inferenza.
 
-        documento, flusso = self._decodifica(esito, argomenti)
-        if documento.get("status") == "error" or flusso == "stderr":
-            raise CommandFailed(
-                envelope=ErrorEnvelope.from_json(documento),
-                exit_code=esito.returncode,
-                argv=list(argomenti),
-            )
-        if esito.returncode != 0:
-            # Un codice diverso da zero con una busta di successo: il
-            # protocollo non lo prevede, e passarlo oltre farebbe consumare
-            # come buono un documento che il prodotto non ha dichiarato tale.
-            raise ProtocolError(
-                f"`plenora-io {' '.join(argomenti)}` e' uscito con "
-                f"{esito.returncode} e ha scritto su stdout una busta di "
-                f"stato «{documento.get('status')}»: il protocollo non "
-                "prevede questa combinazione."
-            )
-        return documento
+        `assume_crs` non e' una preferenza: alcuni file dichiarano un CRS che
+        non si risolve, e il driver rifiuta chiuso invece di indovinare. Passarlo
+        e' dire «lo so io», e resta distinguibile nella busta -- `crs_resolution`
+        porta lo `status` che dice da dove il CRS viene.
+        """
+        return Inspect.from_json(
+            self._runner.run(self._argomenti("inspect", source, assume_crs, options))
+        )
+
+    def layers(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+    ) -> Layers:
+        """I layer riassunti: nome, conteggio delle colonne, CRS.
+
+        Non porta lo schema, ed e' il motivo per cui esiste accanto a
+        `inspect()`.
+        """
+        return Layers.from_json(
+            self._runner.run(self._argomenti("layers", source, assume_crs, options))
+        )
+
+    # --- la riga di argomenti ---------------------------------------------
 
     @staticmethod
-    def _decodifica(
-        esito: subprocess.CompletedProcess[str], argomenti: list[str]
-    ) -> tuple[dict[str, Any], str]:
-        for flusso, testo in (("stdout", esito.stdout), ("stderr", esito.stderr)):
-            if not testo.strip():
-                continue
-            try:
-                documento = json.loads(testo)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(documento, dict):
-                return documento, flusso
-        raise ProtocolError(
-            f"`plenora-io {' '.join(argomenti)}` e' uscito con "
-            f"{esito.returncode} senza una busta JSON su nessuno dei due "
-            f"flussi.\nstdout: {esito.stdout[:200]!r}\n"
-            f"stderr: {esito.stderr[:200]!r}"
-        )
+    def _argomenti(
+        comando: str,
+        source: str | os.PathLike[str],
+        assume_crs: str | None,
+        options: dict[str, str] | None,
+    ) -> list[str]:
+        """Gli argomenti, nell'ordine che la CLI attende.
+
+        Le opzioni si passano una `--in-opt` per coppia, e la chiave non viene
+        validata qui: il vocabolario delle opzioni lo dichiara il catalogo, per
+        driver, e duplicarlo nell'SDK produrrebbe due elenchi destinati a
+        divergere. Una chiave sconosciuta e' un rifiuto del prodotto, tipizzato
+        come tutti gli altri.
+        """
+        argomenti = [comando, os.fspath(source)]
+        if assume_crs is not None:
+            argomenti += ["--assume-crs", assume_crs]
+        for chiave, valore in (options or {}).items():
+            argomenti += ["--in-opt", f"{chiave}={valore}"]
+        return argomenti
