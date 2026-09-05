@@ -307,7 +307,12 @@ jobs:
         shell: pwsh
         run: |
           python scripts/costruisci-pacchetto-python.py --uscita "$env:RUNNER_TEMP/pacchetto"
-          $albero = (Get-ChildItem "$env:RUNNER_TEMP/uscita" -Directory)[0].FullName
+          # Il nome per esteso, non la prima directory che capita: in
+          # `uscita/` il costruttore lascia anche `.testi-di-licenza`, che il
+          # punto iniziale manda in testa all'ordine alfabetico. Era quella che
+          # veniva passata all'SDK, e l'errore diceva -- correttamente -- che li'
+          # dentro non c'era nessun binario.
+          $albero = "$env:RUNNER_TEMP/uscita/plenora-io-$env:VERSIONE-windows-x86_64-${{ matrix.profilo }}"
           $wheel = (Get-ChildItem "$env:RUNNER_TEMP/pacchetto/*.whl")[0].FullName
           python scripts/smoke-sdk-installato.py `
             --albero "$albero" --pacchetto "$wheel" --formato wheel `
@@ -405,6 +410,17 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      # L'interprete si dichiara. L'immagine `ubuntu-22.04` porta Python 3.10, e
+      # il pacchetto ne pretende almeno 3.11: l'installazione falliva con
+      # «requires a different Python», che e' il `Requires-Python` che fa
+      # esattamente il proprio mestiere.
+      #
+      # 3.11 e non l'ultima: e' il **limite inferiore** dichiarato, ed e' quello
+      # che vale la pena esercitare qui. Le altre due versioni della matrice le
+      # prova il job `python-sdk` della CI a ogni push.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
+        with:
+          python-version: "3.11"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, Node 24
         with:
           pattern: deliverable-linux-*
