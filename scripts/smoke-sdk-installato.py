@@ -127,6 +127,23 @@ print(json.dumps({"misure": misure, "errori": errori}))
 '''
 
 
+def backend_disponibile(python: pathlib.Path) -> bool:
+    """L'interprete ha gia' il backend che una sdist pretende?
+
+    Si chiede all'interprete invece di dedurlo dalla versione: da 3.12
+    `setuptools` non e' piu' preinstallato, ma un ambiente puo' averlo lo
+    stesso -- e uno di 3.11 puo' non averlo.
+    """
+    return (
+        subprocess.run(
+            [str(python), "-c", "import setuptools, wheel"],
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     argomenti = argparse.ArgumentParser(description=__doc__)
     argomenti.add_argument(
@@ -168,22 +185,27 @@ def main(argv: list[str] | None = None) -> int:
         venv = pathlib.Path(lavoro) / "venv"
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
         python = venv / ("Scripts" if sys.platform == "win32" else "bin") / "python"
-        subprocess.run(
-            # `--no-index` anche per la sdist: il pacchetto non ha dipendenze,
-            # e cio' che si vuole provare e' che si installi **senza rete**.
-            # Se la ricostruzione avesse bisogno di scaricare un backend,
-            # questo passo fallirebbe, ed e' l'informazione che serve.
-            [
-                str(python),
-                "-m",
-                "pip",
-                "install",
-                "--quiet",
-                "--no-index",
-                str(opzioni.pacchetto),
-            ],
-            check=True,
-        )
+        # Una wheel si installa e basta. Una **sdist** va ricostruita, e la
+        # ricostruzione vuole il backend che `build-system.requires` dichiara:
+        # `pip` lo cerca in un ambiente isolato, e con `--no-index` non lo
+        # trova. Non e' un difetto del pacchetto -- e' la forma dell'unica
+        # cosa che questo smoke non deve provare.
+        #
+        # Che la sdist si ricostruisca **senza rete** lo prova gia'
+        # `smoke-pacchetto-python.sh`, che per questo distingue i due casi.
+        # Qui la domanda e' un'altra: se l'SDK installato trovi un binario
+        # vero, ne legga il manifesto e ne riconosca il profilo. Insistere su
+        # `--no-index` avrebbe fatto fallire questo smoke per una proprieta'
+        # che un altro gia' misura, e in un punto dove non si sarebbe capito
+        # che cosa era rotto.
+        comando = [str(python), "-m", "pip", "install", "--quiet"]
+        if opzioni.formato == "wheel":
+            comando.append("--no-index")
+        elif backend_disponibile(python):
+            # Il backend c'e' gia': si ricostruisce senza rete, e vale la pena
+            # dirlo invece di chiederla comunque.
+            comando += ["--no-index", "--no-build-isolation"]
+        subprocess.run([*comando, str(opzioni.pacchetto)], check=True)
 
         programma = pathlib.Path(lavoro) / "sonda.py"
         programma.write_text(SONDA, encoding="utf-8")
