@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "descrizione": "Le sonde dell'SDK che l'installazione dalla sdist non puo' esercitare, e perche'. L'elenco e' **chiuso**: `scripts/check_sonde_saltate.py` lo confronta con cio' che salta davvero, nei due versi.",
+  "perche_un_elenco_e_non_un_numero": "«27 saltate» e' un numero, e un numero non dice quali. Se domani una sonda smettesse di girare per un difetto -- un `skipUnless` sbagliato, un import inghiottito -- il conteggio resterebbe plausibile e nessuno guarderebbe. Un elenco nomina ciascuna, e una sonda che salta senza essere qui e' una copertura persa in silenzio.",
+  "il_verso_inverso": "una sonda registrata che **non salta piu'** e' altrettanto rossa: vuol dire che e' diventata indipendente dal repository, e la riga va tolta. Un registro che accettasse voci obsolete descriverebbe un passato.",
+  "dove_girano_invece": "nel repository, dove il job `python-sdk` della CI le esegue su ogni versione di Python della matrice. Saltare nell'installazione non vuol dire non essere verificate: vuol dire esserlo altrove, e questo registro dice dove.",
+  "totale": 27,
+  "eseguite_nella_sdist": 88,
+  "condizioni": [
+    {
+      "id": "fixture-canoniche",
+      "che_cosa_manca": "`crates/plenora-io-cli/tests/fixtures/canoniche/`: i file di prova nei dieci formati, piu' il binario `plenora-io` che li legge.",
+      "perche_non_sta_nella_sdist": "pesano, e sono del **prodotto** invece che dell'SDK. Metterle in un pacchetto Python vorrebbe dire spedire dati di prova di un altro componente a chi installa un wrapper, e legarne la versione a quella dell'SDK: due cose che cambiano per ragioni diverse.",
+      "che_cosa_resta_verificato": "tutto cio' che non tocca un file: la decodifica delle buste, la gerarchia degli errori, i tetti, la scoperta del binario. Le sonde saltate sono quelle d'**integrazione**, e girano nel repository, dove il gate `python-sdk` della CI le esegue a ogni push.",
+      "ragione_del_salto": "servono le fixture canoniche della CLI, che non stanno nella sdist",
+      "quante": 22,
+      "sonde": [
+        "test_client.ContrIlBinarioVero.test_i_due_comandi_concordano_sullo_stesso_file",
+        "test_client.ContrIlBinarioVero.test_il_catalogo_si_decodifica_intero",
+        "test_client.ContrIlBinarioVero.test_il_conteggio_di_validate_e_quello_di_inspect",
+        "test_client.ContrIlBinarioVero.test_il_limite_e_per_batch_e_truncated_dice_perche_si_e_fermato",
+        "test_client.ContrIlBinarioVero.test_inspect_si_decodifica_intero",
+        "test_client.ContrIlBinarioVero.test_la_fedelta_arriva_strutturata",
+        "test_client.ContrIlBinarioVero.test_la_versione_si_decodifica",
+        "test_client.ContrIlBinarioVero.test_layers_riassume_senza_lo_schema",
+        "test_client.ContrIlBinarioVero.test_un_comando_che_fallisce_porta_la_busta",
+        "test_client.ContrIlBinarioVero.test_un_crs_che_non_si_risolve_e_un_rifiuto_tipizzato",
+        "test_client.ContrIlBinarioVero.test_un_layer_che_non_esiste_e_un_rifiuto",
+        "test_client.ContrIlBinarioVero.test_un_tetto_superato_e_un_errore_tipizzato",
+        "test_client.ContrIlBinarioVero.test_una_deadline_governata_non_e_un_timeout_dell_sdk",
+        "test_client.ContrIlBinarioVero.test_validate_legge_conta_e_non_da_righe",
+        "test_convert.ControIlBinarioVero.test_durable_non_cambia_l_esito",
+        "test_convert.ControIlBinarioVero.test_la_cancellazione_e_disponibile",
+        "test_convert.ControIlBinarioVero.test_la_perdita_arriva_strutturata",
+        "test_convert.ControIlBinarioVero.test_le_opzioni_di_lettura_e_scrittura_vanno_a_driver_diversi",
+        "test_convert.ControIlBinarioVero.test_le_tre_fedelta_rispondono_a_domande_diverse",
+        "test_convert.ControIlBinarioVero.test_un_tetto_superato_ferma_la_conversione",
+        "test_convert.ControIlBinarioVero.test_una_conversione_pubblica_e_conta",
+        "test_convert.ControIlBinarioVero.test_una_destinazione_esistente_e_un_conflitto"
+      ]
+    },
+    {
+      "id": "contratto-del-protocollo",
+      "che_cosa_manca": "`release/cli-protocol-v2.json`.",
+      "perche_non_sta_nella_sdist": "e' il contratto del prodotto, non dell'SDK. Copiarlo nel pacchetto creerebbe una seconda copia che diverge dal giorno dopo, ed e' esattamente il difetto che il gate dei modelli esiste per impedire.",
+      "che_cosa_resta_verificato": "che i modelli **funzionino**: costruiscono, rifiutano i campi mancanti, conservano `raw`. Che i loro campi coincidano col contratto lo verifica `check_sdk_python.py` nel repository, ed e' un'affermazione sul contratto -- non sul pacchetto installato.",
+      "ragione_del_salto": "serve il repository: il contratto e le fixture non stanno nella sdist",
+      "quante": 3,
+      "sonde": [
+        "test_models.IModelliSeguonoIlContratto.test_il_catalogo_espone_i_campi_che_il_protocollo_dichiara",
+        "test_models.IModelliSeguonoIlContratto.test_il_descrittore_di_inspect_e_quello_del_catalogo",
+        "test_models.IModelliSeguonoIlContratto.test_il_driver_espone_i_campi_che_il_protocollo_dichiara"
+      ]
+    },
+    {
+      "id": "sorgente-della-cli",
+      "che_cosa_manca": "`crates/plenora-io-cli/src/main.rs`.",
+      "perche_non_sta_nella_sdist": "e' codice Rust del prodotto. Le due sonde che lo leggono confrontano i tetti di `Limits` con `OPZIONI_AMMESSE`, che e' un confronto fra **due sorgenti** e non una proprieta' del pacchetto installato.",
+      "che_cosa_resta_verificato": "che `Limits` produca gli argomenti giusti, nell'ordine giusto, con la durata in millisecondi. Che quei nomi esistano nella CLI lo verifica il repository.",
+      "ragione_del_salto": "la CLI sta nel repository",
+      "quante": 2,
+      "sonde": [
+        "test_limits.ITettiEsistonoNellaCli.test_ogni_tetto_dell_sdk_e_un_opzione_della_cli",
+        "test_limits.ITettiEsistonoNellaCli.test_ogni_tetto_della_cli_e_offerto_dall_sdk"
+      ]
+    }
+  ]
+}

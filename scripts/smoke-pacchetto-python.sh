@@ -144,4 +144,13 @@ ESTRATTA="$LAVORO/$(basename "$SDIST" .tar.gz)"
 cd "$ESTRATTA"
 "$LAVORO/da-wheel/bin/python" -m unittest discover -s tests -p "test_*.py" 2>&1 | tail -4
 
+# --- 5. e quali sonde non ha potuto esercitare -----------------------------
+#
+# Il conteggio delle saltate e' un numero, e un numero non dice quali. L'elenco
+# si misura qui -- e' l'unico posto dove la condizione e' quella vera -- e il
+# gate lo confronta con il registro, nei due versi.
+echo "=== 5. l'elenco delle sonde saltate e' quello registrato"
+"$LAVORO/da-wheel/bin/python" "$RADICE/scripts/elenca-sonde-saltate.py"   --tests tests --uscita "$LAVORO/saltate.json"
+python3 "$RADICE/scripts/check_sonde_saltate.py" --misurato "$LAVORO/saltate.json"
+
 echo "=== smoke del pacchetto Python: superato"
