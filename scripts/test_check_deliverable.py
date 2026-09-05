@@ -214,6 +214,31 @@ class SondeDeliverable(unittest.TestCase):
     def errori(self) -> list[str]:
         return self.gate.verifica(self.tmp, self.VERSIONE, "prova", self.REVISIONE)
 
+    def test_il_comando_gira_dalla_riga_di_comando(self) -> None:
+        """`main` si esercita, non solo la funzione che chiama.
+
+        Due difetti di fila sono passati proprio di qui: le sonde chiamano
+        `verifica` **direttamente**, e cio' che sta fra `parse_args` e quella
+        chiamata -- gli argomenti, il riepilogo finale -- non lo guardava
+        nessuno. Il primo e' stato un `TypeError` nell'altro gate, il secondo un
+        `NameError` nel riepilogo di questo, e li ha trovati la corsa reale
+        della distribuzione, dopo che tutto il lavoro era gia' stato fatto.
+        """
+        self.crea_serie()
+        esito = self.gate.main(
+            [
+                "--directory",
+                str(self.tmp),
+                "--versione",
+                self.VERSIONE,
+                "--canale",
+                "prova",
+                "--revisione",
+                self.REVISIONE,
+            ]
+        )
+        self.assertEqual(esito, 0)
+
     def test_la_serie_completa_passa(self) -> None:
         self.assertEqual(self.errori(), [])
 

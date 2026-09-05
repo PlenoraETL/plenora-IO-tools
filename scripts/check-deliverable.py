@@ -341,7 +341,7 @@ def verifica_contro_la_candidate(
     return errori
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--directory", required=True, type=pathlib.Path)
     a.add_argument("--versione", required=True)
@@ -359,7 +359,7 @@ def main() -> int:
         help="assurance/current-state.json: verifica che questi byte siano "
         "quelli congelati dalla candidate, non una ricostruzione equivalente",
     )
-    arg = a.parse_args()
+    arg = a.parse_args(argv)
     errori = verifica(arg.directory, arg.versione, arg.canale, arg.revisione)
     congelati = 0
     if arg.contro_la_candidate is not None:
@@ -381,9 +381,10 @@ def main() -> int:
     # di cio' che la verifica aveva fatto, e chi lo legge ne avrebbe dedotto che
     # i due pacchetti Python nessuno li avesse guardati.
     archivi = sorted(
-        p.name
-        for p in directory.iterdir()
-        if p.is_file() and (directory / f"{p.name}.sha256").is_file()
+        percorso.name
+        for percorso in arg.directory.iterdir()
+        if percorso.is_file()
+        and (arg.directory / f"{percorso.name}.sha256").is_file()
     )
     print(
         f"deliverable verificati: {len(archivi)} archivi con altrettanti "
