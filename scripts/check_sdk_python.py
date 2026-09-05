@@ -51,8 +51,27 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRATTO = ROOT / "release" / "cli-protocol-v2.json"
 SDK = ROOT / "sdk" / "python" / "src" / "plenora_io"
 MODELLI = SDK / "models.py"
+TETTI = SDK / "limits.py"
 ERRORI = SDK / "errors.py"
 CATEGORIE_RUST = ROOT / "crates" / "plenora-io-model" / "src" / "error.rs"
+CLI = ROOT / "crates" / "plenora-io-cli" / "src" / "main.rs"
+
+#: Le opzioni della CLI che **non** sono tetti: hanno un parametro proprio nei
+#: metodi del client, o sono comandi. Dichiarate qui perche' un elenco che si
+#: allunga da solo sarebbe il modo in cui «non e' un tetto» diventa «me ne sono
+#: dimenticato».
+NON_SONO_TETTI = frozenset(
+    {
+        "--assume-crs",
+        "--layer",
+        "--limit",
+        "--in-opt",
+        "--out-opt",
+        "--opt",
+        "--durable",
+        "--version",
+    }
+)
 
 #: Dove ciascun modello va confrontato: la busta e il prefisso nella sua
 #: struttura. Il livello e' quello **immediato**: la profondita' la governano i
@@ -68,6 +87,7 @@ POSTI: dict[str, tuple[str, str]] = {
     "CrsResolution": ("inspect", ".layers[].geometry.crs_resolution"),
     "Layers": ("layers", ""),
     "LayerSummary": ("layers", ".layers[]"),
+    "Validation": ("read", ""),
     "Fidelity": ("layers", ".fidelity"),
     "Omissions": ("layers", ".fidelity.omesse"),
     # Le ragioni si confrontano con quelle di `convert`, non con quelle di
@@ -236,6 +256,48 @@ def categorie_dell_sdk() -> dict[str, str]:
     raise SystemExit("`CATEGORIE` non si trova in errors.py.")
 
 
+
+def opzioni_della_cli() -> set[str]:
+    """Le opzioni che `OPZIONI_AMMESSE` elenca, dalla CLI stessa."""
+    sorgente = CLI.read_text(encoding="utf-8")
+    riga = re.search(r'const OPZIONI_AMMESSE: &str = "(.*?)";', sorgente, re.S)
+    if riga is None:
+        raise SystemExit(
+            "`OPZIONI_AMMESSE` non si trova nella CLI: il gate non sa che cosa "
+            "confrontare, e dirsi verde su un confronto non fatto e' peggio che "
+            "essere rosso."
+        )
+    return {pezzo.strip() for pezzo in riga.group(1).split(",") if pezzo.strip()}
+
+
+def tetti_dell_sdk() -> set[str]:
+    """I nomi delle opzioni che `Limits` sa produrre, dai suoi campi.
+
+    Si leggono dall'AST, come tutto il resto: i campi di una dataclass sono
+    annotazioni, e un'annotazione si legge senza eseguire il modulo.
+    """
+    albero = ast.parse(TETTI.read_text(encoding="utf-8"), filename=str(TETTI))
+    for nodo in ast.walk(albero):
+        if not isinstance(nodo, ast.ClassDef) or nodo.name != "Limits":
+            continue
+        durata = None
+        campi = []
+        for corpo in nodo.body:
+            if isinstance(corpo, ast.AnnAssign) and isinstance(corpo.target, ast.Name):
+                campi.append(corpo.target.id)
+            elif isinstance(corpo, ast.Assign):
+                nomi = [t.id for t in corpo.targets if isinstance(t, ast.Name)]
+                if "DURATA" in nomi and isinstance(corpo.value, ast.Constant):
+                    durata = corpo.value.value
+        if durata is None:
+            raise SystemExit("`Limits.DURATA` non e' una costante letterale.")
+        return {
+            "--deadline-ms" if campo == durata else f"--{campo.replace('_', '-')}"
+            for campo in campi
+        }
+    raise SystemExit("`Limits` non si trova in limits.py.")
+
+
 def main() -> int:
     manifesto = json.loads(CONTRATTO.read_text(encoding="utf-8"))
     obbligatori = tuple_dichiarate(MODELLI, "OBBLIGATORI")
@@ -281,6 +343,26 @@ def main() -> int:
                 "contiene piu': l'esenzione non ha piu' un oggetto."
             )
 
+    # --- i tetti, contro le opzioni che la CLI ammette ---------------------
+    #
+    # Un tetto che l'SDK offre e la CLI non conosce e' un comando che fallira'
+    # sull'uso; uno che la CLI accetta e l'SDK non offre e' un tetto
+    # raggiungibile solo scrivendo la riga a mano, cioe' facendo a mano il
+    # lavoro per cui l'SDK esiste.
+    ammesse = opzioni_della_cli()
+    offerte = tetti_dell_sdk()
+    for opzione in sorted(offerte - ammesse):
+        problemi.append(
+            f"l'SDK offre il tetto «{opzione}», che la CLI non ammette: chi lo "
+            "passa ottiene un errore d'uso."
+        )
+    for opzione in sorted(ammesse - offerte - NON_SONO_TETTI):
+        problemi.append(
+            f"la CLI ammette «{opzione}» e l'SDK non lo offre: e' raggiungibile "
+            "solo scrivendo la riga a mano. Se non e' un tetto, va dichiarato "
+            "in `NON_SONO_TETTI`."
+        )
+
     # --- le categorie d'errore --------------------------------------------
     attese = set(categorie_del_contratto())
     coperte = categorie_dell_sdk()
@@ -311,7 +393,8 @@ def main() -> int:
     print(
         f"SDK verificato: {len(POSTI)} modelli e {campi} campi confrontati col "
         f"protocollo v2, {len(coperte)} categorie d'errore coperte una a una, "
-        f"{len(GREZZE)} sottostrutture dichiarate grezze."
+        f"{len(GREZZE)} sottostrutture dichiarate grezze, "
+        f"{len(offerte)} tetti che la CLI ammette."
     )
     return 0
 

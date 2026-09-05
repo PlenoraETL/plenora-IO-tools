@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "plenora-io"
-version = "0.2.0"
+version = "0.3.0"
 description = "Wrapper Python puro sopra la CLI plenora-io e il suo protocollo v2"
 readme = "README.md"
 requires-python = ">=3.11"

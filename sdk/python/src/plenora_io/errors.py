@@ -185,13 +185,24 @@ class CommandFailed(PlenoraError):
         return retry.get("delay_ms") if retry.get("kind") == "after" else None
 
     @property
-    def remote_committed(self) -> bool:
-        """Il lavoro remoto potrebbe essere andato a buon fine.
+    def must_assume_remote_committed(self) -> bool:
+        """Un ritentativo cieco **non** e' sicuro: vada come deve andare.
 
-        Vero per `committed` **e** per `unknown`: chi non sa deve comportarsi
-        come chi sa di si', perche' l'alternativa e' rifare un lavoro gia'
-        fatto. Trattare `unknown` come `none` e' l'errore che questa proprieta'
-        esiste per non far commettere.
+        Vera per `committed`, dove il lavoro remoto e' andato a buon fine, e per
+        `unknown`, dove non si sa. Le due cose non sono la stessa, e il nome non
+        dice che lo siano: dice che chi deve decidere se ripetere l'operazione
+        deve comportarsi allo stesso modo in entrambi i casi, perche'
+        l'alternativa e' rifare un lavoro gia' fatto.
+
+        Si chiamava `remote_committed`, e affermava una cosa che nessuno sa:
+        davanti a `unknown` restituiva `True` come se il commit fosse
+        accertato. Chi la leggeva imparava dal nome un fatto sbagliato, e chi
+        avesse voluto **distinguere** i due stati avrebbe dovuto scoprire da se'
+        che il nome non li distingueva.
+
+        `envelope.remote_effect` resta intatto, ed e' li' che si guarda quando
+        la differenza fra «commesso» e «ignoto» conta -- per esempio per
+        decidere se **verificare** lo stato remoto invece di riprovare.
         """
         return self.envelope.remote_effect in ("committed", "unknown")
 

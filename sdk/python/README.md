@@ -22,9 +22,28 @@ questi comandi fanno: leggono e scrivono file, e il costo sta li'.
 * la scoperta del binario, **fail-closed**;
 * la lettura del `MANIFEST.json` dell'artefatto distribuito, quando c'e';
 * il controllo del profilo, prima di eseguire invece che dopo;
-* `--version`, `catalog`, `inspect` e `layers`, con i modelli tipizzati.
+* `--version`, `catalog`, `inspect`, `layers` e `validate`, con i modelli
+  tipizzati e i tetti in `Limits`.
 
-`convert` e `validate` **non** ci sono ancora.
+`convert` **non** c'e' ancora.
+
+## `validate()` conta, non consegna
+
+E' il comando `read` della CLI, col nome che dice che cosa fa: legge il file per
+intero -- ogni geometria decodificata, ogni tetto applicato -- e restituisce
+quante righe ha letto, in quanti batch, con quale fedelta'. Non una riga di dati.
+Chiamarlo `read()` avrebbe promesso righe che non arrivano.
+
+Due comportamenti **misurati**, che il contratto non dichiara e i nomi non
+suggeriscono: `limit` e' per **batch**, quindi `rows_read` puo' superarlo; e
+`truncated` dice «mi sono fermato per il limite», non «c'era altro».
+
+## La deadline non e' il timeout
+
+`Limits(deadline=...)` e' un budget che il **prodotto** rispetta: quando scade
+risponde con una busta che descrive il lavoro fatto. `Client(timeout=...)`
+uccide il processo da fuori, e quel che resta e' un `ProtocolError` che dice che
+non si sa.
 
 ## Gli errori si distinguono per categoria, non per messaggio
 
@@ -44,8 +63,18 @@ riscriverlo: un SDK che invitasse a `if "non trovato" in str(errore)` inviterebb
 a dipendere da una stringa che cambia senza preavviso.
 
 L'errore porta i quattro assi interi. `retryable` e `retry_after_ms` dicono se e
-quanto aspettare; `remote_committed` e' vero anche per `unknown`, perche' chi non
-sa deve comportarsi come chi sa di si'.
+quanto aspettare; `must_assume_remote_committed` dice che un ritentativo cieco
+non e' sicuro -- vera per `committed` e per `unknown`, che portano alla stessa
+decisione pur essendo due fatti diversi. Quale dei due sia lo dice
+`envelope.remote_effect`, che resta intatto: serve a chi deve scegliere se
+**verificare** lo stato remoto invece di riprovare.
+
+## L'SDK parla v2, e basta
+
+Con successo il v2 non scrive niente su `stderr`, e l'SDK lo pretende: qualunque
+cosa vi compaia e' un errore di protocollo. Non c'e' tolleranza implicita per il
+v1 -- un protocollo diverso si sceglie, non si deduce dal fatto che qualcosa sia
+comparso su un flusso.
 
 ## `inspect()` costa piu' di `layers()`
 

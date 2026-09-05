@@ -27,6 +27,7 @@ from plenora_io import (
     LayerSummary,
     Omissions,
     ProtocolError,
+    Validation,
     Version,
 )
 
@@ -378,6 +379,53 @@ class LaBustaDiLayers(unittest.TestCase):
                 del documento[campo]
                 with self.assertRaises(ProtocolError):
                     Layers.from_json(documento)
+
+
+
+def validazione_sana(**modifiche):
+    documento = {
+        "status": "ok",
+        "protocol_version": 2,
+        "contract": "plenora-io-read-v2",
+        "format": "geojson",
+        "layer": strato_sano(),
+        "rows_read": 5,
+        "batches": 1,
+        "truncated": False,
+        "fidelity": fedelta_sana(),
+    }
+    documento.update(modifiche)
+    return documento
+
+
+class LaBustaDiValidate(unittest.TestCase):
+    def test_letta_intera(self) -> None:
+        esito = Validation.from_json(validazione_sana())
+        self.assertEqual(esito.rows_read, 5)
+        self.assertEqual(esito.batches, 1)
+        self.assertEqual(esito.layer.name, "canonico")
+        self.assertTrue(esito.complete)
+
+    def test_completo_e_il_contrario_di_troncato(self) -> None:
+        """Il nome positivo e' quello che si scrive in un `if`: `if complete`
+        invece di `if not truncated`, che si legge male e si nega peggio."""
+        self.assertFalse(Validation.from_json(validazione_sana(truncated=True)).complete)
+
+    def test_non_porta_righe(self) -> None:
+        """La busta conta e non consegna: se un giorno portasse dati, questo
+        modello li butterebbe via in silenzio e la sonda lo direbbe."""
+        esito = Validation.from_json(validazione_sana())
+        self.assertFalse(hasattr(esito, "rows"))
+        self.assertFalse(hasattr(esito, "data"))
+        self.assertNotIn("rows", esito.raw)
+
+    def test_ogni_campo_obbligatorio_mancante_e_un_errore(self) -> None:
+        for campo in Validation.OBBLIGATORI:
+            with self.subTest(campo=campo):
+                documento = validazione_sana()
+                del documento[campo]
+                with self.assertRaises(ProtocolError):
+                    Validation.from_json(documento)
 
 
 class IModelliSeguonoIlContratto(unittest.TestCase):

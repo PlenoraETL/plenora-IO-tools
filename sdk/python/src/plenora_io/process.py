@@ -23,12 +23,23 @@ Qui il flusso si sceglie dal codice d'uscita, che e' cio' che il protocollo
 lega all'esito, e il contenuto dell'altro flusso e' verificato invece che
 ignorato.
 
-# Perche' `stderr` non vuoto con successo non e' un errore
+# Perche' `stderr` non vuoto con successo **e'** un errore
 
-Il protocollo legacy scrive su `stderr` un avviso quando lo si sceglie -- e' il
-solo caso in cui `stderr` porta testo con un'uscita a zero. L'SDK non espone
-quel flag, ma l'esecutore non deve dipendere da chi lo chiama: un testo non-JSON
-su `stderr` accanto a un successo si conserva e non si interpreta.
+Il protocollo v2 dice che con successo `stderr` resta vuoto, e questo esecutore
+parla v2 e nient'altro. Qualunque cosa vi compaia e' percio' una violazione del
+contratto, e va detta.
+
+La prima stesura la tollerava, per il protocollo legacy: quello scrive su
+`stderr` un avviso quando lo si sceglie. Era una tolleranza **implicita** --
+l'SDK non espone quel flag, e nessuno l'aveva chiesta -- e il suo costo e' che
+rendeva invisibile la sola forma in cui il v2 puo' sporcare quel flusso: un
+avviso non previsto, una traccia di debug, la riga di una libreria che scrive
+dove non deve. Un consumatore che compone la CLI in una pipeline se ne
+accorgerebbe da un log corrotto, non da qui.
+
+Se un giorno il v1 servira', avra' un percorso suo, dichiarato: un protocollo
+diverso si sceglie, non si indovina dal fatto che qualcosa e' comparso su
+`stderr`.
 """
 
 from __future__ import annotations
@@ -112,6 +123,16 @@ class Runner:
     # --- i due flussi, ciascuno al proprio posto ---------------------------
 
     def _success(self, completed: Completed) -> dict[str, Any]:
+        if completed.stderr.strip():
+            # Il v2 tace su stderr quando riesce. Non e' pignoleria: e' la sola
+            # affermazione che rende quel flusso utilizzabile da chi compone la
+            # CLI in una pipeline, e tollerarne la violazione la toglierebbe.
+            raise ProtocolError(
+                f"`plenora-io {' '.join(completed.argv)}` e' riuscito e ha "
+                "scritto su stderr, dove il protocollo v2 non mette niente in "
+                "caso di successo. L'SDK parla v2: un altro protocollo si "
+                f"sceglie, non si deduce.\nstderr: {completed.stderr[:200]!r}"
+            )
         documento = self._decode(completed, "stdout")
         stato = documento.get("status")
         if stato != "ok":

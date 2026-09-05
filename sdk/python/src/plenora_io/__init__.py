@@ -9,8 +9,8 @@ progetto promette.
 # Che cosa c'e' oggi
 
 La scoperta del binario, il manifesto dell'artefatto, il controllo del profilo,
-e i comandi `--version`, `catalog`, `inspect`, `layers`. `convert` e `validate`
-non ci sono ancora.
+e i comandi `--version`, `catalog`, `inspect`, `layers` e `validate`.
+`convert` non c'e' ancora.
 
 # Gli errori si distinguono per **categoria**, non per messaggio
 
@@ -50,6 +50,7 @@ from .errors import (
     TransientError,
     UnsupportedError,
 )
+from .limits import Limits
 from .models import (
     Catalog,
     CrsResolution,
@@ -64,6 +65,7 @@ from .models import (
     Layers,
     LayerSummary,
     Omissions,
+    Validation,
     Version,
 )
 from .process import Runner
@@ -74,7 +76,7 @@ from .process import Runner
 #: proprio senza che il prodotto cambi, e un binario nuovo puo' funzionare con
 #: un SDK vecchio finche' il protocollo regge. Chi vuole la versione del
 #: prodotto la chiede a `Client.version()`, che la prende dal binario.
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
 #: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e
@@ -109,6 +111,7 @@ __all__ = [
     "Layer",
     "LayerSummary",
     "Layers",
+    "Limits",
     "Manifest",
     "ManifestError",
     "NotFoundError",
@@ -125,6 +128,7 @@ __all__ = [
     "TimeoutError",
     "TransientError",
     "UnsupportedError",
+    "Validation",
     "Version",
     "__version__",
 ]

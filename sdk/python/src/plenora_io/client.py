@@ -28,7 +28,8 @@ import os
 from pathlib import Path
 
 from .discovery import Manifest, leggi_manifesto, trova_binario, verifica_profilo
-from .models import Catalog, Inspect, Layers, Version
+from .limits import Limits
+from .models import Catalog, Inspect, Layers, Validation, Version
 from .process import Runner
 
 
@@ -127,6 +128,60 @@ class Client:
         return Layers.from_json(
             self._runner.run(self._argomenti("layers", source, assume_crs, options))
         )
+
+    def validate(
+        self,
+        source: str | os.PathLike[str],
+        *,
+        layer: int | None = None,
+        limit: int | None = None,
+        assume_crs: str | None = None,
+        options: dict[str, str] | None = None,
+        limits: Limits | None = None,
+    ) -> Validation:
+        """Legge il file per intero, conta, e **non restituisce le righe**.
+
+        E' il comando `read` della CLI, con il nome che dice che cosa fa: la
+        busta porta il conteggio delle righe, dei batch, il troncamento e la
+        fedelta', e non un solo valore dei dati. Chiamarlo `read()` avrebbe
+        promesso righe che non arrivano.
+
+        Serve a rispondere «questo file si legge?» pagando una lettura vera:
+        ogni geometria decodificata, ogni tetto applicato, ogni perdita
+        registrata. Un file che passa di qui e' un file che `convert` puo'
+        leggere, e le ragioni in `fidelity` dicono che cosa costerebbe.
+
+        `limit` e' un limite **per batch**, e questo e' il comportamento
+        misurato e non quello che il nome suggerisce: la lettura si ferma dopo
+        il primo batch che raggiunge o supera il limite, quindi `rows_read` puo'
+        essere maggiore di `limit`. Su un file di cinque righe lette in un
+        batch, `limit=1` restituisce cinque.
+
+        `truncated` dice che **la lettura si e' fermata per il limite**, non che
+        ci fossero altre righe: con `limit` pari al numero di righe del file
+        esce `True` pur avendole lette tutte. Chi vuole sapere se il file abbia
+        altro oltre quel punto non lo trova qui, e nessun campo della busta lo
+        dice.
+
+        Nessuna delle due semantiche e' dichiarata in
+        `release/cli-protocol-v2.json`: la ratifica delle buste ha censito la
+        **forma**, non il significato dei valori. Sono fissate qui e da una
+        sonda, cosi' che un cambiamento si veda; cambiarle sarebbe una decisione
+        di prodotto, perche' cambierebbe cio' che esce.
+
+        `limits` sono i tetti che il prodotto applica, `deadline` compresa. Non
+        vanno confusi con `Client(timeout=...)`, che uccide il processo da
+        fuori: il primo produce un errore tipizzato che descrive il lavoro
+        fatto, il secondo un `ProtocolError` che dice che non si sa.
+        """
+        argomenti = self._argomenti("read", source, assume_crs, options)
+        if layer is not None:
+            argomenti += ["--layer", str(layer)]
+        if limit is not None:
+            argomenti += ["--limit", str(limit)]
+        if limits is not None:
+            argomenti += limits.to_argv()
+        return Validation.from_json(self._runner.run(argomenti))
 
     # --- la riga di argomenti ---------------------------------------------
 

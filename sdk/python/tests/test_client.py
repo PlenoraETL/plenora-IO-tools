@@ -27,7 +27,15 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from plenora_io import Client, CommandFailed, ProtocolError
+from datetime import timedelta
+
+from plenora_io import (
+    Client,
+    CommandFailed,
+    Limits,
+    ProtocolError,
+    ResourceLimitError,
+)
 from plenora_io.discovery import NOME, VARIABILE
 
 RADICE = Path(__file__).resolve().parents[3]
@@ -270,6 +278,98 @@ class ContrIlBinarioVero(unittest.TestCase):
         esito = cliente.inspect(fixture, assume_crs="EPSG:3003")
         self.assertEqual(esito.format.id, "shp")
         self.assertEqual(esito.layers[0].geometry.crs, "EPSG:3003")
+
+
+    def test_validate_legge_conta_e_non_da_righe(self) -> None:
+        cliente = Client(binary=self.binario)
+        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        esito = cliente.validate(fixture)
+
+        self.assertEqual(esito.contract, "plenora-io-read-v2")
+        self.assertGreater(esito.rows_read, 0)
+        self.assertGreater(esito.batches, 0)
+        self.assertTrue(esito.complete)
+        # Lo schema c'e', i dati no: e' la ragione del nome.
+        self.assertTrue(esito.layer.fields)
+        self.assertNotIn("rows", esito.raw)
+
+    def test_il_conteggio_di_validate_e_quello_di_inspect(self) -> None:
+        """Le due strade guardano lo stesso file e devono descriverlo uguale."""
+        cliente = Client(binary=self.binario)
+        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.gpkg"
+        letto = cliente.validate(fixture)
+        guardato = cliente.inspect(fixture)
+
+        self.assertEqual(letto.format, guardato.format.id)
+        self.assertEqual(letto.layer.name, guardato.layers[0].name)
+        self.assertEqual(
+            [c.name for c in letto.layer.fields],
+            [c.name for c in guardato.layers[0].fields],
+        )
+
+    def test_il_limite_e_per_batch_e_truncated_dice_perche_si_e_fermato(self) -> None:
+        """Il comportamento **misurato**, che il nome non suggerisce.
+
+        `--limit` ferma la lettura dopo il primo batch che raggiunge il limite,
+        quindi `rows_read` puo' superarlo. E `truncated` dice «mi sono fermato
+        per il limite», non «c'era altro»: con il limite pari al numero di righe
+        del file esce vero pur avendole lette tutte.
+
+        Nessuna delle due cose e' dichiarata nel contratto, che ha censito la
+        forma delle buste e non il significato dei valori. La sonda le fissa
+        cosi' che un cambiamento si veda.
+        """
+        cliente = Client(binary=self.binario)
+        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        intero = cliente.validate(fixture)
+        righe = intero.rows_read
+
+        assaggio = cliente.validate(fixture, limit=1)
+        self.assertEqual(
+            assaggio.rows_read, righe, "il limite e' per batch, non per riga"
+        )
+        self.assertTrue(assaggio.truncated)
+
+        esatto = cliente.validate(fixture, limit=righe)
+        self.assertTrue(
+            esatto.truncated,
+            "vero anche quando il file e' finito: dice perche' si e' fermato",
+        )
+
+        oltre = cliente.validate(fixture, limit=righe + 1)
+        self.assertFalse(oltre.truncated)
+        self.assertTrue(oltre.complete)
+
+    def test_un_tetto_superato_e_un_errore_tipizzato(self) -> None:
+        """La difesa che scatta e' un'informazione, non un guasto: chi la
+        incontra alza il tetto o riduce il lavoro, e in entrambi i casi decide."""
+        cliente = Client(binary=self.binario)
+        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        with self.assertRaises(ResourceLimitError) as preso:
+            cliente.validate(fixture, limits=Limits(max_rows=1))
+        self.assertEqual(preso.exception.envelope.category, "resource_limit")
+        self.assertFalse(preso.exception.retryable)
+
+    def test_una_deadline_governata_non_e_un_timeout_dell_sdk(self) -> None:
+        """Le due cose si distinguono nell'esito, ed e' il punto.
+
+        La `deadline` la rispetta il prodotto: quando scade risponde con una
+        busta che descrive il lavoro fatto. Il `timeout` del client uccide il
+        processo, e quel che resta e' «non si sa».
+        """
+        cliente = Client(binary=self.binario)
+        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        # Una deadline generosa non cambia l'esito: la sonda non misura il
+        # tempo, misura che l'opzione arrivi al prodotto senza rompere niente.
+        esito = cliente.validate(fixture, limits=Limits(deadline=timedelta(seconds=30)))
+        self.assertTrue(esito.complete)
+
+    def test_un_layer_che_non_esiste_e_un_rifiuto(self) -> None:
+        cliente = Client(binary=self.binario)
+        fixture = RADICE / "crates/plenora-io-cli/tests/fixtures/canoniche/canonico.geojson"
+        with self.assertRaises(CommandFailed) as preso:
+            cliente.validate(fixture, layer=99)
+        self.assertTrue(preso.exception.envelope.code)
 
     def test_un_comando_che_fallisce_porta_la_busta(self) -> None:
         """La via d'errore, dal prodotto vero e non da un finto.

@@ -52,18 +52,50 @@ class LEsecutore(unittest.TestCase):
         runner = self.runner('print(json.dumps({"status": "ok", "a": 1}))\n')
         self.assertEqual(runner.run(["catalog"]), {"status": "ok", "a": 1})
 
-    def test_un_avviso_su_stderr_non_e_un_errore(self) -> None:
-        """Il protocollo legacy scrive un avviso su stderr **con successo**.
+    def test_qualunque_cosa_su_stderr_con_successo_e_una_violazione(self) -> None:
+        """Il v2 tace su stderr quando riesce, e l'SDK parla v2.
 
-        L'SDK non espone quel flag, e l'esecutore non deve dipendere da chi lo
-        chiama: un testo non-JSON su stderr accanto a un'uscita a zero si
-        conserva e non si interpreta.
+        La prima stesura tollerava l'avviso del protocollo legacy. Era una
+        tolleranza implicita -- l'SDK non espone quel flag, e nessuno l'aveva
+        chiesta -- e rendeva invisibile la sola forma in cui il v2 puo' sporcare
+        quel flusso: un avviso non previsto, una traccia di debug, la riga di
+        una libreria che scrive dove non deve.
         """
+        for rumore in (
+            "attenzione: protocollo legacy",
+            "DEBUG: apro il file",
+            " ",
+        ):
+            with self.subTest(rumore=rumore):
+                runner = self.runner(
+                    f"print({rumore!r}, file=sys.stderr)\n"
+                    'print(json.dumps({"status": "ok"}))\n'
+                )
+                if not rumore.strip():
+                    # Uno spazio solo non e' contenuto: il flusso e' vuoto per
+                    # come lo si giudica, e il confine va detto invece che
+                    # scoperto da chi ci inciampa.
+                    self.assertEqual(runner.run(["convert"]), {"status": "ok"})
+                    continue
+                with self.assertRaises(ProtocolError) as preso:
+                    runner.run(["convert"])
+                self.assertIn("non mette niente", str(preso.exception))
+                self.assertIn(rumore, str(preso.exception))
+
+    def test_il_successo_pulito_resta_un_successo(self) -> None:
+        """La controprova: senza, «stderr sporco e' un errore» sarebbe vero
+        anche di un esecutore che rifiuta ogni successo."""
+        runner = self.runner('print(json.dumps({"status": "ok", "a": 1}))\n')
+        self.assertEqual(runner.run(["catalog"]), {"status": "ok", "a": 1})
+
+    def test_stderr_sporco_non_conta_quando_il_comando_fallisce(self) -> None:
+        """La regola vale sul **successo**: in caso d'errore stderr porta la
+        busta, ed e' li' che si legge."""
         runner = self.runner(
-            'print("attenzione: protocollo legacy", file=sys.stderr)\n'
-            'print(json.dumps({"status": "ok"}))\n'
+            f"print({BUSTA_ERRORE!r}, file=sys.stderr)\nsys.exit(5)\n"
         )
-        self.assertEqual(runner.run(["convert"]), {"status": "ok"})
+        with self.assertRaises(NotFoundError):
+            runner.run(["read", "x"])
 
     # --- l'errore, e la sua busta -----------------------------------------
 
@@ -217,9 +249,12 @@ class LaGerarchiaDegliErrori(unittest.TestCase):
         # detto, e chi riprova sceglie da se'.
         self.assertIsNone(sicuro.retry_after_ms)
 
-    def test_l_ignoto_si_tratta_come_il_commesso(self) -> None:
-        """Chi non sa deve comportarsi come chi sa di si': l'alternativa e'
-        rifare un lavoro gia' fatto."""
+    def test_un_ritentativo_cieco_non_e_sicuro_in_due_stati(self) -> None:
+        """La proprieta' dice che cosa **fare**, non che cosa e' successo.
+
+        `committed` e `unknown` portano alla stessa decisione -- non ripetere
+        alla cieca -- e sono due fatti diversi. Il nome dice la decisione.
+        """
         for effetto, atteso in (
             ("none", False),
             ("rolled_back", False),
@@ -228,9 +263,36 @@ class LaGerarchiaDegliErrori(unittest.TestCase):
             ("unknown", True),
         ):
             with self.subTest(effetto=effetto):
-                self.assertEqual(
-                    self.solleva(remote_effect=effetto).remote_committed, atteso
-                )
+                errore = self.solleva(remote_effect=effetto)
+                self.assertEqual(errore.must_assume_remote_committed, atteso)
+
+    def test_il_valore_originale_resta_leggibile(self) -> None:
+        """La controprova che rende onesto il nome.
+
+        Si chiamava `remote_committed`, e davanti a `unknown` restituiva `True`
+        come se il commit fosse accertato: chi la leggeva imparava dal nome un
+        fatto sbagliato. I due stati devono restare **distinguibili** per chi
+        deve decidere se verificare lo stato remoto invece di riprovare.
+        """
+        commesso = self.solleva(remote_effect="committed")
+        ignoto = self.solleva(remote_effect="unknown")
+
+        self.assertEqual(
+            commesso.must_assume_remote_committed,
+            ignoto.must_assume_remote_committed,
+            "la decisione e' la stessa",
+        )
+        self.assertNotEqual(
+            commesso.envelope.remote_effect,
+            ignoto.envelope.remote_effect,
+            "e i due fatti restano diversi: e' cio' che il vecchio nome perdeva",
+        )
+        self.assertEqual(ignoto.envelope.remote_effect, "unknown")
+
+    def test_il_nome_vecchio_non_esiste_piu(self) -> None:
+        """Lasciarlo come alias terrebbe in vita l'affermazione sbagliata, e
+        chi lo usasse non saprebbe mai di dover guardare altrove."""
+        self.assertFalse(hasattr(self.solleva(), "remote_committed"))
 
     def test_il_messaggio_non_e_un_asse_su_cui_reagire(self) -> None:
         """Due errori con lo **stesso** testo e categorie diverse danno classi

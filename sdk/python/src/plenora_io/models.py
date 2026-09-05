@@ -609,3 +609,76 @@ class Layers:
                 return strato
         noti = ", ".join(strato.name for strato in self.layers)
         raise KeyError(f"nessun layer «{name}»; il file ne ha: {noti}")
+
+
+@dataclass(frozen=True, kw_only=True)
+class Validation:
+    """L'esito di `validate()`, cioe' della busta `plenora-io-read-v2`.
+
+    # Che cosa dice, e che cosa non da'
+
+    Il comando legge il file **per intero** -- decodifica ogni geometria, applica
+    ogni tetto, accumula la diagnostica di perdita -- e poi butta via le righe.
+    Restituisce quante ne ha lette, in quanti batch, se si e' fermato prima
+    della fine, e con quale fedelta'.
+
+    Non e' una lettura a meta': e' una lettura completa di cui si conserva il
+    **giudizio** invece dei dati. Chi vuole i dati non li chiede a questo
+    comando: li fa scrivere da `convert` in un formato che sa leggere.
+
+    # `truncated` non e' un dettaglio
+
+    Dice che il conteggio **non e' quello del file**: si e' fermato a un limite,
+    e le righe oltre non sono state guardate. Un consumatore che leggesse
+    `rows_read` senza guardarlo concluderebbe che il file ha meno righe di
+    quante ne abbia, e la differenza non si vede da nessun'altra parte.
+    """
+
+    status: str
+    protocol_version: int
+    contract: str
+    format: str
+    layer: Layer
+    rows_read: int
+    batches: int
+    truncated: bool
+    fidelity: Fidelity
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    OBBLIGATORI = (
+        "status",
+        "protocol_version",
+        "contract",
+        "format",
+        "layer",
+        "rows_read",
+        "batches",
+        "truncated",
+        "fidelity",
+    )
+
+    @classmethod
+    def from_json(cls, documento: dict[str, Any]) -> "Validation":
+        _pretendi(documento, cls.OBBLIGATORI, "read")
+        return cls(
+            status=documento["status"],
+            protocol_version=documento["protocol_version"],
+            contract=documento["contract"],
+            format=documento["format"],
+            layer=Layer.from_json(documento["layer"]),
+            rows_read=documento["rows_read"],
+            batches=documento["batches"],
+            truncated=documento["truncated"],
+            fidelity=Fidelity.from_json(documento["fidelity"]),
+            raw=dict(documento),
+        )
+
+    @property
+    def complete(self) -> bool:
+        """Il file e' stato letto fino in fondo.
+
+        E' il contrario di `truncated`, e sta qui perche' il nome positivo e'
+        quello che si scrive in un `if`: `if esito.complete` invece di
+        `if not esito.truncated`, che si legge male e si nega peggio.
+        """
+        return not self.truncated
