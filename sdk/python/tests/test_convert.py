@@ -27,8 +27,7 @@ from plenora_io import (
 )
 from plenora_io.discovery import NOME, VARIABILE
 
-RADICE = Path(__file__).resolve().parents[3]
-CANONICHE = RADICE / "crates" / "plenora-io-cli" / "tests" / "fixtures" / "canoniche"
+from _repository import CANONICHE, RADICE, serve_le_fixture
 
 
 def omesse_sane():
@@ -187,6 +186,7 @@ class IlRapportoDiPerdita(unittest.TestCase):
         self.assertIn("non un elenco", str(preso.exception))
 
 
+@serve_le_fixture
 class ControIlBinarioVero(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

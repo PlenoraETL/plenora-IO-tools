@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import json
 import unittest
-from pathlib import Path
-
 from plenora_io import (
     Catalog,
     CrsResolution,
@@ -31,8 +29,7 @@ from plenora_io import (
     Version,
 )
 
-RADICE = Path(__file__).resolve().parents[3]
-CONTRATTO = RADICE / "release" / "cli-protocol-v2.json"
+from _repository import CONTRATTO, serve_il_repository
 
 
 def driver_sano(**modifiche):
@@ -449,7 +446,7 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
             fuori[resto] = bool(voce["sempre"])
         return fuori
 
-    @unittest.skipUnless(CONTRATTO.is_file(), "il contratto sta nel repository")
+    @serve_il_repository
     def test_il_driver_espone_i_campi_che_il_protocollo_dichiara(self) -> None:
         """`Driver` e' un `FormatDescriptor` piu' i due campi del catalogo.
 
@@ -461,7 +458,7 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
         attesi = {c for c, sempre in self.struttura(".drivers[]").items() if sempre}
         self.assertEqual(set(FormatDescriptor.OBBLIGATORI) | set(Driver.PROPRI), attesi)
 
-    @unittest.skipUnless(CONTRATTO.is_file(), "il contratto sta nel repository")
+    @serve_il_repository
     def test_il_descrittore_di_inspect_e_quello_del_catalogo(self) -> None:
         """I due campi del catalogo sono **esattamente** la differenza.
 
@@ -487,7 +484,7 @@ class IModelliSeguonoIlContratto(unittest.TestCase):
         self.assertEqual(del_catalogo - di_inspect, set(Driver.PROPRI))
         self.assertEqual(di_inspect, set(FormatDescriptor.OBBLIGATORI))
 
-    @unittest.skipUnless(CONTRATTO.is_file(), "il contratto sta nel repository")
+    @serve_il_repository
     def test_il_catalogo_espone_i_campi_che_il_protocollo_dichiara(self) -> None:
         attesi = {c for c, sempre in self.struttura("").items() if sempre}
         self.assertEqual(set(Catalog.OBBLIGATORI), attesi)

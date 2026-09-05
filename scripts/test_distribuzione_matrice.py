@@ -596,8 +596,17 @@ class SondeMatrice(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("gate", percorso)
         gate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(gate)
-        self.assertIn("runtime", gate.attese_per("base"))
-        self.assertIn("runtime", gate.attese_per("filegdb"))
+        # Il profilo base e' un artefatto **nativo**, e la sua classe pretende
+        # la chiusura come l'altro: e' la classe a decidere, non il profilo.
+        import json as _json
+
+        matrice = _json.loads(gate.MATRICE.read_text(encoding="utf-8"))
+        self.assertIn(
+            "runtime", gate.attese_per("base", "nativo", gate.classi(matrice))
+        )
+        self.assertIn(
+            "runtime", gate.attese_per("filegdb", "nativo", gate.classi(matrice))
+        )
         self.assertNotIn(
             "elf_spediti",
             gate.VERIFICHE_ATTESE["runtime"]["misure_obbligatorie"],

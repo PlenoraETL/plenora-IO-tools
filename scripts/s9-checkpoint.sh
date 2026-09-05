@@ -679,6 +679,21 @@ passo check_buste_v2 python3 scripts/check_buste_v2.py
 # nell'ambiente.
 passo sonde_sdk_python env PYTHONPATH=sdk/python/src python3 -m unittest discover -s sdk/python/tests -p "test_*.py"
 passo check_sdk_python python3 scripts/check_sdk_python.py
+# Il pacchetto si costruisce, e i byte sono gli stessi due volte.
+#
+# La riproducibilita' non e' un vezzo: un checksum che cambia senza che cambi il
+# contenuto non lega niente, e la pubblicazione deve poter riusare **gli stessi
+# byte** che sono stati qualificati invece di ricostruirli.
+passo costruisci_pacchetto_python python3 scripts/costruisci-pacchetto-python.py --uscita target/pacchetto-python --referti target/referti-python
+passo pacchetto_python_riproducibile bash scripts/verifica-riproducibilita-python.sh
+# Lo smoke in ambienti **puliti**: la wheel installata, la sdist ricostruita, e
+# la suite eseguita contro il pacchetto installato invece che contro i sorgenti
+# che stanno li' accanto.
+passo smoke_pacchetto_python bash scripts/smoke-pacchetto-python.sh target/pacchetto-python
+# `requires-python` copre esattamente le versioni che la CI prova, nei due
+# versi. Una riga piu' larga della matrice promette un Python su cui nessuno ha
+# guardato; una piu' stretta rifiuta installazioni che funzionano.
+passo check_requires_python python3 scripts/check_requires_python.py
 # Il confine del v1: `detail_v1()` restituisce i nomi presi dal file, e li
 # pubblica **un solo** adattatore. La visibilita' di Rust non sa dire «questo
 # modulo e nessun altro», e un accessore pubblico e' pubblico: senza questo

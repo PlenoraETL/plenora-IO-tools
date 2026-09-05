@@ -31,7 +31,26 @@ def carica(percorso: pathlib.Path):
     return modulo
 
 
-class SondeDelGateFinale(unittest.TestCase):
+class ConGliArtefattiAttesi:
+    """Gli artefatti attesi, derivati dalla matrice come li deriva il gate.
+
+    Sta in una base condivisa perche' due gruppi di sonde ne hanno bisogno, e
+    duplicare la derivazione avrebbe prodotto due copie di cio' che il gate fa
+    -- destinate a divergere proprio nel punto che stanno verificando.
+    """
+
+    def matrice(self) -> dict:
+        return json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+
+    def attesi(self, piattaforme=("linux-x86_64",)):
+        matrice = self.matrice()
+        return (
+            self.gate.artefatti_attesi(matrice, piattaforme),
+            self.gate.classi(matrice),
+        )
+
+
+class SondeDelGateFinale(ConGliArtefattiAttesi, unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
@@ -66,6 +85,17 @@ class SondeDelGateFinale(unittest.TestCase):
                 "schema_riletto": True if profilo == "filegdb" else None,
                 "firma": {"stato": "non_richiesta"},
             },
+            # Le due della classe `python-puro`. Zero e' una misura come le
+            # altre: dice che il pacchetto non ha dipendenze, non che nessuno
+            # le abbia contate.
+            "sbom": {"componenti_di_terzi": 0},
+            "smoke-installato": {
+                "manifesto_letto": True,
+                "profilo_accettato": True,
+                "profilo_altrui_rifiutato": True,
+                "binari_nel_pacchetto": 0,
+                "dipendenze": 0,
+            },
         }[verifica]
         documento = {
             "schema_referto": self.distribuzione.SCHEMA_REFERTO,
@@ -85,12 +115,14 @@ class SondeDelGateFinale(unittest.TestCase):
         )
 
     def serie_completa(self, piattaforma: str = "linux-x86_64", canale: str = "prova") -> None:
-        for profilo in self.gate.PROFILI:
-            for verifica in self.gate.attese_per(profilo):
-                self.referto(piattaforma, profilo, verifica, canale=canale)
+        artefatti, dichiarate = self.attesi((piattaforma,))
+        for coordinata, profilo, classe in artefatti:
+            for verifica in self.gate.attese_per(profilo, classe, dichiarate):
+                self.referto(coordinata, profilo, verifica, canale=canale)
 
     def esegui(self, canale: str = "prova", piattaforme=("linux-x86_64",)) -> list[str]:
-        return self.gate.verifica(self.tmp, canale, piattaforme)
+        artefatti, dichiarate = self.attesi(piattaforme)
+        return self.gate.verifica(self.tmp, canale, piattaforme, artefatti, dichiarate)
 
     def test_una_serie_completa_passa(self) -> None:
         self.serie_completa()
@@ -192,7 +224,7 @@ class SondeDelGateFinale(unittest.TestCase):
         self.assertTrue(self.esegui())
 
 
-class SondeDellaFirma(unittest.TestCase):
+class SondeDellaFirma(ConGliArtefattiAttesi, unittest.TestCase):
     """La scelta unsigned deve essere esplicita, non un buco del workflow."""
 
     def setUp(self) -> None:
@@ -226,8 +258,11 @@ class SondeDellaFirma(unittest.TestCase):
         La candidate continua a portare `firma.stato=non_richiesta`; runtime,
         licenze, smoke, relocation, digest e provenance restano tutti pretesi.
         """
-        for profilo in self.gate.PROFILI:
-            for verifica in self.gate.attese_per(profilo):
+        artefatti, dichiarate = self.attesi(("windows-x86_64",))
+        # La coordinata viene dall'artefatto: quelli della classe `python-puro`
+        # hanno `any`, e scriverla a mano li avrebbe fatti sembrare mancanti.
+        for coordinata, profilo, classe in artefatti:
+            for verifica in self.gate.attese_per(profilo, classe, dichiarate):
                 misure = (
                     {"firma": self.d.stato_della_firma("windows-x86_64", "candidate")}
                     if verifica == "smoke-profilo"
@@ -237,12 +272,12 @@ class SondeDellaFirma(unittest.TestCase):
                     misure["filegdb_assente" if profilo == "base" else "schema_riletto"] = True
                 for obbligatoria in self.gate.VERIFICHE_ATTESE[verifica]["misure_obbligatorie"]:
                     misure[obbligatoria] = 1
-                (self.tmp / f"{profilo}-{verifica}.json").write_text(
+                (self.tmp / f"{coordinata}-{profilo}-{verifica}.json").write_text(
                     json.dumps(
                         {
                             "schema_referto": self.d.SCHEMA_REFERTO,
                             "verifica": verifica,
-                            "piattaforma": "windows-x86_64",
+                            "piattaforma": coordinata,
                             "profilo": profilo,
                             "canale": "candidate",
                             "esito": "verde",
@@ -253,7 +288,9 @@ class SondeDellaFirma(unittest.TestCase):
                     encoding="utf-8",
                 )
         self.assertEqual(
-            self.gate.verifica(self.tmp, "candidate", ("windows-x86_64",)), []
+            self.gate.verifica(
+                self.tmp, "candidate", ("windows-x86_64",), *self.attesi(("windows-x86_64",))
+            ), []
         )
 
     def test_il_manifesto_non_puo_omettere_la_decisione(self) -> None:
@@ -375,13 +412,73 @@ class SondeDelPerimetro(unittest.TestCase):
         distribuite, _ = self.gate.perimetro()
         self.assertNotIn("macos-aarch64", distribuite)
 
-    def test_gli_artefatti_attesi_sono_quattro(self) -> None:
-        """Due piattaforme per due profili. E' il numero che la matrice
-        dichiara, e viene dalla stessa fonte da cui il gate lo calcola."""
+    def test_gli_artefatti_attesi_si_derivano_dalle_classi(self) -> None:
+        """Il numero e' una **somma**, non una costante.
+
+        Quattro nativi -- due piattaforme per due profili -- piu' i due della
+        classe `python-puro`. Il gate non lo scrive da nessuna parte: lo ottiene
+        sommando cio' che le classi producono, e questa sonda lo ricalcola dalla
+        stessa fonte per un verso diverso.
+        """
         distribuite, _ = self.gate.perimetro()
-        self.assertEqual(len(distribuite) * len(self.gate.PROFILI), 4)
-        matrice = json.loads(self.originale)
-        self.assertIn("quattro", matrice["perimetro"]["artefatti_attesi"])
+        matrice = json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        artefatti = self.gate.artefatti_attesi(matrice, distribuite)
+
+        nativi = [a for a in artefatti if a[2] == "nativo"]
+        python = [a for a in artefatti if a[2] == "python-puro"]
+        self.assertEqual(len(nativi), len(distribuite) * len(self.gate.PROFILI))
+        self.assertEqual(len(python), len(matrice["artefatti_python"]["elenco"]))
+        self.assertEqual(len(artefatti), len(nativi) + len(python))
+
+    def test_una_classe_nuova_cambia_il_conteggio_da_sola(self) -> None:
+        """La proprieta' che rende il gate derivante invece che descrittivo.
+
+        Se aggiungere un artefatto richiedesse di toccare il gate, la matrice
+        non deciderebbe niente: documenterebbe quello che il gate fa gia'.
+        """
+        distribuite, _ = self.gate.perimetro()
+        matrice = json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        prima = len(self.gate.artefatti_attesi(matrice, distribuite))
+
+        matrice["artefatti_python"]["elenco"].append(
+            {"formato": "conda", "nome": "x", "che_cos_e": "un formato in piu'"}
+        )
+        dopo = len(self.gate.artefatti_attesi(matrice, distribuite))
+        self.assertEqual(dopo, prima + 1)
+
+    def test_una_wheel_pura_non_deve_un_referto_di_chiusura(self) -> None:
+        """Il punto per cui le classi esistono.
+
+        Pretendere da un pacchetto Python puro un referto `runtime` produrrebbe
+        un documento che parla di ELF dove non ce ne sono: un **falso referto**,
+        che e' peggio di uno mancante perche' il gate lo conta.
+        """
+        matrice = json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        dichiarate = self.gate.classi(matrice)
+
+        pura = self.gate.attese_per("wheel", "python-puro", dichiarate)
+        self.assertNotIn("runtime", pura)
+        self.assertNotIn("relocation", pura)
+        self.assertNotIn("digest-manifesto", pura)
+        # E cio' che invece deve: checksum e licenze le portano entrambe le
+        # classi, `sbom` e `smoke-installato` solo questa.
+        self.assertEqual(
+            pura, {"licenze-artefatto", "sbom", "provenance", "smoke-installato"}
+        )
+
+        nativa = self.gate.attese_per("base", "nativo", dichiarate)
+        self.assertIn("runtime", nativa)
+        self.assertIn("relocation", nativa)
+        self.assertNotIn("smoke-installato", nativa)
+
+    def test_una_classe_che_pretende_una_verifica_ignota_ferma_il_gate(self) -> None:
+        """Un obbligo che nessuno sa ricontare non e' un obbligo, e la matrice
+        non dev'essere il posto dove si promette senza conseguenze."""
+        matrice = json.loads(self.gate.MATRICE.read_text(encoding="utf-8"))
+        matrice["classi_di_artefatto"]["python-puro"]["obblighi"].append("inventata")
+        with self.assertRaises(SystemExit) as preso:
+            self.gate.classi(matrice)
+        self.assertIn("inventata", str(preso.exception))
 
 
 class SondeDelGateNelWorkflow(unittest.TestCase):

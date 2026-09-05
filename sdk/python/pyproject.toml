@@ -1,14 +1,32 @@
 [build-system]
-requires = ["setuptools>=68"]
+# `>=64` e non `>=68`: sessantaquattro e' la prima versione che regge un
+# progetto dichiarato interamente in `pyproject.toml`, ed e' quella che gli
+# ambienti di verifica hanno. Chiedere di piu' avrebbe costretto a scaricare
+# setuptools per costruire dalla sdist, cioe' a introdurre una rete dove questo
+# pacchetto promette di non averne bisogno.
+#
+# `wheel` c'e' perche' **serve davvero**: fino alla 70, setuptools delega a lui
+# il comando `bdist_wheel`, e senza, l'installazione dalla sdist fallisce con
+# «invalid command». Dichiararlo e' cio' che permette a un ambiente isolato di
+# procurarselo; l'abbiamo scoperto costruendo dalla sdist in un venv pulito, che
+# e' l'unico posto dove la differenza si vede.
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "plenora-io"
-version = "0.4.0"
 description = "Wrapper Python puro sopra la CLI plenora-io e il suo protocollo v2"
 readme = "README.md"
-requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+
+# Le versioni **provate**, e nient'altro.
+#
+# Il limite superiore non e' pessimismo: `Requires-Python` e' cio' che pip legge
+# per decidere se questo pacchetto puo' girare, e dichiarare `>=3.11` senza
+# limite prometterebbe ogni Python futuro. La matrice della CI prova 3.11, 3.12
+# e 3.13; il giorno in cui ne provera' un'altra, questa riga si allarga insieme
+# a lei.
+requires-python = ">=3.11,<3.14"
+
 # Nessuna dipendenza, ed e' una scelta.
 #
 # Un SDK che si appoggia a una CLI ha bisogno di `subprocess`, `json` e
@@ -17,11 +35,46 @@ license = { text = "Apache-2.0" }
 # che il linguaggio fa gia'.
 dependencies = []
 
+# La versione ha **una sola** sorgente autorevole: `plenora_io.__version__`.
+# Scritta anche qui, le due sarebbero divergute alla prima release fatta di
+# fretta, e il pacchetto avrebbe dichiarato una versione e importato un'altra.
+dynamic = ["version"]
+
+classifiers = [
+    # Il pacchetto non va su PyPI, e lo dice a chi provasse a caricarlo: i
+    # servizi di indice rifiutano questo classificatore. E' la stessa
+    # affermazione che i crate Rust di questo repository fanno con
+    # `publish = false`.
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+
+# `license` non c'e', e la sua assenza e' **dichiarata**.
+#
+# Questo repository non dichiara una licenza propria: nessun `Cargo.toml` ha un
+# campo `license`, tutti hanno `publish = false`, e la sezione «Licenza» del
+# README parla soltanto dei fork vendorizzati, che portano la propria. La prima
+# stesura di questo file diceva `Apache-2.0`: era un'invenzione, e propagarla
+# nei metadati di un pacchetto installabile l'avrebbe fatta leggere come una
+# concessione che nessuno ha fatto.
+#
+# Finche' la licenza non e' decisa, il pacchetto non si pubblica -- ed e'
+# esattamente cio' che il classificatore qui sopra dichiara.
+
 [project.urls]
 Repository = "https://github.com/PlenoraETL/plenora-IO-tools"
+
+[tool.setuptools.dynamic]
+version = { attr = "plenora_io.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
+# `py.typed` dice a un type checker che le annotazioni di questo pacchetto sono
+# da credere. Senza, mypy e pyright le ignorano e chi installa perde i tipi che
+# l'SDK esiste anche per dare.
 plenora_io = ["py.typed"]

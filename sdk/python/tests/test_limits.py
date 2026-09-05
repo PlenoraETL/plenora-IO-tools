@@ -9,8 +9,9 @@ from pathlib import Path
 
 from plenora_io import Limits
 
-RADICE = Path(__file__).resolve().parents[3]
-CLI = RADICE / "crates" / "plenora-io-cli" / "src" / "main.rs"
+from _repository import RADICE
+
+CLI = RADICE / "crates" / "plenora-io-cli" / "src" / "main.rs" if RADICE else None
 
 
 class ITetti(unittest.TestCase):
@@ -70,14 +71,14 @@ class ITettiEsistonoNellaCli(unittest.TestCase):
         self.assertIsNotNone(riga, "`OPZIONI_AMMESSE` non si trova")
         return {pezzo.strip() for pezzo in riga.group(1).split(",") if pezzo.strip()}
 
-    @unittest.skipUnless(CLI.is_file(), "la CLI sta nel repository")
+    @unittest.skipUnless(CLI is not None and CLI.is_file(), "la CLI sta nel repository")
     def test_ogni_tetto_dell_sdk_e_un_opzione_della_cli(self) -> None:
         ammesse = self.opzioni_della_cli()
         for opzione in Limits.opzioni():
             with self.subTest(opzione=opzione):
                 self.assertIn(opzione, ammesse)
 
-    @unittest.skipUnless(CLI.is_file(), "la CLI sta nel repository")
+    @unittest.skipUnless(CLI is not None and CLI.is_file(), "la CLI sta nel repository")
     def test_ogni_tetto_della_cli_e_offerto_dall_sdk(self) -> None:
         """Il verso inverso, con le eccezioni **dichiarate**.
 

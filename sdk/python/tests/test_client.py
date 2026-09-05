@@ -38,7 +38,7 @@ from plenora_io import (
 )
 from plenora_io.discovery import NOME, VARIABILE
 
-RADICE = Path(__file__).resolve().parents[3]
+from _repository import RADICE, serve_le_fixture
 
 
 def finto(directory: Path, corpo: str) -> Path:
@@ -149,6 +149,7 @@ class ConUnFinto(unittest.TestCase):
         self.assertIsNone(client.manifest)
 
 
+@serve_le_fixture
 class ContrIlBinarioVero(unittest.TestCase):
     """L'integrazione: le due buste di questo ciclo, dal prodotto."""
 

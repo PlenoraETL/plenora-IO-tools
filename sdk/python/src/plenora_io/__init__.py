@@ -75,13 +75,18 @@ from .models import (
 )
 from .process import Runner
 
-#: La versione dell'SDK, che **non** e' quella del binario.
+#: La versione dell'SDK, e la **sola** sorgente autorevole.
 #:
-#: Sono due cose distinte e vanno tenute tali: un SDK puo' uscire per un difetto
-#: proprio senza che il prodotto cambi, e un binario nuovo puo' funzionare con
-#: un SDK vecchio finche' il protocollo regge. Chi vuole la versione del
-#: prodotto la chiede a `Client.version()`, che la prende dal binario.
-__version__ = "0.4.0"
+#: `pyproject.toml` la legge da qui con `dynamic`, invece di ripeterla:
+#: scritta in due posti sarebbe divergita alla prima release fatta di fretta, e
+#: il pacchetto avrebbe dichiarato una versione e importato un'altra.
+#:
+#: Non e' la versione del **binario**, e le due vanno tenute distinte: un SDK
+#: puo' uscire per un difetto proprio senza che il prodotto cambi, e un binario
+#: nuovo puo' funzionare con un SDK vecchio finche' il protocollo regge. Che
+#: qui dica `2.0.0` come il prodotto e' la scelta di partire allineati, non un
+#: vincolo: chi vuole la versione del prodotto la chiede a `Client.version()`.
+__version__ = "2.0.0"
 
 #: Il protocollo che questo SDK sa leggere. La busta di bootstrap non lo porta
 #: -- si legge prima della negoziazione -- ma tutte le altre lo dichiarano, e

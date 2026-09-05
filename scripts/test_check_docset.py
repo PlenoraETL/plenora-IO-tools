@@ -467,6 +467,26 @@ class SondeEccezione(unittest.TestCase):
             "l'eccezione si e' allargata oltre il validatore e la sua sonda",
         )
 
+    def test_i_trascrittori_sono_un_insieme_a_parte(self) -> None:
+        """Leggere per **verificare** e leggere per **copiare** sono due cose.
+
+        Un unico insieme le avrebbe fuse in «script che possono leggere i
+        documenti», che e' la regola che questo gate non vuole. Il costruttore
+        del pacchetto Python mette il README nella descrizione dei metadati:
+        nella convenzione dei pacchetti Python la descrizione lunga *e'* il
+        README, e riscriverla a mano produrrebbe due testi destinati a
+        divergere.
+        """
+        self.assertEqual(
+            gate.TRASCRITTORI,
+            {"scripts/costruisci-pacchetto-python.py"},
+            "anche l'insieme dei trascrittori si allarga per decisione",
+        )
+        self.assertFalse(
+            gate.VALIDATORI & gate.TRASCRITTORI,
+            "uno script e' l'uno o l'altro: chi verifica non trascrive",
+        )
+
     def test_il_renderer_non_apre_il_docset(self) -> None:
         """La ragione per cui `stato_release` puo' restare fuori dall'insieme.
 

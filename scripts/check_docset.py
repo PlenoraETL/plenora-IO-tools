@@ -89,6 +89,23 @@ VALIDATORI = {
     "scripts/test_check_docset.py",
 }
 
+# Chi **trascrive** un documento invece di estrarne stato.
+#
+# E' un'eccezione di natura diversa da quella dei validatori, e sta in un
+# insieme suo per non allargare quello: un validatore legge per **verificare**,
+# un trascrittore copia il testo dove il testo deve andare. Mescolarli avrebbe
+# reso `VALIDATORI` un elenco di «script che possono leggere i documenti», che
+# e' esattamente la regola che qui non si vuole.
+#
+# Il costruttore del pacchetto Python mette `sdk/python/README.md` nel campo
+# `Description` dei metadati. Nella convenzione dei pacchetti Python la
+# descrizione lunga **e'** il README, e `pyproject.toml` lo dichiara con
+# `readme = "README.md"`: un costruttore che lo riscrivesse a mano produrrebbe
+# due testi destinati a divergere, e chi installa leggerebbe quello sbagliato.
+TRASCRITTORI = {
+    "scripts/costruisci-pacchetto-python.py",
+}
+
 # La baseline dei README vendorizzati: sono ridistribuiti, non nostri.
 BASELINE_VENDOR = "2fe9b54"
 
@@ -229,7 +246,7 @@ def nessun_markdown_come_database() -> list[str]:
     errori: list[str] = []
     lettura = re.compile(r"""read_text|read_bytes|open\(|load\(""")
     for percorso in nel_perimetro("scripts/*.py") + nel_perimetro("scripts/*.sh"):
-        if percorso in VALIDATORI:
+        if percorso in VALIDATORI | TRASCRITTORI:
             continue
         testo = (ROOT / percorso).read_text(encoding="utf-8", errors="replace")
         for numero, riga in enumerate(testo.splitlines(), 1):
@@ -397,7 +414,7 @@ def cronaca_residua() -> list[str]:
     schemi = [re.compile(s) for s in _nomi_eliminati()]
     for modello in PERIMETRO:
         for percorso in nel_perimetro(modello) + nel_perimetro(f"*/{modello}"):
-            if percorso.startswith("vendor/") or percorso in VALIDATORI:
+            if percorso.startswith("vendor/") or percorso in VALIDATORI | TRASCRITTORI:
                 continue
             testo = (ROOT / percorso).read_text(encoding="utf-8", errors="replace")
             for schema in schemi:

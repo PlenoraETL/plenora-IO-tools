@@ -115,6 +115,16 @@ jobs:
           --lavoro "$RUNNER_TEMP/smoke"
           --referto "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-smoke.json"
 
+      - name: L'SDK installato, contro questo artefatto
+        run: |
+          python3 scripts/costruisci-pacchetto-python.py --uscita "$RUNNER_TEMP/pacchetto"
+          python3 scripts/smoke-sdk-installato.py \
+            --albero "$RUNNER_TEMP/uscita/$(ls "$RUNNER_TEMP/uscita")" \
+            --wheel "$(ls "$RUNNER_TEMP"/pacchetto/*.whl)" \
+            --profilo "${{ matrix.profilo }}" \
+            --piattaforma linux-x86_64 --canale "$CANALE" \
+            --referto "$RUNNER_TEMP/referti/linux-${{ matrix.profilo }}-smoke-sdk.json"
+
       # Il relocation smoke **cancella** la directory di costruzione: e' la sua
       # condizione centrale, e per questo l'archivio viene copiato altrove prima.
       # Entrambi i profili: la premessa «il base non spedisce librerie» era
@@ -294,6 +304,18 @@ jobs:
           --albero "$RUNNER_TEMP/uscita/plenora-io-$VERSIONE-windows-x86_64-${{ matrix.profilo }}"
           --lavoro "$RUNNER_TEMP/smoke"
           --referto "$RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-smoke.json"
+
+      - name: L'SDK installato, contro questo artefatto
+        shell: pwsh
+        run: |
+          python scripts/costruisci-pacchetto-python.py --uscita "$env:RUNNER_TEMP/pacchetto"
+          $albero = (Get-ChildItem "$env:RUNNER_TEMP/uscita" -Directory)[0].FullName
+          $wheel = (Get-ChildItem "$env:RUNNER_TEMP/pacchetto/*.whl")[0].FullName
+          python scripts/smoke-sdk-installato.py `
+            --albero "$albero" --wheel "$wheel" `
+            --profilo "${{ matrix.profilo }}" `
+            --piattaforma windows-x86_64 --canale "$env:CANALE" `
+            --referto "$env:RUNNER_TEMP/referti/windows-${{ matrix.profilo }}-smoke-sdk.json"
 
       # Il relocation smoke: A cancellata, B con un percorso di lunghezza
       # diversa, terza directory, PATH ridotto e sentinelle. Su Windows manca

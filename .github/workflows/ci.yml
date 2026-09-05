@@ -536,3 +536,59 @@ jobs:
           cargo llvm-cov report --summary-only
           --ignore-filename-regex '(^|/)(plenora-bench|plenora-fuzz|plenora-io-cli)/src/.*\.rs$'
           --fail-under-lines 80
+
+  # Il pacchetto Python, su **ogni** versione che `requires-python` dichiara.
+  #
+  # E' il job che rende onesta quella riga. `>=3.11,<3.14` non e' una stima: e'
+  # l'insieme che questa matrice prova, e allargarla senza allargare la matrice
+  # prometterebbe un Python su cui nessuno ha guardato. Il gate
+  # `check_requires_python.py` confronta le due cose e diventa rosso se
+  # divergono.
+  #
+  # Nessun binario `plenora-io` qui: la wheel e' pura, e cio' che si prova e'
+  # che si costruisca, si installi e si importi. L'integrazione contro un
+  # artefatto vero sta nel workflow di distribuzione, dove un artefatto vero
+  # esiste.
+  python-sdk:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.0.0, Node 24
+        with:
+          python-version: ${{ matrix.python }}
+
+      # La versione dichiarata copre quella in prova. Se un giorno la matrice
+      # provasse un Python che `requires-python` esclude, il pacchetto si
+      # costruirebbe e non si installerebbe: meglio dirlo qui.
+      - name: La versione in prova rientra in requires-python
+        run: python3 scripts/check_requires_python.py --versione "${{ matrix.python }}"
+
+      - name: Costruisci wheel e sdist
+        run: python3 scripts/costruisci-pacchetto-python.py --uscita dist
+
+      - name: Gli stessi byte due volte
+        run: bash scripts/verifica-riproducibilita-python.sh
+
+      - name: Installa, importa, e la suite in ambienti puliti
+        run: bash scripts/smoke-pacchetto-python.sh dist
+
+      # Le sonde dell'SDK dal **repository**, dove le fixture e il contratto ci
+      # sono: quelle dello smoke girano dalla sdist, e li' saltano cio' che non
+      # e' applicabile. Le due corse coprono insiemi diversi, ed entrambe
+      # servono.
+      - name: Le sonde dell'SDK, con il contratto e le fixture
+        env:
+          PYTHONPATH: sdk/python/src
+        run: python3 -m unittest discover -s sdk/python/tests -p "test_*.py"
+
+      - name: I modelli non divergono dal protocollo
+        run: python3 scripts/check_sdk_python.py
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        with:
+          name: pacchetto-python-${{ matrix.python }}
+          path: dist/

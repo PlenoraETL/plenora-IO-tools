@@ -154,6 +154,22 @@
       "log": true
     },
     {
+      "id": "costruisci_pacchetto_python",
+      "log": true
+    },
+    {
+      "id": "pacchetto_python_riproducibile",
+      "log": true
+    },
+    {
+      "id": "smoke_pacchetto_python",
+      "log": true
+    },
+    {
+      "id": "check_requires_python",
+      "log": true
+    },
+    {
       "id": "sonde_confine_v1",
       "log": true
     },

@@ -144,6 +144,29 @@ VERIFICHE_ATTESE = {
         "misure_obbligatorie": ("file_dichiarati", "file_verificati", "digest_divergenti"),
         "perche": "ogni file dichiarato c'e', e il suo digest corrisponde",
     },
+    # --- le due della classe `python-puro` --------------------------------
+    "sbom": {
+        "misure_obbligatorie": ("componenti_di_terzi",),
+        "perche": (
+            "che cosa il pacchetto contiene di altri. Zero e' una misura: un "
+            "pacchetto senza dipendenze deve **dichiarare** di non averne, o "
+            "l'assenza dell'elenco si legge come un elenco non compilato"
+        ),
+    },
+    "smoke-installato": {
+        "misure_obbligatorie": (
+            "manifesto_letto",
+            "profilo_accettato",
+            "profilo_altrui_rifiutato",
+            "binari_nel_pacchetto",
+            "dipendenze",
+        ),
+        "perche": (
+            "il pacchetto **installato** trova un artefatto nativo vero, ne "
+            "legge il profilo e rifiuta l'altro -- e non porta binari dentro di "
+            "se'"
+        ),
+    },
 }
 
 # La misura che deve dire una cosa precisa, e non solo esistere.
@@ -172,11 +195,61 @@ PRETESE_SULLE_MISURE = {
 }
 
 
-def attese_per(profilo: str) -> set[str]:
+def classi(matrice: dict) -> dict[str, dict]:
+    """Le classi di artefatto dichiarate, con i loro obblighi.
+
+    Fallisce chiuso se una classe nomina una verifica che il gate non conosce:
+    un obbligo che nessuno sa ricontare e' un obbligo che non esiste, e
+    lasciarlo passare renderebbe la matrice il posto dove si promette senza
+    conseguenze.
+    """
+    dichiarate = {
+        nome: voce
+        for nome, voce in matrice.get("classi_di_artefatto", {}).items()
+        if isinstance(voce, dict) and "obblighi" in voce
+    }
+    if not dichiarate:
+        raise SystemExit(
+            "la matrice non dichiara nessuna classe di artefatto: senza, gli "
+            "obblighi tornerebbero a essere un elenco uguale per tutti, e un "
+            "pacchetto Python puro pretenderebbe un referto di chiusura ELF."
+        )
+    for nome, voce in sorted(dichiarate.items()):
+        ignote = sorted(set(voce["obblighi"]) - set(VERIFICHE_ATTESE))
+        if ignote:
+            raise SystemExit(
+                f"la classe «{nome}» pretende {ignote}, che questo gate non sa "
+                "ricontare. Un obbligo che nessuno riconta non e' un obbligo."
+            )
+    return dichiarate
+
+
+def artefatti_attesi(matrice: dict, piattaforme: tuple[str, ...]) -> list[tuple[str, str, str]]:
+    """`(piattaforma, profilo, classe)` per ogni artefatto che deve esistere.
+
+    Il numero non e' scritto da nessuna parte: e' la somma di cio' che le due
+    classi producono. Aggiungerne una si vede nel conteggio, invece di
+    richiedere una modifica qui -- che e' la differenza fra una matrice che
+    decide e una che descrive quello che il gate faceva gia'.
+    """
+    fuori: list[tuple[str, str, str]] = []
+    for piattaforma in piattaforme:
+        for profilo in PROFILI:
+            fuori.append((piattaforma, profilo, "nativo"))
+    for voce in matrice.get("artefatti_python", {}).get("elenco", []):
+        # `any` e non una piattaforma: `py3-none-any` vuol dire che ne servono
+        # zero, e il formato prende il posto del profilo.
+        fuori.append(("any", voce["formato"], "python-puro"))
+    return fuori
+
+
+def attese_per(profilo: str, classe: str, dichiarate: dict[str, dict]) -> set[str]:
+    """Gli obblighi di un artefatto: dalla sua **classe**, non da un elenco unico."""
+    obblighi = set(dichiarate[classe]["obblighi"])
     return {
         nome
-        for nome, regola in VERIFICHE_ATTESE.items()
-        if regola.get("solo_profilo") in (None, profilo)
+        for nome in obblighi
+        if VERIFICHE_ATTESE[nome].get("solo_profilo") in (None, profilo)
     }
 
 
@@ -209,12 +282,17 @@ def carica_referti(directory: pathlib.Path) -> tuple[dict, list[str]]:
     return referti, errori
 
 
-def verifica(directory: pathlib.Path, canale: str, piattaforme: tuple[str, ...]) -> list[str]:
+def verifica(
+    directory: pathlib.Path,
+    canale: str,
+    piattaforme: tuple[str, ...],
+    attesi: list[tuple[str, str, str]],
+    dichiarate: dict[str, dict],
+) -> list[str]:
     referti, errori = carica_referti(directory)
 
-    for piattaforma in piattaforme:
-        for profilo in PROFILI:
-            for nome in sorted(attese_per(profilo)):
+    for piattaforma, profilo, classe in attesi:
+        for nome in sorted(attese_per(profilo, classe, dichiarate)):
                 chiave = (piattaforma, profilo, nome)
                 referto = referti.get(chiave)
                 if referto is None:
@@ -267,6 +345,8 @@ def verifica(directory: pathlib.Path, canale: str, piattaforme: tuple[str, ...])
     # costruttore ha avuto un certificato fra le mani. In quel caso si pretende che i
     # verificatori nativi abbiano letto i byte finali: firma presente, identita'
     # del firmatario, timestamp, e su macOS l'accettazione notarile.
+    # La firma riguarda i soli artefatti **nativi**: e' una proprieta' dei
+    # binari che una piattaforma esegue, e un pacchetto Python puro non ne ha.
     for piattaforma in piattaforme:
         politica = distribuzione.politica_di_firma(piattaforma, canale)
         if not politica["richiesta"]:
@@ -344,13 +424,27 @@ def main() -> int:
     else:
         piattaforme = distribuite
 
-    attesi = sum(len(attese_per(profilo)) for profilo in PROFILI) * len(piattaforme)
+    matrice = json.loads(MATRICE.read_text(encoding="utf-8"))
+    dichiarate = classi(matrice)
+    artefatti = artefatti_attesi(matrice, piattaforme)
+    # Il numero non e' scritto: e' la somma degli obblighi di ciascun artefatto,
+    # e ciascun artefatto viene dalla propria classe. Aggiungerne una si vede
+    # qui, invece di richiedere una modifica al gate.
+    attesi = sum(
+        len(attese_per(profilo, classe, dichiarate))
+        for _, profilo, classe in artefatti
+    )
     print(f"canale: {arg.canale}")
     print(f"piattaforme distribuite: {', '.join(distribuite)}")
     for identita, voce in sorted(fuori.items()):
         print(f"fuori dal perimetro: {identita} -- {voce['decisione']}")
     if piattaforme != distribuite:
         print(f"verifica ristretta a: {', '.join(piattaforme)}")
+    per_classe: dict[str, int] = {}
+    for _, _, classe in artefatti:
+        per_classe[classe] = per_classe.get(classe, 0) + 1
+    dettaglio = ", ".join(f"{n} {c}" for c, n in sorted(per_classe.items()))
+    print(f"artefatti attesi: {len(artefatti)} ({dettaglio})")
     print(f"referti attesi: {attesi}")
 
     errori = verifica(directory, arg.canale, piattaforme)

@@ -75,6 +75,16 @@ RUN apt-get update \
         curl \
  && rm -rf /var/lib/apt/lists/*
 
+# Il necessario per costruire e **installare** il pacchetto Python dell'SDK in
+# ambienti puliti: `venv` per l'ambiente, `pip` per installarci dentro,
+# `setuptools` perche' la sdist lo dichiara come backend di build e in un
+# ambiente senza rete non si puo' scaricare.
+#
+# Un RUN suo e non un'aggiunta a quello sopra: quello porta GDAL e la toolchain
+# C, e allungarlo invaliderebbe il layer piu' caro dell'immagine per tre
+# pacchetti che pesano pochi megabyte.
+RUN apt-get update  && apt-get install --yes --no-install-recommends         python3-venv         python3-pip         python3-setuptools  && rm -rf /var/lib/apt/lists/*
+
 # Componenti Rust richiesti da rust-toolchain.toml e dai gate CI
 # (clippy per il gate anti-panic, rustfmt per `cargo fmt --check`,
 # llvm-tools-preview per la copertura LCOV).

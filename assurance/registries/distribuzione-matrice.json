@@ -350,7 +350,7 @@
     "non_distribuite": [
       "macos-aarch64"
     ],
-    "artefatti_attesi": "due piattaforme per due profili, cioe' **quattro**",
+    "artefatti_attesi": "due piattaforme per due profili -- **quattro** nativi -- piu' i due artefatti della classe `python-puro`, wheel e sdist: **sei** in tutto. Il gate non fissa il numero: somma le due classi derivandole da qui, cosi' che aggiungerne una si veda nel conteggio invece di richiedere una modifica al gate.",
     "come_si_legge": "il gate finale deriva il perimetro **da qui**, non dai job che esistono. Un artefatto in meno perche' qualcuno ha tolto un job e' un buco; un artefatto in meno perche' una piattaforma e' fuori scope e' una decisione. Le due cose si somigliano nel conteggio e non si somigliano per niente, e una sonda pretende che ogni piattaforma conosciuta stia in una delle due liste con una motivazione scritta."
   },
   "classificazione_delle_dipendenze_windows": {
@@ -388,5 +388,58 @@
     "che_cosa_e_stato_costruito": "quattro artefatti -- due piattaforme per due profili -- in canale `prova`, ciascuno con sei referti: runtime, licenze, smoke sull'artefatto installato, relocation, digest del manifesto sull'albero estratto, provenance. Il job `gate` li riconta contro questa matrice e ne pretende ventiquattro.",
     "ultima_corsa_verde": "d9bc47d",
     "che_cosa_non_dimostra": "che l'artefatto che si consegnera' sia qualificato. Le corse registrate sono sul canale `prova`; la release pretende ancora una corsa `candidate` sullo SHA finale, con i deliverable riscaricati e verificati. La firma non fa parte della promessa della 2.0.0."
+  },
+  "classi_di_artefatto": {
+    "nota": "gli obblighi di un artefatto dipendono da **che cosa e'**, non da un elenco uguale per tutti. Fino al 2026-09-05 la matrice conosceva una classe sola -- l'albero nativo -- e il gate poteva permettersi di trattare le verifiche come universali. Con la wheel e la sdist non piu': pretendere da un pacchetto Python puro un referto di chiusura `DT_NEEDED` produrrebbe un documento che parla di ELF dove non ce ne sono, cioe' un **falso referto** -- e un referto che mente e' peggio di uno che manca, perche' il gate lo conta.",
+    "nativo": {
+      "che_cos_e": "un albero installabile con `bin/plenora-io`, le librerie che gli servono e il manifesto che lo descrive. Uno per piattaforma distribuita e per profilo.",
+      "coordinate": "piattaforma x profilo",
+      "obblighi": [
+        "runtime",
+        "licenze-artefatto",
+        "smoke-profilo",
+        "provenance",
+        "relocation",
+        "digest-manifesto"
+      ]
+    },
+    "python-puro": {
+      "che_cos_e": "il pacchetto dell'SDK: una wheel `py3-none-any` e la sdist da cui si ricostruisce. Nessun codice compilato, nessun binario `plenora-io` dentro.",
+      "coordinate": "un artefatto per formato di distribuzione",
+      "obblighi": [
+        "licenze-artefatto",
+        "sbom",
+        "provenance",
+        "smoke-installato"
+      ],
+      "perche_non_runtime": "`runtime` misura la chiusura delle dipendenze native di un binario: `DT_NEEDED` su Linux, gli import PE su Windows. Un pacchetto senza un solo file compilato non ha una chiusura da verificare, e un referto che dicesse «zero dipendenze esterne» affermerebbe di aver guardato un ELF che non esiste. Che non ci siano binari lo prova `smoke-installato`, che li **cerca** nel pacchetto installato: e' la stessa domanda, posta dove ha una risposta.",
+      "perche_non_relocation": "`relocation` prova che un albero funzioni dove non e' stato costruito, spostandolo. Una wheel non si sposta: si installa, e pip la mette dove vuole lui. `smoke-installato` la installa in un venv **pulito**, fuori dal repository, ed e' la stessa proprieta' verificata nella forma che questa classe ha.",
+      "perche_non_digest_manifesto": "quella verifica ricalcola i digest dichiarati dal manifesto sull'albero **estratto**. Una wheel porta il proprio `RECORD`, che elenca ogni file col suo sha256, e pip lo verifica installando: la proprieta' e' gia' garantita dal formato, e ricontrollarla qui duplicherebbe un controllo che il gestore di pacchetti fa meglio.",
+      "che_cosa_aggiunge": "`sbom`, che per gli artefatti nativi e' parte di `licenze-artefatto` e qui e' una domanda a se': un pacchetto senza dipendenze deve **dichiarare** di non averne, o l'assenza dell'elenco si legge come un elenco non compilato."
+    }
+  },
+  "artefatti_python": {
+    "nota": "i due formati con cui si distribuisce l'SDK. Non hanno piattaforma -- `py3-none-any` vuol dire che ne servono zero -- ne' profilo, e le coordinate del referto lo dicono: `piattaforma: any`, e il formato al posto del profilo.",
+    "elenco": [
+      {
+        "formato": "wheel",
+        "nome": "plenora_io-<versione>-py3-none-any.whl",
+        "che_cos_e": "il pacchetto installabile senza ricostruzione"
+      },
+      {
+        "formato": "sdist",
+        "nome": "plenora_io-<versione>.tar.gz",
+        "che_cos_e": "i sorgenti da cui il pacchetto si ricostruisce, con i test dentro: chi la riceve puo' verificare cio' che installa"
+      }
+    ],
+    "il_binario_non_e_dentro": "nessuno dei due porta `plenora-io`. Incorporarlo vorrebbe dire una wheel per piattaforma, il triplo degli artefatti da qualificare, e un prodotto che si aggiorna solo cambiando il pacchetto Python. La separazione si paga con `smoke-installato`, che la dimostra funzionante contro un artefatto nativo vero.",
+    "requires_python": "copre **soltanto** le versioni che la CI prova. Dichiarare `>=3.11` senza limite superiore prometterebbe ogni Python futuro, e la promessa la si mantiene provandola."
+  },
+  "pubblicazione": {
+    "regola": "si pubblicano **gli stessi byte** che sono stati qualificati. Nessuna ricostruzione al momento del rilascio, per nessuna classe di artefatto.",
+    "perche": "cio' che i referti descrivono e' un archivio con un checksum preciso. Ricostruirlo al rilascio produrrebbe un secondo archivio, e le verifiche parlerebbero del primo: chi scarica riceverebbe byte che nessuno ha guardato, con accanto l'evidenza di byte diversi. Che i due coincidano non basta a renderlo onesto -- e' proprio perche' quasi sempre coincidono che la differenza passerebbe inosservata.",
+    "come": "gli artefatti passano dal servizio artifact della corsa che li ha qualificati, e la pubblicazione li riscarica di li'. Il gate finale ricalcola sui byte **ricevuti** checksum, dimensione, revisione, lock, piattaforma, profilo e canale: verificare soltanto prima dell'upload dimostrerebbe i byte sul runner produttore, non quelli consegnati.",
+    "il_pacchetto_python_non_fa_eccezione": "wheel e sdist si costruiscono una volta e si pubblicano quelle. La loro costruzione e' **riproducibile** -- date fisse, ordine per nome, e un passo del checkpoint che costruisce due volte e confronta i digest -- e questo rende la regola verificabile invece che soltanto prudente: se i byte divergessero, la divergenza sarebbe un difetto e non un fatto della vita.",
+    "che_cosa_la_riproducibilita_non_sostituisce": "la regola. Costruire due volte gli stessi byte rende la ricostruzione **innocua**, non lecita: i referti restano legati a un archivio preciso, e riusarlo e' cio' che tiene l'evidenza attaccata a cio' che descrive. La riproducibilita' e' la difesa che dice quando la regola e' stata infranta, non il permesso di infrangerla."
   }
 }
